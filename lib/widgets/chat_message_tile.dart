@@ -1,46 +1,112 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import '../color_utils.dart';
+import '../models/twitch_message.dart';
 
 class ChatMessageTile extends StatelessWidget {
-  final String timestamp;
-  final bool deleted;
-  final bool isHistory;
-  final List<InlineSpan> children;
-  final double timestampFontSize;
-  final double bodyFontSize;
-  final bool useTextDecorationNone;
-  final bool isHighlighted;
-  final Widget? replyIndicator;
+  final TwitchMessage message;
+  final String channel;
+  final Color surface;
+  final double textScale;
+  final String? timestampOverride;
+  final List<WidgetSpan> Function(String channel, TwitchMessage msg, {double badgeScale}) buildBadgeSpans;
+  final List<InlineSpan> Function(TwitchMessage msg, String channel, Color surface, {bool colored, double textScale}) buildMessageSpans;
+  final List<InlineSpan> Function(TwitchMessage msg, double textScale)? systemBodyBuilder;
+  final void Function(String login, String? userId)? onTapUser;
   final VoidCallback? onLongPress;
-  final Color? bodyColor;
-  final String? semanticsLabel;
+  final Widget? replyIndicator;
 
   const ChatMessageTile({
     super.key,
-    required this.timestamp,
-    this.deleted = false,
-    this.isHistory = false,
-    required this.children,
-    this.timestampFontSize = 14,
-    this.bodyFontSize = 14,
-    this.useTextDecorationNone = false,
-    this.isHighlighted = false,
-    this.replyIndicator,
+    required this.message,
+    required this.channel,
+    required this.surface,
+    required this.textScale,
+    this.timestampOverride,
+    required this.buildBadgeSpans,
+    required this.buildMessageSpans,
+    this.systemBodyBuilder,
+    this.onTapUser,
     this.onLongPress,
-    this.bodyColor,
-    this.semanticsLabel,
+    this.replyIndicator,
   });
 
   @override
   Widget build(BuildContext context) {
+    final msg = message;
+    final s = textScale;
+    final ts = timestampOverride ??
+        '${msg.timestamp.toLocal().hour.toString().padLeft(2, '0')}:${msg.timestamp.toLocal().minute.toString().padLeft(2, '0')}';
+
+    final List<InlineSpan> children;
+    final String semanticsLabel;
+    final bool deleted;
+    final Color? bodyColor;
+    final bool highlighted;
+
+    if (msg.isSystem) {
+      children = systemBodyBuilder != null
+          ? systemBodyBuilder!(msg, s)
+          : <InlineSpan>[
+              TextSpan(
+                text: msg.text,
+                style: TextStyle(
+                  fontSize: 13 * s,
+                  fontStyle: FontStyle.italic,
+                  decoration: TextDecoration.none,
+                ),
+              ),
+            ];
+      semanticsLabel = msg.text;
+      deleted = false;
+      bodyColor = msg.bodyColor;
+      highlighted = false;
+    } else {
+      final badges = buildBadgeSpans(channel, msg, badgeScale: s);
+      final usernameText = msg.isAction
+          ? '${msg.formattedUsername} '
+          : '${msg.formattedUsername}: ';
+      final usernameStyle = TextStyle(
+        fontSize: 14 * s,
+        fontWeight: FontWeight.w500,
+        color: parseColor(msg.color, background: surface),
+        decoration: TextDecoration.none,
+      );
+      final TextSpan usernameSpan;
+      if (onTapUser != null) {
+        usernameSpan = TextSpan(
+          text: usernameText,
+          style: usernameStyle,
+          recognizer: TapGestureRecognizer()
+            ..onTap = () => onTapUser!(msg.login, msg.userId),
+        );
+      } else {
+        usernameSpan = TextSpan(text: usernameText, style: usernameStyle);
+      }
+
+      final bodySpans = msg.isAction
+          ? buildMessageSpans(msg, channel, surface,
+              colored: true, textScale: s)
+          : buildMessageSpans(msg, channel, surface, textScale: s);
+
+      children = [...badges, usernameSpan, ...bodySpans];
+      semanticsLabel = msg.isHighlighted
+          ? 'Mention: $ts ${msg.formattedUsername}: ${msg.text}'
+          : '$ts ${msg.formattedUsername}: ${msg.text}';
+      deleted = msg.deleted;
+      bodyColor = msg.bodyColor;
+      highlighted = msg.isHighlighted;
+    }
+
     final tsStyle = TextStyle(
-      fontSize: timestampFontSize,
+      fontSize: 14 * s,
       color: Colors.grey,
-      decoration: useTextDecorationNone ? TextDecoration.none : null,
+      decoration: TextDecoration.none,
     );
-    final bodyStyle = TextStyle(
-      fontSize: bodyFontSize,
+    final bodyTextStyle = TextStyle(
+      fontSize: 14 * s,
       color: bodyColor ?? Theme.of(context).colorScheme.onSurface,
-      decoration: useTextDecorationNone ? TextDecoration.none : null,
+      decoration: TextDecoration.none,
     );
 
     Widget child = Padding(
@@ -54,17 +120,17 @@ class ChatMessageTile extends StatelessWidget {
                   WidgetSpan(
                     alignment: PlaceholderAlignment.middle,
                     child: SizedBox(
-                      width: timestampFontSize * 3,
+                      width: 14 * s * 3,
                       child: Text(
-                        timestamp,
+                        ts,
                         textAlign: TextAlign.left,
                         style: tsStyle,
                       ),
                     ),
                   ),
-                ...children,
+                  ...children,
                 ],
-                style: bodyStyle,
+                style: bodyTextStyle,
               ),
             ),
           ),
@@ -76,7 +142,7 @@ class ChatMessageTile extends StatelessWidget {
       child = Opacity(opacity: 0.35, child: child);
     }
 
-    if (isHighlighted) {
+    if (highlighted) {
       final isDark = Theme.of(context).brightness == Brightness.dark;
       child = ColoredBox(
         color: isDark
@@ -98,13 +164,11 @@ class ChatMessageTile extends StatelessWidget {
       child = InkWell(onLongPress: onLongPress, child: child);
     }
 
-    if (semanticsLabel != null) {
-      child = Semantics(
-        label: semanticsLabel!,
-        excludeSemantics: true,
-        child: child,
-      );
-    }
+    child = Semantics(
+      label: semanticsLabel,
+      excludeSemantics: true,
+      child: child,
+    );
 
     return child;
   }

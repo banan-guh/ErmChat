@@ -1,6 +1,5 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import '../color_utils.dart';
 import '../models/twitch_message.dart';
 import '../widgets/chat_message_tile.dart';
 
@@ -112,82 +111,26 @@ class ThreadPanelWidgetState extends State<ThreadPanelWidget> {
                         itemCount: threadMsgs.length,
                         itemBuilder: (_, i) {
                           final msg = threadMsgs[threadMsgs.length - 1 - i];
-                          final ts =
-                              '${msg.timestamp.toLocal().hour.toString().padLeft(2, '0')}:${msg.timestamp.toLocal().minute.toString().padLeft(2, '0')}';
 
                           if (msg.isSystem) {
                             return ChatMessageTile(
-                              timestamp: ts,
-                              isHistory: msg.isHistory,
-                              children: [TextSpan(text: msg.text)],
-                              timestampFontSize: 13 * s,
-                              bodyFontSize: 13 * s,
-                              bodyColor: msg.bodyColor,
-                              semanticsLabel: msg.text,
+                              message: msg,
+                              channel: data.channel,
+                              surface: surface,
+                              textScale: s,
+                              buildBadgeSpans: widget.buildBadgeSpans,
+                              buildMessageSpans: widget.buildMessageSpans,
                             );
                           }
 
                           return ChatMessageTile(
-                            timestamp: ts,
-                            deleted: msg.deleted,
-                            isHistory: msg.isHistory,
-                            bodyColor: msg.bodyColor,
-                            bodyFontSize: 14 * s,
-                            timestampFontSize: 14 * s,
-                            children: [
-                              if (msg.isAction) ...[
-                                ...widget.buildBadgeSpans(
-                                  data.channel,
-                                  msg,
-                                  badgeScale: s,
-                                ),
-                                TextSpan(
-                                  text: '${msg.formattedUsername} ',
-                                  style: TextStyle(
-                                    fontSize: 14 * s,
-                                    fontWeight: FontWeight.w600,
-                                    color: parseColor(
-                                      msg.color,
-                                      background: surface,
-                                    ),
-                                  ),
-                                ),
-                                ...widget.buildMessageSpans(
-                                  msg,
-                                  data.channel,
-                                  surface,
-                                  colored: true,
-                                  textScale: s,
-                                ),
-                              ] else ...[
-                                ...widget.buildBadgeSpans(
-                                  data.channel,
-                                  msg,
-                                  badgeScale: s,
-                                ),
-                                TextSpan(
-                                  text: '${msg.formattedUsername}: ',
-                                  style: TextStyle(
-                                    fontSize: 14 * s,
-                                    fontWeight: FontWeight.w600,
-                                    color: parseColor(
-                                      msg.color,
-                                      background: surface,
-                                    ),
-                                  ),
-                                ),
-                                ...widget.buildMessageSpans(
-                                  msg,
-                                  data.channel,
-                                  surface,
-                                  textScale: s,
-                                ),
-                              ],
-                            ],
+                            message: msg,
+                            channel: data.channel,
+                            surface: surface,
+                            textScale: s,
+                            buildBadgeSpans: widget.buildBadgeSpans,
+                            buildMessageSpans: widget.buildMessageSpans,
                             onLongPress: () => widget.onLongPress(msg),
-                            semanticsLabel: msg.isHighlighted
-                                ? 'Mention: $ts ${msg.formattedUsername}: ${msg.text}'
-                                : '$ts ${msg.formattedUsername}: ${msg.text}',
                           );
                         },
                       ),

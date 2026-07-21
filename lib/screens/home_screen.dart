@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:io' show Platform;
 import 'dart:math';
 import 'package:flutter/material.dart';
-import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/generic_emote.dart';
@@ -1658,61 +1657,27 @@ class _HomeScreenState extends State<HomeScreen>
                     : null;
 
                 Widget body;
-                final ts =
-                    '${msg.timestamp.toLocal().hour.toString().padLeft(2, '0')}:${msg.timestamp.toLocal().minute.toString().padLeft(2, '0')}';
-
                 if (msg.isSystem) {
                   body = ChatMessageTile(
-                    timestamp: ts,
-                    isHistory: msg.isHistory,
-                    children: parseTextWithLinks(msg.text),
-                    bodyColor: msg.bodyColor,
-                    useTextDecorationNone: true,
-                    bodyFontSize: 14 * s,
-                    timestampFontSize: 14 * s,
-                    semanticsLabel: msg.text,
+                    message: msg,
+                    channel: channel,
+                    surface: surface,
+                    textScale: s,
+                    buildBadgeSpans: _buildBadgeSpans,
+                    buildMessageSpans: _buildMessageSpans,
+                    systemBodyBuilder: (msg, scale) => parseTextWithLinks(msg.text),
                   );
                 } else {
                   body = ChatMessageTile(
-                    timestamp: ts,
-                    deleted: msg.deleted,
-                    isHistory: msg.isHistory,
-                    bodyColor: msg.bodyColor,
-                    bodyFontSize: 14 * s,
-                    timestampFontSize: 14 * s,
-                    children: [
-                      ..._buildBadgeSpans(channel, msg, badgeScale: s),
-                      TextSpan(
-                        text: msg.isAction ? '${msg.formattedUsername} ' : '${msg.formattedUsername}: ',
-                        style: TextStyle(
-                          fontSize: 14 * s,
-                          fontWeight: FontWeight.w600,
-                          color: parseColor(msg.color, background: surface),
-                          decoration: TextDecoration.none,
-                        ),
-                        recognizer: TapGestureRecognizer()
-                          ..onTap = () => _showUserProfile(msg.login, msg.userId, displayName: msg.displayName),
-                      ),
-                      if (msg.isAction)
-                        ..._buildMessageSpans(
-                          msg,
-                          channel,
-                          surface,
-                          colored: true,
-                          textScale: s,
-                        )
-                      else
-                        ..._buildMessageSpans(msg, channel, surface, textScale: s),
-                    ],
-                    useTextDecorationNone: true,
-                    isHighlighted: msg.isHighlighted,
-                    replyIndicator: msg.replyToUser != null
-                        ? _buildReplyIndicator(msg)
-                        : null,
+                    message: msg,
+                    channel: channel,
+                    surface: surface,
+                    textScale: s,
+                    buildBadgeSpans: _buildBadgeSpans,
+                    buildMessageSpans: _buildMessageSpans,
+                    onTapUser: (login, userId) => _showUserProfile(login, userId, displayName: msg.displayName),
                     onLongPress: () => _showMessageMenu(msg),
-                    semanticsLabel: msg.isHighlighted
-                        ? 'Mention: $ts ${msg.formattedUsername}: ${msg.text}'
-                        : '$ts ${msg.formattedUsername}: ${msg.text}',
+                    replyIndicator: msg.replyToUser != null ? _buildReplyIndicator(msg) : null,
                   );
                 }
 
