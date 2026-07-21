@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -7,7 +8,18 @@ import '../models/twitch_message.dart';
 import '../services/twitch_auth.dart';
 import '../services/twitch_oauth.dart';
 import '../twitch_config.dart';
-import 'benchmark_screen.dart';
+
+String _readVersion() {
+  try {
+    final file = File('pubspec.yaml');
+    final lines = file.readAsLinesSync();
+    for (final line in lines) {
+      final match = RegExp(r'^version:\s*(.+)$').firstMatch(line);
+      if (match != null) return match.group(1)!;
+    }
+  } catch (_) {}
+  return 'unknown';
+}
 
 typedef OAuthStarter = Future<String?> Function(BuildContext context);
 
@@ -295,24 +307,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
           Text('Twitch Login', style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 16),
           _buildBody(),
-          const Divider(height: 32),
-          Text('Debug', style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 8),
-          OutlinedButton.icon(
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => BenchmarkScreen(
-                  twitchAuth: widget.twitchAuth,
-                  availableChannels: widget.channelNotifier?.value ?? [],
-                  eventSubMessages: widget.eventSubMessageStream,
-                ),
-              ),
-            ),
-            icon: const Icon(Icons.speed),
-            label: const Text('Message Latency Benchmark'),
-          ),
-          const SizedBox(height: 8),
           SwitchListTile(
             title: const Text('Use browser for OAuth'),
             subtitle: const Text(
@@ -330,7 +324,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ListTile(
             contentPadding: EdgeInsets.zero,
             title: const Text('flutter_twitch_app'),
-            subtitle: const Text('Version 0.0.1'),
+            subtitle: Text('Version ${_readVersion()}'),
           ),
         ],
       ),

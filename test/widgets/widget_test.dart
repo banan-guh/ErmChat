@@ -1557,7 +1557,7 @@ void main() {
       );
       await tester.pump();
 
-      await tester.tap(find.byType(SwitchListTile));
+      await tester.tap(find.widgetWithText(SwitchListTile, 'Dark mode'));
       await tester.pumpAndSettle();
 
       expect(changed, ThemeMode.dark);
