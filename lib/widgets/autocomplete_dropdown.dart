@@ -69,17 +69,16 @@ class _AutocompleteDropdownState extends State<AutocompleteDropdown> {
     );
   }
 
-  Widget _buildRow(ThemeData theme, Suggestion suggestion) {
-    final lineHeight = _fontSize *
-        (const TextStyle(fontSize: _fontSize).height ?? 1.2);
-    final emoteMaxHeight = lineHeight * 2;
+  static const _emoteSize = 28.0;
+  static const _rowHeight = 40.0;
 
+  Widget _buildRow(ThemeData theme, Suggestion suggestion) {
     return Material(
       type: MaterialType.transparency,
       child: InkWell(
         onTap: () => widget.onSelect(suggestion),
         child: SizedBox(
-        height: 64,
+        height: _rowHeight,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12),
           child: Row(
@@ -90,11 +89,9 @@ class _AutocompleteDropdownState extends State<AutocompleteDropdown> {
                     size: 22,
                     color: theme.colorScheme.onSurfaceVariant,
                   ),
-                EmoteSuggestion() => ConstrainedBox(
-                    constraints: BoxConstraints(
-                      maxHeight: emoteMaxHeight,
-                      maxWidth: 80,
-                    ),
+                EmoteSuggestion() => SizedBox(
+                    width: _emoteSize,
+                    height: _emoteSize,
                     child: CachedNetworkImage(
                       imageUrl: suggestion.emote.url,
                       fit: BoxFit.contain,

@@ -26,6 +26,8 @@
 - [x] **/me handling** - `/me` messages detected from `\x01ACTION ... \x01` wrapping in both EventSub and IRC. Rendered as `username message` (no colon, message colored like username) in all 3 views.
 - [x] **Unread indicator** - Channel tab name is white when there are unread messages, grey when all are read.
 - [x] **Localized display names** - Research how Twitch handles localized/non-ASCII display names and ensure the app handles them correctly.
+- [ ] **Add logo / name** - pretty important
+- [*] **Update AGENTS.md periodically** - not a checklist, just a chore, reminder.
 
 ## Bugs
 - [x] **Changing channels should be more smooth** - more leniency in swiping
@@ -41,6 +43,10 @@
 - [x] **Fix Twitch emote rendering** - Emotes display incorrectly. Investigate emote parsing, URL generation, or image sizing to get them rendering properly.
 - [x] **Fix 7TV system messages** - 7TV emotes/system messages not rendering correctly. Investigate and fix.
 - [x] **Twitch emotes don't show in emote menu** - `resolveEmotes` was placed after the `getCurrentUser` gate in `_subscribeChannel`, so if that API call failed the emote fetch was silently skipped. Moved emote resolution before the gate so it always runs when `channelUserId` is available.
+- [ ] **Twitch emotes not working from emote suggestions** - not showing up
+- [ ] **Fix bolding** - just a style thing.
+- [ ] **Fix WCAG** - make similar to other clients, more bright
+- [ ] **Fix info in settings** - not v0.0.1 anymore
 
 ## Research / Open Ends
 
@@ -48,7 +54,7 @@
 
 ## Low Priority / Future
 
-- [x] **OS notifications + background** - Push notifications when mentioned/whispered while app is backgrounded; run keepalive in background.
+- [+] **OS notifications + background** - Push notifications when mentioned/whispered while app is backgrounded; run keepalive in background. - background finished, notifs not
 - [ ] **Different mode** - Toggleable type box visibility and fullscreen.
 - [ ] **Robotty history bot backup** - Add fallback/backup for recent-messages.robotty.de service.
 - [ ] **Injectable TwitchBadgeService** - Currently standalone; consider making it injectable (like EventSubService/IrcService) for testability. Low priority.
