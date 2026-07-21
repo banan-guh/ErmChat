@@ -81,6 +81,7 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
         colorScheme: ColorScheme.fromSeed(
           seedColor: Colors.deepPurple,
           brightness: Brightness.dark,
+          surface: Colors.black,
         ),
         useMaterial3: true,
       ),
