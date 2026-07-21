@@ -273,7 +273,10 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
         onTap: () => widget.onEmoteSelected(emote),
         child: CachedNetworkImage(
           imageUrl: emote.url,
+          width: double.infinity,
+          height: double.infinity,
           fit: BoxFit.contain,
+          fadeInDuration: Duration.zero,
           placeholder: (_, _) => const SizedBox(),
           errorWidget: (_, _, _) => const Icon(Icons.broken_image, size: 20),
         ),

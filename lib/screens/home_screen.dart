@@ -445,6 +445,7 @@ class _HomeScreenState extends State<HomeScreen>
                 code: e.code,
                 type: e.type,
                 url: e.url,
+                isAnimated: e.isAnimated,
                 scope: e.scope,
                 tier: e.tier,
                 emoteType: e.emoteType,

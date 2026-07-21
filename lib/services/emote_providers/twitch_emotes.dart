@@ -52,21 +52,23 @@ class TwitchEmoteProvider {
         final ownerId = item['owner_id'] as String?;
         final emoteType = item['emote_type'] as String?;
         if (id == null || name == null) continue;
-        final format =
-            (item['format'] as List<dynamic>?)?.firstOrNull as String?;
+        final formats = (item['format'] as List<dynamic>?)?.cast<String>() ?? [];
+        final isAnimated = formats.contains('animated');
+        final format = isAnimated ? 'animated' : (formats.isNotEmpty ? formats.first : 'static');
         final scale =
             (item['scale'] as List<dynamic>?)?.lastOrNull as String? ?? '3.0';
         final theme = (item['theme_mode'] as List<dynamic>?)
                 ?.firstOrNull as String? ??
             'dark';
         final url =
-            'https://static-cdn.jtvnw.net/emoticons/v2/$id/${format ?? 'static'}/$theme/$scale';
+            'https://static-cdn.jtvnw.net/emoticons/v2/$id/$format/$theme/$scale';
         result.putIfAbsent(ownerId ?? '', () => []).add(
           GenericEmote(
             id: id,
             code: name,
             type: EmoteType.twitch,
             url: url,
+            isAnimated: isAnimated,
             scope: ownerId != null && ownerId.isNotEmpty
                 ? EmoteScope.channel
                 : EmoteScope.global,
@@ -119,18 +121,20 @@ class TwitchEmoteProvider {
       final id = item['id'] as String?;
       final name = item['name'] as String?;
       if (id == null || name == null) continue;
-      final format =
-          (item['images'] as Map<String, dynamic>?)?['url_4x'] as String? ??
-          (item['images'] as Map<String, dynamic>?)?['url_2x'] as String? ??
-          (item['images'] as Map<String, dynamic>?)?['url_1x'] as String?;
-      if (format == null) continue;
+      final formats = (item['format'] as List<dynamic>?)?.cast<String>() ?? [];
+      final isAnimated = formats.contains('animated');
+      final scale = (item['scale'] as List<dynamic>?)?.lastOrNull as String? ?? '3.0';
+      final theme = (item['theme_mode'] as List<dynamic>?)?.firstOrNull as String? ?? 'dark';
+      final format = isAnimated ? 'animated' : 'static';
+      final url = 'https://static-cdn.jtvnw.net/emoticons/v2/$id/$format/$theme/$scale';
       final tier = item['tier'] as String?;
       emotes.add(
         GenericEmote(
           id: id,
           code: name,
           type: EmoteType.twitch,
-          url: format,
+          url: url,
+          isAnimated: isAnimated,
           scope: channel ? EmoteScope.channel : EmoteScope.global,
           tier: tier,
           ownerChannel: channel ? channelName : null,
