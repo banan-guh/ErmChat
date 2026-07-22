@@ -71,8 +71,7 @@ class _HomeScreenState extends State<HomeScreen>
   late final _ircRead = widget.ircReadService ?? IrcReadService();
   late final _recentMessages =
       widget.recentMessagesService ?? RecentMessagesService();
-  late final _sevenTvClient =
-      widget.sevenTvEventClient ?? SevenTvEventClient();
+  late final _sevenTvClient = widget.sevenTvEventClient ?? SevenTvEventClient();
   late final _chatConn = ChatConnectionManager(
     eventSub: _eventSub,
     irc: _irc,
@@ -122,7 +121,9 @@ class _HomeScreenState extends State<HomeScreen>
     onRequestFocus: () => _focusNode.requestFocus(),
     onShowSnackBar: (msg) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(msg)));
       }
     },
   );
@@ -190,7 +191,10 @@ class _HomeScreenState extends State<HomeScreen>
   final Map<String, String> _lastTypedText = {};
   final Map<String, String> _lastSentWireText = {};
 
-  void _onSheetSizeChanged(OverlayPanel panel, DraggableScrollableController ctrl) {
+  void _onSheetSizeChanged(
+    OverlayPanel panel,
+    DraggableScrollableController ctrl,
+  ) {
     // When the user drags a sheet down to size 0, close the panel.
     if (_activePanel == panel && ctrl.isAttached && ctrl.size <= 0.001) {
       setState(() {
@@ -251,6 +255,14 @@ class _HomeScreenState extends State<HomeScreen>
     await prefs.setStringList('channels', List.of(_channels));
   }
 
+  void _reorderChannels(List<String> reordered) {
+    _channels
+      ..clear()
+      ..addAll(reordered);
+    _channelNotifier.value = List.of(_channels);
+    _saveChannels();
+  }
+
   Future<void> _loadChannels() async {
     final prefs = await SharedPreferences.getInstance();
     final saved = prefs.getStringList('channels');
@@ -278,7 +290,8 @@ class _HomeScreenState extends State<HomeScreen>
                 final existing = _channelMessages[name]!;
                 final existingIds = existing.map((m) => m.messageId).toSet();
                 for (final msg in history) {
-                  final isNew = msg.messageId == null ||
+                  final isNew =
+                      msg.messageId == null ||
                       !existingIds.contains(msg.messageId);
                   if (isNew) {
                     existing.insert(0, msg);
@@ -294,14 +307,13 @@ class _HomeScreenState extends State<HomeScreen>
                       !msg.isSystem &&
                       !msg.isHighlighted &&
                       msg.login.toLowerCase() != login) {
-                    final isReplyToMe = msg.replyToUser != null &&
+                    final isReplyToMe =
+                        msg.replyToUser != null &&
                         msg.replyToUser!.toLowerCase() == login;
                     if (isMention(msg.text, login) || isReplyToMe) {
                       msg.isHighlighted = true;
-                      _channelMessages
-                          .putIfAbsent(_mentionsChannel, () => []);
-                      final mentionList =
-                          _channelMessages[_mentionsChannel]!;
+                      _channelMessages.putIfAbsent(_mentionsChannel, () => []);
+                      final mentionList = _channelMessages[_mentionsChannel]!;
                       final existingMentionIds = mentionList
                           .map((m) => m.messageId)
                           .toSet();
@@ -458,17 +470,19 @@ class _HomeScreenState extends State<HomeScreen>
       final channel = userIdToChannel[entry.key];
       if (channel == null) continue;
       perChannel[channel] = entry.value
-          .map((e) => GenericEmote(
-                id: e.id,
-                code: e.code,
-                type: e.type,
-                url: e.url,
-                isAnimated: e.isAnimated,
-                scope: e.scope,
-                tier: e.tier,
-                emoteType: e.emoteType,
-                ownerChannel: channel,
-              ))
+          .map(
+            (e) => GenericEmote(
+              id: e.id,
+              code: e.code,
+              type: e.type,
+              url: e.url,
+              isAnimated: e.isAnimated,
+              scope: e.scope,
+              tier: e.tier,
+              emoteType: e.emoteType,
+              ownerChannel: channel,
+            ),
+          )
           .toList();
     }
     if (perChannel.isNotEmpty) {
@@ -516,12 +530,7 @@ class _HomeScreenState extends State<HomeScreen>
     _channelMessages.putIfAbsent(channel, () => []);
     _channelMessages[channel]!.insert(
       0,
-      TwitchMessage(
-        login: '',
-        text: text,
-        isSystem: true,
-        channel: channel,
-      ),
+      TwitchMessage(login: '', text: text, isSystem: true, channel: channel),
     );
     _truncateChannelMessages(channel);
     _chatVersion.value++;
@@ -621,7 +630,9 @@ class _HomeScreenState extends State<HomeScreen>
                 final ts =
                     '${msg.timestamp.toLocal().hour.toString().padLeft(2, '0')}:${msg.timestamp.toLocal().minute.toString().padLeft(2, '0')}';
                 Clipboard.setData(
-                  ClipboardData(text: '$ts ${msg.formattedUsername}: ${msg.text}'),
+                  ClipboardData(
+                    text: '$ts ${msg.formattedUsername}: ${msg.text}',
+                  ),
                 );
                 Navigator.pop(ctx);
               },
@@ -635,8 +646,8 @@ class _HomeScreenState extends State<HomeScreen>
                   Navigator.pop(ctx);
                 },
               ),
-            ],
-          ),
+          ],
+        ),
       ),
     );
   }
@@ -759,15 +770,21 @@ class _HomeScreenState extends State<HomeScreen>
     _ircRead.part(channel);
     _emoteManager.evictChannel(channel);
     _channelsEmotesResolved.remove(channel);
+    _historyLoaded.remove(channel);
+    _channelUserIds.remove(channel);
+    _lastTypedText.remove(channel);
+    _lastSentWireText.remove(channel);
+    _chatStatus.remove(channel);
     setState(() {
       _channels.remove(channel);
       _channelNotifier.value = List.of(_channels);
-    _channelMessages.remove(channel);
-    _userStore.removeChannel(channel);
+      _channelMessages.remove(channel);
+      _userStore.removeChannel(channel);
       _scrollControllers.remove(channel)?.dispose();
       _channelsWithUnread.remove(channel);
       _channelsWithUnreadMentions.remove(channel);
       _unreadMentionsPerChannel.remove(channel);
+      _messageKeys.removeWhere((k, _) => k.startsWith('$channel:'));
       if (_selectedChannel == channel) {
         _selectedChannel = _channels.isNotEmpty ? _channels.last : null;
       }
@@ -882,8 +899,12 @@ class _HomeScreenState extends State<HomeScreen>
     );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
-        _animateRatio(_threadSheetRatio, 0.0, _fullHeightFraction,
-            _sheetAnimDuration);
+        _animateRatio(
+          _threadSheetRatio,
+          0.0,
+          _fullHeightFraction,
+          _sheetAnimDuration,
+        );
       }
     });
   }
@@ -897,8 +918,12 @@ class _HomeScreenState extends State<HomeScreen>
     _mentionsPanelData.value = _channelMessages[_mentionsChannel] ?? [];
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
-        _animateRatio(_mentionsSheetRatio, 0.0, _fullHeightFraction,
-            _sheetAnimDuration);
+        _animateRatio(
+          _mentionsSheetRatio,
+          0.0,
+          _fullHeightFraction,
+          _sheetAnimDuration,
+        );
       }
     });
   }
@@ -973,12 +998,14 @@ class _HomeScreenState extends State<HomeScreen>
   ) async {
     if (from == to) return;
     final controller = AnimationController(vsync: this, duration: duration);
-    final animation = Tween(begin: from, end: to).animate(
-      CurvedAnimation(parent: controller, curve: Curves.easeOut),
-    );
+    final animation = Tween(
+      begin: from,
+      end: to,
+    ).animate(CurvedAnimation(parent: controller, curve: Curves.easeOut));
     void listener() {
       ratio.value = animation.value;
     }
+
     animation.addListener(listener);
     await controller.forward();
     animation.removeListener(listener);
@@ -998,14 +1025,15 @@ class _HomeScreenState extends State<HomeScreen>
         _panelDragStartY = details.globalPosition.dy;
       },
       onVerticalDragUpdate: (details) {
-        final cumulativeDelta =
-            details.globalPosition.dy - _panelDragStartY;
-        final height = maxSize *
+        final cumulativeDelta = details.globalPosition.dy - _panelDragStartY;
+        final height =
+            maxSize *
             (MediaQuery.of(context).size.height -
                 MediaQuery.of(context).padding.top);
-        ratio.value = (_panelDragStartRatio -
-                cumulativeDelta / height)
-            .clamp(0.0, maxSize);
+        ratio.value = (_panelDragStartRatio - cumulativeDelta / height).clamp(
+          0.0,
+          maxSize,
+        );
       },
       onVerticalDragEnd: (_) {
         if (ratio.value < maxSize * 0.9) {
@@ -1017,7 +1045,7 @@ class _HomeScreenState extends State<HomeScreen>
       child: Container(
         width: double.infinity,
         color: Colors.transparent,
-        padding: const EdgeInsets.only(bottom: 50, top: 10),// (vertical: 20),
+        padding: const EdgeInsets.only(bottom: 50, top: 10), // (vertical: 20),
         child: Align(
           alignment: Alignment.topCenter,
           child: Container(
@@ -1092,10 +1120,9 @@ class _HomeScreenState extends State<HomeScreen>
           animation: controller,
           builder: (context, child) {
             final size = controller.isAttached ? controller.size : 0.0;
-            final closedFraction =
-                maxSize <= 0
-                    ? 0.0
-                    : (1 - (size / maxSize)).clamp(0.0, 1.0);
+            final closedFraction = maxSize <= 0
+                ? 0.0
+                : (1 - (size / maxSize)).clamp(0.0, 1.0);
             return FractionalTranslation(
               translation: Offset(0, closedFraction),
               child: child!,
@@ -1114,35 +1141,43 @@ class _HomeScreenState extends State<HomeScreen>
     if (channel == null) return const [];
     final allMsgs = _channelMessages[channel] ?? [];
 
-    final threadIds = <String>{};
-    final threadMsgs = <TwitchMessage>[];
-    if (root.messageId != null) threadIds.add(root.messageId!);
+    final byId = <String, TwitchMessage>{};
+    final childrenOf = <String, List<TwitchMessage>>{};
+    for (final m in allMsgs) {
+      if (m.messageId != null) byId[m.messageId!] = m;
+      final pid = m.replyToParentId;
+      if (pid != null) {
+        (childrenOf.putIfAbsent(pid, () => [])).add(m);
+      }
+    }
 
-    bool added;
-    do {
-      added = false;
-      for (final m in allMsgs) {
-        if (m.messageId != null &&
-            threadIds.contains(m.messageId) &&
-            !threadMsgs.contains(m)) {
-          threadMsgs.add(m);
-          added = true;
-        }
-        if (m.replyToParentId != null &&
-            threadIds.contains(m.replyToParentId) &&
-            !threadMsgs.contains(m)) {
-          if (m.messageId != null) threadIds.add(m.messageId!);
-          threadMsgs.add(m);
-          added = true;
+    final visited = <String>{};
+    final threadMsgs = <TwitchMessage>[];
+    final queue = <String>[];
+    if (root.messageId != null) queue.add(root.messageId!);
+
+    while (queue.isNotEmpty) {
+      final id = queue.removeLast();
+      if (!visited.add(id)) continue;
+      final msg = byId[id];
+      if (msg != null) threadMsgs.add(msg);
+      final children = childrenOf[id];
+      if (children != null) {
+        for (final child in children) {
+          if (child.messageId != null) queue.add(child.messageId!);
         }
       }
-    } while (added);
+    }
 
     threadMsgs.sort((a, b) => a.timestamp.compareTo(b.timestamp));
     return threadMsgs;
   }
 
-  void _showUserProfile(String username, String? userId, {String? displayName}) {
+  void _showUserProfile(
+    String username,
+    String? userId, {
+    String? displayName,
+  }) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -1205,12 +1240,13 @@ class _HomeScreenState extends State<HomeScreen>
     for (final entry in _channelMessages.entries) {
       if (entry.key == _mentionsChannel) continue;
       for (final msg in entry.value) {
-        if (msg.isSystem || msg.isHighlighted ||
+        if (msg.isSystem ||
+            msg.isHighlighted ||
             msg.login.toLowerCase() == login) {
           continue;
         }
-        final isReplyToMe = msg.replyToUser != null &&
-            msg.replyToUser!.toLowerCase() == login;
+        final isReplyToMe =
+            msg.replyToUser != null && msg.replyToUser!.toLowerCase() == login;
         if (isMention(msg.text, login) || isReplyToMe) {
           msg.isHighlighted = true;
           _channelMessages.putIfAbsent(_mentionsChannel, () => []);
@@ -1260,19 +1296,19 @@ class _HomeScreenState extends State<HomeScreen>
                                 horizontal: 4,
                               ),
                               child: Row(
-                                 children: [
-                                   Padding(
-                                     padding: const EdgeInsets.only(left: 8),
-                                     child: Text(
-                                       'uuhChat',
-                                       style: TextStyle(
-                                         fontSize: 22,
-                                         fontWeight: FontWeight.w400,
-                                         color: null,
-                                       ),
-                                     ),
-                                   ),
-                                   const Spacer(),
+                                children: [
+                                  Padding(
+                                    padding: const EdgeInsets.only(left: 8),
+                                    child: Text(
+                                      'uuhChat',
+                                      style: TextStyle(
+                                        fontSize: 22,
+                                        fontWeight: FontWeight.w400,
+                                        color: null,
+                                      ),
+                                    ),
+                                  ),
+                                  const Spacer(),
                                   IconButton(
                                     icon: const Icon(Icons.add),
                                     tooltip: 'Join channel',
@@ -1308,6 +1344,7 @@ class _HomeScreenState extends State<HomeScreen>
                                     channelNotifier: _channelNotifier,
                                     onLeaveChannel: _removeChannel,
                                     onAddChannel: _addChannel,
+                                    onReorderChannels: _reorderChannels,
                                     onSettingsClosed: () {
                                       if (mounted) setState(() {});
                                       _chatConn.connect();
@@ -1326,67 +1363,69 @@ class _HomeScreenState extends State<HomeScreen>
                               },
                               child: _channels.isNotEmpty
                                   ? ListenableBuilder(
-                                    listenable: _chatVersion,
-                                    builder: (context, _) => TabbedLayout(
-                                      tabs: _channels,
-                                      selectedIndex: _channels.indexOf(
-                                        _selectedChannel ?? '',
-                                      ),
-                                      onSelectedIndexChanged: _onChannelChanged,
-                                      pageBuilder: (_, i) =>
-                                          _buildChat(_channels[i]),
-                                      tabBuilder: (_, i) {
-                                        final channel = _channels[i];
-                                        final selected =
-                                            channel == _selectedChannel;
-                                        final hasUnreadMention =
-                                            _channelsWithUnreadMentions
-                                                .contains(channel);
-                                        return Stack(
-                                          clipBehavior: Clip.none,
-                                          children: [
-                                            Text(
-                                              channel,
-                                              style: TextStyle(
-                                                fontSize: 14,
-                                                fontWeight:
-                                                    selected ||
-                                                    _channelsWithUnread
-                                                        .contains(channel)
-                                                    ? FontWeight.w600
-                                                    : FontWeight.normal,
-                                                color: selected
-                                                    ? theme.colorScheme.primary
-                                                    : _channelsWithUnread
-                                                        .contains(channel)
-                                                    ? Colors.white
-                                                    : null,
-                                              ),
-                                            ),
-                                            if (hasUnreadMention && !selected)
-                                              Positioned(
-                                                top: -2,
-                                                right: -4,
-                                                child: Container(
-                                                  key: const Key(
-                                                    'unread_mention_dot',
-                                                  ),
-                                                  width: 6,
-                                                  height: 6,
-                                                  decoration: BoxDecoration(
-                                                    color:
-                                                        theme
+                                      listenable: _chatVersion,
+                                      builder: (context, _) => TabbedLayout(
+                                        tabs: _channels,
+                                        selectedIndex: _channels.indexOf(
+                                          _selectedChannel ?? '',
+                                        ),
+                                        onSelectedIndexChanged:
+                                            _onChannelChanged,
+                                        pageBuilder: (_, i) =>
+                                            _buildChat(_channels[i]),
+                                        tabBuilder: (_, i) {
+                                          final channel = _channels[i];
+                                          final selected =
+                                              channel == _selectedChannel;
+                                          final hasUnreadMention =
+                                              _channelsWithUnreadMentions
+                                                  .contains(channel);
+                                          return Stack(
+                                            clipBehavior: Clip.none,
+                                            children: [
+                                              Text(
+                                                channel,
+                                                style: TextStyle(
+                                                  fontSize: 14,
+                                                  fontWeight:
+                                                      selected ||
+                                                          _channelsWithUnread
+                                                              .contains(channel)
+                                                      ? FontWeight.w600
+                                                      : FontWeight.normal,
+                                                  color: selected
+                                                      ? theme
                                                             .colorScheme
-                                                            .error,
-                                                    shape: BoxShape.circle,
-                                                  ),
+                                                            .primary
+                                                      : _channelsWithUnread
+                                                            .contains(channel)
+                                                      ? Colors.white
+                                                      : null,
                                                 ),
                                               ),
-                                          ],
-                                        );
-                                      },
-                                    ),
-                                  )
+                                              if (hasUnreadMention && !selected)
+                                                Positioned(
+                                                  top: -2,
+                                                  right: -4,
+                                                  child: Container(
+                                                    key: const Key(
+                                                      'unread_mention_dot',
+                                                    ),
+                                                    width: 6,
+                                                    height: 6,
+                                                    decoration: BoxDecoration(
+                                                      color: theme
+                                                          .colorScheme
+                                                          .error,
+                                                      shape: BoxShape.circle,
+                                                    ),
+                                                  ),
+                                                ),
+                                            ],
+                                          );
+                                        },
+                                      ),
+                                    )
                                   : _buildEmpty(),
                             ),
                           ),
@@ -1404,7 +1443,9 @@ class _HomeScreenState extends State<HomeScreen>
                             ratio: _threadSheetRatio,
                             child: RepaintBoundary(
                               child: Material(
-                                color: Theme.of(context).scaffoldBackgroundColor,
+                                color: Theme.of(
+                                  context,
+                                ).scaffoldBackgroundColor,
                                 clipBehavior: Clip.hardEdge,
                                 child: Column(
                                   children: [
@@ -1420,7 +1461,9 @@ class _HomeScreenState extends State<HomeScreen>
                                       ),
                                     ),
                                     Padding(
-                                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                      ),
                                       child: Row(
                                         children: [
                                           IconButton(
@@ -1435,14 +1478,19 @@ class _HomeScreenState extends State<HomeScreen>
                                               style: TextStyle(
                                                 fontSize: 16,
                                                 fontWeight: FontWeight.w600,
-                                                color: Theme.of(context).colorScheme.onSurface,
+                                                color: Theme.of(
+                                                  context,
+                                                ).colorScheme.onSurface,
                                               ),
                                             ),
                                           ),
                                         ],
                                       ),
                                     ),
-                                    Divider(height: 1, color: Theme.of(context).dividerColor),
+                                    Divider(
+                                      height: 1,
+                                      color: Theme.of(context).dividerColor,
+                                    ),
                                     Expanded(
                                       child: ThreadPanelWidget(
                                         key: const ValueKey('thread_panel'),
@@ -1451,7 +1499,8 @@ class _HomeScreenState extends State<HomeScreen>
                                         onLongPress: _showThreadMessageMenu,
                                         buildBadgeSpans: _buildBadgeSpans,
                                         buildMessageSpans: _buildMessageSpans,
-                                        scrollController: _threadPanelScrollCtrl,
+                                        scrollController:
+                                            _threadPanelScrollCtrl,
                                       ),
                                     ),
                                   ],
@@ -1474,7 +1523,9 @@ class _HomeScreenState extends State<HomeScreen>
                             ratio: _mentionsSheetRatio,
                             child: RepaintBoundary(
                               child: Material(
-                                color: Theme.of(context).scaffoldBackgroundColor,
+                                color: Theme.of(
+                                  context,
+                                ).scaffoldBackgroundColor,
                                 clipBehavior: Clip.hardEdge,
                                 child: Column(
                                   children: [
@@ -1490,7 +1541,9 @@ class _HomeScreenState extends State<HomeScreen>
                                       ),
                                     ),
                                     Padding(
-                                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                      ),
                                       child: Row(
                                         children: [
                                           IconButton(
@@ -1505,14 +1558,19 @@ class _HomeScreenState extends State<HomeScreen>
                                               style: TextStyle(
                                                 fontSize: 16,
                                                 fontWeight: FontWeight.w600,
-                                                color: Theme.of(context).colorScheme.onSurface,
+                                                color: Theme.of(
+                                                  context,
+                                                ).colorScheme.onSurface,
                                               ),
                                             ),
                                           ),
                                         ],
                                       ),
                                     ),
-                                    Divider(height: 1, color: Theme.of(context).dividerColor),
+                                    Divider(
+                                      height: 1,
+                                      color: Theme.of(context).dividerColor,
+                                    ),
                                     Expanded(
                                       child: MentionsPanelWidget(
                                         key: const ValueKey('mentions_panel'),
@@ -1520,7 +1578,8 @@ class _HomeScreenState extends State<HomeScreen>
                                         uiScale: 1.0,
                                         buildBadgeSpans: _buildBadgeSpans,
                                         buildMessageSpans: _buildMessageSpans,
-                                        scrollController: _mentionsPanelScrollCtrl,
+                                        scrollController:
+                                            _mentionsPanelScrollCtrl,
                                       ),
                                     ),
                                   ],
@@ -1559,10 +1618,13 @@ class _HomeScreenState extends State<HomeScreen>
                                     maxSize: _emoteMaxFraction,
                                     child: RepaintBoundary(
                                       child: Material(
-                                        color: sheetTheme.scaffoldBackgroundColor,
+                                        color:
+                                            sheetTheme.scaffoldBackgroundColor,
                                         child: EmoteMenuPanelWidget(
                                           key: const ValueKey('emote_panel'),
-                                          isActive: _activePanel == OverlayPanel.emotes,
+                                          isActive:
+                                              _activePanel ==
+                                              OverlayPanel.emotes,
                                           uiScale: 1.0,
                                           selectedChannel: _selectedChannel,
                                           onEmoteSelected: _onEmoteSelected,
@@ -1600,9 +1662,9 @@ class _HomeScreenState extends State<HomeScreen>
                               valueListenable: _suggestionsNotifier,
                               builder: (_, suggestions, _) =>
                                   AutocompleteDropdown(
-                                suggestions: suggestions,
-                                onSelect: _onSuggestionSelected,
-                              ),
+                                    suggestions: suggestions,
+                                    onSelect: _onSuggestionSelected,
+                                  ),
                             ),
                           ),
                         ),
@@ -1617,55 +1679,60 @@ class _HomeScreenState extends State<HomeScreen>
               child: ColoredBox(
                 color: theme.scaffoldBackgroundColor,
                 child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                MessageInput(
-                      controller: _messageController,
-                      focusNode: _focusNode,
-                      onSend: _sendMessage,
-                      onSendLongPress: _onSendLongPress,
-                      onEmoteToggle: () {
-                        if (_activePanel == OverlayPanel.emotes) {
-                          _closePanel();
-                        } else {
-                          _showEmoteMenu();
-                        }
-                      },
-                      replyToMsg: _replyToMsg,
-                      onCancelReply: () => setState(() => _replyToMsg = null),
-                      enabled:
-                          _activePanel != OverlayPanel.mentions &&
-                          widget.twitchAuth.isConfigured,
-                      hintText: !widget.twitchAuth.isConfigured
-                          ? 'Connect an account to chat'
-                          : _activePanel == OverlayPanel.thread
-                          ? 'Reply to thread...'
-                          : _activePanel == OverlayPanel.mentions
-                          ? 'Type a message...'
-                          : null,
-                    ),
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    MessageInput(
+                    controller: _messageController,
+                    focusNode: _focusNode,
+                    onSend: _sendMessage,
+                    onSendLongPress: _onSendLongPress,
+                    onEmoteToggle: () {
+                      if (_activePanel == OverlayPanel.emotes) {
+                        _closePanel();
+                      } else {
+                        _showEmoteMenu();
+                      }
+                    },
+                    replyToMsg: _replyToMsg,
+                    onCancelReply: () => setState(() => _replyToMsg = null),
+                    enabled:
+                        _activePanel != OverlayPanel.mentions &&
+                        widget.twitchAuth.isConfigured,
+                    hintText: !widget.twitchAuth.isConfigured
+                        ? 'Connect an account to chat'
+                        : _activePanel == OverlayPanel.thread
+                        ? 'Reply to thread...'
+                        : _activePanel == OverlayPanel.mentions
+                        ? 'Type a message...'
+                        : null,
+                  ),
                     ListenableBuilder(
                       listenable: _chatVersion,
                       builder: (context, _) {
                         final status = _chatStatus[_selectedChannel];
-                        if (status != null && status.isNotEmpty) {
-                          return Padding(
-                            padding: const EdgeInsets.only(
-                              left: 12,
-                              right: 12,
-                              bottom: 4,
-                            ),
-                            child: Text(
-                              status,
-                              style: const TextStyle(
-                                fontSize: 12,
-                                color: Colors.grey,
-                              ),
-                              textAlign: TextAlign.center,
-                            ),
-                          );
-                        }
-                        return const SizedBox.shrink();
+                        final hasStatus = status != null && status.isNotEmpty;
+                        return AnimatedSize(
+                          duration: const Duration(milliseconds: 200),
+                          curve: Curves.easeInOut,
+                          alignment: Alignment.topCenter,
+                          child: hasStatus
+                              ? Padding(
+                                  padding: const EdgeInsets.only(
+                                    left: 12,
+                                    right: 12,
+                                    bottom: 4,
+                                  ),
+                                  child: Text(
+                                    status,
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey,
+                                    ),
+                                    textAlign: TextAlign.center,
+                                  ),
+                                )
+                              : const SizedBox.shrink(),
+                        );
                       },
                     ),
                   ],
@@ -1844,8 +1911,9 @@ class _HomeScreenState extends State<HomeScreen>
               final scrolledUp = notification.metrics.pixels > 50.0;
               if (scrolledUp && (_isAtBottom[channel] ?? true)) {
                 _isAtBottom[channel] = false;
-                _frozenSnapshot[channel] =
-                    List.of(_channelMessages[channel] ?? []);
+                _frozenSnapshot[channel] = List.of(
+                  _channelMessages[channel] ?? [],
+                );
                 _chatVersion.value++;
               } else if (!scrolledUp && !(_isAtBottom[channel] ?? true)) {
                 _isAtBottom[channel] = true;
@@ -1856,7 +1924,9 @@ class _HomeScreenState extends State<HomeScreen>
             return false;
           },
           child: ScrollbarTheme(
-            data: const ScrollbarThemeData(thickness: WidgetStatePropertyAll(0)),
+            data: const ScrollbarThemeData(
+              thickness: WidgetStatePropertyAll(0),
+            ),
             child: ListView.builder(
               key: ValueKey(channel),
               controller: _scrollCtrl(channel),
@@ -1881,7 +1951,8 @@ class _HomeScreenState extends State<HomeScreen>
                     textScale: s,
                     buildBadgeSpans: _buildBadgeSpans,
                     buildMessageSpans: _buildMessageSpans,
-                    systemBodyBuilder: (msg, scale) => parseTextWithLinks(msg.text),
+                    systemBodyBuilder: (msg, scale) =>
+                        parseTextWithLinks(msg.text),
                   );
                 } else {
                   body = ChatMessageTile(
@@ -1891,9 +1962,15 @@ class _HomeScreenState extends State<HomeScreen>
                     textScale: s,
                     buildBadgeSpans: _buildBadgeSpans,
                     buildMessageSpans: _buildMessageSpans,
-                    onTapUser: (login, userId) => _showUserProfile(login, userId, displayName: msg.displayName),
+                    onTapUser: (login, userId) => _showUserProfile(
+                      login,
+                      userId,
+                      displayName: msg.displayName,
+                    ),
                     onLongPress: () => _showMessageMenu(msg),
-                    replyIndicator: msg.replyToUser != null ? _buildReplyIndicator(msg) : null,
+                    replyIndicator: msg.replyToUser != null
+                        ? _buildReplyIndicator(msg)
+                        : null,
                   );
                 }
 

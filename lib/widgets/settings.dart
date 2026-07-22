@@ -10,6 +10,7 @@ class SettingsButton extends StatelessWidget {
   final ValueNotifier<List<String>>? channelNotifier;
   final ValueChanged<String>? onLeaveChannel;
   final ValueChanged<String>? onAddChannel;
+  final ValueChanged<List<String>>? onReorderChannels;
   final VoidCallback? onSettingsClosed;
   final Stream<TwitchMessage>? eventSubMessageStream;
 
@@ -20,6 +21,7 @@ class SettingsButton extends StatelessWidget {
     this.channelNotifier,
     this.onLeaveChannel,
     this.onAddChannel,
+    this.onReorderChannels,
     this.onSettingsClosed,
     this.eventSubMessageStream,
   });
@@ -37,6 +39,7 @@ class SettingsButton extends StatelessWidget {
             channelNotifier: channelNotifier,
             onLeaveChannel: onLeaveChannel,
             onAddChannel: onAddChannel,
+            onReorderChannels: onReorderChannels,
             eventSubMessageStream: eventSubMessageStream,
           ),
         ),

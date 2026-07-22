@@ -39,6 +39,7 @@ class ChatConnectionManager {
   final Set<String> channelsEmotesResolved;
   final Map<String, String> channelUserIds;
   final Map<String, PendingLocal> pendingLocals;
+  final _pendingLocalsByNorm = <String, String>{};
   final Map<String, String> lastTypedText;
   final Map<String, String> lastSentWireText;
   final Set<String> ownMessageIds;
@@ -270,6 +271,8 @@ class ChatConnectionManager {
     channelMessages[channel]!.insert(0, msg);
     if (useTempId) {
       pendingLocals[effectiveId] = PendingLocal(channel, text);
+      _pendingLocalsByNorm['$channel:${normalizeForReconciliation(text)}'] =
+          effectiveId;
     }
     truncateChannelMessages(channel);
     if (!useTempId) {
@@ -520,7 +523,9 @@ class ChatConnectionManager {
       event.oldEmoteSetId,
     );
     if (channel == null) return;
-    sevenTvClient?.unsubscribeEmoteSet(event.oldEmoteSetId);
+    if (event.oldEmoteSetId.isNotEmpty) {
+      sevenTvClient?.unsubscribeEmoteSet(event.oldEmoteSetId);
+    }
     sevenTvClient?.subscribeEmoteSet(event.newEmoteSetId);
     emoteManager.setSevenTvEmoteSetId(channel, event.newEmoteSetId);
 
@@ -775,15 +780,8 @@ class ChatConnectionManager {
     if (msg.messageId != null &&
         getCurrentUserLogin() != null &&
         msg.login == getCurrentUserLogin()!.toLowerCase()) {
-      String? pendingKey;
-      for (final entry in pendingLocals.entries) {
-        if (entry.value.channel == channel &&
-            normalizeForReconciliation(entry.value.text) ==
-                normalizeForReconciliation(msg.text)) {
-          pendingKey = entry.key;
-          break;
-        }
-      }
+      final normKey = '$channel:${normalizeForReconciliation(msg.text)}';
+      final pendingKey = _pendingLocalsByNorm.remove(normKey);
       if (pendingKey != null) {
         pendingLocals.remove(pendingKey);
         channelMessages[channel]?.removeWhere(
@@ -900,16 +898,9 @@ class ChatConnectionManager {
       return;
     }
 
-    String? pendingKey;
+    final normKey = '$channel:${normalizeForReconciliation(strippedText)}';
+    final pendingKey = _pendingLocalsByNorm.remove(normKey);
     TwitchMessage? pendingMsg;
-    for (final entry in pendingLocals.entries) {
-      if (entry.value.channel == channel &&
-          normalizeForReconciliation(entry.value.text) ==
-              normalizeForReconciliation(strippedText)) {
-        pendingKey = entry.key;
-        break;
-      }
-    }
     if (pendingKey != null) {
       final existing = channelMessages[channel];
       if (existing != null) {

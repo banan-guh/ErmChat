@@ -121,25 +121,31 @@ class EmoteText {
   ) {
     final segments = <_Segment>[];
 
-    // Create a map from position ranges to Twitch emote data
-    final twitchRanges = <int, EmotePosition>{};
-    if (twitchPositions != null) {
-      // Sort by start position to handle overlap
-      final sorted = List<EmotePosition>.from(twitchPositions)
-        ..sort((a, b) => a.startIndex.compareTo(b.startIndex));
-      for (final pos in sorted) {
-        for (int i = pos.startIndex; i < pos.endIndex; i++) {
-          twitchRanges[i] = pos;
-        }
+    // Sort Twitch positions for cursor-based scanning (avoids per-character Map)
+    final sortedPos = twitchPositions != null
+        ? (List<EmotePosition>.from(twitchPositions)
+          ..sort((a, b) => a.startIndex.compareTo(b.startIndex)))
+        : <EmotePosition>[];
+    int twitchIdx = 0;
+
+    EmotePosition? posAt(int i) {
+      while (twitchIdx < sortedPos.length &&
+          sortedPos[twitchIdx].endIndex <= i) {
+        twitchIdx++;
       }
+      if (twitchIdx < sortedPos.length &&
+          i >= sortedPos[twitchIdx].startIndex) {
+        return sortedPos[twitchIdx];
+      }
+      return null;
     }
 
     // Walk through text, extracting Twitch-position segments and whitespace tokens
     int i = 0;
     while (i < text.length) {
       // Check if we're in a Twitch position range
-      if (twitchRanges.containsKey(i)) {
-        final pos = twitchRanges[i]!;
+      final pos = posAt(i);
+      if (pos != null) {
         final emoteCode = pos.emoteCode;
         final length = pos.endIndex - pos.startIndex;
         final emote = byCode[emoteCode];
@@ -184,7 +190,7 @@ class EmoteText {
           text[i] != ' ' &&
           text[i] != '\t' &&
           text[i] != '\n' &&
-          !twitchRanges.containsKey(i)) {
+          posAt(i) == null) {
         i++;
       }
       final token = text.substring(start, i);

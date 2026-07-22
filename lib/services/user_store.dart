@@ -15,8 +15,8 @@ class UserStore {
     }
   }
 
-  Set<String> usersForChannel(String channel) {
-    return _users[channel]?.keys.toSet() ?? {};
+  Iterable<String> usersForChannel(String channel) {
+    return _users[channel]?.keys ?? const Iterable<String>.empty();
   }
 
   void removeChannel(String channel) {

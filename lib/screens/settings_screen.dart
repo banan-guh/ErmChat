@@ -29,6 +29,7 @@ class SettingsScreen extends StatefulWidget {
   final ValueNotifier<List<String>>? channelNotifier;
   final ValueChanged<String>? onLeaveChannel;
   final ValueChanged<String>? onAddChannel;
+  final ValueChanged<List<String>>? onReorderChannels;
   final OAuthStarter? oAuthStarter;
   final Stream<TwitchMessage>? eventSubMessageStream;
 
@@ -39,6 +40,7 @@ class SettingsScreen extends StatefulWidget {
     this.channelNotifier,
     this.onLeaveChannel,
     this.onAddChannel,
+    this.onReorderChannels,
     this.oAuthStarter,
     this.eventSubMessageStream,
   });
@@ -237,96 +239,113 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     return Scaffold(
       appBar: AppBar(title: const Text('Settings')),
-      body: ListView(
+      body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
-        children: [
-          if (widget.channelNotifier != null) ...[
-            Text('Channels', style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 8),
-            if (channels.isEmpty)
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 8),
-                child: Text(
-                  'No channels joined',
-                  style: TextStyle(color: Colors.grey),
-                ),
-              )
-            else
-              ...channels.map(
-                (ch) => ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: Text(ch),
-                  trailing: IconButton(
-                    icon: const Icon(Icons.remove_circle_outline),
-                    onPressed: () => widget.onLeaveChannel?.call(ch),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (widget.channelNotifier != null) ...[
+              Text('Channels', style: Theme.of(context).textTheme.titleMedium),
+              const SizedBox(height: 8),
+              if (channels.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 8),
+                  child: Text(
+                    'No channels joined',
+                    style: TextStyle(color: Colors.grey),
+                  ),
+                )
+              else
+                ReorderableListView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: channels.length,
+                  onReorderItem: (oldIndex, newIndex) {
+                    final reordered = List.of(channels);
+                    final item = reordered.removeAt(oldIndex);
+                    reordered.insert(newIndex, item);
+                    widget.onReorderChannels?.call(reordered);
+                  },
+                  itemBuilder: (_, i) => ListTile(
+                    key: ValueKey(channels[i]),
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.drag_handle),
+                    title: Text(channels[i]),
+                    trailing: IconButton(
+                      icon: const Icon(Icons.remove_circle_outline),
+                      onPressed: () => widget.onLeaveChannel?.call(channels[i]),
+                    ),
                   ),
                 ),
-              ),
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              child: OutlinedButton.icon(
-                onPressed: _addChannelDialog,
-                icon: const Icon(Icons.add),
-                label: const Text('Join channel'),
-              ),
-            ),
-            const Divider(height: 32),
-          ],
-          SwitchListTile(
-            title: const Text('Dark mode'),
-            value: isDark,
-            onChanged: (dark) {
-              widget.onThemeChanged(dark ? ThemeMode.dark : ThemeMode.light);
-            },
-          ),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Text(
-                  'Max messages per channel: $_maxMessagesPerChannel',
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: OutlinedButton.icon(
+                  onPressed: _addChannelDialog,
+                  icon: const Icon(Icons.add),
+                  label: const Text('Join channel'),
                 ),
               ),
-              Slider(
-                value: _maxMessagesPerChannel.toDouble(),
-                min: 100,
-                max: 1000,
-                divisions: 9,
-                label: '$_maxMessagesPerChannel',
-                onChanged: (value) async {
-                  final v = value.toInt();
-                  final prefs = await SharedPreferences.getInstance();
-                  await prefs.setInt('max_messages_per_channel', v);
-                  if (mounted) setState(() => _maxMessagesPerChannel = v);
-                },
-              ),
+              const Divider(height: 32),
             ],
-          ),
-          const Divider(height: 32),
-          Text('Twitch Login', style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 16),
-          _buildBody(),
-          SwitchListTile(
-            title: const Text('Use browser for OAuth'),
-            subtitle: const Text(
-              'Opens Twitch login in external browser instead of in-app WebView',
+            SwitchListTile(
+              title: const Text('Dark mode'),
+              value: isDark,
+              onChanged: (dark) {
+                widget.onThemeChanged(dark ? ThemeMode.dark : ThemeMode.light);
+              },
             ),
-            value: _useBrowserOAuth,
-            onChanged: (value) {
-              setState(() => _useBrowserOAuth = value);
-              _saveOAuthMode(value);
-            },
-          ),
-          const Divider(height: 32),
-          Text('About', style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 8),
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('flutter_twitch_app'),
-            subtitle: Text('Version ${_readVersion()}'),
-          ),
-        ],
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Text(
+                    'Max messages per channel: $_maxMessagesPerChannel',
+                  ),
+                ),
+                Slider(
+                  value: _maxMessagesPerChannel.toDouble(),
+                  min: 100,
+                  max: 1000,
+                  divisions: 9,
+                  label: '$_maxMessagesPerChannel',
+                  onChanged: (value) async {
+                    final v = value.toInt();
+                    final prefs = await SharedPreferences.getInstance();
+                    await prefs.setInt('max_messages_per_channel', v);
+                    if (mounted) setState(() => _maxMessagesPerChannel = v);
+                  },
+                ),
+              ],
+            ),
+            const Divider(height: 32),
+            Text(
+              'Twitch Login',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 16),
+            _buildBody(),
+            SwitchListTile(
+              title: const Text('Use browser for OAuth'),
+              subtitle: const Text(
+                'Opens Twitch login in external browser instead of in-app WebView',
+              ),
+              value: _useBrowserOAuth,
+              onChanged: (value) {
+                setState(() => _useBrowserOAuth = value);
+                _saveOAuthMode(value);
+              },
+            ),
+            const Divider(height: 32),
+            Text('About', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 8),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('flutter_twitch_app'),
+              subtitle: Text('Version ${_readVersion()}'),
+            ),
+          ],
+        ),
       ),
     );
   }

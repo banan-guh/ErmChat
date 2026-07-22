@@ -71,6 +71,9 @@ enum SevenTvEventStatus { connected, disconnected }
 
 class SevenTvEventClient {
   static const _wsUrl = 'wss://events.7tv.io/v3';
+  static const _noReconnectCloseCodes = {4001, 4002, 4003, 4004, 4009, 4010};
+  static const _maxReconnectAttempts = 8;
+  static const _reconnectMinDelay = Duration(seconds: 1);
 
   WebSocketChannel? _channel;
   StreamSubscription<dynamic>? _streamSub;
@@ -81,6 +84,7 @@ class SevenTvEventClient {
   bool _reconnecting = false;
   int _reconnectAttempt = 0;
   bool _disposed = false;
+  int? _fatalCloseCode;
 
   final _pendingEmoteSets = <String>{};
   final _pendingUsers = <String>{};
@@ -101,6 +105,7 @@ class SevenTvEventClient {
 
   Future<void> connect() async {
     if (_disposed) return;
+    _fatalCloseCode = null;
     _disconnect();
     try {
       _channel = WebSocketChannel.connect(Uri.parse(_wsUrl));
@@ -113,7 +118,21 @@ class SevenTvEventClient {
           _scheduleReconnect();
         },
         onDone: () {
-          debugPrint('7TV event stream closed');
+          final code = _channel?.closeCode;
+          final reason = _channel?.closeReason;
+          debugPrint('7TV event stream closed (code=$code reason="$reason")');
+          if (_fatalCloseCode != null) {
+            debugPrint(
+              '7TV: fatal end-of-stream code $_fatalCloseCode — not reconnecting',
+            );
+            return;
+          }
+          if (code != null && _noReconnectCloseCodes.contains(code)) {
+            debugPrint(
+              '7TV: close code $code indicates client bug — not reconnecting',
+            );
+            return;
+          }
           _scheduleReconnect();
         },
       );
@@ -148,6 +167,13 @@ class SevenTvEventClient {
   }
 
   void _sendSubscription(String type, String objectId, {required bool subscribe}) {
+    if (objectId.isEmpty) {
+      debugPrint(
+        '7TV: refusing to send $type '
+        '${subscribe ? 'subscribe' : 'unsubscribe'} with empty objectId',
+      );
+      return;
+    }
     _send(jsonEncode({
       'op': subscribe ? 35 : 36,
       'd': {
@@ -185,6 +211,13 @@ class SevenTvEventClient {
         case 5:
           break;
         case 7:
+          final code = d?['code'] as int?;
+          final message = d?['message'] as String?;
+          debugPrint('7TV end-of-stream: code=$code message="$message"');
+          if (code != null && _noReconnectCloseCodes.contains(code)) {
+            _fatalCloseCode = code;
+            debugPrint('7TV: end-of-stream code $code is fatal — will not reconnect');
+          }
           break;
       }
     } catch (e) {
@@ -297,7 +330,6 @@ class SevenTvEventClient {
           _scheduleReconnect();
           return;
         }
-        _send(jsonEncode({'op': 3}));
       },
     );
   }
@@ -312,9 +344,15 @@ class SevenTvEventClient {
     _handshakeComplete = false;
     _statusCtrl.add(SevenTvEventStatus.disconnected);
     _reconnectAttempt++;
+    if (_reconnectAttempt > _maxReconnectAttempts) {
+      debugPrint(
+        '7TV: max reconnect attempts ($_maxReconnectAttempts) reached — giving up',
+      );
+      return;
+    }
     Duration delay;
     if (_reconnectAttempt == 1) {
-      delay = Duration.zero;
+      delay = _reconnectMinDelay;
     } else {
       final base = Duration(
         seconds: min(pow(2, _reconnectAttempt - 2).toInt(), 30),

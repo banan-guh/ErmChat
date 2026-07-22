@@ -292,6 +292,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
                   broadcasterId: broadcasterId,
                   reason: reasonController.text,
                 );
+                reasonController.dispose();
                 if (!context.mounted) return;
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(

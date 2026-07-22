@@ -65,7 +65,7 @@ class EmoteSuggestion implements Suggestion {
 List<Suggestion> filterSuggestions({
   required String word,
   required List<GenericEmote> emotes,
-  required Set<String> users,
+  required Iterable<String> users,
 }) {
   final results = <Suggestion>[];
 
@@ -79,13 +79,15 @@ List<Suggestion> filterSuggestions({
   }
 
   final matchedEmotes = <GenericEmote>[];
+  final matchedIds = <String>{};
   for (final emote in emotes) {
     if (emote.code.contains(word)) {
       matchedEmotes.add(emote);
+      matchedIds.add(emote.id);
     }
   }
   for (final emote in emotes) {
-    if (!matchedEmotes.contains(emote) &&
+    if (!matchedIds.contains(emote.id) &&
         emote.code.toLowerCase().contains(lower)) {
       matchedEmotes.add(emote);
     }
