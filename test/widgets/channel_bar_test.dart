@@ -164,4 +164,109 @@ void main() {
       );
     });
   });
+
+  group('Channel focus on swipe', () {
+    testWidgets('swiping past halfway switches focus before settle', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(const TwitchChatApp());
+      await tester.pump();
+      await joinChannel(tester, 'a');
+      await joinChannel(tester, 'b');
+      await tapChannel(tester, 'a');
+
+      final size = tester.getSize(find.byType(TabBarView));
+      final center = tester.getCenter(find.byType(TabBarView));
+      final gesture = await tester.startGesture(center);
+      await gesture.moveBy(const Offset(-1, 0));
+      await tester.pump();
+      await gesture.moveBy(Offset(-size.width * 0.55, 0));
+      await tester.pump();
+      // Don't release — verify focus switched mid-drag
+      expect(
+        tester.widget<Text>(find.descendant(
+          of: find.byType(TabBar),
+          matching: find.text('b'),
+        )).style?.fontWeight,
+        FontWeight.w600,
+      );
+      expect(
+        tester.widget<Text>(find.descendant(
+          of: find.byType(TabBar),
+          matching: find.text('a'),
+        )).style?.fontWeight,
+        FontWeight.normal,
+      );
+
+      await gesture.up();
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('dragging under halfway keeps focus unchanged', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(const TwitchChatApp());
+      await tester.pump();
+      await joinChannel(tester, 'a');
+      await joinChannel(tester, 'b');
+      await tapChannel(tester, 'a');
+
+      final size = tester.getSize(find.byType(TabBarView));
+      final center = tester.getCenter(find.byType(TabBarView));
+      final gesture = await tester.startGesture(center);
+      await gesture.moveBy(const Offset(-1, 0));
+      await tester.pump();
+      await gesture.moveBy(Offset(-size.width * 0.45, 0)); // under 50%
+      await tester.pump();
+      await gesture.up();
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.widget<Text>(find.descendant(
+          of: find.byType(TabBar),
+          matching: find.text('a'),
+        )).style?.fontWeight,
+        FontWeight.w600,
+      );
+      expect(
+        tester.widget<Text>(find.descendant(
+          of: find.byType(TabBar),
+          matching: find.text('b'),
+        )).style?.fontWeight,
+        FontWeight.normal,
+      );
+    });
+
+    testWidgets('crossing then returning before release restores focus', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(const TwitchChatApp());
+      await tester.pump();
+      await joinChannel(tester, 'a');
+      await joinChannel(tester, 'b');
+      await tapChannel(tester, 'a');
+
+      final size = tester.getSize(find.byType(TabBarView));
+      final center = tester.getCenter(find.byType(TabBarView));
+      final gesture = await tester.startGesture(center);
+      await gesture.moveBy(const Offset(-1, 0));
+      await tester.pump();
+      // Cross 50%
+      await gesture.moveBy(Offset(-size.width * 0.6, 0));
+      await tester.pump();
+      // Return below 50%
+      await gesture.moveBy(Offset(size.width * 0.3, 0));
+      await tester.pump();
+      await gesture.up();
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.widget<Text>(find.descendant(
+          of: find.byType(TabBar),
+          matching: find.text('a'),
+        )).style?.fontWeight,
+        FontWeight.w600,
+      );
+    });
+  });
 }

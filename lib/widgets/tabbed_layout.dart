@@ -54,6 +54,7 @@ class TabbedLayout extends StatefulWidget {
   final IndexedWidgetBuilder pageBuilder;
   final IndexedWidgetBuilder? tabBuilder;
   final AlignmentGeometry tabAlignment;
+  final bool focusOnHalfDrag;
 
   static const double minEdgeExclusion = 20.0;
 
@@ -65,6 +66,7 @@ class TabbedLayout extends StatefulWidget {
     required this.pageBuilder,
     this.tabBuilder,
     this.tabAlignment = Alignment.centerLeft,
+    this.focusOnHalfDrag = false,
   });
 
   @override
@@ -89,6 +91,9 @@ class TabbedLayoutState extends State<TabbedLayout>
     final idx = widget.selectedIndex.clamp(0, len - 1);
     _tabController = TabController(length: len, vsync: this, initialIndex: idx);
     _tabController!.addListener(_onTabChanged);
+    if (widget.focusOnHalfDrag) {
+      _tabController!.animation!.addListener(_onAnimationTick);
+    }
   }
 
   void _onTabChanged() {
@@ -98,12 +103,26 @@ class TabbedLayoutState extends State<TabbedLayout>
     }
   }
 
+  void _onAnimationTick() {
+    final ctrl = _tabController!;
+    if (ctrl.indexIsChanging) return;
+    final v = ctrl.animation!.value;
+    if (v.isNaN) return;
+    final nearest = v.round().clamp(0, _tabLength - 1);
+    if (nearest != widget.selectedIndex) {
+      widget.onSelectedIndexChanged(nearest);
+    }
+  }
+
   @override
   void didUpdateWidget(TabbedLayout oldWidget) {
     super.didUpdateWidget(oldWidget);
     final len = widget.tabs.length;
     if (len != _tabLength) {
       _tabController?.removeListener(_onTabChanged);
+      if (oldWidget.focusOnHalfDrag && _tabController != null && _tabController!.animation != null) {
+        _tabController!.animation!.removeListener(_onAnimationTick);
+      }
       _tabController?.dispose();
       _tabController = null;
       _tabLength = len;
@@ -111,12 +130,22 @@ class TabbedLayoutState extends State<TabbedLayout>
         final idx = widget.selectedIndex.clamp(0, len - 1);
         _tabController = TabController(length: len, vsync: this);
         _tabController!.addListener(_onTabChanged);
+        if (widget.focusOnHalfDrag) {
+          _tabController!.animation!.addListener(_onAnimationTick);
+        }
         _tabController!.index = idx;
       }
     } else if (len > 0) {
       final idx = widget.selectedIndex.clamp(0, len - 1);
-      if (_tabController!.index != idx && !_tabController!.indexIsChanging) {
-        _tabController!.index = idx;
+      final ctrl = _tabController!;
+      if (ctrl.index != idx && !ctrl.indexIsChanging) {
+        if (widget.focusOnHalfDrag) {
+          final v = ctrl.animation!.value;
+          final dragInFlight = !v.isNaN && v.round() != ctrl.index;
+          if (!dragInFlight) ctrl.index = idx;
+        } else {
+          ctrl.index = idx;
+        }
       }
     }
   }
@@ -124,6 +153,9 @@ class TabbedLayoutState extends State<TabbedLayout>
   @override
   void dispose() {
     _tabController?.removeListener(_onTabChanged);
+    if (widget.focusOnHalfDrag && _tabController != null && _tabController!.animation != null) {
+      _tabController!.animation!.removeListener(_onAnimationTick);
+    }
     _tabController?.dispose();
     super.dispose();
   }
@@ -191,29 +223,12 @@ class TabbedLayoutState extends State<TabbedLayout>
                     PointerDeviceKind.unknown,
                   },
                 ),
-                child: NotificationListener<ScrollNotification>(
-                  onNotification: (notification) {
-                    final metrics = notification.metrics;
-                    if (!metrics.viewportDimension.isFinite ||
-                        metrics.viewportDimension <= 0) {
-                      return false;
-                    }
-                    final liveIndex =
-                        (metrics.pixels / metrics.viewportDimension)
-                            .round()
-                            .clamp(0, widget.tabs.length - 1);
-                    if (liveIndex != widget.selectedIndex) {
-                      widget.onSelectedIndexChanged(liveIndex);
-                    }
-                    return false;
-                  },
-                  child: TabBarView(
-                    controller: _tabController,
-                    physics: const _SwipePhysics(),
-                    children: List.generate(
-                      tabs.length,
-                      (i) => widget.pageBuilder(context, i),
-                    ),
+                child: TabBarView(
+                  controller: _tabController,
+                  physics: const _SwipePhysics(),
+                  children: List.generate(
+                    tabs.length,
+                    (i) => widget.pageBuilder(context, i),
                   ),
                 ),
               ),

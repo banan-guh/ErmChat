@@ -1373,6 +1373,7 @@ class _HomeScreenState extends State<HomeScreen>
                                             _onChannelChanged,
                                         pageBuilder: (_, i) =>
                                             _buildChat(_channels[i]),
+                                        focusOnHalfDrag: true,
                                         tabBuilder: (_, i) {
                                           final channel = _channels[i];
                                           final selected =
