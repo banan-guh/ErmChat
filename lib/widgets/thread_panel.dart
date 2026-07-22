@@ -47,98 +47,124 @@ class ThreadPanelWidget extends StatefulWidget {
 }
 
 class ThreadPanelWidgetState extends State<ThreadPanelWidget> {
+  ThreadPanelData? _data;
+
+  @override
+  void initState() {
+    super.initState();
+    _data = widget.data.value;
+    widget.data.addListener(_onDataChanged);
+  }
+
+  @override
+  void didUpdateWidget(ThreadPanelWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.data != oldWidget.data) {
+      oldWidget.data.removeListener(_onDataChanged);
+      widget.data.addListener(_onDataChanged);
+      _data = widget.data.value;
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.data.removeListener(_onDataChanged);
+    super.dispose();
+  }
+
+  void _onDataChanged() {
+    setState(() {
+      _data = widget.data.value;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder<ThreadPanelData?>(
-      valueListenable: widget.data,
-      builder: (context, data, _) {
-        final theme = Theme.of(context);
-        final surface = theme.colorScheme.surface;
-        final systemScale = MediaQuery.textScalerOf(context).scale(1.0);
-        final s = widget.uiScale * systemScale;
+    final theme = Theme.of(context);
+    final surface = theme.colorScheme.surface;
+    final systemScale = MediaQuery.textScalerOf(context).scale(1.0);
+    final s = widget.uiScale * systemScale;
 
-        if (data == null) return const SizedBox.shrink();
+    if (_data == null) return const SizedBox.shrink();
 
-        final threadMsgs = data.messages;
+    final threadMsgs = _data!.messages;
 
-        return Material(
-          color: theme.scaffoldBackgroundColor,
-          clipBehavior: Clip.hardEdge,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Material(
-                elevation: 2,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                  child: Row(
-                    children: [
-                      IconButton(
-                        icon: const Icon(Icons.close),
-                        tooltip: 'Close reply thread',
-                        onPressed: widget.onClose,
-                      ),
-                      const SizedBox(width: 4),
-                      Expanded(
-                        child: Text(
-                          'Reply Thread',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                            color: theme.colorScheme.onSurface,
-                          ),
-                        ),
-                      ),
-                    ],
+    return Material(
+      color: theme.scaffoldBackgroundColor,
+      clipBehavior: Clip.hardEdge,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Material(
+            elevation: 2,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: Row(
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    tooltip: 'Close reply thread',
+                    onPressed: widget.onClose,
                   ),
-                ),
-              ),
-              Divider(height: 1, color: theme.dividerColor),
-              Expanded(
-                child: threadMsgs.isEmpty
-                    ? ListView(
-                        controller: widget.scrollController,
-                        padding: const EdgeInsets.only(bottom: 8),
-                        children: const [
-                          Center(child: Text('No messages found')),
-                        ],
-                      )
-                    : ListView.builder(
-                        controller: widget.scrollController,
-                        physics: const ClampingScrollPhysics(),
-                        reverse: true,
-                        padding: const EdgeInsets.only(bottom: 8),
-                        itemCount: threadMsgs.length,
-                        itemBuilder: (_, i) {
-                          final msg = threadMsgs[threadMsgs.length - 1 - i];
-
-                          if (msg.isSystem) {
-                            return ChatMessageTile(
-                              message: msg,
-                              channel: data.channel,
-                              surface: surface,
-                              textScale: s,
-                              buildBadgeSpans: widget.buildBadgeSpans,
-                              buildMessageSpans: widget.buildMessageSpans,
-                            );
-                          }
-
-                          return ChatMessageTile(
-                            message: msg,
-                            channel: data.channel,
-                            surface: surface,
-                            textScale: s,
-                            buildBadgeSpans: widget.buildBadgeSpans,
-                            buildMessageSpans: widget.buildMessageSpans,
-                            onLongPress: () => widget.onLongPress(msg),
-                          );
-                        },
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: Text(
+                      'Reply Thread',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: theme.colorScheme.onSurface,
                       ),
+                    ),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
-        );
-      },
+          Divider(height: 1, color: theme.dividerColor),
+          Expanded(
+            child: threadMsgs.isEmpty
+                ? ListView(
+                    controller: widget.scrollController,
+                    padding: const EdgeInsets.only(bottom: 8),
+                    children: const [
+                      Center(child: Text('No messages found')),
+                    ],
+                  )
+                : ListView.builder(
+                    controller: widget.scrollController,
+                    physics: const ClampingScrollPhysics(),
+                    reverse: true,
+                    padding: const EdgeInsets.only(bottom: 8),
+                    itemCount: threadMsgs.length,
+                    itemBuilder: (_, i) {
+                      final msg = threadMsgs[threadMsgs.length - 1 - i];
+
+                      if (msg.isSystem) {
+                        return ChatMessageTile(
+                          message: msg,
+                          channel: _data!.channel,
+                          surface: surface,
+                          textScale: s,
+                          buildBadgeSpans: widget.buildBadgeSpans,
+                          buildMessageSpans: widget.buildMessageSpans,
+                        );
+                      }
+
+                      return ChatMessageTile(
+                        message: msg,
+                        channel: _data!.channel,
+                        surface: surface,
+                        textScale: s,
+                        buildBadgeSpans: widget.buildBadgeSpans,
+                        buildMessageSpans: widget.buildMessageSpans,
+                        onLongPress: () => widget.onLongPress(msg),
+                      );
+                    },
+                  ),
+          ),
+        ],
+      ),
     );
   }
 }

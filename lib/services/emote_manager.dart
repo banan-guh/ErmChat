@@ -32,6 +32,15 @@ class EmoteManager extends ChangeNotifier {
   final _channelTwitchEmotes = <String, List<GenericEmote>>{};
   final _sevenTvEmoteSetIds = <String, String>{};
   String? _accessToken;
+  final _mergedCache = <String, ChannelEmotes?>{};
+  final _userSubscriberEmotes = <String, GenericEmote>{};
+  bool _subscriberDirty = true;
+
+  @override
+  void notifyListeners() {
+    _mergedCache.clear();
+    super.notifyListeners();
+  }
 
   set accessToken(String? value) => _accessToken = value;
 
@@ -41,13 +50,45 @@ class EmoteManager extends ChangeNotifier {
   }
 
   ChannelEmotes? byCode(String channel) {
+    if (_subscriberDirty) {
+      _mergedCache.clear();
+      _rebuildUserSubscriberEmotes();
+    }
+    final cached = _mergedCache[channel];
+    if (cached != null) return cached;
     final channelEmotes = _channelCaches[channel];
-    if (channelEmotes == null) return _globalCache;
-    if (_globalCache == null) return channelEmotes;
-    final merged = {..._globalCache!.byCode, ...channelEmotes.byCode};
-    final suggestions = merged.values.toList()
-      ..sort((a, b) => a.code.compareTo(b.code));
-    return ChannelEmotes(byCode: merged, suggestions: suggestions);
+    ChannelEmotes? result;
+    if (channelEmotes == null) {
+      result = _globalCache;
+    } else if (_globalCache == null) {
+      final merged = {..._userSubscriberEmotes, ...channelEmotes.byCode};
+      final suggestions = merged.values.toList()
+        ..sort((a, b) => a.code.compareTo(b.code));
+      result = ChannelEmotes(byCode: merged, suggestions: suggestions);
+    } else {
+      final merged = {
+        ..._globalCache!.byCode,
+        ..._userSubscriberEmotes,
+        ...channelEmotes.byCode,
+      };
+      final suggestions = merged.values.toList()
+        ..sort((a, b) => a.code.compareTo(b.code));
+      result = ChannelEmotes(byCode: merged, suggestions: suggestions);
+    }
+    _mergedCache[channel] = result;
+    return result;
+  }
+
+  void _rebuildUserSubscriberEmotes() {
+    _userSubscriberEmotes.clear();
+    for (final twitchEmotes in _channelTwitchEmotes.values) {
+      for (final e in twitchEmotes) {
+        if (e.emoteType == 'subscriptions' || e.tier != null) {
+          _userSubscriberEmotes.putIfAbsent(e.code, () => e);
+        }
+      }
+    }
+    _subscriberDirty = false;
   }
 
   List<String> get joinedChannels => _channelCaches.keys.toList()..sort();
@@ -180,11 +221,8 @@ class EmoteManager extends ChangeNotifier {
             if (e.type != EmoteType.twitch) e,
       ];
       _channelCaches[channel] = _buildChannelMap(allEmotes);
-      debugPrint(
-        'EmoteManager: stored ${emotes.length} user Twitch emotes '
-        'for $channel (subs: ${merged.where((e) => e.emoteType == 'subscriptions').length})',
-      );
     }
+    _subscriberDirty = true;
     notifyListeners();
   }
 
@@ -204,9 +242,7 @@ class EmoteManager extends ChangeNotifier {
     _channelTwitchEmotes[channel] = emotes
         .where((e) => e.type == EmoteType.twitch)
         .toList();
-    debugPrint(
-      'EmoteManager: resolved ${_channelTwitchEmotes[channel]!.length} Twitch emotes for $channel',
-    );
+    _subscriberDirty = true;
     final map = _buildChannelMap(emotes);
     _channelCaches[channel] = map;
     _channelFetchTimes[channel] = DateTime.now();
@@ -218,11 +254,14 @@ class EmoteManager extends ChangeNotifier {
     _channelCaches.remove(channel);
     _channelFetchTimes.remove(channel);
     _channelTwitchEmotes.remove(channel);
+    _subscriberDirty = true;
     _sevenTvEmoteSetIds.remove(channel);
+    _mergedCache.remove(channel);
   }
 
   void evictGlobal() {
     _globalCache = null;
+    _mergedCache.clear();
   }
 
   void setSevenTvEmoteSetId(String channel, String emoteSetId) {

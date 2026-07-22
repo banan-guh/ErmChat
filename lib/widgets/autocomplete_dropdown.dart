@@ -18,59 +18,50 @@ class AutocompleteDropdown extends StatefulWidget {
 
 class _AutocompleteDropdownState extends State<AutocompleteDropdown> {
   static const _fontSize = 16.0;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    if (widget.suggestions.isEmpty) return const SizedBox.shrink();
+    return _buildChild(theme);
+  }
 
-    return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 150),
-      switchInCurve: Curves.decelerate,
-      switchOutCurve: Curves.easeIn,
-      transitionBuilder: (child, animation) {
-        return FadeTransition(
-          opacity: animation,
-          child: SizeTransition(
-            sizeFactor: animation,
-            axis: Axis.vertical,
-            alignment: Alignment.topCenter,
-            child: child,
+  static const _emoteSize = 36.0;
+  static const _rowHeight = 48.0;
+
+  Widget _buildChild(ThemeData theme) {
+    return LayoutBuilder(
+      builder: (_, constraints) {
+        final itemCount = widget.suggestions.length;
+        final contentHeight = itemCount * _rowHeight;
+        final maxH = constraints.maxHeight;
+        final height = maxH.isFinite
+            ? contentHeight.clamp(0.0, maxH)
+            : contentHeight.toDouble();
+        return SizedBox(
+          height: height,
+          child: Container(
+            key: const Key('autocomplete_dropdown'),
+            decoration: BoxDecoration(
+              color: theme.scaffoldBackgroundColor,
+              border: Border(
+                top: BorderSide(
+                  color: theme.dividerColor.withValues(alpha: 0.3),
+                ),
+              ),
+            ),
+            child: ListView.builder(
+              physics: const ClampingScrollPhysics(),
+              itemCount: itemCount,
+              itemExtent: _rowHeight,
+              itemBuilder: (_, i) =>
+                  _buildRow(theme, widget.suggestions[i]),
+            ),
           ),
         );
       },
-      child: widget.suggestions.isEmpty
-          ? const SizedBox.shrink()
-          : _buildContent(theme),
     );
   }
-
-  Widget _buildContent(ThemeData theme) {
-    return AnimatedSize(
-      duration: const Duration(milliseconds: 300),
-      curve: Curves.ease,
-      alignment: Alignment.topCenter,
-      child: Container(
-        key: const Key('autocomplete_dropdown'),
-        decoration: BoxDecoration(
-          color: theme.scaffoldBackgroundColor,
-          border: Border(
-            top: BorderSide(color: theme.dividerColor.withValues(alpha: 0.3)),
-          ),
-        ),
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              for (final suggestion in widget.suggestions)
-                _buildRow(theme, suggestion),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  static const _emoteSize = 28.0;
-  static const _rowHeight = 40.0;
 
   Widget _buildRow(ThemeData theme, Suggestion suggestion) {
     return Material(
@@ -86,7 +77,7 @@ class _AutocompleteDropdownState extends State<AutocompleteDropdown> {
               switch (suggestion) {
                 UserSuggestion() => Icon(
                     Icons.person,
-                    size: 22,
+                    size: 28,
                     color: theme.colorScheme.onSurfaceVariant,
                   ),
                 EmoteSuggestion() => SizedBox(

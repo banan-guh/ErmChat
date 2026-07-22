@@ -34,101 +34,126 @@ class MentionsPanelWidget extends StatefulWidget {
 }
 
 class MentionsPanelWidgetState extends State<MentionsPanelWidget> {
+  List<TwitchMessage>? _messages;
+
+  @override
+  void initState() {
+    super.initState();
+    _messages = widget.messages.value;
+    widget.messages.addListener(_onDataChanged);
+  }
+
+  @override
+  void didUpdateWidget(MentionsPanelWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.messages != oldWidget.messages) {
+      oldWidget.messages.removeListener(_onDataChanged);
+      widget.messages.addListener(_onDataChanged);
+      _messages = widget.messages.value;
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.messages.removeListener(_onDataChanged);
+    super.dispose();
+  }
+
+  void _onDataChanged() {
+    setState(() {
+      _messages = widget.messages.value;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder<List<TwitchMessage>?>(
-      valueListenable: widget.messages,
-      builder: (context, msgs, _) {
-        final theme = Theme.of(context);
-        final surface = theme.colorScheme.surface;
-        final systemScale = MediaQuery.textScalerOf(context).scale(1.0);
-        final s = widget.uiScale * systemScale;
+    final theme = Theme.of(context);
+    final surface = theme.colorScheme.surface;
+    final systemScale = MediaQuery.textScalerOf(context).scale(1.0);
+    final s = widget.uiScale * systemScale;
 
-        final messageList = msgs ?? [];
+    final messageList = _messages ?? [];
 
-        if (msgs == null) return const SizedBox.shrink();
+    if (_messages == null) return const SizedBox.shrink();
 
-        return Material(
-          color: theme.scaffoldBackgroundColor,
-          clipBehavior: Clip.hardEdge,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Material(
-                elevation: 2,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                  child: Row(
-                    children: [
-                      IconButton(
-                        icon: const Icon(Icons.arrow_back),
-                        tooltip: 'Back',
-                        onPressed: widget.onClose,
+    return Material(
+      color: theme.scaffoldBackgroundColor,
+      clipBehavior: Clip.hardEdge,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Material(
+            elevation: 2,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: Row(
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.arrow_back),
+                    tooltip: 'Back',
+                    onPressed: widget.onClose,
+                  ),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: Text(
+                      'Mentions / Whispers',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: theme.colorScheme.onSurface,
                       ),
-                      const SizedBox(width: 4),
-                      Expanded(
-                        child: Text(
-                          'Mentions / Whispers',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                            color: theme.colorScheme.onSurface,
-                          ),
-                        ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          Divider(height: 1, color: theme.dividerColor),
+          Expanded(
+            child: messageList.isEmpty
+                ? CustomScrollView(
+                    controller: widget.scrollController,
+                    slivers: const [
+                      SliverFillRemaining(
+                        hasScrollBody: false,
+                        child: Center(child: Text('No mentions or whispers')),
                       ),
                     ],
+                  )
+                : ListView.builder(
+                    controller: widget.scrollController,
+                    physics: const ClampingScrollPhysics(),
+                    reverse: true,
+                    padding: const EdgeInsets.only(bottom: 8),
+                    itemCount: messageList.length,
+                    itemBuilder: (_, i) {
+                      final msg = messageList[messageList.length - 1 - i];
+                      final channel = msg.channel ?? '';
+
+                      if (msg.isSystem) {
+                        return ChatMessageTile(
+                          message: msg,
+                          channel: channel,
+                          surface: surface,
+                          textScale: s,
+                          buildBadgeSpans: widget.buildBadgeSpans,
+                          buildMessageSpans: widget.buildMessageSpans,
+                        );
+                      }
+
+                      return ChatMessageTile(
+                        message: msg,
+                        channel: channel,
+                        surface: surface,
+                        textScale: s,
+                        buildBadgeSpans: widget.buildBadgeSpans,
+                        buildMessageSpans: widget.buildMessageSpans,
+                      );
+                    },
                   ),
-                ),
-              ),
-              Divider(height: 1, color: theme.dividerColor),
-              Expanded(
-                child: messageList.isEmpty
-                    ? CustomScrollView(
-                        controller: widget.scrollController,
-                        slivers: const [
-                          SliverFillRemaining(
-                            hasScrollBody: false,
-                            child: Center(
-                                child: Text('No mentions or whispers')),
-                          ),
-                        ],
-                      )
-                    : ListView.builder(
-                        controller: widget.scrollController,
-                        physics: const ClampingScrollPhysics(),
-                        reverse: true,
-                        padding: const EdgeInsets.only(bottom: 8),
-                        itemCount: messageList.length,
-                        itemBuilder: (_, i) {
-                          final msg = messageList[messageList.length - 1 - i];
-                          final channel = msg.channel ?? '';
-
-                          if (msg.isSystem) {
-                            return ChatMessageTile(
-                              message: msg,
-                              channel: channel,
-                              surface: surface,
-                              textScale: s,
-                              buildBadgeSpans: widget.buildBadgeSpans,
-                              buildMessageSpans: widget.buildMessageSpans,
-                            );
-                          }
-
-                          return ChatMessageTile(
-                            message: msg,
-                            channel: channel,
-                            surface: surface,
-                            textScale: s,
-                            buildBadgeSpans: widget.buildBadgeSpans,
-                            buildMessageSpans: widget.buildMessageSpans,
-                          );
-                        },
-                      ),
-              ),
-            ],
           ),
-        );
-      },
+        ],
+      ),
     );
   }
 }

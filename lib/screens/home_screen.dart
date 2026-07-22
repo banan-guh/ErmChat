@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:io' show Platform;
-import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -160,7 +159,7 @@ class _HomeScreenState extends State<HomeScreen>
   OverlayPanel _activePanel = OverlayPanel.closed;
   int _maxMessagesPerChannel = 200;
 
-  List<Suggestion> _suggestions = [];
+  final _suggestionsNotifier = ValueNotifier<List<Suggestion>>([]);
 
   late final DraggableScrollableController _threadSheetCtrl;
   late final DraggableScrollableController _mentionsSheetCtrl;
@@ -313,10 +312,8 @@ class _HomeScreenState extends State<HomeScreen>
     final cursor = _messageController.selection.baseOffset;
     final word = getCurrentWord(text, cursor);
     if (word.text.length < 2) {
-      if (_suggestions.isNotEmpty) {
-        setState(() {
-          _suggestions = [];
-        });
+      if (_suggestionsNotifier.value.isNotEmpty) {
+        _suggestionsNotifier.value = [];
       }
       return;
     }
@@ -330,9 +327,7 @@ class _HomeScreenState extends State<HomeScreen>
       emotes: emotes,
       users: users,
     );
-    setState(() {
-      _suggestions = filtered;
-    });
+    _suggestionsNotifier.value = filtered;
   }
 
   void _onSuggestionSelected(Suggestion suggestion) {
@@ -344,9 +339,7 @@ class _HomeScreenState extends State<HomeScreen>
     if (suggestion is EmoteSuggestion) {
       _emoteManager.markEmoteUsed(suggestion.emote);
     }
-    setState(() {
-      _suggestions = [];
-    });
+    _suggestionsNotifier.value = [];
     _focusNode.requestFocus();
   }
 
@@ -758,10 +751,8 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   void _sendMessage() {
-    if (_suggestions.isNotEmpty) {
-      setState(() {
-        _suggestions = [];
-      });
+    if (_suggestionsNotifier.value.isNotEmpty) {
+      _suggestionsNotifier.value = [];
     }
 
     final text = _messageController.text.trim();
@@ -1066,8 +1057,8 @@ class _HomeScreenState extends State<HomeScreen>
         _activePanel = OverlayPanel.closed;
       }
       _openThreadRoot = null;
-      if (_suggestions.isNotEmpty) {
-        _suggestions = [];
+      if (_suggestionsNotifier.value.isNotEmpty) {
+        _suggestionsNotifier.value = [];
       }
     });
     _closePanel();
@@ -1385,14 +1376,16 @@ class _HomeScreenState extends State<HomeScreen>
                               .clamp(0.0, 340.0),
                           child: ConstrainedBox(
                             constraints: BoxConstraints(
-                              maxHeight: min(
-                                MediaQuery.of(context).size.height * 0.25,
-                                192.0,
-                              ),
+                              maxHeight:
+                                  MediaQuery.of(context).size.height * 0.25,
                             ),
-                            child: AutocompleteDropdown(
-                              suggestions: _suggestions,
-                              onSelect: _onSuggestionSelected,
+                            child: ValueListenableBuilder<List<Suggestion>>(
+                              valueListenable: _suggestionsNotifier,
+                              builder: (_, suggestions, _) =>
+                                  AutocompleteDropdown(
+                                suggestions: suggestions,
+                                onSelect: _onSuggestionSelected,
+                              ),
                             ),
                           ),
                         ),
@@ -1633,16 +1626,14 @@ class _HomeScreenState extends State<HomeScreen>
             if (notification is ScrollUpdateNotification) {
               final scrolledUp = notification.metrics.pixels > 50.0;
               if (scrolledUp && (_isAtBottom[channel] ?? true)) {
-                setState(() {
-                  _isAtBottom[channel] = false;
-                  _frozenSnapshot[channel] =
-                      List.of(_channelMessages[channel] ?? []);
-                });
+                _isAtBottom[channel] = false;
+                _frozenSnapshot[channel] =
+                    List.of(_channelMessages[channel] ?? []);
+                _chatVersion.value++;
               } else if (!scrolledUp && !(_isAtBottom[channel] ?? true)) {
-                setState(() {
-                  _isAtBottom[channel] = true;
-                  _frozenSnapshot.remove(channel);
-                });
+                _isAtBottom[channel] = true;
+                _frozenSnapshot.remove(channel);
+                _chatVersion.value++;
               }
             }
             return false;
@@ -1706,8 +1697,8 @@ class _HomeScreenState extends State<HomeScreen>
               onPressed: () {
                 _isAtBottom[channel] = true;
                 _frozenSnapshot.remove(channel);
-                if (mounted) setState(() {});
                 _scrollCtrl(channel).jumpTo(0);
+                _chatVersion.value++;
               },
               child: const Icon(Icons.keyboard_arrow_down),
             ),

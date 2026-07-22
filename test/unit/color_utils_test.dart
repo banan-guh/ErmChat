@@ -65,10 +65,11 @@ void main() {
       expect(parseColor('not a color'), isNull);
     });
 
-    test('adjusts contrast against background', () {
-      final c = parseColor('#FF0000', background: Colors.white);
+    test('adjusts against background', () {
+      final c = parseColor('#FFFF00', background: Colors.white);
       expect(c, isNotNull);
-      expect(contrast(c!, Colors.white), greaterThanOrEqualTo(4.5));
+      final hsl = HSLColor.fromColor(c!);
+      expect(hsl.lightness, lessThanOrEqualTo(0.5));
     });
   });
 
@@ -96,20 +97,26 @@ void main() {
     });
   });
 
-  group('ensureContrast', () {
-    test('returns same color if already >= 4.5', () {
-      final c = ensureContrast(Colors.black, Colors.white);
-      expect(c, equals(Colors.black));
+  group('normalizeColor', () {
+    test('darkens yellow on light background', () {
+      const yellow = Color(0xFFFFFF00);
+      final c = normalizeColor(yellow, Colors.white);
+      final hsl = HSLColor.fromColor(c);
+      expect(hsl.lightness, lessThan(1.0));
+      expect(hsl.lightness, lessThanOrEqualTo(0.6));
     });
 
-    test('adjusts dark color on dark background', () {
-      final c = ensureContrast(Colors.black, const Color(0xFF111111));
-      expect(contrast(c, const Color(0xFF111111)), greaterThanOrEqualTo(4.5));
+    test('brightens dark blue on dark background', () {
+      const darkBlue = Color(0xFF00008B);
+      final c = normalizeColor(darkBlue, Colors.black);
+      final hsl = HSLColor.fromColor(c);
+      expect(hsl.lightness, greaterThanOrEqualTo(0.5));
     });
 
-    test('adjusts light color on light background', () {
-      final c = ensureContrast(Colors.white, const Color(0xFFEEEEEE));
-      expect(contrast(c, const Color(0xFFEEEEEE)), greaterThanOrEqualTo(4.5));
+    test('returns valid color for red on light background', () {
+      final c = normalizeColor(Colors.red, Colors.white);
+      final hsl = HSLColor.fromColor(c);
+      expect(hsl.lightness, lessThanOrEqualTo(0.5));
     });
   });
 }

@@ -30,7 +30,7 @@ Color? parseColor(String? color, {Color? background}) {
   if (value == null) return null;
   final c = Color(value);
   if (background == null) return c;
-  return ensureContrast(c, background);
+  return normalizeColor(c, background);
 }
 
 double luminance(Color c) {
@@ -49,23 +49,39 @@ double contrast(Color a, Color b) {
   return (max(l1, l2) + 0.05) / (min(l1, l2) + 0.05);
 }
 
-Color ensureContrast(Color color, Color background) {
-  if (contrast(color, background) >= 4.5) return color;
+Color normalizeColor(Color color, Color background) {
   final hsl = HSLColor.fromColor(color);
   final hue = hsl.hue;
   final saturation = hsl.saturation;
-  for (double l = hsl.lightness; l >= 0; l -= 0.01) {
-    final test = HSLColor.fromAHSL(
-      1,
-      hue,
-      max(saturation, l > 0.5 ? saturation : saturation * 0.5),
-      l,
-    ).toColor();
-    if (contrast(test, background) >= 4.5) return test;
+  double lightness = hsl.lightness;
+
+  final isLight = luminance(background) > 0.5;
+  final huePercentage = hue / 360.0;
+
+  if (isLight) {
+    if (lightness > 0.5) {
+      lightness = 0.5;
+    }
+    if (lightness > 0.4 &&
+        huePercentage >= 0.1 &&
+        huePercentage <= 0.33333) {
+      lightness -=
+          sin((huePercentage - 0.1) / (0.33333 - 0.1) * pi) * saturation * 0.4;
+    }
+  } else {
+    if (lightness < 0.5) {
+      lightness = 0.5;
+    }
+    if (lightness < 0.6 &&
+        huePercentage >= 0.54444 &&
+        huePercentage <= 0.83333) {
+      lightness +=
+          sin((huePercentage - 0.54444) / (0.83333 - 0.54444) * pi) *
+              saturation *
+              0.4;
+    }
   }
-  for (double l = hsl.lightness; l <= 1; l += 0.01) {
-    final test = HSLColor.fromAHSL(1, hue, saturation, l).toColor();
-    if (contrast(test, background) >= 4.5) return test;
-  }
-  return color;
+
+  lightness = lightness.clamp(0.0, 1.0);
+  return HSLColor.fromAHSL(1, hue, saturation, lightness).toColor();
 }

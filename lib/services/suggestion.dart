@@ -80,13 +80,13 @@ List<Suggestion> filterSuggestions({
 
   final matchedEmotes = <GenericEmote>[];
   for (final emote in emotes) {
-    if (emote.code.startsWith(word)) {
+    if (emote.code.contains(word)) {
       matchedEmotes.add(emote);
     }
   }
   for (final emote in emotes) {
     if (!matchedEmotes.contains(emote) &&
-        emote.code.toLowerCase().startsWith(lower)) {
+        emote.code.toLowerCase().contains(lower)) {
       matchedEmotes.add(emote);
     }
   }

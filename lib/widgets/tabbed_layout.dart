@@ -32,7 +32,13 @@ class _SwipeScrollBehavior extends ScrollBehavior {
     BuildContext context,
     Widget child,
     ScrollableDetails details,
-  ) => child;
+  ) {
+    return StretchingOverscrollIndicator(
+      axisDirection: details.direction,
+      clipBehavior: details.decorationClipBehavior ?? Clip.hardEdge,
+      child: child,
+    );
+  }
 
   @override
   GestureVelocityTrackerBuilder velocityTrackerBuilder(BuildContext context) {

@@ -1,16 +1,17 @@
+"*" means "finished"
 Critical
-1. debugPrint on every IRC line (lib/services/twitch_irc.dart:162)
+*1. debugPrint on every IRC line (lib/services/twitch_irc.dart:162)
 Every single IRC message (user chats, protocol traffic) is printed to stderr. On a busy channel (10-50 msg/s), this is massive I/O overhead. The debugPrint at line 162 prints every raw line, plus additional prints on CLEARCHAT, NOTICE, and ban events.
-2. RegExp allocation per message with reply (lib/services/twitch_eventsub.dart:242)
+*2. RegExp allocation per message with reply (lib/services/twitch_eventsub.dart:242)
 In the hot path for every incoming chat message that has a reply (threads), a new RegExp is constructed and compiled. This can be replaced with String.startsWith() since the prefix character is already known.
 High
-3. _onEmotesChanged invalidates ALL cached spans (lib/screens/home_screen.dart:354)
+*3. _onEmotesChanged invalidates ALL cached spans (lib/screens/home_screen.dart:354)
 Every emote manager notification (emote resolution, 7TV updates, login) iterates every message in every channel and sets msg.cachedSpans = null, then calls setState. This forces recomputation of every message's emote text spans on every emote change.
-4. Full-screen setState on every chat message (lib/screens/home_screen.dart)
+*4. Full-screen setState on every chat message (lib/screens/home_screen.dart)
 The onRebuild callback (setState((){})) fires on every incoming message via chatVersion + onRebuild. This rebuilds the entire 1753-line widget tree — including all panels, the autocomplete dropdown, the chat status bar, etc. — even though only one channel's list actually changed.
 5. ValueListenableBuilder rebuild cascade (lib/widgets/thread_panel.dart:52, lib/widgets/mentions_panel.dart:39)
 The panel widgets create ValueListenableBuilder in their build(), meaning every parent setState creates a fresh builder widget, which re-invokes the builder closure even if the listenable value hasn't changed. This reconstructs all message tiles inside the panel.
-6. byCode() allocates new ChannelEmotes every call (lib/services/emote_manager.dart:43-51)
+*6. byCode() allocates new ChannelEmotes every call (lib/services/emote_manager.dart:43-51)
 Called in the message rendering hot path (_computeMessageSpans → EmoteText.build). Every call merges global + channel caches into a new map and allocates a sorted list.
 7. Slider writes to disk on every drag tick (lib/screens/settings_screen.dart)
 The max-messages slider calls SharedPreferences.getInstance() + setInt on every frame during drag. Should defer to onChangeEnd.
