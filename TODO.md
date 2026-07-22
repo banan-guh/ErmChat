@@ -49,6 +49,7 @@
 - [x] **Fix info in settings** - not v0.0.1 anymore
 - [x] **Thread close gesture is reversed**
 - [x] **@user pings truncate all the time** - non-conditional, should seperate replies from pure @user.
+- [ ] **Investigate possible malformed API calls** - messages sometimes lag-spike, take maybe 5 seconds to send, sometimes more. This should 100% be looked into, maybe it's API calls and maybe it's something else, IRC loopback problems? who knows.
 
 ## Research / Open Ends
 

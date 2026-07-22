@@ -2,19 +2,19 @@ name: Build Release Assets (iOS & Android)
 
 on:
   release:
-    types: [published] # Triggers for both regular Releases and Pre-releases
+    types: [published]
   push:
     tags:
-      - 'v*' # Triggers when you push tags like v1.0.0 or v1.0.0-beta
-  workflow_dispatch: # Allows manual runs from the Actions tab
+      - 'v*'
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  build:
-    runs-on: macos-latest
-
+  # --- JOB 1: ANDROID BUILD ---
+  build-android:
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -24,6 +24,7 @@ jobs:
         with:
           distribution: 'zulu'
           java-version: '17'
+          cache: 'gradle'
 
       - name: Set up Flutter SDK
         uses: subosito/flutter-action@v2
@@ -34,23 +35,44 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      # --- BUILD ANDROID APK ---
       - name: Build Android APK
         run: flutter build apk --release
 
-      - name: Copy APK to release folder
+      - name: Prepare APK Asset
         run: |
           mkdir -p build/release-assets
           TAG_NAME="${{ github.ref_name }}"
           REPO_NAME="${{ github.event.repository.name }}"
           cp build/app/outputs/flutter-apk/app-release.apk "build/release-assets/${REPO_NAME}-${TAG_NAME}.apk"
 
-      # --- BUILD IOS IPA ---
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-asset
+          path: build/release-assets/*.apk
+
+  # --- JOB 2: IOS BUILD ---
+  build-ios:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter SDK
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
       - name: Build unsigned iOS IPA
         run: flutter build ipa --no-codesign
 
       - name: Package payload into downloadable .ipa
         run: |
+          mkdir -p build/release-assets
           TAG_NAME="${{ github.ref_name }}"
           REPO_NAME="${{ github.event.repository.name }}"
           cd build/ios/archive/Runner.xcarchive/Products/Applications
@@ -58,9 +80,25 @@ jobs:
           cp -r Runner.app Payload/
           zip -r "$GITHUB_WORKSPACE/build/release-assets/${REPO_NAME}-${TAG_NAME}.ipa" Payload
 
-      # --- ATTACH RAW FILES TO GITHUB RELEASE ---
+      - name: Upload IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-asset
+          path: build/release-assets/*.ipa
+
+  # --- JOB 3: PUBLISH TO GITHUB RELEASE ---
+  publish-release:
+    needs: [build-android, build-ios]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'release'
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: build/release-assets
+          merge-multiple: true
+
       - name: Upload Assets to GitHub Release
         uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'release'
         with:
           files: build/release-assets/*
