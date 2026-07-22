@@ -43,12 +43,12 @@
 - [x] **Fix Twitch emote rendering** - Emotes display incorrectly. Investigate emote parsing, URL generation, or image sizing to get them rendering properly.
 - [x] **Fix 7TV system messages** - 7TV emotes/system messages not rendering correctly. Investigate and fix.
 - [x] **Twitch emotes don't show in emote menu** - `resolveEmotes` was placed after the `getCurrentUser` gate in `_subscribeChannel`, so if that API call failed the emote fetch was silently skipped. Moved emote resolution before the gate so it always runs when `channelUserId` is available.
-- [ ] **Twitch emotes not working from emote suggestions** - not showing up
-- [ ] **Fix bolding** - just a style thing.
-- [ ] **Fix WCAG** - make similar to other clients, more bright
+- [x] **Twitch emotes not working from emote suggestions** - not showing up
+- [x] **Fix bolding** - just a style thing.
+- [x] **Fix WCAG** - make similar to other clients, more bright
 - [x] **Fix info in settings** - not v0.0.1 anymore
-- [ ] **Thread close gesture is reversed**
-- [ ] **@user pings truncate all the time** - non-conditional, should seperate replies from pure @user.
+- [x] **Thread close gesture is reversed**
+- [x] **@user pings truncate all the time** - non-conditional, should seperate replies from pure @user.
 
 ## Research / Open Ends
 
