@@ -806,18 +806,16 @@ class ChatConnectionManager {
     final isReplyToMe =
         login != null &&
         !msg.isSystem &&
-        !msg.isHistory &&
         msg.replyToUser != null &&
         msg.replyToUser!.toLowerCase() == login;
     final isMentioned =
         (login != null &&
             !msg.isSystem &&
-            !msg.isHistory &&
             _isMention(msg, login)) ||
         isReplyToMe;
 
     if (isMentioned) {
-      if (!msg.isHighlighted && channel != getSelectedChannel()) {
+      if (!msg.isHighlighted && !msg.isHistory && channel != getSelectedChannel()) {
         setUnreadMentions(getUnreadMentions() + 1);
         channelsWithUnreadMentions.add(channel);
         unreadMentionsPerChannel[channel] =
@@ -878,13 +876,19 @@ class ChatConnectionManager {
 
     final messageId = ircMsg.tags['id'];
     final text = ircMsg.trailing!;
-
-    // Twitch's IRC gateway prepends @username to reply echoes.
-    // Strip it so pendingLocals matching works against the clean user-typed text.
-    final replyPrefixMatch = RegExp(r'^\s*@\S+\s+').firstMatch(text);
-    final prefixLen = replyPrefixMatch?.end ?? 0;
-    final strippedText = prefixLen > 0 ? text.substring(prefixLen) : text;
     final ircReplyParentId = ircMsg.tags['reply-parent-msg-id'];
+
+    // Twitch's IRC gateway prepends @username to reply echoes only.
+    // Only strip the prefix when this is an actual reply.
+    String strippedText = text;
+    var prefixLen = 0;
+    if (ircReplyParentId != null) {
+      final prefixMatch = RegExp(r'^\s*@\S+\s+').firstMatch(text);
+      if (prefixMatch != null) {
+        prefixLen = prefixMatch.end;
+        strippedText = text.substring(prefixLen);
+      }
+    }
     final ircReplyUser = _unescapeIrcTag(
       ircMsg.tags['reply-parent-display-name'],
     );

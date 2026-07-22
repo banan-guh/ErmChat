@@ -7,7 +7,6 @@ class MentionsPanelWidget extends StatefulWidget {
   final ScrollController scrollController;
   final ValueListenable<List<TwitchMessage>?> messages;
   final double uiScale;
-  final VoidCallback onClose;
   final List<WidgetSpan> Function(String, TwitchMessage, {double badgeScale})
   buildBadgeSpans;
   final List<InlineSpan> Function(
@@ -23,7 +22,6 @@ class MentionsPanelWidget extends StatefulWidget {
     required this.scrollController,
     required this.messages,
     required this.uiScale,
-    required this.onClose,
     required this.buildBadgeSpans,
     required this.buildMessageSpans,
     super.key,
@@ -76,84 +74,49 @@ class MentionsPanelWidgetState extends State<MentionsPanelWidget> {
 
     if (_messages == null) return const SizedBox.shrink();
 
-    return Material(
-      color: theme.scaffoldBackgroundColor,
-      clipBehavior: Clip.hardEdge,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Material(
-            elevation: 2,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              child: Row(
-                children: [
-                  IconButton(
-                    icon: const Icon(Icons.arrow_back),
-                    tooltip: 'Back',
-                    onPressed: widget.onClose,
-                  ),
-                  const SizedBox(width: 4),
-                  Expanded(
-                    child: Text(
-                      'Mentions / Whispers',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        color: theme.colorScheme.onSurface,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          Divider(height: 1, color: theme.dividerColor),
-          Expanded(
-            child: messageList.isEmpty
-                ? CustomScrollView(
-                    controller: widget.scrollController,
-                    slivers: const [
-                      SliverFillRemaining(
-                        hasScrollBody: false,
-                        child: Center(child: Text('No mentions or whispers')),
-                      ),
-                    ],
-                  )
-                : ListView.builder(
-                    controller: widget.scrollController,
-                    physics: const ClampingScrollPhysics(),
-                    reverse: true,
-                    padding: const EdgeInsets.only(bottom: 8),
-                    itemCount: messageList.length,
-                    itemBuilder: (_, i) {
-                      final msg = messageList[messageList.length - 1 - i];
-                      final channel = msg.channel ?? '';
-
-                      if (msg.isSystem) {
-                        return ChatMessageTile(
-                          message: msg,
-                          channel: channel,
-                          surface: surface,
-                          textScale: s,
-                          buildBadgeSpans: widget.buildBadgeSpans,
-                          buildMessageSpans: widget.buildMessageSpans,
-                        );
-                      }
-
-                      return ChatMessageTile(
-                        message: msg,
-                        channel: channel,
-                        surface: surface,
-                        textScale: s,
-                        buildBadgeSpans: widget.buildBadgeSpans,
-                        buildMessageSpans: widget.buildMessageSpans,
-                      );
-                    },
-                  ),
+    if (messageList.isEmpty) {
+      return CustomScrollView(
+        controller: widget.scrollController,
+        physics: const BouncingScrollPhysics(),
+        slivers: const [
+          SliverFillRemaining(
+            hasScrollBody: false,
+            child: Center(child: Text('No mentions or whispers')),
           ),
         ],
-      ),
+      );
+    }
+
+    return ListView.builder(
+      controller: widget.scrollController,
+      physics: const BouncingScrollPhysics(),
+      reverse: true,
+      padding: const EdgeInsets.only(bottom: 8),
+      itemCount: messageList.length,
+      itemBuilder: (_, i) {
+        final msg = messageList[i];
+        final channel = msg.channel ?? '';
+
+        if (msg.isSystem) {
+          return ChatMessageTile(
+            message: msg,
+            channel: channel,
+            surface: surface,
+            textScale: s,
+            buildBadgeSpans: widget.buildBadgeSpans,
+            buildMessageSpans: widget.buildMessageSpans,
+          );
+        }
+
+        return ChatMessageTile(
+          message: msg,
+          channel: channel,
+          surface: surface,
+          textScale: s,
+          buildBadgeSpans: widget.buildBadgeSpans,
+          buildMessageSpans: widget.buildMessageSpans,
+        );
+      },
     );
   }
 }

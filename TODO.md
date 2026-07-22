@@ -48,6 +48,7 @@
 - [ ] **Fix WCAG** - make similar to other clients, more bright
 - [x] **Fix info in settings** - not v0.0.1 anymore
 - [ ] **Thread close gesture is reversed**
+- [ ] **@user pings truncate all the time** - non-conditional, should seperate replies from pure @user.
 
 ## Research / Open Ends
 

@@ -63,7 +63,7 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen>
-    with WidgetsBindingObserver {
+    with WidgetsBindingObserver, TickerProviderStateMixin {
   static const _mentionsChannel = '@mentions';
 
   late final _eventSub = widget.eventSubService ?? EventSubService();
@@ -108,7 +108,10 @@ class _HomeScreenState extends State<HomeScreen>
     getUnreadMentions: () => _unreadMentions,
     setUnreadMentions: (v) => _unreadMentions = v,
     getCurrentUserLogin: () => _currentUserLogin,
-    setCurrentUserLogin: (v) => _currentUserLogin = v,
+    setCurrentUserLogin: (v) {
+      _currentUserLogin = v;
+      _scanHistoryForMentions();
+    },
     getCurrentUserId: () => _currentUserId,
     setCurrentUserId: (v) => _currentUserId = v,
     getCurrentUserColor: () => _currentUserColor,
@@ -161,9 +164,13 @@ class _HomeScreenState extends State<HomeScreen>
 
   final _suggestionsNotifier = ValueNotifier<List<Suggestion>>([]);
 
-  late final DraggableScrollableController _threadSheetCtrl;
-  late final DraggableScrollableController _mentionsSheetCtrl;
+  final _threadSheetRatio = ValueNotifier(0.0);
+  final _mentionsSheetRatio = ValueNotifier(0.0);
   late final DraggableScrollableController _emoteSheetCtrl;
+  final _threadPanelScrollCtrl = ScrollController();
+  final _mentionsPanelScrollCtrl = ScrollController();
+  double _panelDragStartRatio = 0.0;
+  double _panelDragStartY = 0.0;
   static const _sheetAnimDuration = Duration(milliseconds: 250);
   static const _sheetCloseDuration = Duration(milliseconds: 180);
   static const _emoteMaxFraction = 0.6;
@@ -176,6 +183,7 @@ class _HomeScreenState extends State<HomeScreen>
   final _pendingLocals = <String, PendingLocal>{};
 
   String? _currentUserLogin;
+  bool _mentionScanDone = false;
   String? _currentUserColor;
   String? _currentUserId;
   String? _lastSentText;
@@ -201,15 +209,10 @@ class _HomeScreenState extends State<HomeScreen>
   void initState() {
     super.initState();
     _currentUserLogin = widget.initialCurrentUserLogin;
-    _threadSheetCtrl = DraggableScrollableController();
-    _threadSheetCtrl.addListener(
-      () => _onSheetSizeChanged(OverlayPanel.thread, _threadSheetCtrl),
-    );
-    _mentionsSheetCtrl = DraggableScrollableController();
-    _mentionsSheetCtrl.addListener(
-      () => _onSheetSizeChanged(OverlayPanel.mentions, _mentionsSheetCtrl),
-    );
     _emoteSheetCtrl = DraggableScrollableController();
+    _emoteSheetCtrl.addListener(
+      () => _onSheetSizeChanged(OverlayPanel.emotes, _emoteSheetCtrl),
+    );
     _emoteSheetCtrl.addListener(
       () => _onSheetSizeChanged(OverlayPanel.emotes, _emoteSheetCtrl),
     );
@@ -275,8 +278,9 @@ class _HomeScreenState extends State<HomeScreen>
                 final existing = _channelMessages[name]!;
                 final existingIds = existing.map((m) => m.messageId).toSet();
                 for (final msg in history) {
-                  if (msg.messageId == null ||
-                      !existingIds.contains(msg.messageId)) {
+                  final isNew = msg.messageId == null ||
+                      !existingIds.contains(msg.messageId);
+                  if (isNew) {
                     existing.insert(0, msg);
                   }
                   if (msg.messageId != null) {
@@ -284,6 +288,28 @@ class _HomeScreenState extends State<HomeScreen>
                       '$name:${msg.messageId}',
                       () => GlobalKey(),
                     );
+                  }
+                  final login = _currentUserLogin?.toLowerCase();
+                  if (login != null &&
+                      !msg.isSystem &&
+                      !msg.isHighlighted &&
+                      msg.login.toLowerCase() != login) {
+                    final isReplyToMe = msg.replyToUser != null &&
+                        msg.replyToUser!.toLowerCase() == login;
+                    if (isMention(msg.text, login) || isReplyToMe) {
+                      msg.isHighlighted = true;
+                      _channelMessages
+                          .putIfAbsent(_mentionsChannel, () => []);
+                      final mentionList =
+                          _channelMessages[_mentionsChannel]!;
+                      final existingMentionIds = mentionList
+                          .map((m) => m.messageId)
+                          .toSet();
+                      if (msg.messageId == null ||
+                          !existingMentionIds.contains(msg.messageId)) {
+                        mentionList.insert(0, msg);
+                      }
+                    }
                   }
                 }
                 _truncateChannelMessages(name);
@@ -472,9 +498,11 @@ class _HomeScreenState extends State<HomeScreen>
     _focusNode.removeListener(_onInputFocusChanged);
     _focusNode.dispose();
     _chatVersion.removeListener(_onPanelDataChanged);
-    _threadSheetCtrl.dispose();
-    _mentionsSheetCtrl.dispose();
+    _threadSheetRatio.dispose();
+    _mentionsSheetRatio.dispose();
     _emoteSheetCtrl.dispose();
+    _threadPanelScrollCtrl.dispose();
+    _mentionsPanelScrollCtrl.dispose();
     _threadPanelData.dispose();
     _mentionsPanelData.dispose();
     for (final c in _scrollControllers.values) {
@@ -853,12 +881,9 @@ class _HomeScreenState extends State<HomeScreen>
       channel: channel,
     );
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && _threadSheetCtrl.isAttached) {
-        _threadSheetCtrl.animateTo(
-          _fullHeightFraction,
-          duration: _sheetAnimDuration,
-          curve: Curves.easeOut,
-        );
+      if (mounted) {
+        _animateRatio(_threadSheetRatio, 0.0, _fullHeightFraction,
+            _sheetAnimDuration);
       }
     });
   }
@@ -871,12 +896,9 @@ class _HomeScreenState extends State<HomeScreen>
     });
     _mentionsPanelData.value = _channelMessages[_mentionsChannel] ?? [];
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && _mentionsSheetCtrl.isAttached) {
-        _mentionsSheetCtrl.animateTo(
-          _fullHeightFraction,
-          duration: _sheetAnimDuration,
-          curve: Curves.easeOut,
-        );
+      if (mounted) {
+        _animateRatio(_mentionsSheetRatio, 0.0, _fullHeightFraction,
+            _sheetAnimDuration);
       }
     });
   }
@@ -910,18 +932,29 @@ class _HomeScreenState extends State<HomeScreen>
   Future<void> _closePanel() async {
     final panelToClose = _activePanel;
     if (panelToClose == OverlayPanel.closed) return;
-    final ctrl = switch (panelToClose) {
-      OverlayPanel.thread => _threadSheetCtrl,
-      OverlayPanel.mentions => _mentionsSheetCtrl,
-      OverlayPanel.emotes => _emoteSheetCtrl,
-      OverlayPanel.closed => null,
-    };
-    if (ctrl == null || !ctrl.isAttached) return;
-    await ctrl.animateTo(
-      0.0,
-      duration: _sheetCloseDuration,
-      curve: Curves.easeOut,
-    );
+    if (panelToClose == OverlayPanel.emotes) {
+      if (_emoteSheetCtrl.isAttached) {
+        await _emoteSheetCtrl.animateTo(
+          0.0,
+          duration: _sheetCloseDuration,
+          curve: Curves.easeOut,
+        );
+      }
+    } else if (panelToClose == OverlayPanel.thread) {
+      await _animateRatio(
+        _threadSheetRatio,
+        _threadSheetRatio.value,
+        0.0,
+        _sheetCloseDuration,
+      );
+    } else if (panelToClose == OverlayPanel.mentions) {
+      await _animateRatio(
+        _mentionsSheetRatio,
+        _mentionsSheetRatio.value,
+        0.0,
+        _sheetCloseDuration,
+      );
+    }
     if (mounted) {
       setState(() {
         _activePanel = OverlayPanel.closed;
@@ -930,6 +963,103 @@ class _HomeScreenState extends State<HomeScreen>
         _mentionsPanelData.value = null;
       });
     }
+  }
+
+  Future<void> _animateRatio(
+    ValueNotifier<double> ratio,
+    double from,
+    double to,
+    Duration duration,
+  ) async {
+    if (from == to) return;
+    final controller = AnimationController(vsync: this, duration: duration);
+    final animation = Tween(begin: from, end: to).animate(
+      CurvedAnimation(parent: controller, curve: Curves.easeOut),
+    );
+    void listener() {
+      ratio.value = animation.value;
+    }
+    animation.addListener(listener);
+    await controller.forward();
+    animation.removeListener(listener);
+    controller.dispose();
+  }
+
+  Widget _buildPanelDragHandle({
+    required ValueNotifier<double> ratio,
+    required double maxSize,
+    required VoidCallback onClose,
+    required VoidCallback onSnap,
+  }) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onVerticalDragStart: (details) {
+        _panelDragStartRatio = ratio.value;
+        _panelDragStartY = details.globalPosition.dy;
+      },
+      onVerticalDragUpdate: (details) {
+        final cumulativeDelta =
+            details.globalPosition.dy - _panelDragStartY;
+        final height = maxSize *
+            (MediaQuery.of(context).size.height -
+                MediaQuery.of(context).padding.top);
+        ratio.value = (_panelDragStartRatio -
+                cumulativeDelta / height)
+            .clamp(0.0, maxSize);
+      },
+      onVerticalDragEnd: (_) {
+        if (ratio.value < maxSize * 0.9) {
+          onClose();
+        } else {
+          onSnap();
+        }
+      },
+      child: Container(
+        width: double.infinity,
+        color: Colors.transparent,
+        padding: const EdgeInsets.only(bottom: 50, top: 10),// (vertical: 20),
+        child: Align(
+          alignment: Alignment.topCenter,
+          child: Container(
+            width: 36,
+            height: 4,
+            decoration: BoxDecoration(
+              color: Colors.grey.shade400,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSheetPanel({
+    required ValueNotifier<double> ratio,
+    required Widget child,
+  }) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final height = constraints.maxHeight;
+        return ClipRect(
+          child: OverflowBox(
+            alignment: Alignment.bottomCenter,
+            minHeight: height,
+            maxHeight: height,
+            child: AnimatedBuilder(
+              animation: ratio,
+              builder: (context, child) {
+                final closedFraction = (1.0 - ratio.value).clamp(0.0, 1.0);
+                return FractionalTranslation(
+                  translation: Offset(0, closedFraction),
+                  child: child!,
+                );
+              },
+              child: child,
+            ),
+          ),
+        );
+      },
+    );
   }
 
   /// Wraps [child] so it renders at its full expanded height and translates
@@ -1068,6 +1198,28 @@ class _HomeScreenState extends State<HomeScreen>
     return _channelMessages[channel] ?? [];
   }
 
+  void _scanHistoryForMentions() {
+    if (_mentionScanDone || _currentUserLogin == null) return;
+    _mentionScanDone = true;
+    final login = _currentUserLogin!.toLowerCase();
+    for (final entry in _channelMessages.entries) {
+      if (entry.key == _mentionsChannel) continue;
+      for (final msg in entry.value) {
+        if (msg.isSystem || msg.isHighlighted ||
+            msg.login.toLowerCase() == login) {
+          continue;
+        }
+        final isReplyToMe = msg.replyToUser != null &&
+            msg.replyToUser!.toLowerCase() == login;
+        if (isMention(msg.text, login) || isReplyToMe) {
+          msg.isHighlighted = true;
+          _channelMessages.putIfAbsent(_mentionsChannel, () => []);
+          _channelMessages[_mentionsChannel]!.insert(0, msg);
+        }
+      }
+    }
+  }
+
   void _truncateChannelMessages(String channel) {
     _chatConn.truncateChannelMessages(channel);
   }
@@ -1108,8 +1260,19 @@ class _HomeScreenState extends State<HomeScreen>
                                 horizontal: 4,
                               ),
                               child: Row(
-                                children: [
-                                  const Spacer(),
+                                 children: [
+                                   Padding(
+                                     padding: const EdgeInsets.only(left: 8),
+                                     child: Text(
+                                       'uuhChat',
+                                       style: TextStyle(
+                                         fontSize: 22,
+                                         fontWeight: FontWeight.w400,
+                                         color: null,
+                                       ),
+                                     ),
+                                   ),
+                                   const Spacer(),
                                   IconButton(
                                     icon: const Icon(Icons.add),
                                     tooltip: 'Join channel',
@@ -1229,43 +1392,67 @@ class _HomeScreenState extends State<HomeScreen>
                         bottom: 0,
                         left: 0,
                         right: 0,
-                        child: LayoutBuilder(
-                          builder: (context, constraints) {
-                            final totalAvailH = constraints.maxHeight;
-                            return IgnorePointer(
-                              ignoring: _activePanel != OverlayPanel.thread,
-                              child: DraggableScrollableSheet(
-                                controller: _threadSheetCtrl,
-                                initialChildSize: 0,
-                                minChildSize: 0,
-                                maxChildSize: _fullHeightFraction,
-                                snap: true,
-                                builder: (context, scrollController) {
-                                  final sheetTheme = Theme.of(context);
-                                  return _buildSlideUpContent(
-                                    controller: _threadSheetCtrl,
-                                    totalAvailH: totalAvailH,
-                                    maxSize: _fullHeightFraction,
-                                    child: RepaintBoundary(
-                                      child: Material(
-                                        color: sheetTheme.scaffoldBackgroundColor,
-                                        child: ThreadPanelWidget(
-                                          key: const ValueKey('thread_panel'),
-                                          data: _threadPanelData,
-                                          uiScale: 1.0,
-                                          onClose: _closePanel,
-                                          onLongPress: _showThreadMessageMenu,
-                                          buildBadgeSpans: _buildBadgeSpans,
-                                          buildMessageSpans: _buildMessageSpans,
-                                          scrollController: scrollController,
-                                        ),
+                        child: IgnorePointer(
+                          ignoring: _activePanel != OverlayPanel.thread,
+                          child: _buildSheetPanel(
+                            ratio: _threadSheetRatio,
+                            child: RepaintBoundary(
+                              child: Material(
+                                color: Theme.of(context).scaffoldBackgroundColor,
+                                clipBehavior: Clip.hardEdge,
+                                child: Column(
+                                  children: [
+                                    _buildPanelDragHandle(
+                                      ratio: _threadSheetRatio,
+                                      maxSize: _fullHeightFraction,
+                                      onClose: _closePanel,
+                                      onSnap: () => _animateRatio(
+                                        _threadSheetRatio,
+                                        _threadSheetRatio.value,
+                                        _fullHeightFraction,
+                                        _sheetAnimDuration,
                                       ),
                                     ),
-                                  );
-                                },
+                                    Padding(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                                      child: Row(
+                                        children: [
+                                          IconButton(
+                                            icon: const Icon(Icons.close),
+                                            tooltip: 'Close reply thread',
+                                            onPressed: _closePanel,
+                                          ),
+                                          const SizedBox(width: 4),
+                                          Expanded(
+                                            child: Text(
+                                              'Reply Thread',
+                                              style: TextStyle(
+                                                fontSize: 16,
+                                                fontWeight: FontWeight.w600,
+                                                color: Theme.of(context).colorScheme.onSurface,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    Divider(height: 1, color: Theme.of(context).dividerColor),
+                                    Expanded(
+                                      child: ThreadPanelWidget(
+                                        key: const ValueKey('thread_panel'),
+                                        data: _threadPanelData,
+                                        uiScale: 1.0,
+                                        onLongPress: _showThreadMessageMenu,
+                                        buildBadgeSpans: _buildBadgeSpans,
+                                        buildMessageSpans: _buildMessageSpans,
+                                        scrollController: _threadPanelScrollCtrl,
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
-                            );
-                          },
+                            ),
+                          ),
                         ),
                       ),
                       // Mentions sheet — always mounted, full height below
@@ -1275,42 +1462,66 @@ class _HomeScreenState extends State<HomeScreen>
                         bottom: 0,
                         left: 0,
                         right: 0,
-                        child: LayoutBuilder(
-                          builder: (context, constraints) {
-                            final totalAvailH = constraints.maxHeight;
-                            return IgnorePointer(
-                              ignoring: _activePanel != OverlayPanel.mentions,
-                              child: DraggableScrollableSheet(
-                                controller: _mentionsSheetCtrl,
-                                initialChildSize: 0,
-                                minChildSize: 0,
-                                maxChildSize: _fullHeightFraction,
-                                snap: true,
-                                builder: (context, scrollController) {
-                                  final sheetTheme = Theme.of(context);
-                                  return _buildSlideUpContent(
-                                    controller: _mentionsSheetCtrl,
-                                    totalAvailH: totalAvailH,
-                                    maxSize: _fullHeightFraction,
-                                    child: RepaintBoundary(
-                                      child: Material(
-                                        color: sheetTheme.scaffoldBackgroundColor,
-                                        child: MentionsPanelWidget(
-                                          key: const ValueKey('mentions_panel'),
-                                          messages: _mentionsPanelData,
-                                          uiScale: 1.0,
-                                          onClose: _closePanel,
-                                          buildBadgeSpans: _buildBadgeSpans,
-                                          buildMessageSpans: _buildMessageSpans,
-                                          scrollController: scrollController,
-                                        ),
+                        child: IgnorePointer(
+                          ignoring: _activePanel != OverlayPanel.mentions,
+                          child: _buildSheetPanel(
+                            ratio: _mentionsSheetRatio,
+                            child: RepaintBoundary(
+                              child: Material(
+                                color: Theme.of(context).scaffoldBackgroundColor,
+                                clipBehavior: Clip.hardEdge,
+                                child: Column(
+                                  children: [
+                                    _buildPanelDragHandle(
+                                      ratio: _mentionsSheetRatio,
+                                      maxSize: _fullHeightFraction,
+                                      onClose: _closePanel,
+                                      onSnap: () => _animateRatio(
+                                        _mentionsSheetRatio,
+                                        _mentionsSheetRatio.value,
+                                        _fullHeightFraction,
+                                        _sheetAnimDuration,
                                       ),
                                     ),
-                                  );
-                                },
+                                    Padding(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                                      child: Row(
+                                        children: [
+                                          IconButton(
+                                            icon: const Icon(Icons.arrow_back),
+                                            tooltip: 'Back',
+                                            onPressed: _closePanel,
+                                          ),
+                                          const SizedBox(width: 4),
+                                          Expanded(
+                                            child: Text(
+                                              'Mentions / Whispers',
+                                              style: TextStyle(
+                                                fontSize: 16,
+                                                fontWeight: FontWeight.w600,
+                                                color: Theme.of(context).colorScheme.onSurface,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    Divider(height: 1, color: Theme.of(context).dividerColor),
+                                    Expanded(
+                                      child: MentionsPanelWidget(
+                                        key: const ValueKey('mentions_panel'),
+                                        messages: _mentionsPanelData,
+                                        uiScale: 1.0,
+                                        buildBadgeSpans: _buildBadgeSpans,
+                                        buildMessageSpans: _buildMessageSpans,
+                                        scrollController: _mentionsPanelScrollCtrl,
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
-                            );
-                          },
+                            ),
+                          ),
                         ),
                       ),
                       // Emote sheet — always mounted, always 60%.

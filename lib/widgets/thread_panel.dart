@@ -18,7 +18,6 @@ class ThreadPanelWidget extends StatefulWidget {
   final ScrollController scrollController;
   final ValueListenable<ThreadPanelData?> data;
   final double uiScale;
-  final VoidCallback onClose;
   final void Function(TwitchMessage) onLongPress;
   final List<WidgetSpan> Function(String, TwitchMessage, {double badgeScale})
   buildBadgeSpans;
@@ -35,7 +34,6 @@ class ThreadPanelWidget extends StatefulWidget {
     required this.scrollController,
     required this.data,
     required this.uiScale,
-    required this.onClose,
     required this.onLongPress,
     required this.buildBadgeSpans,
     required this.buildMessageSpans,
@@ -89,82 +87,47 @@ class ThreadPanelWidgetState extends State<ThreadPanelWidget> {
 
     final threadMsgs = _data!.messages;
 
-    return Material(
-      color: theme.scaffoldBackgroundColor,
-      clipBehavior: Clip.hardEdge,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Material(
-            elevation: 2,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              child: Row(
-                children: [
-                  IconButton(
-                    icon: const Icon(Icons.close),
-                    tooltip: 'Close reply thread',
-                    onPressed: widget.onClose,
-                  ),
-                  const SizedBox(width: 4),
-                  Expanded(
-                    child: Text(
-                      'Reply Thread',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        color: theme.colorScheme.onSurface,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          Divider(height: 1, color: theme.dividerColor),
-          Expanded(
-            child: threadMsgs.isEmpty
-                ? ListView(
-                    controller: widget.scrollController,
-                    padding: const EdgeInsets.only(bottom: 8),
-                    children: const [
-                      Center(child: Text('No messages found')),
-                    ],
-                  )
-                : ListView.builder(
-                    controller: widget.scrollController,
-                    physics: const ClampingScrollPhysics(),
-                    reverse: true,
-                    padding: const EdgeInsets.only(bottom: 8),
-                    itemCount: threadMsgs.length,
-                    itemBuilder: (_, i) {
-                      final msg = threadMsgs[threadMsgs.length - 1 - i];
-
-                      if (msg.isSystem) {
-                        return ChatMessageTile(
-                          message: msg,
-                          channel: _data!.channel,
-                          surface: surface,
-                          textScale: s,
-                          buildBadgeSpans: widget.buildBadgeSpans,
-                          buildMessageSpans: widget.buildMessageSpans,
-                        );
-                      }
-
-                      return ChatMessageTile(
-                        message: msg,
-                        channel: _data!.channel,
-                        surface: surface,
-                        textScale: s,
-                        buildBadgeSpans: widget.buildBadgeSpans,
-                        buildMessageSpans: widget.buildMessageSpans,
-                        onLongPress: () => widget.onLongPress(msg),
-                      );
-                    },
-                  ),
-          ),
+    if (threadMsgs.isEmpty) {
+      return ListView(
+        controller: widget.scrollController,
+        physics: const BouncingScrollPhysics(),
+        padding: const EdgeInsets.only(bottom: 8),
+        children: const [
+          Center(child: Text('No messages found')),
         ],
-      ),
+      );
+    }
+
+    return ListView.builder(
+      controller: widget.scrollController,
+      physics: const BouncingScrollPhysics(),
+      reverse: true,
+      padding: const EdgeInsets.only(bottom: 8),
+      itemCount: threadMsgs.length,
+      itemBuilder: (_, i) {
+        final msg = threadMsgs[threadMsgs.length - 1 - i];
+
+        if (msg.isSystem) {
+          return ChatMessageTile(
+            message: msg,
+            channel: _data!.channel,
+            surface: surface,
+            textScale: s,
+            buildBadgeSpans: widget.buildBadgeSpans,
+            buildMessageSpans: widget.buildMessageSpans,
+          );
+        }
+
+        return ChatMessageTile(
+          message: msg,
+          channel: _data!.channel,
+          surface: surface,
+          textScale: s,
+          buildBadgeSpans: widget.buildBadgeSpans,
+          buildMessageSpans: widget.buildMessageSpans,
+          onLongPress: () => widget.onLongPress(msg),
+        );
+      },
     );
   }
 }

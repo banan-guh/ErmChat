@@ -313,9 +313,19 @@ IrcMessage? parseIrcMessage(String line) {
       for (final tag in tags.split(';')) {
         final eq = tag.indexOf('=');
         if (eq != -1) {
-          tagMap[tag.substring(0, eq)] = Uri.decodeComponent(
-            tag.substring(eq + 1),
+          String decoded;
+          try {
+            decoded = Uri.decodeComponent(tag.substring(eq + 1));
+          } catch (_) {
+            decoded = tag.substring(eq + 1);
+          }
+          // Strip unpaired surrogates that can crash toLowerCase etc.
+          decoded = decoded.replaceAll(RegExp(r'[\uDC00-\uDFFF]'), '');
+          decoded = decoded.replaceAll(
+            RegExp(r'[\uD800-\uDBFF](?![\uDC00-\uDFFF])'),
+            '',
           );
+          tagMap[tag.substring(0, eq)] = decoded;
         }
       }
     }

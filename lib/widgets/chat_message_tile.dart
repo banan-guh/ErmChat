@@ -15,6 +15,7 @@ class ChatMessageTile extends StatelessWidget {
   final void Function(String login, String? userId)? onTapUser;
   final VoidCallback? onLongPress;
   final Widget? replyIndicator;
+  final bool showHighlight;
 
   const ChatMessageTile({
     super.key,
@@ -29,6 +30,7 @@ class ChatMessageTile extends StatelessWidget {
     this.onTapUser,
     this.onLongPress,
     this.replyIndicator,
+    this.showHighlight = true,
   });
 
   @override
@@ -95,7 +97,7 @@ class ChatMessageTile extends StatelessWidget {
           : '$ts ${msg.formattedUsername}: ${msg.text}';
       deleted = msg.deleted;
       bodyColor = msg.bodyColor;
-      highlighted = msg.isHighlighted;
+      highlighted = showHighlight && msg.isHighlighted;
     }
 
     final tsStyle = TextStyle(
