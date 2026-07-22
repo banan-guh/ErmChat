@@ -1,11 +1,15 @@
-name: Build Unsigned iOS IPA
+name: Build Release Assets (iOS & Android)
 
 on:
+  release:
+    types: [published] # Triggers for both regular Releases and Pre-releases
   push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
-  workflow_dispatch: # Allows manual triggers from the Actions tab
+    tags:
+      - 'v*' # Triggers when you push tags like v1.0.0 or v1.0.0-beta
+  workflow_dispatch: # Allows manual runs from the Actions tab
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -15,8 +19,8 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Java (required for Android/Flutter tools)
-        uses: actions/setup-java@v3
+      - name: Set up Java
+        uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
           java-version: '17'
@@ -30,19 +34,33 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
+      # --- BUILD ANDROID APK ---
+      - name: Build Android APK
+        run: flutter build apk --release
+
+      - name: Copy APK to release folder
+        run: |
+          mkdir -p build/release-assets
+          TAG_NAME="${{ github.ref_name }}"
+          REPO_NAME="${{ github.event.repository.name }}"
+          cp build/app/outputs/flutter-apk/app-release.apk "build/release-assets/${REPO_NAME}-${TAG_NAME}.apk"
+
+      # --- BUILD IOS IPA ---
       - name: Build unsigned iOS IPA
         run: flutter build ipa --no-codesign
 
       - name: Package payload into downloadable .ipa
         run: |
-          mkdir -p build/ios/ipa
+          TAG_NAME="${{ github.ref_name }}"
+          REPO_NAME="${{ github.event.repository.name }}"
           cd build/ios/archive/Runner.xcarchive/Products/Applications
           mkdir Payload
           cp -r Runner.app Payload/
-          zip -r "$GITHUB_WORKSPACE/build/ios/ipa/buh-app.ipa" Payload
+          zip -r "$GITHUB_WORKSPACE/build/release-assets/${REPO_NAME}-${TAG_NAME}.ipa" Payload
 
-      - name: Upload IPA as GitHub Artifact
-        uses: actions/upload-artifact@v4
+      # --- ATTACH RAW FILES TO GITHUB RELEASE ---
+      - name: Upload Assets to GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'release'
         with:
-          name: ios-app-unsigned
-          path: build/ios/ipa/buh-app.ipa
+          files: build/release-assets/*
