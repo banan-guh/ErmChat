@@ -38,7 +38,7 @@ jobs:
           cd build/ios/archive/Runner.xcarchive/Products/Applications
           mkdir Payload
           cp -r Runner.app Payload/
-          zip -r ../../../../../build/ios/ipa/buh-app.ipa Payload
+          zip -r "$GITHUB_WORKSPACE/build/ios/ipa/buh-app.ipa" Payload
 
       - name: Upload IPA as GitHub Artifact
         uses: actions/upload-artifact@v4
