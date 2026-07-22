@@ -1319,8 +1319,13 @@ class _HomeScreenState extends State<HomeScreen>
                             ),
                           ),
                           Expanded(
-                            child: _channels.isNotEmpty
-                                ? ListenableBuilder(
+                            child: Listener(
+                              behavior: HitTestBehavior.translucent,
+                              onPointerDown: (_) {
+                                _suggestionsNotifier.value = [];
+                              },
+                              child: _channels.isNotEmpty
+                                  ? ListenableBuilder(
                                     listenable: _chatVersion,
                                     builder: (context, _) => TabbedLayout(
                                       tabs: _channels,
@@ -1382,7 +1387,8 @@ class _HomeScreenState extends State<HomeScreen>
                                       },
                                     ),
                                   )
-                                : _buildEmpty(),
+                                  : _buildEmpty(),
+                            ),
                           ),
                         ],
                       ),
