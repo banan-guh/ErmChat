@@ -191,12 +191,29 @@ class TabbedLayoutState extends State<TabbedLayout>
                     PointerDeviceKind.unknown,
                   },
                 ),
-                child: TabBarView(
-                  controller: _tabController,
-                  physics: const _SwipePhysics(),
-                  children: List.generate(
-                    tabs.length,
-                    (i) => widget.pageBuilder(context, i),
+                child: NotificationListener<ScrollNotification>(
+                  onNotification: (notification) {
+                    final metrics = notification.metrics;
+                    if (!metrics.viewportDimension.isFinite ||
+                        metrics.viewportDimension <= 0) {
+                      return false;
+                    }
+                    final liveIndex =
+                        (metrics.pixels / metrics.viewportDimension)
+                            .round()
+                            .clamp(0, widget.tabs.length - 1);
+                    if (liveIndex != widget.selectedIndex) {
+                      widget.onSelectedIndexChanged(liveIndex);
+                    }
+                    return false;
+                  },
+                  child: TabBarView(
+                    controller: _tabController,
+                    physics: const _SwipePhysics(),
+                    children: List.generate(
+                      tabs.length,
+                      (i) => widget.pageBuilder(context, i),
+                    ),
                   ),
                 ),
               ),
