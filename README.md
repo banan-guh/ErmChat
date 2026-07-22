@@ -1,32 +1,30 @@
 # flutter_twitch_app
 
-A Twitch chat viewer built with Flutter. Supports multiple channels, EventSub WebSocket for live messages, IRC for sending/ban/timeout, recent message history, reply threading, and mentions/whispers view.
+A Twitch chat viewer built with Flutter. It works, but it is a work in progress and still rough around the edges. Connect to channels, read chat, send messages, and browse reply threads.
 
-## Features
+## What it does
 
-- Multi-channel tabbed layout with smooth-scrolling channel bar
-- Live chat via Twitch EventSub WebSocket (low-latency)
-- Send messages via IRC
-- Reply threading with parent message preview
-- Mentions and whispers view
-- Recent message history via robotty.de
-- Ban/timeout/message deletion system messages
-- Channel points redemption, subscription, cheer, and raid event messages
+- Tabbed multi-channel chat with swipeable views
+- Live messages via Twitch EventSub WebSocket
+- Send messages through the Helix API
+- Reply threads with inline view
+- Mentions and whispers panel
+- Emotes across Twitch, BTTV, FFZ, and 7TV
+- Badges for mods, VIPs, subscribers, etc.
+- Emote and username autocomplete
+- Slash commands (`/ban`, `/timeout`, `/clear`, `/me`, etc.)
+- System messages for subs, cheers, raids, bans
 - Dark mode toggle
-- Twitch OAuth implicit grant login
-- Persistent credentials via SharedPreferences
-
-## Setup
-
-1. Get a Client ID at [Twitch Developer Console](https://dev.twitch.tv/console/apps) (set redirect URI to `http://localhost:17563`)
-2. Open `lib/twitch_config.dart` and replace `YOUR_CLIENT_ID_HERE` with your Client ID
-3. Run the app on a connected device or emulator
 
 ## Commands
 
 ```
-flutter run
-flutter test
-flutter analyze
-dart format .
+flutter run        # launch on connected device or emulator
+flutter test       # run all tests
+flutter analyze    # static analysis
+dart format .      # format all files
 ```
+
+## License
+
+MIT
