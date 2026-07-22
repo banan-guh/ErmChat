@@ -1,0 +1,47 @@
+name: Build Unsigned iOS IPA
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch: # Allows manual triggers from the Actions tab
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java (required for Android/Flutter tools)
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Set up Flutter SDK
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build unsigned iOS IPA
+        run: flutter build ipa --no-codesign
+
+      - name: Package payload into downloadable .ipa
+        run: |
+          mkdir -p build/ios/ipa
+          cd build/ios/archive/Runner.xcarchive/Products/Applications
+          mkdir Payload
+          cp -r Runner.app Payload/
+          zip -r ../../../../../build/ios/ipa/buh-app.ipa Payload
+
+      - name: Upload IPA as GitHub Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-app-unsigned
+          path: build/ios/ipa/buh-app.ipa
