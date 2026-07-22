@@ -21,7 +21,7 @@
 
 ## Medium Priority
 
-- [ ] **Rearrange-ability of channels** - should be able to rearrange where channels are in the top bar
+- [x] **Rearrange-ability of channels** - should be able to rearrange where channels are in the top bar
 - [ ] **Documentation** - Add comprehensive comments throughout the codebase explaining architecture, data flow, key design decisions, and non-obvious logic (e.g. EventSub vs IRC split, underline animation system, thread panel architecture).
 - [x] **/me handling** - `/me` messages detected from `\x01ACTION ... \x01` wrapping in both EventSub and IRC. Rendered as `username message` (no colon, message colored like username) in all 3 views.
 - [x] **Unread indicator** - Channel tab name is white when there are unread messages, grey when all are read.
