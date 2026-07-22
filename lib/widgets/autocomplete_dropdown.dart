@@ -22,45 +22,57 @@ class _AutocompleteDropdownState extends State<AutocompleteDropdown> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    if (widget.suggestions.isEmpty) return const SizedBox.shrink();
-    return _buildChild(theme);
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 150),
+      switchInCurve: Curves.decelerate,
+      switchOutCurve: Curves.easeIn,
+      transitionBuilder: (child, animation) => FadeTransition(
+        opacity: animation,
+        child: SizeTransition(
+          sizeFactor: animation,
+          axis: Axis.vertical,
+          alignment: Alignment.topCenter,
+          child: child,
+        ),
+      ),
+      child: widget.suggestions.isEmpty
+          ? const SizedBox.shrink()
+          : AnimatedSize(
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.ease,
+              alignment: Alignment.topCenter,
+              child: _buildChild(theme),
+            ),
+    );
   }
 
   static const _emoteSize = 36.0;
   static const _rowHeight = 48.0;
 
   Widget _buildChild(ThemeData theme) {
-    return LayoutBuilder(
-      builder: (_, constraints) {
-        final itemCount = widget.suggestions.length;
-        final contentHeight = itemCount * _rowHeight;
-        final maxH = constraints.maxHeight;
-        final height = maxH.isFinite
-            ? contentHeight.clamp(0.0, maxH)
-            : contentHeight.toDouble();
-        return SizedBox(
-          height: height,
-          child: Container(
-            key: const Key('autocomplete_dropdown'),
-            decoration: BoxDecoration(
-              color: theme.scaffoldBackgroundColor,
-              border: Border(
-                top: BorderSide(
-                  color: theme.dividerColor.withValues(alpha: 0.3),
-                ),
-              ),
-            ),
-            child: ListView.builder(
-              padding: EdgeInsets.zero,
-              physics: const ClampingScrollPhysics(),
-              itemCount: itemCount,
-              itemExtent: _rowHeight,
-              itemBuilder: (_, i) =>
-                  _buildRow(theme, widget.suggestions[i]),
+    final itemCount = widget.suggestions.length;
+    final contentHeight = itemCount * _rowHeight;
+    return SizedBox(
+      height: contentHeight.toDouble(),
+      child: Container(
+        key: const Key('autocomplete_dropdown'),
+        decoration: BoxDecoration(
+          color: theme.scaffoldBackgroundColor,
+          border: Border(
+            top: BorderSide(
+              color: theme.dividerColor.withValues(alpha: 0.3),
             ),
           ),
-        );
-      },
+        ),
+        child: ListView.builder(
+          padding: EdgeInsets.zero,
+          physics: const ClampingScrollPhysics(),
+          itemCount: itemCount,
+          itemExtent: _rowHeight,
+          itemBuilder: (_, i) =>
+              _buildRow(theme, widget.suggestions[i]),
+        ),
+      ),
     );
   }
 
