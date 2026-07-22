@@ -51,6 +51,7 @@ class _AutocompleteDropdownState extends State<AutocompleteDropdown> {
               ),
             ),
             child: ListView.builder(
+              padding: EdgeInsets.zero,
               physics: const ClampingScrollPhysics(),
               itemCount: itemCount,
               itemExtent: _rowHeight,
