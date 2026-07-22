@@ -145,6 +145,16 @@ class ChatConnectionManager {
     sevenTvUserSub?.cancel();
   }
 
+  String? _unescapeIrcTag(String? raw) {
+    if (raw == null) return null;
+    return raw
+        .replaceAll('\\s', ' ')
+        .replaceAll('\\\\', '\\')
+        .replaceAll('\\:', ';')
+        .replaceAll('\\r', '\r')
+        .replaceAll('\\n', '\n');
+  }
+
   void _markUserMessagesDeleted(String channel, String username) {
     final msgs = channelMessages[channel];
     if (msgs == null) {
@@ -875,6 +885,12 @@ class ChatConnectionManager {
     final prefixLen = replyPrefixMatch?.end ?? 0;
     final strippedText = prefixLen > 0 ? text.substring(prefixLen) : text;
     final ircReplyParentId = ircMsg.tags['reply-parent-msg-id'];
+    final ircReplyUser = _unescapeIrcTag(
+      ircMsg.tags['reply-parent-display-name'],
+    );
+    final ircReplyText = _unescapeIrcTag(
+      ircMsg.tags['reply-parent-msg-body'],
+    );
 
     if (messageId != null && messageKeys.containsKey('$channel:$messageId')) {
       return;
@@ -956,8 +972,8 @@ class ChatConnectionManager {
       userId: userId,
       color: color,
       replyToParentId: pendingMsg?.replyToParentId ?? ircReplyParentId,
-      replyToUser: pendingMsg?.replyToUser,
-      replyToText: pendingMsg?.replyToText,
+      replyToUser: pendingMsg?.replyToUser ?? ircReplyUser,
+      replyToText: pendingMsg?.replyToText ?? ircReplyText,
       emotePositions: emotePositions,
     );
 
