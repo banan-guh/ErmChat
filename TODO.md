@@ -46,7 +46,8 @@
 - [ ] **Twitch emotes not working from emote suggestions** - not showing up
 - [ ] **Fix bolding** - just a style thing.
 - [ ] **Fix WCAG** - make similar to other clients, more bright
-- [ ] **Fix info in settings** - not v0.0.1 anymore
+- [x] **Fix info in settings** - not v0.0.1 anymore
+- [ ] **Thread close gesture is reversed**
 
 ## Research / Open Ends
 

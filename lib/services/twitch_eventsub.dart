@@ -237,10 +237,9 @@ class EventSubService {
       replyUser = reply['parent_user_name'] as String?;
       replyText = reply['parent_message_body'] as String?;
       if (replyUser != null) {
-        final prefix = '@$replyUser ';
-        if (displayText.startsWith(
-          RegExp('^${RegExp.escape(prefix)}', caseSensitive: false),
-        )) {
+        final prefix = '@${replyUser.toLowerCase()} ';
+        final lower = displayText.toLowerCase();
+        if (lower.startsWith(prefix)) {
           displayText = displayText.substring(prefix.length);
         }
       }

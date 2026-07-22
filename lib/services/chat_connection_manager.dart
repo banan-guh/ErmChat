@@ -226,7 +226,7 @@ class ChatConnectionManager {
       }
     }
     chatStatus[channel] = parts.isNotEmpty ? parts.join(' · ') : '';
-    onRebuild();
+    chatVersion.value++;
   }
 
   void insertLocalMessage(
@@ -266,7 +266,6 @@ class ChatConnectionManager {
       messageKeys.putIfAbsent('$channel:$messageId', () => GlobalKey());
     }
     chatVersion.value++;
-    onRebuild();
   }
 
   void truncateChannelMessages(String channel) {
@@ -668,7 +667,6 @@ class ChatConnectionManager {
         }
       }
       chatVersion.value++;
-      onRebuild();
     });
 
     if (!auth.isConfigured) return;
@@ -685,7 +683,6 @@ class ChatConnectionManager {
     statusSub = eventSub.onStatus.listen((status) async {
       if (!mounted) return;
       connectionStatus = status;
-      onRebuild();
       if (status == EventSubStatus.connected && !wasConnected) {
         wasConnected = true;
         wasDisconnected = false;
@@ -760,7 +757,6 @@ class ChatConnectionManager {
         if (idx != -1) {
           existing[idx] = msg;
           chatVersion.value++;
-          onRebuild();
         }
       }
       return;
@@ -833,19 +829,10 @@ class ChatConnectionManager {
       channelMessages[mentionsChannel]!.insert(0, msg);
     }
 
-    chatVersion.value++;
-
-    var needsHeaderRebuild = false;
     if (channel != getSelectedChannel() && !msg.isHistory && !msg.isSystem) {
       channelsWithUnread.add(channel);
-      needsHeaderRebuild = true;
     }
-    if (msg.isHighlighted) {
-      needsHeaderRebuild = true;
-    }
-    if (needsHeaderRebuild) {
-      onRebuild();
-    }
+    chatVersion.value++;
     precacheMessageEmotes(msg, channel);
   }
 
@@ -983,7 +970,6 @@ class ChatConnectionManager {
     }
 
     chatVersion.value++;
-    onRebuild();
     precacheMessageEmotes(msg, channel);
   }
 }

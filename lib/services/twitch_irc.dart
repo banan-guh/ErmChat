@@ -159,23 +159,18 @@ class IrcService {
         continue;
       }
 
-      debugPrint('[IRC] line: $line');
-
       if (line.contains('CLEARCHAT ')) {
-        debugPrint('[IRC] matched CLEARCHAT');
         _handleClearChat(line);
         continue;
       }
 
       if (line.contains('NOTICE ')) {
-        debugPrint('[IRC] matched NOTICE');
         _handleNotice(line);
         continue;
       }
 
       // Twitch sends command responses (e.g. /color) as PRIVMSG from jtv
       if (line.contains('PRIVMSG ') && line.contains(':jtv ')) {
-        debugPrint('[IRC] matched jtv PRIVMSG');
         _handleJtvMessage(line);
         continue;
       }
@@ -184,29 +179,18 @@ class IrcService {
 
   void _handleClearChat(String line) {
     final msg = parseIrcMessage(line);
-    if (msg == null || msg.command != 'CLEARCHAT') {
-      debugPrint('[IRC] CLEARCHAT parse failed or wrong command');
-      return;
-    }
+    if (msg == null || msg.command != 'CLEARCHAT') return;
 
     final channel = msg.params.isNotEmpty ? msg.params[0].substring(1) : null;
-    if (channel == null) {
-      debugPrint('[IRC] CLEARCHAT no channel');
-      return;
-    }
+    if (channel == null) return;
 
     final targetUser = msg.trailing;
-    if (targetUser == null || targetUser.isEmpty) {
-      debugPrint('[IRC] CLEARCHAT no target user');
-      return;
-    }
+    if (targetUser == null || targetUser.isEmpty) return;
 
     final banDuration = msg.tags['ban-duration'];
     final targetUserId = msg.tags['target-user-id'];
     final isTimeout = banDuration != null;
     final duration = isTimeout ? int.tryParse(banDuration) : null;
-
-    debugPrint('[IRC] emitting ban: user=$targetUser channel=$channel isTimeout=$isTimeout duration=$duration');
 
     _banController.add(
       IrcBanEvent(

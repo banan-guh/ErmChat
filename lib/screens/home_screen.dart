@@ -356,7 +356,7 @@ class _HomeScreenState extends State<HomeScreen>
         msg.cachedSpans = null;
       }
     }
-    if (mounted) setState(() {});
+    _chatVersion.value++;
   }
 
   void _onPanelDataChanged() {
@@ -492,20 +492,18 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   void _addSystemMessage(String channel, String text) {
-    debugPrint('[HomeScreen] _addSystemMessage channel=$channel text=$text');
-    setState(() {
-      _channelMessages.putIfAbsent(channel, () => []);
-      _channelMessages[channel]!.insert(
-        0,
-        TwitchMessage(
-          login: '',
-          text: text,
-          isSystem: true,
-          channel: channel,
-        ),
-      );
-      _truncateChannelMessages(channel);
-    });
+    _channelMessages.putIfAbsent(channel, () => []);
+    _channelMessages[channel]!.insert(
+      0,
+      TwitchMessage(
+        login: '',
+        text: text,
+        isSystem: true,
+        channel: channel,
+      ),
+    );
+    _truncateChannelMessages(channel);
+    _chatVersion.value++;
   }
 
   void _showMessageMenu(TwitchMessage msg) {
@@ -1126,26 +1124,29 @@ class _HomeScreenState extends State<HomeScreen>
                                     tooltip: 'Join channel',
                                     onPressed: _addChannelDialog,
                                   ),
-                                  IconButton(
-                                    icon: Icon(
-                                      Icons.notifications_active,
-                                      color: _unreadMentions > 0
-                                          ? theme.colorScheme.error
-                                          : null,
+                                  ListenableBuilder(
+                                    listenable: _chatVersion,
+                                    builder: (context, _) => IconButton(
+                                      icon: Icon(
+                                        Icons.notifications_active,
+                                        color: _unreadMentions > 0
+                                            ? theme.colorScheme.error
+                                            : null,
+                                      ),
+                                      tooltip: 'Mentions',
+                                      onPressed: () {
+                                        _unreadMentions = 0;
+                                        _channelsWithUnreadMentions.clear();
+                                        _unreadMentionsPerChannel.clear();
+                                        if (mounted) setState(() {});
+                                        if (_activePanel ==
+                                            OverlayPanel.mentions) {
+                                          _closePanel();
+                                        } else {
+                                          _showMentionsView();
+                                        }
+                                      },
                                     ),
-                                    tooltip: 'Mentions',
-                                    onPressed: () {
-                                      _unreadMentions = 0;
-                                      _channelsWithUnreadMentions.clear();
-                                      _unreadMentionsPerChannel.clear();
-                                      if (mounted) setState(() {});
-                                      if (_activePanel ==
-                                          OverlayPanel.mentions) {
-                                        _closePanel();
-                                      } else {
-                                        _showMentionsView();
-                                      }
-                                    },
                                   ),
                                   SettingsButton(
                                     twitchAuth: widget.twitchAuth,
@@ -1433,23 +1434,30 @@ class _HomeScreenState extends State<HomeScreen>
                           ? 'Type a message...'
                           : null,
                     ),
-                    if (_chatStatus[_selectedChannel] != null &&
-                        _chatStatus[_selectedChannel]!.isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(
-                          left: 12,
-                          right: 12,
-                          bottom: 4,
-                        ),
-                        child: Text(
-                          _chatStatus[_selectedChannel]!,
-                          style: const TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey,
-                          ),
-                          textAlign: TextAlign.center,
-                        ),
-                      ),
+                    ListenableBuilder(
+                      listenable: _chatVersion,
+                      builder: (context, _) {
+                        final status = _chatStatus[_selectedChannel];
+                        if (status != null && status.isNotEmpty) {
+                          return Padding(
+                            padding: const EdgeInsets.only(
+                              left: 12,
+                              right: 12,
+                              bottom: 4,
+                            ),
+                            child: Text(
+                              status,
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                          );
+                        }
+                        return const SizedBox.shrink();
+                      },
+                    ),
                   ],
                 ),
               ),
