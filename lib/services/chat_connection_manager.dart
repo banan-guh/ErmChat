@@ -346,6 +346,7 @@ class ChatConnectionManager {
     // messages (thread-adjacent but not in an active thread) are removed.
     final keepIndices = <int>{};
     int nonThreadKept = 0;
+    int systemKept = 0;
     for (int i = 0; i < msgs.length; i++) {
       final m = msgs[i];
       final isActiveThread =
@@ -354,6 +355,10 @@ class ChatConnectionManager {
         keepIndices.add(i);
       } else if (m.isSystem) {
         // system messages past the limit are removed
+        if (systemKept < maxMessages) {
+          keepIndices.add(i);
+          systemKept++;
+        }
       } else {
         final isOrphanThread = m.messageId != null && !isActiveThread && (
             parentOf.containsKey(m.messageId!) ||
