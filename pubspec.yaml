@@ -42,6 +42,7 @@ dependencies:
   flutter_cache_manager: ^3.4.1
   webview_flutter: ^4.10.0
   flutter_foreground_task: ^10.0.0
+  connectivity_plus: ^7.3.0
 dev_dependencies:
   flutter_test:
     sdk: flutter

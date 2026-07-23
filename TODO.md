@@ -64,3 +64,4 @@
 - [ ] **Injectable TwitchBadgeService** - Currently standalone; consider making it injectable (like EventSubService/IrcService) for testability. Low priority.
 - [ ] **Analytics** self-explanatory. just a possible future feature.
 - [ ] **Thread customization** - Currently locked into replying to previous user. should allow replying to the first user.
+- [ ] **Add 0-width emotes to popup** - use tab bar menu, small addition

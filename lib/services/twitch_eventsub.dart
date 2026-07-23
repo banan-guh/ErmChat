@@ -3,20 +3,28 @@ import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import '../models/twitch_badge.dart';
 import '../models/twitch_message.dart';
 
 class EventSubService {
   static const _wsUrl = 'wss://eventsub.wss.twitch.tv/ws';
 
+  final Connectivity? _connectivity;
+
   WebSocketChannel? _channel;
   String? _sessionId;
   Timer? _keepaliveTimer;
+  Timer? _reconnectTimer;
   int _keepaliveTimeout = 10;
   var _sessionCompleter = Completer<String?>();
   StreamSubscription<dynamic>? _streamSub;
   bool _reconnecting = false;
+  bool _connecting = false;
+  bool _disposed = false;
   int _reconnectAttempt = 0;
+  StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
+  bool _isOnline = true;
   final _channelUserIds = <String, String>{};
 
   final _messageController = StreamController<TwitchMessage>.broadcast(
@@ -42,6 +50,8 @@ class EventSubService {
 
   bool get isConnected => _channel != null;
   String? get sessionId => _sessionId;
+
+  EventSubService({this._connectivity});
 
   Stream<TwitchMessage> get onMessage => _messageController.stream;
   Stream<EventSubStatus> get onStatus => _statusController.stream;
@@ -80,42 +90,60 @@ class EventSubService {
   }
 
   Future<void> connect({String? url}) async {
-    if (url != null) _reconnectAttempt = 0;
-    disconnect(emitStatus: false);
-    _sessionCompleter = Completer<String?>();
-    _statusController.add(EventSubStatus.connecting);
-
+    if (_connecting || _disposed) return;
+    _connecting = true;
     try {
-      _channel = WebSocketChannel.connect(Uri.parse(url ?? _wsUrl));
-      await _channel!.ready;
+      _connectivitySub?.cancel();
+      if (_connectivity != null) {
+        _connectivitySub = _connectivity.onConnectivityChanged.listen((results) {
+          final wasOffline = !_isOnline;
+          _isOnline = !results.contains(ConnectivityResult.none);
+          if (wasOffline && _isOnline && _channel == null && !_connecting) {
+            _reconnectAttempt = 0;
+            connect();
+          }
+        });
+      }
+      if (url != null) _reconnectAttempt = 0;
+      disconnect(emitStatus: false);
+      _sessionCompleter = Completer<String?>();
+      _statusController.add(EventSubStatus.connecting);
 
-      _streamSub = _channel!.stream.listen(
-        (raw) {
-          final msg = jsonDecode(raw as String) as Map<String, dynamic>;
-          _handleMessage(msg);
-        },
-        onError: (e) {
-          debugPrint('EventSub stream error: $e');
-          _safeComplete(null);
-          _statusController.add(EventSubStatus.disconnected);
-          _scheduleReconnect();
-        },
-        onDone: () {
-          _safeComplete(null);
-          _statusController.add(EventSubStatus.disconnected);
-          _scheduleReconnect();
-        },
-      );
-    } catch (e) {
-      _safeComplete(null);
-      _statusController.add(EventSubStatus.disconnected);
-      debugPrint('EventSub connect error: $e');
-      _scheduleReconnect();
+      try {
+        _channel = WebSocketChannel.connect(Uri.parse(url ?? _wsUrl));
+        await _channel!.ready;
+
+        _streamSub = _channel!.stream.listen(
+          (raw) {
+            final msg = jsonDecode(raw as String) as Map<String, dynamic>;
+            _handleMessage(msg);
+          },
+          onError: (e) {
+            debugPrint('EventSub stream error: $e');
+            _safeComplete(null);
+            _statusController.add(EventSubStatus.disconnected);
+            _scheduleReconnect();
+          },
+          onDone: () {
+            _safeComplete(null);
+            _statusController.add(EventSubStatus.disconnected);
+            _scheduleReconnect();
+          },
+        );
+      } catch (e) {
+        _safeComplete(null);
+        _statusController.add(EventSubStatus.disconnected);
+        debugPrint('EventSub connect error: $e');
+        _scheduleReconnect();
+      }
+    } finally {
+      _connecting = false;
     }
   }
 
   void _scheduleReconnect() {
-    if (_reconnecting) return;
+    if (_reconnecting || _disposed) return;
+    if (!_isOnline) return;
     _reconnecting = true;
     _reconnectAttempt++;
     final base = Duration(
@@ -125,7 +153,8 @@ class EventSubService {
     final delay = Duration(
       milliseconds: (base.inMilliseconds * jitter).toInt(),
     );
-    Timer(delay, () {
+    _reconnectTimer?.cancel();
+    _reconnectTimer = Timer(delay, () {
       _reconnecting = false;
       connect();
     });
@@ -196,7 +225,7 @@ class EventSubService {
     _keepaliveTimer?.cancel();
     _keepaliveTimer = Timer(Duration(seconds: _keepaliveTimeout * 2), () {
       debugPrint('EventSub keepalive timeout – reconnecting');
-      connect();
+      _scheduleReconnect();
     });
   }
 
@@ -362,6 +391,10 @@ class EventSubService {
 
   void disconnect({bool emitStatus = true}) {
     _reconnecting = false;
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+    _connectivitySub?.cancel();
+    _connectivitySub = null;
     _keepaliveTimer?.cancel();
     _keepaliveTimer = null;
     _sessionId = null;
@@ -384,6 +417,7 @@ class EventSubService {
   }
 
   void dispose() {
+    _disposed = true;
     disconnect();
     _messageController.close();
     _statusController.close();

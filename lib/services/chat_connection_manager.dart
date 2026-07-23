@@ -53,6 +53,7 @@ class ChatConnectionManager {
   bool wasDisconnected = false;
   bool userTwitchEmotesLoaded = false;
   bool mounted = true;
+  bool _isConnecting = false;
 
   StreamSubscription<TwitchMessage>? messageSub;
   StreamSubscription<EventSubStatus>? statusSub;
@@ -608,6 +609,9 @@ class ChatConnectionManager {
   }
 
   Future<void> connect() async {
+    if (_isConnecting || !mounted) return;
+    _isConnecting = true;
+    try {
     final auth = twitchAuth;
 
     messageSub ??= eventSub.onMessage.listen(onMessage);
@@ -755,6 +759,9 @@ class ChatConnectionManager {
     }
 
     await eventSub.connect();
+    } finally {
+      _isConnecting = false;
+    }
   }
 
   void onMessage(TwitchMessage msg) {

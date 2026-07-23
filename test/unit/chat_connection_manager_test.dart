@@ -223,4 +223,26 @@ void main() {
     conn.truncateChannelMessages('test');
     expect(msgs['test']!.length, 5);
   });
+
+  group('lifecycle', () {
+    test('dispose sets mounted to false', () {
+      final conn = _makeConn(channelMessages: {}, maxMessages: 10);
+      expect(conn.mounted, true);
+      conn.dispose();
+      expect(conn.mounted, false);
+    });
+
+    test('double dispose does not crash', () {
+      final conn = _makeConn(channelMessages: {}, maxMessages: 10);
+      conn.dispose();
+      expect(() => conn.dispose(), returnsNormally);
+    });
+
+    test('connect after dispose is no-op', () async {
+      final conn = _makeConn(channelMessages: {}, maxMessages: 10);
+      conn.dispose();
+      // Should return without setting up listeners or connecting
+      expect(() => conn.connect(), returnsNormally);
+    });
+  });
 }

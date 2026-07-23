@@ -3,6 +3,7 @@ import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import '../models/generic_emote.dart';
 import '../models/twitch_message.dart';
 import '../services/twitch_api.dart';
@@ -66,9 +67,10 @@ class _HomeScreenState extends State<HomeScreen>
     with WidgetsBindingObserver, TickerProviderStateMixin {
   static const _mentionsChannel = '@mentions';
 
-  late final _eventSub = widget.eventSubService ?? EventSubService();
-  late final _irc = widget.ircService ?? IrcService();
-  late final _ircRead = widget.ircReadService ?? IrcReadService();
+  late final _connectivity = Connectivity();
+  late final _eventSub = widget.eventSubService ?? EventSubService(connectivity: _connectivity);
+  late final _irc = widget.ircService ?? IrcService(connectivity: _connectivity);
+  late final _ircRead = widget.ircReadService ?? IrcReadService(connectivity: _connectivity);
   late final _recentMessages =
       widget.recentMessagesService ?? RecentMessagesService();
   late final _sevenTvClient = widget.sevenTvEventClient ?? SevenTvEventClient();

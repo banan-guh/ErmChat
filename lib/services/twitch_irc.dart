@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 
 class IrcBanEvent {
   final String channel;
@@ -29,15 +30,21 @@ class IrcNoticeEvent {
 class IrcService {
   static const _wsUrl = 'wss://irc-ws.chat.twitch.tv:443';
 
+  final Connectivity? _connectivity;
+
   WebSocketChannel? _channel;
   StreamSubscription<dynamic>? _streamSub;
   Timer? _pingTimer;
+  Timer? _reconnectTimer;
   String? _username;
   String? _token;
   bool _reconnecting = false;
+  bool _connecting = false;
   bool _disposed = false;
   int _reconnectAttempt = 0;
   int _pingsWithoutPong = 0;
+  StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
+  bool _isOnline = true;
 
   final _banController = StreamController<IrcBanEvent>.broadcast();
   final _noticeController = StreamController<IrcNoticeEvent>.broadcast();
@@ -50,6 +57,8 @@ class IrcService {
 
   bool get isConnected => _channel != null;
 
+  IrcService({this._connectivity});
+
   Future<void> connect({
     required String username,
     required String accessToken,
@@ -60,6 +69,20 @@ class IrcService {
   }
 
   Future<void> _connect() async {
+    if (_connecting) return;
+    _connecting = true;
+    try {
+    _connectivitySub?.cancel();
+    if (_connectivity != null) {
+      _connectivitySub = _connectivity.onConnectivityChanged.listen((results) {
+        final wasOffline = !_isOnline;
+        _isOnline = !results.contains(ConnectivityResult.none);
+        if (wasOffline && _isOnline && _channel == null && !_connecting) {
+          _reconnectAttempt = 0;
+          _connect();
+        }
+      });
+    }
     _disconnect();
     _pingsWithoutPong = 0;
 
@@ -106,9 +129,16 @@ class IrcService {
       debugPrint('IRC connect error: $e');
       _scheduleReconnect();
     }
+    } finally {
+      _connecting = false;
+    }
   }
 
   void _disconnect() {
+    _connectivitySub?.cancel();
+    _connectivitySub = null;
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
     _pingTimer?.cancel();
     _pingTimer = null;
     _streamSub?.cancel();
@@ -116,10 +146,13 @@ class IrcService {
     _channel?.sink.close();
     _channel = null;
     _pingsWithoutPong = 0;
+    _reconnectAttempt = 0;
+    _reconnecting = false;
   }
 
   void _scheduleReconnect() {
     if (_reconnecting || _disposed) return;
+    if (!_isOnline) return;
     _reconnecting = true;
     _reconnectAttempt++;
     Duration delay;
@@ -132,7 +165,8 @@ class IrcService {
       final jitter = 0.75 + Random().nextDouble() * 0.5;
       delay = Duration(milliseconds: (base.inMilliseconds * jitter).toInt());
     }
-    Future.delayed(delay, () {
+    _reconnectTimer?.cancel();
+    _reconnectTimer = Timer(delay, () {
       _reconnecting = false;
       if (!_disposed && _username != null && _token != null) {
         _connect();
@@ -261,6 +295,10 @@ class IrcService {
   void dispose() {
     _disposed = true;
     _reconnecting = false;
+    _connectivitySub?.cancel();
+    _connectivitySub = null;
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
     _pingTimer?.cancel();
     _streamSub?.cancel();
     _channel?.sink.close();
