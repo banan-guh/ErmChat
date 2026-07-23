@@ -50,6 +50,7 @@
 - [x] **Thread close gesture is reversed**
 - [x] **@user pings truncate all the time** - non-conditional, should seperate replies from pure @user.
 - [ ] **Investigate possible malformed API calls** - messages sometimes lag-spike, take maybe 5 seconds to send, sometimes more. This should 100% be looked into, maybe it's API calls and maybe it's something else, IRC loopback problems? who knows.
+- [x] **Fix emote scale** - some emotes are bigger than they should be and some smaller. mainly happens to "tall" emotes or "long" emotes, square emotes work fine.
 
 ## Research / Open Ends
 

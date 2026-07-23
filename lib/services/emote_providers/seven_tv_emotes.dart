@@ -76,11 +76,11 @@ class SevenTvEmoteProvider {
           isAnimated = true;
           final fileWidth = file['width'] as int?;
           final fileHeight = file['height'] as int?;
-          if (fileWidth != null) {
+          if (fileHeight != null) {
             final multiplierStr = name.split('x').first;
             final multiplier = int.tryParse(multiplierStr);
             if (multiplier != null && multiplier > 0) {
-              relativeScale = fileWidth / (multiplier * 32.0);
+              relativeScale = fileHeight / (multiplier * 32.0);
             }
           }
           if (fileWidth != null && fileHeight != null && fileHeight > 0) {
