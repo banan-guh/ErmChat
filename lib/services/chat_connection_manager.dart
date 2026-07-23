@@ -468,23 +468,39 @@ class ChatConnectionManager {
     String twitchChannelId,
   ) async {
     if (sevenTvClient == null) return;
-    try {
-      final uri = Uri.parse('https://7tv.io/v3/users/twitch/$twitchChannelId');
-      final res = await http.get(uri);
-      if (res.statusCode != 200) return;
-      final data = jsonDecode(res.body) as Map<String, dynamic>;
-      final userId = (data['user'] as Map<String, dynamic>?)?['id'] as String?;
-      final emoteSet =
-          data['emote_set'] as Map<String, dynamic>?;
-      final emoteSetId = emoteSet?['id'] as String?;
-      if (userId == null || emoteSetId == null) return;
-      emoteManager.setSevenTvEmoteSetId(channelName, emoteSetId);
-      sevenTvClient!.subscribeEmoteSet(emoteSetId);
-      sevenTvClient!.subscribeUser(userId);
-      debugPrint(
-        '[7TV] subscribed channel=$channelName emoteSetId=$emoteSetId userId=$userId',
-      );
-    } catch (_) {}
+
+    // Check if EmoteManager already has the IDs from resolveEmotes.
+    final cachedEmoteSetId = emoteManager.getSevenTvEmoteSetId(channelName);
+    final cachedUserId = emoteManager.getSevenTvUserId(channelName);
+
+    String finalEmoteSetId;
+    String finalUserId;
+
+    if (cachedEmoteSetId != null && cachedUserId != null) {
+      finalEmoteSetId = cachedEmoteSetId;
+      finalUserId = cachedUserId;
+    } else {
+      try {
+        final uri = Uri.parse('https://7tv.io/v3/users/twitch/$twitchChannelId');
+        final res = await http.get(uri);
+        if (res.statusCode != 200) return;
+        final data = jsonDecode(res.body) as Map<String, dynamic>;
+        final userId = (data['user'] as Map<String, dynamic>?)?['id'] as String?;
+        final emoteSetId = (data['emote_set'] as Map<String, dynamic>?)?['id'] as String?;
+        if (userId == null || emoteSetId == null) return;
+        emoteManager.setSevenTvEmoteSetId(channelName, emoteSetId);
+        finalUserId = userId;
+        finalEmoteSetId = emoteSetId;
+      } catch (_) {
+        return;
+      }
+    }
+
+    sevenTvClient!.subscribeEmoteSet(finalEmoteSetId);
+    sevenTvClient!.subscribeUser(finalUserId);
+    debugPrint(
+      '[7TV] subscribed channel=$channelName emoteSetId=$finalEmoteSetId userId=$finalUserId',
+    );
   }
 
   void _onSevenTvEmoteSetUpdate(SevenTvEmoteUpdateEvent event) {
@@ -596,7 +612,6 @@ class ChatConnectionManager {
             replyParentMessageId: reply?.messageId,
           );
           if (messageId != null && mounted) {
-            ownMessageIds.add(messageId);
             insertLocalMessage(text, channel, messageId, reply);
           }
         } catch (_) {}
@@ -795,12 +810,14 @@ class ChatConnectionManager {
       final normKey = '$channel:${normalizeForReconciliation(msg.text)}';
       final pendingKey = _pendingLocalsByNorm.remove(normKey);
       if (pendingKey != null) {
-        pendingLocals.remove(pendingKey);
+        final pending = pendingLocals.remove(pendingKey);
+        final stale = pending != null &&
+            DateTime.now().difference(pending.createdAt).inSeconds > 10;
         channelMessages[channel]?.removeWhere(
           (m) => m.messageId == pendingKey,
         );
+        if (stale) return;
       }
-      ownMessageIds.add(msg.messageId!);
     }
 
     if (msg.sourceBroadcasterId != null &&
@@ -845,6 +862,11 @@ class ChatConnectionManager {
     if (msg.isHighlighted) {
       channelMessages.putIfAbsent(mentionsChannel, () => []);
       channelMessages[mentionsChannel]!.insert(0, msg);
+      final mentionMsgs = channelMessages[mentionsChannel]!;
+      final max = getMaxMessagesPerChannel();
+      if (mentionMsgs.length > max) {
+        mentionMsgs.removeRange(max, mentionMsgs.length);
+      }
     }
 
     if (channel != getSelectedChannel() && !msg.isHistory && !msg.isSystem) {
@@ -914,14 +936,18 @@ class ChatConnectionManager {
     final pendingKey = _pendingLocalsByNorm.remove(normKey);
     TwitchMessage? pendingMsg;
     if (pendingKey != null) {
-      final existing = channelMessages[channel];
-      if (existing != null) {
-        final idx = existing.indexWhere((m) => m.messageId == pendingKey);
-        if (idx != -1) {
-          pendingMsg = existing[idx];
+      final pending = pendingLocals.remove(pendingKey);
+      final stale = pending != null &&
+          DateTime.now().difference(pending.createdAt).inSeconds > 10;
+      if (!stale) {
+        final existing = channelMessages[channel];
+        if (existing != null) {
+          final idx = existing.indexWhere((m) => m.messageId == pendingKey);
+          if (idx != -1) {
+            pendingMsg = existing[idx];
+          }
         }
       }
-      pendingLocals.remove(pendingKey);
       channelMessages[channel]?.removeWhere((m) => m.messageId == pendingKey);
     }
 
@@ -1009,5 +1035,6 @@ bool isMention(String text, String login) {
 class PendingLocal {
   final String channel;
   final String text;
-  PendingLocal(this.channel, this.text);
+  final DateTime createdAt;
+  PendingLocal(this.channel, this.text) : createdAt = DateTime.now();
 }

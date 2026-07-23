@@ -166,6 +166,7 @@ class _HomeScreenState extends State<HomeScreen>
   int _maxMessagesPerChannel = 200;
 
   final _suggestionsNotifier = ValueNotifier<List<Suggestion>>([]);
+  Timer? _autocompleteTimer;
 
   final _threadSheetRatio = ValueNotifier(0.0);
   final _mentionsSheetRatio = ValueNotifier(0.0);
@@ -384,9 +385,19 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   void _onEmotesChanged() {
-    for (final msgs in _channelMessages.values) {
-      for (final msg in msgs) {
-        msg.cachedSpans = null;
+    final channel = _emoteManager.changedChannel;
+    if (channel != null) {
+      final msgs = _channelMessages[channel];
+      if (msgs != null) {
+        for (final msg in msgs) {
+          msg.cachedSpans = null;
+        }
+      }
+    } else {
+      for (final msgs in _channelMessages.values) {
+        for (final msg in msgs) {
+          msg.cachedSpans = null;
+        }
       }
     }
     _chatVersion.value++;
@@ -1938,13 +1949,6 @@ class _HomeScreenState extends State<HomeScreen>
               itemBuilder: (_, i) {
                 final msg = msgs[i];
 
-                final key = msg.messageId != null
-                    ? _messageKeys.putIfAbsent(
-                        '$channel:${msg.messageId}',
-                        () => GlobalKey(),
-                      )
-                    : null;
-
                 Widget body;
                 if (msg.isSystem) {
                   body = ChatMessageTile(
@@ -1977,9 +1981,6 @@ class _HomeScreenState extends State<HomeScreen>
                   );
                 }
 
-                if (key != null) {
-                  body = Container(key: key, child: body);
-                }
                 return body;
               },
             ),

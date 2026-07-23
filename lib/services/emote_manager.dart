@@ -31,15 +31,29 @@ class EmoteManager extends ChangeNotifier {
   final _lastErrors = <String, String>{};
   final _channelTwitchEmotes = <String, List<GenericEmote>>{};
   final _sevenTvEmoteSetIds = <String, String>{};
+  final _sevenTvUserIds = <String, String>{};
   String? _accessToken;
   final _mergedCache = <String, ChannelEmotes?>{};
   final _userSubscriberEmotes = <String, GenericEmote>{};
   bool _subscriberDirty = true;
+  String? _changedChannel;
 
-  @override
-  void notifyListeners() {
-    _mergedCache.clear();
+  void _notify([String? channel]) {
+    _changedChannel = channel;
+    if (channel != null) {
+      _mergedCache.remove(channel);
+    } else {
+      _mergedCache.clear();
+    }
     super.notifyListeners();
+  }
+
+  /// Consumed by the home screen listener to only invalidate
+  /// spans for the channel whose emotes actually changed.
+  String? get changedChannel {
+    final c = _changedChannel;
+    _changedChannel = null;
+    return c;
   }
 
   set accessToken(String? value) => _accessToken = value;
@@ -173,7 +187,7 @@ class EmoteManager extends ChangeNotifier {
       _recentIds = _recentIds.sublist(0, _maxRecent);
     }
     await _saveRecent();
-    notifyListeners();
+    _notify();
   }
 
   Future<List<GenericEmote>> recentEmotes() async {
@@ -191,12 +205,12 @@ class EmoteManager extends ChangeNotifier {
     final cached = await _loadFromPrefs('emotes2_global', _globalTtl);
     if (cached != null) {
       _globalCache = cached;
-      notifyListeners();
+      _notify();
     }
     final emotes = await _fetchAllGlobal();
     _globalCache = _buildChannelMap(emotes);
     await _saveToPrefs('emotes2_global', _globalCache!, _globalTtl);
-    notifyListeners();
+    _notify();
   }
 
   Future<void> storeUserTwitchEmotes(
@@ -223,7 +237,7 @@ class EmoteManager extends ChangeNotifier {
       _channelCaches[channel] = _buildChannelMap(allEmotes);
     }
     _subscriberDirty = true;
-    notifyListeners();
+    _notify();
   }
 
   Future<void> resolveEmotes(String channel, String? broadcasterId) async {
@@ -236,7 +250,7 @@ class EmoteManager extends ChangeNotifier {
     if (cached != null) {
       _channelCaches[channel] = cached;
       _channelFetchTimes[channel] = DateTime.now();
-      notifyListeners();
+      _notify(channel);
     }
     final emotes = await _fetchAllChannel(broadcasterId, channelName: channel);
     _channelTwitchEmotes[channel] = emotes
@@ -247,7 +261,7 @@ class EmoteManager extends ChangeNotifier {
     _channelCaches[channel] = map;
     _channelFetchTimes[channel] = DateTime.now();
     await _saveToPrefs('emotes2_$channel', map, _channelTtl);
-    notifyListeners();
+    _notify(channel);
   }
 
   void evictChannel(String channel) {
@@ -256,6 +270,7 @@ class EmoteManager extends ChangeNotifier {
     _channelTwitchEmotes.remove(channel);
     _subscriberDirty = true;
     _sevenTvEmoteSetIds.remove(channel);
+    _sevenTvUserIds.remove(channel);
     _mergedCache.remove(channel);
   }
 
@@ -267,6 +282,10 @@ class EmoteManager extends ChangeNotifier {
   void setSevenTvEmoteSetId(String channel, String emoteSetId) {
     _sevenTvEmoteSetIds[channel] = emoteSetId;
   }
+
+  String? getSevenTvEmoteSetId(String channel) => _sevenTvEmoteSetIds[channel];
+
+  String? getSevenTvUserId(String channel) => _sevenTvUserIds[channel];
 
   String? getChannelForSevenTvEmoteSet(String emoteSetId) {
     for (final entry in _sevenTvEmoteSetIds.entries) {
@@ -326,7 +345,7 @@ class EmoteManager extends ChangeNotifier {
       byCode: byCode,
       suggestions: suggestions,
     );
-    notifyListeners();
+    _notify(channel);
   }
 
   ChannelEmotes _buildChannelMap(List<GenericEmote> emotes) {
@@ -402,7 +421,18 @@ class EmoteManager extends ChangeNotifier {
     );
     await _fetchProvider(
       '7TV',
-      () => SevenTvEmoteProvider.fetchChannel(broadcasterId),
+      () async {
+        final resp = await SevenTvEmoteProvider.fetchChannelResponse(broadcasterId);
+        if (channelName != null) {
+          if (resp.emoteSetId != null) {
+            setSevenTvEmoteSetId(channelName, resp.emoteSetId!);
+          }
+          if (resp.userId != null) {
+            _sevenTvUserIds[channelName] = resp.userId!;
+          }
+        }
+        return resp.emotes;
+      },
       all,
     );
     return all;
@@ -478,6 +508,7 @@ class EmoteManager extends ChangeNotifier {
       }
     }
     if (fresh.isEmpty) return;
+    if (_seenEmoteIds.length > 2000) _seenEmoteIds.clear();
     _precacheQueue.addAll(fresh);
     if (!_isProcessingPrecache) {
       _processPrecacheQueue();

@@ -37,8 +37,7 @@ class ChatMessageTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final msg = message;
     final s = textScale;
-    final ts = timestampOverride ??
-        '${msg.timestamp.toLocal().hour.toString().padLeft(2, '0')}:${msg.timestamp.toLocal().minute.toString().padLeft(2, '0')}';
+    final ts = timestampOverride ?? msg.formattedTimestamp;
 
     final List<InlineSpan> children;
     final String semanticsLabel;

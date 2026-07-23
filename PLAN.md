@@ -1,38 +1,33 @@
-# Investigation Results
-
-## Reconnect System — **Bugged**
-
-There are **8 bugs** in the reconnect system, several critical/severe. Here's a summary:
-
-### Critical/High
-
-| # | Bug | File |
-|---|---|---|
-| 1 | `EventSubService` has no `_disposed` guard — pending reconnect Timers survive `dispose()` and re-open WebSockets on a dead service | `twitch_eventsub.dart:118` |
-| 2 | `Timer`/`Future.delayed` in all 3 services is never stored/cancelled — stale reconnect timers fire after external `connect()`/`disconnect()`, causing **duplicate connections** | `twitch_eventsub.dart:128`, `twitch_irc.dart:135`, `twitch_irc_read.dart:110` |
-| 3 | Keepalive timeout calls `connect()` directly with **zero backoff** — tight reconnect loop every ~20s indefinitely if keepalives stop arriving | `twitch_eventsub.dart:199` |
-| 4 | **No max retry limit** on EventSub, IRC, or IRC Read — they will reconnect forever even in permanently unrecoverable scenarios | all 3 service files |
-| 5 | No guard against concurrent `connect()` calls — a keepalive-timeout `connect()` can race with a stream `onDone` → `_scheduleReconnect()` → new connect, creating duplicate connections | all 3 service files |
-| 6 | `ChatConnectionManager.connect()` has no guard against repeated calls — if called twice (initState + settings close), spawns duplicate WebSocket connections | `chat_connection_manager.dart:610` |
-
-### Medium
-| 7 | `_reconnectAttempt` not reset in `_disconnect()` — stale backoff state carries over to new manual connections in IRC services | `twitch_irc.dart:111` |
-| 8 | `_reconnectAttempt` reset logic inconsistent between URL/non-URL connect paths in EventSub | `twitch_eventsub.dart:82-83` |
-
-**Key takeaway**: Bugs 2 and 3 together are the most dangerous. If keepalives stop, you get a reconnect at a fixed ~20s interval. If a disconnect also triggers `_scheduleReconnect`, the stale timer from bug 2 fires mid-connection and creates a second connection, which itself may fail and start its own timer — amplifying into a cascade.
-
----
-
-## Twitch Emote Loading — Mostly Okay, Some Issues
-
-Emote loading **is asynchronous and non-blocking** at the UI level, but has performance concerns:
-
-| Severity | Issue | Location |
-|---|---|---|
-| Medium-High | **Mass `cachedSpans` invalidation**: when emotes change, ALL message spans across ALL channels are set to null — forces re-computation of every visible message's spans on next frame, potentially causing jank | `home_screen.dart:384-389` |
-| Medium | **Sequential provider fetching**: Twitch, BTTV, FFZ, 7TV fetched one-by-one with `await`. A slow Twitch Helix API call blocks all other providers | `emote_manager.dart:364-376` |
-| Medium | **`DefaultCacheManager` limit of 200 files**: with thousands of emotes from 4 providers, cache thrashing is possible | `emote_manager.dart:507` |
-| Medium | **No `cacheWidth`/`memCacheWidth`**: emote images decoded at full resolution (3x scale from CDN) but displayed at ~28px — wastes GPU memory | `emote_text.dart:228,250,264` |
-| Low | **Twitch emotes excluded from SharedPreferences persistence**: metadata must be re-fetched on every restart (images are still disk-cached) | `emote_manager.dart:452` |
-
-**Key takeaway**: Image loading is properly async via `CachedNetworkImage`. The main performance risk is the mass span invalidation when emotes finish loading, which forces all visible messages to rebuild their spans synchronously. No dedicated image cache/config is used — just `DefaultCacheManager` defaults.
+Here's the emote issue report:
+Emote System Investigation Report
+Critical
+*C1 — Mass span invalidation on every emote change (home_screen.dart:384-391)
+Whenever any emote finishes loading (any channel, any provider), _onEmotesChanged nulls cachedSpans on every single message across all channels, forcing full InlineSpan recomputation for the entire app. With N channels, startup triggers ~2N+2 full rebuilds via redundant notifyListeners() calls in the EmoteManager.
+High
+H1 — No memCacheWidth/cacheWidth on emote images (emote_text.dart:228,250,264 + 5 other locations)
+Emote CachedNetworkImage widgets decode images at full CDN resolution (3x, ~84-108px) while rendering at 28px. Wastes GPU memory, especially with 30+ visible messages × 2 emotes each.
+H2 — DefaultCacheManager default 200-file limit (emote_manager.dart:507)
+No custom CacheManager config. The default evicts after 200 files, but 4 providers can easily exceed that → cache thrashing, re-downloading frequently used emotes.
+*H3 — 7TV API called twice per channel join (emote_manager.dart:405 + chat_connection_manager.dart:471)
+Same 7tv.io/v3/users/twitch/{id} endpoint hit once by _fetchAllChannel and again immediately by _resolveSevenTvAndSubscribe. Doubles API load.
+H4 — Sequential provider fetching (emote_manager.dart:367-374, 384-407)
+Twitch → BTTV → FFZ → 7TV fetched with await. One slow provider blocks all others. Should use Future.wait.
+Medium
+M1 — cachedSpans stored without scale awareness (twitch_message.dart:39) — no recording of what textScale was used, could return stale wrong-scale spans on font size change.
+M2 — Twitch emotes excluded from SharedPreferences (emote_manager.dart:447-464) — intentional but undocumented; always requires network on restart.
+M3 — SharedPreferences.getInstance() called repeatedly — no cached instance, platform channel round-trip on every markEmoteUsed call.
+M4 — Zero-width emote spacing logic fragile (emote_text.dart:70-95) — breaks with multiple spaces/tabs between base and zero-width emote.
+M5 — No retry on failed emote fetches (emote_manager.dart:229-251) — transient network failure → channel has no emotes for the entire session.
+M6 — putIfAbsent('', ...) silently drops orphaned emotes (twitch_emotes.dart:65) — null ownerId keys are skipped by _loadUserTwitchEmotes.
+M7 — No HTTP timeout on any emote provider API call — any hanging server blocks the pipeline indefinitely.
+Low
+L1 — _emoteSheetCtrl listener added twice (home_screen.dart:217-221) — _onSheetSizeChanged fires twice per drag.
+L2 — _onEmotesChanged doesn't push panel data (home_screen.dart:384-391) — thread/mentions panels may show stale spans until next unrelated _chatVersion bump.
+L3 — channelNonTwitchEmotes excludes subscriber Twitch emotes (emote_manager.dart:98-103) — emote menu "Channel" tab may miss subscriber emotes.
+L4 — Zero test coverage for EmoteManager class itself — no tests for resolveEmotes, preloadGlobalEmotes, _buildChannelMap priority logic, etc.
+Recommended first targets (highest impact per effort):
+1. C1 — Only invalidate spans for the specific channel whose emotes changed, and batch/coalesce notifyListeners() during startup to avoid redundant rebuilds.
+2. H4 — Switch _fetchAllGlobal and _fetchAllChannel to Future.wait with eagerError: false.
+3. H1 — Add memCacheWidth: width.toInt() to all emote CachedNetworkImage calls.
+4. H3 — Deduplicate the 7TV API call by extracting the user lookup result from emote fetch.
+Want me to dive deeper into any specific item or create a plan for fixing them?

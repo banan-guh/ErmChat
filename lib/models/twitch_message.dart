@@ -37,6 +37,8 @@ class TwitchMessage {
   final String? sourceBroadcasterId;
   final String? sourceBroadcasterName;
   List<InlineSpan>? cachedSpans;
+  late final String formattedTimestamp =
+      '${timestamp.toLocal().hour.toString().padLeft(2, '0')}:${timestamp.toLocal().minute.toString().padLeft(2, '0')}';
   Color? get bodyColor => isSystem ? Colors.grey : null;
 
   String get formattedUsername {

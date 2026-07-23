@@ -94,6 +94,7 @@ List<Suggestion> filterSuggestions({
   }
   for (final emote in matchedEmotes) {
     results.add(EmoteSuggestion(emote: emote));
+    if (results.length >= 100) break;
   }
 
   return results;

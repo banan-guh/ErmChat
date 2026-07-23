@@ -3,6 +3,18 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../../models/generic_emote.dart';
 
+class SevenTvChannelResponse {
+  final List<GenericEmote> emotes;
+  final String? userId;
+  final String? emoteSetId;
+
+  SevenTvChannelResponse({
+    required this.emotes,
+    this.userId,
+    this.emoteSetId,
+  });
+}
+
 class SevenTvEmoteProvider {
   static const int _zeroWidthFlag = 1 << 8;
 
@@ -15,16 +27,26 @@ class SevenTvEmoteProvider {
     return _parseEmotes(items, global: true);
   }
 
-  static Future<List<GenericEmote>> fetchChannel(String channelId) async {
+  static Future<SevenTvChannelResponse> fetchChannelResponse(String channelId) async {
     final uri = Uri.parse('https://7tv.io/v3/users/twitch/$channelId');
     final res = await http.get(uri);
-    if (res.statusCode != 200) return [];
+    if (res.statusCode != 200) return SevenTvChannelResponse(emotes: []);
     final data = jsonDecode(res.body) as Map<String, dynamic>;
-    final items =
-        (data['emote_set'] as Map<String, dynamic>?)?['emotes']
-            as List<dynamic>? ??
-        [];
-    return _parseEmotes(items, channel: true);
+    final userId = (data['user'] as Map<String, dynamic>?)?['id'] as String?;
+    final emoteSet = data['emote_set'] as Map<String, dynamic>?;
+    final emoteSetId = emoteSet?['id'] as String?;
+    final items = emoteSet?['emotes'] as List<dynamic>? ?? [];
+    final emotes = _parseEmotes(items, channel: true);
+    return SevenTvChannelResponse(
+      emotes: emotes,
+      userId: userId,
+      emoteSetId: emoteSetId,
+    );
+  }
+
+  static Future<List<GenericEmote>> fetchChannel(String channelId) async {
+    final resp = await fetchChannelResponse(channelId);
+    return resp.emotes;
   }
 
   static GenericEmote? parseSingleEmote(
