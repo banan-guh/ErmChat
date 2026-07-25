@@ -540,6 +540,16 @@ class EmoteManager extends ChangeNotifier {
       await DefaultCacheManager().getSingleFile(emote.url);
     } catch (_) {}
   }
+
+  @override
+  void dispose() {
+    _globalCache = null;
+    _channelCaches.clear();
+    _channelFetchTimes.clear();
+    _channelTwitchEmotes.clear();
+    _mergedCache.clear();
+    super.dispose();
+  }
 }
 
 class _Semaphore {

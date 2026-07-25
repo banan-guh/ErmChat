@@ -779,6 +779,7 @@ class _HomeScreenState extends State<HomeScreen>
     _irc.part(channel);
     _ircRead.part(channel);
     _emoteManager.evictChannel(channel);
+    _badgeService.clearChannel(channel);
     _channelsEmotesResolved.remove(channel);
     _historyLoaded.remove(channel);
     _channelUserIds.remove(channel);
@@ -1271,6 +1272,7 @@ class _HomeScreenState extends State<HomeScreen>
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    final bottomPadding = MediaQuery.of(context).padding.bottom;
 
     return PopScope(
       canPop: _activePanel == OverlayPanel.closed,
@@ -1683,7 +1685,7 @@ class _HomeScreenState extends State<HomeScreen>
               ),
             ),
             Padding(
-              padding: EdgeInsets.only(bottom: bottomInset),
+              padding: EdgeInsets.only(bottom: bottomInset + bottomPadding),
               child: ColoredBox(
                 color: theme.scaffoldBackgroundColor,
                 child: Column(
