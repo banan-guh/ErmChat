@@ -43,6 +43,7 @@ dependencies:
   webview_flutter: ^4.10.0
   flutter_foreground_task: ^10.0.0
   connectivity_plus: ^7.3.0
+  package_info_plus: ^8.0.0
 dev_dependencies:
   flutter_test:
     sdk: flutter
