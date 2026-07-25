@@ -163,7 +163,10 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
 
     final channelEmotes = widget.emoteManager.byCode(widget.selectedChannel ?? '');
     final filtered = channelEmotes != null
-        ? _cachedRecentEmotes.where((e) => channelEmotes.byCode.containsKey(e.code)).toList()
+        ? () {
+            final channelIds = channelEmotes.suggestions.map((e) => e.id).toSet();
+            return _cachedRecentEmotes.where((e) => channelIds.contains(e.id)).toList();
+          }()
         : _cachedRecentEmotes;
 
     if (filtered.isEmpty) {

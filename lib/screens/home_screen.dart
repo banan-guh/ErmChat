@@ -1222,6 +1222,7 @@ class _HomeScreenState extends State<HomeScreen>
   void _onChannelChanged(int index) {
     final channel = _channels[index];
     if (_selectedChannel == channel) return;
+    _closePanel();
     setState(() {
       _selectedChannel = channel;
       _channelsWithUnread.remove(channel);
@@ -1231,15 +1232,11 @@ class _HomeScreenState extends State<HomeScreen>
         _unreadMentions -= cleared;
         if (_unreadMentions < 0) _unreadMentions = 0;
       }
-      if (_activePanel == OverlayPanel.emotes) {
-        _activePanel = OverlayPanel.closed;
-      }
       _openThreadRoot = null;
       if (_suggestionsNotifier.value.isNotEmpty) {
         _suggestionsNotifier.value = [];
       }
     });
-    _closePanel();
   }
 
   List<TwitchMessage> _messages(String channel) {
