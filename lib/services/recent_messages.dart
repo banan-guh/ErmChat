@@ -96,6 +96,7 @@ class RecentMessagesService {
     final messageId = tags['id'];
 
     String? replyParentId;
+    String? replyThreadRootId;
     String? replyUser;
     String? replyText;
     String displayText = text;
@@ -109,6 +110,7 @@ class RecentMessagesService {
     }
     if (tags.containsKey('reply-parent-msg-id')) {
       replyParentId = tags['reply-parent-msg-id'];
+      replyThreadRootId = tags['reply-thread-parent-msg-id'] ?? replyParentId;
       replyUser = tags['reply-parent-display-name'] != null
           ? _unescapeIrcTag(_tryDecodeUri(tags['reply-parent-display-name']!))
           : null;
@@ -206,6 +208,7 @@ class RecentMessagesService {
       replyToParentId: replyParentId,
       replyToUser: replyUser,
       replyToText: replyText,
+      replyThreadRootId: replyThreadRootId,
       emotePositions: emotePositions,
       badges: badges,
       sourceBroadcasterId: sourceBroadcasterId,

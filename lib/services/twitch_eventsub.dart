@@ -258,11 +258,13 @@ class EventSubService {
     }
 
     String? replyParentId;
+    String? replyThreadRootId;
     String? replyUser;
     String? replyText;
     final reply = event['reply'] as Map<String, dynamic>?;
     if (reply != null) {
       replyParentId = reply['parent_message_id'] as String?;
+      replyThreadRootId = reply['thread_message_id'] as String?;
       replyUser = reply['parent_user_name'] as String?;
       replyText = reply['parent_message_body'] as String?;
       if (replyUser != null) {
@@ -334,6 +336,7 @@ class EventSubService {
         replyToParentId: replyParentId,
         replyToUser: replyUser,
         replyToText: replyText,
+        replyThreadRootId: replyThreadRootId ?? replyParentId,
         userId: chatterId,
         emotePositions: emotePositions,
         badges: badges,

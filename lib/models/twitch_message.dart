@@ -30,6 +30,7 @@ class TwitchMessage {
   String? replyToParentId;
   final String? replyToUser;
   final String? replyToText;
+  String? replyThreadRootId;
   bool isHighlighted;
   String? userId;
   final List<EmotePosition>? emotePositions;
@@ -74,6 +75,7 @@ class TwitchMessage {
     this.replyToParentId,
     this.replyToUser,
     this.replyToText,
+    this.replyThreadRootId,
     this.isHighlighted = false,
     this.userId,
     this.emotePositions,

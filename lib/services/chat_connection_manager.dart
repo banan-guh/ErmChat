@@ -267,6 +267,7 @@ class ChatConnectionManager {
       replyToParentId: replyTo?.messageId,
       replyToUser: replyTo?.displayName,
       replyToText: replyTo?.text,
+      replyThreadRootId: replyTo?.replyThreadRootId ?? replyTo?.messageId,
     );
     channelMessages.putIfAbsent(channel, () => []);
     channelMessages[channel]!.insert(0, msg);
@@ -301,11 +302,32 @@ class ChatConnectionManager {
     }
 
     String findRoot(String id) {
+      // Use replyThreadRootId if available (non-adjacent reply support).
+      final msg = msgs.firstWhere(
+        (m) => m.messageId == id,
+        orElse: () => msgs.first,
+      );
+      if (msg.replyThreadRootId != null) {
+        // Check if the thread root message is still in the buffer.
+        final rootInBuffer = msgs.any((m) => m.messageId == msg.replyThreadRootId);
+        if (rootInBuffer) return msg.replyThreadRootId!;
+      }
       var cur = id;
       while (parentOf.containsKey(cur)) {
         cur = parentOf[cur]!;
       }
       return cur;
+    }
+
+    String? threadRootOfMsg(TwitchMessage m) {
+      if (m.messageId == null) return null;
+      if (m.replyThreadRootId != null) {
+        final rootInBuffer = msgs.any(
+          (msg) => msg.messageId == m.replyThreadRootId,
+        );
+        if (rootInBuffer) return m.replyThreadRootId;
+      }
+      return parentOf.containsKey(m.messageId!) ? findRoot(m.messageId!) : null;
     }
 
     // Phase 1: find active thread roots — roots that have at least one
@@ -320,8 +342,9 @@ class ChatConnectionManager {
       if (children.containsKey(m.messageId!)) {
         activeRoots.add(m.messageId!);
       }
-      if (parentOf.containsKey(m.messageId!)) {
-        activeRoots.add(findRoot(m.messageId!));
+      final threadRoot = threadRootOfMsg(m);
+      if (threadRoot != null) {
+        activeRoots.add(threadRoot);
       }
     }
 
@@ -363,7 +386,8 @@ class ChatConnectionManager {
       } else {
         final isOrphanThread = m.messageId != null && !isActiveThread && (
             parentOf.containsKey(m.messageId!) ||
-            children.containsKey(m.messageId!));
+            children.containsKey(m.messageId!) ||
+            m.replyThreadRootId != null);
         if (!isOrphanThread && nonThreadKept < maxMessages) {
           keepIndices.add(i);
           nonThreadKept++;
@@ -910,6 +934,7 @@ class ChatConnectionManager {
     final messageId = ircMsg.tags['id'];
     final text = ircMsg.trailing!;
     final ircReplyParentId = ircMsg.tags['reply-parent-msg-id'];
+    final ircReplyThreadRootId = ircMsg.tags['reply-thread-parent-msg-id'] ?? ircReplyParentId;
 
     // Twitch's IRC gateway prepends @username to reply echoes only.
     // Only strip the prefix when this is an actual reply.
@@ -1008,6 +1033,7 @@ class ChatConnectionManager {
       replyToParentId: pendingMsg?.replyToParentId ?? ircReplyParentId,
       replyToUser: pendingMsg?.replyToUser ?? ircReplyUser,
       replyToText: pendingMsg?.replyToText ?? ircReplyText,
+      replyThreadRootId: pendingMsg?.replyThreadRootId ?? ircReplyThreadRootId,
       emotePositions: emotePositions,
     );
 
