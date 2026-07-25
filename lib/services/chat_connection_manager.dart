@@ -722,6 +722,7 @@ class ChatConnectionManager {
     statusSub = eventSub.onStatus.listen((status) async {
       if (!mounted) return;
       connectionStatus = status;
+      onRebuild();
       if (status == EventSubStatus.connected && !wasConnected) {
         wasConnected = true;
         wasDisconnected = false;

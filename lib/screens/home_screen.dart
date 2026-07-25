@@ -1707,9 +1707,12 @@ class _HomeScreenState extends State<HomeScreen>
                     onCancelReply: () => setState(() => _replyToMsg = null),
                     enabled:
                         _activePanel != OverlayPanel.mentions &&
-                        widget.twitchAuth.isConfigured,
+                        widget.twitchAuth.isConfigured &&
+                        _chatConn.connectionStatus == EventSubStatus.connected,
                     hintText: !widget.twitchAuth.isConfigured
                         ? 'Connect an account to chat'
+                        : _chatConn.connectionStatus != EventSubStatus.connected
+                        ? 'Disconnected'
                         : _activePanel == OverlayPanel.thread
                         ? 'Reply to thread...'
                         : _activePanel == OverlayPanel.mentions

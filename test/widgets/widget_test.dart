@@ -207,6 +207,11 @@ class _TestEventSubService extends _FakeEventSubService {
   void emitMessage(TwitchMessage msg) => _msgCtrl.add(msg);
 
   @override
+  Future<void> connect({String? url}) async {
+    triggerConnect();
+  }
+
+  @override
   void dispose() {
     _msgCtrl.close();
     super.dispose();
@@ -1327,12 +1332,12 @@ void main() {
       eventSub.triggerDisconnect();
       await tester.pump();
 
-      expect(find.textContaining('Disconnected'), findsOneWidget);
+      expect(find.textContaining('Disconnected'), findsNWidgets(2));
 
       eventSub.triggerDisconnect();
       await tester.pump();
 
-      expect(find.textContaining('Disconnected'), findsOneWidget);
+      expect(find.textContaining('Disconnected'), findsNWidgets(2));
     });
 
     testWidgets(

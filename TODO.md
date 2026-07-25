@@ -49,9 +49,9 @@
 - [x] **Fix info in settings** - not v0.0.1 anymore
 - [x] **Thread close gesture is reversed**
 - [x] **@user pings truncate all the time** - non-conditional, should seperate replies from pure @user.
-- [ ] **Investigate possible malformed API calls** - messages sometimes lag-spike, take maybe 5 seconds to send, sometimes more. This should 100% be looked into, maybe it's API calls and maybe it's something else, IRC loopback problems? who knows.
-- [ ] **Connect-disconnect spam** - no clue why, it happens too often.
-- [ ] **Double connected message** - 2 "Connected" messages on boot
+- [-] **Investigate possible malformed API calls** - messages sometimes lag-spike, take maybe 5 seconds to send, sometimes more. This should 100% be looked into, maybe it's API calls and maybe it's something else, IRC loopback problems? who knows.
+- [x] **Connect-disconnect spam** - no clue why, it happens too often. CONFIRMED fixed - previous commit.
+- [-] **Double connected message** - 2 "Connected" messages on boot - it doesn't really appear anymore? for some reason...
 - [x] **Fix emote scale** - some emotes are bigger than they should be and some smaller. mainly happens to "tall" emotes or "long" emotes, square emotes work fine.
 
 ## Research / Open Ends
