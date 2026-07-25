@@ -7,13 +7,19 @@ import '../twitch_config.dart';
 class TwitchAuth extends ChangeNotifier {
   String? accessToken;
   String? refreshToken;
+  SharedPreferences? _prefs;
+
+  Future<SharedPreferences> _getPrefs() async {
+    _prefs ??= await SharedPreferences.getInstance();
+    return _prefs!;
+  }
 
   bool get isConfigured => TwitchConfig.isConfigured && accessToken != null;
 
   bool get hasStoredTokens => accessToken != null && refreshToken != null;
 
   Future<void> load() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await _getPrefs();
     final at = prefs.getString('access_token');
     final rt = prefs.getString('refresh_token');
     if (at != null && at.isNotEmpty) accessToken = at;
@@ -21,7 +27,7 @@ class TwitchAuth extends ChangeNotifier {
   }
 
   Future<void> _save() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await _getPrefs();
     await prefs.setString('access_token', accessToken ?? '');
     await prefs.setString('refresh_token', refreshToken ?? '');
   }
@@ -36,7 +42,7 @@ class TwitchAuth extends ChangeNotifier {
   Future<void> clear() async {
     accessToken = null;
     refreshToken = null;
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await _getPrefs();
     await prefs.remove('access_token');
     await prefs.remove('refresh_token');
     notifyListeners();

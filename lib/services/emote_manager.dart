@@ -143,11 +143,17 @@ class EmoteManager extends ChangeNotifier {
   static const _maxRecent = 100;
   List<String> _recentIds = [];
   bool _recentLoaded = false;
+  SharedPreferences? _prefs;
+
+  Future<SharedPreferences> _getPrefs() async {
+    _prefs ??= await SharedPreferences.getInstance();
+    return _prefs!;
+  }
 
   Future<void> _ensureRecentLoaded() async {
     if (_recentLoaded) return;
     _recentLoaded = true;
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await _getPrefs();
     final raw = prefs.getString(_recentKey);
     if (raw == null) return;
     try {
@@ -156,7 +162,7 @@ class EmoteManager extends ChangeNotifier {
   }
 
   Future<void> _saveRecent() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await _getPrefs();
     await prefs.setString(_recentKey, jsonEncode(_recentIds));
   }
 
@@ -453,7 +459,7 @@ class EmoteManager extends ChangeNotifier {
     Duration ttl, {
     DateTime? fetchTime,
   }) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await _getPrefs();
     final raw = prefs.getString(key);
     if (raw == null) return null;
     try {
@@ -480,7 +486,7 @@ class EmoteManager extends ChangeNotifier {
         .toList();
     if (nonTwitch.isEmpty) return;
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await _getPrefs();
       final data = {
         'ts': DateTime.now().toIso8601String(),
         'emotes': nonTwitch.map((e) => e.toJson()).toList(),

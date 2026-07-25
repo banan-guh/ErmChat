@@ -220,9 +220,6 @@ class _HomeScreenState extends State<HomeScreen>
     _emoteSheetCtrl.addListener(
       () => _onSheetSizeChanged(OverlayPanel.emotes, _emoteSheetCtrl),
     );
-    _emoteSheetCtrl.addListener(
-      () => _onSheetSizeChanged(OverlayPanel.emotes, _emoteSheetCtrl),
-    );
     _chatVersion.addListener(_onPanelDataChanged);
     _loadMaxMessages();
     _loadChannels();
