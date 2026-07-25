@@ -36,7 +36,7 @@
 - [x] **Ping happening with system messages** - Ping (unread) should not activate on a system message, currently does.
 - [x] **Live color change broken** - color not updating live after /color. Need to test with other people as well.
 - [x] **Timeout not showing** - both as system message and 35% opacity message.
-- [ ] **Pseudo-timeout not showing** - need to read IRC to see what's happening, IDK what
+- [x] **Pseudo-timeout not showing** - need to read IRC to see what's happening, IDK what. FIX: all system messages weren't showing, fixed that already
 - [-] **Emotes aren't rendered as text** - when emotes aren't loaded yet, the correct behaviour should show the emote as text first (0-width not shown as text unless they aren't overlapping anything), then replace the text with the emote when loaded. Not high-priority but would be nice to fix. (SKIPPED)
 - [x] **IRC fallback creates unreachable pending** - When `_channelUserIds[channel]` is null (e.g. `_subscribeChannel` failed silently), `_doSendMessage` falls through to IRC with a pending entry that has no `_pendingByMessageId` mapping. EventSub can never match it, so the message stays "unconfirmed" permanently. Fix: queue until `broadcasterId` resolves, or skip pending creation when Helix path isn't available. See `home_screen.dart:913`.
 - [x] **White highlight of notifications** - If notifications appear (e.g. system messages, whispers, mentions), they light up with white highlight. Not sure what causes this; need to investigate.
@@ -50,6 +50,8 @@
 - [x] **Thread close gesture is reversed**
 - [x] **@user pings truncate all the time** - non-conditional, should seperate replies from pure @user.
 - [ ] **Investigate possible malformed API calls** - messages sometimes lag-spike, take maybe 5 seconds to send, sometimes more. This should 100% be looked into, maybe it's API calls and maybe it's something else, IRC loopback problems? who knows.
+- [ ] **Connect-disconnect spam** - no clue why, it happens too often.
+- [ ] **Double connected message** - 2 "Connected" messages on boot
 - [x] **Fix emote scale** - some emotes are bigger than they should be and some smaller. mainly happens to "tall" emotes or "long" emotes, square emotes work fine.
 
 ## Research / Open Ends

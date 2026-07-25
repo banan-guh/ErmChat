@@ -482,7 +482,7 @@ class ChatConnectionManager {
     } else {
       try {
         final uri = Uri.parse('https://7tv.io/v3/users/twitch/$twitchChannelId');
-        final res = await http.get(uri);
+        final res = await http.get(uri).timeout(const Duration(seconds: 10));
         if (res.statusCode != 200) return;
         final data = jsonDecode(res.body) as Map<String, dynamic>;
         final userId = (data['user'] as Map<String, dynamic>?)?['id'] as String?;

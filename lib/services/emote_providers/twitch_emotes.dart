@@ -11,7 +11,7 @@ class TwitchEmoteProvider {
     if (accessToken != null) {
       headers['Authorization'] = 'Bearer $accessToken';
     }
-    final res = await http.get(uri, headers: headers);
+    final res = await http.get(uri, headers: headers).timeout(const Duration(seconds: 10));
     debugPrint(
       'Twitch global emotes: ${res.statusCode} — ${res.body.length} bytes',
     );
@@ -37,7 +37,7 @@ class TwitchEmoteProvider {
       if (accessToken != null) {
         headers['Authorization'] = 'Bearer $accessToken';
       }
-      final res = await http.get(uri, headers: headers);
+      final res = await http.get(uri, headers: headers).timeout(const Duration(seconds: 10));
       if (res.statusCode != 200) {
         debugPrint('Twitch user emotes error: ${res.statusCode} ${res.body}');
         return {};
@@ -98,7 +98,7 @@ class TwitchEmoteProvider {
     if (accessToken != null) {
       headers['Authorization'] = 'Bearer $accessToken';
     }
-    final res = await http.get(uri, headers: headers);
+    final res = await http.get(uri, headers: headers).timeout(const Duration(seconds: 10));
     if (res.statusCode != 200) {
       debugPrint('Twitch channel emotes error: ${res.statusCode}');
       return [];

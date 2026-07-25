@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
@@ -383,14 +384,13 @@ class EmoteManager extends ChangeNotifier {
   Future<List<GenericEmote>> _fetchAllGlobal() async {
     _lastErrors.clear();
     final all = <GenericEmote>[];
-    await _fetchProvider(
-      'Twitch',
-      () => TwitchEmoteProvider.fetchGlobal(accessToken: _accessToken),
-      all,
-    );
-    await _fetchProvider('BTTV', () => BttvEmoteProvider.fetchGlobal(), all);
-    await _fetchProvider('FFZ', () => FfzEmoteProvider.fetchGlobal(), all);
-    await _fetchProvider('7TV', () => SevenTvEmoteProvider.fetchGlobal(), all);
+    final providers = <String, Future<List<GenericEmote>> Function()>{
+      'Twitch': () => TwitchEmoteProvider.fetchGlobal(accessToken: _accessToken),
+      'BTTV': BttvEmoteProvider.fetchGlobal,
+      'FFZ': FfzEmoteProvider.fetchGlobal,
+      '7TV': SevenTvEmoteProvider.fetchGlobal,
+    };
+    await _fetchConcurrent(providers, all, maxConcurrent: 2);
     return all;
   }
 
@@ -400,28 +400,15 @@ class EmoteManager extends ChangeNotifier {
   }) async {
     if (broadcasterId == null) return [];
     final all = <GenericEmote>[];
-    await _fetchProvider(
-      'Twitch',
-      () => TwitchEmoteProvider.fetchChannel(
+    final providers = <String, Future<List<GenericEmote>> Function()>{
+      'Twitch': () => TwitchEmoteProvider.fetchChannel(
         broadcasterId,
         accessToken: _accessToken,
         channelName: channelName,
       ),
-      all,
-    );
-    await _fetchProvider(
-      'BTTV',
-      () => BttvEmoteProvider.fetchChannel(broadcasterId),
-      all,
-    );
-    await _fetchProvider(
-      'FFZ',
-      () => FfzEmoteProvider.fetchChannel(broadcasterId),
-      all,
-    );
-    await _fetchProvider(
-      '7TV',
-      () async {
+      'BTTV': () => BttvEmoteProvider.fetchChannel(broadcasterId),
+      'FFZ': () => FfzEmoteProvider.fetchChannel(broadcasterId),
+      '7TV': () async {
         final resp = await SevenTvEmoteProvider.fetchChannelResponse(broadcasterId);
         if (channelName != null) {
           if (resp.emoteSetId != null) {
@@ -433,23 +420,32 @@ class EmoteManager extends ChangeNotifier {
         }
         return resp.emotes;
       },
-      all,
-    );
+    };
+    await _fetchConcurrent(providers, all, maxConcurrent: 3);
     return all;
   }
 
-  Future<void> _fetchProvider(
-    String name,
-    Future<List<GenericEmote>> Function() fetch,
-    List<GenericEmote> out,
-  ) async {
-    try {
-      out.addAll(await fetch());
-    } catch (e) {
-      final msg = e.toString();
-      debugPrint('EmoteManager: $name failed: $msg');
-      _lastErrors[name] = msg;
+  Future<void> _fetchConcurrent(
+    Map<String, Future<List<GenericEmote>> Function()> providers,
+    List<GenericEmote> out, {
+    required int maxConcurrent,
+  }) async {
+    final sem = _Semaphore(maxConcurrent);
+    final futures = <Future<void>>[];
+    for (final entry in providers.entries) {
+      futures.add(
+        sem.withPermit(() async {
+          try {
+            out.addAll(await entry.value());
+          } catch (e) {
+            final msg = e.toString();
+            debugPrint('EmoteManager: ${entry.key} failed: $msg');
+            _lastErrors[entry.key] = msg;
+          }
+        }),
+      );
     }
+    await Future.wait(futures, eagerError: false);
   }
 
   Future<ChannelEmotes?> _loadFromPrefs(
@@ -537,5 +533,40 @@ class EmoteManager extends ChangeNotifier {
     try {
       await DefaultCacheManager().getSingleFile(emote.url);
     } catch (_) {}
+  }
+}
+
+class _Semaphore {
+  final int maxPermits;
+  int _permits;
+  final List<Completer<void>> _queue = [];
+
+  _Semaphore(this.maxPermits) : _permits = maxPermits;
+
+  Future<void> withPermit(Future<void> Function() action) async {
+    await _acquire();
+    try {
+      await action();
+    } finally {
+      _release();
+    }
+  }
+
+  Future<void> _acquire() {
+    if (_permits > 0) {
+      _permits--;
+      return Future.value();
+    }
+    final c = Completer<void>();
+    _queue.add(c);
+    return c.future;
+  }
+
+  void _release() {
+    if (_queue.isNotEmpty) {
+      _queue.removeAt(0).complete();
+    } else {
+      _permits++;
+    }
   }
 }

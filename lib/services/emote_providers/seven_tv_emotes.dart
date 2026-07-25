@@ -20,7 +20,7 @@ class SevenTvEmoteProvider {
 
   static Future<List<GenericEmote>> fetchGlobal() async {
     final uri = Uri.parse('https://7tv.io/v3/emote-sets/global');
-    final res = await http.get(uri);
+    final res = await http.get(uri).timeout(const Duration(seconds: 10));
     if (res.statusCode != 200) return [];
     final data = jsonDecode(res.body) as Map<String, dynamic>;
     final items = data['emotes'] as List<dynamic>? ?? [];
@@ -29,7 +29,7 @@ class SevenTvEmoteProvider {
 
   static Future<SevenTvChannelResponse> fetchChannelResponse(String channelId) async {
     final uri = Uri.parse('https://7tv.io/v3/users/twitch/$channelId');
-    final res = await http.get(uri);
+    final res = await http.get(uri).timeout(const Duration(seconds: 10));
     if (res.statusCode != 200) return SevenTvChannelResponse(emotes: []);
     final data = jsonDecode(res.body) as Map<String, dynamic>;
     final userId = (data['user'] as Map<String, dynamic>?)?['id'] as String?;
