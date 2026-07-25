@@ -160,13 +160,19 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
         const Center(child: CircularProgressIndicator(strokeWidth: 2)),
       );
     }
-    if (_cachedRecentEmotes.isEmpty) {
+
+    final channelEmotes = widget.emoteManager.byCode(widget.selectedChannel ?? '');
+    final filtered = channelEmotes != null
+        ? _cachedRecentEmotes.where((e) => channelEmotes.byCode.containsKey(e.code)).toList()
+        : _cachedRecentEmotes;
+
+    if (filtered.isEmpty) {
       return _buildEmoteEmptyState(
         scrollController,
         const Center(child: Text('No recently used emotes')),
       );
     }
-    return _buildEmoteGrid(_cachedRecentEmotes, scrollController);
+    return _buildEmoteGrid(filtered, scrollController);
   }
 
   Widget _buildEmoteSubsGrid(ScrollController? scrollController) {

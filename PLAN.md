@@ -10,7 +10,7 @@ Emote CachedNetworkImage widgets decode images at full CDN resolution (3x, ~84-1
 No custom CacheManager config. The default evicts after 200 files, but 4 providers can easily exceed that → cache thrashing, re-downloading frequently used emotes.
 *H3 — 7TV API called twice per channel join (emote_manager.dart:405 + chat_connection_manager.dart:471)
 Same 7tv.io/v3/users/twitch/{id} endpoint hit once by _fetchAllChannel and again immediately by _resolveSevenTvAndSubscribe. Doubles API load.
-H4 — Sequential provider fetching (emote_manager.dart:367-374, 384-407)
+*H4 — Sequential provider fetching (emote_manager.dart:367-374, 384-407)
 Twitch → BTTV → FFZ → 7TV fetched with await. One slow provider blocks all others. Should use Future.wait.
 Medium
 M1 — cachedSpans stored without scale awareness (twitch_message.dart:39) — no recording of what textScale was used, could return stale wrong-scale spans on font size change.
