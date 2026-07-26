@@ -348,7 +348,6 @@ class SevenTvEventClient {
           _scheduleReconnect();
           return;
         }
-        _send('{"op":3}');
       },
     );
   }
