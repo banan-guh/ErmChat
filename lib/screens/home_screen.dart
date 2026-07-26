@@ -166,7 +166,6 @@ class _HomeScreenState extends State<HomeScreen>
   int _maxMessagesPerChannel = 200;
 
   final _suggestionsNotifier = ValueNotifier<List<Suggestion>>([]);
-  Timer? _autocompleteTimer;
 
   final _threadSheetRatio = ValueNotifier(0.0);
   final _mentionsSheetRatio = ValueNotifier(0.0);
