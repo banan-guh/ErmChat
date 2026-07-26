@@ -344,7 +344,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(height: 8),
             ListTile(
               contentPadding: EdgeInsets.zero,
-              title: const Text('flutter_twitch_app'),
+              title: const Text('ErmChat'),
               subtitle: Text('Version $_version'),
             ),
           ],

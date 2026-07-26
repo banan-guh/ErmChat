@@ -1336,7 +1336,7 @@ class _HomeScreenState extends State<HomeScreen>
                                   Padding(
                                     padding: const EdgeInsets.only(left: 8),
                                     child: Text(
-                                      'uuhChat',
+                                      'ErmChat',
                                       style: TextStyle(
                                         fontSize: 22,
                                         fontWeight: FontWeight.w400,
