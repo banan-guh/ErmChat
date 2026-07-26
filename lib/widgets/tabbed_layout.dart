@@ -51,6 +51,7 @@ class TabbedLayout extends StatefulWidget {
   final List<String> tabs;
   final int selectedIndex;
   final ValueChanged<int> onSelectedIndexChanged;
+  final ValueChanged<int>? onFocusChanged;
   final IndexedWidgetBuilder pageBuilder;
   final IndexedWidgetBuilder? tabBuilder;
   final AlignmentGeometry tabAlignment;
@@ -64,6 +65,7 @@ class TabbedLayout extends StatefulWidget {
     required this.selectedIndex,
     required this.onSelectedIndexChanged,
     required this.pageBuilder,
+    this.onFocusChanged,
     this.tabBuilder,
     this.tabAlignment = Alignment.centerLeft,
     this.focusOnHalfDrag = false,
@@ -77,6 +79,7 @@ class TabbedLayoutState extends State<TabbedLayout>
     with TickerProviderStateMixin {
   TabController? _tabController;
   int _tabLength = 0;
+  int? _lastFocusIndex;
 
   @override
   void initState() {
@@ -89,6 +92,7 @@ class TabbedLayoutState extends State<TabbedLayout>
     _tabLength = len;
     if (len == 0) return;
     final idx = widget.selectedIndex.clamp(0, len - 1);
+    _lastFocusIndex = idx;
     _tabController = TabController(length: len, vsync: this, initialIndex: idx);
     _tabController!.addListener(_onTabChanged);
     if (widget.focusOnHalfDrag) {
@@ -109,8 +113,9 @@ class TabbedLayoutState extends State<TabbedLayout>
     final v = ctrl.animation!.value;
     if (v.isNaN) return;
     final nearest = v.round().clamp(0, _tabLength - 1);
-    if (nearest != widget.selectedIndex) {
-      widget.onSelectedIndexChanged(nearest);
+    if (nearest != _lastFocusIndex) {
+      _lastFocusIndex = nearest;
+      widget.onFocusChanged?.call(nearest);
     }
   }
 
@@ -118,6 +123,9 @@ class TabbedLayoutState extends State<TabbedLayout>
   void didUpdateWidget(TabbedLayout oldWidget) {
     super.didUpdateWidget(oldWidget);
     final len = widget.tabs.length;
+    if (widget.selectedIndex != oldWidget.selectedIndex) {
+      _lastFocusIndex = widget.selectedIndex;
+    }
     if (len != _tabLength) {
       _tabController?.removeListener(_onTabChanged);
       if (oldWidget.focusOnHalfDrag && _tabController != null && _tabController!.animation != null) {

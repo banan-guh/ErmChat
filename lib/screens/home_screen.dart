@@ -166,6 +166,7 @@ class _HomeScreenState extends State<HomeScreen>
   int _maxMessagesPerChannel = 200;
 
   final _suggestionsNotifier = ValueNotifier<List<Suggestion>>([]);
+  final _selectedTabIndex = ValueNotifier<int>(0);
 
   final _threadSheetRatio = ValueNotifier(0.0);
   final _mentionsSheetRatio = ValueNotifier(0.0);
@@ -259,6 +260,10 @@ class _HomeScreenState extends State<HomeScreen>
       ..clear()
       ..addAll(reordered);
     _channelNotifier.value = List.of(_channels);
+    if (_selectedChannel != null) {
+      final newIdx = _channels.indexOf(_selectedChannel!);
+      if (newIdx >= 0) _selectedTabIndex.value = newIdx;
+    }
     _saveChannels();
   }
 
@@ -274,6 +279,7 @@ class _HomeScreenState extends State<HomeScreen>
     }
     _channelNotifier.value = List.of(_channels);
     _selectedChannel = _channels.first;
+    _selectedTabIndex.value = 0;
     if (mounted) setState(() {});
     for (final name in saved) {
       _subscribeChannel(name);
@@ -675,6 +681,7 @@ class _HomeScreenState extends State<HomeScreen>
       _channelMessages.putIfAbsent(name, () => []);
       _isAtBottom[name] = true;
       _selectedChannel = name;
+      _selectedTabIndex.value = _channels.length - 1;
     });
     _saveChannels();
     _focusNode.requestFocus();
@@ -797,6 +804,9 @@ class _HomeScreenState extends State<HomeScreen>
       _messageKeys.removeWhere((k, _) => k.startsWith('$channel:'));
       if (_selectedChannel == channel) {
         _selectedChannel = _channels.isNotEmpty ? _channels.last : null;
+        if (_channels.isNotEmpty) {
+          _selectedTabIndex.value = _channels.length - 1;
+        }
       }
     });
     _saveChannels();
@@ -1243,6 +1253,25 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
+  void _onChannelFocusChanged(int index) {
+    final channel = _channels[index];
+    if (_selectedChannel == channel) return;
+    _closePanel();
+    _selectedChannel = channel;
+    _channelsWithUnread.remove(channel);
+    _channelsWithUnreadMentions.remove(channel);
+    final cleared = _unreadMentionsPerChannel.remove(channel) ?? 0;
+    if (cleared > 0) {
+      _unreadMentions -= cleared;
+      if (_unreadMentions < 0) _unreadMentions = 0;
+    }
+    _openThreadRoot = null;
+    if (_suggestionsNotifier.value.isNotEmpty) {
+      _suggestionsNotifier.value = [];
+    }
+    _selectedTabIndex.value = index;
+  }
+
   void _onChannelChanged(int index) {
     final channel = _channels[index];
     if (_selectedChannel == channel) return;
@@ -1261,6 +1290,7 @@ class _HomeScreenState extends State<HomeScreen>
         _suggestionsNotifier.value = [];
       }
     });
+    _selectedTabIndex.value = index;
   }
 
   List<TwitchMessage> _messages(String channel) {
@@ -1406,58 +1436,69 @@ class _HomeScreenState extends State<HomeScreen>
                                         ),
                                         onSelectedIndexChanged:
                                             _onChannelChanged,
+                                        onFocusChanged:
+                                            _onChannelFocusChanged,
                                         pageBuilder: (_, i) =>
                                             _buildChat(_channels[i]),
                                         focusOnHalfDrag: true,
                                         tabBuilder: (_, i) {
                                           final channel = _channels[i];
-                                          final selected =
-                                              channel == _selectedChannel;
-                                          final hasUnreadMention =
-                                              _channelsWithUnreadMentions
-                                                  .contains(channel);
-                                          return Stack(
-                                            clipBehavior: Clip.none,
-                                            children: [
-                                              Text(
-                                                channel,
-                                                style: TextStyle(
-                                                  fontSize: 14,
-                                                  fontWeight:
-                                                      selected ||
-                                                          _channelsWithUnread
-                                                              .contains(channel)
-                                                      ? FontWeight.w600
-                                                      : FontWeight.normal,
-                                                  color: selected
-                                                      ? theme
-                                                            .colorScheme
-                                                            .primary
-                                                      : _channelsWithUnread
-                                                            .contains(channel)
-                                                      ? Colors.white
-                                                      : null,
-                                                ),
-                                              ),
-                                              if (hasUnreadMention && !selected)
-                                                Positioned(
-                                                  top: -2,
-                                                  right: -4,
-                                                  child: Container(
-                                                    key: const Key(
-                                                      'unread_mention_dot',
-                                                    ),
-                                                    width: 6,
-                                                    height: 6,
-                                                    decoration: BoxDecoration(
-                                                      color: theme
-                                                          .colorScheme
-                                                          .error,
-                                                      shape: BoxShape.circle,
+                                          return ListenableBuilder(
+                                            listenable: _selectedTabIndex,
+                                            builder: (ctx, _) {
+                                              final focused =
+                                                  i == _selectedTabIndex.value;
+                                              final selected =
+                                                  focused ||
+                                                  channel == _selectedChannel;
+                                              final hasUnreadMention =
+                                                  _channelsWithUnreadMentions
+                                                      .contains(channel);
+                                              return Stack(
+                                                clipBehavior: Clip.none,
+                                                children: [
+                                                  Text(
+                                                    channel,
+                                                    style: TextStyle(
+                                                      fontSize: 14,
+                                                      fontWeight:
+                                                          selected ||
+                                                              _channelsWithUnread
+                                                                  .contains(channel)
+                                                          ? FontWeight.w600
+                                                          : FontWeight.normal,
+                                                      color: selected
+                                                          ? theme
+                                                                .colorScheme
+                                                                .primary
+                                                          : _channelsWithUnread
+                                                                .contains(channel)
+                                                          ? Colors.white
+                                                          : null,
                                                     ),
                                                   ),
-                                                ),
-                                            ],
+                                                  if (hasUnreadMention &&
+                                                      !selected)
+                                                    Positioned(
+                                                      top: -2,
+                                                      right: -4,
+                                                      child: Container(
+                                                        key: const Key(
+                                                          'unread_mention_dot',
+                                                        ),
+                                                        width: 6,
+                                                        height: 6,
+                                                        decoration: BoxDecoration(
+                                                          color: theme
+                                                              .colorScheme
+                                                              .error,
+                                                          shape: BoxShape.circle,
+                                                        ),
+                                                      ),
+                                                    ),
+                                                ],
+                                              );
+                                            },
                                           );
                                         },
                                       ),
