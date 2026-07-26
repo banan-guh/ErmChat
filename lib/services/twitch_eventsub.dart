@@ -9,6 +9,7 @@ import '../models/twitch_message.dart';
 
 class EventSubService {
   static const _wsUrl = 'wss://eventsub.wss.twitch.tv/ws';
+  static const _maxReconnectAttempts = 8;
 
   final Connectivity? _connectivity;
 
@@ -144,6 +145,10 @@ class EventSubService {
   void _scheduleReconnect() {
     if (_reconnecting || _disposed) return;
     if (!_isOnline) return;
+    if (_reconnectAttempt >= _maxReconnectAttempts) {
+      debugPrint('EventSub max reconnect attempts reached – giving up');
+      return;
+    }
     _reconnecting = true;
     _reconnectAttempt++;
     final base = Duration(
@@ -223,7 +228,8 @@ class EventSubService {
 
   void _resetKeepalive() {
     _keepaliveTimer?.cancel();
-    _keepaliveTimer = Timer(Duration(seconds: _keepaliveTimeout * 2), () {
+    final timeoutSeconds = (_keepaliveTimeout * 1.5).round();
+    _keepaliveTimer = Timer(Duration(seconds: timeoutSeconds), () {
       debugPrint('EventSub keepalive timeout – reconnecting');
       _scheduleReconnect();
     });

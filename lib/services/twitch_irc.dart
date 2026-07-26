@@ -29,6 +29,7 @@ class IrcNoticeEvent {
 
 class IrcService {
   static const _wsUrl = 'wss://irc-ws.chat.twitch.tv:443';
+  static const _maxReconnectAttempts = 8;
 
   final Connectivity? _connectivity;
 
@@ -72,6 +73,10 @@ class IrcService {
     if (_connecting) return;
     _connecting = true;
     try {
+    if (_channel?.closeCode == null) {
+      debugPrint('[IRC] already connected, skipping reconnect');
+      return;
+    }
     _connectivitySub?.cancel();
     if (_connectivity != null) {
       _connectivitySub = _connectivity.onConnectivityChanged.listen((results) {
@@ -153,11 +158,15 @@ class IrcService {
   void _scheduleReconnect() {
     if (_reconnecting || _disposed) return;
     if (!_isOnline) return;
+    if (_reconnectAttempt >= _maxReconnectAttempts) {
+      debugPrint('[IRC] max reconnect attempts reached – giving up');
+      return;
+    }
     _reconnecting = true;
     _reconnectAttempt++;
     Duration delay;
     if (_reconnectAttempt == 1) {
-      delay = Duration.zero;
+      delay = const Duration(seconds: 1);
     } else {
       final base = Duration(
         seconds: min(pow(2, _reconnectAttempt - 2).toInt(), 30),

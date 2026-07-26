@@ -51,6 +51,7 @@ class ChatConnectionManager {
   EventSubStatus connectionStatus = EventSubStatus.disconnected;
   bool wasConnected = false;
   bool wasDisconnected = false;
+  DateTime? _lastSubscribeAll;
   bool userTwitchEmotesLoaded = false;
   bool mounted = true;
   bool _isConnecting = false;
@@ -750,6 +751,12 @@ class ChatConnectionManager {
       if (status == EventSubStatus.connected && !wasConnected) {
         wasConnected = true;
         wasDisconnected = false;
+        final now = DateTime.now();
+        if (_lastSubscribeAll != null &&
+            now.difference(_lastSubscribeAll!).inSeconds < 30) {
+          return;
+        }
+        _lastSubscribeAll = now;
         await Future.delayed(const Duration(milliseconds: 500));
         try {
           await subscribeAll();

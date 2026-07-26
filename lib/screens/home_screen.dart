@@ -1412,7 +1412,6 @@ class _HomeScreenState extends State<HomeScreen>
                                     onReorderChannels: _reorderChannels,
                                     onSettingsClosed: () {
                                       if (mounted) setState(() {});
-                                      _chatConn.connect();
                                     },
                                   ),
                                 ],
