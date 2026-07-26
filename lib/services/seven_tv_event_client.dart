@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 
 class SevenTvEmoteUpdateEvent {
   final String emoteSetId;
@@ -75,6 +76,8 @@ class SevenTvEventClient {
   static const _maxReconnectAttempts = 8;
   static const _reconnectMinDelay = Duration(seconds: 1);
 
+  final Connectivity? _connectivity;
+
   WebSocketChannel? _channel;
   StreamSubscription<dynamic>? _streamSub;
   Timer? _heartbeatTimer;
@@ -85,6 +88,8 @@ class SevenTvEventClient {
   int _reconnectAttempt = 0;
   bool _disposed = false;
   int? _fatalCloseCode;
+  StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
+  bool _isOnline = true;
 
   final _pendingEmoteSets = <String>{};
   final _pendingUsers = <String>{};
@@ -101,11 +106,24 @@ class SevenTvEventClient {
   Stream<SevenTvUserUpdate> get onUserUpdate => _userUpdateCtrl.stream;
   Stream<SevenTvEventStatus> get onStatus => _statusCtrl.stream;
 
+  SevenTvEventClient({this._connectivity});
+
   bool get isConnected => _channel != null;
 
   Future<void> connect() async {
     if (_disposed) return;
     _fatalCloseCode = null;
+    _reconnectAttempt = 0;
+    _connectivitySub?.cancel();
+    if (_connectivity != null) {
+      _connectivitySub = _connectivity.onConnectivityChanged.listen((results) {
+        final wasOffline = !_isOnline;
+        _isOnline = !results.contains(ConnectivityResult.none);
+        if (wasOffline && _isOnline && _channel == null && !_reconnecting) {
+          connect();
+        }
+      });
+    }
     _disconnect();
     try {
       _channel = WebSocketChannel.connect(Uri.parse(_wsUrl));
@@ -330,6 +348,7 @@ class SevenTvEventClient {
           _scheduleReconnect();
           return;
         }
+        _send('{"op":3}');
       },
     );
   }
@@ -340,6 +359,7 @@ class SevenTvEventClient {
 
   void _scheduleReconnect() {
     if (_reconnecting || _disposed) return;
+    if (!_isOnline) return;
     _reconnecting = true;
     _handshakeComplete = false;
     _statusCtrl.add(SevenTvEventStatus.disconnected);
@@ -348,6 +368,7 @@ class SevenTvEventClient {
       debugPrint(
         '7TV: max reconnect attempts ($_maxReconnectAttempts) reached — giving up',
       );
+      _reconnecting = false;
       return;
     }
     Duration delay;
@@ -374,6 +395,8 @@ class SevenTvEventClient {
     _heartbeatTimer = null;
     _heartbeatInterval = null;
     _handshakeComplete = false;
+    _connectivitySub?.cancel();
+    _connectivitySub = null;
     _streamSub?.cancel();
     _streamSub = null;
     _channel?.sink.close();
@@ -389,9 +412,29 @@ class SevenTvEventClient {
     _statusCtrl.add(SevenTvEventStatus.disconnected);
   }
 
+  @visibleForTesting
+  int get reconnectAttempt => _reconnectAttempt;
+
+  @visibleForTesting
+  bool get isReconnecting => _reconnecting;
+
+  @visibleForTesting
+  set isReconnecting(bool value) => _reconnecting = value;
+
+  @visibleForTesting
+  bool get isOnline => _isOnline;
+
+  @visibleForTesting
+  set isOnline(bool value) => _isOnline = value;
+
+  @visibleForTesting
+  void scheduleReconnectForTest() => _scheduleReconnect();
+
   void dispose() {
     _disposed = true;
     _reconnecting = false;
+    _connectivitySub?.cancel();
+    _connectivitySub = null;
     _disconnect();
     _emoteSetUpdateCtrl.close();
     _userUpdateCtrl.close();

@@ -390,4 +390,90 @@ void main() {
       await sub.cancel();
     });
   });
+
+  group('reconnect and connectivity', () {
+    test('reconnectAttempt defaults to 0', () {
+      expect(client.reconnectAttempt, 0);
+    });
+
+    test('isReconnecting defaults to false', () {
+      expect(client.isReconnecting, false);
+    });
+
+    test('isOnline defaults to true', () {
+      expect(client.isOnline, true);
+    });
+
+    test('hello resets reconnectAttempt to 0', () {
+      // Simulate several reconnect attempts
+      for (var i = 0; i < 5; i++) {
+        client.scheduleReconnectForTest();
+        client.isReconnecting = false;
+      }
+      expect(client.reconnectAttempt, 5);
+
+      client.handleRawMessage(_hello());
+      expect(client.reconnectAttempt, 0);
+    });
+
+    test('scheduleReconnect increments reconnectAttempt', () {
+      client.scheduleReconnectForTest();
+      expect(client.reconnectAttempt, 1);
+      expect(client.isReconnecting, true);
+    });
+
+    test('scheduleReconnect returns early when isReconnecting is true', () {
+      client.scheduleReconnectForTest();
+      expect(client.reconnectAttempt, 1);
+
+      client.scheduleReconnectForTest();
+      expect(client.reconnectAttempt, 1);
+    });
+
+    test('scheduleReconnect returns early when isOnline is false', () {
+      final offlineClient = SevenTvEventClient();
+      offlineClient.isOnline = false;
+      offlineClient.scheduleReconnectForTest();
+      expect(offlineClient.reconnectAttempt, 0);
+      expect(offlineClient.isReconnecting, false);
+    });
+
+    test('max reconnect attempts resets isReconnecting to false', () {
+      final client2 = SevenTvEventClient();
+      for (var i = 0; i < 8; i++) {
+        client2.scheduleReconnectForTest();
+        client2.isReconnecting = false;
+      }
+      expect(client2.reconnectAttempt, 8);
+
+      // 9th call exceeds max, should set reconnecting=false and stop
+      client2.scheduleReconnectForTest();
+      expect(client2.reconnectAttempt, 9);
+      expect(client2.isReconnecting, false);
+    });
+
+    test('reconnectAttempt capped after max and resets reconnecting on each call', () {
+      final client2 = SevenTvEventClient();
+      for (var i = 0; i < 8; i++) {
+        client2.scheduleReconnectForTest();
+        client2.isReconnecting = false;
+      }
+      client2.scheduleReconnectForTest();
+      expect(client2.reconnectAttempt, 9);
+      expect(client2.isReconnecting, false);
+
+      client2.scheduleReconnectForTest();
+      expect(client2.reconnectAttempt, 10);
+      expect(client2.isReconnecting, false);
+    });
+
+    test('disconnect emits disconnected status event', () {
+      client.handleRawMessage(_hello());
+      statusEvents.clear();
+
+      client.emitDisconnected();
+      expect(statusEvents, hasLength(1));
+      expect(statusEvents.first, SevenTvEventStatus.disconnected);
+    });
+  });
 }

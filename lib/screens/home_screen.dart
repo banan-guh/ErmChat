@@ -73,7 +73,7 @@ class _HomeScreenState extends State<HomeScreen>
   late final _ircRead = widget.ircReadService ?? IrcReadService(connectivity: _connectivity);
   late final _recentMessages =
       widget.recentMessagesService ?? RecentMessagesService();
-  late final _sevenTvClient = widget.sevenTvEventClient ?? SevenTvEventClient();
+  late final _sevenTvClient = widget.sevenTvEventClient ?? SevenTvEventClient(connectivity: _connectivity);
   late final _chatConn = ChatConnectionManager(
     eventSub: _eventSub,
     irc: _irc,
