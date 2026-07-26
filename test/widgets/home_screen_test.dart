@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_twitch_app/screens/home_screen.dart';
+import 'package:ermchat/screens/home_screen.dart';
 
 void main() {
   group('isMention', () {

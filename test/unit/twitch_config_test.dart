@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_twitch_app/twitch_config.dart';
+import 'package:ermchat/twitch_config.dart';
 
 void main() {
   group('TwitchConfig', () {

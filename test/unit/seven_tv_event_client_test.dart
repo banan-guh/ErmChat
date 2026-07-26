@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_twitch_app/services/seven_tv_event_client.dart';
+import 'package:ermchat/services/seven_tv_event_client.dart';
 
 Map<String, dynamic> _hello({int heartbeatInterval = 30000}) => {
       'op': 1,

@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_twitch_app/models/generic_emote.dart';
-import 'package:flutter_twitch_app/models/twitch_message.dart';
-import 'package:flutter_twitch_app/services/emote_manager.dart';
-import 'package:flutter_twitch_app/widgets/emote_text.dart';
+import 'package:ermchat/models/generic_emote.dart';
+import 'package:ermchat/models/twitch_message.dart';
+import 'package:ermchat/services/emote_manager.dart';
+import 'package:ermchat/widgets/emote_text.dart';
 
 ChannelEmotes _makeEmotes(Map<String, GenericEmote> byCode) {
   return ChannelEmotes(byCode: byCode, suggestions: byCode.values.toList());

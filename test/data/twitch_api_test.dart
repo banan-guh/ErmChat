@@ -1,8 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:flutter_twitch_app/services/twitch_api.dart';
-import 'package:flutter_twitch_app/services/twitch_auth.dart';
+import 'package:ermchat/services/twitch_api.dart';
+import 'package:ermchat/services/twitch_auth.dart';
 
 void main() {
   late TwitchAuth auth;

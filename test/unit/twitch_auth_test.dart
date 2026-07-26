@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:flutter_twitch_app/services/twitch_auth.dart';
+import 'package:ermchat/services/twitch_auth.dart';
 
 void main() {
   setUp(() {

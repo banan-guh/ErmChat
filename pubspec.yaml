@@ -1,4 +1,4 @@
-name: flutter_twitch_app
+name: ermchat
 description: "Mobile Twitch chat app made from Flutter."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.

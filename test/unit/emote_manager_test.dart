@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_twitch_app/models/generic_emote.dart';
-import 'package:flutter_twitch_app/models/twitch_message.dart';
+import 'package:ermchat/models/generic_emote.dart';
+import 'package:ermchat/models/twitch_message.dart';
 
 GenericEmote _e({
   required String id,

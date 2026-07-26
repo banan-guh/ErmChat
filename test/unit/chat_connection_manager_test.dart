@@ -1,14 +1,14 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_twitch_app/models/twitch_message.dart';
-import 'package:flutter_twitch_app/services/chat_connection_manager.dart';
-import 'package:flutter_twitch_app/services/emote_manager.dart';
-import 'package:flutter_twitch_app/services/twitch_auth.dart';
-import 'package:flutter_twitch_app/services/twitch_badge_service.dart';
-import 'package:flutter_twitch_app/services/twitch_eventsub.dart';
-import 'package:flutter_twitch_app/services/twitch_irc.dart';
-import 'package:flutter_twitch_app/services/twitch_irc_read.dart';
-import 'package:flutter_twitch_app/services/user_store.dart';
+import 'package:ermchat/models/twitch_message.dart';
+import 'package:ermchat/services/chat_connection_manager.dart';
+import 'package:ermchat/services/emote_manager.dart';
+import 'package:ermchat/services/twitch_auth.dart';
+import 'package:ermchat/services/twitch_badge_service.dart';
+import 'package:ermchat/services/twitch_eventsub.dart';
+import 'package:ermchat/services/twitch_irc.dart';
+import 'package:ermchat/services/twitch_irc_read.dart';
+import 'package:ermchat/services/user_store.dart';
 
 TwitchMessage _msg(String id, String text, {String? replyToParentId}) =>
     TwitchMessage(

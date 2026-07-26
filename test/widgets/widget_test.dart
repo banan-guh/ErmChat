@@ -4,14 +4,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:flutter_twitch_app/main.dart';
-import 'package:flutter_twitch_app/screens/settings_screen.dart';
-import 'package:flutter_twitch_app/services/twitch_eventsub.dart';
-import 'package:flutter_twitch_app/services/twitch_irc.dart';
-import 'package:flutter_twitch_app/services/recent_messages.dart';
-import 'package:flutter_twitch_app/services/twitch_auth.dart';
-import 'package:flutter_twitch_app/models/twitch_message.dart';
-import 'package:flutter_twitch_app/services/twitch_irc_read.dart';
+import 'package:ermchat/main.dart';
+import 'package:ermchat/screens/settings_screen.dart';
+import 'package:ermchat/services/twitch_eventsub.dart';
+import 'package:ermchat/services/twitch_irc.dart';
+import 'package:ermchat/services/recent_messages.dart';
+import 'package:ermchat/services/twitch_auth.dart';
+import 'package:ermchat/models/twitch_message.dart';
+import 'package:ermchat/services/twitch_irc_read.dart';
 
 class _FakeEventSubService extends EventSubService {
   final _statusCtrl = StreamController<EventSubStatus>.broadcast(sync: true);

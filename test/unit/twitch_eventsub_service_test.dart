@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_twitch_app/services/twitch_eventsub.dart';
+import 'package:ermchat/services/twitch_eventsub.dart';
 
 Map<String, dynamic> _welcome({String id = 'session-test', int timeout = 10}) =>
     {

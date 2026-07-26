@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_twitch_app/util/text_bypass.dart';
+import 'package:ermchat/util/text_bypass.dart';
 
 const _invisibleChar = '\u034F';
 

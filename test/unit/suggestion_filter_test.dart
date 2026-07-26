@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_twitch_app/models/generic_emote.dart';
-import 'package:flutter_twitch_app/services/suggestion.dart';
+import 'package:ermchat/models/generic_emote.dart';
+import 'package:ermchat/services/suggestion.dart';
 
 GenericEmote _e(String id, String code, [EmoteType type = EmoteType.bttv]) =>
     GenericEmote(
