@@ -8,10 +8,7 @@ class PingsScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(title: const Text('Pings')),
       body: const Center(
-        child: Text(
-          'Coming soon',
-          style: TextStyle(color: Colors.grey),
-        ),
+        child: Text('Coming soon'),
       ),
     );
   }

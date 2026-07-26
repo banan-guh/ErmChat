@@ -1472,7 +1472,7 @@ class _HomeScreenState extends State<HomeScreen>
                                                                 .primary
                                                           : _channelsWithUnread
                                                                 .contains(channel)
-                                                          ? Colors.white
+                                                          ? theme.colorScheme.onSurface
                                                           : null,
                                                     ),
                                                   ),
@@ -1803,9 +1803,11 @@ class _HomeScreenState extends State<HomeScreen>
                                   ),
                                   child: Text(
                                     status,
-                                    style: const TextStyle(
+                                    style: TextStyle(
                                       fontSize: 12,
-                                      color: Colors.grey,
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onSurfaceVariant,
                                     ),
                                     textAlign: TextAlign.center,
                                   ),
@@ -1830,13 +1832,17 @@ class _HomeScreenState extends State<HomeScreen>
         child: Text('Configure Twitch credentials in Settings first'),
       );
     }
-    return const Center(
+    return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.chat_bubble_outline, size: 64, color: Colors.grey),
-          SizedBox(height: 16),
-          Text('Press + to join a channel'),
+          Icon(
+            Icons.chat_bubble_outline,
+            size: 64,
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+          const SizedBox(height: 16),
+          const Text('Press + to join a channel'),
         ],
       ),
     );
@@ -2088,13 +2094,16 @@ class _HomeScreenState extends State<HomeScreen>
             Icon(
               Icons.subdirectory_arrow_right,
               size: 14,
-              color: Colors.grey[500],
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),
             const SizedBox(width: 4),
             Flexible(
               child: Text(
                 'replying to ${msg.replyToUser ?? 'unknown'}: $preview',
-                style: TextStyle(fontSize: 11, color: Colors.grey[500]),
+                style: TextStyle(
+                  fontSize: 11,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
                 overflow: TextOverflow.ellipsis,
               ),
             ),

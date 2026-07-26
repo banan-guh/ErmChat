@@ -101,12 +101,16 @@ class ChatMessageTile extends StatelessWidget {
 
     final tsStyle = TextStyle(
       fontSize: 14 * s,
-      color: Colors.grey,
+      color: Theme.of(context).colorScheme.onSurfaceVariant,
       decoration: TextDecoration.none,
     );
     final bodyTextStyle = TextStyle(
       fontSize: 14 * s,
-      color: bodyColor ?? Theme.of(context).colorScheme.onSurface,
+      color:
+          bodyColor ??
+          (msg.isSystem
+              ? Theme.of(context).colorScheme.onSurfaceVariant
+              : Theme.of(context).colorScheme.onSurface),
       decoration: TextDecoration.none,
     );
 

@@ -83,10 +83,7 @@ class _ChannelSettingsScreenState extends State<ChannelSettingsScreen> {
           if (channels.isEmpty)
             const Padding(
               padding: EdgeInsets.symmetric(horizontal: 16, vertical: 24),
-              child: Text(
-                'No channels joined',
-                style: TextStyle(color: Colors.grey),
-              ),
+              child: Text('No channels joined'),
             )
           else
             ReorderableListView.builder(

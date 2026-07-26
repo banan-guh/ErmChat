@@ -109,7 +109,12 @@ class UserProfileSheetState extends State<UserProfileSheet> {
             ),
           ] else if (_error != null) ...[
             Center(
-              child: Text(_error!, style: const TextStyle(color: Colors.grey)),
+              child: Text(
+                _error!,
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
             ),
           ] else if (_profile != null) ...[
             Row(
