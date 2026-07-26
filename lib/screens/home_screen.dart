@@ -1414,7 +1414,6 @@ class _HomeScreenState extends State<HomeScreen>
                                       if (mounted) setState(() {});
                                       _chatConn.connect();
                                     },
-                                    eventSubMessageStream: _eventSub.onMessage,
                                   ),
                                 ],
                               ),

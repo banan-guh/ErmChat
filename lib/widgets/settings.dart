@@ -1,7 +1,5 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
-import '../models/twitch_message.dart';
-import '../screens/settings_screen.dart';
+import '../screens/settings/settings_screen.dart';
 import '../services/twitch_auth.dart';
 
 class SettingsButton extends StatelessWidget {
@@ -12,7 +10,6 @@ class SettingsButton extends StatelessWidget {
   final ValueChanged<String>? onAddChannel;
   final ValueChanged<List<String>>? onReorderChannels;
   final VoidCallback? onSettingsClosed;
-  final Stream<TwitchMessage>? eventSubMessageStream;
 
   const SettingsButton({
     super.key,
@@ -23,7 +20,6 @@ class SettingsButton extends StatelessWidget {
     this.onAddChannel,
     this.onReorderChannels,
     this.onSettingsClosed,
-    this.eventSubMessageStream,
   });
 
   @override
@@ -40,7 +36,6 @@ class SettingsButton extends StatelessWidget {
             onLeaveChannel: onLeaveChannel,
             onAddChannel: onAddChannel,
             onReorderChannels: onReorderChannels,
-            eventSubMessageStream: eventSubMessageStream,
           ),
         ),
       ).then((_) => onSettingsClosed?.call()),

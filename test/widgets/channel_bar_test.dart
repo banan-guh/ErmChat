@@ -118,6 +118,9 @@ void main() {
       await tester.tap(find.byIcon(Icons.settings));
       await tester.pumpAndSettle();
 
+      await tester.tap(find.text('Channels'));
+      await tester.pumpAndSettle();
+
       await tester.tap(find.byIcon(Icons.remove_circle_outline));
       await tester.pump();
       await tester.pump();

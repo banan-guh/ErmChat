@@ -5,7 +5,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:ermchat/main.dart';
-import 'package:ermchat/screens/settings_screen.dart';
+import 'package:ermchat/screens/settings/account_screen.dart';
+import 'package:ermchat/screens/settings/channel_settings_screen.dart';
+import 'package:ermchat/screens/settings/customization_screen.dart';
 import 'package:ermchat/services/twitch_eventsub.dart';
 import 'package:ermchat/services/twitch_irc.dart';
 import 'package:ermchat/services/recent_messages.dart';
@@ -309,8 +311,13 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Settings'), findsOneWidget);
-    expect(find.text('Dark mode'), findsOneWidget);
-    expect(find.text('Twitch Login'), findsOneWidget);
+    expect(find.text('Dark mode'), findsNothing);
+    expect(find.text('Customization'), findsOneWidget);
+
+    await tester.tap(find.text('Account'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Twitch Login'), findsNothing);
     expect(find.text('Login with Twitch'), findsOneWidget);
   });
 
@@ -346,6 +353,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Channels'), findsOneWidget);
+
+    await tester.tap(find.text('Channels'));
+    await tester.pumpAndSettle();
+
     expect(find.byIcon(Icons.remove_circle_outline), findsOneWidget);
   });
 
@@ -1488,33 +1499,30 @@ void main() {
   );
 
   group('Settings screen', () {
-    testWidgets('idle state shows login button', (WidgetTester tester) async {
+    testWidgets('Account screen idle state shows login button', (
+      WidgetTester tester,
+    ) async {
       SharedPreferences.setMockInitialValues({});
       final auth = TwitchAuth();
 
       await tester.pumpWidget(
-        MaterialApp(
-          home: SettingsScreen(twitchAuth: auth, onThemeChanged: (_) {}),
-        ),
+        MaterialApp(home: AccountScreen(twitchAuth: auth)),
       );
       await tester.pump();
 
-      expect(find.text('Settings'), findsOneWidget);
+      expect(find.text('Account'), findsOneWidget);
       expect(find.text('Login with Twitch'), findsOneWidget);
-      expect(find.text('Twitch Login'), findsOneWidget);
       expect(find.text('Connected to Twitch'), findsNothing);
     });
 
-    testWidgets('success state shows connected and disconnect button', (
+    testWidgets('Account screen success state shows connected and disconnect', (
       WidgetTester tester,
     ) async {
       SharedPreferences.setMockInitialValues({});
       final auth = TwitchAuth()..accessToken = 'test-token';
 
       await tester.pumpWidget(
-        MaterialApp(
-          home: SettingsScreen(twitchAuth: auth, onThemeChanged: (_) {}),
-        ),
+        MaterialApp(home: AccountScreen(twitchAuth: auth)),
       );
       await tester.pump();
 
@@ -1523,14 +1531,14 @@ void main() {
       expect(find.text('Login with Twitch'), findsNothing);
     });
 
-    testWidgets('disconnect transitions to idle', (WidgetTester tester) async {
+    testWidgets('Account screen disconnect transitions to idle', (
+      WidgetTester tester,
+    ) async {
       SharedPreferences.setMockInitialValues({});
       final auth = TwitchAuth()..accessToken = 'test-token';
 
       await tester.pumpWidget(
-        MaterialApp(
-          home: SettingsScreen(twitchAuth: auth, onThemeChanged: (_) {}),
-        ),
+        MaterialApp(home: AccountScreen(twitchAuth: auth)),
       );
       await tester.pump();
 
@@ -1544,19 +1552,16 @@ void main() {
       expect(find.text('Login with Twitch'), findsOneWidget);
     });
 
-    testWidgets('dark mode toggle calls onThemeChanged', (
+    testWidgets('Customization dark mode toggle calls onThemeChanged', (
       WidgetTester tester,
     ) async {
       SharedPreferences.setMockInitialValues({});
       ThemeMode? changed;
-      final auth = TwitchAuth();
 
       await tester.pumpWidget(
         MaterialApp(
-          home: SettingsScreen(
-            twitchAuth: auth,
+          home: CustomizationScreen(
             onThemeChanged: (mode) => changed = mode,
-            channelNotifier: ValueNotifier(['testchannel']),
           ),
         ),
       );
@@ -1568,17 +1573,14 @@ void main() {
       expect(changed, ThemeMode.dark);
     });
 
-    testWidgets('channel list shows joined channels', (
+    testWidgets('Channel settings shows joined channels', (
       WidgetTester tester,
     ) async {
       SharedPreferences.setMockInitialValues({});
-      final auth = TwitchAuth();
 
       await tester.pumpWidget(
         MaterialApp(
-          home: SettingsScreen(
-            twitchAuth: auth,
-            onThemeChanged: (_) {},
+          home: ChannelSettingsScreen(
             channelNotifier: ValueNotifier(['channel1', 'channel2']),
             onLeaveChannel: (_) {},
           ),
@@ -1591,17 +1593,14 @@ void main() {
       expect(find.byIcon(Icons.remove_circle_outline), findsNWidgets(2));
     });
 
-    testWidgets('channel list is empty when no channels joined', (
+    testWidgets('Channel settings empty when no channels joined', (
       WidgetTester tester,
     ) async {
       SharedPreferences.setMockInitialValues({});
-      final auth = TwitchAuth();
 
       await tester.pumpWidget(
         MaterialApp(
-          home: SettingsScreen(
-            twitchAuth: auth,
-            onThemeChanged: (_) {},
+          home: ChannelSettingsScreen(
             channelNotifier: ValueNotifier([]),
           ),
         ),
@@ -1611,18 +1610,15 @@ void main() {
       expect(find.text('No channels joined'), findsOneWidget);
     });
 
-    testWidgets('join channel dialog opens from settings', (
+    testWidgets('Channel settings join channel dialog', (
       WidgetTester tester,
     ) async {
       SharedPreferences.setMockInitialValues({});
       String? addedChannel;
-      final auth = TwitchAuth();
 
       await tester.pumpWidget(
         MaterialApp(
-          home: SettingsScreen(
-            twitchAuth: auth,
-            onThemeChanged: (_) {},
+          home: ChannelSettingsScreen(
             channelNotifier: ValueNotifier([]),
             onAddChannel: (ch) => addedChannel = ch,
           ),
