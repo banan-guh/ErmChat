@@ -186,6 +186,8 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
         const Center(child: Text('No subscriber emotes available')),
       );
     }
+    final screenWidth = MediaQuery.of(context).size.width;
+    final sidePadding = screenWidth * 0.3;
     return CustomScrollView(
       controller: scrollController,
       slivers: [
@@ -202,16 +204,19 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
               ),
             ),
           ),
-          SliverGrid(
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 5,
-              mainAxisSpacing: 8,
-              crossAxisSpacing: 8,
-              childAspectRatio: 1,
-            ),
-            delegate: SliverChildBuilderDelegate(
-              (_, i) => _buildEmoteGridItem(entry.value[i]),
-              childCount: entry.value.length,
+          SliverPadding(
+            padding: EdgeInsets.symmetric(horizontal: sidePadding),
+            sliver: SliverGrid(
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 5,
+                mainAxisSpacing: 8,
+                crossAxisSpacing: 8,
+                childAspectRatio: 1,
+              ),
+              delegate: SliverChildBuilderDelegate(
+                (_, i) => _buildEmoteGridItem(entry.value[i]),
+                childCount: entry.value.length,
+              ),
             ),
           ),
         ],
@@ -259,9 +264,11 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
     List<GenericEmote> emotes,
     ScrollController? scrollController,
   ) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final sidePadding = screenWidth * 0.03;
     return GridView.builder(
       controller: scrollController,
-      padding: const EdgeInsets.all(4),
+      padding: EdgeInsets.symmetric(horizontal: sidePadding, vertical: 4),
       physics: const AlwaysScrollableScrollPhysics(),
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: 5,
@@ -280,14 +287,22 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
       clipBehavior: Clip.hardEdge,
       child: InkWell(
         onTap: () => widget.onEmoteSelected(emote),
-        child: CachedNetworkImage(
-          imageUrl: emote.url,
-          width: double.infinity,
-          height: double.infinity,
-          fit: BoxFit.contain,
-          fadeInDuration: Duration.zero,
-          placeholder: (_, _) => const SizedBox(),
-          errorWidget: (_, _, _) => const Icon(Icons.broken_image, size: 20),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final padding = constraints.maxWidth * 0.08;
+            return Padding(
+              padding: EdgeInsets.all(padding),
+              child: CachedNetworkImage(
+                imageUrl: emote.url,
+                width: double.infinity,
+                height: double.infinity,
+                fit: BoxFit.contain,
+                fadeInDuration: Duration.zero,
+                placeholder: (_, _) => const SizedBox(),
+                errorWidget: (_, _, _) => const Icon(Icons.broken_image, size: 20),
+              ),
+            );
+          },
         ),
       ),
     );

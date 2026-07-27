@@ -349,7 +349,11 @@ class _HomeScreenState extends State<HomeScreen>
     final text = _messageController.text;
     final cursor = _messageController.selection.baseOffset;
     final word = getCurrentWord(text, cursor);
-    if (word.text.length < 2) {
+    var filterWord = word.text;
+    if (filterWord.startsWith('@') && filterWord.length >= 2) {
+      filterWord = filterWord.substring(1);
+    }
+    if (filterWord.length < 2) {
       if (_suggestionsNotifier.value.isNotEmpty) {
         _suggestionsNotifier.value = [];
       }
@@ -357,11 +361,13 @@ class _HomeScreenState extends State<HomeScreen>
     }
     final channel = _selectedChannel;
     if (channel == null) return;
-    final channelEmotes = _emoteManager.byCode(channel);
-    final emotes = channelEmotes?.suggestions ?? [];
     final users = _userStore.usersForChannel(channel);
+    final isMention = word.text.startsWith('@');
+    final emotes = isMention
+        ? <GenericEmote>[]
+        : (_emoteManager.byCode(channel)?.suggestions ?? []);
     final filtered = filterSuggestions(
-      word: word.text,
+      word: filterWord,
       emotes: emotes,
       users: users,
     );
