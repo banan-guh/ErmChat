@@ -38,16 +38,12 @@ class ChatConnectionManager {
   final Set<String> historyLoaded;
   final Set<String> channelsEmotesResolved;
   final Map<String, String> channelUserIds;
-  final Map<String, PendingLocal> pendingLocals;
-  final _pendingLocalsByNorm = <String, String>{};
   final Map<String, String> lastTypedText;
   final Map<String, String> lastSentWireText;
   final Set<String> ownMessageIds;
   final ValueNotifier<int> chatVersion;
   final String mentionsChannel;
 
-  String? lastSentText;
-  int localCounter = 0;
   EventSubStatus connectionStatus = EventSubStatus.disconnected;
   bool wasConnected = false;
   bool wasDisconnected = false;
@@ -65,7 +61,6 @@ class ChatConnectionManager {
   StreamSubscription<IrcNoticeEvent>? ircNoticeSub;
   StreamSubscription<IrcNoticeEvent>? ircJtvSub;
   StreamSubscription<IrcMessage>? ircOwnMsgSub;
-  StreamSubscription<String>? userColorSub;
   StreamSubscription<SevenTvEmoteUpdateEvent>? sevenTvEmoteSub;
   StreamSubscription<SevenTvUserUpdate>? sevenTvUserSub;
 
@@ -80,8 +75,6 @@ class ChatConnectionManager {
   final void Function(String?) setCurrentUserLogin;
   final String? Function() getCurrentUserId;
   final void Function(String?) setCurrentUserId;
-  final String? Function() getCurrentUserColor;
-  final void Function(String?) setCurrentUserColor;
   final void Function(String, String, TwitchAuth) onCommand;
   final TwitchMessage? Function() getReplyToMsg;
   final void Function(TwitchMessage?) setReplyToMsg;
@@ -107,7 +100,6 @@ class ChatConnectionManager {
     required this.historyLoaded,
     required this.channelsEmotesResolved,
     required this.channelUserIds,
-    required this.pendingLocals,
     required this.lastTypedText,
     required this.lastSentWireText,
     required this.ownMessageIds,
@@ -124,8 +116,6 @@ class ChatConnectionManager {
     required this.setCurrentUserLogin,
     required this.getCurrentUserId,
     required this.setCurrentUserId,
-    required this.getCurrentUserColor,
-    required this.setCurrentUserColor,
     required this.onCommand,
     required this.getReplyToMsg,
     required this.setReplyToMsg,
@@ -143,7 +133,6 @@ class ChatConnectionManager {
     ircNoticeSub?.cancel();
     ircJtvSub?.cancel();
     ircOwnMsgSub?.cancel();
-    userColorSub?.cancel();
     sevenTvEmoteSub?.cancel();
     sevenTvUserSub?.cancel();
   }
@@ -239,48 +228,6 @@ class ChatConnectionManager {
       }
     }
     chatStatus[channel] = parts.isNotEmpty ? parts.join(' · ') : '';
-    chatVersion.value++;
-  }
-
-  void insertLocalMessage(
-    String text,
-    String channel,
-    String? messageId,
-    TwitchMessage? replyTo,
-  ) {
-    final login = getCurrentUserLogin();
-    if (login == null) return;
-
-    final useTempId = messageId == null;
-    final effectiveId = useTempId ? 'local_${localCounter++}' : messageId;
-
-    if (!useTempId && messageKeys.containsKey('$channel:$effectiveId')) {
-      return;
-    }
-
-    final msg = TwitchMessage(
-      login: login,
-      text: text,
-      channel: channel,
-      messageId: effectiveId,
-      color: getCurrentUserColor() ?? pickColor(login.toLowerCase()),
-      userId: getCurrentUserId(),
-      replyToParentId: replyTo?.messageId,
-      replyToUser: replyTo?.displayName,
-      replyToText: replyTo?.text,
-      replyThreadRootId: replyTo?.replyThreadRootId ?? replyTo?.messageId,
-    );
-    channelMessages.putIfAbsent(channel, () => []);
-    channelMessages[channel]!.insert(0, msg);
-    if (useTempId) {
-      pendingLocals[effectiveId] = PendingLocal(channel, text);
-      _pendingLocalsByNorm['$channel:${normalizeForReconciliation(text)}'] =
-          effectiveId;
-    }
-    truncateChannelMessages(channel);
-    if (!useTempId) {
-      messageKeys.putIfAbsent('$channel:$messageId', () => GlobalKey());
-    }
     chatVersion.value++;
   }
 
@@ -629,22 +576,18 @@ class ChatConnectionManager {
           channelUserIds[channel] ?? await TwitchApi.getUserId(auth, channel);
       if (broadcasterId != null) {
         try {
-          final messageId = await TwitchApi.sendChatMessage(
+          await TwitchApi.sendChatMessage(
             auth,
             broadcasterId: broadcasterId,
             senderId: getCurrentUserId()!,
             message: wireText,
             replyParentMessageId: reply?.messageId,
           );
-          if (messageId != null && mounted) {
-            insertLocalMessage(text, channel, messageId, reply);
-          }
         } catch (_) {}
         return;
       }
     }
 
-    insertLocalMessage(text, channel, null, reply);
     irc.sendMessage(channel, wireText, replyParentMessageId: reply?.messageId);
   }
 
@@ -715,23 +658,6 @@ class ChatConnectionManager {
 
     ircOwnMsgSub?.cancel();
     ircOwnMsgSub = ircRead.onOwnMessage.listen(onOwnIrcMessage);
-
-    userColorSub?.cancel();
-    userColorSub = ircRead.onUserColor.listen((color) {
-      setCurrentUserColor(color);
-      final login = getCurrentUserLogin();
-      if (login != null) {
-        final lowerLogin = login.toLowerCase();
-        for (final entry in channelMessages.entries) {
-          for (final msg in entry.value) {
-            if (msg.login == lowerLogin && !msg.isSystem) {
-              msg.color = color;
-            }
-          }
-        }
-      }
-      chatVersion.value++;
-    });
 
     if (!auth.isConfigured) return;
 
@@ -823,33 +749,7 @@ class ChatConnectionManager {
 
     if (msg.messageId != null &&
         messageKeys.containsKey('$channel:${msg.messageId}')) {
-      final existing = channelMessages[channel];
-      if (msg.emotePositions != null && existing != null) {
-        final idx = existing.indexWhere(
-          (m) => m.messageId == msg.messageId,
-        );
-        if (idx != -1) {
-          existing[idx] = msg;
-          chatVersion.value++;
-        }
-      }
       return;
-    }
-
-    if (msg.messageId != null &&
-        getCurrentUserLogin() != null &&
-        msg.login == getCurrentUserLogin()!.toLowerCase()) {
-      final normKey = '$channel:${normalizeForReconciliation(msg.text)}';
-      final pendingKey = _pendingLocalsByNorm.remove(normKey);
-      if (pendingKey != null) {
-        final pending = pendingLocals.remove(pendingKey);
-        final stale = pending != null &&
-            DateTime.now().difference(pending.createdAt).inSeconds > 10;
-        channelMessages[channel]?.removeWhere(
-          (m) => m.messageId == pendingKey,
-        );
-        if (stale) return;
-      }
     }
 
     if (msg.sourceBroadcasterId != null &&
@@ -933,11 +833,6 @@ class ChatConnectionManager {
       displayName: displayName.isNotEmpty ? displayName : null,
     );
 
-    final colorTag = ircMsg.tags['color'];
-    if (colorTag != null && colorTag.isNotEmpty) {
-      setCurrentUserColor(colorTag);
-    }
-
     final messageId = ircMsg.tags['id'];
     final text = ircMsg.trailing!;
     final ircReplyParentId = ircMsg.tags['reply-parent-msg-id'];
@@ -963,25 +858,6 @@ class ChatConnectionManager {
 
     if (messageId != null && messageKeys.containsKey('$channel:$messageId')) {
       return;
-    }
-
-    final normKey = '$channel:${normalizeForReconciliation(strippedText)}';
-    final pendingKey = _pendingLocalsByNorm.remove(normKey);
-    TwitchMessage? pendingMsg;
-    if (pendingKey != null) {
-      final pending = pendingLocals.remove(pendingKey);
-      final stale = pending != null &&
-          DateTime.now().difference(pending.createdAt).inSeconds > 10;
-      if (!stale) {
-        final existing = channelMessages[channel];
-        if (existing != null) {
-          final idx = existing.indexWhere((m) => m.messageId == pendingKey);
-          if (idx != -1) {
-            pendingMsg = existing[idx];
-          }
-        }
-      }
-      channelMessages[channel]?.removeWhere((m) => m.messageId == pendingKey);
     }
 
     final tsMs = ircMsg.tags['tmi-sent-ts'];
@@ -1037,10 +913,10 @@ class ChatConnectionManager {
       timestamp: timestamp,
       userId: userId,
       color: color,
-      replyToParentId: pendingMsg?.replyToParentId ?? ircReplyParentId,
-      replyToUser: pendingMsg?.replyToUser ?? ircReplyUser,
-      replyToText: pendingMsg?.replyToText ?? ircReplyText,
-      replyThreadRootId: pendingMsg?.replyThreadRootId ?? ircReplyThreadRootId,
+      replyToParentId: ircReplyParentId,
+      replyToUser: ircReplyUser,
+      replyToText: ircReplyText,
+      replyThreadRootId: ircReplyThreadRootId,
       emotePositions: emotePositions,
     );
 
@@ -1064,11 +940,4 @@ bool isMention(String text, String login) {
     if (lower == '@$login' || lower == login) return true;
   }
   return false;
-}
-
-class PendingLocal {
-  final String channel;
-  final String text;
-  final DateTime createdAt;
-  PendingLocal(this.channel, this.text) : createdAt = DateTime.now();
 }

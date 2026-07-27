@@ -93,7 +93,6 @@ class _HomeScreenState extends State<HomeScreen>
     historyLoaded: _historyLoaded,
     channelsEmotesResolved: _channelsEmotesResolved,
     channelUserIds: _channelUserIds,
-    pendingLocals: _pendingLocals,
     lastTypedText: _lastTypedText,
     lastSentWireText: _lastSentWireText,
     ownMessageIds: _ownMessageIds,
@@ -115,8 +114,6 @@ class _HomeScreenState extends State<HomeScreen>
     },
     getCurrentUserId: () => _currentUserId,
     setCurrentUserId: (v) => _currentUserId = v,
-    getCurrentUserColor: () => _currentUserColor,
-    setCurrentUserColor: (v) => _currentUserColor = v,
     onCommand: _handleCommand,
     getReplyToMsg: () => _replyToMsg,
     setReplyToMsg: (v) => _replyToMsg = v,
@@ -184,11 +181,9 @@ class _HomeScreenState extends State<HomeScreen>
   final _mentionsPanelData = ValueNotifier<List<TwitchMessage>?>(null);
 
   final _ownMessageIds = <String>{};
-  final _pendingLocals = <String, PendingLocal>{};
 
   String? _currentUserLogin;
   bool _mentionScanDone = false;
-  String? _currentUserColor;
   String? _currentUserId;
   String? _lastSentText;
   final Map<String, String> _lastTypedText = {};
