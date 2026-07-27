@@ -73,7 +73,7 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
         borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.15),
+            color: Colors.black.withValues(alpha: 0.085),
             blurRadius: 8,
             offset: const Offset(0, -2),
           ),
@@ -95,7 +95,7 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
             onVerticalDragEnd: (details) {
               if (!widget.sheetCtrl.isAttached) return;
               final velocity = details.primaryVelocity ?? 0;
-              if (widget.sheetCtrl.size < 0.3 || velocity > 400) {
+              if (widget.sheetCtrl.size < 0.08 || velocity > 400) {
                 widget.onClose();
               } else {
                 widget.sheetCtrl.animateTo(
@@ -187,7 +187,7 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
       );
     }
     final screenWidth = MediaQuery.of(context).size.width;
-    final sidePadding = screenWidth * 0.3;
+    final sidePadding = screenWidth * 0.08;
     return CustomScrollView(
       controller: scrollController,
       slivers: [
@@ -265,7 +265,7 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
     ScrollController? scrollController,
   ) {
     final screenWidth = MediaQuery.of(context).size.width;
-    final sidePadding = screenWidth * 0.03;
+    final sidePadding = screenWidth * 0.08;
     return GridView.builder(
       controller: scrollController,
       padding: EdgeInsets.symmetric(horizontal: sidePadding, vertical: 4),
