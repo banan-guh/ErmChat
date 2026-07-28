@@ -49,7 +49,7 @@ class IrcReadService {
     if (_connecting) return;
     _connecting = true;
     try {
-    if (_channel?.closeCode == null) {
+    if (isConnected) {
       debugPrint('[IRC read] already connected, skipping reconnect');
       return;
     }
