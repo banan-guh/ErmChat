@@ -19,7 +19,7 @@ class TwitchMessage {
   final DateTime timestamp;
   final String login;
   final String displayName;
-  final String text;
+  String text;
   String? color;
   final bool isSystem;
   final bool isAction;

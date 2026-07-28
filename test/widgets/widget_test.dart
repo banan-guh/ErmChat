@@ -29,6 +29,7 @@ class _FakeEventSubService extends EventSubService {
           String? reason,
           bool isTimeout,
           String? duration,
+          int? durationSeconds,
           String channel,
         })
       >.broadcast(sync: true);
@@ -50,6 +51,7 @@ class _FakeEventSubService extends EventSubService {
       String? reason,
       bool isTimeout,
       String? duration,
+      int? durationSeconds,
       String channel,
     })
   >
@@ -71,6 +73,7 @@ class _FakeEventSubService extends EventSubService {
     String? reason,
     bool isTimeout = false,
     String? duration,
+    int? durationSeconds,
     String channel = '',
   }) {
     _banCtrl.add((
@@ -78,6 +81,7 @@ class _FakeEventSubService extends EventSubService {
       reason: reason,
       isTimeout: isTimeout,
       duration: duration,
+      durationSeconds: durationSeconds,
       channel: channel,
     ));
   }

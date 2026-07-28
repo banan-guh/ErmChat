@@ -45,6 +45,7 @@ class EventSubService {
           String? reason,
           bool isTimeout,
           String? duration,
+          int? durationSeconds,
           String channel,
         })
       >.broadcast(sync: true);
@@ -64,6 +65,7 @@ class EventSubService {
       String? reason,
       bool isTimeout,
       String? duration,
+      int? durationSeconds,
       String channel,
     })
   >
@@ -376,10 +378,12 @@ class EventSubService {
     final endsAt = event['ends_at'] as String?;
     final isTimeout = endsAt != null && endsAt.isNotEmpty;
     String? duration;
+    int? durationSeconds;
     if (isTimeout) {
       try {
         final end = DateTime.parse(endsAt);
         final diff = end.difference(DateTime.now());
+        durationSeconds = diff.inSeconds;
         if (diff.inSeconds >= 60) {
           duration = '${diff.inMinutes}m';
         } else {
@@ -387,6 +391,7 @@ class EventSubService {
         }
       } catch (_) {
         duration = null;
+        durationSeconds = null;
       }
     }
     _banController.add((
@@ -394,6 +399,7 @@ class EventSubService {
       reason: reason,
       isTimeout: isTimeout,
       duration: duration,
+      durationSeconds: durationSeconds,
       channel: channel,
     ));
   }

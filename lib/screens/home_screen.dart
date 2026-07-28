@@ -162,6 +162,7 @@ class _HomeScreenState extends State<HomeScreen>
   bool _replyToRoot = false;
   OverlayPanel _activePanel = OverlayPanel.closed;
   int _maxMessagesPerChannel = 200;
+  int _nextSystemMessageId = 0;
 
   final _suggestionsNotifier = ValueNotifier<List<Suggestion>>([]);
   final _selectedTabIndex = ValueNotifier<int>(0);
@@ -295,6 +296,16 @@ class _HomeScreenState extends State<HomeScreen>
                       msg.messageId == null ||
                       !existingIds.contains(msg.messageId);
                   if (isNew) {
+                    if (msg.isSystem && _currentUserLogin != null) {
+                      final selfLogin = _currentUserLogin!.toLowerCase();
+                      if (msg.login.toLowerCase() == selfLogin) {
+                        msg.text = msg.text.replaceFirst(
+                          RegExp(RegExp.escape(msg.login), caseSensitive: false),
+                          'You',
+                        );
+                        msg.text = msg.text.replaceFirst('was', 'were');
+                      }
+                    }
                     existing.insert(0, msg);
                   }
                   if (msg.messageId != null) {
@@ -559,7 +570,13 @@ class _HomeScreenState extends State<HomeScreen>
     _channelMessages.putIfAbsent(channel, () => []);
     _channelMessages[channel]!.insert(
       0,
-      TwitchMessage(login: '', text: text, isSystem: true, channel: channel),
+      TwitchMessage(
+        login: '',
+        text: text,
+        messageId: 'sys_${_nextSystemMessageId++}',
+        isSystem: true,
+        channel: channel,
+      ),
     );
     _truncateChannelMessages(channel);
     _chatVersion.value++;

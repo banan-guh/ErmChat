@@ -357,6 +357,7 @@ void main() {
               String? reason,
               bool isTimeout,
               String? duration,
+              int? durationSeconds,
               String channel,
             })
           >[];
@@ -382,6 +383,7 @@ void main() {
               String? reason,
               bool isTimeout,
               String? duration,
+              int? durationSeconds,
               String channel,
             })
           >[];
@@ -396,6 +398,7 @@ void main() {
 
       expect(bans[0].isTimeout, isTrue);
       expect(bans[0].duration, endsWith('s'));
+      expect(bans[0].durationSeconds, lessThanOrEqualTo(30));
     });
 
     test('emits timeout event with duration in minutes', () async {
@@ -406,6 +409,7 @@ void main() {
               String? reason,
               bool isTimeout,
               String? duration,
+              int? durationSeconds,
               String channel,
             })
           >[];
@@ -428,6 +432,7 @@ void main() {
               String? reason,
               bool isTimeout,
               String? duration,
+              int? durationSeconds,
               String channel,
             })
           >[];
@@ -439,6 +444,7 @@ void main() {
 
       expect(bans[0].isTimeout, isTrue);
       expect(bans[0].duration, isNull);
+      expect(bans[0].durationSeconds, isNull);
     });
 
     test('uses unknown as default user', () async {
@@ -449,6 +455,7 @@ void main() {
               String? reason,
               bool isTimeout,
               String? duration,
+              int? durationSeconds,
               String channel,
             })
           >[];

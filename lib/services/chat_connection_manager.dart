@@ -58,7 +58,7 @@ class ChatConnectionManager {
   StreamSubscription<({String messageId, String targetUser, String channel})>?
   deleteSub;
   StreamSubscription<IrcBanEvent>? ircBanSub;
-  StreamSubscription<({String user, String? reason, bool isTimeout, String? duration, String channel})>? eventSubBanSub;
+  StreamSubscription<({String user, String? reason, bool isTimeout, String? duration, int? durationSeconds, String channel})>? eventSubBanSub;
   StreamSubscription<IrcNoticeEvent>? ircNoticeSub;
   StreamSubscription<IrcNoticeEvent>? ircJtvSub;
   StreamSubscription<IrcMessage>? ircOwnMsgSub;
@@ -615,9 +615,14 @@ class ChatConnectionManager {
       debugPrint('[ChatConn] IRC ban received: user=${event.user} channel=${event.channel} isTimeout=${event.isTimeout}');
       if (!mounted) return;
       _markUserMessagesDeleted(event.channel, event.user);
+      final isSelf = event.user.toLowerCase() == getCurrentUserLogin()?.toLowerCase();
       final text = event.isTimeout
-          ? '${event.user} was timed out${event.duration != null ? ' for ${event.duration}s' : ''}.'
-          : '${event.user} was banned.';
+          ? isSelf
+              ? 'You are timed out${event.duration != null ? ' for ${event.duration}s' : ''}.'
+              : '${event.user} was timed out${event.duration != null ? ' for ${event.duration}s' : ''}.'
+          : isSelf
+              ? 'You were banned.'
+              : '${event.user} was banned.';
       debugPrint('[ChatConn] IRC ban system message: $text');
       onSystemMessage(event.channel, text);
     });
@@ -627,9 +632,14 @@ class ChatConnectionManager {
       debugPrint('[ChatConn] EventSub ban received: user=${event.user} channel=${event.channel} isTimeout=${event.isTimeout}');
       if (!mounted) return;
       _markUserMessagesDeleted(event.channel, event.user);
+      final isSelf = event.user.toLowerCase() == getCurrentUserLogin()?.toLowerCase();
       final text = event.isTimeout
-          ? '${event.user} was timed out${event.duration != null ? ' for ${event.duration}s' : ''}.'
-          : '${event.user} was banned.';
+          ? isSelf
+              ? 'You are timed out${event.durationSeconds != null ? ' for ${event.durationSeconds}s' : ''}.'
+              : '${event.user} was timed out${event.duration != null ? ' for ${event.duration}s' : ''}.'
+          : isSelf
+              ? 'You were banned.'
+              : '${event.user} was banned.';
       debugPrint('[ChatConn] EventSub ban system message: $text');
       onSystemMessage(event.channel, text);
     });
