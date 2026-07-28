@@ -878,30 +878,24 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   TwitchMessage? _findThreadRoot(TwitchMessage msg) {
+    if (msg.replyThreadRootId != null) return msg;
+
     final channel = msg.channel;
     if (channel == null) return null;
     final msgs = _channelMessages[channel];
     if (msgs == null) return null;
 
-    final hasReplies =
-        msg.messageId != null &&
-        msgs.any((m) => m.replyToParentId == msg.messageId);
-    if (!hasReplies && msg.replyToParentId == null && msg.replyThreadRootId == null) return null;
-    if (!hasReplies && msg.replyToParentId == null && msg.replyThreadRootId != null) return msg;
-
-    if (msg.replyThreadRootId != null) {
-      final root = msgs.firstWhere(
-        (m) => m.messageId == msg.replyThreadRootId,
-        orElse: () => msg,
-      );
-      return root.messageId == msg.replyThreadRootId ? root : msg;
+    if (msg.messageId != null &&
+        msgs.any((m) => m.replyToParentId == msg.messageId)) {
+      return msg;
     }
+
+    if (msg.replyToParentId == null) return null;
 
     final visited = <String>{};
     TwitchMessage current = msg;
     while (current.replyToParentId != null &&
-        !visited.contains(current.replyToParentId)) {
-      visited.add(current.replyToParentId!);
+        visited.add(current.replyToParentId!)) {
       final parent = msgs
           .where((m) => m.messageId == current.replyToParentId)
           .firstOrNull;
@@ -1166,55 +1160,19 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   List<TwitchMessage> _computeThreadMessages() {
-    final root = _openThreadRoot;
-    if (root == null) return const [];
-    final channel = root.channel;
+    final entry = _openThreadRoot;
+    if (entry == null) return const [];
+    final channel = entry.channel;
     if (channel == null) return const [];
     final allMsgs = _channelMessages[channel] ?? [];
 
-    final byId = <String, TwitchMessage>{};
-    final childrenOf = <String, List<TwitchMessage>>{};
-    for (final m in allMsgs) {
-      if (m.messageId != null) byId[m.messageId!] = m;
-      final pid = m.replyToParentId;
-      if (pid != null) {
-        (childrenOf.putIfAbsent(pid, () => [])).add(m);
-      }
-    }
+    final threadKey = entry.replyThreadRootId ?? entry.messageId;
+    if (threadKey == null) return const [];
 
-    final visited = <String>{};
     final threadMsgs = <TwitchMessage>[];
-    final queue = <String>[];
-    if (root.messageId != null) {
-      queue.add(root.messageId!);
-      visited.add(root.messageId!);
-    }
-
-    while (queue.isNotEmpty) {
-      final id = queue.removeAt(0);
-      final msg = byId[id];
-      if (msg != null) threadMsgs.add(msg);
-      final children = childrenOf[id];
-      if (children != null) {
-        for (final child in children) {
-          if (child.messageId != null && visited.add(child.messageId!)) {
-            queue.add(child.messageId!);
-          }
-        }
-      }
-    }
-
-    // Include messages sharing the same replyThreadRootId even if their
-    // replyToParentId chain doesn't connect through the walked graph
-    // (e.g. non-adjacent replies in the same Twitch thread).
-    if (root.messageId != null) {
-      for (final m in allMsgs) {
-        if (m.messageId == null) continue;
-        if (visited.contains(m.messageId!)) continue;
-        if (m.replyThreadRootId == root.messageId) {
-          threadMsgs.add(m);
-          visited.add(m.messageId!);
-        }
+    for (final m in allMsgs) {
+      if (m.messageId == threadKey || m.replyThreadRootId == threadKey) {
+        threadMsgs.add(m);
       }
     }
 
