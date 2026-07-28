@@ -285,11 +285,10 @@ class ChatConnectionManager {
     }
 
     // Phase 1: find active thread roots — roots that have at least one
-    // message in the visible window (first maxMessages non-system messages).
+    // message in the visible window (first maxMessages messages).
     final activeRoots = <String>{};
     int visibleCount = 0;
     for (final m in msgs) {
-      if (m.isSystem) continue;
       if (visibleCount >= maxMessages) break;
       visibleCount++;
       if (m.messageId == null) continue;
@@ -320,23 +319,16 @@ class ChatConnectionManager {
     }
 
     // Phase 3: collect indices to keep. Keep all active thread messages plus
-    // the first maxMessages non-thread non-system messages. Orphan thread
-    // messages (thread-adjacent but not in an active thread) are removed.
+    // the first maxMessages non-thread messages (including system messages).
+    // Orphan thread messages (thread-adjacent but not in an active thread) are removed.
     final keepIndices = <int>{};
     int nonThreadKept = 0;
-    int systemKept = 0;
     for (int i = 0; i < msgs.length; i++) {
       final m = msgs[i];
       final isActiveThread =
           m.messageId != null && threadIds.contains(m.messageId!);
       if (isActiveThread) {
         keepIndices.add(i);
-      } else if (m.isSystem) {
-        // system messages past the limit are removed
-        if (systemKept < maxMessages) {
-          keepIndices.add(i);
-          systemKept++;
-        }
       } else {
         final isOrphanThread = m.messageId != null && !isActiveThread && (
             parentOf.containsKey(m.messageId!) ||

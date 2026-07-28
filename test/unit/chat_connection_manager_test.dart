@@ -370,10 +370,10 @@ void main() {
       expect(remaining.any((m) => m.messageId == 'leaf'), false);
     });
 
-    test('system messages skip non-thread counting, threads still bounded', () {
+    test('system messages compete with non-thread for same quota', () {
       // 100 system + 100 non-thread + 1 thread (3 msgs) with leaf visible.
-      // System messages have their own limit of 100.
-      // Non-thread limit is 100 → 100 non-thread + 3 thread + 100 system.
+      // System messages share the non-thread quota of 100.
+      // Non-thread limit is 100 → 100 non-thread + 3 thread = 103 total.
       const limit = 100;
       final msgs = <String, List<TwitchMessage>>{
         'test': [
@@ -396,8 +396,8 @@ void main() {
       conn.truncateChannelMessages('test');
 
       final remaining = msgs['test']!;
-      // Thread (3) + non-thread (limit) + system (limit)
-      expect(remaining.length, 3 + limit + limit);
+      // Thread (3) + non-thread+system (limit)
+      expect(remaining.length, 3 + limit);
 
       // Thread preserved
       expect(remaining.any((m) => m.messageId == 'root'), true);
