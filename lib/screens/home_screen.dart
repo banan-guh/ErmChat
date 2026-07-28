@@ -159,6 +159,7 @@ class _HomeScreenState extends State<HomeScreen>
 
   TwitchMessage? _replyToMsg;
   TwitchMessage? _openThreadRoot;
+  bool _replyToRoot = false;
   OverlayPanel _activePanel = OverlayPanel.closed;
   int _maxMessagesPerChannel = 200;
 
@@ -512,6 +513,7 @@ class _HomeScreenState extends State<HomeScreen>
     if (!mounted) return;
     setState(() {
       _maxMessagesPerChannel = prefs.getInt('max_messages_per_channel') ?? 200;
+      _replyToRoot = prefs.getBool('reply_to_thread_root') ?? false;
     });
   }
 
@@ -843,8 +845,22 @@ class _HomeScreenState extends State<HomeScreen>
     final threadRoot = _openThreadRoot;
     if (threadRoot != null) {
       final threadMsgs = _computeThreadMessages();
-      final lastMsg = threadMsgs.isNotEmpty ? threadMsgs.last : null;
-      _doSendMessage(text, channel, replyTo: lastMsg);
+      final TwitchMessage? replyTo;
+      if (_replyToRoot) {
+        final rootId = threadRoot.replyThreadRootId ?? threadRoot.messageId;
+        replyTo = threadMsgs.firstWhere(
+          (m) => m.messageId == rootId,
+          orElse: () => TwitchMessage(
+            login: '',
+            text: '',
+            messageId: rootId,
+            channel: channel,
+          ),
+        );
+      } else {
+        replyTo = threadMsgs.isNotEmpty ? threadMsgs.last : null;
+      }
+      _doSendMessage(text, channel, replyTo: replyTo);
     } else {
       _doSendMessage(text, channel);
     }
@@ -1757,7 +1773,7 @@ class _HomeScreenState extends State<HomeScreen>
                         : _chatConn.connectionStatus != EventSubStatus.connected
                         ? 'Disconnected'
                         : _activePanel == OverlayPanel.thread
-                        ? 'Reply to thread...'
+                        ? (_replyToRoot ? 'Reply to root...' : 'Reply to thread...')
                         : _activePanel == OverlayPanel.mentions
                         ? 'Type a message...'
                         : null,

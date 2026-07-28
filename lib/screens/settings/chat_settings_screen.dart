@@ -11,19 +11,21 @@ class ChatSettingsScreen extends StatefulWidget {
 
 class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
   int _maxMessagesPerChannel = 200;
+  bool _replyToRoot = false;
 
   @override
   void initState() {
     super.initState();
-    _loadMaxMessages();
+    _loadPrefs();
   }
 
-  Future<void> _loadMaxMessages() async {
+  Future<void> _loadPrefs() async {
     final prefs = await SharedPreferences.getInstance();
     if (mounted) {
       setState(() {
         _maxMessagesPerChannel =
             prefs.getInt('max_messages_per_channel') ?? 200;
+        _replyToRoot = prefs.getBool('reply_to_thread_root') ?? false;
       });
     }
   }
@@ -69,6 +71,19 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
                   builder: (_) => const PingsScreen(),
                 ),
               );
+            },
+          ),
+          SwitchListTile(
+            secondary: const Icon(Icons.reply),
+            title: const Text('Reply to thread root'),
+            subtitle: const Text(
+              'Always reply to the first message in a thread instead of the latest',
+            ),
+            value: _replyToRoot,
+            onChanged: (value) async {
+              final prefs = await SharedPreferences.getInstance();
+              await prefs.setBool('reply_to_thread_root', value);
+              if (mounted) setState(() => _replyToRoot = value);
             },
           ),
         ],
