@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import 'package:ermchat/main.dart';
 import 'package:ermchat/screens/settings/account_screen.dart';
@@ -223,6 +224,7 @@ class _TestEventSubService extends _FakeEventSubService {
 void main() {
   setUp(() {
     SharedPreferences.setMockInitialValues({});
+    FlutterSecureStorage.setMockInitialValues({});
   });
 
   testWidgets('Home screen shows credentials message when not configured', (
@@ -664,6 +666,7 @@ void main() {
     WidgetTester tester,
   ) async {
     SharedPreferences.setMockInitialValues({'access_token': 'test_token'});
+    FlutterSecureStorage.setMockInitialValues({'access_token': 'test_token'});
     await tester.pumpWidget(const TwitchChatApp());
     await tester.pump();
 
@@ -779,6 +782,7 @@ void main() {
       final fakeIrc = _FakeIrcService();
 
       SharedPreferences.setMockInitialValues({'access_token': 'test_token'});
+    FlutterSecureStorage.setMockInitialValues({'access_token': 'test_token'});
 
       await tester.pumpWidget(
         TwitchChatApp(
@@ -812,6 +816,7 @@ void main() {
 
     setUp(() {
       SharedPreferences.setMockInitialValues({});
+      FlutterSecureStorage.setMockInitialValues({});
       now = DateTime.now();
     });
 
@@ -1002,6 +1007,7 @@ void main() {
         final eventSub = _TestEventSubService();
 
         SharedPreferences.setMockInitialValues({'access_token': 'test_token'});
+    FlutterSecureStorage.setMockInitialValues({'access_token': 'test_token'});
         await joinChannel(
           tester,
           channelName: channel,
@@ -1210,6 +1216,7 @@ void main() {
       RecentMessagesService? recent,
     }) async {
       SharedPreferences.setMockInitialValues({'access_token': 'test_token'});
+    FlutterSecureStorage.setMockInitialValues({'access_token': 'test_token'});
       final fakeRecent = recent ?? _FakeRecentMessagesService();
 
       await tester.pumpWidget(
@@ -1355,6 +1362,7 @@ void main() {
       'system message on unfocused channel does not trigger unread indicator',
       (WidgetTester tester) async {
         SharedPreferences.setMockInitialValues({'access_token': 'test_token'});
+    FlutterSecureStorage.setMockInitialValues({'access_token': 'test_token'});
         final eventSub = _FakeEventSubService();
         final irc = _FakeIrcService();
         final recent = _FakeRecentMessagesService();
@@ -1450,6 +1458,7 @@ void main() {
     'color change updates own messages without crashing',
     (WidgetTester tester) async {
       SharedPreferences.setMockInitialValues({'access_token': 'test_token'});
+    FlutterSecureStorage.setMockInitialValues({'access_token': 'test_token'});
       final eventSub = _FakeEventSubService();
       final irc = _FakeIrcService();
       final ircRead = _FakeIrcReadService();
@@ -2134,6 +2143,7 @@ void main() {
       WidgetTester tester,
     ) async {
       SharedPreferences.setMockInitialValues({'access_token': 'test_token'});
+    FlutterSecureStorage.setMockInitialValues({'access_token': 'test_token'});
       final eventSub = _TestEventSubService();
       final irc = _FakeIrcService();
       final recent = _FakeRecentMessagesService();
@@ -2186,6 +2196,7 @@ void main() {
       WidgetTester tester,
     ) async {
       SharedPreferences.setMockInitialValues({'access_token': 'test_token'});
+    FlutterSecureStorage.setMockInitialValues({'access_token': 'test_token'});
       final eventSub = _TestEventSubService();
       final irc = _FakeIrcService();
       final recent = _FakeRecentMessagesService();

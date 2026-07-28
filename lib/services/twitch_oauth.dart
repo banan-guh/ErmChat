@@ -82,7 +82,11 @@ class TwitchOAuth {
           },
         ),
       ),
-    );
+    ).then((_) {
+      // Failsafe: if the route is popped without passing a token
+      // (e.g. system back button), complete so the caller doesn't hang.
+      if (!completer.isCompleted) completer.complete(null);
+    });
 
     return completer.future;
   }

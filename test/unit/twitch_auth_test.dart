@@ -1,10 +1,10 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:ermchat/services/twitch_auth.dart';
 
 void main() {
   setUp(() {
-    SharedPreferences.setMockInitialValues({});
+    FlutterSecureStorage.setMockInitialValues({});
   });
 
   group('TwitchAuth', () {
@@ -44,8 +44,8 @@ void main() {
       expect(auth.hasStoredTokens, isFalse);
     });
 
-    test('load restores tokens from SharedPreferences', () async {
-      SharedPreferences.setMockInitialValues({
+    test('load restores tokens from secure storage', () async {
+      FlutterSecureStorage.setMockInitialValues({
         'access_token': 'stored_token',
         'refresh_token': 'stored_refresh',
       });

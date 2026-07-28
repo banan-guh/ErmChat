@@ -1,5 +1,5 @@
 import 'package:flutter/foundation.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import '../twitch_config.dart';
@@ -7,29 +7,23 @@ import '../twitch_config.dart';
 class TwitchAuth extends ChangeNotifier {
   String? accessToken;
   String? refreshToken;
-  SharedPreferences? _prefs;
+  final FlutterSecureStorage _storage;
 
-  Future<SharedPreferences> _getPrefs() async {
-    _prefs ??= await SharedPreferences.getInstance();
-    return _prefs!;
-  }
+  TwitchAuth({FlutterSecureStorage? storage})
+      : _storage = storage ?? const FlutterSecureStorage();
 
   bool get isConfigured => TwitchConfig.isConfigured && accessToken != null;
 
   bool get hasStoredTokens => accessToken != null && refreshToken != null;
 
   Future<void> load() async {
-    final prefs = await _getPrefs();
-    final at = prefs.getString('access_token');
-    final rt = prefs.getString('refresh_token');
-    if (at != null && at.isNotEmpty) accessToken = at;
-    if (rt != null && rt.isNotEmpty) refreshToken = rt;
+    accessToken = await _storage.read(key: 'access_token');
+    refreshToken = await _storage.read(key: 'refresh_token');
   }
 
   Future<void> _save() async {
-    final prefs = await _getPrefs();
-    await prefs.setString('access_token', accessToken ?? '');
-    await prefs.setString('refresh_token', refreshToken ?? '');
+    await _storage.write(key: 'access_token', value: accessToken ?? '');
+    await _storage.write(key: 'refresh_token', value: refreshToken ?? '');
   }
 
   void setCredentials({required String accessToken, String? refreshToken}) {
@@ -42,9 +36,8 @@ class TwitchAuth extends ChangeNotifier {
   Future<void> clear() async {
     accessToken = null;
     refreshToken = null;
-    final prefs = await _getPrefs();
-    await prefs.remove('access_token');
-    await prefs.remove('refresh_token');
+    await _storage.delete(key: 'access_token');
+    await _storage.delete(key: 'refresh_token');
     notifyListeners();
   }
 

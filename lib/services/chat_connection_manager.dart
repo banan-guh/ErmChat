@@ -274,8 +274,14 @@ class ChatConnectionManager {
           (msg) => msg.messageId == m.replyThreadRootId,
         );
         if (rootInBuffer) return m.replyThreadRootId;
+        return m.messageId;
       }
-      return parentOf.containsKey(m.messageId!) ? findRoot(m.messageId!) : null;
+      if (parentOf.containsKey(m.messageId!)) {
+        final root = findRoot(m.messageId!);
+        if (msgs.any((msg) => msg.messageId == root)) return root;
+        return m.messageId;
+      }
+      return null;
     }
 
     // Phase 1: find active thread roots — roots that have at least one
