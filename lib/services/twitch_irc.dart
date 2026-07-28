@@ -1,8 +1,5 @@
 import 'dart:async';
-import 'dart:math';
-import 'package:flutter/foundation.dart';
-import 'package:web_socket_channel/web_socket_channel.dart';
-import 'package:connectivity_plus/connectivity_plus.dart';
+import 'base_irc_connection.dart';
 
 class IrcBanEvent {
   final String channel;
@@ -27,197 +24,46 @@ class IrcNoticeEvent {
   IrcNoticeEvent({required this.channel, required this.message});
 }
 
-class IrcService {
-  static const _wsUrl = 'wss://irc-ws.chat.twitch.tv:443';
-  static const _maxReconnectAttempts = 8;
-
-  final Connectivity? _connectivity;
-
-  WebSocketChannel? _channel;
-  StreamSubscription<dynamic>? _streamSub;
-  Timer? _pingTimer;
-  Timer? _reconnectTimer;
-  String? _username;
-  String? _token;
-  bool _reconnecting = false;
-  bool _connecting = false;
-  bool _disposed = false;
-  int _reconnectAttempt = 0;
-  int _pingsWithoutPong = 0;
-  StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
-  bool _isOnline = true;
-
+class IrcService extends BaseIrcConnection {
   final _banController = StreamController<IrcBanEvent>.broadcast();
   final _noticeController = StreamController<IrcNoticeEvent>.broadcast();
   final _jtvController = StreamController<IrcNoticeEvent>.broadcast();
-  final _channels = <String>{};
 
   Stream<IrcBanEvent> get onBan => _banController.stream;
   Stream<IrcNoticeEvent> get onNotice => _noticeController.stream;
   Stream<IrcNoticeEvent> get onJtvMessage => _jtvController.stream;
 
-  bool get isConnected => _channel != null;
+  @override
+  String get debugPrefix => 'IRC';
 
-  IrcService({this._connectivity});
+  IrcService({super.connectivity});
 
-  Future<void> connect({
-    required String username,
-    required String accessToken,
-  }) async {
-    _username = username.toLowerCase();
-    _token = accessToken;
-    await _connect();
+  void sendMessage(
+    String channelName,
+    String text, {
+    String? replyParentMessageId,
+  }) {
+    if (channel == null || username == null) return;
+
+    final tag = replyParentMessageId != null
+        ? '@reply-parent-msg-id=$replyParentMessageId '
+        : '';
+    final msg = '${tag}PRIVMSG #$channelName :$text';
+    sendLine(msg);
   }
 
-  Future<void> _connect() async {
-    if (_connecting) return;
-    _connecting = true;
-    try {
-    if (isConnected) {
-      debugPrint('[IRC] already connected, skipping reconnect');
+  @override
+  void dispatchLine(String line) {
+    if (line.contains('CLEARCHAT ')) {
+      _handleClearChat(line);
       return;
     }
-    _connectivitySub?.cancel();
-    if (_connectivity != null) {
-      _connectivitySub = _connectivity.onConnectivityChanged.listen((results) {
-        final wasOffline = !_isOnline;
-        _isOnline = !results.contains(ConnectivityResult.none);
-        if (wasOffline && _isOnline && _channel == null && !_connecting) {
-          _reconnectAttempt = 0;
-          _connect();
-        }
-      });
-    }
-    _disconnect();
-    _pingsWithoutPong = 0;
-
-    try {
-      _channel = WebSocketChannel.connect(Uri.parse(_wsUrl));
-      await _channel!.ready;
-
-      _streamSub = _channel!.stream.listen(
-        (raw) => _handleLine(raw as String),
-        onError: (e) {
-          debugPrint('IRC stream error: $e');
-          _disconnect();
-          _scheduleReconnect();
-        },
-        onDone: () {
-          debugPrint(
-            'IRC stream closed (code: ${_channel?.closeCode}, reason: ${_channel?.closeReason})',
-          );
-          _disconnect();
-          _scheduleReconnect();
-        },
-      );
-
-      _send('CAP REQ :twitch.tv/tags twitch.tv/commands');
-      _send('PASS oauth:$_token');
-      _send('NICK $_username');
-      debugPrint('[IRC] connected, re-joining ${_channels.length} channels: $_channels');
-
-      for (final channel in _channels) {
-        _send('JOIN #$channel');
-      }
-
-      _pingTimer?.cancel();
-      _pingTimer = Timer.periodic(const Duration(seconds: 300), (_) {
-        if (_channel == null) return;
-        if (_pingsWithoutPong > 0) {
-          debugPrint('IRC PONG timeout – reconnecting');
-          _disconnect();
-          _scheduleReconnect();
-          return;
-        }
-        _send('PING :keepalive');
-        _pingsWithoutPong = 1;
-      });
-    } catch (e) {
-      debugPrint('IRC connect error: $e');
-      _scheduleReconnect();
-    }
-    } finally {
-      _connecting = false;
-    }
-  }
-
-  void _disconnect() {
-    _connectivitySub?.cancel();
-    _connectivitySub = null;
-    _reconnectTimer?.cancel();
-    _reconnectTimer = null;
-    _pingTimer?.cancel();
-    _pingTimer = null;
-    _streamSub?.cancel();
-    _streamSub = null;
-    _channel?.sink.close();
-    _channel = null;
-    _pingsWithoutPong = 0;
-    _reconnecting = false;
-  }
-
-  void _scheduleReconnect() {
-    if (_reconnecting || _disposed) return;
-    if (!_isOnline) return;
-    if (_reconnectAttempt >= _maxReconnectAttempts) {
-      debugPrint('[IRC] max reconnect attempts reached – giving up');
+    if (line.contains('NOTICE ')) {
+      _handleNotice(line);
       return;
     }
-    _reconnecting = true;
-    _reconnectAttempt++;
-    Duration delay;
-    if (_reconnectAttempt == 1) {
-      delay = const Duration(seconds: 1);
-    } else {
-      final base = Duration(
-        seconds: min(pow(2, _reconnectAttempt - 2).toInt(), 30),
-      );
-      final jitter = 0.75 + Random().nextDouble() * 0.5;
-      delay = Duration(milliseconds: (base.inMilliseconds * jitter).toInt());
-    }
-    _reconnectTimer?.cancel();
-    _reconnectTimer = Timer(delay, () {
-      _reconnecting = false;
-      if (!_disposed && _username != null && _token != null) {
-        _connect();
-      }
-    });
-  }
-
-  void _send(String message) {
-    _channel?.sink.add(message);
-  }
-
-  void _handleLine(String raw) {
-    _pingsWithoutPong = 0;
-    for (final line in raw.split('\r\n')) {
-      if (line.isEmpty) continue;
-
-      if (line.startsWith('PING')) {
-        _send(line.replaceFirst('PING', 'PONG'));
-        continue;
-      }
-
-      if (line.startsWith('PONG')) {
-        _reconnectAttempt = 0;
-        continue;
-      }
-
-      if (line.contains('CLEARCHAT ')) {
-        _handleClearChat(line);
-        continue;
-      }
-
-      if (line.contains('NOTICE ')) {
-        _handleNotice(line);
-        continue;
-      }
-
-      // Twitch sends command responses (e.g. /color) as PRIVMSG from jtv
-      if (line.contains('PRIVMSG ') && line.contains(':jtv ')) {
-        _handleJtvMessage(line);
-        continue;
-      }
+    if (line.contains('PRIVMSG ') && line.contains(':jtv ')) {
+      _handleJtvMessage(line);
     }
   }
 
@@ -225,8 +71,9 @@ class IrcService {
     final msg = parseIrcMessage(line);
     if (msg == null || msg.command != 'CLEARCHAT') return;
 
-    final channel = msg.params.isNotEmpty ? msg.params[0].substring(1) : null;
-    if (channel == null) return;
+    final channelName =
+        msg.params.isNotEmpty ? msg.params[0].substring(1) : null;
+    if (channelName == null) return;
 
     final targetUser = msg.trailing;
     if (targetUser == null || targetUser.isEmpty) return;
@@ -238,7 +85,7 @@ class IrcService {
 
     _banController.add(
       IrcBanEvent(
-        channel: channel,
+        channel: channelName,
         user: targetUser,
         userId: targetUserId,
         isTimeout: isTimeout,
@@ -251,11 +98,12 @@ class IrcService {
     final msg = parseIrcMessage(line);
     if (msg == null || msg.command != 'NOTICE') return;
 
-    final channel = msg.params.isNotEmpty ? msg.params[0].substring(1) : null;
-    if (channel == null || msg.trailing == null) return;
+    final channelName =
+        msg.params.isNotEmpty ? msg.params[0].substring(1) : null;
+    if (channelName == null || msg.trailing == null) return;
 
     _noticeController.add(
-      IrcNoticeEvent(channel: channel, message: msg.trailing!),
+      IrcNoticeEvent(channel: channelName, message: msg.trailing!),
     );
   }
 
@@ -263,58 +111,21 @@ class IrcService {
     final msg = parseIrcMessage(line);
     if (msg == null || msg.trailing == null) return;
 
-    final channel = msg.params.isNotEmpty ? msg.params[0].substring(1) : null;
-    if (channel == null) return;
+    final channelName =
+        msg.params.isNotEmpty ? msg.params[0].substring(1) : null;
+    if (channelName == null) return;
 
     _jtvController.add(
-      IrcNoticeEvent(channel: channel, message: msg.trailing!),
+      IrcNoticeEvent(channel: channelName, message: msg.trailing!),
     );
   }
 
-  void sendMessage(
-    String channel,
-    String text, {
-    String? replyParentMessageId,
-  }) {
-    if (_channel == null || _username == null) {
-      return;
-    }
-    final tag = replyParentMessageId != null
-        ? '@reply-parent-msg-id=$replyParentMessageId '
-        : '';
-    final msg = '${tag}PRIVMSG #$channel :$text';
-    _send(msg);
-  }
-
-  void join(String channel) {
-    debugPrint('[IRC] join channel=$channel');
-    _channels.add(channel);
-    if (_channel != null) {
-      _send('JOIN #$channel');
-    }
-  }
-
-  void part(String channel) {
-    debugPrint('[IRC] part channel=$channel');
-    _channels.remove(channel);
-    if (_channel != null) {
-      _send('PART #$channel');
-    }
-  }
-
+  @override
   void dispose() {
-    _disposed = true;
-    _reconnecting = false;
-    _connectivitySub?.cancel();
-    _connectivitySub = null;
-    _reconnectTimer?.cancel();
-    _reconnectTimer = null;
-    _pingTimer?.cancel();
-    _streamSub?.cancel();
-    _channel?.sink.close();
     _banController.close();
     _noticeController.close();
     _jtvController.close();
+    super.dispose();
   }
 }
 
@@ -367,7 +178,6 @@ IrcMessage? parseIrcMessage(String line) {
           } catch (_) {
             decoded = tag.substring(eq + 1);
           }
-          // Strip unpaired surrogates that can crash toLowerCase etc.
           decoded = decoded.replaceAll(RegExp(r'[\uDC00-\uDFFF]'), '');
           decoded = decoded.replaceAll(
             RegExp(r'[\uD800-\uDBFF](?![\uDC00-\uDFFF])'),
