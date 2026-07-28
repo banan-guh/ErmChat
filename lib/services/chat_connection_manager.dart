@@ -764,7 +764,7 @@ class ChatConnectionManager {
             _isMention(msg, login)) ||
         isReplyToMe;
 
-    if (isMentioned) {
+    if (isMentioned && msg.login != login) {
       if (!msg.isHighlighted && !msg.isHistory && channel != getSelectedChannel()) {
         setUnreadMentions(getUnreadMentions() + 1);
         channelsWithUnreadMentions.add(channel);
