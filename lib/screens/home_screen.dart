@@ -376,10 +376,20 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   void _onSuggestionSelected(Suggestion suggestion) {
-    final replacement = switch (suggestion) {
+    var replacement = switch (suggestion) {
       UserSuggestion() => suggestion.displayName,
       EmoteSuggestion() => suggestion.emote.code,
     };
+
+    if (suggestion is UserSuggestion) {
+      final text = _messageController.text;
+      final cursor = _messageController.selection.baseOffset;
+      final word = getCurrentWord(text, cursor);
+      if (word.text.startsWith('@')) {
+        replacement = '@$replacement';
+      }
+    }
+
     replaceCurrentWord(_messageController, replacement);
     if (suggestion is EmoteSuggestion) {
       _emoteManager.markEmoteUsed(suggestion.emote);

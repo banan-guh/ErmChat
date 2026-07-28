@@ -11,6 +11,7 @@ class ChatSettingsScreen extends StatefulWidget {
 
 class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
   int _maxMessagesPerChannel = 200;
+  int _recentMessagesCount = 100;
   bool _replyToRoot = false;
 
   @override
@@ -25,6 +26,8 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
       setState(() {
         _maxMessagesPerChannel =
             prefs.getInt('max_messages_per_channel') ?? 200;
+        _recentMessagesCount =
+            prefs.getInt('recent_messages_limit') ?? 100;
         _replyToRoot = prefs.getBool('reply_to_thread_root') ?? false;
       });
     }
@@ -56,6 +59,30 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
                   final prefs = await SharedPreferences.getInstance();
                   await prefs.setInt('max_messages_per_channel', v);
                   if (mounted) setState(() => _maxMessagesPerChannel = v);
+                },
+              ),
+            ],
+          ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: Text(
+                  'Recent messages to load: $_recentMessagesCount',
+                ),
+              ),
+              Slider(
+                value: _recentMessagesCount.toDouble(),
+                min: 10,
+                max: 200,
+                divisions: 19,
+                label: '$_recentMessagesCount',
+                onChanged: (value) async {
+                  final v = value.toInt();
+                  final prefs = await SharedPreferences.getInstance();
+                  await prefs.setInt('recent_messages_limit', v);
+                  if (mounted) setState(() => _recentMessagesCount = v);
                 },
               ),
             ],

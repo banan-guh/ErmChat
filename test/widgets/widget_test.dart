@@ -93,7 +93,7 @@ class _FakeEventSubService extends EventSubService {
 
 class _FakeRecentMessagesService extends RecentMessagesService {
   @override
-  Future<List<TwitchMessage>> fetchRecent(String channel) async {
+  Future<List<TwitchMessage>> fetchRecent(String channel, {int limit = 100}) async {
     final now = DateTime.now();
     return [
       TwitchMessage(
@@ -198,7 +198,7 @@ class _ConfigurableRecentMessagesService extends RecentMessagesService {
   _ConfigurableRecentMessagesService(this.messages);
 
   @override
-  Future<List<TwitchMessage>> fetchRecent(String channel) async => messages;
+  Future<List<TwitchMessage>> fetchRecent(String channel, {int limit = 100}) async => messages;
 }
 
 class _TestEventSubService extends _FakeEventSubService {
