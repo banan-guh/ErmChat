@@ -8,7 +8,7 @@ abstract class BaseIrcConnection {
   static const _wsUrl = 'wss://irc-ws.chat.twitch.tv:443';
   static const _maxReconnectAttempts = 8;
 
-  final Connectivity? _connectivity;
+  final Connectivity? connectivity;
 
   WebSocketChannel? channel;
   String? username;
@@ -30,8 +30,7 @@ abstract class BaseIrcConnection {
 
   String get debugPrefix;
 
-  BaseIrcConnection({Connectivity? connectivity})
-      : _connectivity = connectivity;
+  BaseIrcConnection({this.connectivity});
 
   Future<void> connect({
     required String username,
@@ -51,8 +50,9 @@ abstract class BaseIrcConnection {
         return;
       }
       _connectivitySub?.cancel();
-      if (_connectivity != null) {
-        _connectivitySub = _connectivity!.onConnectivityChanged.listen(
+      final conn = connectivity;
+      if (conn != null) {
+        _connectivitySub = conn.onConnectivityChanged.listen(
           (results) {
             final wasOffline = !_isOnline;
             _isOnline = !results.contains(ConnectivityResult.none);

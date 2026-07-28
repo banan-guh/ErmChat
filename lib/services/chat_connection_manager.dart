@@ -17,6 +17,21 @@ import '../services/twitch_badge_service.dart';
 import '../services/user_store.dart';
 import '../util/text_bypass.dart';
 
+class _BanMeta {
+  final String user;
+  final bool isTimeout;
+  bool fromEventSource;
+  int stackCount = 1;
+  DateTime lastEvent;
+
+  _BanMeta({
+    required this.user,
+    required this.isTimeout,
+    required this.fromEventSource,
+    DateTime? lastEvent,
+  }) : lastEvent = lastEvent ?? DateTime.now();
+}
+
 class ChatConnectionManager {
   final EventSubService eventSub;
   final IrcService irc;
@@ -52,6 +67,8 @@ class ChatConnectionManager {
   final _connectedAcked = <String>{};
   bool mounted = true;
   bool _isConnecting = false;
+  final _recentBanMeta = <String, List<_BanMeta>>{};
+  static const _banDedupWindowSeconds = 5;
 
   StreamSubscription<TwitchMessage>? messageSub;
   StreamSubscription<EventSubStatus>? statusSub;
@@ -164,6 +181,47 @@ class ChatConnectionManager {
       }
     }
     debugPrint('[ChatConn] _markUserMessagesDeleted: marked $count messages deleted for user=$username in channel=$channel (total msgs in channel=${msgs.length})');
+  }
+
+  ({bool show, int stackCount}) _processBanInChannel(
+    String channel,
+    String user,
+    bool isTimeout,
+    bool fromEventSource,
+  ) {
+    final now = DateTime.now();
+    final metas = _recentBanMeta.putIfAbsent(channel, () => []);
+
+    metas.removeWhere(
+      (m) => now.difference(m.lastEvent).inSeconds >= _banDedupWindowSeconds,
+    );
+
+    final existing = metas.cast<_BanMeta?>().firstWhere(
+      (m) => m!.user == user && m.isTimeout == isTimeout,
+      orElse: () => null,
+    );
+
+    if (existing != null) {
+      if (fromEventSource == existing.fromEventSource) {
+        existing.stackCount++;
+        existing.lastEvent = now;
+        return (show: true, stackCount: existing.stackCount);
+      } else if (fromEventSource && !existing.fromEventSource) {
+        existing.fromEventSource = true;
+        existing.lastEvent = now;
+        return (show: true, stackCount: 1);
+      } else {
+        existing.lastEvent = now;
+        return (show: false, stackCount: 0);
+      }
+    }
+
+    metas.add(_BanMeta(
+      user: user,
+      isTimeout: isTimeout,
+      fromEventSource: fromEventSource,
+    ));
+    return (show: true, stackCount: 1);
   }
 
   void maybeAddConnected(String channel) {
@@ -419,6 +477,19 @@ class ChatConnectionManager {
           );
         }
       }
+
+      final currentUserId = getCurrentUserId();
+      if (currentUserId != null) {
+        final banSessionId = eventSub.sessionId;
+        if (banSessionId != null) {
+          await TwitchApi.createBanSubscription(
+            auth: auth,
+            sessionId: banSessionId,
+            broadcasterUserId: channelUserId,
+            moderatorUserId: currentUserId,
+          );
+        }
+      }
     } catch (_) {}
 
     onRebuild();
@@ -615,14 +686,17 @@ class ChatConnectionManager {
       debugPrint('[ChatConn] IRC ban received: user=${event.user} channel=${event.channel} isTimeout=${event.isTimeout}');
       if (!mounted) return;
       _markUserMessagesDeleted(event.channel, event.user);
+      final result = _processBanInChannel(event.channel, event.user, event.isTimeout, false);
+      if (!result.show) return;
       final isSelf = event.user.toLowerCase() == getCurrentUserLogin()?.toLowerCase();
+      final stacked = result.stackCount > 1 ? ' (${result.stackCount} times)' : '';
       final text = event.isTimeout
           ? isSelf
-              ? 'You are timed out${event.duration != null ? ' for ${event.duration}s' : ''}.'
-              : '${event.user} was timed out${event.duration != null ? ' for ${event.duration}s' : ''}.'
+              ? 'You are timed out${event.duration != null ? ' for ${event.duration}s' : ''}$stacked.'
+              : '${event.user} was timed out${event.duration != null ? ' for ${event.duration}s' : ''}$stacked.'
           : isSelf
-              ? 'You were banned.'
-              : '${event.user} was banned.';
+              ? 'You were banned$stacked.'
+              : '${event.user} was banned$stacked.';
       debugPrint('[ChatConn] IRC ban system message: $text');
       onSystemMessage(event.channel, text);
     });
@@ -632,14 +706,17 @@ class ChatConnectionManager {
       debugPrint('[ChatConn] EventSub ban received: user=${event.user} channel=${event.channel} isTimeout=${event.isTimeout}');
       if (!mounted) return;
       _markUserMessagesDeleted(event.channel, event.user);
+      final result = _processBanInChannel(event.channel, event.user, event.isTimeout, true);
+      if (!result.show) return;
       final isSelf = event.user.toLowerCase() == getCurrentUserLogin()?.toLowerCase();
+      final stacked = result.stackCount > 1 ? ' (${result.stackCount} times)' : '';
       final text = event.isTimeout
           ? isSelf
-              ? 'You are timed out${event.durationSeconds != null ? ' for ${event.durationSeconds}s' : ''}.'
-              : '${event.user} was timed out${event.duration != null ? ' for ${event.duration}s' : ''}.'
+              ? 'You are timed out${event.durationSeconds != null ? ' for ${event.durationSeconds}s' : ''}$stacked.'
+              : '${event.user} was timed out${event.duration != null ? ' for ${event.duration}s' : ''}$stacked.'
           : isSelf
-              ? 'You were banned.'
-              : '${event.user} was banned.';
+              ? 'You were banned$stacked.'
+              : '${event.user} was banned$stacked.';
       debugPrint('[ChatConn] EventSub ban system message: $text');
       onSystemMessage(event.channel, text);
     });

@@ -141,6 +141,34 @@ class TwitchApi {
     return true;
   }
 
+  static Future<bool> createBanSubscription({
+    required TwitchAuth auth,
+    required String sessionId,
+    required String broadcasterUserId,
+    required String moderatorUserId,
+  }) async {
+    _lastError = null;
+    final uri = Uri.parse('$_base/eventsub/subscriptions');
+    final body = jsonEncode({
+      'type': 'channel.ban',
+      'version': '1',
+      'condition': {
+        'broadcaster_user_id': broadcasterUserId,
+        'moderator_user_id': moderatorUserId,
+      },
+      'transport': {'method': 'websocket', 'session_id': sessionId},
+    });
+    final res = await _client.post(uri, headers: _headers(auth), body: body);
+    if (res.statusCode == 409) return true;
+    // 403/401 expected for non-mod channels — not an error worth surfacing
+    if (res.statusCode == 403 || res.statusCode == 401) return false;
+    if (res.statusCode != 202) {
+      _setError('createBanSubscription', res);
+      return false;
+    }
+    return true;
+  }
+
   /// Returns chat settings for a broadcaster.
   /// Keys: slow_mode, follower_mode, subscriber_mode, emote_mode, etc.
   static Future<Map<String, dynamic>?> getChatSettings(
