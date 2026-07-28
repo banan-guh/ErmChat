@@ -239,29 +239,19 @@ class ChatConnectionManager {
     final msgs = channelMessages[channel];
     if (msgs == null || msgs.length <= maxMessages) return;
 
-    // Build reply graph: parentOf maps childId -> parentId,
-    // children maps parentId -> set of childIds.
+    // Phase 1: group messages by thread identity.
+    // For messages with replyThreadRootId, the key is that value.
+    // For messages with only replyToParentId (older style), walk the chain
+    // to the root and use the root's messageId as the key.
+    // Only groups with more than one message are actual threads.
     final parentOf = <String, String>{};
-    final children = <String, Set<String>>{};
     for (final m in msgs) {
       if (m.replyToParentId != null && m.messageId != null) {
         parentOf[m.messageId!] = m.replyToParentId!;
-        children.putIfAbsent(m.replyToParentId!, () => {});
-        children[m.replyToParentId!]!.add(m.messageId!);
       }
     }
 
-    String findRoot(String id) {
-      // Use replyThreadRootId if available (non-adjacent reply support).
-      final msg = msgs.firstWhere(
-        (m) => m.messageId == id,
-        orElse: () => msgs.first,
-      );
-      if (msg.replyThreadRootId != null) {
-        // Check if the thread root message is still in the buffer.
-        final rootInBuffer = msgs.any((m) => m.messageId == msg.replyThreadRootId);
-        if (rootInBuffer) return msg.replyThreadRootId!;
-      }
+    String rootKey(String id) {
       var cur = id;
       while (parentOf.containsKey(cur)) {
         cur = parentOf[cur]!;
@@ -269,60 +259,53 @@ class ChatConnectionManager {
       return cur;
     }
 
-    String? threadRootOfMsg(TwitchMessage m) {
-      if (m.messageId == null) return null;
+    final threadGroups = <String, List<TwitchMessage>>{};
+    for (final m in msgs) {
+      String? key;
       if (m.replyThreadRootId != null) {
-        final rootInBuffer = msgs.any(
-          (msg) => msg.messageId == m.replyThreadRootId,
-        );
-        if (rootInBuffer) return m.replyThreadRootId;
-        return m.messageId;
+        key = m.replyThreadRootId;
+      } else if (m.messageId != null && parentOf.containsKey(m.messageId)) {
+        key = rootKey(m.messageId!);
+      } else if (m.messageId != null) {
+        key = m.messageId;
       }
-      if (parentOf.containsKey(m.messageId!)) {
-        final root = findRoot(m.messageId!);
-        if (msgs.any((msg) => msg.messageId == root)) return root;
-        return m.messageId;
+      if (key != null) {
+        threadGroups.putIfAbsent(key, () => <TwitchMessage>[]).add(m);
       }
-      return null;
     }
+    threadGroups.removeWhere((_, ms) => ms.length <= 1);
 
-    // Phase 1: find active thread roots — roots that have at least one
-    // message in the visible window (first maxMessages messages).
-    final activeRoots = <String>{};
+    // Phase 2: determine which threads are active.
+    // A thread is active if any of its messages is within the first
+    // maxMessages non-system messages (newest-first).
+    final activeThreadKeys = <String>{};
     int visibleCount = 0;
     for (final m in msgs) {
+      if (m.isSystem) continue;
       if (visibleCount >= maxMessages) break;
       visibleCount++;
-      if (m.messageId == null) continue;
-      if (children.containsKey(m.messageId!)) {
-        activeRoots.add(m.messageId!);
+      String? key;
+      if (m.replyThreadRootId != null) {
+        key = m.replyThreadRootId;
+      } else if (m.messageId != null && parentOf.containsKey(m.messageId)) {
+        key = rootKey(m.messageId!);
+      } else if (m.messageId != null) {
+        key = m.messageId;
       }
-      final threadRoot = threadRootOfMsg(m);
-      if (threadRoot != null) {
-        activeRoots.add(threadRoot);
+      if (key != null && threadGroups.containsKey(key)) {
+        activeThreadKeys.add(key);
       }
     }
 
-    // Phase 2: BFS from active roots to collect all thread message IDs
-    // across the entire thread (root + all descendants).
+    // Phase 3: collect every message ID belonging to an active thread.
     final threadIds = <String>{};
-    if (activeRoots.isNotEmpty) {
-      final queue = <String>[...activeRoots];
-      while (queue.isNotEmpty) {
-        final id = queue.removeAt(0);
-        if (!threadIds.add(id)) continue;
-        final kids = children[id];
-        if (kids != null) {
-          for (final child in kids) {
-            if (!threadIds.contains(child)) queue.add(child);
-          }
-        }
+    for (final key in activeThreadKeys) {
+      for (final m in threadGroups[key]!) {
+        if (m.messageId != null) threadIds.add(m.messageId!);
       }
     }
 
-    // Phase 3: collect indices to keep. Keep all active thread messages plus
-    // the first maxMessages non-thread messages (including system messages).
-    // Orphan thread messages (thread-adjacent but not in an active thread) are removed.
+    // Phase 4: collect indices to keep.
     final keepIndices = <int>{};
     int nonThreadKept = 0;
     for (int i = 0; i < msgs.length; i++) {
@@ -332,10 +315,18 @@ class ChatConnectionManager {
       if (isActiveThread) {
         keepIndices.add(i);
       } else {
-        final isOrphanThread = m.messageId != null && !isActiveThread && (
-            parentOf.containsKey(m.messageId!) ||
-            children.containsKey(m.messageId!) ||
-            m.replyThreadRootId != null);
+        String? key;
+        if (m.replyThreadRootId != null) {
+          key = m.replyThreadRootId;
+        } else if (m.messageId != null && parentOf.containsKey(m.messageId)) {
+          key = rootKey(m.messageId!);
+        } else if (m.messageId != null) {
+          key = m.messageId;
+        }
+        final isOrphanThread = m.messageId != null &&
+            !isActiveThread &&
+            key != null &&
+            threadGroups.containsKey(key);
         if (!isOrphanThread && nonThreadKept < maxMessages) {
           keepIndices.add(i);
           nonThreadKept++;
@@ -343,8 +334,7 @@ class ChatConnectionManager {
       }
     }
 
-    // Phase 4: remove messages not in keepIndices.
-    // Remove from high to low index so indices stay stable.
+    // Phase 5: remove messages not in keepIndices.
     for (int i = msgs.length - 1; i >= 0; i--) {
       if (!keepIndices.contains(i)) {
         msgs.removeAt(i);

@@ -1166,15 +1166,33 @@ class _HomeScreenState extends State<HomeScreen>
     if (channel == null) return const [];
     final allMsgs = _channelMessages[channel] ?? [];
 
-    final threadKey = entry.replyThreadRootId ?? entry.messageId;
-    if (threadKey == null) return const [];
+    final entryKey = entry.replyThreadRootId ?? entry.messageId;
+    if (entryKey == null) return const [];
 
-    final threadMsgs = <TwitchMessage>[];
+    final parentOf = <String, String>{};
     for (final m in allMsgs) {
-      if (m.messageId == threadKey || m.replyThreadRootId == threadKey) {
-        threadMsgs.add(m);
+      if (m.replyToParentId != null && m.messageId != null) {
+        parentOf[m.messageId!] = m.replyToParentId!;
       }
     }
+
+    String threadKeyFor(TwitchMessage m) {
+      if (m.replyThreadRootId != null) return m.replyThreadRootId!;
+      if (m.messageId != null && parentOf.containsKey(m.messageId)) {
+        var cur = m.messageId!;
+        while (parentOf.containsKey(cur)) {
+          cur = parentOf[cur]!;
+        }
+        return cur;
+      }
+      return m.messageId ?? '';
+    }
+
+    final resolvedKey = threadKeyFor(entry);
+
+    final threadMsgs = allMsgs
+        .where((m) => threadKeyFor(m) == resolvedKey)
+        .toList();
 
     threadMsgs.sort((a, b) => a.timestamp.compareTo(b.timestamp));
     return threadMsgs;

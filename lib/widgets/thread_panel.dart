@@ -90,7 +90,6 @@ class ThreadPanelWidgetState extends State<ThreadPanelWidget> {
     if (threadMsgs.isEmpty) {
       return ListView(
         controller: widget.scrollController,
-        physics: const BouncingScrollPhysics(),
         padding: const EdgeInsets.only(bottom: 8),
         children: const [
           Center(child: Text('No messages found')),
@@ -100,7 +99,6 @@ class ThreadPanelWidgetState extends State<ThreadPanelWidget> {
 
     return ListView.builder(
       controller: widget.scrollController,
-      physics: const BouncingScrollPhysics(),
       reverse: true,
       padding: const EdgeInsets.only(bottom: 8),
       itemCount: threadMsgs.length,
