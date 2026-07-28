@@ -15,6 +15,8 @@ import 'package:ermchat/services/recent_messages.dart';
 import 'package:ermchat/services/twitch_auth.dart';
 import 'package:ermchat/models/twitch_message.dart';
 import 'package:ermchat/services/twitch_irc_read.dart';
+import 'package:ermchat/services/suggestion.dart';
+import 'package:ermchat/widgets/autocomplete_dropdown.dart';
 
 class _FakeEventSubService extends EventSubService {
   final _statusCtrl = StreamController<EventSubStatus>.broadcast(sync: true);
@@ -2194,6 +2196,74 @@ void main() {
         ),
         findsOneWidget,
       );
+    });
+
+    testWidgets('backspace after autocomplete reverts to original text', (
+      WidgetTester tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({'access_token': 'test_token'});
+    FlutterSecureStorage.setMockInitialValues({'access_token': 'test_token'});
+      final eventSub = _TestEventSubService();
+      final irc = _FakeIrcService();
+      final recent = _FakeRecentMessagesService();
+
+      await tester.pumpWidget(
+        TwitchChatApp(
+          eventSubService: eventSub,
+          ircService: irc,
+          recentMessagesService: recent,
+        ),
+      );
+      await tester.pump();
+
+      // Join channel.
+      await tester.tap(find.byIcon(Icons.add));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).last, 'xqc');
+      await tester.tap(find.text('Join'));
+      await tester.pump();
+
+      // Populate user store so UserOne appears as a suggestion.
+      eventSub.emitMessage(
+        TwitchMessage(
+          login: 'UserOne',
+          text: 'hello chat',
+          channel: 'xqc',
+          messageId: 'm1',
+        ),
+      );
+      await tester.pump();
+
+      // Type @Us to trigger autocomplete for user UserOne.
+      final inputFinder = find.byKey(const Key('message_input'));
+      await tester.enterText(inputFinder, '@Us');
+      await tester.pump();
+
+      // Directly invoke autocomplete callback (bypasses hit-test issues).
+      final autocomplete =
+          tester.widget<AutocompleteDropdown>(
+            find.byType(AutocompleteDropdown),
+          );
+      autocomplete.onSelect(UserSuggestion(displayName: 'UserOne'));
+      await tester.pump();
+
+      // After autocomplete the text should be @UserOne followed by a space.
+      final controller = tester.widget<TextField>(inputFinder).controller!;
+      expect(controller.text, startsWith('@UserOne'));
+
+      // Ensure the text ends with a trailing space.
+      expect(controller.text, endsWith(' '));
+
+      // Simulate backspace — remove trailing space.
+      final textWithoutSpace = controller.text.trimRight();
+      controller.value = TextEditingValue(
+        text: textWithoutSpace,
+        selection: TextSelection.collapsed(offset: textWithoutSpace.length),
+      );
+      await tester.pump();
+
+      // Autocomplete should have reverted to the original text.
+      expect(controller.text, '@Us');
     });
 
     testWidgets('dropdown hides when text fewer than 2 characters', (

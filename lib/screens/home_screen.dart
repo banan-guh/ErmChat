@@ -191,6 +191,10 @@ class _HomeScreenState extends State<HomeScreen>
   final Map<String, String> _lastTypedText = {};
   final Map<String, String> _lastSentWireText = {};
 
+  ({int start, String originalText, String replacementText})? _lastAutoUndo;
+  String? _previousTextForUndo;
+  String? _undoExpectedAfter;
+
   void _onSheetSizeChanged(
     OverlayPanel panel,
     DraggableScrollableController ctrl,
@@ -358,6 +362,8 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   void _onInputChanged() {
+    _checkAutocompleteUndo();
+
     final text = _messageController.text;
     final cursor = _messageController.selection.baseOffset;
     final word = getCurrentWord(text, cursor);
@@ -369,10 +375,14 @@ class _HomeScreenState extends State<HomeScreen>
       if (_suggestionsNotifier.value.isNotEmpty) {
         _suggestionsNotifier.value = [];
       }
+      _previousTextForUndo = _messageController.text;
       return;
     }
     final channel = _selectedChannel;
-    if (channel == null) return;
+    if (channel == null) {
+      _previousTextForUndo = _messageController.text;
+      return;
+    }
     final users = _userStore.usersForChannel(channel);
     final isMention = word.text.startsWith('@');
     final emotes = isMention
@@ -384,6 +394,7 @@ class _HomeScreenState extends State<HomeScreen>
       users: users,
     );
     _suggestionsNotifier.value = filtered;
+    _previousTextForUndo = _messageController.text;
   }
 
   void _onSuggestionSelected(Suggestion suggestion) {
@@ -392,21 +403,99 @@ class _HomeScreenState extends State<HomeScreen>
       EmoteSuggestion() => suggestion.emote.code,
     };
 
+    final textBefore = _messageController.text;
+    final cursorBefore = _messageController.selection.baseOffset;
+    final wordBefore = getCurrentWord(textBefore, cursorBefore);
+
     if (suggestion is UserSuggestion) {
-      final text = _messageController.text;
-      final cursor = _messageController.selection.baseOffset;
-      final word = getCurrentWord(text, cursor);
-      if (word.text.startsWith('@')) {
+      if (wordBefore.text.startsWith('@')) {
         replacement = '@$replacement';
       }
     }
 
+    final trailingSpace =
+        wordBefore.end < textBefore.length && textBefore[wordBefore.end] == ' '
+            ? ''
+            : ' ';
+
+    _lastAutoUndo = (
+      start: wordBefore.start,
+      originalText: wordBefore.text,
+      replacementText: replacement + trailingSpace,
+    );
+
     replaceCurrentWord(_messageController, replacement);
+
+    final replEnd = wordBefore.start + replacement.length + trailingSpace.length;
+    _undoExpectedAfter = _messageController.text.length > replEnd
+        ? _messageController.text.substring(replEnd)
+        : '';
+
     if (suggestion is EmoteSuggestion) {
       _emoteManager.markEmoteUsed(suggestion.emote);
     }
     _suggestionsNotifier.value = [];
     _focusNode.requestFocus();
+  }
+
+  void _checkAutocompleteUndo() {
+    final undo = _lastAutoUndo;
+    if (undo == null) return;
+    final prev = _previousTextForUndo;
+    if (prev == null) return;
+
+    final text = _messageController.text;
+    final cursor = _messageController.selection.baseOffset;
+    final replacementLen = undo.replacementText.length;
+    final replEnd = undo.start + replacementLen;
+
+    // Check beginning of replacement is intact in CURRENT text (may be
+    // shorter after backspace into it).
+    final minLen = text.length < replEnd ? text.length : replEnd;
+    for (var i = undo.start; i < minLen; i++) {
+      if (text[i] != undo.replacementText[i - undo.start]) {
+        _lastAutoUndo = null;
+        _undoExpectedAfter = null;
+        return;
+      }
+    }
+
+    // Verify text after the replacement hasn't changed.
+    final currentAfter = text.length > replEnd
+        ? text.substring(replEnd)
+        : '';
+    final expectedAfter = _undoExpectedAfter ?? '';
+    if (currentAfter != expectedAfter) {
+      _lastAutoUndo = null;
+      _undoExpectedAfter = null;
+      return;
+    }
+
+    // Must be a single backspace.
+    if (text.length != prev.length - 1) return;
+
+    // Cursor must be right after the shortened replacement.
+    if (cursor != replEnd - 1) return;
+
+    // Region must match replacement minus its last char.
+    final regionEnd = replEnd - 1;
+    if (text.length < regionEnd) return;
+    if (text.substring(undo.start, regionEnd) !=
+        undo.replacementText.substring(0, replacementLen - 1)) {
+      return;
+    }
+
+    // All checks passed. Undo.
+    final before = text.substring(0, undo.start);
+    final after = text.substring(regionEnd);
+    _lastAutoUndo = null;
+    _undoExpectedAfter = null;
+    _messageController.value = TextEditingValue(
+      text: before + undo.originalText + after,
+      selection: TextSelection.collapsed(
+        offset: undo.start + undo.originalText.length,
+      ),
+    );
   }
 
   void _onEmotesChanged() {
