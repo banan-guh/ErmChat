@@ -75,12 +75,14 @@ class IrcReadService {
         (raw) => _handleLine(raw as String),
         onError: (e) {
           debugPrint('IRC read stream error: $e');
+          _disconnect();
           _scheduleReconnect();
         },
         onDone: () {
           debugPrint(
             'IRC read stream closed (code: ${_channel?.closeCode}, reason: ${_channel?.closeReason})',
           );
+          _disconnect();
           _scheduleReconnect();
         },
       );
@@ -90,16 +92,16 @@ class IrcReadService {
       _send('NICK $_username');
 
       _pingTimer?.cancel();
-      _pingTimer = Timer.periodic(const Duration(seconds: 15), (_) {
+      _pingTimer = Timer.periodic(const Duration(seconds: 300), (_) {
         if (_channel == null) return;
-        _pingsWithoutPong++;
-        if (_pingsWithoutPong >= 3) {
+        if (_pingsWithoutPong > 0) {
           debugPrint('IRC read PONG timeout – reconnecting');
           _disconnect();
           _scheduleReconnect();
           return;
         }
         _send('PING :keepalive');
+        _pingsWithoutPong = 1;
       });
 
       for (final channel in _channels) {
@@ -126,7 +128,6 @@ class IrcReadService {
     _channel?.sink.close();
     _channel = null;
     _pingsWithoutPong = 0;
-    _reconnectAttempt = 0;
     _reconnecting = false;
   }
 

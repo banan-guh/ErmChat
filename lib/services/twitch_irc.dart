@@ -99,12 +99,14 @@ class IrcService {
         (raw) => _handleLine(raw as String),
         onError: (e) {
           debugPrint('IRC stream error: $e');
+          _disconnect();
           _scheduleReconnect();
         },
         onDone: () {
           debugPrint(
             'IRC stream closed (code: ${_channel?.closeCode}, reason: ${_channel?.closeReason})',
           );
+          _disconnect();
           _scheduleReconnect();
         },
       );
@@ -119,16 +121,16 @@ class IrcService {
       }
 
       _pingTimer?.cancel();
-      _pingTimer = Timer.periodic(const Duration(seconds: 15), (_) {
+      _pingTimer = Timer.periodic(const Duration(seconds: 300), (_) {
         if (_channel == null) return;
-        _pingsWithoutPong++;
-        if (_pingsWithoutPong >= 3) {
+        if (_pingsWithoutPong > 0) {
           debugPrint('IRC PONG timeout – reconnecting');
           _disconnect();
           _scheduleReconnect();
           return;
         }
         _send('PING :keepalive');
+        _pingsWithoutPong = 1;
       });
     } catch (e) {
       debugPrint('IRC connect error: $e');
@@ -151,7 +153,6 @@ class IrcService {
     _channel?.sink.close();
     _channel = null;
     _pingsWithoutPong = 0;
-    _reconnectAttempt = 0;
     _reconnecting = false;
   }
 

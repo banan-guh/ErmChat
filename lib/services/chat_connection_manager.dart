@@ -49,6 +49,7 @@ class ChatConnectionManager {
   bool wasDisconnected = false;
   DateTime? _lastSubscribeAll;
   bool userTwitchEmotesLoaded = false;
+  final _connectedAcked = <String>{};
   bool mounted = true;
   bool _isConnecting = false;
 
@@ -167,7 +168,8 @@ class ChatConnectionManager {
 
   void maybeAddConnected(String channel) {
     if (connectionStatus == EventSubStatus.connected &&
-        historyLoaded.contains(channel)) {
+        historyLoaded.contains(channel) &&
+        _connectedAcked.add(channel)) {
       onSystemMessage(channel, 'Connected');
     }
   }
@@ -690,7 +692,7 @@ class ChatConnectionManager {
           }
         } catch (_) {}
         for (final channel in channels) {
-          if (historyLoaded.contains(channel)) {
+          if (historyLoaded.contains(channel) && _connectedAcked.add(channel)) {
             onSystemMessage(channel, 'Connected');
           }
         }
@@ -698,6 +700,7 @@ class ChatConnectionManager {
       if (status == EventSubStatus.disconnected && !wasDisconnected) {
         wasDisconnected = true;
         wasConnected = false;
+        _connectedAcked.clear();
         for (final channel in channels) {
           onSystemMessage(channel, 'Disconnected');
         }

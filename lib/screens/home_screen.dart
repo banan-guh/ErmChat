@@ -422,6 +422,7 @@ class _HomeScreenState extends State<HomeScreen>
   void _onAuthChanged() {
     _emoteManager.accessToken = widget.twitchAuth.accessToken;
     _refreshEmotesAfterAuth();
+    _chatConn.connect();
   }
 
   Future<void> _refreshEmotesAfterAuth() async {
