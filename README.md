@@ -1,6 +1,8 @@
 # ermchat
 
-A Twitch chat viewer built with Flutter. It works, but it is a work in progress and still rough around the edges. Connect to channels, read chat, send messages, and browse reply threads.
+A Twitch chat viewer built with Flutter. Work in progress. Check TODO.md for details, add an issue (bugfix OR feature request) or even a PR if you want to contribute.
+
+It's basically a DankChat 3.x clone, with more features, built for multi-platform.
 
 ## What it does
 
@@ -15,15 +17,6 @@ A Twitch chat viewer built with Flutter. It works, but it is a work in progress 
 - Slash commands (`/ban`, `/timeout`, `/clear`, `/me`, etc.)
 - System messages for subs, cheers, raids, bans
 - Dark mode toggle
-
-## Commands
-
-```
-flutter run        # launch on connected device or emulator
-flutter test       # run all tests
-flutter analyze    # static analysis
-dart format .      # format all files
-```
 
 ## License
 

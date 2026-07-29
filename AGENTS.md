@@ -1,6 +1,6 @@
 # ermchat
 
-Twitch chat viewer (WIP). Single Flutter package, no monorepo. Version `0.2.2+1`.
+Twitch chat viewer (WIP). Single Flutter package, no monorepo.
 
 See [TODO.md](TODO.md) for the feature roadmap. See [PLAN.md](PLAN.md) for the home_screen.dart refactoring plan (largely completed).
 
@@ -8,7 +8,7 @@ See [TODO.md](TODO.md) for the feature roadmap. See [PLAN.md](PLAN.md) for the h
 
 ```
 flutter run                # launch on connected device/emulator
-flutter test               # run all tests (337 total)
+flutter test               # run all tests
 flutter analyze            # static analysis (uses package:flutter_lints)
 dart format .              # format all Dart files
 ```
