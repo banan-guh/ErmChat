@@ -233,7 +233,7 @@ class _HomeScreenState extends State<HomeScreen>
     _focusNode.addListener(_onInputFocusChanged);
     _messageController.addListener(_onInputChanged);
     WidgetsBinding.instance.addObserver(this);
-    _initForegroundService();
+    if (Platform.isAndroid) _initForegroundService();
   }
 
   Future<void> _initForegroundService() async {

@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'screens/home_screen.dart';
@@ -10,7 +11,9 @@ import 'services/seven_tv_event_client.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  FlutterForegroundTask.initCommunicationPort();
+  if (Platform.isAndroid) {
+    FlutterForegroundTask.initCommunicationPort();
+  }
   runApp(const TwitchChatApp());
 }
 

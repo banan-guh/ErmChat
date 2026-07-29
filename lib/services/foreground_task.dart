@@ -18,20 +18,22 @@ class ChatTaskHandler extends TaskHandler {
 }
 
 Future<void> requestForegroundPermissions() async {
+  if (!Platform.isAndroid) return;
+
   final notificationPermission =
       await FlutterForegroundTask.checkNotificationPermission();
   if (notificationPermission != NotificationPermission.granted) {
     await FlutterForegroundTask.requestNotificationPermission();
   }
 
-  if (Platform.isAndroid) {
-    if (!await FlutterForegroundTask.isIgnoringBatteryOptimizations) {
-      await FlutterForegroundTask.requestIgnoreBatteryOptimization();
-    }
+  if (!await FlutterForegroundTask.isIgnoringBatteryOptimizations) {
+    await FlutterForegroundTask.requestIgnoreBatteryOptimization();
   }
 }
 
 void initForegroundService() {
+  if (!Platform.isAndroid) return;
+
   FlutterForegroundTask.init(
     androidNotificationOptions: AndroidNotificationOptions(
       channelId: 'chat_background',
@@ -56,6 +58,7 @@ void initForegroundService() {
 Future<ServiceRequestResult> startForegroundService(
   List<String> channelNames,
 ) async {
+  if (!Platform.isAndroid) return const ServiceRequestSuccess();
   if (channelNames.isEmpty) return const ServiceRequestFailure(error: 'no channels');
 
   final title = 'Live chat: ${channelNames.take(2).map((c) => '#$c').join(', ')}';
@@ -80,6 +83,7 @@ Future<ServiceRequestResult> startForegroundService(
 }
 
 Future<ServiceRequestResult> stopForegroundService() async {
+  if (!Platform.isAndroid) return const ServiceRequestSuccess();
   if (!(await FlutterForegroundTask.isRunningService)) {
     return const ServiceRequestSuccess();
   }
