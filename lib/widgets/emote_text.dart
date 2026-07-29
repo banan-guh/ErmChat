@@ -23,6 +23,29 @@ class EmoteText {
     void Function(List<GenericEmote>)? onEmoteTap,
     double scale = 1.0,
   }) {
+    try {
+      return _buildUnsafe(
+        text: text,
+        twitchPositions: twitchPositions,
+        channelEmotes: channelEmotes,
+        onEmoteTap: onEmoteTap,
+        scale: scale,
+      );
+    } catch (e, stack) {
+      debugPrint('[EmoteText.build] error: $e');
+      debugPrint('[EmoteText.build] text="$text"');
+      debugPrint('[EmoteText.build] stack=$stack');
+      return parseTextWithLinks(text);
+    }
+  }
+
+  static List<InlineSpan> _buildUnsafe({
+    required String text,
+    required List<EmotePosition>? twitchPositions,
+    required ChannelEmotes? channelEmotes,
+    void Function(List<GenericEmote>)? onEmoteTap,
+    double scale = 1.0,
+  }) {
     if (channelEmotes == null) {
       return parseTextWithLinks(text);
     }
@@ -334,29 +357,36 @@ final _urlRegExp = RegExp(
 );
 
 List<InlineSpan> parseTextWithLinks(String text) {
-  final collapsed = text.replaceAll(RegExp(r' {2,}'), ' ');
-  final spans = <InlineSpan>[];
-  int lastEnd = 0;
-  for (final match in _urlRegExp.allMatches(collapsed)) {
-    if (match.start > lastEnd) {
-      spans.add(TextSpan(text: collapsed.substring(lastEnd, match.start)));
+  try {
+    final collapsed = text.replaceAll(RegExp(r' {2,}'), ' ');
+    final spans = <InlineSpan>[];
+    int lastEnd = 0;
+    for (final match in _urlRegExp.allMatches(collapsed)) {
+      if (match.start > lastEnd) {
+        spans.add(TextSpan(text: collapsed.substring(lastEnd, match.start)));
+      }
+      var url = match.group(0)!;
+      if (!url.startsWith('http://') && !url.startsWith('https://')) {
+        url = 'https://$url';
+      }
+      spans.add(
+        TextSpan(
+          text: match.group(0),
+          style: const TextStyle(color: Colors.blue),
+          recognizer: TapGestureRecognizer()
+            ..onTap = () => launchUrl(Uri.parse(url)),
+        ),
+      );
+      lastEnd = match.end;
     }
-    var url = match.group(0)!;
-    if (!url.startsWith('http://') && !url.startsWith('https://')) {
-      url = 'https://$url';
+    if (lastEnd < collapsed.length) {
+      spans.add(TextSpan(text: collapsed.substring(lastEnd)));
     }
-    spans.add(
-      TextSpan(
-        text: match.group(0),
-        style: const TextStyle(color: Colors.blue),
-        recognizer: TapGestureRecognizer()
-          ..onTap = () => launchUrl(Uri.parse(url)),
-      ),
-    );
-    lastEnd = match.end;
+    return spans;
+  } catch (e, stack) {
+    debugPrint('[parseTextWithLinks] error: $e');
+    debugPrint('[parseTextWithLinks] text="$text"');
+    debugPrint('[parseTextWithLinks] stack=$stack');
+    return [TextSpan(text: text)];
   }
-  if (lastEnd < collapsed.length) {
-    spans.add(TextSpan(text: collapsed.substring(lastEnd)));
-  }
-  return spans;
 }
