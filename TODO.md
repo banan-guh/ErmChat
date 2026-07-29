@@ -53,6 +53,7 @@
 - [x] **Connect-disconnect spam** - no clue why, it happens too often. CONFIRMED fixed - previous commit.
 - [-] **Double connected message** - 2 "Connected" messages on boot - it doesn't really appear anymore? for some reason...
 - [x] **Fix emote scale** - some emotes are bigger than they should be and some smaller. mainly happens to "tall" emotes or "long" emotes, square emotes work fine.
+- [ ] **EventSub emote fragment false-match** - `twitch_eventsub.dart` fragment position parsing used `indexOf` substring search which could misfire when a fragment's text appeared earlier in the message as a substring or overlapped with other text. Replaced with a running cursor (fragments arrive in order and reconstruct the message). Observed symptom: emote (`vedalSurprise`) rendering as a shorter garbled name (`vedalS`) with leftover text spilling out. Fixed the cursor logic but cannot confirm it resolves that exact case - if it recurs, add raw fragment payload logging.
 
 ## Research / Open Ends
 

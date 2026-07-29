@@ -300,34 +300,32 @@ class EventSubService {
       if (badges.isEmpty) badges = null;
     }
 
-    // Parse emote fragments from EventSub
+    // Parse emote fragments from EventSub.
+    // Fragments arrive in order and reconstruct the message — use a running
+    // cursor instead of indexOf to avoid false matches on duplicate substrings.
     final fragments = messageData?['fragments'] as List<dynamic>?;
     List<EmotePosition>? emotePositions;
     if (fragments != null) {
       emotePositions = [];
+      int cursor = 0;
       for (final frag in fragments) {
         final fragMap = frag as Map<String, dynamic>;
+        final fragText = fragMap['text'] as String? ?? '';
         if (fragMap['type'] == 'emote') {
           final emoteId =
               (fragMap['emote'] as Map<String, dynamic>?)?['id'] as String?;
           if (emoteId != null) {
-            final emoteText = fragMap['text'] as String? ?? '';
-            int searchStart = 0;
-            while (true) {
-              final idx = displayText.indexOf(emoteText, searchStart);
-              if (idx == -1) break;
-              emotePositions.add(
-                EmotePosition(
-                  emoteId: emoteId,
-                  startIndex: idx,
-                  endIndex: idx + emoteText.length,
-                  emoteCode: emoteText,
-                ),
-              );
-              searchStart = idx + emoteText.length;
-            }
+            emotePositions.add(
+              EmotePosition(
+                emoteId: emoteId,
+                startIndex: cursor,
+                endIndex: cursor + fragText.length,
+                emoteCode: fragText,
+              ),
+            );
           }
         }
+        cursor += fragText.length;
       }
       if (emotePositions.isEmpty) emotePositions = null;
     }
