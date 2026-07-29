@@ -632,24 +632,31 @@ class ChatConnectionManager {
     lastTypedText[channel] = text;
     lastSentWireText[channel] = wireText;
 
-    if (getCurrentUserId() != null && auth.isConfigured) {
+    // Primary: send via IRC for low latency over the persistent socket
+    irc.sendMessage(channel, wireText, replyParentMessageId: reply?.messageId);
+
+    // Fallback: Helix API when the IRC write socket isn't available
+    if (!irc.isConnected &&
+        getCurrentUserId() != null &&
+        auth.isConfigured) {
       final broadcasterId =
           channelUserIds[channel] ?? await TwitchApi.getUserId(auth, channel);
       if (broadcasterId != null) {
-        try {
-          await TwitchApi.sendChatMessage(
-            auth,
-            broadcasterId: broadcasterId,
-            senderId: getCurrentUserId()!,
-            message: wireText,
-            replyParentMessageId: reply?.messageId,
+        final result = await TwitchApi.sendChatMessage(
+          auth,
+          broadcasterId: broadcasterId,
+          senderId: getCurrentUserId()!,
+          message: wireText,
+          replyParentMessageId: reply?.messageId,
+        );
+        if (result == null) {
+          onSystemMessage(
+            channel,
+            TwitchApi.lastError ?? 'Message failed to send',
           );
-        } catch (_) {}
-        return;
+        }
       }
     }
-
-    irc.sendMessage(channel, wireText, replyParentMessageId: reply?.messageId);
   }
 
   Future<void> connect() async {
