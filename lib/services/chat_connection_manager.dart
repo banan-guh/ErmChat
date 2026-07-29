@@ -23,6 +23,7 @@ class _BanMeta {
   bool fromEventSource;
   int stackCount = 1;
   DateTime lastEvent;
+  String? firstMessageId;
 
   _BanMeta({
     required this.user,
@@ -68,7 +69,7 @@ class ChatConnectionManager {
   bool mounted = true;
   bool _isConnecting = false;
   final _recentBanMeta = <String, List<_BanMeta>>{};
-  static const _banDedupWindowSeconds = 5;
+  static const _banDedupWindowSeconds = 10;
 
   StreamSubscription<TwitchMessage>? messageSub;
   StreamSubscription<EventSubStatus>? statusSub;
@@ -183,7 +184,7 @@ class ChatConnectionManager {
     debugPrint('[ChatConn] _markUserMessagesDeleted: marked $count messages deleted for user=$username in channel=$channel (total msgs in channel=${msgs.length})');
   }
 
-  ({bool show, int stackCount}) _processBanInChannel(
+  ({bool show, int stackCount, _BanMeta? meta}) _processBanInChannel(
     String channel,
     String user,
     bool isTimeout,
@@ -193,7 +194,8 @@ class ChatConnectionManager {
     final metas = _recentBanMeta.putIfAbsent(channel, () => []);
 
     metas.removeWhere(
-      (m) => now.difference(m.lastEvent).inSeconds >= _banDedupWindowSeconds,
+      (m) =>
+          now.difference(m.lastEvent).inSeconds >= _banDedupWindowSeconds,
     );
 
     final existing = metas.cast<_BanMeta?>().firstWhere(
@@ -205,23 +207,36 @@ class ChatConnectionManager {
       if (fromEventSource == existing.fromEventSource) {
         existing.stackCount++;
         existing.lastEvent = now;
-        return (show: true, stackCount: existing.stackCount);
+        return (show: true, stackCount: existing.stackCount, meta: existing);
       } else if (fromEventSource && !existing.fromEventSource) {
         existing.fromEventSource = true;
         existing.lastEvent = now;
-        return (show: true, stackCount: 1);
+        return (show: true, stackCount: 1, meta: existing);
       } else {
         existing.lastEvent = now;
-        return (show: false, stackCount: 0);
+        return (show: false, stackCount: 0, meta: null);
       }
     }
 
-    metas.add(_BanMeta(
+    final meta = _BanMeta(
       user: user,
       isTimeout: isTimeout,
       fromEventSource: fromEventSource,
-    ));
-    return (show: true, stackCount: 1);
+    );
+    metas.add(meta);
+    return (show: true, stackCount: 1, meta: meta);
+  }
+
+  void _updateMessageText(String channel, String messageId, String newText) {
+    final msgs = channelMessages[channel];
+    if (msgs == null) return;
+    for (final m in msgs) {
+      if (m.messageId == messageId) {
+        m.text = newText;
+        chatVersion.value++;
+        return;
+      }
+    }
   }
 
   void maybeAddConnected(String channel) {
@@ -696,16 +711,30 @@ class ChatConnectionManager {
       final result = _processBanInChannel(event.channel, event.user, event.isTimeout, false);
       if (!result.show) return;
       final isSelf = event.user.toLowerCase() == getCurrentUserLogin()?.toLowerCase();
+      final base = event.isTimeout
+          ? (isSelf
+              ? 'You are timed out${event.duration != null ? ' for ${event.duration}s' : ''}'
+              : '${event.user} was timed out${event.duration != null ? ' for ${event.duration}s' : ''}')
+          : (isSelf
+              ? 'You were banned'
+              : '${event.user} was banned');
       final stacked = result.stackCount > 1 ? ' (${result.stackCount} times)' : '';
-      final text = event.isTimeout
-          ? isSelf
-              ? 'You are timed out${event.duration != null ? ' for ${event.duration}s' : ''}$stacked.'
-              : '${event.user} was timed out${event.duration != null ? ' for ${event.duration}s' : ''}$stacked.'
-          : isSelf
-              ? 'You were banned$stacked.'
-              : '${event.user} was banned$stacked.';
+      final text = '$base$stacked.';
       debugPrint('[ChatConn] IRC ban system message: $text');
+
+      if (result.stackCount > 1) {
+        if (result.meta?.firstMessageId != null) {
+          _updateMessageText(
+            event.channel,
+            result.meta!.firstMessageId!,
+            text,
+          );
+          return;
+        }
+      }
       onSystemMessage(event.channel, text);
+      result.meta?.firstMessageId =
+          channelMessages[event.channel]?.first.messageId;
     });
 
     eventSubBanSub?.cancel();
@@ -716,16 +745,30 @@ class ChatConnectionManager {
       final result = _processBanInChannel(event.channel, event.user, event.isTimeout, true);
       if (!result.show) return;
       final isSelf = event.user.toLowerCase() == getCurrentUserLogin()?.toLowerCase();
+      final base = event.isTimeout
+          ? (isSelf
+              ? 'You are timed out${event.durationSeconds != null ? ' for ${event.durationSeconds}s' : ''}'
+              : '${event.user} was timed out${event.duration != null ? ' for ${event.duration}s' : ''}')
+          : (isSelf
+              ? 'You were banned'
+              : '${event.user} was banned');
       final stacked = result.stackCount > 1 ? ' (${result.stackCount} times)' : '';
-      final text = event.isTimeout
-          ? isSelf
-              ? 'You are timed out${event.durationSeconds != null ? ' for ${event.durationSeconds}s' : ''}$stacked.'
-              : '${event.user} was timed out${event.duration != null ? ' for ${event.duration}s' : ''}$stacked.'
-          : isSelf
-              ? 'You were banned$stacked.'
-              : '${event.user} was banned$stacked.';
+      final text = '$base$stacked.';
       debugPrint('[ChatConn] EventSub ban system message: $text');
+
+      if (result.stackCount > 1) {
+        if (result.meta?.firstMessageId != null) {
+          _updateMessageText(
+            event.channel,
+            result.meta!.firstMessageId!,
+            text,
+          );
+          return;
+        }
+      }
       onSystemMessage(event.channel, text);
+      result.meta?.firstMessageId =
+          channelMessages[event.channel]?.first.messageId;
     });
 
     ircNoticeSub?.cancel();
