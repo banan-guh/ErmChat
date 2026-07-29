@@ -20,7 +20,7 @@ class EmoteText {
     required String text,
     required List<EmotePosition>? twitchPositions,
     required ChannelEmotes? channelEmotes,
-    void Function(GenericEmote)? onEmoteTap,
+    void Function(List<GenericEmote>)? onEmoteTap,
     double scale = 1.0,
   }) {
     if (channelEmotes == null) {
@@ -211,7 +211,7 @@ class EmoteText {
 
   static WidgetSpan _buildEmoteSpan(
     EmoteSpanData data, {
-    void Function(GenericEmote)? onEmoteTap,
+    void Function(List<GenericEmote>)? onEmoteTap,
     double scale = 1.0,
   }) {
     final size = min(28.0, 28.0 * data.base.relativeScale) * scale;
@@ -285,7 +285,7 @@ class EmoteText {
 
     if (onEmoteTap != null) {
       emoteWidget = GestureDetector(
-        onTap: () => onEmoteTap(data.base),
+        onTap: () => onEmoteTap([data.base, ...data.overlays]),
         child: emoteWidget,
       );
     }

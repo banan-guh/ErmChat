@@ -1350,12 +1350,12 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  void _showEmoteSheet(GenericEmote emote) {
+  void _showEmoteSheet(List<GenericEmote> emotes) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       builder: (ctx) => EmoteSheet(
-        emote: emote,
+        emotes: emotes,
         messageController: _messageController,
         focusNode: _focusNode,
         onClose: () => Navigator.pop(ctx),

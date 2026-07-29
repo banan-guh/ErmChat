@@ -3,19 +3,42 @@ import 'package:flutter/services.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../models/generic_emote.dart';
 
-class EmoteSheet extends StatelessWidget {
-  final GenericEmote emote;
+class EmoteSheet extends StatefulWidget {
+  final List<GenericEmote> emotes;
   final TextEditingController messageController;
   final FocusNode focusNode;
   final VoidCallback onClose;
 
   const EmoteSheet({
     super.key,
-    required this.emote,
+    required this.emotes,
     required this.messageController,
     required this.focusNode,
     required this.onClose,
   });
+
+  @override
+  State<EmoteSheet> createState() => _EmoteSheetState();
+}
+
+class _EmoteSheetState extends State<EmoteSheet>
+    with SingleTickerProviderStateMixin {
+  late final TabController _tabCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabCtrl = TabController(
+      length: widget.emotes.length,
+      vsync: this,
+    );
+  }
+
+  @override
+  void dispose() {
+    _tabCtrl.dispose();
+    super.dispose();
+  }
 
   String _typeLabel(GenericEmote emote) {
     final scope = switch (emote.scope) {
@@ -28,7 +51,11 @@ class EmoteSheet extends StatelessWidget {
       EmoteType.ffz => 'FFZ',
       EmoteType.sevenTv => '7TV',
     };
-    return '$scope $provider emote';
+    var label = '$scope $provider emote';
+    if (emote.isZeroWidth) {
+      label = '$label (Zero Width)';
+    }
+    return label;
   }
 
   String? _ownerLabel(GenericEmote emote) {
@@ -37,27 +64,15 @@ class EmoteSheet extends StatelessWidget {
     return 'Created by $owner';
   }
 
-  @override
-  Widget build(BuildContext context) {
+  Widget _buildEmotePage(GenericEmote emote) {
     final theme = Theme.of(context);
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Center(
-            child: Container(
-              width: 32,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.grey[400],
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
           Row(
             children: [
               ClipRRect(
@@ -114,29 +129,27 @@ class EmoteSheet extends StatelessWidget {
                           fontSize: 13,
                           color: theme.colorScheme.onSurfaceVariant,
                         ),
-                      ),
-                    ],
-                  ],
+                ),
+              ],
+            ],
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 16),
-          Divider(height: 1, color: theme.dividerColor),
-          const SizedBox(height: 4),
+          const SizedBox(height: 12),
           ListTile(
             dense: true,
             leading: const Icon(Icons.send),
             title: const Text('Use emote'),
             onTap: () {
-              onClose();
-              final text = messageController.text;
+              widget.onClose();
+              final text = widget.messageController.text;
               final suffix = text.isEmpty ? emote.code : ' $emote.code';
-              messageController.text = '$text$suffix';
-              messageController.selection = TextSelection.fromPosition(
-                TextPosition(offset: messageController.text.length),
+              widget.messageController.text = '$text$suffix';
+              widget.messageController.selection = TextSelection.fromPosition(
+                TextPosition(offset: widget.messageController.text.length),
               );
-              focusNode.requestFocus();
+              widget.focusNode.requestFocus();
             },
           ),
           ListTile(
@@ -145,7 +158,7 @@ class EmoteSheet extends StatelessWidget {
             title: const Text('Copy'),
             onTap: () {
               Clipboard.setData(ClipboardData(text: emote.code));
-              onClose();
+              widget.onClose();
             },
           ),
           ListTile(
@@ -153,13 +166,70 @@ class EmoteSheet extends StatelessWidget {
             leading: const Icon(Icons.open_in_new),
             title: const Text('Open emote link'),
             onTap: () {
-              onClose();
+              widget.onClose();
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Emote link not yet available')),
+                const SnackBar(
+                  content: Text('Emote link not yet available'),
+                ),
               );
             },
           ),
         ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final hasMultiple = widget.emotes.length > 1;
+    final sheetHeight = MediaQuery.of(context).size.height * 0.4;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+      child: SizedBox(
+        height: sheetHeight,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 32,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey[400],
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            if (hasMultiple) ...[
+              const SizedBox(height: 10),
+              TabBar(
+                controller: _tabCtrl,
+                isScrollable: true,
+                tabAlignment: TabAlignment.center,
+                labelStyle: const TextStyle(fontSize: 13),
+                tabs: widget.emotes
+                    .map(
+                      (e) => Tab(
+                        text: e.code,
+                      ),
+                    )
+                    .toList(),
+              ),
+            ],
+            Flexible(
+              fit: FlexFit.loose,
+              child: hasMultiple
+                  ? TabBarView(
+                      controller: _tabCtrl,
+                      children:
+                          widget.emotes.map(_buildEmotePage).toList(),
+                    )
+                  : _buildEmotePage(widget.emotes.first),
+            ),
+          ],
+        ),
       ),
     );
   }

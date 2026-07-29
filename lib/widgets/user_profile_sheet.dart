@@ -164,9 +164,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
                 ),
               ],
             ),
-            const SizedBox(height: 16),
-            Divider(height: 1, color: theme.dividerColor),
-            const SizedBox(height: 4),
+            const SizedBox(height: 12),
             ListTile(
               dense: true,
               leading: const Icon(Icons.alternate_email),
