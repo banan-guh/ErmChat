@@ -82,58 +82,50 @@ class MessageInput extends StatelessWidget {
               ),
             ),
           TextField(
-            key: const Key('message_input'),
-            controller: controller,
-            focusNode: focusNode,
-            enabled: enabled,
-            minLines: 1,
-            maxLines: 6,
-            decoration: InputDecoration(
-              labelText: effectiveHint,
-              border: const OutlineInputBorder(),
-              prefixIcon: SizedBox(
-                width: 48,
-                height: 48,
-                child: Material(
-                  type: MaterialType.transparency,
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(24),
-                    onTap: onEmoteToggle,
-                    child: const Icon(Icons.emoji_emotions_outlined),
+              key: const Key('message_input'),
+              controller: controller,
+              focusNode: focusNode,
+              enabled: enabled,
+              minLines: 1,
+              maxLines: 6,
+              decoration: InputDecoration(
+                labelText: effectiveHint,
+                border: const OutlineInputBorder(),
+                prefixIcon: SizedBox(
+                  width: 48,
+                  height: 48,
+                  child: Material(
+                    type: MaterialType.transparency,
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(24),
+                      onTap: onEmoteToggle,
+                      child: const Icon(Icons.emoji_emotions_outlined),
+                    ),
                   ),
                 ),
-              ),
-              suffixIcon: SizedBox(
-                width: 48,
-                height: 48,
-                child: Material(
-                  type: MaterialType.transparency,
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(24),
-                    onTap: enabled ? onSend : null,
-                    onLongPress: enabled ? onSendLongPress : null,
-                    child: Icon(
-                      Icons.send,
-                      color: enabled
-                          ? Theme.of(context).colorScheme.primary
-                          : Theme.of(
-                              context,
-                            ).colorScheme.onSurface.withValues(alpha: 0.38),
+                suffixIcon: SizedBox(
+                  width: 48,
+                  height: 48,
+                  child: Material(
+                    type: MaterialType.transparency,
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(24),
+                      onTap: enabled ? onSend : null,
+                      onLongPress: enabled ? onSendLongPress : null,
+                      child: Icon(
+                        Icons.send,
+                        color: enabled
+                            ? Theme.of(context).colorScheme.primary
+                            : Theme.of(
+                                context,
+                              ).colorScheme.onSurface.withValues(alpha: 0.38),
+                      ),
                     ),
                   ),
                 ),
               ),
+              onChanged: (_) {},
             ),
-            onChanged: (value) {
-              if (value.contains('\n')) {
-                controller.text = value.replaceAll('\n', '');
-                controller.selection = TextSelection.fromPosition(
-                  TextPosition(offset: controller.text.length),
-                );
-                onSend();
-              }
-            },
-          ),
         ],
       ),
     );
