@@ -1,6 +1,6 @@
-# flutter_twitch_app
+# ermchat
 
-Twitch chat viewer (WIP). Single Flutter package, no monorepo. Version `0.0.5+1`.
+Twitch chat viewer (WIP). Single Flutter package, no monorepo. Version `0.2.2+1`.
 
 See [TODO.md](TODO.md) for the feature roadmap. See [PLAN.md](PLAN.md) for the home_screen.dart refactoring plan (largely completed).
 
@@ -8,7 +8,7 @@ See [TODO.md](TODO.md) for the feature roadmap. See [PLAN.md](PLAN.md) for the h
 
 ```
 flutter run                # launch on connected device/emulator
-flutter test               # run all tests (282 total)
+flutter test               # run all tests (337 total)
 flutter analyze            # static analysis (uses package:flutter_lints)
 dart format .              # format all Dart files
 ```
@@ -26,9 +26,8 @@ dart format .              # format all Dart files
 - `lib/models/twitch_badge.dart` — BadgeVersion, BadgeSet, MessageBadge data classes
 
 #### Screens
-- `lib/screens/home_screen.dart` — 1753‑line main screen: multi‑channel layout, EventSub + IRC integration, reply threads, mentions/whispers view, message input, system messages, chat room state, user profiles, emote menu, autocomplete
-- `lib/screens/settings_screen.dart` — full-screen settings (dark mode toggle, Twitch credentials, channel management, injectable OAuth starter)
-- `lib/screens/benchmark_screen.dart` — message latency benchmark UI (sends test messages, measures EventSub/IRC delivery times)
+- `lib/screens/home_screen.dart` — 2234‑line main screen: multi‑channel layout, EventSub + IRC integration, reply threads, mentions/whispers view, message input, system messages, chat room state, user profiles, emote menu, autocomplete
+- `lib/screens/settings/settings_screen.dart` — full-screen settings (dark mode toggle, Twitch credentials, channel management, injectable OAuth starter)
 
 #### Services
 - `lib/services/twitch_auth.dart` — credential holder (client ID + access token), persistence via SharedPreferences
@@ -38,7 +37,8 @@ dart format .              # format all Dart files
 - `lib/services/twitch_irc.dart` — IRC WebSocket for send commands; exports `parseIrcMessage`
 - `lib/services/twitch_irc_read.dart` — read-only IRC connection for own-message detection and user color updates
 - `lib/services/recent_messages.dart` — recent‑messages.robotty.de client; exports `RecentMessagesService.parseIrcLine`
-- `lib/services/chat_connection_manager.dart` — 1004‑line central orchestrator: connection lifecycle, message routing, pending-message tracking, duplicate detection, chat status
+- `lib/services/chat_connection_manager.dart` — 1071‑line central orchestrator: connection lifecycle, message routing, pending-message tracking, duplicate detection, chat status
+- `lib/services/base_irc_connection.dart` — shared abstract base for IRC WebSocket connections (reconnect, ping/pong, auth, disposal)
 - `lib/services/command_handler.dart` — IRC command dispatcher (`/me`, `/color`, `/ban`, `/timeout`, `/unban`, `/delete`, `/clear`, `/announce`, `/shoutout`) via Helix API + IRC fallback
 - `lib/services/emote_manager.dart` — `ChangeNotifier`-based emote caching with TTL per provider (Twitch/BTTV/FFZ/7TV global + channel); exposes `ChannelEmotes` per channel
 - `lib/services/seven_tv_event_client.dart` — 7TV live emote update WebSocket client (add/remove/rename events)
@@ -72,9 +72,6 @@ dart format .              # format all Dart files
 - `lib/twitch_config.dart` — compile‑time Client ID constant
 - `lib/util/text_bypass.dart` — text duplication bypass helpers for anti-duplicate send detection
 
-#### Benchmark
-- `lib/benchmark/message_latency_benchmark.dart` — sends test messages via Helix, measures EventSub vs IRC delivery latency
-
 ### test/
 
 #### test/unit/
@@ -91,6 +88,9 @@ dart format .              # format all Dart files
 - `text_bypass_test.dart` — bypassTextDuplicate and normalizeForReconciliation tests
 - `user_store_test.dart` — UserStore add/retrieve/remove/capacity tests
 - `twitch_oauth_test.dart` — OAuth fragment parsing tests
+- `twitch_eventsub_service_test.dart` — EventSub service tests
+- `twitch_irc_service_test.dart` — IRC service tests
+- `twitch_irc_read_service_test.dart` — IRC read service tests
 
 #### test/data/
 - `twitch_eventsub_test.dart` — 20 tests: EventSub routing for all message types (channel.chat.message, channel.channel_points_custom_reward_redemption.add, channel.ban, channel.message_delete, channel.subscribe, channel.subscription.gift, channel.subscription.message, channel.cheer, channel.raid, channel.chat.user_message_hold)
@@ -128,7 +128,6 @@ dart format .              # format all Dart files
 - `HomeScreen` accepts optional `EventSubService`, `IrcService`, `IrcReadService`, `RecentMessagesService`, `SevenTvEventClient`, `initialCurrentUserLogin` for injection
 - `ChatConnectionManager` orchestrates EventSub, IRC, IRC read, recent messages, emote manager, badge service, and user store — instantiated inside `HomeScreen`
 - `EmoteManager` is a `ChangeNotifier` — subscribe via `addListener`/`ListenableBuilder` for UI updates
-- `BenchmarkScreen` accepts `TwitchAuth`, `availableChannels`, and `eventSubMessages` stream
 - `SevenTvEventClient` is a standalone WebSocket client (not injected by default in tests)
 - `IrcReadService` is a separate read-only IRC connection (distinct from `IrcService` which handles sends)
 - `StreamController.broadcast()` uses `sync: true` for synchronous event delivery in tests
@@ -152,4 +151,4 @@ See [PLAN.md](PLAN.md) for the detailed home_screen.dart split plan. Key milesto
 - **Stage 1** (extract widgets): Completed — all 6 widget classes extracted to `lib/widgets/`
 - **Stage 2** (command handler): Completed — `CommandHandler` lives in `lib/services/command_handler.dart`
 - **Stage 3** (connection manager): Completed — `ChatConnectionManager` lives in `lib/services/chat_connection_manager.dart`
-- **Stage 4** (cleanup): `home_screen.dart` reduced from ~3847 to 1753 lines
+- **Stage 4** (cleanup): `home_screen.dart` reduced from ~3847 to 2234 lines

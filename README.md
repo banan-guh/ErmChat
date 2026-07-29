@@ -1,4 +1,4 @@
-# flutter_twitch_app
+# ermchat
 
 A Twitch chat viewer built with Flutter. It works, but it is a work in progress and still rough around the edges. Connect to channels, read chat, send messages, and browse reply threads.
 
