@@ -53,13 +53,11 @@ class EmoteText {
     final spans = <InlineSpan>[];
     final byCode = channelEmotes.byCode;
 
-    // Build sorted segments from Twitch positions and whitespace tokens
     final segments = _buildSegments(text, twitchPositions, byCode);
     if (segments.isEmpty) {
       return parseTextWithLinks(text);
     }
 
-    // Walk segments left-to-right tracking current base for zero-width stacking
     EmoteSpanData? currentBase;
     int? currentBaseEnd;
     String? pendingSpace;
@@ -144,7 +142,6 @@ class EmoteText {
   ) {
     final segments = <_Segment>[];
 
-    // Sort Twitch positions for cursor-based scanning (avoids per-character Map)
     final sortedPos = twitchPositions != null
         ? (List<EmotePosition>.from(twitchPositions)
           ..sort((a, b) => a.startIndex.compareTo(b.startIndex)))
@@ -163,10 +160,8 @@ class EmoteText {
       return null;
     }
 
-    // Walk through text, extracting Twitch-position segments and whitespace tokens
     int i = 0;
     while (i < text.length) {
-      // Check if we're in a Twitch position range
       final pos = posAt(i);
       if (pos != null) {
         final emoteCode = pos.emoteCode;
@@ -177,7 +172,6 @@ class EmoteText {
             EmoteSegment(emote: emote, startIndex: i, endIndex: i + length),
           );
         } else {
-          // Twitch emote from IRC tag not in API map — render via CDN
           segments.add(
             EmoteSegment(
               emote: GenericEmote(
@@ -196,7 +190,6 @@ class EmoteText {
         continue;
       }
 
-      // Handle whitespace
       if (text[i] == ' ' || text[i] == '\t' || text[i] == '\n') {
         final start = i;
         while (i < text.length &&
@@ -207,7 +200,6 @@ class EmoteText {
         continue;
       }
 
-      // Extract a word token
       final start = i;
       while (i < text.length &&
           text[i] != ' ' &&
@@ -218,7 +210,6 @@ class EmoteText {
       }
       final token = text.substring(start, i);
 
-      // Check if token matches an emote
       final emote = byCode[token];
       if (emote != null) {
         segments.add(
@@ -232,91 +223,65 @@ class EmoteText {
     return segments;
   }
 
-  static WidgetSpan _buildEmoteSpan(
-    EmoteSpanData data, {
-    void Function(List<GenericEmote>)? onEmoteTap,
-    double scale = 1.0,
-  }) {
-    final size = min(28.0, 28.0 * data.base.relativeScale) * scale;
+  static Size _emoteSize(GenericEmote emote, double scale) {
+    final s = min(28.0, 28.0 * emote.relativeScale) * scale;
+    return Size(s * emote.aspectRatio, s);
+  }
 
-    final width = size * data.base.aspectRatio;
+  static Widget _emoteImage(String url, double width, double height) {
+    return CachedNetworkImage(
+      imageUrl: url,
+      width: width,
+      height: height,
+      fit: BoxFit.contain,
+      fadeInDuration: Duration.zero,
+      placeholder: (_, _) => SizedBox(width: width, height: height),
+      errorWidget: (_, _, _) => SizedBox(width: width, height: height),
+    );
+  }
 
-    Widget emoteWidget;
-    if (data.overlays.isEmpty) {
-      emoteWidget = Semantics(
-        label: data.base.code,
-        child: SizedBox(
-          width: width,
-          height: size,
-          child: CachedNetworkImage(
-            imageUrl: data.base.url,
-            width: width,
-            height: size,
-            fit: BoxFit.contain,
-            fadeInDuration: Duration.zero,
-            placeholder: (_, _) => SizedBox(width: width, height: size),
-            errorWidget: (_, url, error) {
-              debugPrint('Emote image load failed: $url — $error');
-              return SizedBox(width: width, height: size);
-            },
-          ),
-        ),
-      );
-    } else {
-      emoteWidget = Semantics(
-        label: data.base.code,
-        child: SizedBox(
-          width: width,
-          height: size,
-          child: Stack(
-            children: [
-              CachedNetworkImage(
-                imageUrl: data.base.url,
-                width: width,
-                height: size,
-                fit: BoxFit.contain,
-                fadeInDuration: Duration.zero,
-                placeholder: (_, _) => const SizedBox(),
-                errorWidget: (_, url, error) {
-                  debugPrint('Emote base image load failed: $url — $error');
-                  return const SizedBox();
-                },
-              ),
-              ...data.overlays.map(
-                (overlay) => Positioned.fill(
-                  child: CachedNetworkImage(
-                    imageUrl: overlay.url,
-                    width: width,
-                    height: size,
-                    fit: BoxFit.contain,
-                    fadeInDuration: Duration.zero,
-                    placeholder: (_, _) => const SizedBox(),
-                    errorWidget: (_, url, error) {
-                      debugPrint(
-                        'Emote overlay image load failed: $url — $error',
-                      );
-                      return const SizedBox();
-                    },
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
+  static WidgetSpan _buildEmoteSpan(EmoteSpanData data, {void Function(List<GenericEmote>)? onEmoteTap, double scale = 1.0}) {
+    final baseSize = _emoteSize(data.base, scale);
+    var maxW = baseSize.width;
+    var maxH = baseSize.height;
+    for (final overlay in data.overlays) {
+      final o = _emoteSize(overlay, scale);
+      if (o.width > maxW) maxW = o.width;
+      if (o.height > maxH) maxH = o.height;
     }
 
+    final children = <Widget>[
+      Positioned(
+        left: (maxW - baseSize.width) / 2,
+        top: (maxH - baseSize.height) / 2,
+        child: _emoteImage(data.base.url, baseSize.width, baseSize.height),
+      ),
+    ];
+    for (final overlay in data.overlays) {
+      final o = _emoteSize(overlay, scale);
+      children.add(Positioned(
+        left: (maxW - o.width) / 2,
+        top: (maxH - o.height) / 2,
+        width: o.width,
+        height: o.height,
+        child: _emoteImage(overlay.url, o.width, o.height),
+      ));
+    }
+    Widget emoteWidget = Semantics(
+      label: data.base.code,
+      child: SizedBox(
+        width: maxW,
+        height: maxH,
+        child: Stack(clipBehavior: Clip.none, children: children),
+      ),
+    );
     if (onEmoteTap != null) {
       emoteWidget = GestureDetector(
         onTap: () => onEmoteTap([data.base, ...data.overlays]),
         child: emoteWidget,
       );
     }
-
-    return WidgetSpan(
-      alignment: PlaceholderAlignment.middle,
-      child: emoteWidget,
-    );
+    return WidgetSpan(alignment: PlaceholderAlignment.middle, child: emoteWidget);
   }
 }
 

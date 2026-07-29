@@ -282,13 +282,13 @@ void main() {
       expect(box.height, 28.0 * 0.625);
     });
 
-    test('zero-width overlay on small-scale base uses base size', () {
+    test('zero-width overlay expands box to fit largest element', () {
       final emotes = _makeEmotes({
         'SmallBase': _e(id: '1', code: 'SmallBase', relativeScale: 0.5),
-        'Overlay': _e(id: '2', code: 'Overlay', isZeroWidth: true),
+        'LargeOverlay': _e(id: '2', code: 'LargeOverlay', isZeroWidth: true),
       });
       final spans = EmoteText.build(
-        text: 'SmallBase Overlay',
+        text: 'SmallBase LargeOverlay',
         twitchPositions: null,
         channelEmotes: emotes,
       );
@@ -297,8 +297,8 @@ void main() {
       final widget = (spans[0] as WidgetSpan).child;
       expect(widget, isA<Semantics>());
       final box = (widget as Semantics).child as SizedBox;
-      expect(box.width, 28.0 * 0.5);
-      expect(box.height, 28.0 * 0.5);
+      expect(box.width, 28.0);
+      expect(box.height, 28.0);
     });
   });
 }
