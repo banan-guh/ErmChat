@@ -1520,6 +1520,7 @@ class _HomeScreenState extends State<HomeScreen>
                                     onLeaveChannel: _removeChannel,
                                     onAddChannel: _addChannel,
                                     onReorderChannels: _reorderChannels,
+                                    onSettingsOpened: () => _focusNode.unfocus(),
                                     onSettingsClosed: () {
                                       if (mounted) setState(() {});
                                     },

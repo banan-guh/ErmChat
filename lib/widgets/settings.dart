@@ -9,6 +9,7 @@ class SettingsButton extends StatelessWidget {
   final ValueChanged<String>? onLeaveChannel;
   final ValueChanged<String>? onAddChannel;
   final ValueChanged<List<String>>? onReorderChannels;
+  final VoidCallback? onSettingsOpened;
   final VoidCallback? onSettingsClosed;
 
   const SettingsButton({
@@ -19,6 +20,7 @@ class SettingsButton extends StatelessWidget {
     this.onLeaveChannel,
     this.onAddChannel,
     this.onReorderChannels,
+    this.onSettingsOpened,
     this.onSettingsClosed,
   });
 
@@ -26,7 +28,9 @@ class SettingsButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return IconButton(
       icon: const Icon(Icons.settings),
-      onPressed: () => Navigator.push(
+      onPressed: () {
+        onSettingsOpened?.call();
+        Navigator.push(
         context,
         MaterialPageRoute(
           builder: (_) => SettingsScreen(
@@ -38,7 +42,8 @@ class SettingsButton extends StatelessWidget {
             onReorderChannels: onReorderChannels,
           ),
         ),
-      ).then((_) => onSettingsClosed?.call()),
-    );
+      ).then((_) => onSettingsClosed?.call());
+    },
+  );
   }
 }
