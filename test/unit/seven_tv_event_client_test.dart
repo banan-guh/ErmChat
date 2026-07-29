@@ -16,9 +16,9 @@ Map<String, dynamic> _emoteSetUpdate({
   'op': 0,
   'd': {
     'type': 'emote_set.update',
-    'id': emoteSetId,
     // ignore: use_null_aware_elements
     'body': <String, dynamic>{
+      'id': emoteSetId,
       // ignore: use_null_aware_elements
       if (pushed != null) 'pushed': pushed,
       // ignore: use_null_aware_elements

@@ -657,6 +657,19 @@ class _HomeScreenState extends State<HomeScreen>
 
   void _addSystemMessage(String channel, String text) {
     _channelMessages.putIfAbsent(channel, () => []);
+    if (text == 'Connected') {
+      final msgs = _channelMessages[channel]!;
+      if (msgs.isNotEmpty) {
+        final newest = msgs.first;
+        if (newest.isSystem &&
+            newest.text == 'Disconnected' &&
+            DateTime.now().difference(newest.timestamp).inMinutes < 1) {
+          newest.text = 'Reconnected';
+          _chatVersion.value++;
+          return;
+        }
+      }
+    }
     _channelMessages[channel]!.insert(
       0,
       TwitchMessage(
@@ -1896,7 +1909,7 @@ class _HomeScreenState extends State<HomeScreen>
                         : null,
                   ),
                     ListenableBuilder(
-                      listenable: _chatVersion,
+                      listenable: Listenable.merge([_chatVersion, _selectedTabIndex]),
                       builder: (context, _) {
                         final status = _chatStatus[_selectedChannel];
                         final hasStatus = status != null && status.isNotEmpty;

@@ -32,6 +32,9 @@ class _EmoteSheetState extends State<EmoteSheet>
       length: widget.emotes.length,
       vsync: this,
     );
+    _tabCtrl.addListener(() {
+      if (!_tabCtrl.indexIsChanging) setState(() {});
+    });
   }
 
   @override
@@ -182,54 +185,39 @@ class _EmoteSheetState extends State<EmoteSheet>
   @override
   Widget build(BuildContext context) {
     final hasMultiple = widget.emotes.length > 1;
-    final sheetHeight = MediaQuery.of(context).size.height * 0.4;
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-      child: SizedBox(
-        height: sheetHeight,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(
-              child: Container(
-                width: 32,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Colors.grey[400],
-                  borderRadius: BorderRadius.circular(2),
-                ),
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Center(
+            child: Container(
+              width: 32,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey[400],
+                borderRadius: BorderRadius.circular(2),
               ),
             ),
-            if (hasMultiple) ...[
-              const SizedBox(height: 10),
-              TabBar(
-                controller: _tabCtrl,
-                isScrollable: true,
-                tabAlignment: TabAlignment.center,
-                labelStyle: const TextStyle(fontSize: 13),
-                tabs: widget.emotes
-                    .map(
-                      (e) => Tab(
-                        text: e.code,
-                      ),
-                    )
-                    .toList(),
-              ),
-            ],
-            Flexible(
-              fit: FlexFit.loose,
-              child: hasMultiple
-                  ? TabBarView(
-                      controller: _tabCtrl,
-                      children:
-                          widget.emotes.map(_buildEmotePage).toList(),
-                    )
-                  : _buildEmotePage(widget.emotes.first),
+          ),
+          if (hasMultiple) ...[
+            const SizedBox(height: 10),
+            TabBar(
+              controller: _tabCtrl,
+              isScrollable: true,
+              tabAlignment: TabAlignment.center,
+              labelStyle: const TextStyle(fontSize: 13),
+              tabs: widget.emotes
+                  .map((e) => Tab(text: e.code))
+                  .toList(),
             ),
           ],
-        ),
+          _buildEmotePage(
+            hasMultiple ? widget.emotes[_tabCtrl.index] : widget.emotes.first,
+          ),
+        ],
       ),
     );
   }
