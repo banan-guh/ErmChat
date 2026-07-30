@@ -82,6 +82,7 @@ class ChatConnectionConfig {
     required this.setReplyToMsg,
     required this.onRequestFocus,
     required this.onShowSnackBar,
+    this.getAltPings,
   });
 
   final TwitchApi twitchApi;
@@ -125,6 +126,7 @@ class ChatConnectionConfig {
   final void Function(TwitchMessage?) setReplyToMsg;
   final VoidCallback onRequestFocus;
   final void Function(String) onShowSnackBar;
+  final List<String> Function()? getAltPings;
 }
 
 class ChatConnectionManager {
@@ -170,6 +172,7 @@ class ChatConnectionManager {
   final void Function(TwitchMessage?) setReplyToMsg;
   final VoidCallback onRequestFocus;
   final void Function(String) onShowSnackBar;
+  final List<String> Function()? getAltPings;
 
   EventSubStatus connectionStatus = EventSubStatus.disconnected;
   bool wasConnected = false;
@@ -248,7 +251,8 @@ class ChatConnectionManager {
       getReplyToMsg = config.getReplyToMsg,
       setReplyToMsg = config.setReplyToMsg,
       onRequestFocus = config.onRequestFocus,
-      onShowSnackBar = config.onShowSnackBar;
+      onShowSnackBar = config.onShowSnackBar,
+      getAltPings = config.getAltPings;
 
   void dispose() {
     isDisposed = true;
@@ -1067,9 +1071,14 @@ class ChatConnectionManager {
         !msg.isSystem &&
         msg.replyToUser != null &&
         msg.replyToUser!.toLowerCase() == login;
+    final altPings = getAltPings?.call() ?? const [];
+    final hasAltPing = !msg.isSystem && altPings.any(
+      (p) => msg.text.toLowerCase().contains(p.toLowerCase()),
+    );
     final isMentioned =
         (login != null && !msg.isSystem && isMention(msg.text, login)) ||
-        isReplyToMe;
+        isReplyToMe ||
+        hasAltPing;
 
     if (isMentioned && msg.login != login) {
       if (!msg.isHighlighted &&

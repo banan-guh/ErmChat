@@ -26,11 +26,11 @@
 - [x] **/me handling** - `/me` messages detected from `\x01ACTION ... \x01` wrapping in both EventSub and IRC. Rendered as `username message` (no colon, message colored like username) in all 3 views.
 - [x] **Unread indicator** - Channel tab name is white when there are unread messages, grey when all are read.
 - [x] **Localized display names** - Research how Twitch handles localized/non-ASCII display names and ensure the app handles them correctly.
-- [ ] **Add logo / name** - pretty important
+- [x] **Add logo / name** - pretty important
 - [*] **Update AGENTS.md periodically** - not a checklist, just a chore, reminder.
 
 ## Bugs
-- [ ] **Chat status text never refreshes** - `fetchChatStatus` in `chat_connection_manager.dart` is called once when the channel is subscribed (line 518) but never again. Viewer count, stream duration, and chat room settings (Followers-only, Slow mode, etc.) are frozen at join-time. No periodic timer, no refresh on tab switch, no EventSub stream.online/offline hook. Fix: add a periodic refresh timer or refresh on channel tab switch.
+- [x] **Chat status text never refreshes** - `fetchChatStatus` in `chat_connection_manager.dart` is called once when the channel is subscribed (line 518) but never again. Viewer count, stream duration, and chat room settings (Followers-only, Slow mode, etc.) are frozen at join-time. No periodic timer, no refresh on tab switch, no EventSub stream.online/offline hook. Fix: add a periodic refresh timer or refresh on channel tab switch.
 - [x] **Changing channels is interrupted by new messages** - changing channels is not smooth
 - [+] **Threads decay needs to be fixed** - fix implemented, untested
 - [x] **Ping happening with system messages** - Ping (unread) should not activate on a system message, currently does.
@@ -54,8 +54,8 @@
 - [-] **Double connected message** - 2 "Connected" messages on boot - it doesn't really appear anymore? for some reason...
 - [x] **Fix emote scale** - some emotes are bigger than they should be and some smaller. mainly happens to "tall" emotes or "long" emotes, square emotes work fine.
 - [ ] **EventSub emote fragment false-match** - `twitch_eventsub.dart` fragment position parsing used `indexOf` substring search which could misfire when a fragment's text appeared earlier in the message as a substring or overlapped with other text. Replaced with a running cursor (fragments arrive in order and reconstruct the message). Observed symptom: emote (`vedalSurprise`) rendering as a shorter garbled name (`vedalS`) with leftover text spilling out. Fixed the cursor logic but cannot confirm it resolves that exact case - if it recurs, add raw fragment payload logging.
-- [ ] **Invalid argument(s): string is not well-formed UTF-16** - I believe it's a problem with specific characters in the chat messages.
-- [ ] **Reconnected replacement sometimes misses** - `_addSystemMessage` only checks `msgs.first` for "Disconnected" when "Connected" arrives. If chat messages or subscribe warnings push "Disconnected" down the list, the replacement silently fails and both "Connected" and "Disconnected" stay visible.
+- [+] **Invalid argument(s): string is not well-formed UTF-16** - I believe it's a problem with specific characters in the chat messages.
+- [+] **Reconnected replacement sometimes misses** - `_addSystemMessage` only checks `msgs.first` for "Disconnected" when "Connected" arrives. If chat messages or subscribe warnings push "Disconnected" down the list, the replacement silently fails and both "Connected" and "Disconnected" stay visible.
 
 ## Research / Open Ends
 
@@ -63,7 +63,7 @@
 
 ## Low Priority / Future
 
-- [+] **OS notifications + background** - Push notifications when mentioned/whispered while app is backgrounded; run keepalive in background. - background finished, notifs not
+- [+] **OS notifications + background** - Push notifications when mentioned/whispered while app is backgrounded; run keepalive in background. - background finished, notifs finished for android only, not apple
 - [ ] **Different mode** - Toggleable type box visibility and fullscreen.
 - [ ] **Robotty history bot backup** - Add fallback/backup for recent-messages.robotty.de service.
 - [ ] **Injectable TwitchBadgeService** - Currently standalone; consider making it injectable (like EventSubService/IrcService) for testability. Low priority.

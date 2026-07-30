@@ -68,6 +68,9 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen>
     with WidgetsBindingObserver, TickerProviderStateMixin {
   static const _mentionsChannel = '@mentions';
+  static const _defaultAltPings = <String>[];
+
+  List<String> _altPings = _defaultAltPings;
 
   late final _connectivity = Connectivity();
   late final _eventSub =
@@ -128,6 +131,7 @@ class _HomeScreenState extends State<HomeScreen>
     getReplyToMsg: () => _replyToMsg,
     setReplyToMsg: (v) => _replyToMsg = v,
     onRequestFocus: () => _focusNode.requestFocus(),
+    getAltPings: () => _altPings,
     onShowSnackBar: (msg) {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -259,6 +263,7 @@ class _HomeScreenState extends State<HomeScreen>
     }
     _loadMaxMessages();
     _loadChannels();
+    _loadAltPings();
     _chatConn.connect();
     _emoteManager.accessToken = widget.twitchAuth.accessToken;
     _emoteManager.preloadGlobalEmotes();
@@ -706,6 +711,12 @@ class _HomeScreenState extends State<HomeScreen>
       _maxMessagesPerChannel = prefs.getInt('max_messages_per_channel') ?? 200;
       _replyToRoot = prefs.getBool('reply_to_thread_root') ?? false;
     });
+  }
+
+  void _loadAltPings() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (!mounted) return;
+    _altPings = prefs.getStringList('alt_pings') ?? _defaultAltPings;
   }
 
   @override
@@ -1645,6 +1656,7 @@ class _HomeScreenState extends State<HomeScreen>
                                     onSettingsOpened: () =>
                                         _focusNode.unfocus(),
                                     onSettingsClosed: () {
+                                      _loadAltPings();
                                       if (mounted) setState(() {});
                                     },
                                   ),
