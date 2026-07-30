@@ -335,6 +335,12 @@ class _HomeScreenState extends State<HomeScreen>
                 final existing = _channelMessages[name]!;
                 final existingIds = existing.map((m) => m.messageId).toSet();
                 for (final msg in history) {
+                  if (!msg.isSystem && msg.login.isNotEmpty) {
+                    final preferred = msg.displayName.toLowerCase() == msg.login.toLowerCase()
+                        ? msg.displayName
+                        : msg.login;
+                    _userStore.addUser(name, preferred);
+                  }
                   final isNew =
                       msg.messageId == null ||
                       !existingIds.contains(msg.messageId);
@@ -1161,6 +1167,7 @@ class _HomeScreenState extends State<HomeScreen>
 
   Future<void> _showMentionsView() async {
     if (_activePanel != OverlayPanel.closed) await _closePanel();
+    _focusNode.unfocus();
     setState(() {
       _activePanel = OverlayPanel.mentions;
       _openThreadRoot = null;
@@ -1276,10 +1283,11 @@ class _HomeScreenState extends State<HomeScreen>
       },
       onVerticalDragUpdate: (details) {
         final cumulativeDelta = details.globalPosition.dy - _panelDragStartY;
-        final height =
-            maxSize *
-            (MediaQuery.of(context).size.height -
-                MediaQuery.of(context).padding.top);
+                final height =
+                    maxSize *
+                    (MediaQuery.of(context).size.height -
+                        MediaQuery.of(context).padding.top -
+                        MediaQuery.viewInsetsOf(context).bottom);
         ratio.value = (_panelDragStartRatio - cumulativeDelta / height).clamp(
           0.0,
           maxSize,
@@ -1549,9 +1557,15 @@ class _HomeScreenState extends State<HomeScreen>
     final theme = Theme.of(context);
 
     return PopScope(
-      canPop: _activePanel == OverlayPanel.closed,
+      canPop: _activePanel == OverlayPanel.closed && !_focusNode.hasFocus,
       onPopInvokedWithResult: (didPop, _) {
-        if (!didPop) _closePanel();
+        if (didPop) return;
+        if (_activePanel != OverlayPanel.closed) {
+          _closePanel();
+        } else {
+          _focusNode.unfocus();
+          setState(() {});
+        }
       },
       child: Scaffold(
         resizeToAvoidBottomInset: false,
@@ -2018,6 +2032,7 @@ class _HomeScreenState extends State<HomeScreen>
                           focusNode: _focusNode,
                           onSend: _sendMessage,
                           onSendLongPress: _onSendLongPress,
+                          onTap: () => _suggestionsNotifier.value = [],
                           onEmoteToggle: () {
                             if (_activePanel == OverlayPanel.emotes) {
                               _closePanel();

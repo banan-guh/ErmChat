@@ -1041,7 +1041,10 @@ class ChatConnectionManager {
     if (isDisposed) return;
 
     if (!msg.isSystem && msg.login.isNotEmpty && msg.channel != null) {
-      userStore.addUser(msg.channel!, msg.displayName);
+      final preferredName = msg.displayName.toLowerCase() == msg.login.toLowerCase()
+          ? msg.displayName
+          : msg.login;
+      userStore.addUser(msg.channel!, preferredName);
     }
 
     final channel = msg.channel;
@@ -1115,13 +1118,17 @@ class ChatConnectionManager {
 
     final displayName =
         ircMsg.tags['display-name']?.trim() ?? getCurrentUserLogin() ?? '';
-    if (displayName.isNotEmpty) {
-      userStore.addUser(channel, displayName);
-    }
-
     final ircPrefLogin = ircMsg.prefix != null && ircMsg.prefix!.contains('!')
         ? ircMsg.prefix!.substring(0, ircMsg.prefix!.indexOf('!'))
         : null;
+    final login = ircPrefLogin ?? getCurrentUserLogin() ?? '';
+    final preferredName = displayName.isNotEmpty &&
+            displayName.toLowerCase() == login.toLowerCase()
+        ? displayName
+        : login;
+    if (preferredName.isNotEmpty) {
+      userStore.addUser(channel, preferredName);
+    }
     final user = TwitchMessage.resolveUser(
       login: ircPrefLogin ?? getCurrentUserLogin() ?? displayName,
       displayName: displayName.isNotEmpty ? displayName : null,

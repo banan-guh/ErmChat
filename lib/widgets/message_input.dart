@@ -9,6 +9,7 @@ class MessageInput extends StatelessWidget {
   final VoidCallback? onEmoteToggle;
   final TwitchMessage? replyToMsg;
   final VoidCallback? onCancelReply;
+  final VoidCallback? onTap;
   final bool enabled;
   final String? hintText;
 
@@ -17,6 +18,7 @@ class MessageInput extends StatelessWidget {
     required this.controller,
     required this.focusNode,
     required this.onSend,
+    this.onTap,
     this.onSendLongPress,
     this.onEmoteToggle,
     this.replyToMsg,
@@ -86,6 +88,7 @@ class MessageInput extends StatelessWidget {
             key: const Key('message_input'),
             controller: controller,
             focusNode: focusNode,
+            onTap: onTap,
             enabled: enabled,
             minLines: 1,
             maxLines: 6,

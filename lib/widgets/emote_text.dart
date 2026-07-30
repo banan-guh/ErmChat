@@ -340,10 +340,10 @@ final _urlRegExp = RegExp(
 final _collapseSpace = RegExp(r' {2,}');
 
 List<InlineSpan> parseTextWithLinks(String text) {
+  final collapsed = text.replaceAll(_collapseSpace, ' ');
   // Quick guard: ~99% of chat text has no URLs.
-  if (!text.contains('.')) return [TextSpan(text: text)];
+  if (!collapsed.contains('.')) return [TextSpan(text: collapsed)];
   try {
-    final collapsed = text.replaceAll(_collapseSpace, ' ');
     final spans = <InlineSpan>[];
     int lastEnd = 0;
     for (final match in _urlRegExp.allMatches(collapsed)) {
@@ -370,8 +370,8 @@ List<InlineSpan> parseTextWithLinks(String text) {
     return spans;
   } catch (e, stack) {
     debugPrint('[parseTextWithLinks] error: $e');
-    debugPrint('[parseTextWithLinks] text="$text"');
+    debugPrint('[parseTextWithLinks] text="$collapsed"');
     debugPrint('[parseTextWithLinks] stack=$stack');
-    return [TextSpan(text: text)];
+    return [TextSpan(text: collapsed)];
   }
 }
