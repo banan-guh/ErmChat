@@ -70,7 +70,7 @@ class _AccountScreenState extends State<AccountScreen> {
       _startBrowserOAuth();
     } else {
       final starter = widget.oAuthStarter ?? TwitchOAuth.startFlow;
-      final token = await starter(context);
+      final token = await starter();
 
       if (!mounted) return;
 
@@ -112,7 +112,7 @@ class _AccountScreenState extends State<AccountScreen> {
     if (error != null) {
       setState(() {
         _authState = _AuthState.error;
-        _authError = 'Twitch returned: $error';
+        _authError = 'Authorization error: $error';
       });
       return;
     }
@@ -177,7 +177,7 @@ class _AccountScreenState extends State<AccountScreen> {
             child: FilledButton.icon(
               onPressed: _startOAuth,
               icon: const Icon(Icons.login),
-              label: const Text('Login with Twitch'),
+              label: const Text('Login'),
             ),
           ),
         );
@@ -313,7 +313,7 @@ class _AccountScreenState extends State<AccountScreen> {
               children: [
                 const Icon(Icons.check_circle, size: 64, color: Colors.green),
                 const SizedBox(height: 16),
-                const Text('Connected to Twitch'),
+                const Text('Connected'),
                 const SizedBox(height: 24),
                 TextButton.icon(
                   onPressed: _clearCredentials,

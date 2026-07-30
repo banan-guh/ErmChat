@@ -334,8 +334,7 @@ void main() {
     await tester.tap(find.text('Account'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Twitch Login'), findsNothing);
-    expect(find.text('Login with Twitch'), findsOneWidget);
+    expect(find.text('Login'), findsOneWidget);
   });
 
   testWidgets('Joining channel shows input bar and send button', (
@@ -1532,8 +1531,8 @@ void main() {
       await tester.pump();
 
       expect(find.text('Account'), findsOneWidget);
-      expect(find.text('Login with Twitch'), findsOneWidget);
-      expect(find.text('Connected to Twitch'), findsNothing);
+      expect(find.text('Login'), findsOneWidget);
+      expect(find.text('Connected'), findsNothing);
     });
 
     testWidgets('Account screen success state shows connected and disconnect', (
@@ -1547,9 +1546,9 @@ void main() {
       );
       await tester.pump();
 
-      expect(find.text('Connected to Twitch'), findsOneWidget);
+      expect(find.text('Connected'), findsOneWidget);
       expect(find.text('Disconnect'), findsOneWidget);
-      expect(find.text('Login with Twitch'), findsNothing);
+      expect(find.text('Login'), findsNothing);
     });
 
     testWidgets('Account screen disconnect transitions to idle', (
@@ -1563,14 +1562,14 @@ void main() {
       );
       await tester.pump();
 
-      expect(find.text('Connected to Twitch'), findsOneWidget);
+      expect(find.text('Connected'), findsOneWidget);
 
       await tester.tap(find.text('Disconnect'));
       await tester.pump();
       await tester.pump();
 
-      expect(find.text('Connected to Twitch'), findsNothing);
-      expect(find.text('Login with Twitch'), findsOneWidget);
+      expect(find.text('Connected'), findsNothing);
+      expect(find.text('Login'), findsOneWidget);
     });
 
     testWidgets('Customization dark mode toggle calls onThemeChanged', (

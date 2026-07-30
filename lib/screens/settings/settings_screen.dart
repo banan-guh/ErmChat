@@ -6,7 +6,7 @@ import 'channel_settings_screen.dart';
 import 'chat_settings_screen.dart';
 import 'customization_screen.dart';
 
-typedef OAuthStarter = Future<String?> Function(BuildContext context);
+typedef OAuthStarter = Future<String?> Function();
 
 class SettingsScreen extends StatelessWidget {
   final TwitchAuth twitchAuth;
