@@ -49,9 +49,6 @@ class TwitchAuth extends ChangeNotifier {
         'refresh_token': refreshToken!,
         'client_id': TwitchConfig.clientId,
       };
-      if (TwitchConfig.clientSecret.isNotEmpty) {
-        body['client_secret'] = TwitchConfig.clientSecret;
-      }
       final res = await http.post(
         Uri.parse('https://id.twitch.tv/oauth2/token'),
         body: body,

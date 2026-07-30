@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../../twitch_config.dart';
 import '../../models/generic_emote.dart';
+import '../../util/constants.dart';
 
 class TwitchEmoteProvider {
   static Future<List<GenericEmote>> fetchGlobal({String? accessToken}) async {
@@ -13,7 +14,7 @@ class TwitchEmoteProvider {
     }
     final res = await http
         .get(uri, headers: headers)
-        .timeout(const Duration(seconds: 10));
+        .timeout(httpTimeout);
     debugPrint(
       'Twitch global emotes: ${res.statusCode} — ${res.body.length} bytes',
     );
@@ -41,7 +42,7 @@ class TwitchEmoteProvider {
       }
       final res = await http
           .get(uri, headers: headers)
-          .timeout(const Duration(seconds: 10));
+          .timeout(httpTimeout);
       if (res.statusCode != 200) {
         debugPrint('Twitch user emotes error: ${res.statusCode} ${res.body}');
         return {};
@@ -109,7 +110,7 @@ class TwitchEmoteProvider {
     }
     final res = await http
         .get(uri, headers: headers)
-        .timeout(const Duration(seconds: 10));
+        .timeout(httpTimeout);
     if (res.statusCode != 200) {
       debugPrint('Twitch channel emotes error: ${res.statusCode}');
       return [];

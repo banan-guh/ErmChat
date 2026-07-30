@@ -1,11 +1,12 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../../models/generic_emote.dart';
+import '../../util/constants.dart';
 
 class FfzEmoteProvider {
   static Future<List<GenericEmote>> fetchGlobal() async {
     final uri = Uri.parse('https://api.frankerfacez.com/v1/set/global');
-    final res = await http.get(uri).timeout(const Duration(seconds: 10));
+    final res = await http.get(uri).timeout(httpTimeout);
     if (res.statusCode != 200) return [];
     final data = jsonDecode(res.body) as Map<String, dynamic>;
     final sets = data['sets'] as Map<String, dynamic>? ?? {};
@@ -23,7 +24,7 @@ class FfzEmoteProvider {
 
   static Future<List<GenericEmote>> fetchChannel(String channelId) async {
     final uri = Uri.parse('https://api.frankerfacez.com/v1/room/$channelId');
-    final res = await http.get(uri).timeout(const Duration(seconds: 10));
+    final res = await http.get(uri).timeout(httpTimeout);
     if (res.statusCode != 200) return [];
     final data = jsonDecode(res.body) as Map<String, dynamic>;
     final sets = data['sets'] as Map<String, dynamic>? ?? {};

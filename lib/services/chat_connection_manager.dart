@@ -18,6 +18,7 @@ import '../services/seven_tv_event_client.dart';
 import '../services/twitch_badge_service.dart';
 import '../services/user_store.dart';
 import '../util/text_bypass.dart';
+import '../util/constants.dart';
 import '../util/mention.dart';
 import '../util/irc_utils.dart';
 import '../util/thread_utils.dart';
@@ -73,7 +74,7 @@ class ChatConnectionManager {
   DateTime? _lastSubscribeAll;
   bool userTwitchEmotesLoaded = false;
   final _connectedAcked = <String>{};
-  bool mounted = true;
+  bool isDisposed = false;
   bool _isConnecting = false;
   final _recentBanMeta = <String, List<_BanMeta>>{};
   static const _banDedupWindowSeconds = 10;
@@ -165,7 +166,7 @@ class ChatConnectionManager {
   });
 
   void dispose() {
-    mounted = false;
+    isDisposed = true;
     messageSub?.cancel();
     statusSub?.cancel();
     deleteSub?.cancel();
@@ -259,7 +260,7 @@ class ChatConnectionManager {
     debugPrint(
       '[ChatConn] $sourceName ban received: user=$user channel=$channel isTimeout=$isTimeout',
     );
-    if (!mounted) return;
+    if (isDisposed) return;
     _markUserMessagesDeleted(channel, user);
     final result = _processBanInChannel(
       channel,
@@ -601,7 +602,7 @@ class ChatConnectionManager {
         final uri = Uri.parse(
           'https://7tv.io/v3/users/twitch/$twitchChannelId',
         );
-        final res = await http.get(uri).timeout(const Duration(seconds: 10));
+        final res = await http.get(uri).timeout(httpTimeout);
         if (res.statusCode != 200) return;
         final data = jsonDecode(res.body) as Map<String, dynamic>;
         final userId =
@@ -695,7 +696,7 @@ class ChatConnectionManager {
       return;
     }
 
-    if (!mounted) return;
+    if (isDisposed) return;
     setReplyToMsg(null);
     onRebuild();
     onRequestFocus();
@@ -745,14 +746,14 @@ class ChatConnectionManager {
   }
 
   Future<void> connect() async {
-    if (_isConnecting || !mounted) return;
+    if (_isConnecting || isDisposed) return;
     _isConnecting = true;
     try {
       final auth = twitchAuth;
 
       messageSub ??= eventSub.onMessage.listen(onMessage);
       deleteSub ??= eventSub.onMessageDeleted.listen((event) {
-        if (!mounted) return;
+        if (isDisposed) return;
         final msgs = channelMessages[event.channel];
         if (msgs == null) return;
         String? deletedUser;
@@ -808,13 +809,13 @@ class ChatConnectionManager {
 
       ircNoticeSub?.cancel();
       ircNoticeSub = irc.onNotice.listen((event) {
-        if (!mounted) return;
+        if (isDisposed) return;
         onSystemMessage(event.channel, event.message);
       });
 
       ircJtvSub?.cancel();
       ircJtvSub = irc.onJtvMessage.listen((event) {
-        if (!mounted) return;
+        if (isDisposed) return;
         onSystemMessage(event.channel, event.message);
       });
 
@@ -837,7 +838,7 @@ class ChatConnectionManager {
 
       statusSub?.cancel();
       statusSub = eventSub.onStatus.listen((status) async {
-        if (!mounted) return;
+        if (isDisposed) return;
         connectionStatus = status;
         onRebuild();
         // Edge-triggered: subscribeAll once per connect with 30s throttle and
@@ -900,7 +901,7 @@ class ChatConnectionManager {
       if (getCurrentUserLogin() != null && auth.accessToken != null) {
         ircStatusSub?.cancel();
         ircStatusSub = irc.onStatus.listen((status) {
-          if (!mounted) return;
+          if (isDisposed) return;
           if (status == IrcConnectionStatus.connected && irc.isConnected) {
             for (final channel in channels) {
               onSystemMessage(channel, 'Connected to IRC');
@@ -910,7 +911,7 @@ class ChatConnectionManager {
 
         ircReadStatusSub?.cancel();
         ircReadStatusSub = ircRead.onStatus.listen((status) {
-          if (!mounted) return;
+          if (isDisposed) return;
         });
 
         try {
@@ -934,7 +935,7 @@ class ChatConnectionManager {
   }
 
   void onMessage(TwitchMessage msg) {
-    if (!mounted) return;
+    if (isDisposed) return;
 
     if (!msg.isSystem && msg.login.isNotEmpty && msg.channel != null) {
       userStore.addUser(msg.channel!, msg.displayName);
@@ -1003,7 +1004,7 @@ class ChatConnectionManager {
   }
 
   void onOwnIrcMessage(IrcMessage ircMsg) {
-    if (!mounted) return;
+    if (isDisposed) return;
     final channel = ircMsg.params.isNotEmpty
         ? ircMsg.params[0].substring(1)
         : null;

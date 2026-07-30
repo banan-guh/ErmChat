@@ -19,12 +19,9 @@ Map<String, dynamic> _emoteSetUpdate({
     // ignore: use_null_aware_elements
     'body': <String, dynamic>{
       'id': emoteSetId,
-      // ignore: use_null_aware_elements
-      if (pushed != null) 'pushed': pushed,
-      // ignore: use_null_aware_elements
-      if (pulled != null) 'pulled': pulled,
-      // ignore: use_null_aware_elements
-      if (updated != null) 'updated': updated,
+      'pushed': ?pushed,
+      'pulled': ?pulled,
+      'updated': ?updated,
       if (actor != null) 'actor': {'display_name': actor},
     },
   },

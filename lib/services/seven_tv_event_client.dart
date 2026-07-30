@@ -4,6 +4,7 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
+import '../util/constants.dart';
 
 class SevenTvEmoteUpdateEvent {
   final String emoteSetId;
@@ -406,8 +407,7 @@ class SevenTvEventClient {
       final base = Duration(
         seconds: min(pow(2, _reconnectAttempt - 2).toInt(), 30),
       );
-      final jitter = 0.75 + Random().nextDouble() * 0.5;
-      delay = Duration(milliseconds: (base.inMilliseconds * jitter).toInt());
+      delay = applyReconnectJitter(base);
     }
     debugPrint(
       '7TV scheduling reconnect in ${delay.inMilliseconds}ms (attempt $_reconnectAttempt)',
@@ -467,6 +467,9 @@ class SevenTvEventClient {
     _reconnecting = false;
     _connectivitySub?.cancel();
     _connectivitySub = null;
+    _channel = null;
+    _heartbeatTimer = null;
+    _streamSub = null;
     _disconnect();
     _emoteSetUpdateCtrl.close();
     _userUpdateCtrl.close();

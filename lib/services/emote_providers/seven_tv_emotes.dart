@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../../models/generic_emote.dart';
+import '../../util/constants.dart';
 
 class SevenTvChannelResponse {
   final List<GenericEmote> emotes;
@@ -16,7 +17,7 @@ class SevenTvEmoteProvider {
 
   static Future<List<GenericEmote>> fetchGlobal() async {
     final uri = Uri.parse('https://7tv.io/v3/emote-sets/global');
-    final res = await http.get(uri).timeout(const Duration(seconds: 10));
+    final res = await http.get(uri).timeout(httpTimeout);
     if (res.statusCode != 200) return [];
     final data = jsonDecode(res.body) as Map<String, dynamic>;
     final items = data['emotes'] as List<dynamic>? ?? [];
@@ -27,7 +28,7 @@ class SevenTvEmoteProvider {
     String channelId,
   ) async {
     final uri = Uri.parse('https://7tv.io/v3/users/twitch/$channelId');
-    final res = await http.get(uri).timeout(const Duration(seconds: 10));
+    final res = await http.get(uri).timeout(httpTimeout);
     if (res.statusCode != 200) return SevenTvChannelResponse(emotes: []);
     final data = jsonDecode(res.body) as Map<String, dynamic>;
     final userId = (data['user'] as Map<String, dynamic>?)?['id'] as String?;

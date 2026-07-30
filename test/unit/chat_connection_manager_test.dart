@@ -418,11 +418,11 @@ void main() {
   });
 
   group('lifecycle', () {
-    test('dispose sets mounted to false', () {
+    test('dispose sets isDisposed to true', () {
       final conn = _makeConn(channelMessages: {}, maxMessages: 10);
-      expect(conn.mounted, true);
+      expect(conn.isDisposed, false);
       conn.dispose();
-      expect(conn.mounted, false);
+      expect(conn.isDisposed, true);
     });
 
     test('double dispose does not crash', () {

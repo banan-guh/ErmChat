@@ -3,6 +3,7 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
+import '../util/constants.dart';
 
 enum IrcConnectionStatus { disconnected, connecting, connected }
 
@@ -179,8 +180,7 @@ abstract class BaseIrcConnection {
       final base = Duration(
         seconds: min(pow(2, _reconnectAttempt - 2).toInt(), 30),
       );
-      final jitter = 0.75 + Random().nextDouble() * 0.5;
-      delay = Duration(milliseconds: (base.inMilliseconds * jitter).toInt());
+      delay = applyReconnectJitter(base);
     }
     _reconnectTimer?.cancel();
     _reconnectTimer = Timer(delay, () {

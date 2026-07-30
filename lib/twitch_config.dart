@@ -9,19 +9,12 @@
 class TwitchConfig {
   static const String clientId = 'hn6tq8xvgzx91n4mx72573o1c2x9nk';
 
-  /// Leave empty for Public apps. Set only if Twitch requires it.
-  static const String clientSecret = '';
-
   /// HTTPS redirect URI for the OAuth implicit grant flow.
   ///
-  /// IMPORTANT: Register this exact URL in your Twitch dev console under
+  /// Register this exact URL in your Twitch dev console under
   /// "OAuth Redirect URLs". The WebView intercepts the redirect before the
   /// browser navigates, so this URL doesn't need to serve real content, but
   /// it must be a valid HTTPS URL that matches what Twitch has on file.
-  /// Register this URL in your Twitch dev console under "OAuth Redirect URLs".
-  /// The WebView intercepts the redirect before the browser navigates, so
-  /// this URL doesn't need to serve real content, but it must match exactly
-  /// what Twitch has on file.
   static const String redirectUri =
       'https://banan-guh.github.io/twitch-app-oauth';
 

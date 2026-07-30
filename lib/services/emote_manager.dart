@@ -50,7 +50,8 @@ class EmoteManager extends ChangeNotifier {
 
   /// Consumed by the home screen listener to only invalidate
   /// spans for the channel whose emotes actually changed.
-  String? get changedChannel {
+  /// Side-effect getter renamed to method for clarity.
+  String? consumeChangedChannel() {
     final c = _changedChannel;
     _changedChannel = null;
     return c;

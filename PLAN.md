@@ -94,7 +94,7 @@ Focus: making each rebuild cheaper/faster rather than preventing rebuilds from b
 
 ## Design
 
-- [ ] **C9 Manual `mounted` flag in `ChatConnectionManager`** -- `chat_connection_manager.dart:70`. Not a `State` subclass, so `mounted` is a hand-rolled bool starting `true`, checked in 12 places, only set to `false` on `dispose()`. Widget could be gone long before dispose runs. Fix: use `isDisposed` flag or remove checks if not needed.
+- [x] **C9 Manual `mounted` flag in `ChatConnectionManager`** -- `chat_connection_manager.dart:70`. Not a `State` subclass, so `mounted` is a hand-rolled bool starting `true`, checked in 12 places, only set to `false` on `dispose()`. Widget could be gone long before dispose runs. Fix: use `isDisposed` flag or remove checks if not needed.
 
 - [ ] **C10 `ChatConnectionManager` takes 30+ callback closures** -- `home_screen.dart:78-129`. Stategist anti-pattern: state duct-taped through closures into a 1092-line class that directly mutates collections passed by reference. Fix: proper separation with dedicated event classes or a reactive state holder.
 
@@ -104,7 +104,7 @@ Focus: making each rebuild cheaper/faster rather than preventing rebuilds from b
 
 - [x] **C13 Mutable static state in `TwitchApi`** -- Fixed: all fields and methods converted to instance-level.
 
-- [ ] **C14 Side effect in getter `EmoteManager.changedChannel`** -- `emote_manager.dart:52-56`. Getter mutates `_changedChannel = null`. Second read returns different result. Fix: rename to `consumeChangedChannel()` or use method.
+- [x] **C14 Side effect in getter `EmoteManager.changedChannel`** -- `emote_manager.dart:52-56`. Getter mutates `_changedChannel = null`. Second read returns different result. Fix: rename to `consumeChangedChannel()` or use method.
 
 - [x] **C15 `TwitchMessage.bodyColor` always returns null** -- Fixed: removed getter and the dead branches in `ChatMessageTile`.
 
@@ -156,35 +156,35 @@ Focus: making each rebuild cheaper/faster rather than preventing rebuilds from b
 
 - [ ] **C32 `analysis_options.yaml` minimal** -- Only includes `package:flutter_lints/flutter.yaml`. Useful rules not enabled: `prefer_const_constructors`, `prefer_final_locals`, `avoid_catches_without_on_clauses`, `require_trailing_commas`, `use_super_parameters`. Fix: add project-specific lint rules. **(skip — would cascade 100+ new warnings; noisy, low reward)**
 
-- [ ] **C33 `TwitchConfig.clientSecret` is dead config** -- `lib/twitch_config.dart:13`. Empty string constant never referenced anywhere. Fix: remove.
+- [x] **C33 `TwitchConfig.clientSecret` is dead config** -- `lib/twitch_config.dart:13`. Empty string constant never referenced anywhere. Fix: remove.
 
 - [ ] **C34 Enum serialized by ordinal index** -- `lib/models/generic_emote.dart:52,55`. `EmoteType.values[json['type'] as int]` and `EmoteScope.values[json['scope'] as int? ?? 0]` break if enum order changes. Any persisted data corrupts on reorder. Fix: serialize by name (`name`) or add explicit index field.
 
-- [ ] **C35 Duplicated comment in `twitch_config.dart`** -- `lib/twitch_config.dart:16-24`. Same paragraph about redirect URI appears twice verbatim. Fix: remove duplicate.
+- [x] **C35 Duplicated comment in `twitch_config.dart`** -- `lib/twitch_config.dart:16-24`. Same paragraph about redirect URI appears twice verbatim. Fix: remove duplicate.
 
-- [ ] **C36 `// ignore` comments in test code** -- `test/unit/seven_tv_event_client_test.dart:19,22,24,26`. Four `// ignore: use_null_aware_elements` suppressions suggest the code fights the linter. Fix: use null-aware elements instead of suppressing.
+- [x] **C36 `// ignore` comments in test code** -- `test/unit/seven_tv_event_client_test.dart:19,22,24,26`. Four `// ignore: use_null_aware_elements` suppressions suggest the code fights the linter. Fix: use null-aware elements instead of suppressing.
 
 ## Magic numbers / strings
 
 - [ ] **C37 Unnamed numeric constants across codebase** -- `200` (max messages), `100` (max recent emotes), `5000` (max users per channel), `2000` (max seen emote IDs), `8` (reconnect attempts), `10` (ban dedup window seconds), `60` (reply preview truncation), `15` (Twitch colors), `0.35` (deleted opacity), `0.6` (emote panel fraction), `250`/`180` (animation ms), `40` (tab bar height), `28.0` (emote base size), `3x` (emote scale factor), `1 << 8` (zero-width flag). Fix: extract to named constants. **(skip — 15+ numbers across 20+ files; works fine as-is, effort outweighs benefit)**
 
-- [ ] **C38 Duplicated reconnect jitter logic** -- `base_irc_connection.dart:208`, `twitch_eventsub.dart:161`, `seven_tv_event_client.dart:396`. Same `0.75 + Random().nextDouble() * 0.5` formula in 3 files. Fix: shared utility function.
+- [x] **C38 Duplicated reconnect jitter logic** -- `base_irc_connection.dart:208`, `twitch_eventsub.dart:161`, `seven_tv_event_client.dart:396`. Same `0.75 + Random().nextDouble() * 0.5` formula in 3 files. Fix: shared utility function.
 
-- [ ] **C39 `const Duration(seconds: 10)` in 6+ files** -- `twitch_emotes.dart`, `bttv_emotes.dart`, `ffz_emotes.dart`, `seven_tv_emotes.dart`, `recent_messages.dart`, `twitch_api.dart`. Same timeout value duplicated. Fix: shared constant.
+- [x] **C39 `const Duration(seconds: 10)` in 6+ files** -- `twitch_emotes.dart`, `bttv_emotes.dart`, `ffz_emotes.dart`, `seven_tv_emotes.dart`, `recent_messages.dart`, `twitch_api.dart`. Same timeout value duplicated. Fix: shared constant.
 
 ## Missing cleanup
 
 - [ ] **C40 `EmoteManager` has no `dispose()`** -- `lib/services/emote_manager.dart:19`. `ChangeNotifier` subclass with no dispose override. Listeners never formally cleared, potential memory leak. (Mentioned in C3 bugs but worth re-flagging here.)
 
-- [ ] **C41 `login_webview.dart` empty `dispose()`** -- `lib/widgets/login_webview.dart:120-123`. `WebViewController` (`_controller`) never cleaned up. Fix: call `_controller?.dispose()` or verify it's self-cleaning.
+- [x] **C41 `login_webview.dart` empty `dispose()`** -- `lib/widgets/login_webview.dart:120-123`. `WebViewController` (`_controller`) never cleaned up. Fix: call `_controller?.dispose()` or verify it's self-cleaning.
 
-- [ ] **C42 `SevenTvEventClient.dispose()` only sets flag** -- `seven_tv_event_client.dart`. Sets `_disposed = true` but `_channel`, `_connectivity` references remain. Fix: null out references after disposal.
+- [x] **C42 `SevenTvEventClient.dispose()` only sets flag** -- `seven_tv_event_client.dart`. Sets `_disposed = true` but `_channel`, `_connectivity` references remain. Fix: null out references after disposal.
 
 ## Stale / dead code
 
-- [ ] **C43 `_SwipePhysics` class is a no-op** -- `lib/widgets/tabbed_layout.dart:4-15`. Extends `PageScrollPhysics` but overrides no methods. The commented-out overrides (lines 12-17) suggest it was meant to customize fling, but never finished. Fix: remove class and inline `PageScrollPhysics` usage.
+- [x] **C43 `_SwipePhysics` class is a no-op** -- `lib/widgets/tabbed_layout.dart:4-15`. Extends `PageScrollPhysics` but overrides no methods. The commented-out overrides (lines 12-17) suggest it was meant to customize fling, but never finished. Fix: remove class and inline `PageScrollPhysics` usage.
 
-- [ ] **C44 Commented-out code in `tabbed_layout.dart`** -- `lib/widgets/tabbed_layout.dart:12-17`. Fling distance/velocity overrides commented out with no explanation of when to restore. Fix: remove or add a TODO with reason.
+- [x] **C44 Commented-out code in `tabbed_layout.dart`** -- `lib/widgets/tabbed_layout.dart:12-17`. Fling distance/velocity overrides commented out with no explanation of when to restore. Fix: remove or add a TODO with reason.
 
 ## Naming
 

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../models/twitch_badge.dart';
+import '../util/constants.dart';
 import '../models/twitch_message.dart';
 import '../color_utils.dart';
 import '../util/irc_utils.dart';
@@ -15,7 +16,7 @@ class RecentMessagesService {
     final uri = Uri.parse(
       '$_baseUrl/${Uri.encodeComponent(channel.toLowerCase())}?limit=100',
     );
-    final res = await http.get(uri).timeout(const Duration(seconds: 10));
+    final res = await http.get(uri).timeout(httpTimeout);
 
     if (res.statusCode != 200) {
       throw Exception(

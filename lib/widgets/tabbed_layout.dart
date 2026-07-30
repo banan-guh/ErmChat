@@ -1,22 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 
-class _SwipePhysics extends PageScrollPhysics {
-  const _SwipePhysics({super.parent});
-
-  @override
-  _SwipePhysics applyTo(ScrollPhysics? ancestor) {
-    return _SwipePhysics(parent: buildParent(ancestor));
-  }
-
-  // stock fling distances for horizontal swipe are too high, just increased sensitivity here
-  //@override
-  //double get minFlingDistance => 50.0;
-
-  //@override
-  //double get minFlingVelocity => 300.0;
-}
-
 class _SwipeScrollBehavior extends ScrollBehavior {
   const _SwipeScrollBehavior();
 
@@ -241,7 +225,7 @@ class TabbedLayoutState extends State<TabbedLayout>
                 ),
                 child: TabBarView(
                   controller: _tabController,
-                  physics: const _SwipePhysics(),
+                  physics: const PageScrollPhysics(),
                   children: List.generate(
                     tabs.length,
                     (i) => widget.pageBuilder(context, i),

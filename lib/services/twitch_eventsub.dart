@@ -4,6 +4,7 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
+import '../util/constants.dart';
 import '../models/twitch_badge.dart';
 import '../models/twitch_message.dart';
 
@@ -161,10 +162,7 @@ class EventSubService {
     final base = Duration(
       seconds: min(pow(2, _reconnectAttempt - 1).toInt(), 30),
     );
-    final jitter = 0.75 + Random().nextDouble() * 0.5;
-    final delay = Duration(
-      milliseconds: (base.inMilliseconds * jitter).toInt(),
-    );
+    final delay = applyReconnectJitter(base);
     _reconnectTimer?.cancel();
     _reconnectTimer = Timer(delay, () {
       _reconnecting = false;
