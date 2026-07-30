@@ -145,6 +145,8 @@ class EventSubService {
     }
   }
 
+  // Faster backoff than IRC (2^(n-1) vs 2^(n-2)): EventSub reconnects are
+  // cheaper since no channel rejoin is needed. Capped at 30s with jitter.
   void _scheduleReconnect() {
     if (_reconnecting || _disposed) return;
     if (!_isOnline) return;
@@ -229,6 +231,8 @@ class EventSubService {
     }
   }
 
+  // Reset on any message, not just keepalives — Twitch may skip explicit
+  // keepalive frames during active chat. 1.5x multiplier gives grace period.
   void _resetKeepalive() {
     _keepaliveTimer?.cancel();
     final timeoutSeconds = (_keepaliveTimeout * 1.5).round();
@@ -311,7 +315,10 @@ class EventSubService {
         if (fragMap['type'] == 'emote') {
           final emoteId =
               (fragMap['emote'] as Map<String, dynamic>?)?['id'] as String?;
-          if (emoteId != null) {
+            // EventSub provides emote text but no character offsets (unlike
+            // IRC positional tags). Search for all occurrences — may produce
+            // false positives for repeated text.
+            if (emoteId != null) {
             final emoteText = fragMap['text'] as String? ?? '';
             int searchStart = 0;
             while (true) {
@@ -376,6 +383,8 @@ class EventSubService {
     final channel = _channelFromPayload(msg) ?? '';
     final user = event['user_name'] as String? ?? 'unknown';
     final reason = event['reason'] as String?;
+    // Timeout duration derived from ends_at timestamp (EventSub provides no
+    // seconds field). Duration is approximate due to network delay.
     final endsAt = event['ends_at'] as String?;
     final isTimeout = endsAt != null && endsAt.isNotEmpty;
     String? duration;

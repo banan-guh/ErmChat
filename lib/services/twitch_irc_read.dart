@@ -27,6 +27,8 @@ class IrcReadService extends BaseIrcConnection {
       return;
     }
 
+    // Own-message detection via IRC prefix (user@user.host). username was
+    // lowercased at connect time so comparison is case-insensitive by design.
     if (line.contains('PRIVMSG ') && username != null) {
       final msg = parseIrcMessage(line);
       if (msg != null && msg.command == 'PRIVMSG' && msg.prefix != null) {

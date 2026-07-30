@@ -188,6 +188,9 @@ class ChatConnectionManager {
     debugPrint('[ChatConn] _markUserMessagesDeleted: marked $count messages deleted for user=$username in channel=$channel (total msgs in channel=${msgs.length})');
   }
 
+  // Dual-source (IRC + EventSub) ban dedup within a 10s window.
+  // EventSub overrides IRC when arriving second (resets stackCount to 1);
+  // IRC after EventSub is suppressed to avoid duplicates.
   ({bool show, int stackCount, _BanMeta? meta}) _processBanInChannel(
     String channel,
     String user,
@@ -351,6 +354,9 @@ class ChatConnectionManager {
     bumpChannel(channel);
   }
 
+  // 5-phase thread-aware truncation: keeps complete reply threads intact even
+  // when most messages are pruned. Walks parent chains (no cycle detection),
+  // identifies active/orphan threads, and removes orphan members as a group.
   void truncateChannelMessages(String channel) {
     final maxMessages = getMaxMessagesPerChannel();
     if (maxMessages <= 0) return;
@@ -676,6 +682,9 @@ class ChatConnectionManager {
       return;
     }
 
+    // Twitch rejects duplicate messages. If user sends the same visible text
+    // again, inject an invisible \u034F bypass so wire text differs while
+    // appearing identical. Two tracks (typed vs sent) prevent cascading bypass.
     final String wireText;
     if (text == lastTypedText[channel]) {
       final lastWire = lastSentWireText[channel] ?? text;
@@ -799,6 +808,8 @@ class ChatConnectionManager {
       if (!mounted) return;
       connectionStatus = status;
       onRebuild();
+      // Edge-triggered: subscribeAll once per connect with 30s throttle and
+      // 500ms settle delay to let the EventSub session stabilize after reconnect.
       if (status == EventSubStatus.connected && !wasConnected) {
         wasConnected = true;
         wasDisconnected = false;
@@ -982,7 +993,9 @@ class ChatConnectionManager {
     final ircReplyThreadRootId = ircMsg.tags['reply-thread-parent-msg-id'] ?? ircReplyParentId;
 
     // Twitch's IRC gateway prepends @username to reply echoes only.
-    // Only strip the prefix when this is an actual reply.
+    // Twitch IRC prepends "@username " to reply echoes. Strip this prefix
+    // so the stored text matches what the user sees; emote positions from IRC
+    // tags use original-text coordinates and must be adjusted by prefixLen below.
     String strippedText = text;
     var prefixLen = 0;
     if (ircReplyParentId != null) {

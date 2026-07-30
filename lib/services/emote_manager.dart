@@ -62,6 +62,8 @@ class EmoteManager extends ChangeNotifier {
     return _lastErrors.entries.map((e) => '${e.key}: ${e.value}').join('; ');
   }
 
+  // Three-way merge: channel-only, global-only, or global+channel with channel
+  // overriding. Result cached in _mergedCache, invalidated on any notify().
   ChannelEmotes? byCode(String channel) {
     final cached = _mergedCache[channel];
     if (cached != null) return cached;
@@ -239,6 +241,9 @@ class EmoteManager extends ChangeNotifier {
       _notify(channel);
     }
     final emotes = await _fetchAllChannel(broadcasterId, channelName: channel);
+    // Split subscriber-only Twitch emotes from the main cache. They're stored
+    // separately and re-merged via storeUserTwitchEmotes, which preserves
+    // tiered versions over non-tiered for sub-gated emotes.
     final nonSubEmotes = emotes
         .where((e) => !(e.type == EmoteType.twitch && (e.tier != null || e.emoteType == 'subscriptions')))
         .toList();
@@ -281,6 +286,9 @@ class EmoteManager extends ChangeNotifier {
     return null;
   }
 
+  // Live 7TV emote patch: applies add/remove/rename deltas from the 7TV
+  // WebSocket. Only affects 7TV-type emotes. Add checks scope and provider
+  // priority to avoid downgrading higher-priority entries from other providers.
   void updateSevenTvEmotes(
     String channel, {
     List<GenericEmote> added = const [],

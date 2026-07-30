@@ -119,6 +119,9 @@ abstract class BaseIrcConnection {
         _status = IrcConnectionStatus.connected;
         _statusController.add(IrcConnectionStatus.connected);
 
+          // Twitch IRC keepalive: PING every 300s (Twitch's recommendation).
+        // No separate PONG timer — if _awaitingPong is still true at next
+        // tick (300s later), assume connection dead and reconnect.
         _pingTimer?.cancel();
         _pingTimer = Timer.periodic(_pingInterval, (_) {
           if (channel == null) return;
@@ -160,6 +163,8 @@ abstract class BaseIrcConnection {
     _reconnectAttempt = 0;
   }
 
+  // Exponential backoff: first retry at 1s, then 2^(n-2)s capped at 30s, with
+  // ±25% random jitter to avoid thundering herd. Abandon after 8 attempts.
   void _scheduleReconnect() {
     if (_reconnecting || _disposed) return;
     if (!_isOnline) return;
@@ -200,12 +205,18 @@ abstract class BaseIrcConnection {
 
       _reconnectAttempt = 0;
 
-      if (line.startsWith('PING')) {
+      final parts = line.split(' ');
+      int cmdIdx = 0;
+      if (parts.length > 1 && parts[0].startsWith(':')) cmdIdx = 1;
+      if (parts.length > 2 && parts[0].startsWith('@')) cmdIdx = 2;
+      final cmd = parts[cmdIdx];
+
+      if (cmd == 'PING') {
         sendLine(line.replaceFirst('PING', 'PONG'));
         continue;
       }
 
-      if (line.startsWith('PONG')) {
+      if (cmd == 'PONG') {
         _awaitingPong = false;
         continue;
       }
@@ -213,6 +224,15 @@ abstract class BaseIrcConnection {
       dispatchLine(line);
     }
   }
+
+  @visibleForTesting
+  void handleLine(String raw) => _handleLine(raw);
+
+  @visibleForTesting
+  bool get awaitingPong => _awaitingPong;
+
+  @visibleForTesting
+  set awaitingPong(bool value) => _awaitingPong = value;
 
   void dispatchLine(String line);
 

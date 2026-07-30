@@ -179,6 +179,9 @@ IrcMessage? parseIrcMessage(String line) {
           } catch (_) {
             decoded = tag.substring(eq + 1);
           }
+          // Strip orphaned UTF-16 surrogates: low surrogates alone or high
+          // surrogates not followed by low (Flutter's text engine crashes on
+          // isolated surrogates from malformed Twitch IRC data).
           decoded = decoded.replaceAll(RegExp(r'[\uDC00-\uDFFF]'), '');
           decoded = decoded.replaceAll(
             RegExp(r'[\uD800-\uDBFF](?![\uDC00-\uDFFF])'),

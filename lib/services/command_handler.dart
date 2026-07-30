@@ -24,6 +24,8 @@ class CommandHandler {
     final cmd = parts[0].toLowerCase();
     final args = parts.length > 1 ? parts.sublist(1) : [];
 
+    // /me is sent via raw IRC (not Helix API) and bypasses the auth gate
+    // below — IRC handles it natively. The "/me" prefix is sent as-is.
     if (cmd == '/me') {
       final currentUserLogin = getCurrentUserLogin();
       if (currentUserLogin != null && auth.isConfigured) {

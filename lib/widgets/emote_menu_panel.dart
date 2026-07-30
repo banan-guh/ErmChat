@@ -92,6 +92,9 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
                 widget.sheetCtrl.jumpTo(newSize);
               }
             },
+            // Close on drag-below-threshold (8%) or fast flick down
+            // (>400px/s). Velocity check prevents accidental close on slow
+            // drag from a high position.
             onVerticalDragEnd: (details) {
               if (!widget.sheetCtrl.isAttached) return;
               final velocity = details.primaryVelocity ?? 0;
@@ -161,6 +164,8 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
       );
     }
 
+    // Only show recents available in the current channel. Falls through to
+    // all recents if channel emotes are not yet loaded.
     final channelEmotes = widget.emoteManager.byCode(widget.selectedChannel ?? '');
     final filtered = channelEmotes != null
         ? () {

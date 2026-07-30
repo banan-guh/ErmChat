@@ -462,6 +462,8 @@ class _HomeScreenState extends State<HomeScreen>
     _focusNode.requestFocus();
   }
 
+  // Detect a single backspace immediately after autocomplete and restore the
+  // original typed text. Five sequential guards verify no other edits occurred.
   void _checkAutocompleteUndo() {
     final undo = _lastAutoUndo;
     if (undo == null) return;
@@ -699,6 +701,9 @@ class _HomeScreenState extends State<HomeScreen>
     super.dispose();
   }
 
+  // Dedup connection status messages: collapse "Connected to IRC" into
+  // "Connected", convert "Disconnected" to "Reconnected" on immediate
+  // reconnect. Prevents status line spam during reconnection storms.
   void _addSystemMessage(String channel, String text) {
     _channelMessages.putIfAbsent(channel, () => []);
     final msgs = _channelMessages[channel]!;
@@ -1080,6 +1085,9 @@ class _HomeScreenState extends State<HomeScreen>
     return _scrollControllers.putIfAbsent(channel, () => ScrollController());
   }
 
+  // Walk the reply-parent chain to the root with cycle detection (visited set).
+  // A message that has children is treated as root even if it has a parent
+  // (handles nested reply scenarios).
   TwitchMessage? _findThreadRoot(TwitchMessage msg) {
     if (msg.replyThreadRootId != null) return msg;
 
@@ -1496,6 +1504,9 @@ class _HomeScreenState extends State<HomeScreen>
     return _channelMessages[channel] ?? [];
   }
 
+  // Retroactive mention scan: runs once on login. Messages inserted at front
+  // of mentions channel in scan order (reverse-chronological within each
+  // channel), so they appear newest-first but may not be perfectly sorted.
   void _scanHistoryForMentions() {
     if (_mentionScanDone || _currentUserLogin == null) return;
     _mentionScanDone = true;

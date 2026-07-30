@@ -75,6 +75,9 @@ class EmoteText {
       currentBaseEnd = null;
     }
 
+    // Zero-width emotes overlay on the preceding base emote. Whitespace between
+    // base and overlay is consumed (not rendered) so "PogChamp \u200D" renders
+    // as a single composited emote, not "PogChamp " plus empty overlay.
     for (final seg in segments) {
       if (seg is TextSegment) {
         if (seg.text.trim().isEmpty) {
@@ -161,6 +164,9 @@ class EmoteText {
     }
 
     int i = 0;
+    // Two-pass: 1) Twitch positional emotes (exact byte offsets from API)
+    // take precedence. 2) Third-party emotes (BTTV/FFZ/7TV) match whole
+    // whitespace-delimited tokens only.
     while (i < text.length) {
       final pos = posAt(i);
       if (pos != null) {
@@ -240,6 +246,8 @@ class EmoteText {
     );
   }
 
+  // Compute bounding box across all overlays, center each image within it.
+  // Larger overlays extend beyond the base emote. Clip.none allows overflow.
   static WidgetSpan _buildEmoteSpan(EmoteSpanData data, {void Function(List<GenericEmote>)? onEmoteTap, double scale = 1.0}) {
     final baseSize = _emoteSize(data.base, scale);
     var maxW = baseSize.width;
