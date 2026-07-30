@@ -54,13 +54,13 @@
 
 Focus: making each rebuild cheaper/faster rather than preventing rebuilds from being called.
 
-- [x] **R1 Per-channel chat version notifier (high impact)** — `home_screen.dart:149,1591-1666`. A single `_chatVersion` listener wraps the entire `TabbedLayout`. Every message arrival calls `pageBuilder` for ALL channels (`tabbed_layout.dart:237-240`). Fix: give each channel its own `ValueNotifier<int>`; `_buildChat` returns a `ListenableBuilder` listening only to its own channel's notifier. Remove `_chatVersion` from the outer wrapper. Pass `onChannelMessage(String channel)` callback to `ChatConnectionManager`.
+- [x] **R1 Per-channel chat version notifier (high impact)** — `home_screen.dart:149,1591-1666`. A single `_chatVersion` listener wraps the entire `TabbedLayout`. Every message arrival calls `pageBuilder` for ALL channels (`tabbed_layout.dart:237-240`). Fix: give each channel its own `ValueNotifier<int>`; `_buildChat` returns a `ListenableBuilder` listening only to its own channel's notifier. Remove `_chatVersion` from the outer wrapper. Pass `void Function(String channel) bumpChannel` callback to `ChatConnectionManager`.
 
 - [x] **R2 Per-message keys + RepaintBoundary in ListView** — `home_screen.dart:2182-2218`. `ListView.builder.itemBuilder` has no `key` on items, so every rebuild creates new `ChatMessageTile` widgets for all visible messages. Fix: add `key: ValueKey(msg.messageId)` to each `ChatMessageTile` and wrap in `RepaintBoundary` so Flutter can match old/new widgets and skip repainting unchanged tiles.
 
-- [x] **R3 Decouple scroll state from _chatVersion** — `home_screen.dart:2156-2168`. Scroll-up/down bumps `_chatVersion` just to toggle the FAB, cascading into full panel data recalculation. Fix: make `_isAtBottom` a `ValueNotifier<bool>` per channel; FAB visibility driven directly by the notifier. No version bump needed.
+- [-] **R3 Decouple scroll state from _chatVersion** — `home_screen.dart:2156-2168`. Scroll-up/down bumps `_chatVersion` just to toggle the FAB, cascading into full panel data recalculation. Fix: make `_isAtBottom` a `ValueNotifier<bool>` per channel; FAB visibility driven by `ValueListenableBuilder`. Reverted — frozen snapshot always changes alongside scroll state, so decoupled FAB notifier never fires independently.
 
-- [-] **R4 Lazy panel data computation** — `home_screen.dart:536-547`. `_onPanelDataChanged` runs on every `_chatVersion` bump iterating all messages, even when thread/mentions panels are closed. Fix: early return `if (_activePanel == OverlayPanel.closed) return;` at the top. Or move the listener registration to panel-open time.
+- [x] **R4 Lazy panel data computation** — `home_screen.dart:536-547`. `_onPanelDataChanged` runs on every `_chatVersion` bump iterating all messages, even when thread/mentions panels are closed. Fix: early return `if (_activePanel == OverlayPanel.closed) return;` at the top. Or move the listener registration to panel-open time.
 
 - [x] **R5 Hoist Theme.of/MediaQuery outside ListView builder** — `home_screen.dart:2143-2144`. `Theme.of(context).colorScheme.surface`, `MediaQuery.textScalerOf(context).scale(1.0)`, and `s` are computed once per `_buildChat` call but captured in the `itemBuilder` closure anyway. Fix: already hoisted to local vars — verify no redundant calls in `itemBuilder`.
 
@@ -74,23 +74,23 @@ Focus: making each rebuild cheaper/faster rather than preventing rebuilds from b
 
 ## Duplicate code
 
-- [x] **C1 `isMention()` defined in two files** -- `home_screen.dart:2279`, `chat_connection_manager.dart:1085`. Identical top-level function, same regex split and loop. Fix: move to shared utility, import from one place.
+- [x] **C1 `isMention()` defined in two files** -- Fixed: moved to `lib/util/mention.dart`.
 
-- [x] **C2 IRC tag unescaping same logic twice** -- `chat_connection_manager.dart:161`, `recent_messages.dart:265`. Both have identical `.replaceAll()` chain for `\s`, `\\`, `\:`, `\r`, `\n`. Fix: extract to shared static method.
+- [x] **C2 IRC tag unescaping same logic twice** -- Fixed: moved to `lib/util/irc_utils.dart`.
 
-- [x] **C3 Thread-root chain walking in 3 places** -- `home_screen.dart` `_findThreadRoot` (line 1043), `_computeThreadMessages` inner `threadKeyFor` (line 1342), `chat_connection_manager.dart` `truncateChannelMessages` inner `rootKey` (line 329). Three different implementations of the same "walk reply chain to root" algorithm. Fix: single canonical implementation in `TwitchMessage` or a utility.
+- [x] **C3 Thread-root chain walking in 3 places** -- Fixed: moved to `lib/util/thread_utils.dart`.
 
-- [x] **C4 IRC ban handler vs EventSub ban handler near-identical** -- `chat_connection_manager.dart:709-774`. Same dedup logic, same string formatting, same `_markUserMessagesDeleted` call. Fix: extract shared ban-processing method.
+- [x] **C4 IRC ban handler vs EventSub ban handler near-identical** -- Fixed: extracted `_handleBanEvent` in `chat_connection_manager.dart`.
 
-- [x] **C5 Channel join dialog duplicated** -- `home_screen.dart:900-933`, `channel_settings_screen.dart:38-75`. Same `AlertDialog` + `TextField` + autofocus + onSubmitted pattern. Fix: shared dialog widget.
+- [ ] **C5 Channel join dialog duplicated** -- `home_screen.dart:900-933`, `channel_settings_screen.dart:38-75`. Same `AlertDialog` + `TextField` + autofocus + onSubmitted pattern. Fix: shared dialog widget.
 
-- [x] **C6 `_onChannelChanged` vs `_onChannelFocusChanged` nearly identical** -- `home_screen.dart:1418,1437`. Same logic: check if selected, close panel, clear state, update index. One wraps `setState`, other does not. Fix: merge or have one call the other.
+- [ ] **C6 `_onChannelChanged` vs `_onChannelFocusChanged` nearly identical** -- `home_screen.dart:1418,1437`. Same logic: check if selected, close panel, clear state, update index. One wraps `setState`, other does not. Fix: merge or have one call the other.
 
 ## Error handling
 
-- [x] **C7 18 bare `catch (_) {}` blocks** -- Across `chat_connection_manager.dart` (6), `emote_manager.dart` (4), `twitch_eventsub.dart` (2), `twitch_irc.dart` (1), `recent_messages.dart` (1), `twitch_auth.dart` (1), and others. Network errors, JSON parse errors, everything silently swallowed. Fix: log errors, handle recoverable cases, rethrow where appropriate.
+- [x] **C7 18 bare `catch (_) {}` blocks** -- Fixed: added `debugPrint` to all 18 blocks across 8 files.
 
-- [x] **C8 `unawaited` futures with unhandled errors** -- `chat_connection_manager.dart:441,452,820`, `home_screen.dart:580`. `_resolveSevenTvAndSubscribe`, `loadUserTwitchEmotes` discarded without error handling. These make HTTP calls and WebSocket subscriptions. Fix: `unawaited(wrappedInTryCatch())`.
+- [x] **C8 `unawaited` futures with unhandled errors** -- Fixed: added `.catchError` to fire-and-forget `loadUserTwitchEmotes` calls. Connection futures already had internal error handling.
 
 ## Design
 
@@ -102,11 +102,11 @@ Focus: making each rebuild cheaper/faster rather than preventing rebuilds from b
 
 - [ ] **C12 `.then()/.catchError()` mixed with `async/await`** -- `main.dart:51-57`, `home_screen.dart:305-364,850-882`. Two async patterns used inconsistently. Fix: unify on `async/await` with try/catch. **(skip — cosmetic, no bugs)**
 
-- [ ] **C13 Mutable static state in `TwitchApi`** -- `twitch_api.dart:10,14`. `_lastError` is a static mutable field that concurrent calls clobber. Static `http.Client` prevents proper disposal. Fix: instance-level fields.
+- [x] **C13 Mutable static state in `TwitchApi`** -- Fixed: all fields and methods converted to instance-level.
 
 - [ ] **C14 Side effect in getter `EmoteManager.changedChannel`** -- `emote_manager.dart:52-56`. Getter mutates `_changedChannel = null`. Second read returns different result. Fix: rename to `consumeChangedChannel()` or use method.
 
-- [ ] **C15 `TwitchMessage.bodyColor` always returns null** -- `twitch_message.dart:43`. Dead code, always `null`, but referenced in `chat_message_tile.dart:109-114` as color override branch that never fires. Fix: remove.
+- [x] **C15 `TwitchMessage.bodyColor` always returns null** -- Fixed: removed getter and the dead branches in `ChatMessageTile`.
 
 ## Safety
 

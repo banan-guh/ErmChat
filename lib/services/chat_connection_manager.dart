@@ -63,7 +63,7 @@ class ChatConnectionManager {
   final Map<String, String> lastTypedText;
   final Map<String, String> lastSentWireText;
   final Set<String> ownMessageIds;
-  final ValueNotifier<int> chatVersion;
+  final void Function(String channel) bumpChannel;
   final String mentionsChannel;
 
   EventSubStatus connectionStatus = EventSubStatus.disconnected;
@@ -132,7 +132,7 @@ class ChatConnectionManager {
     required this.lastTypedText,
     required this.lastSentWireText,
     required this.ownMessageIds,
-    required this.chatVersion,
+    required this.bumpChannel,
     required this.mentionsChannel,
     required this.onRebuild,
     required this.onSystemMessage,
@@ -278,7 +278,7 @@ class ChatConnectionManager {
     for (final m in msgs) {
       if (m.messageId == messageId) {
         m.text = newText;
-        chatVersion.value++;
+        bumpChannel(channel);
         return;
       }
     }
@@ -348,7 +348,7 @@ class ChatConnectionManager {
       }
     }
     chatStatus[channel] = parts.isNotEmpty ? parts.join(' · ') : '';
-    chatVersion.value++;
+    bumpChannel(channel);
   }
 
   void truncateChannelMessages(String channel) {
@@ -951,7 +951,7 @@ class ChatConnectionManager {
     if (channel != getSelectedChannel() && !msg.isHistory && !msg.isSystem) {
       channelsWithUnread.add(channel);
     }
-    chatVersion.value++;
+    bumpChannel(channel);
     precacheMessageEmotes(msg, channel);
   }
 
@@ -1089,7 +1089,7 @@ class ChatConnectionManager {
       messageKeys.putIfAbsent('$channel:$messageId', () => GlobalKey());
     }
 
-    chatVersion.value++;
+    bumpChannel(channel);
     precacheMessageEmotes(msg, channel);
   }
 

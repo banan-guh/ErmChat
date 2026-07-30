@@ -177,7 +177,6 @@ IrcMessage? parseIrcMessage(String line) {
           try {
             decoded = Uri.decodeComponent(tag.substring(eq + 1));
           } catch (_) {
-            debugPrint('[parseIrcMessage] tag decode failed for tag ${tag.substring(0, eq)}');
             decoded = tag.substring(eq + 1);
           }
           decoded = decoded.replaceAll(RegExp(r'[\uDC00-\uDFFF]'), '');

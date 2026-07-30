@@ -30,7 +30,7 @@
 - [*] **Update AGENTS.md periodically** - not a checklist, just a chore, reminder.
 
 ## Bugs
-- [x] **Changing channels should be more smooth** - more leniency in swiping
+- [ ] **Chat status text never refreshes** - `fetchChatStatus` in `chat_connection_manager.dart` is called once when the channel is subscribed (line 518) but never again. Viewer count, stream duration, and chat room settings (Followers-only, Slow mode, etc.) are frozen at join-time. No periodic timer, no refresh on tab switch, no EventSub stream.online/offline hook. Fix: add a periodic refresh timer or refresh on channel tab switch.
 - [x] **Changing channels is interrupted by new messages** - changing channels is not smooth
 - [+] **Threads decay needs to be fixed** - fix implemented, untested
 - [x] **Ping happening with system messages** - Ping (unread) should not activate on a system message, currently does.

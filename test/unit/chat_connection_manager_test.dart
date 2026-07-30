@@ -1,4 +1,3 @@
-import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:ermchat/models/twitch_message.dart';
@@ -50,7 +49,7 @@ ChatConnectionManager _makeConn({
     lastTypedText: {},
     lastSentWireText: {},
     ownMessageIds: {},
-    chatVersion: ValueNotifier(0),
+    bumpChannel: (channel) {},
     mentionsChannel: '@mentions',
     onRebuild: () {},
     onSystemMessage: (c, t) {},

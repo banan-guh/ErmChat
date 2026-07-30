@@ -101,7 +101,7 @@ class _HomeScreenState extends State<HomeScreen>
     lastTypedText: _lastTypedText,
     lastSentWireText: _lastSentWireText,
     ownMessageIds: _ownMessageIds,
-    chatVersion: _chatVersion,
+    bumpChannel: _bumpChannel,
     mentionsChannel: _mentionsChannel,
     onRebuild: () {
       if (mounted) setState(() {});
@@ -151,7 +151,9 @@ class _HomeScreenState extends State<HomeScreen>
   final _userStore = UserStore();
   final _channels = <String>[];
   final _channelNotifier = ValueNotifier<List<String>>([]);
-  final _chatVersion = ValueNotifier(0);
+  final _chatVersions = <String, ValueNotifier<int>>{};
+  final _mentionsBump = ValueNotifier(0);
+  final _statusBump = ValueNotifier(0);
   String? _selectedChannel;
   final _channelMessages = <String, List<TwitchMessage>>{};
   final _scrollControllers = <String, ScrollController>{};
@@ -231,7 +233,7 @@ class _HomeScreenState extends State<HomeScreen>
     _emoteSheetCtrl.addListener(
       () => _onSheetSizeChanged(OverlayPanel.emotes, _emoteSheetCtrl),
     );
-    _chatVersion.addListener(_onPanelDataChanged);
+    _mentionsBump.addListener(_onPanelDataChanged);
     if (Platform.isAndroid) {
       _notificationService.init();
       _notificationTapSub = _notificationService.onNotificationTap.listen(_onNotificationTap);
@@ -363,7 +365,7 @@ class _HomeScreenState extends State<HomeScreen>
                   }
                 }
                 _truncateChannelMessages(name);
-                _chatVersion.value++;
+                _bumpChannel(name);
               }
             });
             _maybeAddConnected(name);
@@ -536,10 +538,24 @@ class _HomeScreenState extends State<HomeScreen>
         }
       }
     }
-    _chatVersion.value++;
+    if (channel != null) {
+      _bumpChannel(channel);
+    } else {
+      _mentionsBump.value++;
+    }
+  }
+
+  ValueNotifier<int> _versionNotifier(String channel) {
+    return _chatVersions.putIfAbsent(channel, () => ValueNotifier(0));
+  }
+
+  void _bumpChannel(String channel) {
+    _versionNotifier(channel).value++;
+    _mentionsBump.value++;
   }
 
   void _onPanelDataChanged() {
+    if (_activePanel == OverlayPanel.closed) return;
     if (_activePanel == OverlayPanel.thread && _openThreadRoot != null) {
       final channel = _openThreadRoot!.channel!;
       _threadPanelData.value = ThreadPanelData(
@@ -662,7 +678,7 @@ class _HomeScreenState extends State<HomeScreen>
     _messageController.dispose();
     _focusNode.removeListener(_onInputFocusChanged);
     _focusNode.dispose();
-    _chatVersion.removeListener(_onPanelDataChanged);
+    _mentionsBump.removeListener(_onPanelDataChanged);
     _threadSheetRatio.dispose();
     _mentionsSheetRatio.dispose();
     _emoteSheetCtrl.dispose();
@@ -673,7 +689,11 @@ class _HomeScreenState extends State<HomeScreen>
     for (final c in _scrollControllers.values) {
       c.dispose();
     }
-    _chatVersion.dispose();
+    for (final n in _chatVersions.values) {
+      n.dispose();
+    }
+    _mentionsBump.dispose();
+    _statusBump.dispose();
     _notificationTapSub?.cancel();
     _notificationService.dispose();
     super.dispose();
@@ -697,12 +717,12 @@ class _HomeScreenState extends State<HomeScreen>
           }
           if (isRecent && newest.text == 'Connected to IRC') {
             newest.text = 'Connected';
-            _chatVersion.value++;
+            _bumpChannel(channel);
             return;
           }
           if (isRecent && newest.text == 'Disconnected') {
             newest.text = 'Reconnected';
-            _chatVersion.value++;
+            _bumpChannel(channel);
             return;
           }
         }
@@ -719,7 +739,7 @@ class _HomeScreenState extends State<HomeScreen>
       ),
     );
     _truncateChannelMessages(channel);
-    _chatVersion.value++;
+    _bumpChannel(channel);
   }
 
   void _showMessageMenu(TwitchMessage msg) {
@@ -889,7 +909,7 @@ class _HomeScreenState extends State<HomeScreen>
                 }
               }
               _truncateChannelMessages(name);
-              _chatVersion.value++;
+              _bumpChannel(name);
             }
           });
           _maybeAddConnected(name);
@@ -1559,7 +1579,7 @@ class _HomeScreenState extends State<HomeScreen>
                                     onPressed: _addChannelDialog,
                                   ),
                                   ListenableBuilder(
-                                    listenable: _chatVersion,
+                                    listenable: _mentionsBump,
                                     builder: (context, _) => IconButton(
                                       icon: Icon(
                                         Icons.notifications_active,
@@ -1605,9 +1625,7 @@ class _HomeScreenState extends State<HomeScreen>
                                 _suggestionsNotifier.value = [];
                               },
                               child: _channels.isNotEmpty
-                                  ? ListenableBuilder(
-                                      listenable: _chatVersion,
-                                      builder: (context, _) => TabbedLayout(
+                                  ? TabbedLayout(
                                         tabs: _channels,
                                         selectedIndex: _channels.indexOf(
                                           _selectedChannel ?? '',
@@ -1616,13 +1634,22 @@ class _HomeScreenState extends State<HomeScreen>
                                             _onChannelChanged,
                                         onFocusChanged:
                                             _onChannelFocusChanged,
-                                        pageBuilder: (_, i) =>
-                                            _buildChat(_channels[i]),
+                                        pageBuilder: (_, i) {
+                                          final channel = _channels[i];
+                                          return ListenableBuilder(
+                                            listenable:
+                                                _versionNotifier(channel),
+                                            builder: (_, _) =>
+                                                _buildChat(channel),
+                                          );
+                                        },
                                         focusOnHalfDrag: true,
                                         tabBuilder: (_, i) {
                                           final channel = _channels[i];
                                           return ListenableBuilder(
-                                            listenable: _selectedTabIndex,
+                                            listenable: Listenable.merge(
+                                              [_selectedTabIndex, _mentionsBump],
+                                            ),
                                             builder: (ctx, _) {
                                               final focused =
                                                   i == _selectedTabIndex.value;
@@ -1679,8 +1706,7 @@ class _HomeScreenState extends State<HomeScreen>
                                             },
                                           );
                                         },
-                                      ),
-                                    )
+                                      )
                                   : _buildEmpty(),
                             ),
                           ),
@@ -1965,7 +1991,7 @@ class _HomeScreenState extends State<HomeScreen>
                         : null,
                   ),
                     ListenableBuilder(
-                      listenable: Listenable.merge([_chatVersion, _selectedTabIndex]),
+                      listenable: Listenable.merge([_mentionsBump, _selectedTabIndex]),
                       builder: (context, _) {
                         final status = _chatStatus[_selectedChannel];
                         final hasStatus = status != null && status.isNotEmpty;
@@ -2160,8 +2186,6 @@ class _HomeScreenState extends State<HomeScreen>
     final surface = Theme.of(context).colorScheme.surface;
     final systemScale = MediaQuery.textScalerOf(context).scale(1.0);
     final s = 1.0 * systemScale;
-    final atBottom = _isAtBottom[channel] ?? true;
-
     if (msgs.isEmpty) {
       return const Center(child: Text('No messages yet'));
     }
@@ -2178,11 +2202,11 @@ class _HomeScreenState extends State<HomeScreen>
                 _frozenSnapshot[channel] = List.of(
                   _channelMessages[channel] ?? [],
                 );
-                _chatVersion.value++;
+                _bumpChannel(channel);
               } else if (!scrolledUp && !(_isAtBottom[channel] ?? true)) {
                 _isAtBottom[channel] = true;
                 _frozenSnapshot.remove(channel);
-                _chatVersion.value++;
+                _bumpChannel(channel);
               }
             }
             return false;
@@ -2238,7 +2262,7 @@ class _HomeScreenState extends State<HomeScreen>
             ),
           ),
         ),
-        if (!atBottom)
+        if (!(_isAtBottom[channel] ?? true))
           Positioned(
             right: 16,
             bottom: 16,
@@ -2248,7 +2272,7 @@ class _HomeScreenState extends State<HomeScreen>
                 _isAtBottom[channel] = true;
                 _frozenSnapshot.remove(channel);
                 _scrollCtrl(channel).jumpTo(0);
-                _chatVersion.value++;
+                _bumpChannel(channel);
               },
               child: const Icon(Icons.keyboard_arrow_down),
             ),
