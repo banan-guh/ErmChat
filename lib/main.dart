@@ -84,8 +84,8 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
                 seedColor: Colors.deepPurple,
                 surface: const Color(0xFFF0F0F0),
               ).copyWith(
-                onSurface: const Color(0x00000000),
-                onSurfaceVariant: const Color(0x00000000),
+                onSurface: const Color(0xFF1A1A1A),
+                onSurfaceVariant: const Color(0xFF3A3A3A),
                 surfaceContainerLowest: const Color(0xFFFCFCFC),
                 surfaceContainerLow: const Color(0xFFF2F3F5),
                 surfaceContainer: const Color(0xFFEBEDEF),
@@ -115,6 +115,8 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
               seedColor: Colors.deepPurple,
               surface: const Color(0xFFF0F0F0),
             ).copyWith(
+              onSurface: const Color(0xFF1A1A1A),
+              onSurfaceVariant: const Color(0xFF3A3A3A),
               surfaceContainerLowest: const Color(0xFFFCFCFC),
               surfaceContainerLow: const Color(0xFFF2F3F5),
               surfaceContainer: const Color(0xFFEBEDEF),
