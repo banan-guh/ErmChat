@@ -83,6 +83,7 @@ class EventSubService {
       final userId = condition['broadcaster_user_id'] as String;
       return _channelUserIds[userId];
     } catch (_) {
+      debugPrint('[EventSub] failed to extract channel from payload');
       return null;
     }
   }
@@ -390,6 +391,7 @@ class EventSubService {
           duration = '${diff.inSeconds}s';
         }
       } catch (_) {
+        debugPrint('[EventSub] failed to parse ban expiry for user=$user');
         duration = null;
         durationSeconds = null;
       }

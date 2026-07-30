@@ -40,8 +40,6 @@ class TwitchMessage {
   List<InlineSpan>? cachedSpans;
   late final String formattedTimestamp =
       '${timestamp.toLocal().hour.toString().padLeft(2, '0')}:${timestamp.toLocal().minute.toString().padLeft(2, '0')}';
-  Color? get bodyColor => null;
-
   String get formattedUsername {
     if (displayName.toLowerCase() == login.toLowerCase()) {
       return displayName;

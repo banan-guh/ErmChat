@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'base_irc_connection.dart';
 
 class IrcBanEvent {
@@ -176,6 +177,7 @@ IrcMessage? parseIrcMessage(String line) {
           try {
             decoded = Uri.decodeComponent(tag.substring(eq + 1));
           } catch (_) {
+            debugPrint('[parseIrcMessage] tag decode failed for tag ${tag.substring(0, eq)}');
             decoded = tag.substring(eq + 1);
           }
           decoded = decoded.replaceAll(RegExp(r'[\uDC00-\uDFFF]'), '');
@@ -196,6 +198,7 @@ IrcMessage? parseIrcMessage(String line) {
       trailing: trailing,
     );
   } catch (_) {
+    debugPrint('[parseIrcMessage] failed to parse line: $line');
     return null;
   }
 }

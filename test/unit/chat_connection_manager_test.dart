@@ -1,8 +1,10 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
 import 'package:ermchat/models/twitch_message.dart';
 import 'package:ermchat/services/chat_connection_manager.dart';
 import 'package:ermchat/services/emote_manager.dart';
+import 'package:ermchat/services/twitch_api.dart';
 import 'package:ermchat/services/twitch_auth.dart';
 import 'package:ermchat/services/twitch_badge_service.dart';
 import 'package:ermchat/services/twitch_eventsub.dart';
@@ -25,7 +27,9 @@ ChatConnectionManager _makeConn({
   required Map<String, List<TwitchMessage>> channelMessages,
   required int maxMessages,
 }) {
+  final api = TwitchApi(client: http.Client());
   return ChatConnectionManager(
+    twitchApi: api,
     eventSub: EventSubService(),
     irc: IrcService(),
     ircRead: IrcReadService(),

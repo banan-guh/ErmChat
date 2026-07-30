@@ -64,6 +64,7 @@ class TwitchAuth extends ChangeNotifier {
       await _save();
       return true;
     } catch (_) {
+      debugPrint('[TwitchAuth] failed to refresh token');
       return false;
     }
   }

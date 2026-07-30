@@ -1,9 +1,11 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../models/twitch_badge.dart';
 import '../models/twitch_message.dart';
 import '../color_utils.dart';
+import '../util/irc_utils.dart';
 
 class RecentMessagesService {
   static const _baseUrl =
@@ -258,18 +260,12 @@ class RecentMessagesService {
     try {
       return Uri.decodeComponent(raw);
     } catch (_) {
+      debugPrint('[RecentMessages] _tryDecodeUri failed: $raw');
       return raw;
     }
   }
 
-  static String _unescapeIrcTag(String raw) {
-    return raw
-        .replaceAll('\\s', ' ')
-        .replaceAll('\\\\', '\\')
-        .replaceAll('\\:', ';')
-        .replaceAll('\\r', '\r')
-        .replaceAll('\\n', '\n');
-  }
+  static String _unescapeIrcTag(String raw) => unescapeIrcTag(raw);
 
   static Map<String, String> _parseTags(String tagsStr) {
     if (tagsStr.isEmpty) return {};

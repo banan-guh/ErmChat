@@ -320,10 +320,11 @@ final _urlRegExp = RegExp(
   r'(?:https?://|www\.)[^\s<]+'
   r'|[a-zA-Z0-9-]+\.[a-zA-Z]{2,}(?:/\S*)?',
 );
+final _collapseSpace = RegExp(r' {2,}');
 
 List<InlineSpan> parseTextWithLinks(String text) {
   try {
-    final collapsed = text.replaceAll(RegExp(r' {2,}'), ' ');
+    final collapsed = text.replaceAll(_collapseSpace, ' ');
     final spans = <InlineSpan>[];
     int lastEnd = 0;
     for (final match in _urlRegExp.allMatches(collapsed)) {

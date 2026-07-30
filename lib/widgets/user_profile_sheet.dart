@@ -6,6 +6,7 @@ class UserProfileSheet extends StatefulWidget {
   final String username;
   final String? userId;
   final String displayName;
+  final TwitchApi twitchApi;
   final TwitchAuth twitchAuth;
   final TextEditingController messageController;
   final FocusNode focusNode;
@@ -16,6 +17,7 @@ class UserProfileSheet extends StatefulWidget {
     required this.username,
     this.userId,
     required this.displayName,
+    required this.twitchApi,
     required this.twitchAuth,
     required this.messageController,
     required this.focusNode,
@@ -45,7 +47,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
 
   Future<void> _fetchProfile() async {
     try {
-      final profile = await TwitchApi.getUserProfile(
+      final profile = await widget.twitchApi.getUserProfile(
         widget.twitchAuth,
         widget.username,
       );
@@ -57,7 +59,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
         });
       } else {
         setState(() {
-          _error = TwitchApi.lastError ?? 'User not found';
+          _error = widget.twitchApi.lastError ?? 'User not found';
           _loading = false;
         });
       }
@@ -75,6 +77,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
       final dt = DateTime.parse(iso);
       return '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
     } catch (_) {
+      debugPrint('[UserProfileSheet] failed to parse date: $iso');
       return iso;
     }
   }
@@ -227,14 +230,14 @@ class UserProfileSheetState extends State<UserProfileSheet> {
                   ),
                 );
                 if (confirmed != true || !context.mounted) return;
-                final ok = await TwitchApi.blockUser(widget.twitchAuth, userId);
+                final ok = await widget.twitchApi.blockUser(widget.twitchAuth, userId);
                 if (!context.mounted) return;
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
                     content: Text(
                       ok
                           ? '${widget.displayName} blocked'
-                          : 'Block failed: ${TwitchApi.lastError ?? "unknown"}',
+                          : 'Block failed: ${widget.twitchApi.lastError ?? "unknown"}',
                     ),
                   ),
                 );
@@ -289,7 +292,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
                 );
                 if (confirmed != true || !context.mounted) return;
                 final broadcasterId = _profile?['id'] as String? ?? userId;
-                final ok = await TwitchApi.reportUser(
+                final ok = await widget.twitchApi.reportUser(
                   widget.twitchAuth,
                   userId: userId,
                   broadcasterId: broadcasterId,
@@ -302,7 +305,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
                     content: Text(
                       ok
                           ? 'Report submitted'
-                          : 'Report failed: ${TwitchApi.lastError ?? "unknown"}',
+                          : 'Report failed: ${widget.twitchApi.lastError ?? "unknown"}',
                     ),
                   ),
                 );

@@ -136,7 +136,9 @@ class EmoteManager extends ChangeNotifier {
     if (raw == null) return;
     try {
       _recentIds = (jsonDecode(raw) as List<dynamic>).cast<String>();
-    } catch (_) {}
+    } catch (_) {
+      debugPrint('[EmoteManager] failed to parse recent emotes');
+    }
   }
 
   Future<void> _saveRecent() async {
@@ -450,6 +452,7 @@ class EmoteManager extends ChangeNotifier {
           .toList();
       return _buildChannelMap(list);
     } catch (_) {
+      debugPrint('[EmoteManager] failed to parse 7TV channel emotes');
       return null;
     }
   }
@@ -470,7 +473,9 @@ class EmoteManager extends ChangeNotifier {
         'emotes': nonTwitch.map((e) => e.toJson()).toList(),
       };
       await prefs.setString(key, jsonEncode(data));
-    } catch (_) {}
+    } catch (_) {
+      debugPrint('[EmoteManager] failed to save nonTwitch emotes to prefs');
+    }
   }
 
   // ── Pre-cache queue for seen emotes ──────────────────────────────────
@@ -516,7 +521,9 @@ class EmoteManager extends ChangeNotifier {
   Future<void> _precacheEmote(GenericEmote emote) async {
     try {
       await DefaultCacheManager().getSingleFile(emote.url);
-    } catch (_) {}
+    } catch (_) {
+      debugPrint('[EmoteManager] failed to precache emote: ${emote.code}');
+    }
   }
 
   @override

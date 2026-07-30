@@ -18,6 +18,8 @@ import '../services/chat_connection_manager.dart';
 import '../services/emote_manager.dart';
 import '../services/twitch_badge_service.dart';
 import '../services/emote_providers/twitch_emotes.dart';
+import '../util/mention.dart';
+import '../util/thread_utils.dart';
 import '../widgets/settings.dart';
 import '../widgets/emote_text.dart';
 import '../widgets/chat_message_tile.dart';
@@ -75,7 +77,9 @@ class _HomeScreenState extends State<HomeScreen>
   late final _recentMessages =
       widget.recentMessagesService ?? RecentMessagesService();
   late final _sevenTvClient = widget.sevenTvEventClient ?? SevenTvEventClient(connectivity: _connectivity);
+  late final _twitchApi = TwitchApi();
   late final _chatConn = ChatConnectionManager(
+    twitchApi: _twitchApi,
     eventSub: _eventSub,
     irc: _irc,
     ircRead: _ircRead,
@@ -128,6 +132,7 @@ class _HomeScreenState extends State<HomeScreen>
     },
   );
   late final _commandHandler = CommandHandler(
+    twitchApi: _twitchApi,
     irc: _irc,
     getChannelUserIds: () => _channelUserIds,
     getCurrentUserId: () => _currentUserId,
@@ -556,7 +561,7 @@ class _HomeScreenState extends State<HomeScreen>
   Future<void> _refreshEmotesAfterAuth() async {
     try {
       for (final channel in _channels) {
-        final userId = await TwitchApi.getUserId(widget.twitchAuth, channel);
+        final userId = await _twitchApi.getUserId(widget.twitchAuth, channel);
         if (userId != null) {
           _channelUserIds[channel] = userId;
         }
@@ -578,7 +583,7 @@ class _HomeScreenState extends State<HomeScreen>
         ),
       );
       _chatConn.userTwitchEmotesLoaded = false;
-      unawaited(_loadUserTwitchEmotes());
+      unawaited(_loadUserTwitchEmotes().catchError((e) => debugPrint('_loadUserTwitchEmotes failed: $e')));
     } catch (e) {
       debugPrint('_refreshEmotesAfterAuth failed: $e');
     }
@@ -606,7 +611,7 @@ class _HomeScreenState extends State<HomeScreen>
       }
     }
     if (unknownIds.isNotEmpty) {
-      final resolved = await TwitchApi.getUserLoginsByIds(auth, unknownIds);
+      final resolved = await _twitchApi.getUserLoginsByIds(auth, unknownIds);
       userIdToChannel.addAll(resolved);
     }
     final perChannel = <String, List<GenericEmote>>{};
@@ -1357,11 +1362,7 @@ class _HomeScreenState extends State<HomeScreen>
     String threadKeyFor(TwitchMessage m) {
       if (m.replyThreadRootId != null) return m.replyThreadRootId!;
       if (m.messageId != null && parentOf.containsKey(m.messageId)) {
-        var cur = m.messageId!;
-        while (parentOf.containsKey(cur)) {
-          cur = parentOf[cur]!;
-        }
-        return cur;
+        return resolveThreadRootId(m.messageId!, parentOf);
       }
       return m.messageId ?? '';
     }
@@ -1388,6 +1389,7 @@ class _HomeScreenState extends State<HomeScreen>
         username: username,
         displayName: displayName ?? username,
         userId: userId,
+        twitchApi: _twitchApi,
         twitchAuth: widget.twitchAuth,
         messageController: _messageController,
         focusNode: _focusNode,
@@ -2194,12 +2196,13 @@ class _HomeScreenState extends State<HomeScreen>
               controller: _scrollCtrl(channel),
               reverse: true,
               itemCount: msgs.length,
-              itemBuilder: (_, i) {
+                itemBuilder: (_, i) {
                 final msg = msgs[i];
 
-                Widget body;
+                final Widget body;
                 if (msg.isSystem) {
                   body = ChatMessageTile(
+                    key: ValueKey(msg.messageId),
                     message: msg,
                     channel: channel,
                     surface: surface,
@@ -2211,6 +2214,7 @@ class _HomeScreenState extends State<HomeScreen>
                   );
                 } else {
                   body = ChatMessageTile(
+                    key: ValueKey(msg.messageId),
                     message: msg,
                     channel: channel,
                     surface: surface,
@@ -2291,11 +2295,4 @@ class _HomeScreenState extends State<HomeScreen>
   }
 }
 
-bool isMention(String text, String login) {
-  final words = text.split(RegExp(r'[\s,;:.!?()\[\]{}<>"/\\|@#$%^&*+=~`]+'));
-  for (final w in words) {
-    final lower = w.toLowerCase();
-    if (lower == '@$login' || lower == login) return true;
-  }
-  return false;
-}
+

@@ -3,6 +3,7 @@ import '../services/twitch_auth.dart';
 import '../services/twitch_irc.dart';
 
 class CommandHandler {
+  final TwitchApi twitchApi;
   final IrcService irc;
   final Map<String, String> Function() getChannelUserIds;
   final String? Function() getCurrentUserId;
@@ -10,6 +11,7 @@ class CommandHandler {
   final void Function(String channel, String message) addSystemMessage;
 
   CommandHandler({
+    required this.twitchApi,
     required this.irc,
     required this.getChannelUserIds,
     required this.getCurrentUserId,
@@ -49,7 +51,7 @@ class CommandHandler {
           return;
         }
         final color = args.join(' ');
-        final ok = await TwitchApi.updateUserChatColor(
+        final ok = await twitchApi.updateUserChatColor(
           auth,
           userId: currentUserId,
           color: color,
@@ -59,7 +61,7 @@ class CommandHandler {
         } else {
           addSystemMessage(
             channel,
-            'Failed to change color to $color - ${TwitchApi.lastError ?? "unknown error"}',
+            'Failed to change color to $color - ${twitchApi.lastError ?? "unknown error"}',
           );
         }
 
@@ -70,12 +72,12 @@ class CommandHandler {
         }
         final targetLogin = args[0];
         final reason = args.length > 1 ? args.sublist(1).join(' ') : null;
-        final targetId = await TwitchApi.getUserId(auth, targetLogin);
+        final targetId = await twitchApi.getUserId(auth, targetLogin);
         if (targetId == null) {
           addSystemMessage(channel, 'User "$targetLogin" not found.');
           return;
         }
-        final ok = await TwitchApi.banUser(
+        final ok = await twitchApi.banUser(
           auth,
           broadcasterId: broadcasterId,
           moderatorId: currentUserId,
@@ -87,7 +89,7 @@ class CommandHandler {
         } else {
           addSystemMessage(
             channel,
-            'Failed to ban $targetLogin: ${TwitchApi.lastError ?? "unknown error"}',
+            'Failed to ban $targetLogin: ${twitchApi.lastError ?? "unknown error"}',
           );
         }
 
@@ -96,12 +98,12 @@ class CommandHandler {
           addSystemMessage(channel, 'Usage: /unban <username>');
           return;
         }
-        final targetId = await TwitchApi.getUserId(auth, args[0]);
+        final targetId = await twitchApi.getUserId(auth, args[0]);
         if (targetId == null) {
           addSystemMessage(channel, 'User "${args[0]}" not found.');
           return;
         }
-        final ok = await TwitchApi.unbanUser(
+        final ok = await twitchApi.unbanUser(
           auth,
           broadcasterId: broadcasterId,
           moderatorId: currentUserId,
@@ -112,7 +114,7 @@ class CommandHandler {
         } else {
           addSystemMessage(
             channel,
-            'Failed to unban ${args[0]}: ${TwitchApi.lastError ?? "unknown error"}',
+            'Failed to unban ${args[0]}: ${twitchApi.lastError ?? "unknown error"}',
           );
         }
 
@@ -136,12 +138,12 @@ class CommandHandler {
             reason = args.sublist(1).join(' ');
           }
         }
-        final targetId = await TwitchApi.getUserId(auth, targetLogin);
+        final targetId = await twitchApi.getUserId(auth, targetLogin);
         if (targetId == null) {
           addSystemMessage(channel, 'User "$targetLogin" not found.');
           return;
         }
-        final ok = await TwitchApi.banUser(
+        final ok = await twitchApi.banUser(
           auth,
           broadcasterId: broadcasterId,
           moderatorId: currentUserId,
@@ -157,7 +159,7 @@ class CommandHandler {
         } else {
           addSystemMessage(
             channel,
-            'Failed to timeout $targetLogin: ${TwitchApi.lastError ?? "unknown error"}',
+            'Failed to timeout $targetLogin: ${twitchApi.lastError ?? "unknown error"}',
           );
         }
 
@@ -166,7 +168,7 @@ class CommandHandler {
           addSystemMessage(channel, 'Usage: /delete <message_id>');
           return;
         }
-        final ok = await TwitchApi.deleteChatMessage(
+        final ok = await twitchApi.deleteChatMessage(
           auth,
           broadcasterId: broadcasterId,
           moderatorId: currentUserId,
@@ -177,12 +179,12 @@ class CommandHandler {
         } else {
           addSystemMessage(
             channel,
-            'Failed to delete message: ${TwitchApi.lastError ?? "unknown error"}',
+            'Failed to delete message: ${twitchApi.lastError ?? "unknown error"}',
           );
         }
 
       case '/clear':
-        final ok = await TwitchApi.deleteChatMessage(
+        final ok = await twitchApi.deleteChatMessage(
           auth,
           broadcasterId: broadcasterId,
           moderatorId: currentUserId,
@@ -192,7 +194,7 @@ class CommandHandler {
         } else {
           addSystemMessage(
             channel,
-            'Failed to clear chat: ${TwitchApi.lastError ?? "unknown error"}',
+            'Failed to clear chat: ${twitchApi.lastError ?? "unknown error"}',
           );
         }
 
@@ -201,7 +203,7 @@ class CommandHandler {
           addSystemMessage(channel, 'Usage: /announce <message>');
           return;
         }
-        final ok = await TwitchApi.sendChatAnnouncement(
+        final ok = await twitchApi.sendChatAnnouncement(
           auth,
           broadcasterId: broadcasterId,
           moderatorId: currentUserId,
@@ -210,7 +212,7 @@ class CommandHandler {
         if (!ok) {
           addSystemMessage(
             channel,
-            'Failed to announce: ${TwitchApi.lastError ?? "unknown error"}',
+            'Failed to announce: ${twitchApi.lastError ?? "unknown error"}',
           );
         }
 
@@ -219,12 +221,12 @@ class CommandHandler {
           addSystemMessage(channel, 'Usage: /shoutout <username>');
           return;
         }
-        final targetId = await TwitchApi.getUserId(auth, args[0]);
+        final targetId = await twitchApi.getUserId(auth, args[0]);
         if (targetId == null) {
           addSystemMessage(channel, 'User "${args[0]}" not found.');
           return;
         }
-        final ok = await TwitchApi.sendShoutout(
+        final ok = await twitchApi.sendShoutout(
           auth,
           broadcasterId: broadcasterId,
           moderatorId: currentUserId,
@@ -233,7 +235,7 @@ class CommandHandler {
         if (!ok) {
           addSystemMessage(
             channel,
-            'Failed to send shoutout: ${TwitchApi.lastError ?? "unknown error"}',
+            'Failed to send shoutout: ${twitchApi.lastError ?? "unknown error"}',
           );
         }
 

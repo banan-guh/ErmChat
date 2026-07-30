@@ -18,6 +18,9 @@ import '../services/seven_tv_event_client.dart';
 import '../services/twitch_badge_service.dart';
 import '../services/user_store.dart';
 import '../util/text_bypass.dart';
+import '../util/mention.dart';
+import '../util/irc_utils.dart';
+import '../util/thread_utils.dart';
 
 class _BanMeta {
   final String user;
@@ -36,6 +39,7 @@ class _BanMeta {
 }
 
 class ChatConnectionManager {
+  final TwitchApi twitchApi;
   final EventSubService eventSub;
   final IrcService irc;
   final IrcReadService ircRead;
@@ -106,6 +110,7 @@ class ChatConnectionManager {
   final void Function(String) onShowSnackBar;
 
   ChatConnectionManager({
+    required this.twitchApi,
     required this.eventSub,
     required this.irc,
     required this.ircRead,
@@ -163,15 +168,7 @@ class ChatConnectionManager {
     ircReadStatusSub?.cancel();
   }
 
-  String? _unescapeIrcTag(String? raw) {
-    if (raw == null) return null;
-    return raw
-        .replaceAll('\\s', ' ')
-        .replaceAll('\\\\', '\\')
-        .replaceAll('\\:', ';')
-        .replaceAll('\\r', '\r')
-        .replaceAll('\\n', '\n');
-  }
+
 
   void _markUserMessagesDeleted(String channel, String username) {
     final msgs = channelMessages[channel];
@@ -234,6 +231,47 @@ class ChatConnectionManager {
     return (show: true, stackCount: 1, meta: meta);
   }
 
+  void _handleBanEvent({
+    required String channel,
+    required String user,
+    required bool isTimeout,
+    required String selfDurationStr,
+    required String otherDurationStr,
+    required bool fromEventSource,
+    required String sourceName,
+  }) {
+    debugPrint('[ChatConn] $sourceName ban received: user=$user channel=$channel isTimeout=$isTimeout');
+    if (!mounted) return;
+    _markUserMessagesDeleted(channel, user);
+    final result = _processBanInChannel(channel, user, isTimeout, fromEventSource);
+    if (!result.show) return;
+    final isSelf = user.toLowerCase() == getCurrentUserLogin()?.toLowerCase();
+    final base = isTimeout
+        ? (isSelf
+            ? 'You are timed out$selfDurationStr'
+            : '$user was timed out$otherDurationStr')
+        : (isSelf
+            ? 'You were banned'
+            : '$user was banned');
+    final stacked = result.stackCount > 1 ? ' (${result.stackCount} times)' : '';
+    final text = '$base$stacked.';
+    debugPrint('[ChatConn] $sourceName ban system message: $text');
+
+    if (result.stackCount > 1) {
+      if (result.meta?.firstMessageId != null) {
+        _updateMessageText(
+          channel,
+          result.meta!.firstMessageId!,
+          text,
+        );
+        return;
+      }
+    }
+    onSystemMessage(channel, text);
+    result.meta?.firstMessageId =
+        channelMessages[channel]?.first.messageId;
+  }
+
   void _updateMessageText(String channel, String messageId, String newText) {
     final msgs = channelMessages[channel];
     if (msgs == null) return;
@@ -280,12 +318,12 @@ class ChatConnectionManager {
     final userId = channelUserIds[channel];
     if (userId == null || getCurrentUserId() == null) return;
 
-    final settings = await TwitchApi.getChatSettings(
+    final settings = await twitchApi.getChatSettings(
       auth,
       userId,
       getCurrentUserId()!,
     );
-    final stream = await TwitchApi.getStreamInfo(auth, userId);
+    final stream = await twitchApi.getStreamInfo(auth, userId);
 
     final parts = <String>[];
     if (settings != null) {
@@ -331,21 +369,13 @@ class ChatConnectionManager {
       }
     }
 
-    String rootKey(String id) {
-      var cur = id;
-      while (parentOf.containsKey(cur)) {
-        cur = parentOf[cur]!;
-      }
-      return cur;
-    }
-
     final threadGroups = <String, List<TwitchMessage>>{};
     for (final m in msgs) {
       String? key;
       if (m.replyThreadRootId != null) {
         key = m.replyThreadRootId;
       } else if (m.messageId != null && parentOf.containsKey(m.messageId)) {
-        key = rootKey(m.messageId!);
+        key = resolveThreadRootId(m.messageId!, parentOf);
       } else if (m.messageId != null) {
         key = m.messageId;
       }
@@ -368,7 +398,7 @@ class ChatConnectionManager {
       if (m.replyThreadRootId != null) {
         key = m.replyThreadRootId;
       } else if (m.messageId != null && parentOf.containsKey(m.messageId)) {
-        key = rootKey(m.messageId!);
+        key = resolveThreadRootId(m.messageId!, parentOf);
       } else if (m.messageId != null) {
         key = m.messageId;
       }
@@ -399,7 +429,7 @@ class ChatConnectionManager {
         if (m.replyThreadRootId != null) {
           key = m.replyThreadRootId;
         } else if (m.messageId != null && parentOf.containsKey(m.messageId)) {
-          key = rootKey(m.messageId!);
+          key = resolveThreadRootId(m.messageId!, parentOf);
         } else if (m.messageId != null) {
           key = m.messageId;
         }
@@ -428,7 +458,7 @@ class ChatConnectionManager {
 
     try {
       final auth = twitchAuth;
-      final channelUserId = await TwitchApi.getUserId(auth, channelName);
+      final channelUserId = await twitchApi.getUserId(auth, channelName);
       if (channelUserId == null) return;
       channelUserIds[channelName] = channelUserId;
       badgeService.fetchChannelBadges(auth, channelUserId, channelName);
@@ -446,7 +476,7 @@ class ChatConnectionManager {
       unawaited(_resolveSevenTvAndSubscribe(channelName, channelUserId));
 
       if (getCurrentUserLogin() == null) {
-        final currentUser = await TwitchApi.getCurrentUser(auth);
+        final currentUser = await twitchApi.getCurrentUser(auth);
         if (currentUser == null) return;
         setCurrentUserLogin(currentUser['login']);
         setCurrentUserId(currentUser['id']);
@@ -454,7 +484,7 @@ class ChatConnectionManager {
 
       if (!userTwitchEmotesLoaded) {
         userTwitchEmotesLoaded = true;
-        unawaited(loadUserTwitchEmotes());
+        unawaited(loadUserTwitchEmotes().catchError((e) => debugPrint('[ChatConn] loadUserTwitchEmotes failed: $e')));
       }
 
       eventSub.setChannelMapping(channelUserId, channelName);
@@ -471,14 +501,14 @@ class ChatConnectionManager {
 
         if (attempt > 0) await Future.delayed(const Duration(seconds: 1));
 
-        final ok = await TwitchApi.createSubscription(
+        final ok = await twitchApi.createSubscription(
           auth: auth,
           sessionId: sessionId,
           broadcasterUserId: channelUserId,
           userId: getCurrentUserId()!,
         );
         if (ok) {
-          final okDel = await TwitchApi.createDeleteSubscription(
+          final okDel = await twitchApi.createDeleteSubscription(
             auth: auth,
             sessionId: sessionId,
             broadcasterUserId: channelUserId,
@@ -487,7 +517,7 @@ class ChatConnectionManager {
           if (!okDel) {
             onSystemMessage(
               channelName,
-              'Warning: delete subscription failed (${TwitchApi.lastError ?? "unknown"})',
+              'Warning: delete subscription failed (${twitchApi.lastError ?? "unknown"})',
             );
           }
           break;
@@ -495,7 +525,7 @@ class ChatConnectionManager {
         if (attempt == 2) {
           onSystemMessage(
             channelName,
-            'Warning: chat subscription failed (${TwitchApi.lastError ?? "unknown"})',
+            'Warning: chat subscription failed (${twitchApi.lastError ?? "unknown"})',
           );
         }
       }
@@ -504,7 +534,7 @@ class ChatConnectionManager {
       if (currentUserId != null) {
         final banSessionId = eventSub.sessionId;
         if (banSessionId != null) {
-          await TwitchApi.createBanSubscription(
+          await twitchApi.createBanSubscription(
             auth: auth,
             sessionId: banSessionId,
             broadcasterUserId: channelUserId,
@@ -512,7 +542,9 @@ class ChatConnectionManager {
           );
         }
       }
-    } catch (_) {}
+    } catch (_) {
+      debugPrint('[ChatConn] subscribeChannel failed for $channelName');
+    }
 
     onRebuild();
     fetchChatStatus(channelName);
@@ -662,9 +694,9 @@ class ChatConnectionManager {
         getCurrentUserId() != null &&
         auth.isConfigured) {
       final broadcasterId =
-          channelUserIds[channel] ?? await TwitchApi.getUserId(auth, channel);
+          channelUserIds[channel] ?? await twitchApi.getUserId(auth, channel);
       if (broadcasterId != null) {
-        final result = await TwitchApi.sendChatMessage(
+        final result = await twitchApi.sendChatMessage(
           auth,
           broadcasterId: broadcasterId,
           senderId: getCurrentUserId()!,
@@ -674,7 +706,7 @@ class ChatConnectionManager {
         if (result == null) {
           onSystemMessage(
             channel,
-            TwitchApi.lastError ?? 'Message failed to send',
+            twitchApi.lastError ?? 'Message failed to send',
           );
         }
       }
@@ -712,70 +744,29 @@ class ChatConnectionManager {
 
     ircBanSub?.cancel();
     ircBanSub = irc.onBan.listen((event) {
-      debugPrint('[ChatConn] IRC ban received: user=${event.user} channel=${event.channel} isTimeout=${event.isTimeout}');
-      if (!mounted) return;
-      _markUserMessagesDeleted(event.channel, event.user);
-      final result = _processBanInChannel(event.channel, event.user, event.isTimeout, false);
-      if (!result.show) return;
-      final isSelf = event.user.toLowerCase() == getCurrentUserLogin()?.toLowerCase();
-      final base = event.isTimeout
-          ? (isSelf
-              ? 'You are timed out${event.duration != null ? ' for ${event.duration}s' : ''}'
-              : '${event.user} was timed out${event.duration != null ? ' for ${event.duration}s' : ''}')
-          : (isSelf
-              ? 'You were banned'
-              : '${event.user} was banned');
-      final stacked = result.stackCount > 1 ? ' (${result.stackCount} times)' : '';
-      final text = '$base$stacked.';
-      debugPrint('[ChatConn] IRC ban system message: $text');
-
-      if (result.stackCount > 1) {
-        if (result.meta?.firstMessageId != null) {
-          _updateMessageText(
-            event.channel,
-            result.meta!.firstMessageId!,
-            text,
-          );
-          return;
-        }
-      }
-      onSystemMessage(event.channel, text);
-      result.meta?.firstMessageId =
-          channelMessages[event.channel]?.first.messageId;
+      final durationStr = event.duration != null ? ' for ${event.duration}s' : '';
+      _handleBanEvent(
+        channel: event.channel,
+        user: event.user,
+        isTimeout: event.isTimeout,
+        selfDurationStr: durationStr,
+        otherDurationStr: durationStr,
+        fromEventSource: false,
+        sourceName: 'IRC',
+      );
     });
 
     eventSubBanSub?.cancel();
     eventSubBanSub = eventSub.onBan.listen((event) {
-      debugPrint('[ChatConn] EventSub ban received: user=${event.user} channel=${event.channel} isTimeout=${event.isTimeout}');
-      if (!mounted) return;
-      _markUserMessagesDeleted(event.channel, event.user);
-      final result = _processBanInChannel(event.channel, event.user, event.isTimeout, true);
-      if (!result.show) return;
-      final isSelf = event.user.toLowerCase() == getCurrentUserLogin()?.toLowerCase();
-      final base = event.isTimeout
-          ? (isSelf
-              ? 'You are timed out${event.durationSeconds != null ? ' for ${event.durationSeconds}s' : ''}'
-              : '${event.user} was timed out${event.duration != null ? ' for ${event.duration}s' : ''}')
-          : (isSelf
-              ? 'You were banned'
-              : '${event.user} was banned');
-      final stacked = result.stackCount > 1 ? ' (${result.stackCount} times)' : '';
-      final text = '$base$stacked.';
-      debugPrint('[ChatConn] EventSub ban system message: $text');
-
-      if (result.stackCount > 1) {
-        if (result.meta?.firstMessageId != null) {
-          _updateMessageText(
-            event.channel,
-            result.meta!.firstMessageId!,
-            text,
-          );
-          return;
-        }
-      }
-      onSystemMessage(event.channel, text);
-      result.meta?.firstMessageId =
-          channelMessages[event.channel]?.first.messageId;
+      _handleBanEvent(
+        channel: event.channel,
+        user: event.user,
+        isTimeout: event.isTimeout,
+        selfDurationStr: event.durationSeconds != null ? ' for ${event.durationSeconds}s' : '',
+        otherDurationStr: event.duration != null ? ' for ${event.duration}s' : '',
+        fromEventSource: true,
+        sourceName: 'EventSub',
+      );
     });
 
     ircNoticeSub?.cancel();
@@ -822,9 +813,11 @@ class ChatConnectionManager {
           await subscribeAll();
           if (!userTwitchEmotesLoaded) {
             userTwitchEmotesLoaded = true;
-            unawaited(loadUserTwitchEmotes());
+            unawaited(loadUserTwitchEmotes().catchError((e) => debugPrint('[ChatConn] loadUserTwitchEmotes failed on reconnect: $e')));
           }
-        } catch (_) {}
+        } catch (_) {
+          debugPrint('[ChatConn] subscribeAll failed on reconnect');
+        }
         for (final channel in channels) {
           if (historyLoaded.contains(channel) && _connectedAcked.add(channel)) {
             onSystemMessage(channel, 'Connected');
@@ -844,12 +837,14 @@ class ChatConnectionManager {
 
     if (getCurrentUserLogin() == null) {
       try {
-        final currentUser = await TwitchApi.getCurrentUser(auth);
+        final currentUser = await twitchApi.getCurrentUser(auth);
         if (currentUser != null) {
           setCurrentUserLogin(currentUser['login']);
           setCurrentUserId(currentUser['id']);
         }
-      } catch (_) {}
+      } catch (_) {
+        debugPrint('[ChatConn] getCurrentUser failed');
+      }
     }
 
     if (getCurrentUserLogin() != null && auth.accessToken != null) {
@@ -921,7 +916,7 @@ class ChatConnectionManager {
     final isMentioned =
         (login != null &&
             !msg.isSystem &&
-            _isMention(msg, login)) ||
+            isMention(msg.text, login)) ||
         isReplyToMe;
 
     if (isMentioned && msg.login != login) {
@@ -958,10 +953,6 @@ class ChatConnectionManager {
     }
     chatVersion.value++;
     precacheMessageEmotes(msg, channel);
-  }
-
-  bool _isMention(TwitchMessage msg, String login) {
-    return isMention(msg.text, login);
   }
 
   void onOwnIrcMessage(IrcMessage ircMsg) {
@@ -1001,10 +992,10 @@ class ChatConnectionManager {
         strippedText = text.substring(prefixLen);
       }
     }
-    final ircReplyUser = _unescapeIrcTag(
+    final ircReplyUser = unescapeIrcTagNullable(
       ircMsg.tags['reply-parent-display-name'],
     );
-    final ircReplyText = _unescapeIrcTag(
+    final ircReplyText = unescapeIrcTagNullable(
       ircMsg.tags['reply-parent-msg-body'],
     );
 
@@ -1122,11 +1113,3 @@ class ChatConnectionManager {
   }
 }
 
-bool isMention(String text, String login) {
-  final words = text.split(RegExp(r'[\s,;:.!?()\[\]{}<>"/\\|@#$%^&*+=~`]+'));
-  for (final w in words) {
-    final lower = w.toLowerCase();
-    if (lower == '@$login' || lower == login) return true;
-  }
-  return false;
-}

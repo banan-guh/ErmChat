@@ -23,6 +23,7 @@ class _AboutScreenState extends State<AboutScreen> {
       final info = await PackageInfo.fromPlatform();
       if (mounted) setState(() => _version = '${info.version}+${info.buildNumber}');
     } catch (_) {
+      debugPrint('[AboutScreen] failed to load package info');
       if (mounted) setState(() => _version = 'unknown');
     }
   }

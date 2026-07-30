@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../color_utils.dart';
 import '../models/twitch_message.dart';
 
-class ChatMessageTile extends StatelessWidget {
+class ChatMessageTile extends StatefulWidget {
   final TwitchMessage message;
   final String channel;
   final Color surface;
@@ -34,20 +34,58 @@ class ChatMessageTile extends StatelessWidget {
   });
 
   @override
+  State<ChatMessageTile> createState() => _ChatMessageTileState();
+}
+
+class _ChatMessageTileState extends State<ChatMessageTile> {
+  TapGestureRecognizer? _usernameRecognizer;
+
+  @override
+  void initState() {
+    super.initState();
+    _updateRecognizer();
+  }
+
+  @override
+  void didUpdateWidget(ChatMessageTile oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _updateRecognizer();
+  }
+
+  void _updateRecognizer() {
+    final onTapUser = widget.onTapUser;
+    final login = widget.message.login;
+    final userId = widget.message.userId;
+    if (onTapUser != null) {
+      _usernameRecognizer ??= TapGestureRecognizer();
+      _usernameRecognizer!.onTap = () => onTapUser(login, userId);
+    } else {
+      _usernameRecognizer?.dispose();
+      _usernameRecognizer = null;
+    }
+  }
+
+  @override
+  void dispose() {
+    _usernameRecognizer?.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final msg = message;
-    final s = textScale;
-    final ts = timestampOverride ?? msg.formattedTimestamp;
+    final theme = Theme.of(context);
+    final msg = widget.message;
+    final s = widget.textScale;
+    final ts = widget.timestampOverride ?? msg.formattedTimestamp;
 
     final List<InlineSpan> children;
     final String semanticsLabel;
     final bool deleted;
-    final Color? bodyColor;
     final bool highlighted;
 
     if (msg.isSystem) {
-      children = systemBodyBuilder != null
-          ? systemBodyBuilder!(msg, s)
+      children = widget.systemBodyBuilder != null
+          ? widget.systemBodyBuilder!(msg, s)
           : <InlineSpan>[
               TextSpan(
                 text: msg.text,
@@ -60,57 +98,52 @@ class ChatMessageTile extends StatelessWidget {
             ];
       semanticsLabel = msg.text;
       deleted = false;
-      bodyColor = msg.bodyColor;
       highlighted = false;
     } else {
-      final badges = buildBadgeSpans(channel, msg, badgeScale: s);
+      final badges = widget.buildBadgeSpans(widget.channel, msg, badgeScale: s);
       final usernameText = msg.isAction
           ? '${msg.formattedUsername} '
           : '${msg.formattedUsername}: ';
       final usernameStyle = TextStyle(
         fontSize: 14 * s,
         fontWeight: FontWeight.w500,
-        color: parseColor(msg.color, background: surface),
+        color: parseColor(msg.color, background: widget.surface),
         decoration: TextDecoration.none,
       );
       final TextSpan usernameSpan;
-      if (onTapUser != null) {
+      if (widget.onTapUser != null) {
         usernameSpan = TextSpan(
           text: usernameText,
           style: usernameStyle,
-          recognizer: TapGestureRecognizer()
-            ..onTap = () => onTapUser!(msg.login, msg.userId),
+          recognizer: _usernameRecognizer,
         );
       } else {
         usernameSpan = TextSpan(text: usernameText, style: usernameStyle);
       }
 
       final bodySpans = msg.isAction
-          ? buildMessageSpans(msg, channel, surface,
+          ? widget.buildMessageSpans(msg, widget.channel, widget.surface,
               colored: true, textScale: s)
-          : buildMessageSpans(msg, channel, surface, textScale: s);
+          : widget.buildMessageSpans(msg, widget.channel, widget.surface, textScale: s);
 
       children = [...badges, usernameSpan, ...bodySpans];
       semanticsLabel = msg.isHighlighted
           ? 'Mention: $ts ${msg.formattedUsername}: ${msg.text}'
           : '$ts ${msg.formattedUsername}: ${msg.text}';
       deleted = msg.deleted;
-      bodyColor = msg.bodyColor;
-      highlighted = showHighlight && msg.isHighlighted;
+      highlighted = widget.showHighlight && msg.isHighlighted;
     }
 
     final tsStyle = TextStyle(
       fontSize: 14 * s,
-      color: Theme.of(context).colorScheme.onSurfaceVariant,
+      color: theme.colorScheme.onSurfaceVariant,
       decoration: TextDecoration.none,
     );
     final bodyTextStyle = TextStyle(
       fontSize: 14 * s,
-      color:
-          bodyColor ??
-          (msg.isSystem
-              ? Theme.of(context).colorScheme.onSurfaceVariant
-              : Theme.of(context).colorScheme.onSurface),
+      color: msg.isSystem
+          ? theme.colorScheme.onSurfaceVariant
+          : theme.colorScheme.onSurface,
       decoration: TextDecoration.none,
     );
 
@@ -148,7 +181,7 @@ class ChatMessageTile extends StatelessWidget {
     }
 
     if (highlighted) {
-      final isDark = Theme.of(context).brightness == Brightness.dark;
+      final isDark = theme.brightness == Brightness.dark;
       child = ColoredBox(
         color: isDark
             ? const Color(0xFF773031)
@@ -157,16 +190,16 @@ class ChatMessageTile extends StatelessWidget {
       );
     }
 
-    if (replyIndicator != null) {
+    if (widget.replyIndicator != null) {
       child = Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
-        children: [replyIndicator!, child],
+        children: [widget.replyIndicator!, child],
       );
     }
 
-    if (onLongPress != null) {
-      child = InkWell(onLongPress: onLongPress, child: child);
+    if (widget.onLongPress != null) {
+      child = InkWell(onLongPress: widget.onLongPress, child: child);
     }
 
     child = Semantics(

@@ -7,16 +7,20 @@ import 'twitch_auth.dart';
 class TwitchApi {
   static const _base = 'https://api.twitch.tv/helix';
 
-  static String? _lastError;
+  String? _lastError;
 
-  static String? get lastError => _lastError;
+  String? get lastError => _lastError;
 
-  static http.Client _client = http.Client();
+  late http.Client _client;
+
+  TwitchApi({http.Client? client}) {
+    _client = client ?? http.Client();
+  }
 
   @visibleForTesting
-  static set client(http.Client c) => _client = c;
+  set client(http.Client c) => _client = c;
 
-  static Future<String?> getUserId(TwitchAuth auth, String login) async {
+  Future<String?> getUserId(TwitchAuth auth, String login) async {
     _lastError = null;
     final uri = Uri.parse('$_base/users?login=$login');
     final res = await _client.get(uri, headers: _headers(auth));
@@ -33,7 +37,7 @@ class TwitchApi {
     return list[0]['id'] as String;
   }
 
-  static Future<String?> getUserLoginById(TwitchAuth auth, String userId) async {
+  Future<String?> getUserLoginById(TwitchAuth auth, String userId) async {
     _lastError = null;
     final uri = Uri.parse('$_base/users?id=$userId');
     final res = await _client.get(uri, headers: _headers(auth));
@@ -47,7 +51,7 @@ class TwitchApi {
     return list[0]['login'] as String;
   }
 
-  static Future<Map<String, String>> getUserLoginsByIds(
+  Future<Map<String, String>> getUserLoginsByIds(
     TwitchAuth auth,
     List<String> userIds,
   ) async {
@@ -71,8 +75,7 @@ class TwitchApi {
     return result;
   }
 
-  /// Returns `{'id': ..., 'login': ...}` for the authenticated user.
-  static Future<Map<String, String>?> getCurrentUser(TwitchAuth auth) async {
+  Future<Map<String, String>?> getCurrentUser(TwitchAuth auth) async {
     _lastError = null;
     final uri = Uri.parse('$_base/users');
     final res = await _client.get(uri, headers: _headers(auth));
@@ -89,7 +92,7 @@ class TwitchApi {
     return {'id': list[0]['id'] as String, 'login': list[0]['login'] as String};
   }
 
-  static Future<bool> createSubscription({
+  Future<bool> createSubscription({
     required TwitchAuth auth,
     required String sessionId,
     required String broadcasterUserId,
@@ -115,7 +118,7 @@ class TwitchApi {
     return true;
   }
 
-  static Future<bool> createDeleteSubscription({
+  Future<bool> createDeleteSubscription({
     required TwitchAuth auth,
     required String sessionId,
     required String broadcasterUserId,
@@ -141,7 +144,7 @@ class TwitchApi {
     return true;
   }
 
-  static Future<bool> createBanSubscription({
+  Future<bool> createBanSubscription({
     required TwitchAuth auth,
     required String sessionId,
     required String broadcasterUserId,
@@ -160,7 +163,6 @@ class TwitchApi {
     });
     final res = await _client.post(uri, headers: _headers(auth), body: body);
     if (res.statusCode == 409) return true;
-    // 403/401 expected for non-mod channels — not an error worth surfacing
     if (res.statusCode == 403 || res.statusCode == 401) return false;
     if (res.statusCode != 202) {
       _setError('createBanSubscription', res);
@@ -169,9 +171,7 @@ class TwitchApi {
     return true;
   }
 
-  /// Returns chat settings for a broadcaster.
-  /// Keys: slow_mode, follower_mode, subscriber_mode, emote_mode, etc.
-  static Future<Map<String, dynamic>?> getChatSettings(
+  Future<Map<String, dynamic>?> getChatSettings(
     TwitchAuth auth,
     String broadcasterId,
     String moderatorId,
@@ -191,9 +191,7 @@ class TwitchApi {
     return list[0] as Map<String, dynamic>;
   }
 
-  /// Returns stream info for a broadcaster.
-  /// Keys: type, viewer_count, started_at (null if offline).
-  static Future<Map<String, dynamic>?> getStreamInfo(
+  Future<Map<String, dynamic>?> getStreamInfo(
     TwitchAuth auth,
     String broadcasterId,
   ) async {
@@ -210,15 +208,7 @@ class TwitchApi {
     return list[0] as Map<String, dynamic>;
   }
 
-  static Map<String, String> _headers(TwitchAuth auth) => {
-    'Client-ID': TwitchConfig.clientId,
-    'Authorization': 'Bearer ${auth.accessToken ?? ''}',
-    'Content-Type': 'application/json',
-  };
-
-  /// Returns full user profile for a given login.
-  /// Keys: id, login, display_name, description, profile_image_url, created_at, broadcaster_type.
-  static Future<Map<String, dynamic>?> getUserProfile(
+  Future<Map<String, dynamic>?> getUserProfile(
     TwitchAuth auth,
     String login,
   ) async {
@@ -238,8 +228,7 @@ class TwitchApi {
     return list[0] as Map<String, dynamic>;
   }
 
-  /// Blocks a user by ID. Requires user:manage:blocks scope.
-  static Future<bool> blockUser(TwitchAuth auth, String targetUserId) async {
+  Future<bool> blockUser(TwitchAuth auth, String targetUserId) async {
     _lastError = null;
     final uri = Uri.parse('$_base/users/blocks?target_user_id=$targetUserId');
     final res = await _client.put(uri, headers: _headers(auth));
@@ -248,8 +237,7 @@ class TwitchApi {
     return false;
   }
 
-  /// Reports a user. Requires moderation:read scope.
-  static Future<bool> reportUser(
+  Future<bool> reportUser(
     TwitchAuth auth, {
     required String userId,
     required String broadcasterId,
@@ -270,9 +258,7 @@ class TwitchApi {
     return false;
   }
 
-  /// Sends a chat message via the Helix API.
-  /// Returns the message ID if sent, null on failure.
-  static Future<String?> sendChatMessage(
+  Future<String?> sendChatMessage(
     TwitchAuth auth, {
     required String broadcasterId,
     required String senderId,
@@ -312,12 +298,7 @@ class TwitchApi {
     return item['message_id'] as String;
   }
 
-  /// Updates the user's chat color.
-  /// Named colors: blue, blue_violet, cadet_blue, chocolate, coral,
-  /// dodger_blue, firebrick, golden_rod, green, hot_pink, orange_red,
-  /// red, sea_green, spring_green, yellow_green.
-  /// Turbo/Prime users may also use hex codes like #9146FF.
-  static Future<bool> updateUserChatColor(
+  Future<bool> updateUserChatColor(
     TwitchAuth auth, {
     required String userId,
     required String color,
@@ -332,8 +313,7 @@ class TwitchApi {
     return false;
   }
 
-  /// Bans a user from a broadcaster's chat. Returns true on success.
-  static Future<bool> banUser(
+  Future<bool> banUser(
     TwitchAuth auth, {
     required String broadcasterId,
     required String moderatorId,
@@ -355,8 +335,7 @@ class TwitchApi {
     return false;
   }
 
-  /// Removes a ban or timeout on a user.
-  static Future<bool> unbanUser(
+  Future<bool> unbanUser(
     TwitchAuth auth, {
     required String broadcasterId,
     required String moderatorId,
@@ -372,9 +351,7 @@ class TwitchApi {
     return false;
   }
 
-  /// Deletes a single chat message or all chat messages.
-  /// If [messageId] is provided, deletes that message; otherwise clears all.
-  static Future<bool> deleteChatMessage(
+  Future<bool> deleteChatMessage(
     TwitchAuth auth, {
     required String broadcasterId,
     required String moderatorId,
@@ -391,8 +368,7 @@ class TwitchApi {
     return false;
   }
 
-  /// Sends an announcement to a broadcaster's chat room.
-  static Future<bool> sendChatAnnouncement(
+  Future<bool> sendChatAnnouncement(
     TwitchAuth auth, {
     required String broadcasterId,
     required String moderatorId,
@@ -410,8 +386,7 @@ class TwitchApi {
     return false;
   }
 
-  /// Sends a shoutout to the specified broadcaster.
-  static Future<bool> sendShoutout(
+  Future<bool> sendShoutout(
     TwitchAuth auth, {
     required String broadcasterId,
     required String moderatorId,
@@ -430,7 +405,13 @@ class TwitchApi {
     return false;
   }
 
-  static void _setError(String label, [http.Response? res]) {
+  Map<String, String> _headers(TwitchAuth auth) => {
+    'Client-ID': TwitchConfig.clientId,
+    'Authorization': 'Bearer ${auth.accessToken ?? ''}',
+    'Content-Type': 'application/json',
+  };
+
+  void _setError(String label, [http.Response? res]) {
     if (res != null) {
       _lastError = '$label failed (${res.statusCode}): ${res.body}';
     } else {
