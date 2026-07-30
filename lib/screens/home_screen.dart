@@ -26,6 +26,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import '../color_utils.dart';
 import '../services/user_store.dart';
 import '../services/suggestion.dart';
+import '../services/notification_service.dart';
 import '../widgets/autocomplete_dropdown.dart';
 import '../widgets/user_profile_sheet.dart';
 import '../widgets/emote_sheet.dart';
@@ -136,6 +137,10 @@ class _HomeScreenState extends State<HomeScreen>
   final _messageController = TextEditingController();
   final _focusNode = FocusNode();
 
+  final _notificationService = NotificationService();
+  StreamSubscription<String>? _notificationTapSub;
+  var _isBackgrounded = false;
+
   final _emoteManager = EmoteManager();
   final _badgeService = TwitchBadgeService();
   final _userStore = UserStore();
@@ -222,6 +227,15 @@ class _HomeScreenState extends State<HomeScreen>
       () => _onSheetSizeChanged(OverlayPanel.emotes, _emoteSheetCtrl),
     );
     _chatVersion.addListener(_onPanelDataChanged);
+    if (Platform.isAndroid) {
+      _notificationService.init();
+      _notificationTapSub = _notificationService.onNotificationTap.listen(_onNotificationTap);
+      final pendingChannel = _notificationService.pendingLaunchChannel;
+      if (pendingChannel != null) {
+        _navigateToChannel(pendingChannel);
+      }
+      _chatConn.onMention = _onMentionNotification;
+    }
     _loadMaxMessages();
     _loadChannels();
     _chatConn.connect();
@@ -244,6 +258,8 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (!Platform.isAndroid) return;
+    _isBackgrounded = state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive;
     if (state == AppLifecycleState.paused) {
       startForegroundService(List.of(_channels));
     } else if (state == AppLifecycleState.resumed) {
@@ -652,6 +668,8 @@ class _HomeScreenState extends State<HomeScreen>
       c.dispose();
     }
     _chatVersion.dispose();
+    _notificationTapSub?.cancel();
+    _notificationService.dispose();
     super.dispose();
   }
 
@@ -1374,6 +1392,27 @@ class _HomeScreenState extends State<HomeScreen>
         onClose: () => Navigator.pop(ctx),
       ),
     );
+  }
+
+  void _onMentionNotification(String channel, TwitchMessage msg) {
+    if (!_isBackgrounded) return;
+    if (msg.isHistory) return;
+    _notificationService.showMentionNotification(
+      channel: channel,
+      userName: msg.displayName,
+      message: msg.text,
+    );
+  }
+
+  void _onNotificationTap(String channel) {
+    _navigateToChannel(channel);
+  }
+
+  void _navigateToChannel(String channel) {
+    final index = _channels.indexOf(channel);
+    if (index >= 0) {
+      _onChannelChanged(index);
+    }
   }
 
   void _onChannelFocusChanged(int index) {

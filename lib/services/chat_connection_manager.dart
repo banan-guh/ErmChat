@@ -86,6 +86,7 @@ class ChatConnectionManager {
 
   final VoidCallback onRebuild;
   final void Function(String, String) onSystemMessage;
+  void Function(String channel, TwitchMessage msg)? onMention;
   final Future<void> Function() loadUserTwitchEmotes;
   final int Function() getMaxMessagesPerChannel;
   final String? Function() getSelectedChannel;
@@ -910,6 +911,7 @@ class ChatConnectionManager {
             (unreadMentionsPerChannel[channel] ?? 0) + 1;
       }
       msg.isHighlighted = true;
+      onMention?.call(channel, msg);
     }
 
     channelMessages.putIfAbsent(channel, () => []);
