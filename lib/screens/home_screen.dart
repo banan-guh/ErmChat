@@ -83,7 +83,7 @@ class _HomeScreenState extends State<HomeScreen>
       widget.sevenTvEventClient ??
       SevenTvEventClient(connectivity: _connectivity);
   late final _twitchApi = TwitchApi();
-  late final _chatConn = ChatConnectionManager(
+  late final _chatConn = ChatConnectionManager(ChatConnectionConfig(
     twitchApi: _twitchApi,
     eventSub: _eventSub,
     irc: _irc,
@@ -136,7 +136,7 @@ class _HomeScreenState extends State<HomeScreen>
         ).showSnackBar(SnackBar(content: Text(msg)));
       }
     },
-  );
+  ));
   late final _commandHandler = CommandHandler(
     twitchApi: _twitchApi,
     irc: _irc,

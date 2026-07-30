@@ -27,7 +27,7 @@ ChatConnectionManager _makeConn({
   required int maxMessages,
 }) {
   final api = TwitchApi(client: http.Client());
-  return ChatConnectionManager(
+  return ChatConnectionManager(ChatConnectionConfig(
     twitchApi: api,
     eventSub: EventSubService(),
     irc: IrcService(),
@@ -68,7 +68,7 @@ ChatConnectionManager _makeConn({
     setReplyToMsg: (v) {},
     onRequestFocus: () {},
     onShowSnackBar: (m) {},
-  );
+  ));
 }
 
 void main() {

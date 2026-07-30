@@ -39,89 +39,8 @@ class _BanMeta {
   }) : lastEvent = lastEvent ?? DateTime.now();
 }
 
-class ChatConnectionManager {
-  final TwitchApi twitchApi;
-  final EventSubService eventSub;
-  final IrcService irc;
-  final IrcReadService ircRead;
-  final SevenTvEventClient? sevenTvClient;
-  final TwitchBadgeService badgeService;
-  final UserStore userStore;
-  final TwitchAuth twitchAuth;
-
-  final EmoteManager emoteManager;
-
-  final Map<String, List<TwitchMessage>> channelMessages;
-  final Map<String, GlobalKey> messageKeys;
-  final Map<String, String> chatStatus;
-  final Set<String> channelsWithUnread;
-  final Set<String> channelsWithUnreadMentions;
-  final Map<String, int> unreadMentionsPerChannel;
-  final List<String> channels;
-  final Set<String> historyLoaded;
-  final Set<String> channelsEmotesResolved;
-  final Map<String, String> channelUserIds;
-  final Map<String, String> lastTypedText;
-  final Map<String, String> lastSentWireText;
-  final Set<String> ownMessageIds;
-  final void Function(String channel) bumpChannel;
-  final void Function(String channel) invalidateChannel;
-  final String mentionsChannel;
-
-  EventSubStatus connectionStatus = EventSubStatus.disconnected;
-  bool wasConnected = false;
-  bool wasDisconnected = false;
-  DateTime? _lastSubscribeAll;
-  bool userTwitchEmotesLoaded = false;
-  final _connectedAcked = <String>{};
-  bool isDisposed = false;
-  bool _isConnecting = false;
-  final _recentBanMeta = <String, List<_BanMeta>>{};
-  static const _banDedupWindowSeconds = 10;
-
-  StreamSubscription<TwitchMessage>? messageSub;
-  StreamSubscription<EventSubStatus>? statusSub;
-  StreamSubscription<({String messageId, String targetUser, String channel})>?
-  deleteSub;
-  StreamSubscription<IrcBanEvent>? ircBanSub;
-  StreamSubscription<
-    ({
-      String user,
-      String? reason,
-      bool isTimeout,
-      String? duration,
-      int? durationSeconds,
-      String channel,
-    })
-  >?
-  eventSubBanSub;
-  StreamSubscription<IrcNoticeEvent>? ircNoticeSub;
-  StreamSubscription<IrcNoticeEvent>? ircJtvSub;
-  StreamSubscription<IrcMessage>? ircOwnMsgSub;
-  StreamSubscription<SevenTvEmoteUpdateEvent>? sevenTvEmoteSub;
-  StreamSubscription<SevenTvUserUpdate>? sevenTvUserSub;
-  StreamSubscription<IrcConnectionStatus>? ircStatusSub;
-  StreamSubscription<IrcConnectionStatus>? ircReadStatusSub;
-
-  final VoidCallback onRebuild;
-  final void Function(String, String) onSystemMessage;
-  void Function(String channel, TwitchMessage msg)? onMention;
-  final Future<void> Function() loadUserTwitchEmotes;
-  final int Function() getMaxMessagesPerChannel;
-  final String? Function() getSelectedChannel;
-  final int Function() getUnreadMentions;
-  final void Function(int) setUnreadMentions;
-  final String? Function() getCurrentUserLogin;
-  final void Function(String?) setCurrentUserLogin;
-  final String? Function() getCurrentUserId;
-  final void Function(String?) setCurrentUserId;
-  final void Function(String, String, TwitchAuth) onCommand;
-  final TwitchMessage? Function() getReplyToMsg;
-  final void Function(TwitchMessage?) setReplyToMsg;
-  final void Function() onRequestFocus;
-  final void Function(String) onShowSnackBar;
-
-  ChatConnectionManager({
+class ChatConnectionConfig {
+  ChatConnectionConfig({
     required this.twitchApi,
     required this.eventSub,
     required this.irc,
@@ -164,6 +83,171 @@ class ChatConnectionManager {
     required this.onRequestFocus,
     required this.onShowSnackBar,
   });
+
+  final TwitchApi twitchApi;
+  final EventSubService eventSub;
+  final IrcService irc;
+  final IrcReadService ircRead;
+  final SevenTvEventClient? sevenTvClient;
+  final TwitchBadgeService badgeService;
+  final UserStore userStore;
+  final TwitchAuth twitchAuth;
+  final EmoteManager emoteManager;
+  final Map<String, List<TwitchMessage>> channelMessages;
+  final Map<String, GlobalKey> messageKeys;
+  final Map<String, String> chatStatus;
+  final Set<String> channelsWithUnread;
+  final Set<String> channelsWithUnreadMentions;
+  final Map<String, int> unreadMentionsPerChannel;
+  final List<String> channels;
+  final Set<String> historyLoaded;
+  final Set<String> channelsEmotesResolved;
+  final Map<String, String> channelUserIds;
+  final Map<String, String> lastTypedText;
+  final Map<String, String> lastSentWireText;
+  final Set<String> ownMessageIds;
+  final void Function(String channel) bumpChannel;
+  final void Function(String channel) invalidateChannel;
+  final String mentionsChannel;
+  final VoidCallback onRebuild;
+  final void Function(String, String) onSystemMessage;
+  final Future<void> Function() loadUserTwitchEmotes;
+  final int Function() getMaxMessagesPerChannel;
+  final String? Function() getSelectedChannel;
+  final int Function() getUnreadMentions;
+  final void Function(int) setUnreadMentions;
+  final String? Function() getCurrentUserLogin;
+  final void Function(String?) setCurrentUserLogin;
+  final String? Function() getCurrentUserId;
+  final void Function(String?) setCurrentUserId;
+  final void Function(String, String, TwitchAuth) onCommand;
+  final TwitchMessage? Function() getReplyToMsg;
+  final void Function(TwitchMessage?) setReplyToMsg;
+  final VoidCallback onRequestFocus;
+  final void Function(String) onShowSnackBar;
+}
+
+class ChatConnectionManager {
+  final TwitchApi twitchApi;
+  final EventSubService eventSub;
+  final IrcService irc;
+  final IrcReadService ircRead;
+  final SevenTvEventClient? sevenTvClient;
+  final TwitchBadgeService badgeService;
+  final UserStore userStore;
+  final TwitchAuth twitchAuth;
+  final EmoteManager emoteManager;
+  final Map<String, List<TwitchMessage>> channelMessages;
+  final Map<String, GlobalKey> messageKeys;
+  final Map<String, String> chatStatus;
+  final Set<String> channelsWithUnread;
+  final Set<String> channelsWithUnreadMentions;
+  final Map<String, int> unreadMentionsPerChannel;
+  final List<String> channels;
+  final Set<String> historyLoaded;
+  final Set<String> channelsEmotesResolved;
+  final Map<String, String> channelUserIds;
+  final Map<String, String> lastTypedText;
+  final Map<String, String> lastSentWireText;
+  final Set<String> ownMessageIds;
+  final void Function(String channel) bumpChannel;
+  final void Function(String channel) invalidateChannel;
+  final String mentionsChannel;
+  final VoidCallback onRebuild;
+  final void Function(String, String) onSystemMessage;
+  void Function(String channel, TwitchMessage msg)? onMention;
+  final Future<void> Function() loadUserTwitchEmotes;
+  final int Function() getMaxMessagesPerChannel;
+  final String? Function() getSelectedChannel;
+  final int Function() getUnreadMentions;
+  final void Function(int) setUnreadMentions;
+  final String? Function() getCurrentUserLogin;
+  final void Function(String?) setCurrentUserLogin;
+  final String? Function() getCurrentUserId;
+  final void Function(String?) setCurrentUserId;
+  final void Function(String, String, TwitchAuth) onCommand;
+  final TwitchMessage? Function() getReplyToMsg;
+  final void Function(TwitchMessage?) setReplyToMsg;
+  final VoidCallback onRequestFocus;
+  final void Function(String) onShowSnackBar;
+
+  EventSubStatus connectionStatus = EventSubStatus.disconnected;
+  bool wasConnected = false;
+  bool wasDisconnected = false;
+  DateTime? _lastSubscribeAll;
+  bool userTwitchEmotesLoaded = false;
+  final _connectedAcked = <String>{};
+  bool isDisposed = false;
+  bool _isConnecting = false;
+  final _recentBanMeta = <String, List<_BanMeta>>{};
+  static const _banDedupWindowSeconds = 10;
+
+  StreamSubscription<TwitchMessage>? messageSub;
+  StreamSubscription<EventSubStatus>? statusSub;
+  StreamSubscription<({String messageId, String targetUser, String channel})>?
+  deleteSub;
+  StreamSubscription<IrcBanEvent>? ircBanSub;
+  StreamSubscription<
+    ({
+      String user,
+      String? reason,
+      bool isTimeout,
+      String? duration,
+      int? durationSeconds,
+      String channel,
+    })
+  >?
+  eventSubBanSub;
+  StreamSubscription<IrcNoticeEvent>? ircNoticeSub;
+  StreamSubscription<IrcNoticeEvent>? ircJtvSub;
+  StreamSubscription<IrcMessage>? ircOwnMsgSub;
+  StreamSubscription<SevenTvEmoteUpdateEvent>? sevenTvEmoteSub;
+  StreamSubscription<SevenTvUserUpdate>? sevenTvUserSub;
+  StreamSubscription<IrcConnectionStatus>? ircStatusSub;
+  StreamSubscription<IrcConnectionStatus>? ircReadStatusSub;
+
+  ChatConnectionManager(ChatConnectionConfig config)
+    : twitchApi = config.twitchApi,
+      eventSub = config.eventSub,
+      irc = config.irc,
+      ircRead = config.ircRead,
+      sevenTvClient = config.sevenTvClient,
+      emoteManager = config.emoteManager,
+      badgeService = config.badgeService,
+      userStore = config.userStore,
+      twitchAuth = config.twitchAuth,
+      channelMessages = config.channelMessages,
+      messageKeys = config.messageKeys,
+      chatStatus = config.chatStatus,
+      channelsWithUnread = config.channelsWithUnread,
+      channelsWithUnreadMentions = config.channelsWithUnreadMentions,
+      unreadMentionsPerChannel = config.unreadMentionsPerChannel,
+      channels = config.channels,
+      historyLoaded = config.historyLoaded,
+      channelsEmotesResolved = config.channelsEmotesResolved,
+      channelUserIds = config.channelUserIds,
+      lastTypedText = config.lastTypedText,
+      lastSentWireText = config.lastSentWireText,
+      ownMessageIds = config.ownMessageIds,
+      bumpChannel = config.bumpChannel,
+      invalidateChannel = config.invalidateChannel,
+      mentionsChannel = config.mentionsChannel,
+      onRebuild = config.onRebuild,
+      onSystemMessage = config.onSystemMessage,
+      loadUserTwitchEmotes = config.loadUserTwitchEmotes,
+      getMaxMessagesPerChannel = config.getMaxMessagesPerChannel,
+      getSelectedChannel = config.getSelectedChannel,
+      getUnreadMentions = config.getUnreadMentions,
+      setUnreadMentions = config.setUnreadMentions,
+      getCurrentUserLogin = config.getCurrentUserLogin,
+      setCurrentUserLogin = config.setCurrentUserLogin,
+      getCurrentUserId = config.getCurrentUserId,
+      setCurrentUserId = config.setCurrentUserId,
+      onCommand = config.onCommand,
+      getReplyToMsg = config.getReplyToMsg,
+      setReplyToMsg = config.setReplyToMsg,
+      onRequestFocus = config.onRequestFocus,
+      onShowSnackBar = config.onShowSnackBar;
 
   void dispose() {
     isDisposed = true;

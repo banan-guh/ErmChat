@@ -60,8 +60,9 @@ Future<ServiceRequestResult> startForegroundService(
   List<String> channelNames,
 ) async {
   if (!Platform.isAndroid) return const ServiceRequestSuccess();
-  if (channelNames.isEmpty)
+  if (channelNames.isEmpty) {
     return const ServiceRequestFailure(error: 'no channels');
+  }
 
   final title =
       'Live chat: ${channelNames.take(2).map((c) => '#$c').join(', ')}';

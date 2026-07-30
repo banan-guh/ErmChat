@@ -21,8 +21,9 @@ class _AboutScreenState extends State<AboutScreen> {
   Future<void> _loadVersion() async {
     try {
       final info = await PackageInfo.fromPlatform();
-      if (mounted)
+      if (mounted) {
         setState(() => _version = '${info.version}+${info.buildNumber}');
+      }
     } catch (_) {
       debugPrint('[AboutScreen] failed to load package info');
       if (mounted) setState(() => _version = 'unknown');
