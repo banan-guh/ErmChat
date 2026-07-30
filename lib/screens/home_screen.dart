@@ -991,6 +991,7 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   void _removeChannel(String channel) {
+    _chatConn.stopChatStatusTimer(channel);
     _irc.part(channel);
     _ircRead.part(channel);
     _emoteManager.evictChannel(channel);

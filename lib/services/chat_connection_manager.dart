@@ -177,6 +177,7 @@ class ChatConnectionManager {
   DateTime? _lastSubscribeAll;
   bool userTwitchEmotesLoaded = false;
   final _connectedAcked = <String>{};
+  final _chatStatusTimers = <String, Timer>{};
   bool isDisposed = false;
   bool _isConnecting = false;
   final _recentBanMeta = <String, List<_BanMeta>>{};
@@ -263,6 +264,14 @@ class ChatConnectionManager {
     sevenTvUserSub?.cancel();
     ircStatusSub?.cancel();
     ircReadStatusSub?.cancel();
+    for (final t in _chatStatusTimers.values) {
+      t.cancel();
+    }
+    _chatStatusTimers.clear();
+  }
+
+  void stopChatStatusTimer(String channel) {
+    _chatStatusTimers.remove(channel)?.cancel();
   }
 
   void _markUserMessagesDeleted(String channel, String username) {
@@ -663,6 +672,11 @@ class ChatConnectionManager {
 
     onRebuild();
     fetchChatStatus(channelName);
+    _chatStatusTimers[channelName]?.cancel();
+    _chatStatusTimers[channelName] = Timer.periodic(
+      const Duration(seconds: 60),
+      (_) => fetchChatStatus(channelName),
+    );
   }
 
   Future<void> _resolveSevenTvAndSubscribe(

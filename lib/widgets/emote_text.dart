@@ -239,8 +239,6 @@ class EmoteText {
       imageUrl: url,
       width: width,
       height: height,
-      memCacheWidth: width.round(),
-      memCacheHeight: height.round(),
       fit: BoxFit.contain,
       fadeInDuration: Duration.zero,
       placeholder: (_, _) => SizedBox(width: width, height: height),

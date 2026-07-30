@@ -84,7 +84,7 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
     }
 
     return MaterialApp(
-      title: 'Twitch Chat',
+      title: 'ErmChat',
       themeMode: _themeMode,
       theme: ThemeData(
         colorScheme:
