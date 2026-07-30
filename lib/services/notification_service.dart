@@ -71,7 +71,15 @@ class NotificationService {
       enableVibration: true,
       playSound: true,
     );
-    const details = NotificationDetails(android: androidDetails);
+    const iosDetails = DarwinNotificationDetails(
+      presentAlert: false,
+      presentBadge: false,
+      presentSound: false,
+    );
+    const details = NotificationDetails(
+      android: androidDetails,
+      iOS: iosDetails,
+    );
 
     final body = message.length > 200
         ? '${message.substring(0, 200)}…'

@@ -38,7 +38,9 @@ void main() {
     });
 
     test('single known emote by text match returns WidgetSpan', () {
-      final emotes = _makeEmotes({'Kappa': makeTestEmote(id: '1', code: 'Kappa')});
+      final emotes = _makeEmotes({
+        'Kappa': makeTestEmote(id: '1', code: 'Kappa'),
+      });
       final spans = EmoteText.build(
         text: 'Kappa',
         twitchPositions: null,
@@ -49,7 +51,9 @@ void main() {
     });
 
     test('text + emote + text mix returns correct span types', () {
-      final emotes = _makeEmotes({'Kappa': makeTestEmote(id: '1', code: 'Kappa')});
+      final emotes = _makeEmotes({
+        'Kappa': makeTestEmote(id: '1', code: 'Kappa'),
+      });
       final spans = EmoteText.build(
         text: 'hi Kappa there',
         twitchPositions: null,
@@ -63,7 +67,11 @@ void main() {
     test('Twitch emote position overrides text match', () {
       final emotes = _makeEmotes({
         'Kappa': makeTestEmote(id: '1', code: 'Kappa'),
-        'KappaPride': makeTestEmote(id: '2', code: 'KappaPride', type: EmoteType.twitch),
+        'KappaPride': makeTestEmote(
+          id: '2',
+          code: 'KappaPride',
+          type: EmoteType.twitch,
+        ),
       });
       final spans = EmoteText.build(
         text: 'KappaPride',
@@ -114,7 +122,9 @@ void main() {
     });
 
     test('URL detection in plain text segments', () {
-      final emotes = _makeEmotes({'Kappa': makeTestEmote(id: '1', code: 'Kappa')});
+      final emotes = _makeEmotes({
+        'Kappa': makeTestEmote(id: '1', code: 'Kappa'),
+      });
       final spans = EmoteText.build(
         text: 'Kappa check https://example.com',
         twitchPositions: null,
@@ -210,7 +220,9 @@ void main() {
     });
 
     test('unknown token renders as plain text', () {
-      final emotes = _makeEmotes({'Kappa': makeTestEmote(id: '1', code: 'Kappa')});
+      final emotes = _makeEmotes({
+        'Kappa': makeTestEmote(id: '1', code: 'Kappa'),
+      });
       final spans = EmoteText.build(
         text: 'unknownToken',
         twitchPositions: null,
@@ -252,7 +264,11 @@ void main() {
 
     test('small-scale emote renders at scaled size', () {
       final emotes = _makeEmotes({
-        'SmallEmote': makeTestEmote(id: '1', code: 'SmallEmote', relativeScale: 0.625),
+        'SmallEmote': makeTestEmote(
+          id: '1',
+          code: 'SmallEmote',
+          relativeScale: 0.625,
+        ),
       });
       final spans = EmoteText.build(
         text: 'SmallEmote',
@@ -270,8 +286,16 @@ void main() {
 
     test('zero-width overlay expands box to fit largest element', () {
       final emotes = _makeEmotes({
-        'SmallBase': makeTestEmote(id: '1', code: 'SmallBase', relativeScale: 0.5),
-        'LargeOverlay': makeTestEmote(id: '2', code: 'LargeOverlay', isZeroWidth: true),
+        'SmallBase': makeTestEmote(
+          id: '1',
+          code: 'SmallBase',
+          relativeScale: 0.5,
+        ),
+        'LargeOverlay': makeTestEmote(
+          id: '2',
+          code: 'LargeOverlay',
+          isZeroWidth: true,
+        ),
       });
       final spans = EmoteText.build(
         text: 'SmallBase LargeOverlay',

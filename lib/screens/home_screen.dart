@@ -85,61 +85,63 @@ class _HomeScreenState extends State<HomeScreen>
       widget.sevenTvEventClient ??
       SevenTvEventClient(connectivity: _connectivity);
   late final _twitchApi = TwitchApi();
-  late final _chatConn = ChatConnectionManager(ChatConnectionConfig(
-    twitchApi: _twitchApi,
-    eventSub: _eventSub,
-    irc: _irc,
-    ircRead: _ircRead,
-    sevenTvClient: _sevenTvClient,
-    emoteManager: _emoteManager,
-    badgeService: _badgeService,
-    userStore: _userStore,
-    twitchAuth: widget.twitchAuth,
-    channelMessages: _channelMessages,
-    messageKeys: _messageKeys,
-    chatStatus: _chatStatus,
-    channelsWithUnread: _channelsWithUnread,
-    channelsWithUnreadMentions: _channelsWithUnreadMentions,
-    unreadMentionsPerChannel: _unreadMentionsPerChannel,
-    channels: _channels,
-    historyLoaded: _historyLoaded,
-    channelsEmotesResolved: _channelsEmotesResolved,
-    channelUserIds: _channelUserIds,
-    lastTypedText: _lastTypedText,
-    lastSentWireText: _lastSentWireText,
-    ownMessageIds: _ownMessageIds,
-    bumpChannel: _notifyNewMessage,
-    invalidateChannel: _bumpChannel,
-    mentionsChannel: _mentionsChannel,
-    onRebuild: () {
-      if (mounted) setState(() {});
-    },
-    onSystemMessage: _addSystemMessage,
-    loadUserTwitchEmotes: _loadUserTwitchEmotes,
-    getMaxMessagesPerChannel: () => _maxMessagesPerChannel,
-    getSelectedChannel: () => _selectedChannel,
-    getUnreadMentions: () => _unreadMentions,
-    setUnreadMentions: (v) => _unreadMentions = v,
-    getCurrentUserLogin: () => _currentUserLogin,
-    setCurrentUserLogin: (v) {
-      _currentUserLogin = v;
-      _scanHistoryForMentions();
-    },
-    getCurrentUserId: () => _currentUserId,
-    setCurrentUserId: (v) => _currentUserId = v,
-    onCommand: _handleCommand,
-    getReplyToMsg: () => _replyToMsg,
-    setReplyToMsg: (v) => _replyToMsg = v,
-    onRequestFocus: () => _focusNode.requestFocus(),
-    getAltPings: () => _altPings,
-    onShowSnackBar: (msg) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(msg)));
-      }
-    },
-  ));
+  late final _chatConn = ChatConnectionManager(
+    ChatConnectionConfig(
+      twitchApi: _twitchApi,
+      eventSub: _eventSub,
+      irc: _irc,
+      ircRead: _ircRead,
+      sevenTvClient: _sevenTvClient,
+      emoteManager: _emoteManager,
+      badgeService: _badgeService,
+      userStore: _userStore,
+      twitchAuth: widget.twitchAuth,
+      channelMessages: _channelMessages,
+      messageKeys: _messageKeys,
+      chatStatus: _chatStatus,
+      channelsWithUnread: _channelsWithUnread,
+      channelsWithUnreadMentions: _channelsWithUnreadMentions,
+      unreadMentionsPerChannel: _unreadMentionsPerChannel,
+      channels: _channels,
+      historyLoaded: _historyLoaded,
+      channelsEmotesResolved: _channelsEmotesResolved,
+      channelUserIds: _channelUserIds,
+      lastTypedText: _lastTypedText,
+      lastSentWireText: _lastSentWireText,
+      ownMessageIds: _ownMessageIds,
+      bumpChannel: _notifyNewMessage,
+      invalidateChannel: _bumpChannel,
+      mentionsChannel: _mentionsChannel,
+      onRebuild: () {
+        if (mounted) setState(() {});
+      },
+      onSystemMessage: _addSystemMessage,
+      loadUserTwitchEmotes: _loadUserTwitchEmotes,
+      getMaxMessagesPerChannel: () => _maxMessagesPerChannel,
+      getSelectedChannel: () => _selectedChannel,
+      getUnreadMentions: () => _unreadMentions,
+      setUnreadMentions: (v) => _unreadMentions = v,
+      getCurrentUserLogin: () => _currentUserLogin,
+      setCurrentUserLogin: (v) {
+        _currentUserLogin = v;
+        _scanHistoryForMentions();
+      },
+      getCurrentUserId: () => _currentUserId,
+      setCurrentUserId: (v) => _currentUserId = v,
+      onCommand: _handleCommand,
+      getReplyToMsg: () => _replyToMsg,
+      setReplyToMsg: (v) => _replyToMsg = v,
+      onRequestFocus: () => _focusNode.requestFocus(),
+      getAltPings: () => _altPings,
+      onShowSnackBar: (msg) {
+        if (mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text(msg)));
+        }
+      },
+    ),
+  );
   late final _messageBuilder = MessageBuilder(
     emoteManager: _emoteManager,
     badgeService: _badgeService,
@@ -283,14 +285,17 @@ class _HomeScreenState extends State<HomeScreen>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (!Platform.isAndroid) return;
     _isBackgrounded =
         state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive;
-    if (state == AppLifecycleState.paused) {
-      startForegroundService(List.of(_channels));
-    } else if (state == AppLifecycleState.resumed) {
-      stopForegroundService();
+    if (Platform.isAndroid) {
+      if (state == AppLifecycleState.paused) {
+        startForegroundService(List.of(_channels));
+      } else if (state == AppLifecycleState.resumed) {
+        stopForegroundService();
+      }
+    }
+    if (state == AppLifecycleState.resumed) {
       _chatConn.reconnectIfNecessary();
     }
   }
@@ -341,7 +346,8 @@ class _HomeScreenState extends State<HomeScreen>
                 final existingIds = existing.map((m) => m.messageId).toSet();
                 for (final msg in history) {
                   if (!msg.isSystem && msg.login.isNotEmpty) {
-                    final preferred = msg.displayName.toLowerCase() == msg.login.toLowerCase()
+                    final preferred =
+                        msg.displayName.toLowerCase() == msg.login.toLowerCase()
                         ? msg.displayName
                         : msg.login;
                     _userStore.addUser(name, preferred);
@@ -505,11 +511,10 @@ class _HomeScreenState extends State<HomeScreen>
     final replacementLen = undo.replacementText.length;
     final replEnd = undo.start + replacementLen;
 
-    // Check beginning of replacement is intact in CURRENT text (may be
-    // shorter after backspace into it).
     final minLen = text.length < replEnd ? text.length : replEnd;
     for (var i = undo.start; i < minLen; i++) {
-      if (text[i] != undo.replacementText[i - undo.start]) {
+      if (text.codeUnitAt(i) !=
+          undo.replacementText.codeUnitAt(i - undo.start)) {
         _lastAutoUndo = null;
         _undoExpectedAfter = null;
         return;
@@ -1294,11 +1299,11 @@ class _HomeScreenState extends State<HomeScreen>
       },
       onVerticalDragUpdate: (details) {
         final cumulativeDelta = details.globalPosition.dy - _panelDragStartY;
-                final height =
-                    maxSize *
-                    (MediaQuery.of(context).size.height -
-                        MediaQuery.of(context).padding.top -
-                        MediaQuery.viewInsetsOf(context).bottom);
+        final height =
+            maxSize *
+            (MediaQuery.of(context).size.height -
+                MediaQuery.of(context).padding.top -
+                MediaQuery.viewInsetsOf(context).bottom);
         ratio.value = (_panelDragStartRatio - cumulativeDelta / height).clamp(
           0.0,
           maxSize,
@@ -1691,23 +1696,39 @@ class _HomeScreenState extends State<HomeScreen>
                                           builder: (_, _) {
                                             final isActive =
                                                 (i - _selectedTabIndex.value)
-                                                        .abs() <=
-                                                    1;
+                                                    .abs() <=
+                                                1;
                                             if (!isActive) {
                                               return const SizedBox();
                                             }
                                             return ChatView(
                                               channel: channel,
-                                              messages: _channelMessages[channel] ?? [],
+                                              messages:
+                                                  _channelMessages[channel] ??
+                                                  [],
                                               frozenSnapshot: _frozenSnapshot,
                                               tileCache: _tileCache,
-                                              atBottomNotifier: _atBottomNotifier(channel),
-                                              messageNotifier: _messageNotifier(channel),
-                                              scrollController: _scrollCtrl(channel),
+                                              atBottomNotifier:
+                                                  _atBottomNotifier(channel),
+                                              messageNotifier: _messageNotifier(
+                                                channel,
+                                              ),
+                                              scrollController: _scrollCtrl(
+                                                channel,
+                                              ),
                                               messageBuilder: _messageBuilder,
-                                              onShowUserProfile: (login, userId, {displayName}) =>
-                                                  _showUserProfile(login, userId, displayName: displayName),
-                                              onShowMessageMenu: _showMessageMenu,
+                                              onShowUserProfile:
+                                                  (
+                                                    login,
+                                                    userId, {
+                                                    displayName,
+                                                  }) => _showUserProfile(
+                                                    login,
+                                                    userId,
+                                                    displayName: displayName,
+                                                  ),
+                                              onShowMessageMenu:
+                                                  _showMessageMenu,
                                               onNewMessage: _notifyNewMessage,
                                               onFindThreadRoot: _findThreadRoot,
                                               onShowThreadView: _showThreadView,
@@ -1855,8 +1876,10 @@ class _HomeScreenState extends State<HomeScreen>
                                         data: _threadPanelData,
                                         uiScale: 1.0,
                                         onLongPress: _showThreadMessageMenu,
-                                        buildBadgeSpans: _messageBuilder.buildBadgeSpans,
-                                        buildMessageSpans: _messageBuilder.buildMessageSpans,
+                                        buildBadgeSpans:
+                                            _messageBuilder.buildBadgeSpans,
+                                        buildMessageSpans:
+                                            _messageBuilder.buildMessageSpans,
                                         scrollController:
                                             _threadPanelScrollCtrl,
                                       ),
@@ -1933,8 +1956,10 @@ class _HomeScreenState extends State<HomeScreen>
                                         key: const ValueKey('mentions_panel'),
                                         messages: _mentionsPanelData,
                                         uiScale: 1.0,
-                                        buildBadgeSpans: _messageBuilder.buildBadgeSpans,
-                                        buildMessageSpans: _messageBuilder.buildMessageSpans,
+                                        buildBadgeSpans:
+                                            _messageBuilder.buildBadgeSpans,
+                                        buildMessageSpans:
+                                            _messageBuilder.buildMessageSpans,
                                         scrollController:
                                             _mentionsPanelScrollCtrl,
                                       ),
@@ -2144,5 +2169,4 @@ class _HomeScreenState extends State<HomeScreen>
       ),
     );
   }
-
 }

@@ -1035,9 +1035,7 @@ class ChatConnectionManager {
         _onSevenTvEmoteSetUpdate,
       );
       sevenTvUserSub?.cancel();
-      sevenTvUserSub = sevenTvClient!.onUserUpdate.listen(
-        _onSevenTvUserUpdate,
-      );
+      sevenTvUserSub = sevenTvClient!.onUserUpdate.listen(_onSevenTvUserUpdate);
     }
   }
 
@@ -1045,7 +1043,8 @@ class ChatConnectionManager {
     if (isDisposed) return;
 
     if (!msg.isSystem && msg.login.isNotEmpty && msg.channel != null) {
-      final preferredName = msg.displayName.toLowerCase() == msg.login.toLowerCase()
+      final preferredName =
+          msg.displayName.toLowerCase() == msg.login.toLowerCase()
           ? msg.displayName
           : msg.login;
       userStore.addUser(msg.channel!, preferredName);
@@ -1072,9 +1071,9 @@ class ChatConnectionManager {
         msg.replyToUser != null &&
         msg.replyToUser!.toLowerCase() == login;
     final altPings = getAltPings?.call() ?? const [];
-    final hasAltPing = !msg.isSystem && altPings.any(
-      (p) => msg.text.toLowerCase().contains(p.toLowerCase()),
-    );
+    final hasAltPing =
+        !msg.isSystem &&
+        altPings.any((p) => msg.text.toLowerCase().contains(p.toLowerCase()));
     final isMentioned =
         (login != null && !msg.isSystem && isMention(msg.text, login)) ||
         isReplyToMe ||
@@ -1131,7 +1130,8 @@ class ChatConnectionManager {
         ? ircMsg.prefix!.substring(0, ircMsg.prefix!.indexOf('!'))
         : null;
     final login = ircPrefLogin ?? getCurrentUserLogin() ?? '';
-    final preferredName = displayName.isNotEmpty &&
+    final preferredName =
+        displayName.isNotEmpty &&
             displayName.toLowerCase() == login.toLowerCase()
         ? displayName
         : login;

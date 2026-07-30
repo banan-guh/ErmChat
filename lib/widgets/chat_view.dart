@@ -14,7 +14,7 @@ class ChatView extends StatelessWidget {
   final ScrollController scrollController;
   final MessageBuilder messageBuilder;
   final void Function(String login, String? userId, {String? displayName})
-    onShowUserProfile;
+  onShowUserProfile;
   final void Function(TwitchMessage) onShowMessageMenu;
   final void Function(String) onNewMessage;
   final TwitchMessage? Function(TwitchMessage) onFindThreadRoot;
@@ -75,7 +75,10 @@ class ChatView extends StatelessWidget {
                   return const Center(child: Text('No messages yet'));
                 }
 
-                final cache = tileCache.putIfAbsent(channel, () => <String?, Widget>{});
+                final cache = tileCache.putIfAbsent(
+                  channel,
+                  () => <String?, Widget>{},
+                );
 
                 return ListView.builder(
                   key: ValueKey(channel),

@@ -63,7 +63,6 @@ dart format .              # format all Dart files
 - `lib/widgets/tabbed_layout.dart` — swipeable tab layout with custom physics for channel switching
 - `lib/widgets/message_input.dart` — chat input box with reply indicator, send button, emote toggle
 - `lib/widgets/user_profile_sheet.dart` — user profile bottom sheet (PFP, display name, created date, Mention/Whisper/Block/Report buttons)
-- `lib/widgets/login_webview.dart` — OAuth WebView for browser-based login
 - `lib/widgets/autocomplete_dropdown.dart` — autocomplete dropdown for emotes/users/commands
 - `lib/widgets/settings.dart` — shared settings button (navigates to settings screen)
 
@@ -112,7 +111,7 @@ dart format .              # format all Dart files
 
 ## Setup
 
-1. Open `lib/twitch_config.dart` and replace `YOUR_CLIENT_ID_HERE` with your Twitch app's Client ID (get one at https://dev.twitch.tv/console/apps, set redirect URI to `http://localhost:17563`).
+1. Open `lib/twitch_config.dart` and replace `YOUR_CLIENT_ID_HERE` with your Twitch app's Client ID (get one at https://dev.twitch.tv/console/apps, set OAuth Redirect URL to `https://banan-guh.github.io/twitch-app-oauth/`).
 
 ## Notes
 

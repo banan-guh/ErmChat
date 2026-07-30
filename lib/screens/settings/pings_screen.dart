@@ -33,9 +33,7 @@ class _PingsScreenState extends State<PingsScreen> {
         content: TextField(
           controller: controller,
           autofocus: true,
-          decoration: const InputDecoration(
-            hintText: 'Text to highlight',
-          ),
+          decoration: const InputDecoration(hintText: 'Text to highlight'),
           onSubmitted: (v) => Navigator.pop(ctx, v.trim()),
         ),
         actions: [

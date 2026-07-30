@@ -36,7 +36,12 @@ jobs:
         run: flutter pub get
 
       - name: Build Android APK
-        run: flutter build apk --release
+        run: |
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#v}"
+          flutter build apk --release \
+            --build-name="$VERSION" \
+            --build-number="${{ github.run_number }}"
 
       - name: Prepare APK Asset
         run: |
@@ -68,7 +73,12 @@ jobs:
         run: flutter pub get
 
       - name: Build unsigned iOS IPA
-        run: flutter build ipa --no-codesign
+        run: |
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#v}"
+          flutter build ipa --no-codesign \
+            --build-name="$VERSION" \
+            --build-number="${{ github.run_number }}"
 
       - name: Package payload into downloadable .ipa
         run: |

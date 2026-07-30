@@ -18,7 +18,9 @@ class TwitchAuth extends ChangeNotifier {
 
   Future<void> load() async {
     accessToken = await _storage.read(key: 'access_token');
+    if (accessToken?.isEmpty ?? false) accessToken = null;
     refreshToken = await _storage.read(key: 'refresh_token');
+    if (refreshToken?.isEmpty ?? false) refreshToken = null;
   }
 
   Future<void> _save() async {
