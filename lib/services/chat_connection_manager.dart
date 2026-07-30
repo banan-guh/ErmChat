@@ -835,6 +835,7 @@ class ChatConnectionManager {
         wasDisconnected = true;
         wasConnected = false;
         _connectedAcked.clear();
+        _lastSubscribeAll = null;
         for (final channel in channels) {
           onSystemMessage(channel, 'Disconnected');
         }

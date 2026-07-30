@@ -9,8 +9,7 @@ enum IrcConnectionStatus { disconnected, connecting, connected }
 abstract class BaseIrcConnection {
   static const _wsUrl = 'wss://irc-ws.chat.twitch.tv:443';
   static const _maxReconnectAttempts = 8;
-  static const _pingInterval = Duration(seconds: 60);
-  static const _pongTimeout = Duration(seconds: 15);
+  static const _pingInterval = Duration(seconds: 300);
 
   final Connectivity? connectivity;
 
@@ -28,7 +27,6 @@ abstract class BaseIrcConnection {
 
   StreamSubscription<dynamic>? _streamSub;
   Timer? _pingTimer;
-  Timer? _pongTimer;
   Timer? _reconnectTimer;
 
   final _statusController = StreamController<IrcConnectionStatus>.broadcast(
@@ -43,17 +41,6 @@ abstract class BaseIrcConnection {
   String get debugPrefix;
 
   BaseIrcConnection({this.connectivity});
-
-  /// Set WebSocket-level ping interval on the underlying [dart:io.WebSocket]
-  /// for TCP-level failure detection. On web (HtmlWebSocketChannel) this is a
-  /// no-op; the browser handles WebSocket keepalive internally.
-  void _enableTcpKeepalive(WebSocketChannel? ch) {
-    if (ch == null) return;
-    try {
-      final ws = (ch as dynamic).webSocket;
-      if (ws != null) ws.pingInterval = const Duration(seconds: 30);
-    } catch (_) {}
-  }
 
   Future<void> connect({
     required String username,
@@ -94,8 +81,6 @@ abstract class BaseIrcConnection {
       try {
         channel = WebSocketChannel.connect(Uri.parse(_wsUrl));
         await channel!.ready;
-
-        _enableTcpKeepalive(channel);
 
         _streamSub = channel!.stream.listen(
           (raw) => _handleLine(raw as String),
@@ -147,16 +132,6 @@ abstract class BaseIrcConnection {
           }
           sendLine('PING :keepalive');
           _awaitingPong = true;
-          _pongTimer?.cancel();
-          _pongTimer = Timer(_pongTimeout, () {
-            if (_awaitingPong) {
-              debugPrint('$debugPrefix PONG response timeout – reconnecting');
-              _status = IrcConnectionStatus.disconnected;
-              _statusController.add(IrcConnectionStatus.disconnected);
-              _disconnect();
-              _scheduleReconnect();
-            }
-          });
         });
       } catch (e) {
         debugPrint('$debugPrefix connect error: $e');
@@ -176,8 +151,6 @@ abstract class BaseIrcConnection {
     _reconnectTimer = null;
     _pingTimer?.cancel();
     _pingTimer = null;
-    _pongTimer?.cancel();
-    _pongTimer = null;
     _streamSub?.cancel();
     _streamSub = null;
     channel?.sink.close();
@@ -226,12 +199,14 @@ abstract class BaseIrcConnection {
       if (line.isEmpty) continue;
 
       _reconnectAttempt = 0;
-      _awaitingPong = false;
-      _pongTimer?.cancel();
-      _pongTimer = null;
 
       if (line.startsWith('PING')) {
         sendLine(line.replaceFirst('PING', 'PONG'));
+        continue;
+      }
+
+      if (line.startsWith('PONG')) {
+        _awaitingPong = false;
         continue;
       }
 
@@ -266,7 +241,6 @@ abstract class BaseIrcConnection {
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
     _pingTimer?.cancel();
-    _pongTimer?.cancel();
     _streamSub?.cancel();
     channel?.sink.close();
     _statusController.close();

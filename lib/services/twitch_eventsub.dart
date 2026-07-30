@@ -116,8 +116,6 @@ class EventSubService {
         _channel = WebSocketChannel.connect(Uri.parse(url ?? _wsUrl));
         await _channel!.ready;
 
-        _enableTcpKeepalive(_channel);
-
         _streamSub = _channel!.stream.listen(
           (raw) {
             final msg = jsonDecode(raw as String) as Map<String, dynamic>;
@@ -167,14 +165,6 @@ class EventSubService {
       _reconnecting = false;
       connect();
     });
-  }
-
-  void _enableTcpKeepalive(WebSocketChannel? ch) {
-    if (ch == null) return;
-    try {
-      final ws = (ch as dynamic).webSocket;
-      if (ws != null) ws.pingInterval = const Duration(seconds: 30);
-    } catch (_) {}
   }
 
   void _safeComplete(String? value) {

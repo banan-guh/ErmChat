@@ -111,14 +111,6 @@ class SevenTvEventClient {
 
   bool get isConnected => _channel != null;
 
-  void _enableTcpKeepalive(WebSocketChannel? ch) {
-    if (ch == null) return;
-    try {
-      final ws = (ch as dynamic).webSocket;
-      if (ws != null) ws.pingInterval = const Duration(seconds: 30);
-    } catch (_) {}
-  }
-
   Future<void> connect() async {
     if (_disposed || _connecting) return;
     _connecting = true;
@@ -139,8 +131,6 @@ class SevenTvEventClient {
       try {
         _channel = WebSocketChannel.connect(Uri.parse(_wsUrl));
         await _channel!.ready;
-
-        _enableTcpKeepalive(_channel);
 
         _streamSub = _channel!.stream.listen(
           (raw) => _handleMessage(raw as String),
