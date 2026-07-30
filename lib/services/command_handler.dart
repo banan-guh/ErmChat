@@ -9,6 +9,7 @@ class CommandHandler {
   final String? Function() getCurrentUserId;
   final String? Function() getCurrentUserLogin;
   final void Function(String channel, String message) addSystemMessage;
+  final _userIdCache = <String, String>{};
 
   CommandHandler({
     required this.twitchApi,
@@ -18,6 +19,15 @@ class CommandHandler {
     required this.getCurrentUserLogin,
     required this.addSystemMessage,
   });
+
+  Future<String?> _resolveUserId(TwitchAuth auth, String login) async {
+    final lower = login.toLowerCase();
+    final cached = _userIdCache[lower];
+    if (cached != null) return cached;
+    final id = await _resolveUserId(auth, login);
+    if (id != null) _userIdCache[lower] = id;
+    return id;
+  }
 
   Future<void> handle(String text, String channel, TwitchAuth auth) async {
     final parts = text.split(RegExp(r'\s+'));
@@ -74,7 +84,7 @@ class CommandHandler {
         }
         final targetLogin = args[0];
         final reason = args.length > 1 ? args.sublist(1).join(' ') : null;
-        final targetId = await twitchApi.getUserId(auth, targetLogin);
+        final targetId = await _resolveUserId(auth, targetLogin);
         if (targetId == null) {
           addSystemMessage(channel, 'User "$targetLogin" not found.');
           return;
@@ -100,7 +110,7 @@ class CommandHandler {
           addSystemMessage(channel, 'Usage: /unban <username>');
           return;
         }
-        final targetId = await twitchApi.getUserId(auth, args[0]);
+        final targetId = await _resolveUserId(auth, args[0]);
         if (targetId == null) {
           addSystemMessage(channel, 'User "${args[0]}" not found.');
           return;
@@ -140,7 +150,7 @@ class CommandHandler {
             reason = args.sublist(1).join(' ');
           }
         }
-        final targetId = await twitchApi.getUserId(auth, targetLogin);
+        final targetId = await _resolveUserId(auth, targetLogin);
         if (targetId == null) {
           addSystemMessage(channel, 'User "$targetLogin" not found.');
           return;
@@ -223,7 +233,7 @@ class CommandHandler {
           addSystemMessage(channel, 'Usage: /shoutout <username>');
           return;
         }
-        final targetId = await twitchApi.getUserId(auth, args[0]);
+        final targetId = await _resolveUserId(auth, args[0]);
         if (targetId == null) {
           addSystemMessage(channel, 'User "${args[0]}" not found.');
           return;

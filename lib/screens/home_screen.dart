@@ -525,7 +525,7 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   void _onEmotesChanged() {
-    final channel = _emoteManager.changedChannel;
+    final channel = _emoteManager.consumeChangedChannel();
     if (channel != null) {
       final msgs = _channelMessages[channel];
       if (msgs != null) {

@@ -28,13 +28,18 @@ class TwitchApi {
       _setError('getUserId', res);
       return null;
     }
-    final data = jsonDecode(res.body) as Map;
-    final list = data['data'] as List;
-    if (list.isEmpty) {
-      _setError('User "$login" not found');
+    try {
+      final data = jsonDecode(res.body) as Map;
+      final list = data['data'] as List;
+      if (list.isEmpty) {
+        _setError('User "$login" not found');
+        return null;
+      }
+      return list[0]['id'] as String;
+    } catch (e) {
+      _setError('getUserId: bad response');
       return null;
     }
-    return list[0]['id'] as String;
   }
 
   Future<String?> getUserLoginById(TwitchAuth auth, String userId) async {
@@ -45,10 +50,15 @@ class TwitchApi {
       _setError('getUserLoginById', res);
       return null;
     }
-    final data = jsonDecode(res.body) as Map;
-    final list = data['data'] as List;
-    if (list.isEmpty) return null;
-    return list[0]['login'] as String;
+    try {
+      final data = jsonDecode(res.body) as Map;
+      final list = data['data'] as List;
+      if (list.isEmpty) return null;
+      return list[0]['login'] as String;
+    } catch (e) {
+      _setError('getUserLoginById: bad response');
+      return null;
+    }
   }
 
   Future<Map<String, String>> getUserLoginsByIds(
@@ -83,13 +93,18 @@ class TwitchApi {
       _setError('getCurrentUser', res);
       return null;
     }
-    final data = jsonDecode(res.body) as Map;
-    final list = data['data'] as List;
-    if (list.isEmpty) {
-      _setError('No user associated with token');
+    try {
+      final data = jsonDecode(res.body) as Map;
+      final list = data['data'] as List;
+      if (list.isEmpty) {
+        _setError('No user associated with token');
+        return null;
+      }
+      return {'id': list[0]['id'] as String, 'login': list[0]['login'] as String};
+    } catch (e) {
+      _setError('getCurrentUser: bad response');
       return null;
     }
-    return {'id': list[0]['id'] as String, 'login': list[0]['login'] as String};
   }
 
   Future<bool> createSubscription({
@@ -185,10 +200,15 @@ class TwitchApi {
       _setError('getChatSettings', res);
       return null;
     }
-    final data = jsonDecode(res.body) as Map;
-    final list = data['data'] as List;
-    if (list.isEmpty) return null;
-    return list[0] as Map<String, dynamic>;
+    try {
+      final data = jsonDecode(res.body) as Map;
+      final list = data['data'] as List;
+      if (list.isEmpty) return null;
+      return list[0] as Map<String, dynamic>;
+    } catch (e) {
+      _setError('getChatSettings: bad response');
+      return null;
+    }
   }
 
   Future<Map<String, dynamic>?> getStreamInfo(
@@ -202,10 +222,15 @@ class TwitchApi {
       _setError('getStreamInfo', res);
       return null;
     }
-    final data = jsonDecode(res.body) as Map;
-    final list = data['data'] as List;
-    if (list.isEmpty) return null;
-    return list[0] as Map<String, dynamic>;
+    try {
+      final data = jsonDecode(res.body) as Map;
+      final list = data['data'] as List;
+      if (list.isEmpty) return null;
+      return list[0] as Map<String, dynamic>;
+    } catch (e) {
+      _setError('getStreamInfo: bad response');
+      return null;
+    }
   }
 
   Future<Map<String, dynamic>?> getUserProfile(
@@ -219,13 +244,18 @@ class TwitchApi {
       _setError('getUserProfile', res);
       return null;
     }
-    final data = jsonDecode(res.body) as Map;
-    final list = data['data'] as List;
-    if (list.isEmpty) {
-      _setError('User "$login" not found');
+    try {
+      final data = jsonDecode(res.body) as Map;
+      final list = data['data'] as List;
+      if (list.isEmpty) {
+        _setError('User "$login" not found');
+        return null;
+      }
+      return list[0] as Map<String, dynamic>;
+    } catch (e) {
+      _setError('getUserProfile: bad response');
       return null;
     }
-    return list[0] as Map<String, dynamic>;
   }
 
   Future<bool> blockUser(TwitchAuth auth, String targetUserId) async {
@@ -284,18 +314,23 @@ class TwitchApi {
       _setError('sendChatMessage', res);
       return null;
     }
-    final data = jsonDecode(res.body) as Map;
-    final list = data['data'] as List;
-    if (list.isEmpty) return null;
-    final item = list[0] as Map<String, dynamic>;
-    if (item['is_sent'] != true) {
-      final dropReason = item['drop_reason'] as Map<String, dynamic>?;
-      _setError(
-        'sendChatMessage dropped: ${dropReason?['message'] ?? "unknown"}',
-      );
+    try {
+      final data = jsonDecode(res.body) as Map;
+      final list = data['data'] as List;
+      if (list.isEmpty) return null;
+      final item = list[0] as Map<String, dynamic>;
+      if (item['is_sent'] != true) {
+        final dropReason = item['drop_reason'] as Map<String, dynamic>?;
+        _setError(
+          'sendChatMessage dropped: ${dropReason?['message'] ?? "unknown"}',
+        );
+        return null;
+      }
+      return item['message_id'] as String;
+    } catch (e) {
+      _setError('sendChatMessage: bad response');
       return null;
     }
-    return item['message_id'] as String;
   }
 
   Future<bool> updateUserChatColor(
