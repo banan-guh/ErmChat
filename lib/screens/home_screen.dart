@@ -21,11 +21,7 @@ import '../services/emote_providers/twitch_emotes.dart';
 import '../util/mention.dart';
 import '../util/thread_utils.dart';
 import '../widgets/settings.dart';
-import '../widgets/emote_text.dart';
-import '../widgets/chat_message_tile.dart';
 import '../widgets/tabbed_layout.dart';
-import 'package:cached_network_image/cached_network_image.dart';
-import '../color_utils.dart';
 import '../services/user_store.dart';
 import '../services/suggestion.dart';
 import '../services/notification_service.dart';
@@ -36,6 +32,8 @@ import '../widgets/message_input.dart';
 import '../widgets/thread_panel.dart';
 import '../widgets/mentions_panel.dart';
 import '../widgets/emote_menu_panel.dart';
+import '../widgets/chat_view.dart';
+import '../widgets/message_builder.dart';
 import '../services/foreground_task.dart';
 
 enum OverlayPanel { closed, thread, mentions, emotes }
@@ -137,6 +135,11 @@ class _HomeScreenState extends State<HomeScreen>
       }
     },
   ));
+  late final _messageBuilder = MessageBuilder(
+    emoteManager: _emoteManager,
+    badgeService: _badgeService,
+    onShowEmoteSheet: _showEmoteSheet,
+  );
   late final _commandHandler = CommandHandler(
     twitchApi: _twitchApi,
     irc: _irc,
@@ -1693,7 +1696,22 @@ class _HomeScreenState extends State<HomeScreen>
                                             if (!isActive) {
                                               return const SizedBox();
                                             }
-                                            return _buildChatShell(channel);
+                                            return ChatView(
+                                              channel: channel,
+                                              messages: _channelMessages[channel] ?? [],
+                                              frozenSnapshot: _frozenSnapshot,
+                                              tileCache: _tileCache,
+                                              atBottomNotifier: _atBottomNotifier(channel),
+                                              messageNotifier: _messageNotifier(channel),
+                                              scrollController: _scrollCtrl(channel),
+                                              messageBuilder: _messageBuilder,
+                                              onShowUserProfile: (login, userId, {displayName}) =>
+                                                  _showUserProfile(login, userId, displayName: displayName),
+                                              onShowMessageMenu: _showMessageMenu,
+                                              onNewMessage: _notifyNewMessage,
+                                              onFindThreadRoot: _findThreadRoot,
+                                              onShowThreadView: _showThreadView,
+                                            );
                                           },
                                         );
                                       },
@@ -1837,8 +1855,8 @@ class _HomeScreenState extends State<HomeScreen>
                                         data: _threadPanelData,
                                         uiScale: 1.0,
                                         onLongPress: _showThreadMessageMenu,
-                                        buildBadgeSpans: _buildBadgeSpans,
-                                        buildMessageSpans: _buildMessageSpans,
+                                        buildBadgeSpans: _messageBuilder.buildBadgeSpans,
+                                        buildMessageSpans: _messageBuilder.buildMessageSpans,
                                         scrollController:
                                             _threadPanelScrollCtrl,
                                       ),
@@ -1915,8 +1933,8 @@ class _HomeScreenState extends State<HomeScreen>
                                         key: const ValueKey('mentions_panel'),
                                         messages: _mentionsPanelData,
                                         uiScale: 1.0,
-                                        buildBadgeSpans: _buildBadgeSpans,
-                                        buildMessageSpans: _buildMessageSpans,
+                                        buildBadgeSpans: _messageBuilder.buildBadgeSpans,
+                                        buildMessageSpans: _messageBuilder.buildMessageSpans,
                                         scrollController:
                                             _mentionsPanelScrollCtrl,
                                       ),
@@ -2126,290 +2144,4 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  List<InlineSpan> _buildMessageSpans(
-    TwitchMessage msg,
-    String channel,
-    Color surface, {
-    bool colored = false,
-    double textScale = 1.0,
-  }) {
-    msg.cachedSpans ??= _computeMessageSpans(msg, channel, scale: textScale);
-    if (colored) {
-      return [
-        ...msg.cachedSpans!.map((span) {
-          if (span is TextSpan) {
-            return TextSpan(
-              text: span.text,
-              style: TextStyle(
-                fontSize: 14 * textScale,
-                color: parseColor(msg.color, background: surface),
-                decoration: TextDecoration.none,
-              ),
-              recognizer: span.recognizer,
-            );
-          }
-          return span;
-        }),
-      ];
-    }
-    return msg.cachedSpans!;
-  }
-
-  List<InlineSpan> _computeMessageSpans(
-    TwitchMessage msg,
-    String channel, {
-    double scale = 1.0,
-  }) {
-    final channelEmotes = _emoteManager.byCode(channel);
-    return EmoteText.build(
-      text: msg.text,
-      twitchPositions: msg.emotePositions,
-      channelEmotes: channelEmotes,
-      onEmoteTap: _showEmoteSheet,
-      scale: scale,
-    );
-  }
-
-  List<WidgetSpan> _buildBadgeSpans(
-    String channel,
-    TwitchMessage msg, {
-    double badgeScale = 1.0,
-  }) {
-    if (msg.cachedBadgeSpans != null) return msg.cachedBadgeSpans!;
-    final badgeSize = 18.0 * badgeScale;
-    final spans = <WidgetSpan>[];
-
-    // Shared chat source badge (circular avatar, prepended)
-    if (msg.sourceBroadcasterId != null) {
-      final avatarUrl = _badgeService.resolveChannelAvatar(
-        msg.sourceBroadcasterId!,
-      );
-      if (avatarUrl != null) {
-        spans.add(
-          WidgetSpan(
-            alignment: PlaceholderAlignment.middle,
-            child: Semantics(
-              label: msg.sourceBroadcasterName ?? 'shared chat',
-              child: Padding(
-                padding: const EdgeInsets.only(right: 2),
-                child: ClipOval(
-                  child: CachedNetworkImage(
-                    imageUrl: avatarUrl,
-                    width: badgeSize,
-                    height: badgeSize,
-                    memCacheWidth: badgeSize.round(),
-                    memCacheHeight: badgeSize.round(),
-                    fit: BoxFit.cover,
-                    fadeInDuration: Duration.zero,
-                    placeholder: (_, _) =>
-                        SizedBox(width: badgeSize, height: badgeSize),
-                    errorWidget: (_, url, error) {
-                      debugPrint(
-                        'Shared chat badge image failed: $url — $error',
-                      );
-                      return SizedBox(width: badgeSize, height: badgeSize);
-                    },
-                  ),
-                ),
-              ),
-            ),
-          ),
-        );
-      }
-    }
-
-    // Standard badges
-    final badges = msg.badges;
-    if (badges != null) {
-      for (final badge in badges) {
-        final url = _badgeService.resolveBadgeUrl(
-          channel,
-          badge.setId,
-          badge.versionId,
-        );
-        if (url == null) continue;
-        spans.add(
-          WidgetSpan(
-            alignment: PlaceholderAlignment.middle,
-            child: Semantics(
-              label: badge.setId,
-              child: Padding(
-                padding: const EdgeInsets.only(right: 2),
-                child: CachedNetworkImage(
-                  imageUrl: url,
-                  width: badgeSize,
-                  height: badgeSize,
-                  memCacheWidth: badgeSize.round(),
-                  memCacheHeight: badgeSize.round(),
-                  fit: BoxFit.contain,
-                  fadeInDuration: Duration.zero,
-                  placeholder: (_, _) =>
-                      SizedBox(width: badgeSize, height: badgeSize),
-                  errorWidget: (_, url, error) {
-                    debugPrint('Badge image load failed: $url — $error');
-                    return SizedBox(width: badgeSize, height: badgeSize);
-                  },
-                ),
-              ),
-            ),
-          ),
-        );
-      }
-    }
-    return msg.cachedBadgeSpans = spans;
-  }
-
-  Widget _buildChatShell(String channel) {
-    final surface = Theme.of(context).colorScheme.surface;
-    final systemScale = MediaQuery.textScalerOf(context).scale(1.0);
-    final s = 1.0 * systemScale;
-
-    return Stack(
-      clipBehavior: Clip.hardEdge,
-      children: [
-        NotificationListener<ScrollNotification>(
-          onNotification: (notification) {
-            if (notification is ScrollUpdateNotification) {
-              final scrolledUp = notification.metrics.pixels > 50.0;
-              final atBottom = _atBottomNotifier(channel).value;
-              if (scrolledUp && atBottom) {
-                _atBottomNotifier(channel).value = false;
-                _frozenSnapshot[channel] = List.of(
-                  _channelMessages[channel] ?? [],
-                );
-                _notifyNewMessage(channel);
-              } else if (!scrolledUp && !atBottom) {
-                _atBottomNotifier(channel).value = true;
-                _frozenSnapshot.remove(channel);
-                _notifyNewMessage(channel);
-              }
-            }
-            return false;
-          },
-          child: ScrollbarTheme(
-            data: const ScrollbarThemeData(
-              thickness: WidgetStatePropertyAll(0),
-            ),
-            child: ValueListenableBuilder<int>(
-              valueListenable: _messageNotifier(channel),
-              builder: (_, _, _) {
-                final msgs = _frozenSnapshot[channel] ??
-                    _channelMessages[channel] ??
-                    [];
-                if (msgs.isEmpty) {
-                  return const Center(child: Text('No messages yet'));
-                }
-
-                final cache =
-                    _tileCache.putIfAbsent(channel, () => <String?, Widget>{});
-
-                return ListView.builder(
-                  key: ValueKey(channel),
-                  controller: _scrollCtrl(channel),
-                  reverse: true,
-                  itemCount: msgs.length,
-                  itemBuilder: (_, i) {
-                    final msg = msgs[i];
-
-                    final cached = cache[msg.messageId];
-                    if (cached != null) return cached;
-
-                    final Widget body;
-                    if (msg.isSystem) {
-                      body = ChatMessageTile(
-                        key: ValueKey(msg.messageId),
-                        message: msg,
-                        channel: channel,
-                        surface: surface,
-                        textScale: s,
-                        buildBadgeSpans: _buildBadgeSpans,
-                        buildMessageSpans: _buildMessageSpans,
-                        systemBodyBuilder: (msg, scale) =>
-                            parseTextWithLinks(msg.text),
-                      );
-                    } else {
-                      body = ChatMessageTile(
-                        key: ValueKey(msg.messageId),
-                        message: msg,
-                        channel: channel,
-                        surface: surface,
-                        textScale: s,
-                        buildBadgeSpans: _buildBadgeSpans,
-                        buildMessageSpans: _buildMessageSpans,
-                        onTapUser: (login, userId) => _showUserProfile(
-                          login,
-                          userId,
-                          displayName: msg.displayName,
-                        ),
-                        onLongPress: () => _showMessageMenu(msg),
-                        replyIndicator: msg.replyToUser != null
-                            ? _buildReplyIndicator(msg)
-                            : null,
-                      );
-                    }
-
-                    if (msg.messageId != null) {
-                      cache[msg.messageId!] = body;
-                    }
-                    return RepaintBoundary(child: body);
-                  },
-                );
-              },
-            ),
-          ),
-        ),
-        ValueListenableBuilder<bool>(
-          valueListenable: _atBottomNotifier(channel),
-          builder: (_, atBottom, _) {
-            if (atBottom) return const SizedBox.shrink();
-            return Positioned(
-              right: 16,
-              bottom: 16,
-              child: FloatingActionButton(
-                heroTag: 'scroll_down_$channel',
-                onPressed: () {
-                  _atBottomNotifier(channel).value = true;
-                  _frozenSnapshot.remove(channel);
-                  _scrollCtrl(channel).jumpTo(0);
-                  _notifyNewMessage(channel);
-                },
-                child: const Icon(Icons.keyboard_arrow_down),
-              ),
-            );
-          },
-        ),
-      ],
-    );
-  }
-
-  Widget _buildReplyIndicator(TwitchMessage msg) {
-    final replyPreview = msg.replyToText ?? '';
-    final preview = replyPreview.length > 60
-        ? '${replyPreview.substring(0, 60)}…'
-        : replyPreview;
-    final variant = Theme.of(context).colorScheme.onSurfaceVariant;
-    return Padding(
-      padding: const EdgeInsets.only(left: 12, top: 2),
-      child: GestureDetector(
-        onTap: () {
-          final root = _findThreadRoot(msg);
-          if (root != null) _showThreadView(root);
-        },
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.subdirectory_arrow_right, size: 14, color: variant),
-            const SizedBox(width: 4),
-            Flexible(
-              child: Text(
-                'replying to ${msg.replyToUser ?? 'unknown'}: $preview',
-                style: TextStyle(fontSize: 11, color: variant),
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 }

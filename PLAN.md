@@ -138,7 +138,7 @@ Focus: making each rebuild cheaper/faster rather than preventing rebuilds from b
 
 - [ ] **C25 `widget_test.dart` at 2,313 lines** -- `test/widgets/widget_test.dart`. Tests everything (home screen, settings, channel bar, reply threads, system messages, autocomplete, emote menu) in a single file with inline fake services. Fix: split into one file per widget/feature.
 
-- [ ] **C26 `home_screen.dart` still 2,294 lines** -- `lib/screens/home_screen.dart`. Despite refactoring, still excessively long. Fix: continue extraction -- chat builder, overlay builder, panel builders could be separate files.
+- [+] **C26 `home_screen.dart` still 2,294 lines** -- `lib/screens/home_screen.dart`. Despite refactoring, still excessively long. Fix: continue extraction -- chat builder, overlay builder, panel builders could be separate files.
 
 - [x] **C27 `chat_connection_manager.dart` has 38+ constructor parameters** -- `lib/services/chat_connection_manager.dart:108-148`. 6 service objects, 13 mutable state maps/sets passed by reference, 12 callbacks, 2 ValueNotifiers. Worse than C10's original count. Fix: builder pattern, DI container, or dedicated configuration object.
 
