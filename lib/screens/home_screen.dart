@@ -1648,7 +1648,10 @@ class _HomeScreenState extends State<HomeScreen>
                                   ),
                                   SettingsButton(
                                     twitchAuth: widget.twitchAuth,
-                                    onThemeChanged: widget.onThemeChanged,
+                                    onThemeChanged: (mode) {
+                                      _tileCache.clear();
+                                      widget.onThemeChanged(mode);
+                                    },
                                     channelNotifier: _channelNotifier,
                                     onLeaveChannel: _removeChannel,
                                     onAddChannel: _addChannel,
