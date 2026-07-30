@@ -1665,6 +1665,7 @@ class _HomeScreenState extends State<HomeScreen>
                                         _focusNode.unfocus(),
                                     onSettingsClosed: () {
                                       _loadAltPings();
+                                      _loadMaxMessages();
                                       if (mounted) setState(() {});
                                     },
                                   ),
@@ -2094,9 +2095,7 @@ class _HomeScreenState extends State<HomeScreen>
                                     EventSubStatus.connected
                               ? 'Disconnected'
                               : _activePanel == OverlayPanel.thread
-                              ? (_replyToRoot
-                                    ? 'Reply to root...'
-                                    : 'Reply to thread...')
+                              ? 'Reply to thread...'
                               : _activePanel == OverlayPanel.mentions
                               ? 'Type a message...'
                               : null,
