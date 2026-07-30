@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/widgets.dart';
 import 'package:http/http.dart' as http;
 import '../models/generic_emote.dart';
+import '../models/twitch_badge.dart';
 import '../models/twitch_message.dart';
 import '../color_utils.dart';
 import '../services/twitch_api.dart';
@@ -1032,6 +1033,23 @@ class ChatConnectionManager {
       if (emotePositions.isEmpty) emotePositions = null;
     }
 
+    // Parse badges from IRC tags
+    List<MessageBadge>? badges;
+    final badgesTag = ircMsg.tags['badges'];
+    if (badgesTag != null && badgesTag.isNotEmpty) {
+      badges = [];
+      for (final entry in badgesTag.split(',')) {
+        final slashIdx = entry.indexOf('/');
+        if (slashIdx == -1) continue;
+        final setId = entry.substring(0, slashIdx);
+        final versionId = entry.substring(slashIdx + 1);
+        if (setId.isNotEmpty && versionId.isNotEmpty) {
+          badges.add(MessageBadge(setId: setId, versionId: versionId));
+        }
+      }
+      if (badges.isEmpty) badges = null;
+    }
+
     final msg = TwitchMessage(
       login: user.login,
       displayName: user.displayName,
@@ -1046,6 +1064,7 @@ class ChatConnectionManager {
       replyToText: ircReplyText,
       replyThreadRootId: ircReplyThreadRootId,
       emotePositions: emotePositions,
+      badges: badges,
     );
 
     channelMessages.putIfAbsent(channel, () => []);

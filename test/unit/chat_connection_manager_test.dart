@@ -427,4 +427,85 @@ void main() {
       expect(() => conn.connect(), returnsNormally);
     });
   });
+
+  group('badge parsing', () {
+    test('parses badges from IRC badges tag on own message', () {
+      final msgs = <String, List<TwitchMessage>>{'test': []};
+      final conn = _makeConn(channelMessages: msgs, maxMessages: 100);
+
+      final ircMsg = IrcMessage(
+        tags: {
+          'badges': 'broadcaster/1,subscriber/12',
+          'display-name': 'TestUser',
+          'user-id': '12345',
+          'id': 'msg1',
+        },
+        prefix: 'testuser!testuser@testuser.tmi.twitch.tv',
+        command: 'PRIVMSG',
+        params: ['#test'],
+        trailing: 'hello',
+      );
+
+      conn.onOwnIrcMessage(ircMsg);
+
+      expect(msgs['test']!.length, 1);
+      final msg = msgs['test']!.first;
+      expect(msg.badges, isNotNull);
+      expect(msg.badges!.length, 2);
+      expect(msg.badges![0].setId, 'broadcaster');
+      expect(msg.badges![0].versionId, '1');
+      expect(msg.badges![1].setId, 'subscriber');
+      expect(msg.badges![1].versionId, '12');
+    });
+
+    test('badges is null when badges tag is absent', () {
+      final msgs = <String, List<TwitchMessage>>{'test': []};
+      final conn = _makeConn(channelMessages: msgs, maxMessages: 100);
+
+      final ircMsg = IrcMessage(
+        tags: {
+          'display-name': 'TestUser',
+          'user-id': '12345',
+          'id': 'msg2',
+        },
+        prefix: 'testuser!testuser@testuser.tmi.twitch.tv',
+        command: 'PRIVMSG',
+        params: ['#test'],
+        trailing: 'hello',
+      );
+
+      conn.onOwnIrcMessage(ircMsg);
+
+      expect(msgs['test']!.length, 1);
+      final msg = msgs['test']!.first;
+      expect(msg.badges, isNull);
+    });
+
+    test('handles single badge', () {
+      final msgs = <String, List<TwitchMessage>>{'test': []};
+      final conn = _makeConn(channelMessages: msgs, maxMessages: 100);
+
+      final ircMsg = IrcMessage(
+        tags: {
+          'badges': 'vip/1',
+          'display-name': 'TestUser',
+          'user-id': '12345',
+          'id': 'msg3',
+        },
+        prefix: 'testuser!testuser@testuser.tmi.twitch.tv',
+        command: 'PRIVMSG',
+        params: ['#test'],
+        trailing: 'vip message',
+      );
+
+      conn.onOwnIrcMessage(ircMsg);
+
+      expect(msgs['test']!.length, 1);
+      final msg = msgs['test']!.first;
+      expect(msg.badges, isNotNull);
+      expect(msg.badges!.length, 1);
+      expect(msg.badges![0].setId, 'vip');
+      expect(msg.badges![0].versionId, '1');
+    });
+  });
 }
