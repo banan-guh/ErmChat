@@ -41,15 +41,22 @@ class _EmoteSheetState extends State<EmoteSheet>
   }
 
   String _typeLabel(GenericEmote emote) {
+    if (emote.type == EmoteType.twitch) {
+      var label = 'Twitch emote';
+      if (emote.isZeroWidth) {
+        label = '$label (Zero Width)';
+      }
+      return label;
+    }
     final scope = switch (emote.scope) {
       EmoteScope.global => 'Global',
       EmoteScope.channel => 'Channel',
     };
     final provider = switch (emote.type) {
-      EmoteType.twitch => 'Twitch',
       EmoteType.bttv => 'BTTV',
       EmoteType.ffz => 'FFZ',
       EmoteType.sevenTv => '7TV',
+      EmoteType.twitch => 'Twitch',
     };
     var label = '$scope $provider emote';
     if (emote.isZeroWidth) {
