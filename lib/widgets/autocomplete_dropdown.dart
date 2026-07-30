@@ -97,8 +97,6 @@ class _AutocompleteDropdownState extends State<AutocompleteDropdown> {
                       imageUrl: suggestion.emote.url,
                       width: _emoteSize,
                       height: _emoteSize,
-                      memCacheWidth: _emoteSize.round(),
-                      memCacheHeight: _emoteSize.round(),
                       fit: BoxFit.contain,
                       fadeInDuration: Duration.zero,
                       placeholder: (_, _) => const SizedBox(),
