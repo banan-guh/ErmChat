@@ -50,6 +50,7 @@ ChatConnectionManager _makeConn({
     lastSentWireText: {},
     ownMessageIds: {},
     bumpChannel: (channel) {},
+    invalidateChannel: (channel) {},
     mentionsChannel: '@mentions',
     onRebuild: () {},
     onSystemMessage: (c, t) {},

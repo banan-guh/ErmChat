@@ -64,6 +64,7 @@ class ChatConnectionManager {
   final Map<String, String> lastSentWireText;
   final Set<String> ownMessageIds;
   final void Function(String channel) bumpChannel;
+  final void Function(String channel) invalidateChannel;
   final String mentionsChannel;
 
   EventSubStatus connectionStatus = EventSubStatus.disconnected;
@@ -143,6 +144,7 @@ class ChatConnectionManager {
     required this.lastSentWireText,
     required this.ownMessageIds,
     required this.bumpChannel,
+    required this.invalidateChannel,
     required this.mentionsChannel,
     required this.onRebuild,
     required this.onSystemMessage,
@@ -294,7 +296,7 @@ class ChatConnectionManager {
     for (final m in msgs) {
       if (m.messageId == messageId) {
         m.text = newText;
-        bumpChannel(channel);
+        invalidateChannel(channel);
         return;
       }
     }
@@ -364,7 +366,7 @@ class ChatConnectionManager {
       }
     }
     chatStatus[channel] = parts.isNotEmpty ? parts.join(' · ') : '';
-    bumpChannel(channel);
+    invalidateChannel(channel);
   }
 
   // 5-phase thread-aware truncation: keeps complete reply threads intact even

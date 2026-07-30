@@ -106,7 +106,8 @@ class _HomeScreenState extends State<HomeScreen>
     lastTypedText: _lastTypedText,
     lastSentWireText: _lastSentWireText,
     ownMessageIds: _ownMessageIds,
-    bumpChannel: _bumpChannel,
+    bumpChannel: _notifyNewMessage,
+    invalidateChannel: _bumpChannel,
     mentionsChannel: _mentionsChannel,
     onRebuild: () {
       if (mounted) setState(() {});
@@ -157,12 +158,14 @@ class _HomeScreenState extends State<HomeScreen>
   final _channels = <String>[];
   final _channelNotifier = ValueNotifier<List<String>>([]);
   final _chatVersions = <String, ValueNotifier<int>>{};
+  final _messageNotifiers = <String, ValueNotifier<int>>{};
+  final _tileCache = <String, Map<String?, Widget>>{};
   final _mentionsBump = ValueNotifier(0);
   final _statusBump = ValueNotifier(0);
   String? _selectedChannel;
   final _channelMessages = <String, List<TwitchMessage>>{};
   final _scrollControllers = <String, ScrollController>{};
-  final _isAtBottom = <String, bool>{};
+  final _atBottomNotifiers = <String, ValueNotifier<bool>>{};
   final _frozenSnapshot = <String, List<TwitchMessage>>{};
   final _historyLoaded = <String>{};
   final _messageKeys = <String, GlobalKey>{};
@@ -308,7 +311,7 @@ class _HomeScreenState extends State<HomeScreen>
       if (_channels.contains(name)) continue;
       _channels.add(name);
       _channelMessages.putIfAbsent(name, () => []);
-      _isAtBottom[name] = true;
+      _atBottomNotifier(name).value = true;
     }
     _channelNotifier.value = List.of(_channels);
     _selectedChannel = _channels.first;
@@ -561,7 +564,21 @@ class _HomeScreenState extends State<HomeScreen>
     return _chatVersions.putIfAbsent(channel, () => ValueNotifier(0));
   }
 
+  ValueNotifier<int> _messageNotifier(String channel) {
+    return _messageNotifiers.putIfAbsent(channel, () => ValueNotifier(0));
+  }
+
+  ValueNotifier<bool> _atBottomNotifier(String channel) {
+    return _atBottomNotifiers.putIfAbsent(channel, () => ValueNotifier(true));
+  }
+
+  void _notifyNewMessage(String channel) {
+    _messageNotifier(channel).value++;
+    _mentionsBump.value++;
+  }
+
   void _bumpChannel(String channel) {
+    _tileCache.remove(channel);
     _versionNotifier(channel).value++;
     _mentionsBump.value++;
   }
@@ -708,6 +725,13 @@ class _HomeScreenState extends State<HomeScreen>
     for (final n in _chatVersions.values) {
       n.dispose();
     }
+    for (final n in _messageNotifiers.values) {
+      n.dispose();
+    }
+    for (final n in _atBottomNotifiers.values) {
+      n.dispose();
+    }
+    _tileCache.clear();
     _mentionsBump.dispose();
     _statusBump.dispose();
     _notificationTapSub?.cancel();
@@ -760,7 +784,7 @@ class _HomeScreenState extends State<HomeScreen>
       ),
     );
     _truncateChannelMessages(channel);
-    _bumpChannel(channel);
+    _notifyNewMessage(channel);
   }
 
   void _showMessageMenu(TwitchMessage msg) {
@@ -891,7 +915,7 @@ class _HomeScreenState extends State<HomeScreen>
       _channels.add(name);
       _channelNotifier.value = List.of(_channels);
       _channelMessages.putIfAbsent(name, () => []);
-      _isAtBottom[name] = true;
+      _atBottomNotifier(name).value = true;
       _selectedChannel = name;
       _selectedTabIndex.value = _channels.length - 1;
     });
@@ -1516,10 +1540,6 @@ class _HomeScreenState extends State<HomeScreen>
     _selectedTabIndex.value = index;
   }
 
-  List<TwitchMessage> _messages(String channel) {
-    return _channelMessages[channel] ?? [];
-  }
-
   // Retroactive mention scan: runs once on login. Messages inserted at front
   // of mentions channel in scan order (reverse-chronological within each
   // channel), so they appear newest-first but may not be perfectly sorted.
@@ -1663,7 +1683,7 @@ class _HomeScreenState extends State<HomeScreen>
                                         return ListenableBuilder(
                                           listenable: _versionNotifier(channel),
                                           builder: (_, _) =>
-                                              _buildChat(channel),
+                                              _buildChatShell(channel),
                                         );
                                       },
                                       focusOnHalfDrag: true,
@@ -2228,14 +2248,10 @@ class _HomeScreenState extends State<HomeScreen>
     return msg.cachedBadgeSpans = spans;
   }
 
-  Widget _buildChat(String channel) {
-    final msgs = _frozenSnapshot[channel] ?? _messages(channel);
+  Widget _buildChatShell(String channel) {
     final surface = Theme.of(context).colorScheme.surface;
     final systemScale = MediaQuery.textScalerOf(context).scale(1.0);
     final s = 1.0 * systemScale;
-    if (msgs.isEmpty) {
-      return const Center(child: Text('No messages yet'));
-    }
 
     return Stack(
       clipBehavior: Clip.hardEdge,
@@ -2244,16 +2260,17 @@ class _HomeScreenState extends State<HomeScreen>
           onNotification: (notification) {
             if (notification is ScrollUpdateNotification) {
               final scrolledUp = notification.metrics.pixels > 50.0;
-              if (scrolledUp && (_isAtBottom[channel] ?? true)) {
-                _isAtBottom[channel] = false;
+              final atBottom = _atBottomNotifier(channel).value;
+              if (scrolledUp && atBottom) {
+                _atBottomNotifier(channel).value = false;
                 _frozenSnapshot[channel] = List.of(
                   _channelMessages[channel] ?? [],
                 );
-                _bumpChannel(channel);
-              } else if (!scrolledUp && !(_isAtBottom[channel] ?? true)) {
-                _isAtBottom[channel] = true;
+                _notifyNewMessage(channel);
+              } else if (!scrolledUp && !atBottom) {
+                _atBottomNotifier(channel).value = true;
                 _frozenSnapshot.remove(channel);
-                _bumpChannel(channel);
+                _notifyNewMessage(channel);
               }
             }
             return false;
@@ -2262,68 +2279,94 @@ class _HomeScreenState extends State<HomeScreen>
             data: const ScrollbarThemeData(
               thickness: WidgetStatePropertyAll(0),
             ),
-            child: ListView.builder(
-              key: ValueKey(channel),
-              controller: _scrollCtrl(channel),
-              reverse: true,
-              itemCount: msgs.length,
-              itemBuilder: (_, i) {
-                final msg = msgs[i];
-
-                final Widget body;
-                if (msg.isSystem) {
-                  body = ChatMessageTile(
-                    key: ValueKey(msg.messageId),
-                    message: msg,
-                    channel: channel,
-                    surface: surface,
-                    textScale: s,
-                    buildBadgeSpans: _buildBadgeSpans,
-                    buildMessageSpans: _buildMessageSpans,
-                    systemBodyBuilder: (msg, scale) =>
-                        parseTextWithLinks(msg.text),
-                  );
-                } else {
-                  body = ChatMessageTile(
-                    key: ValueKey(msg.messageId),
-                    message: msg,
-                    channel: channel,
-                    surface: surface,
-                    textScale: s,
-                    buildBadgeSpans: _buildBadgeSpans,
-                    buildMessageSpans: _buildMessageSpans,
-                    onTapUser: (login, userId) => _showUserProfile(
-                      login,
-                      userId,
-                      displayName: msg.displayName,
-                    ),
-                    onLongPress: () => _showMessageMenu(msg),
-                    replyIndicator: msg.replyToUser != null
-                        ? _buildReplyIndicator(msg)
-                        : null,
-                  );
+            child: ValueListenableBuilder<int>(
+              valueListenable: _messageNotifier(channel),
+              builder: (_, _, _) {
+                final msgs = _frozenSnapshot[channel] ??
+                    _channelMessages[channel] ??
+                    [];
+                if (msgs.isEmpty) {
+                  return const Center(child: Text('No messages yet'));
                 }
 
-                return RepaintBoundary(child: body);
+                final cache =
+                    _tileCache.putIfAbsent(channel, () => <String?, Widget>{});
+
+                return ListView.builder(
+                  key: ValueKey(channel),
+                  controller: _scrollCtrl(channel),
+                  reverse: true,
+                  itemCount: msgs.length,
+                  itemBuilder: (_, i) {
+                    final msg = msgs[i];
+
+                    final cached = cache[msg.messageId];
+                    if (cached != null) return cached;
+
+                    final Widget body;
+                    if (msg.isSystem) {
+                      body = ChatMessageTile(
+                        key: ValueKey(msg.messageId),
+                        message: msg,
+                        channel: channel,
+                        surface: surface,
+                        textScale: s,
+                        buildBadgeSpans: _buildBadgeSpans,
+                        buildMessageSpans: _buildMessageSpans,
+                        systemBodyBuilder: (msg, scale) =>
+                            parseTextWithLinks(msg.text),
+                      );
+                    } else {
+                      body = ChatMessageTile(
+                        key: ValueKey(msg.messageId),
+                        message: msg,
+                        channel: channel,
+                        surface: surface,
+                        textScale: s,
+                        buildBadgeSpans: _buildBadgeSpans,
+                        buildMessageSpans: _buildMessageSpans,
+                        onTapUser: (login, userId) => _showUserProfile(
+                          login,
+                          userId,
+                          displayName: msg.displayName,
+                        ),
+                        onLongPress: () => _showMessageMenu(msg),
+                        replyIndicator: msg.replyToUser != null
+                            ? _buildReplyIndicator(msg)
+                            : null,
+                      );
+                    }
+
+                    if (msg.messageId != null) {
+                      cache[msg.messageId!] = body;
+                    }
+                    return RepaintBoundary(child: body);
+                  },
+                );
               },
             ),
           ),
         ),
-        if (!(_isAtBottom[channel] ?? true))
-          Positioned(
-            right: 16,
-            bottom: 16,
-            child: FloatingActionButton(
-              heroTag: 'scroll_down_$channel',
-              onPressed: () {
-                _isAtBottom[channel] = true;
-                _frozenSnapshot.remove(channel);
-                _scrollCtrl(channel).jumpTo(0);
-                _bumpChannel(channel);
-              },
-              child: const Icon(Icons.keyboard_arrow_down),
-            ),
-          ),
+        ValueListenableBuilder<bool>(
+          valueListenable: _atBottomNotifier(channel),
+          builder: (_, atBottom, _) {
+            if (atBottom) return const SizedBox.shrink();
+            return Positioned(
+              right: 16,
+              bottom: 16,
+              child: FloatingActionButton(
+                heroTag: 'scroll_down_$channel',
+                onPressed: () {
+                  _atBottomNotifier(channel).value = true;
+                  _frozenSnapshot.remove(channel);
+                  _scrollCtrl(channel).jumpTo(0);
+                  _notifyNewMessage(channel);
+                },
+                child: const Icon(Icons.keyboard_arrow_down),
+              ),
+            );
+          },
+        ),
       ],
     );
   }
