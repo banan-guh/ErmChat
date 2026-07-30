@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'screens/home_screen.dart';
 import 'services/twitch_auth.dart';
 import 'services/twitch_eventsub.dart';
@@ -47,24 +48,36 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
   @override
   void initState() {
     super.initState();
-    _twitchAuth
-        .load()
-        .then((_) {
-          if (mounted) setState(() => _loaded = true);
-        })
-        .catchError((_) {
-          if (mounted) setState(() => _loaded = true);
-        });
+    _loadPreferences();
+  }
+
+  Future<void> _loadPreferences() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final saved = prefs.getString('themeMode');
+      if (saved != null) {
+        _themeMode = ThemeMode.values.firstWhere(
+          (e) => e.name == saved,
+          orElse: () => ThemeMode.system,
+        );
+      }
+    } catch (_) {}
+    await _twitchAuth.load();
+    if (mounted) setState(() => _loaded = true);
   }
 
   void _setThemeMode(ThemeMode mode) {
     setState(() => _themeMode = mode);
+    SharedPreferences.getInstance().then((prefs) {
+      prefs.setString('themeMode', mode.name);
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     if (!_loaded) {
       return MaterialApp(
+        themeMode: _themeMode,
         theme: ThemeData(
           colorScheme:
               ColorScheme.fromSeed(
@@ -77,6 +90,14 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
                 surfaceContainerHigh: const Color(0xFFE0E3E7),
                 surfaceContainerHighest: const Color(0xFFCED1D6),
               ),
+          useMaterial3: true,
+        ),
+        darkTheme: ThemeData(
+          colorScheme: ColorScheme.fromSeed(
+            seedColor: Colors.deepPurple,
+            brightness: Brightness.dark,
+            surface: Colors.black,
+          ),
           useMaterial3: true,
         ),
         home: const Scaffold(body: Center(child: CircularProgressIndicator())),
