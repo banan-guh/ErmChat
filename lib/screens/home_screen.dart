@@ -1721,14 +1721,14 @@ class _HomeScreenState extends State<HomeScreen>
                           ),
                         ],
                       ),
-                      // Thread sheet — always mounted, full height below status bar.
+                      // Thread sheet — offstage when closed to avoid layout cost.
                       Positioned(
                         top: statusBarH,
                         bottom: 0,
                         left: 0,
                         right: 0,
-                        child: IgnorePointer(
-                          ignoring: _activePanel != OverlayPanel.thread,
+                        child: Offstage(
+                          offstage: _activePanel != OverlayPanel.thread,
                           child: _buildSheetPanel(
                             ratio: _threadSheetRatio,
                             child: RepaintBoundary(
@@ -1800,15 +1800,14 @@ class _HomeScreenState extends State<HomeScreen>
                           ),
                         ),
                       ),
-                      // Mentions sheet — always mounted, full height below
-                      // status bar.
+                      // Mentions sheet — offstage when closed to avoid layout cost.
                       Positioned(
                         top: statusBarH,
                         bottom: 0,
                         left: 0,
                         right: 0,
-                        child: IgnorePointer(
-                          ignoring: _activePanel != OverlayPanel.mentions,
+                        child: Offstage(
+                          offstage: _activePanel != OverlayPanel.mentions,
                           child: _buildSheetPanel(
                             ratio: _mentionsSheetRatio,
                             child: RepaintBoundary(

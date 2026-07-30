@@ -219,7 +219,10 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
                 childAspectRatio: 1,
               ),
               delegate: SliverChildBuilderDelegate(
-                (_, i) => _buildEmoteGridItem(entry.value[i]),
+                (_, i) {
+                  final cellPadding = _computeCellPadding();
+                  return _buildEmoteGridItem(entry.value[i], cellPadding);
+                },
                 childCount: entry.value.length,
               ),
             ),
@@ -282,32 +285,37 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
         childAspectRatio: 1,
       ),
       itemCount: emotes.length,
-      itemBuilder: (_, i) => _buildEmoteGridItem(emotes[i]),
+      itemBuilder: (_, i) {
+        final cellPadding = _computeCellPadding();
+        return _buildEmoteGridItem(emotes[i], cellPadding);
+      },
     );
   }
 
-  Widget _buildEmoteGridItem(GenericEmote emote) {
+  double _computeCellPadding() {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final sidePadding = screenWidth * 0.08;
+    final cellWidth = (screenWidth - 2 * sidePadding - 4 * 8) / 5;
+    return cellWidth * 0.08;
+  }
+
+  Widget _buildEmoteGridItem(GenericEmote emote, double cellPadding) {
     return Material(
       type: MaterialType.transparency,
       clipBehavior: Clip.hardEdge,
       child: InkWell(
         onTap: () => widget.onEmoteSelected(emote),
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final padding = constraints.maxWidth * 0.08;
-            return Padding(
-              padding: EdgeInsets.all(padding),
-              child: CachedNetworkImage(
-                imageUrl: emote.url,
-                width: double.infinity,
-                height: double.infinity,
-                fit: BoxFit.contain,
-                fadeInDuration: Duration.zero,
-                placeholder: (_, _) => const SizedBox(),
-                errorWidget: (_, _, _) => const Icon(Icons.broken_image, size: 20),
-              ),
-            );
-          },
+        child: Padding(
+          padding: EdgeInsets.all(cellPadding),
+          child: CachedNetworkImage(
+            imageUrl: emote.url,
+            width: double.infinity,
+            height: double.infinity,
+            fit: BoxFit.contain,
+            fadeInDuration: Duration.zero,
+            placeholder: (_, _) => const SizedBox(),
+            errorWidget: (_, _, _) => const Icon(Icons.broken_image, size: 20),
+          ),
         ),
       ),
     );

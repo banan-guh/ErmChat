@@ -24,7 +24,7 @@ class CommandHandler {
     final lower = login.toLowerCase();
     final cached = _userIdCache[lower];
     if (cached != null) return cached;
-    final id = await _resolveUserId(auth, login);
+    final id = await twitchApi.getUserId(auth, login);
     if (id != null) _userIdCache[lower] = id;
     return id;
   }

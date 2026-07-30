@@ -2,15 +2,15 @@
 
 ## Critical (jank-causing)
 
-- [ ] **#1 `truncateChannelMessages` O(n^2) `removeAt` loop** -- `chat_connection_manager.dart:411-415`. Removes extras by calling `removeAt(i)` in a loop, each call shifts subsequent elements. Fix: build a new retained list in one O(n) pass. Plus fast path: `removeRange` for small overflow and only run thread-aware algorithm when excess > 3.
+- [x] **#1 `truncateChannelMessages` O(n^2) `removeAt` loop** -- `chat_connection_manager.dart:411-415`. Removes extras by calling `removeAt(i)` in a loop, each call shifts subsequent elements. Fix: build a new retained list in one O(n) pass. Plus fast path: `removeRange` for small overflow and only run thread-aware algorithm when excess > 3.
 
 - [ ] **#2 `_onInputChanged` missing debounce** -- `home_screen.dart:348-369`. Every keystroke iterates 5000 users + 500 emotes with string operations, calls `_checkAutocompleteUndo` (heavy logic for a rare edge case), and triggers autocomplete rebuild. `_autocompleteTimer` field declared at line 169 but never wired. Fix: debounce 150ms, skip `_checkAutocompleteUndo` until after cheap length check, only query users on `@` prefix.
 
-- [ ] **#3 `EmoteManager` global `ChangeNotifier` cascading rebuilds** -- `emote_manager.dart` + `emote_menu_panel.dart`. `notifyListeners()` fires for any emote change in any channel during startup, causing ~2+3N async calls (N = channels). Each triggers `_loadRecentEmotes` + `setState`. Fix: dedicated `ValueNotifier` for recent emotes; batch notifications; per-channel notifiers.
+- [x] **#3 `EmoteManager` global `ChangeNotifier` cascading rebuilds** -- `emote_manager.dart` + `emote_menu_panel.dart`. `notifyListeners()` fires for any emote change in any channel during startup, causing ~2+3N async calls (N = channels). Each triggers `_loadRecentEmotes` + `setState`. Fix: dedicated `ValueNotifier` for recent emotes; batch notifications; per-channel notifiers.
 
-- [ ] **#4 `filterSuggestions` double-iterates all emotes** -- `suggestion.dart:83-94`. Two separate `for` loops over the same list doing `contains` checks, doubling emote iteration. Fix: single pass with `||`.
+- [x] **#4 `filterSuggestions` double-iterates all emotes** -- `suggestion.dart:83-94`. Two separate `for` loops over the same list doing `contains` checks, doubling emote iteration. Fix: single pass with `||`.
 
-- [ ] **#5 `parseTextWithLinks` runs on every text segment** -- `emote_text.dart:324-357`. Called for every text segment in every message even when zero URLs present. Falls through full regex match for nothing. Fix: quick `if (!text.contains('.')) return` guard skips 99% of messages.
+- [x] **#5 `parseTextWithLinks` runs on every text segment** -- `emote_text.dart:324-357`. Called for every text segment in every message even when zero URLs present. Falls through full regex match for nothing. Fix: quick `if (!text.contains('.')) return` guard skips 99% of messages.
 
 ## Medium
 
@@ -22,11 +22,11 @@
 
 - [ ] **#9 `CachedNetworkImage` per badge per message** -- `home_screen.dart:2018-2100`. Every message rebuild creates fresh `CachedNetworkImage` widgets for each badge (400-600 per full rebuild). Fix: extract reusable `BadgeWidget`, wrap in `RepaintBoundary`.
 
-- [ ] **#10 Both overlay panels always in tree** -- `home_screen.dart:1634-1790`. Thread sheet and mentions sheet widget trees always built and laid out behind `IgnorePointer`. Fix: use `Offstage` or conditional mounting.
+- [x] **#10 Both overlay panels always in tree** -- `home_screen.dart:1634-1790`. Thread sheet and mentions sheet widget trees always built and laid out behind `IgnorePointer`. Fix: use `Offstage` or conditional mounting.
 
 - [ ] **#11 `markEmoteUsed` does SharedPreferences I/O on user tap** -- `emote_manager.dart:167-176`. Every emote click triggers SharedPrefs read + write + JSON encode + `_notify()` (~5-50ms I/O on user interaction). Fix: debounce writes, keep in-memory cache, skip `_notify()`.
 
-- [ ] **#12 Manual `ValueListenable` + `setState` in panels** -- `thread_panel.dart:60-77`, `mentions_panel.dart:60-64`. Every data change triggers full widget tree rebuild. Fix: replace with `ValueListenableBuilder` scoped to the content area.
+- [x] **#12 Manual `ValueListenable` + `setState` in panels** -- `thread_panel.dart:60-77`, `mentions_panel.dart:60-64`. Every data change triggers full widget tree rebuild. Fix: replace with `ValueListenableBuilder` scoped to the content area.
 
 - [ ] **#13 `TapGestureRecognizer` created per build** -- `chat_message_tile.dart:77-86`, `emote_text.dart:341-342`. New recognizer allocated every time a tile/span builds -- 20+ allocations per frame in a 20-visible-item `ListView`. Fix: cache via `StatefulWidget` + `didUpdateWidget`, or use `InkWell`.
 
@@ -34,13 +34,13 @@
 
 - [ ] **#14 `_frozenSnapshot` doubles message memory** -- `home_screen.dart:149,2122-2124`. Shallow-copies the entire message list when user scrolls up. Fix: track offset + pre-roll count instead of duplicating the list.
 
-- [ ] **#15 `_userStore` uses `LinkedHashMap<String, void>` with null values** -- `user_store.dart:5,9-15`. Wastes value slot on every entry. Fix: use `LinkedHashSet<String>` from `dart:collection`.
+- [x] **#15 `_userStore` uses `LinkedHashMap<String, void>` with null values** -- `user_store.dart:5,9-15`. Wastes value slot on every entry. Fix: use `LinkedHashSet<String>` from `dart:collection`.
 
-- [ ] **#16 `LayoutBuilder` per emote grid cell** -- `emote_menu_panel.dart:290-305`. Each of ~50 grid items has a `LayoutBuilder` for a simple padding computation. Fix: precompute cell width from grid dimensions and use `Padding` directly.
+- [x] **#16 `LayoutBuilder` per emote grid cell** -- `emote_menu_panel.dart:290-305`. Each of ~50 grid items has a `LayoutBuilder` for a simple padding computation. Fix: precompute cell width from grid dimensions and use `Padding` directly.
 
-- [ ] **#17 `command_handler.dart` user ID lookups make HTTP call per command** -- lines 73, 99, 139, 222. `/ban`, `/timeout`, etc. resolve username-to-ID via network every time. Fix: local `Map<String, String>` cache for the session.
+- [x] **#17 `command_handler.dart` user ID lookups make HTTP call per command** -- lines 73, 99, 139, 222. `/ban`, `/timeout`, etc. resolve username-to-ID via network every time. Fix: local `Map<String, String>` cache for the session.
 
-- [ ] **#18 `isMention` duplicated in two files with regex split** -- `home_screen.dart:2240-2247`, `chat_connection_manager.dart:1083-1090`. Same function defined twice, each uses regex split allocating intermediate strings. Fix: single canonical copy, manual char iteration.
+- [x] **#18 `isMention` duplicated in two files with regex split** -- `home_screen.dart:2240-2247`, `chat_connection_manager.dart:1083-1090`. Same function defined twice, each uses regex split allocating intermediate strings. Fix: single canonical copy, manual char iteration.
 
 ## Existing bugs (preserved)
 

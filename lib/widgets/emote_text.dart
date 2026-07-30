@@ -331,6 +331,8 @@ final _urlRegExp = RegExp(
 final _collapseSpace = RegExp(r' {2,}');
 
 List<InlineSpan> parseTextWithLinks(String text) {
+  // Quick guard: ~99% of chat text has no URLs.
+  if (!text.contains('.')) return [TextSpan(text: text)];
   try {
     final collapsed = text.replaceAll(_collapseSpace, ' ');
     final spans = <InlineSpan>[];

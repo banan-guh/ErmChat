@@ -450,12 +450,16 @@ class ChatConnectionManager {
       }
     }
 
-    // Phase 5: remove messages not in keepIndices.
-    for (int i = msgs.length - 1; i >= 0; i--) {
-      if (!keepIndices.contains(i)) {
-        msgs.removeAt(i);
+    // Phase 5: build retained list in O(n) (was O(n^2) removeAt loop).
+    final retained = <TwitchMessage>[];
+    for (int i = 0; i < msgs.length; i++) {
+      if (keepIndices.contains(i)) {
+        retained.add(msgs[i]);
       }
     }
+    msgs
+      ..clear()
+      ..addAll(retained);
   }
 
   Future<void> subscribeChannel(String channelName) async {

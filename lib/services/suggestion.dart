@@ -78,18 +78,14 @@ List<Suggestion> filterSuggestions({
     }
   }
 
-  final matchedEmotes = <GenericEmote>[];
   final matchedIds = <String>{};
+  final matchedEmotes = <GenericEmote>[];
   for (final emote in emotes) {
-    if (emote.code.contains(word)) {
-      matchedEmotes.add(emote);
-      matchedIds.add(emote.id);
-    }
-  }
-  for (final emote in emotes) {
-    if (!matchedIds.contains(emote.id) &&
+    if (emote.code.contains(word) ||
         emote.code.toLowerCase().contains(lower)) {
-      matchedEmotes.add(emote);
+      if (matchedIds.add(emote.id)) {
+        matchedEmotes.add(emote);
+      }
     }
   }
   for (final emote in matchedEmotes) {

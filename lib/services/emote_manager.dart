@@ -36,6 +36,7 @@ class EmoteManager extends ChangeNotifier {
   String? _accessToken;
   final _mergedCache = <String, ChannelEmotes?>{};
   String? _changedChannel;
+  final recentNotifier = ChangeNotifier();
 
   void _notify([String? channel]) {
     _changedChannel = channel;
@@ -176,7 +177,7 @@ class EmoteManager extends ChangeNotifier {
       _recentIds = _recentIds.sublist(0, _maxRecent);
     }
     await _saveRecent();
-    _notify();
+    recentNotifier.notifyListeners();
   }
 
   Future<List<GenericEmote>> recentEmotes() async {
