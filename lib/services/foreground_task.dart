@@ -47,7 +47,8 @@ void initForegroundService() {
       playSound: false,
     ),
     foregroundTaskOptions: ForegroundTaskOptions(
-      eventAction: ForegroundTaskEventAction.nothing(),      autoRunOnBoot: false,
+      eventAction: ForegroundTaskEventAction.nothing(),
+      autoRunOnBoot: false,
       autoRunOnMyPackageReplaced: false,
       allowWakeLock: true,
       allowWifiLock: true,
@@ -59,9 +60,11 @@ Future<ServiceRequestResult> startForegroundService(
   List<String> channelNames,
 ) async {
   if (!Platform.isAndroid) return const ServiceRequestSuccess();
-  if (channelNames.isEmpty) return const ServiceRequestFailure(error: 'no channels');
+  if (channelNames.isEmpty)
+    return const ServiceRequestFailure(error: 'no channels');
 
-  final title = 'Live chat: ${channelNames.take(2).map((c) => '#$c').join(', ')}';
+  final title =
+      'Live chat: ${channelNames.take(2).map((c) => '#$c').join(', ')}';
   final text = channelNames.length > 2
       ? '+${channelNames.length - 2} more'
       : 'Connected in background';

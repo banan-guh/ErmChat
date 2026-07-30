@@ -189,17 +189,27 @@ void main() {
       await tester.pump();
       // Don't release — verify focus switched mid-drag
       expect(
-        tester.widget<Text>(find.descendant(
-          of: find.byType(TabBar),
-          matching: find.text('b'),
-        )).style?.fontWeight,
+        tester
+            .widget<Text>(
+              find.descendant(
+                of: find.byType(TabBar),
+                matching: find.text('b'),
+              ),
+            )
+            .style
+            ?.fontWeight,
         FontWeight.w600,
       );
       expect(
-        tester.widget<Text>(find.descendant(
-          of: find.byType(TabBar),
-          matching: find.text('a'),
-        )).style?.fontWeight,
+        tester
+            .widget<Text>(
+              find.descendant(
+                of: find.byType(TabBar),
+                matching: find.text('a'),
+              ),
+            )
+            .style
+            ?.fontWeight,
         FontWeight.normal,
       );
 
@@ -227,17 +237,27 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(
-        tester.widget<Text>(find.descendant(
-          of: find.byType(TabBar),
-          matching: find.text('a'),
-        )).style?.fontWeight,
+        tester
+            .widget<Text>(
+              find.descendant(
+                of: find.byType(TabBar),
+                matching: find.text('a'),
+              ),
+            )
+            .style
+            ?.fontWeight,
         FontWeight.w600,
       );
       expect(
-        tester.widget<Text>(find.descendant(
-          of: find.byType(TabBar),
-          matching: find.text('b'),
-        )).style?.fontWeight,
+        tester
+            .widget<Text>(
+              find.descendant(
+                of: find.byType(TabBar),
+                matching: find.text('b'),
+              ),
+            )
+            .style
+            ?.fontWeight,
         FontWeight.normal,
       );
     });
@@ -266,10 +286,15 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(
-        tester.widget<Text>(find.descendant(
-          of: find.byType(TabBar),
-          matching: find.text('a'),
-        )).style?.fontWeight,
+        tester
+            .widget<Text>(
+              find.descendant(
+                of: find.byType(TabBar),
+                matching: find.text('a'),
+              ),
+            )
+            .style
+            ?.fontWeight,
         FontWeight.w600,
       );
     });

@@ -66,16 +66,17 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
     if (!_loaded) {
       return MaterialApp(
         theme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(
-            seedColor: Colors.deepPurple,
-            surface: const Color(0xFFF8F9FA),
-          ).copyWith(
-            surfaceContainerLowest: const Color(0xFFFCFCFC),
-            surfaceContainerLow: const Color(0xFFF2F3F5),
-            surfaceContainer: const Color(0xFFEBEDEF),
-            surfaceContainerHigh: const Color(0xFFE0E3E7),
-            surfaceContainerHighest: const Color(0xFFCED1D6),
-          ),
+          colorScheme:
+              ColorScheme.fromSeed(
+                seedColor: Colors.deepPurple,
+                surface: const Color(0xFFF8F9FA),
+              ).copyWith(
+                surfaceContainerLowest: const Color(0xFFFCFCFC),
+                surfaceContainerLow: const Color(0xFFF2F3F5),
+                surfaceContainer: const Color(0xFFEBEDEF),
+                surfaceContainerHigh: const Color(0xFFE0E3E7),
+                surfaceContainerHighest: const Color(0xFFCED1D6),
+              ),
           useMaterial3: true,
         ),
         home: const Scaffold(body: Center(child: CircularProgressIndicator())),
@@ -86,16 +87,17 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
       title: 'Twitch Chat',
       themeMode: _themeMode,
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.deepPurple,
-          surface: const Color(0xFFF8F9FA),
-        ).copyWith(
-          surfaceContainerLowest: const Color(0xFFFCFCFC),
-          surfaceContainerLow: const Color(0xFFF2F3F5),
-          surfaceContainer: const Color(0xFFEBEDEF),
-          surfaceContainerHigh: const Color(0xFFE0E3E7),
-          surfaceContainerHighest: const Color(0xFFCED1D6),
-        ),
+        colorScheme:
+            ColorScheme.fromSeed(
+              seedColor: Colors.deepPurple,
+              surface: const Color(0xFFF8F9FA),
+            ).copyWith(
+              surfaceContainerLowest: const Color(0xFFFCFCFC),
+              surfaceContainerLow: const Color(0xFFF2F3F5),
+              surfaceContainer: const Color(0xFFEBEDEF),
+              surfaceContainerHigh: const Color(0xFFE0E3E7),
+              surfaceContainerHighest: const Color(0xFFCED1D6),
+            ),
         useMaterial3: true,
       ),
       darkTheme: ThemeData(

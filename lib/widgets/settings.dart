@@ -31,19 +31,19 @@ class SettingsButton extends StatelessWidget {
       onPressed: () {
         onSettingsOpened?.call();
         Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => SettingsScreen(
-            twitchAuth: twitchAuth,
-            onThemeChanged: onThemeChanged,
-            channelNotifier: channelNotifier,
-            onLeaveChannel: onLeaveChannel,
-            onAddChannel: onAddChannel,
-            onReorderChannels: onReorderChannels,
+          context,
+          MaterialPageRoute(
+            builder: (_) => SettingsScreen(
+              twitchAuth: twitchAuth,
+              onThemeChanged: onThemeChanged,
+              channelNotifier: channelNotifier,
+              onLeaveChannel: onLeaveChannel,
+              onAddChannel: onAddChannel,
+              onReorderChannels: onReorderChannels,
+            ),
           ),
-        ),
-      ).then((_) => onSettingsClosed?.call());
-    },
-  );
+        ).then((_) => onSettingsClosed?.call());
+      },
+    );
   }
 }

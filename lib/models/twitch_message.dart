@@ -38,14 +38,13 @@ class TwitchMessage {
   final String? sourceBroadcasterId;
   final String? sourceBroadcasterName;
   List<InlineSpan>? cachedSpans;
+  List<WidgetSpan>? cachedBadgeSpans;
   late final String formattedTimestamp =
       '${timestamp.toLocal().hour.toString().padLeft(2, '0')}:${timestamp.toLocal().minute.toString().padLeft(2, '0')}';
-  String get formattedUsername {
-    if (displayName.toLowerCase() == login.toLowerCase()) {
-      return displayName;
-    }
-    return '$login($displayName)';
-  }
+  late final String formattedUsername =
+      displayName.toLowerCase() == login.toLowerCase()
+      ? displayName
+      : '$login($displayName)';
 
   static ({String login, String displayName}) resolveUser({
     required String login,

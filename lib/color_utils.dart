@@ -62,9 +62,7 @@ Color normalizeColor(Color color, Color background) {
     if (lightness > 0.5) {
       lightness = 0.5;
     }
-    if (lightness > 0.4 &&
-        huePercentage >= 0.1 &&
-        huePercentage <= 0.33333) {
+    if (lightness > 0.4 && huePercentage >= 0.1 && huePercentage <= 0.33333) {
       lightness -=
           sin((huePercentage - 0.1) / (0.33333 - 0.1) * pi) * saturation * 0.4;
     }
@@ -77,8 +75,8 @@ Color normalizeColor(Color color, Color background) {
         huePercentage <= 0.83333) {
       lightness +=
           sin((huePercentage - 0.54444) / (0.83333 - 0.54444) * pi) *
-              saturation *
-              0.4;
+          saturation *
+          0.4;
     }
   }
 

@@ -8,11 +8,7 @@ class SevenTvChannelResponse {
   final String? userId;
   final String? emoteSetId;
 
-  SevenTvChannelResponse({
-    required this.emotes,
-    this.userId,
-    this.emoteSetId,
-  });
+  SevenTvChannelResponse({required this.emotes, this.userId, this.emoteSetId});
 }
 
 class SevenTvEmoteProvider {
@@ -27,7 +23,9 @@ class SevenTvEmoteProvider {
     return _parseEmotes(items, global: true);
   }
 
-  static Future<SevenTvChannelResponse> fetchChannelResponse(String channelId) async {
+  static Future<SevenTvChannelResponse> fetchChannelResponse(
+    String channelId,
+  ) async {
     final uri = Uri.parse('https://7tv.io/v3/users/twitch/$channelId');
     final res = await http.get(uri).timeout(const Duration(seconds: 10));
     if (res.statusCode != 200) return SevenTvChannelResponse(emotes: []);

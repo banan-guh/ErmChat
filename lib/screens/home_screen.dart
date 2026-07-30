@@ -71,12 +71,17 @@ class _HomeScreenState extends State<HomeScreen>
   static const _mentionsChannel = '@mentions';
 
   late final _connectivity = Connectivity();
-  late final _eventSub = widget.eventSubService ?? EventSubService(connectivity: _connectivity);
-  late final _irc = widget.ircService ?? IrcService(connectivity: _connectivity);
-  late final _ircRead = widget.ircReadService ?? IrcReadService(connectivity: _connectivity);
+  late final _eventSub =
+      widget.eventSubService ?? EventSubService(connectivity: _connectivity);
+  late final _irc =
+      widget.ircService ?? IrcService(connectivity: _connectivity);
+  late final _ircRead =
+      widget.ircReadService ?? IrcReadService(connectivity: _connectivity);
   late final _recentMessages =
       widget.recentMessagesService ?? RecentMessagesService();
-  late final _sevenTvClient = widget.sevenTvEventClient ?? SevenTvEventClient(connectivity: _connectivity);
+  late final _sevenTvClient =
+      widget.sevenTvEventClient ??
+      SevenTvEventClient(connectivity: _connectivity);
   late final _twitchApi = TwitchApi();
   late final _chatConn = ChatConnectionManager(
     twitchApi: _twitchApi,
@@ -236,7 +241,9 @@ class _HomeScreenState extends State<HomeScreen>
     _mentionsBump.addListener(_onPanelDataChanged);
     if (Platform.isAndroid) {
       _notificationService.init();
-      _notificationTapSub = _notificationService.onNotificationTap.listen(_onNotificationTap);
+      _notificationTapSub = _notificationService.onNotificationTap.listen(
+        _onNotificationTap,
+      );
       final pendingChannel = _notificationService.pendingLaunchChannel;
       if (pendingChannel != null) {
         _navigateToChannel(pendingChannel);
@@ -265,7 +272,8 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (!Platform.isAndroid) return;
-    _isBackgrounded = state == AppLifecycleState.paused ||
+    _isBackgrounded =
+        state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive;
     if (state == AppLifecycleState.paused) {
       startForegroundService(List.of(_channels));
@@ -328,7 +336,10 @@ class _HomeScreenState extends State<HomeScreen>
                       final selfLogin = _currentUserLogin!.toLowerCase();
                       if (msg.login.toLowerCase() == selfLogin) {
                         msg.text = msg.text.replaceFirst(
-                          RegExp(RegExp.escape(msg.login), caseSensitive: false),
+                          RegExp(
+                            RegExp.escape(msg.login),
+                            caseSensitive: false,
+                          ),
                           'You',
                         );
                         msg.text = msg.text.replaceFirst('was', 'were');
@@ -439,8 +450,8 @@ class _HomeScreenState extends State<HomeScreen>
 
     final trailingSpace =
         wordBefore.end < textBefore.length && textBefore[wordBefore.end] == ' '
-            ? ''
-            : ' ';
+        ? ''
+        : ' ';
 
     _lastAutoUndo = (
       start: wordBefore.start,
@@ -450,7 +461,8 @@ class _HomeScreenState extends State<HomeScreen>
 
     replaceCurrentWord(_messageController, replacement);
 
-    final replEnd = wordBefore.start + replacement.length + trailingSpace.length;
+    final replEnd =
+        wordBefore.start + replacement.length + trailingSpace.length;
     _undoExpectedAfter = _messageController.text.length > replEnd
         ? _messageController.text.substring(replEnd)
         : '';
@@ -487,9 +499,7 @@ class _HomeScreenState extends State<HomeScreen>
     }
 
     // Verify text after the replacement hasn't changed.
-    final currentAfter = text.length > replEnd
-        ? text.substring(replEnd)
-        : '';
+    final currentAfter = text.length > replEnd ? text.substring(replEnd) : '';
     final expectedAfter = _undoExpectedAfter ?? '';
     if (currentAfter != expectedAfter) {
       _lastAutoUndo = null;
@@ -601,7 +611,11 @@ class _HomeScreenState extends State<HomeScreen>
         ),
       );
       _chatConn.userTwitchEmotesLoaded = false;
-      unawaited(_loadUserTwitchEmotes().catchError((e) => debugPrint('_loadUserTwitchEmotes failed: $e')));
+      unawaited(
+        _loadUserTwitchEmotes().catchError(
+          (e) => debugPrint('_loadUserTwitchEmotes failed: $e'),
+        ),
+      );
     } catch (e) {
       debugPrint('_refreshEmotesAfterAuth failed: $e');
     }
@@ -713,7 +727,9 @@ class _HomeScreenState extends State<HomeScreen>
         final now = DateTime.now();
         final isRecent = now.difference(newest.timestamp).inMinutes < 1;
         if (text == 'Connected to IRC') {
-          if (isRecent && (newest.text == 'Connected' || newest.text == 'Connected to IRC')) {
+          if (isRecent &&
+              (newest.text == 'Connected' ||
+                  newest.text == 'Connected to IRC')) {
             return;
           }
         } else if (text == 'Connected') {
@@ -1618,7 +1634,8 @@ class _HomeScreenState extends State<HomeScreen>
                                     onLeaveChannel: _removeChannel,
                                     onAddChannel: _addChannel,
                                     onReorderChannels: _reorderChannels,
-                                    onSettingsOpened: () => _focusNode.unfocus(),
+                                    onSettingsOpened: () =>
+                                        _focusNode.unfocus(),
                                     onSettingsClosed: () {
                                       if (mounted) setState(() {});
                                     },
@@ -1635,87 +1652,89 @@ class _HomeScreenState extends State<HomeScreen>
                               },
                               child: _channels.isNotEmpty
                                   ? TabbedLayout(
-                                        tabs: _channels,
-                                        selectedIndex: _channels.indexOf(
-                                          _selectedChannel ?? '',
-                                        ),
-                                        onSelectedIndexChanged:
-                                            _onChannelChanged,
-                                        onFocusChanged:
-                                            _onChannelFocusChanged,
-                                        pageBuilder: (_, i) {
-                                          final channel = _channels[i];
-                                          return ListenableBuilder(
-                                            listenable:
-                                                _versionNotifier(channel),
-                                            builder: (_, _) =>
-                                                _buildChat(channel),
-                                          );
-                                        },
-                                        focusOnHalfDrag: true,
-                                        tabBuilder: (_, i) {
-                                          final channel = _channels[i];
-                                          return ListenableBuilder(
-                                            listenable: Listenable.merge(
-                                              [_selectedTabIndex, _mentionsBump],
-                                            ),
-                                            builder: (ctx, _) {
-                                              final focused =
-                                                  i == _selectedTabIndex.value;
-                                              final selected =
-                                                  focused ||
-                                                  channel == _selectedChannel;
-                                              final hasUnreadMention =
-                                                  _channelsWithUnreadMentions
-                                                      .contains(channel);
-                                              return Stack(
-                                                clipBehavior: Clip.none,
-                                                children: [
-                                                  Text(
-                                                    channel,
-                                                    style: TextStyle(
-                                                      fontSize: 14,
-                                                      fontWeight:
-                                                          selected ||
-                                                              _channelsWithUnread
-                                                                  .contains(channel)
-                                                          ? FontWeight.w600
-                                                          : FontWeight.normal,
-                                                      color: selected
-                                                          ? theme
-                                                                .colorScheme
-                                                                .primary
-                                                          : _channelsWithUnread
-                                                                .contains(channel)
-                                                          ? theme.colorScheme.onSurface
-                                                          : null,
-                                                    ),
-                                                  ),
-                                                  if (hasUnreadMention &&
-                                                      !selected)
-                                                    Positioned(
-                                                      top: -2,
-                                                      right: -4,
-                                                      child: Container(
-                                                        key: const Key(
-                                                          'unread_mention_dot',
-                                                        ),
-                                                        width: 6,
-                                                        height: 6,
-                                                        decoration: BoxDecoration(
-                                                          color: theme
+                                      tabs: _channels,
+                                      selectedIndex: _channels.indexOf(
+                                        _selectedChannel ?? '',
+                                      ),
+                                      onSelectedIndexChanged: _onChannelChanged,
+                                      onFocusChanged: _onChannelFocusChanged,
+                                      pageBuilder: (_, i) {
+                                        final channel = _channels[i];
+                                        return ListenableBuilder(
+                                          listenable: _versionNotifier(channel),
+                                          builder: (_, _) =>
+                                              _buildChat(channel),
+                                        );
+                                      },
+                                      focusOnHalfDrag: true,
+                                      tabBuilder: (_, i) {
+                                        final channel = _channels[i];
+                                        return ListenableBuilder(
+                                          listenable: Listenable.merge([
+                                            _selectedTabIndex,
+                                            _mentionsBump,
+                                          ]),
+                                          builder: (ctx, _) {
+                                            final focused =
+                                                i == _selectedTabIndex.value;
+                                            final selected =
+                                                focused ||
+                                                channel == _selectedChannel;
+                                            final hasUnreadMention =
+                                                _channelsWithUnreadMentions
+                                                    .contains(channel);
+                                            return Stack(
+                                              clipBehavior: Clip.none,
+                                              children: [
+                                                Text(
+                                                  channel,
+                                                  style: TextStyle(
+                                                    fontSize: 14,
+                                                    fontWeight:
+                                                        selected ||
+                                                            _channelsWithUnread
+                                                                .contains(
+                                                                  channel,
+                                                                )
+                                                        ? FontWeight.w600
+                                                        : FontWeight.normal,
+                                                    color: selected
+                                                        ? theme
                                                               .colorScheme
-                                                              .error,
-                                                          shape: BoxShape.circle,
-                                                        ),
+                                                              .primary
+                                                        : _channelsWithUnread
+                                                              .contains(channel)
+                                                        ? theme
+                                                              .colorScheme
+                                                              .onSurface
+                                                        : null,
+                                                  ),
+                                                ),
+                                                if (hasUnreadMention &&
+                                                    !selected)
+                                                  Positioned(
+                                                    top: -2,
+                                                    right: -4,
+                                                    child: Container(
+                                                      key: const Key(
+                                                        'unread_mention_dot',
+                                                      ),
+                                                      width: 6,
+                                                      height: 6,
+                                                      decoration: BoxDecoration(
+                                                        color: theme
+                                                            .colorScheme
+                                                            .error,
+                                                        shape: BoxShape.circle,
                                                       ),
                                                     ),
-                                                ],
-                                              );
-                                            },
-                                          );
-                                        },
-                                      )
+                                                  ),
+                                              ],
+                                            );
+                                          },
+                                        );
+                                      },
+                                    )
                                   : _buildEmpty(),
                             ),
                           ),
@@ -1975,38 +1994,47 @@ class _HomeScreenState extends State<HomeScreen>
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         MessageInput(
-                        controller: _messageController,
-                        focusNode: _focusNode,
-                        onSend: _sendMessage,
-                        onSendLongPress: _onSendLongPress,
-                        onEmoteToggle: () {
-                          if (_activePanel == OverlayPanel.emotes) {
-                            _closePanel();
-                          } else {
-                            _showEmoteMenu();
-                          }
-                        },
-                        replyToMsg: _replyToMsg,
-                        onCancelReply: () => setState(() => _replyToMsg = null),
-                        enabled:
-                            _activePanel != OverlayPanel.mentions &&
-                            widget.twitchAuth.isConfigured &&
-                            _chatConn.connectionStatus == EventSubStatus.connected,
-                        hintText: !widget.twitchAuth.isConfigured
-                            ? 'Connect an account to chat'
-                            : _chatConn.connectionStatus != EventSubStatus.connected
-                            ? 'Disconnected'
-                            : _activePanel == OverlayPanel.thread
-                            ? (_replyToRoot ? 'Reply to root...' : 'Reply to thread...')
-                            : _activePanel == OverlayPanel.mentions
-                            ? 'Type a message...'
-                            : null,
-                      ),
+                          controller: _messageController,
+                          focusNode: _focusNode,
+                          onSend: _sendMessage,
+                          onSendLongPress: _onSendLongPress,
+                          onEmoteToggle: () {
+                            if (_activePanel == OverlayPanel.emotes) {
+                              _closePanel();
+                            } else {
+                              _showEmoteMenu();
+                            }
+                          },
+                          replyToMsg: _replyToMsg,
+                          onCancelReply: () =>
+                              setState(() => _replyToMsg = null),
+                          enabled:
+                              _activePanel != OverlayPanel.mentions &&
+                              widget.twitchAuth.isConfigured &&
+                              _chatConn.connectionStatus ==
+                                  EventSubStatus.connected,
+                          hintText: !widget.twitchAuth.isConfigured
+                              ? 'Connect an account to chat'
+                              : _chatConn.connectionStatus !=
+                                    EventSubStatus.connected
+                              ? 'Disconnected'
+                              : _activePanel == OverlayPanel.thread
+                              ? (_replyToRoot
+                                    ? 'Reply to root...'
+                                    : 'Reply to thread...')
+                              : _activePanel == OverlayPanel.mentions
+                              ? 'Type a message...'
+                              : null,
+                        ),
                         ListenableBuilder(
-                          listenable: Listenable.merge([_mentionsBump, _selectedTabIndex]),
+                          listenable: Listenable.merge([
+                            _mentionsBump,
+                            _selectedTabIndex,
+                          ]),
                           builder: (context, _) {
                             final status = _chatStatus[_selectedChannel];
-                            final hasStatus = status != null && status.isNotEmpty;
+                            final hasStatus =
+                                status != null && status.isNotEmpty;
                             return AnimatedSize(
                               duration: const Duration(milliseconds: 200),
                               curve: Curves.easeInOut,
@@ -2022,9 +2050,9 @@ class _HomeScreenState extends State<HomeScreen>
                                         status,
                                         style: TextStyle(
                                           fontSize: 12,
-                                          color: Theme.of(context)
-                                              .colorScheme
-                                              .onSurfaceVariant,
+                                          color: Theme.of(
+                                            context,
+                                          ).colorScheme.onSurfaceVariant,
                                         ),
                                         textAlign: TextAlign.center,
                                       ),
@@ -2116,6 +2144,7 @@ class _HomeScreenState extends State<HomeScreen>
     TwitchMessage msg, {
     double badgeScale = 1.0,
   }) {
+    if (msg.cachedBadgeSpans != null) return msg.cachedBadgeSpans!;
     final badgeSize = 18.0 * badgeScale;
     final spans = <WidgetSpan>[];
 
@@ -2137,6 +2166,8 @@ class _HomeScreenState extends State<HomeScreen>
                     imageUrl: avatarUrl,
                     width: badgeSize,
                     height: badgeSize,
+                    memCacheWidth: badgeSize.round(),
+                    memCacheHeight: badgeSize.round(),
                     fit: BoxFit.cover,
                     fadeInDuration: Duration.zero,
                     placeholder: (_, _) =>
@@ -2177,6 +2208,8 @@ class _HomeScreenState extends State<HomeScreen>
                   imageUrl: url,
                   width: badgeSize,
                   height: badgeSize,
+                  memCacheWidth: badgeSize.round(),
+                  memCacheHeight: badgeSize.round(),
                   fit: BoxFit.contain,
                   fadeInDuration: Duration.zero,
                   placeholder: (_, _) =>
@@ -2192,7 +2225,7 @@ class _HomeScreenState extends State<HomeScreen>
         );
       }
     }
-    return spans;
+    return msg.cachedBadgeSpans = spans;
   }
 
   Widget _buildChat(String channel) {
@@ -2234,7 +2267,7 @@ class _HomeScreenState extends State<HomeScreen>
               controller: _scrollCtrl(channel),
               reverse: true,
               itemCount: msgs.length,
-                itemBuilder: (_, i) {
+              itemBuilder: (_, i) {
                 final msg = msgs[i];
 
                 final Widget body;
@@ -2271,7 +2304,7 @@ class _HomeScreenState extends State<HomeScreen>
                   );
                 }
 
-                return body;
+                return RepaintBoundary(child: body);
               },
             ),
           ),
@@ -2300,6 +2333,7 @@ class _HomeScreenState extends State<HomeScreen>
     final preview = replyPreview.length > 60
         ? '${replyPreview.substring(0, 60)}…'
         : replyPreview;
+    final variant = Theme.of(context).colorScheme.onSurfaceVariant;
     return Padding(
       padding: const EdgeInsets.only(left: 12, top: 2),
       child: GestureDetector(
@@ -2310,19 +2344,12 @@ class _HomeScreenState extends State<HomeScreen>
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              Icons.subdirectory_arrow_right,
-              size: 14,
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-            ),
+            Icon(Icons.subdirectory_arrow_right, size: 14, color: variant),
             const SizedBox(width: 4),
             Flexible(
               child: Text(
                 'replying to ${msg.replyToUser ?? 'unknown'}: $preview',
-                style: TextStyle(
-                  fontSize: 11,
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
+                style: TextStyle(fontSize: 11, color: variant),
                 overflow: TextOverflow.ellipsis,
               ),
             ),
@@ -2332,5 +2359,3 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 }
-
-

@@ -14,11 +14,7 @@ class AccountScreen extends StatefulWidget {
   final TwitchAuth twitchAuth;
   final OAuthStarter? oAuthStarter;
 
-  const AccountScreen({
-    super.key,
-    required this.twitchAuth,
-    this.oAuthStarter,
-  });
+  const AccountScreen({super.key, required this.twitchAuth, this.oAuthStarter});
 
   @override
   State<AccountScreen> createState() => _AccountScreenState();

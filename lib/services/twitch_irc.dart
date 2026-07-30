@@ -72,8 +72,9 @@ class IrcService extends BaseIrcConnection {
     final msg = parseIrcMessage(line);
     if (msg == null || msg.command != 'CLEARCHAT') return;
 
-    final channelName =
-        msg.params.isNotEmpty ? msg.params[0].substring(1) : null;
+    final channelName = msg.params.isNotEmpty
+        ? msg.params[0].substring(1)
+        : null;
     if (channelName == null) return;
 
     final targetUser = msg.trailing;
@@ -99,8 +100,9 @@ class IrcService extends BaseIrcConnection {
     final msg = parseIrcMessage(line);
     if (msg == null || msg.command != 'NOTICE') return;
 
-    final channelName =
-        msg.params.isNotEmpty ? msg.params[0].substring(1) : null;
+    final channelName = msg.params.isNotEmpty
+        ? msg.params[0].substring(1)
+        : null;
     if (channelName == null || msg.trailing == null) return;
 
     _noticeController.add(
@@ -112,8 +114,9 @@ class IrcService extends BaseIrcConnection {
     final msg = parseIrcMessage(line);
     if (msg == null || msg.trailing == null) return;
 
-    final channelName =
-        msg.params.isNotEmpty ? msg.params[0].substring(1) : null;
+    final channelName = msg.params.isNotEmpty
+        ? msg.params[0].substring(1)
+        : null;
     if (channelName == null) return;
 
     _jtvController.add(

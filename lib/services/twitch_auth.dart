@@ -10,7 +10,7 @@ class TwitchAuth extends ChangeNotifier {
   final FlutterSecureStorage _storage;
 
   TwitchAuth({FlutterSecureStorage? storage})
-      : _storage = storage ?? const FlutterSecureStorage();
+    : _storage = storage ?? const FlutterSecureStorage();
 
   bool get isConfigured => TwitchConfig.isConfigured && accessToken != null;
 

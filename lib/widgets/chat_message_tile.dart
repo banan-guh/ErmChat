@@ -9,9 +9,22 @@ class ChatMessageTile extends StatefulWidget {
   final Color surface;
   final double textScale;
   final String? timestampOverride;
-  final List<WidgetSpan> Function(String channel, TwitchMessage msg, {double badgeScale}) buildBadgeSpans;
-  final List<InlineSpan> Function(TwitchMessage msg, String channel, Color surface, {bool colored, double textScale}) buildMessageSpans;
-  final List<InlineSpan> Function(TwitchMessage msg, double textScale)? systemBodyBuilder;
+  final List<WidgetSpan> Function(
+    String channel,
+    TwitchMessage msg, {
+    double badgeScale,
+  })
+  buildBadgeSpans;
+  final List<InlineSpan> Function(
+    TwitchMessage msg,
+    String channel,
+    Color surface, {
+    bool colored,
+    double textScale,
+  })
+  buildMessageSpans;
+  final List<InlineSpan> Function(TwitchMessage msg, double textScale)?
+  systemBodyBuilder;
   final void Function(String login, String? userId)? onTapUser;
   final VoidCallback? onLongPress;
   final Widget? replyIndicator;
@@ -122,9 +135,19 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
       }
 
       final bodySpans = msg.isAction
-          ? widget.buildMessageSpans(msg, widget.channel, widget.surface,
-              colored: true, textScale: s)
-          : widget.buildMessageSpans(msg, widget.channel, widget.surface, textScale: s);
+          ? widget.buildMessageSpans(
+              msg,
+              widget.channel,
+              widget.surface,
+              colored: true,
+              textScale: s,
+            )
+          : widget.buildMessageSpans(
+              msg,
+              widget.channel,
+              widget.surface,
+              textScale: s,
+            );
 
       children = [...badges, usernameSpan, ...bodySpans];
       semanticsLabel = msg.isHighlighted
@@ -183,9 +206,7 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
     if (highlighted) {
       final isDark = theme.brightness == Brightness.dark;
       child = ColoredBox(
-        color: isDark
-            ? const Color(0xFF773031)
-            : const Color(0xFFEF9A9A),
+        color: isDark ? const Color(0xFF773031) : const Color(0xFFEF9A9A),
         child: child,
       );
     }

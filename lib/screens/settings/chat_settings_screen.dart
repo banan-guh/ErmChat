@@ -26,8 +26,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
       setState(() {
         _maxMessagesPerChannel =
             prefs.getInt('max_messages_per_channel') ?? 200;
-        _recentMessagesCount =
-            prefs.getInt('recent_messages_limit') ?? 100;
+        _recentMessagesCount = prefs.getInt('recent_messages_limit') ?? 100;
         _replyToRoot = prefs.getBool('reply_to_thread_root') ?? false;
       });
     }
@@ -43,7 +42,10 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
                 child: Text(
                   'Max messages per channel: $_maxMessagesPerChannel',
                 ),
@@ -67,10 +69,11 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                child: Text(
-                  'Recent messages to load: $_recentMessagesCount',
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
                 ),
+                child: Text('Recent messages to load: $_recentMessagesCount'),
               ),
               Slider(
                 value: _recentMessagesCount.toDouble(),
@@ -94,9 +97,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
             onTap: () {
               Navigator.push(
                 context,
-                MaterialPageRoute(
-                  builder: (_) => const PingsScreen(),
-                ),
+                MaterialPageRoute(builder: (_) => const PingsScreen()),
               );
             },
           ),

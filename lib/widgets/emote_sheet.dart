@@ -28,10 +28,7 @@ class _EmoteSheetState extends State<EmoteSheet>
   @override
   void initState() {
     super.initState();
-    _tabCtrl = TabController(
-      length: widget.emotes.length,
-      vsync: this,
-    );
+    _tabCtrl = TabController(length: widget.emotes.length, vsync: this);
     _tabCtrl.addListener(() {
       if (!_tabCtrl.indexIsChanging) setState(() {});
     });
@@ -84,6 +81,8 @@ class _EmoteSheetState extends State<EmoteSheet>
                   imageUrl: emote.url,
                   width: 64,
                   height: 64,
+                  memCacheWidth: 64,
+                  memCacheHeight: 64,
                   fit: BoxFit.contain,
                   fadeInDuration: Duration.zero,
                   placeholder: (_, _) => Container(
@@ -132,9 +131,9 @@ class _EmoteSheetState extends State<EmoteSheet>
                           fontSize: 13,
                           color: theme.colorScheme.onSurfaceVariant,
                         ),
-                ),
-              ],
-            ],
+                      ),
+                    ],
+                  ],
                 ),
               ),
             ],
@@ -171,9 +170,7 @@ class _EmoteSheetState extends State<EmoteSheet>
             onTap: () {
               widget.onClose();
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Emote link not yet available'),
-                ),
+                const SnackBar(content: Text('Emote link not yet available')),
               );
             },
           ),
@@ -209,9 +206,7 @@ class _EmoteSheetState extends State<EmoteSheet>
               isScrollable: true,
               tabAlignment: TabAlignment.center,
               labelStyle: const TextStyle(fontSize: 13),
-              tabs: widget.emotes
-                  .map((e) => Tab(text: e.code))
-                  .toList(),
+              tabs: widget.emotes.map((e) => Tab(text: e.code)).toList(),
             ),
           ],
           _buildEmotePage(

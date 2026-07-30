@@ -46,9 +46,7 @@ class CommandHandler {
 
     final broadcasterId = getChannelUserIds()[channel];
     final currentUserId = getCurrentUserId();
-    if (currentUserId == null ||
-        broadcasterId == null ||
-        !auth.isConfigured) {
+    if (currentUserId == null || broadcasterId == null || !auth.isConfigured) {
       addSystemMessage(channel, 'Not authenticated or channel not joined.');
       return;
     }
@@ -164,10 +162,7 @@ class CommandHandler {
           reason: reason,
         );
         if (ok) {
-          addSystemMessage(
-            channel,
-            '$targetLogin timed out for ${duration}s.',
-          );
+          addSystemMessage(channel, '$targetLogin timed out for ${duration}s.');
         } else {
           addSystemMessage(
             channel,

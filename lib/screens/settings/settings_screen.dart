@@ -57,9 +57,8 @@ class SettingsScreen extends StatelessWidget {
             onTap: () => Navigator.push(
               context,
               MaterialPageRoute(
-                builder: (_) => CustomizationScreen(
-                  onThemeChanged: onThemeChanged,
-                ),
+                builder: (_) =>
+                    CustomizationScreen(onThemeChanged: onThemeChanged),
               ),
             ),
           ),
@@ -69,9 +68,7 @@ class SettingsScreen extends StatelessWidget {
             title: 'Chat',
             onTap: () => Navigator.push(
               context,
-              MaterialPageRoute(
-                builder: (_) => const ChatSettingsScreen(),
-              ),
+              MaterialPageRoute(builder: (_) => const ChatSettingsScreen()),
             ),
           ),
           _buildTile(
@@ -94,9 +91,7 @@ class SettingsScreen extends StatelessWidget {
             title: 'About',
             onTap: () => Navigator.push(
               context,
-              MaterialPageRoute(
-                builder: (_) => const AboutScreen(),
-              ),
+              MaterialPageRoute(builder: (_) => const AboutScreen()),
             ),
           ),
         ],

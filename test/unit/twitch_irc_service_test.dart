@@ -28,8 +28,11 @@ void main() {
 
     test('sendMessage with reply parent does not crash', () {
       expect(
-        () => service.sendMessage('testchannel', 'hello',
-            replyParentMessageId: 'parent-id'),
+        () => service.sendMessage(
+          'testchannel',
+          'hello',
+          replyParentMessageId: 'parent-id',
+        ),
         returnsNormally,
       );
     });

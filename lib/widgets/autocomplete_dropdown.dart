@@ -59,9 +59,7 @@ class _AutocompleteDropdownState extends State<AutocompleteDropdown> {
         decoration: BoxDecoration(
           color: theme.scaffoldBackgroundColor,
           border: Border(
-            top: BorderSide(
-              color: theme.dividerColor.withValues(alpha: 0.3),
-            ),
+            top: BorderSide(color: theme.dividerColor.withValues(alpha: 0.3)),
           ),
         ),
         child: ListView.builder(
@@ -69,8 +67,7 @@ class _AutocompleteDropdownState extends State<AutocompleteDropdown> {
           physics: const ClampingScrollPhysics(),
           itemCount: itemCount,
           itemExtent: _rowHeight,
-          itemBuilder: (_, i) =>
-              _buildRow(theme, widget.suggestions[i]),
+          itemBuilder: (_, i) => _buildRow(theme, widget.suggestions[i]),
         ),
       ),
     );
@@ -82,22 +79,26 @@ class _AutocompleteDropdownState extends State<AutocompleteDropdown> {
       child: InkWell(
         onTap: () => widget.onSelect(suggestion),
         child: SizedBox(
-        height: _rowHeight,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          child: Row(
-            children: [
-              switch (suggestion) {
-                UserSuggestion() => Icon(
+          height: _rowHeight,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Row(
+              children: [
+                switch (suggestion) {
+                  UserSuggestion() => Icon(
                     Icons.person,
                     size: 28,
                     color: theme.colorScheme.onSurfaceVariant,
                   ),
-                EmoteSuggestion() => SizedBox(
+                  EmoteSuggestion() => SizedBox(
                     width: _emoteSize,
                     height: _emoteSize,
                     child: CachedNetworkImage(
                       imageUrl: suggestion.emote.url,
+                      width: _emoteSize,
+                      height: _emoteSize,
+                      memCacheWidth: _emoteSize.round(),
+                      memCacheHeight: _emoteSize.round(),
                       fit: BoxFit.contain,
                       fadeInDuration: Duration.zero,
                       placeholder: (_, _) => const SizedBox(),
@@ -105,19 +106,19 @@ class _AutocompleteDropdownState extends State<AutocompleteDropdown> {
                           const Icon(Icons.image, size: 16),
                     ),
                   ),
-              },
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  suggestion.displayText,
-                  style: const TextStyle(fontSize: _fontSize),
-                  overflow: TextOverflow.ellipsis,
+                },
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    suggestion.displayText,
+                    style: const TextStyle(fontSize: _fontSize),
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
-      ),
       ),
     );
   }

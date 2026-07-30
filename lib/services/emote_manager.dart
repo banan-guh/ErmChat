@@ -75,10 +75,7 @@ class EmoteManager extends ChangeNotifier {
     } else if (_globalCache == null) {
       result = channelEmotes;
     } else {
-      final merged = {
-        ..._globalCache!.byCode,
-        ...channelEmotes.byCode,
-      };
+      final merged = {..._globalCache!.byCode, ...channelEmotes.byCode};
       final suggestions = merged.values.toList()
         ..sort((a, b) => a.code.compareTo(b.code));
       result = ChannelEmotes(byCode: merged, suggestions: suggestions);
@@ -111,10 +108,11 @@ class EmoteManager extends ChangeNotifier {
     for (final channel in keys) {
       final raw = _channelTwitchEmotes[channel];
       if (raw == null) continue;
-      final subs = raw
-          .where((e) => e.emoteType == 'subscriptions' || e.tier != null)
-          .toList()
-        ..sort((a, b) => a.code.compareTo(b.code));
+      final subs =
+          raw
+              .where((e) => e.emoteType == 'subscriptions' || e.tier != null)
+              .toList()
+            ..sort((a, b) => a.code.compareTo(b.code));
       if (subs.isNotEmpty) result[channel] = subs;
     }
     return result;
@@ -246,7 +244,11 @@ class EmoteManager extends ChangeNotifier {
     // separately and re-merged via storeUserTwitchEmotes, which preserves
     // tiered versions over non-tiered for sub-gated emotes.
     final nonSubEmotes = emotes
-        .where((e) => !(e.type == EmoteType.twitch && (e.tier != null || e.emoteType == 'subscriptions')))
+        .where(
+          (e) =>
+              !(e.type == EmoteType.twitch &&
+                  (e.tier != null || e.emoteType == 'subscriptions')),
+        )
         .toList();
     _channelTwitchEmotes[channel] = nonSubEmotes
         .where((e) => e.type == EmoteType.twitch)
@@ -330,7 +332,8 @@ class EmoteManager extends ChangeNotifier {
       final existing = byCode[emote.code];
       if (existing == null ||
           (existing.scope.index <= emote.scope.index &&
-              _providerPriority[emote.type]! < _providerPriority[existing.type]!)) {
+              _providerPriority[emote.type]! <
+                  _providerPriority[existing.type]!)) {
         byCode[emote.code] = emote;
       }
     }
@@ -380,7 +383,8 @@ class EmoteManager extends ChangeNotifier {
     _lastErrors.clear();
     final all = <GenericEmote>[];
     final providers = <String, Future<List<GenericEmote>> Function()>{
-      'Twitch': () => TwitchEmoteProvider.fetchGlobal(accessToken: _accessToken),
+      'Twitch': () =>
+          TwitchEmoteProvider.fetchGlobal(accessToken: _accessToken),
       'BTTV': BttvEmoteProvider.fetchGlobal,
       'FFZ': FfzEmoteProvider.fetchGlobal,
       '7TV': SevenTvEmoteProvider.fetchGlobal,
@@ -404,7 +408,9 @@ class EmoteManager extends ChangeNotifier {
       'BTTV': () => BttvEmoteProvider.fetchChannel(broadcasterId),
       'FFZ': () => FfzEmoteProvider.fetchChannel(broadcasterId),
       '7TV': () async {
-        final resp = await SevenTvEmoteProvider.fetchChannelResponse(broadcasterId);
+        final resp = await SevenTvEmoteProvider.fetchChannelResponse(
+          broadcasterId,
+        );
         if (channelName != null) {
           if (resp.emoteSetId != null) {
             setSevenTvEmoteSetId(channelName, resp.emoteSetId!);

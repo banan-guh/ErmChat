@@ -62,9 +62,7 @@ class ThreadPanelWidgetState extends State<ThreadPanelWidget> {
           return ListView(
             controller: widget.scrollController,
             padding: const EdgeInsets.only(bottom: 8),
-            children: const [
-              Center(child: Text('No messages found')),
-            ],
+            children: const [Center(child: Text('No messages found'))],
           );
         }
 

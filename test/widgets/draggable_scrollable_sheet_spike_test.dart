@@ -40,17 +40,16 @@ void main() {
         await tester.pumpAndSettle();
 
         // Open the sheet programmatically.
-        controller.animateTo(1.0,
-            duration: const Duration(milliseconds: 200),
-            curve: Curves.easeOut);
+        controller.animateTo(
+          1.0,
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOut,
+        );
         await tester.pumpAndSettle();
         expect(controller.size, closeTo(1.0, 0.01));
 
         // Drag down to an intermediate position (~40%).
-        await tester.drag(
-          find.text('item 0'),
-          const Offset(0, 300),
-        );
+        await tester.drag(find.text('item 0'), const Offset(0, 300));
         await tester.pumpAndSettle();
 
         // After releasing, the sheet must have snapped — not resting at an
@@ -109,9 +108,11 @@ void main() {
         await tester.pumpAndSettle();
 
         // Open at max=0.55.
-        controller.animateTo(0.55,
-            duration: const Duration(milliseconds: 200),
-            curve: Curves.easeOut);
+        controller.animateTo(
+          0.55,
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOut,
+        );
         await tester.pumpAndSettle();
         expect(controller.size, closeTo(0.55, 0.01));
 
@@ -120,10 +121,7 @@ void main() {
         await tester.pumpAndSettle();
 
         // Drag to a mid position and release — must still snap to 0 or 1.0.
-        await tester.drag(
-          find.text('item 0'),
-          const Offset(0, 400),
-        );
+        await tester.drag(find.text('item 0'), const Offset(0, 400));
         await tester.pumpAndSettle();
 
         final size = controller.size;
@@ -131,7 +129,8 @@ void main() {
         expect(
           snapped,
           isTrue,
-          reason: 'After maxChildSize change, snap should still be binary '
+          reason:
+              'After maxChildSize change, snap should still be binary '
               '(got size $size).',
         );
       },
@@ -187,8 +186,7 @@ void main() {
                                         : null,
                                     children: List.generate(
                                       50,
-                                      (i) => ListTile(
-                                          title: Text('a$i')),
+                                      (i) => ListTile(title: Text('a$i')),
                                     ),
                                   ),
                                   ListView(
@@ -197,8 +195,7 @@ void main() {
                                         : null,
                                     children: List.generate(
                                       50,
-                                      (i) => ListTile(
-                                          title: Text('b$i')),
+                                      (i) => ListTile(title: Text('b$i')),
                                     ),
                                   ),
                                 ],

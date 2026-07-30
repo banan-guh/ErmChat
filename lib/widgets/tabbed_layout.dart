@@ -9,7 +9,7 @@ class _SwipePhysics extends PageScrollPhysics {
     return _SwipePhysics(parent: buildParent(ancestor));
   }
 
-// stock fling distances for horizontal swipe are too high, just increased sensitivity here
+  // stock fling distances for horizontal swipe are too high, just increased sensitivity here
   //@override
   //double get minFlingDistance => 50.0;
 
@@ -128,7 +128,9 @@ class TabbedLayoutState extends State<TabbedLayout>
     }
     if (len != _tabLength) {
       _tabController?.removeListener(_onTabChanged);
-      if (oldWidget.focusOnHalfDrag && _tabController != null && _tabController!.animation != null) {
+      if (oldWidget.focusOnHalfDrag &&
+          _tabController != null &&
+          _tabController!.animation != null) {
         _tabController!.animation!.removeListener(_onAnimationTick);
       }
       _tabController?.dispose();
@@ -161,7 +163,9 @@ class TabbedLayoutState extends State<TabbedLayout>
   @override
   void dispose() {
     _tabController?.removeListener(_onTabChanged);
-    if (widget.focusOnHalfDrag && _tabController != null && _tabController!.animation != null) {
+    if (widget.focusOnHalfDrag &&
+        _tabController != null &&
+        _tabController!.animation != null) {
       _tabController!.animation!.removeListener(_onAnimationTick);
     }
     _tabController?.dispose();
@@ -183,8 +187,12 @@ class TabbedLayoutState extends State<TabbedLayout>
     final theme = Theme.of(context);
 
     final edgeInset = MediaQuery.of(context).systemGestureInsets;
-    final leftExclude = edgeInset.left > 0 ? edgeInset.left : TabbedLayout.minEdgeExclusion;
-    final rightExclude = edgeInset.right > 0 ? edgeInset.right : TabbedLayout.minEdgeExclusion;
+    final leftExclude = edgeInset.left > 0
+        ? edgeInset.left
+        : TabbedLayout.minEdgeExclusion;
+    final rightExclude = edgeInset.right > 0
+        ? edgeInset.right
+        : TabbedLayout.minEdgeExclusion;
 
     return Column(
       children: [

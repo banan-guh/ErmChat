@@ -11,7 +11,9 @@ class NotificationService {
   String? get pendingLaunchChannel => _pendingLaunchChannel;
 
   Future<void> init() async {
-    const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
+    const androidSettings = AndroidInitializationSettings(
+      '@mipmap/ic_launcher',
+    );
     const iosSettings = DarwinInitializationSettings(
       requestAlertPermission: false,
       requestBadgePermission: false,
@@ -42,7 +44,8 @@ class NotificationService {
     );
     await _plugin
         .resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin>()
+          AndroidFlutterLocalNotificationsPlugin
+        >()
         ?.createNotificationChannel(androidChannel);
   }
 
@@ -70,7 +73,9 @@ class NotificationService {
     );
     const details = NotificationDetails(android: androidDetails);
 
-    final body = message.length > 200 ? '${message.substring(0, 200)}…' : message;
+    final body = message.length > 200
+        ? '${message.substring(0, 200)}…'
+        : message;
 
     await _plugin.show(
       DateTime.now().millisecondsSinceEpoch ~/ 1000,

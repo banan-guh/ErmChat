@@ -2,9 +2,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ermchat/services/seven_tv_event_client.dart';
 
 Map<String, dynamic> _hello({int heartbeatInterval = 30000}) => {
-      'op': 1,
-      'd': {'heartbeat_interval': heartbeatInterval},
-    };
+  'op': 1,
+  'd': {'heartbeat_interval': heartbeatInterval},
+};
 
 Map<String, dynamic> _emoteSetUpdate({
   required String emoteSetId,
@@ -25,8 +25,7 @@ Map<String, dynamic> _emoteSetUpdate({
       if (pulled != null) 'pulled': pulled,
       // ignore: use_null_aware_elements
       if (updated != null) 'updated': updated,
-      if (actor != null)
-        'actor': {'display_name': actor},
+      if (actor != null) 'actor': {'display_name': actor},
     },
   },
 };
@@ -46,11 +45,14 @@ Map<String, dynamic> _userUpdate({
       'connection_index': connectionIndex,
       'change_map': {
         'fields': [
-          {'key': 'emote_set_id', 'value': newEmoteSetId, 'old_value': oldEmoteSetId},
+          {
+            'key': 'emote_set_id',
+            'value': newEmoteSetId,
+            'old_value': oldEmoteSetId,
+          },
         ],
       },
-      if (actor != null)
-        'actor': {'display_name': actor},
+      if (actor != null) 'actor': {'display_name': actor},
     },
   },
 };
@@ -108,7 +110,9 @@ void main() {
         _emoteSetUpdate(
           emoteSetId: 'set123',
           pushed: [
-            {'value': {'id': 'abc', 'name': 'KEKW'}},
+            {
+              'value': {'id': 'abc', 'name': 'KEKW'},
+            },
           ],
           actor: 'streamer',
         ),
@@ -130,7 +134,9 @@ void main() {
         _emoteSetUpdate(
           emoteSetId: 'set123',
           pulled: [
-            {'old_value': {'id': 'xyz', 'name': 'PogU'}},
+            {
+              'old_value': {'id': 'xyz', 'name': 'PogU'},
+            },
           ],
         ),
       );
@@ -170,11 +176,17 @@ void main() {
         _emoteSetUpdate(
           emoteSetId: 'set123',
           pushed: [
-            {'value': {'id': 'a1', 'name': 'Emote1'}},
-            {'value': {'id': 'a2', 'name': 'Emote2'}},
+            {
+              'value': {'id': 'a1', 'name': 'Emote1'},
+            },
+            {
+              'value': {'id': 'a2', 'name': 'Emote2'},
+            },
           ],
           pulled: [
-            {'old_value': {'id': 'r1', 'name': 'Removed1'}},
+            {
+              'old_value': {'id': 'r1', 'name': 'Removed1'},
+            },
           ],
           updated: [
             {
@@ -324,7 +336,10 @@ void main() {
       client.handleRawMessage(_hello());
       statusEvents.clear();
 
-      client.handleRawMessage({'op': 2, 'd': {'count': 1}});
+      client.handleRawMessage({
+        'op': 2,
+        'd': {'count': 1},
+      });
 
       expect(emoteEvents, isEmpty);
       expect(userEvents, isEmpty);
@@ -373,7 +388,9 @@ void main() {
         _emoteSetUpdate(
           emoteSetId: 's1',
           pushed: [
-            {'value': {'id': 'e1', 'name': 'Test'}},
+            {
+              'value': {'id': 'e1', 'name': 'Test'},
+            },
           ],
         ),
       );
@@ -452,20 +469,23 @@ void main() {
       expect(client2.isReconnecting, false);
     });
 
-    test('reconnectAttempt capped after max and resets reconnecting on each call', () {
-      final client2 = SevenTvEventClient();
-      for (var i = 0; i < 8; i++) {
+    test(
+      'reconnectAttempt capped after max and resets reconnecting on each call',
+      () {
+        final client2 = SevenTvEventClient();
+        for (var i = 0; i < 8; i++) {
+          client2.scheduleReconnectForTest();
+          client2.isReconnecting = false;
+        }
         client2.scheduleReconnectForTest();
-        client2.isReconnecting = false;
-      }
-      client2.scheduleReconnectForTest();
-      expect(client2.reconnectAttempt, 9);
-      expect(client2.isReconnecting, false);
+        expect(client2.reconnectAttempt, 9);
+        expect(client2.isReconnecting, false);
 
-      client2.scheduleReconnectForTest();
-      expect(client2.reconnectAttempt, 10);
-      expect(client2.isReconnecting, false);
-    });
+        client2.scheduleReconnectForTest();
+        expect(client2.reconnectAttempt, 10);
+        expect(client2.isReconnecting, false);
+      },
+    );
 
     test('disconnect emits disconnected status event', () {
       client.handleRawMessage(_hello());

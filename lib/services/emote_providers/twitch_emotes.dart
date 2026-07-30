@@ -11,7 +11,9 @@ class TwitchEmoteProvider {
     if (accessToken != null) {
       headers['Authorization'] = 'Bearer $accessToken';
     }
-    final res = await http.get(uri, headers: headers).timeout(const Duration(seconds: 10));
+    final res = await http
+        .get(uri, headers: headers)
+        .timeout(const Duration(seconds: 10));
     debugPrint(
       'Twitch global emotes: ${res.statusCode} — ${res.body.length} bytes',
     );
@@ -37,7 +39,9 @@ class TwitchEmoteProvider {
       if (accessToken != null) {
         headers['Authorization'] = 'Bearer $accessToken';
       }
-      final res = await http.get(uri, headers: headers).timeout(const Duration(seconds: 10));
+      final res = await http
+          .get(uri, headers: headers)
+          .timeout(const Duration(seconds: 10));
       if (res.statusCode != 200) {
         debugPrint('Twitch user emotes error: ${res.statusCode} ${res.body}');
         return {};
@@ -52,30 +56,35 @@ class TwitchEmoteProvider {
         final ownerId = item['owner_id'] as String?;
         final emoteType = item['emote_type'] as String?;
         if (id == null || name == null) continue;
-        final formats = (item['format'] as List<dynamic>?)?.cast<String>() ?? [];
+        final formats =
+            (item['format'] as List<dynamic>?)?.cast<String>() ?? [];
         final isAnimated = formats.contains('animated');
-        final format = isAnimated ? 'animated' : (formats.isNotEmpty ? formats.first : 'static');
+        final format = isAnimated
+            ? 'animated'
+            : (formats.isNotEmpty ? formats.first : 'static');
         final scale =
             (item['scale'] as List<dynamic>?)?.lastOrNull as String? ?? '3.0';
-        final theme = (item['theme_mode'] as List<dynamic>?)
-                ?.firstOrNull as String? ??
+        final theme =
+            (item['theme_mode'] as List<dynamic>?)?.firstOrNull as String? ??
             'dark';
         final url =
             'https://static-cdn.jtvnw.net/emoticons/v2/$id/$format/$theme/$scale';
-        result.putIfAbsent(ownerId ?? '', () => []).add(
-          GenericEmote(
-            id: id,
-            code: name,
-            type: EmoteType.twitch,
-            url: url,
-            isAnimated: isAnimated,
-            scope: ownerId != null && ownerId.isNotEmpty
-                ? EmoteScope.channel
-                : EmoteScope.global,
-            tier: item['tier'] as String?,
-            emoteType: emoteType,
-          ),
-        );
+        result
+            .putIfAbsent(ownerId ?? '', () => [])
+            .add(
+              GenericEmote(
+                id: id,
+                code: name,
+                type: EmoteType.twitch,
+                url: url,
+                isAnimated: isAnimated,
+                scope: ownerId != null && ownerId.isNotEmpty
+                    ? EmoteScope.channel
+                    : EmoteScope.global,
+                tier: item['tier'] as String?,
+                emoteType: emoteType,
+              ),
+            );
       }
     } while (cursor != null && cursor.isNotEmpty);
     debugPrint(
@@ -98,7 +107,9 @@ class TwitchEmoteProvider {
     if (accessToken != null) {
       headers['Authorization'] = 'Bearer $accessToken';
     }
-    final res = await http.get(uri, headers: headers).timeout(const Duration(seconds: 10));
+    final res = await http
+        .get(uri, headers: headers)
+        .timeout(const Duration(seconds: 10));
     if (res.statusCode != 200) {
       debugPrint('Twitch channel emotes error: ${res.statusCode}');
       return [];
@@ -123,10 +134,14 @@ class TwitchEmoteProvider {
       if (id == null || name == null) continue;
       final formats = (item['format'] as List<dynamic>?)?.cast<String>() ?? [];
       final isAnimated = formats.contains('animated');
-      final scale = (item['scale'] as List<dynamic>?)?.lastOrNull as String? ?? '3.0';
-      final theme = (item['theme_mode'] as List<dynamic>?)?.firstOrNull as String? ?? 'dark';
+      final scale =
+          (item['scale'] as List<dynamic>?)?.lastOrNull as String? ?? '3.0';
+      final theme =
+          (item['theme_mode'] as List<dynamic>?)?.firstOrNull as String? ??
+          'dark';
       final format = isAnimated ? 'animated' : 'static';
-      final url = 'https://static-cdn.jtvnw.net/emoticons/v2/$id/$format/$theme/$scale';
+      final url =
+          'https://static-cdn.jtvnw.net/emoticons/v2/$id/$format/$theme/$scale';
       final tier = item['tier'] as String?;
       emotes.add(
         GenericEmote(

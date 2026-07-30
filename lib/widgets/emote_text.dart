@@ -147,7 +147,7 @@ class EmoteText {
 
     final sortedPos = twitchPositions != null
         ? (List<EmotePosition>.from(twitchPositions)
-          ..sort((a, b) => a.startIndex.compareTo(b.startIndex)))
+            ..sort((a, b) => a.startIndex.compareTo(b.startIndex)))
         : <EmotePosition>[];
     int twitchIdx = 0;
 
@@ -239,6 +239,8 @@ class EmoteText {
       imageUrl: url,
       width: width,
       height: height,
+      memCacheWidth: width.round(),
+      memCacheHeight: height.round(),
       fit: BoxFit.contain,
       fadeInDuration: Duration.zero,
       placeholder: (_, _) => SizedBox(width: width, height: height),
@@ -248,7 +250,11 @@ class EmoteText {
 
   // Compute bounding box across all overlays, center each image within it.
   // Larger overlays extend beyond the base emote. Clip.none allows overflow.
-  static WidgetSpan _buildEmoteSpan(EmoteSpanData data, {void Function(List<GenericEmote>)? onEmoteTap, double scale = 1.0}) {
+  static WidgetSpan _buildEmoteSpan(
+    EmoteSpanData data, {
+    void Function(List<GenericEmote>)? onEmoteTap,
+    double scale = 1.0,
+  }) {
     final baseSize = _emoteSize(data.base, scale);
     var maxW = baseSize.width;
     var maxH = baseSize.height;
@@ -267,13 +273,15 @@ class EmoteText {
     ];
     for (final overlay in data.overlays) {
       final o = _emoteSize(overlay, scale);
-      children.add(Positioned(
-        left: (maxW - o.width) / 2,
-        top: (maxH - o.height) / 2,
-        width: o.width,
-        height: o.height,
-        child: _emoteImage(overlay.url, o.width, o.height),
-      ));
+      children.add(
+        Positioned(
+          left: (maxW - o.width) / 2,
+          top: (maxH - o.height) / 2,
+          width: o.width,
+          height: o.height,
+          child: _emoteImage(overlay.url, o.width, o.height),
+        ),
+      );
     }
     Widget emoteWidget = Semantics(
       label: data.base.code,
@@ -289,7 +297,10 @@ class EmoteText {
         child: emoteWidget,
       );
     }
-    return WidgetSpan(alignment: PlaceholderAlignment.middle, child: emoteWidget);
+    return WidgetSpan(
+      alignment: PlaceholderAlignment.middle,
+      child: emoteWidget,
+    );
   }
 }
 

@@ -22,19 +22,16 @@ CurrentWord getCurrentWord(String text, int cursorOffset) {
   while (end < text.length && text[end] != ' ') {
     end++;
   }
-  return CurrentWord(
-    start: start,
-    end: end,
-    text: text.substring(start, end),
-  );
+  return CurrentWord(start: start, end: end, text: text.substring(start, end));
 }
 
 void replaceCurrentWord(TextEditingController controller, String replacement) {
   final text = controller.text;
   final cursor = controller.selection.baseOffset.clamp(0, text.length);
   final word = getCurrentWord(text, cursor);
-  final trailingSpace =
-      word.end < text.length && text[word.end] == ' ' ? '' : ' ';
+  final trailingSpace = word.end < text.length && text[word.end] == ' '
+      ? ''
+      : ' ';
   final newText =
       '${text.substring(0, word.start)}$replacement$trailingSpace${text.substring(word.end)}';
   controller.text = newText;
@@ -81,8 +78,7 @@ List<Suggestion> filterSuggestions({
   final matchedIds = <String>{};
   final matchedEmotes = <GenericEmote>[];
   for (final emote in emotes) {
-    if (emote.code.contains(word) ||
-        emote.code.toLowerCase().contains(lower)) {
+    if (emote.code.contains(word) || emote.code.toLowerCase().contains(lower)) {
       if (matchedIds.add(emote.id)) {
         matchedEmotes.add(emote);
       }

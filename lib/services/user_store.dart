@@ -6,8 +6,7 @@ class UserStore {
 
   void addUser(String channel, String displayName) {
     if (displayName.isEmpty) return;
-    final set =
-        _users.putIfAbsent(channel, () => LinkedHashSet<String>());
+    final set = _users.putIfAbsent(channel, () => LinkedHashSet<String>());
     set.remove(displayName);
     set.add(displayName);
     while (set.length > _maxPerChannel) {

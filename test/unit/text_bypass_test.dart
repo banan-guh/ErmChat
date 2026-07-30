@@ -30,25 +30,31 @@ void main() {
       expect(result, '.timeout  user 60');
     });
 
-    test('chaining: repeated bypass on single-word keeps producing unique strings', () {
-      var wire = 'hello';
-      wire = bypassTextDuplicate(wire);
-      expect(wire, 'hello $_invisibleChar');
-      wire = bypassTextDuplicate(wire);
-      expect(wire, 'hello  $_invisibleChar');
-      wire = bypassTextDuplicate(wire);
-      expect(wire, 'hello   $_invisibleChar');
-    });
+    test(
+      'chaining: repeated bypass on single-word keeps producing unique strings',
+      () {
+        var wire = 'hello';
+        wire = bypassTextDuplicate(wire);
+        expect(wire, 'hello $_invisibleChar');
+        wire = bypassTextDuplicate(wire);
+        expect(wire, 'hello  $_invisibleChar');
+        wire = bypassTextDuplicate(wire);
+        expect(wire, 'hello   $_invisibleChar');
+      },
+    );
 
-    test('chaining: repeated bypass on multi-word keeps producing unique strings', () {
-      var wire = 'hello world';
-      wire = bypassTextDuplicate(wire);
-      expect(wire, 'hello  world');
-      wire = bypassTextDuplicate(wire);
-      expect(wire, 'hello   world');
-      wire = bypassTextDuplicate(wire);
-      expect(wire, 'hello    world');
-    });
+    test(
+      'chaining: repeated bypass on multi-word keeps producing unique strings',
+      () {
+        var wire = 'hello world';
+        wire = bypassTextDuplicate(wire);
+        expect(wire, 'hello  world');
+        wire = bypassTextDuplicate(wire);
+        expect(wire, 'hello   world');
+        wire = bypassTextDuplicate(wire);
+        expect(wire, 'hello    world');
+      },
+    );
 
     test('handles text with only a command prefix and no args', () {
       final result = bypassTextDuplicate('/');

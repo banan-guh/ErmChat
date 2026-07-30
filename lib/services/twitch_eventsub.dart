@@ -99,7 +99,9 @@ class EventSubService {
     try {
       _connectivitySub?.cancel();
       if (_connectivity != null) {
-        _connectivitySub = _connectivity.onConnectivityChanged.listen((results) {
+        _connectivitySub = _connectivity.onConnectivityChanged.listen((
+          results,
+        ) {
           final wasOffline = !_isOnline;
           _isOnline = !results.contains(ConnectivityResult.none);
           if (wasOffline && _isOnline && _channel == null && !_connecting) {
@@ -315,10 +317,10 @@ class EventSubService {
         if (fragMap['type'] == 'emote') {
           final emoteId =
               (fragMap['emote'] as Map<String, dynamic>?)?['id'] as String?;
-            // EventSub provides emote text but no character offsets (unlike
-            // IRC positional tags). Search for all occurrences — may produce
-            // false positives for repeated text.
-            if (emoteId != null) {
+          // EventSub provides emote text but no character offsets (unlike
+          // IRC positional tags). Search for all occurrences — may produce
+          // false positives for repeated text.
+          if (emoteId != null) {
             final emoteText = fragMap['text'] as String? ?? '';
             int searchStart = 0;
             while (true) {

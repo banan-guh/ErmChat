@@ -97,10 +97,12 @@ class SevenTvEventClient {
 
   final _emoteSetUpdateCtrl =
       StreamController<SevenTvEmoteUpdateEvent>.broadcast(sync: true);
-  final _userUpdateCtrl =
-      StreamController<SevenTvUserUpdate>.broadcast(sync: true);
-  final _statusCtrl =
-      StreamController<SevenTvEventStatus>.broadcast(sync: true);
+  final _userUpdateCtrl = StreamController<SevenTvUserUpdate>.broadcast(
+    sync: true,
+  );
+  final _statusCtrl = StreamController<SevenTvEventStatus>.broadcast(
+    sync: true,
+  );
 
   Stream<SevenTvEmoteUpdateEvent> get onEmoteSetUpdate =>
       _emoteSetUpdateCtrl.stream;
@@ -119,7 +121,9 @@ class SevenTvEventClient {
       _reconnectAttempt = 0;
       _connectivitySub?.cancel();
       if (_connectivity != null) {
-        _connectivitySub = _connectivity.onConnectivityChanged.listen((results) {
+        _connectivitySub = _connectivity.onConnectivityChanged.listen((
+          results,
+        ) {
           final wasOffline = !_isOnline;
           _isOnline = !results.contains(ConnectivityResult.none);
           if (wasOffline && _isOnline && _channel == null && !_reconnecting) {
@@ -190,7 +194,11 @@ class SevenTvEventClient {
     _sendSubscription('user.update', userId, subscribe: false);
   }
 
-  void _sendSubscription(String type, String objectId, {required bool subscribe}) {
+  void _sendSubscription(
+    String type,
+    String objectId, {
+    required bool subscribe,
+  }) {
     if (objectId.isEmpty) {
       debugPrint(
         '7TV: refusing to send $type '
@@ -198,13 +206,15 @@ class SevenTvEventClient {
       );
       return;
     }
-    _send(jsonEncode({
-      'op': subscribe ? 35 : 36,
-      'd': {
-        'type': type,
-        'condition': {'object_id': objectId},
-      },
-    }));
+    _send(
+      jsonEncode({
+        'op': subscribe ? 35 : 36,
+        'd': {
+          'type': type,
+          'condition': {'object_id': objectId},
+        },
+      }),
+    );
   }
 
   void _flushPendingSubscriptions() {
@@ -240,7 +250,9 @@ class SevenTvEventClient {
           debugPrint('7TV end-of-stream: code=$code message="$message"');
           if (code != null && _noReconnectCloseCodes.contains(code)) {
             _fatalCloseCode = code;
-            debugPrint('7TV: end-of-stream code $code is fatal — will not reconnect');
+            debugPrint(
+              '7TV: end-of-stream code $code is fatal — will not reconnect',
+            );
           }
           break;
       }
@@ -267,40 +279,50 @@ class SevenTvEventClient {
 
     switch (type) {
       case 'emote_set.update':
-        final pushed = (body['pushed'] as List<dynamic>?)
+        final pushed =
+            (body['pushed'] as List<dynamic>?)
                 ?.whereType<Map<String, dynamic>>()
                 .map((e) {
-              final value = e['value'] as Map<String, dynamic>? ?? e;
-              return SevenTvAddedEmote(
-                id: value['id'] as String? ?? '',
-                name: value['name'] as String? ?? '',
-                raw: value,
-              );
-            }).where((e) => e.id.isNotEmpty).toList() ??
+                  final value = e['value'] as Map<String, dynamic>? ?? e;
+                  return SevenTvAddedEmote(
+                    id: value['id'] as String? ?? '',
+                    name: value['name'] as String? ?? '',
+                    raw: value,
+                  );
+                })
+                .where((e) => e.id.isNotEmpty)
+                .toList() ??
             [];
 
-        final pulled = (body['pulled'] as List<dynamic>?)
+        final pulled =
+            (body['pulled'] as List<dynamic>?)
                 ?.whereType<Map<String, dynamic>>()
                 .map((e) {
-              final oldValue = e['old_value'] as Map<String, dynamic>? ?? e;
-              return SevenTvRemovedEmote(
-                id: oldValue['id'] as String? ?? '',
-                name: oldValue['name'] as String? ?? '',
-              );
-            }).where((e) => e.id.isNotEmpty).toList() ??
+                  final oldValue = e['old_value'] as Map<String, dynamic>? ?? e;
+                  return SevenTvRemovedEmote(
+                    id: oldValue['id'] as String? ?? '',
+                    name: oldValue['name'] as String? ?? '',
+                  );
+                })
+                .where((e) => e.id.isNotEmpty)
+                .toList() ??
             [];
 
-        final updated = (body['updated'] as List<dynamic>?)
+        final updated =
+            (body['updated'] as List<dynamic>?)
                 ?.whereType<Map<String, dynamic>>()
                 .map((e) {
-              final value = e['value'] as Map<String, dynamic>? ?? {};
-              final oldValue = e['old_value'] as Map<String, dynamic>? ?? {};
-              return SevenTvRenamedEmote(
-                id: value['id'] as String? ?? '',
-                newName: value['name'] as String? ?? '',
-                oldName: oldValue['name'] as String? ?? '',
-              );
-            }).where((e) => e.id.isNotEmpty).toList() ??
+                  final value = e['value'] as Map<String, dynamic>? ?? {};
+                  final oldValue =
+                      e['old_value'] as Map<String, dynamic>? ?? {};
+                  return SevenTvRenamedEmote(
+                    id: value['id'] as String? ?? '',
+                    newName: value['name'] as String? ?? '',
+                    oldName: oldValue['name'] as String? ?? '',
+                  );
+                })
+                .where((e) => e.id.isNotEmpty)
+                .toList() ??
             [];
 
         _emoteSetUpdateCtrl.add(
@@ -314,10 +336,11 @@ class SevenTvEventClient {
         );
 
       case 'user.update':
-        final changeMap =
-            body['change_map'] as Map<String, dynamic>? ?? {};
+        final changeMap = body['change_map'] as Map<String, dynamic>? ?? {};
         final connectionIndex =
-            (body['connection_index'] as int?) ?? (changeMap['index'] as int?) ?? -1;
+            (body['connection_index'] as int?) ??
+            (changeMap['index'] as int?) ??
+            -1;
         final fields = changeMap['fields'] as List<dynamic>? ?? [];
         for (final field in fields) {
           final f = field as Map<String, dynamic>;
@@ -386,7 +409,9 @@ class SevenTvEventClient {
       final jitter = 0.75 + Random().nextDouble() * 0.5;
       delay = Duration(milliseconds: (base.inMilliseconds * jitter).toInt());
     }
-    debugPrint('7TV scheduling reconnect in ${delay.inMilliseconds}ms (attempt $_reconnectAttempt)');
+    debugPrint(
+      '7TV scheduling reconnect in ${delay.inMilliseconds}ms (attempt $_reconnectAttempt)',
+    );
     Timer(delay, () {
       _reconnecting = false;
       if (!_disposed) {
@@ -410,7 +435,8 @@ class SevenTvEventClient {
   }
 
   @visibleForTesting
-  void handleRawMessage(Map<String, dynamic> msg) => _handleMessage(jsonEncode(msg));
+  void handleRawMessage(Map<String, dynamic> msg) =>
+      _handleMessage(jsonEncode(msg));
 
   @visibleForTesting
   void emitDisconnected() {

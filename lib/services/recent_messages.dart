@@ -88,7 +88,9 @@ class RecentMessagesService {
     final displayName = tags['display-name'] ?? '';
     final color = tags['color'];
 
-    final ircLogin = source.contains('!') ? source.substring(0, source.indexOf('!')) : source;
+    final ircLogin = source.contains('!')
+        ? source.substring(0, source.indexOf('!'))
+        : source;
     final user = TwitchMessage.resolveUser(
       login: ircLogin,
       displayName: displayName.isNotEmpty ? displayName : null,

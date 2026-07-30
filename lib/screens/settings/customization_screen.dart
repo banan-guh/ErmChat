@@ -3,10 +3,7 @@ import 'package:flutter/material.dart';
 class CustomizationScreen extends StatelessWidget {
   final ValueChanged<ThemeMode> onThemeChanged;
 
-  const CustomizationScreen({
-    super.key,
-    required this.onThemeChanged,
-  });
+  const CustomizationScreen({super.key, required this.onThemeChanged});
 
   @override
   Widget build(BuildContext context) {

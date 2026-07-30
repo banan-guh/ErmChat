@@ -99,7 +99,10 @@ class _FakeEventSubService extends EventSubService {
 
 class _FakeRecentMessagesService extends RecentMessagesService {
   @override
-  Future<List<TwitchMessage>> fetchRecent(String channel, {int limit = 100}) async {
+  Future<List<TwitchMessage>> fetchRecent(
+    String channel, {
+    int limit = 100,
+  }) async {
     final now = DateTime.now();
     return [
       TwitchMessage(
@@ -182,7 +185,10 @@ class _FakeIrcReadService extends IrcReadService {
   Stream<String> get onUserColor => _colorCtrl.stream;
 
   @override
-  Future<void> connect({required String username, required String accessToken}) async {}
+  Future<void> connect({
+    required String username,
+    required String accessToken,
+  }) async {}
 
   @override
   void join(String channel) {}
@@ -204,7 +210,10 @@ class _ConfigurableRecentMessagesService extends RecentMessagesService {
   _ConfigurableRecentMessagesService(this.messages);
 
   @override
-  Future<List<TwitchMessage>> fetchRecent(String channel, {int limit = 100}) async => messages;
+  Future<List<TwitchMessage>> fetchRecent(
+    String channel, {
+    int limit = 100,
+  }) async => messages;
 }
 
 class _TestEventSubService extends _FakeEventSubService {
@@ -788,7 +797,7 @@ void main() {
       final fakeIrc = _FakeIrcService();
 
       SharedPreferences.setMockInitialValues({'access_token': 'test_token'});
-    FlutterSecureStorage.setMockInitialValues({'access_token': 'test_token'});
+      FlutterSecureStorage.setMockInitialValues({'access_token': 'test_token'});
 
       await tester.pumpWidget(
         TwitchChatApp(
@@ -1013,7 +1022,9 @@ void main() {
         final eventSub = _TestEventSubService();
 
         SharedPreferences.setMockInitialValues({'access_token': 'test_token'});
-    FlutterSecureStorage.setMockInitialValues({'access_token': 'test_token'});
+        FlutterSecureStorage.setMockInitialValues({
+          'access_token': 'test_token',
+        });
         await joinChannel(
           tester,
           channelName: channel,
@@ -1222,7 +1233,7 @@ void main() {
       RecentMessagesService? recent,
     }) async {
       SharedPreferences.setMockInitialValues({'access_token': 'test_token'});
-    FlutterSecureStorage.setMockInitialValues({'access_token': 'test_token'});
+      FlutterSecureStorage.setMockInitialValues({'access_token': 'test_token'});
       final fakeRecent = recent ?? _FakeRecentMessagesService();
 
       await tester.pumpWidget(
@@ -1368,7 +1379,9 @@ void main() {
       'system message on unfocused channel does not trigger unread indicator',
       (WidgetTester tester) async {
         SharedPreferences.setMockInitialValues({'access_token': 'test_token'});
-    FlutterSecureStorage.setMockInitialValues({'access_token': 'test_token'});
+        FlutterSecureStorage.setMockInitialValues({
+          'access_token': 'test_token',
+        });
         final eventSub = _FakeEventSubService();
         final irc = _FakeIrcService();
         final recent = _FakeRecentMessagesService();
@@ -1420,98 +1433,91 @@ void main() {
       expect(find.textContaining('baduser was banned'), findsOneWidget);
     });
 
-    testWidgets(
-      'banned user messages render at 35% opacity',
-      (WidgetTester tester) async {
-        final eventSub = _FakeEventSubService();
-        final irc = _FakeIrcService();
-        final recent = _ConfigurableRecentMessagesService([
-          TwitchMessage(
-            login: 'bob',
-            text: 'i am a bad person',
-            channel: 'testchannel',
-            messageId: 'bad-1',
-          ),
-          TwitchMessage(
-            login: 'gooduser',
-            text: 'i am nice',
-            channel: 'testchannel',
-            messageId: 'good-1',
-          ),
-        ]);
-        await setupChannel(
-          tester,
-          eventSub: eventSub,
-          irc: irc,
-          recent: recent,
-        );
-
-        irc.emitBan('bob', isTimeout: false, channel: 'testchannel');
-        await tester.pump();
-
-        final opacityWidgets = tester.widgetList<Opacity>(
-          find.ancestor(
-            of: find.textContaining('i am a bad person'),
-            matching: find.byType(Opacity),
-          ),
-        );
-        expect(opacityWidgets.any((o) => o.opacity == 0.35), isTrue);
-      },
-    );
-  });
-
-  testWidgets(
-    'color change updates own messages without crashing',
-    (WidgetTester tester) async {
-      SharedPreferences.setMockInitialValues({'access_token': 'test_token'});
-    FlutterSecureStorage.setMockInitialValues({'access_token': 'test_token'});
+    testWidgets('banned user messages render at 35% opacity', (
+      WidgetTester tester,
+    ) async {
       final eventSub = _FakeEventSubService();
       final irc = _FakeIrcService();
-      final ircRead = _FakeIrcReadService();
       final recent = _ConfigurableRecentMessagesService([
         TwitchMessage(
-          login: 'testuser',
-          text: 'hello from me',
+          login: 'bob',
+          text: 'i am a bad person',
           channel: 'testchannel',
-          messageId: 'own-1',
-          color: '#FF0000',
+          messageId: 'bad-1',
         ),
         TwitchMessage(
-          login: 'otheruser',
-          text: 'hello from other',
+          login: 'gooduser',
+          text: 'i am nice',
           channel: 'testchannel',
-          messageId: 'other-1',
-          color: '#00FF00',
+          messageId: 'good-1',
         ),
       ]);
+      await setupChannel(tester, eventSub: eventSub, irc: irc, recent: recent);
 
-      await tester.pumpWidget(
-        TwitchChatApp(
-          eventSubService: eventSub,
-          ircService: irc,
-          ircReadService: ircRead,
-          recentMessagesService: recent,
-          initialCurrentUserLogin: 'testuser',
+      irc.emitBan('bob', isTimeout: false, channel: 'testchannel');
+      await tester.pump();
+
+      final opacityWidgets = tester.widgetList<Opacity>(
+        find.ancestor(
+          of: find.textContaining('i am a bad person'),
+          matching: find.byType(Opacity),
         ),
       );
-      await tester.pump();
-      await tester.tap(find.byIcon(Icons.add));
-      await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField).last, 'testchannel');
-      await tester.tap(find.text('Join'));
-      await tester.pump();
-      await tester.pump();
+      expect(opacityWidgets.any((o) => o.opacity == 0.35), isTrue);
+    });
+  });
 
-      expect(find.textContaining('testuser:'), findsOneWidget);
-      expect(find.textContaining('hello from me'), findsOneWidget);
+  testWidgets('color change updates own messages without crashing', (
+    WidgetTester tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({'access_token': 'test_token'});
+    FlutterSecureStorage.setMockInitialValues({'access_token': 'test_token'});
+    final eventSub = _FakeEventSubService();
+    final irc = _FakeIrcService();
+    final ircRead = _FakeIrcReadService();
+    final recent = _ConfigurableRecentMessagesService([
+      TwitchMessage(
+        login: 'testuser',
+        text: 'hello from me',
+        channel: 'testchannel',
+        messageId: 'own-1',
+        color: '#FF0000',
+      ),
+      TwitchMessage(
+        login: 'otheruser',
+        text: 'hello from other',
+        channel: 'testchannel',
+        messageId: 'other-1',
+        color: '#00FF00',
+      ),
+    ]);
 
-      ircRead.emitColor('#0000FF');
-      await tester.pump();
+    await tester.pumpWidget(
+      TwitchChatApp(
+        eventSubService: eventSub,
+        ircService: irc,
+        ircReadService: ircRead,
+        recentMessagesService: recent,
+        initialCurrentUserLogin: 'testuser',
+      ),
+    );
+    await tester.pump();
+    await tester.tap(find.byIcon(Icons.add));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).last, 'testchannel');
+    await tester.tap(find.text('Join'));
+    await tester.pump();
+    await tester.pump();
 
-      expect(find.textContaining('testuser:'), findsOneWidget);
-      expect(find.textContaining('hello from me'), findsOneWidget);
-    },
-  );
+    expect(find.textContaining('testuser:'), findsOneWidget);
+    expect(find.textContaining('hello from me'), findsOneWidget);
+
+    ircRead.emitColor('#0000FF');
+    await tester.pump();
+
+    expect(find.textContaining('testuser:'), findsOneWidget);
+    expect(find.textContaining('hello from me'), findsOneWidget);
+  });
 
   group('Settings screen', () {
     testWidgets('Account screen idle state shows login button', (
@@ -1575,9 +1581,7 @@ void main() {
 
       await tester.pumpWidget(
         MaterialApp(
-          home: CustomizationScreen(
-            onThemeChanged: (mode) => changed = mode,
-          ),
+          home: CustomizationScreen(onThemeChanged: (mode) => changed = mode),
         ),
       );
       await tester.pump();
@@ -1615,9 +1619,7 @@ void main() {
 
       await tester.pumpWidget(
         MaterialApp(
-          home: ChannelSettingsScreen(
-            channelNotifier: ValueNotifier([]),
-          ),
+          home: ChannelSettingsScreen(channelNotifier: ValueNotifier([])),
         ),
       );
       await tester.pump();
@@ -1822,79 +1824,80 @@ void main() {
       expect(find.textContaining('thread reply'), findsNothing);
     });
 
-    testWidgets('removes thread when new messages push last child past the limit', (
-      WidgetTester tester,
-    ) async {
-      const channel = 'testchannel';
-      final parent = TwitchMessage(
-        login: 'alice',
-        text: 'thread root',
-        messageId: 'p3',
-        timestamp: DateTime.now().subtract(const Duration(minutes: 12)),
-        channel: channel,
-      );
-      final child = TwitchMessage(
-        login: 'bob',
-        text: 'thread reply',
-        messageId: 'c3',
-        replyToParentId: 'p3',
-        replyToUser: 'alice',
-        replyToText: 'thread root',
-        timestamp: DateTime.now().subtract(const Duration(minutes: 11)),
-        isHistory: true,
-        channel: channel,
-      );
-      final filler = List.generate(
-        9,
-        (i) => TwitchMessage(
-          login: 'user$i',
-          text: 'filler $i',
-          messageId: 'h$i',
-          timestamp: DateTime.now().subtract(Duration(minutes: 10 - i)),
+    testWidgets(
+      'removes thread when new messages push last child past the limit',
+      (WidgetTester tester) async {
+        const channel = 'testchannel';
+        final parent = TwitchMessage(
+          login: 'alice',
+          text: 'thread root',
+          messageId: 'p3',
+          timestamp: DateTime.now().subtract(const Duration(minutes: 12)),
           channel: channel,
-        ),
-      );
-      final eventSub = _TestEventSubService();
-      await joinChannel(
-        tester,
-        channelName: channel,
-        history: [parent, child, ...filler],
-        eventSub: eventSub,
-        maxMessages: 10,
-      );
-
-      await tester.pump();
-      await tester.pump();
-
-      // Expand viewport so lazy ListView builds all items without scrolling
-      // (avoids triggering the frozen-snapshot behavior in scroll notifications).
-      await tester.binding.setSurfaceSize(const Size(2000, 2000));
-      addTearDown(() => tester.binding.setSurfaceSize(null));
-      await tester.pumpAndSettle();
-
-      // Thread is initially preserved — child is within the limit.
-      expect(find.textContaining('thread root'), findsWidgets);
-      expect(find.textContaining('thread reply'), findsOneWidget);
-
-      // Emit new messages that push the thread past the limit.
-      for (int i = 1; i <= 3; i++) {
-        eventSub.emitMessage(
-          TwitchMessage(
-            login: 'newuser',
-            text: 'new message $i',
-            messageId: 'new$i',
-            timestamp: DateTime.now(),
+        );
+        final child = TwitchMessage(
+          login: 'bob',
+          text: 'thread reply',
+          messageId: 'c3',
+          replyToParentId: 'p3',
+          replyToUser: 'alice',
+          replyToText: 'thread root',
+          timestamp: DateTime.now().subtract(const Duration(minutes: 11)),
+          isHistory: true,
+          channel: channel,
+        );
+        final filler = List.generate(
+          9,
+          (i) => TwitchMessage(
+            login: 'user$i',
+            text: 'filler $i',
+            messageId: 'h$i',
+            timestamp: DateTime.now().subtract(Duration(minutes: 10 - i)),
             channel: channel,
           ),
         );
-        await tester.pump();
-      }
-      await tester.pump();
+        final eventSub = _TestEventSubService();
+        await joinChannel(
+          tester,
+          channelName: channel,
+          history: [parent, child, ...filler],
+          eventSub: eventSub,
+          maxMessages: 10,
+        );
 
-      // Thread should now be removed — pushed past maxMessages=10.
-      expect(find.textContaining('thread root'), findsNothing);
-      expect(find.textContaining('thread reply'), findsNothing);
-    });
+        await tester.pump();
+        await tester.pump();
+
+        // Expand viewport so lazy ListView builds all items without scrolling
+        // (avoids triggering the frozen-snapshot behavior in scroll notifications).
+        await tester.binding.setSurfaceSize(const Size(2000, 2000));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+        await tester.pumpAndSettle();
+
+        // Thread is initially preserved — child is within the limit.
+        expect(find.textContaining('thread root'), findsWidgets);
+        expect(find.textContaining('thread reply'), findsOneWidget);
+
+        // Emit new messages that push the thread past the limit.
+        for (int i = 1; i <= 3; i++) {
+          eventSub.emitMessage(
+            TwitchMessage(
+              login: 'newuser',
+              text: 'new message $i',
+              messageId: 'new$i',
+              timestamp: DateTime.now(),
+              channel: channel,
+            ),
+          );
+          await tester.pump();
+        }
+        await tester.pump();
+
+        // Thread should now be removed — pushed past maxMessages=10.
+        expect(find.textContaining('thread root'), findsNothing);
+        expect(find.textContaining('thread reply'), findsNothing);
+      },
+    );
   });
 
   group('Chat pause', () {
@@ -2024,124 +2027,122 @@ void main() {
       },
     );
 
-    testWidgets(
-      'system message while paused does not appear until unpause',
-      (WidgetTester tester) async {
-        final now = DateTime.now();
-        final manyMessages = List.generate(
-          50,
-          (i) => TwitchMessage(
-            login: 'user$i',
-            text: 'message number $i',
-            channel: 'testchannel',
-            messageId: 'msg-$i',
-            timestamp: now.subtract(Duration(minutes: 50 - i)),
-          ),
-        );
-        final fakeEventSub = _TestEventSubService();
-        final fakeIrc = _FakeIrcService();
-        final fakeRecent = _ConfigurableRecentMessagesService(manyMessages);
-
-        await tester.pumpWidget(
-          TwitchChatApp(
-            eventSubService: fakeEventSub,
-            ircService: fakeIrc,
-            recentMessagesService: fakeRecent,
-          ),
-        );
-        await tester.pump();
-
-        await tester.tap(find.byIcon(Icons.add));
-        await tester.pumpAndSettle();
-        await tester.enterText(find.byType(TextField).last, 'testchannel');
-        await tester.tap(find.text('Join').last);
-        await tester.pump();
-        await tester.pump();
-
-        // Scroll up — FAB appears
-        await tester.drag(find.byType(ListView).first, const Offset(0, 500));
-        await tester.pump();
-        await tester.pump();
-        expect(find.byIcon(Icons.keyboard_arrow_down), findsOneWidget);
-
-        // Emit a system message while paused
-        final systemMsg = TwitchMessage(
-          login: '',
-          text: 'System notice while paused',
-          isSystem: true,
+    testWidgets('system message while paused does not appear until unpause', (
+      WidgetTester tester,
+    ) async {
+      final now = DateTime.now();
+      final manyMessages = List.generate(
+        50,
+        (i) => TwitchMessage(
+          login: 'user$i',
+          text: 'message number $i',
           channel: 'testchannel',
-        );
-        fakeEventSub.emitMessage(systemMsg);
-        await tester.pump();
+          messageId: 'msg-$i',
+          timestamp: now.subtract(Duration(minutes: 50 - i)),
+        ),
+      );
+      final fakeEventSub = _TestEventSubService();
+      final fakeIrc = _FakeIrcService();
+      final fakeRecent = _ConfigurableRecentMessagesService(manyMessages);
 
-        // System message should NOT appear in frozen view
-        expect(find.textContaining('System notice while paused'), findsNothing);
+      await tester.pumpWidget(
+        TwitchChatApp(
+          eventSubService: fakeEventSub,
+          ircService: fakeIrc,
+          recentMessagesService: fakeRecent,
+        ),
+      );
+      await tester.pump();
 
-        // Tap FAB to resume
-        await tester.tap(find.byIcon(Icons.keyboard_arrow_down));
-        await tester.pump();
-        await tester.pump();
+      await tester.tap(find.byIcon(Icons.add));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).last, 'testchannel');
+      await tester.tap(find.text('Join').last);
+      await tester.pump();
+      await tester.pump();
 
-        // System message IS now visible
-        expect(find.textContaining('System notice while paused'), findsOneWidget);
-      },
-    );
+      // Scroll up — FAB appears
+      await tester.drag(find.byType(ListView).first, const Offset(0, 500));
+      await tester.pump();
+      await tester.pump();
+      expect(find.byIcon(Icons.keyboard_arrow_down), findsOneWidget);
+
+      // Emit a system message while paused
+      final systemMsg = TwitchMessage(
+        login: '',
+        text: 'System notice while paused',
+        isSystem: true,
+        channel: 'testchannel',
+      );
+      fakeEventSub.emitMessage(systemMsg);
+      await tester.pump();
+
+      // System message should NOT appear in frozen view
+      expect(find.textContaining('System notice while paused'), findsNothing);
+
+      // Tap FAB to resume
+      await tester.tap(find.byIcon(Icons.keyboard_arrow_down));
+      await tester.pump();
+      await tester.pump();
+
+      // System message IS now visible
+      expect(find.textContaining('System notice while paused'), findsOneWidget);
+    });
   });
 
   group('Emote panel drag clamp', () {
-    testWidgets(
-      'jumpTo with unclamped pixelsToSize throws assertion error',
-      (WidgetTester tester) async {
-        final controller = DraggableScrollableController();
-        addTearDown(() => controller.dispose());
+    testWidgets('jumpTo with unclamped pixelsToSize throws assertion error', (
+      WidgetTester tester,
+    ) async {
+      final controller = DraggableScrollableController();
+      addTearDown(() => controller.dispose());
 
-        await tester.pumpWidget(
-          MaterialApp(
-            home: Scaffold(
-              body: SizedBox.expand(
-                child: DraggableScrollableSheet(
-                  controller: controller,
-                  initialChildSize: 0,
-                  minChildSize: 0,
-                  maxChildSize: 0.6,
-                  snap: true,
-                  builder: (context, scrollController) => SizedBox(
-                    width: double.infinity,
-                    height: 200,
-                    child: ListView(
-                      controller: scrollController,
-                      children: List.generate(
-                        50,
-                        (i) => ListTile(title: Text('item $i')),
-                      ),
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SizedBox.expand(
+              child: DraggableScrollableSheet(
+                controller: controller,
+                initialChildSize: 0,
+                minChildSize: 0,
+                maxChildSize: 0.6,
+                snap: true,
+                builder: (context, scrollController) => SizedBox(
+                  width: double.infinity,
+                  height: 200,
+                  child: ListView(
+                    controller: scrollController,
+                    children: List.generate(
+                      50,
+                      (i) => ListTile(title: Text('item $i')),
                     ),
                   ),
                 ),
               ),
             ),
           ),
-        );
-        await tester.pumpAndSettle();
+        ),
+      );
+      await tester.pumpAndSettle();
 
-        controller.jumpTo(0.6);
-        await tester.pumpAndSettle();
+      controller.jumpTo(0.6);
+      await tester.pumpAndSettle();
 
-        final maxPixels = controller.pixels + 2000;
-        final beyondSize = controller.pixelsToSize(maxPixels);
+      final maxPixels = controller.pixels + 2000;
+      final beyondSize = controller.pixelsToSize(maxPixels);
 
-        expect(beyondSize, greaterThan(1.0));
+      expect(beyondSize, greaterThan(1.0));
 
-        expect(
-          () => controller.jumpTo(beyondSize),
-          throwsA(isA<AssertionError>()),
-        );
+      expect(
+        () => controller.jumpTo(beyondSize),
+        throwsA(isA<AssertionError>()),
+      );
 
-        expect(
-          () => controller.jumpTo(beyondSize.clamp(0.0, 1.0)),
-          returnsNormally,
-        );
-      },
-    );
+      expect(
+        () => controller.jumpTo(beyondSize.clamp(0.0, 1.0)),
+        returnsNormally,
+      );
+    });
   });
 
   group('Autocomplete', () {
@@ -2149,7 +2150,7 @@ void main() {
       WidgetTester tester,
     ) async {
       SharedPreferences.setMockInitialValues({'access_token': 'test_token'});
-    FlutterSecureStorage.setMockInitialValues({'access_token': 'test_token'});
+      FlutterSecureStorage.setMockInitialValues({'access_token': 'test_token'});
       final eventSub = _TestEventSubService();
       final irc = _FakeIrcService();
       final recent = _FakeRecentMessagesService();
@@ -2181,10 +2182,7 @@ void main() {
 
       expect(find.textContaining('UserOne'), findsOneWidget);
 
-      await tester.enterText(
-        find.byKey(const Key('message_input')),
-        'Us',
-      );
+      await tester.enterText(find.byKey(const Key('message_input')), 'Us');
       await tester.pump();
 
       final dropdown = find.byKey(const Key('autocomplete_dropdown'));
@@ -2202,7 +2200,7 @@ void main() {
       WidgetTester tester,
     ) async {
       SharedPreferences.setMockInitialValues({'access_token': 'test_token'});
-    FlutterSecureStorage.setMockInitialValues({'access_token': 'test_token'});
+      FlutterSecureStorage.setMockInitialValues({'access_token': 'test_token'});
       final eventSub = _TestEventSubService();
       final irc = _FakeIrcService();
       final recent = _FakeRecentMessagesService();
@@ -2240,10 +2238,9 @@ void main() {
       await tester.pump();
 
       // Directly invoke autocomplete callback (bypasses hit-test issues).
-      final autocomplete =
-          tester.widget<AutocompleteDropdown>(
-            find.byType(AutocompleteDropdown),
-          );
+      final autocomplete = tester.widget<AutocompleteDropdown>(
+        find.byType(AutocompleteDropdown),
+      );
       autocomplete.onSelect(UserSuggestion(displayName: 'UserOne'));
       await tester.pump();
 
@@ -2270,7 +2267,7 @@ void main() {
       WidgetTester tester,
     ) async {
       SharedPreferences.setMockInitialValues({'access_token': 'test_token'});
-    FlutterSecureStorage.setMockInitialValues({'access_token': 'test_token'});
+      FlutterSecureStorage.setMockInitialValues({'access_token': 'test_token'});
       final eventSub = _TestEventSubService();
       final irc = _FakeIrcService();
       final recent = _FakeRecentMessagesService();
@@ -2300,10 +2297,7 @@ void main() {
       );
       await tester.pump();
 
-      await tester.enterText(
-        find.byKey(const Key('message_input')),
-        'U',
-      );
+      await tester.enterText(find.byKey(const Key('message_input')), 'U');
       await tester.pump();
 
       final dropdown = find.byKey(const Key('autocomplete_dropdown'));

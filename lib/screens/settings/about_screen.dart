@@ -21,7 +21,8 @@ class _AboutScreenState extends State<AboutScreen> {
   Future<void> _loadVersion() async {
     try {
       final info = await PackageInfo.fromPlatform();
-      if (mounted) setState(() => _version = '${info.version}+${info.buildNumber}');
+      if (mounted)
+        setState(() => _version = '${info.version}+${info.buildNumber}');
     } catch (_) {
       debugPrint('[AboutScreen] failed to load package info');
       if (mounted) setState(() => _version = 'unknown');
@@ -36,10 +37,7 @@ class _AboutScreenState extends State<AboutScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(
-              'ErmChat',
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
+            Text('ErmChat', style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 4),
             Text(
               'Version $_version',

@@ -75,10 +75,7 @@ void main() {
   test('keeps exactly maxMessages when no threads exist', () {
     // 25 messages, newest first (m24, m23, ..., m0)
     final msgs = <String, List<TwitchMessage>>{
-      'test': List.generate(
-        25,
-        (i) => _msg('m${24 - i}', 'msg ${24 - i}'),
-      ),
+      'test': List.generate(25, (i) => _msg('m${24 - i}', 'msg ${24 - i}')),
     };
     final conn = _makeConn(channelMessages: msgs, maxMessages: 10);
     conn.truncateChannelMessages('test');
@@ -183,26 +180,29 @@ void main() {
     expect(ids.contains('bChild'), true);
   });
 
-  test('removes one thread but keeps another when only one is within limit', () {
-    // 8 non-thread + threadA(2) + threadB(2) = 12, limit 10
-    // threadA at indices 8-9 (within limit), threadB at 10-11 (past)
-    final msgs = <String, List<TwitchMessage>>{
-      'test': [
-        ...List.generate(8, (i) => _msg('f$i', 'filler $i')),
-        _msg('aChild', 'reply', replyToParentId: 'aParent'),
-        _msg('aParent', 'root A'),
-        _msg('bChild', 'reply', replyToParentId: 'bParent'),
-        _msg('bParent', 'root B'),
-      ],
-    };
-    final conn = _makeConn(channelMessages: msgs, maxMessages: 10);
-    conn.truncateChannelMessages('test');
-    final ids = msgs['test']!.map((m) => m.messageId).toSet();
-    expect(ids.contains('aParent'), true);
-    expect(ids.contains('aChild'), true);
-    expect(ids.contains('bParent'), false);
-    expect(ids.contains('bChild'), false);
-  });
+  test(
+    'removes one thread but keeps another when only one is within limit',
+    () {
+      // 8 non-thread + threadA(2) + threadB(2) = 12, limit 10
+      // threadA at indices 8-9 (within limit), threadB at 10-11 (past)
+      final msgs = <String, List<TwitchMessage>>{
+        'test': [
+          ...List.generate(8, (i) => _msg('f$i', 'filler $i')),
+          _msg('aChild', 'reply', replyToParentId: 'aParent'),
+          _msg('aParent', 'root A'),
+          _msg('bChild', 'reply', replyToParentId: 'bParent'),
+          _msg('bParent', 'root B'),
+        ],
+      };
+      final conn = _makeConn(channelMessages: msgs, maxMessages: 10);
+      conn.truncateChannelMessages('test');
+      final ids = msgs['test']!.map((m) => m.messageId).toSet();
+      expect(ids.contains('aParent'), true);
+      expect(ids.contains('aChild'), true);
+      expect(ids.contains('bParent'), false);
+      expect(ids.contains('bChild'), false);
+    },
+  );
 
   test('thread root alone (no children) is treated as non-thread', () {
     // 11 non-thread messages, limit 10
@@ -236,10 +236,12 @@ void main() {
       final msgs = <String, List<TwitchMessage>>{
         'test': [
           for (var i = chainLen - 1; i >= 0; i--)
-            _msg('r$i', 'reply $i',
-                replyToParentId: i > 0 ? 'r${i - 1}' : null),
-          for (var i = 0; i < fillerCount; i++)
-            _msg('f$i', 'filler $i'),
+            _msg(
+              'r$i',
+              'reply $i',
+              replyToParentId: i > 0 ? 'r${i - 1}' : null,
+            ),
+          for (var i = 0; i < fillerCount; i++) _msg('f$i', 'filler $i'),
         ],
       };
       final conn = _makeConn(channelMessages: msgs, maxMessages: limit);
@@ -250,38 +252,49 @@ void main() {
 
       // All chain messages are present
       for (var i = 0; i < chainLen; i++) {
-        expect(remaining.any((m) => m.messageId == 'r$i'), true,
-            reason: 'chain message r$i missing');
+        expect(
+          remaining.any((m) => m.messageId == 'r$i'),
+          true,
+          reason: 'chain message r$i missing',
+        );
       }
       // All filler messages are present
       for (var i = 0; i < fillerCount; i++) {
-        expect(remaining.any((m) => m.messageId == 'f$i'), true,
-            reason: 'filler f$i missing');
+        expect(
+          remaining.any((m) => m.messageId == 'f$i'),
+          true,
+          reason: 'filler f$i missing',
+        );
       }
     });
 
-    test('deeply nested chain with root past cutoff but visible reply preserves all', () {
-      // 200-message chain + 100 fillers. A mid-chain reply (r199) is in the
-      // first 100 visible slots, which makes the root (r0) active via the
-      // reply-chain walk. The entire chain is preserved alongside all fillers.
-      const limit = 100;
-      const chainLen = 200;
-      const fillerCount = 100;
-      final msgs = <String, List<TwitchMessage>>{
-        'test': [
-          for (var i = chainLen - 1; i >= 0; i--)
-            _msg('r$i', 'reply $i',
-                replyToParentId: i > 0 ? 'r${i - 1}' : null),
-          for (var i = 0; i < fillerCount; i++)
-            _msg('f$i', 'filler $i'),
-        ],
-      };
-      final conn = _makeConn(channelMessages: msgs, maxMessages: limit);
-      conn.truncateChannelMessages('test');
+    test(
+      'deeply nested chain with root past cutoff but visible reply preserves all',
+      () {
+        // 200-message chain + 100 fillers. A mid-chain reply (r199) is in the
+        // first 100 visible slots, which makes the root (r0) active via the
+        // reply-chain walk. The entire chain is preserved alongside all fillers.
+        const limit = 100;
+        const chainLen = 200;
+        const fillerCount = 100;
+        final msgs = <String, List<TwitchMessage>>{
+          'test': [
+            for (var i = chainLen - 1; i >= 0; i--)
+              _msg(
+                'r$i',
+                'reply $i',
+                replyToParentId: i > 0 ? 'r${i - 1}' : null,
+              ),
+            for (var i = 0; i < fillerCount; i++) _msg('f$i', 'filler $i'),
+          ],
+        };
+        final conn = _makeConn(channelMessages: msgs, maxMessages: limit);
+        conn.truncateChannelMessages('test');
 
-      final remaining = msgs['test']!;
-      expect(remaining.length, chainLen + fillerCount);
-    });
+        final remaining = msgs['test']!;
+        expect(remaining.length, chainLen + fillerCount);
+      },
+    );
 
     test('truncation stays bounded under heavy thread spam', () {
       // 1000 messages: 800 non-thread + 100 threads × 2 msgs each.
@@ -293,12 +306,9 @@ void main() {
       final msgs = <String, List<TwitchMessage>>{
         'test': [
           for (var t = threadCount - 1; t >= 0; t--)
-            _msg('t${t}_c', 'child $t',
-                replyToParentId: 't${t}_r'),
-          for (var t = threadCount - 1; t >= 0; t--)
-            _msg('t${t}_r', 'root $t'),
-          for (var i = 0; i < fillerCount; i++)
-            _msg('f$i', 'filler $i'),
+            _msg('t${t}_c', 'child $t', replyToParentId: 't${t}_r'),
+          for (var t = threadCount - 1; t >= 0; t--) _msg('t${t}_r', 'root $t'),
+          for (var i = 0; i < fillerCount; i++) _msg('f$i', 'filler $i'),
         ],
       };
       final conn = _makeConn(channelMessages: msgs, maxMessages: limit);
@@ -309,8 +319,11 @@ void main() {
       // All 100 leaves are visible (first 100 non-system slots).
       // Each makes its root active → 100 threads × 2 msgs + 100 fillers = 300.
       expect(remaining.length, greaterThan(100));
-      expect(remaining.length, lessThan(500),
-          reason: 'should not balloon past ~3x limit');
+      expect(
+        remaining.length,
+        lessThan(500),
+        reason: 'should not balloon past ~3x limit',
+      );
     });
 
     test('many small threads with leaves in window all preserved', () {
@@ -322,15 +335,11 @@ void main() {
       final msgs = <String, List<TwitchMessage>>{
         'test': [
           for (var t = threadCount - 1; t >= 0; t--)
-            _msg('t${t}_l', 'leaf $t',
-                replyToParentId: 't${t}_m'),
+            _msg('t${t}_l', 'leaf $t', replyToParentId: 't${t}_m'),
           for (var t = threadCount - 1; t >= 0; t--)
-            _msg('t${t}_m', 'mid $t',
-                replyToParentId: 't${t}_r'),
-          for (var t = threadCount - 1; t >= 0; t--)
-            _msg('t${t}_r', 'root $t'),
-          for (var i = 0; i < fillerCount; i++)
-            _msg('f$i', 'filler $i'),
+            _msg('t${t}_m', 'mid $t', replyToParentId: 't${t}_r'),
+          for (var t = threadCount - 1; t >= 0; t--) _msg('t${t}_r', 'root $t'),
+          for (var i = 0; i < fillerCount; i++) _msg('f$i', 'filler $i'),
         ],
       };
       final conn = _makeConn(channelMessages: msgs, maxMessages: limit);
@@ -356,8 +365,7 @@ void main() {
       const limit = 100;
       final msgs = <String, List<TwitchMessage>>{
         'test': [
-          for (var i = 0; i < limit; i++)
-            _msg('f$i', 'filler $i'),
+          for (var i = 0; i < limit; i++) _msg('f$i', 'filler $i'),
           _msg('leaf', 'leaf', replyToParentId: 'mid'),
           _msg('mid', 'mid', replyToParentId: 'root'),
           _msg('root', 'root'),
@@ -383,8 +391,7 @@ void main() {
           _msg('leaf', 'leaf', replyToParentId: 'mid'),
           _msg('mid', 'mid', replyToParentId: 'root'),
           _msg('root', 'root'),
-          for (var i = 0; i < limit; i++)
-            _msg('f$i', 'filler $i'),
+          for (var i = 0; i < limit; i++) _msg('f$i', 'filler $i'),
           for (var i = 0; i < limit; i++)
             TwitchMessage(
               login: '',
@@ -466,11 +473,7 @@ void main() {
       final conn = _makeConn(channelMessages: msgs, maxMessages: 100);
 
       final ircMsg = IrcMessage(
-        tags: {
-          'display-name': 'TestUser',
-          'user-id': '12345',
-          'id': 'msg2',
-        },
+        tags: {'display-name': 'TestUser', 'user-id': '12345', 'id': 'msg2'},
         prefix: 'testuser!testuser@testuser.tmi.twitch.tv',
         command: 'PRIVMSG',
         params: ['#test'],

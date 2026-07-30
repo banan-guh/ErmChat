@@ -230,7 +230,10 @@ class UserProfileSheetState extends State<UserProfileSheet> {
                   ),
                 );
                 if (confirmed != true || !context.mounted) return;
-                final ok = await widget.twitchApi.blockUser(widget.twitchAuth, userId);
+                final ok = await widget.twitchApi.blockUser(
+                  widget.twitchAuth,
+                  userId,
+                );
                 if (!context.mounted) return;
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(

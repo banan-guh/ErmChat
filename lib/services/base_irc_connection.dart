@@ -64,16 +64,14 @@ abstract class BaseIrcConnection {
       _connectivitySub?.cancel();
       final conn = connectivity;
       if (conn != null) {
-        _connectivitySub = conn.onConnectivityChanged.listen(
-          (results) {
-            final wasOffline = !_isOnline;
-            _isOnline = !results.contains(ConnectivityResult.none);
-            if (wasOffline && _isOnline && channel == null && !_connecting) {
-              _reconnectAttempt = 0;
-              _connect();
-            }
-          },
-        );
+        _connectivitySub = conn.onConnectivityChanged.listen((results) {
+          final wasOffline = !_isOnline;
+          _isOnline = !results.contains(ConnectivityResult.none);
+          if (wasOffline && _isOnline && channel == null && !_connecting) {
+            _reconnectAttempt = 0;
+            _connect();
+          }
+        });
       }
       _disconnect();
       _awaitingPong = false;
@@ -119,7 +117,7 @@ abstract class BaseIrcConnection {
         _status = IrcConnectionStatus.connected;
         _statusController.add(IrcConnectionStatus.connected);
 
-          // Twitch IRC keepalive: PING every 300s (Twitch's recommendation).
+        // Twitch IRC keepalive: PING every 300s (Twitch's recommendation).
         // No separate PONG timer — if _awaitingPong is still true at next
         // tick (300s later), assume connection dead and reconnect.
         _pingTimer?.cancel();
@@ -169,9 +167,7 @@ abstract class BaseIrcConnection {
     if (_reconnecting || _disposed) return;
     if (!_isOnline) return;
     if (_reconnectAttempt >= _maxReconnectAttempts) {
-      debugPrint(
-        '[$debugPrefix] max reconnect attempts reached – giving up',
-      );
+      debugPrint('[$debugPrefix] max reconnect attempts reached – giving up');
       return;
     }
     _reconnecting = true;

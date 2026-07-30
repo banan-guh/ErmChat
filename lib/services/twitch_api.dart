@@ -100,7 +100,10 @@ class TwitchApi {
         _setError('No user associated with token');
         return null;
       }
-      return {'id': list[0]['id'] as String, 'login': list[0]['login'] as String};
+      return {
+        'id': list[0]['id'] as String,
+        'login': list[0]['login'] as String,
+      };
     } catch (e) {
       _setError('getCurrentUser: bad response');
       return null;

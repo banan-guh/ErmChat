@@ -87,7 +87,9 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
             behavior: HitTestBehavior.opaque,
             onVerticalDragUpdate: (details) {
               final newPixels = widget.sheetCtrl.pixels - details.primaryDelta!;
-              final newSize = widget.sheetCtrl.pixelsToSize(newPixels).clamp(0.0, 1.0);
+              final newSize = widget.sheetCtrl
+                  .pixelsToSize(newPixels)
+                  .clamp(0.0, 1.0);
               if (widget.sheetCtrl.isAttached) {
                 widget.sheetCtrl.jumpTo(newSize);
               }
@@ -166,11 +168,17 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
 
     // Only show recents available in the current channel. Falls through to
     // all recents if channel emotes are not yet loaded.
-    final channelEmotes = widget.emoteManager.byCode(widget.selectedChannel ?? '');
+    final channelEmotes = widget.emoteManager.byCode(
+      widget.selectedChannel ?? '',
+    );
     final filtered = channelEmotes != null
         ? () {
-            final channelIds = channelEmotes.suggestions.map((e) => e.id).toSet();
-            return _cachedRecentEmotes.where((e) => channelIds.contains(e.id)).toList();
+            final channelIds = channelEmotes.suggestions
+                .map((e) => e.id)
+                .toSet();
+            return _cachedRecentEmotes
+                .where((e) => channelIds.contains(e.id))
+                .toList();
           }()
         : _cachedRecentEmotes;
 
@@ -218,13 +226,10 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
                 crossAxisSpacing: 8,
                 childAspectRatio: 1,
               ),
-              delegate: SliverChildBuilderDelegate(
-                (_, i) {
-                  final cellPadding = _computeCellPadding();
-                  return _buildEmoteGridItem(entry.value[i], cellPadding);
-                },
-                childCount: entry.value.length,
-              ),
+              delegate: SliverChildBuilderDelegate((_, i) {
+                final cellPadding = _computeCellPadding();
+                return _buildEmoteGridItem(entry.value[i], cellPadding);
+              }, childCount: entry.value.length),
             ),
           ),
         ],
@@ -262,9 +267,7 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
     if (scrollController == null) return child;
     return CustomScrollView(
       controller: scrollController,
-      slivers: [
-        SliverFillRemaining(child: child),
-      ],
+      slivers: [SliverFillRemaining(child: child)],
     );
   }
 

@@ -89,9 +89,7 @@ void main() {
   group('other messages pass through to dispatchLine', () {
     test('PRIVMSG is dispatched', () {
       // This works because dispatchLine is a no-op in the test subclass
-      conn.handleLine(
-        ':user!user@user.tmi.twitch.tv PRIVMSG #channel :hello',
-      );
+      conn.handleLine(':user!user@user.tmi.twitch.tv PRIVMSG #channel :hello');
       // No crash = pass
     });
 

@@ -82,7 +82,17 @@ class ChatConnectionManager {
   StreamSubscription<({String messageId, String targetUser, String channel})>?
   deleteSub;
   StreamSubscription<IrcBanEvent>? ircBanSub;
-  StreamSubscription<({String user, String? reason, bool isTimeout, String? duration, int? durationSeconds, String channel})>? eventSubBanSub;
+  StreamSubscription<
+    ({
+      String user,
+      String? reason,
+      bool isTimeout,
+      String? duration,
+      int? durationSeconds,
+      String channel,
+    })
+  >?
+  eventSubBanSub;
   StreamSubscription<IrcNoticeEvent>? ircNoticeSub;
   StreamSubscription<IrcNoticeEvent>? ircJtvSub;
   StreamSubscription<IrcMessage>? ircOwnMsgSub;
@@ -168,12 +178,12 @@ class ChatConnectionManager {
     ircReadStatusSub?.cancel();
   }
 
-
-
   void _markUserMessagesDeleted(String channel, String username) {
     final msgs = channelMessages[channel];
     if (msgs == null) {
-      debugPrint('[ChatConn] _markUserMessagesDeleted: no messages for channel=$channel');
+      debugPrint(
+        '[ChatConn] _markUserMessagesDeleted: no messages for channel=$channel',
+      );
       return;
     }
     var count = 0;
@@ -185,7 +195,9 @@ class ChatConnectionManager {
         count++;
       }
     }
-    debugPrint('[ChatConn] _markUserMessagesDeleted: marked $count messages deleted for user=$username in channel=$channel (total msgs in channel=${msgs.length})');
+    debugPrint(
+      '[ChatConn] _markUserMessagesDeleted: marked $count messages deleted for user=$username in channel=$channel (total msgs in channel=${msgs.length})',
+    );
   }
 
   // Dual-source (IRC + EventSub) ban dedup within a 10s window.
@@ -201,8 +213,7 @@ class ChatConnectionManager {
     final metas = _recentBanMeta.putIfAbsent(channel, () => []);
 
     metas.removeWhere(
-      (m) =>
-          now.difference(m.lastEvent).inSeconds >= _banDedupWindowSeconds,
+      (m) => now.difference(m.lastEvent).inSeconds >= _banDedupWindowSeconds,
     );
 
     final existing = metas.cast<_BanMeta?>().firstWhere(
@@ -243,36 +254,38 @@ class ChatConnectionManager {
     required bool fromEventSource,
     required String sourceName,
   }) {
-    debugPrint('[ChatConn] $sourceName ban received: user=$user channel=$channel isTimeout=$isTimeout');
+    debugPrint(
+      '[ChatConn] $sourceName ban received: user=$user channel=$channel isTimeout=$isTimeout',
+    );
     if (!mounted) return;
     _markUserMessagesDeleted(channel, user);
-    final result = _processBanInChannel(channel, user, isTimeout, fromEventSource);
+    final result = _processBanInChannel(
+      channel,
+      user,
+      isTimeout,
+      fromEventSource,
+    );
     if (!result.show) return;
     final isSelf = user.toLowerCase() == getCurrentUserLogin()?.toLowerCase();
     final base = isTimeout
         ? (isSelf
-            ? 'You are timed out$selfDurationStr'
-            : '$user was timed out$otherDurationStr')
-        : (isSelf
-            ? 'You were banned'
-            : '$user was banned');
-    final stacked = result.stackCount > 1 ? ' (${result.stackCount} times)' : '';
+              ? 'You are timed out$selfDurationStr'
+              : '$user was timed out$otherDurationStr')
+        : (isSelf ? 'You were banned' : '$user was banned');
+    final stacked = result.stackCount > 1
+        ? ' (${result.stackCount} times)'
+        : '';
     final text = '$base$stacked.';
     debugPrint('[ChatConn] $sourceName ban system message: $text');
 
     if (result.stackCount > 1) {
       if (result.meta?.firstMessageId != null) {
-        _updateMessageText(
-          channel,
-          result.meta!.firstMessageId!,
-          text,
-        );
+        _updateMessageText(channel, result.meta!.firstMessageId!, text);
         return;
       }
     }
     onSystemMessage(channel, text);
-    result.meta?.firstMessageId =
-        channelMessages[channel]?.first.messageId;
+    result.meta?.firstMessageId = channelMessages[channel]?.first.messageId;
   }
 
   void _updateMessageText(String channel, String messageId, String newText) {
@@ -439,7 +452,8 @@ class ChatConnectionManager {
         } else if (m.messageId != null) {
           key = m.messageId;
         }
-        final isOrphanThread = m.messageId != null &&
+        final isOrphanThread =
+            m.messageId != null &&
             !isActiveThread &&
             key != null &&
             threadGroups.containsKey(key);
@@ -494,7 +508,11 @@ class ChatConnectionManager {
 
       if (!userTwitchEmotesLoaded) {
         userTwitchEmotesLoaded = true;
-        unawaited(loadUserTwitchEmotes().catchError((e) => debugPrint('[ChatConn] loadUserTwitchEmotes failed: $e')));
+        unawaited(
+          loadUserTwitchEmotes().catchError(
+            (e) => debugPrint('[ChatConn] loadUserTwitchEmotes failed: $e'),
+          ),
+        );
       }
 
       eventSub.setChannelMapping(channelUserId, channelName);
@@ -578,12 +596,16 @@ class ChatConnectionManager {
       finalUserId = cachedUserId;
     } else {
       try {
-        final uri = Uri.parse('https://7tv.io/v3/users/twitch/$twitchChannelId');
+        final uri = Uri.parse(
+          'https://7tv.io/v3/users/twitch/$twitchChannelId',
+        );
         final res = await http.get(uri).timeout(const Duration(seconds: 10));
         if (res.statusCode != 200) return;
         final data = jsonDecode(res.body) as Map<String, dynamic>;
-        final userId = (data['user'] as Map<String, dynamic>?)?['id'] as String?;
-        final emoteSetId = (data['emote_set'] as Map<String, dynamic>?)?['id'] as String?;
+        final userId =
+            (data['user'] as Map<String, dynamic>?)?['id'] as String?;
+        final emoteSetId =
+            (data['emote_set'] as Map<String, dynamic>?)?['id'] as String?;
         if (userId == null || emoteSetId == null) return;
         emoteManager.setSevenTvEmoteSetId(channelName, emoteSetId);
         finalUserId = userId;
@@ -608,8 +630,7 @@ class ChatConnectionManager {
         .map((e) => SevenTvEmoteProvider.parseSingleEmote(e.raw, channel: true))
         .whereType<GenericEmote>()
         .toList();
-    final removedIds =
-        event.removed.map((e) => e.id).toList();
+    final removedIds = event.removed.map((e) => e.id).toList();
     final renamed = <String, ({String newName, String oldName})>{};
     for (final r in event.renamed) {
       renamed[r.id] = (newName: r.newName, oldName: r.oldName);
@@ -649,10 +670,7 @@ class ChatConnectionManager {
     emoteManager.setSevenTvEmoteSetId(channel, event.newEmoteSetId);
 
     final actor = event.actor ?? 'A user';
-    onSystemMessage(
-      channel,
-      '$actor switched the active 7TV Emote Set.',
-    );
+    onSystemMessage(channel, '$actor switched the active 7TV Emote Set.');
   }
 
   Future<void> subscribeAll() async {
@@ -703,9 +721,7 @@ class ChatConnectionManager {
     irc.sendMessage(channel, wireText, replyParentMessageId: reply?.messageId);
 
     // Fallback: Helix API when the IRC write socket isn't available
-    if (!irc.isConnected &&
-        getCurrentUserId() != null &&
-        auth.isConfigured) {
+    if (!irc.isConnected && getCurrentUserId() != null && auth.isConfigured) {
       final broadcasterId =
           channelUserIds[channel] ?? await twitchApi.getUserId(auth, channel);
       if (broadcasterId != null) {
@@ -730,169 +746,186 @@ class ChatConnectionManager {
     if (_isConnecting || !mounted) return;
     _isConnecting = true;
     try {
-    final auth = twitchAuth;
+      final auth = twitchAuth;
 
-    messageSub ??= eventSub.onMessage.listen(onMessage);
-    deleteSub ??= eventSub.onMessageDeleted.listen((event) {
-      if (!mounted) return;
-      final msgs = channelMessages[event.channel];
-      if (msgs == null) return;
-      String? deletedUser;
-      String? deletedText;
-      for (final msg in msgs) {
-        if (msg.messageId == event.messageId && !msg.isSystem) {
-          msg.deleted = true;
-          deletedUser = msg.login;
-          deletedText = msg.text;
-          break;
+      messageSub ??= eventSub.onMessage.listen(onMessage);
+      deleteSub ??= eventSub.onMessageDeleted.listen((event) {
+        if (!mounted) return;
+        final msgs = channelMessages[event.channel];
+        if (msgs == null) return;
+        String? deletedUser;
+        String? deletedText;
+        for (final msg in msgs) {
+          if (msg.messageId == event.messageId && !msg.isSystem) {
+            msg.deleted = true;
+            deletedUser = msg.login;
+            deletedText = msg.text;
+            break;
+          }
         }
-      }
-      if (deletedUser != null && deletedText != null) {
-        onSystemMessage(
-          event.channel,
-          'A message from $deletedUser was deleted saying: "$deletedText".',
+        if (deletedUser != null && deletedText != null) {
+          onSystemMessage(
+            event.channel,
+            'A message from $deletedUser was deleted saying: "$deletedText".',
+          );
+        }
+      });
+
+      ircBanSub?.cancel();
+      ircBanSub = irc.onBan.listen((event) {
+        final durationStr = event.duration != null
+            ? ' for ${event.duration}s'
+            : '';
+        _handleBanEvent(
+          channel: event.channel,
+          user: event.user,
+          isTimeout: event.isTimeout,
+          selfDurationStr: durationStr,
+          otherDurationStr: durationStr,
+          fromEventSource: false,
+          sourceName: 'IRC',
         );
+      });
+
+      eventSubBanSub?.cancel();
+      eventSubBanSub = eventSub.onBan.listen((event) {
+        _handleBanEvent(
+          channel: event.channel,
+          user: event.user,
+          isTimeout: event.isTimeout,
+          selfDurationStr: event.durationSeconds != null
+              ? ' for ${event.durationSeconds}s'
+              : '',
+          otherDurationStr: event.duration != null
+              ? ' for ${event.duration}s'
+              : '',
+          fromEventSource: true,
+          sourceName: 'EventSub',
+        );
+      });
+
+      ircNoticeSub?.cancel();
+      ircNoticeSub = irc.onNotice.listen((event) {
+        if (!mounted) return;
+        onSystemMessage(event.channel, event.message);
+      });
+
+      ircJtvSub?.cancel();
+      ircJtvSub = irc.onJtvMessage.listen((event) {
+        if (!mounted) return;
+        onSystemMessage(event.channel, event.message);
+      });
+
+      ircOwnMsgSub?.cancel();
+      ircOwnMsgSub = ircRead.onOwnMessage.listen(onOwnIrcMessage);
+
+      if (!auth.isConfigured) return;
+
+      if (sevenTvClient != null) {
+        sevenTvEmoteSub?.cancel();
+        sevenTvEmoteSub = sevenTvClient!.onEmoteSetUpdate.listen(
+          _onSevenTvEmoteSetUpdate,
+        );
+        sevenTvUserSub?.cancel();
+        sevenTvUserSub = sevenTvClient!.onUserUpdate.listen(
+          _onSevenTvUserUpdate,
+        );
+        sevenTvClient!.connect();
       }
-    });
 
-    ircBanSub?.cancel();
-    ircBanSub = irc.onBan.listen((event) {
-      final durationStr = event.duration != null ? ' for ${event.duration}s' : '';
-      _handleBanEvent(
-        channel: event.channel,
-        user: event.user,
-        isTimeout: event.isTimeout,
-        selfDurationStr: durationStr,
-        otherDurationStr: durationStr,
-        fromEventSource: false,
-        sourceName: 'IRC',
-      );
-    });
-
-    eventSubBanSub?.cancel();
-    eventSubBanSub = eventSub.onBan.listen((event) {
-      _handleBanEvent(
-        channel: event.channel,
-        user: event.user,
-        isTimeout: event.isTimeout,
-        selfDurationStr: event.durationSeconds != null ? ' for ${event.durationSeconds}s' : '',
-        otherDurationStr: event.duration != null ? ' for ${event.duration}s' : '',
-        fromEventSource: true,
-        sourceName: 'EventSub',
-      );
-    });
-
-    ircNoticeSub?.cancel();
-    ircNoticeSub = irc.onNotice.listen((event) {
-      if (!mounted) return;
-      onSystemMessage(event.channel, event.message);
-    });
-
-    ircJtvSub?.cancel();
-    ircJtvSub = irc.onJtvMessage.listen((event) {
-      if (!mounted) return;
-      onSystemMessage(event.channel, event.message);
-    });
-
-    ircOwnMsgSub?.cancel();
-    ircOwnMsgSub = ircRead.onOwnMessage.listen(onOwnIrcMessage);
-
-    if (!auth.isConfigured) return;
-
-    if (sevenTvClient != null) {
-      sevenTvEmoteSub?.cancel();
-      sevenTvEmoteSub = sevenTvClient!.onEmoteSetUpdate.listen(_onSevenTvEmoteSetUpdate);
-      sevenTvUserSub?.cancel();
-      sevenTvUserSub = sevenTvClient!.onUserUpdate.listen(_onSevenTvUserUpdate);
-      sevenTvClient!.connect();
-    }
-
-    statusSub?.cancel();
-    statusSub = eventSub.onStatus.listen((status) async {
-      if (!mounted) return;
-      connectionStatus = status;
-      onRebuild();
-      // Edge-triggered: subscribeAll once per connect with 30s throttle and
-      // 500ms settle delay to let the EventSub session stabilize after reconnect.
-      if (status == EventSubStatus.connected && !wasConnected) {
-        wasConnected = true;
-        wasDisconnected = false;
-        final now = DateTime.now();
-        if (_lastSubscribeAll != null &&
-            now.difference(_lastSubscribeAll!).inSeconds < 30) {
-          return;
+      statusSub?.cancel();
+      statusSub = eventSub.onStatus.listen((status) async {
+        if (!mounted) return;
+        connectionStatus = status;
+        onRebuild();
+        // Edge-triggered: subscribeAll once per connect with 30s throttle and
+        // 500ms settle delay to let the EventSub session stabilize after reconnect.
+        if (status == EventSubStatus.connected && !wasConnected) {
+          wasConnected = true;
+          wasDisconnected = false;
+          final now = DateTime.now();
+          if (_lastSubscribeAll != null &&
+              now.difference(_lastSubscribeAll!).inSeconds < 30) {
+            return;
+          }
+          _lastSubscribeAll = now;
+          await Future.delayed(const Duration(milliseconds: 500));
+          try {
+            await subscribeAll();
+            if (!userTwitchEmotesLoaded) {
+              userTwitchEmotesLoaded = true;
+              unawaited(
+                loadUserTwitchEmotes().catchError(
+                  (e) => debugPrint(
+                    '[ChatConn] loadUserTwitchEmotes failed on reconnect: $e',
+                  ),
+                ),
+              );
+            }
+          } catch (_) {
+            debugPrint('[ChatConn] subscribeAll failed on reconnect');
+          }
+          for (final channel in channels) {
+            if (historyLoaded.contains(channel) &&
+                _connectedAcked.add(channel)) {
+              onSystemMessage(channel, 'Connected');
+            }
+          }
         }
-        _lastSubscribeAll = now;
-        await Future.delayed(const Duration(milliseconds: 500));
+        if (status == EventSubStatus.disconnected && !wasDisconnected) {
+          wasDisconnected = true;
+          wasConnected = false;
+          _connectedAcked.clear();
+          _lastSubscribeAll = null;
+          for (final channel in channels) {
+            onSystemMessage(channel, 'Disconnected');
+          }
+        }
+      });
+
+      if (getCurrentUserLogin() == null) {
         try {
-          await subscribeAll();
-          if (!userTwitchEmotesLoaded) {
-            userTwitchEmotesLoaded = true;
-            unawaited(loadUserTwitchEmotes().catchError((e) => debugPrint('[ChatConn] loadUserTwitchEmotes failed on reconnect: $e')));
+          final currentUser = await twitchApi.getCurrentUser(auth);
+          if (currentUser != null) {
+            setCurrentUserLogin(currentUser['login']);
+            setCurrentUserId(currentUser['id']);
           }
         } catch (_) {
-          debugPrint('[ChatConn] subscribeAll failed on reconnect');
+          debugPrint('[ChatConn] getCurrentUser failed');
         }
-        for (final channel in channels) {
-          if (historyLoaded.contains(channel) && _connectedAcked.add(channel)) {
-            onSystemMessage(channel, 'Connected');
+      }
+
+      if (getCurrentUserLogin() != null && auth.accessToken != null) {
+        ircStatusSub?.cancel();
+        ircStatusSub = irc.onStatus.listen((status) {
+          if (!mounted) return;
+          if (status == IrcConnectionStatus.connected && irc.isConnected) {
+            for (final channel in channels) {
+              onSystemMessage(channel, 'Connected to IRC');
+            }
           }
-        }
+        });
+
+        ircReadStatusSub?.cancel();
+        ircReadStatusSub = ircRead.onStatus.listen((status) {
+          if (!mounted) return;
+        });
+
+        try {
+          await irc.connect(
+            username: getCurrentUserLogin()!,
+            accessToken: auth.accessToken!,
+          );
+        } catch (_) {}
+        try {
+          await ircRead.connect(
+            username: getCurrentUserLogin()!,
+            accessToken: auth.accessToken!,
+          );
+        } catch (_) {}
       }
-      if (status == EventSubStatus.disconnected && !wasDisconnected) {
-        wasDisconnected = true;
-        wasConnected = false;
-        _connectedAcked.clear();
-        _lastSubscribeAll = null;
-        for (final channel in channels) {
-          onSystemMessage(channel, 'Disconnected');
-        }
-      }
-    });
 
-    if (getCurrentUserLogin() == null) {
-      try {
-        final currentUser = await twitchApi.getCurrentUser(auth);
-        if (currentUser != null) {
-          setCurrentUserLogin(currentUser['login']);
-          setCurrentUserId(currentUser['id']);
-        }
-      } catch (_) {
-        debugPrint('[ChatConn] getCurrentUser failed');
-      }
-    }
-
-    if (getCurrentUserLogin() != null && auth.accessToken != null) {
-      ircStatusSub?.cancel();
-      ircStatusSub = irc.onStatus.listen((status) {
-        if (!mounted) return;
-        if (status == IrcConnectionStatus.connected && irc.isConnected) {
-          for (final channel in channels) {
-            onSystemMessage(channel, 'Connected to IRC');
-          }
-        }
-      });
-
-      ircReadStatusSub?.cancel();
-      ircReadStatusSub = ircRead.onStatus.listen((status) {
-        if (!mounted) return;
-      });
-
-      try {
-        await irc.connect(
-          username: getCurrentUserLogin()!,
-          accessToken: auth.accessToken!,
-        );
-      } catch (_) {}
-      try {
-        await ircRead.connect(
-          username: getCurrentUserLogin()!,
-          accessToken: auth.accessToken!,
-        );
-      } catch (_) {}
-    }
-
-    await eventSub.connect();
+      await eventSub.connect();
     } finally {
       _isConnecting = false;
     }
@@ -915,10 +948,7 @@ class ChatConnectionManager {
 
     if (msg.sourceBroadcasterId != null &&
         badgeService.resolveChannelAvatar(msg.sourceBroadcasterId!) == null) {
-      badgeService.fetchChannelAvatar(
-        twitchAuth,
-        msg.sourceBroadcasterId!,
-      );
+      badgeService.fetchChannelAvatar(twitchAuth, msg.sourceBroadcasterId!);
     }
 
     final login = getCurrentUserLogin()?.toLowerCase();
@@ -929,13 +959,13 @@ class ChatConnectionManager {
         msg.replyToUser != null &&
         msg.replyToUser!.toLowerCase() == login;
     final isMentioned =
-        (login != null &&
-            !msg.isSystem &&
-            isMention(msg.text, login)) ||
+        (login != null && !msg.isSystem && isMention(msg.text, login)) ||
         isReplyToMe;
 
     if (isMentioned && msg.login != login) {
-      if (!msg.isHighlighted && !msg.isHistory && channel != getSelectedChannel()) {
+      if (!msg.isHighlighted &&
+          !msg.isHistory &&
+          channel != getSelectedChannel()) {
         setUnreadMentions(getUnreadMentions() + 1);
         channelsWithUnreadMentions.add(channel);
         unreadMentionsPerChannel[channel] =
@@ -994,7 +1024,8 @@ class ChatConnectionManager {
     final messageId = ircMsg.tags['id'];
     final text = ircMsg.trailing!;
     final ircReplyParentId = ircMsg.tags['reply-parent-msg-id'];
-    final ircReplyThreadRootId = ircMsg.tags['reply-thread-parent-msg-id'] ?? ircReplyParentId;
+    final ircReplyThreadRootId =
+        ircMsg.tags['reply-thread-parent-msg-id'] ?? ircReplyParentId;
 
     // Twitch's IRC gateway prepends @username to reply echoes only.
     // Twitch IRC prepends "@username " to reply echoes. Strip this prefix
@@ -1129,4 +1160,3 @@ class ChatConnectionManager {
     }
   }
 }
-
