@@ -525,7 +525,7 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   void _onEmotesChanged() {
-    final channel = _emoteManager.consumeChangedChannel();
+    final channel = _emoteManager.changedChannel;
     if (channel != null) {
       final msgs = _channelMessages[channel];
       if (msgs != null) {
@@ -1537,8 +1537,6 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
-    final bottomPadding = MediaQuery.of(context).padding.bottom;
 
     return PopScope(
       canPop: _activePanel == OverlayPanel.closed,
@@ -1553,7 +1551,7 @@ class _HomeScreenState extends State<HomeScreen>
               child: LayoutBuilder(
                 builder: (context, constraints) {
                   final statusBarH = MediaQuery.of(context).padding.top;
-                  if (bottomInset == 0) {
+                  if (MediaQuery.viewInsetsOf(context).bottom == 0) {
                     _emoteSheetBoxHeight = constraints.maxHeight;
                   }
                   final sheetBoxHeight =
@@ -1966,75 +1964,81 @@ class _HomeScreenState extends State<HomeScreen>
                 },
               ),
             ),
-            Padding(
-              padding: EdgeInsets.only(bottom: bottomInset + bottomPadding),
-              child: ColoredBox(
-                color: theme.scaffoldBackgroundColor,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    MessageInput(
-                    controller: _messageController,
-                    focusNode: _focusNode,
-                    onSend: _sendMessage,
-                    onSendLongPress: _onSendLongPress,
-                    onEmoteToggle: () {
-                      if (_activePanel == OverlayPanel.emotes) {
-                        _closePanel();
-                      } else {
-                        _showEmoteMenu();
-                      }
-                    },
-                    replyToMsg: _replyToMsg,
-                    onCancelReply: () => setState(() => _replyToMsg = null),
-                    enabled:
-                        _activePanel != OverlayPanel.mentions &&
-                        widget.twitchAuth.isConfigured &&
-                        _chatConn.connectionStatus == EventSubStatus.connected,
-                    hintText: !widget.twitchAuth.isConfigured
-                        ? 'Connect an account to chat'
-                        : _chatConn.connectionStatus != EventSubStatus.connected
-                        ? 'Disconnected'
-                        : _activePanel == OverlayPanel.thread
-                        ? (_replyToRoot ? 'Reply to root...' : 'Reply to thread...')
-                        : _activePanel == OverlayPanel.mentions
-                        ? 'Type a message...'
-                        : null,
-                  ),
-                    ListenableBuilder(
-                      listenable: Listenable.merge([_mentionsBump, _selectedTabIndex]),
-                      builder: (context, _) {
-                        final status = _chatStatus[_selectedChannel];
-                        final hasStatus = status != null && status.isNotEmpty;
-                        return AnimatedSize(
-                          duration: const Duration(milliseconds: 200),
-                          curve: Curves.easeInOut,
-                          alignment: Alignment.topCenter,
-                          child: hasStatus
-                              ? Padding(
-                                  padding: const EdgeInsets.only(
-                                    left: 12,
-                                    right: 12,
-                                    bottom: 4,
-                                  ),
-                                  child: Text(
-                                    status,
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: Theme.of(context)
-                                          .colorScheme
-                                          .onSurfaceVariant,
-                                    ),
-                                    textAlign: TextAlign.center,
-                                  ),
-                                )
-                              : const SizedBox.shrink(),
-                        );
-                      },
+            Builder(
+              builder: (ctx) {
+                final inset = MediaQuery.viewInsetsOf(ctx).bottom;
+                final pad = MediaQuery.paddingOf(ctx).bottom;
+                return Padding(
+                  padding: EdgeInsets.only(bottom: inset + pad),
+                  child: ColoredBox(
+                    color: theme.scaffoldBackgroundColor,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        MessageInput(
+                        controller: _messageController,
+                        focusNode: _focusNode,
+                        onSend: _sendMessage,
+                        onSendLongPress: _onSendLongPress,
+                        onEmoteToggle: () {
+                          if (_activePanel == OverlayPanel.emotes) {
+                            _closePanel();
+                          } else {
+                            _showEmoteMenu();
+                          }
+                        },
+                        replyToMsg: _replyToMsg,
+                        onCancelReply: () => setState(() => _replyToMsg = null),
+                        enabled:
+                            _activePanel != OverlayPanel.mentions &&
+                            widget.twitchAuth.isConfigured &&
+                            _chatConn.connectionStatus == EventSubStatus.connected,
+                        hintText: !widget.twitchAuth.isConfigured
+                            ? 'Connect an account to chat'
+                            : _chatConn.connectionStatus != EventSubStatus.connected
+                            ? 'Disconnected'
+                            : _activePanel == OverlayPanel.thread
+                            ? (_replyToRoot ? 'Reply to root...' : 'Reply to thread...')
+                            : _activePanel == OverlayPanel.mentions
+                            ? 'Type a message...'
+                            : null,
+                      ),
+                        ListenableBuilder(
+                          listenable: Listenable.merge([_mentionsBump, _selectedTabIndex]),
+                          builder: (context, _) {
+                            final status = _chatStatus[_selectedChannel];
+                            final hasStatus = status != null && status.isNotEmpty;
+                            return AnimatedSize(
+                              duration: const Duration(milliseconds: 200),
+                              curve: Curves.easeInOut,
+                              alignment: Alignment.topCenter,
+                              child: hasStatus
+                                  ? Padding(
+                                      padding: const EdgeInsets.only(
+                                        left: 12,
+                                        right: 12,
+                                        bottom: 4,
+                                      ),
+                                      child: Text(
+                                        status,
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .onSurfaceVariant,
+                                        ),
+                                        textAlign: TextAlign.center,
+                                      ),
+                                    )
+                                  : const SizedBox.shrink(),
+                            );
+                          },
+                        ),
+                      ],
                     ),
-                  ],
-                ),
-              ),
+                  ),
+                );
+              },
             ),
           ],
         ),

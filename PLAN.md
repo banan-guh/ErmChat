@@ -4,7 +4,7 @@
 
 - [ ] **#1 `truncateChannelMessages` O(n^2) `removeAt` loop** -- `chat_connection_manager.dart:411-415`. Removes extras by calling `removeAt(i)` in a loop, each call shifts subsequent elements. Fix: build a new retained list in one O(n) pass. Plus fast path: `removeRange` for small overflow and only run thread-aware algorithm when excess > 3.
 
-- [-] **#2 `_onInputChanged` missing debounce** -- `home_screen.dart:348-369`. Every keystroke iterates 5000 users + 500 emotes with string operations, calls `_checkAutocompleteUndo` (heavy logic for a rare edge case), and triggers autocomplete rebuild. `_autocompleteTimer` field declared at line 169 but never wired. Fix: debounce 150ms, skip `_checkAutocompleteUndo` until after cheap length check, only query users on `@` prefix. (NOT DOING! this is NOT an issue for now)
+- [ ] **#2 `_onInputChanged` missing debounce** -- `home_screen.dart:348-369`. Every keystroke iterates 5000 users + 500 emotes with string operations, calls `_checkAutocompleteUndo` (heavy logic for a rare edge case), and triggers autocomplete rebuild. `_autocompleteTimer` field declared at line 169 but never wired. Fix: debounce 150ms, skip `_checkAutocompleteUndo` until after cheap length check, only query users on `@` prefix.
 
 - [ ] **#3 `EmoteManager` global `ChangeNotifier` cascading rebuilds** -- `emote_manager.dart` + `emote_menu_panel.dart`. `notifyListeners()` fires for any emote change in any channel during startup, causing ~2+3N async calls (N = channels). Each triggers `_loadRecentEmotes` + `setState`. Fix: dedicated `ValueNotifier` for recent emotes; batch notifications; per-channel notifiers.
 
@@ -38,9 +38,9 @@
 
 - [ ] **#16 `LayoutBuilder` per emote grid cell** -- `emote_menu_panel.dart:290-305`. Each of ~50 grid items has a `LayoutBuilder` for a simple padding computation. Fix: precompute cell width from grid dimensions and use `Padding` directly.
 
-- [x] **#17 `command_handler.dart` user ID lookups make HTTP call per command** -- Fixed: added `_userIdCache` map.
+- [ ] **#17 `command_handler.dart` user ID lookups make HTTP call per command** -- lines 73, 99, 139, 222. `/ban`, `/timeout`, etc. resolve username-to-ID via network every time. Fix: local `Map<String, String>` cache for the session.
 
-- [x] **#18 `isMention` duplicated in two files with regex split** -- Fixed: moved to `lib/util/mention.dart`.
+- [ ] **#18 `isMention` duplicated in two files with regex split** -- `home_screen.dart:2240-2247`, `chat_connection_manager.dart:1083-1090`. Same function defined twice, each uses regex split allocating intermediate strings. Fix: single canonical copy, manual char iteration.
 
 ## Existing bugs (preserved)
 
@@ -104,15 +104,15 @@ Focus: making each rebuild cheaper/faster rather than preventing rebuilds from b
 
 - [x] **C13 Mutable static state in `TwitchApi`** -- Fixed: all fields and methods converted to instance-level.
 
-- [x] **C14 Side effect in getter `EmoteManager.changedChannel`** -- Fixed: renamed to `consumeChangedChannel()`.
+- [ ] **C14 Side effect in getter `EmoteManager.changedChannel`** -- `emote_manager.dart:52-56`. Getter mutates `_changedChannel = null`. Second read returns different result. Fix: rename to `consumeChangedChannel()` or use method.
 
 - [x] **C15 `TwitchMessage.bodyColor` always returns null** -- Fixed: removed getter and the dead branches in `ChatMessageTile`.
 
 ## Safety
 
-- [ ] **C16 100+ null assertions (`!`), some double** -- `chat_connection_manager.dart:765` `result.meta!.firstMessageId!`, many others. One unexpected `null` = crash. Fix: prefer local variable with null check + early return over force-unwrap. **(checked: all 22 `!` are guarded by prior null checks — no crash risk at these sites)**
+- [ ] **C16 100+ null assertions (`!`), some double** -- `chat_connection_manager.dart:765` `result.meta!.firstMessageId!`, many others. One unexpected `null` = crash. Fix: prefer local variable with null check + early return over force-unwrap.
 
-- [x] **C17 Bare `as Map / as List / as String` casts in JSON deserialization** -- Fixed: wrapped JSON parse in try/catch in all `TwitchApi` response methods.
+- [ ] **C17 Bare `as Map / as List / as String` casts in JSON deserialization** -- `twitch_api.dart` and elsewhere. If Twitch API response shape changes, runtime `TypeError`. Fix: validate with `json_serializable`, `freezed`, or manual checks.
 
 - [ ] **C18 `StreamController.broadcast(sync: true)` risk of re-entrancy** -- `twitch_eventsub.dart:31-51`, `twitch_irc.dart:28`, `twitch_irc_read.dart:6`, `seven_tv_event_client.dart`. Listeners fire synchronously during event dispatch, can cause stack overflows or build() calls during dispatch. Fix: use `sync: false` or document why sync is required.
 
