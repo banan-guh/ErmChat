@@ -1681,9 +1681,20 @@ class _HomeScreenState extends State<HomeScreen>
                                       pageBuilder: (_, i) {
                                         final channel = _channels[i];
                                         return ListenableBuilder(
-                                          listenable: _versionNotifier(channel),
-                                          builder: (_, _) =>
-                                              _buildChatShell(channel),
+                                          listenable: Listenable.merge([
+                                            _selectedTabIndex,
+                                            _versionNotifier(channel),
+                                          ]),
+                                          builder: (_, _) {
+                                            final isActive =
+                                                (i - _selectedTabIndex.value)
+                                                        .abs() <=
+                                                    1;
+                                            if (!isActive) {
+                                              return const SizedBox();
+                                            }
+                                            return _buildChatShell(channel);
+                                          },
                                         );
                                       },
                                       focusOnHalfDrag: true,
