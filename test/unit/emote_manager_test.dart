@@ -1,30 +1,12 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ermchat/models/generic_emote.dart';
 import 'package:ermchat/models/twitch_message.dart';
-
-GenericEmote _e({
-  required String id,
-  required String code,
-  EmoteType type = EmoteType.bttv,
-  bool isZeroWidth = false,
-  EmoteScope scope = EmoteScope.global,
-  String? ownerChannel,
-  double relativeScale = 1.0,
-}) => GenericEmote(
-  id: id,
-  code: code,
-  type: type,
-  url: 'https://example.com/$id.png',
-  isZeroWidth: isZeroWidth,
-  scope: scope,
-  ownerChannel: ownerChannel,
-  relativeScale: relativeScale,
-);
+import '../helpers.dart';
 
 void main() {
   group('GenericEmote', () {
     test('creates with required fields', () {
-      final e = _e(id: '1', code: 'Kappa');
+      final e = makeTestEmote(id: '1', code: 'Kappa');
       expect(e.id, '1');
       expect(e.code, 'Kappa');
       expect(e.type, EmoteType.bttv);
@@ -34,12 +16,12 @@ void main() {
     });
 
     test('creates with zero-width flag', () {
-      final e = _e(id: '2', code: 'EZ', isZeroWidth: true);
+      final e = makeTestEmote(id: '2', code: 'EZ', isZeroWidth: true);
       expect(e.isZeroWidth, true);
     });
 
     test('creates with channel scope', () {
-      final e = _e(
+      final e = makeTestEmote(
         id: '3',
         code: 'Kappa',
         scope: EmoteScope.channel,
@@ -52,7 +34,7 @@ void main() {
 
   group('GenericEmote JSON round-trip', () {
     test('serializes and deserializes', () {
-      final original = _e(
+      final original = makeTestEmote(
         id: 'test-id',
         code: 'TestEmote',
         type: EmoteType.sevenTv,
@@ -77,7 +59,7 @@ void main() {
       final json = <String, dynamic>{
         'id': 'test-id',
         'code': 'TestEmote',
-        'type': 0,
+        'type': 'bttv',
         'url': 'https://example.com/test.png',
       };
       final restored = GenericEmote.fromJson(json);

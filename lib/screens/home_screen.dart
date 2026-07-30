@@ -34,6 +34,7 @@ import '../widgets/mentions_panel.dart';
 import '../widgets/emote_menu_panel.dart';
 import '../widgets/chat_view.dart';
 import '../widgets/message_builder.dart';
+import '../widgets/join_channel_dialog.dart';
 import '../services/foreground_task.dart';
 
 enum OverlayPanel { closed, thread, mentions, emotes }
@@ -986,38 +987,7 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   void _addChannelDialog() {
-    final controller = TextEditingController();
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Join channel'),
-        content: TextField(
-          controller: controller,
-          decoration: const InputDecoration(
-            hintText: 'channel name',
-            border: OutlineInputBorder(),
-          ),
-          autofocus: true,
-          onSubmitted: (_) {
-            Navigator.pop(ctx);
-            _addChannel(controller.text);
-          },
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              _addChannel(controller.text);
-            },
-            child: const Text('Join'),
-          ),
-        ],
-      ),
-    );
+    showJoinChannelDialog(context, onJoin: _addChannel);
   }
 
   void _removeChannel(String channel) {

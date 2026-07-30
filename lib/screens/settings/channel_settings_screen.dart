@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../widgets/join_channel_dialog.dart';
 
 class ChannelSettingsScreen extends StatefulWidget {
   final ValueNotifier<List<String>> channelNotifier;
@@ -36,40 +37,7 @@ class _ChannelSettingsScreenState extends State<ChannelSettingsScreen> {
   }
 
   void _addChannelDialog() {
-    final controller = TextEditingController();
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Join channel'),
-        content: TextField(
-          controller: controller,
-          decoration: const InputDecoration(
-            hintText: 'channel name',
-            border: OutlineInputBorder(),
-          ),
-          autofocus: true,
-          onSubmitted: (_) {
-            final text = controller.text;
-            Navigator.pop(ctx);
-            widget.onAddChannel?.call(text);
-          },
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () {
-              final text = controller.text;
-              Navigator.pop(ctx);
-              widget.onAddChannel?.call(text);
-            },
-            child: const Text('Join'),
-          ),
-        ],
-      ),
-    );
+    showJoinChannelDialog(context, onJoin: (c) => widget.onAddChannel?.call(c));
   }
 
   @override

@@ -4,25 +4,11 @@ import 'package:ermchat/models/generic_emote.dart';
 import 'package:ermchat/models/twitch_message.dart';
 import 'package:ermchat/services/emote_manager.dart';
 import 'package:ermchat/widgets/emote_text.dart';
+import '../helpers.dart';
 
 ChannelEmotes _makeEmotes(Map<String, GenericEmote> byCode) {
   return ChannelEmotes(byCode: byCode, suggestions: byCode.values.toList());
 }
-
-GenericEmote _e({
-  required String id,
-  required String code,
-  EmoteType type = EmoteType.bttv,
-  bool isZeroWidth = false,
-  double relativeScale = 1.0,
-}) => GenericEmote(
-  id: id,
-  code: code,
-  type: type,
-  url: 'https://example.com/$id.png',
-  isZeroWidth: isZeroWidth,
-  relativeScale: relativeScale,
-);
 
 void main() {
   group('EmoteText.build', () {
@@ -52,7 +38,7 @@ void main() {
     });
 
     test('single known emote by text match returns WidgetSpan', () {
-      final emotes = _makeEmotes({'Kappa': _e(id: '1', code: 'Kappa')});
+      final emotes = _makeEmotes({'Kappa': makeTestEmote(id: '1', code: 'Kappa')});
       final spans = EmoteText.build(
         text: 'Kappa',
         twitchPositions: null,
@@ -63,7 +49,7 @@ void main() {
     });
 
     test('text + emote + text mix returns correct span types', () {
-      final emotes = _makeEmotes({'Kappa': _e(id: '1', code: 'Kappa')});
+      final emotes = _makeEmotes({'Kappa': makeTestEmote(id: '1', code: 'Kappa')});
       final spans = EmoteText.build(
         text: 'hi Kappa there',
         twitchPositions: null,
@@ -76,8 +62,8 @@ void main() {
 
     test('Twitch emote position overrides text match', () {
       final emotes = _makeEmotes({
-        'Kappa': _e(id: '1', code: 'Kappa'),
-        'KappaPride': _e(id: '2', code: 'KappaPride', type: EmoteType.twitch),
+        'Kappa': makeTestEmote(id: '1', code: 'Kappa'),
+        'KappaPride': makeTestEmote(id: '2', code: 'KappaPride', type: EmoteType.twitch),
       });
       final spans = EmoteText.build(
         text: 'KappaPride',
@@ -98,12 +84,12 @@ void main() {
 
     test('Twitch base emote + BTTV zero-width overlay', () {
       final emotes = _makeEmotes({
-        'Sunglasses': _e(
+        'Sunglasses': makeTestEmote(
           id: 'tw-1',
           code: 'Sunglasses',
           type: EmoteType.twitch,
         ),
-        'EZ': _e(
+        'EZ': makeTestEmote(
           id: 'bttv-1',
           code: 'EZ',
           type: EmoteType.bttv,
@@ -128,7 +114,7 @@ void main() {
     });
 
     test('URL detection in plain text segments', () {
-      final emotes = _makeEmotes({'Kappa': _e(id: '1', code: 'Kappa')});
+      final emotes = _makeEmotes({'Kappa': makeTestEmote(id: '1', code: 'Kappa')});
       final spans = EmoteText.build(
         text: 'Kappa check https://example.com',
         twitchPositions: null,
@@ -145,7 +131,7 @@ void main() {
 
     test('zero-width emote at start renders standalone', () {
       final emotes = _makeEmotes({
-        'EZ': _e(id: '1', code: 'EZ', isZeroWidth: true),
+        'EZ': makeTestEmote(id: '1', code: 'EZ', isZeroWidth: true),
       });
       final spans = EmoteText.build(
         text: 'EZ',
@@ -159,8 +145,8 @@ void main() {
 
     test('zero-width after plain text breaks chain', () {
       final emotes = _makeEmotes({
-        'Kappa': _e(id: '1', code: 'Kappa'),
-        'EZ': _e(id: '2', code: 'EZ', isZeroWidth: true),
+        'Kappa': makeTestEmote(id: '1', code: 'Kappa'),
+        'EZ': makeTestEmote(id: '2', code: 'EZ', isZeroWidth: true),
       });
       final spans = EmoteText.build(
         text: 'hello EZ',
@@ -177,8 +163,8 @@ void main() {
 
     test('base emote followed by zero-width overlay stacks', () {
       final emotes = _makeEmotes({
-        'Kappa': _e(id: '1', code: 'Kappa'),
-        'EZ': _e(id: '2', code: 'EZ', isZeroWidth: true),
+        'Kappa': makeTestEmote(id: '1', code: 'Kappa'),
+        'EZ': makeTestEmote(id: '2', code: 'EZ', isZeroWidth: true),
       });
       final spans = EmoteText.build(
         text: 'Kappa EZ',
@@ -192,9 +178,9 @@ void main() {
 
     test('base emote followed by two zero-width overlays', () {
       final emotes = _makeEmotes({
-        'Kappa': _e(id: '1', code: 'Kappa'),
-        'EZ': _e(id: '2', code: 'EZ', isZeroWidth: true),
-        'HYPERS': _e(id: '3', code: 'HYPERS', isZeroWidth: true),
+        'Kappa': makeTestEmote(id: '1', code: 'Kappa'),
+        'EZ': makeTestEmote(id: '2', code: 'EZ', isZeroWidth: true),
+        'HYPERS': makeTestEmote(id: '3', code: 'HYPERS', isZeroWidth: true),
       });
       final spans = EmoteText.build(
         text: 'Kappa EZ HYPERS',
@@ -208,9 +194,9 @@ void main() {
 
     test('zero-width between two base emotes attaches to first', () {
       final emotes = _makeEmotes({
-        'Kappa': _e(id: '1', code: 'Kappa'),
-        'EZ': _e(id: '2', code: 'EZ', isZeroWidth: true),
-        'PogChamp': _e(id: '3', code: 'PogChamp'),
+        'Kappa': makeTestEmote(id: '1', code: 'Kappa'),
+        'EZ': makeTestEmote(id: '2', code: 'EZ', isZeroWidth: true),
+        'PogChamp': makeTestEmote(id: '3', code: 'PogChamp'),
       });
       final spans = EmoteText.build(
         text: 'Kappa EZ PogChamp',
@@ -224,7 +210,7 @@ void main() {
     });
 
     test('unknown token renders as plain text', () {
-      final emotes = _makeEmotes({'Kappa': _e(id: '1', code: 'Kappa')});
+      final emotes = _makeEmotes({'Kappa': makeTestEmote(id: '1', code: 'Kappa')});
       final spans = EmoteText.build(
         text: 'unknownToken',
         twitchPositions: null,
@@ -266,7 +252,7 @@ void main() {
 
     test('small-scale emote renders at scaled size', () {
       final emotes = _makeEmotes({
-        'SmallEmote': _e(id: '1', code: 'SmallEmote', relativeScale: 0.625),
+        'SmallEmote': makeTestEmote(id: '1', code: 'SmallEmote', relativeScale: 0.625),
       });
       final spans = EmoteText.build(
         text: 'SmallEmote',
@@ -284,8 +270,8 @@ void main() {
 
     test('zero-width overlay expands box to fit largest element', () {
       final emotes = _makeEmotes({
-        'SmallBase': _e(id: '1', code: 'SmallBase', relativeScale: 0.5),
-        'LargeOverlay': _e(id: '2', code: 'LargeOverlay', isZeroWidth: true),
+        'SmallBase': makeTestEmote(id: '1', code: 'SmallBase', relativeScale: 0.5),
+        'LargeOverlay': makeTestEmote(id: '2', code: 'LargeOverlay', isZeroWidth: true),
       });
       final spans = EmoteText.build(
         text: 'SmallBase LargeOverlay',

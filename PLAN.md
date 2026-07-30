@@ -82,9 +82,9 @@ Focus: making each rebuild cheaper/faster rather than preventing rebuilds from b
 
 - [x] **C4 IRC ban handler vs EventSub ban handler near-identical** -- Fixed: extracted `_handleBanEvent` in `chat_connection_manager.dart`.
 
-- [ ] **C5 Channel join dialog duplicated** -- `home_screen.dart:900-933`, `channel_settings_screen.dart:38-75`. Same `AlertDialog` + `TextField` + autofocus + onSubmitted pattern. Fix: shared dialog widget.
+- [x] **C5 Channel join dialog duplicated** -- `home_screen.dart:900-933`, `channel_settings_screen.dart:38-75`. Same `AlertDialog` + `TextField` + autofocus + onSubmitted pattern. Fix: shared dialog widget.
 
-- [ ] **C6 `_onChannelChanged` vs `_onChannelFocusChanged` nearly identical** -- `home_screen.dart:1418,1437`. Same logic: check if selected, close panel, clear state, update index. One wraps `setState`, other does not. Fix: merge or have one call the other.
+- [x] **C6 `_onChannelChanged` vs `_onChannelFocusChanged` nearly identical** -- `home_screen.dart:1418,1437`. Same logic: check if selected, close panel, clear state, update index. One wraps `setState`, other does not. Fix: merge or have one call the other.
 
 ## Error handling
 
@@ -118,7 +118,7 @@ Focus: making each rebuild cheaper/faster rather than preventing rebuilds from b
 
 ## Complexity
 
-- [ ] **C19 `connect()` method 189 lines** -- `chat_connection_manager.dart:679-868`. Nested try/finally, 8+ stream subscriptions, near-duplicate IRC and EventSub ban handlers. Fix: extract ban handler, split connection setup per service.
+- [x] **C19 `connect()` method 189 lines** -- `chat_connection_manager.dart:679-868`. Nested try/finally, 8+ stream subscriptions, near-duplicate IRC and EventSub ban handlers. Fix: extract ban handler, split connection setup per service.
 
 - [ ] **C20 `truncateChannelMessages()` 107-line 5-phase algorithm** -- `chat_connection_manager.dart:311-418`. Rebuilds parent-of maps and walks chains for a simple cap-at-200. Fast-path `removeRange` handles 99% of calls. Fix: fast path first, full algorithm only on large overflow. **(skip — fast path already covers 99%, low impact)**
 
@@ -132,7 +132,7 @@ Focus: making each rebuild cheaper/faster rather than preventing rebuilds from b
 
 ## Circular dependencies
 
-- [ ] **C24 Circular dependency between services and widgets** -- `twitch_oauth.dart:6` imports `login_webview.dart`, and `login_webview.dart:3` imports `twitch_oauth.dart`. A service layer importing a widget breaks layered architecture. Fix: invert the dependency -- pass a callback or use a shared event channel.
+- [x] **C24 Circular dependency between services and widgets** -- `twitch_oauth.dart:6` imports `login_webview.dart`, and `login_webview.dart:3` imports `twitch_oauth.dart`. A service layer importing a widget breaks layered architecture. Fix: invert the dependency -- pass a callback or use a shared event channel.
 
 ## File organization
 
@@ -146,7 +146,7 @@ Focus: making each rebuild cheaper/faster rather than preventing rebuilds from b
 
 ## Test quality
 
-- [ ] **C29 `_e()` test helper duplicated** -- `test/unit/emote_text_test.dart:12` and `test/unit/emote_manager_test.dart:5`. Same 13-line helper function for creating test emotes. Fix: extract to shared `test/helpers.dart` or similar.
+- [x] **C29 `_e()` test helper duplicated** -- `test/unit/emote_text_test.dart:12` and `test/unit/emote_manager_test.dart:5`. Same 13-line helper function for creating test emotes. Fix: extract to shared `test/helpers.dart` or similar.
 
 - [ ] **C30 Channel join sequence repeated ~20x in widget tests** -- `test/widgets/widget_test.dart`. The tap-Add, enterText, tap-Join, pump pattern is copy-pasted throughout. A shared `joinChannel()` helper exists for some groups (line 1201) but not all. Fix: use the helper everywhere or extract a test utility.
 
@@ -158,7 +158,7 @@ Focus: making each rebuild cheaper/faster rather than preventing rebuilds from b
 
 - [x] **C33 `TwitchConfig.clientSecret` is dead config** -- `lib/twitch_config.dart:13`. Empty string constant never referenced anywhere. Fix: remove.
 
-- [ ] **C34 Enum serialized by ordinal index** -- `lib/models/generic_emote.dart:52,55`. `EmoteType.values[json['type'] as int]` and `EmoteScope.values[json['scope'] as int? ?? 0]` break if enum order changes. Any persisted data corrupts on reorder. Fix: serialize by name (`name`) or add explicit index field.
+- [x] **C34 Enum serialized by ordinal index** -- `lib/models/generic_emote.dart:52,55`. `EmoteType.values[json['type'] as int]` and `EmoteScope.values[json['scope'] as int? ?? 0]` break if enum order changes. Any persisted data corrupts on reorder. Fix: serialize by name (`name`) or add explicit index field.
 
 - [x] **C35 Duplicated comment in `twitch_config.dart`** -- `lib/twitch_config.dart:16-24`. Same paragraph about redirect URI appears twice verbatim. Fix: remove duplicate.
 

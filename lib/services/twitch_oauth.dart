@@ -77,7 +77,8 @@ class TwitchOAuth {
           authUrl: authUrl,
           expectedState: expectedState,
           redirectUri: redirectUri,
-          onTokenResult: (token) {
+          onTokenResult: (token, {error}) {
+            if (error != null) lastError = error;
             if (!completer.isCompleted) completer.complete(token);
           },
         ),

@@ -1,12 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
-import '../services/twitch_oauth.dart';
+
+Map<String, String?> _parseFragment(String url) {
+  final uri = Uri.parse(url);
+  final fragment = uri.fragment;
+  if (fragment.isEmpty) return {};
+  return Uri.splitQueryString(fragment);
+}
 
 class LoginWebView extends StatefulWidget {
   final String authUrl;
   final String expectedState;
   final String redirectUri;
-  final ValueChanged<String?> onTokenResult;
+  final void Function(String? token, {String? error}) onTokenResult;
 
   const LoginWebView({
     super.key,
@@ -68,22 +74,20 @@ class _LoginWebViewState extends State<LoginWebView> {
     if (_handled) return;
     _handled = true;
 
-    final params = TwitchOAuth.parseFragment(url);
+    final params = _parseFragment(url);
     final error = params['error'];
     final token = params['access_token'];
     final state = params['state'];
 
     if (error != null) {
-      TwitchOAuth.lastError = 'Twitch returned: $error';
-      widget.onTokenResult(null);
+      widget.onTokenResult(null, error: 'Twitch returned: $error');
       Navigator.pop(context);
       return;
     }
 
     if (token != null) {
       if (state != widget.expectedState) {
-        TwitchOAuth.lastError = 'CSRF: state mismatch';
-        widget.onTokenResult(null);
+        widget.onTokenResult(null, error: 'CSRF: state mismatch');
         Navigator.pop(context);
         return;
       }

@@ -835,90 +835,11 @@ class ChatConnectionManager {
     try {
       final auth = twitchAuth;
 
-      messageSub ??= eventSub.onMessage.listen(onMessage);
-      deleteSub ??= eventSub.onMessageDeleted.listen((event) {
-        if (isDisposed) return;
-        final msgs = channelMessages[event.channel];
-        if (msgs == null) return;
-        String? deletedUser;
-        String? deletedText;
-        for (final msg in msgs) {
-          if (msg.messageId == event.messageId && !msg.isSystem) {
-            msg.deleted = true;
-            deletedUser = msg.login;
-            deletedText = msg.text;
-            break;
-          }
-        }
-        if (deletedUser != null && deletedText != null) {
-          onSystemMessage(
-            event.channel,
-            'A message from $deletedUser was deleted saying: "$deletedText".',
-          );
-        }
-      });
-
-      ircBanSub?.cancel();
-      ircBanSub = irc.onBan.listen((event) {
-        final durationStr = event.duration != null
-            ? ' for ${event.duration}s'
-            : '';
-        _handleBanEvent(
-          channel: event.channel,
-          user: event.user,
-          isTimeout: event.isTimeout,
-          selfDurationStr: durationStr,
-          otherDurationStr: durationStr,
-          fromEventSource: false,
-          sourceName: 'IRC',
-        );
-      });
-
-      eventSubBanSub?.cancel();
-      eventSubBanSub = eventSub.onBan.listen((event) {
-        _handleBanEvent(
-          channel: event.channel,
-          user: event.user,
-          isTimeout: event.isTimeout,
-          selfDurationStr: event.durationSeconds != null
-              ? ' for ${event.durationSeconds}s'
-              : '',
-          otherDurationStr: event.duration != null
-              ? ' for ${event.duration}s'
-              : '',
-          fromEventSource: true,
-          sourceName: 'EventSub',
-        );
-      });
-
-      ircNoticeSub?.cancel();
-      ircNoticeSub = irc.onNotice.listen((event) {
-        if (isDisposed) return;
-        onSystemMessage(event.channel, event.message);
-      });
-
-      ircJtvSub?.cancel();
-      ircJtvSub = irc.onJtvMessage.listen((event) {
-        if (isDisposed) return;
-        onSystemMessage(event.channel, event.message);
-      });
-
-      ircOwnMsgSub?.cancel();
-      ircOwnMsgSub = ircRead.onOwnMessage.listen(onOwnIrcMessage);
+      _setupSubscriptions();
 
       if (!auth.isConfigured) return;
 
-      if (sevenTvClient != null) {
-        sevenTvEmoteSub?.cancel();
-        sevenTvEmoteSub = sevenTvClient!.onEmoteSetUpdate.listen(
-          _onSevenTvEmoteSetUpdate,
-        );
-        sevenTvUserSub?.cancel();
-        sevenTvUserSub = sevenTvClient!.onUserUpdate.listen(
-          _onSevenTvUserUpdate,
-        );
-        sevenTvClient!.connect();
-      }
+      sevenTvClient?.connect();
 
       statusSub?.cancel();
       statusSub = eventSub.onStatus.listen((status) async {
@@ -1015,6 +936,90 @@ class ChatConnectionManager {
       await eventSub.connect();
     } finally {
       _isConnecting = false;
+    }
+  }
+
+  void _setupSubscriptions() {
+    messageSub ??= eventSub.onMessage.listen(onMessage);
+    deleteSub ??= eventSub.onMessageDeleted.listen((event) {
+      if (isDisposed) return;
+      final msgs = channelMessages[event.channel];
+      if (msgs == null) return;
+      String? deletedUser;
+      String? deletedText;
+      for (final msg in msgs) {
+        if (msg.messageId == event.messageId && !msg.isSystem) {
+          msg.deleted = true;
+          deletedUser = msg.login;
+          deletedText = msg.text;
+          break;
+        }
+      }
+      if (deletedUser != null && deletedText != null) {
+        onSystemMessage(
+          event.channel,
+          'A message from $deletedUser was deleted saying: "$deletedText".',
+        );
+      }
+    });
+
+    ircBanSub?.cancel();
+    ircBanSub = irc.onBan.listen((event) {
+      final durationStr = event.duration != null
+          ? ' for ${event.duration}s'
+          : '';
+      _handleBanEvent(
+        channel: event.channel,
+        user: event.user,
+        isTimeout: event.isTimeout,
+        selfDurationStr: durationStr,
+        otherDurationStr: durationStr,
+        fromEventSource: false,
+        sourceName: 'IRC',
+      );
+    });
+
+    eventSubBanSub?.cancel();
+    eventSubBanSub = eventSub.onBan.listen((event) {
+      _handleBanEvent(
+        channel: event.channel,
+        user: event.user,
+        isTimeout: event.isTimeout,
+        selfDurationStr: event.durationSeconds != null
+            ? ' for ${event.durationSeconds}s'
+            : '',
+        otherDurationStr: event.duration != null
+            ? ' for ${event.duration}s'
+            : '',
+        fromEventSource: true,
+        sourceName: 'EventSub',
+      );
+    });
+
+    ircNoticeSub?.cancel();
+    ircNoticeSub = irc.onNotice.listen((event) {
+      if (isDisposed) return;
+      onSystemMessage(event.channel, event.message);
+    });
+
+    ircJtvSub?.cancel();
+    ircJtvSub = irc.onJtvMessage.listen((event) {
+      if (isDisposed) return;
+      onSystemMessage(event.channel, event.message);
+    });
+
+    ircOwnMsgSub?.cancel();
+    ircOwnMsgSub = ircRead.onOwnMessage.listen(onOwnIrcMessage);
+
+    if (sevenTvClient != null) {
+      sevenTvEmoteSub?.cancel();
+      sevenTvEmoteSub = sevenTvClient!.onEmoteSetUpdate.listen(
+        _onSevenTvEmoteSetUpdate,
+      );
+      sevenTvUserSub?.cancel();
+      sevenTvUserSub = sevenTvClient!.onUserUpdate.listen(
+        _onSevenTvUserUpdate,
+      );
     }
   }
 
