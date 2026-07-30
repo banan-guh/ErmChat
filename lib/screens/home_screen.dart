@@ -264,6 +264,7 @@ class _HomeScreenState extends State<HomeScreen>
       startForegroundService(List.of(_channels));
     } else if (state == AppLifecycleState.resumed) {
       stopForegroundService();
+      _chatConn.reconnectIfNecessary();
     }
   }
 
@@ -675,20 +676,34 @@ class _HomeScreenState extends State<HomeScreen>
 
   void _addSystemMessage(String channel, String text) {
     _channelMessages.putIfAbsent(channel, () => []);
-    if (text == 'Connected') {
-      final msgs = _channelMessages[channel]!;
-      if (msgs.isNotEmpty) {
-        final newest = msgs.first;
-        if (newest.isSystem &&
-            newest.text == 'Disconnected' &&
-            DateTime.now().difference(newest.timestamp).inMinutes < 1) {
-          newest.text = 'Reconnected';
-          _chatVersion.value++;
-          return;
+    final msgs = _channelMessages[channel]!;
+    if (msgs.isNotEmpty) {
+      final newest = msgs.first;
+      if (newest.isSystem) {
+        final now = DateTime.now();
+        final isRecent = now.difference(newest.timestamp).inMinutes < 1;
+        if (text == 'Connected to IRC') {
+          if (isRecent && (newest.text == 'Connected' || newest.text == 'Connected to IRC')) {
+            return;
+          }
+        } else if (text == 'Connected') {
+          if (isRecent && newest.text == 'Connected') {
+            return;
+          }
+          if (isRecent && newest.text == 'Connected to IRC') {
+            newest.text = 'Connected';
+            _chatVersion.value++;
+            return;
+          }
+          if (isRecent && newest.text == 'Disconnected') {
+            newest.text = 'Reconnected';
+            _chatVersion.value++;
+            return;
+          }
         }
       }
     }
-    _channelMessages[channel]!.insert(
+    msgs.insert(
       0,
       TwitchMessage(
         login: '',

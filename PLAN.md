@@ -69,3 +69,137 @@ Focus: making each rebuild cheaper/faster rather than preventing rebuilds from b
 - [ ] **R7 Reduce badge widget allocation per message** — `home_screen.dart:2066-2076`. `_buildBadgeSpans` creates a fresh `CachedNetworkImage` per badge per rebuild. With 400-600 badges visible in a full rebuild, this is significant. Fix: extract a `BadgeWidget` with `const`-style caching; wrap in `RepaintBoundary`.
 
 - [ ] **R8 Avoid _onPanelDataChanged for purely cosmetic bumps** — `chat_connection_manager.dart:238,308`. `_updateMessageText` and `fetchChatStatus` bump `chatVersion` for cosmetic text updates (ban stacking, follower-mode text). These don't change message content — only system message text. Fix: use a separate `ValueNotifier` for status bar text and system message mutations.
+
+# Code Quality Audit
+
+## Duplicate code
+
+- [ ] **C1 `isMention()` defined in two files** -- `home_screen.dart:2279`, `chat_connection_manager.dart:1085`. Identical top-level function, same regex split and loop. Fix: move to shared utility, import from one place.
+
+- [ ] **C2 IRC tag unescaping same logic twice** -- `chat_connection_manager.dart:161`, `recent_messages.dart:265`. Both have identical `.replaceAll()` chain for `\s`, `\\`, `\:`, `\r`, `\n`. Fix: extract to shared static method.
+
+- [ ] **C3 Thread-root chain walking in 3 places** -- `home_screen.dart` `_findThreadRoot` (line 1043), `_computeThreadMessages` inner `threadKeyFor` (line 1342), `chat_connection_manager.dart` `truncateChannelMessages` inner `rootKey` (line 329). Three different implementations of the same "walk reply chain to root" algorithm. Fix: single canonical implementation in `TwitchMessage` or a utility.
+
+- [ ] **C4 IRC ban handler vs EventSub ban handler near-identical** -- `chat_connection_manager.dart:709-774`. Same dedup logic, same string formatting, same `_markUserMessagesDeleted` call. Fix: extract shared ban-processing method.
+
+- [ ] **C5 Channel join dialog duplicated** -- `home_screen.dart:900-933`, `channel_settings_screen.dart:38-75`. Same `AlertDialog` + `TextField` + autofocus + onSubmitted pattern. Fix: shared dialog widget.
+
+- [ ] **C6 `_onChannelChanged` vs `_onChannelFocusChanged` nearly identical** -- `home_screen.dart:1418,1437`. Same logic: check if selected, close panel, clear state, update index. One wraps `setState`, other does not. Fix: merge or have one call the other.
+
+## Error handling
+
+- [ ] **C7 18 bare `catch (_) {}` blocks** -- Across `chat_connection_manager.dart` (6), `emote_manager.dart` (4), `twitch_eventsub.dart` (2), `twitch_irc.dart` (1), `recent_messages.dart` (1), `twitch_auth.dart` (1), and others. Network errors, JSON parse errors, everything silently swallowed. Fix: log errors, handle recoverable cases, rethrow where appropriate.
+
+- [ ] **C8 `unawaited` futures with unhandled errors** -- `chat_connection_manager.dart:441,452,820`, `home_screen.dart:580`. `_resolveSevenTvAndSubscribe`, `loadUserTwitchEmotes` discarded without error handling. These make HTTP calls and WebSocket subscriptions. Fix: `unawaited(wrappedInTryCatch())`.
+
+## Design
+
+- [ ] **C9 Manual `mounted` flag in `ChatConnectionManager`** -- `chat_connection_manager.dart:70`. Not a `State` subclass, so `mounted` is a hand-rolled bool starting `true`, checked in 12 places, only set to `false` on `dispose()`. Widget could be gone long before dispose runs. Fix: use `isDisposed` flag or remove checks if not needed.
+
+- [ ] **C10 `ChatConnectionManager` takes 30+ callback closures** -- `home_screen.dart:78-129`. Stategist anti-pattern: state duct-taped through closures into a 1092-line class that directly mutates collections passed by reference. Fix: proper separation with dedicated event classes or a reactive state holder.
+
+- [ ] **C11 `SharedPreferences.getInstance()` not injected** -- Called in 8+ places across `home_screen.dart`, `emote_manager.dart`, `chat_settings_screen.dart`, `account_screen.dart`. Each call hits disk. Fix: inject single instance via constructor.
+
+- [ ] **C12 `.then()/.catchError()` mixed with `async/await`** -- `main.dart:51-57`, `home_screen.dart:305-364,850-882`. Two async patterns used inconsistently. Fix: unify on `async/await` with try/catch.
+
+- [ ] **C13 Mutable static state in `TwitchApi`** -- `twitch_api.dart:10,14`. `_lastError` is a static mutable field that concurrent calls clobber. Static `http.Client` prevents proper disposal. Fix: instance-level fields.
+
+- [ ] **C14 Side effect in getter `EmoteManager.changedChannel`** -- `emote_manager.dart:52-56`. Getter mutates `_changedChannel = null`. Second read returns different result. Fix: rename to `consumeChangedChannel()` or use method.
+
+- [ ] **C15 `TwitchMessage.bodyColor` always returns null** -- `twitch_message.dart:43`. Dead code, always `null`, but referenced in `chat_message_tile.dart:109-114` as color override branch that never fires. Fix: remove.
+
+## Safety
+
+- [ ] **C16 100+ null assertions (`!`), some double** -- `chat_connection_manager.dart:765` `result.meta!.firstMessageId!`, many others. One unexpected `null` = crash. Fix: prefer local variable with null check + early return over force-unwrap.
+
+- [ ] **C17 Bare `as Map / as List / as String` casts in JSON deserialization** -- `twitch_api.dart` and elsewhere. If Twitch API response shape changes, runtime `TypeError`. Fix: validate with `json_serializable`, `freezed`, or manual checks.
+
+- [ ] **C18 `StreamController.broadcast(sync: true)` risk of re-entrancy** -- `twitch_eventsub.dart:31-51`, `twitch_irc.dart:28`, `twitch_irc_read.dart:6`, `seven_tv_event_client.dart`. Listeners fire synchronously during event dispatch, can cause stack overflows or build() calls during dispatch. Fix: use `sync: false` or document why sync is required.
+
+## Complexity
+
+- [ ] **C19 `connect()` method 189 lines** -- `chat_connection_manager.dart:679-868`. Nested try/finally, 8+ stream subscriptions, near-duplicate IRC and EventSub ban handlers. Fix: extract ban handler, split connection setup per service.
+
+- [ ] **C20 `truncateChannelMessages()` 107-line 5-phase algorithm** -- `chat_connection_manager.dart:311-418`. Rebuilds parent-of maps and walks chains for a simple cap-at-200. Fast-path `removeRange` handles 99% of calls. Fix: fast path first, full algorithm only on large overflow.
+
+- [ ] **C21 `_buildSegments` state machine in emote_text.dart** -- `emote_text.dart:138-224`. Character-by-character parser with closure mutating outer scope, three tracking variables, multiple flush calls. Fix: simplify with indexed word splitting or pre-parsed segment list.
+
+## Observability
+
+- [ ] **C22 62 `debugPrint()` calls instead of structured logging** -- Throughout `lib/`. No log levels, no categories, no filtering, no release-mode elimination. Fix: use `package:logging` or `package:talker`.
+
+- [ ] **C23 Inconsistent logging format** -- `[ChatConn]`, `[HomeScreen]`, `[7TV]`, `[EmoteText.build]`, `[$debugPrefix]`, `Twitch parsed...`, `Badge fetch failed...`. No consistent prefix convention. Fix: adopt uniform format like `[ClassName] message`.
+
+## Circular dependencies
+
+- [ ] **C24 Circular dependency between services and widgets** -- `twitch_oauth.dart:6` imports `login_webview.dart`, and `login_webview.dart:3` imports `twitch_oauth.dart`. A service layer importing a widget breaks layered architecture. Fix: invert the dependency -- pass a callback or use a shared event channel.
+
+## File organization
+
+- [ ] **C25 `widget_test.dart` at 2,313 lines** -- `test/widgets/widget_test.dart`. Tests everything (home screen, settings, channel bar, reply threads, system messages, autocomplete, emote menu) in a single file with inline fake services. Fix: split into one file per widget/feature.
+
+- [ ] **C26 `home_screen.dart` still 2,294 lines** -- `lib/screens/home_screen.dart`. Despite refactoring, still excessively long. Fix: continue extraction -- chat builder, overlay builder, panel builders could be separate files.
+
+- [ ] **C27 `chat_connection_manager.dart` has 38+ constructor parameters** -- `lib/services/chat_connection_manager.dart:108-148`. 6 service objects, 13 mutable state maps/sets passed by reference, 12 callbacks, 2 ValueNotifiers. Worse than C10's original count. Fix: builder pattern, DI container, or dedicated configuration object.
+
+- [ ] **C28 No barrel exports** -- No `lib/widgets/widgets.dart` or `lib/services/services.dart`. Every consumer imports individual files by name. Fix: add barrel files for clean public API surfaces.
+
+## Test quality
+
+- [ ] **C29 `_e()` test helper duplicated** -- `test/unit/emote_text_test.dart:12` and `test/unit/emote_manager_test.dart:5`. Same 13-line helper function for creating test emotes. Fix: extract to shared `test/helpers.dart` or similar.
+
+- [ ] **C30 Channel join sequence repeated ~20x in widget tests** -- `test/widgets/widget_test.dart`. The tap-Add, enterText, tap-Join, pump pattern is copy-pasted throughout. A shared `joinChannel()` helper exists for some groups (line 1201) but not all. Fix: use the helper everywhere or extract a test utility.
+
+- [ ] **C31 Vague test names** -- `test/data/twitch_eventsub_test.dart:117,483-502`. Tests named `'does not crash'` assert nothing about actual behavior. Fix: name tests by what behavior is verified.
+
+## Configuration
+
+- [ ] **C32 `analysis_options.yaml` minimal** -- Only includes `package:flutter_lints/flutter.yaml`. Useful rules not enabled: `prefer_const_constructors`, `prefer_final_locals`, `avoid_catches_without_on_clauses`, `require_trailing_commas`, `use_super_parameters`. Fix: add project-specific lint rules.
+
+- [ ] **C33 `TwitchConfig.clientSecret` is dead config** -- `lib/twitch_config.dart:13`. Empty string constant never referenced anywhere. Fix: remove.
+
+- [ ] **C34 Enum serialized by ordinal index** -- `lib/models/generic_emote.dart:52,55`. `EmoteType.values[json['type'] as int]` and `EmoteScope.values[json['scope'] as int? ?? 0]` break if enum order changes. Any persisted data corrupts on reorder. Fix: serialize by name (`name`) or add explicit index field.
+
+- [ ] **C35 Duplicated comment in `twitch_config.dart`** -- `lib/twitch_config.dart:16-24`. Same paragraph about redirect URI appears twice verbatim. Fix: remove duplicate.
+
+- [ ] **C36 `// ignore` comments in test code** -- `test/unit/seven_tv_event_client_test.dart:19,22,24,26`. Four `// ignore: use_null_aware_elements` suppressions suggest the code fights the linter. Fix: use null-aware elements instead of suppressing.
+
+## Magic numbers / strings
+
+- [ ] **C37 Unnamed numeric constants across codebase** -- `200` (max messages), `100` (max recent emotes), `5000` (max users per channel), `2000` (max seen emote IDs), `8` (reconnect attempts), `10` (ban dedup window seconds), `60` (reply preview truncation), `15` (Twitch colors), `0.35` (deleted opacity), `0.6` (emote panel fraction), `250`/`180` (animation ms), `40` (tab bar height), `28.0` (emote base size), `3x` (emote scale factor), `1 << 8` (zero-width flag). Fix: extract to named constants.
+
+- [ ] **C38 Duplicated reconnect jitter logic** -- `base_irc_connection.dart:208`, `twitch_eventsub.dart:161`, `seven_tv_event_client.dart:396`. Same `0.75 + Random().nextDouble() * 0.5` formula in 3 files. Fix: shared utility function.
+
+- [ ] **C39 `const Duration(seconds: 10)` in 6+ files** -- `twitch_emotes.dart`, `bttv_emotes.dart`, `ffz_emotes.dart`, `seven_tv_emotes.dart`, `recent_messages.dart`, `twitch_api.dart`. Same timeout value duplicated. Fix: shared constant.
+
+## Missing cleanup
+
+- [ ] **C40 `EmoteManager` has no `dispose()`** -- `lib/services/emote_manager.dart:19`. `ChangeNotifier` subclass with no dispose override. Listeners never formally cleared, potential memory leak. (Mentioned in C3 bugs but worth re-flagging here.)
+
+- [ ] **C41 `login_webview.dart` empty `dispose()`** -- `lib/widgets/login_webview.dart:120-123`. `WebViewController` (`_controller`) never cleaned up. Fix: call `_controller?.dispose()` or verify it's self-cleaning.
+
+- [ ] **C42 `SevenTvEventClient.dispose()` only sets flag** -- `seven_tv_event_client.dart`. Sets `_disposed = true` but `_channel`, `_connectivity` references remain. Fix: null out references after disposal.
+
+## Stale / dead code
+
+- [ ] **C43 `_SwipePhysics` class is a no-op** -- `lib/widgets/tabbed_layout.dart:4-15`. Extends `PageScrollPhysics` but overrides no methods. The commented-out overrides (lines 12-17) suggest it was meant to customize fling, but never finished. Fix: remove class and inline `PageScrollPhysics` usage.
+
+- [ ] **C44 Commented-out code in `tabbed_layout.dart`** -- `lib/widgets/tabbed_layout.dart:12-17`. Fling distance/velocity overrides commented out with no explanation of when to restore. Fix: remove or add a TODO with reason.
+
+## Naming
+
+- [ ] **C45 Inconsistent provider class naming** -- `BttvEmoteProvider` vs `FfzEmoteProvider` vs `SevenTvEmoteProvider`. `BTTVEmoteProvider` / `FFZEmoteProvider` / `SevenTVEmoteProvider` would be more consistent. Also `EmoteType.sevenTv` uses lowercase `Tv`. Fix: normalize acronym casing.
+
+- [ ] **C46 Single-letter variable names in production code** -- `s` for textScale (`chat_message_tile.dart:39`, `emote_text.dart:24`), `d` for message data (`seven_tv_event_client.dart:233`), `ch` for WebSocket channel (`base_irc_connection.dart:53`). Fix: descriptive names.
+
+- [ ] **C47 `IrcReadService.debugPrefix` contains a space** -- `lib/services/twitch_irc_read.dart:13`. `String get debugPrefix => 'IRC read'`. Having a space in what acts as an identifier-like string is unusual and breaks consistent log formatting. Fix: `'IrcRead'` to match class name convention.
+
+## Import style
+
+- [ ] **C48 Mix of relative and package imports** -- Internal files use relative imports (`'../models/...'`), test files use `package:ermchat/...`, `main.dart` uses bare `'screens/...'`. No consistent convention. Fix: adopt one style project-wide (Flutter team recommends relative for lib/, package for test/).
+
+- [ ] **C49 Import ordering inconsistency** -- `home_screen.dart:25` imports `package:cached_network_image` after 22 relative imports. Fix: group external packages first, then internal relative imports.
+
+## Unused / borderline imports
+
+- [ ] **C50 `twitch_message.dart` imports `package:flutter/material.dart`** -- `lib/models/twitch_message.dart:1`. Only uses `Color?` which comes from `dart:ui` (re-exported by `material.dart`). Fix: import `dart:ui` or `package:flutter/painting.dart` instead.

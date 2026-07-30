@@ -85,6 +85,7 @@ class SevenTvEventClient {
   DateTime _lastHeartbeat = DateTime.now();
   bool _handshakeComplete = false;
   bool _reconnecting = false;
+  bool _connecting = false;
   int _reconnectAttempt = 0;
   bool _disposed = false;
   int? _fatalCloseCode;
@@ -110,53 +111,68 @@ class SevenTvEventClient {
 
   bool get isConnected => _channel != null;
 
-  Future<void> connect() async {
-    if (_disposed) return;
-    _fatalCloseCode = null;
-    _reconnectAttempt = 0;
-    _connectivitySub?.cancel();
-    if (_connectivity != null) {
-      _connectivitySub = _connectivity.onConnectivityChanged.listen((results) {
-        final wasOffline = !_isOnline;
-        _isOnline = !results.contains(ConnectivityResult.none);
-        if (wasOffline && _isOnline && _channel == null && !_reconnecting) {
-          connect();
-        }
-      });
-    }
-    _disconnect();
+  void _enableTcpKeepalive(WebSocketChannel? ch) {
+    if (ch == null) return;
     try {
-      _channel = WebSocketChannel.connect(Uri.parse(_wsUrl));
-      await _channel!.ready;
+      final ws = (ch as dynamic).webSocket;
+      if (ws != null) ws.pingInterval = const Duration(seconds: 30);
+    } catch (_) {}
+  }
 
-      _streamSub = _channel!.stream.listen(
-        (raw) => _handleMessage(raw as String),
-        onError: (e) {
-          debugPrint('7TV event stream error: $e');
-          _scheduleReconnect();
-        },
-        onDone: () {
-          final code = _channel?.closeCode;
-          final reason = _channel?.closeReason;
-          debugPrint('7TV event stream closed (code=$code reason="$reason")');
-          if (_fatalCloseCode != null) {
-            debugPrint(
-              '7TV: fatal end-of-stream code $_fatalCloseCode — not reconnecting',
-            );
-            return;
+  Future<void> connect() async {
+    if (_disposed || _connecting) return;
+    _connecting = true;
+    try {
+      _fatalCloseCode = null;
+      _reconnectAttempt = 0;
+      _connectivitySub?.cancel();
+      if (_connectivity != null) {
+        _connectivitySub = _connectivity.onConnectivityChanged.listen((results) {
+          final wasOffline = !_isOnline;
+          _isOnline = !results.contains(ConnectivityResult.none);
+          if (wasOffline && _isOnline && _channel == null && !_reconnecting) {
+            connect();
           }
-          if (code != null && _noReconnectCloseCodes.contains(code)) {
-            debugPrint(
-              '7TV: close code $code indicates client bug — not reconnecting',
-            );
-            return;
-          }
-          _scheduleReconnect();
-        },
-      );
-    } catch (e) {
-      debugPrint('7TV event connect error: $e');
-      _scheduleReconnect();
+        });
+      }
+      _disconnect();
+      try {
+        _channel = WebSocketChannel.connect(Uri.parse(_wsUrl));
+        await _channel!.ready;
+
+        _enableTcpKeepalive(_channel);
+
+        _streamSub = _channel!.stream.listen(
+          (raw) => _handleMessage(raw as String),
+          onError: (e) {
+            debugPrint('7TV event stream error: $e');
+            _scheduleReconnect();
+          },
+          onDone: () {
+            final code = _channel?.closeCode;
+            final reason = _channel?.closeReason;
+            debugPrint('7TV event stream closed (code=$code reason="$reason")');
+            if (_fatalCloseCode != null) {
+              debugPrint(
+                '7TV: fatal end-of-stream code $_fatalCloseCode — not reconnecting',
+              );
+              return;
+            }
+            if (code != null && _noReconnectCloseCodes.contains(code)) {
+              debugPrint(
+                '7TV: close code $code indicates client bug — not reconnecting',
+              );
+              return;
+            }
+            _scheduleReconnect();
+          },
+        );
+      } catch (e) {
+        debugPrint('7TV event connect error: $e');
+        _scheduleReconnect();
+      }
+    } finally {
+      _connecting = false;
     }
   }
 
@@ -394,6 +410,7 @@ class SevenTvEventClient {
     _heartbeatTimer = null;
     _heartbeatInterval = null;
     _handshakeComplete = false;
+    _reconnecting = false;
     _connectivitySub?.cancel();
     _connectivitySub = null;
     _streamSub?.cancel();

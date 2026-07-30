@@ -4,9 +4,13 @@ import 'package:flutter/foundation.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 
+enum IrcConnectionStatus { disconnected, connecting, connected }
+
 abstract class BaseIrcConnection {
   static const _wsUrl = 'wss://irc-ws.chat.twitch.tv:443';
   static const _maxReconnectAttempts = 8;
+  static const _pingInterval = Duration(seconds: 60);
+  static const _pongTimeout = Duration(seconds: 15);
 
   final Connectivity? connectivity;
 
@@ -17,20 +21,39 @@ abstract class BaseIrcConnection {
   bool _connecting = false;
   bool _disposed = false;
   int _reconnectAttempt = 0;
-  int _pingsWithoutPong = 0;
+  bool _awaitingPong = false;
   StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
   bool _isOnline = true;
   final _channels = <String>{};
 
   StreamSubscription<dynamic>? _streamSub;
   Timer? _pingTimer;
+  Timer? _pongTimer;
   Timer? _reconnectTimer;
 
+  final _statusController = StreamController<IrcConnectionStatus>.broadcast(
+    sync: true,
+  );
+  IrcConnectionStatus _status = IrcConnectionStatus.disconnected;
+
+  Stream<IrcConnectionStatus> get onStatus => _statusController.stream;
+  IrcConnectionStatus get status => _status;
   bool get isConnected => channel != null;
 
   String get debugPrefix;
 
   BaseIrcConnection({this.connectivity});
+
+  /// Set WebSocket-level ping interval on the underlying [dart:io.WebSocket]
+  /// for TCP-level failure detection. On web (HtmlWebSocketChannel) this is a
+  /// no-op; the browser handles WebSocket keepalive internally.
+  void _enableTcpKeepalive(WebSocketChannel? ch) {
+    if (ch == null) return;
+    try {
+      final ws = (ch as dynamic).webSocket;
+      if (ws != null) ws.pingInterval = const Duration(seconds: 30);
+    } catch (_) {}
+  }
 
   Future<void> connect({
     required String username,
@@ -49,6 +72,8 @@ abstract class BaseIrcConnection {
         debugPrint('[$debugPrefix] already connected, skipping reconnect');
         return;
       }
+      _status = IrcConnectionStatus.connecting;
+      _statusController.add(IrcConnectionStatus.connecting);
       _connectivitySub?.cancel();
       final conn = connectivity;
       if (conn != null) {
@@ -64,16 +89,20 @@ abstract class BaseIrcConnection {
         );
       }
       _disconnect();
-      _pingsWithoutPong = 0;
+      _awaitingPong = false;
 
       try {
         channel = WebSocketChannel.connect(Uri.parse(_wsUrl));
         await channel!.ready;
 
+        _enableTcpKeepalive(channel);
+
         _streamSub = channel!.stream.listen(
           (raw) => _handleLine(raw as String),
           onError: (e) {
             debugPrint('$debugPrefix stream error: $e');
+            _status = IrcConnectionStatus.disconnected;
+            _statusController.add(IrcConnectionStatus.disconnected);
             _disconnect();
             _scheduleReconnect();
           },
@@ -83,6 +112,8 @@ abstract class BaseIrcConnection {
               '(code: ${channel?.closeCode}, '
               'reason: ${channel?.closeReason})',
             );
+            _status = IrcConnectionStatus.disconnected;
+            _statusController.add(IrcConnectionStatus.disconnected);
             _disconnect();
             _scheduleReconnect();
           },
@@ -100,20 +131,37 @@ abstract class BaseIrcConnection {
           sendLine('JOIN #$channel');
         }
 
+        _status = IrcConnectionStatus.connected;
+        _statusController.add(IrcConnectionStatus.connected);
+
         _pingTimer?.cancel();
-        _pingTimer = Timer.periodic(const Duration(seconds: 300), (_) {
+        _pingTimer = Timer.periodic(_pingInterval, (_) {
           if (channel == null) return;
-          if (_pingsWithoutPong > 0) {
+          if (_awaitingPong) {
             debugPrint('$debugPrefix PONG timeout – reconnecting');
+            _status = IrcConnectionStatus.disconnected;
+            _statusController.add(IrcConnectionStatus.disconnected);
             _disconnect();
             _scheduleReconnect();
             return;
           }
           sendLine('PING :keepalive');
-          _pingsWithoutPong = 1;
+          _awaitingPong = true;
+          _pongTimer?.cancel();
+          _pongTimer = Timer(_pongTimeout, () {
+            if (_awaitingPong) {
+              debugPrint('$debugPrefix PONG response timeout – reconnecting');
+              _status = IrcConnectionStatus.disconnected;
+              _statusController.add(IrcConnectionStatus.disconnected);
+              _disconnect();
+              _scheduleReconnect();
+            }
+          });
         });
       } catch (e) {
         debugPrint('$debugPrefix connect error: $e');
+        _status = IrcConnectionStatus.disconnected;
+        _statusController.add(IrcConnectionStatus.disconnected);
         _scheduleReconnect();
       }
     } finally {
@@ -128,12 +176,15 @@ abstract class BaseIrcConnection {
     _reconnectTimer = null;
     _pingTimer?.cancel();
     _pingTimer = null;
+    _pongTimer?.cancel();
+    _pongTimer = null;
     _streamSub?.cancel();
     _streamSub = null;
     channel?.sink.close();
     channel = null;
-    _pingsWithoutPong = 0;
+    _awaitingPong = false;
     _reconnecting = false;
+    _reconnectAttempt = 0;
   }
 
   void _scheduleReconnect() {
@@ -171,17 +222,16 @@ abstract class BaseIrcConnection {
   }
 
   void _handleLine(String raw) {
-    _pingsWithoutPong = 0;
     for (final line in raw.split('\r\n')) {
       if (line.isEmpty) continue;
 
+      _reconnectAttempt = 0;
+      _awaitingPong = false;
+      _pongTimer?.cancel();
+      _pongTimer = null;
+
       if (line.startsWith('PING')) {
         sendLine(line.replaceFirst('PING', 'PONG'));
-        continue;
-      }
-
-      if (line.startsWith('PONG')) {
-        _reconnectAttempt = 0;
         continue;
       }
 
@@ -216,7 +266,9 @@ abstract class BaseIrcConnection {
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
     _pingTimer?.cancel();
+    _pongTimer?.cancel();
     _streamSub?.cancel();
     channel?.sink.close();
+    _statusController.close();
   }
 }

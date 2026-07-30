@@ -4,6 +4,7 @@ import 'package:flutter/widgets.dart';
 import 'package:http/http.dart' as http;
 import '../models/generic_emote.dart';
 import '../models/twitch_badge.dart';
+import 'base_irc_connection.dart';
 import '../models/twitch_message.dart';
 import '../color_utils.dart';
 import '../services/twitch_api.dart';
@@ -83,6 +84,8 @@ class ChatConnectionManager {
   StreamSubscription<IrcMessage>? ircOwnMsgSub;
   StreamSubscription<SevenTvEmoteUpdateEvent>? sevenTvEmoteSub;
   StreamSubscription<SevenTvUserUpdate>? sevenTvUserSub;
+  StreamSubscription<IrcConnectionStatus>? ircStatusSub;
+  StreamSubscription<IrcConnectionStatus>? ircReadStatusSub;
 
   final VoidCallback onRebuild;
   final void Function(String, String) onSystemMessage;
@@ -156,6 +159,8 @@ class ChatConnectionManager {
     ircOwnMsgSub?.cancel();
     sevenTvEmoteSub?.cancel();
     sevenTvUserSub?.cancel();
+    ircStatusSub?.cancel();
+    ircReadStatusSub?.cancel();
   }
 
   String? _unescapeIrcTag(String? raw) {
@@ -847,6 +852,21 @@ class ChatConnectionManager {
     }
 
     if (getCurrentUserLogin() != null && auth.accessToken != null) {
+      ircStatusSub?.cancel();
+      ircStatusSub = irc.onStatus.listen((status) {
+        if (!mounted) return;
+        if (status == IrcConnectionStatus.connected && irc.isConnected) {
+          for (final channel in channels) {
+            onSystemMessage(channel, 'Connected to IRC');
+          }
+        }
+      });
+
+      ircReadStatusSub?.cancel();
+      ircReadStatusSub = ircRead.onStatus.listen((status) {
+        if (!mounted) return;
+      });
+
       try {
         await irc.connect(
           username: getCurrentUserLogin()!,
@@ -1079,6 +1099,25 @@ class ChatConnectionManager {
 
     chatVersion.value++;
     precacheMessageEmotes(msg, channel);
+  }
+
+  void reconnectIfNecessary() {
+    final login = getCurrentUserLogin();
+    final token = twitchAuth.accessToken;
+    if (login == null || token == null) return;
+
+    if (!irc.isConnected) {
+      unawaited(irc.connect(username: login, accessToken: token));
+    }
+    if (!ircRead.isConnected) {
+      unawaited(ircRead.connect(username: login, accessToken: token));
+    }
+    if (!eventSub.isConnected) {
+      unawaited(eventSub.connect());
+    }
+    if (sevenTvClient != null && !sevenTvClient!.isConnected) {
+      unawaited(sevenTvClient!.connect());
+    }
   }
 }
 
