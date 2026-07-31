@@ -2,7 +2,7 @@ class TwitchConfig {
   static const String clientId = 'hn6tq8xvgzx91n4mx72573o1c2x9nk';
 
   static const String redirectUri =
-      'https://banan-guh.github.io/twitch-app-oauth/';
+      'https://banan-guh.github.io/twitch-app-oauth';
 
   static const String callbackUrlScheme = 'ermchat';
 
