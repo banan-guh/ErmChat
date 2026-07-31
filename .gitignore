@@ -26,3 +26,7 @@ doc/api/
 .flutter-plugins
 .flutter-plugins-dependencies
 /.vscode
+
+# Android signing - NEVER commit these
+*.jks
+android/key.properties
