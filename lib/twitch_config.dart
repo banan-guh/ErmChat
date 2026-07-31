@@ -4,7 +4,7 @@ class TwitchConfig {
   static const String redirectUri =
       'https://banan-guh.github.io/twitch-app-oauth/';
 
-  static const String callbackUrlScheme = 'https';
+  static const String callbackUrlScheme = 'ermchat';
 
   static bool get isConfigured =>
       clientId.isNotEmpty && clientId != 'YOUR_CLIENT_ID_HERE';
