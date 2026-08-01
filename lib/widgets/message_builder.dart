@@ -88,8 +88,8 @@ class MessageBuilder {
                     imageUrl: avatarUrl,
                     width: badgeSize,
                     height: badgeSize,
-                    memCacheWidth: badgeSize.round(),
-                    memCacheHeight: badgeSize.round(),
+                    //memCacheWidth: badgeSize.round(),
+                    //memCacheHeight: badgeSize.round(),
                     fit: BoxFit.cover,
                     fadeInDuration: Duration.zero,
                     placeholder: (_, _) =>
@@ -129,8 +129,8 @@ class MessageBuilder {
                   imageUrl: url,
                   width: badgeSize,
                   height: badgeSize,
-                  memCacheWidth: badgeSize.round(),
-                  memCacheHeight: badgeSize.round(),
+                  //memCacheWidth: badgeSize.round(),
+                  //memCacheHeight: badgeSize.round(),
                   fit: BoxFit.contain,
                   fadeInDuration: Duration.zero,
                   placeholder: (_, _) =>

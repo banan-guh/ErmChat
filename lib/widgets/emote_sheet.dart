@@ -88,8 +88,8 @@ class _EmoteSheetState extends State<EmoteSheet>
                   imageUrl: emote.url,
                   width: 64,
                   height: 64,
-                  memCacheWidth: 64,
-                  memCacheHeight: 64,
+                  //memCacheWidth: 64,
+                  //memCacheHeight: 64,
                   fit: BoxFit.contain,
                   fadeInDuration: Duration.zero,
                   placeholder: (_, _) => Container(
