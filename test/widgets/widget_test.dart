@@ -850,12 +850,8 @@ void main() {
       expect(find.textContaining('hello world'), findsOneWidget);
       // Chat renders newest-first at the bottom (reverse list): 'Connected'
       // must sit below the history message, i.e. at the most recent position.
-      final connectedY = tester
-          .getTopLeft(find.textContaining('Connected'))
-          .dy;
-      final historyY = tester
-          .getTopLeft(find.textContaining('hello world'))
-          .dy;
+      final connectedY = tester.getTopLeft(find.textContaining('Connected')).dy;
+      final historyY = tester.getTopLeft(find.textContaining('hello world')).dy;
       expect(connectedY, greaterThan(historyY));
     },
   );

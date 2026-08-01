@@ -853,6 +853,13 @@ class ChatConnectionManager {
           if (!firstConnect) {
             await Future.delayed(const Duration(milliseconds: 500));
           }
+          // "Connected" is emitted before subscriptions are created — the
+          // user sees it as soon as the socket is up, not after Helix calls.
+          for (final channel in channels) {
+            if (_connectedAcked.add(channel)) {
+              onSystemMessage(channel, 'Connected');
+            }
+          }
           subscribeAll();
           if (!userTwitchEmotesLoaded) {
             userTwitchEmotesLoaded = true;
@@ -863,11 +870,6 @@ class ChatConnectionManager {
                 ),
               ),
             );
-          }
-          for (final channel in channels) {
-            if (_connectedAcked.add(channel)) {
-              onSystemMessage(channel, 'Connected');
-            }
           }
         }
         if (status == EventSubStatus.disconnected && !wasDisconnected) {
