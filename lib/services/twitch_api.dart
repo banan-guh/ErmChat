@@ -270,27 +270,6 @@ class TwitchApi {
     return false;
   }
 
-  Future<bool> reportUser(
-    TwitchAuth auth, {
-    required String userId,
-    required String broadcasterId,
-    String reason = '',
-  }) async {
-    _lastError = null;
-    final uri = Uri.parse('$_base/moderation/reports');
-    final body = jsonEncode({
-      'data': {
-        'user_id': userId,
-        'broadcaster_id': broadcasterId,
-        'reason': reason,
-      },
-    });
-    final res = await _client.post(uri, headers: _headers(auth), body: body);
-    if (res.statusCode == 204) return true;
-    _setError('reportUser', res);
-    return false;
-  }
-
   Future<String?> sendChatMessage(
     TwitchAuth auth, {
     required String broadcasterId,

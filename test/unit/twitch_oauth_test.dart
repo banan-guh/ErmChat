@@ -81,4 +81,42 @@ void main() {
       expect(params['token_type'], 'bearer');
     });
   });
+
+  group('TwitchOAuth.generateAuthUrl', () {
+    test('requests blocked_users scopes for the block feature', () {
+      final urlInfo = TwitchOAuth.generateAuthUrl();
+      expect(urlInfo, isNotNull);
+
+      final url = Uri.parse(urlInfo!.url);
+      final scopes = url.queryParameters['scope']!.split(' ');
+      expect(
+        scopes,
+        containsAll(['user:manage:blocked_users', 'user:read:blocked_users']),
+      );
+    });
+
+    test('requests core chat scopes', () {
+      final urlInfo = TwitchOAuth.generateAuthUrl();
+      expect(urlInfo, isNotNull);
+
+      final url = Uri.parse(urlInfo!.url);
+      final scopes = url.queryParameters['scope']!.split(' ');
+      expect(
+        scopes,
+        containsAll([
+          'chat:read',
+          'chat:edit',
+          'user:read:chat',
+          'user:write:chat',
+          'user:manage:chat_color',
+          'channel:moderate',
+          'moderator:manage:banned_users',
+          'moderator:manage:chat_messages',
+          'moderator:manage:announcements',
+          'moderator:manage:shoutouts',
+          'user:read:emotes',
+        ]),
+      );
+    });
+  });
 }

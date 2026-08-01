@@ -47,7 +47,7 @@ class TwitchOAuth {
         '?client_id=${TwitchConfig.clientId}'
         '&redirect_uri=${Uri.encodeQueryComponent(TwitchConfig.redirectUri)}'
         '&response_type=token'
-        '&scope=chat:read%20chat:edit%20user:read:chat%20user:write:chat%20user:manage:chat_color%20channel:moderate%20moderator:manage:banned_users%20moderator:manage:chat_messages%20moderator:manage:announcements%20moderator:manage:shoutouts%20user:read:emotes'
+        '&scope=chat:read%20chat:edit%20user:read:chat%20user:write:chat%20user:manage:chat_color%20channel:moderate%20moderator:manage:banned_users%20moderator:manage:chat_messages%20moderator:manage:announcements%20moderator:manage:shoutouts%20user:read:emotes%20user:manage:blocked_users%20user:read:blocked_users'
         '&state=$state'
         '&force_verify=true';
     return (url: url, state: state);

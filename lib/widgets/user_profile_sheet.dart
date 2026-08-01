@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../services/twitch_api.dart';
 import '../services/twitch_auth.dart';
 
@@ -252,67 +253,20 @@ class UserProfileSheetState extends State<UserProfileSheet> {
               leading: const Icon(Icons.flag_outlined),
               title: const Text('Report'),
               onTap: () async {
-                final userId = widget.userId ?? _profile?['id'] as String?;
-                if (userId == null) {
+                final url = Uri.parse(
+                  'https://twitch.tv/${widget.username}/report',
+                );
+                final ok = await launchUrl(
+                  url,
+                  mode: LaunchMode.externalApplication,
+                );
+                if (!ok && context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
-                      content: Text('Cannot report: user ID unknown'),
+                      content: Text('Could not open the report page'),
                     ),
                   );
-                  return;
                 }
-                final reasonController = TextEditingController();
-                final confirmed = await showDialog<bool>(
-                  context: context,
-                  builder: (ctx) => AlertDialog(
-                    title: const Text('Report user'),
-                    content: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text('Report ${widget.displayName} for:'),
-                        const SizedBox(height: 12),
-                        TextField(
-                          controller: reasonController,
-                          decoration: const InputDecoration(
-                            hintText: 'Reason (optional)',
-                            border: OutlineInputBorder(),
-                          ),
-                          maxLines: 2,
-                        ),
-                      ],
-                    ),
-                    actions: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(ctx, false),
-                        child: const Text('Cancel'),
-                      ),
-                      FilledButton(
-                        onPressed: () => Navigator.pop(ctx, true),
-                        child: const Text('Report'),
-                      ),
-                    ],
-                  ),
-                );
-                if (confirmed != true || !context.mounted) return;
-                final broadcasterId = _profile?['id'] as String? ?? userId;
-                final ok = await widget.twitchApi.reportUser(
-                  widget.twitchAuth,
-                  userId: userId,
-                  broadcasterId: broadcasterId,
-                  reason: reasonController.text,
-                );
-                reasonController.dispose();
-                if (!context.mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      ok
-                          ? 'Report submitted'
-                          : 'Report failed: ${widget.twitchApi.lastError ?? "unknown"}',
-                    ),
-                  ),
-                );
-                widget.onClose();
               },
             ),
           ],
