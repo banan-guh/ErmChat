@@ -1828,51 +1828,38 @@ class _HomeScreenState extends State<HomeScreen>
                                       pageBuilder: (_, i) {
                                         final channel = _channels[i];
                                         return ListenableBuilder(
-                                          listenable: Listenable.merge([
-                                            _selectedTabIndex,
-                                            _versionNotifier(channel),
-                                          ]),
-                                          builder: (_, _) {
-                                            final isActive =
-                                                (i - _selectedTabIndex.value)
-                                                    .abs() <=
-                                                1;
-                                            if (!isActive) {
-                                              return const SizedBox();
-                                            }
-                                            return ChatView(
-                                              channel: channel,
-                                              messages:
-                                                  _channelMessages[channel] ??
-                                                  [],
-                                              frozenSnapshot: _frozenSnapshot,
-                                              tileCache: _tileCache,
-                                              atBottomNotifier:
-                                                  _atBottomNotifier(channel),
-                                              messageNotifier: _messageNotifier(
-                                                channel,
-                                              ),
-                                              scrollController: _scrollCtrl(
-                                                channel,
-                                              ),
-                                              messageBuilder: _messageBuilder,
-                                              onShowUserProfile:
-                                                  (
-                                                    login,
-                                                    userId, {
-                                                    displayName,
-                                                  }) => _showUserProfile(
-                                                    login,
-                                                    userId,
-                                                    displayName: displayName,
-                                                  ),
-                                              onShowMessageMenu:
-                                                  _showMessageMenu,
-                                              onNewMessage: _notifyNewMessage,
-                                              onFindThreadRoot: _findThreadRoot,
-                                              onShowThreadView: _showThreadView,
-                                            );
-                                          },
+                                          listenable: _versionNotifier(channel),
+                                          builder: (_, _) => ChatView(
+                                            channel: channel,
+                                            messages:
+                                                _channelMessages[channel] ?? [],
+                                            frozenSnapshot: _frozenSnapshot,
+                                            tileCache: _tileCache,
+                                            atBottomNotifier: _atBottomNotifier(
+                                              channel,
+                                            ),
+                                            messageNotifier: _messageNotifier(
+                                              channel,
+                                            ),
+                                            scrollController: _scrollCtrl(
+                                              channel,
+                                            ),
+                                            messageBuilder: _messageBuilder,
+                                            onShowUserProfile:
+                                                (
+                                                  login,
+                                                  userId, {
+                                                  displayName,
+                                                }) => _showUserProfile(
+                                                  login,
+                                                  userId,
+                                                  displayName: displayName,
+                                                ),
+                                            onShowMessageMenu: _showMessageMenu,
+                                            onNewMessage: _notifyNewMessage,
+                                            onFindThreadRoot: _findThreadRoot,
+                                            onShowThreadView: _showThreadView,
+                                          ),
                                         );
                                       },
                                       focusOnHalfDrag: true,
