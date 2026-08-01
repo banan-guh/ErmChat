@@ -40,7 +40,7 @@ dart format .              # format all Dart files
 - `lib/services/chat_connection_manager.dart` — 1071‑line central orchestrator: connection lifecycle, message routing, pending-message tracking, duplicate detection, chat status
 - `lib/services/base_irc_connection.dart` — shared abstract base for IRC WebSocket connections (reconnect, ping/pong, auth, disposal)
 - `lib/services/command_handler.dart` — IRC command dispatcher (`/me`, `/color`, `/ban`, `/timeout`, `/unban`, `/delete`, `/clear`, `/announce`, `/shoutout`) via Helix API + IRC fallback
-- `lib/services/emote_manager.dart` — `ChangeNotifier`-based emote caching with TTL per provider (Twitch/BTTV/FFZ/7TV global + channel); exposes `ChannelEmotes` per channel
+- `lib/services/emote_manager.dart` — `ChangeNotifier`-based emote caching with 24h TTL on wifi / 48h on cellular (connectivity_plus probe, cached 60s); TTL-gated fetches go through a serialized queue with a 1.5s stagger (the one-by-one "rake"); fresh caches skip the network entirely, Twitch channel emotes refresh in the background per open; `updateSevenTvEmotes` applies live WebSocket deltas
 - `lib/services/seven_tv_event_client.dart` — 7TV live emote update WebSocket client (add/remove/rename events)
 - `lib/services/twitch_badge_service.dart` — global + channel badge fetching from Twitch API
 - `lib/services/user_store.dart` — recent chatter tracking per channel (LRU, max 5000)

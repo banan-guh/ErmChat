@@ -1,6 +1,8 @@
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ermchat/models/generic_emote.dart';
 import 'package:ermchat/models/twitch_message.dart';
+import 'package:ermchat/services/emote_manager.dart';
 import '../helpers.dart';
 
 void main() {
@@ -113,6 +115,75 @@ void main() {
       expect(pos.startIndex, 0);
       expect(pos.endIndex, 5);
       expect(pos.emoteCode, 'Kappa');
+    });
+  });
+
+  group('EmoteManager refresh policy', () {
+    test('cellular connection gets the longer 48h TTL', () async {
+      final manager = EmoteManager(
+        probe: () async => [ConnectivityResult.mobile],
+      );
+      expect(await manager.effectiveTtlForTesting(), const Duration(hours: 48));
+    });
+
+    test('wifi connection gets the 24h TTL', () async {
+      final manager = EmoteManager(
+        probe: () async => [ConnectivityResult.wifi],
+      );
+      expect(await manager.effectiveTtlForTesting(), const Duration(hours: 24));
+    });
+
+    test('probe failure falls back to the 24h wifi TTL', () async {
+      final manager = EmoteManager(
+        probe: () async => throw Exception('probe failed'),
+      );
+      expect(await manager.effectiveTtlForTesting(), const Duration(hours: 24));
+    });
+
+    test('no probe configured falls back to the 24h wifi TTL', () async {
+      final manager = EmoteManager();
+      expect(await manager.effectiveTtlForTesting(), const Duration(hours: 24));
+    });
+
+    test('connectivity probe result is cached within the 60s window', () async {
+      var probeCalls = 0;
+      final manager = EmoteManager(
+        probe: () async {
+          probeCalls++;
+          return [ConnectivityResult.mobile];
+        },
+      );
+
+      await manager.effectiveTtlForTesting();
+      await manager.effectiveTtlForTesting();
+
+      expect(probeCalls, 1);
+    });
+
+    test('fetch queue serializes actions in order', () async {
+      final manager = EmoteManager(fetchStagger: Duration.zero);
+      final order = <int>[];
+
+      await Future.wait([
+        manager.enqueueFetchForTesting(() async => order.add(1)),
+        manager.enqueueFetchForTesting(() async => order.add(2)),
+        manager.enqueueFetchForTesting(() async => order.add(3)),
+      ]);
+
+      expect(order, [1, 2, 3]);
+    });
+
+    test('fetch queue survives a failing action', () async {
+      final manager = EmoteManager(fetchStagger: Duration.zero);
+      final order = <int>[];
+
+      await expectLater(
+        manager.enqueueFetchForTesting(() async => throw Exception('boom')),
+        throwsException,
+      );
+      await manager.enqueueFetchForTesting(() async => order.add(1));
+
+      expect(order, [1]);
     });
   });
 }

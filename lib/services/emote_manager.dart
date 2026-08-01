@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -17,8 +18,16 @@ class ChannelEmotes {
 }
 
 class EmoteManager extends ChangeNotifier {
-  static const _globalTtl = Duration(hours: 24);
-  static const _channelTtl = Duration(hours: 1);
+  // Refresh TTLs: emote caches are only refetched once they're older than
+  // the TTL. Unmetered connections refresh every 24h; cellular gets 48h so
+  // the rake uses less data.
+  // TODO(expand): connectivity-based refresh policy — e.g. a "refresh only on
+  // wifi" settings toggle, skip channel rakes entirely on cellular,
+  // per-connection image precache policy, data-usage stats.
+  static const _wifiTtl = Duration(hours: 24);
+  static const _mobileTtl = Duration(hours: 48);
+  static const _connectivityProbeTtl = Duration(seconds: 60);
+  static const _defaultFetchStagger = Duration(milliseconds: 1500);
   static const _providerPriority = {
     EmoteType.sevenTv: 0,
     EmoteType.bttv: 1,
@@ -26,6 +35,16 @@ class EmoteManager extends ChangeNotifier {
     EmoteType.twitch: 3,
   };
 
+  final Future<List<ConnectivityResult>> Function()? _connectivityProbe;
+  final Duration _fetchStagger;
+  ConnectivityResult _probeResult = ConnectivityResult.wifi;
+  DateTime? _probeAt;
+  Future<void> _fetchQueue = Future.value();
+
+  EmoteManager({
+    Future<List<ConnectivityResult>> Function()? probe,
+    this._fetchStagger = _defaultFetchStagger,
+  }) : _connectivityProbe = probe;
   ChannelEmotes? _globalCache;
   final _channelCaches = <String, ChannelEmotes>{};
   final _channelFetchTimes = <String, DateTime>{};
@@ -191,14 +210,18 @@ class EmoteManager extends ChangeNotifier {
 
   Future<void> preloadGlobalEmotes() async {
     if (_globalCache != null) return;
-    final cached = await _loadFromPrefs('emotes2_global', _globalTtl);
+    final ttl = await _effectiveTtl();
+    final loaded = await _loadFromPrefs('emotes2_global', ttl);
+    final cached = loaded.cached;
     if (cached != null) {
       _globalCache = cached;
       _notify();
+      if (loaded.fresh) return; // fresh cache — no network at all
     }
-    final emotes = await _fetchAllGlobal();
+    // Stale or missing: keep showing stale data while revalidating.
+    final emotes = await _enqueueFetch(_fetchAllGlobal);
     _globalCache = _buildChannelMap(emotes);
-    await _saveToPrefs('emotes2_global', _globalCache!, _globalTtl);
+    await _saveToPrefs('emotes2_global', _globalCache!, ttl);
     _notify();
   }
 
@@ -230,17 +253,38 @@ class EmoteManager extends ChangeNotifier {
 
   Future<void> resolveEmotes(String channel, String? broadcasterId) async {
     _lastErrors.clear();
-    final cached = await _loadFromPrefs(
+    final ttl = await _effectiveTtl();
+    final loaded = await _loadFromPrefs(
       'emotes2_$channel',
-      _channelTtl,
+      ttl,
       fetchTime: _channelFetchTimes[channel],
     );
+    final cached = loaded.cached;
     if (cached != null) {
       _channelCaches[channel] = cached;
       _channelFetchTimes[channel] = DateTime.now();
       _notify(channel);
+      if (loaded.fresh) {
+        // Fresh cache: render immediately, then refresh only the Twitch
+        // channel emotes in the background (they aren't persisted, so
+        // sub-tier status changes between opens). Non-blocking.
+        unawaited(
+          _enqueueFetch(
+            () => _refreshTwitchChannelEmotes(channel, broadcasterId),
+          ),
+        );
+        return;
+      }
+      // Stale: keep showing stale data while revalidating below.
     }
-    final emotes = await _fetchAllChannel(broadcasterId, channelName: channel);
+    final emotes = await _enqueueFetch(
+      () => _fetchAllChannel(broadcasterId, channelName: channel),
+    );
+    _applyChannelEmotes(channel, emotes);
+    await _saveToPrefs('emotes2_$channel', _channelCaches[channel]!, ttl);
+  }
+
+  void _applyChannelEmotes(String channel, List<GenericEmote> emotes) {
     // Split subscriber-only Twitch emotes from the main cache. They're stored
     // separately and re-merged via storeUserTwitchEmotes, which preserves
     // tiered versions over non-tiered for sub-gated emotes.
@@ -254,11 +298,45 @@ class EmoteManager extends ChangeNotifier {
     _channelTwitchEmotes[channel] = nonSubEmotes
         .where((e) => e.type == EmoteType.twitch)
         .toList();
-    final map = _buildChannelMap(nonSubEmotes);
-    _channelCaches[channel] = map;
+    _channelCaches[channel] = _buildChannelMap(nonSubEmotes);
     _channelFetchTimes[channel] = DateTime.now();
-    await _saveToPrefs('emotes2_$channel', map, _channelTtl);
     _notify(channel);
+  }
+
+  Future<void> _refreshTwitchChannelEmotes(
+    String channel,
+    String? broadcasterId,
+  ) async {
+    if (broadcasterId == null) return;
+    try {
+      final emotes = await TwitchEmoteProvider.fetchChannel(
+        broadcasterId,
+        accessToken: _accessToken,
+        channelName: channel,
+      );
+      if (emotes.isEmpty) return;
+      final nonSub = emotes
+          .where(
+            (e) =>
+                !(e.type == EmoteType.twitch &&
+                    (e.tier != null || e.emoteType == 'subscriptions')),
+          )
+          .toList();
+      _channelTwitchEmotes[channel] = nonSub
+          .where((e) => e.type == EmoteType.twitch)
+          .toList();
+      final existing = _channelCaches[channel];
+      if (existing != null) {
+        final merged = <GenericEmote>[
+          ...existing.suggestions.where((e) => e.type != EmoteType.twitch),
+          ...nonSub,
+        ];
+        _channelCaches[channel] = _buildChannelMap(merged);
+      }
+      _notify(channel);
+    } catch (e) {
+      debugPrint('[EmoteManager] twitch refresh failed for $channel: $e');
+    }
   }
 
   void evictChannel(String channel) {
@@ -347,6 +425,54 @@ class EmoteManager extends ChangeNotifier {
     );
     _notify(channel);
   }
+
+  /// Connectivity-aware refresh TTL: refresh is cheaper on unmetered
+  /// connections, so cellular gets a longer TTL to avoid data usage.
+  Future<Duration> _effectiveTtl() async {
+    final isMobile = await _probeConnectivity() == ConnectivityResult.mobile;
+    return isMobile ? _mobileTtl : _wifiTtl;
+  }
+
+  /// One-shot connectivity probe, cached for [_connectivityProbeTtl] so the
+  /// rake doesn't hit the platform channel once per channel fetch.
+  Future<ConnectivityResult> _probeConnectivity() async {
+    final probe = _connectivityProbe;
+    if (probe == null) return ConnectivityResult.wifi;
+    final now = DateTime.now();
+    final probedAt = _probeAt;
+    if (probedAt != null && now.difference(probedAt) < _connectivityProbeTtl) {
+      return _probeResult;
+    }
+    try {
+      final results = await probe();
+      _probeResult = results.contains(ConnectivityResult.mobile)
+          ? ConnectivityResult.mobile
+          : ConnectivityResult.wifi;
+    } catch (_) {
+      _probeResult = ConnectivityResult.wifi;
+    }
+    _probeAt = DateTime.now();
+    return _probeResult;
+  }
+
+  /// Serializes all provider fetches into a single chain with a stagger
+  /// between fetches, so a full refresh rakes channels one-by-one and the
+  /// radio can idle between batches. Fresh caches never enter the queue.
+  Future<T> _enqueueFetch<T>(Future<T> Function() action) {
+    final result = _fetchQueue.then((_) async {
+      await Future.delayed(_fetchStagger);
+      return action();
+    });
+    _fetchQueue = result.then((_) {}, onError: (_) {});
+    return result;
+  }
+
+  @visibleForTesting
+  Future<Duration> effectiveTtlForTesting() => _effectiveTtl();
+
+  @visibleForTesting
+  Future<void> enqueueFetchForTesting(Future<void> Function() action) =>
+      _enqueueFetch(action);
 
   ChannelEmotes _buildChannelMap(List<GenericEmote> emotes) {
     // Scope precedence (channel > global) applied before provider precedence.
@@ -450,26 +576,26 @@ class EmoteManager extends ChangeNotifier {
     await Future.wait(futures, eagerError: false);
   }
 
-  Future<ChannelEmotes?> _loadFromPrefs(
+  Future<({ChannelEmotes? cached, bool fresh})> _loadFromPrefs(
     String key,
     Duration ttl, {
     DateTime? fetchTime,
   }) async {
     final prefs = await _getPrefs();
     final raw = prefs.getString(key);
-    if (raw == null) return null;
+    if (raw == null) return (cached: null, fresh: false);
     try {
       final data = jsonDecode(raw) as Map<String, dynamic>;
       final ts = DateTime.parse(data['ts'] as String);
       final cachedTime = fetchTime ?? ts;
-      if (DateTime.now().difference(cachedTime) > ttl) return null;
+      final fresh = DateTime.now().difference(cachedTime) <= ttl;
       final list = (data['emotes'] as List<dynamic>)
           .map((e) => GenericEmote.fromJson(e as Map<String, dynamic>))
           .toList();
-      return _buildChannelMap(list);
+      return (cached: _buildChannelMap(list), fresh: fresh);
     } catch (_) {
-      debugPrint('[EmoteManager] failed to parse 7TV channel emotes');
-      return null;
+      debugPrint('[EmoteManager] failed to parse cached emotes');
+      return (cached: null, fresh: false);
     }
   }
 

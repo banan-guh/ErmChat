@@ -162,7 +162,9 @@ class _HomeScreenState extends State<HomeScreen>
   StreamSubscription<String>? _notificationTapSub;
   var _isBackgrounded = false;
 
-  final _emoteManager = EmoteManager();
+  late final _emoteManager = EmoteManager(
+    probe: _connectivity.checkConnectivity,
+  );
   final _badgeService = TwitchBadgeService();
   final _userStore = UserStore();
   final _channels = <String>[];

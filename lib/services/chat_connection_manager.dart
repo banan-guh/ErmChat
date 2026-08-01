@@ -595,9 +595,13 @@ class ChatConnectionManager {
       if (!channelsEmotesResolved.contains(channelName)) {
         channelsEmotesResolved.add(channelName);
         unawaited(
-          emoteManager.resolveEmotes(channelName, channelUserId).catchError(
-            (e) => debugPrint('[ChatConn] resolveEmotes failed for $channelName: $e'),
-          ),
+          emoteManager
+              .resolveEmotes(channelName, channelUserId)
+              .catchError(
+                (e) => debugPrint(
+                  '[ChatConn] resolveEmotes failed for $channelName: $e',
+                ),
+              ),
         );
       }
 
@@ -625,7 +629,6 @@ class ChatConnectionManager {
     } catch (_) {
       debugPrint('[ChatConn] subscribeChannel failed for $channelName');
     }
-
     onRebuild();
     fetchChatStatus(channelName);
     _chatStatusTimers[channelName]?.cancel();
@@ -638,9 +641,9 @@ class ChatConnectionManager {
   Future<Map<String, dynamic>?>? _currentUserFetch;
 
   Future<Map<String, dynamic>?> _ensureCurrentUser(TwitchAuth auth) {
-    return _currentUserFetch ??= twitchApi.getCurrentUser(auth).whenComplete(
-      () => _currentUserFetch = null,
-    );
+    return _currentUserFetch ??= twitchApi
+        .getCurrentUser(auth)
+        .whenComplete(() => _currentUserFetch = null);
   }
 
   Future<void> _createEventSubSubscriptions(
