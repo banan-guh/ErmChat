@@ -1640,6 +1640,33 @@ void main() {
       expect(changed, ThemeMode.dark);
     });
 
+    testWidgets('Customization keep screen on toggle reflects value and calls '
+        'onKeepScreenOnChanged', (WidgetTester tester) async {
+      SharedPreferences.setMockInitialValues({});
+      bool? changed;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: CustomizationScreen(
+            onThemeChanged: (_) {},
+            keepScreenOn: true,
+            onKeepScreenOnChanged: (value) => changed = value,
+          ),
+        ),
+      );
+      await tester.pump();
+
+      final tile = tester.widget<SwitchListTile>(
+        find.widgetWithText(SwitchListTile, 'Keep screen on'),
+      );
+      expect(tile.value, isTrue);
+
+      await tester.tap(find.widgetWithText(SwitchListTile, 'Keep screen on'));
+      await tester.pumpAndSettle();
+
+      expect(changed, isFalse);
+    });
+
     testWidgets('Channel settings shows joined channels', (
       WidgetTester tester,
     ) async {

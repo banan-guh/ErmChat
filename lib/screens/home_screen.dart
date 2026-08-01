@@ -42,6 +42,8 @@ enum OverlayPanel { closed, thread, mentions, emotes }
 class HomeScreen extends StatefulWidget {
   final TwitchAuth twitchAuth;
   final ValueChanged<ThemeMode> onThemeChanged;
+  final bool keepScreenOn;
+  final ValueChanged<bool>? onKeepScreenOnChanged;
   final EventSubService? eventSubService;
   final IrcService? ircService;
   final IrcReadService? ircReadService;
@@ -53,6 +55,8 @@ class HomeScreen extends StatefulWidget {
     super.key,
     required this.twitchAuth,
     required this.onThemeChanged,
+    this.keepScreenOn = true,
+    this.onKeepScreenOnChanged,
     this.eventSubService,
     this.ircService,
     this.ircReadService,
@@ -1742,6 +1746,9 @@ class _HomeScreenState extends State<HomeScreen>
                                       _tileCache.clear();
                                       widget.onThemeChanged(mode);
                                     },
+                                    keepScreenOn: widget.keepScreenOn,
+                                    onKeepScreenOnChanged:
+                                        widget.onKeepScreenOnChanged,
                                     channelNotifier: _channelNotifier,
                                     onLeaveChannel: _removeChannel,
                                     onAddChannel: _addChannel,

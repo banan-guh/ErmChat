@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 import 'screens/home_screen.dart';
 import 'services/twitch_auth.dart';
 import 'services/twitch_eventsub.dart';
@@ -42,6 +43,7 @@ class TwitchChatApp extends StatefulWidget {
 
 class _TwitchChatAppState extends State<TwitchChatApp> {
   ThemeMode _themeMode = ThemeMode.system;
+  bool _keepScreenOn = true;
   final _twitchAuth = TwitchAuth();
   bool _loaded = false;
 
@@ -61,6 +63,8 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
           orElse: () => ThemeMode.system,
         );
       }
+      _keepScreenOn = prefs.getBool('keep_screen_on') ?? true;
+      WakelockPlus.toggle(enable: _keepScreenOn).ignore();
     } catch (_) {}
     await _twitchAuth.load();
     if (mounted) setState(() => _loaded = true);
@@ -70,6 +74,14 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
     setState(() => _themeMode = mode);
     SharedPreferences.getInstance().then((prefs) {
       prefs.setString('themeMode', mode.name);
+    });
+  }
+
+  void _setKeepScreenOn(bool value) {
+    setState(() => _keepScreenOn = value);
+    WakelockPlus.toggle(enable: value).ignore();
+    SharedPreferences.getInstance().then((prefs) {
+      prefs.setBool('keep_screen_on', value);
     });
   }
 
@@ -136,6 +148,8 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
       home: HomeScreen(
         twitchAuth: _twitchAuth,
         onThemeChanged: _setThemeMode,
+        keepScreenOn: _keepScreenOn,
+        onKeepScreenOnChanged: _setKeepScreenOn,
         eventSubService: widget.eventSubService,
         ircService: widget.ircService,
         ircReadService: widget.ircReadService,

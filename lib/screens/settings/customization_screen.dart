@@ -2,8 +2,15 @@ import 'package:flutter/material.dart';
 
 class CustomizationScreen extends StatelessWidget {
   final ValueChanged<ThemeMode> onThemeChanged;
+  final bool keepScreenOn;
+  final ValueChanged<bool>? onKeepScreenOnChanged;
 
-  const CustomizationScreen({super.key, required this.onThemeChanged});
+  const CustomizationScreen({
+    super.key,
+    required this.onThemeChanged,
+    this.keepScreenOn = true,
+    this.onKeepScreenOnChanged,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -19,6 +26,11 @@ class CustomizationScreen extends StatelessWidget {
             onChanged: (dark) {
               onThemeChanged(dark ? ThemeMode.dark : ThemeMode.light);
             },
+          ),
+          SwitchListTile(
+            title: const Text('Keep screen on'),
+            value: keepScreenOn,
+            onChanged: onKeepScreenOnChanged,
           ),
         ],
       ),
