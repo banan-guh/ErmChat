@@ -136,59 +136,6 @@ class TwitchApi {
     return true;
   }
 
-  Future<bool> createDeleteSubscription({
-    required TwitchAuth auth,
-    required String sessionId,
-    required String broadcasterUserId,
-    required String userId,
-  }) async {
-    _lastError = null;
-    final uri = Uri.parse('$_base/eventsub/subscriptions');
-    final body = jsonEncode({
-      'type': 'channel.chat.message_delete',
-      'version': '1',
-      'condition': {
-        'broadcaster_user_id': broadcasterUserId,
-        'user_id': userId,
-      },
-      'transport': {'method': 'websocket', 'session_id': sessionId},
-    });
-    final res = await _client.post(uri, headers: _headers(auth), body: body);
-    if (res.statusCode == 409) return true;
-    if (res.statusCode != 202) {
-      _setError('createDeleteSubscription', res);
-      return false;
-    }
-    return true;
-  }
-
-  Future<bool> createBanSubscription({
-    required TwitchAuth auth,
-    required String sessionId,
-    required String broadcasterUserId,
-    required String moderatorUserId,
-  }) async {
-    _lastError = null;
-    final uri = Uri.parse('$_base/eventsub/subscriptions');
-    final body = jsonEncode({
-      'type': 'channel.ban',
-      'version': '1',
-      'condition': {
-        'broadcaster_user_id': broadcasterUserId,
-        'moderator_user_id': moderatorUserId,
-      },
-      'transport': {'method': 'websocket', 'session_id': sessionId},
-    });
-    final res = await _client.post(uri, headers: _headers(auth), body: body);
-    if (res.statusCode == 409) return true;
-    if (res.statusCode == 403 || res.statusCode == 401) return false;
-    if (res.statusCode != 202) {
-      _setError('createBanSubscription', res);
-      return false;
-    }
-    return true;
-  }
-
   Future<Map<String, dynamic>?> getChatSettings(
     TwitchAuth auth,
     String broadcasterId,

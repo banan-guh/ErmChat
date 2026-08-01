@@ -32,6 +32,18 @@ void main() {
       expect(msg.trailing, 'forsen');
     });
 
+    test('parses CLEARMSG with target-msg-id and login tags', () {
+      const line =
+          '@login=forsen;target-msg-id=abc-123;room-id=12345 :tmi.twitch.tv CLEARMSG #xqc :bad message';
+      final msg = parseIrcMessage(line);
+      expect(msg, isNotNull);
+      expect(msg!.command, 'CLEARMSG');
+      expect(msg.params, ['#xqc']);
+      expect(msg.tags['login'], 'forsen');
+      expect(msg.tags['target-msg-id'], 'abc-123');
+      expect(msg.trailing, 'bad message');
+    });
+
     test('parses PING message', () {
       final msg = parseIrcMessage('PING :tmi.twitch.tv');
       expect(msg, isNotNull);

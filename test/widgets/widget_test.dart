@@ -20,21 +20,6 @@ import 'package:ermchat/widgets/autocomplete_dropdown.dart';
 
 class _FakeEventSubService extends EventSubService {
   final _statusCtrl = StreamController<EventSubStatus>.broadcast(sync: true);
-  final _deleteCtrl =
-      StreamController<
-        ({String messageId, String targetUser, String channel})
-      >.broadcast(sync: true);
-  final _banCtrl =
-      StreamController<
-        ({
-          String user,
-          String? reason,
-          bool isTimeout,
-          String? duration,
-          int? durationSeconds,
-          String channel,
-        })
-      >.broadcast(sync: true);
 
   @override
   Future<void> connect({String? url}) async {}
@@ -42,57 +27,12 @@ class _FakeEventSubService extends EventSubService {
   @override
   Stream<EventSubStatus> get onStatus => _statusCtrl.stream;
 
-  @override
-  Stream<({String messageId, String targetUser, String channel})>
-  get onMessageDeleted => _deleteCtrl.stream;
-
-  @override
-  Stream<
-    ({
-      String user,
-      String? reason,
-      bool isTimeout,
-      String? duration,
-      int? durationSeconds,
-      String channel,
-    })
-  >
-  get onBan => _banCtrl.stream;
-
   void triggerConnect() => _statusCtrl.add(EventSubStatus.connected);
   void triggerDisconnect() => _statusCtrl.add(EventSubStatus.disconnected);
-
-  void emitDeleted(String messageId, String targetUser, String channel) {
-    _deleteCtrl.add((
-      messageId: messageId,
-      targetUser: targetUser,
-      channel: channel,
-    ));
-  }
-
-  void emitBan(
-    String user, {
-    String? reason,
-    bool isTimeout = false,
-    String? duration,
-    int? durationSeconds,
-    String channel = '',
-  }) {
-    _banCtrl.add((
-      user: user,
-      reason: reason,
-      isTimeout: isTimeout,
-      duration: duration,
-      durationSeconds: durationSeconds,
-      channel: channel,
-    ));
-  }
 
   @override
   void dispose() {
     _statusCtrl.close();
-    _deleteCtrl.close();
-    _banCtrl.close();
     super.dispose();
   }
 }
@@ -137,6 +77,9 @@ class _FakeRecentMessagesService extends RecentMessagesService {
 class _FakeIrcService extends IrcService {
   final _banCtrl = StreamController<IrcBanEvent>.broadcast(sync: true);
   final _noticeCtrl = StreamController<IrcNoticeEvent>.broadcast(sync: true);
+  final _deleteCtrl = StreamController<IrcMessageDeletedEvent>.broadcast(
+    sync: true,
+  );
 
   @override
   Future<void> connect({
@@ -149,6 +92,9 @@ class _FakeIrcService extends IrcService {
 
   @override
   Stream<IrcNoticeEvent> get onNotice => _noticeCtrl.stream;
+
+  @override
+  Stream<IrcMessageDeletedEvent> get onMessageDeleted => _deleteCtrl.stream;
 
   void emitBan(
     String user, {
@@ -170,10 +116,27 @@ class _FakeIrcService extends IrcService {
     _noticeCtrl.add(IrcNoticeEvent(channel: channel, message: message));
   }
 
+  void emitDeleted(
+    String messageId,
+    String channel, {
+    String user = 'unknown',
+    String deletedMessageText = '',
+  }) {
+    _deleteCtrl.add(
+      IrcMessageDeletedEvent(
+        channel: channel,
+        messageId: messageId,
+        user: user,
+        deletedMessageText: deletedMessageText,
+      ),
+    );
+  }
+
   @override
   void dispose() {
     _banCtrl.close();
     _noticeCtrl.close();
+    _deleteCtrl.close();
     super.dispose();
   }
 }
@@ -1490,7 +1453,12 @@ void main() {
       final irc = _FakeIrcService();
       await setupChannel(tester, eventSub: eventSub, irc: irc);
 
-      eventSub.emitDeleted('root-1', 'alice', 'testchannel');
+      irc.emitDeleted(
+        'root-1',
+        'testchannel',
+        user: 'alice',
+        deletedMessageText: 'hello world',
+      );
       await tester.pump();
 
       expect(
@@ -1587,19 +1555,6 @@ void main() {
         );
       },
     );
-
-    testWidgets('EventSub ban shows system message', (
-      WidgetTester tester,
-    ) async {
-      final eventSub = _FakeEventSubService();
-      final irc = _FakeIrcService();
-      await setupChannel(tester, eventSub: eventSub, irc: irc);
-
-      eventSub.emitBan('baduser', isTimeout: false, channel: 'testchannel');
-      await tester.pump();
-
-      expect(find.textContaining('baduser was banned'), findsOneWidget);
-    });
 
     testWidgets('banned user messages render at 35% opacity', (
       WidgetTester tester,

@@ -25,14 +25,32 @@ class IrcNoticeEvent {
   IrcNoticeEvent({required this.channel, required this.message});
 }
 
+class IrcMessageDeletedEvent {
+  final String channel;
+  final String messageId;
+  final String user;
+  final String deletedMessageText;
+
+  IrcMessageDeletedEvent({
+    required this.channel,
+    required this.messageId,
+    required this.user,
+    required this.deletedMessageText,
+  });
+}
+
 class IrcService extends BaseIrcConnection {
   final _banController = StreamController<IrcBanEvent>.broadcast();
   final _noticeController = StreamController<IrcNoticeEvent>.broadcast();
   final _jtvController = StreamController<IrcNoticeEvent>.broadcast();
+  final _deleteController =
+      StreamController<IrcMessageDeletedEvent>.broadcast();
 
   Stream<IrcBanEvent> get onBan => _banController.stream;
   Stream<IrcNoticeEvent> get onNotice => _noticeController.stream;
   Stream<IrcNoticeEvent> get onJtvMessage => _jtvController.stream;
+  Stream<IrcMessageDeletedEvent> get onMessageDeleted =>
+      _deleteController.stream;
 
   @override
   String get debugPrefix => 'IRC';
@@ -57,6 +75,10 @@ class IrcService extends BaseIrcConnection {
   void dispatchLine(String line) {
     if (line.contains('CLEARCHAT ')) {
       _handleClearChat(line);
+      return;
+    }
+    if (line.contains('CLEARMSG ')) {
+      _handleClearMsg(line);
       return;
     }
     if (line.contains('NOTICE ')) {
@@ -96,6 +118,30 @@ class IrcService extends BaseIrcConnection {
     );
   }
 
+  void _handleClearMsg(String line) {
+    final msg = parseIrcMessage(line);
+    if (msg == null || msg.command != 'CLEARMSG') return;
+
+    final channelName = msg.params.isNotEmpty
+        ? msg.params[0].substring(1)
+        : null;
+    if (channelName == null) return;
+
+    final messageId = msg.tags['target-msg-id'];
+    final user = msg.tags['login'] ?? 'unknown';
+    final deletedText = msg.trailing ?? '';
+    if (messageId == null || messageId.isEmpty) return;
+
+    _deleteController.add(
+      IrcMessageDeletedEvent(
+        channel: channelName,
+        messageId: messageId,
+        user: user,
+        deletedMessageText: deletedText,
+      ),
+    );
+  }
+
   void _handleNotice(String line) {
     final msg = parseIrcMessage(line);
     if (msg == null || msg.command != 'NOTICE') return;
@@ -129,6 +175,7 @@ class IrcService extends BaseIrcConnection {
     _banController.close();
     _noticeController.close();
     _jtvController.close();
+    _deleteController.close();
     super.dispose();
   }
 }

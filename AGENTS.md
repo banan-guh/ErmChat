@@ -34,7 +34,7 @@ dart format .              # format all Dart files
 - `lib/services/twitch_oauth.dart` — OAuth implicit grant flow (browser-based login, fragment parsing)
 - `lib/services/twitch_api.dart` — Twitch Helix API calls (user lookup, EventSub subscription, chat commands) with injectable `http.Client`
 - `lib/services/twitch_eventsub.dart` — EventSub WebSocket transport, message parsing, keepalive; exposes `handleRawMessage()` and `emitConnected()` for tests
-- `lib/services/twitch_irc.dart` — IRC WebSocket for send commands; exports `parseIrcMessage`
+- `lib/services/twitch_irc.dart` — IRC WebSocket for send commands; exports `parseIrcMessage`; parses CLEARCHAT (bans/timeouts) and CLEARMSG (message deletion) into `onBan`/`onMessageDeleted` streams — IRC is the single source for these events (no EventSub channel.ban / channel.chat.message_delete subscriptions)
 - `lib/services/twitch_irc_read.dart` — read-only IRC connection for own-message detection and user color updates
 - `lib/services/recent_messages.dart` — recent‑messages.robotty.de client; exports `RecentMessagesService.parseIrcLine`
 - `lib/services/chat_connection_manager.dart` — 1071‑line central orchestrator: connection lifecycle, message routing, pending-message tracking, duplicate detection, chat status
@@ -93,9 +93,9 @@ dart format .              # format all Dart files
 - `twitch_irc_read_service_test.dart` — IRC read service tests
 
 #### test/data/
-- `twitch_eventsub_test.dart` — 20 tests: EventSub routing for all message types (channel.chat.message, channel.channel_points_custom_reward_redemption.add, channel.ban, channel.message_delete, channel.subscribe, channel.subscription.gift, channel.subscription.message, channel.cheer, channel.raid, channel.chat.user_message_hold)
+- `twitch_eventsub_test.dart` — EventSub routing tests for chat messages (channel.chat.message, channel.channel_points_custom_reward_redemption.add, channel.subscribe, channel.subscription.gift, channel.subscription.message, channel.cheer, channel.raid, channel.chat.user_message_hold)
 - `twitch_api_test.dart` — 15 tests: Helix API calls (getUser, createEventSubSubscription, deleteEventSubSubscription, getEventSubSubscriptions, sendChatMessage) with MockClient
-- `twitch_irc_test.dart` — 9 tests: IRC message parsing (PRIVMSG, CLEARCHAT with/without duration, NOTICE, JOIN, PART, PING, WHO)
+- `twitch_irc_test.dart` — IRC message parsing (PRIVMSG, CLEARCHAT with/without duration, CLEARMSG, NOTICE, JOIN, PART, PING, WHO)
 - `recent_messages_test.dart` — 9 tests: Robotty IRC line parsing (TwitchMessage creation, ban/timeout, highlights)
 
 #### test/widgets/

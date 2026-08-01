@@ -35,21 +35,6 @@ class EventSubService {
   final _statusController = StreamController<EventSubStatus>.broadcast(
     sync: true,
   );
-  final _deleteController =
-      StreamController<
-        ({String messageId, String targetUser, String channel})
-      >.broadcast(sync: true);
-  final _banController =
-      StreamController<
-        ({
-          String user,
-          String? reason,
-          bool isTimeout,
-          String? duration,
-          int? durationSeconds,
-          String channel,
-        })
-      >.broadcast(sync: true);
 
   bool get isConnected => _channel != null;
   String? get sessionId => _sessionId;
@@ -58,19 +43,6 @@ class EventSubService {
 
   Stream<TwitchMessage> get onMessage => _messageController.stream;
   Stream<EventSubStatus> get onStatus => _statusController.stream;
-  Stream<({String messageId, String targetUser, String channel})>
-  get onMessageDeleted => _deleteController.stream;
-  Stream<
-    ({
-      String user,
-      String? reason,
-      bool isTimeout,
-      String? duration,
-      int? durationSeconds,
-      String channel,
-    })
-  >
-  get onBan => _banController.stream;
 
   void setChannelMapping(String broadcasterUserId, String channelName) {
     _channelUserIds[broadcasterUserId] = channelName;
@@ -179,7 +151,6 @@ class EventSubService {
   void _handleMessage(Map<String, dynamic> msg) {
     final meta = msg['metadata'] as Map<String, dynamic>;
     final type = meta['message_type'] as String;
-    final subType = meta['subscription_type'] as String?;
 
     switch (type) {
       case 'session_welcome':
@@ -187,14 +158,7 @@ class EventSubService {
       case 'session_keepalive':
         _onKeepalive();
       case 'notification':
-        switch (subType) {
-          case 'channel.chat.message_delete':
-            _onMessageDeleted(msg);
-          case 'channel.ban':
-            _onBan(msg);
-          default:
-            _onNotification(msg);
-        }
+        _onNotification(msg);
       case 'session_reconnect':
         _handleReconnect(msg);
       case 'revocation':
@@ -362,59 +326,6 @@ class EventSubService {
     );
   }
 
-  void _onMessageDeleted(Map<String, dynamic> msg) {
-    final payload = msg['payload'] as Map<String, dynamic>;
-    final event = payload['event'] as Map<String, dynamic>;
-    final channel = _channelFromPayload(msg) ?? '';
-    final messageId = event['message_id'] as String?;
-    final targetUser = event['target_user_name'] as String? ?? 'unknown';
-    if (messageId != null) {
-      _deleteController.add((
-        messageId: messageId,
-        targetUser: targetUser,
-        channel: channel,
-      ));
-    }
-  }
-
-  void _onBan(Map<String, dynamic> msg) {
-    final payload = msg['payload'] as Map<String, dynamic>;
-    final event = payload['event'] as Map<String, dynamic>;
-    final channel = _channelFromPayload(msg) ?? '';
-    final user = event['user_name'] as String? ?? 'unknown';
-    final reason = event['reason'] as String?;
-    // Timeout duration derived from ends_at timestamp (EventSub provides no
-    // seconds field). Duration is approximate due to network delay.
-    final endsAt = event['ends_at'] as String?;
-    final isTimeout = endsAt != null && endsAt.isNotEmpty;
-    String? duration;
-    int? durationSeconds;
-    if (isTimeout) {
-      try {
-        final end = DateTime.parse(endsAt);
-        final diff = end.difference(DateTime.now());
-        durationSeconds = diff.inSeconds;
-        if (diff.inSeconds >= 60) {
-          duration = '${diff.inMinutes}m';
-        } else {
-          duration = '${diff.inSeconds}s';
-        }
-      } catch (_) {
-        debugPrint('[EventSub] failed to parse ban expiry for user=$user');
-        duration = null;
-        durationSeconds = null;
-      }
-    }
-    _banController.add((
-      user: user,
-      reason: reason,
-      isTimeout: isTimeout,
-      duration: duration,
-      durationSeconds: durationSeconds,
-      channel: channel,
-    ));
-  }
-
   void disconnect({bool emitStatus = true}) {
     _reconnecting = false;
     _reconnectTimer?.cancel();
@@ -448,8 +359,6 @@ class EventSubService {
     disconnect();
     _messageController.close();
     _statusController.close();
-    _deleteController.close();
-    _banController.close();
   }
 }
 

@@ -26,17 +26,12 @@ import '../util/thread_utils.dart';
 class _BanMeta {
   final String user;
   final bool isTimeout;
-  bool fromEventSource;
   int stackCount = 1;
   DateTime lastEvent;
   String? firstMessageId;
 
-  _BanMeta({
-    required this.user,
-    required this.isTimeout,
-    required this.fromEventSource,
-    DateTime? lastEvent,
-  }) : lastEvent = lastEvent ?? DateTime.now();
+  _BanMeta({required this.user, required this.isTimeout, DateTime? lastEvent})
+    : lastEvent = lastEvent ?? DateTime.now();
 }
 
 class ChatConnectionConfig {
@@ -188,20 +183,8 @@ class ChatConnectionManager {
 
   StreamSubscription<TwitchMessage>? messageSub;
   StreamSubscription<EventSubStatus>? statusSub;
-  StreamSubscription<({String messageId, String targetUser, String channel})>?
-  deleteSub;
   StreamSubscription<IrcBanEvent>? ircBanSub;
-  StreamSubscription<
-    ({
-      String user,
-      String? reason,
-      bool isTimeout,
-      String? duration,
-      int? durationSeconds,
-      String channel,
-    })
-  >?
-  eventSubBanSub;
+  StreamSubscription<IrcMessageDeletedEvent>? ircDeleteSub;
   StreamSubscription<IrcNoticeEvent>? ircNoticeSub;
   StreamSubscription<IrcNoticeEvent>? ircJtvSub;
   StreamSubscription<IrcMessage>? ircOwnMsgSub;
@@ -258,9 +241,8 @@ class ChatConnectionManager {
     isDisposed = true;
     messageSub?.cancel();
     statusSub?.cancel();
-    deleteSub?.cancel();
-    eventSubBanSub?.cancel();
     ircBanSub?.cancel();
+    ircDeleteSub?.cancel();
     ircNoticeSub?.cancel();
     ircJtvSub?.cancel();
     ircOwnMsgSub?.cancel();
@@ -300,14 +282,12 @@ class ChatConnectionManager {
     );
   }
 
-  // Dual-source (IRC + EventSub) ban dedup within a 10s window.
-  // EventSub overrides IRC when arriving second (resets stackCount to 1);
-  // IRC after EventSub is suppressed to avoid duplicates.
-  ({bool show, int stackCount, _BanMeta? meta}) _processBanInChannel(
+  // IRC-only ban/stack tracking within a 10s window (IRC is the single ban
+  // source since EventSub channel.ban subscriptions were dropped).
+  ({int stackCount, _BanMeta meta}) _processBanInChannel(
     String channel,
     String user,
     bool isTimeout,
-    bool fromEventSource,
   ) {
     final now = DateTime.now();
     final metas = _recentBanMeta.putIfAbsent(channel, () => []);
@@ -322,27 +302,14 @@ class ChatConnectionManager {
     );
 
     if (existing != null) {
-      if (fromEventSource == existing.fromEventSource) {
-        existing.stackCount++;
-        existing.lastEvent = now;
-        return (show: true, stackCount: existing.stackCount, meta: existing);
-      } else if (fromEventSource && !existing.fromEventSource) {
-        existing.fromEventSource = true;
-        existing.lastEvent = now;
-        return (show: true, stackCount: 1, meta: existing);
-      } else {
-        existing.lastEvent = now;
-        return (show: false, stackCount: 0, meta: null);
-      }
+      existing.stackCount++;
+      existing.lastEvent = now;
+      return (stackCount: existing.stackCount, meta: existing);
     }
 
-    final meta = _BanMeta(
-      user: user,
-      isTimeout: isTimeout,
-      fromEventSource: fromEventSource,
-    );
+    final meta = _BanMeta(user: user, isTimeout: isTimeout);
     metas.add(meta);
-    return (show: true, stackCount: 1, meta: meta);
+    return (stackCount: 1, meta: meta);
   }
 
   void _handleBanEvent({
@@ -351,21 +318,13 @@ class ChatConnectionManager {
     required bool isTimeout,
     required String selfDurationStr,
     required String otherDurationStr,
-    required bool fromEventSource,
-    required String sourceName,
   }) {
     debugPrint(
-      '[ChatConn] $sourceName ban received: user=$user channel=$channel isTimeout=$isTimeout',
+      '[ChatConn] IRC ban received: user=$user channel=$channel isTimeout=$isTimeout',
     );
     if (isDisposed) return;
     _markUserMessagesDeleted(channel, user);
-    final result = _processBanInChannel(
-      channel,
-      user,
-      isTimeout,
-      fromEventSource,
-    );
-    if (!result.show) return;
+    final result = _processBanInChannel(channel, user, isTimeout);
     final isSelf = user.toLowerCase() == getCurrentUserLogin()?.toLowerCase();
     final base = isTimeout
         ? (isSelf
@@ -376,16 +335,16 @@ class ChatConnectionManager {
         ? ' (${result.stackCount} times)'
         : '';
     final text = '$base$stacked.';
-    debugPrint('[ChatConn] $sourceName ban system message: $text');
+    debugPrint('[ChatConn] IRC ban system message: $text');
 
     if (result.stackCount > 1) {
-      if (result.meta?.firstMessageId != null) {
-        _updateMessageText(channel, result.meta!.firstMessageId!, text);
+      if (result.meta.firstMessageId != null) {
+        _updateMessageText(channel, result.meta.firstMessageId!, text);
         return;
       }
     }
     onSystemMessage(channel, text);
-    result.meta?.firstMessageId = channelMessages[channel]?.first.messageId;
+    result.meta.firstMessageId = channelMessages[channel]?.first.messageId;
   }
 
   void _updateMessageText(String channel, String messageId, String newText) {
@@ -646,6 +605,9 @@ class ChatConnectionManager {
         .whenComplete(() => _currentUserFetch = null);
   }
 
+  // Only channel.chat.message is subscribed via EventSub — message deletions
+  // and bans come from IRC CLEARMSG/CLEARCHAT instead (no extra scopes,
+  // no extra subscriptions, works on both sockets).
   Future<void> _createEventSubSubscriptions(
     String channelName,
     String channelUserId,
@@ -670,38 +632,11 @@ class ChatConnectionManager {
           broadcasterUserId: channelUserId,
           userId: getCurrentUserId()!,
         );
-        if (ok) {
-          final okDel = await twitchApi.createDeleteSubscription(
-            auth: auth,
-            sessionId: sessionId,
-            broadcasterUserId: channelUserId,
-            userId: getCurrentUserId()!,
-          );
-          if (!okDel) {
-            onSystemMessage(
-              channelName,
-              'Warning: delete subscription failed (${twitchApi.lastError ?? "unknown"})',
-            );
-          }
-          break;
-        }
+        if (ok) break;
         if (attempt == 2) {
           onSystemMessage(
             channelName,
             'Warning: chat subscription failed (${twitchApi.lastError ?? "unknown"})',
-          );
-        }
-      }
-
-      final currentUserId = getCurrentUserId();
-      if (currentUserId != null) {
-        final banSessionId = eventSub.sessionId;
-        if (banSessionId != null) {
-          await twitchApi.createBanSubscription(
-            auth: auth,
-            sessionId: banSessionId,
-            broadcasterUserId: channelUserId,
-            moderatorUserId: currentUserId,
           );
         }
       }
@@ -984,24 +919,22 @@ class ChatConnectionManager {
 
   void _setupSubscriptions() {
     messageSub ??= eventSub.onMessage.listen(onMessage);
-    deleteSub ??= eventSub.onMessageDeleted.listen((event) {
+    ircDeleteSub ??= irc.onMessageDeleted.listen((event) {
       if (isDisposed) return;
       final msgs = channelMessages[event.channel];
       if (msgs == null) return;
-      String? deletedUser;
-      String? deletedText;
+      var found = false;
       for (final msg in msgs) {
         if (msg.messageId == event.messageId && !msg.isSystem) {
           msg.deleted = true;
-          deletedUser = msg.login;
-          deletedText = msg.text;
+          found = true;
           break;
         }
       }
-      if (deletedUser != null && deletedText != null) {
+      if (found) {
         onSystemMessage(
           event.channel,
-          'A message from $deletedUser was deleted saying: "$deletedText".',
+          'A message from ${event.user} was deleted saying: "${event.deletedMessageText}".',
         );
       }
     });
@@ -1017,25 +950,6 @@ class ChatConnectionManager {
         isTimeout: event.isTimeout,
         selfDurationStr: durationStr,
         otherDurationStr: durationStr,
-        fromEventSource: false,
-        sourceName: 'IRC',
-      );
-    });
-
-    eventSubBanSub?.cancel();
-    eventSubBanSub = eventSub.onBan.listen((event) {
-      _handleBanEvent(
-        channel: event.channel,
-        user: event.user,
-        isTimeout: event.isTimeout,
-        selfDurationStr: event.durationSeconds != null
-            ? ' for ${event.durationSeconds}s'
-            : '',
-        otherDurationStr: event.duration != null
-            ? ' for ${event.duration}s'
-            : '',
-        fromEventSource: true,
-        sourceName: 'EventSub',
       );
     });
 
