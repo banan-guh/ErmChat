@@ -25,7 +25,7 @@ class MessageBuilder {
     bool colored = false,
     double textScale = 1.0,
   }) {
-    msg.cachedSpans ??= computeMessageSpans(msg, channel, scale: textScale);
+    msg.cachedSpans ??= _computeMessageSpans(msg, channel, scale: textScale);
     if (colored) {
       return [
         ...msg.cachedSpans!.map((span) {
@@ -47,7 +47,7 @@ class MessageBuilder {
     return msg.cachedSpans!;
   }
 
-  List<InlineSpan> computeMessageSpans(
+  List<InlineSpan> _computeMessageSpans(
     TwitchMessage msg,
     String channel, {
     double scale = 1.0,
@@ -88,8 +88,6 @@ class MessageBuilder {
                     imageUrl: avatarUrl,
                     width: badgeSize,
                     height: badgeSize,
-                    //memCacheWidth: badgeSize.round(),
-                    //memCacheHeight: badgeSize.round(),
                     fit: BoxFit.cover,
                     fadeInDuration: Duration.zero,
                     placeholder: (_, _) =>
@@ -129,8 +127,6 @@ class MessageBuilder {
                   imageUrl: url,
                   width: badgeSize,
                   height: badgeSize,
-                  //memCacheWidth: badgeSize.round(),
-                  //memCacheHeight: badgeSize.round(),
                   fit: BoxFit.contain,
                   fadeInDuration: Duration.zero,
                   placeholder: (_, _) =>

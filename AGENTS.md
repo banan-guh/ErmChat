@@ -21,7 +21,7 @@ dart format .              # format all Dart files
 - `lib/main.dart` - app entrypoint (TwitchChatApp with theme mode, injectable services, foreground task init)
 
 #### Models
-- `lib/models/twitch_message.dart` - chat message data class (reply threading, metadata)
+- `lib/models/twitch_message.dart` - chat message data class (reply threading)
 - `lib/models/generic_emote.dart` - cross-provider emote model (Twitch/BTTV/FFZ/7TV, zero-width, scale, aspectRatio)
 - `lib/models/twitch_badge.dart` - BadgeVersion, BadgeSet, MessageBadge data classes
 
@@ -33,9 +33,9 @@ dart format .              # format all Dart files
 - `lib/services/twitch_auth.dart` - credential holder (client ID + access token), persistence via FlutterSecureStorage; also caches the logged-in `login`/`userId` so cold start skips the Helix user lookup (`setUser`, cleared by `setCredentials`/`clear`)
 - `lib/services/twitch_oauth.dart` - OAuth implicit grant flow (browser-based login, fragment parsing)
 - `lib/services/twitch_api.dart` - Twitch Helix API calls (user lookup, EventSub subscription, chat commands) with injectable `http.Client`
-- `lib/services/twitch_eventsub.dart` - EventSub WebSocket transport, message parsing, keepalive; exposes `handleRawMessage()` and `emitConnected()` for tests
+- `lib/services/twitch_eventsub.dart` - EventSub WebSocket transport, message parsing, keepalive; exposes `handleRawMessage()`, `emitConnected()`, and `waitForSession()` for tests
 - `lib/services/twitch_irc.dart` - IRC WebSocket for send commands; exports `parseIrcMessage`; parses CLEARCHAT (bans/timeouts) and CLEARMSG (message deletion) into `onBan`/`onMessageDeleted` streams - IRC is the single source for these events (no EventSub channel.ban / channel.chat.message_delete subscriptions)
-- `lib/services/twitch_irc_read.dart` - read-only IRC connection for own-message detection and user color updates
+- `lib/services/twitch_irc_read.dart` - read-only IRC connection for own-message detection
 - `lib/services/recent_messages.dart` - recent‑messages.robotty.de client; exports `RecentMessagesService.parseIrcLine`
 - `lib/services/chat_connection_manager.dart` - 1071‑line central orchestrator: connection lifecycle, message routing, pending-message tracking, duplicate detection, chat status
 - `lib/services/base_irc_connection.dart` - shared abstract base for IRC WebSocket connections (reconnect, ping/pong, auth, disposal)
@@ -67,14 +67,14 @@ dart format .              # format all Dart files
 - `lib/widgets/settings.dart` - shared settings button (navigates to settings screen)
 
 #### Utilities
-- `lib/color_utils.dart` - Twitch username color picking, luminance/contrast helpers
+- `lib/color_utils.dart` - Twitch username color picking (`pickColor`, `parseColor`, `normalizeColor`)
 - `lib/twitch_config.dart` - compile‑time Client ID constant
 - `lib/util/text_bypass.dart` - text duplication bypass helpers for anti-duplicate send detection
 
 ### test/
 
 #### test/unit/
-- `color_utils_test.dart` - 21 tests: color picking, luminance, contrast, ensureContrast
+- `color_utils_test.dart` - 18 tests: color picking, luminance, normalizeColor
 - `emote_manager_test.dart` - emote manager state, GenericEmote creation, relativeScale/aspectRatio JSON round-trip
 - `emote_text_test.dart` - text parsing with emotes, segment building, whole-token matching, zero-width overlays
 - `twitch_auth_test.dart` - 6 tests: credential persistence and accessors
@@ -84,7 +84,7 @@ dart format .              # format all Dart files
 - `seven_tv_event_client_test.dart` - 7TV WebSocket protocol tests (hello, emote-set update, reconnect)
 - `suggestion_filter_test.dart` - suggestion filtering/relevance tests
 - `current_word_test.dart` - getCurrentWord edge cases (spaces, punctuation, empty, cursor at bounds)
-- `text_bypass_test.dart` - bypassTextDuplicate and normalizeForReconciliation tests
+- `text_bypass_test.dart` - bypassTextDuplicate tests
 - `command_handler_test.dart` - slash command tests (ban/timeout/unban/delete/clear/announce/shoutout/color, Helix success, IRC fallback on failure, exception handling)
 - `user_store_test.dart` - UserStore add/retrieve/remove/capacity tests
 - `twitch_oauth_test.dart` - OAuth fragment parsing tests
@@ -122,11 +122,11 @@ dart format .              # format all Dart files
 - Standard Flutter `.gitignore` in use
 - `parseIrcMessage` (top-level in `twitch_irc.dart`) and `RecentMessagesService.parseIrcLine` (public static) are exposed for unit testing
 - `TwitchApi` uses `http.Client _client` with `@visibleForTesting set client()` for MockClient injection
-- `EventSubService` exposes `@visibleForTesting void handleRawMessage(Map<String, dynamic>)` and `@visibleForTesting void emitConnected()` for test injection
+- `EventSubService` exposes `@visibleForTesting void handleRawMessage(Map<String, dynamic>)`, `@visibleForTesting void emitConnected()`, and `@visibleForTesting Future<String?> waitForSession()` for test injection
 - `SettingsScreen` accepts optional `OAuthStarter? oAuthStarter` param for mocking OAuth
 - `AccountScreen` accepts optional `TwitchApi? twitchApi` param for mocking the "Connected as {login}" user lookup
-- `TwitchChatApp` accepts optional `EventSubService`, `IrcService`, `IrcReadService`, `RecentMessagesService`, `SevenTvEventClient`, `initialCurrentUserLogin` for injection
-- `HomeScreen` accepts optional `EventSubService`, `IrcService`, `IrcReadService`, `RecentMessagesService`, `SevenTvEventClient`, `initialCurrentUserLogin` for injection
+- `TwitchChatApp` accepts optional `EventSubService`, `IrcService`, `IrcReadService`, `RecentMessagesService`, `initialCurrentUserLogin` for injection
+- `HomeScreen` accepts optional `EventSubService`, `IrcService`, `IrcReadService`, `RecentMessagesService`, `initialCurrentUserLogin` for injection
 - `ChatConnectionManager` orchestrates EventSub, IRC, IRC read, recent messages, emote manager, badge service, and user store - instantiated inside `HomeScreen`
 - `EmoteManager` is a `ChangeNotifier` - subscribe via `addListener`/`ListenableBuilder` for UI updates
 - `SevenTvEventClient` is a standalone WebSocket client (not injected by default in tests)
@@ -139,7 +139,7 @@ When adding or modifying UI, keep patterns consistent across the codebase:
 - **Long-press menus**: Use `InkWell` (not `GestureDetector`) for `onLongPress` handlers on messages. `InkWell` provides `HitTestBehavior.opaque` by default, which works correctly inside `ListView.builder`. `GestureDetector` defaults to `deferToChild` and can silently fail in scrollable contexts.
 - **Message rendering**: The main chat (`_buildChat`) and thread panel (`ThreadPanelWidget`) are separate code paths. When adding message features (long-press menus, tap handlers, layout), apply the same pattern to both.
 - **Test coverage**: When fixing a gesture or interaction bug, add a test that reproduces the exact gesture (e.g., `tester.longPress`) in the affected context (e.g., inside the thread panel, not just the main chat).
-- **Emote providers**: Each provider (`emote_providers/*`) implements static `fetchGlobal()` and `fetchChannel(channelId)` returning `List<GenericEmote>`. Priority order for dedup: 7TV > BTTV > FFZ > Twitch.
+- **Emote providers**: Each provider (`emote_providers/*`) implements static `fetchGlobal()` and `fetchChannel(channelId)` returning `List<GenericEmote>` (exception: 7TV exposes `fetchChannelResponse` since it needs the emote-set ID; `fetchChannel` is omitted there). Priority order for dedup: 7TV > BTTV > FFZ > Twitch.
 - **Autocomplete**: `Suggestion` is a sealed class with `EmoteSuggestion` and `UserSuggestion` subtypes. Use `getCurrentWord`/`replaceCurrentWord` from `suggestion.dart`.
 - **NO em-dashes on new additions**: self-explanatory. Refrain from non-ASCII when writing code unless strictly necessary.
 

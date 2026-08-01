@@ -83,20 +83,6 @@ void main() {
     });
   });
 
-  group('contrast', () {
-    test('same color has contrast 1', () {
-      expect(contrast(Colors.black, Colors.black), closeTo(1, 0.001));
-    });
-
-    test('black on white has contrast ~21', () {
-      expect(contrast(Colors.black, Colors.white), closeTo(21, 0.5));
-    });
-
-    test('white on black has contrast ~21', () {
-      expect(contrast(Colors.white, Colors.black), closeTo(21, 0.5));
-    });
-  });
-
   group('normalizeColor', () {
     test('darkens yellow on light background', () {
       const yellow = Color(0xFFFFFF00);

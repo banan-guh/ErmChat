@@ -128,7 +128,6 @@ class MessageInput extends StatelessWidget {
                 ),
               ),
             ),
-            onChanged: (_) {},
           ),
         ],
       ),

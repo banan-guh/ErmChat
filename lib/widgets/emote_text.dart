@@ -8,11 +8,11 @@ import '../models/generic_emote.dart';
 import '../models/twitch_message.dart';
 import '../services/emote_manager.dart';
 
-class EmoteSpanData {
+class _EmoteSpanData {
   final GenericEmote base;
   final List<GenericEmote> overlays;
 
-  const EmoteSpanData({required this.base, this.overlays = const []});
+  const _EmoteSpanData({required this.base, this.overlays = const []});
 }
 
 class EmoteText {
@@ -58,7 +58,7 @@ class EmoteText {
       return parseTextWithLinks(text);
     }
 
-    EmoteSpanData? currentBase;
+    _EmoteSpanData? currentBase;
     int? currentBaseEnd;
     String? pendingSpace;
 
@@ -94,7 +94,7 @@ class EmoteText {
         if (seg.emote.isZeroWidth) {
           if (currentBase != null && currentBaseEnd == seg.startIndex) {
             pendingSpace = null;
-            currentBase = EmoteSpanData(
+            currentBase = _EmoteSpanData(
               base: currentBase!.base,
               overlays: [...currentBase!.overlays, seg.emote],
             );
@@ -103,7 +103,7 @@ class EmoteText {
               pendingSpace != null &&
               currentBaseEnd == seg.startIndex - pendingSpace!.length) {
             pendingSpace = null;
-            currentBase = EmoteSpanData(
+            currentBase = _EmoteSpanData(
               base: currentBase!.base,
               overlays: [...currentBase!.overlays, seg.emote],
             );
@@ -114,7 +114,7 @@ class EmoteText {
               spans.addAll(parseTextWithLinks(pendingSpace!));
               pendingSpace = null;
             }
-            currentBase = EmoteSpanData(base: seg.emote);
+            currentBase = _EmoteSpanData(base: seg.emote);
             currentBaseEnd = seg.endIndex;
           }
         } else {
@@ -123,7 +123,7 @@ class EmoteText {
             spans.addAll(parseTextWithLinks(pendingSpace!));
             pendingSpace = null;
           }
-          currentBase = EmoteSpanData(base: seg.emote);
+          currentBase = _EmoteSpanData(base: seg.emote);
           currentBaseEnd = seg.endIndex;
         }
       }
@@ -249,7 +249,7 @@ class EmoteText {
   // Compute bounding box across all overlays, center each image within it.
   // Larger overlays extend beyond the base emote. Clip.none allows overflow.
   static WidgetSpan _buildEmoteSpan(
-    EmoteSpanData data, {
+    _EmoteSpanData data, {
     void Function(List<GenericEmote>)? onEmoteTap,
     double scale = 1.0,
   }) {
@@ -302,28 +302,17 @@ class EmoteText {
   }
 }
 
-abstract class _Segment {
-  int get startIndex;
-  int get endIndex;
-}
+abstract class _Segment {}
 
 class TextSegment implements _Segment {
   final String text;
-
-  @override
-  int get startIndex => 0;
-
-  @override
-  int get endIndex => 0;
 
   const TextSegment({required this.text});
 }
 
 class EmoteSegment implements _Segment {
   final GenericEmote emote;
-  @override
   final int startIndex;
-  @override
   final int endIndex;
 
   const EmoteSegment({

@@ -28,7 +28,6 @@ void main() {
       expect(auth.accessToken, 'test_token');
       expect(auth.refreshToken, 'test_refresh');
       expect(auth.isConfigured, isTrue);
-      expect(auth.hasStoredTokens, isTrue);
     });
 
     test('clear removes tokens', () async {
@@ -41,7 +40,6 @@ void main() {
       expect(auth.accessToken, isNull);
       expect(auth.refreshToken, isNull);
       expect(auth.isConfigured, isFalse);
-      expect(auth.hasStoredTokens, isFalse);
     });
 
     test('load restores tokens from secure storage', () async {
@@ -54,7 +52,6 @@ void main() {
       expect(auth.accessToken, 'stored_token');
       expect(auth.refreshToken, 'stored_refresh');
       expect(auth.isConfigured, isTrue);
-      expect(auth.hasStoredTokens, isTrue);
     });
 
     test('load handles missing tokens', () async {

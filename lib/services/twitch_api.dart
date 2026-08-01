@@ -42,25 +42,6 @@ class TwitchApi {
     }
   }
 
-  Future<String?> getUserLoginById(TwitchAuth auth, String userId) async {
-    _lastError = null;
-    final uri = Uri.parse('$_base/users?id=$userId');
-    final res = await _client.get(uri, headers: _headers(auth));
-    if (res.statusCode != 200) {
-      _setError('getUserLoginById', res);
-      return null;
-    }
-    try {
-      final data = jsonDecode(res.body) as Map;
-      final list = data['data'] as List;
-      if (list.isEmpty) return null;
-      return list[0]['login'] as String;
-    } catch (e) {
-      _setError('getUserLoginById: bad response');
-      return null;
-    }
-  }
-
   Future<Map<String, String>> getUserLoginsByIds(
     TwitchAuth auth,
     List<String> userIds,

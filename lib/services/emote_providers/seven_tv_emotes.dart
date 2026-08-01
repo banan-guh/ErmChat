@@ -43,11 +43,6 @@ class SevenTvEmoteProvider {
     );
   }
 
-  static Future<List<GenericEmote>> fetchChannel(String channelId) async {
-    final resp = await fetchChannelResponse(channelId);
-    return resp.emotes;
-  }
-
   static GenericEmote? parseSingleEmote(
     Map<String, dynamic> item, {
     bool channel = false,

@@ -57,7 +57,6 @@ class ChatConnectionConfig {
     required this.channelUserIds,
     required this.lastTypedText,
     required this.lastSentWireText,
-    required this.ownMessageIds,
     required this.bumpChannel,
     required this.invalidateChannel,
     required this.mentionsChannel,
@@ -104,7 +103,6 @@ class ChatConnectionConfig {
   final Map<String, String> channelUserIds;
   final Map<String, String> lastTypedText;
   final Map<String, String> lastSentWireText;
-  final Set<String> ownMessageIds;
   final void Function(String channel) bumpChannel;
   final void Function(String channel) invalidateChannel;
   final String mentionsChannel;
@@ -152,7 +150,6 @@ class ChatConnectionManager {
   final Map<String, String> channelUserIds;
   final Map<String, String> lastTypedText;
   final Map<String, String> lastSentWireText;
-  final Set<String> ownMessageIds;
   final void Function(String channel) bumpChannel;
   final void Function(String channel) invalidateChannel;
   final String mentionsChannel;
@@ -179,8 +176,8 @@ class ChatConnectionManager {
   final bool Function(String login)? isBlocked;
 
   EventSubStatus connectionStatus = EventSubStatus.disconnected;
-  bool wasConnected = false;
-  bool wasDisconnected = false;
+  bool _wasConnected = false;
+  bool _wasDisconnected = false;
   DateTime? _lastSubscribeAll;
   bool userTwitchEmotesLoaded = false;
   final _connectedAcked = <String>{};
@@ -200,7 +197,6 @@ class ChatConnectionManager {
   StreamSubscription<SevenTvEmoteUpdateEvent>? sevenTvEmoteSub;
   StreamSubscription<SevenTvUserUpdate>? sevenTvUserSub;
   StreamSubscription<IrcConnectionStatus>? ircStatusSub;
-  StreamSubscription<IrcConnectionStatus>? ircReadStatusSub;
   final _httpClient = http.Client();
 
   ChatConnectionManager(ChatConnectionConfig config)
@@ -225,7 +221,6 @@ class ChatConnectionManager {
       channelUserIds = config.channelUserIds,
       lastTypedText = config.lastTypedText,
       lastSentWireText = config.lastSentWireText,
-      ownMessageIds = config.ownMessageIds,
       bumpChannel = config.bumpChannel,
       invalidateChannel = config.invalidateChannel,
       mentionsChannel = config.mentionsChannel,
@@ -262,7 +257,6 @@ class ChatConnectionManager {
     sevenTvEmoteSub?.cancel();
     sevenTvUserSub?.cancel();
     ircStatusSub?.cancel();
-    ircReadStatusSub?.cancel();
     _httpClient.close();
     for (final t in _chatStatusTimers.values) {
       t.cancel();
@@ -852,10 +846,10 @@ class ChatConnectionManager {
         // The 500ms settle delay only applies on reconnect — status=connected
         // fires on session_welcome, so the session is already stable on the
         // very first connect.
-        if (status == EventSubStatus.connected && !wasConnected) {
-          final isReconnect = wasDisconnected;
-          wasConnected = true;
-          wasDisconnected = false;
+        if (status == EventSubStatus.connected && !_wasConnected) {
+          final isReconnect = _wasDisconnected;
+          _wasConnected = true;
+          _wasDisconnected = false;
           // Re-fetch history after a reconnect (not on first connect) so
           // messages missed while disconnected are recovered. Fires before
           // the 30s throttle so reconnect flapping still re-fetches; the
@@ -892,9 +886,9 @@ class ChatConnectionManager {
             );
           }
         }
-        if (status == EventSubStatus.disconnected && !wasDisconnected) {
-          wasDisconnected = true;
-          wasConnected = false;
+        if (status == EventSubStatus.disconnected && !_wasDisconnected) {
+          _wasDisconnected = true;
+          _wasConnected = false;
           _connectedAcked.clear();
           _lastSubscribeAll = null;
           for (final channel in channels) {
@@ -945,11 +939,6 @@ class ChatConnectionManager {
           }
         });
 
-        ircReadStatusSub?.cancel();
-        ircReadStatusSub = ircRead.onStatus.listen((status) {
-          if (isDisposed) return;
-        });
-
         try {
           await Future.wait([
             irc.connect(
@@ -961,7 +950,9 @@ class ChatConnectionManager {
               accessToken: auth.accessToken!,
             ),
           ]);
-        } catch (_) {}
+        } catch (e) {
+          debugPrint('IRC connect failed: $e');
+        }
       }
 
       await eventSubFuture;

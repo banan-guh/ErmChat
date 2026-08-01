@@ -35,12 +35,6 @@ void main() {
       service.onOwnMessage.listen(events.add);
       expect(events, isEmpty);
     });
-
-    test('onUserColor stream can be listened to', () {
-      final colors = <String>[];
-      service.onUserColor.listen(colors.add);
-      expect(colors, isEmpty);
-    });
   });
 
   group('dispose', () {

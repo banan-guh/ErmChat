@@ -9,7 +9,6 @@ class TwitchBadgeService {
   final _globalBadges = <String, BadgeSet>{};
   final _channelBadges = <String, Map<String, BadgeSet>>{};
   final _channelAvatars = <String, String>{};
-  final _channelNames = <String, String>{};
 
   bool _globalFetched = false;
 
@@ -67,10 +66,6 @@ class TwitchBadgeService {
     return _channelAvatars[broadcasterId];
   }
 
-  String? resolveChannelName(String broadcasterId) {
-    return _channelNames[broadcasterId];
-  }
-
   Future<void> fetchChannelAvatar(TwitchAuth auth, String broadcasterId) async {
     if (_channelAvatars.containsKey(broadcasterId)) return;
     try {
@@ -88,9 +83,7 @@ class TwitchBadgeService {
       if (list == null || list.isEmpty) return;
       final user = list[0] as Map<String, dynamic>;
       final avatarUrl = user['profile_image_url'] as String?;
-      final displayName = user['display_name'] as String?;
       if (avatarUrl != null) _channelAvatars[broadcasterId] = avatarUrl;
-      if (displayName != null) _channelNames[broadcasterId] = displayName;
     } catch (e) {
       debugPrint('Channel avatar fetch error: $e');
     }
@@ -100,7 +93,6 @@ class TwitchBadgeService {
     _globalBadges.clear();
     _channelBadges.clear();
     _channelAvatars.clear();
-    _channelNames.clear();
     _globalFetched = false;
   }
 
@@ -130,17 +122,16 @@ class TwitchBadgeService {
         for (final v in versionsList) {
           final vMap = v as Map<String, dynamic>;
           final id = vMap['id'] as String?;
-          final title = vMap['title'] as String? ?? '';
           final imageUrl =
               (vMap['image_url_4x'] ??
                       vMap['image_url_2x'] ??
                       vMap['image_url_1x'])
                   as String?;
           if (id == null || imageUrl == null) continue;
-          versions[id] = BadgeVersion(id: id, title: title, imageUrl: imageUrl);
+          versions[id] = BadgeVersion(imageUrl: imageUrl);
         }
         if (versions.isNotEmpty) {
-          sets[setId] = BadgeSet(setId: setId, versions: versions);
+          sets[setId] = BadgeSet(versions: versions);
         }
       }
       return sets;

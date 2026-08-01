@@ -33,10 +33,8 @@ abstract class BaseIrcConnection {
   final _statusController = StreamController<IrcConnectionStatus>.broadcast(
     sync: true,
   );
-  IrcConnectionStatus _status = IrcConnectionStatus.disconnected;
 
   Stream<IrcConnectionStatus> get onStatus => _statusController.stream;
-  IrcConnectionStatus get status => _status;
   bool get isConnected => channel != null;
 
   String get debugPrefix;
@@ -60,7 +58,6 @@ abstract class BaseIrcConnection {
         debugPrint('[$debugPrefix] already connected, skipping reconnect');
         return;
       }
-      _status = IrcConnectionStatus.connecting;
       _statusController.add(IrcConnectionStatus.connecting);
       _connectivitySub?.cancel();
       final conn = connectivity;
@@ -85,7 +82,6 @@ abstract class BaseIrcConnection {
           (raw) => _handleLine(raw as String),
           onError: (e) {
             debugPrint('$debugPrefix stream error: $e');
-            _status = IrcConnectionStatus.disconnected;
             _statusController.add(IrcConnectionStatus.disconnected);
             _disconnect();
             _scheduleReconnect();
@@ -96,7 +92,6 @@ abstract class BaseIrcConnection {
               '(code: ${channel?.closeCode}, '
               'reason: ${channel?.closeReason})',
             );
-            _status = IrcConnectionStatus.disconnected;
             _statusController.add(IrcConnectionStatus.disconnected);
             _disconnect();
             _scheduleReconnect();
@@ -115,7 +110,6 @@ abstract class BaseIrcConnection {
           sendLine('JOIN #$channel');
         }
 
-        _status = IrcConnectionStatus.connected;
         _statusController.add(IrcConnectionStatus.connected);
 
         // Twitch IRC keepalive: PING every 300s (Twitch's recommendation).
@@ -126,7 +120,6 @@ abstract class BaseIrcConnection {
           if (channel == null) return;
           if (_awaitingPong) {
             debugPrint('$debugPrefix PONG timeout – reconnecting');
-            _status = IrcConnectionStatus.disconnected;
             _statusController.add(IrcConnectionStatus.disconnected);
             _disconnect();
             _scheduleReconnect();
@@ -137,7 +130,6 @@ abstract class BaseIrcConnection {
         });
       } catch (e) {
         debugPrint('$debugPrefix connect error: $e');
-        _status = IrcConnectionStatus.disconnected;
         _statusController.add(IrcConnectionStatus.disconnected);
         _scheduleReconnect();
       }

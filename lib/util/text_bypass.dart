@@ -11,10 +11,3 @@ String bypassTextDuplicate(String text) {
   }
   return '$text $_invisibleChar';
 }
-
-String normalizeForReconciliation(String text) {
-  return text
-      .replaceAll(_invisibleChar, '')
-      .replaceAll(RegExp(r' {2,}'), ' ')
-      .trimRight();
-}

@@ -7,7 +7,6 @@ import '../widgets/tabbed_layout.dart';
 class EmoteMenuPanelWidget extends StatefulWidget {
   final ScrollController scrollController;
   final bool isActive;
-  final double uiScale;
   final String? selectedChannel;
   final void Function(GenericEmote) onEmoteSelected;
   final VoidCallback onClose;
@@ -20,7 +19,6 @@ class EmoteMenuPanelWidget extends StatefulWidget {
     required this.scrollController,
     required this.isActive,
     required this.sheetCtrl,
-    required this.uiScale,
     required this.selectedChannel,
     required this.onEmoteSelected,
     required this.onClose,

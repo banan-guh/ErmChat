@@ -43,12 +43,6 @@ double luminance(Color c) {
   return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 }
 
-double contrast(Color a, Color b) {
-  final l1 = luminance(a);
-  final l2 = luminance(b);
-  return (max(l1, l2) + 0.05) / (min(l1, l2) + 0.05);
-}
-
 Color normalizeColor(Color color, Color background) {
   final hsl = HSLColor.fromColor(color);
   final hue = hsl.hue;

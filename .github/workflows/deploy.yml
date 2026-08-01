@@ -2,10 +2,8 @@ name: Deploy to GitHub Pages
 
 on:
   push:
-    branches: [main]
-    paths:
-      - 'index.html'
-      - '.github/workflows/deploy.yml'
+    tags:
+      - 'v*'
   workflow_dispatch:
 
 permissions:
@@ -33,7 +31,7 @@ jobs:
       - name: Upload site artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: 'index.html'
+          path: '.'
 
       - name: Deploy to GitHub Pages
         id: deployment

@@ -8,7 +8,6 @@ class ChatMessageTile extends StatefulWidget {
   final String channel;
   final Color surface;
   final double textScale;
-  final String? timestampOverride;
   final List<WidgetSpan> Function(
     String channel,
     TwitchMessage msg, {
@@ -28,7 +27,6 @@ class ChatMessageTile extends StatefulWidget {
   final void Function(String login, String? userId)? onTapUser;
   final VoidCallback? onLongPress;
   final Widget? replyIndicator;
-  final bool showHighlight;
 
   const ChatMessageTile({
     super.key,
@@ -36,14 +34,12 @@ class ChatMessageTile extends StatefulWidget {
     required this.channel,
     required this.surface,
     required this.textScale,
-    this.timestampOverride,
     required this.buildBadgeSpans,
     required this.buildMessageSpans,
     this.systemBodyBuilder,
     this.onTapUser,
     this.onLongPress,
     this.replyIndicator,
-    this.showHighlight = true,
   });
 
   @override
@@ -89,7 +85,7 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
     final theme = Theme.of(context);
     final msg = widget.message;
     final s = widget.textScale;
-    final ts = widget.timestampOverride ?? msg.formattedTimestamp;
+    final ts = msg.formattedTimestamp;
 
     final List<InlineSpan> children;
     final String semanticsLabel;
@@ -154,7 +150,7 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
           ? 'Mention: $ts ${msg.formattedUsername}: ${msg.text}'
           : '$ts ${msg.formattedUsername}: ${msg.text}';
       deleted = msg.deleted;
-      highlighted = widget.showHighlight && msg.isHighlighted;
+      highlighted = msg.isHighlighted;
     }
 
     final tsStyle = TextStyle(

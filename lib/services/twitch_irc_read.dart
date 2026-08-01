@@ -4,10 +4,8 @@ import 'base_irc_connection.dart';
 
 class IrcReadService extends BaseIrcConnection {
   final _ownMessageController = StreamController<IrcMessage>.broadcast();
-  final _userColorController = StreamController<String>.broadcast();
 
   Stream<IrcMessage> get onOwnMessage => _ownMessageController.stream;
-  Stream<String> get onUserColor => _userColorController.stream;
 
   @override
   String get debugPrefix => 'IRC read';
@@ -16,19 +14,6 @@ class IrcReadService extends BaseIrcConnection {
 
   @override
   void dispatchLine(String line) {
-    if (line.contains('GLOBALUSERSTATE') || line.contains('USERSTATE')) {
-      final msg = parseIrcMessage(line);
-      if (msg != null) {
-        final color = msg.tags['color'];
-        if (color != null && color.isNotEmpty) {
-          _userColorController.add(color);
-        }
-      }
-      return;
-    }
-
-    // Own-message detection via IRC prefix (user@user.host). username was
-    // lowercased at connect time so comparison is case-insensitive by design.
     if (line.contains('PRIVMSG ') && username != null) {
       final msg = parseIrcMessage(line);
       if (msg != null && msg.command == 'PRIVMSG' && msg.prefix != null) {
@@ -45,7 +30,6 @@ class IrcReadService extends BaseIrcConnection {
   @override
   void dispose() {
     _ownMessageController.close();
-    _userColorController.close();
     super.dispose();
   }
 }

@@ -4,14 +4,9 @@ import '../models/twitch_message.dart';
 import '../widgets/chat_message_tile.dart';
 
 class ThreadPanelData {
-  final TwitchMessage root;
   final List<TwitchMessage> messages;
   final String channel;
-  ThreadPanelData({
-    required this.root,
-    required this.messages,
-    required this.channel,
-  });
+  ThreadPanelData({required this.messages, required this.channel});
 }
 
 class ThreadPanelWidget extends StatefulWidget {

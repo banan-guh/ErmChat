@@ -71,37 +71,4 @@ void main() {
       expect(result, '  ');
     });
   });
-
-  group('normalizeForReconciliation', () {
-    test('strips invisible char and trailing space', () {
-      final result = normalizeForReconciliation('hello $_invisibleChar');
-      expect(result, 'hello');
-      expect(result.endsWith(' '), false);
-    });
-
-    test('collapses doubled spaces to single space', () {
-      final result = normalizeForReconciliation('hello  world');
-      expect(result, 'hello world');
-    });
-
-    test('collapses multiple spaces to single space', () {
-      final result = normalizeForReconciliation('hello   world');
-      expect(result, 'hello world');
-    });
-
-    test('leaves normal text unchanged', () {
-      final result = normalizeForReconciliation('hello world');
-      expect(result, 'hello world');
-    });
-
-    test('handles empty string', () {
-      final result = normalizeForReconciliation('');
-      expect(result, '');
-    });
-
-    test('handles text with only invisible char', () {
-      final result = normalizeForReconciliation(_invisibleChar);
-      expect(result, '');
-    });
-  });
 }

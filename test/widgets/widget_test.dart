@@ -17,7 +17,6 @@ import 'package:ermchat/services/twitch_irc.dart';
 import 'package:ermchat/services/recent_messages.dart';
 import 'package:ermchat/services/twitch_auth.dart';
 import 'package:ermchat/models/twitch_message.dart';
-import 'package:ermchat/services/twitch_irc_read.dart';
 import 'package:ermchat/services/suggestion.dart';
 import 'package:ermchat/widgets/autocomplete_dropdown.dart';
 
@@ -142,33 +141,6 @@ class _FakeIrcService extends IrcService {
     _deleteCtrl.close();
     super.dispose();
   }
-}
-
-class _FakeIrcReadService extends IrcReadService {
-  final _colorCtrl = StreamController<String>.broadcast(sync: true);
-
-  @override
-  Stream<String> get onUserColor => _colorCtrl.stream;
-
-  @override
-  Future<void> connect({
-    required String username,
-    required String accessToken,
-  }) async {}
-
-  @override
-  void join(String channel) {}
-
-  @override
-  void part(String channel) {}
-
-  @override
-  void dispose() {
-    _colorCtrl.close();
-    super.dispose();
-  }
-
-  void emitColor(String color) => _colorCtrl.add(color);
 }
 
 class _ConfigurableRecentMessagesService extends RecentMessagesService {
@@ -1653,58 +1625,6 @@ void main() {
       );
       expect(opacityWidgets.any((o) => o.opacity == 0.35), isTrue);
     });
-  });
-
-  testWidgets('color change updates own messages without crashing', (
-    WidgetTester tester,
-  ) async {
-    SharedPreferences.setMockInitialValues({'access_token': 'test_token'});
-    FlutterSecureStorage.setMockInitialValues({'access_token': 'test_token'});
-    final eventSub = _FakeEventSubService();
-    final irc = _FakeIrcService();
-    final ircRead = _FakeIrcReadService();
-    final recent = _ConfigurableRecentMessagesService([
-      TwitchMessage(
-        login: 'testuser',
-        text: 'hello from me',
-        channel: 'testchannel',
-        messageId: 'own-1',
-        color: '#FF0000',
-      ),
-      TwitchMessage(
-        login: 'otheruser',
-        text: 'hello from other',
-        channel: 'testchannel',
-        messageId: 'other-1',
-        color: '#00FF00',
-      ),
-    ]);
-
-    await tester.pumpWidget(
-      TwitchChatApp(
-        eventSubService: eventSub,
-        ircService: irc,
-        ircReadService: ircRead,
-        recentMessagesService: recent,
-        initialCurrentUserLogin: 'testuser',
-      ),
-    );
-    await tester.pump();
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField).last, 'testchannel');
-    await tester.tap(find.text('Join'));
-    await tester.pump();
-    await tester.pump();
-
-    expect(find.textContaining('testuser:'), findsOneWidget);
-    expect(find.textContaining('hello from me'), findsOneWidget);
-
-    ircRead.emitColor('#0000FF');
-    await tester.pump();
-
-    expect(find.textContaining('testuser:'), findsOneWidget);
-    expect(find.textContaining('hello from me'), findsOneWidget);
   });
 
   group('Settings screen', () {

@@ -48,14 +48,12 @@ class EmoteManager extends ChangeNotifier {
   ChannelEmotes? _globalCache;
   final _channelCaches = <String, ChannelEmotes>{};
   final _channelFetchTimes = <String, DateTime>{};
-  final _lastErrors = <String, String>{};
   final _channelTwitchEmotes = <String, List<GenericEmote>>{};
   final _sevenTvEmoteSetIds = <String, String>{};
   final _sevenTvUserIds = <String, String>{};
   String? _accessToken;
   final _mergedCache = <String, ChannelEmotes?>{};
   String? _changedChannel;
-  final recentNotifier = ChangeNotifier();
 
   void _notify([String? channel]) {
     _changedChannel = channel;
@@ -78,11 +76,6 @@ class EmoteManager extends ChangeNotifier {
 
   set accessToken(String? value) => _accessToken = value;
 
-  String? get fetchError {
-    if (_lastErrors.isEmpty) return null;
-    return _lastErrors.entries.map((e) => '${e.key}: ${e.value}').join('; ');
-  }
-
   // Three-way merge: channel-only, global-only, or global+channel with channel
   // overriding. Result cached in _mergedCache, invalidated on any notify().
   ChannelEmotes? byCode(String channel) {
@@ -104,21 +97,12 @@ class EmoteManager extends ChangeNotifier {
     return result;
   }
 
-  List<String> get joinedChannels => _channelCaches.keys.toList()..sort();
-
   List<GenericEmote> globalEmotes() => _globalCache?.suggestions ?? [];
 
   List<GenericEmote> channelNonTwitchEmotes(String channel) {
     final cached = _channelCaches[channel];
     if (cached == null) return [];
     return cached.suggestions.where((e) => e.type != EmoteType.twitch).toList()
-      ..sort((a, b) => a.code.compareTo(b.code));
-  }
-
-  List<GenericEmote> channelEmotes(String channel) {
-    final cached = _channelCaches[channel];
-    if (cached == null) return [];
-    return cached.suggestions.toList()
       ..sort((a, b) => a.code.compareTo(b.code));
   }
 
@@ -195,7 +179,6 @@ class EmoteManager extends ChangeNotifier {
       _recentIds = _recentIds.sublist(0, _maxRecent);
     }
     await _saveRecent();
-    recentNotifier.notifyListeners();
   }
 
   Future<List<GenericEmote>> recentEmotes() async {
@@ -258,7 +241,6 @@ class EmoteManager extends ChangeNotifier {
   }
 
   Future<void> resolveEmotes(String channel, String? broadcasterId) async {
-    _lastErrors.clear();
     final ttl = await _effectiveTtl();
     final loaded = await _loadFromPrefs(
       'emotes2_$channel',
@@ -554,7 +536,6 @@ class EmoteManager extends ChangeNotifier {
   }
 
   Future<List<GenericEmote>> _fetchAllGlobal() async {
-    _lastErrors.clear();
     final all = <GenericEmote>[];
     final providers = <String, Future<List<GenericEmote>> Function()>{
       'Twitch': () =>
@@ -615,7 +596,6 @@ class EmoteManager extends ChangeNotifier {
           } catch (e) {
             final msg = e.toString();
             debugPrint('EmoteManager: ${entry.key} failed: $msg');
-            _lastErrors[entry.key] = msg;
           }
         }),
       );
@@ -713,16 +693,6 @@ class EmoteManager extends ChangeNotifier {
     } catch (_) {
       debugPrint('[EmoteManager] failed to precache emote: ${emote.code}');
     }
-  }
-
-  @override
-  void dispose() {
-    _globalCache = null;
-    _channelCaches.clear();
-    _channelFetchTimes.clear();
-    _channelTwitchEmotes.clear();
-    _mergedCache.clear();
-    super.dispose();
   }
 }
 

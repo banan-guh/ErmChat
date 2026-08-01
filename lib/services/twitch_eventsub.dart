@@ -61,6 +61,7 @@ class EventSubService {
     }
   }
 
+  @visibleForTesting
   Future<String?> waitForSession() {
     if (_sessionId != null) return Future.value(_sessionId);
     return _sessionCompleter.future;
@@ -155,8 +156,6 @@ class EventSubService {
     switch (type) {
       case 'session_welcome':
         _onWelcome(msg);
-      case 'session_keepalive':
-        _onKeepalive();
       case 'notification':
         _onNotification(msg);
       case 'session_reconnect':
@@ -178,8 +177,6 @@ class EventSubService {
     _statusController.add(EventSubStatus.connected);
     _reconnectAttempt = 0;
   }
-
-  void _onKeepalive() {}
 
   void _handleReconnect(Map<String, dynamic> msg) {
     try {

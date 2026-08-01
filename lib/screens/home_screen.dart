@@ -48,7 +48,6 @@ class HomeScreen extends StatefulWidget {
   final IrcService? ircService;
   final IrcReadService? ircReadService;
   final RecentMessagesService? recentMessagesService;
-  final SevenTvEventClient? sevenTvEventClient;
   final String? initialCurrentUserLogin;
 
   const HomeScreen({
@@ -61,7 +60,6 @@ class HomeScreen extends StatefulWidget {
     this.ircService,
     this.ircReadService,
     this.recentMessagesService,
-    this.sevenTvEventClient,
     this.initialCurrentUserLogin,
   });
 
@@ -85,9 +83,7 @@ class _HomeScreenState extends State<HomeScreen>
       widget.ircReadService ?? IrcReadService(connectivity: _connectivity);
   late final _recentMessages =
       widget.recentMessagesService ?? RecentMessagesService();
-  late final _sevenTvClient =
-      widget.sevenTvEventClient ??
-      SevenTvEventClient(connectivity: _connectivity);
+  late final _sevenTvClient = SevenTvEventClient(connectivity: _connectivity);
   late final _twitchApi = TwitchApi();
   late final _chatConn = ChatConnectionManager(
     ChatConnectionConfig(
@@ -112,7 +108,6 @@ class _HomeScreenState extends State<HomeScreen>
       channelUserIds: _channelUserIds,
       lastTypedText: _lastTypedText,
       lastSentWireText: _lastSentWireText,
-      ownMessageIds: _ownMessageIds,
       bumpChannel: _notifyNewMessage,
       invalidateChannel: _bumpChannel,
       mentionsChannel: _mentionsChannel,
@@ -181,7 +176,6 @@ class _HomeScreenState extends State<HomeScreen>
   final _messageNotifiers = <String, ValueNotifier<int>>{};
   final _tileCache = <String, Map<String?, Widget>>{};
   final _mentionsBump = ValueNotifier(0);
-  final _statusBump = ValueNotifier(0);
   String? _selectedChannel;
   final _channelMessages = <String, List<TwitchMessage>>{};
   final _blockedLogins = <String>{};
@@ -227,8 +221,6 @@ class _HomeScreenState extends State<HomeScreen>
   double? _emoteSheetBoxHeight;
   final _threadPanelData = ValueNotifier<ThreadPanelData?>(null);
   final _mentionsPanelData = ValueNotifier<List<TwitchMessage>?>(null);
-
-  final _ownMessageIds = <String>{};
 
   String? _currentUserLogin;
   bool _mentionScanDone = false;
@@ -737,7 +729,6 @@ class _HomeScreenState extends State<HomeScreen>
     if (_activePanel == OverlayPanel.thread && _openThreadRoot != null) {
       final channel = _openThreadRoot!.channel!;
       _threadPanelData.value = ThreadPanelData(
-        root: _openThreadRoot!,
         messages: _computeThreadMessages(),
         channel: channel,
       );
@@ -889,7 +880,6 @@ class _HomeScreenState extends State<HomeScreen>
     }
     _tileCache.clear();
     _mentionsBump.dispose();
-    _statusBump.dispose();
     _notificationTapSub?.cancel();
     _notificationService.dispose();
     super.dispose();
@@ -1306,7 +1296,6 @@ class _HomeScreenState extends State<HomeScreen>
       _openThreadRoot = rootMsg;
     });
     _threadPanelData.value = ThreadPanelData(
-      root: rootMsg,
       messages: _computeThreadMessages(),
       channel: channel,
     );
@@ -1460,7 +1449,7 @@ class _HomeScreenState extends State<HomeScreen>
       child: Container(
         width: double.infinity,
         color: Colors.transparent,
-        padding: const EdgeInsets.only(bottom: 50, top: 10), // (vertical: 20),
+        padding: const EdgeInsets.only(bottom: 50, top: 10),
         child: Align(
           alignment: Alignment.topCenter,
           child: Container(
@@ -2140,7 +2129,6 @@ class _HomeScreenState extends State<HomeScreen>
                                           isActive:
                                               _activePanel ==
                                               OverlayPanel.emotes,
-                                          uiScale: 1.0,
                                           selectedChannel: _selectedChannel,
                                           onEmoteSelected: _onEmoteSelected,
                                           onClose: _closePanel,

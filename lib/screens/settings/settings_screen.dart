@@ -61,8 +61,11 @@ class SettingsScreen extends StatelessWidget {
             onTap: () => Navigator.push(
               context,
               MaterialPageRoute(
-                builder: (_) =>
-                    CustomizationScreen(onThemeChanged: onThemeChanged, keepScreenOn: keepScreenOn, onKeepScreenOnChanged: onKeepScreenOnChanged),
+                builder: (_) => CustomizationScreen(
+                  onThemeChanged: onThemeChanged,
+                  keepScreenOn: keepScreenOn,
+                  onKeepScreenOnChanged: onKeepScreenOnChanged,
+                ),
               ),
             ),
           ),

@@ -9,7 +9,6 @@ import 'services/twitch_eventsub.dart';
 import 'services/twitch_irc.dart';
 import 'services/twitch_irc_read.dart';
 import 'services/recent_messages.dart';
-import 'services/seven_tv_event_client.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -24,7 +23,6 @@ class TwitchChatApp extends StatefulWidget {
   final IrcService? ircService;
   final IrcReadService? ircReadService;
   final RecentMessagesService? recentMessagesService;
-  final SevenTvEventClient? sevenTvEventClient;
   final String? initialCurrentUserLogin;
 
   const TwitchChatApp({
@@ -33,7 +31,6 @@ class TwitchChatApp extends StatefulWidget {
     this.ircService,
     this.ircReadService,
     this.recentMessagesService,
-    this.sevenTvEventClient,
     this.initialCurrentUserLogin,
   });
 
@@ -65,7 +62,9 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
       }
       _keepScreenOn = prefs.getBool('keep_screen_on') ?? true;
       WakelockPlus.toggle(enable: _keepScreenOn).ignore();
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('Failed to load preferences: $e');
+    }
     await _twitchAuth.load();
     if (mounted) setState(() => _loaded = true);
   }
@@ -154,7 +153,6 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
         ircService: widget.ircService,
         ircReadService: widget.ircReadService,
         recentMessagesService: widget.recentMessagesService,
-        sevenTvEventClient: widget.sevenTvEventClient,
         initialCurrentUserLogin: widget.initialCurrentUserLogin,
       ),
     );
