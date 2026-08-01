@@ -1,6 +1,38 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 
+class _AxisAwareFlingVelocityTracker extends VelocityTracker {
+  _AxisAwareFlingVelocityTracker(super.kind)
+    : _ios = IOSScrollViewFlingVelocityTracker(kind),
+      super.withKind();
+
+  final IOSScrollViewFlingVelocityTracker _ios;
+  Offset? _lastPosition;
+  double _totalDx = 0;
+  double _totalDy = 0;
+
+  @override
+  void addPosition(Duration time, Offset position) {
+    super.addPosition(time, position);
+    _ios.addPosition(time, position);
+    final last = _lastPosition;
+    if (last != null) {
+      final delta = position - last;
+      _totalDx += delta.dx.abs();
+      _totalDy += delta.dy.abs();
+    }
+    _lastPosition = position;
+  }
+
+  @override
+  VelocityEstimate? getVelocityEstimate() {
+    if (_totalDy >= _totalDx) {
+      return super.getVelocityEstimate();
+    }
+    return _ios.getVelocityEstimate();
+  }
+}
+
 class _SwipeScrollBehavior extends ScrollBehavior {
   const _SwipeScrollBehavior();
 
@@ -26,8 +58,7 @@ class _SwipeScrollBehavior extends ScrollBehavior {
 
   @override
   GestureVelocityTrackerBuilder velocityTrackerBuilder(BuildContext context) {
-    return (PointerEvent event) =>
-        IOSScrollViewFlingVelocityTracker(event.kind);
+    return (PointerEvent event) => _AxisAwareFlingVelocityTracker(event.kind);
   }
 }
 
