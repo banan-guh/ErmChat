@@ -593,14 +593,18 @@ class ChatConnectionManager {
         'hasToken=${auth.accessToken != null} resolved=${channelsEmotesResolved.contains(channelName)}',
       );
       if (!channelsEmotesResolved.contains(channelName)) {
-        await emoteManager.resolveEmotes(channelName, channelUserId);
         channelsEmotesResolved.add(channelName);
+        unawaited(
+          emoteManager.resolveEmotes(channelName, channelUserId).catchError(
+            (e) => debugPrint('[ChatConn] resolveEmotes failed for $channelName: $e'),
+          ),
+        );
       }
 
       unawaited(_resolveSevenTvAndSubscribe(channelName, channelUserId));
 
       if (getCurrentUserLogin() == null) {
-        final currentUser = await twitchApi.getCurrentUser(auth);
+        final currentUser = await _ensureCurrentUser(auth);
         if (currentUser == null) return;
         setCurrentUserLogin(currentUser['login']);
         setCurrentUserId(currentUser['id']);
@@ -617,6 +621,34 @@ class ChatConnectionManager {
 
       eventSub.setChannelMapping(channelUserId, channelName);
 
+      unawaited(_createEventSubSubscriptions(channelName, channelUserId));
+    } catch (_) {
+      debugPrint('[ChatConn] subscribeChannel failed for $channelName');
+    }
+
+    onRebuild();
+    fetchChatStatus(channelName);
+    _chatStatusTimers[channelName]?.cancel();
+    _chatStatusTimers[channelName] = Timer.periodic(
+      const Duration(seconds: 60),
+      (_) => fetchChatStatus(channelName),
+    );
+  }
+
+  Future<Map<String, dynamic>?>? _currentUserFetch;
+
+  Future<Map<String, dynamic>?> _ensureCurrentUser(TwitchAuth auth) {
+    return _currentUserFetch ??= twitchApi.getCurrentUser(auth).whenComplete(
+      () => _currentUserFetch = null,
+    );
+  }
+
+  Future<void> _createEventSubSubscriptions(
+    String channelName,
+    String channelUserId,
+  ) async {
+    try {
+      final auth = twitchAuth;
       for (int attempt = 0; attempt < 3; attempt++) {
         final sessionId = eventSub.sessionId;
         if (sessionId == null) {
@@ -671,16 +703,10 @@ class ChatConnectionManager {
         }
       }
     } catch (_) {
-      debugPrint('[ChatConn] subscribeChannel failed for $channelName');
+      debugPrint(
+        '[ChatConn] createEventSubSubscriptions failed for $channelName',
+      );
     }
-
-    onRebuild();
-    fetchChatStatus(channelName);
-    _chatStatusTimers[channelName]?.cancel();
-    _chatStatusTimers[channelName] = Timer.periodic(
-      const Duration(seconds: 60),
-      (_) => fetchChatStatus(channelName),
-    );
   }
 
   Future<void> _resolveSevenTvAndSubscribe(
@@ -778,9 +804,9 @@ class ChatConnectionManager {
     onSystemMessage(channel, '$actor switched the active 7TV Emote Set.');
   }
 
-  Future<void> subscribeAll() async {
+  void subscribeAll() {
     for (final channel in channels) {
-      await subscribeChannel(channel);
+      unawaited(subscribeChannel(channel));
     }
   }
 
@@ -876,20 +902,16 @@ class ChatConnectionManager {
           }
           _lastSubscribeAll = now;
           await Future.delayed(const Duration(milliseconds: 500));
-          try {
-            await subscribeAll();
-            if (!userTwitchEmotesLoaded) {
-              userTwitchEmotesLoaded = true;
-              unawaited(
-                loadUserTwitchEmotes().catchError(
-                  (e) => debugPrint(
-                    '[ChatConn] loadUserTwitchEmotes failed on reconnect: $e',
-                  ),
+          subscribeAll();
+          if (!userTwitchEmotesLoaded) {
+            userTwitchEmotesLoaded = true;
+            unawaited(
+              loadUserTwitchEmotes().catchError(
+                (e) => debugPrint(
+                  '[ChatConn] loadUserTwitchEmotes failed on reconnect: $e',
                 ),
-              );
-            }
-          } catch (_) {
-            debugPrint('[ChatConn] subscribeAll failed on reconnect');
+              ),
+            );
           }
           for (final channel in channels) {
             if (historyLoaded.contains(channel) &&
@@ -911,7 +933,7 @@ class ChatConnectionManager {
 
       if (getCurrentUserLogin() == null) {
         try {
-          final currentUser = await twitchApi.getCurrentUser(auth);
+          final currentUser = await _ensureCurrentUser(auth);
           if (currentUser != null) {
             setCurrentUserLogin(currentUser['login']);
             setCurrentUserId(currentUser['id']);

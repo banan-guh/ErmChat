@@ -23,6 +23,11 @@
 
 - [x] **Rearrange-ability of channels** - should be able to rearrange where channels are in the top bar
 - [ ] **Documentation** - Add comprehensive comments throughout the codebase explaining architecture, data flow, key design decisions, and non-obvious logic (e.g. EventSub vs IRC split, underline animation system, thread panel architecture).
+- [ ] **"Connected as {user}"** - Account tab in settings currently just says "Connected"; show which account is logged in (e.g. "Connected as {login}").
+- [ ] **Emote caching in general** - Define an emote caching strategy. ASK before fixing.
+- [ ] **Fix emote sizing in emote popup** - Emote detail sheet displays some emotes at the wrong size (tall/long emotes clipped or distorted); same class of bug as the fixed chat emote scale issue.
+- [ ] **24h TTL emote cache** - Cache emotes with a 24-hour TTL; only reload when the user opens the app, and run the refresh in the background.
+- [ ] **Fetch history when reconnecting** - When the connection is re-established after a drop, re-fetch recent chat history to fill the missed gap.
 - [x] **/me handling** - `/me` messages detected from `\x01ACTION ... \x01` wrapping in both EventSub and IRC. Rendered as `username message` (no colon, message colored like username) in all 3 views.
 - [x] **Unread indicator** - Channel tab name is white when there are unread messages, grey when all are read.
 - [x] **Localized display names** - Research how Twitch handles localized/non-ASCII display names and ensure the app handles them correctly.
@@ -56,6 +61,7 @@
 - [ ] **EventSub emote fragment false-match** - `twitch_eventsub.dart` fragment position parsing used `indexOf` substring search which could misfire when a fragment's text appeared earlier in the message as a substring or overlapped with other text. Replaced with a running cursor (fragments arrive in order and reconstruct the message). Observed symptom: emote (`vedalSurprise`) rendering as a shorter garbled name (`vedalS`) with leftover text spilling out. Fixed the cursor logic but cannot confirm it resolves that exact case - if it recurs, add raw fragment payload logging.
 - [+] **Invalid argument(s): string is not well-formed UTF-16** - I believe it's a problem with specific characters in the chat messages.
 - [+] **Reconnected replacement sometimes misses** - `_addSystemMessage` only checks `msgs.first` for "Disconnected" when "Connected" arrives. If chat messages or subscribe warnings push "Disconnected" down the list, the replacement silently fails and both "Connected" and "Disconnected" stay visible.
+- [ ] **Kill notifications when app is opened** - Mention/whisper notifications should be dismissed when the app comes to the foreground.
 
 ## Research / Open Ends
 
@@ -70,3 +76,6 @@
 - [ ] **Analytics** self-explanatory. just a possible future feature.
 - [x] **Thread customization** - Currently locked into replying to previous user. should allow replying to the first user.
 - [x] **Add 0-width emotes to popup** - use tab bar menu, small addition
+- [ ] **Account switcher** - Quickly switch between logged-in Twitch accounts without going through the full login flow each time.
+- [ ] **Token refresh instead of re-auth every 60 days** - Access tokens expire roughly every 60 days; implement a refresh path instead of forcing full re-auth. Note: implicit-grant tokens (`response_type=token`) can't be refreshed - requires an auth flow change (e.g. device code grant).
+- [ ] **Parallelize startup loading** - Increase overall loading speed by running independent startup fetches (emotes, badges, history, chat status) concurrently.
