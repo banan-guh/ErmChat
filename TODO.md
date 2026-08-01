@@ -23,7 +23,7 @@
 
 - [x] **Rearrange-ability of channels** - should be able to rearrange where channels are in the top bar
 - [ ] **Documentation** - Add comprehensive comments throughout the codebase explaining architecture, data flow, key design decisions, and non-obvious logic (e.g. EventSub vs IRC split, underline animation system, thread panel architecture).
-- [ ] **"Connected as {user}"** - Account tab in settings currently just says "Connected"; show which account is logged in (e.g. "Connected as {login}").
+- [x] **"Connected as {user}"** - Account tab in settings currently just says "Connected"; show which account is logged in (e.g. "Connected as {login}").
 - [ ] **Emote caching in general** - Define an emote caching strategy. ASK before fixing.
 - [ ] **Fix emote sizing in emote popup** - Emote detail sheet displays some emotes at the wrong size (tall/long emotes clipped or distorted); same class of bug as the fixed chat emote scale issue.
 - [ ] **24h TTL emote cache** - Cache emotes with a 24-hour TTL; only reload when the user opens the app, and run the refresh in the background.

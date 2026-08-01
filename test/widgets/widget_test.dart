@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
@@ -9,6 +11,7 @@ import 'package:ermchat/main.dart';
 import 'package:ermchat/screens/settings/account_screen.dart';
 import 'package:ermchat/screens/settings/channel_settings_screen.dart';
 import 'package:ermchat/screens/settings/customization_screen.dart';
+import 'package:ermchat/services/twitch_api.dart';
 import 'package:ermchat/services/twitch_eventsub.dart';
 import 'package:ermchat/services/twitch_irc.dart';
 import 'package:ermchat/services/recent_messages.dart';
@@ -1673,6 +1676,32 @@ void main() {
       expect(find.text('Connected'), findsOneWidget);
       expect(find.text('Disconnect'), findsOneWidget);
       expect(find.text('Login'), findsNothing);
+    });
+
+    testWidgets('Account screen shows "Connected as {user}" on lookup', (
+      WidgetTester tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({});
+      final auth = TwitchAuth()..accessToken = 'test-token';
+      final api = TwitchApi(
+        client: MockClient((request) async {
+          return http.Response(
+            '{"data":[{"id":"1","login":"testuser","display_name":"TestUser"}]}',
+            200,
+          );
+        }),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: AccountScreen(twitchAuth: auth, twitchApi: api),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.text('Connected as testuser'), findsOneWidget);
+      expect(find.text('Connected'), findsNothing);
     });
 
     testWidgets('Account screen disconnect transitions to idle', (

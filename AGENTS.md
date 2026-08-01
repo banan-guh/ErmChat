@@ -124,6 +124,7 @@ dart format .              # format all Dart files
 - `TwitchApi` uses `http.Client _client` with `@visibleForTesting set client()` for MockClient injection
 - `EventSubService` exposes `@visibleForTesting void handleRawMessage(Map<String, dynamic>)` and `@visibleForTesting void emitConnected()` for test injection
 - `SettingsScreen` accepts optional `OAuthStarter? oAuthStarter` param for mocking OAuth
+- `AccountScreen` accepts optional `TwitchApi? twitchApi` param for mocking the "Connected as {login}" user lookup
 - `TwitchChatApp` accepts optional `EventSubService`, `IrcService`, `IrcReadService`, `RecentMessagesService`, `SevenTvEventClient`, `initialCurrentUserLogin` for injection
 - `HomeScreen` accepts optional `EventSubService`, `IrcService`, `IrcReadService`, `RecentMessagesService`, `SevenTvEventClient`, `initialCurrentUserLogin` for injection
 - `ChatConnectionManager` orchestrates EventSub, IRC, IRC read, recent messages, emote manager, badge service, and user store — instantiated inside `HomeScreen`

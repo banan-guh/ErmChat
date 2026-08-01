@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../../services/twitch_api.dart';
 import '../../services/twitch_auth.dart';
 import '../../services/twitch_oauth.dart';
 import '../../twitch_config.dart';
@@ -13,8 +14,14 @@ enum _AuthState { idle, waiting, success, error, needsSetup, pasteToken }
 class AccountScreen extends StatefulWidget {
   final TwitchAuth twitchAuth;
   final OAuthStarter? oAuthStarter;
+  final TwitchApi? twitchApi;
 
-  const AccountScreen({super.key, required this.twitchAuth, this.oAuthStarter});
+  const AccountScreen({
+    super.key,
+    required this.twitchAuth,
+    this.oAuthStarter,
+    this.twitchApi,
+  });
 
   @override
   State<AccountScreen> createState() => _AccountScreenState();
@@ -26,13 +33,34 @@ class _AccountScreenState extends State<AccountScreen> {
   bool _useBrowserOAuth = false;
   String? _browserAuthState;
   String? _browserAuthUrl;
+  String? _connectedLogin;
   final _pasteController = TextEditingController();
+  TwitchApi? _ownApi;
+
+  TwitchApi get _twitchApi => _ownApi ??= widget.twitchApi ?? TwitchApi();
 
   @override
   void initState() {
     super.initState();
-    if (widget.twitchAuth.isConfigured) _authState = _AuthState.success;
+    if (widget.twitchAuth.isConfigured) {
+      _authState = _AuthState.success;
+      _loadConnectedLogin();
+    }
     _loadOAuthMode();
+  }
+
+  Future<void> _loadConnectedLogin() async {
+    final auth = widget.twitchAuth;
+    if (!auth.isConfigured) return;
+    String? login;
+    try {
+      final user = await _twitchApi.getCurrentUser(auth);
+      login = user?['login'];
+    } catch (_) {
+      login = null;
+    }
+    if (!mounted) return;
+    setState(() => _connectedLogin = login);
   }
 
   Future<void> _loadOAuthMode() async {
@@ -77,6 +105,7 @@ class _AccountScreenState extends State<AccountScreen> {
       if (token != null && token.isNotEmpty) {
         widget.twitchAuth.setCredentials(accessToken: token);
         setState(() => _authState = _AuthState.success);
+        _loadConnectedLogin();
       } else {
         setState(() {
           _authState = _AuthState.error;
@@ -127,6 +156,7 @@ class _AccountScreenState extends State<AccountScreen> {
       }
       widget.twitchAuth.setCredentials(accessToken: token);
       setState(() => _authState = _AuthState.success);
+      _loadConnectedLogin();
       return;
     }
 
@@ -142,6 +172,7 @@ class _AccountScreenState extends State<AccountScreen> {
     setState(() {
       _authState = _AuthState.idle;
       _authError = null;
+      _connectedLogin = null;
     });
   }
 
@@ -313,7 +344,11 @@ class _AccountScreenState extends State<AccountScreen> {
               children: [
                 const Icon(Icons.check_circle, size: 64, color: Colors.green),
                 const SizedBox(height: 16),
-                const Text('Connected'),
+                Text(
+                  _connectedLogin != null
+                      ? 'Connected as $_connectedLogin'
+                      : 'Connected',
+                ),
                 const SizedBox(height: 24),
                 TextButton.icon(
                   onPressed: _clearCredentials,
