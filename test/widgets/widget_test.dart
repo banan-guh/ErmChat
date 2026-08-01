@@ -182,6 +182,15 @@ class _ConfigurableRecentMessagesService extends RecentMessagesService {
   }) async => messages;
 }
 
+class _CompleterRecentMessagesService extends RecentMessagesService {
+  final Completer<List<TwitchMessage>> completer;
+  _CompleterRecentMessagesService(this.completer);
+
+  @override
+  Future<List<TwitchMessage>> fetchRecent(String channel, {int limit = 100}) =>
+      completer.future;
+}
+
 class _TestEventSubService extends _FakeEventSubService {
   final _msgCtrl = StreamController<TwitchMessage>.broadcast();
 
@@ -788,6 +797,66 @@ void main() {
 
       expect(find.textContaining('Connected'), findsOneWidget);
       expect(find.textContaining('Disconnected'), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'Connected appears before history and moves to top after history arrives',
+    (WidgetTester tester) async {
+      final fakeEventSub = _FakeEventSubService();
+      final historyCompleter = Completer<List<TwitchMessage>>();
+
+      SharedPreferences.setMockInitialValues({'access_token': 'test_token'});
+      FlutterSecureStorage.setMockInitialValues({'access_token': 'test_token'});
+
+      await tester.pumpWidget(
+        TwitchChatApp(
+          eventSubService: fakeEventSub,
+          recentMessagesService: _CompleterRecentMessagesService(
+            historyCompleter,
+          ),
+          ircService: _FakeIrcService(),
+        ),
+      );
+      await tester.pump();
+
+      await tester.tap(find.byIcon(Icons.add));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).last, 'testchannel');
+      await tester.tap(find.text('Join'));
+      await tester.pumpAndSettle();
+
+      fakeEventSub.triggerConnect();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 600));
+      await tester.pump();
+
+      expect(find.textContaining('Connected'), findsOneWidget);
+
+      historyCompleter.complete([
+        TwitchMessage(
+          login: 'alice',
+          text: 'hello world',
+          channel: 'testchannel',
+          messageId: 'hist-1',
+          timestamp: DateTime.now(),
+          isHistory: true,
+        ),
+      ]);
+      await tester.pump();
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('Connected'), findsOneWidget);
+      expect(find.textContaining('hello world'), findsOneWidget);
+      // Chat renders newest-first at the bottom (reverse list): 'Connected'
+      // must sit below the history message, i.e. at the most recent position.
+      final connectedY = tester
+          .getTopLeft(find.textContaining('Connected'))
+          .dy;
+      final historyY = tester
+          .getTopLeft(find.textContaining('hello world'))
+          .dy;
+      expect(connectedY, greaterThan(historyY));
     },
   );
 

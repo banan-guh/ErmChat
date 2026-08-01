@@ -403,6 +403,7 @@ class _HomeScreenState extends State<HomeScreen>
                 }
                 _truncateChannelMessages(name);
                 _bumpChannel(name);
+                _moveConnectedMessageToTop(name);
               }
             });
             _maybeAddConnected(name);
@@ -1047,6 +1048,19 @@ class _HomeScreenState extends State<HomeScreen>
     _chatConn.maybeAddConnected(channel);
   }
 
+  // "Connected" is emitted as soon as EventSub is up, which is usually before
+  // the robotty history fetch completes. History messages are then inserted
+  // above it, so move it back to the most recent position to stay visible.
+  void _moveConnectedMessageToTop(String channel) {
+    final msgs = _channelMessages[channel];
+    if (msgs == null || msgs.length < 2) return;
+    final idx = msgs.indexWhere((m) => m.isSystem && m.text == 'Connected');
+    if (idx <= 0) return;
+    final msg = msgs.removeAt(idx);
+    msgs.insert(0, msg);
+    _bumpChannel(channel);
+  }
+
   Future<void> _addChannel(String channelName) async {
     final name = channelName.trim().toLowerCase();
     if (name.isEmpty || _channels.contains(name)) return;
@@ -1095,6 +1109,7 @@ class _HomeScreenState extends State<HomeScreen>
               }
               _truncateChannelMessages(name);
               _bumpChannel(name);
+              _moveConnectedMessageToTop(name);
             }
           });
           _maybeAddConnected(name);

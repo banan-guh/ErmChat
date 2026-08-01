@@ -30,7 +30,7 @@ dart format .              # format all Dart files
 - `lib/screens/settings/settings_screen.dart` — full-screen settings (dark mode toggle, Twitch credentials, channel management, injectable OAuth starter)
 
 #### Services
-- `lib/services/twitch_auth.dart` — credential holder (client ID + access token), persistence via SharedPreferences
+- `lib/services/twitch_auth.dart` — credential holder (client ID + access token), persistence via FlutterSecureStorage; also caches the logged-in `login`/`userId` so cold start skips the Helix user lookup (`setUser`, cleared by `setCredentials`/`clear`)
 - `lib/services/twitch_oauth.dart` — OAuth implicit grant flow (browser-based login, fragment parsing)
 - `lib/services/twitch_api.dart` — Twitch Helix API calls (user lookup, EventSub subscription, chat commands) with injectable `http.Client`
 - `lib/services/twitch_eventsub.dart` — EventSub WebSocket transport, message parsing, keepalive; exposes `handleRawMessage()` and `emitConnected()` for tests

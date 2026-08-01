@@ -63,5 +63,40 @@ void main() {
       expect(auth.accessToken, isNull);
       expect(auth.refreshToken, isNull);
     });
+
+    test('setUser persists login and user id', () async {
+      final auth = TwitchAuth();
+      auth.setUser('testuser', '12345');
+      expect(auth.login, 'testuser');
+      expect(auth.userId, '12345');
+    });
+
+    test('load restores cached login and user id', () async {
+      FlutterSecureStorage.setMockInitialValues({
+        'access_token': 'stored_token',
+        'user_login': 'stored_login',
+        'user_id': 'stored_id',
+      });
+      final auth = TwitchAuth();
+      await auth.load();
+      expect(auth.login, 'stored_login');
+      expect(auth.userId, 'stored_id');
+    });
+
+    test('setCredentials clears cached login and user id', () async {
+      final auth = TwitchAuth();
+      auth.setUser('testuser', '12345');
+      auth.setCredentials(accessToken: 'new_token');
+      expect(auth.login, isNull);
+      expect(auth.userId, isNull);
+    });
+
+    test('clear removes cached login and user id', () async {
+      final auth = TwitchAuth();
+      auth.setUser('testuser', '12345');
+      await auth.clear();
+      expect(auth.login, isNull);
+      expect(auth.userId, isNull);
+    });
   });
 }

@@ -192,6 +192,7 @@ class ChatConnectionManager {
   StreamSubscription<SevenTvUserUpdate>? sevenTvUserSub;
   StreamSubscription<IrcConnectionStatus>? ircStatusSub;
   StreamSubscription<IrcConnectionStatus>? ircReadStatusSub;
+  final _httpClient = http.Client();
 
   ChatConnectionManager(ChatConnectionConfig config)
     : twitchApi = config.twitchApi,
@@ -250,6 +251,7 @@ class ChatConnectionManager {
     sevenTvUserSub?.cancel();
     ircStatusSub?.cancel();
     ircReadStatusSub?.cancel();
+    _httpClient.close();
     for (final t in _chatStatusTimers.values) {
       t.cancel();
     }
@@ -602,6 +604,12 @@ class ChatConnectionManager {
   Future<Map<String, dynamic>?> _ensureCurrentUser(TwitchAuth auth) {
     return _currentUserFetch ??= twitchApi
         .getCurrentUser(auth)
+        .then((user) {
+          if (user != null) {
+            auth.setUser(user['login'], user['id']);
+          }
+          return user;
+        })
         .whenComplete(() => _currentUserFetch = null);
   }
 
@@ -668,7 +676,7 @@ class ChatConnectionManager {
         final uri = Uri.parse(
           'https://7tv.io/v3/users/twitch/$twitchChannelId',
         );
-        final res = await http.get(uri).timeout(httpTimeout);
+        final res = await _httpClient.get(uri).timeout(httpTimeout);
         if (res.statusCode != 200) return;
         final data = jsonDecode(res.body) as Map<String, dynamic>;
         final userId =
@@ -828,8 +836,10 @@ class ChatConnectionManager {
         if (isDisposed) return;
         connectionStatus = status;
         onRebuild();
-        // Edge-triggered: subscribeAll once per connect with 30s throttle and
-        // 500ms settle delay to let the EventSub session stabilize after reconnect.
+        // Edge-triggered: subscribeAll once per connect with 30s throttle.
+        // The 500ms settle delay only applies on reconnect — status=connected
+        // fires on session_welcome, so the session is already stable on the
+        // very first connect.
         if (status == EventSubStatus.connected && !wasConnected) {
           wasConnected = true;
           wasDisconnected = false;
@@ -838,8 +848,11 @@ class ChatConnectionManager {
               now.difference(_lastSubscribeAll!).inSeconds < 30) {
             return;
           }
+          final firstConnect = _lastSubscribeAll == null;
           _lastSubscribeAll = now;
-          await Future.delayed(const Duration(milliseconds: 500));
+          if (!firstConnect) {
+            await Future.delayed(const Duration(milliseconds: 500));
+          }
           subscribeAll();
           if (!userTwitchEmotesLoaded) {
             userTwitchEmotesLoaded = true;
@@ -852,8 +865,7 @@ class ChatConnectionManager {
             );
           }
           for (final channel in channels) {
-            if (historyLoaded.contains(channel) &&
-                _connectedAcked.add(channel)) {
+            if (_connectedAcked.add(channel)) {
               onSystemMessage(channel, 'Connected');
             }
           }
@@ -869,16 +881,35 @@ class ChatConnectionManager {
         }
       });
 
+      // Use the cached account if available so cold start skips the Helix
+      // user lookup entirely.
+      if (getCurrentUserLogin() == null &&
+          auth.login != null &&
+          auth.userId != null) {
+        setCurrentUserLogin(auth.login);
+        setCurrentUserId(auth.userId);
+      }
+
+      // EventSub needs no credentials — connect it in parallel with the
+      // current-user lookup. Only IRC needs the login, so the sockets wait
+      // for the lookup but not for each other.
+      final eventSubFuture = eventSub.connect();
+      Future<Map<String, dynamic>?>? userFuture;
       if (getCurrentUserLogin() == null) {
+        userFuture = _ensureCurrentUser(auth);
+      }
+
+      Map<String, dynamic>? currentUser;
+      if (userFuture != null) {
         try {
-          final currentUser = await _ensureCurrentUser(auth);
-          if (currentUser != null) {
-            setCurrentUserLogin(currentUser['login']);
-            setCurrentUserId(currentUser['id']);
-          }
+          currentUser = await userFuture;
         } catch (_) {
           debugPrint('[ChatConn] getCurrentUser failed');
         }
+      }
+      if (currentUser != null) {
+        setCurrentUserLogin(currentUser['login']);
+        setCurrentUserId(currentUser['id']);
       }
 
       if (getCurrentUserLogin() != null && auth.accessToken != null) {
@@ -898,20 +929,20 @@ class ChatConnectionManager {
         });
 
         try {
-          await irc.connect(
-            username: getCurrentUserLogin()!,
-            accessToken: auth.accessToken!,
-          );
-        } catch (_) {}
-        try {
-          await ircRead.connect(
-            username: getCurrentUserLogin()!,
-            accessToken: auth.accessToken!,
-          );
+          await Future.wait([
+            irc.connect(
+              username: getCurrentUserLogin()!,
+              accessToken: auth.accessToken!,
+            ),
+            ircRead.connect(
+              username: getCurrentUserLogin()!,
+              accessToken: auth.accessToken!,
+            ),
+          ]);
         } catch (_) {}
       }
 
-      await eventSub.connect();
+      await eventSubFuture;
     } finally {
       _isConnecting = false;
     }
