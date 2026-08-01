@@ -346,4 +346,62 @@ void main() {
       expect(api.lastError, contains('dropped'));
     });
   });
+
+  group('getBlockedUsers', () {
+    test('returns null set when no cached userId', () async {
+      var called = false;
+      final api = TwitchApi(
+        client: MockClient((request) async {
+          called = true;
+          return http.Response('', 500);
+        }),
+      );
+
+      expect(await api.getBlockedUsers(auth), isEmpty);
+      expect(called, isFalse);
+    });
+
+    test('follows pagination and lowercases logins', () async {
+      final requests = <String>[];
+      final api = TwitchApi(
+        client: MockClient((request) async {
+          requests.add(request.url.toString());
+          if (!request.url.queryParameters.containsKey('after')) {
+            return http.Response(
+              '{"data": [{"user_login": "BADUSER", "user_id": "1"}, '
+              '{"user_login": "zuck", "user_id": "2"}], '
+              '"pagination": {"cursor": "next-page"}}',
+              200,
+            );
+          }
+          return http.Response(
+            '{"data": [{"user_login": "another", "user_id": "3"}], '
+            '"pagination": {}}',
+            200,
+          );
+        }),
+      );
+      auth.userId = 'me123';
+
+      final blocked = await api.getBlockedUsers(auth);
+
+      expect(blocked, {'baduser', 'zuck', 'another'});
+      expect(requests, hasLength(2));
+      expect(requests[0], contains('broadcaster_id=me123'));
+      expect(requests[0], contains('first=100'));
+      expect(requests[0], isNot(contains('after=')));
+      expect(requests[1], contains('after=next-page'));
+    });
+
+    test('returns empty set on error', () async {
+      final api = createApi(
+        (_) {},
+        respond: () => http.Response('Unauthorized', 401),
+      );
+      auth.userId = 'me123';
+
+      expect(await api.getBlockedUsers(auth), isEmpty);
+      expect(api.lastError, contains('getBlockedUsers'));
+    });
+  });
 }

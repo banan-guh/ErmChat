@@ -217,6 +217,42 @@ class TwitchApi {
     return false;
   }
 
+  /// Fetches the account's full block list, following pagination (100/page).
+  /// Returns lowercased blocked user logins; empty on failure (fail-open).
+  Future<Set<String>> getBlockedUsers(TwitchAuth auth) async {
+    _lastError = null;
+    final logins = <String>{};
+    if (auth.userId == null) return logins;
+    String? cursor;
+    while (true) {
+      final query = <String, String>{
+        'broadcaster_id': auth.userId!,
+        'first': '100',
+      };
+      if (cursor != null) query['after'] = cursor;
+      final uri = Uri.parse(
+        '$_base/users/blocks',
+      ).replace(queryParameters: query);
+      final res = await _client.get(uri, headers: _headers(auth));
+      if (res.statusCode != 200) {
+        _setError('getBlockedUsers', res);
+        return logins;
+      }
+      try {
+        final data = jsonDecode(res.body) as Map;
+        for (final item in data['data'] as List) {
+          final login = (item as Map)['user_login'] as String?;
+          if (login != null) logins.add(login.toLowerCase());
+        }
+        cursor = ((data['pagination'] as Map?)?['cursor']) as String?;
+      } catch (e) {
+        _setError('getBlockedUsers: bad response');
+        return logins;
+      }
+      if (cursor == null || cursor.isEmpty) return logins;
+    }
+  }
+
   Future<String?> sendChatMessage(
     TwitchAuth auth, {
     required String broadcasterId,

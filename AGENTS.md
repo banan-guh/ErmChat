@@ -141,6 +141,7 @@ When adding or modifying UI, keep patterns consistent across the codebase:
 - **Test coverage**: When fixing a gesture or interaction bug, add a test that reproduces the exact gesture (e.g., `tester.longPress`) in the affected context (e.g., inside the thread panel, not just the main chat).
 - **Emote providers**: Each provider (`emote_providers/*`) implements static `fetchGlobal()` and `fetchChannel(channelId)` returning `List<GenericEmote>`. Priority order for dedup: 7TV > BTTV > FFZ > Twitch.
 - **Autocomplete**: `Suggestion` is a sealed class with `EmoteSuggestion` and `UserSuggestion` subtypes. Use `getCurrentWord`/`replaceCurrentWord` from `suggestion.dart`.
+- **NO em-dashes on new additions**: self-explanatory. Refrain from non-ASCII when writing code unless strictly necessary.
 
 ## Refactoring status
 

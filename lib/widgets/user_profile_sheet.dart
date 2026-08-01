@@ -12,6 +12,7 @@ class UserProfileSheet extends StatefulWidget {
   final TextEditingController messageController;
   final FocusNode focusNode;
   final VoidCallback onClose;
+  final void Function(String login)? onUserBlocked;
 
   const UserProfileSheet({
     super.key,
@@ -23,6 +24,7 @@ class UserProfileSheet extends StatefulWidget {
     required this.messageController,
     required this.focusNode,
     required this.onClose,
+    this.onUserBlocked,
   });
 
   @override
@@ -245,6 +247,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
                     ),
                   ),
                 );
+                if (ok) widget.onUserBlocked?.call(widget.username);
                 widget.onClose();
               },
             ),

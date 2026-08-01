@@ -125,12 +125,15 @@ class _HomeScreenState extends State<HomeScreen>
       setCurrentUserLogin: (v) {
         _currentUserLogin = v;
         _scanHistoryForMentions();
+        unawaited(_ensureBlockedUsersLoaded());
       },
       getCurrentUserId: () => _currentUserId,
       setCurrentUserId: (v) => _currentUserId = v,
       onCommand: _handleCommand,
       getReplyToMsg: () => _replyToMsg,
       setReplyToMsg: (v) => _replyToMsg = v,
+      isChatReady: () => _blocksReady,
+      isBlocked: (login) => _blockedLogins.contains(login.toLowerCase()),
       onRequestFocus: () => _focusNode.requestFocus(),
       getAltPings: () => _altPings,
       onShowSnackBar: (msg) {
@@ -176,6 +179,10 @@ class _HomeScreenState extends State<HomeScreen>
   final _statusBump = ValueNotifier(0);
   String? _selectedChannel;
   final _channelMessages = <String, List<TwitchMessage>>{};
+  final _blockedLogins = <String>{};
+  bool _blocksReady = false;
+  bool _blocksFetched = false;
+  bool _channelsLoaded = false;
   final _scrollControllers = <String, ScrollController>{};
   final _atBottomNotifiers = <String, ValueNotifier<bool>>{};
   final _frozenSnapshot = <String, List<TwitchMessage>>{};
@@ -266,7 +273,7 @@ class _HomeScreenState extends State<HomeScreen>
       _chatConn.onMention = _onMentionNotification;
     }
     _loadMaxMessages();
-    _loadChannels();
+    _ensureBlockedUsersLoaded();
     _loadAltPings();
     _chatConn.connect();
     _emoteManager.accessToken = widget.twitchAuth.accessToken;
@@ -319,7 +326,52 @@ class _HomeScreenState extends State<HomeScreen>
     _saveChannels();
   }
 
+  // Fetch the account's Twitch block list before anything is shown so blocked
+  // users never appear — not even briefly. Fail-open: chat shows normally if
+  // the fetch fails, and a later login triggers a (guarded) retry.
+  Future<void> _ensureBlockedUsersLoaded() async {
+    if (_blocksFetched) return;
+    final userId = widget.twitchAuth.userId;
+    if (userId == null) {
+      _blocksReady = true;
+      _loadChannels();
+      return;
+    }
+    _blocksFetched = true;
+    try {
+      final blocked = await _twitchApi
+          .getBlockedUsers(widget.twitchAuth)
+          .timeout(const Duration(seconds: 5));
+      _blockedLogins.addAll(blocked);
+    } catch (e) {
+      debugPrint('[HomeScreen] failed to fetch blocked users: $e');
+    }
+    if (!mounted) return;
+    _blocksReady = true;
+    _sweepBlockedMessages();
+    _loadChannels();
+    setState(() {});
+  }
+
+  void _sweepBlockedMessages() {
+    for (final entry in _channelMessages.entries) {
+      final msgs = entry.value;
+      final before = msgs.length;
+      msgs.removeWhere(
+        (m) => !m.isSystem && _blockedLogins.contains(m.login.toLowerCase()),
+      );
+      if (msgs.length != before) _bumpChannel(entry.key);
+    }
+  }
+
+  void _onUserBlocked(String login) {
+    _blockedLogins.add(login.toLowerCase());
+    _sweepBlockedMessages();
+  }
+
   Future<void> _loadChannels() async {
+    if (_channelsLoaded) return;
+    _channelsLoaded = true;
     final prefs = await SharedPreferences.getInstance();
     final saved = prefs.getStringList('channels');
     if (saved == null || saved.isEmpty) return;
@@ -1490,6 +1542,7 @@ class _HomeScreenState extends State<HomeScreen>
         messageController: _messageController,
         focusNode: _focusNode,
         onClose: () => Navigator.pop(ctx),
+        onUserBlocked: _onUserBlocked,
       ),
     );
   }

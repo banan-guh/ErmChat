@@ -78,6 +78,8 @@ class ChatConnectionConfig {
     required this.onRequestFocus,
     required this.onShowSnackBar,
     this.getAltPings,
+    this.isChatReady,
+    this.isBlocked,
   });
 
   final TwitchApi twitchApi;
@@ -122,6 +124,8 @@ class ChatConnectionConfig {
   final VoidCallback onRequestFocus;
   final void Function(String) onShowSnackBar;
   final List<String> Function()? getAltPings;
+  final bool Function()? isChatReady;
+  final bool Function(String login)? isBlocked;
 }
 
 class ChatConnectionManager {
@@ -168,6 +172,8 @@ class ChatConnectionManager {
   final VoidCallback onRequestFocus;
   final void Function(String) onShowSnackBar;
   final List<String> Function()? getAltPings;
+  final bool Function()? isChatReady;
+  final bool Function(String login)? isBlocked;
 
   EventSubStatus connectionStatus = EventSubStatus.disconnected;
   bool wasConnected = false;
@@ -236,7 +242,9 @@ class ChatConnectionManager {
       setReplyToMsg = config.setReplyToMsg,
       onRequestFocus = config.onRequestFocus,
       onShowSnackBar = config.onShowSnackBar,
-      getAltPings = config.getAltPings;
+      getAltPings = config.getAltPings,
+      isChatReady = config.isChatReady,
+      isBlocked = config.isBlocked;
 
   void dispose() {
     isDisposed = true;
@@ -1013,6 +1021,11 @@ class ChatConnectionManager {
 
   void onMessage(TwitchMessage msg) {
     if (isDisposed) return;
+
+    // Chat content is hidden until the blocked-users list has been applied,
+    // and blocked users' messages never appear at all.
+    if (isChatReady?.call() == false) return;
+    if (!msg.isSystem && isBlocked?.call(msg.login) == true) return;
 
     if (!msg.isSystem && msg.login.isNotEmpty && msg.channel != null) {
       final preferredName =

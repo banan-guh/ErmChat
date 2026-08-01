@@ -79,3 +79,4 @@
 - [ ] **Account switcher** - Quickly switch between logged-in Twitch accounts without going through the full login flow each time.
 - [ ] **Token refresh instead of re-auth every 60 days** - Access tokens expire roughly every 60 days; implement a refresh path instead of forcing full re-auth. Note: implicit-grant tokens (`response_type=token`) can't be refreshed - requires an auth flow change (e.g. device code grant).
 - [ ] **Parallelize startup loading** - Increase overall loading speed by running independent startup fetches (emotes, badges, history, chat status) concurrently.
+- [ ] **Add blocked menu** - for un-blocking.
