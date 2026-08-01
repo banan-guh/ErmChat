@@ -267,7 +267,14 @@ class EmoteManager extends ChangeNotifier {
     );
     final cached = loaded.cached;
     if (cached != null) {
-      _channelCaches[channel] = cached;
+      // The persisted cache never contains Twitch emotes, so re-merge any
+      // subscriber emotes already stored for this channel (they come from the
+      // account's own emote list and must not be clobbered by re-applying the
+      // persisted cache).
+      final subs = _channelTwitchEmotes[channel] ?? const <GenericEmote>[];
+      _channelCaches[channel] = subs.isEmpty
+          ? cached
+          : _buildChannelMap([...cached.suggestions, ...subs]);
       _channelFetchTimes[channel] = DateTime.now();
       _notify(channel);
       if (loaded.fresh) {
@@ -301,12 +308,28 @@ class EmoteManager extends ChangeNotifier {
                   (e.tier != null || e.emoteType == 'subscriptions')),
         )
         .toList();
-    _channelTwitchEmotes[channel] = nonSubEmotes
-        .where((e) => e.type == EmoteType.twitch)
-        .toList();
-    _channelCaches[channel] = _buildChannelMap(nonSubEmotes);
+    final merged = _mergeWithStoredSubs(channel, nonSubEmotes);
+    _channelCaches[channel] = _buildChannelMap(merged);
     _channelFetchTimes[channel] = DateTime.now();
     _notify(channel);
+  }
+
+  // Merges freshly fetched channel emotes with any subscriber-only Twitch
+  // emotes already stored for the channel. Subscriber emotes are sourced from
+  // the account's own emote list (storeUserTwitchEmotes), so channel fetches
+  // must preserve them. Returns the full list for the channel cache rebuild.
+  List<GenericEmote> _mergeWithStoredSubs(
+    String channel,
+    List<GenericEmote> nonSub,
+  ) {
+    final subs = (_channelTwitchEmotes[channel] ?? const <GenericEmote>[])
+        .where((e) => e.emoteType == 'subscriptions' || e.tier != null)
+        .toList();
+    _channelTwitchEmotes[channel] = [
+      ...subs,
+      ...nonSub.where((e) => e.type == EmoteType.twitch),
+    ];
+    return [...subs, ...nonSub];
   }
 
   Future<void> _refreshTwitchChannelEmotes(
@@ -328,16 +351,14 @@ class EmoteManager extends ChangeNotifier {
                     (e.tier != null || e.emoteType == 'subscriptions')),
           )
           .toList();
-      _channelTwitchEmotes[channel] = nonSub
-          .where((e) => e.type == EmoteType.twitch)
-          .toList();
+      final merged = _mergeWithStoredSubs(channel, nonSub);
       final existing = _channelCaches[channel];
       if (existing != null) {
-        final merged = <GenericEmote>[
+        final combined = <GenericEmote>[
           ...existing.suggestions.where((e) => e.type != EmoteType.twitch),
-          ...nonSub,
+          ...merged,
         ];
-        _channelCaches[channel] = _buildChannelMap(merged);
+        _channelCaches[channel] = _buildChannelMap(combined);
       }
       _notify(channel);
     } catch (e) {

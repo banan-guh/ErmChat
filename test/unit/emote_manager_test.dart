@@ -1,5 +1,7 @@
+import 'dart:convert';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ermchat/models/generic_emote.dart';
 import 'package:ermchat/models/twitch_message.dart';
 import 'package:ermchat/services/emote_manager.dart';
@@ -184,6 +186,58 @@ void main() {
       await manager.enqueueFetchForTesting(() async => order.add(1));
 
       expect(order, [1]);
+    });
+  });
+
+  group('subscriber emotes in channel cache', () {
+    GenericEmote subEmote() => GenericEmote(
+      id: 's1',
+      code: 'SubEmote',
+      type: EmoteType.twitch,
+      url: 'https://example.com/s1.png',
+      scope: EmoteScope.channel,
+      tier: '3',
+      emoteType: 'subscriptions',
+    );
+
+    Map<String, Object> persistedCache({required bool fresh}) {
+      return {
+        'emotes2_ch': jsonEncode({
+          'ts': DateTime.now()
+              .subtract(
+                fresh ? const Duration(hours: 1) : const Duration(days: 2),
+              )
+              .toIso8601String(),
+          'emotes': [makeTestEmote(id: 'n1', code: 'NonTwitch').toJson()],
+        }),
+      };
+    }
+
+    test('applying a fresh persisted cache keeps stored sub emotes', () async {
+      SharedPreferences.setMockInitialValues(persistedCache(fresh: true));
+      final manager = EmoteManager(fetchStagger: Duration.zero);
+      await manager.storeUserTwitchEmotes({
+        'ch': [subEmote()],
+      });
+
+      await manager.resolveEmotes('ch', 'b1');
+
+      final codes = manager.byCode('ch')!.suggestions.map((e) => e.code);
+      expect(codes, contains('SubEmote'));
+      expect(codes, contains('NonTwitch'));
+    });
+
+    test('stale revalidate does not clobber stored sub emotes', () async {
+      SharedPreferences.setMockInitialValues(persistedCache(fresh: false));
+      final manager = EmoteManager(fetchStagger: Duration.zero);
+      await manager.storeUserTwitchEmotes({
+        'ch': [subEmote()],
+      });
+
+      await manager.resolveEmotes('ch', 'b1');
+
+      final codes = manager.byCode('ch')!.suggestions.map((e) => e.code);
+      expect(codes, contains('SubEmote'));
     });
   });
 }
