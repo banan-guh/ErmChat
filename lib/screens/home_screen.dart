@@ -854,33 +854,6 @@ class _HomeScreenState extends State<HomeScreen>
                   Navigator.pop(ctx);
                 },
               ),
-              if (msg.messageId != null)
-                ListTile(
-                  leading: const Icon(Icons.delete_outline),
-                  title: const Text('Delete message'),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    _moderateFromMessage(msg, '/delete ${msg.messageId}');
-                  },
-                ),
-              if (msg.login.isNotEmpty)
-                ListTile(
-                  leading: const Icon(Icons.timer_outlined),
-                  title: const Text('Timeout user...'),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    _showTimeoutPicker(msg);
-                  },
-                ),
-              if (msg.login.isNotEmpty)
-                ListTile(
-                  leading: const Icon(Icons.block),
-                  title: const Text('Ban user'),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    _moderateFromMessage(msg, '/ban ${msg.login}');
-                  },
-                ),
               ListTile(
                 leading: const Icon(Icons.more_horiz),
                 title: const Text('More...'),
@@ -912,33 +885,6 @@ class _HomeScreenState extends State<HomeScreen>
                   Navigator.pop(ctx);
                 },
               ),
-              if (msg.messageId != null)
-                ListTile(
-                  leading: const Icon(Icons.delete_outline),
-                  title: const Text('Delete message'),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    _moderateFromMessage(msg, '/delete ${msg.messageId}');
-                  },
-                ),
-              if (msg.login.isNotEmpty)
-                ListTile(
-                  leading: const Icon(Icons.timer_outlined),
-                  title: const Text('Timeout user...'),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    _showTimeoutPicker(msg);
-                  },
-                ),
-              if (msg.login.isNotEmpty)
-                ListTile(
-                  leading: const Icon(Icons.block),
-                  title: const Text('Ban user'),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    _moderateFromMessage(msg, '/ban ${msg.login}');
-                  },
-                ),
               ListTile(
                 leading: const Icon(Icons.more_horiz),
                 title: const Text('More...'),
@@ -988,60 +934,6 @@ class _HomeScreenState extends State<HomeScreen>
         ),
       ),
     );
-  }
-
-  static const _timeoutPresets = <String, int>{
-    '1 minute': 60,
-    '5 minutes': 300,
-    '10 minutes': 600,
-    '30 minutes': 1800,
-    '1 hour': 3600,
-  };
-
-  void _showTimeoutPicker(TwitchMessage msg) {
-    showModalBottomSheet(
-      context: context,
-      builder: (ctx) => SafeArea(
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const ListTile(
-                leading: Icon(Icons.timer_outlined),
-                title: Text(
-                  'Timeout user',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-                enabled: false,
-              ),
-              for (final entry in _timeoutPresets.entries)
-                ListTile(
-                  title: Text(entry.key),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    _moderateFromMessage(
-                      msg,
-                      '/timeout ${msg.login} ${entry.value}',
-                    );
-                  },
-                ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  void _moderateFromMessage(TwitchMessage msg, String command) {
-    final channel = msg.channel;
-    if (channel == null) return;
-    if (!widget.twitchAuth.isConfigured) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Connect an account to chat')),
-      );
-      return;
-    }
-    _handleCommand(command, channel, widget.twitchAuth);
   }
 
   void _maybeAddConnected(String channel) {
