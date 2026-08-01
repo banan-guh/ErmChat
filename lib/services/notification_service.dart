@@ -5,6 +5,7 @@ class NotificationService {
   final FlutterLocalNotificationsPlugin _plugin =
       FlutterLocalNotificationsPlugin();
   final _tapController = StreamController<String>.broadcast();
+  final _postedIds = <int>{};
   String? _pendingLaunchChannel;
 
   Stream<String> get onNotificationTap => _tapController.stream;
@@ -85,13 +86,26 @@ class NotificationService {
         ? '${message.substring(0, 200)}…'
         : message;
 
+    final id = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    _postedIds.add(id);
+
     await _plugin.show(
-      DateTime.now().millisecondsSinceEpoch ~/ 1000,
+      id,
       '$userName pinged you in #$channel',
       body,
       details,
       payload: channel,
     );
+  }
+
+  /// Cancels all mention notifications posted by this service, e.g. when the
+  /// app returns to the foreground. Only tracks IDs this service posted, so
+  /// the foreground service notification is never affected.
+  Future<void> clearMentionNotifications() async {
+    for (final id in _postedIds) {
+      await _plugin.cancel(id);
+    }
+    _postedIds.clear();
   }
 
   void dispose() {

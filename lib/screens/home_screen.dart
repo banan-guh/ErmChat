@@ -270,6 +270,7 @@ class _HomeScreenState extends State<HomeScreen>
       if (pendingChannel != null) {
         _navigateToChannel(pendingChannel);
       }
+      _notificationService.clearMentionNotifications();
       _chatConn.onMention = _onMentionNotification;
     }
     _loadMaxMessages();
@@ -302,6 +303,7 @@ class _HomeScreenState extends State<HomeScreen>
         startForegroundService(List.of(_channels));
       } else if (state == AppLifecycleState.resumed) {
         stopForegroundService();
+        _notificationService.clearMentionNotifications();
       }
     }
     if (state == AppLifecycleState.resumed) {

@@ -216,7 +216,13 @@ class EmoteManager extends ChangeNotifier {
     if (cached != null) {
       _globalCache = cached;
       _notify();
-      if (loaded.fresh) return; // fresh cache — no network at all
+      if (loaded.fresh) {
+        // Twitch global emotes aren't persisted (see _saveToPrefs), so they
+        // refresh in the background on every launch — mirrors the channel
+        // behavior. Non-blocking.
+        unawaited(_enqueueFetch(_refreshTwitchGlobalEmotes));
+        return;
+      }
     }
     // Stale or missing: keep showing stale data while revalidating.
     final emotes = await _enqueueFetch(_fetchAllGlobal);
@@ -336,6 +342,26 @@ class EmoteManager extends ChangeNotifier {
       _notify(channel);
     } catch (e) {
       debugPrint('[EmoteManager] twitch refresh failed for $channel: $e');
+    }
+  }
+
+  Future<void> _refreshTwitchGlobalEmotes() async {
+    try {
+      final emotes = await TwitchEmoteProvider.fetchGlobal(
+        accessToken: _accessToken,
+      );
+      if (emotes.isEmpty) return;
+      final current = _globalCache;
+      final all = <GenericEmote>[
+        if (current != null)
+          for (final e in current.suggestions)
+            if (e.type != EmoteType.twitch) e,
+        ...emotes,
+      ];
+      _globalCache = _buildChannelMap(all);
+      _notify();
+    } catch (e) {
+      debugPrint('[EmoteManager] twitch global refresh failed: $e');
     }
   }
 
