@@ -1146,17 +1146,27 @@ class ChatConnectionManager {
     final ircReplyThreadRootId =
         ircMsg.tags['reply-thread-parent-msg-id'] ?? ircReplyParentId;
 
-    // Twitch's IRC gateway prepends @username to reply echoes only.
+    // IRC ACTION messages (/me) are wrapped in \x01ACTION ... \x01. Same
+    // handling as EventSub and recent-messages so self /me renders like any
+    // other user's.
+    var isAction = false;
+    String strippedText = text;
+    var prefixLen = 0;
+    if (strippedText.startsWith('\x01ACTION ') &&
+        strippedText.endsWith('\x01')) {
+      isAction = true;
+      strippedText = strippedText.substring(8, strippedText.length - 1);
+      prefixLen += 8;
+    }
+
     // Twitch IRC prepends "@username " to reply echoes. Strip this prefix
     // so the stored text matches what the user sees; emote positions from IRC
     // tags use original-text coordinates and must be adjusted by prefixLen below.
-    String strippedText = text;
-    var prefixLen = 0;
     if (ircReplyParentId != null) {
-      final prefixMatch = RegExp(r'^\s*@\S+\s+').firstMatch(text);
+      final prefixMatch = RegExp(r'^\s*@\S+\s+').firstMatch(strippedText);
       if (prefixMatch != null) {
-        prefixLen = prefixMatch.end;
-        strippedText = text.substring(prefixLen);
+        prefixLen += prefixMatch.end;
+        strippedText = strippedText.substring(prefixMatch.end);
       }
     }
     final ircReplyUser = unescapeIrcTagNullable(
@@ -1240,6 +1250,7 @@ class ChatConnectionManager {
       timestamp: timestamp,
       userId: userId,
       color: color,
+      isAction: isAction,
       replyToParentId: ircReplyParentId,
       replyToUser: ircReplyUser,
       replyToText: ircReplyText,

@@ -593,6 +593,55 @@ void main() {
     });
   });
 
+  group('own /me messages', () {
+    test('strips ACTION wrapper and sets isAction', () {
+      final msgs = <String, List<TwitchMessage>>{'test': []};
+      final conn = _makeConn(channelMessages: msgs, maxMessages: 100);
+
+      final ircMsg = IrcMessage(
+        tags: {'display-name': 'TestUser', 'user-id': '12345', 'id': 'msg-me'},
+        prefix: 'testuser!testuser@testuser.tmi.twitch.tv',
+        command: 'PRIVMSG',
+        params: ['#test'],
+        trailing: '\x01ACTION waves at chat\x01',
+      );
+
+      conn.onOwnIrcMessage(ircMsg);
+
+      expect(msgs['test']!.length, 1);
+      final msg = msgs['test']!.first;
+      expect(msg.text, 'waves at chat');
+      expect(msg.isAction, isTrue);
+    });
+
+    test('adjusts emote positions for the stripped ACTION prefix', () {
+      final msgs = <String, List<TwitchMessage>>{'test': []};
+      final conn = _makeConn(channelMessages: msgs, maxMessages: 100);
+
+      final ircMsg = IrcMessage(
+        tags: {
+          'display-name': 'TestUser',
+          'user-id': '12345',
+          'id': 'msg-me2',
+          'emotes': '123:8-15',
+        },
+        prefix: 'testuser!testuser@testuser.tmi.twitch.tv',
+        command: 'PRIVMSG',
+        params: ['#test'],
+        trailing: '\x01ACTION PogChamp hi\x01',
+      );
+
+      conn.onOwnIrcMessage(ircMsg);
+
+      final msg = msgs['test']!.first;
+      expect(msg.text, 'PogChamp hi');
+      expect(msg.emotePositions, isNotNull);
+      expect(msg.emotePositions!.single.startIndex, 0);
+      expect(msg.emotePositions!.single.endIndex, 8);
+      expect(msg.emotePositions!.single.emoteCode, 'PogChamp');
+    });
+  });
+
   group('reconnect callback', () {
     test('fires on EventSub reconnect but not on first connect', () async {
       final eventSub = _NoopEventSub();
