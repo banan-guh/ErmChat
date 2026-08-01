@@ -78,8 +78,8 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
               Slider(
                 value: _recentMessagesCount.toDouble(),
                 min: 10,
-                max: 200,
-                divisions: 19,
+                max: 500,
+                divisions: 49,
                 label: '$_recentMessagesCount',
                 onChanged: (value) async {
                   final v = value.toInt();

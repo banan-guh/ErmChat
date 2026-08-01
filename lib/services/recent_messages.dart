@@ -12,9 +12,13 @@ class RecentMessagesService {
   static const _baseUrl =
       'https://recent-messages.robotty.de/api/v2/recent-messages';
 
-  Future<List<TwitchMessage>> fetchRecent(String channel) async {
+  Future<List<TwitchMessage>> fetchRecent(
+    String channel, {
+    int limit = 100,
+  }) async {
     final uri = Uri.parse(
-      '$_baseUrl/${Uri.encodeComponent(channel.toLowerCase())}?limit=100',
+      '$_baseUrl/${Uri.encodeComponent(channel.toLowerCase())}'
+      '?limit=${limit.clamp(1, 500)}',
     );
     final res = await http.get(uri).timeout(httpTimeout);
 

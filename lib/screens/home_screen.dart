@@ -121,6 +121,7 @@ class _HomeScreenState extends State<HomeScreen>
       },
       onSystemMessage: _addSystemMessage,
       loadUserTwitchEmotes: _loadUserTwitchEmotes,
+      onReconnected: _onReconnected,
       getMaxMessagesPerChannel: () => _maxMessagesPerChannel,
       getSelectedChannel: () => _selectedChannel,
       getUnreadMentions: () => _unreadMentions,
@@ -191,6 +192,7 @@ class _HomeScreenState extends State<HomeScreen>
   final _atBottomNotifiers = <String, ValueNotifier<bool>>{};
   final _frozenSnapshot = <String, List<TwitchMessage>>{};
   final _historyLoaded = <String>{};
+  final _refetchingChannels = <String>{};
   final _messageKeys = <String, GlobalKey>{};
   final _chatStatus = <String, String>{};
   final _channelUserIds = <String, String>{};
@@ -205,6 +207,7 @@ class _HomeScreenState extends State<HomeScreen>
   bool _replyToRoot = false;
   OverlayPanel _activePanel = OverlayPanel.closed;
   int _maxMessagesPerChannel = 200;
+  int _recentMessagesLimit = 100;
   int _nextSystemMessageId = 0;
 
   final _suggestionsNotifier = ValueNotifier<List<Suggestion>>([]);
@@ -394,7 +397,7 @@ class _HomeScreenState extends State<HomeScreen>
     for (final name in saved) {
       _subscribeChannel(name);
       _recentMessages
-          .fetchRecent(name)
+          .fetchRecent(name, limit: _recentMessagesLimit)
           .then((history) {
             if (!mounted) return;
             _historyLoaded.add(name);
@@ -402,66 +405,7 @@ class _HomeScreenState extends State<HomeScreen>
               if (history.isEmpty) {
                 _addSystemMessage(name, 'No chat history available');
               } else {
-                final existing = _channelMessages[name]!;
-                final existingIds = existing.map((m) => m.messageId).toSet();
-                for (final msg in history) {
-                  if (!msg.isSystem && msg.login.isNotEmpty) {
-                    final preferred =
-                        msg.displayName.toLowerCase() == msg.login.toLowerCase()
-                        ? msg.displayName
-                        : msg.login;
-                    _userStore.addUser(name, preferred);
-                  }
-                  final isNew =
-                      msg.messageId == null ||
-                      !existingIds.contains(msg.messageId);
-                  if (isNew) {
-                    if (msg.isSystem && _currentUserLogin != null) {
-                      final selfLogin = _currentUserLogin!.toLowerCase();
-                      if (msg.login.toLowerCase() == selfLogin) {
-                        msg.text = msg.text.replaceFirst(
-                          RegExp(
-                            RegExp.escape(msg.login),
-                            caseSensitive: false,
-                          ),
-                          'You',
-                        );
-                        msg.text = msg.text.replaceFirst('was', 'were');
-                      }
-                    }
-                    existing.insert(0, msg);
-                  }
-                  if (msg.messageId != null) {
-                    _messageKeys.putIfAbsent(
-                      '$name:${msg.messageId}',
-                      () => GlobalKey(),
-                    );
-                  }
-                  final login = _currentUserLogin?.toLowerCase();
-                  if (login != null &&
-                      !msg.isSystem &&
-                      !msg.isHighlighted &&
-                      msg.login.toLowerCase() != login) {
-                    final isReplyToMe =
-                        msg.replyToUser != null &&
-                        msg.replyToUser!.toLowerCase() == login;
-                    if (isMention(msg.text, login) || isReplyToMe) {
-                      msg.isHighlighted = true;
-                      _channelMessages.putIfAbsent(_mentionsChannel, () => []);
-                      final mentionList = _channelMessages[_mentionsChannel]!;
-                      final existingMentionIds = mentionList
-                          .map((m) => m.messageId)
-                          .toSet();
-                      if (msg.messageId == null ||
-                          !existingMentionIds.contains(msg.messageId)) {
-                        mentionList.insert(0, msg);
-                      }
-                    }
-                  }
-                }
-                _truncateChannelMessages(name);
-                _bumpChannel(name);
-                _moveConnectedMessageToTop(name);
+                _mergeHistoryIntoChannel(name, history);
               }
             });
             _maybeAddConnected(name);
@@ -472,6 +416,123 @@ class _HomeScreenState extends State<HomeScreen>
             _addSystemMessage(name, 'Failed to load chat history ($e)');
             _maybeAddConnected(name);
           });
+    }
+  }
+
+  // Merges robotty history into the channel message list (newest-first).
+  // Messages whose messageId is already on screen are discarded as duplicates,
+  // mentions are surfaced in the mentions panel, and a gap note is inserted at
+  // the history boundary when the fetched window doesn't reach back to the
+  // messages already displayed (only possible on reconnect re-fetches).
+  void _mergeHistoryIntoChannel(String channel, List<TwitchMessage> history) {
+    final existing = _channelMessages[channel]!;
+    final existingIds = existing.map((m) => m.messageId).toSet();
+    var hasExistingNonSystem = false;
+    for (final m in existing) {
+      if (!m.isSystem) {
+        hasExistingNonSystem = true;
+        break;
+      }
+    }
+    var insertedCount = 0;
+    for (final msg in history) {
+      if (!msg.isSystem && msg.login.isNotEmpty) {
+        final preferred =
+            msg.displayName.toLowerCase() == msg.login.toLowerCase()
+            ? msg.displayName
+            : msg.login;
+        _userStore.addUser(channel, preferred);
+      }
+      final isNew =
+          msg.messageId == null || !existingIds.contains(msg.messageId);
+      if (isNew) {
+        if (msg.isSystem && _currentUserLogin != null) {
+          final selfLogin = _currentUserLogin!.toLowerCase();
+          if (msg.login.toLowerCase() == selfLogin) {
+            msg.text = msg.text.replaceFirst(
+              RegExp(RegExp.escape(msg.login), caseSensitive: false),
+              'You',
+            );
+            msg.text = msg.text.replaceFirst('was', 'were');
+          }
+        }
+        existing.insert(0, msg);
+        insertedCount++;
+      }
+      if (msg.messageId != null) {
+        _messageKeys.putIfAbsent(
+          '$channel:${msg.messageId}',
+          () => GlobalKey(),
+        );
+      }
+      final login = _currentUserLogin?.toLowerCase();
+      if (login != null &&
+          !msg.isSystem &&
+          !msg.isHighlighted &&
+          msg.login.toLowerCase() != login) {
+        final isReplyToMe =
+            msg.replyToUser != null && msg.replyToUser!.toLowerCase() == login;
+        if (isMention(msg.text, login) || isReplyToMe) {
+          msg.isHighlighted = true;
+          _channelMessages.putIfAbsent(_mentionsChannel, () => []);
+          final mentionList = _channelMessages[_mentionsChannel]!;
+          final existingMentionIds = mentionList
+              .map((m) => m.messageId)
+              .toSet();
+          if (msg.messageId == null ||
+              !existingMentionIds.contains(msg.messageId)) {
+            mentionList.insert(0, msg);
+          }
+        }
+      }
+    }
+    if (hasExistingNonSystem &&
+        insertedCount > 0 &&
+        !history.any(
+          (m) => m.messageId != null && existingIds.contains(m.messageId),
+        )) {
+      existing.insert(
+        insertedCount,
+        TwitchMessage(
+          login: '',
+          text: 'History: Not all messages retrieved',
+          isSystem: true,
+          channel: channel,
+        ),
+      );
+    }
+    _truncateChannelMessages(channel);
+    _bumpChannel(channel);
+    _moveConnectedMessageToTop(channel);
+  }
+
+  void _onReconnected() {
+    for (final channel in List.of(_channels)) {
+      unawaited(_refetchHistory(channel));
+    }
+  }
+
+  Future<void> _refetchHistory(String channel) async {
+    if (!_historyLoaded.contains(channel) ||
+        _refetchingChannels.contains(channel)) {
+      return;
+    }
+    _refetchingChannels.add(channel);
+    try {
+      final history = await _recentMessages.fetchRecent(
+        channel,
+        limit: _recentMessagesLimit,
+      );
+      if (!mounted || !_channels.contains(channel)) return;
+      final existing = _channelMessages[channel];
+      if (existing == null || history.isEmpty) return;
+      setState(() {
+        _mergeHistoryIntoChannel(channel, history);
+      });
+    } catch (e) {
+      debugPrint('[HomeScreen] history re-fetch failed for $channel: $e');
+    } finally {
+      _refetchingChannels.remove(channel);
     }
   }
 
@@ -782,6 +843,7 @@ class _HomeScreenState extends State<HomeScreen>
     if (!mounted) return;
     setState(() {
       _maxMessagesPerChannel = prefs.getInt('max_messages_per_channel') ?? 200;
+      _recentMessagesLimit = prefs.getInt('recent_messages_limit') ?? 100;
       _replyToRoot = prefs.getBool('reply_to_thread_root') ?? false;
     });
   }
@@ -1042,7 +1104,7 @@ class _HomeScreenState extends State<HomeScreen>
     _channelMessages[name]!.insert(0, loadingMsg);
 
     _recentMessages
-        .fetchRecent(name)
+        .fetchRecent(name, limit: _recentMessagesLimit)
         .then((history) {
           if (!mounted) return;
           _historyLoaded.add(name);
@@ -1050,23 +1112,7 @@ class _HomeScreenState extends State<HomeScreen>
             if (history.isEmpty) {
               _addSystemMessage(name, 'No chat history available');
             } else {
-              final existing = _channelMessages[name]!;
-              final existingIds = existing.map((m) => m.messageId).toSet();
-              for (final msg in history) {
-                if (msg.messageId == null ||
-                    !existingIds.contains(msg.messageId)) {
-                  existing.insert(0, msg);
-                }
-                if (msg.messageId != null) {
-                  _messageKeys.putIfAbsent(
-                    '$name:${msg.messageId}',
-                    () => GlobalKey(),
-                  );
-                }
-              }
-              _truncateChannelMessages(name);
-              _bumpChannel(name);
-              _moveConnectedMessageToTop(name);
+              _mergeHistoryIntoChannel(name, history);
             }
           });
           _maybeAddConnected(name);

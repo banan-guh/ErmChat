@@ -22,6 +22,27 @@ TwitchMessage _msg(String id, String text, {String? replyToParentId}) =>
       replyToText: replyToParentId != null ? 'parent text' : null,
     );
 
+class _NoopEventSub extends EventSubService {
+  @override
+  Future<void> connect({String? url}) async {}
+}
+
+class _NoopIrc extends IrcService {
+  @override
+  Future<void> connect({
+    required String username,
+    required String accessToken,
+  }) async {}
+}
+
+class _NoopIrcRead extends IrcReadService {
+  @override
+  Future<void> connect({
+    required String username,
+    required String accessToken,
+  }) async {}
+}
+
 ChatConnectionManager _makeConn({
   required Map<String, List<TwitchMessage>> channelMessages,
   required int maxMessages,
@@ -57,6 +78,60 @@ ChatConnectionManager _makeConn({
       onSystemMessage: (c, t) {},
       loadUserTwitchEmotes: () async {},
       getMaxMessagesPerChannel: () => maxMessages,
+      getSelectedChannel: () => null,
+      getUnreadMentions: () => 0,
+      setUnreadMentions: (v) {},
+      getCurrentUserLogin: () => null,
+      setCurrentUserLogin: (v) {},
+      getCurrentUserId: () => null,
+      setCurrentUserId: (v) {},
+      onCommand: (t, c, a) {},
+      getReplyToMsg: () => null,
+      setReplyToMsg: (v) {},
+      onRequestFocus: () {},
+      onShowSnackBar: (m) {},
+    ),
+  );
+}
+
+ChatConnectionManager _makeReconnectConn({
+  required EventSubService eventSub,
+  required void Function() onReconnected,
+}) {
+  final api = TwitchApi(client: http.Client());
+  final auth = TwitchAuth();
+  auth.accessToken = 'test-token';
+  return ChatConnectionManager(
+    ChatConnectionConfig(
+      twitchApi: api,
+      eventSub: eventSub,
+      irc: _NoopIrc(),
+      ircRead: _NoopIrcRead(),
+      emoteManager: EmoteManager(),
+      badgeService: TwitchBadgeService(),
+      userStore: UserStore(),
+      twitchAuth: auth,
+      channelMessages: {},
+      messageKeys: {},
+      chatStatus: {},
+      channelsWithUnread: {},
+      channelsWithUnreadMentions: {},
+      unreadMentionsPerChannel: {},
+      channels: [],
+      historyLoaded: {},
+      channelsEmotesResolved: {},
+      channelUserIds: {},
+      lastTypedText: {},
+      lastSentWireText: {},
+      ownMessageIds: {},
+      bumpChannel: (channel) {},
+      invalidateChannel: (channel) {},
+      mentionsChannel: '@mentions',
+      onRebuild: () {},
+      onSystemMessage: (c, t) {},
+      loadUserTwitchEmotes: () async {},
+      onReconnected: onReconnected,
+      getMaxMessagesPerChannel: () => 100,
       getSelectedChannel: () => null,
       getUnreadMentions: () => 0,
       setUnreadMentions: (v) {},
@@ -516,5 +591,51 @@ void main() {
       expect(msg.badges![0].setId, 'vip');
       expect(msg.badges![0].versionId, '1');
     });
+  });
+
+  group('reconnect callback', () {
+    test('fires on EventSub reconnect but not on first connect', () async {
+      final eventSub = _NoopEventSub();
+      var calls = 0;
+      final conn = _makeReconnectConn(
+        eventSub: eventSub,
+        onReconnected: () => calls++,
+      );
+      await conn.connect();
+
+      eventSub.emitConnected();
+      expect(calls, 0, reason: 'first connect must not trigger a re-fetch');
+
+      eventSub.disconnect();
+      eventSub.emitConnected();
+      expect(calls, 1, reason: 'reconnect must trigger a re-fetch');
+
+      // The second emitConnected lands inside the 30s subscribe throttle, so
+      // the throttle return is reached after onReconnected already fired.
+      eventSub.disconnect();
+      eventSub.emitConnected();
+      expect(calls, 2);
+
+      conn.dispose();
+    });
+
+    test(
+      'does not fire on repeated connected status without a disconnect',
+      () async {
+        final eventSub = _NoopEventSub();
+        var calls = 0;
+        final conn = _makeReconnectConn(
+          eventSub: eventSub,
+          onReconnected: () => calls++,
+        );
+        await conn.connect();
+
+        eventSub.emitConnected();
+        eventSub.emitConnected();
+        expect(calls, 0);
+
+        conn.dispose();
+      },
+    );
   });
 }

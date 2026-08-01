@@ -182,6 +182,22 @@ class _ConfigurableRecentMessagesService extends RecentMessagesService {
   }) async => messages;
 }
 
+class _ScriptedRecentMessagesService extends RecentMessagesService {
+  final List<List<TwitchMessage>> responses;
+  int callCount = 0;
+  _ScriptedRecentMessagesService(this.responses);
+
+  @override
+  Future<List<TwitchMessage>> fetchRecent(
+    String channel, {
+    int limit = 100,
+  }) async {
+    final idx = callCount < responses.length ? callCount : responses.length - 1;
+    callCount++;
+    return responses[idx];
+  }
+}
+
 class _CompleterRecentMessagesService extends RecentMessagesService {
   final Completer<List<TwitchMessage>> completer;
   _CompleterRecentMessagesService(this.completer);
@@ -797,6 +813,156 @@ void main() {
 
       expect(find.textContaining('Connected'), findsOneWidget);
       expect(find.textContaining('Disconnected'), findsNothing);
+    },
+  );
+
+  testWidgets('Reconnect re-fetches history and discards duplicate messages', (
+    WidgetTester tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({
+      'access_token': 'test_token',
+      'channels': ['xqc'],
+    });
+    FlutterSecureStorage.setMockInitialValues({'access_token': 'test_token'});
+
+    final now = DateTime.now();
+    final recent = _ScriptedRecentMessagesService([
+      [
+        TwitchMessage(
+          login: 'alice',
+          text: 'first message',
+          channel: 'xqc',
+          messageId: 'a1',
+          timestamp: now.subtract(const Duration(minutes: 5)),
+        ),
+        TwitchMessage(
+          login: 'bob',
+          text: 'second message',
+          channel: 'xqc',
+          messageId: 'a2',
+          timestamp: now.subtract(const Duration(minutes: 4)),
+        ),
+      ],
+      [
+        TwitchMessage(
+          login: 'bob',
+          text: 'second message',
+          channel: 'xqc',
+          messageId: 'a2',
+          timestamp: now.subtract(const Duration(minutes: 4)),
+        ),
+        TwitchMessage(
+          login: 'carol',
+          text: 'third message',
+          channel: 'xqc',
+          messageId: 'a3',
+          timestamp: now.subtract(const Duration(minutes: 3)),
+        ),
+      ],
+    ]);
+    final fakeEventSub = _FakeEventSubService();
+
+    await tester.pumpWidget(
+      TwitchChatApp(
+        eventSubService: fakeEventSub,
+        ircService: _FakeIrcService(),
+        recentMessagesService: recent,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('first message'), findsOneWidget);
+    expect(find.textContaining('second message'), findsOneWidget);
+
+    // First connect must not trigger a history re-fetch.
+    fakeEventSub.triggerConnect();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 600));
+    await tester.pump();
+    expect(recent.callCount, 1);
+
+    // Reconnect: robotty returns one duplicate + one new message.
+    fakeEventSub.triggerDisconnect();
+    await tester.pump();
+    fakeEventSub.triggerConnect();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 600));
+    await tester.pump();
+
+    expect(recent.callCount, 2);
+    expect(find.textContaining('third message'), findsOneWidget);
+    expect(
+      find.textContaining('second message'),
+      findsOneWidget,
+      reason: 'duplicate from re-fetch must be discarded',
+    );
+    expect(find.textContaining('first message'), findsOneWidget);
+    expect(
+      find.textContaining('History: Not all messages retrieved'),
+      findsNothing,
+    );
+  });
+
+  testWidgets(
+    'Reconnect shows gap note when history does not reach old messages',
+    (WidgetTester tester) async {
+      SharedPreferences.setMockInitialValues({
+        'access_token': 'test_token',
+        'channels': ['xqc'],
+      });
+      FlutterSecureStorage.setMockInitialValues({'access_token': 'test_token'});
+
+      final now = DateTime.now();
+      final recent = _ScriptedRecentMessagesService([
+        [
+          TwitchMessage(
+            login: 'alice',
+            text: 'old message',
+            channel: 'xqc',
+            messageId: 'a1',
+            timestamp: now.subtract(const Duration(minutes: 30)),
+          ),
+        ],
+        [
+          TwitchMessage(
+            login: 'dave',
+            text: 'fresh message',
+            channel: 'xqc',
+            messageId: 'd1',
+            timestamp: now.subtract(const Duration(minutes: 1)),
+          ),
+        ],
+      ]);
+      final fakeEventSub = _FakeEventSubService();
+
+      await tester.pumpWidget(
+        TwitchChatApp(
+          eventSubService: fakeEventSub,
+          ircService: _FakeIrcService(),
+          recentMessagesService: recent,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('old message'), findsOneWidget);
+      expect(
+        find.textContaining('History: Not all messages retrieved'),
+        findsNothing,
+      );
+
+      fakeEventSub.triggerDisconnect();
+      await tester.pump();
+      fakeEventSub.triggerConnect();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 600));
+      await tester.pump();
+
+      expect(find.textContaining('fresh message'), findsOneWidget);
+      expect(find.textContaining('old message'), findsOneWidget);
+      expect(
+        find.textContaining('History: Not all messages retrieved'),
+        findsOneWidget,
+      );
     },
   );
 

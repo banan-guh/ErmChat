@@ -64,6 +64,7 @@ class ChatConnectionConfig {
     required this.onRebuild,
     required this.onSystemMessage,
     required this.loadUserTwitchEmotes,
+    this.onReconnected,
     required this.getMaxMessagesPerChannel,
     required this.getSelectedChannel,
     required this.getUnreadMentions,
@@ -110,6 +111,7 @@ class ChatConnectionConfig {
   final VoidCallback onRebuild;
   final void Function(String, String) onSystemMessage;
   final Future<void> Function() loadUserTwitchEmotes;
+  final VoidCallback? onReconnected;
   final int Function() getMaxMessagesPerChannel;
   final String? Function() getSelectedChannel;
   final int Function() getUnreadMentions;
@@ -158,6 +160,7 @@ class ChatConnectionManager {
   final void Function(String, String) onSystemMessage;
   void Function(String channel, TwitchMessage msg)? onMention;
   final Future<void> Function() loadUserTwitchEmotes;
+  final VoidCallback? onReconnected;
   final int Function() getMaxMessagesPerChannel;
   final String? Function() getSelectedChannel;
   final int Function() getUnreadMentions;
@@ -229,6 +232,7 @@ class ChatConnectionManager {
       onRebuild = config.onRebuild,
       onSystemMessage = config.onSystemMessage,
       loadUserTwitchEmotes = config.loadUserTwitchEmotes,
+      onReconnected = config.onReconnected,
       getMaxMessagesPerChannel = config.getMaxMessagesPerChannel,
       getSelectedChannel = config.getSelectedChannel,
       getUnreadMentions = config.getUnreadMentions,
@@ -849,8 +853,16 @@ class ChatConnectionManager {
         // fires on session_welcome, so the session is already stable on the
         // very first connect.
         if (status == EventSubStatus.connected && !wasConnected) {
+          final isReconnect = wasDisconnected;
           wasConnected = true;
           wasDisconnected = false;
+          // Re-fetch history after a reconnect (not on first connect) so
+          // messages missed while disconnected are recovered. Fires before
+          // the 30s throttle so reconnect flapping still re-fetches; the
+          // throttle only gates Helix re-subscriptions.
+          if (isReconnect) {
+            onReconnected?.call();
+          }
           final now = DateTime.now();
           if (_lastSubscribeAll != null &&
               now.difference(_lastSubscribeAll!).inSeconds < 30) {
