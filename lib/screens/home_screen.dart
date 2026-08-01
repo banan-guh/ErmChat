@@ -821,46 +821,75 @@ class _HomeScreenState extends State<HomeScreen>
     showModalBottomSheet(
       context: context,
       builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.reply),
-              title: const Text('Reply to message'),
-              onTap: () {
-                Navigator.pop(ctx);
-                setState(() {
-                  _replyToMsg = msg;
-                });
-                _focusNode.requestFocus();
-              },
-            ),
-            if (hasThread)
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
               ListTile(
-                leading: const Icon(Icons.forum),
-                title: const Text('View thread'),
+                leading: const Icon(Icons.reply),
+                title: const Text('Reply to message'),
                 onTap: () {
                   Navigator.pop(ctx);
-                  _showThreadView(threadRoot);
+                  setState(() {
+                    _replyToMsg = msg;
+                  });
+                  _focusNode.requestFocus();
                 },
               ),
-            ListTile(
-              leading: const Icon(Icons.copy),
-              title: const Text('Copy message'),
-              onTap: () {
-                Clipboard.setData(ClipboardData(text: msg.text));
-                Navigator.pop(ctx);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.more_horiz),
-              title: const Text('More...'),
-              onTap: () {
-                Navigator.pop(ctx);
-                _showMoreMenu(msg);
-              },
-            ),
-          ],
+              if (hasThread)
+                ListTile(
+                  leading: const Icon(Icons.forum),
+                  title: const Text('View thread'),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _showThreadView(threadRoot);
+                  },
+                ),
+              ListTile(
+                leading: const Icon(Icons.copy),
+                title: const Text('Copy message'),
+                onTap: () {
+                  Clipboard.setData(ClipboardData(text: msg.text));
+                  Navigator.pop(ctx);
+                },
+              ),
+              if (msg.messageId != null)
+                ListTile(
+                  leading: const Icon(Icons.delete_outline),
+                  title: const Text('Delete message'),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _moderateFromMessage(msg, '/delete ${msg.messageId}');
+                  },
+                ),
+              if (msg.login.isNotEmpty)
+                ListTile(
+                  leading: const Icon(Icons.timer_outlined),
+                  title: const Text('Timeout user...'),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _showTimeoutPicker(msg);
+                  },
+                ),
+              if (msg.login.isNotEmpty)
+                ListTile(
+                  leading: const Icon(Icons.block),
+                  title: const Text('Ban user'),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _moderateFromMessage(msg, '/ban ${msg.login}');
+                  },
+                ),
+              ListTile(
+                leading: const Icon(Icons.more_horiz),
+                title: const Text('More...'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _showMoreMenu(msg);
+                },
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -870,26 +899,55 @@ class _HomeScreenState extends State<HomeScreen>
     showModalBottomSheet(
       context: context,
       builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.copy),
-              title: const Text('Copy message'),
-              onTap: () {
-                Clipboard.setData(ClipboardData(text: msg.text));
-                Navigator.pop(ctx);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.more_horiz),
-              title: const Text('More...'),
-              onTap: () {
-                Navigator.pop(ctx);
-                _showMoreMenu(msg);
-              },
-            ),
-          ],
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.copy),
+                title: const Text('Copy message'),
+                onTap: () {
+                  Clipboard.setData(ClipboardData(text: msg.text));
+                  Navigator.pop(ctx);
+                },
+              ),
+              if (msg.messageId != null)
+                ListTile(
+                  leading: const Icon(Icons.delete_outline),
+                  title: const Text('Delete message'),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _moderateFromMessage(msg, '/delete ${msg.messageId}');
+                  },
+                ),
+              if (msg.login.isNotEmpty)
+                ListTile(
+                  leading: const Icon(Icons.timer_outlined),
+                  title: const Text('Timeout user...'),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _showTimeoutPicker(msg);
+                  },
+                ),
+              if (msg.login.isNotEmpty)
+                ListTile(
+                  leading: const Icon(Icons.block),
+                  title: const Text('Ban user'),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _moderateFromMessage(msg, '/ban ${msg.login}');
+                  },
+                ),
+              ListTile(
+                leading: const Icon(Icons.more_horiz),
+                title: const Text('More...'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _showMoreMenu(msg);
+                },
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -929,6 +987,60 @@ class _HomeScreenState extends State<HomeScreen>
         ),
       ),
     );
+  }
+
+  static const _timeoutPresets = <String, int>{
+    '1 minute': 60,
+    '5 minutes': 300,
+    '10 minutes': 600,
+    '30 minutes': 1800,
+    '1 hour': 3600,
+  };
+
+  void _showTimeoutPicker(TwitchMessage msg) {
+    showModalBottomSheet(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const ListTile(
+                leading: Icon(Icons.timer_outlined),
+                title: Text(
+                  'Timeout user',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+                enabled: false,
+              ),
+              for (final entry in _timeoutPresets.entries)
+                ListTile(
+                  title: Text(entry.key),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _moderateFromMessage(
+                      msg,
+                      '/timeout ${msg.login} ${entry.value}',
+                    );
+                  },
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _moderateFromMessage(TwitchMessage msg, String command) {
+    final channel = msg.channel;
+    if (channel == null) return;
+    if (!widget.twitchAuth.isConfigured) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Connect an account to chat')),
+      );
+      return;
+    }
+    _handleCommand(command, channel, widget.twitchAuth);
   }
 
   void _maybeAddConnected(String channel) {
@@ -1115,8 +1227,17 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   /// Handles slash commands by routing to the appropriate Twitch API endpoint.
-  void _handleCommand(String text, String channel, TwitchAuth auth) async {
-    _commandHandler.handle(text, channel, auth);
+  Future<void> _handleCommand(
+    String text,
+    String channel,
+    TwitchAuth auth,
+  ) async {
+    try {
+      await _commandHandler.handle(text, channel, auth);
+    } catch (e) {
+      debugPrint('[HomeScreen] command failed: $e');
+      _addSystemMessage(channel, 'Command failed: $e');
+    }
   }
 
   ScrollController _scrollCtrl(String channel) {

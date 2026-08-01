@@ -1224,6 +1224,175 @@ void main() {
     });
   });
 
+  group('Moderation actions', () {
+    late DateTime now;
+
+    setUp(() {
+      SharedPreferences.setMockInitialValues({'access_token': 'test_token'});
+      FlutterSecureStorage.setMockInitialValues({'access_token': 'test_token'});
+      now = DateTime.now();
+    });
+
+    Future<void> joinChannel(
+      WidgetTester tester, {
+      required String channelName,
+      required List<TwitchMessage> history,
+    }) async {
+      final fakeIrc = _FakeIrcService();
+      final fakeRecent = _ConfigurableRecentMessagesService(history);
+
+      await tester.pumpWidget(
+        TwitchChatApp(
+          eventSubService: _FakeEventSubService(),
+          recentMessagesService: fakeRecent,
+          ircService: fakeIrc,
+        ),
+      );
+      await tester.pump();
+
+      await tester.tap(find.byIcon(Icons.add));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).last, channelName);
+      await tester.tap(find.text('Join').last);
+      await tester.pump();
+      await tester.pump();
+    }
+
+    testWidgets('long-press message menu shows moderation actions', (
+      WidgetTester tester,
+    ) async {
+      final msg = TwitchMessage(
+        login: 'bob',
+        text: 'offensive post',
+        messageId: 'm1',
+        timestamp: now.subtract(const Duration(minutes: 3)),
+        channel: 'testchannel',
+      );
+      await joinChannel(tester, channelName: 'testchannel', history: [msg]);
+
+      await tester.longPress(find.textContaining('bob: offensive post'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Delete message'), findsOneWidget);
+      expect(find.text('Timeout user...'), findsOneWidget);
+      expect(find.text('Ban user'), findsOneWidget);
+    });
+
+    testWidgets('messages without an id omit the Delete entry', (
+      WidgetTester tester,
+    ) async {
+      final msg = TwitchMessage(
+        login: 'bob',
+        text: 'no id here',
+        timestamp: now.subtract(const Duration(minutes: 3)),
+        channel: 'testchannel',
+      );
+      await joinChannel(tester, channelName: 'testchannel', history: [msg]);
+
+      await tester.longPress(find.textContaining('bob: no id here'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Delete message'), findsNothing);
+      expect(find.text('Timeout user...'), findsOneWidget);
+      expect(find.text('Ban user'), findsOneWidget);
+    });
+
+    testWidgets('tapping Ban user dispatches the moderation command', (
+      WidgetTester tester,
+    ) async {
+      final msg = TwitchMessage(
+        login: 'bob',
+        text: 'offensive post',
+        messageId: 'm1',
+        timestamp: now.subtract(const Duration(minutes: 3)),
+        channel: 'testchannel',
+      );
+      await joinChannel(tester, channelName: 'testchannel', history: [msg]);
+
+      await tester.longPress(find.textContaining('bob: offensive post'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Ban user'));
+      await tester.pumpAndSettle();
+
+      // No logged-in user id in widget tests, so the command gate reports it
+      // as a system message — proving the menu reaches the command handler.
+      expect(
+        find.textContaining('Not authenticated or channel not joined'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('Timeout user shows duration options and dispatches', (
+      WidgetTester tester,
+    ) async {
+      final msg = TwitchMessage(
+        login: 'bob',
+        text: 'offensive post',
+        messageId: 'm1',
+        timestamp: now.subtract(const Duration(minutes: 3)),
+        channel: 'testchannel',
+      );
+      await joinChannel(tester, channelName: 'testchannel', history: [msg]);
+
+      await tester.longPress(find.textContaining('bob: offensive post'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Timeout user...'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('1 minute'), findsOneWidget);
+      expect(find.text('5 minutes'), findsOneWidget);
+      expect(find.text('10 minutes'), findsOneWidget);
+      expect(find.text('30 minutes'), findsOneWidget);
+      expect(find.text('1 hour'), findsOneWidget);
+
+      await tester.tap(find.text('5 minutes'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.textContaining('Not authenticated or channel not joined'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('long-press in thread panel shows moderation actions', (
+      WidgetTester tester,
+    ) async {
+      const channel = 'testchannel';
+      final parent = TwitchMessage(
+        login: 'alice',
+        text: 'parent msg',
+        messageId: 'p1',
+        timestamp: now.subtract(const Duration(minutes: 5)),
+        channel: channel,
+      );
+      final child = TwitchMessage(
+        login: 'bob',
+        text: 'child msg',
+        messageId: 'c1',
+        replyToParentId: 'p1',
+        replyToUser: 'alice',
+        replyToText: 'parent msg',
+        timestamp: now.subtract(const Duration(minutes: 4)),
+        isHistory: true,
+        channel: channel,
+      );
+      await joinChannel(tester, channelName: channel, history: [parent, child]);
+
+      await tester.tap(find.textContaining('replying to alice: parent msg'));
+      await tester.pumpAndSettle();
+      expect(find.text('Reply Thread'), findsOneWidget);
+
+      final childInThread = find.textContaining('bob: child msg');
+      expect(childInThread, findsAtLeast(1));
+      await tester.longPress(childInThread.last);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Delete message'), findsOneWidget);
+      expect(find.text('Timeout user...'), findsOneWidget);
+      expect(find.text('Ban user'), findsOneWidget);
+    });
+  });
+
   group('System messages', () {
     Future<void> setupChannel(
       WidgetTester tester, {

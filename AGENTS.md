@@ -85,6 +85,7 @@ dart format .              # format all Dart files
 - `suggestion_filter_test.dart` — suggestion filtering/relevance tests
 - `current_word_test.dart` — getCurrentWord edge cases (spaces, punctuation, empty, cursor at bounds)
 - `text_bypass_test.dart` — bypassTextDuplicate and normalizeForReconciliation tests
+- `command_handler_test.dart` — slash command tests (ban/timeout/unban/delete/clear/announce/shoutout/color, Helix success, IRC fallback on failure, exception handling)
 - `user_store_test.dart` — UserStore add/retrieve/remove/capacity tests
 - `twitch_oauth_test.dart` — OAuth fragment parsing tests
 - `twitch_eventsub_service_test.dart` — EventSub service tests

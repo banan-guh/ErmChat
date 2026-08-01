@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import '../services/twitch_api.dart';
 import '../services/twitch_auth.dart';
 import '../services/twitch_irc.dart';
@@ -10,6 +11,19 @@ class CommandHandler {
   final String? Function() getCurrentUserLogin;
   final void Function(String channel, String message) addSystemMessage;
   final _userIdCache = <String, String>{};
+
+  /// Commands Twitch IRC handles natively (needs only mod status + chat:edit
+  /// scope). Used as a fallback when the Helix API call fails (missing
+  /// moderation scopes on an older token, network errors, etc.) — the IRC
+  /// server replies with a NOTICE that the app already surfaces as a system
+  /// message.
+  static const _ircNativeCommands = {
+    '/ban',
+    '/timeout',
+    '/unban',
+    '/delete',
+    '/clear',
+  };
 
   CommandHandler({
     required this.twitchApi,
@@ -27,6 +41,33 @@ class CommandHandler {
     final id = await twitchApi.getUserId(auth, login);
     if (id != null) _userIdCache[lower] = id;
     return id;
+  }
+
+  /// Runs a Helix moderation call. Returns true on success; on failure retries
+  /// via the native IRC command (when connected) and returns false.
+  Future<bool> _moderate(
+    String text,
+    String channel,
+    Future<bool> Function() helixCall,
+  ) async {
+    final ok = await helixCall();
+    if (ok) return true;
+    await _fallbackToIrc(text, channel);
+    return false;
+  }
+
+  /// Sends the raw slash command over IRC when it is natively supported and
+  /// the socket is up; otherwise reports the failure with the Helix error.
+  Future<void> _fallbackToIrc(String text, String channel) async {
+    final cmd = text.split(RegExp(r'\s+')).first.toLowerCase();
+    if (_ircNativeCommands.contains(cmd) && irc.isConnected) {
+      irc.sendMessage(channel, text);
+      return;
+    }
+    addSystemMessage(
+      channel,
+      'Command failed: ${twitchApi.lastError ?? "unknown error"}',
+    );
   }
 
   Future<void> handle(String text, String channel, TwitchAuth auth) async {
@@ -51,203 +92,206 @@ class CommandHandler {
       return;
     }
 
-    switch (cmd) {
-      case '/color':
-        if (args.isEmpty) {
-          addSystemMessage(
-            channel,
-            "Usage: /color <color> - Color must be one of Twitch's supported colors (blue, blue_violet, cadet_blue, chocolate, coral, dodger_blue, firebrick, golden_rod, green, hot_pink, orange_red, red, sea_green, spring_green, yellow_green) or a hex code (#000000) if you have Turbo or Prime.",
-          );
-          return;
-        }
-        final color = args.join(' ');
-        final ok = await twitchApi.updateUserChatColor(
-          auth,
-          userId: currentUserId,
-          color: color,
-        );
-        if (ok) {
-          addSystemMessage(channel, 'Your color has been changed to $color');
-        } else {
-          addSystemMessage(
-            channel,
-            'Failed to change color to $color - ${twitchApi.lastError ?? "unknown error"}',
-          );
-        }
-
-      case '/ban':
-        if (args.isEmpty) {
-          addSystemMessage(channel, 'Usage: /ban <username> [reason]');
-          return;
-        }
-        final targetLogin = args[0];
-        final reason = args.length > 1 ? args.sublist(1).join(' ') : null;
-        final targetId = await _resolveUserId(auth, targetLogin);
-        if (targetId == null) {
-          addSystemMessage(channel, 'User "$targetLogin" not found.');
-          return;
-        }
-        final ok = await twitchApi.banUser(
-          auth,
-          broadcasterId: broadcasterId,
-          moderatorId: currentUserId,
-          userId: targetId,
-          reason: reason,
-        );
-        if (ok) {
-          addSystemMessage(channel, '$targetLogin has been banned.');
-        } else {
-          addSystemMessage(
-            channel,
-            'Failed to ban $targetLogin: ${twitchApi.lastError ?? "unknown error"}',
-          );
-        }
-
-      case '/unban':
-        if (args.isEmpty) {
-          addSystemMessage(channel, 'Usage: /unban <username>');
-          return;
-        }
-        final targetId = await _resolveUserId(auth, args[0]);
-        if (targetId == null) {
-          addSystemMessage(channel, 'User "${args[0]}" not found.');
-          return;
-        }
-        final ok = await twitchApi.unbanUser(
-          auth,
-          broadcasterId: broadcasterId,
-          moderatorId: currentUserId,
-          userId: targetId,
-        );
-        if (ok) {
-          addSystemMessage(channel, '${args[0]} has been unbanned.');
-        } else {
-          addSystemMessage(
-            channel,
-            'Failed to unban ${args[0]}: ${twitchApi.lastError ?? "unknown error"}',
-          );
-        }
-
-      case '/timeout':
-        if (args.isEmpty) {
-          addSystemMessage(
-            channel,
-            'Usage: /timeout <username> [seconds] [reason]',
-          );
-          return;
-        }
-        final targetLogin = args[0];
-        int duration = 600;
-        String? reason;
-        if (args.length > 1) {
-          final parsed = int.tryParse(args[1]);
-          if (parsed != null) {
-            duration = parsed;
-            if (args.length > 2) reason = args.sublist(2).join(' ');
-          } else {
-            reason = args.sublist(1).join(' ');
+    try {
+      switch (cmd) {
+        case '/color':
+          if (args.isEmpty) {
+            addSystemMessage(
+              channel,
+              "Usage: /color <color> - Color must be one of Twitch's supported colors (blue, blue_violet, cadet_blue, chocolate, coral, dodger_blue, firebrick, golden_rod, green, hot_pink, orange_red, red, sea_green, spring_green, yellow_green) or a hex code (#000000) if you have Turbo or Prime.",
+            );
+            return;
           }
-        }
-        final targetId = await _resolveUserId(auth, targetLogin);
-        if (targetId == null) {
-          addSystemMessage(channel, 'User "$targetLogin" not found.');
-          return;
-        }
-        final ok = await twitchApi.banUser(
-          auth,
-          broadcasterId: broadcasterId,
-          moderatorId: currentUserId,
-          userId: targetId,
-          duration: duration,
-          reason: reason,
-        );
-        if (ok) {
-          addSystemMessage(channel, '$targetLogin timed out for ${duration}s.');
-        } else {
-          addSystemMessage(
-            channel,
-            'Failed to timeout $targetLogin: ${twitchApi.lastError ?? "unknown error"}',
+          final color = args.join(' ');
+          final ok = await twitchApi.updateUserChatColor(
+            auth,
+            userId: currentUserId,
+            color: color,
           );
-        }
+          if (ok) {
+            addSystemMessage(channel, 'Your color has been changed to $color');
+          } else {
+            addSystemMessage(
+              channel,
+              'Failed to change color to $color - ${twitchApi.lastError ?? "unknown error"}',
+            );
+          }
 
-      case '/delete':
-        if (args.isEmpty) {
-          addSystemMessage(channel, 'Usage: /delete <message_id>');
-          return;
-        }
-        final ok = await twitchApi.deleteChatMessage(
-          auth,
-          broadcasterId: broadcasterId,
-          moderatorId: currentUserId,
-          messageId: args[0],
-        );
-        if (ok) {
-          addSystemMessage(channel, 'Message deleted.');
-        } else {
-          addSystemMessage(
+        case '/ban':
+          if (args.isEmpty) {
+            addSystemMessage(channel, 'Usage: /ban <username> [reason]');
+            return;
+          }
+          final targetLogin = args[0];
+          final reason = args.length > 1 ? args.sublist(1).join(' ') : null;
+          final targetId = await _resolveUserId(auth, targetLogin);
+          if (targetId == null) {
+            addSystemMessage(channel, 'User "$targetLogin" not found.');
+            return;
+          }
+          final ok = await _moderate(
+            text,
             channel,
-            'Failed to delete message: ${twitchApi.lastError ?? "unknown error"}',
+            () => twitchApi.banUser(
+              auth,
+              broadcasterId: broadcasterId,
+              moderatorId: currentUserId,
+              userId: targetId,
+              reason: reason,
+            ),
           );
-        }
+          if (ok) {
+            addSystemMessage(channel, '$targetLogin has been banned.');
+          }
 
-      case '/clear':
-        final ok = await twitchApi.deleteChatMessage(
-          auth,
-          broadcasterId: broadcasterId,
-          moderatorId: currentUserId,
-        );
-        if (ok) {
-          addSystemMessage(channel, 'Chat cleared.');
-        } else {
-          addSystemMessage(
+        case '/unban':
+          if (args.isEmpty) {
+            addSystemMessage(channel, 'Usage: /unban <username>');
+            return;
+          }
+          final targetId = await _resolveUserId(auth, args[0]);
+          if (targetId == null) {
+            addSystemMessage(channel, 'User "${args[0]}" not found.');
+            return;
+          }
+          final ok = await _moderate(
+            text,
             channel,
-            'Failed to clear chat: ${twitchApi.lastError ?? "unknown error"}',
+            () => twitchApi.unbanUser(
+              auth,
+              broadcasterId: broadcasterId,
+              moderatorId: currentUserId,
+              userId: targetId,
+            ),
           );
-        }
+          if (ok) {
+            addSystemMessage(channel, '${args[0]} has been unbanned.');
+          }
 
-      case '/announce':
-        if (args.isEmpty) {
-          addSystemMessage(channel, 'Usage: /announce <message>');
-          return;
-        }
-        final ok = await twitchApi.sendChatAnnouncement(
-          auth,
-          broadcasterId: broadcasterId,
-          moderatorId: currentUserId,
-          message: args.join(' '),
-        );
-        if (!ok) {
-          addSystemMessage(
+        case '/timeout':
+          if (args.isEmpty) {
+            addSystemMessage(
+              channel,
+              'Usage: /timeout <username> [seconds] [reason]',
+            );
+            return;
+          }
+          final targetLogin = args[0];
+          int duration = 600;
+          String? reason;
+          if (args.length > 1) {
+            final parsed = int.tryParse(args[1]);
+            if (parsed != null) {
+              duration = parsed;
+              if (args.length > 2) reason = args.sublist(2).join(' ');
+            } else {
+              reason = args.sublist(1).join(' ');
+            }
+          }
+          final targetId = await _resolveUserId(auth, targetLogin);
+          if (targetId == null) {
+            addSystemMessage(channel, 'User "$targetLogin" not found.');
+            return;
+          }
+          final ok = await _moderate(
+            text,
             channel,
-            'Failed to announce: ${twitchApi.lastError ?? "unknown error"}',
+            () => twitchApi.banUser(
+              auth,
+              broadcasterId: broadcasterId,
+              moderatorId: currentUserId,
+              userId: targetId,
+              duration: duration,
+              reason: reason,
+            ),
           );
-        }
+          if (ok) {
+            addSystemMessage(
+              channel,
+              '$targetLogin timed out for ${duration}s.',
+            );
+          }
 
-      case '/shoutout':
-        if (args.isEmpty) {
-          addSystemMessage(channel, 'Usage: /shoutout <username>');
-          return;
-        }
-        final targetId = await _resolveUserId(auth, args[0]);
-        if (targetId == null) {
-          addSystemMessage(channel, 'User "${args[0]}" not found.');
-          return;
-        }
-        final ok = await twitchApi.sendShoutout(
-          auth,
-          broadcasterId: broadcasterId,
-          moderatorId: currentUserId,
-          targetUserId: targetId,
-        );
-        if (!ok) {
-          addSystemMessage(
+        case '/delete':
+          if (args.isEmpty) {
+            addSystemMessage(channel, 'Usage: /delete <message_id>');
+            return;
+          }
+          final ok = await _moderate(
+            text,
             channel,
-            'Failed to send shoutout: ${twitchApi.lastError ?? "unknown error"}',
+            () => twitchApi.deleteChatMessage(
+              auth,
+              broadcasterId: broadcasterId,
+              moderatorId: currentUserId,
+              messageId: args[0],
+            ),
           );
-        }
+          if (ok) {
+            addSystemMessage(channel, 'Message deleted.');
+          }
 
-      default:
-        addSystemMessage(channel, 'Unknown command: $cmd');
+        case '/clear':
+          final ok = await _moderate(
+            text,
+            channel,
+            () => twitchApi.deleteChatMessage(
+              auth,
+              broadcasterId: broadcasterId,
+              moderatorId: currentUserId,
+            ),
+          );
+          if (ok) {
+            addSystemMessage(channel, 'Chat cleared.');
+          }
+
+        case '/announce':
+          if (args.isEmpty) {
+            addSystemMessage(channel, 'Usage: /announce <message>');
+            return;
+          }
+          final ok = await twitchApi.sendChatAnnouncement(
+            auth,
+            broadcasterId: broadcasterId,
+            moderatorId: currentUserId,
+            message: args.join(' '),
+          );
+          if (!ok) {
+            addSystemMessage(
+              channel,
+              'Failed to announce: ${twitchApi.lastError ?? "unknown error"}',
+            );
+          }
+
+        case '/shoutout':
+          if (args.isEmpty) {
+            addSystemMessage(channel, 'Usage: /shoutout <username>');
+            return;
+          }
+          final targetId = await _resolveUserId(auth, args[0]);
+          if (targetId == null) {
+            addSystemMessage(channel, 'User "${args[0]}" not found.');
+            return;
+          }
+          final ok = await twitchApi.sendShoutout(
+            auth,
+            broadcasterId: broadcasterId,
+            moderatorId: currentUserId,
+            targetUserId: targetId,
+          );
+          if (!ok) {
+            addSystemMessage(
+              channel,
+              'Failed to send shoutout: ${twitchApi.lastError ?? "unknown error"}',
+            );
+          }
+
+        default:
+          addSystemMessage(channel, 'Unknown command: $cmd');
+      }
+    } catch (e) {
+      debugPrint('[CommandHandler] $cmd failed: $e');
+      await _fallbackToIrc(text, channel);
     }
   }
 }
