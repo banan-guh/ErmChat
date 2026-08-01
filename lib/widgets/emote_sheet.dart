@@ -86,20 +86,18 @@ class _EmoteSheetState extends State<EmoteSheet>
                 borderRadius: BorderRadius.circular(8),
                 child: CachedNetworkImage(
                   imageUrl: emote.url,
-                  width: 64,
-                  height: 64,
-                  //memCacheWidth: 64,
-                  //memCacheHeight: 64,
+                  width: 96,
+                  height: 96,
                   fit: BoxFit.contain,
                   fadeInDuration: Duration.zero,
                   placeholder: (_, _) => Container(
-                    width: 64,
-                    height: 64,
+                    width: 96,
+                    height: 96,
                     color: theme.colorScheme.surfaceContainerHighest,
                   ),
                   errorWidget: (_, _, _) => Container(
-                    width: 64,
-                    height: 64,
+                    width: 96,
+                    height: 96,
                     color: theme.colorScheme.surfaceContainerHighest,
                     child: Icon(
                       Icons.image,
