@@ -89,25 +89,22 @@ void main() {
     },
   );
 
-  test(
-    '/ban reports failure without IRC fallback on 401 (missing scopes)',
-    () async {
-      final handler = createHandler(
-        MockClient((req) async {
-          if (req.url.path == '/helix/users') return userFound();
-          return http.Response('Missing scope', 401);
-        }),
-      );
+  test('/ban reports failure on 401 (missing scopes)', () async {
+    final handler = createHandler(
+      MockClient((req) async {
+        if (req.url.path == '/helix/users') return userFound();
+        return http.Response('Missing scope', 401);
+      }),
+    );
 
-      await handler.handle('/ban foo', 'a', auth);
+    await handler.handle('/ban foo', 'a', auth);
 
-      expect(irc.sent, isEmpty);
-      expect(
-        systemMessages.single,
-        startsWith('Command failed: banUser failed (401)'),
-      );
-    },
-  );
+    expect(irc.sent, isEmpty);
+    expect(
+      systemMessages.single,
+      startsWith('Command failed: banUser failed (401)'),
+    );
+  });
 
   test('/ban reports failure when Helix throws a network error', () async {
     final handler = createHandler(
@@ -122,27 +119,6 @@ void main() {
     expect(irc.sent, isEmpty);
     expect(systemMessages.single, startsWith('Command failed:'));
   });
-
-  test(
-    '/ban reports failure when Helix fails and IRC is disconnected',
-    () async {
-      irc.connected = false;
-      final handler = createHandler(
-        MockClient((req) async {
-          if (req.url.path == '/helix/users') return userFound();
-          return http.Response('Missing scope', 401);
-        }),
-      );
-
-      await handler.handle('/ban foo', 'a', auth);
-
-      expect(irc.sent, isEmpty);
-      expect(
-        systemMessages.single,
-        startsWith('Command failed: banUser failed (401)'),
-      );
-    },
-  );
 
   test('/ban with no args shows usage', () async {
     final handler = createHandler(

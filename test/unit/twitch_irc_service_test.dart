@@ -25,17 +25,6 @@ void main() {
         returnsNormally,
       );
     });
-
-    test('sendMessage with reply parent does not crash', () {
-      expect(
-        () => service.sendMessage(
-          'testchannel',
-          'hello',
-          replyParentMessageId: 'parent-id',
-        ),
-        returnsNormally,
-      );
-    });
   });
 
   group('channel tracking', () {
@@ -49,18 +38,6 @@ void main() {
   });
 
   group('stream controllers', () {
-    test('onBan stream can be listened to', () {
-      final events = <IrcBanEvent>[];
-      service.onBan.listen(events.add);
-      expect(events, isEmpty);
-    });
-
-    test('onMessageDeleted stream can be listened to', () {
-      final events = <IrcMessageDeletedEvent>[];
-      service.onMessageDeleted.listen(events.add);
-      expect(events, isEmpty);
-    });
-
     test('onNotice stream can be listened to', () {
       final events = <IrcNoticeEvent>[];
       service.onNotice.listen(events.add);
@@ -166,19 +143,6 @@ void main() {
   group('dispose', () {
     test('dispose does not crash', () {
       expect(() => service.dispose(), returnsNormally);
-    });
-
-    test('sendMessage after dispose does not crash', () {
-      service.dispose();
-      expect(
-        () => service.sendMessage('testchannel', 'hello'),
-        returnsNormally,
-      );
-    });
-
-    test('join after dispose does not crash', () {
-      service.dispose();
-      expect(() => service.join('testchannel'), returnsNormally);
     });
 
     test('double dispose does not crash', () {

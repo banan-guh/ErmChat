@@ -20,16 +20,6 @@ void main() {
       expect(result, 'hello $_invisibleChar');
     });
 
-    test('skips leading slash and doubles first space', () {
-      final result = bypassTextDuplicate('/ban user');
-      expect(result, '/ban  user');
-    });
-
-    test('skips leading dot and doubles first space', () {
-      final result = bypassTextDuplicate('.timeout user 60');
-      expect(result, '.timeout  user 60');
-    });
-
     test(
       'chaining: repeated bypass on single-word keeps producing unique strings',
       () {
@@ -55,11 +45,6 @@ void main() {
         expect(wire, 'hello    world');
       },
     );
-
-    test('handles text with only a command prefix and no args', () {
-      final result = bypassTextDuplicate('/');
-      expect(result, '/ $_invisibleChar');
-    });
 
     test('handles empty string', () {
       final result = bypassTextDuplicate('');

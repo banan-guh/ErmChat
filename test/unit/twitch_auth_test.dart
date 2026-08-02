@@ -13,12 +13,6 @@ void main() {
       expect(auth.isConfigured, isFalse);
     });
 
-    test('isConfigured returns false when accessToken is null', () {
-      final auth = TwitchAuth();
-      auth.accessToken = null;
-      expect(auth.isConfigured, isFalse);
-    });
-
     test('setCredentials persists token', () async {
       final auth = TwitchAuth();
       auth.setCredentials(

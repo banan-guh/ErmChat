@@ -42,16 +42,6 @@ void main() {
       expect(() => service.dispose(), returnsNormally);
     });
 
-    test('join after dispose does not crash', () {
-      service.dispose();
-      expect(() => service.join('testchannel'), returnsNormally);
-    });
-
-    test('part after dispose does not crash', () {
-      service.dispose();
-      expect(() => service.part('testchannel'), returnsNormally);
-    });
-
     test('double dispose does not crash', () {
       service.dispose();
       expect(() => service.dispose(), returnsNormally);

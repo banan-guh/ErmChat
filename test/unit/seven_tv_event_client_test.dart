@@ -290,12 +290,6 @@ void main() {
   });
 
   group('status events', () {
-    test('Hello sets connected status', () {
-      client.handleRawMessage(_hello());
-      expect(statusEvents, hasLength(1));
-      expect(statusEvents.first, SevenTvEventStatus.connected);
-    });
-
     test('emitDisconnected sets disconnected status', () {
       client.emitDisconnected();
       expect(statusEvents, hasLength(1));
@@ -483,14 +477,5 @@ void main() {
         expect(client2.isReconnecting, false);
       },
     );
-
-    test('disconnect emits disconnected status event', () {
-      client.handleRawMessage(_hello());
-      statusEvents.clear();
-
-      client.emitDisconnected();
-      expect(statusEvents, hasLength(1));
-      expect(statusEvents.first, SevenTvEventStatus.disconnected);
-    });
   });
 }

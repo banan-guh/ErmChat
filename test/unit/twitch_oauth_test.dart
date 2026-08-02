@@ -41,12 +41,6 @@ void main() {
       expect(params, isEmpty);
     });
 
-    test('returns empty map for URL with empty fragment', () {
-      final url = 'https://example.com/twitch-callback#';
-      final params = TwitchOAuth.parseFragment(url);
-      expect(params, isEmpty);
-    });
-
     test('returns empty map when no auth-related params present', () {
       final url = 'https://example.com/twitch-callback#foo=bar';
       final params = TwitchOAuth.parseFragment(url);

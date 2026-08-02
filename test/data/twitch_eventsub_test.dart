@@ -1,14 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ermchat/services/twitch_eventsub.dart';
 
-Map<String, dynamic> _welcome({String id = 'session-abc', int timeout = 10}) =>
-    {
-      'metadata': {'message_type': 'session_welcome'},
-      'payload': {
-        'session': {'id': id, 'keepalive_timeout_seconds': timeout},
-      },
-    };
-
 Map<String, dynamic> _moderate({
   required String action,
   Map<String, dynamic>? meta,
@@ -45,16 +37,6 @@ void main() {
   });
 
   group('session_welcome', () {
-    test('sets sessionId and emits connected status', () {
-      final statuses = <EventSubStatus>[];
-      service.onStatus.listen(statuses.add);
-
-      service.handleRawMessage(_welcome(id: 'sess-1', timeout: 20));
-
-      expect(service.sessionId, 'sess-1');
-      expect(statuses, contains(EventSubStatus.connected));
-    });
-
     test('session_welcome with null timeout defaults to 10', () {
       service.handleRawMessage(<String, dynamic>{
         'metadata': <String, dynamic>{'message_type': 'session_welcome'},

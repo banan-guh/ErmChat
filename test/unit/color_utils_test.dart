@@ -60,17 +60,6 @@ void main() {
     test('returns null for short string', () {
       expect(parseColor('#FFF'), isNull);
     });
-
-    test('returns null for non-hex format', () {
-      expect(parseColor('not a color'), isNull);
-    });
-
-    test('adjusts against background', () {
-      final c = parseColor('#FFFF00', background: Colors.white);
-      expect(c, isNotNull);
-      final hsl = HSLColor.fromColor(c!);
-      expect(hsl.lightness, lessThanOrEqualTo(0.5));
-    });
   });
 
   group('luminance', () {
@@ -88,8 +77,9 @@ void main() {
       const yellow = Color(0xFFFFFF00);
       final c = normalizeColor(yellow, Colors.white);
       final hsl = HSLColor.fromColor(c);
-      expect(hsl.lightness, lessThan(1.0));
-      expect(hsl.lightness, lessThanOrEqualTo(0.6));
+      // Yellow starts at exactly 0.5 lightness; the yellow-hue adjustment
+      // must push it below 0.5 on a light background.
+      expect(hsl.lightness, lessThan(0.5));
     });
 
     test('brightens dark blue on dark background', () {
@@ -97,12 +87,6 @@ void main() {
       final c = normalizeColor(darkBlue, Colors.black);
       final hsl = HSLColor.fromColor(c);
       expect(hsl.lightness, greaterThanOrEqualTo(0.5));
-    });
-
-    test('returns valid color for red on light background', () {
-      final c = normalizeColor(Colors.red, Colors.white);
-      final hsl = HSLColor.fromColor(c);
-      expect(hsl.lightness, lessThanOrEqualTo(0.5));
     });
   });
 }

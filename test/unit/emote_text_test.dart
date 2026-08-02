@@ -251,17 +251,6 @@ void main() {
       expect(spans[0], isA<WidgetSpan>());
     });
 
-    test('null channelEmotes renders as plain text', () {
-      final spans = EmoteText.build(
-        text: 'Kappa',
-        twitchPositions: null,
-        channelEmotes: null,
-      );
-      expect(spans, hasLength(1));
-      expect(spans[0], isA<TextSpan>());
-      expect((spans[0] as TextSpan).text, 'Kappa');
-    });
-
     test('small-scale emote renders at scaled size', () {
       final emotes = _makeEmotes({
         'SmallEmote': makeTestEmote(

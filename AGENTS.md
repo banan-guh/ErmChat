@@ -74,23 +74,24 @@ dart format .              # format all Dart files
 ### test/
 
 #### test/unit/
-- `color_utils_test.dart` - 18 tests: color picking, luminance, normalizeColor
+- `color_utils_test.dart` - 15 tests: color picking, luminance, normalizeColor
 - `emote_manager_test.dart` - emote manager state, GenericEmote creation, relativeScale/aspectRatio JSON round-trip
 - `emote_text_test.dart` - text parsing with emotes, segment building, whole-token matching, zero-width overlays
-- `twitch_auth_test.dart` - 6 tests: credential persistence and accessors
-- `twitch_config_test.dart` - 2 tests: client ID constant
+- `twitch_auth_test.dart` - 9 tests: credential persistence and accessors
+- `twitch_config_test.dart` - 1 test: client ID constant
 - `twitch_message_test.dart` - 3 tests: model creation and reply threading
 - `chat_connection_manager_test.dart` - connection manager tests (pending messages, duplicate detection, channel subscription)
 - `seven_tv_event_client_test.dart` - 7TV WebSocket protocol tests (hello, emote-set update, reconnect)
 - `suggestion_filter_test.dart` - suggestion filtering/relevance tests
 - `current_word_test.dart` - getCurrentWord edge cases (spaces, punctuation, empty, cursor at bounds)
 - `text_bypass_test.dart` - bypassTextDuplicate tests
-- `command_handler_test.dart` - slash command tests (ban/timeout/unban/delete/clear/announce/shoutout/color, Helix success, failure reporting without IRC fallback, exception handling)
+- `command_handler_test.dart` - slash command tests (ban/timeout/unban/delete/clear/announce/shoutout/color, Helix success, failure reporting, exception handling)
 - `user_store_test.dart` - UserStore add/retrieve/remove/capacity tests
 - `twitch_oauth_test.dart` - OAuth fragment parsing tests
 - `twitch_eventsub_service_test.dart` - EventSub service tests
 - `twitch_irc_service_test.dart` - IRC service tests
 - `twitch_irc_read_service_test.dart` - IRC read service tests
+- `mention_test.dart` - isMention edge cases (case, punctuation, substrings, empty)
 
 #### test/data/
 - `twitch_eventsub_test.dart` - EventSub channel.moderate v2 routing tests (ban/timeout with duration/delete/clear, shared_chat mapping, unknown subscription types dropped)
@@ -101,14 +102,14 @@ dart format .              # format all Dart files
 #### test/widgets/
 - `widget_test.dart` - 40+ tests: main screen renders, channel bar, reply threads (10), system messages (7), settings screen (7), connected/disconnected dedup, join channel dialog, message cutoff, autocomplete, emote menu
 - `channel_bar_test.dart` - channel bar rendering, selection, underline painting, font weight, disappearance
-- `home_screen_test.dart` - 8 tests: channel subscription, tab switching, message display, thread navigation
+- `user_profile_sheet_test.dart` - profile sheet report button URL/launch failure
 - `draggable_scrollable_sheet_spike_test.dart` - draggable scrollable sheet interaction tests
 
 ## Test naming convention
 
 - Widget tests in `test/widgets/widget_test.dart`
 - Unit tests for each service/model file named `test/unit/<file_name>_test.dart`
-- Integration/high-level tests in `test/widgets/home_screen_test.dart`
+- Integration/high-level tests in `test/widgets/widget_test.dart`
 
 ## Setup
 

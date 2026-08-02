@@ -6,9 +6,5 @@ void main() {
     test('isConfigured returns true with a real client ID', () {
       expect(TwitchConfig.isConfigured, isTrue);
     });
-
-    test('clientId is not empty', () {
-      expect(TwitchConfig.clientId.isNotEmpty, isTrue);
-    });
   });
 }

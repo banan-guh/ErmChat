@@ -410,8 +410,8 @@ TwitchMessage parseIrcChatMessage(
   final messageId = ircMsg.tags['id'];
   // PRIVMSG text normally comes in the trailing; messages without a colon
   // carry the whole text as a single param instead.
-  final text = ircMsg.trailing ??
-      (ircMsg.params.length > 1 ? ircMsg.params[1] : '');
+  final text =
+      ircMsg.trailing ?? (ircMsg.params.length > 1 ? ircMsg.params[1] : '');
   final ircReplyParentId = ircMsg.tags['reply-parent-msg-id'];
   final ircReplyThreadRootId =
       ircMsg.tags['reply-thread-parent-msg-id'] ?? ircReplyParentId;
@@ -444,21 +444,22 @@ TwitchMessage parseIrcChatMessage(
   );
 
   final tsMs = ircMsg.tags['tmi-sent-ts'];
-  final effectiveTimestamp = timestamp ??
+  final effectiveTimestamp =
+      timestamp ??
       (tsMs != null
           ? DateTime.fromMillisecondsSinceEpoch(int.parse(tsMs), isUtc: true)
           : DateTime.now().toUtc());
 
   final userId = ircMsg.tags['user-id'] ?? defaultUserId;
-  final color =
-      ircMsg.tags['color'] != null && ircMsg.tags['color']!.isNotEmpty
+  final color = ircMsg.tags['color'] != null && ircMsg.tags['color']!.isNotEmpty
       ? ircMsg.tags['color']!
       : pickColor(user.login);
 
   // Shared chat: source-room-id carries the channel the message originated in.
   final sourceRoomId = ircMsg.tags['source-room-id'];
-  final sourceBroadcasterId =
-      (sourceRoomId != null && sourceRoomId.isNotEmpty) ? sourceRoomId : null;
+  final sourceBroadcasterId = (sourceRoomId != null && sourceRoomId.isNotEmpty)
+      ? sourceRoomId
+      : null;
 
   return TwitchMessage(
     login: user.login,

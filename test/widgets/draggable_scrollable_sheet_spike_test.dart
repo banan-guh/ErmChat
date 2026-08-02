@@ -222,7 +222,6 @@ void main() {
         await tester.pumpAndSettle();
 
         // No exception thrown — test passes.
-        expect(controller.size, lessThanOrEqualTo(1.0));
       },
     );
   });

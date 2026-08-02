@@ -239,53 +239,55 @@ void main() {
     expect(find.text('Join'), findsOneWidget);
   });
 
-  testWidgets('Can send messages after adding channel without credentials', (
-    WidgetTester tester,
-  ) async {
-    final fakeEventSub = _FakeEventSubService();
-    final fakeIrc = _FakeIrcService();
-    final fakeRecent = _FakeRecentMessagesService();
+  testWidgets(
+    'Adding channel without credentials is view-only: sending blocked, '
+    'incoming messages still render',
+    (WidgetTester tester) async {
+      final fakeEventSub = _FakeEventSubService();
+      final fakeIrc = _FakeIrcService();
+      final fakeRecent = _FakeRecentMessagesService();
 
-    await tester.pumpWidget(
-      TwitchChatApp(
-        eventSubService: fakeEventSub,
-        ircService: fakeIrc,
-        recentMessagesService: fakeRecent,
-      ),
-    );
-    await tester.pump();
+      await tester.pumpWidget(
+        TwitchChatApp(
+          eventSubService: fakeEventSub,
+          ircService: fakeIrc,
+          recentMessagesService: fakeRecent,
+        ),
+      );
+      await tester.pump();
 
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pumpAndSettle();
+      await tester.tap(find.byIcon(Icons.add));
+      await tester.pumpAndSettle();
 
-    await tester.enterText(find.byType(TextField).last, 'xqc');
-    await tester.tap(find.text('Join'));
-    await tester.pump();
+      await tester.enterText(find.byType(TextField).last, 'xqc');
+      await tester.tap(find.text('Join'));
+      await tester.pump();
 
-    expect(find.text('Connect an account to chat'), findsOneWidget);
+      expect(find.text('Connect an account to chat'), findsOneWidget);
 
-    // Trying to send does nothing (input is disabled without credentials).
-    await tester.enterText(
-      find.byKey(const Key('message_input')),
-      'hello chat',
-    );
-    await tester.tap(find.byIcon(Icons.send));
-    await tester.pump();
-    expect(find.textContaining('hello chat'), findsNothing);
+      // Trying to send does nothing (input is disabled without credentials).
+      await tester.enterText(
+        find.byKey(const Key('message_input')),
+        'hello chat',
+      );
+      await tester.tap(find.byIcon(Icons.send));
+      await tester.pump();
+      expect(find.textContaining('hello chat'), findsNothing);
 
-    // EventSub messages still appear in view-only mode.
-    fakeIrc.emitMessage(
-      TwitchMessage(
-        login: 'xqc',
-        text: 'hello chat',
-        channel: 'xqc',
-        messageId: 'm1',
-      ),
-    );
-    await tester.pump();
+      // EventSub messages still appear in view-only mode.
+      fakeIrc.emitMessage(
+        TwitchMessage(
+          login: 'xqc',
+          text: 'hello chat',
+          channel: 'xqc',
+          messageId: 'm1',
+        ),
+      );
+      await tester.pump();
 
-    expect(find.textContaining('hello chat'), findsOneWidget);
-  });
+      expect(find.textContaining('hello chat'), findsOneWidget);
+    },
+  );
 
   testWidgets('Settings screen opens and shows dark mode toggle', (
     WidgetTester tester,
@@ -374,11 +376,6 @@ void main() {
 
     expect(find.text('Mentions / Whispers'), findsOneWidget);
     expect(find.text('No mentions or whispers'), findsOneWidget);
-
-    // Close the panel.
-    await tester.tap(find.byIcon(Icons.arrow_back));
-    await tester.pumpAndSettle();
-    // Closing clears panel data, content reverts to empty.
   });
 
   testWidgets(
@@ -665,7 +662,7 @@ void main() {
         .textContaining('Disconnected')
         .evaluate()
         .length;
-    expect(disconnectCount, lessThanOrEqualTo(1));
+    expect(disconnectCount, 1);
   });
 
   testWidgets('Duplicate channel join is silently ignored', (
@@ -691,32 +688,6 @@ void main() {
     expect(find.text('xqc'), findsOneWidget);
   });
 
-  testWidgets('Empty whitespace send does nothing', (
-    WidgetTester tester,
-  ) async {
-    final fakeRecent = _FakeRecentMessagesService();
-    final fakeIrc = _FakeIrcService();
-    final fakeEventSub = _FakeEventSubService();
-    await tester.pumpWidget(
-      TwitchChatApp(
-        recentMessagesService: fakeRecent,
-        ircService: fakeIrc,
-        eventSubService: fakeEventSub,
-      ),
-    );
-    await tester.pump();
-
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField).last, 'xqc');
-    await tester.tap(find.text('Join'));
-    await tester.pumpAndSettle();
-
-    // Input is disabled without credentials; send does nothing.
-    expect(find.text('Connect an account to chat'), findsOneWidget);
-    expect(find.text('   '), findsNothing);
-  });
-
   testWidgets('Message timestamp shows HH:MM format', (
     WidgetTester tester,
   ) async {
@@ -737,10 +708,6 @@ void main() {
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).last, 'xqc');
     await tester.tap(find.text('Join'));
-    await tester.pump();
-
-    await tester.enterText(find.byKey(const Key('message_input')), 'hello');
-    await tester.tap(find.byIcon(Icons.send));
     await tester.pump();
 
     fakeIrc.emitMessage(

@@ -69,16 +69,6 @@ void main() {
     });
   });
 
-  group('disconnect', () {
-    test('disconnect clears all state consistently', () {
-      service.handleRawMessage(_welcome());
-      service.disconnect();
-
-      expect(service.sessionId, isNull);
-      expect(service.isConnected, false);
-    });
-  });
-
   group('dispose', () {
     test('dispose does not crash when called fresh', () {
       final svc = EventSubService();

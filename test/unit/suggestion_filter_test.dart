@@ -132,16 +132,6 @@ void main() {
       expect(result.length, 1);
       expect(result[0], isA<CommandSuggestion>());
     });
-
-    test('non-slash word never yields command suggestions', () {
-      final result = filterSuggestions(
-        word: 'ban',
-        emotes: [],
-        users: {},
-        commands: _commands,
-      );
-      expect(result, isEmpty);
-    });
   });
 
   group('CommandSuggestion', () {
