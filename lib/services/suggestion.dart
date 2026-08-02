@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../models/generic_emote.dart';
+import '../models/twitch_command.dart';
 
 class CurrentWord {
   final int start;
@@ -59,16 +60,36 @@ class EmoteSuggestion implements Suggestion {
   const EmoteSuggestion({required this.emote});
 }
 
+class CommandSuggestion implements Suggestion {
+  final String command;
+  @override
+  String get displayText => command;
+  const CommandSuggestion({required this.command});
+}
+
 List<Suggestion> filterSuggestions({
   required String word,
   required List<GenericEmote> emotes,
   required Iterable<String> users,
+  List<TwitchCommand> commands = const [],
 }) {
   final results = <Suggestion>[];
 
   if (word.isEmpty) return results;
 
   final lower = word.toLowerCase();
+
+  // Slash words only match commands; users and emote codes cannot contain
+  // slashes. Typing "/" alone surfaces the whole (permission-filtered) list.
+  if (word.startsWith('/')) {
+    for (final cmd in commands) {
+      if (cmd.name.toLowerCase().startsWith(lower)) {
+        results.add(CommandSuggestion(command: cmd.name));
+      }
+    }
+    return results;
+  }
+
   for (final user in users) {
     if (user.toLowerCase().startsWith(lower)) {
       results.add(UserSuggestion(displayName: user));

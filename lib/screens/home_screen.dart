@@ -605,11 +605,14 @@ class _HomeScreenState extends State<HomeScreen>
     final text = _messageController.text;
     final cursor = _messageController.selection.baseOffset;
     final word = getCurrentWord(text, cursor);
+    final isCommand = word.text.startsWith('/');
     var filterWord = word.text;
-    if (filterWord.startsWith('@') && filterWord.length >= 2) {
+    if (isCommand) {
+      filterWord = filterWord.substring(1);
+    } else if (filterWord.startsWith('@') && filterWord.length >= 2) {
       filterWord = filterWord.substring(1);
     }
-    if (filterWord.length < 2) {
+    if (filterWord.length < 2 && !isCommand) {
       if (_suggestionsNotifier.value.isNotEmpty) {
         _suggestionsNotifier.value = [];
       }
@@ -621,23 +624,39 @@ class _HomeScreenState extends State<HomeScreen>
       _previousTextForUndo = _messageController.text;
       return;
     }
-    final users = _userStore.usersForChannel(channel);
-    final isMention = word.text.startsWith('@');
-    final emotes = isMention
-        ? <GenericEmote>[]
-        : [
-            ...?_emoteManager.byCode(channel)?.suggestions,
-            // Subscriber emotes are global — usable in every channel, not
-            // just the one they belong to.
-            ..._emoteManager.subscriberEmotesByChannel().values.expand(
-              (e) => e,
-            ),
-          ];
-    final filtered = filterSuggestions(
-      word: filterWord,
-      emotes: emotes,
-      users: users,
-    );
+
+    final List<Suggestion> filtered;
+    if (isCommand) {
+      // Only suggest commands my account can actually run in this channel.
+      final myPermission = _chatConn.myPermissionFor(channel);
+      final available = CommandHandler.allCommands
+          .where((c) => c.permission.index <= myPermission.index)
+          .toList();
+      filtered = filterSuggestions(
+        word: word.text,
+        emotes: <GenericEmote>[],
+        users: const <String>[],
+        commands: available,
+      );
+    } else {
+      final users = _userStore.usersForChannel(channel);
+      final isMention = word.text.startsWith('@');
+      final emotes = isMention
+          ? <GenericEmote>[]
+          : [
+              ...?_emoteManager.byCode(channel)?.suggestions,
+              // Subscriber emotes are global — usable in every channel, not
+              // just the one they belong to.
+              ..._emoteManager.subscriberEmotesByChannel().values.expand(
+                (e) => e,
+              ),
+            ];
+      filtered = filterSuggestions(
+        word: filterWord,
+        emotes: emotes,
+        users: users,
+      );
+    }
     _suggestionsNotifier.value = filtered;
     _previousTextForUndo = _messageController.text;
   }
@@ -646,6 +665,7 @@ class _HomeScreenState extends State<HomeScreen>
     var replacement = switch (suggestion) {
       UserSuggestion() => suggestion.displayName,
       EmoteSuggestion() => suggestion.emote.code,
+      CommandSuggestion() => suggestion.command,
     };
 
     final textBefore = _messageController.text;
@@ -1122,7 +1142,7 @@ class _HomeScreenState extends State<HomeScreen>
     _chatConn.maybeAddConnected(channel);
   }
 
-  // "Connected" is emitted as soon as EventSub is up, which is usually before
+  // "Connected" is emitted as soon as IRC is up, which is usually before
   // the robotty history fetch completes. History messages are then inserted
   // above it, so move it back to the most recent position to stay visible.
   void _moveConnectedMessageToTop(String channel) {
@@ -2275,12 +2295,10 @@ class _HomeScreenState extends State<HomeScreen>
                           enabled:
                               _activePanel != OverlayPanel.mentions &&
                               widget.twitchAuth.isConfigured &&
-                              _chatConn.connectionStatus ==
-                                  EventSubStatus.connected,
+                              _chatConn.irc.isConnected,
                           hintText: !widget.twitchAuth.isConfigured
                               ? 'Connect an account to chat'
-                              : _chatConn.connectionStatus !=
-                                    EventSubStatus.connected
+                              : !_chatConn.irc.isConnected
                               ? 'Disconnected'
                               : _activePanel == OverlayPanel.thread
                               ? 'Reply to thread...'

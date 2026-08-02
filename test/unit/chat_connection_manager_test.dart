@@ -1,6 +1,9 @@
+import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:ermchat/models/twitch_message.dart';
+import 'package:ermchat/models/twitch_command.dart';
+import 'package:ermchat/services/base_irc_connection.dart';
 import 'package:ermchat/services/chat_connection_manager.dart';
 import 'package:ermchat/services/emote_manager.dart';
 import 'package:ermchat/services/twitch_api.dart';
@@ -27,12 +30,39 @@ class _NoopEventSub extends EventSubService {
   Future<void> connect({String? url}) async {}
 }
 
-class _NoopIrc extends IrcService {
+class _TestIrc extends IrcService {
+  final _statusCtrl = StreamController<IrcConnectionStatus>.broadcast(
+    sync: true,
+  );
+  bool _fakeConnected = false;
+
   @override
   Future<void> connect({
     required String username,
     required String accessToken,
   }) async {}
+
+  @override
+  Stream<IrcConnectionStatus> get onStatus => _statusCtrl.stream;
+
+  @override
+  bool get isConnected => _fakeConnected;
+
+  void emitConnected() {
+    _fakeConnected = true;
+    _statusCtrl.add(IrcConnectionStatus.connected);
+  }
+
+  void emitDisconnected() {
+    _fakeConnected = false;
+    _statusCtrl.add(IrcConnectionStatus.disconnected);
+  }
+
+  @override
+  void dispose() {
+    _statusCtrl.close();
+    super.dispose();
+  }
 }
 
 class _NoopIrcRead extends IrcReadService {
@@ -95,6 +125,7 @@ ChatConnectionManager _makeConn({
 
 ChatConnectionManager _makeReconnectConn({
   required EventSubService eventSub,
+  required IrcService irc,
   required void Function() onReconnected,
 }) {
   final api = TwitchApi(client: http.Client());
@@ -104,7 +135,7 @@ ChatConnectionManager _makeReconnectConn({
     ChatConnectionConfig(
       twitchApi: api,
       eventSub: eventSub,
-      irc: _NoopIrc(),
+      irc: irc,
       ircRead: _NoopIrcRead(),
       emoteManager: EmoteManager(),
       badgeService: TwitchBadgeService(),
@@ -641,26 +672,27 @@ void main() {
   });
 
   group('reconnect callback', () {
-    test('fires on EventSub reconnect but not on first connect', () async {
-      final eventSub = _NoopEventSub();
+    test('fires on IRC reconnect but not on first connect', () async {
+      final irc = _TestIrc();
       var calls = 0;
       final conn = _makeReconnectConn(
-        eventSub: eventSub,
+        eventSub: _NoopEventSub(),
+        irc: irc,
         onReconnected: () => calls++,
       );
       await conn.connect();
 
-      eventSub.emitConnected();
+      irc.emitConnected();
       expect(calls, 0, reason: 'first connect must not trigger a re-fetch');
 
-      eventSub.disconnect();
-      eventSub.emitConnected();
+      irc.emitDisconnected();
+      irc.emitConnected();
       expect(calls, 1, reason: 'reconnect must trigger a re-fetch');
 
       // The second emitConnected lands inside the 30s subscribe throttle, so
       // the throttle return is reached after onReconnected already fired.
-      eventSub.disconnect();
-      eventSub.emitConnected();
+      irc.emitDisconnected();
+      irc.emitConnected();
       expect(calls, 2);
 
       conn.dispose();
@@ -669,20 +701,74 @@ void main() {
     test(
       'does not fire on repeated connected status without a disconnect',
       () async {
-        final eventSub = _NoopEventSub();
+        final irc = _TestIrc();
         var calls = 0;
         final conn = _makeReconnectConn(
-          eventSub: eventSub,
+          eventSub: _NoopEventSub(),
+          irc: irc,
           onReconnected: () => calls++,
         );
         await conn.connect();
 
-        eventSub.emitConnected();
-        eventSub.emitConnected();
+        irc.emitConnected();
+        irc.emitConnected();
         expect(calls, 0);
 
         conn.dispose();
       },
     );
+  });
+
+  group('myPermissionFor', () {
+    ChatConnectionManager connWithOwnMessage(String badgesTag) {
+      final msgs = <String, List<TwitchMessage>>{'test': []};
+      final conn = _makeConn(channelMessages: msgs, maxMessages: 100);
+      conn.onOwnIrcMessage(
+        IrcMessage(
+          tags: {
+            'display-name': 'TestUser',
+            'user-id': '12345',
+            'id': 'msg-badges',
+            'badges': badgesTag,
+          },
+          prefix: 'testuser!testuser@testuser.tmi.twitch.tv',
+          command: 'PRIVMSG',
+          params: ['#test'],
+          trailing: 'hello',
+        ),
+      );
+      return conn;
+    }
+
+    test('defaults to everyone before any own message', () {
+      final conn = _makeConn(channelMessages: {'test': []}, maxMessages: 100);
+      expect(conn.myPermissionFor('test'), CommandPermission.everyone);
+    });
+
+    test('no badges keeps everyone', () {
+      final conn = connWithOwnMessage('');
+      expect(conn.myPermissionFor('test'), CommandPermission.everyone);
+    });
+
+    test('vip badge is still everyone', () {
+      final conn = connWithOwnMessage('vip/1');
+      expect(conn.myPermissionFor('test'), CommandPermission.everyone);
+    });
+
+    test('moderator badge grants mod', () {
+      final conn = connWithOwnMessage('moderator/1');
+      expect(conn.myPermissionFor('test'), CommandPermission.mod);
+    });
+
+    test('broadcaster badge grants owner', () {
+      final conn = connWithOwnMessage('broadcaster/1');
+      expect(conn.myPermissionFor('test'), CommandPermission.owner);
+    });
+
+    test('permissions are per-channel', () {
+      final conn = connWithOwnMessage('moderator/1');
+      expect(conn.myPermissionFor('test'), CommandPermission.mod);
+      expect(conn.myPermissionFor('other'), CommandPermission.everyone);
+    });
   });
 }

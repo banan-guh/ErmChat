@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ermchat/models/generic_emote.dart';
+import 'package:ermchat/models/twitch_command.dart';
 import 'package:ermchat/services/suggestion.dart';
 
 GenericEmote _e(String id, String code, [EmoteType type = EmoteType.bttv]) =>
@@ -9,6 +10,12 @@ GenericEmote _e(String id, String code, [EmoteType type = EmoteType.bttv]) =>
       type: type,
       url: 'https://example.com/$id.png',
     );
+
+const _commands = <TwitchCommand>[
+  TwitchCommand(name: '/me', permission: CommandPermission.everyone),
+  TwitchCommand(name: '/color', permission: CommandPermission.everyone),
+  TwitchCommand(name: '/ban', permission: CommandPermission.mod),
+];
 
 void main() {
   group('filterSuggestions', () {
@@ -80,6 +87,67 @@ void main() {
         users: {'user1'},
       );
       expect(result, isEmpty);
+    });
+
+    test('bare slash returns every available command', () {
+      final result = filterSuggestions(
+        word: '/',
+        emotes: [],
+        users: {},
+        commands: _commands,
+      );
+      expect(result.map((s) => s.displayText), ['/me', '/color', '/ban']);
+    });
+
+    test('slash word matches command prefixes', () {
+      final result = filterSuggestions(
+        word: '/b',
+        emotes: [],
+        users: {},
+        commands: _commands,
+      );
+      expect(result.length, 1);
+      expect(result[0], isA<CommandSuggestion>());
+      expect(result[0].displayText, '/ban');
+    });
+
+    test('slash word matches case-insensitive', () {
+      final result = filterSuggestions(
+        word: '/ME',
+        emotes: [],
+        users: {},
+        commands: _commands,
+      );
+      expect(result.length, 1);
+      expect(result[0].displayText, '/me');
+    });
+
+    test('slash word never matches users or emotes', () {
+      final result = filterSuggestions(
+        word: '/me',
+        emotes: [_e('1', 'me')],
+        users: {'me', 'meUser'},
+        commands: _commands,
+      );
+      expect(result.length, 1);
+      expect(result[0], isA<CommandSuggestion>());
+    });
+
+    test('non-slash word never yields command suggestions', () {
+      final result = filterSuggestions(
+        word: 'ban',
+        emotes: [],
+        users: {},
+        commands: _commands,
+      );
+      expect(result, isEmpty);
+    });
+  });
+
+  group('CommandSuggestion', () {
+    test('displayText returns the command', () {
+      const s = CommandSuggestion(command: '/ban');
+      expect(s.displayText, '/ban');
     });
   });
 

@@ -5,8 +5,31 @@ import 'package:flutter/foundation.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import '../util/constants.dart';
-import '../models/twitch_badge.dart';
-import '../models/twitch_message.dart';
+
+/// A channel.moderate v2 event: a moderator performed a moderation action.
+/// `action` is one of ban, timeout, unban, untimeout, clear, delete, mod,
+/// unmod, vip, unvip, warn (or shared_chat_* variants).
+class ModerationEvent {
+  final String channel;
+  final String action;
+  final String moderatorName;
+  final String? targetName;
+  final String? reason;
+  final int? durationSeconds;
+  final String? messageId;
+  final String? messageBody;
+
+  ModerationEvent({
+    required this.channel,
+    required this.action,
+    required this.moderatorName,
+    this.targetName,
+    this.reason,
+    this.durationSeconds,
+    this.messageId,
+    this.messageBody,
+  });
+}
 
 class EventSubService {
   static const _wsUrl = 'wss://eventsub.wss.twitch.tv/ws';
@@ -29,7 +52,7 @@ class EventSubService {
   bool _isOnline = true;
   final _channelUserIds = <String, String>{};
 
-  final _messageController = StreamController<TwitchMessage>.broadcast(
+  final _moderationController = StreamController<ModerationEvent>.broadcast(
     sync: true,
   );
   final _statusController = StreamController<EventSubStatus>.broadcast(
@@ -41,7 +64,7 @@ class EventSubService {
 
   EventSubService({this._connectivity});
 
-  Stream<TwitchMessage> get onMessage => _messageController.stream;
+  Stream<ModerationEvent> get onModeration => _moderationController.stream;
   Stream<EventSubStatus> get onStatus => _statusController.stream;
 
   void setChannelMapping(String broadcasterUserId, String channelName) {
@@ -203,122 +226,80 @@ class EventSubService {
     });
   }
 
+  /// Routes channel.moderate v2 notifications into [ModerationEvent]s.
   void _onNotification(Map<String, dynamic> msg) {
+    final meta = msg['metadata'] as Map<String, dynamic>;
+    if (meta['subscription_type'] != 'channel.moderate') return;
+
     final payload = msg['payload'] as Map<String, dynamic>;
     final event = payload['event'] as Map<String, dynamic>;
     final channel = _channelFromPayload(msg);
+    if (channel == null) return;
 
-    final chatter = event['chatter_user_name'] as String? ?? 'unknown';
-    final chatterLogin = event['chatter_user_login'] as String?;
-    final chatterId = event['chatter_user_id'] as String?;
-    final messageData = event['message'] as Map<String, dynamic>?;
-    final text = messageData?['text'] as String? ?? '';
-    final color = event['color'] as String?;
-    final messageId = event['message_id'] as String?;
-    final sourceId = event['source_broadcaster_user_id'] as String?;
-    final sourceName = event['source_broadcaster_user_name'] as String?;
+    final action = event['action'] as String? ?? '';
+    if (action.isEmpty) return;
+    final moderatorName =
+        event['moderator_user_name'] as String? ?? 'A moderator';
 
-    final user = TwitchMessage.resolveUser(
-      login: chatterLogin ?? chatter,
-      displayName: chatter,
-    );
-
-    // EventSub wraps /me messages in \x01ACTION ... \x01
-    bool isAction = false;
-    String displayText = text;
-    if (displayText.startsWith('\x01ACTION ') && displayText.endsWith('\x01')) {
-      isAction = true;
-      displayText = displayText.substring(8, displayText.length - 1);
+    // Map shared_chat_* actions to their base action.
+    var baseAction = action;
+    if (action.startsWith('shared_chat_')) {
+      baseAction = action.substring('shared_chat_'.length);
     }
 
-    String? replyParentId;
-    String? replyThreadRootId;
-    String? replyUser;
-    String? replyText;
-    final reply = event['reply'] as Map<String, dynamic>?;
-    if (reply != null) {
-      replyParentId = reply['parent_message_id'] as String?;
-      replyThreadRootId = reply['thread_message_id'] as String?;
-      replyUser = reply['parent_user_name'] as String?;
-      replyText = reply['parent_message_body'] as String?;
-      if (replyUser != null) {
-        final prefix = '@${replyUser.toLowerCase()} ';
-        final lower = displayText.toLowerCase();
-        if (lower.startsWith(prefix)) {
-          displayText = displayText.substring(prefix.length);
-        }
-      }
-    }
+    String? targetName;
+    String? reason;
+    int? durationSeconds;
+    String? messageId;
+    String? messageBody;
 
-    // Parse badges from EventSub
-    List<MessageBadge>? badges;
-    final badgeList = event['badges'] as List<dynamic>?;
-    if (badgeList != null && badgeList.isNotEmpty) {
-      badges = [];
-      for (final b in badgeList) {
-        final bMap = b as Map<String, dynamic>;
-        final setId = bMap['set_id'] as String?;
-        final id = bMap['id'] as String?;
-        if (setId != null && id != null) {
-          badges.add(MessageBadge(setId: setId, versionId: id));
-        }
-      }
-      if (badges.isEmpty) badges = null;
-    }
-
-    // Parse emote fragments from EventSub
-    final fragments = messageData?['fragments'] as List<dynamic>?;
-    List<EmotePosition>? emotePositions;
-    if (fragments != null) {
-      emotePositions = [];
-      for (final frag in fragments) {
-        final fragMap = frag as Map<String, dynamic>;
-        if (fragMap['type'] == 'emote') {
-          final emoteId =
-              (fragMap['emote'] as Map<String, dynamic>?)?['id'] as String?;
-          // EventSub provides emote text but no character offsets (unlike
-          // IRC positional tags). Search for all occurrences — may produce
-          // false positives for repeated text.
-          if (emoteId != null) {
-            final emoteText = fragMap['text'] as String? ?? '';
-            int searchStart = 0;
-            while (true) {
-              final idx = displayText.indexOf(emoteText, searchStart);
-              if (idx == -1) break;
-              emotePositions.add(
-                EmotePosition(
-                  emoteId: emoteId,
-                  startIndex: idx,
-                  endIndex: idx + emoteText.length,
-                  emoteCode: emoteText,
-                ),
-              );
-              searchStart = idx + emoteText.length;
-            }
+    final metaObj = event[baseAction] as Map<String, dynamic>?;
+    switch (baseAction) {
+      case 'ban':
+      case 'unban':
+      case 'mod':
+      case 'unmod':
+      case 'vip':
+      case 'unvip':
+      case 'untimeout':
+        targetName = metaObj?['user_name'] as String?;
+        reason = metaObj?['reason'] as String?;
+        break;
+      case 'warn':
+        targetName = metaObj?['user_name'] as String?;
+        reason = metaObj?['reason'] as String?;
+        break;
+      case 'timeout':
+        targetName = metaObj?['user_name'] as String?;
+        reason = metaObj?['reason'] as String?;
+        final expiresAt = metaObj?['expires_at'] as String?;
+        if (expiresAt != null) {
+          final parsed = DateTime.tryParse(expiresAt);
+          if (parsed != null) {
+            durationSeconds = parsed
+                .difference(DateTime.now().toUtc())
+                .inSeconds
+                .clamp(0, 1 << 30);
           }
         }
-      }
-      if (emotePositions.isEmpty) emotePositions = null;
+        break;
+      case 'delete':
+        targetName = metaObj?['user_name'] as String?;
+        messageId = metaObj?['message_id'] as String?;
+        messageBody = metaObj?['message_body'] as String?;
+        break;
     }
 
-    _messageController.add(
-      TwitchMessage(
-        login: user.login,
-        displayName: user.displayName,
-        text: displayText,
-        color: color,
-        isAction: isAction,
-        messageId: messageId,
+    _moderationController.add(
+      ModerationEvent(
         channel: channel,
-        replyToParentId: replyParentId,
-        replyToUser: replyUser,
-        replyToText: replyText,
-        replyThreadRootId: replyThreadRootId ?? replyParentId,
-        userId: chatterId,
-        emotePositions: emotePositions,
-        badges: badges,
-        sourceBroadcasterId: sourceId,
-        sourceBroadcasterName: sourceName,
+        action: baseAction,
+        moderatorName: moderatorName,
+        targetName: targetName,
+        reason: reason,
+        durationSeconds: durationSeconds,
+        messageId: messageId,
+        messageBody: messageBody,
       ),
     );
   }
@@ -354,7 +335,7 @@ class EventSubService {
   void dispose() {
     _disposed = true;
     disconnect();
-    _messageController.close();
+    _moderationController.close();
     _statusController.close();
   }
 }

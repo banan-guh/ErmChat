@@ -161,5 +161,41 @@ void main() {
       expect(msg!.login, 'testuser');
       expect(msg.text, 'eerm');
     });
+
+    test('parses resub USERNOTICE into a system message', () {
+      const raw =
+          '@msg-id=resub;system-msg=ronni\\shas\\ssubscribed\\sfor\\s6\\smonths!;login=ronni;display-name=ronni;rm-received-ts=1700000000000 :tmi.twitch.tv USERNOTICE #xqc :Great stream!';
+      final msg = RecentMessagesService.parseIrcLine(raw);
+      expect(msg, isNotNull);
+      expect(msg!.isSystem, isTrue);
+      expect(msg.text, 'ronni has subscribed for 6 months! "Great stream!"');
+      expect(msg.login, isEmpty, reason: 'non-announcement notices drop login');
+    });
+
+    test('parses subgift USERNOTICE without user message', () {
+      const raw =
+          '@msg-id=subgift;system-msg=TWW2\\sgifted\\sa\\sTier\\s1\\ssub\\sto\\sMr_Woodchuck!;login=tww2;display-name=TWW2;rm-received-ts=1700000000000 :tmi.twitch.tv USERNOTICE #xqc';
+      final msg = RecentMessagesService.parseIrcLine(raw);
+      expect(msg, isNotNull);
+      expect(msg!.isSystem, isTrue);
+      expect(msg.text, 'TWW2 gifted a Tier 1 sub to Mr_Woodchuck!');
+    });
+
+    test('parses announcement USERNOTICE with login', () {
+      const raw =
+          '@msg-id=announcement;msg-param-color=BLUE;login=mm2pl;display-name=Mm2PL;rm-received-ts=1700000000000 :tmi.twitch.tv USERNOTICE #xqc :my primary color';
+      final msg = RecentMessagesService.parseIrcLine(raw);
+      expect(msg, isNotNull);
+      expect(msg!.isSystem, isTrue);
+      expect(msg.text, 'Mm2PL announced: my primary color');
+      expect(msg.login, 'mm2pl');
+    });
+
+    test('returns null for USERNOTICE without msg-id', () {
+      const raw =
+          '@login=ronni;display-name=ronni;rm-received-ts=1700000000000 :tmi.twitch.tv USERNOTICE #xqc :hello';
+      final msg = RecentMessagesService.parseIrcLine(raw);
+      expect(msg, isNull);
+    });
   });
 }

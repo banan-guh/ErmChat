@@ -3,10 +3,9 @@ import 'dart:convert';
 import 'package:flutter/widgets.dart';
 import 'package:http/http.dart' as http;
 import '../models/generic_emote.dart';
-import '../models/twitch_badge.dart';
+import '../models/twitch_command.dart';
 import 'base_irc_connection.dart';
 import '../models/twitch_message.dart';
-import '../color_utils.dart';
 import '../services/twitch_api.dart';
 import '../services/twitch_auth.dart';
 import '../services/twitch_eventsub.dart';
@@ -20,7 +19,6 @@ import '../services/user_store.dart';
 import '../util/text_bypass.dart';
 import '../util/constants.dart';
 import '../util/mention.dart';
-import '../util/irc_utils.dart';
 import '../util/thread_utils.dart';
 
 class _BanMeta {
@@ -175,13 +173,32 @@ class ChatConnectionManager {
   final bool Function()? isChatReady;
   final bool Function(String login)? isBlocked;
 
-  EventSubStatus connectionStatus = EventSubStatus.disconnected;
   bool _wasConnected = false;
   bool _wasDisconnected = false;
   DateTime? _lastSubscribeAll;
   bool userTwitchEmotesLoaded = false;
   final _connectedAcked = <String>{};
   final _chatStatusTimers = <String, Timer>{};
+  // Channels with an active channel.moderate v2 subscription. While present,
+  // moderation system messages come from EventSub (richer data) instead of
+  // IRC CLEARCHAT/CLEARMSG.
+  final _moderationChannels = <String>{};
+  // Badge set-ids seen on my own message echoes, per channel — the source
+  // for myPermissionFor (mod/owner detection for command autocomplete).
+  final _myBadgeSetIds = <String, Set<String>>{};
+  static const _roomStateNoticeIds = {
+    'followers_on_zero',
+    'followers_on',
+    'followers_off',
+    'emote_only_on',
+    'emote_only_off',
+    'r9k_on',
+    'r9k_off',
+    'subs_on',
+    'subs_off',
+    'slow_on',
+    'slow_off',
+  };
   bool isDisposed = false;
   bool _isConnecting = false;
   final _recentBanMeta = <String, List<_BanMeta>>{};
@@ -194,6 +211,8 @@ class ChatConnectionManager {
   StreamSubscription<IrcNoticeEvent>? ircNoticeSub;
   StreamSubscription<IrcNoticeEvent>? ircJtvSub;
   StreamSubscription<IrcMessage>? ircOwnMsgSub;
+  StreamSubscription<UserNoticeEvent>? userNoticeSub;
+  StreamSubscription<ModerationEvent>? moderationSub;
   StreamSubscription<SevenTvEmoteUpdateEvent>? sevenTvEmoteSub;
   StreamSubscription<SevenTvUserUpdate>? sevenTvUserSub;
   StreamSubscription<IrcConnectionStatus>? ircStatusSub;
@@ -254,6 +273,8 @@ class ChatConnectionManager {
     ircNoticeSub?.cancel();
     ircJtvSub?.cancel();
     ircOwnMsgSub?.cancel();
+    userNoticeSub?.cancel();
+    moderationSub?.cancel();
     sevenTvEmoteSub?.cancel();
     sevenTvUserSub?.cancel();
     ircStatusSub?.cancel();
@@ -324,21 +345,23 @@ class ChatConnectionManager {
     required String channel,
     required String user,
     required bool isTimeout,
-    required String selfDurationStr,
-    required String otherDurationStr,
+    required int? duration,
   }) {
     debugPrint(
       '[ChatConn] IRC ban received: user=$user channel=$channel isTimeout=$isTimeout',
     );
     if (isDisposed) return;
     _markUserMessagesDeleted(channel, user);
+    // While the channel.moderate v2 subscription is active, moderation
+    // messages come from EventSub (with reason/duration) — skip the IRC copy.
+    if (_moderationChannels.contains(channel)) return;
     final result = _processBanInChannel(channel, user, isTimeout);
     final isSelf = user.toLowerCase() == getCurrentUserLogin()?.toLowerCase();
-    final base = isTimeout
-        ? (isSelf
-              ? 'You are timed out$selfDurationStr'
-              : '$user was timed out$otherDurationStr')
-        : (isSelf ? 'You were banned' : '$user was banned');
+    final base = isSelf
+        ? (isTimeout
+              ? 'You are timed out${duration != null ? ' for ${duration}s' : ''}'
+              : 'You were banned')
+        : buildBanText(user: user, isTimeout: isTimeout, durationSec: duration);
     final stacked = result.stackCount > 1
         ? ' (${result.stackCount} times)'
         : '';
@@ -368,7 +391,7 @@ class ChatConnectionManager {
   }
 
   void maybeAddConnected(String channel) {
-    if (connectionStatus == EventSubStatus.connected &&
+    if (irc.isConnected &&
         historyLoaded.contains(channel) &&
         _connectedAcked.add(channel)) {
       onSystemMessage(channel, 'Connected');
@@ -592,7 +615,7 @@ class ChatConnectionManager {
 
       eventSub.setChannelMapping(channelUserId, channelName);
 
-      unawaited(_createEventSubSubscriptions(channelName, channelUserId));
+      unawaited(_subscribeModeration(channelName, channelUserId));
     } catch (_) {
       debugPrint('[ChatConn] subscribeChannel failed for $channelName');
     }
@@ -619,45 +642,45 @@ class ChatConnectionManager {
         .whenComplete(() => _currentUserFetch = null);
   }
 
-  // Only channel.chat.message is subscribed via EventSub — message deletions
-  // and bans come from IRC CLEARMSG/CLEARCHAT instead (no extra scopes,
-  // no extra subscriptions, works on both sockets).
-  Future<void> _createEventSubSubscriptions(
+  // Chat messages come from IRC PRIVMSG; EventSub is only used for
+  // channel.moderate v2 (moderation actions), subscribed per channel when the
+  // session is up. Twitch rejects non-moderators (403), in which case IRC
+  // CLEARCHAT/CLEARMSG remain the moderation source.
+  Future<void> _subscribeModeration(
     String channelName,
     String channelUserId,
   ) async {
     try {
       final auth = twitchAuth;
+      if (!auth.isConfigured || getCurrentUserId() == null) return;
       for (int attempt = 0; attempt < 3; attempt++) {
         final sessionId = eventSub.sessionId;
         if (sessionId == null) {
-          if (attempt == 2) {
-            onSystemMessage(channelName, 'Warning: EventSub session lost');
-          }
           await Future.delayed(const Duration(seconds: 1));
           continue;
         }
-
         if (attempt > 0) await Future.delayed(const Duration(seconds: 1));
-
-        final ok = await twitchApi.createSubscription(
+        final ok = await twitchApi.createEventSubSubscription(
           auth: auth,
           sessionId: sessionId,
-          broadcasterUserId: channelUserId,
-          userId: getCurrentUserId()!,
+          type: 'channel.moderate',
+          version: '2',
+          condition: {
+            'broadcaster_user_id': channelUserId,
+            'moderator_user_id': getCurrentUserId()!,
+          },
         );
-        if (ok) break;
-        if (attempt == 2) {
-          onSystemMessage(
-            channelName,
-            'Warning: chat subscription failed (${twitchApi.lastError ?? "unknown"})',
-          );
+        if (ok) {
+          _moderationChannels.add(channelName);
+          return;
         }
+        debugPrint(
+          '[ChatConn] channel.moderate subscription failed for $channelName (${twitchApi.lastError ?? "unknown"})',
+        );
+        return;
       }
     } catch (_) {
-      debugPrint(
-        '[ChatConn] createEventSubSubscriptions failed for $channelName',
-      );
+      debugPrint('[ChatConn] subscribeModeration failed for $channelName');
     }
   }
 
@@ -837,56 +860,67 @@ class ChatConnectionManager {
 
       sevenTvClient?.connect();
 
+      // EventSub session lifecycle: subscriptions are session-scoped, so drop
+      // moderation-channel state when the session dies (IRC fallback resumes)
+      // until the session comes back and subscriptions are re-created.
       statusSub?.cancel();
-      statusSub = eventSub.onStatus.listen((status) async {
+      statusSub = eventSub.onStatus.listen((status) {
         if (isDisposed) return;
-        connectionStatus = status;
+        if (status == EventSubStatus.disconnected) {
+          _moderationChannels.clear();
+        }
+      });
+
+      ircStatusSub?.cancel();
+      ircStatusSub = irc.onStatus.listen((status) async {
+        if (isDisposed) return;
         onRebuild();
-        // Edge-triggered: subscribeAll once per connect with 30s throttle.
-        // The 500ms settle delay only applies on reconnect — status=connected
-        // fires on session_welcome, so the session is already stable on the
-        // very first connect.
-        if (status == EventSubStatus.connected && !_wasConnected) {
-          final isReconnect = _wasDisconnected;
-          _wasConnected = true;
-          _wasDisconnected = false;
-          // Re-fetch history after a reconnect (not on first connect) so
-          // messages missed while disconnected are recovered. Fires before
-          // the 30s throttle so reconnect flapping still re-fetches; the
-          // throttle only gates Helix re-subscriptions.
-          if (isReconnect) {
-            onReconnected?.call();
-          }
-          final now = DateTime.now();
-          if (_lastSubscribeAll != null &&
-              now.difference(_lastSubscribeAll!).inSeconds < 30) {
-            return;
-          }
-          final firstConnect = _lastSubscribeAll == null;
-          _lastSubscribeAll = now;
-          if (!firstConnect) {
-            await Future.delayed(const Duration(milliseconds: 500));
-          }
-          // "Connected" is emitted before subscriptions are created — the
-          // user sees it as soon as the socket is up, not after Helix calls.
-          for (final channel in channels) {
-            if (_connectedAcked.add(channel)) {
-              onSystemMessage(channel, 'Connected');
+        if (status == IrcConnectionStatus.connected && irc.isConnected) {
+          // Edge-triggered: subscribeAll once per connect with 30s throttle.
+          // The 500ms settle delay only applies on reconnect — the sockets
+          // rejoin channels themselves on reconnect.
+          if (!_wasConnected) {
+            final isReconnect = _wasDisconnected;
+            _wasConnected = true;
+            _wasDisconnected = false;
+            // Re-fetch history after a reconnect (not on first connect) so
+            // messages missed while disconnected are recovered. Fires before
+            // the 30s throttle so reconnect flapping still re-fetches; the
+            // throttle only gates Helix re-subscriptions.
+            if (isReconnect) {
+              onReconnected?.call();
+            }
+            final now = DateTime.now();
+            if (_lastSubscribeAll != null &&
+                now.difference(_lastSubscribeAll!).inSeconds < 30) {
+              return;
+            }
+            final firstConnect = _lastSubscribeAll == null;
+            _lastSubscribeAll = now;
+            if (!firstConnect) {
+              await Future.delayed(const Duration(milliseconds: 500));
+            }
+            // "Connected" is emitted before subscriptions are created — the
+            // user sees it as soon as the socket is up, not after Helix calls.
+            for (final channel in channels) {
+              if (_connectedAcked.add(channel)) {
+                onSystemMessage(channel, 'Connected');
+              }
+            }
+            subscribeAll();
+            if (!userTwitchEmotesLoaded) {
+              userTwitchEmotesLoaded = true;
+              unawaited(
+                loadUserTwitchEmotes().catchError(
+                  (e) => debugPrint(
+                    '[ChatConn] loadUserTwitchEmotes failed on reconnect: $e',
+                  ),
+                ),
+              );
             }
           }
-          subscribeAll();
-          if (!userTwitchEmotesLoaded) {
-            userTwitchEmotesLoaded = true;
-            unawaited(
-              loadUserTwitchEmotes().catchError(
-                (e) => debugPrint(
-                  '[ChatConn] loadUserTwitchEmotes failed on reconnect: $e',
-                ),
-              ),
-            );
-          }
         }
-        if (status == EventSubStatus.disconnected && !_wasDisconnected) {
+        if (status == IrcConnectionStatus.disconnected && !_wasDisconnected) {
           _wasDisconnected = true;
           _wasConnected = false;
           _connectedAcked.clear();
@@ -896,7 +930,6 @@ class ChatConnectionManager {
           }
         }
       });
-
       // Use the cached account if available so cold start skips the Helix
       // user lookup entirely.
       if (getCurrentUserLogin() == null &&
@@ -929,16 +962,6 @@ class ChatConnectionManager {
       }
 
       if (getCurrentUserLogin() != null && auth.accessToken != null) {
-        ircStatusSub?.cancel();
-        ircStatusSub = irc.onStatus.listen((status) {
-          if (isDisposed) return;
-          if (status == IrcConnectionStatus.connected && irc.isConnected) {
-            for (final channel in channels) {
-              onSystemMessage(channel, 'Connected to IRC');
-            }
-          }
-        });
-
         try {
           await Future.wait([
             irc.connect(
@@ -962,7 +985,7 @@ class ChatConnectionManager {
   }
 
   void _setupSubscriptions() {
-    messageSub ??= eventSub.onMessage.listen(onMessage);
+    messageSub ??= irc.onMessage.listen(onMessage);
     ircDeleteSub ??= irc.onMessageDeleted.listen((event) {
       if (isDisposed) return;
       final msgs = channelMessages[event.channel];
@@ -975,7 +998,9 @@ class ChatConnectionManager {
           break;
         }
       }
-      if (found) {
+      // While the channel.moderate v2 subscription is active, deletions come
+      // from EventSub (with moderator + message body) — skip the IRC copy.
+      if (found && !_moderationChannels.contains(event.channel)) {
         onSystemMessage(
           event.channel,
           'A message from ${event.user} was deleted saying: "${event.deletedMessageText}".',
@@ -985,21 +1010,23 @@ class ChatConnectionManager {
 
     ircBanSub?.cancel();
     ircBanSub = irc.onBan.listen((event) {
-      final durationStr = event.duration != null
-          ? ' for ${event.duration}s'
-          : '';
       _handleBanEvent(
         channel: event.channel,
         user: event.user,
         isTimeout: event.isTimeout,
-        selfDurationStr: durationStr,
-        otherDurationStr: durationStr,
+        duration: event.duration,
       );
     });
 
     ircNoticeSub?.cancel();
     ircNoticeSub = irc.onNotice.listen((event) {
       if (isDisposed) return;
+      // With channel.moderate active, room-state changes come from EventSub
+      // with structured data — suppress the redundant IRC NOTICE.
+      if (_moderationChannels.contains(event.channel) &&
+          _roomStateNoticeIds.contains(event.msgId)) {
+        return;
+      }
       onSystemMessage(event.channel, event.message);
     });
 
@@ -1012,6 +1039,29 @@ class ChatConnectionManager {
     ircOwnMsgSub?.cancel();
     ircOwnMsgSub = ircRead.onOwnMessage.listen(onOwnIrcMessage);
 
+    userNoticeSub?.cancel();
+    userNoticeSub = irc.onUserNotice.listen((event) {
+      if (isDisposed) return;
+      final selfLogin = getCurrentUserLogin()?.toLowerCase();
+      final isSelf =
+          event.login.isNotEmpty &&
+          selfLogin != null &&
+          event.login == selfLogin;
+      onSystemMessage(
+        event.channel,
+        buildUserNoticeText(
+          msgId: event.msgId,
+          displayName: isSelf && event.msgId == 'announcement'
+              ? 'You'
+              : event.displayName,
+          systemMsg: event.systemMsg,
+          text: event.text,
+        ),
+      );
+    });
+
+    moderationSub ??= eventSub.onModeration.listen(_onModerationEvent);
+
     if (sevenTvClient != null) {
       sevenTvEmoteSub?.cancel();
       sevenTvEmoteSub = sevenTvClient!.onEmoteSetUpdate.listen(
@@ -1019,6 +1069,94 @@ class ChatConnectionManager {
       );
       sevenTvUserSub?.cancel();
       sevenTvUserSub = sevenTvClient!.onUserUpdate.listen(_onSevenTvUserUpdate);
+    }
+  }
+
+  // channel.moderate v2 events in channels with an active subscription:
+  // renders moderation system messages and applies message deletions.
+  void _onModerationEvent(ModerationEvent event) {
+    if (isDisposed) return;
+    if (!_moderationChannels.contains(event.channel)) return;
+
+    final mod = event.moderatorName;
+    final target = event.targetName;
+    final selfLogin = getCurrentUserLogin()?.toLowerCase();
+    final isSelfTarget =
+        target != null &&
+        selfLogin != null &&
+        target.toLowerCase() == selfLogin;
+    final msgs = channelMessages[event.channel];
+
+    switch (event.action) {
+      case 'delete':
+        if (event.messageId != null && msgs != null) {
+          for (final m in msgs) {
+            if (m.messageId == event.messageId && !m.isSystem) {
+              m.deleted = true;
+              break;
+            }
+          }
+        }
+        final body =
+            (event.messageBody != null && event.messageBody!.isNotEmpty)
+            ? ': "${event.messageBody}"'
+            : '';
+        onSystemMessage(
+          event.channel,
+          '$mod deleted a message from $target$body.',
+        );
+        break;
+      case 'clear':
+        if (msgs != null) {
+          for (final m in msgs) {
+            if (!m.isSystem) m.deleted = true;
+          }
+        }
+        onSystemMessage(event.channel, '$mod cleared the chat.');
+        break;
+      case 'ban':
+      case 'timeout':
+        if (target != null) _markUserMessagesDeleted(event.channel, target);
+        final duration = event.durationSeconds != null
+            ? ' for ${event.durationSeconds}s'
+            : '';
+        final reason = (event.reason != null && event.reason!.isNotEmpty)
+            ? ': "${event.reason}"'
+            : '';
+        onSystemMessage(
+          event.channel,
+          isSelfTarget
+              ? 'You were ${event.action == 'timeout' ? 'timed out$duration' : 'banned'}$reason by $mod.'
+              : '$mod ${event.action == 'timeout' ? 'timed out' : 'banned'} $target$duration$reason.',
+        );
+        break;
+      case 'unban':
+      case 'untimeout':
+        onSystemMessage(
+          event.channel,
+          isSelfTarget
+              ? 'You were unbanned by $mod.'
+              : '$mod unbanned $target.',
+        );
+        break;
+      case 'mod':
+        onSystemMessage(event.channel, '$mod modded $target.');
+        break;
+      case 'unmod':
+        onSystemMessage(event.channel, '$mod unmodded $target.');
+        break;
+      case 'vip':
+        onSystemMessage(event.channel, '$mod added $target as a VIP.');
+        break;
+      case 'unvip':
+        onSystemMessage(event.channel, '$mod removed $target as a VIP.');
+        break;
+      case 'warn':
+        final reason = (event.reason != null && event.reason!.isNotEmpty)
+            ? ': "${event.reason}"'
+            : '';
+        onSystemMessage(event.channel, '$mod warned $target$reason.');
+        break;
     }
   }
 
@@ -1112,154 +1250,50 @@ class ChatConnectionManager {
         : null;
     if (channel == null || ircMsg.trailing == null) return;
 
-    final displayName =
-        ircMsg.tags['display-name']?.trim() ?? getCurrentUserLogin() ?? '';
-    final ircPrefLogin = ircMsg.prefix != null && ircMsg.prefix!.contains('!')
-        ? ircMsg.prefix!.substring(0, ircMsg.prefix!.indexOf('!'))
-        : null;
-    final login = ircPrefLogin ?? getCurrentUserLogin() ?? '';
+    final msg = parseIrcChatMessage(
+      ircMsg,
+      channel: channel,
+      defaultLogin: getCurrentUserLogin(),
+      defaultUserId: getCurrentUserId(),
+    );
+
     final preferredName =
-        displayName.isNotEmpty &&
-            displayName.toLowerCase() == login.toLowerCase()
-        ? displayName
-        : login;
+        msg.displayName.toLowerCase() == msg.login.toLowerCase()
+        ? msg.displayName
+        : msg.login;
+    if (msg.badges != null && msg.badges!.isNotEmpty) {
+      _myBadgeSetIds[channel] = msg.badges!.map((b) => b.setId).toSet();
+    }
     if (preferredName.isNotEmpty) {
       userStore.addUser(channel, preferredName);
     }
-    final user = TwitchMessage.resolveUser(
-      login: ircPrefLogin ?? getCurrentUserLogin() ?? displayName,
-      displayName: displayName.isNotEmpty ? displayName : null,
-    );
 
-    final messageId = ircMsg.tags['id'];
-    final text = ircMsg.trailing!;
-    final ircReplyParentId = ircMsg.tags['reply-parent-msg-id'];
-    final ircReplyThreadRootId =
-        ircMsg.tags['reply-thread-parent-msg-id'] ?? ircReplyParentId;
-
-    // IRC ACTION messages (/me) are wrapped in \x01ACTION ... \x01. Same
-    // handling as EventSub and recent-messages so self /me renders like any
-    // other user's.
-    var isAction = false;
-    String strippedText = text;
-    var prefixLen = 0;
-    if (strippedText.startsWith('\x01ACTION ') &&
-        strippedText.endsWith('\x01')) {
-      isAction = true;
-      strippedText = strippedText.substring(8, strippedText.length - 1);
-      prefixLen += 8;
-    }
-
-    // Twitch IRC prepends "@username " to reply echoes. Strip this prefix
-    // so the stored text matches what the user sees; emote positions from IRC
-    // tags use original-text coordinates and must be adjusted by prefixLen below.
-    if (ircReplyParentId != null) {
-      final prefixMatch = RegExp(r'^\s*@\S+\s+').firstMatch(strippedText);
-      if (prefixMatch != null) {
-        prefixLen += prefixMatch.end;
-        strippedText = strippedText.substring(prefixMatch.end);
-      }
-    }
-    final ircReplyUser = unescapeIrcTagNullable(
-      ircMsg.tags['reply-parent-display-name'],
-    );
-    final ircReplyText = unescapeIrcTagNullable(
-      ircMsg.tags['reply-parent-msg-body'],
-    );
-
-    if (messageId != null && messageKeys.containsKey('$channel:$messageId')) {
+    if (msg.messageId != null &&
+        messageKeys.containsKey('$channel:${msg.messageId}')) {
       return;
     }
-
-    final tsMs = ircMsg.tags['tmi-sent-ts'];
-    final timestamp = tsMs != null
-        ? DateTime.fromMillisecondsSinceEpoch(int.parse(tsMs), isUtc: true)
-        : DateTime.now().toUtc();
-
-    final userId = ircMsg.tags['user-id'] ?? getCurrentUserId();
-    final color =
-        ircMsg.tags['color'] != null && ircMsg.tags['color']!.isNotEmpty
-        ? ircMsg.tags['color']!
-        : pickColor(user.login);
-
-    List<EmotePosition>? emotePositions;
-    final emotesTag = ircMsg.tags['emotes'];
-    if (emotesTag != null && emotesTag.isNotEmpty) {
-      emotePositions = [];
-      for (final emoteEntry in emotesTag.split('/')) {
-        final colonIdx = emoteEntry.indexOf(':');
-        if (colonIdx == -1) continue;
-        final emoteId = emoteEntry.substring(0, colonIdx);
-        final positionsStr = emoteEntry.substring(colonIdx + 1);
-        for (final posStr in positionsStr.split(',')) {
-          final dashIdx = posStr.indexOf('-');
-          if (dashIdx == -1) continue;
-          final start = int.tryParse(posStr.substring(0, dashIdx));
-          final end = int.tryParse(posStr.substring(dashIdx + 1));
-          if (start == null || end == null) continue;
-          if (start < 0 || end >= text.length) continue;
-          final emoteCode = text.substring(start, end + 1);
-          final adjStart = start - prefixLen;
-          final adjEnd = (end + 1) - prefixLen;
-          if (adjStart < 0 || adjEnd > strippedText.length) continue;
-          emotePositions.add(
-            EmotePosition(
-              emoteId: emoteId,
-              startIndex: adjStart,
-              endIndex: adjEnd,
-              emoteCode: emoteCode,
-            ),
-          );
-        }
-      }
-      if (emotePositions.isEmpty) emotePositions = null;
-    }
-
-    // Parse badges from IRC tags
-    List<MessageBadge>? badges;
-    final badgesTag = ircMsg.tags['badges'];
-    if (badgesTag != null && badgesTag.isNotEmpty) {
-      badges = [];
-      for (final entry in badgesTag.split(',')) {
-        final slashIdx = entry.indexOf('/');
-        if (slashIdx == -1) continue;
-        final setId = entry.substring(0, slashIdx);
-        final versionId = entry.substring(slashIdx + 1);
-        if (setId.isNotEmpty && versionId.isNotEmpty) {
-          badges.add(MessageBadge(setId: setId, versionId: versionId));
-        }
-      }
-      if (badges.isEmpty) badges = null;
-    }
-
-    final msg = TwitchMessage(
-      login: user.login,
-      displayName: user.displayName,
-      text: strippedText,
-      channel: channel,
-      messageId: messageId,
-      timestamp: timestamp,
-      userId: userId,
-      color: color,
-      isAction: isAction,
-      replyToParentId: ircReplyParentId,
-      replyToUser: ircReplyUser,
-      replyToText: ircReplyText,
-      replyThreadRootId: ircReplyThreadRootId,
-      emotePositions: emotePositions,
-      badges: badges,
-    );
 
     channelMessages.putIfAbsent(channel, () => []);
     channelMessages[channel]!.insert(0, msg);
     truncateChannelMessages(channel);
 
-    if (messageId != null) {
-      messageKeys.putIfAbsent('$channel:$messageId', () => GlobalKey());
+    if (msg.messageId != null) {
+      messageKeys.putIfAbsent('$channel:${msg.messageId}', () => GlobalKey());
     }
 
     bumpChannel(channel);
     precacheMessageEmotes(msg, channel);
+  }
+
+  /// Highest permission my account holds in [channel], based on badges seen
+  /// on my own messages. Unknown until I've sent a message there — defaults
+  /// to everyone so only non-mod commands are suggested.
+  CommandPermission myPermissionFor(String channel) {
+    final badges = _myBadgeSetIds[channel];
+    if (badges == null) return CommandPermission.everyone;
+    if (badges.contains('broadcaster')) return CommandPermission.owner;
+    if (badges.contains('moderator')) return CommandPermission.mod;
+    return CommandPermission.everyone;
   }
 
   void reconnectIfNecessary() {

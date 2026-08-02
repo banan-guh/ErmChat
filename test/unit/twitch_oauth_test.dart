@@ -106,10 +106,8 @@ void main() {
         containsAll([
           'chat:read',
           'chat:edit',
-          'user:read:chat',
           'user:write:chat',
           'user:manage:chat_color',
-          'channel:moderate',
           'moderator:manage:banned_users',
           'moderator:manage:chat_messages',
           'moderator:manage:announcements',
@@ -117,6 +115,35 @@ void main() {
           'user:read:emotes',
         ]),
       );
+    });
+
+    test('requests channel.moderate scopes for the moderation feed', () {
+      final urlInfo = TwitchOAuth.generateAuthUrl();
+      expect(urlInfo, isNotNull);
+
+      final url = Uri.parse(urlInfo!.url);
+      final scopes = url.queryParameters['scope']!.split(' ');
+      expect(
+        scopes,
+        containsAll([
+          'moderator:read:blocked_terms',
+          'moderator:read:chat_settings',
+          'moderator:read:unban_requests',
+          'moderator:read:warnings',
+          'moderator:read:moderators',
+          'moderator:read:vips',
+        ]),
+      );
+    });
+
+    test('does not request EventSub-only scopes', () {
+      final urlInfo = TwitchOAuth.generateAuthUrl();
+      expect(urlInfo, isNotNull);
+
+      final url = Uri.parse(urlInfo!.url);
+      final scopes = url.queryParameters['scope']!.split(' ');
+      expect(scopes, isNot(contains('user:read:chat')));
+      expect(scopes, isNot(contains('channel:moderate')));
     });
   });
 }

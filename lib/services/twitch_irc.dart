@@ -1,5 +1,9 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
+import '../color_utils.dart';
+import '../models/twitch_badge.dart';
+import '../models/twitch_message.dart';
+import '../util/irc_utils.dart';
 import 'base_irc_connection.dart';
 
 class IrcBanEvent {
@@ -21,8 +25,9 @@ class IrcBanEvent {
 class IrcNoticeEvent {
   final String channel;
   final String message;
+  final String? msgId;
 
-  IrcNoticeEvent({required this.channel, required this.message});
+  IrcNoticeEvent({required this.channel, required this.message, this.msgId});
 }
 
 class IrcMessageDeletedEvent {
@@ -39,18 +44,142 @@ class IrcMessageDeletedEvent {
   });
 }
 
+/// A USERNOTICE event (sub, resub, subgift, raid, announcement, etc.).
+/// `systemMsg` is Twitch's pre-formatted notice text (e.g. "x has subscribed
+/// for 6 months!"); it is always empty for announcements, where `text` holds
+/// the announcement message.
+class UserNoticeEvent {
+  final String channel;
+  final String msgId;
+  final String login;
+  final String displayName;
+  final String? systemMsg;
+  final String? text;
+  final String? announcementColor;
+  final String? userId;
+
+  UserNoticeEvent({
+    required this.channel,
+    required this.msgId,
+    required this.login,
+    required this.displayName,
+    this.systemMsg,
+    this.text,
+    this.announcementColor,
+    this.userId,
+  });
+}
+
+/// Builds the system-message text for a USERNOTICE event. Announcements use
+/// the trailing text; everything else uses Twitch's `system-msg` (with the
+/// user's own message appended for sub/resub).
+String buildUserNoticeText({
+  required String msgId,
+  required String displayName,
+  String? systemMsg,
+  String? text,
+}) {
+  if (msgId == 'announcement') {
+    final t = text?.trim() ?? '';
+    return t.isEmpty ? '$displayName announced.' : '$displayName announced: $t';
+  }
+  final base = systemMsg;
+  if (base == null || base.isEmpty) return '$displayName $msgId.';
+  if ((msgId == 'sub' || msgId == 'resub') && (text?.isNotEmpty ?? false)) {
+    return '$base "${text!.trim()}"';
+  }
+  return base;
+}
+
+/// Builds the system-message text for a CLEARCHAT ban/timeout.
+String buildBanText({
+  required String user,
+  required bool isTimeout,
+  int? durationSec,
+}) {
+  if (isTimeout) {
+    return '$user was timed out${durationSec != null ? ' for ${durationSec}s' : ''}.';
+  }
+  return '$user was banned.';
+}
+
+/// Parses the IRC `emotes` tag into [EmotePosition]s. Tag positions are
+/// relative to [originalText]; [prefixLen] is the number of characters
+/// stripped from the front (ACTION wrapper, reply prefix) and [strippedText]
+/// is the text those adjusted positions are measured against.
+List<EmotePosition>? parseIrcEmotePositions(
+  String? emotesTag, {
+  required String originalText,
+  required String strippedText,
+  int prefixLen = 0,
+}) {
+  if (emotesTag == null || emotesTag.isEmpty) return null;
+  final positions = <EmotePosition>[];
+  for (final emoteEntry in emotesTag.split('/')) {
+    final colonIdx = emoteEntry.indexOf(':');
+    if (colonIdx == -1) continue;
+    final emoteId = emoteEntry.substring(0, colonIdx);
+    final positionsStr = emoteEntry.substring(colonIdx + 1);
+    for (final posStr in positionsStr.split(',')) {
+      final dashIdx = posStr.indexOf('-');
+      if (dashIdx == -1) continue;
+      final start = int.tryParse(posStr.substring(0, dashIdx));
+      final end = int.tryParse(posStr.substring(dashIdx + 1));
+      if (start == null || end == null) continue;
+      if (start < 0 || end >= originalText.length) continue;
+      final emoteCode = originalText.substring(start, end + 1);
+      final adjStart = start - prefixLen;
+      final adjEnd = (end + 1) - prefixLen;
+      if (adjStart < 0 || adjEnd > strippedText.length) continue;
+      positions.add(
+        EmotePosition(
+          emoteId: emoteId,
+          startIndex: adjStart,
+          endIndex: adjEnd,
+          emoteCode: emoteCode,
+        ),
+      );
+    }
+  }
+  return positions.isEmpty ? null : positions;
+}
+
+/// Parses the IRC `badges` tag into [MessageBadge]s.
+List<MessageBadge>? parseIrcBadges(String? badgesTag) {
+  if (badgesTag == null || badgesTag.isEmpty) return null;
+  final badges = <MessageBadge>[];
+  for (final entry in badgesTag.split(',')) {
+    final slashIdx = entry.indexOf('/');
+    if (slashIdx == -1) continue;
+    final setId = entry.substring(0, slashIdx);
+    final versionId = entry.substring(slashIdx + 1);
+    if (setId.isNotEmpty && versionId.isNotEmpty) {
+      badges.add(MessageBadge(setId: setId, versionId: versionId));
+    }
+  }
+  return badges.isEmpty ? null : badges;
+}
+
 class IrcService extends BaseIrcConnection {
   final _banController = StreamController<IrcBanEvent>.broadcast();
   final _noticeController = StreamController<IrcNoticeEvent>.broadcast();
   final _jtvController = StreamController<IrcNoticeEvent>.broadcast();
   final _deleteController =
       StreamController<IrcMessageDeletedEvent>.broadcast();
+  final _messageController = StreamController<TwitchMessage>.broadcast(
+    sync: true,
+  );
+  final _userNoticeController = StreamController<UserNoticeEvent>.broadcast(
+    sync: true,
+  );
 
   Stream<IrcBanEvent> get onBan => _banController.stream;
   Stream<IrcNoticeEvent> get onNotice => _noticeController.stream;
   Stream<IrcNoticeEvent> get onJtvMessage => _jtvController.stream;
   Stream<IrcMessageDeletedEvent> get onMessageDeleted =>
       _deleteController.stream;
+  Stream<TwitchMessage> get onMessage => _messageController.stream;
+  Stream<UserNoticeEvent> get onUserNotice => _userNoticeController.stream;
 
   @override
   String get debugPrefix => 'IRC';
@@ -85,8 +214,16 @@ class IrcService extends BaseIrcConnection {
       _handleNotice(line);
       return;
     }
-    if (line.contains('PRIVMSG ') && line.contains(':jtv ')) {
-      _handleJtvMessage(line);
+    if (line.contains('USERNOTICE ')) {
+      _handleUserNotice(line);
+      return;
+    }
+    if (line.contains('PRIVMSG ')) {
+      if (line.contains(':jtv ')) {
+        _handleJtvMessage(line);
+      } else {
+        _handleChatMessage(line);
+      }
     }
   }
 
@@ -152,7 +289,11 @@ class IrcService extends BaseIrcConnection {
     if (channelName == null || msg.trailing == null) return;
 
     _noticeController.add(
-      IrcNoticeEvent(channel: channelName, message: msg.trailing!),
+      IrcNoticeEvent(
+        channel: channelName,
+        message: msg.trailing!,
+        msgId: msg.tags['msg-id'],
+      ),
     );
   }
 
@@ -170,14 +311,179 @@ class IrcService extends BaseIrcConnection {
     );
   }
 
+  void _handleUserNotice(String line) {
+    final msg = parseIrcMessage(line);
+    if (msg == null || msg.command != 'USERNOTICE') return;
+
+    final channelName = msg.params.isNotEmpty
+        ? msg.params[0].substring(1)
+        : null;
+    if (channelName == null) return;
+
+    final ircPrefLogin = msg.prefix != null && msg.prefix!.contains('!')
+        ? msg.prefix!.substring(0, msg.prefix!.indexOf('!'))
+        : null;
+    final login = (msg.tags['login'] ?? ircPrefLogin ?? '').toLowerCase();
+    final displayName = msg.tags['display-name'] ?? login;
+    final systemMsg = msg.tags['system-msg'] != null
+        ? unescapeIrcTag(msg.tags['system-msg']!)
+        : null;
+
+    _userNoticeController.add(
+      UserNoticeEvent(
+        channel: channelName,
+        msgId: msg.tags['msg-id'] ?? '',
+        login: login,
+        displayName: displayName,
+        systemMsg: systemMsg,
+        text: msg.trailing,
+        announcementColor: msg.tags['msg-param-color'],
+        userId: msg.tags['user-id'],
+      ),
+    );
+  }
+
+  void _handleChatMessage(String line) {
+    final msg = parseIrcMessage(line);
+    if (msg == null || msg.command != 'PRIVMSG' || msg.trailing == null) {
+      return;
+    }
+    final channelName = msg.params.isNotEmpty
+        ? msg.params[0].substring(1)
+        : null;
+    if (channelName == null) return;
+
+    final prefixLogin = msg.prefix != null && msg.prefix!.contains('!')
+        ? msg.prefix!.substring(0, msg.prefix!.indexOf('!')).toLowerCase()
+        : null;
+    // Own messages are echoed on the read-only socket instead.
+    if (prefixLogin == null || username == null || prefixLogin == username) {
+      return;
+    }
+
+    _messageController.add(parseIrcChatMessage(msg, channel: channelName));
+  }
+
+  @visibleForTesting
+  void emitChatMessage(TwitchMessage msg) => _messageController.add(msg);
+
+  @visibleForTesting
+  void emitUserNotice(UserNoticeEvent event) =>
+      _userNoticeController.add(event);
+
   @override
   void dispose() {
     _banController.close();
     _noticeController.close();
     _jtvController.close();
     _deleteController.close();
+    _messageController.close();
+    _userNoticeController.close();
     super.dispose();
   }
+}
+
+/// Parses an IRC PRIVMSG into a [TwitchMessage]. Shared by the live chat
+/// socket, the read-only own-message socket, and history parsing;
+/// `defaultLogin`/`defaultDisplayName`/`defaultUserId` are used when the
+/// message lacks a user prefix or tags (own echoes). `timestamp`/`isHistory`
+/// override the defaults for robotty history lines.
+TwitchMessage parseIrcChatMessage(
+  IrcMessage ircMsg, {
+  required String? channel,
+  String? defaultLogin,
+  String? defaultDisplayName,
+  String? defaultUserId,
+  DateTime? timestamp,
+  bool isHistory = false,
+}) {
+  final displayName =
+      ircMsg.tags['display-name']?.trim() ?? defaultDisplayName ?? '';
+  final ircPrefLogin = ircMsg.prefix != null && ircMsg.prefix!.contains('!')
+      ? ircMsg.prefix!.substring(0, ircMsg.prefix!.indexOf('!'))
+      : null;
+  final user = TwitchMessage.resolveUser(
+    login: ircPrefLogin ?? defaultLogin ?? displayName,
+    displayName: displayName.isNotEmpty ? displayName : null,
+  );
+
+  final messageId = ircMsg.tags['id'];
+  // PRIVMSG text normally comes in the trailing; messages without a colon
+  // carry the whole text as a single param instead.
+  final text = ircMsg.trailing ??
+      (ircMsg.params.length > 1 ? ircMsg.params[1] : '');
+  final ircReplyParentId = ircMsg.tags['reply-parent-msg-id'];
+  final ircReplyThreadRootId =
+      ircMsg.tags['reply-thread-parent-msg-id'] ?? ircReplyParentId;
+
+  // IRC ACTION messages (/me) are wrapped in \x01ACTION ... \x01.
+  var isAction = false;
+  String strippedText = text;
+  var prefixLen = 0;
+  if (strippedText.startsWith('\x01ACTION ') && strippedText.endsWith('\x01')) {
+    isAction = true;
+    strippedText = strippedText.substring(8, strippedText.length - 1);
+    prefixLen += 8;
+  }
+
+  // Twitch IRC prepends "@username " to reply echoes. Strip this prefix
+  // so the stored text matches what the user sees; emote positions from IRC
+  // tags use original-text coordinates and must be adjusted by prefixLen below.
+  if (ircReplyParentId != null) {
+    final prefixMatch = RegExp(r'^\s*@\S+\s+').firstMatch(strippedText);
+    if (prefixMatch != null) {
+      prefixLen += prefixMatch.end;
+      strippedText = strippedText.substring(prefixMatch.end);
+    }
+  }
+  final ircReplyUser = unescapeIrcTagNullable(
+    ircMsg.tags['reply-parent-display-name'],
+  );
+  final ircReplyText = unescapeIrcTagNullable(
+    ircMsg.tags['reply-parent-msg-body'],
+  );
+
+  final tsMs = ircMsg.tags['tmi-sent-ts'];
+  final effectiveTimestamp = timestamp ??
+      (tsMs != null
+          ? DateTime.fromMillisecondsSinceEpoch(int.parse(tsMs), isUtc: true)
+          : DateTime.now().toUtc());
+
+  final userId = ircMsg.tags['user-id'] ?? defaultUserId;
+  final color =
+      ircMsg.tags['color'] != null && ircMsg.tags['color']!.isNotEmpty
+      ? ircMsg.tags['color']!
+      : pickColor(user.login);
+
+  // Shared chat: source-room-id carries the channel the message originated in.
+  final sourceRoomId = ircMsg.tags['source-room-id'];
+  final sourceBroadcasterId =
+      (sourceRoomId != null && sourceRoomId.isNotEmpty) ? sourceRoomId : null;
+
+  return TwitchMessage(
+    login: user.login,
+    displayName: user.displayName,
+    text: strippedText,
+    channel: channel,
+    messageId: messageId,
+    timestamp: effectiveTimestamp,
+    userId: userId,
+    color: color,
+    isAction: isAction,
+    replyToParentId: ircReplyParentId,
+    replyToUser: ircReplyUser,
+    replyToText: ircReplyText,
+    replyThreadRootId: ircReplyThreadRootId,
+    emotePositions: parseIrcEmotePositions(
+      ircMsg.tags['emotes'],
+      originalText: text,
+      strippedText: strippedText,
+      prefixLen: prefixLen,
+    ),
+    badges: parseIrcBadges(ircMsg.tags['badges']),
+    sourceBroadcasterId: sourceBroadcasterId,
+    isHistory: isHistory,
+  );
 }
 
 IrcMessage? parseIrcMessage(String line) {

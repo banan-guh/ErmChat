@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'twitch_irc.dart';
 import 'base_irc_connection.dart';
 
@@ -32,4 +33,7 @@ class IrcReadService extends BaseIrcConnection {
     _ownMessageController.close();
     super.dispose();
   }
+
+  @visibleForTesting
+  void emitOwnMessage(IrcMessage msg) => _ownMessageController.add(msg);
 }

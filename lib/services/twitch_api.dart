@@ -91,27 +91,25 @@ class TwitchApi {
     }
   }
 
-  Future<bool> createSubscription({
+  Future<bool> createEventSubSubscription({
     required TwitchAuth auth,
     required String sessionId,
-    required String broadcasterUserId,
-    required String userId,
+    required String type,
+    required String version,
+    required Map<String, dynamic> condition,
   }) async {
     _lastError = null;
     final uri = Uri.parse('$_base/eventsub/subscriptions');
     final body = jsonEncode({
-      'type': 'channel.chat.message',
-      'version': '1',
-      'condition': {
-        'broadcaster_user_id': broadcasterUserId,
-        'user_id': userId,
-      },
+      'type': type,
+      'version': version,
+      'condition': condition,
       'transport': {'method': 'websocket', 'session_id': sessionId},
     });
     final res = await _client.post(uri, headers: _headers(auth), body: body);
     if (res.statusCode == 409) return true;
     if (res.statusCode != 202) {
-      _setError('createSubscription', res);
+      _setError('createEventSubSubscription', res);
       return false;
     }
     return true;

@@ -90,7 +90,7 @@ void main() {
   );
 
   test(
-    '/ban falls back to IRC when Helix returns 401 (missing scopes)',
+    '/ban reports failure without IRC fallback on 401 (missing scopes)',
     () async {
       final handler = createHandler(
         MockClient((req) async {
@@ -101,12 +101,15 @@ void main() {
 
       await handler.handle('/ban foo', 'a', auth);
 
-      expect(irc.sent, ['/ban foo']);
-      expect(systemMessages, isEmpty);
+      expect(irc.sent, isEmpty);
+      expect(
+        systemMessages.single,
+        startsWith('Command failed: banUser failed (401)'),
+      );
     },
   );
 
-  test('/ban falls back to IRC when Helix throws a network error', () async {
+  test('/ban reports failure when Helix throws a network error', () async {
     final handler = createHandler(
       MockClient((req) async {
         if (req.url.path == '/helix/users') return userFound();
@@ -116,7 +119,8 @@ void main() {
 
     await handler.handle('/ban foo', 'a', auth);
 
-    expect(irc.sent, ['/ban foo']);
+    expect(irc.sent, isEmpty);
+    expect(systemMessages.single, startsWith('Command failed:'));
   });
 
   test(
@@ -252,7 +256,7 @@ void main() {
     expect(req.url.queryParameters['user_id'], '999');
   });
 
-  test('/unban falls back to IRC on Helix failure', () async {
+  test('/unban reports failure without IRC fallback', () async {
     final handler = createHandler(
       MockClient((req) async {
         if (req.url.path == '/helix/users') return userFound();
@@ -262,8 +266,11 @@ void main() {
 
     await handler.handle('/unban foo', 'a', auth);
 
-    expect(irc.sent, ['/unban foo']);
-    expect(systemMessages, isEmpty);
+    expect(irc.sent, isEmpty);
+    expect(
+      systemMessages.single,
+      startsWith('Command failed: unbanUser failed (403)'),
+    );
   });
 
   test('/delete success targets the message id', () async {
@@ -284,14 +291,18 @@ void main() {
     expect(req.url.queryParameters['message_id'], 'abc123');
   });
 
-  test('/delete falls back to IRC on Helix failure', () async {
+  test('/delete reports failure without IRC fallback', () async {
     final handler = createHandler(
       MockClient((req) async => http.Response('Bad Request', 400)),
     );
 
     await handler.handle('/delete abc123', 'a', auth);
 
-    expect(irc.sent, ['/delete abc123']);
+    expect(irc.sent, isEmpty);
+    expect(
+      systemMessages.single,
+      startsWith('Command failed: deleteChatMessage failed (400)'),
+    );
   });
 
   test('/clear success omits message_id', () async {
@@ -311,14 +322,18 @@ void main() {
     expect(req.url.queryParameters.containsKey('message_id'), isFalse);
   });
 
-  test('/clear falls back to IRC on Helix failure', () async {
+  test('/clear reports failure without IRC fallback', () async {
     final handler = createHandler(
       MockClient((req) async => http.Response('Unauthorized', 401)),
     );
 
     await handler.handle('/clear', 'a', auth);
 
-    expect(irc.sent, ['/clear']);
+    expect(irc.sent, isEmpty);
+    expect(
+      systemMessages.single,
+      startsWith('Command failed: deleteChatMessage failed (401)'),
+    );
   });
 
   test('/announce posts the message', () async {

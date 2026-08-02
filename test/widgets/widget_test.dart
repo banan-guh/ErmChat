@@ -13,7 +13,9 @@ import 'package:ermchat/screens/settings/channel_settings_screen.dart';
 import 'package:ermchat/screens/settings/customization_screen.dart';
 import 'package:ermchat/services/twitch_api.dart';
 import 'package:ermchat/services/twitch_eventsub.dart';
+import 'package:ermchat/services/base_irc_connection.dart';
 import 'package:ermchat/services/twitch_irc.dart';
+import 'package:ermchat/services/twitch_irc_read.dart';
 import 'package:ermchat/services/recent_messages.dart';
 import 'package:ermchat/services/twitch_auth.dart';
 import 'package:ermchat/models/twitch_message.dart';
@@ -82,6 +84,9 @@ class _FakeIrcService extends IrcService {
   final _deleteCtrl = StreamController<IrcMessageDeletedEvent>.broadcast(
     sync: true,
   );
+  final _statusCtrl = StreamController<IrcConnectionStatus>.broadcast(
+    sync: true,
+  );
 
   @override
   Future<void> connect({
@@ -97,6 +102,26 @@ class _FakeIrcService extends IrcService {
 
   @override
   Stream<IrcMessageDeletedEvent> get onMessageDeleted => _deleteCtrl.stream;
+
+  @override
+  Stream<IrcConnectionStatus> get onStatus => _statusCtrl.stream;
+
+  bool _fakeConnected = false;
+
+  @override
+  bool get isConnected => _fakeConnected;
+
+  void triggerConnect() {
+    _fakeConnected = true;
+    _statusCtrl.add(IrcConnectionStatus.connected);
+  }
+
+  void triggerDisconnect() {
+    _fakeConnected = false;
+    _statusCtrl.add(IrcConnectionStatus.disconnected);
+  }
+
+  void emitMessage(TwitchMessage msg) => emitChatMessage(msg);
 
   void emitBan(
     String user, {
@@ -139,6 +164,7 @@ class _FakeIrcService extends IrcService {
     _banCtrl.close();
     _noticeCtrl.close();
     _deleteCtrl.close();
+    _statusCtrl.close();
     super.dispose();
   }
 }
@@ -179,26 +205,6 @@ class _CompleterRecentMessagesService extends RecentMessagesService {
       completer.future;
 }
 
-class _TestEventSubService extends _FakeEventSubService {
-  final _msgCtrl = StreamController<TwitchMessage>.broadcast();
-
-  @override
-  Stream<TwitchMessage> get onMessage => _msgCtrl.stream;
-
-  void emitMessage(TwitchMessage msg) => _msgCtrl.add(msg);
-
-  @override
-  Future<void> connect({String? url}) async {
-    triggerConnect();
-  }
-
-  @override
-  void dispose() {
-    _msgCtrl.close();
-    super.dispose();
-  }
-}
-
 void main() {
   setUp(() {
     SharedPreferences.setMockInitialValues({});
@@ -236,7 +242,7 @@ void main() {
   testWidgets('Can send messages after adding channel without credentials', (
     WidgetTester tester,
   ) async {
-    final fakeEventSub = _TestEventSubService();
+    final fakeEventSub = _FakeEventSubService();
     final fakeIrc = _FakeIrcService();
     final fakeRecent = _FakeRecentMessagesService();
 
@@ -268,7 +274,7 @@ void main() {
     expect(find.textContaining('hello chat'), findsNothing);
 
     // EventSub messages still appear in view-only mode.
-    fakeEventSub.emitMessage(
+    fakeIrc.emitMessage(
       TwitchMessage(
         login: 'xqc',
         text: 'hello chat',
@@ -378,7 +384,7 @@ void main() {
   testWidgets(
     'Mention in focused channel does not turn notification bell red',
     (WidgetTester tester) async {
-      final eventSub = _TestEventSubService();
+      final eventSub = _FakeEventSubService();
       final irc = _FakeIrcService();
       final recent = _ConfigurableRecentMessagesService(const []);
       await tester.pumpWidget(
@@ -398,7 +404,7 @@ void main() {
       await tester.pump();
 
       // 'a' is the selected channel; emit a mention there.
-      eventSub.emitMessage(
+      irc.emitMessage(
         TwitchMessage(
           login: 'bob',
           text: 'hey @me how are you',
@@ -417,7 +423,7 @@ void main() {
   testWidgets(
     'Unfocused-channel mention turns bell red and shows a red dot on the tab',
     (WidgetTester tester) async {
-      final eventSub = _TestEventSubService();
+      final eventSub = _FakeEventSubService();
       final irc = _FakeIrcService();
       final recent = _ConfigurableRecentMessagesService(const []);
       await tester.pumpWidget(
@@ -439,7 +445,7 @@ void main() {
         await tester.pump();
       }
 
-      eventSub.emitMessage(
+      irc.emitMessage(
         TwitchMessage(
           login: 'carol',
           text: 'hello @me',
@@ -458,7 +464,7 @@ void main() {
   testWidgets(
     'Switching to a channel with unread mention clears its dot and name color',
     (WidgetTester tester) async {
-      final eventSub = _TestEventSubService();
+      final eventSub = _FakeEventSubService();
       final irc = _FakeIrcService();
       final recent = _ConfigurableRecentMessagesService(const []);
       await tester.pumpWidget(
@@ -479,7 +485,7 @@ void main() {
         await tester.pump();
       }
 
-      eventSub.emitMessage(
+      irc.emitMessage(
         TwitchMessage(
           login: 'carol',
           text: 'hello @me',
@@ -514,7 +520,7 @@ void main() {
   testWidgets(
     'Opening mentions panel clears the bell color and per-channel dot',
     (WidgetTester tester) async {
-      final eventSub = _TestEventSubService();
+      final eventSub = _FakeEventSubService();
       final irc = _FakeIrcService();
       final recent = _ConfigurableRecentMessagesService(const []);
       await tester.pumpWidget(
@@ -535,7 +541,7 @@ void main() {
         await tester.pump();
       }
 
-      eventSub.emitMessage(
+      irc.emitMessage(
         TwitchMessage(
           login: 'carol',
           text: 'hello @me',
@@ -558,7 +564,7 @@ void main() {
   testWidgets(
     'Switching to the channel with the ping clears the notification bell color',
     (WidgetTester tester) async {
-      final eventSub = _TestEventSubService();
+      final eventSub = _FakeEventSubService();
       final irc = _FakeIrcService();
       final recent = _ConfigurableRecentMessagesService(const []);
       await tester.pumpWidget(
@@ -579,7 +585,7 @@ void main() {
         await tester.pump();
       }
 
-      eventSub.emitMessage(
+      irc.emitMessage(
         TwitchMessage(
           login: 'carol',
           text: 'hello @me',
@@ -714,7 +720,7 @@ void main() {
   testWidgets('Message timestamp shows HH:MM format', (
     WidgetTester tester,
   ) async {
-    final fakeEventSub = _TestEventSubService();
+    final fakeEventSub = _FakeEventSubService();
     final fakeIrc = _FakeIrcService();
     final fakeRecent = _FakeRecentMessagesService();
 
@@ -737,7 +743,7 @@ void main() {
     await tester.tap(find.byIcon(Icons.send));
     await tester.pump();
 
-    fakeEventSub.emitMessage(
+    fakeIrc.emitMessage(
       TwitchMessage(
         login: 'xqc',
         text: 'hello',
@@ -778,7 +784,7 @@ void main() {
 
       expect(find.textContaining('Connected'), findsNothing);
 
-      fakeEventSub.triggerConnect();
+      fakeIrc.triggerConnect();
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 600));
       await tester.pump();
@@ -833,11 +839,12 @@ void main() {
       ],
     ]);
     final fakeEventSub = _FakeEventSubService();
+    final fakeIrc = _FakeIrcService();
 
     await tester.pumpWidget(
       TwitchChatApp(
         eventSubService: fakeEventSub,
-        ircService: _FakeIrcService(),
+        ircService: fakeIrc,
         recentMessagesService: recent,
       ),
     );
@@ -847,16 +854,16 @@ void main() {
     expect(find.textContaining('second message'), findsOneWidget);
 
     // First connect must not trigger a history re-fetch.
-    fakeEventSub.triggerConnect();
+    fakeIrc.triggerConnect();
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 600));
     await tester.pump();
     expect(recent.callCount, 1);
 
     // Reconnect: robotty returns one duplicate + one new message.
-    fakeEventSub.triggerDisconnect();
+    fakeIrc.triggerDisconnect();
     await tester.pump();
-    fakeEventSub.triggerConnect();
+    fakeIrc.triggerConnect();
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 600));
     await tester.pump();
@@ -906,11 +913,12 @@ void main() {
         ],
       ]);
       final fakeEventSub = _FakeEventSubService();
+      final fakeIrc = _FakeIrcService();
 
       await tester.pumpWidget(
         TwitchChatApp(
           eventSubService: fakeEventSub,
-          ircService: _FakeIrcService(),
+          ircService: fakeIrc,
           recentMessagesService: recent,
         ),
       );
@@ -922,9 +930,9 @@ void main() {
         findsNothing,
       );
 
-      fakeEventSub.triggerDisconnect();
+      fakeIrc.triggerDisconnect();
       await tester.pump();
-      fakeEventSub.triggerConnect();
+      fakeIrc.triggerConnect();
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 600));
       await tester.pump();
@@ -942,6 +950,7 @@ void main() {
     'Connected appears before history and moves to top after history arrives',
     (WidgetTester tester) async {
       final fakeEventSub = _FakeEventSubService();
+      final fakeIrc = _FakeIrcService();
       final historyCompleter = Completer<List<TwitchMessage>>();
 
       SharedPreferences.setMockInitialValues({'access_token': 'test_token'});
@@ -953,7 +962,7 @@ void main() {
           recentMessagesService: _CompleterRecentMessagesService(
             historyCompleter,
           ),
-          ircService: _FakeIrcService(),
+          ircService: fakeIrc,
         ),
       );
       await tester.pump();
@@ -964,7 +973,7 @@ void main() {
       await tester.tap(find.text('Join'));
       await tester.pumpAndSettle();
 
-      fakeEventSub.triggerConnect();
+      fakeIrc.triggerConnect();
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 600));
       await tester.pump();
@@ -1007,11 +1016,11 @@ void main() {
       WidgetTester tester, {
       required String channelName,
       required List<TwitchMessage> history,
-      _FakeEventSubService? eventSub,
+      _FakeIrcService? irc,
     }) async {
-      final fakeIrc = _FakeIrcService();
+      final fakeIrc = irc ?? _FakeIrcService();
       final fakeRecent = _ConfigurableRecentMessagesService(history);
-      final es = eventSub ?? _FakeEventSubService();
+      final es = _FakeEventSubService();
 
       await tester.pumpWidget(
         TwitchChatApp(
@@ -1187,7 +1196,7 @@ void main() {
           timestamp: now.subtract(const Duration(minutes: 5)),
           channel: channel,
         );
-        final eventSub = _TestEventSubService();
+        final irc = _FakeIrcService();
 
         SharedPreferences.setMockInitialValues({'access_token': 'test_token'});
         FlutterSecureStorage.setMockInitialValues({
@@ -1197,10 +1206,10 @@ void main() {
           tester,
           channelName: channel,
           history: [parent],
-          eventSub: eventSub,
+          irc: irc,
         );
 
-        eventSub.emitMessage(
+        irc.emitMessage(
           TwitchMessage(
             login: 'dave',
             text: 'live reply text',
@@ -1311,12 +1320,12 @@ void main() {
           timestamp: now.subtract(const Duration(minutes: 5)),
           channel: channel,
         );
-        final eventSub = _TestEventSubService();
+        final irc = _FakeIrcService();
         await joinChannel(
           tester,
           channelName: channel,
           history: [parent],
-          eventSub: eventSub,
+          irc: irc,
         );
 
         await tester.longPress(find.textContaining('alice: original msg'));
@@ -1328,7 +1337,7 @@ void main() {
         // Verify the history message is rendered first.
         expect(find.textContaining('alice: original msg'), findsOneWidget);
 
-        eventSub.emitMessage(
+        irc.emitMessage(
           TwitchMessage(
             login: 'bob',
             text: 'my reply',
@@ -1512,14 +1521,14 @@ void main() {
       final irc = _FakeIrcService();
       await setupChannel(tester, eventSub: eventSub, irc: irc);
 
-      eventSub.triggerConnect();
+      irc.triggerConnect();
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 600));
       await tester.pump();
 
       expect(find.textContaining('Connected'), findsOneWidget);
 
-      eventSub.triggerConnect();
+      irc.triggerConnect();
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 600));
       await tester.pump();
@@ -1532,17 +1541,17 @@ void main() {
       final irc = _FakeIrcService();
       await setupChannel(tester, eventSub: eventSub, irc: irc);
 
-      eventSub.triggerConnect();
+      irc.triggerConnect();
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 600));
       await tester.pump();
 
-      eventSub.triggerDisconnect();
+      irc.triggerDisconnect();
       await tester.pump();
 
       expect(find.textContaining('Disconnected'), findsNWidgets(2));
 
-      eventSub.triggerDisconnect();
+      irc.triggerDisconnect();
       await tester.pump();
 
       expect(find.textContaining('Disconnected'), findsNWidgets(2));
@@ -1823,15 +1832,15 @@ void main() {
       WidgetTester tester, {
       required String channelName,
       required List<TwitchMessage> history,
-      _FakeEventSubService? eventSub,
+      _FakeIrcService? irc,
       int maxMessages = 500,
     }) async {
       SharedPreferences.setMockInitialValues({
         'max_messages_per_channel': maxMessages,
       });
-      final fakeIrc = _FakeIrcService();
+      final fakeIrc = irc ?? _FakeIrcService();
       final fakeRecent = _ConfigurableRecentMessagesService(history);
-      final es = eventSub ?? _FakeEventSubService();
+      final es = _FakeEventSubService();
 
       await tester.pumpWidget(
         TwitchChatApp(
@@ -1864,12 +1873,12 @@ void main() {
           channel: channel,
         ),
       );
-      final eventSub = _TestEventSubService();
+      final irc = _FakeIrcService();
       await joinChannel(
         tester,
         channelName: channel,
         history: history,
-        eventSub: eventSub,
+        irc: irc,
         maxMessages: 10,
       );
 
@@ -1911,12 +1920,12 @@ void main() {
           channel: channel,
         ),
       );
-      final eventSub = _TestEventSubService();
+      final irc = _FakeIrcService();
       await joinChannel(
         tester,
         channelName: channel,
         history: [parent, child, ...filler],
-        eventSub: eventSub,
+        irc: irc,
         maxMessages: 10,
       );
 
@@ -1968,12 +1977,12 @@ void main() {
           channel: channel,
         ),
       );
-      final eventSub = _TestEventSubService();
+      final irc = _FakeIrcService();
       await joinChannel(
         tester,
         channelName: channel,
         history: [parent, child, ...filler],
-        eventSub: eventSub,
+        irc: irc,
         maxMessages: 10,
       );
 
@@ -2016,12 +2025,12 @@ void main() {
             channel: channel,
           ),
         );
-        final eventSub = _TestEventSubService();
+        final irc = _FakeIrcService();
         await joinChannel(
           tester,
           channelName: channel,
           history: [parent, child, ...filler],
-          eventSub: eventSub,
+          irc: irc,
           maxMessages: 10,
         );
 
@@ -2040,7 +2049,7 @@ void main() {
 
         // Emit new messages that push the thread past the limit.
         for (int i = 1; i <= 3; i++) {
-          eventSub.emitMessage(
+          irc.emitMessage(
             TwitchMessage(
               login: 'newuser',
               text: 'new message $i',
@@ -2130,7 +2139,7 @@ void main() {
             timestamp: now.subtract(Duration(minutes: 50 - i)),
           ),
         );
-        final fakeEventSub = _TestEventSubService();
+        final fakeEventSub = _FakeEventSubService();
         final fakeIrc = _FakeIrcService();
         final fakeRecent = _ConfigurableRecentMessagesService(manyMessages);
 
@@ -2157,7 +2166,7 @@ void main() {
         expect(find.byIcon(Icons.keyboard_arrow_down), findsOneWidget);
 
         // Emit a new message while paused
-        fakeEventSub.emitMessage(
+        fakeIrc.emitMessage(
           TwitchMessage(
             login: 'newuser',
             text: 'new message while paused',
@@ -2201,7 +2210,7 @@ void main() {
           timestamp: now.subtract(Duration(minutes: 50 - i)),
         ),
       );
-      final fakeEventSub = _TestEventSubService();
+      final fakeEventSub = _FakeEventSubService();
       final fakeIrc = _FakeIrcService();
       final fakeRecent = _ConfigurableRecentMessagesService(manyMessages);
 
@@ -2234,7 +2243,7 @@ void main() {
         isSystem: true,
         channel: 'testchannel',
       );
-      fakeEventSub.emitMessage(systemMsg);
+      fakeIrc.emitMessage(systemMsg);
       await tester.pump();
 
       // System message should NOT appear in frozen view
@@ -2311,7 +2320,7 @@ void main() {
     ) async {
       SharedPreferences.setMockInitialValues({'access_token': 'test_token'});
       FlutterSecureStorage.setMockInitialValues({'access_token': 'test_token'});
-      final eventSub = _TestEventSubService();
+      final eventSub = _FakeEventSubService();
       final irc = _FakeIrcService();
       final recent = _FakeRecentMessagesService();
 
@@ -2330,7 +2339,7 @@ void main() {
       await tester.tap(find.text('Join'));
       await tester.pump();
 
-      eventSub.emitMessage(
+      irc.emitMessage(
         TwitchMessage(
           login: 'UserOne',
           text: 'hello chat',
@@ -2342,6 +2351,8 @@ void main() {
 
       expect(find.textContaining('UserOne'), findsOneWidget);
 
+      irc.triggerConnect();
+      await tester.pump();
       await tester.enterText(find.byKey(const Key('message_input')), 'Us');
       await tester.pump();
 
@@ -2361,7 +2372,7 @@ void main() {
     ) async {
       SharedPreferences.setMockInitialValues({'access_token': 'test_token'});
       FlutterSecureStorage.setMockInitialValues({'access_token': 'test_token'});
-      final eventSub = _TestEventSubService();
+      final eventSub = _FakeEventSubService();
       final irc = _FakeIrcService();
       final recent = _FakeRecentMessagesService();
 
@@ -2382,7 +2393,7 @@ void main() {
       await tester.pump();
 
       // Populate user store so UserOne appears as a suggestion.
-      eventSub.emitMessage(
+      irc.emitMessage(
         TwitchMessage(
           login: 'UserOne',
           text: 'hello chat',
@@ -2390,6 +2401,9 @@ void main() {
           messageId: 'm1',
         ),
       );
+      await tester.pump();
+
+      irc.triggerConnect();
       await tester.pump();
 
       // Type @Us to trigger autocomplete for user UserOne.
@@ -2428,7 +2442,7 @@ void main() {
     ) async {
       SharedPreferences.setMockInitialValues({'access_token': 'test_token'});
       FlutterSecureStorage.setMockInitialValues({'access_token': 'test_token'});
-      final eventSub = _TestEventSubService();
+      final eventSub = _FakeEventSubService();
       final irc = _FakeIrcService();
       final recent = _FakeRecentMessagesService();
 
@@ -2447,7 +2461,7 @@ void main() {
       await tester.tap(find.text('Join'));
       await tester.pump();
 
-      eventSub.emitMessage(
+      irc.emitMessage(
         TwitchMessage(
           login: 'UserOne',
           text: 'hello chat',
@@ -2462,6 +2476,148 @@ void main() {
 
       final dropdown = find.byKey(const Key('autocomplete_dropdown'));
       expect(dropdown, findsNothing);
+    });
+
+    testWidgets('typing slash shows everyone commands only', (
+      WidgetTester tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({'access_token': 'test_token'});
+      FlutterSecureStorage.setMockInitialValues({'access_token': 'test_token'});
+      final eventSub = _FakeEventSubService();
+      final irc = _FakeIrcService();
+      final recent = _FakeRecentMessagesService();
+
+      await tester.pumpWidget(
+        TwitchChatApp(
+          eventSubService: eventSub,
+          ircService: irc,
+          recentMessagesService: recent,
+        ),
+      );
+      await tester.pump();
+
+      await tester.tap(find.byIcon(Icons.add));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).last, 'xqc');
+      await tester.tap(find.text('Join'));
+      await tester.pump();
+
+      irc.triggerConnect();
+      await tester.pump();
+      await tester.enterText(find.byKey(const Key('message_input')), '/');
+      await tester.pump();
+
+      final dropdown = find.byKey(const Key('autocomplete_dropdown'));
+      expect(dropdown, findsOneWidget);
+      expect(
+        find.descendant(of: dropdown, matching: find.text('/me')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: dropdown, matching: find.text('/color')),
+        findsOneWidget,
+      );
+      // Not a mod in this channel: mod-only commands must not appear.
+      expect(
+        find.descendant(of: dropdown, matching: find.text('/ban')),
+        findsNothing,
+      );
+    });
+
+    testWidgets('mod badge unlocks mod commands in that channel', (
+      WidgetTester tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({'access_token': 'test_token'});
+      FlutterSecureStorage.setMockInitialValues({'access_token': 'test_token'});
+      final eventSub = _FakeEventSubService();
+      final irc = _FakeIrcService();
+      final recent = _FakeRecentMessagesService();
+      final ircRead = IrcReadService();
+
+      await tester.pumpWidget(
+        TwitchChatApp(
+          eventSubService: eventSub,
+          ircService: irc,
+          recentMessagesService: recent,
+          ircReadService: ircRead,
+        ),
+      );
+      await tester.pump();
+
+      await tester.tap(find.byIcon(Icons.add));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).last, 'xqc');
+      await tester.tap(find.text('Join'));
+      await tester.pump();
+
+      // Simulate my own message echo carrying the moderator badge.
+      ircRead.emitOwnMessage(
+        IrcMessage(
+          tags: {
+            'display-name': 'Me',
+            'user-id': '1',
+            'id': 'own-1',
+            'badges': 'moderator/1',
+          },
+          prefix: 'me!me@me.tmi.twitch.tv',
+          command: 'PRIVMSG',
+          params: ['#xqc'],
+          trailing: 'hello',
+        ),
+      );
+      await tester.pump();
+
+      irc.triggerConnect();
+      await tester.pump();
+
+      await tester.enterText(find.byKey(const Key('message_input')), '/b');
+      await tester.pump();
+
+      final dropdown = find.byKey(const Key('autocomplete_dropdown'));
+      expect(dropdown, findsOneWidget);
+      expect(
+        find.descendant(of: dropdown, matching: find.text('/ban')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('selecting a command inserts it with a trailing space', (
+      WidgetTester tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({'access_token': 'test_token'});
+      FlutterSecureStorage.setMockInitialValues({'access_token': 'test_token'});
+      final eventSub = _FakeEventSubService();
+      final irc = _FakeIrcService();
+      final recent = _FakeRecentMessagesService();
+
+      await tester.pumpWidget(
+        TwitchChatApp(
+          eventSubService: eventSub,
+          ircService: irc,
+          recentMessagesService: recent,
+        ),
+      );
+      await tester.pump();
+
+      await tester.tap(find.byIcon(Icons.add));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).last, 'xqc');
+      await tester.tap(find.text('Join'));
+      await tester.pump();
+
+      final inputFinder = find.byKey(const Key('message_input'));
+      await tester.enterText(inputFinder, '/');
+      await tester.pump();
+
+      // Directly invoke autocomplete callback (bypasses hit-test issues).
+      final autocomplete = tester.widget<AutocompleteDropdown>(
+        find.byType(AutocompleteDropdown),
+      );
+      autocomplete.onSelect(const CommandSuggestion(command: '/me'));
+      await tester.pump();
+
+      final controller = tester.widget<TextField>(inputFinder).controller!;
+      expect(controller.text, '/me ');
     });
   });
 }

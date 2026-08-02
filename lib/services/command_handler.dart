@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import '../models/twitch_command.dart';
 import '../services/twitch_api.dart';
 import '../services/twitch_auth.dart';
 import '../services/twitch_irc.dart';
@@ -12,18 +13,20 @@ class CommandHandler {
   final void Function(String channel, String message) addSystemMessage;
   final _userIdCache = <String, String>{};
 
-  /// Commands Twitch IRC handles natively (needs only mod status + chat:edit
-  /// scope). Used as a fallback when the Helix API call fails (missing
-  /// moderation scopes on an older token, network errors, etc.) — the IRC
-  /// server replies with a NOTICE that the app already surfaces as a system
-  /// message.
-  static const _ircNativeCommands = {
-    '/ban',
-    '/timeout',
-    '/unban',
-    '/delete',
-    '/clear',
-  };
+  /// Every command the app can run, with the chat status it requires.
+  /// Used for / autocomplete (permission-filtered per channel) — keep in
+  /// sync with `handle()` below.
+  static const allCommands = <TwitchCommand>[
+    TwitchCommand(name: '/me', permission: CommandPermission.everyone),
+    TwitchCommand(name: '/color', permission: CommandPermission.everyone),
+    TwitchCommand(name: '/ban', permission: CommandPermission.mod),
+    TwitchCommand(name: '/timeout', permission: CommandPermission.mod),
+    TwitchCommand(name: '/unban', permission: CommandPermission.mod),
+    TwitchCommand(name: '/delete', permission: CommandPermission.mod),
+    TwitchCommand(name: '/clear', permission: CommandPermission.mod),
+    TwitchCommand(name: '/announce', permission: CommandPermission.mod),
+    TwitchCommand(name: '/shoutout', permission: CommandPermission.mod),
+  ];
 
   CommandHandler({
     required this.twitchApi,
@@ -43,8 +46,10 @@ class CommandHandler {
     return id;
   }
 
-  /// Runs a Helix moderation call. Returns true on success; on failure retries
-  /// via the native IRC command (when connected) and returns false.
+  /// Runs a Helix moderation call. Returns true on success; on failure
+  /// reports the Helix error. IRC slash commands were deprecated by Twitch
+  /// (Feb 2023), so there is no IRC fallback — Helix is the only way to send
+  /// moderation actions.
   Future<bool> _moderate(
     String text,
     String channel,
@@ -52,22 +57,11 @@ class CommandHandler {
   ) async {
     final ok = await helixCall();
     if (ok) return true;
-    await _fallbackToIrc(text, channel);
-    return false;
-  }
-
-  /// Sends the raw slash command over IRC when it is natively supported and
-  /// the socket is up; otherwise reports the failure with the Helix error.
-  Future<void> _fallbackToIrc(String text, String channel) async {
-    final cmd = text.split(RegExp(r'\s+')).first.toLowerCase();
-    if (_ircNativeCommands.contains(cmd) && irc.isConnected) {
-      irc.sendMessage(channel, text);
-      return;
-    }
     addSystemMessage(
       channel,
       'Command failed: ${twitchApi.lastError ?? "unknown error"}',
     );
+    return false;
   }
 
   Future<void> handle(String text, String channel, TwitchAuth auth) async {
@@ -291,7 +285,10 @@ class CommandHandler {
       }
     } catch (e) {
       debugPrint('[CommandHandler] $cmd failed: $e');
-      await _fallbackToIrc(text, channel);
+      addSystemMessage(
+        channel,
+        'Command failed: ${twitchApi.lastError ?? "unknown error"}',
+      );
     }
   }
 }

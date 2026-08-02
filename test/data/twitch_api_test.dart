@@ -116,9 +116,9 @@ void main() {
     });
   });
 
-  group('createSubscription', () {
+  group('createEventSubSubscription', () {
     test(
-      'sends POST /helix/eventsub/subscriptions with chat message body',
+      'sends POST /helix/eventsub/subscriptions with generic body',
       () async {
         late http.Request captured;
         final api = createApi(
@@ -127,11 +127,12 @@ void main() {
         );
 
         expect(
-          await api.createSubscription(
+          await api.createEventSubSubscription(
             auth: auth,
             sessionId: 's1',
-            broadcasterUserId: 'b1',
-            userId: 'u1',
+            type: 'channel.moderate',
+            version: '2',
+            condition: {'broadcaster_user_id': 'b1', 'moderator_user_id': 'u1'},
           ),
           isTrue,
         );
@@ -143,11 +144,11 @@ void main() {
         );
         expectAuthHeaders(captured);
         final body = jsonDecode(captured.body) as Map<String, dynamic>;
-        expect(body['type'], 'channel.chat.message');
-        expect(body['version'], '1');
+        expect(body['type'], 'channel.moderate');
+        expect(body['version'], '2');
         expect(body['condition'], {
           'broadcaster_user_id': 'b1',
-          'user_id': 'u1',
+          'moderator_user_id': 'u1',
         });
         expect(body['transport'], {'method': 'websocket', 'session_id': 's1'});
       },
@@ -160,11 +161,12 @@ void main() {
       );
 
       expect(
-        await api.createSubscription(
+        await api.createEventSubSubscription(
           auth: auth,
           sessionId: 's1',
-          broadcasterUserId: 'b1',
-          userId: 'u1',
+          type: 'channel.moderate',
+          version: '2',
+          condition: {'broadcaster_user_id': 'b1'},
         ),
         isTrue,
       );
@@ -177,15 +179,16 @@ void main() {
       );
 
       expect(
-        await api.createSubscription(
+        await api.createEventSubSubscription(
           auth: auth,
           sessionId: 's1',
-          broadcasterUserId: 'b1',
-          userId: 'u1',
+          type: 'channel.moderate',
+          version: '2',
+          condition: {'broadcaster_user_id': 'b1'},
         ),
         isFalse,
       );
-      expect(api.lastError, contains('createSubscription'));
+      expect(api.lastError, contains('createEventSubSubscription'));
     });
   });
 

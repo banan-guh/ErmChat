@@ -104,6 +104,11 @@ class _AutocompleteDropdownState extends State<AutocompleteDropdown> {
                           const Icon(Icons.image, size: 16),
                     ),
                   ),
+                  CommandSuggestion() => Icon(
+                    Icons.tag,
+                    size: 28,
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
                 },
                 const SizedBox(width: 8),
                 Expanded(

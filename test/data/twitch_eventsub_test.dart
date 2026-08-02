@@ -1,6 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ermchat/services/twitch_eventsub.dart';
-import 'package:ermchat/models/twitch_message.dart';
 
 Map<String, dynamic> _welcome({String id = 'session-abc', int timeout = 10}) =>
     {
@@ -10,30 +9,25 @@ Map<String, dynamic> _welcome({String id = 'session-abc', int timeout = 10}) =>
       },
     };
 
-Map<String, dynamic> _notification({
-  required String subType,
-  String? chatter = 'testuser',
-  String? chatterId,
-  String? messageId,
-  String text = 'hello',
-  String? color,
-  Map<String, dynamic>? reply,
+Map<String, dynamic> _moderate({
+  required String action,
+  Map<String, dynamic>? meta,
+  String moderatorName = 'moduser',
+  String? moderatorUserId,
 }) => <String, dynamic>{
   'metadata': <String, dynamic>{
     'message_type': 'notification',
-    'subscription_type': subType,
+    'subscription_type': 'channel.moderate',
   },
   'payload': <String, dynamic>{
     'subscription': <String, dynamic>{
       'condition': <String, dynamic>{'broadcaster_user_id': 'broadcaster1'},
     },
     'event': <String, dynamic>{
-      'chatter_user_name': ?chatter,
-      'chatter_user_id': ?chatterId,
-      'message_id': ?messageId,
-      'message': <String, dynamic>{'text': text},
-      'color': ?color,
-      'reply': ?reply,
+      'action': action,
+      'moderator_user_name': moderatorName,
+      'moderator_user_id': moderatorUserId,
+      ...?meta,
     },
   },
 };
@@ -85,66 +79,98 @@ void main() {
     });
   });
 
-  group('notification (channel.chat.message)', () {
-    test('produces TwitchMessage with all fields', () async {
-      final messages = <TwitchMessage>[];
-      service.onMessage.listen(messages.add);
+  group('notification (channel.moderate)', () {
+    test('ban emits ModerationEvent with target and reason', () async {
+      final events = <ModerationEvent>[];
+      service.onModeration.listen(events.add);
 
       service.handleRawMessage(
-        _notification(
-          subType: 'channel.chat.message',
-          chatter: 'testuser',
-          messageId: 'msg-1',
-          text: 'hello world',
-          color: '#FF0000',
+        _moderate(
+          action: 'ban',
+          meta: {
+            'ban': {
+              'user_id': 'target1',
+              'user_name': 'targetuser',
+              'reason': 'spam',
+            },
+          },
         ),
       );
 
-      expect(messages, hasLength(1));
-      expect(messages[0].login, 'testuser');
-      expect(messages[0].text, 'hello world');
-      expect(messages[0].messageId, 'msg-1');
-      expect(messages[0].channel, 'testchannel');
-      expect(messages[0].color, '#FF0000');
+      expect(events, hasLength(1));
+      expect(events[0].channel, 'testchannel');
+      expect(events[0].action, 'ban');
+      expect(events[0].moderatorName, 'moduser');
+      expect(events[0].targetName, 'targetuser');
+      expect(events[0].reason, 'spam');
     });
 
-    test('captures chatter_user_id', () async {
-      final messages = <TwitchMessage>[];
-      service.onMessage.listen(messages.add);
+    test('timeout carries duration from expires_at', () async {
+      final events = <ModerationEvent>[];
+      service.onModeration.listen(events.add);
 
+      final expiresAt = DateTime.now()
+          .toUtc()
+          .add(const Duration(seconds: 300))
+          .toIso8601String();
       service.handleRawMessage(
-        _notification(
-          subType: 'channel.chat.message',
-          chatter: 'testuser',
-          chatterId: 'uid-42',
-          messageId: 'msg-uid',
-          text: 'with id',
+        _moderate(
+          action: 'timeout',
+          meta: {
+            'timeout': {'user_name': 'targetuser', 'expires_at': expiresAt},
+          },
         ),
       );
 
-      expect(messages, hasLength(1));
-      expect(messages[0].userId, 'uid-42');
+      expect(events, hasLength(1));
+      expect(events[0].action, 'timeout');
+      expect(events[0].durationSeconds, closeTo(300, 10));
     });
 
-    test('handles missing chatter name', () async {
-      final messages = <TwitchMessage>[];
-      service.onMessage.listen(messages.add);
+    test('delete carries message id and body', () async {
+      final events = <ModerationEvent>[];
+      service.onModeration.listen(events.add);
 
       service.handleRawMessage(
-        _notification(
-          subType: 'channel.chat.message',
-          chatter: null,
-          messageId: 'msg-2',
-          text: 'no name',
+        _moderate(
+          action: 'delete',
+          meta: {
+            'delete': {
+              'user_name': 'targetuser',
+              'message_id': 'msg-1',
+              'message_body': 'hello',
+            },
+          },
         ),
       );
 
-      expect(messages[0].login, 'unknown');
+      expect(events, hasLength(1));
+      expect(events[0].action, 'delete');
+      expect(events[0].targetName, 'targetuser');
+      expect(events[0].messageId, 'msg-1');
+      expect(events[0].messageBody, 'hello');
     });
 
-    test('handles missing message text', () async {
-      final messages = <TwitchMessage>[];
-      service.onMessage.listen(messages.add);
+    test('shared_chat actions map to their base action', () async {
+      final events = <ModerationEvent>[];
+      service.onModeration.listen(events.add);
+
+      service.handleRawMessage(
+        _moderate(
+          action: 'shared_chat_ban',
+          meta: {
+            'shared_chat_ban': {'user_name': 'targetuser'},
+          },
+        ),
+      );
+
+      expect(events, hasLength(1));
+      expect(events[0].action, 'ban');
+    });
+
+    test('ignores notifications for unknown subscription types', () async {
+      final events = <ModerationEvent>[];
+      service.onModeration.listen(events.add);
 
       service.handleRawMessage(<String, dynamic>{
         'metadata': <String, dynamic>{
@@ -157,88 +183,21 @@ void main() {
               'broadcaster_user_id': 'broadcaster1',
             },
           },
-          'event': <String, dynamic>{
-            'chatter_user_name': 'testuser',
-            'message_id': 'msg-3',
-          },
+          'event': <String, dynamic>{'chatter_user_name': 'someone'},
         },
       });
 
-      expect(messages[0].text, '');
+      expect(events, isEmpty);
     });
 
-    test('handles null color gracefully', () async {
-      final messages = <TwitchMessage>[];
-      service.onMessage.listen(messages.add);
-
-      service.handleRawMessage(
-        _notification(
-          subType: 'channel.chat.message',
-          chatter: 'testuser',
-          messageId: 'msg-4',
-          text: 'no color',
-        ),
-      );
-
-      expect(messages[0].color, isNull);
-    });
-
-    test('strips @User prefix from reply text', () async {
-      final messages = <TwitchMessage>[];
-      service.onMessage.listen(messages.add);
-
-      service.handleRawMessage(
-        _notification(
-          subType: 'channel.chat.message',
-          chatter: 'bob',
-          messageId: 'msg-5',
-          text: '@alice hey there',
-          reply: {
-            'parent_message_id': 'parent-1',
-            'parent_user_name': 'alice',
-            'parent_message_body': 'original msg',
-          },
-        ),
-      );
-
-      expect(messages[0].replyToParentId, 'parent-1');
-      expect(messages[0].replyToUser, 'alice');
-      expect(messages[0].replyToText, 'original msg');
-      expect(messages[0].text, 'hey there');
-    });
-
-    test(
-      'does not strip @User prefix when it does not match reply user',
-      () async {
-        final messages = <TwitchMessage>[];
-        service.onMessage.listen(messages.add);
-
-        service.handleRawMessage(
-          _notification(
-            subType: 'channel.chat.message',
-            chatter: 'bob',
-            messageId: 'msg-6',
-            text: '@charlie hey there',
-            reply: {
-              'parent_message_id': 'parent-2',
-              'parent_user_name': 'alice',
-              'parent_message_body': 'original msg',
-            },
-          ),
-        );
-
-        expect(messages[0].text, '@charlie hey there');
-      },
-    );
-
-    test('handles missing channel mapping (unknown broadcaster)', () async {
-      final messages = <TwitchMessage>[];
-      service.onMessage.listen(messages.add);
+    test('drops events without a channel mapping', () async {
+      final events = <ModerationEvent>[];
+      service.onModeration.listen(events.add);
 
       service.handleRawMessage(<String, dynamic>{
         'metadata': <String, dynamic>{
           'message_type': 'notification',
-          'subscription_type': 'channel.chat.message',
+          'subscription_type': 'channel.moderate',
         },
         'payload': <String, dynamic>{
           'subscription': <String, dynamic>{
@@ -246,15 +205,24 @@ void main() {
               'broadcaster_user_id': 'unknown_broadcaster',
             },
           },
-          'event': <String, dynamic>{
-            'chatter_user_name': 'testuser',
-            'message_id': 'msg-7',
-            'message': <String, dynamic>{'text': 'hello'},
-          },
+          'event': <String, dynamic>{'action': 'clear'},
         },
       });
 
-      expect(messages[0].channel, isNull);
+      expect(events, isEmpty);
+    });
+
+    test('clear emits event without target', () async {
+      final events = <ModerationEvent>[];
+      service.onModeration.listen(events.add);
+
+      service.handleRawMessage(
+        _moderate(action: 'clear', meta: <String, dynamic>{}),
+      );
+
+      expect(events, hasLength(1));
+      expect(events[0].action, 'clear');
+      expect(events[0].targetName, isNull);
     });
   });
 
