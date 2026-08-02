@@ -11,8 +11,9 @@ typedef OAuthStarter = Future<String?> Function();
 class SettingsScreen extends StatelessWidget {
   final TwitchAuth twitchAuth;
   final ValueChanged<ThemeMode> onThemeChanged;
-  final bool keepScreenOn;
   final ValueChanged<bool>? onKeepScreenOnChanged;
+  final ValueChanged<bool>? onBackgroundServiceChanged;
+  final ValueChanged<bool>? onMentionPushChanged;
   final ValueNotifier<List<String>>? channelNotifier;
   final ValueChanged<String>? onLeaveChannel;
   final ValueChanged<String>? onAddChannel;
@@ -23,8 +24,9 @@ class SettingsScreen extends StatelessWidget {
     super.key,
     required this.twitchAuth,
     required this.onThemeChanged,
-    this.keepScreenOn = true,
     this.onKeepScreenOnChanged,
+    this.onBackgroundServiceChanged,
+    this.onMentionPushChanged,
     this.channelNotifier,
     this.onLeaveChannel,
     this.onAddChannel,
@@ -63,7 +65,6 @@ class SettingsScreen extends StatelessWidget {
               MaterialPageRoute(
                 builder: (_) => CustomizationScreen(
                   onThemeChanged: onThemeChanged,
-                  keepScreenOn: keepScreenOn,
                   onKeepScreenOnChanged: onKeepScreenOnChanged,
                 ),
               ),
@@ -75,7 +76,12 @@ class SettingsScreen extends StatelessWidget {
             title: 'Chat',
             onTap: () => Navigator.push(
               context,
-              MaterialPageRoute(builder: (_) => const ChatSettingsScreen()),
+              MaterialPageRoute(
+                builder: (_) => ChatSettingsScreen(
+                  onBackgroundServiceChanged: onBackgroundServiceChanged,
+                  onMentionPushChanged: onMentionPushChanged,
+                ),
+              ),
             ),
           ),
           _buildTile(

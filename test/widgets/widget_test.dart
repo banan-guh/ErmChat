@@ -1735,7 +1735,6 @@ void main() {
         MaterialApp(
           home: CustomizationScreen(
             onThemeChanged: (_) {},
-            keepScreenOn: true,
             onKeepScreenOnChanged: (value) => changed = value,
           ),
         ),

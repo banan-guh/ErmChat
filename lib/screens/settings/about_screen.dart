@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'dev_settings_screen.dart';
 
 class AboutScreen extends StatefulWidget {
   const AboutScreen({super.key});
@@ -11,6 +12,7 @@ class AboutScreen extends StatefulWidget {
 
 class _AboutScreenState extends State<AboutScreen> {
   String _version = 'Loading...';
+  int _tapCount = 0;
 
   @override
   void initState() {
@@ -30,21 +32,35 @@ class _AboutScreenState extends State<AboutScreen> {
     }
   }
 
+  void _handleTap() {
+    _tapCount++;
+    if (_tapCount >= 7) {
+      _tapCount = 0;
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const DevSettingsScreen()),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('About')),
-      body: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text('ErmChat', style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 4),
-            Text(
-              'Version $_version',
-              style: Theme.of(context).textTheme.bodyMedium,
-            ),
-          ],
+      body: GestureDetector(
+        onTap: _handleTap,
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('ErmChat', style: Theme.of(context).textTheme.titleLarge),
+              const SizedBox(height: 4),
+              Text(
+                'Version $_version',
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+            ],
+          ),
         ),
       ),
     );

@@ -22,6 +22,7 @@ import '../util/mention.dart';
 import '../util/thread_utils.dart';
 import '../widgets/settings.dart';
 import '../widgets/tabbed_layout.dart';
+import '../widgets/welcome_dialog.dart';
 import '../services/user_store.dart';
 import '../services/suggestion.dart';
 import '../services/notification_service.dart';
@@ -42,7 +43,6 @@ enum OverlayPanel { closed, thread, mentions, emotes }
 class HomeScreen extends StatefulWidget {
   final TwitchAuth twitchAuth;
   final ValueChanged<ThemeMode> onThemeChanged;
-  final bool keepScreenOn;
   final ValueChanged<bool>? onKeepScreenOnChanged;
   final EventSubService? eventSubService;
   final IrcService? ircService;
@@ -54,7 +54,6 @@ class HomeScreen extends StatefulWidget {
     super.key,
     required this.twitchAuth,
     required this.onThemeChanged,
-    this.keepScreenOn = true,
     this.onKeepScreenOnChanged,
     this.eventSubService,
     this.ircService,
@@ -163,6 +162,8 @@ class _HomeScreenState extends State<HomeScreen>
 
   final _notificationService = NotificationService();
   StreamSubscription<String>? _notificationTapSub;
+  bool _backgroundService = true;
+  bool _mentionPush = false;
   var _isBackgrounded = false;
 
   late final _emoteManager = EmoteManager(
@@ -260,21 +261,10 @@ class _HomeScreenState extends State<HomeScreen>
       () => _onSheetSizeChanged(OverlayPanel.emotes, _emoteSheetCtrl),
     );
     _mentionsBump.addListener(_onPanelDataChanged);
-    if (Platform.isAndroid) {
-      _notificationService.init();
-      _notificationTapSub = _notificationService.onNotificationTap.listen(
-        _onNotificationTap,
-      );
-      final pendingChannel = _notificationService.pendingLaunchChannel;
-      if (pendingChannel != null) {
-        _navigateToChannel(pendingChannel);
-      }
-      _notificationService.clearMentionNotifications();
-      _chatConn.onMention = _onMentionNotification;
-    }
     _loadMaxMessages();
     _ensureBlockedUsersLoaded();
     _loadAltPings();
+    _loadNotificationSettings();
     _chatConn.connect();
     _emoteManager.accessToken = widget.twitchAuth.accessToken;
     _emoteManager.preloadGlobalEmotes();
@@ -284,7 +274,76 @@ class _HomeScreenState extends State<HomeScreen>
     _focusNode.addListener(_onInputFocusChanged);
     _messageController.addListener(_onInputChanged);
     WidgetsBinding.instance.addObserver(this);
-    if (Platform.isAndroid) _initForegroundService();
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _maybeShowWelcomeDialog(),
+    );
+  }
+
+  Future<void> _maybeShowWelcomeDialog() async {
+    if (!Platform.isAndroid) return;
+    final prefs = await SharedPreferences.getInstance();
+    if (prefs.getBool('welcome_seen') ?? false) return;
+    await prefs.setBool('welcome_seen', true);
+    if (!mounted) return;
+    showWelcomeDialog(context);
+  }
+
+  Future<void> _loadNotificationSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    final backgroundService = prefs.getBool('background_service') ?? true;
+    final mentionPush = prefs.getBool('mention_push') ?? false;
+    if (!mounted) return;
+    setState(() {
+      _backgroundService = backgroundService;
+      _mentionPush = mentionPush;
+    });
+    if (!Platform.isAndroid) return;
+    if (backgroundService) {
+      _initForegroundService();
+    } else if (mentionPush) {
+      requestForegroundPermissions();
+    }
+    if (mentionPush) {
+      _initNotificationInfra();
+    }
+  }
+
+  void _initNotificationInfra() {
+    _notificationService.init();
+    _notificationTapSub ??= _notificationService.onNotificationTap.listen(
+      _onNotificationTap,
+    );
+    final pendingChannel = _notificationService.pendingLaunchChannel;
+    if (pendingChannel != null) {
+      _navigateToChannel(pendingChannel);
+    }
+    _notificationService.clearMentionNotifications();
+    _chatConn.onMention = _onMentionNotification;
+  }
+
+  void _setBackgroundService(bool value) {
+    if (_backgroundService == value) return;
+    setState(() => _backgroundService = value);
+    if (!Platform.isAndroid) return;
+    if (value) {
+      _initForegroundService();
+      if (_channels.isNotEmpty) {
+        startForegroundService(List.of(_channels));
+      }
+    } else {
+      stopForegroundService();
+    }
+  }
+
+  void _setMentionPush(bool value) {
+    if (_mentionPush == value) return;
+    setState(() => _mentionPush = value);
+    if (!Platform.isAndroid) return;
+    if (value) {
+      _initNotificationInfra();
+    } else {
+      _notificationService.clearMentionNotifications();
+    }
   }
 
   Future<void> _initForegroundService() async {
@@ -299,10 +358,16 @@ class _HomeScreenState extends State<HomeScreen>
         state == AppLifecycleState.inactive;
     if (Platform.isAndroid) {
       if (state == AppLifecycleState.paused) {
-        startForegroundService(List.of(_channels));
+        if (_backgroundService) {
+          startForegroundService(List.of(_channels));
+        }
       } else if (state == AppLifecycleState.resumed) {
-        stopForegroundService();
-        _notificationService.clearMentionNotifications();
+        if (_backgroundService) {
+          stopForegroundService();
+        }
+        if (_mentionPush) {
+          _notificationService.clearMentionNotifications();
+        }
       }
     }
     if (state == AppLifecycleState.resumed) {
@@ -1609,6 +1674,7 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   void _onMentionNotification(String channel, TwitchMessage msg) {
+    if (!_mentionPush) return;
     if (!_isBackgrounded) return;
     if (msg.isHistory) return;
     _notificationService.showMentionNotification(
@@ -1788,9 +1854,11 @@ class _HomeScreenState extends State<HomeScreen>
                                       _tileCache.clear();
                                       widget.onThemeChanged(mode);
                                     },
-                                    keepScreenOn: widget.keepScreenOn,
                                     onKeepScreenOnChanged:
                                         widget.onKeepScreenOnChanged,
+                                    onBackgroundServiceChanged:
+                                        _setBackgroundService,
+                                    onMentionPushChanged: _setMentionPush,
                                     channelNotifier: _channelNotifier,
                                     onLeaveChannel: _removeChannel,
                                     onAddChannel: _addChannel,

@@ -147,7 +147,6 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
       home: HomeScreen(
         twitchAuth: _twitchAuth,
         onThemeChanged: _setThemeMode,
-        keepScreenOn: _keepScreenOn,
         onKeepScreenOnChanged: _setKeepScreenOn,
         eventSubService: widget.eventSubService,
         ircService: widget.ircService,

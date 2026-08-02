@@ -3,7 +3,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'pings_screen.dart';
 
 class ChatSettingsScreen extends StatefulWidget {
-  const ChatSettingsScreen({super.key});
+  final ValueChanged<bool>? onBackgroundServiceChanged;
+  final ValueChanged<bool>? onMentionPushChanged;
+
+  const ChatSettingsScreen({
+    super.key,
+    this.onBackgroundServiceChanged,
+    this.onMentionPushChanged,
+  });
 
   @override
   State<ChatSettingsScreen> createState() => _ChatSettingsScreenState();
@@ -13,6 +20,8 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
   int _maxMessagesPerChannel = 200;
   int _recentMessagesCount = 100;
   bool _replyToRoot = false;
+  bool _backgroundService = true;
+  bool _mentionPush = false;
 
   @override
   void initState() {
@@ -28,6 +37,8 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
             prefs.getInt('max_messages_per_channel') ?? 200;
         _recentMessagesCount = prefs.getInt('recent_messages_limit') ?? 100;
         _replyToRoot = prefs.getBool('reply_to_thread_root') ?? false;
+        _backgroundService = prefs.getBool('background_service') ?? true;
+        _mentionPush = prefs.getBool('mention_push') ?? false;
       });
     }
   }
@@ -112,6 +123,34 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
               final prefs = await SharedPreferences.getInstance();
               await prefs.setBool('reply_to_thread_root', value);
               if (mounted) setState(() => _replyToRoot = value);
+            },
+          ),
+          SwitchListTile(
+            secondary: const Icon(Icons.wifi_tethering),
+            title: const Text('Keep chat alive in background'),
+            subtitle: const Text(
+              'Stays connected while the app is in the background',
+            ),
+            value: _backgroundService,
+            onChanged: (value) async {
+              final prefs = await SharedPreferences.getInstance();
+              await prefs.setBool('background_service', value);
+              if (mounted) setState(() => _backgroundService = value);
+              widget.onBackgroundServiceChanged?.call(value);
+            },
+          ),
+          SwitchListTile(
+            secondary: const Icon(Icons.notifications_active),
+            title: const Text('Mention notifications'),
+            subtitle: const Text(
+              'Get a notification when someone mentions you in chat',
+            ),
+            value: _mentionPush,
+            onChanged: (value) async {
+              final prefs = await SharedPreferences.getInstance();
+              await prefs.setBool('mention_push', value);
+              if (mounted) setState(() => _mentionPush = value);
+              widget.onMentionPushChanged?.call(value);
             },
           ),
         ],

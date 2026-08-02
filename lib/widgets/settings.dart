@@ -5,8 +5,9 @@ import '../services/twitch_auth.dart';
 class SettingsButton extends StatelessWidget {
   final TwitchAuth twitchAuth;
   final ValueChanged<ThemeMode> onThemeChanged;
-  final bool keepScreenOn;
   final ValueChanged<bool>? onKeepScreenOnChanged;
+  final ValueChanged<bool>? onBackgroundServiceChanged;
+  final ValueChanged<bool>? onMentionPushChanged;
   final ValueNotifier<List<String>>? channelNotifier;
   final ValueChanged<String>? onLeaveChannel;
   final ValueChanged<String>? onAddChannel;
@@ -18,8 +19,9 @@ class SettingsButton extends StatelessWidget {
     super.key,
     required this.twitchAuth,
     required this.onThemeChanged,
-    this.keepScreenOn = true,
     this.onKeepScreenOnChanged,
+    this.onBackgroundServiceChanged,
+    this.onMentionPushChanged,
     this.channelNotifier,
     this.onLeaveChannel,
     this.onAddChannel,
@@ -40,8 +42,9 @@ class SettingsButton extends StatelessWidget {
             builder: (_) => SettingsScreen(
               twitchAuth: twitchAuth,
               onThemeChanged: onThemeChanged,
-              keepScreenOn: keepScreenOn,
               onKeepScreenOnChanged: onKeepScreenOnChanged,
+              onBackgroundServiceChanged: onBackgroundServiceChanged,
+              onMentionPushChanged: onMentionPushChanged,
               channelNotifier: channelNotifier,
               onLeaveChannel: onLeaveChannel,
               onAddChannel: onAddChannel,
