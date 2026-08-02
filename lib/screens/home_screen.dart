@@ -973,7 +973,7 @@ class _HomeScreenState extends State<HomeScreen>
   // Dedup connection status messages: collapse "Connected to IRC" into
   // "Connected", convert "Disconnected" to "Reconnected" on immediate
   // reconnect. Prevents status line spam during reconnection storms.
-  void _addSystemMessage(String channel, String text) {
+  void _addSystemMessage(String channel, String text, {Color? accent}) {
     _channelMessages.putIfAbsent(channel, () => []);
     final msgs = _channelMessages[channel]!;
     if (msgs.isNotEmpty) {
@@ -1011,6 +1011,7 @@ class _HomeScreenState extends State<HomeScreen>
         text: text,
         messageId: 'sys_${_nextSystemMessageId++}',
         isSystem: true,
+        systemAccent: accent,
         channel: channel,
       ),
     );

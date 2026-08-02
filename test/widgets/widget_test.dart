@@ -2224,6 +2224,90 @@ void main() {
       // System message IS now visible
       expect(find.textContaining('System notice while paused'), findsOneWidget);
     });
+
+    testWidgets('announcement system message renders a colored pill', (
+      WidgetTester tester,
+    ) async {
+      final fakeEventSub = _FakeEventSubService();
+      final fakeIrc = _FakeIrcService();
+      await tester.pumpWidget(
+        TwitchChatApp(eventSubService: fakeEventSub, ircService: fakeIrc),
+      );
+      await tester.pump();
+      await tester.tap(find.byIcon(Icons.add));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).last, 'testchannel');
+      await tester.tap(find.text('Join').last);
+      await tester.pump();
+      await tester.pump();
+
+      const accent = Color(0xFF1F69FF);
+      final announcement = TwitchMessage(
+        login: '',
+        text: 'Test announcement text',
+        isSystem: true,
+        systemAccent: accent,
+        channel: 'testchannel',
+      );
+      fakeIrc.emitMessage(announcement);
+      await tester.pump();
+
+      expect(find.text('Test announcement text'), findsOneWidget);
+      final decorated = find.ancestor(
+        of: find.text('Test announcement text'),
+        matching: find.byType(Container),
+      );
+      Container? pill;
+      for (final el in decorated.evaluate()) {
+        final d = (el.widget as Container).decoration;
+        if (d is BoxDecoration && d.color == accent) {
+          pill = el.widget as Container;
+          break;
+        }
+      }
+      expect(pill, isNotNull, reason: 'announcement should sit in a colored pill');
+    });
+
+    testWidgets('plain system message has no colored pill', (
+      WidgetTester tester,
+    ) async {
+      final fakeEventSub = _FakeEventSubService();
+      final fakeIrc = _FakeIrcService();
+      await tester.pumpWidget(
+        TwitchChatApp(eventSubService: fakeEventSub, ircService: fakeIrc),
+      );
+      await tester.pump();
+      await tester.tap(find.byIcon(Icons.add));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).last, 'testchannel');
+      await tester.tap(find.text('Join').last);
+      await tester.pump();
+      await tester.pump();
+
+      final systemMsg = TwitchMessage(
+        login: '',
+        text: 'Plain system notice',
+        isSystem: true,
+        channel: 'testchannel',
+      );
+      fakeIrc.emitMessage(systemMsg);
+      await tester.pump();
+
+      expect(find.textContaining('Plain system notice'), findsOneWidget);
+      final decorated = find.ancestor(
+        of: find.textContaining('Plain system notice'),
+        matching: find.byType(Container),
+      );
+      final pills = decorated
+          .evaluate()
+          .where(
+            (el) =>
+                ((el.widget as Container).decoration is BoxDecoration) &&
+                ((el.widget as Container).decoration as BoxDecoration).color ==
+                    const Color(0xFF1F69FF),
+          );
+      expect(pills, isEmpty);
+    });
   });
 
   group('Emote panel drag clamp', () {

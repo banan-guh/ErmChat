@@ -62,6 +62,25 @@ void main() {
     });
   });
 
+  group('announcementColorFor', () {
+    test('maps all five twitch colors', () {
+      expect(announcementColorFor('PRIMARY'), const Color(0xFF9146FF));
+      expect(announcementColorFor('BLUE'), const Color(0xFF1F69FF));
+      expect(announcementColorFor('GREEN'), const Color(0xFF00C853));
+      expect(announcementColorFor('ORANGE'), const Color(0xFFFF6F00));
+      expect(announcementColorFor('PURPLE'), const Color(0xFF9146FF));
+    });
+
+    test('is case insensitive', () {
+      expect(announcementColorFor('blue'), const Color(0xFF1F69FF));
+    });
+
+    test('returns null for unknown or absent values', () {
+      expect(announcementColorFor('RAINBOW'), isNull);
+      expect(announcementColorFor(null), isNull);
+    });
+  });
+
   group('luminance', () {
     test('black has luminance 0', () {
       expect(luminance(Colors.black), closeTo(0, 0.001));

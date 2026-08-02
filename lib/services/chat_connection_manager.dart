@@ -17,6 +17,7 @@ import '../services/seven_tv_event_client.dart';
 import '../services/twitch_badge_service.dart';
 import '../services/user_store.dart';
 import '../util/text_bypass.dart';
+import '../color_utils.dart';
 import '../util/constants.dart';
 import '../util/mention.dart';
 import '../util/thread_utils.dart';
@@ -105,7 +106,7 @@ class ChatConnectionConfig {
   final void Function(String channel) invalidateChannel;
   final String mentionsChannel;
   final VoidCallback onRebuild;
-  final void Function(String, String) onSystemMessage;
+  final void Function(String, String, {Color? accent}) onSystemMessage;
   final Future<void> Function() loadUserTwitchEmotes;
   final VoidCallback? onReconnected;
   final int Function() getMaxMessagesPerChannel;
@@ -152,7 +153,7 @@ class ChatConnectionManager {
   final void Function(String channel) invalidateChannel;
   final String mentionsChannel;
   final VoidCallback onRebuild;
-  final void Function(String, String) onSystemMessage;
+  final void Function(String, String, {Color? accent}) onSystemMessage;
   void Function(String channel, TwitchMessage msg)? onMention;
   final Future<void> Function() loadUserTwitchEmotes;
   final VoidCallback? onReconnected;
@@ -1057,6 +1058,9 @@ class ChatConnectionManager {
           systemMsg: event.systemMsg,
           text: event.text,
         ),
+        accent: event.msgId == 'announcement'
+            ? announcementColorFor(event.announcementColor)
+            : null,
       );
     });
 

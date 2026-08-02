@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:ermchat/models/twitch_message.dart';
@@ -104,7 +105,7 @@ ChatConnectionManager _makeConn({
       invalidateChannel: (channel) {},
       mentionsChannel: '@mentions',
       onRebuild: () {},
-      onSystemMessage: (c, t) {},
+      onSystemMessage: (c, t, {Color? accent}) {},
       loadUserTwitchEmotes: () async {},
       getMaxMessagesPerChannel: () => maxMessages,
       getSelectedChannel: () => null,
@@ -157,7 +158,7 @@ ChatConnectionManager _makeReconnectConn({
       invalidateChannel: (channel) {},
       mentionsChannel: '@mentions',
       onRebuild: () {},
-      onSystemMessage: (c, t) {},
+      onSystemMessage: (c, t, {Color? accent}) {},
       loadUserTwitchEmotes: () async {},
       onReconnected: onReconnected,
       getMaxMessagesPerChannel: () => 100,

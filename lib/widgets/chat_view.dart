@@ -101,8 +101,36 @@ class ChatView extends StatelessWidget {
                         textScale: s,
                         buildBadgeSpans: messageBuilder.buildBadgeSpans,
                         buildMessageSpans: messageBuilder.buildMessageSpans,
-                        systemBodyBuilder: (msg, scale) =>
-                            parseTextWithLinks(msg.text),
+                        systemBodyBuilder: (msg, scale) {
+                          final accent = msg.systemAccent;
+                          if (accent == null) {
+                            return parseTextWithLinks(msg.text);
+                          }
+                          return <InlineSpan>[
+                            WidgetSpan(
+                              alignment: PlaceholderAlignment.middle,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                  vertical: 2,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: accent,
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Text(
+                                  msg.text,
+                                  style: TextStyle(
+                                    fontSize: 13 * scale,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.white,
+                                    decoration: TextDecoration.none,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ];
+                        },
                       );
                     } else {
                       body = ChatMessageTile(

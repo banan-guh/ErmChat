@@ -22,6 +22,7 @@ class TwitchMessage {
   String text;
   String? color;
   final bool isSystem;
+  final Color? systemAccent;
   final bool isAction;
   String? messageId;
   final String? channel;
@@ -64,6 +65,7 @@ class TwitchMessage {
     this.color,
     DateTime? timestamp,
     this.isSystem = false,
+    this.systemAccent,
     this.isAction = false,
     this.messageId,
     this.channel,

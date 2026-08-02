@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ermchat/services/recent_messages.dart';
 
@@ -189,6 +190,25 @@ void main() {
       expect(msg!.isSystem, isTrue);
       expect(msg.text, 'Mm2PL announced: my primary color');
       expect(msg.login, 'mm2pl');
+      expect(msg.systemAccent, const Color(0xFF1F69FF));
+    });
+
+    test('announcement without color gets no accent', () {
+      const raw =
+          '@msg-id=announcement;login=mm2pl;display-name=Mm2PL;rm-received-ts=1700000000000 :tmi.twitch.tv USERNOTICE #xqc :hello';
+      final msg = RecentMessagesService.parseIrcLine(raw);
+      expect(msg, isNotNull);
+      expect(msg!.text, 'Mm2PL announced: hello');
+      expect(msg.systemAccent, isNull);
+    });
+
+    test('non-announcement notices never carry an accent', () {
+      const raw =
+          '@msg-id=resub;system-msg=ronni\\shas\\ssubscribed!;login=ronni;display-name=ronni;rm-received-ts=1700000000000 :tmi.twitch.tv USERNOTICE #xqc';
+      final msg = RecentMessagesService.parseIrcLine(raw);
+      expect(msg, isNotNull);
+      expect(msg!.isSystem, isTrue);
+      expect(msg.systemAccent, isNull);
     });
 
     test('returns null for USERNOTICE without msg-id', () {

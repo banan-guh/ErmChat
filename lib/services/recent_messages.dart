@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import '../util/constants.dart';
 import '../models/twitch_message.dart';
 import '../util/irc_utils.dart';
+import '../color_utils.dart';
 import 'twitch_irc.dart';
 
 class RecentMessagesService {
@@ -142,6 +143,9 @@ class RecentMessagesService {
         text: msg.trailing,
       ),
       isSystem: true,
+      systemAccent: isAnnouncement
+          ? announcementColorFor(msg.tags['msg-param-color'])
+          : null,
       channel: channel,
       timestamp: ts,
       isHistory: true,
