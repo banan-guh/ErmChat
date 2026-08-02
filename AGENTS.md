@@ -133,6 +133,7 @@ dart format .              # format all Dart files
 - IRC is the chat pipeline (PRIVMSG + USERNOTICE + CLEARCHAT/CLEARMSG/NOTICE); EventSub carries only `channel.moderate` v2 (moderation actions) in channels where the subscription succeeds (i.e. the user is a moderator) - see `_moderationChannels`
 - The OAuth URL intentionally omits EventSub-only scopes (`user:read:chat`, `channel:moderate`); it includes the `moderator:read:*` scopes required by `channel.moderate` v2
 - `EmoteManager` is a `ChangeNotifier` - subscribe via `addListener`/`ListenableBuilder` for UI updates
+- Announcements (DankChat-style) render as two rows on the `msg-param-color` accent: the announcement text as a normal child chat message (emotes, badges, username) followed by the "Announcement" label system message; history (`recent_messages`) mirrors this via `parseAnnouncementChild` + a 1ms label timestamp offset, and `applyBanSweep` keys on `isBanNotice` so announcements never trigger deletions
 - `SevenTvEventClient` is a standalone WebSocket client (not injected by default in tests)
 - `IrcReadService` is a separate read-only IRC connection (distinct from `IrcService` which handles sends); exposes `@visibleForTesting void emitOwnMessage(IrcMessage)` for simulating own-message echoes
 - `ChatConnectionManager.myPermissionFor(channel)` derives the current user's `CommandPermission` (everyone/mod/owner) from badges seen on own IRC message echoes; default everyone until the first own message

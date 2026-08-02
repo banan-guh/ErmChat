@@ -73,9 +73,9 @@ Future<void> main(List<String> args) async {
     final idSorted = msgIds.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
     for (final e in idSorted) {
-      stdout.writeln('${e.value.toString().padLeft(6)} ${
-        e.key
-      }${counts.containsKey('USERNOTICE') ? '' : ''}');
+      stdout.writeln(
+        '${e.value.toString().padLeft(6)} ${e.key}${counts.containsKey('USERNOTICE') ? '' : ''}',
+      );
     }
   }
   stdout.writeln('\n=== one raw sample per (command, msg-id) ===');

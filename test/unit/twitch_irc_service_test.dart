@@ -140,6 +140,91 @@ void main() {
     });
   });
 
+  group('USERNOTICE', () {
+    Future<void> flush() => Future<void>.delayed(Duration.zero);
+
+    test(
+      'routes to onUserNotice, not onNotice (dispatch regression)',
+      () async {
+        final notices = <IrcNoticeEvent>[];
+        final userNotices = <UserNoticeEvent>[];
+        service.onNotice.listen(notices.add);
+        service.onUserNotice.listen(userNotices.add);
+
+        service.handleLine(
+          '@msg-id=announcement;msg-param-color=PRIMARY;login=mm2pl;'
+          'display-name=Mm2PL;system-msg=;'
+          ':tmi.twitch.tv USERNOTICE #xqc :test',
+        );
+        await flush();
+
+        expect(
+          notices,
+          isEmpty,
+          reason: 'USERNOTICE must not be swallowed by the NOTICE handler',
+        );
+        expect(userNotices, hasLength(1));
+        expect(userNotices[0].msgId, 'announcement');
+        expect(userNotices[0].text, 'test');
+        expect(userNotices[0].announcementColor, 'PRIMARY');
+      },
+    );
+
+    test('parses announcement emotes into emote positions', () async {
+      final userNotices = <UserNoticeEvent>[];
+      service.onUserNotice.listen(userNotices.add);
+
+      service.handleLine(
+        '@msg-id=announcement;msg-param-color=GREEN;login=mm2pl;'
+        'display-name=Mm2PL;emotes=emotesv2_123:0-7;system-msg=;'
+        ':tmi.twitch.tv USERNOTICE #xqc :PogChamp test',
+      );
+      await flush();
+
+      expect(userNotices, hasLength(1));
+      expect(userNotices[0].emotePositions, isNotNull);
+      expect(userNotices[0].emotePositions!.single.emoteCode, 'PogChamp');
+      expect(userNotices[0].emotePositions!.single.startIndex, 0);
+      expect(userNotices[0].emotePositions!.single.endIndex, 8);
+    });
+
+    test('all five announcement colors parse from raw lines', () async {
+      final userNotices = <UserNoticeEvent>[];
+      service.onUserNotice.listen(userNotices.add);
+
+      for (final color in ['PRIMARY', 'BLUE', 'GREEN', 'ORANGE', 'PURPLE']) {
+        service.handleLine(
+          '@msg-id=announcement;msg-param-color=$color;login=mm2pl;'
+          'display-name=Mm2PL;system-msg=;'
+          ':tmi.twitch.tv USERNOTICE #xqc :hello',
+        );
+      }
+      await flush();
+
+      expect(userNotices.map((e) => e.announcementColor).toList(), [
+        'PRIMARY',
+        'BLUE',
+        'GREEN',
+        'ORANGE',
+        'PURPLE',
+      ]);
+    });
+
+    test('NOTICE still routes to onNotice', () async {
+      final notices = <IrcNoticeEvent>[];
+      service.onNotice.listen(notices.add);
+
+      service.handleLine(
+        '@msg-id=slow_on :tmi.twitch.tv NOTICE #xqc :This room is now in slow mode.',
+      );
+      await flush();
+
+      expect(notices, hasLength(1));
+      expect(notices[0].msgId, 'slow_on');
+      expect(notices[0].message, contains('slow mode'));
+    });
+  });
+
   group('dispose', () {
     test('dispose does not crash', () {
       expect(() => service.dispose(), returnsNormally);

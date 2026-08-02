@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:ermchat/models/twitch_message.dart';
 import 'package:ermchat/services/recent_messages.dart';
 
 void main() {
@@ -82,6 +83,15 @@ void main() {
       expect(msg!.isSystem, isTrue);
       expect(msg.text, 'ermugo1 was banned.');
       expect(msg.isHistory, isTrue);
+    });
+
+    test('parses robotty CLEARCHAT without trailing colon', () {
+      const raw =
+          '@ban-duration=300;target-user-id=974273622;rm-received-ts=1700000000000;historical=1 :tmi.twitch.tv CLEARCHAT #ermugo2 ermugo1';
+      final msg = RecentMessagesService.parseIrcLine(raw);
+      expect(msg, isNotNull);
+      expect(msg!.text, 'ermugo1 was timed out for 300s.');
+      expect(msg.isBanNotice, isTrue);
     });
 
     test('parses CLEARCHAT with channel parameter', () {
@@ -182,24 +192,33 @@ void main() {
       expect(msg.text, 'TWW2 gifted a Tier 1 sub to Mr_Woodchuck!');
     });
 
-    test('parses announcement USERNOTICE with login', () {
+    test('parses announcement USERNOTICE into label with login', () {
       const raw =
           '@msg-id=announcement;msg-param-color=BLUE;login=mm2pl;display-name=Mm2PL;rm-received-ts=1700000000000 :tmi.twitch.tv USERNOTICE #xqc :my primary color';
       final msg = RecentMessagesService.parseIrcLine(raw);
       expect(msg, isNotNull);
       expect(msg!.isSystem, isTrue);
-      expect(msg.text, 'Mm2PL announced: my primary color');
+      expect(msg.text, 'Announcement');
       expect(msg.login, 'mm2pl');
       expect(msg.systemAccent, const Color(0xFF1F69FF));
     });
 
-    test('announcement without color gets no accent', () {
+    test('announcement without color falls back to PRIMARY', () {
       const raw =
           '@msg-id=announcement;login=mm2pl;display-name=Mm2PL;rm-received-ts=1700000000000 :tmi.twitch.tv USERNOTICE #xqc :hello';
       final msg = RecentMessagesService.parseIrcLine(raw);
       expect(msg, isNotNull);
-      expect(msg!.text, 'Mm2PL announced: hello');
-      expect(msg.systemAccent, isNull);
+      expect(msg!.text, 'Announcement');
+      expect(msg.systemAccent, const Color(0xFF9146FF));
+    });
+
+    test('empty announcement still renders the label', () {
+      const raw =
+          '@msg-id=announcement;msg-param-color=ORANGE;login=mm2pl;display-name=Mm2PL;rm-received-ts=1700000000000 :tmi.twitch.tv USERNOTICE #xqc';
+      final msg = RecentMessagesService.parseIrcLine(raw);
+      expect(msg, isNotNull);
+      expect(msg!.text, 'Announcement');
+      expect(msg.systemAccent, const Color(0xFFFF6F00));
     });
 
     test('non-announcement notices never carry an accent', () {
@@ -216,6 +235,171 @@ void main() {
           '@login=ronni;display-name=ronni;rm-received-ts=1700000000000 :tmi.twitch.tv USERNOTICE #xqc :hello';
       final msg = RecentMessagesService.parseIrcLine(raw);
       expect(msg, isNull);
+    });
+  });
+
+  group('parseAnnouncementChild', () {
+    test('parses announcement text as a normal chat message', () {
+      const raw =
+          '@msg-id=announcement;msg-param-color=BLUE;login=mm2pl;display-name=Mm2PL;color=#FF0000;badges=broadcaster/1;id=abc-123;user-id=456;rm-received-ts=1700000000000 :tmi.twitch.tv USERNOTICE #xqc :my primary color';
+      final child = RecentMessagesService.parseAnnouncementChild(raw);
+      expect(child, isNotNull);
+      expect(child!.isSystem, isFalse);
+      expect(child.text, 'my primary color');
+      expect(child.login, 'mm2pl');
+      expect(child.displayName, 'Mm2PL');
+      expect(child.color, '#FF0000');
+      expect(child.userId, '456');
+      expect(child.messageId, 'abc-123');
+      expect(child.badges, hasLength(1));
+      expect(child.badges!.single.setId, 'broadcaster');
+      expect(child.systemAccent, const Color(0xFF1F69FF));
+      expect(child.isHistory, isTrue);
+      expect(
+        child.timestamp,
+        DateTime.fromMillisecondsSinceEpoch(1700000000000),
+      );
+    });
+
+    test('parses announcement emotes into emote positions', () {
+      const raw =
+          '@msg-id=announcement;msg-param-color=GREEN;login=mm2pl;display-name=Mm2PL;emotes=emotesv2_123:0-7;rm-received-ts=1700000000000 :tmi.twitch.tv USERNOTICE #xqc :PogChamp test';
+      final child = RecentMessagesService.parseAnnouncementChild(raw);
+      expect(child, isNotNull);
+      expect(child!.text, 'PogChamp test');
+      expect(child.emotePositions, isNotNull);
+      expect(child.emotePositions!.single.emoteCode, 'PogChamp');
+      expect(child.emotePositions!.single.startIndex, 0);
+      expect(child.emotePositions!.single.endIndex, 8);
+      expect(child.systemAccent, const Color(0xFF00C853));
+    });
+
+    test('returns null for non-announcement USERNOTICE', () {
+      const raw =
+          '@msg-id=resub;system-msg=ronni\\shas\\ssubscribed!;login=ronni;rm-received-ts=1700000000000 :tmi.twitch.tv USERNOTICE #xqc :Great stream!';
+      expect(RecentMessagesService.parseAnnouncementChild(raw), isNull);
+    });
+
+    test('returns null when announcement has no text', () {
+      const raw =
+          '@msg-id=announcement;msg-param-color=ORANGE;login=mm2pl;rm-received-ts=1700000000000 :tmi.twitch.tv USERNOTICE #xqc';
+      expect(RecentMessagesService.parseAnnouncementChild(raw), isNull);
+    });
+
+    test('returns null for non-USERNOTICE lines', () {
+      const raw =
+          '@display-name=forsen :forsen!forsen@forsen.tmi.twitch.tv PRIVMSG #xqc :hi';
+      expect(RecentMessagesService.parseAnnouncementChild(raw), isNull);
+    });
+
+    test('parses robotty announcement without trailing colon', () {
+      // Real robotty line: single-word message, no colon before the text.
+      const raw =
+          '@color=#0000FF;id=1151c190-4c78-4f31-b436-d75b3003e68c;mod=0;'
+          'rm-received-ts=1785668914195;historical=1;system-msg;'
+          'msg-id=announcement;msg-param-color=PRIMARY;user-type;'
+          'room-id=1468479097;user-id=1468479097;badge-info;login=ermugo2;'
+          'tmi-sent-ts=1785668914100;flags;badges=broadcaster/1;vip=0;'
+          'subscriber=0;emotes;display-name=ermugo2 '
+          ':tmi.twitch.tv USERNOTICE #ermugo2 uuh';
+
+      final label = RecentMessagesService.parseIrcLine(raw);
+      expect(label, isNotNull);
+      expect(label!.text, 'Announcement');
+      expect(label.systemAccent, const Color(0xFF9146FF));
+
+      final child = RecentMessagesService.parseAnnouncementChild(raw);
+      expect(child, isNotNull);
+      expect(child!.text, 'uuh');
+      expect(child.login, 'ermugo2');
+      expect(child.messageId, '1151c190-4c78-4f31-b436-d75b3003e68c');
+      expect(child.systemAccent, const Color(0xFF9146FF));
+      expect(child.badges, hasLength(1));
+    });
+
+    test('parses robotty announcement with multi-word colon text', () {
+      const raw =
+          '@msg-id=announcement;msg-param-color=GREEN;login=mm2pl;'
+          'display-name=Mm2PL;rm-received-ts=1700000000000 '
+          ':tmi.twitch.tv USERNOTICE #xqc :multi word message';
+      final child = RecentMessagesService.parseAnnouncementChild(raw);
+      expect(child, isNotNull);
+      expect(child!.text, 'multi word message');
+      expect(child.systemAccent, const Color(0xFF00C853));
+    });
+  });
+
+  group('applyBanSweep', () {
+    TwitchMessage message(String id, String login, DateTime ts) =>
+        TwitchMessage(
+          login: login,
+          text: 'hi',
+          messageId: id,
+          timestamp: ts,
+          channel: 'xqc',
+        );
+
+    TwitchMessage system(
+      String text,
+      String login,
+      DateTime ts, {
+      bool isBanNotice = false,
+    }) => TwitchMessage(
+      login: login,
+      text: text,
+      messageId: 'sys-$text',
+      isSystem: true,
+      isBanNotice: isBanNotice,
+      timestamp: ts,
+      channel: 'xqc',
+    );
+
+    test('ban deletes prior messages from the target user', () {
+      final t0 = DateTime(2024, 1, 1, 12, 0, 0);
+      final messages = [
+        message('m1', 'forsen', t0),
+        system(
+          'forsen was banned.',
+          'forsen',
+          t0.add(const Duration(seconds: 5)),
+          isBanNotice: true,
+        ),
+      ];
+      RecentMessagesService.applyBanSweep(messages);
+      expect(messages[0].deleted, isTrue);
+    });
+
+    test('announcement does not trigger deletion sweep', () {
+      final t0 = DateTime(2024, 1, 1, 12, 0, 0);
+      final messages = [
+        message('m1', 'mm2pl', t0),
+        message('m2', 'mm2pl', t0.add(const Duration(seconds: 2))),
+        system('Announcement: hi', 'mm2pl', t0.add(const Duration(seconds: 5))),
+      ];
+      RecentMessagesService.applyBanSweep(messages);
+      expect(
+        messages[0].deleted,
+        isFalse,
+        reason: 'announcements carry a login but are not bans',
+      );
+      expect(messages[1].deleted, isFalse);
+    });
+
+    test('other users are unaffected by a ban', () {
+      final t0 = DateTime(2024, 1, 1, 12, 0, 0);
+      final messages = [
+        message('m1', 'someone_else', t0),
+        message('m2', 'forsen', t0.add(const Duration(seconds: 1))),
+        system(
+          'forsen was banned.',
+          'forsen',
+          t0.add(const Duration(seconds: 5)),
+          isBanNotice: true,
+        ),
+      ];
+      RecentMessagesService.applyBanSweep(messages);
+      expect(messages[0].deleted, isFalse);
+      expect(messages[1].deleted, isTrue);
     });
   });
 }

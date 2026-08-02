@@ -24,6 +24,11 @@ class TwitchMessage {
   final bool isSystem;
   final Color? systemAccent;
   final bool isAction;
+
+  /// Set on ban/timeout system messages from CLEARCHAT so the robotty
+  /// history sweep can tell them apart from other system messages that
+  /// legitimately carry a login (e.g. announcements).
+  final bool isBanNotice;
   String? messageId;
   final String? channel;
   bool deleted;
@@ -67,6 +72,7 @@ class TwitchMessage {
     this.isSystem = false,
     this.systemAccent,
     this.isAction = false,
+    this.isBanNotice = false,
     this.messageId,
     this.channel,
     this.deleted = false,

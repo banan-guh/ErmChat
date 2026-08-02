@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../util/constants.dart';
 import '../models/twitch_message.dart';
@@ -33,12 +34,32 @@ class RecentMessagesService {
 
     final messages = <TwitchMessage>[];
     for (final raw in rawMessages) {
-      final parsed = parseIrcLine(raw as String, channel: channel);
+      final rawLine = raw as String;
+      // Announcement USERNOTICEs render as two entries, like the live view:
+      // the child message (announcement text as a normal message) followed
+      // by the "Announcement" label.
+      final child = parseAnnouncementChild(rawLine, channel: channel);
+      if (child != null) messages.add(child);
+      final parsed = parseIrcLine(rawLine, channel: channel);
       if (parsed != null) messages.add(parsed);
     }
 
+    // Only ban/timeout system messages sweep prior messages from the
+    // target user; announcements carry a login too but must not delete
+    // anything.
+    applyBanSweep(messages);
+
+    messages.sort((a, b) => a.timestamp.compareTo(b.timestamp));
+    return messages;
+  }
+
+  /// Marks messages deleted when a later ban/timeout system message targets
+  /// the same login. Exposed for tests; `isBanNotice` keeps announcements
+  /// (which legitimately carry a login) out of the sweep.
+  @visibleForTesting
+  static void applyBanSweep(List<TwitchMessage> messages) {
     for (final msg in messages) {
-      if (msg.isSystem && msg.login.isNotEmpty) {
+      if (msg.isBanNotice && msg.login.isNotEmpty) {
         final targetUser = msg.login;
         for (final other in messages) {
           if (!other.isSystem &&
@@ -49,9 +70,6 @@ class RecentMessagesService {
         }
       }
     }
-
-    messages.sort((a, b) => a.timestamp.compareTo(b.timestamp));
-    return messages;
   }
 
   static TwitchMessage? parseIrcLine(String raw, {String? channel}) {
@@ -89,7 +107,9 @@ class RecentMessagesService {
   }
 
   static TwitchMessage? _parseClearChat(IrcMessage msg, String? channel) {
-    final targetUser = msg.trailing;
+    // Robotty strips the trailing colon for single-word payloads.
+    final targetUser =
+        msg.trailing ?? (msg.params.length > 1 ? msg.params[1] : null);
     if (targetUser == null || targetUser.isEmpty) return null;
 
     final banDuration = msg.tags['ban-duration'];
@@ -109,6 +129,7 @@ class RecentMessagesService {
         durationSec: durationSec,
       ),
       isSystem: true,
+      isBanNotice: true,
       channel: channel,
       timestamp: ts,
       isHistory: true,
@@ -118,9 +139,10 @@ class RecentMessagesService {
   static TwitchMessage? _parseUserNotice(IrcMessage msg, String? channel) {
     final msgId = msg.tags['msg-id'] ?? '';
     if (msgId.isEmpty) return null;
-    // Only announcements carry a meaningful login (enables the "You
-    // announced" replacement); other notices keep it empty so the ban
-    // deletion sweep in fetchRecent never treats them as ban targets.
+    // Only announcements carry a meaningful login; other notices keep it
+    // empty so the ban deletion sweep in fetchRecent never treats them as
+    // ban targets (the sweep also keys on isBanNotice, so this is belt and
+    // braces).
     final isAnnouncement = msgId == 'announcement';
     final login = isAnnouncement ? (msg.tags['login'] ?? '') : '';
     final displayName = msg.tags['display-name'] ?? login;
@@ -133,6 +155,8 @@ class RecentMessagesService {
     final ts = tsMs != null
         ? DateTime.fromMillisecondsSinceEpoch(int.tryParse(tsMs) ?? 0)
         : DateTime.now();
+    // Robotty strips the trailing colon for single-word payloads.
+    final text = msg.trailing ?? (msg.params.length > 1 ? msg.params[1] : null);
 
     return TwitchMessage(
       login: login,
@@ -140,12 +164,59 @@ class RecentMessagesService {
         msgId: msgId,
         displayName: displayName,
         systemMsg: systemMsg,
-        text: msg.trailing,
+        text: text,
       ),
       isSystem: true,
       systemAccent: isAnnouncement
-          ? announcementColorFor(msg.tags['msg-param-color'])
+          ? announcementColorFor(msg.tags['msg-param-color']) ??
+                announcementColors['PRIMARY']
           : null,
+      channel: channel,
+      // 1ms after the child message so the sorted history keeps the child
+      // above the "Announcement" label (List.sort is not stable).
+      timestamp: isAnnouncement ? ts.add(const Duration(milliseconds: 1)) : ts,
+      isHistory: true,
+    );
+  }
+
+  /// The child chat message for an announcement USERNOTICE line (the
+  /// announcement text rendered as a normal message, DankChat-style), or
+  /// null when the line is not an announcement with text.
+  @visibleForTesting
+  static TwitchMessage? parseAnnouncementChild(String raw, {String? channel}) {
+    final msg = parseIrcMessage(raw);
+    if (msg == null || msg.command != 'USERNOTICE') return null;
+    if (msg.tags['msg-id'] != 'announcement') return null;
+    // Robotty strips the trailing colon for single-word payloads.
+    final text =
+        (msg.trailing ?? (msg.params.length > 1 ? msg.params[1] : null))
+            ?.trim();
+    if (text == null || text.isEmpty) return null;
+
+    final login = (msg.tags['login'] ?? '').toLowerCase();
+    final displayName = msg.tags['display-name'] ?? login;
+
+    final tsMs = msg.tags['rm-received-ts'];
+    final ts = tsMs != null
+        ? DateTime.fromMillisecondsSinceEpoch(int.tryParse(tsMs) ?? 0)
+        : DateTime.now();
+
+    return TwitchMessage(
+      login: login,
+      displayName: displayName,
+      text: text,
+      color: msg.tags['color'],
+      userId: msg.tags['user-id'],
+      messageId: msg.tags['id'],
+      badges: parseIrcBadges(msg.tags['badges']),
+      emotePositions: parseIrcEmotePositions(
+        msg.tags['emotes'],
+        originalText: text,
+        strippedText: text,
+      ),
+      systemAccent:
+          announcementColorFor(msg.tags['msg-param-color']) ??
+          announcementColors['PRIMARY'],
       channel: channel,
       timestamp: ts,
       isHistory: true,

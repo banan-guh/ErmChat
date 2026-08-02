@@ -47,7 +47,8 @@ class IrcMessageDeletedEvent {
 /// A USERNOTICE event (sub, resub, subgift, raid, announcement, etc.).
 /// `systemMsg` is Twitch's pre-formatted notice text (e.g. "x has subscribed
 /// for 6 months!"); it is always empty for announcements, where `text` holds
-/// the announcement message.
+/// the announcement message. `emotePositions` are parsed from the `emotes`
+/// tag relative to `text` (only announcements carry a meaningful message).
 class UserNoticeEvent {
   final String channel;
   final String msgId;
@@ -57,6 +58,10 @@ class UserNoticeEvent {
   final String? text;
   final String? announcementColor;
   final String? userId;
+  final String? messageId;
+  final String? color;
+  final List<MessageBadge>? badges;
+  final List<EmotePosition>? emotePositions;
 
   UserNoticeEvent({
     required this.channel,
@@ -67,22 +72,24 @@ class UserNoticeEvent {
     this.text,
     this.announcementColor,
     this.userId,
+    this.messageId,
+    this.color,
+    this.badges,
+    this.emotePositions,
   });
 }
 
-/// Builds the system-message text for a USERNOTICE event. Announcements use
-/// the trailing text; everything else uses Twitch's `system-msg` (with the
-/// user's own message appended for sub/resub).
+/// Builds the system-message text for a USERNOTICE event. Announcements are
+/// the bare "Announcement" label (DankChat-style; the announcement text is
+/// rendered as a separate child chat message); everything else uses Twitch's
+/// `system-msg` (with the user's own message appended for sub/resub).
 String buildUserNoticeText({
   required String msgId,
   required String displayName,
   String? systemMsg,
   String? text,
 }) {
-  if (msgId == 'announcement') {
-    final t = text?.trim() ?? '';
-    return t.isEmpty ? '$displayName announced.' : '$displayName announced: $t';
-  }
+  if (msgId == 'announcement') return 'Announcement';
   final base = systemMsg;
   if (base == null || base.isEmpty) return '$displayName $msgId.';
   if ((msgId == 'sub' || msgId == 'resub') && (text?.isNotEmpty ?? false)) {
@@ -210,12 +217,12 @@ class IrcService extends BaseIrcConnection {
       _handleClearMsg(line);
       return;
     }
-    if (line.contains('NOTICE ')) {
-      _handleNotice(line);
-      return;
-    }
     if (line.contains('USERNOTICE ')) {
       _handleUserNotice(line);
+      return;
+    }
+    if (line.contains('NOTICE ')) {
+      _handleNotice(line);
       return;
     }
     if (line.contains('PRIVMSG ')) {
@@ -328,6 +335,7 @@ class IrcService extends BaseIrcConnection {
     final systemMsg = msg.tags['system-msg'] != null
         ? unescapeIrcTag(msg.tags['system-msg']!)
         : null;
+    final text = msg.trailing;
 
     _userNoticeController.add(
       UserNoticeEvent(
@@ -336,9 +344,19 @@ class IrcService extends BaseIrcConnection {
         login: login,
         displayName: displayName,
         systemMsg: systemMsg,
-        text: msg.trailing,
+        text: text,
         announcementColor: msg.tags['msg-param-color'],
         userId: msg.tags['user-id'],
+        messageId: msg.tags['id'],
+        color: msg.tags['color'],
+        badges: parseIrcBadges(msg.tags['badges']),
+        emotePositions: text != null
+            ? parseIrcEmotePositions(
+                msg.tags['emotes'],
+                originalText: text,
+                strippedText: text,
+              )
+            : null,
       ),
     );
   }

@@ -1043,24 +1043,40 @@ class ChatConnectionManager {
     userNoticeSub?.cancel();
     userNoticeSub = irc.onUserNotice.listen((event) {
       if (isDisposed) return;
-      final selfLogin = getCurrentUserLogin()?.toLowerCase();
-      final isSelf =
-          event.login.isNotEmpty &&
-          selfLogin != null &&
-          event.login == selfLogin;
-      onSystemMessage(
-        event.channel,
-        buildUserNoticeText(
-          msgId: event.msgId,
-          displayName: isSelf && event.msgId == 'announcement'
-              ? 'You'
-              : event.displayName,
-          systemMsg: event.systemMsg,
-          text: event.text,
+      final isAnnouncement = event.msgId == 'announcement';
+      if (!isAnnouncement) {
+        onSystemMessage(
+          event.channel,
+          buildUserNoticeText(
+            msgId: event.msgId,
+            displayName: event.displayName,
+            systemMsg: event.systemMsg,
+            text: event.text,
+          ),
+        );
+        return;
+      }
+      // DankChat-style: the "Announcement" label plus the announcement text
+      // rendered as a normal chat message, both on the announcement color.
+      final accent =
+          announcementColorFor(event.announcementColor) ??
+          announcementColors['PRIMARY']!;
+      onSystemMessage(event.channel, 'Announcement', accent: accent);
+      final text = event.text?.trim();
+      if (text == null || text.isEmpty) return;
+      onMessage(
+        TwitchMessage(
+          login: event.login,
+          displayName: event.displayName,
+          text: text,
+          color: event.color,
+          userId: event.userId,
+          badges: event.badges,
+          emotePositions: event.emotePositions,
+          messageId: event.messageId,
+          channel: event.channel,
+          systemAccent: accent,
         ),
-        accent: event.msgId == 'announcement'
-            ? announcementColorFor(event.announcementColor)
-            : null,
       );
     });
 

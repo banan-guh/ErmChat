@@ -199,6 +199,16 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
       child = Opacity(opacity: 0.35, child: child);
     }
 
+    if (msg.systemAccent != null) {
+      child = ColoredBox(
+        color: Color.alphaBlend(
+          msg.systemAccent!.withValues(alpha: 0.4),
+          theme.colorScheme.surface,
+        ),
+        child: child,
+      );
+    }
+
     if (highlighted) {
       final isDark = theme.brightness == Brightness.dark;
       child = ColoredBox(

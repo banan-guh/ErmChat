@@ -128,6 +128,8 @@ ChatConnectionManager _makeReconnectConn({
   required EventSubService eventSub,
   required IrcService irc,
   required void Function() onReconnected,
+  Map<String, List<TwitchMessage>>? channelMessages,
+  void Function(String, String, {Color? accent})? onSystemMessage,
 }) {
   final api = TwitchApi(client: http.Client());
   final auth = TwitchAuth();
@@ -142,7 +144,7 @@ ChatConnectionManager _makeReconnectConn({
       badgeService: TwitchBadgeService(),
       userStore: UserStore(),
       twitchAuth: auth,
-      channelMessages: {},
+      channelMessages: channelMessages ?? {},
       messageKeys: {},
       chatStatus: {},
       channelsWithUnread: {},
@@ -158,7 +160,7 @@ ChatConnectionManager _makeReconnectConn({
       invalidateChannel: (channel) {},
       mentionsChannel: '@mentions',
       onRebuild: () {},
-      onSystemMessage: (c, t, {Color? accent}) {},
+      onSystemMessage: onSystemMessage ?? (c, t, {Color? accent}) {},
       loadUserTwitchEmotes: () async {},
       onReconnected: onReconnected,
       getMaxMessagesPerChannel: () => 100,
@@ -718,6 +720,185 @@ void main() {
         conn.dispose();
       },
     );
+  });
+
+  group('USERNOTICE routing', () {
+    test('announcement renders label plus child message', () async {
+      final irc = _TestIrc();
+      final systemMessages = <(String, String, Color?)>[];
+      final channelMessages = <String, List<TwitchMessage>>{};
+      final conn = _makeReconnectConn(
+        eventSub: _NoopEventSub(),
+        irc: irc,
+        onReconnected: () {},
+        channelMessages: channelMessages,
+        onSystemMessage: (c, t, {Color? accent}) {
+          systemMessages.add((c, t, accent));
+        },
+      );
+      await conn.connect();
+      irc.emitConnected();
+
+      // Real captured USERNOTICE line (BLUE announcement).
+      irc.handleLine(
+        '@badge-info=;badges=broadcaster/1;color=#0000FF;display-name=ermugo2;'
+        'emotes=;flags=;id=abc;login=ermugo2;mod=0;msg-id=announcement;'
+        'msg-param-color=BLUE;room-id=1468479097;subscriber=0;system-msg=;'
+        'tmi-sent-ts=1785666523751;user-id=1468479097;user-type=;vip=0 '
+        ':tmi.twitch.tv USERNOTICE #test :hello world',
+      );
+
+      expect(systemMessages, hasLength(1));
+      expect(systemMessages[0].$1, 'test');
+      expect(systemMessages[0].$2, 'Announcement');
+      expect(systemMessages[0].$3, const Color(0xFF1F69FF));
+
+      // Child message rendered as a normal chat message on the same accent.
+      final child = channelMessages['test']!.first;
+      expect(child.isSystem, isFalse);
+      expect(child.text, 'hello world');
+      expect(child.login, 'ermugo2');
+      expect(child.displayName, 'ermugo2');
+      expect(child.color, '#0000FF');
+      expect(child.userId, '1468479097');
+      expect(child.messageId, 'abc');
+      expect(child.systemAccent, const Color(0xFF1F69FF));
+      expect(child.badges, hasLength(1));
+      expect(child.badges!.single.setId, 'broadcaster');
+
+      conn.dispose();
+    });
+
+    test('announcement child message carries emotes', () async {
+      final irc = _TestIrc();
+      final systemMessages = <(String, String, Color?)>[];
+      final channelMessages = <String, List<TwitchMessage>>{};
+      final conn = _makeReconnectConn(
+        eventSub: _NoopEventSub(),
+        irc: irc,
+        onReconnected: () {},
+        channelMessages: channelMessages,
+        onSystemMessage: (c, t, {Color? accent}) {
+          systemMessages.add((c, t, accent));
+        },
+      );
+      await conn.connect();
+      irc.emitConnected();
+
+      irc.handleLine(
+        '@msg-id=announcement;msg-param-color=GREEN;login=mm2pl;'
+        'display-name=Mm2PL;emotes=emotesv2_123:0-7;system-msg=;'
+        ':tmi.twitch.tv USERNOTICE #test :PogChamp test',
+      );
+
+      expect(systemMessages.single.$2, 'Announcement');
+      expect(systemMessages.single.$3, const Color(0xFF00C853));
+      final child = channelMessages['test']!.first;
+      expect(child.text, 'PogChamp test');
+      expect(child.emotePositions, isNotNull);
+      expect(child.emotePositions!.single.emoteCode, 'PogChamp');
+      expect(child.systemAccent, const Color(0xFF00C853));
+
+      conn.dispose();
+    });
+
+    test('missing color falls back to PRIMARY', () async {
+      final irc = _TestIrc();
+      final systemMessages = <(String, String, Color?)>[];
+      final channelMessages = <String, List<TwitchMessage>>{};
+      final conn = _makeReconnectConn(
+        eventSub: _NoopEventSub(),
+        irc: irc,
+        onReconnected: () {},
+        channelMessages: channelMessages,
+        onSystemMessage: (c, t, {Color? accent}) {
+          systemMessages.add((c, t, accent));
+        },
+      );
+      await conn.connect();
+      irc.emitConnected();
+
+      irc.handleLine(
+        '@msg-id=announcement;login=mm2pl;display-name=Mm2PL;system-msg=;'
+        ':tmi.twitch.tv USERNOTICE #test :hi',
+      );
+
+      expect(systemMessages.single.$2, 'Announcement');
+      expect(systemMessages.single.$3, const Color(0xFF9146FF));
+      expect(
+        channelMessages['test']!.first.systemAccent,
+        const Color(0xFF9146FF),
+      );
+
+      conn.dispose();
+    });
+
+    test('announcement without text renders only the label', () async {
+      final irc = _TestIrc();
+      final systemMessages = <(String, String, Color?)>[];
+      final channelMessages = <String, List<TwitchMessage>>{};
+      final conn = _makeReconnectConn(
+        eventSub: _NoopEventSub(),
+        irc: irc,
+        onReconnected: () {},
+        channelMessages: channelMessages,
+        onSystemMessage: (c, t, {Color? accent}) {
+          systemMessages.add((c, t, accent));
+        },
+      );
+      await conn.connect();
+      irc.emitConnected();
+
+      irc.handleLine(
+        '@msg-id=announcement;msg-param-color=ORANGE;login=mm2pl;'
+        'display-name=Mm2PL;system-msg=;'
+        ':tmi.twitch.tv USERNOTICE #test',
+      );
+
+      expect(systemMessages.single.$2, 'Announcement');
+      expect(systemMessages.single.$3, const Color(0xFFFF6F00));
+      expect(
+        channelMessages['test'],
+        isNull,
+        reason: 'no child message without announcement text',
+      );
+
+      conn.dispose();
+    });
+
+    test('non-announcement notices stay a single system message', () async {
+      final irc = _TestIrc();
+      final systemMessages = <(String, String, Color?)>[];
+      final channelMessages = <String, List<TwitchMessage>>{};
+      final conn = _makeReconnectConn(
+        eventSub: _NoopEventSub(),
+        irc: irc,
+        onReconnected: () {},
+        channelMessages: channelMessages,
+        onSystemMessage: (c, t, {Color? accent}) {
+          systemMessages.add((c, t, accent));
+        },
+      );
+      await conn.connect();
+      irc.emitConnected();
+
+      irc.handleLine(
+        '@msg-id=resub;system-msg=ronni\\shas\\ssubscribed!;login=ronni;'
+        'display-name=ronni;'
+        ':tmi.twitch.tv USERNOTICE #test :Great stream!',
+      );
+
+      expect(systemMessages, hasLength(1));
+      expect(systemMessages[0].$2, 'ronni has subscribed! "Great stream!"');
+      expect(systemMessages[0].$3, isNull);
+      expect(
+        channelMessages['test'],
+        isNull,
+        reason: 'non-announcements never produce a child message',
+      );
+
+      conn.dispose();
+    });
   });
 
   group('myPermissionFor', () {

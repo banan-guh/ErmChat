@@ -2225,7 +2225,7 @@ void main() {
       expect(find.textContaining('System notice while paused'), findsOneWidget);
     });
 
-    testWidgets('announcement system message renders a colored pill', (
+    testWidgets('announcement system message renders a colored row', (
       WidgetTester tester,
     ) async {
       final fakeEventSub = _FakeEventSubService();
@@ -2244,7 +2244,7 @@ void main() {
       const accent = Color(0xFF1F69FF);
       final announcement = TwitchMessage(
         login: '',
-        text: 'Test announcement text',
+        text: 'Announcement: Test announcement text',
         isSystem: true,
         systemAccent: accent,
         channel: 'testchannel',
@@ -2252,23 +2252,26 @@ void main() {
       fakeIrc.emitMessage(announcement);
       await tester.pump();
 
-      expect(find.text('Test announcement text'), findsOneWidget);
-      final decorated = find.ancestor(
-        of: find.text('Test announcement text'),
-        matching: find.byType(Container),
+      expect(find.textContaining('Test announcement text'), findsOneWidget);
+      final surface = Theme.of(
+        tester.element(find.textContaining('Test announcement text')),
+      ).colorScheme.surface;
+      final blended = Color.alphaBlend(accent.withValues(alpha: 0.25), surface);
+      final rows = find
+          .ancestor(
+            of: find.textContaining('Test announcement text'),
+            matching: find.byType(ColoredBox),
+          )
+          .evaluate()
+          .where((el) => (el.widget as ColoredBox).color == blended);
+      expect(
+        rows,
+        isNotEmpty,
+        reason: 'announcement should sit on a full-row accent background',
       );
-      Container? pill;
-      for (final el in decorated.evaluate()) {
-        final d = (el.widget as Container).decoration;
-        if (d is BoxDecoration && d.color == accent) {
-          pill = el.widget as Container;
-          break;
-        }
-      }
-      expect(pill, isNotNull, reason: 'announcement should sit in a colored pill');
     });
 
-    testWidgets('plain system message has no colored pill', (
+    testWidgets('plain system message has no accent background', (
       WidgetTester tester,
     ) async {
       final fakeEventSub = _FakeEventSubService();
@@ -2294,19 +2297,58 @@ void main() {
       await tester.pump();
 
       expect(find.textContaining('Plain system notice'), findsOneWidget);
-      final decorated = find.ancestor(
-        of: find.textContaining('Plain system notice'),
-        matching: find.byType(Container),
+      final surface = Theme.of(
+        tester.element(find.textContaining('Plain system notice')),
+      ).colorScheme.surface;
+      final blended = Color.alphaBlend(
+        const Color(0xFF1F69FF).withValues(alpha: 0.25),
+        surface,
       );
-      final pills = decorated
+      final rows = find
+          .ancestor(
+            of: find.textContaining('Plain system notice'),
+            matching: find.byType(ColoredBox),
+          )
           .evaluate()
-          .where(
-            (el) =>
-                ((el.widget as Container).decoration is BoxDecoration) &&
-                ((el.widget as Container).decoration as BoxDecoration).color ==
-                    const Color(0xFF1F69FF),
-          );
-      expect(pills, isEmpty);
+          .where((el) => (el.widget as ColoredBox).color == blended);
+      expect(rows, isEmpty);
+    });
+
+    testWidgets('announcement renders child message plus label', (
+      WidgetTester tester,
+    ) async {
+      final fakeEventSub = _FakeEventSubService();
+      final fakeIrc = _FakeIrcService();
+      await tester.pumpWidget(
+        TwitchChatApp(eventSubService: fakeEventSub, ircService: fakeIrc),
+      );
+      await tester.pump();
+      await tester.tap(find.byIcon(Icons.add));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).last, 'testchannel');
+      await tester.tap(find.text('Join').last);
+      await tester.pump();
+      await tester.pump();
+
+      fakeIrc.emitUserNotice(
+        UserNoticeEvent(
+          channel: 'testchannel',
+          msgId: 'announcement',
+          login: 'ermugo2',
+          displayName: 'ermugo2',
+          text: 'uuh',
+          announcementColor: 'PURPLE',
+          userId: '1468479097',
+          messageId: 'ann-1',
+          color: '#0000FF',
+          badges: parseIrcBadges('broadcaster/1'),
+        ),
+      );
+      await tester.pump();
+
+      // DankChat-style: the child message plus the "Announcement" label.
+      expect(find.textContaining('Announcement'), findsOneWidget);
+      expect(find.textContaining('ermugo2: uuh'), findsOneWidget);
     });
   });
 
