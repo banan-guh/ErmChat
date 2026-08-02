@@ -2256,7 +2256,7 @@ void main() {
       final surface = Theme.of(
         tester.element(find.textContaining('Test announcement text')),
       ).colorScheme.surface;
-      final blended = Color.alphaBlend(accent.withValues(alpha: 0.25), surface);
+      final blended = Color.alphaBlend(accent.withValues(alpha: 0.4), surface);
       final rows = find
           .ancestor(
             of: find.textContaining('Test announcement text'),

@@ -59,18 +59,7 @@ abstract class BaseIrcConnection {
         return;
       }
       _statusController.add(IrcConnectionStatus.connecting);
-      _connectivitySub?.cancel();
-      final conn = connectivity;
-      if (conn != null) {
-        _connectivitySub = conn.onConnectivityChanged.listen((results) {
-          final wasOffline = !_isOnline;
-          _isOnline = !results.contains(ConnectivityResult.none);
-          if (wasOffline && _isOnline && channel == null && !_connecting) {
-            _reconnectAttempt = 0;
-            _connect();
-          }
-        });
-      }
+      _ensureConnectivityListener();
       _disconnect();
       _awaitingPong = false;
 
@@ -138,9 +127,20 @@ abstract class BaseIrcConnection {
     }
   }
 
+  void _ensureConnectivityListener() {
+    final conn = connectivity;
+    if (conn == null || _connectivitySub != null) return;
+    _connectivitySub = conn.onConnectivityChanged.listen((results) {
+      final wasOffline = !_isOnline;
+      _isOnline = !results.contains(ConnectivityResult.none);
+      if (wasOffline && _isOnline && channel == null && !_connecting) {
+        _reconnectAttempt = 0;
+        _connect();
+      }
+    });
+  }
+
   void _disconnect() {
-    _connectivitySub?.cancel();
-    _connectivitySub = null;
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
     _pingTimer?.cancel();

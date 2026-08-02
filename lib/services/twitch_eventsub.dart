@@ -94,19 +94,7 @@ class EventSubService {
     if (_connecting || _disposed) return;
     _connecting = true;
     try {
-      _connectivitySub?.cancel();
-      if (_connectivity != null) {
-        _connectivitySub = _connectivity.onConnectivityChanged.listen((
-          results,
-        ) {
-          final wasOffline = !_isOnline;
-          _isOnline = !results.contains(ConnectivityResult.none);
-          if (wasOffline && _isOnline && _channel == null && !_connecting) {
-            _reconnectAttempt = 0;
-            connect();
-          }
-        });
-      }
+      _ensureConnectivityListener();
       if (url != null) _reconnectAttempt = 0;
       disconnect(emitStatus: false);
       _sessionCompleter = Completer<String?>();
@@ -304,12 +292,22 @@ class EventSubService {
     );
   }
 
+  void _ensureConnectivityListener() {
+    if (_connectivity == null || _connectivitySub != null) return;
+    _connectivitySub = _connectivity.onConnectivityChanged.listen((results) {
+      final wasOffline = !_isOnline;
+      _isOnline = !results.contains(ConnectivityResult.none);
+      if (wasOffline && _isOnline && _channel == null && !_connecting) {
+        _reconnectAttempt = 0;
+        connect();
+      }
+    });
+  }
+
   void disconnect({bool emitStatus = true}) {
     _reconnecting = false;
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
-    _connectivitySub?.cancel();
-    _connectivitySub = null;
     _keepaliveTimer?.cancel();
     _keepaliveTimer = null;
     _sessionId = null;
@@ -335,6 +333,8 @@ class EventSubService {
   void dispose() {
     _disposed = true;
     disconnect();
+    _connectivitySub?.cancel();
+    _connectivitySub = null;
     _moderationController.close();
     _statusController.close();
   }

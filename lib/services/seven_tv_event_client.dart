@@ -120,18 +120,7 @@ class SevenTvEventClient {
     try {
       _fatalCloseCode = null;
       _reconnectAttempt = 0;
-      _connectivitySub?.cancel();
-      if (_connectivity != null) {
-        _connectivitySub = _connectivity.onConnectivityChanged.listen((
-          results,
-        ) {
-          final wasOffline = !_isOnline;
-          _isOnline = !results.contains(ConnectivityResult.none);
-          if (wasOffline && _isOnline && _channel == null && !_reconnecting) {
-            connect();
-          }
-        });
-      }
+      _ensureConnectivityListener();
       _disconnect();
       try {
         _channel = WebSocketChannel.connect(Uri.parse(_wsUrl));
@@ -420,14 +409,23 @@ class SevenTvEventClient {
     });
   }
 
+  void _ensureConnectivityListener() {
+    if (_connectivity == null || _connectivitySub != null) return;
+    _connectivitySub = _connectivity.onConnectivityChanged.listen((results) {
+      final wasOffline = !_isOnline;
+      _isOnline = !results.contains(ConnectivityResult.none);
+      if (wasOffline && _isOnline && _channel == null && !_reconnecting) {
+        connect();
+      }
+    });
+  }
+
   void _disconnect() {
     _heartbeatTimer?.cancel();
     _heartbeatTimer = null;
     _heartbeatInterval = null;
     _handshakeComplete = false;
     _reconnecting = false;
-    _connectivitySub?.cancel();
-    _connectivitySub = null;
     _streamSub?.cancel();
     _streamSub = null;
     _channel?.sink.close();
