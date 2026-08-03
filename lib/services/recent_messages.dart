@@ -33,8 +33,16 @@ class RecentMessagesService {
     if (rawMessages == null || rawMessages.isEmpty) return [];
 
     final messages = <TwitchMessage>[];
+    final clearMsgTargets = <String>{};
     for (final raw in rawMessages) {
       final rawLine = raw as String;
+      // CLEARMSG lines don't render themselves; they mark the target
+      // message as deleted (applied after the batch is parsed).
+      final target = clearMsgTargetId(rawLine);
+      if (target != null) {
+        clearMsgTargets.add(target);
+        continue;
+      }
       // Announcement USERNOTICEs render as two entries, like the live view:
       // the child message (announcement text as a normal message) followed
       // by the "Announcement" label.
@@ -48,9 +56,37 @@ class RecentMessagesService {
     // target user; announcements carry a login too but must not delete
     // anything.
     applyBanSweep(messages);
+    applyMessageDeletions(messages, clearMsgTargets);
 
     messages.sort((a, b) => a.timestamp.compareTo(b.timestamp));
     return messages;
+  }
+
+  /// Extracts the deleted message id from a CLEARMSG history line, or null.
+  @visibleForTesting
+  static String? clearMsgTargetId(String raw) {
+    final msg = parseIrcMessage(raw);
+    if (msg == null || msg.command != 'CLEARMSG') return null;
+    final target = msg.tags['target-msg-id'];
+    return (target == null || target.isEmpty) ? null : target;
+  }
+
+  /// Marks messages deleted by CLEARMSG history lines (deletions must
+  /// survive a restart like every other event).
+  @visibleForTesting
+  static void applyMessageDeletions(
+    List<TwitchMessage> messages,
+    Iterable<String> targetIds,
+  ) {
+    final targets = targetIds.toSet();
+    if (targets.isEmpty) return;
+    for (final msg in messages) {
+      if (!msg.isSystem &&
+          msg.messageId != null &&
+          targets.contains(msg.messageId)) {
+        msg.deleted = true;
+      }
+    }
   }
 
   /// Marks messages deleted when a later ban/timeout system message targets
@@ -82,9 +118,30 @@ class RecentMessagesService {
         return _parseClearChat(msg, channel);
       case 'USERNOTICE':
         return _parseUserNotice(msg, channel);
+      case 'NOTICE':
+        return _parseNotice(msg, channel);
       default:
         return null;
     }
+  }
+
+  static TwitchMessage? _parseNotice(IrcMessage msg, String? channel) {
+    final text = msg.trailing;
+    if (text == null || text.isEmpty) return null;
+
+    final tsMs = msg.tags['rm-received-ts'];
+    final ts = tsMs != null
+        ? DateTime.fromMillisecondsSinceEpoch(int.tryParse(tsMs) ?? 0)
+        : DateTime.now();
+
+    return TwitchMessage(
+      login: '',
+      text: text,
+      isSystem: true,
+      channel: channel,
+      timestamp: ts,
+      isHistory: true,
+    );
   }
 
   static TwitchMessage? _parsePrivmsg(IrcMessage msg, String? channel) {

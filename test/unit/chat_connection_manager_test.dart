@@ -151,6 +151,7 @@ ChatConnectionManager _makeReconnectConn({
   required IrcService irc,
   required void Function() onReconnected,
   Map<String, List<TwitchMessage>>? channelMessages,
+  Map<String, String>? chatStatus,
   void Function(String, String, {Color? accent})? onSystemMessage,
   String? currentUserLogin,
 }) {
@@ -169,7 +170,7 @@ ChatConnectionManager _makeReconnectConn({
       twitchAuth: auth,
       channelMessages: channelMessages ?? {},
       messageKeys: {},
-      chatStatus: {},
+      chatStatus: chatStatus ?? {},
       channelsWithUnread: {},
       channelsWithUnreadMentions: {},
       unreadMentionsPerChannel: {},
@@ -919,6 +920,182 @@ void main() {
         isNull,
         reason: 'non-announcements never produce a child message',
       );
+
+      conn.dispose();
+    });
+  });
+
+  group('IRC channel clear', () {
+    test('renders cleared message and marks all messages deleted', () async {
+      final irc = _TestIrc();
+      final systemMessages = <(String, String, Color?)>[];
+      final channelMessages = <String, List<TwitchMessage>>{
+        'test': [
+          TwitchMessage(
+            login: 'a',
+            text: 'msg1',
+            messageId: 'm1',
+            channel: 'test',
+          ),
+          TwitchMessage(
+            login: 'b',
+            text: 'msg2',
+            messageId: 'm2',
+            channel: 'test',
+          ),
+        ],
+      };
+      final conn = _makeReconnectConn(
+        eventSub: _NoopEventSub(),
+        irc: irc,
+        onReconnected: () {},
+        channelMessages: channelMessages,
+        onSystemMessage: (c, t, {Color? accent}) {
+          systemMessages.add((c, t, accent));
+        },
+      );
+      await conn.connect();
+      irc.emitConnected();
+
+      irc.handleLine(':tmi.twitch.tv CLEARCHAT #test');
+
+      expect(systemMessages, hasLength(1));
+      expect(systemMessages[0].$2, 'Chat was cleared.');
+      expect(channelMessages['test']![0].deleted, isTrue);
+      expect(channelMessages['test']![1].deleted, isTrue);
+
+      conn.dispose();
+    });
+
+    test('ban CLEARCHAT does not trigger the clear path', () async {
+      final irc = _TestIrc();
+      final systemMessages = <(String, String, Color?)>[];
+      final channelMessages = <String, List<TwitchMessage>>{
+        'test': [
+          TwitchMessage(
+            login: 'forsen',
+            text: 'msg1',
+            messageId: 'm1',
+            channel: 'test',
+          ),
+        ],
+      };
+      final conn = _makeReconnectConn(
+        eventSub: _NoopEventSub(),
+        irc: irc,
+        onReconnected: () {},
+        channelMessages: channelMessages,
+        onSystemMessage: (c, t, {Color? accent}) {
+          systemMessages.add((c, t, accent));
+        },
+      );
+      await conn.connect();
+      irc.emitConnected();
+
+      irc.handleLine(':tmi.twitch.tv CLEARCHAT #test :forsen');
+      await Future<void>.delayed(Duration.zero);
+
+      expect(systemMessages.single.$2, 'forsen was banned.');
+      expect(
+        channelMessages['test']!.single.deleted,
+        isTrue,
+        reason: 'the banned user\'s message is deleted, not the whole chat',
+      );
+
+      conn.dispose();
+    });
+  });
+
+  group('ROOMSTATE splash', () {
+    test('updates the chat status splash and merges partial updates', () async {
+      final irc = _TestIrc();
+      final chatStatus = <String, String>{};
+      final conn = _makeReconnectConn(
+        eventSub: _NoopEventSub(),
+        irc: irc,
+        onReconnected: () {},
+        chatStatus: chatStatus,
+      );
+      await conn.connect();
+      irc.emitConnected();
+
+      irc.handleLine(
+        '@emote-only=1;followers-only=30;r9k=1;room-id=1;slow=10;subs-only=0 '
+        ':tmi.twitch.tv ROOMSTATE #test',
+      );
+      expect(
+        chatStatus['test'],
+        'Slow (10s) · Followers-only (30m) · Emote-only · Unique chat',
+      );
+
+      // Partial update: only slow mode changed.
+      irc.handleLine('@room-id=1;slow=0 :tmi.twitch.tv ROOMSTATE #test');
+      expect(
+        chatStatus['test'],
+        'Followers-only (30m) · Emote-only · Unique chat',
+      );
+
+      conn.dispose();
+    });
+  });
+
+  group('USERSTATE permissions', () {
+    test('USERSTATE grants mod permission without any own message', () async {
+      final irc = _TestIrc();
+      final conn = _makeReconnectConn(
+        eventSub: _NoopEventSub(),
+        irc: irc,
+        onReconnected: () {},
+      );
+      await conn.connect();
+      irc.emitConnected();
+
+      expect(conn.myPermissionFor('test'), CommandPermission.everyone);
+
+      irc.handleLine(
+        '@badges=moderator/1,vip/1 :tmi.twitch.tv USERSTATE #test',
+      );
+      expect(conn.myPermissionFor('test'), CommandPermission.mod);
+
+      conn.dispose();
+    });
+
+    test('broadcaster USERSTATE grants owner permission', () async {
+      final irc = _TestIrc();
+      final conn = _makeReconnectConn(
+        eventSub: _NoopEventSub(),
+        irc: irc,
+        onReconnected: () {},
+      );
+      await conn.connect();
+      irc.emitConnected();
+
+      irc.handleLine('@badges=broadcaster/1 :tmi.twitch.tv USERSTATE #test');
+      expect(conn.myPermissionFor('test'), CommandPermission.owner);
+
+      conn.dispose();
+    });
+
+    test('global badges merge into per-channel permission sets', () async {
+      final irc = _TestIrc();
+      final conn = _makeReconnectConn(
+        eventSub: _NoopEventSub(),
+        irc: irc,
+        onReconnected: () {},
+      );
+      await conn.connect();
+      irc.emitConnected();
+
+      irc.handleLine('@badges=moderator/1 :tmi.twitch.tv USERSTATE #test');
+      expect(conn.myPermissionFor('test'), CommandPermission.mod);
+
+      // Global state arriving later must not wipe channel badges.
+      irc.handleLine('@badges=staff/1 :tmi.twitch.tv GLOBALUSERSTATE');
+      expect(conn.myPermissionFor('test'), CommandPermission.mod);
+
+      // A fresh channel combines global + channel badges.
+      irc.handleLine('@badges=moderator/1 :tmi.twitch.tv USERSTATE #other');
+      expect(conn.myPermissionFor('other'), CommandPermission.mod);
 
       conn.dispose();
     });

@@ -236,6 +236,21 @@ void main() {
       final msg = RecentMessagesService.parseIrcLine(raw);
       expect(msg, isNull);
     });
+
+    test('parses NOTICE into a system message', () {
+      const raw =
+          '@msg-id=slow_on;rm-received-ts=1700000000000 :tmi.twitch.tv NOTICE #xqc :This room is now in slow mode.';
+      final msg = RecentMessagesService.parseIrcLine(raw);
+      expect(msg, isNotNull);
+      expect(msg!.isSystem, isTrue);
+      expect(msg.text, 'This room is now in slow mode.');
+      expect(msg.isHistory, isTrue);
+    });
+
+    test('returns null for NOTICE without text', () {
+      const raw = ':tmi.twitch.tv NOTICE #xqc';
+      expect(RecentMessagesService.parseIrcLine(raw), isNull);
+    });
   });
 
   group('parseAnnouncementChild', () {
@@ -398,6 +413,57 @@ void main() {
         ),
       ];
       RecentMessagesService.applyBanSweep(messages);
+      expect(messages[0].deleted, isFalse);
+      expect(messages[1].deleted, isTrue);
+    });
+  });
+
+  group('clearMsgTargetId / applyMessageDeletions', () {
+    test('extracts the deleted message id from CLEARMSG', () {
+      expect(
+        RecentMessagesService.clearMsgTargetId(
+          '@login=ermugo1;target-msg-id=8c41deb9-5d54-47a0-ab0c-fc5b7403c905 '
+          ':tmi.twitch.tv CLEARMSG #xqc :kuh',
+        ),
+        '8c41deb9-5d54-47a0-ab0c-fc5b7403c905',
+      );
+    });
+
+    test('returns null for non-CLEARMSG lines', () {
+      expect(
+        RecentMessagesService.clearMsgTargetId(
+          '@display-name=forsen :forsen!forsen@forsen.tmi.twitch.tv PRIVMSG #xqc :hi',
+        ),
+        isNull,
+      );
+      expect(
+        RecentMessagesService.clearMsgTargetId(
+          ':tmi.twitch.tv CLEARMSG #xqc :kuh',
+        ),
+        isNull,
+        reason: 'no target-msg-id tag',
+      );
+    });
+
+    test('marks matching messages deleted', () {
+      final t0 = DateTime(2024, 1, 1, 12, 0, 0);
+      final messages = [
+        TwitchMessage(
+          login: 'a',
+          text: 'keep',
+          messageId: 'm1',
+          timestamp: t0,
+          channel: 'xqc',
+        ),
+        TwitchMessage(
+          login: 'b',
+          text: 'gone',
+          messageId: 'm2',
+          timestamp: t0,
+          channel: 'xqc',
+        ),
+      ];
+      RecentMessagesService.applyMessageDeletions(messages, ['m2']);
       expect(messages[0].deleted, isFalse);
       expect(messages[1].deleted, isTrue);
     });

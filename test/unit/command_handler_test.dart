@@ -328,6 +328,33 @@ void main() {
     expect(req.url.path, '/helix/chat/announcements');
     final body = jsonDecode(req.body) as Map;
     expect(body['message'], 'hello world');
+    expect(body['color'], 'primary');
+  });
+
+  test('/announce accepts a color argument', () async {
+    final requests = <http.Request>[];
+    final handler = createHandler(
+      MockClient((req) async {
+        requests.add(req);
+        return http.Response('', 204);
+      }),
+    );
+
+    await handler.handle('/announce blue hello world', 'a', auth);
+
+    final body = jsonDecode(requests.single.body) as Map;
+    expect(body['color'], 'blue');
+    expect(body['message'], 'hello world');
+  });
+
+  test('/announce rejects a bare color argument', () async {
+    final handler = createHandler(
+      MockClient((req) async => http.Response('', 204)),
+    );
+
+    await handler.handle('/announce blue', 'a', auth);
+
+    expect(systemMessages.single, 'Usage: /announce [color] <message>');
   });
 
   test('/announce shows error on failure', () async {

@@ -241,14 +241,32 @@ class CommandHandler {
 
         case '/announce':
           if (args.isEmpty) {
-            addSystemMessage(channel, 'Usage: /announce <message>');
+            addSystemMessage(channel, 'Usage: /announce [color] <message>');
             return;
+          }
+          var color = 'primary';
+          var message = args.join(' ');
+          final first = args[0].toLowerCase();
+          if (const {
+            'primary',
+            'blue',
+            'green',
+            'orange',
+            'purple',
+          }.contains(first)) {
+            color = first;
+            message = args.sublist(1).join(' ');
+            if (message.isEmpty) {
+              addSystemMessage(channel, 'Usage: /announce [color] <message>');
+              return;
+            }
           }
           final ok = await twitchApi.sendChatAnnouncement(
             auth,
             broadcasterId: broadcasterId,
             moderatorId: currentUserId,
-            message: args.join(' '),
+            message: message,
+            color: color,
           );
           if (!ok) {
             addSystemMessage(

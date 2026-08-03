@@ -30,6 +30,55 @@ class IrcNoticeEvent {
   IrcNoticeEvent({required this.channel, required this.message, this.msgId});
 }
 
+/// A full channel clear (`/clear`): CLEARCHAT with no target user. Unlike
+/// bans/timeouts, there is no target — every chat message is removed.
+class IrcChannelClearEvent {
+  final String channel;
+
+  IrcChannelClearEvent({required this.channel});
+}
+
+/// Room-mode state (slow mode, followers-only, emote-only, subs-only, r9k).
+/// Sent on join and again whenever a mode changes. `followersOnly` is "-1"
+/// when off, "0" when always on, otherwise the minutes.
+class IrcRoomStateEvent {
+  final String channel;
+  final int? slowSeconds;
+  final String? followersOnly;
+  final bool emoteOnly;
+  final bool subsOnly;
+  final bool r9k;
+
+  /// Raw tag map; updates are partial (only changed tags), so callers that
+  /// need the full state must merge with the previous event.
+  final Map<String, String> tags;
+
+  IrcRoomStateEvent({
+    required this.channel,
+    this.slowSeconds,
+    this.followersOnly,
+    required this.emoteOnly,
+    required this.subsOnly,
+    required this.r9k,
+    required this.tags,
+  });
+}
+
+/// Own user state per channel (badges at JOIN). Global badges arrive once
+/// via GLOBALUSERSTATE instead.
+class IrcUserStateEvent {
+  final String channel;
+  final List<MessageBadge>? badges;
+
+  IrcUserStateEvent({required this.channel, this.badges});
+}
+
+class IrcGlobalUserStateEvent {
+  final List<MessageBadge>? badges;
+
+  IrcGlobalUserStateEvent({this.badges});
+}
+
 class IrcMessageDeletedEvent {
   final String channel;
   final String messageId;
@@ -179,10 +228,26 @@ class IrcService extends BaseIrcConnection {
   final _userNoticeController = StreamController<UserNoticeEvent>.broadcast(
     sync: true,
   );
+  final _clearController = StreamController<IrcChannelClearEvent>.broadcast(
+    sync: true,
+  );
+  final _roomStateController = StreamController<IrcRoomStateEvent>.broadcast(
+    sync: true,
+  );
+  final _userStateController = StreamController<IrcUserStateEvent>.broadcast(
+    sync: true,
+  );
+  final _globalUserStateController =
+      StreamController<IrcGlobalUserStateEvent>.broadcast(sync: true);
 
   Stream<IrcBanEvent> get onBan => _banController.stream;
   Stream<IrcNoticeEvent> get onNotice => _noticeController.stream;
   Stream<IrcNoticeEvent> get onJtvMessage => _jtvController.stream;
+  Stream<IrcChannelClearEvent> get onChannelClear => _clearController.stream;
+  Stream<IrcRoomStateEvent> get onRoomState => _roomStateController.stream;
+  Stream<IrcUserStateEvent> get onUserState => _userStateController.stream;
+  Stream<IrcGlobalUserStateEvent> get onGlobalUserState =>
+      _globalUserStateController.stream;
   Stream<IrcMessageDeletedEvent> get onMessageDeleted =>
       _deleteController.stream;
   Stream<TwitchMessage> get onMessage => _messageController.stream;
@@ -221,6 +286,21 @@ class IrcService extends BaseIrcConnection {
       _handleUserNotice(line);
       return;
     }
+    // GLOBALUSERSTATE contains "USERSTATE " as a substring — check first.
+    // It also carries no params, so the command ends the line (no trailing
+    // space like the other handlers expect).
+    if (line.contains('GLOBALUSERSTATE ') || line.endsWith('GLOBALUSERSTATE')) {
+      _handleGlobalUserState(line);
+      return;
+    }
+    if (line.contains('USERSTATE ')) {
+      _handleUserState(line);
+      return;
+    }
+    if (line.contains('ROOMSTATE ')) {
+      _handleRoomState(line);
+      return;
+    }
     if (line.contains('NOTICE ')) {
       _handleNotice(line);
       return;
@@ -244,7 +324,12 @@ class IrcService extends BaseIrcConnection {
     if (channelName == null) return;
 
     final targetUser = msg.trailing;
-    if (targetUser == null || targetUser.isEmpty) return;
+    // CLEARCHAT without a target is a full channel clear (/clear) — every
+    // message is removed, there is no user to ban.
+    if (targetUser == null || targetUser.isEmpty) {
+      _clearController.add(IrcChannelClearEvent(channel: channelName));
+      return;
+    }
 
     final banDuration = msg.tags['ban-duration'];
     final targetUserId = msg.tags['target-user-id'];
@@ -315,6 +400,54 @@ class IrcService extends BaseIrcConnection {
 
     _jtvController.add(
       IrcNoticeEvent(channel: channelName, message: msg.trailing!),
+    );
+  }
+
+  void _handleRoomState(String line) {
+    final msg = parseIrcMessage(line);
+    if (msg == null || msg.command != 'ROOMSTATE') return;
+
+    final channelName = msg.params.isNotEmpty
+        ? msg.params[0].substring(1)
+        : null;
+    if (channelName == null) return;
+
+    _roomStateController.add(
+      IrcRoomStateEvent(
+        channel: channelName,
+        slowSeconds: int.tryParse(msg.tags['slow'] ?? ''),
+        followersOnly: msg.tags['followers-only'],
+        emoteOnly: msg.tags['emote-only'] == '1',
+        subsOnly: msg.tags['subs-only'] == '1',
+        r9k: msg.tags['r9k'] == '1',
+        tags: msg.tags,
+      ),
+    );
+  }
+
+  void _handleUserState(String line) {
+    final msg = parseIrcMessage(line);
+    if (msg == null || msg.command != 'USERSTATE') return;
+
+    final channelName = msg.params.isNotEmpty
+        ? msg.params[0].substring(1)
+        : null;
+    if (channelName == null) return;
+
+    _userStateController.add(
+      IrcUserStateEvent(
+        channel: channelName,
+        badges: parseIrcBadges(msg.tags['badges']),
+      ),
+    );
+  }
+
+  void _handleGlobalUserState(String line) {
+    final msg = parseIrcMessage(line);
+    if (msg == null || msg.command != 'GLOBALUSERSTATE') return;
+
+    _globalUserStateController.add(
+      IrcGlobalUserStateEvent(badges: parseIrcBadges(msg.tags['badges'])),
     );
   }
 
@@ -397,6 +530,10 @@ class IrcService extends BaseIrcConnection {
     _deleteController.close();
     _messageController.close();
     _userNoticeController.close();
+    _clearController.close();
+    _roomStateController.close();
+    _userStateController.close();
+    _globalUserStateController.close();
     super.dispose();
   }
 }

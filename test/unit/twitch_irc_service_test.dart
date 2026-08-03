@@ -129,15 +129,104 @@ void main() {
       expect(events[0].userId, '12345');
     });
 
-    test('ignores CLEARCHAT for full room clear (no target user)', () async {
-      final events = <IrcBanEvent>[];
-      service.onBan.listen(events.add);
+    test('emits channel clear for full room clear (no target user)', () async {
+      final bans = <IrcBanEvent>[];
+      final clears = <IrcChannelClearEvent>[];
+      service.onBan.listen(bans.add);
+      service.onChannelClear.listen(clears.add);
 
       service.handleLine(':tmi.twitch.tv CLEARCHAT #xqc');
       await flush();
 
-      expect(events, isEmpty);
+      expect(bans, isEmpty);
+      expect(clears, hasLength(1));
+      expect(clears[0].channel, 'xqc');
     });
+  });
+
+  group('ROOMSTATE', () {
+    Future<void> flush() => Future<void>.delayed(Duration.zero);
+
+    test('parses full room state', () async {
+      final states = <IrcRoomStateEvent>[];
+      service.onRoomState.listen(states.add);
+
+      service.handleLine(
+        '@emote-only=0;followers-only=30;r9k=1;room-id=1;slow=10;subs-only=1 '
+        ':tmi.twitch.tv ROOMSTATE #xqc',
+      );
+      await flush();
+
+      expect(states, hasLength(1));
+      expect(states[0].channel, 'xqc');
+      expect(states[0].slowSeconds, 10);
+      expect(states[0].followersOnly, '30');
+      expect(states[0].emoteOnly, isFalse);
+      expect(states[0].subsOnly, isTrue);
+      expect(states[0].r9k, isTrue);
+    });
+
+    test('parses partial updates with only the changed tags', () async {
+      final states = <IrcRoomStateEvent>[];
+      service.onRoomState.listen(states.add);
+
+      service.handleLine('@room-id=1;slow=0 :tmi.twitch.tv ROOMSTATE #xqc');
+      await flush();
+
+      expect(states, hasLength(1));
+      expect(states[0].slowSeconds, 0);
+      expect(
+        states[0].followersOnly,
+        isNull,
+        reason: 'untouched tags are absent from partial updates',
+      );
+    });
+  });
+
+  group('USERSTATE', () {
+    Future<void> flush() => Future<void>.delayed(Duration.zero);
+
+    test('parses per-channel badges', () async {
+      final states = <IrcUserStateEvent>[];
+      service.onUserState.listen(states.add);
+
+      service.handleLine(
+        '@badges=moderator/1,vip/1;user-id=123 '
+        ':tmi.twitch.tv USERSTATE #xqc',
+      );
+      await flush();
+
+      expect(states, hasLength(1));
+      expect(states[0].channel, 'xqc');
+      expect(states[0].badges, hasLength(2));
+      expect(
+        states[0].badges!.map((b) => b.setId),
+        containsAll(['moderator', 'vip']),
+      );
+    });
+
+    test(
+      'GLOBALUSERSTATE routes to its own stream (dispatch regression)',
+      () async {
+        final userStates = <IrcUserStateEvent>[];
+        final globalStates = <IrcGlobalUserStateEvent>[];
+        service.onUserState.listen(userStates.add);
+        service.onGlobalUserState.listen(globalStates.add);
+
+        service.handleLine('@badges=staff/1 :tmi.twitch.tv GLOBALUSERSTATE');
+        await flush();
+
+        expect(
+          userStates,
+          isEmpty,
+          reason:
+              'GLOBALUSERSTATE contains "USERSTATE " and must not be '
+              'swallowed by the USERSTATE handler',
+        );
+        expect(globalStates, hasLength(1));
+        expect(globalStates[0].badges!.single.setId, 'staff');
+      },
+    );
   });
 
   group('USERNOTICE', () {

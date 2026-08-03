@@ -187,6 +187,7 @@ class ChatConnectionManager {
   // Badge set-ids seen on my own message echoes, per channel — the source
   // for myPermissionFor (mod/owner detection for command autocomplete).
   final _myBadgeSetIds = <String, Set<String>>{};
+  Set<String> _globalBadgeSetIds = {};
   static const _roomStateNoticeIds = {
     'followers_on_zero',
     'followers_on',
@@ -213,6 +214,10 @@ class ChatConnectionManager {
   StreamSubscription<IrcNoticeEvent>? ircJtvSub;
   StreamSubscription<IrcMessage>? ircOwnMsgSub;
   StreamSubscription<UserNoticeEvent>? userNoticeSub;
+  StreamSubscription<IrcChannelClearEvent>? ircClearSub;
+  StreamSubscription<IrcRoomStateEvent>? ircRoomStateSub;
+  StreamSubscription<IrcUserStateEvent>? ircUserStateSub;
+  StreamSubscription<IrcGlobalUserStateEvent>? ircGlobalUserStateSub;
   StreamSubscription<ModerationEvent>? moderationSub;
   StreamSubscription<SevenTvEmoteUpdateEvent>? sevenTvEmoteSub;
   StreamSubscription<SevenTvUserUpdate>? sevenTvUserSub;
@@ -275,6 +280,10 @@ class ChatConnectionManager {
     ircJtvSub?.cancel();
     ircOwnMsgSub?.cancel();
     userNoticeSub?.cancel();
+    ircClearSub?.cancel();
+    ircRoomStateSub?.cancel();
+    ircUserStateSub?.cancel();
+    ircGlobalUserStateSub?.cancel();
     moderationSub?.cancel();
     sevenTvEmoteSub?.cancel();
     sevenTvUserSub?.cancel();
@@ -288,6 +297,9 @@ class ChatConnectionManager {
 
   void stopChatStatusTimer(String channel) {
     _chatStatusTimers.remove(channel)?.cancel();
+    _roomStateTags.remove(channel);
+    _streamStatusParts.remove(channel);
+    _myBadgeSetIds.remove(channel);
   }
 
   void _markUserMessagesDeleted(String channel, String username) {
@@ -366,7 +378,11 @@ class ChatConnectionManager {
     final stacked = result.stackCount > 1
         ? ' (${result.stackCount} times)'
         : '';
-    final text = '$base$stacked.';
+    // buildBanText already ends with a period.
+    final trimmed = base.endsWith('.')
+        ? base.substring(0, base.length - 1)
+        : base;
+    final text = '$trimmed$stacked.';
     debugPrint('[ChatConn] IRC ban system message: $text');
 
     if (result.stackCount > 1) {
@@ -418,6 +434,12 @@ class ChatConnectionManager {
     }
   }
 
+  // Room-mode tags per channel from ROOMSTATE (merged across partial
+  // updates); feeds the chat status splash. Stream info from the periodic
+  // Helix fetch is kept separately so ROOMSTATE recomposes don't lose it.
+  final _roomStateTags = <String, Map<String, String>>{};
+  final _streamStatusParts = <String, List<String>>{};
+
   Future<void> fetchChatStatus(String channel) async {
     final auth = twitchAuth;
     if (!auth.isConfigured) return;
@@ -425,23 +447,9 @@ class ChatConnectionManager {
     final userId = channelUserIds[channel];
     if (userId == null || getCurrentUserId() == null) return;
 
-    final settings = await twitchApi.getChatSettings(
-      auth,
-      userId,
-      getCurrentUserId()!,
-    );
     final stream = await twitchApi.getStreamInfo(auth, userId);
 
     final parts = <String>[];
-    if (settings != null) {
-      if (settings['follower_mode'] == true) parts.add('Followers-only');
-      if (settings['subscriber_mode'] == true) parts.add('Subscribers-only');
-      if (settings['emote_mode'] == true) parts.add('Emote-only');
-      if (settings['slow_mode'] == true) {
-        final wait = settings['slow_mode_wait_time'] ?? '?';
-        parts.add('Slow ($wait${wait == '?' ? '' : 's'})');
-      }
-    }
     if (stream != null && stream['type'] == 'live') {
       final viewers = stream['viewer_count'] ?? 0;
       final started = stream['started_at'] as String?;
@@ -454,6 +462,31 @@ class ChatConnectionManager {
         parts.add('Live with $viewers viewers');
       }
     }
+    _streamStatusParts[channel] = parts;
+    _composeChatStatus(channel);
+  }
+
+  // Room modes come from ROOMSTATE (instant, broadcast to everyone on IRC);
+  // this replaces the old Helix getChatSettings polling.
+  void _composeChatStatus(String channel) {
+    final parts = <String>[];
+    final tags = _roomStateTags[channel];
+    if (tags != null) {
+      final slow = int.tryParse(tags['slow'] ?? '') ?? 0;
+      if (slow > 0) parts.add('Slow (${slow}s)');
+      final followers = tags['followers-only'];
+      if (followers != null && followers != '-1') {
+        parts.add(
+          followers == '0'
+              ? 'Followers-only'
+              : 'Followers-only (${followers}m)',
+        );
+      }
+      if (tags['emote-only'] == '1') parts.add('Emote-only');
+      if (tags['subs-only'] == '1') parts.add('Subscribers-only');
+      if (tags['r9k'] == '1') parts.add('Unique chat');
+    }
+    parts.addAll(_streamStatusParts[channel] ?? const []);
     chatStatus[channel] = parts.isNotEmpty ? parts.join(' · ') : '';
     invalidateChannel(channel);
   }
@@ -1078,6 +1111,53 @@ class ChatConnectionManager {
           systemAccent: accent,
         ),
       );
+    });
+
+    ircClearSub?.cancel();
+    ircClearSub = irc.onChannelClear.listen((event) {
+      if (isDisposed) return;
+      // With channel.moderate active, clears come from EventSub with the
+      // moderator's name — skip the IRC copy.
+      if (_moderationChannels.contains(event.channel)) return;
+      final msgs = channelMessages[event.channel];
+      if (msgs != null) {
+        for (final m in msgs) {
+          if (!m.isSystem) m.deleted = true;
+        }
+      }
+      onSystemMessage(event.channel, 'Chat was cleared.');
+    });
+
+    ircRoomStateSub?.cancel();
+    ircRoomStateSub = irc.onRoomState.listen((event) {
+      if (isDisposed) return;
+      // ROOMSTATE updates are partial (only the changed tags): merge with
+      // the previous state before recomposing the status splash.
+      _roomStateTags[event.channel] = {
+        ...?_roomStateTags[event.channel],
+        ...event.tags,
+      };
+      _composeChatStatus(event.channel);
+    });
+
+    ircUserStateSub?.cancel();
+    ircUserStateSub = irc.onUserState.listen((event) {
+      if (isDisposed) return;
+      final badges = event.badges?.map((b) => b.setId).toSet() ?? <String>{};
+      _myBadgeSetIds[event.channel] = {...badges, ..._globalBadgeSetIds};
+    });
+
+    ircGlobalUserStateSub?.cancel();
+    ircGlobalUserStateSub = irc.onGlobalUserState.listen((event) {
+      if (isDisposed) return;
+      _globalBadgeSetIds =
+          event.badges?.map((b) => b.setId).toSet() ?? <String>{};
+      for (final channel in List.of(_myBadgeSetIds.keys)) {
+        _myBadgeSetIds[channel] = {
+          ..._myBadgeSetIds[channel]!,
+          ..._globalBadgeSetIds,
+        };
+      }
     });
 
     moderationSub ??= eventSub.onModeration.listen(_onModerationEvent);

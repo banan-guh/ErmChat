@@ -66,6 +66,7 @@
 ## Research / Open Ends
 
 - [-] **Rate limit enforcement** - Enforce the 20-msg / 30-sec limit before Twitch does, with a toggle to disable. Research Twitch's exact rate limit behavior to decide on implementation.
+- [ ] **WHISPER support** - IRC `WHISPER` messages are currently dropped entirely, yet the mentions panel empty state claims "mentions or whispers". Route WHISPER into the mentions panel. Needs two authed accounts to verify (anonymous sockets can't receive whispers). Shelved while IRC connectivity work was in progress.
 
 ## Low Priority / Future
 
