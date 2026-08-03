@@ -1321,10 +1321,34 @@ class ChatConnectionManager {
     final token = twitchAuth.accessToken;
     if (login == null || token == null) return;
 
-    if (!irc.isConnected) {
+    // A socket can exist while being dead (frozen by the OS during
+    // backgrounding). When it looks connected, verify with a PING/PONG
+    // round-trip instead of trusting isConnected; force a reconnect if the
+    // PONG never comes back.
+    if (irc.isConnected) {
+      unawaited(
+        irc.checkAlive().then((alive) {
+          if (!alive) {
+            debugPrint('[ChatConn] IRC zombie detected – forcing reconnect');
+            irc.forceReconnect();
+          }
+        }),
+      );
+    } else {
       unawaited(irc.connect(username: login, accessToken: token));
     }
-    if (!ircRead.isConnected) {
+    if (ircRead.isConnected) {
+      unawaited(
+        ircRead.checkAlive().then((alive) {
+          if (!alive) {
+            debugPrint(
+              '[ChatConn] IRC read zombie detected – forcing reconnect',
+            );
+            ircRead.forceReconnect();
+          }
+        }),
+      );
+    } else {
       unawaited(ircRead.connect(username: login, accessToken: token));
     }
     if (!eventSub.isConnected) {

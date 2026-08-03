@@ -205,6 +205,32 @@ class _CompleterRecentMessagesService extends RecentMessagesService {
       completer.future;
 }
 
+class _GatedRecentMessagesService extends RecentMessagesService {
+  _GatedRecentMessagesService(
+    this.responses, {
+    required this.gateOnCall,
+    required this.gate,
+  });
+
+  final List<List<TwitchMessage>> responses;
+  final int gateOnCall;
+  final Completer<void> gate;
+  int callCount = 0;
+
+  @override
+  Future<List<TwitchMessage>> fetchRecent(
+    String channel, {
+    int limit = 100,
+  }) async {
+    callCount++;
+    final idx = (callCount - 1).clamp(0, responses.length - 1);
+    if (callCount == gateOnCall) {
+      await gate.future;
+    }
+    return responses[idx];
+  }
+}
+
 void main() {
   setUp(() {
     SharedPreferences.setMockInitialValues({});
@@ -953,7 +979,7 @@ void main() {
           text: 'hello world',
           channel: 'testchannel',
           messageId: 'hist-1',
-          timestamp: DateTime.now(),
+          timestamp: DateTime.now().subtract(const Duration(minutes: 5)),
           isHistory: true,
         ),
       ]);
@@ -969,6 +995,150 @@ void main() {
       expect(connectedY, greaterThan(historyY));
     },
   );
+
+  testWidgets('Reconnect history merges below newer live messages', (
+    WidgetTester tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({
+      'access_token': 'test_token',
+      'channels': ['xqc'],
+    });
+    FlutterSecureStorage.setMockInitialValues({'access_token': 'test_token'});
+
+    final now = DateTime.now();
+    final refetchGate = Completer<void>();
+    final recent = _GatedRecentMessagesService(
+      [
+        [
+          TwitchMessage(
+            login: 'alice',
+            text: 'old history',
+            channel: 'xqc',
+            messageId: 'a1',
+            timestamp: now.subtract(const Duration(minutes: 5)),
+          ),
+        ],
+        [
+          TwitchMessage(
+            login: 'bob',
+            text: 'missed message',
+            channel: 'xqc',
+            messageId: 'b1',
+            timestamp: now.subtract(const Duration(minutes: 1)),
+          ),
+        ],
+      ],
+      gateOnCall: 2,
+      gate: refetchGate,
+    );
+    final fakeEventSub = _FakeEventSubService();
+    final fakeIrc = _FakeIrcService();
+
+    await tester.pumpWidget(
+      TwitchChatApp(
+        eventSubService: fakeEventSub,
+        ircService: fakeIrc,
+        recentMessagesService: recent,
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.textContaining('old history'), findsOneWidget);
+
+    fakeIrc.triggerConnect();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 600));
+    await tester.pump();
+    expect(recent.callCount, 1);
+
+    fakeIrc.triggerDisconnect();
+    await tester.pump();
+    fakeIrc.triggerConnect();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 600));
+    await tester.pump();
+    expect(recent.callCount, 2, reason: 'reconnect must trigger a re-fetch');
+
+    // Live messages arrive while the re-fetch is still in flight.
+    fakeIrc.emitMessage(
+      TwitchMessage(
+        login: 'carol',
+        text: 'live after reconnect',
+        channel: 'xqc',
+        messageId: 'c1',
+        timestamp: now,
+      ),
+    );
+    await tester.pump();
+    expect(find.textContaining('live after reconnect'), findsOneWidget);
+
+    refetchGate.complete();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 600));
+    await tester.pump();
+
+    expect(find.textContaining('missed message'), findsOneWidget);
+    final liveY = tester
+        .getTopLeft(find.textContaining('live after reconnect'))
+        .dy;
+    final missedY = tester.getTopLeft(find.textContaining('missed message')).dy;
+    expect(
+      liveY,
+      greaterThan(missedY),
+      reason: 'newer live messages must stay above re-fetched history',
+    );
+    final oldY = tester.getTopLeft(find.textContaining('old history')).dy;
+    expect(
+      missedY,
+      greaterThan(oldY),
+      reason: 'missed history is newer than pre-disconnect messages',
+    );
+  });
+
+  testWidgets('join dialog removes the loading history message', (
+    WidgetTester tester,
+  ) async {
+    final fakeEventSub = _FakeEventSubService();
+    final fakeIrc = _FakeIrcService();
+    final historyCompleter = Completer<List<TwitchMessage>>();
+
+    SharedPreferences.setMockInitialValues({'access_token': 'test_token'});
+    FlutterSecureStorage.setMockInitialValues({'access_token': 'test_token'});
+
+    await tester.pumpWidget(
+      TwitchChatApp(
+        eventSubService: fakeEventSub,
+        recentMessagesService: _CompleterRecentMessagesService(
+          historyCompleter,
+        ),
+        ircService: fakeIrc,
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.byIcon(Icons.add));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).last, 'testchannel');
+    await tester.tap(find.text('Join').last);
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.textContaining('Loading chat history...'), findsOneWidget);
+
+    historyCompleter.complete([
+      TwitchMessage(
+        login: 'alice',
+        text: 'hello world',
+        channel: 'testchannel',
+        messageId: 'hist-1',
+        timestamp: DateTime.now().subtract(const Duration(minutes: 5)),
+      ),
+    ]);
+    await tester.pump();
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Loading chat history...'), findsNothing);
+    expect(find.textContaining('hello world'), findsOneWidget);
+  });
 
   group('Thread', () {
     late DateTime now;

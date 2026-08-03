@@ -481,6 +481,10 @@ class _HomeScreenState extends State<HomeScreen>
   // mentions are surfaced in the mentions panel, and a gap note is inserted at
   // the history boundary when the fetched window doesn't reach back to the
   // messages already displayed (only possible on reconnect re-fetches).
+  //
+  // The merged list is sorted by timestamp (DankChat-style) so re-fetched
+  // history slots below messages that arrived after it — live messages are
+  // never pushed under older history.
   void _mergeHistoryIntoChannel(String channel, List<TwitchMessage> history) {
     final existing = _channelMessages[channel]!;
     final existingIds = existing.map((m) => m.messageId).toSet();
@@ -491,6 +495,7 @@ class _HomeScreenState extends State<HomeScreen>
         break;
       }
     }
+    final insertedIds = <String?>{};
     var insertedCount = 0;
     for (final msg in history) {
       if (!msg.isSystem && msg.login.isNotEmpty) {
@@ -500,8 +505,10 @@ class _HomeScreenState extends State<HomeScreen>
             : msg.login;
         _userStore.addUser(channel, preferred);
       }
+      final id = msg.messageId;
       final isNew =
-          msg.messageId == null || !existingIds.contains(msg.messageId);
+          id == null ||
+          (!existingIds.contains(id) && !insertedIds.contains(id));
       if (isNew) {
         if (msg.isSystem && _currentUserLogin != null) {
           final selfLogin = _currentUserLogin!.toLowerCase();
@@ -513,7 +520,8 @@ class _HomeScreenState extends State<HomeScreen>
             msg.text = msg.text.replaceFirst('was', 'were');
           }
         }
-        existing.insert(0, msg);
+        if (id != null) insertedIds.add(id);
+        existing.add(msg);
         insertedCount++;
       }
       if (msg.messageId != null) {
@@ -548,16 +556,23 @@ class _HomeScreenState extends State<HomeScreen>
         !history.any(
           (m) => m.messageId != null && existingIds.contains(m.messageId),
         )) {
-      existing.insert(
-        insertedCount,
+      // 1ms before the oldest fetched message so the note sorts directly
+      // below the history block.
+      final oldestHistory = history
+          .map((m) => m.timestamp)
+          .reduce((a, b) => a.isBefore(b) ? a : b);
+      existing.add(
         TwitchMessage(
           login: '',
           text: 'History: Not all messages retrieved',
           isSystem: true,
           channel: channel,
+          timestamp: oldestHistory.subtract(const Duration(milliseconds: 1)),
         ),
       );
     }
+    // Chronological order, newest first (index 0 = newest).
+    existing.sort((a, b) => b.timestamp.compareTo(a.timestamp));
     _truncateChannelMessages(channel);
     _bumpChannel(channel);
     _moveConnectedMessageToTop(channel);
@@ -1143,6 +1158,12 @@ class _HomeScreenState extends State<HomeScreen>
     _chatConn.maybeAddConnected(channel);
   }
 
+  void _removeLoadingHistoryMessage(String channel) {
+    _channelMessages[channel]?.removeWhere(
+      (m) => m.isSystem && m.text == 'Loading chat history...',
+    );
+  }
+
   // "Connected" is emitted as soon as IRC is up, which is usually before
   // the robotty history fetch completes. History messages are then inserted
   // above it, so move it back to the most recent position to stay visible.
@@ -1185,6 +1206,7 @@ class _HomeScreenState extends State<HomeScreen>
           if (!mounted) return;
           _historyLoaded.add(name);
           setState(() {
+            _removeLoadingHistoryMessage(name);
             if (history.isEmpty) {
               _addSystemMessage(name, 'No chat history available');
             } else {
@@ -1196,7 +1218,10 @@ class _HomeScreenState extends State<HomeScreen>
         .catchError((e) {
           if (!mounted) return;
           _historyLoaded.add(name);
-          _addSystemMessage(name, 'Failed to load chat history ($e)');
+          setState(() {
+            _removeLoadingHistoryMessage(name);
+            _addSystemMessage(name, 'Failed to load chat history ($e)');
+          });
           _maybeAddConnected(name);
         });
 

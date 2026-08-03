@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
+import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:ermchat/models/twitch_message.dart';
 import 'package:ermchat/models/twitch_command.dart';
 import 'package:ermchat/services/base_irc_connection.dart';
@@ -13,6 +15,7 @@ import 'package:ermchat/services/twitch_badge_service.dart';
 import 'package:ermchat/services/twitch_eventsub.dart';
 import 'package:ermchat/services/twitch_irc.dart';
 import 'package:ermchat/services/twitch_irc_read.dart';
+import '../helpers/fake_web_socket.dart';
 import 'package:ermchat/services/user_store.dart';
 
 TwitchMessage _msg(String id, String text, {String? replyToParentId}) =>
@@ -35,32 +38,51 @@ class _TestIrc extends IrcService {
   final _statusCtrl = StreamController<IrcConnectionStatus>.broadcast(
     sync: true,
   );
-  bool _fakeConnected = false;
+  bool alive = true;
+  int connectCalls = 0;
+  int openAttempts = 0;
+  FakeWebSocketChannel? _stubChannel;
 
   @override
   Future<void> connect({
     required String username,
     required String accessToken,
-  }) async {}
+  }) async {
+    connectCalls++;
+    this.username = username.toLowerCase();
+    token = accessToken;
+  }
+
+  @override
+  Future<bool> checkAlive({
+    Duration timeout = const Duration(seconds: 5),
+  }) async => alive;
+
+  @override
+  Future<WebSocketChannel> openChannel() async {
+    openAttempts++;
+    return _stubChannel ??= FakeWebSocketChannel();
+  }
 
   @override
   Stream<IrcConnectionStatus> get onStatus => _statusCtrl.stream;
 
   @override
-  bool get isConnected => _fakeConnected;
+  bool get isConnected => channel != null;
 
   void emitConnected() {
-    _fakeConnected = true;
+    channel = _stubChannel ??= FakeWebSocketChannel();
     _statusCtrl.add(IrcConnectionStatus.connected);
   }
 
   void emitDisconnected() {
-    _fakeConnected = false;
+    channel = null;
     _statusCtrl.add(IrcConnectionStatus.disconnected);
   }
 
   @override
   void dispose() {
+    _stubChannel?.dispose();
     _statusCtrl.close();
     super.dispose();
   }
@@ -130,6 +152,7 @@ ChatConnectionManager _makeReconnectConn({
   required void Function() onReconnected,
   Map<String, List<TwitchMessage>>? channelMessages,
   void Function(String, String, {Color? accent})? onSystemMessage,
+  String? currentUserLogin,
 }) {
   final api = TwitchApi(client: http.Client());
   final auth = TwitchAuth();
@@ -167,7 +190,7 @@ ChatConnectionManager _makeReconnectConn({
       getSelectedChannel: () => null,
       getUnreadMentions: () => 0,
       setUnreadMentions: (v) {},
-      getCurrentUserLogin: () => null,
+      getCurrentUserLogin: () => currentUserLogin,
       setCurrentUserLogin: (v) {},
       getCurrentUserId: () => null,
       setCurrentUserId: (v) {},
@@ -898,6 +921,79 @@ void main() {
       );
 
       conn.dispose();
+    });
+  });
+
+  group('reconnectIfNecessary', () {
+    test('does not reconnect a healthy connection', () {
+      fakeAsync((async) {
+        final irc = _TestIrc();
+        irc.alive = true;
+        final conn = _makeReconnectConn(
+          eventSub: _NoopEventSub(),
+          irc: irc,
+          onReconnected: () {},
+          currentUserLogin: 'testuser',
+        );
+
+        irc.connect(username: 'testuser', accessToken: 'token');
+        irc.emitConnected();
+        conn.reconnectIfNecessary();
+        async.flushMicrotasks();
+        expect(
+          irc.connectCalls,
+          1,
+          reason: 'healthy socket must not be reconnected on resume',
+        );
+
+        conn.dispose();
+      });
+    });
+
+    test('forces a reconnect when checkAlive fails (zombie socket)', () {
+      fakeAsync((async) {
+        final irc = _TestIrc();
+        irc.alive = false;
+        final conn = _makeReconnectConn(
+          eventSub: _NoopEventSub(),
+          irc: irc,
+          onReconnected: () {},
+          currentUserLogin: 'testuser',
+        );
+
+        irc.connect(username: 'testuser', accessToken: 'token');
+        irc.emitConnected();
+        conn.reconnectIfNecessary();
+        async.flushMicrotasks();
+        // forceReconnect schedules a retry; it must not open a socket yet.
+        expect(irc.openAttempts, 0);
+        async.elapse(const Duration(milliseconds: 1250));
+        expect(
+          irc.openAttempts,
+          1,
+          reason: 'unhealthy socket must be replaced after resume',
+        );
+
+        conn.dispose();
+      });
+    });
+
+    test('connects when the socket is missing entirely', () {
+      fakeAsync((async) {
+        final irc = _TestIrc();
+        final conn = _makeReconnectConn(
+          eventSub: _NoopEventSub(),
+          irc: irc,
+          onReconnected: () {},
+          currentUserLogin: 'testuser',
+        );
+
+        conn.reconnectIfNecessary();
+        async.flushMicrotasks();
+        expect(irc.connectCalls, 1);
+
+        conn.dispose();
+      });
     });
   });
 
