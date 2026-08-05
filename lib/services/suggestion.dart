@@ -80,7 +80,7 @@ List<Suggestion> filterSuggestions({
   final lower = word.toLowerCase();
 
   // Slash words only match commands; users and emote codes cannot contain
-  // slashes. Typing "/" alone surfaces the whole (permission-filtered) list.
+  // slashes. Typing "/" alone surfaces the whole (unfiltered) list.
   if (word.startsWith('/')) {
     for (final cmd in commands) {
       if (cmd.name.toLowerCase().startsWith(lower)) {

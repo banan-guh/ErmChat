@@ -8,8 +8,8 @@
 
 - [x] **Switch to Send Chat Message API** - Replaced IRC-based message sending with `POST /helix/chat/messages`. Added `user:write:chat` scope. Commands like `/color`, `/ban`, `/timeout` now work again via dedicated API endpoints.
 - [x] **Emotes & Badges** - Render Twitch emotes (global + channel) as images inline; render badges (mod, sub, VIP, etc). Non-negotiable feature, defer until core is solid.
-- [x] **Command autocomplete** - When typing `/` in the input, show a dropdown of available IRC commands (`/ban`, `/timeout`, `/color`, `/me`, etc). MUST HAVE, high priority.
-- [x] **IRC command support** - Commands routed through dedicated API endpoints: `/ban`, `/timeout`, `/unban`, `/color`, `/delete`, `/clear`, `/announce`, `/shoutout`. `/me` sent via IRC (only supported IRC command).
+- [x] **Command autocomplete** - When typing `/` in the input, show a dropdown of available commands. All 41 commands autocomplete for everyone (no mod-permission filter); failed commands surface DankChat-style error notices. MUST HAVE, high priority.
+- [x] **IRC command support** - Full DankChat command set routed through dedicated API endpoints: `/ban`, `/timeout`, `/unban`, `/untimeout`, `/color`, `/delete`, `/clear`, `/announce` + color variants, `/mod` `/unmod` `/mods`, `/vip` `/unvip` `/vips`, chat modes `/slow` `/followers` `/emoteonly` `/subscribers` `/r9kbeta` `/uniquechat` + off variants, `/shoutout`, `/raid` `/unraid`, `/shield` `/shieldoff`, `/commercial`, `/marker`, `/w`, `/block` `/unblock`. `/me` sent via IRC (only supported IRC command).
 - [x] **User profiles** - Tap a username → bottom sheet (1/3 screen) with PFP top-left, display name and account creation date top-right, four buttons: Mention, Whisper, Block, Report.
 - [x] **Swipe between channels** - Swipe left/right on the chat area to move to the adjacent channel, in addition to tapping the channel bar.
 - [x] **Chat room state** - Display current channel chat status below the input box (e.g. "Followers-only", "Emote-only", "Sub-only", "Live with X viewers for Yh Zm").
@@ -80,4 +80,4 @@
 - [ ] **Account switcher** - Quickly switch between logged-in Twitch accounts without going through the full login flow each time.
 - [ ] **Token refresh instead of re-auth every 60 days** - Access tokens expire roughly every 60 days; implement a refresh path instead of forcing full re-auth. Note: implicit-grant tokens (`response_type=token`) can't be refreshed - requires an auth flow change (e.g. device code grant).
 - [x] **Parallelize startup loading** - Increase overall loading speed by running independent startup fetches (emotes, badges, history, chat status) concurrently.
-- [ ] **Add blocked menu** - for un-blocking.
+- [x] **Add blocked menu** - `/block` `/unblock` commands implemented; blocked users removed from suggestions/profile. A dedicated un-block UI menu is future work.

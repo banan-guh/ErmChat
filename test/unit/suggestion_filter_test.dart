@@ -12,9 +12,9 @@ GenericEmote _e(String id, String code, [EmoteType type = EmoteType.bttv]) =>
     );
 
 const _commands = <TwitchCommand>[
-  TwitchCommand(name: '/me', permission: CommandPermission.everyone),
-  TwitchCommand(name: '/color', permission: CommandPermission.everyone),
-  TwitchCommand(name: '/ban', permission: CommandPermission.mod),
+  TwitchCommand(name: '/me'),
+  TwitchCommand(name: '/color'),
+  TwitchCommand(name: '/ban'),
 ];
 
 void main() {

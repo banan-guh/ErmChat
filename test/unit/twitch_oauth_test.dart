@@ -130,6 +130,27 @@ void main() {
       );
     });
 
+    test('requests scopes for the extended command set', () {
+      final urlInfo = TwitchOAuth.generateAuthUrl();
+      expect(urlInfo, isNotNull);
+
+      final url = Uri.parse(urlInfo!.url);
+      final scopes = url.queryParameters['scope']!.split(' ');
+      expect(
+        scopes,
+        containsAll([
+          'moderator:manage:chat_settings',
+          'channel:manage:moderators',
+          'channel:manage:vips',
+          'channel:manage:commercials',
+          'channel:manage:raids',
+          'moderator:manage:shield_mode',
+          'channel:manage:broadcast',
+          'user:manage:whispers',
+        ]),
+      );
+    });
+
     test('does not request EventSub-only scopes', () {
       final urlInfo = TwitchOAuth.generateAuthUrl();
       expect(urlInfo, isNotNull);

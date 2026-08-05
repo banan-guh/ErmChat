@@ -407,4 +407,361 @@ void main() {
       expect(api.lastError, contains('getBlockedUsers'));
     });
   });
+
+  group('unblockUser', () {
+    test('sends DELETE /helix/users/blocks and returns true on 204', () async {
+      late http.Request captured;
+      final api = createApi((req) => captured = req);
+
+      expect(await api.unblockUser(auth, 'target123'), isTrue);
+
+      expect(captured.method, 'DELETE');
+      expect(
+        captured.url.toString(),
+        'https://api.twitch.tv/helix/users/blocks?target_user_id=target123',
+      );
+      expectAuthHeaders(captured);
+    });
+
+    test('returns false on non-204', () async {
+      final api = createApi(
+        (_) {},
+        respond: () => http.Response('Forbidden', 403),
+      );
+
+      expect(await api.unblockUser(auth, 'target123'), isFalse);
+      expect(api.lastError, contains('unblockUser'));
+    });
+  });
+
+  group('moderators', () {
+    test('getModerators follows pagination and returns logins', () async {
+      final requests = <String>[];
+      final api = TwitchApi(
+        client: MockClient((request) async {
+          requests.add(request.url.toString());
+          if (!request.url.queryParameters.containsKey('after')) {
+            return http.Response(
+              '{"data": [{"user_login": "alice"}], '
+              '"pagination": {"cursor": "next"}}',
+              200,
+            );
+          }
+          return http.Response('{"data": [{"user_login": "bob"}]}', 200);
+        }),
+      );
+
+      final logins = await api.getModerators(auth, 'b1');
+
+      expect(logins, ['alice', 'bob']);
+      expect(requests, hasLength(2));
+      expect(requests[0], contains('broadcaster_id=b1'));
+    });
+
+    test('addModerator POSTs to /helix/moderation/moderators', () async {
+      late http.Request captured;
+      final api = createApi((req) => captured = req);
+
+      expect(
+        await api.addModerator(auth, broadcasterId: 'b1', userId: 'u1'),
+        isTrue,
+      );
+
+      expect(captured.method, 'POST');
+      expect(
+        captured.url.toString(),
+        'https://api.twitch.tv/helix/moderation/moderators?broadcaster_id=b1&user_id=u1',
+      );
+    });
+
+    test('removeModerator DELETEs /helix/moderation/moderators', () async {
+      late http.Request captured;
+      final api = createApi((req) => captured = req);
+
+      expect(
+        await api.removeModerator(auth, broadcasterId: 'b1', userId: 'u1'),
+        isTrue,
+      );
+
+      expect(captured.method, 'DELETE');
+      expect(
+        captured.url.toString(),
+        'https://api.twitch.tv/helix/moderation/moderators?broadcaster_id=b1&user_id=u1',
+      );
+    });
+  });
+
+  group('vips', () {
+    test('getVips returns logins', () async {
+      final api = createApi(
+        (_) {},
+        respond: () => http.Response(
+          '{"data": [{"user_login": "alice"}, {"user_login": "bob"}]}',
+          200,
+        ),
+      );
+
+      final logins = await api.getVips(auth, 'b1');
+
+      expect(logins, ['alice', 'bob']);
+    });
+
+    test('addVip POSTs to /helix/channels/vips', () async {
+      late http.Request captured;
+      final api = createApi((req) => captured = req);
+
+      expect(await api.addVip(auth, broadcasterId: 'b1', userId: 'u1'), isTrue);
+
+      expect(captured.method, 'POST');
+      expect(
+        captured.url.toString(),
+        'https://api.twitch.tv/helix/channels/vips?broadcaster_id=b1&user_id=u1',
+      );
+    });
+
+    test('removeVip DELETEs /helix/channels/vips', () async {
+      late http.Request captured;
+      final api = createApi((req) => captured = req);
+
+      expect(
+        await api.removeVip(auth, broadcasterId: 'b1', userId: 'u1'),
+        isTrue,
+      );
+
+      expect(captured.method, 'DELETE');
+      expect(
+        captured.url.toString(),
+        'https://api.twitch.tv/helix/channels/vips?broadcaster_id=b1&user_id=u1',
+      );
+    });
+  });
+
+  group('updateChatSettings', () {
+    test('PATCHes /helix/chat/settings with the given body', () async {
+      late http.Request captured;
+      final api = createApi(
+        (req) => captured = req,
+        respond: () => http.Response('{"data": []}', 200),
+      );
+
+      final ok = await api.updateChatSettings(
+        auth,
+        broadcasterId: 'b1',
+        moderatorId: 'm1',
+        body: {'slow_mode': true, 'slow_mode_wait_time': 30},
+      );
+
+      expect(ok, isTrue);
+      expect(captured.method, 'PATCH');
+      expect(
+        captured.url.toString(),
+        'https://api.twitch.tv/helix/chat/settings?broadcaster_id=b1&moderator_id=m1',
+      );
+      final body = jsonDecode(captured.body) as Map<String, dynamic>;
+      expect(body['slow_mode'], isTrue);
+      expect(body['slow_mode_wait_time'], 30);
+    });
+
+    test('returns false on non-200', () async {
+      final api = createApi(
+        (_) {},
+        respond: () => http.Response('Forbidden', 403),
+      );
+
+      final ok = await api.updateChatSettings(
+        auth,
+        broadcasterId: 'b1',
+        moderatorId: 'm1',
+        body: {'slow_mode': true},
+      );
+
+      expect(ok, isFalse);
+      expect(api.lastError, contains('updateChatSettings'));
+    });
+  });
+
+  group('commercial / raid / shield / marker / whisper', () {
+    test(
+      'startCommercial POSTs length to /helix/channels/commercial',
+      () async {
+        late http.Request captured;
+        final api = createApi(
+          (req) => captured = req,
+          respond: () => http.Response('{"data": []}', 200),
+        );
+
+        expect(
+          await api.startCommercial(auth, broadcasterId: 'b1', length: 90),
+          isTrue,
+        );
+
+        expect(captured.method, 'POST');
+        expect(
+          captured.url.toString(),
+          'https://api.twitch.tv/helix/channels/commercial',
+        );
+        final body = jsonDecode(captured.body) as Map<String, dynamic>;
+        expect(body, {'broadcaster_id': 'b1', 'length': 90});
+      },
+    );
+
+    test('startRaid POSTs to /helix/raids with both broadcaster ids', () async {
+      late http.Request captured;
+      final api = createApi(
+        (req) => captured = req,
+        respond: () => http.Response('{"data": []}', 200),
+      );
+
+      expect(
+        await api.startRaid(
+          auth,
+          fromBroadcasterId: 'b1',
+          toBroadcasterId: 'b2',
+        ),
+        isTrue,
+      );
+
+      expect(captured.method, 'POST');
+      expect(
+        captured.url.toString(),
+        'https://api.twitch.tv/helix/raids?from_broadcaster_id=b1&to_broadcaster_id=b2',
+      );
+    });
+
+    test('cancelRaid DELETEs /helix/raids', () async {
+      late http.Request captured;
+      final api = createApi((req) => captured = req);
+
+      expect(await api.cancelRaid(auth, broadcasterId: 'b1'), isTrue);
+
+      expect(captured.method, 'DELETE');
+      expect(
+        captured.url.toString(),
+        'https://api.twitch.tv/helix/raids?broadcaster_id=b1',
+      );
+    });
+
+    test(
+      'updateShieldMode PUTs is_active to /helix/moderation/shield_mode',
+      () async {
+        late http.Request captured;
+        final api = createApi(
+          (req) => captured = req,
+          respond: () => http.Response('{"data": []}', 200),
+        );
+
+        expect(
+          await api.updateShieldMode(
+            auth,
+            broadcasterId: 'b1',
+            moderatorId: 'm1',
+            active: true,
+          ),
+          isTrue,
+        );
+
+        expect(captured.method, 'PUT');
+        expect(
+          captured.url.toString(),
+          'https://api.twitch.tv/helix/moderation/shield_mode?broadcaster_id=b1&moderator_id=m1',
+        );
+        expect(jsonDecode(captured.body), {'is_active': true});
+      },
+    );
+
+    test('createMarker POSTs description to /helix/streams/markers', () async {
+      late http.Request captured;
+      final api = createApi(
+        (req) => captured = req,
+        respond: () => http.Response('{"data": []}', 200),
+      );
+
+      expect(
+        await api.createMarker(auth, broadcasterId: 'b1', description: 'clip'),
+        isTrue,
+      );
+
+      expect(captured.method, 'POST');
+      expect(
+        captured.url.toString(),
+        'https://api.twitch.tv/helix/streams/markers',
+      );
+      final body = jsonDecode(captured.body) as Map<String, dynamic>;
+      expect(body, {'user_id': 'b1', 'description': 'clip'});
+    });
+
+    test(
+      'sendWhisper POSTs to /helix/whispers with the message body',
+      () async {
+        late http.Request captured;
+        final api = createApi((req) => captured = req);
+
+        expect(
+          await api.sendWhisper(
+            auth,
+            fromUserId: 'f1',
+            toUserId: 't1',
+            message: 'hello',
+          ),
+          isTrue,
+        );
+
+        expect(captured.method, 'POST');
+        expect(
+          captured.url.toString(),
+          'https://api.twitch.tv/helix/whispers?from_user_id=f1&to_user_id=t1',
+        );
+        expect(jsonDecode(captured.body), {'message': 'hello'});
+      },
+    );
+  });
+
+  group('error capture', () {
+    test('records status and Helix message for failed calls', () async {
+      final api = createApi(
+        (_) {},
+        respond: () => http.Response(
+          '{"error":"Bad Request","status":400,"message":"The user is not banned in this channel."}',
+          400,
+        ),
+      );
+
+      await api.unbanUser(
+        auth,
+        broadcasterId: 'b1',
+        moderatorId: 'm1',
+        userId: 'u1',
+      );
+
+      expect(api.lastErrorStatus, 400);
+      expect(api.lastHelixMessage, 'The user is not banned in this channel.');
+    });
+
+    test('clears status and message before the next call', () async {
+      var calls = 0;
+      final api = TwitchApi(
+        client: MockClient((request) async {
+          calls++;
+          return http.Response('{"message":"nope"}', 400);
+        }),
+      );
+
+      await api.unbanUser(
+        auth,
+        broadcasterId: 'b1',
+        moderatorId: 'm1',
+        userId: 'u1',
+      );
+      expect(api.lastErrorStatus, 400);
+
+      await api.unbanUser(
+        auth,
+        broadcasterId: 'b1',
+        moderatorId: 'm1',
+        userId: 'u1',
+      );
+      expect(api.lastErrorStatus, 400);
+      expect(calls, 2);
+    });
+  });
 }

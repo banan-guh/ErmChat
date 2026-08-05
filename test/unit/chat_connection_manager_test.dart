@@ -5,7 +5,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:ermchat/models/twitch_message.dart';
-import 'package:ermchat/models/twitch_command.dart';
 import 'package:ermchat/services/base_irc_connection.dart';
 import 'package:ermchat/services/chat_connection_manager.dart';
 import 'package:ermchat/services/emote_manager.dart';
@@ -1039,68 +1038,6 @@ void main() {
     });
   });
 
-  group('USERSTATE permissions', () {
-    test('USERSTATE grants mod permission without any own message', () async {
-      final irc = _TestIrc();
-      final conn = _makeReconnectConn(
-        eventSub: _NoopEventSub(),
-        irc: irc,
-        onReconnected: () {},
-      );
-      await conn.connect();
-      irc.emitConnected();
-
-      expect(conn.myPermissionFor('test'), CommandPermission.everyone);
-
-      irc.handleLine(
-        '@badges=moderator/1,vip/1 :tmi.twitch.tv USERSTATE #test',
-      );
-      expect(conn.myPermissionFor('test'), CommandPermission.mod);
-
-      conn.dispose();
-    });
-
-    test('broadcaster USERSTATE grants owner permission', () async {
-      final irc = _TestIrc();
-      final conn = _makeReconnectConn(
-        eventSub: _NoopEventSub(),
-        irc: irc,
-        onReconnected: () {},
-      );
-      await conn.connect();
-      irc.emitConnected();
-
-      irc.handleLine('@badges=broadcaster/1 :tmi.twitch.tv USERSTATE #test');
-      expect(conn.myPermissionFor('test'), CommandPermission.owner);
-
-      conn.dispose();
-    });
-
-    test('global badges merge into per-channel permission sets', () async {
-      final irc = _TestIrc();
-      final conn = _makeReconnectConn(
-        eventSub: _NoopEventSub(),
-        irc: irc,
-        onReconnected: () {},
-      );
-      await conn.connect();
-      irc.emitConnected();
-
-      irc.handleLine('@badges=moderator/1 :tmi.twitch.tv USERSTATE #test');
-      expect(conn.myPermissionFor('test'), CommandPermission.mod);
-
-      // Global state arriving later must not wipe channel badges.
-      irc.handleLine('@badges=staff/1 :tmi.twitch.tv GLOBALUSERSTATE');
-      expect(conn.myPermissionFor('test'), CommandPermission.mod);
-
-      // A fresh channel combines global + channel badges.
-      irc.handleLine('@badges=moderator/1 :tmi.twitch.tv USERSTATE #other');
-      expect(conn.myPermissionFor('other'), CommandPermission.mod);
-
-      conn.dispose();
-    });
-  });
-
   group('reconnectIfNecessary', () {
     test('does not reconnect a healthy connection', () {
       fakeAsync((async) {
@@ -1171,59 +1108,6 @@ void main() {
 
         conn.dispose();
       });
-    });
-  });
-
-  group('myPermissionFor', () {
-    ChatConnectionManager connWithOwnMessage(String badgesTag) {
-      final msgs = <String, List<TwitchMessage>>{'test': []};
-      final conn = _makeConn(channelMessages: msgs, maxMessages: 100);
-      conn.onOwnIrcMessage(
-        IrcMessage(
-          tags: {
-            'display-name': 'TestUser',
-            'user-id': '12345',
-            'id': 'msg-badges',
-            'badges': badgesTag,
-          },
-          prefix: 'testuser!testuser@testuser.tmi.twitch.tv',
-          command: 'PRIVMSG',
-          params: ['#test'],
-          trailing: 'hello',
-        ),
-      );
-      return conn;
-    }
-
-    test('defaults to everyone before any own message', () {
-      final conn = _makeConn(channelMessages: {'test': []}, maxMessages: 100);
-      expect(conn.myPermissionFor('test'), CommandPermission.everyone);
-    });
-
-    test('no badges keeps everyone', () {
-      final conn = connWithOwnMessage('');
-      expect(conn.myPermissionFor('test'), CommandPermission.everyone);
-    });
-
-    test('vip badge is still everyone', () {
-      final conn = connWithOwnMessage('vip/1');
-      expect(conn.myPermissionFor('test'), CommandPermission.everyone);
-    });
-
-    test('moderator badge grants mod', () {
-      final conn = connWithOwnMessage('moderator/1');
-      expect(conn.myPermissionFor('test'), CommandPermission.mod);
-    });
-
-    test('broadcaster badge grants owner', () {
-      final conn = connWithOwnMessage('broadcaster/1');
-      expect(conn.myPermissionFor('test'), CommandPermission.owner);
-    });
-
-    test('permissions are per-channel', () {
-      final conn = connWithOwnMessage('moderator/1');
-      expect(conn.myPermissionFor('test'), CommandPermission.mod);
-      expect(conn.myPermissionFor('other'), CommandPermission.everyone);
     });
   });
 }

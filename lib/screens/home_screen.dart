@@ -156,6 +156,8 @@ class _HomeScreenState extends State<HomeScreen>
     getCurrentUserId: () => _currentUserId,
     getCurrentUserLogin: () => _currentUserLogin,
     addSystemMessage: _addSystemMessage,
+    onUserBlocked: _onUserBlocked,
+    onUserUnblocked: _onUserUnblocked,
   );
   final _messageController = TextEditingController();
   final _focusNode = FocusNode();
@@ -435,6 +437,10 @@ class _HomeScreenState extends State<HomeScreen>
     _sweepBlockedMessages();
   }
 
+  void _onUserUnblocked(String login) {
+    _blockedLogins.remove(login.toLowerCase());
+  }
+
   Future<void> _loadChannels() async {
     if (_channelsLoaded) return;
     _channelsLoaded = true;
@@ -642,16 +648,13 @@ class _HomeScreenState extends State<HomeScreen>
 
     final List<Suggestion> filtered;
     if (isCommand) {
-      // Only suggest commands my account can actually run in this channel.
-      final myPermission = _chatConn.myPermissionFor(channel);
-      final available = CommandHandler.allCommands
-          .where((c) => c.permission.index <= myPermission.index)
-          .toList();
+      // All commands are suggested regardless of permissions; the API
+      // rejects what the account cannot run (clean error notice shown).
       filtered = filterSuggestions(
         word: word.text,
         emotes: <GenericEmote>[],
         users: const <String>[],
-        commands: available,
+        commands: CommandHandler.allCommands,
       );
     } else {
       final users = _userStore.usersForChannel(channel);

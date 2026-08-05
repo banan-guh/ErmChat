@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'package:flutter/widgets.dart';
 import 'package:http/http.dart' as http;
 import '../models/generic_emote.dart';
-import '../models/twitch_command.dart';
 import 'base_irc_connection.dart';
 import '../models/twitch_message.dart';
 import '../services/twitch_api.dart';
@@ -184,10 +183,11 @@ class ChatConnectionManager {
   // moderation system messages come from EventSub (richer data) instead of
   // IRC CLEARCHAT/CLEARMSG.
   final _moderationChannels = <String>{};
-  // Badge set-ids seen on my own message echoes, per channel — the source
-  // for myPermissionFor (mod/owner detection for command autocomplete).
-  final _myBadgeSetIds = <String, Set<String>>{};
-  Set<String> _globalBadgeSetIds = {};
+  // Channels where the channel.moderate v2 subscription was rejected with a 403
+  // (not a moderator). Persists across EventSub session reconnects so we don't
+  // re-attempt (and re-log) the subscription on every reconnect for the current
+  // account.
+  final _moderationSkippedChannels = <String>{};
   static const _roomStateNoticeIds = {
     'followers_on_zero',
     'followers_on',
@@ -216,8 +216,6 @@ class ChatConnectionManager {
   StreamSubscription<UserNoticeEvent>? userNoticeSub;
   StreamSubscription<IrcChannelClearEvent>? ircClearSub;
   StreamSubscription<IrcRoomStateEvent>? ircRoomStateSub;
-  StreamSubscription<IrcUserStateEvent>? ircUserStateSub;
-  StreamSubscription<IrcGlobalUserStateEvent>? ircGlobalUserStateSub;
   StreamSubscription<ModerationEvent>? moderationSub;
   StreamSubscription<SevenTvEmoteUpdateEvent>? sevenTvEmoteSub;
   StreamSubscription<SevenTvUserUpdate>? sevenTvUserSub;
@@ -282,8 +280,6 @@ class ChatConnectionManager {
     userNoticeSub?.cancel();
     ircClearSub?.cancel();
     ircRoomStateSub?.cancel();
-    ircUserStateSub?.cancel();
-    ircGlobalUserStateSub?.cancel();
     moderationSub?.cancel();
     sevenTvEmoteSub?.cancel();
     sevenTvUserSub?.cancel();
@@ -299,7 +295,6 @@ class ChatConnectionManager {
     _chatStatusTimers.remove(channel)?.cancel();
     _roomStateTags.remove(channel);
     _streamStatusParts.remove(channel);
-    _myBadgeSetIds.remove(channel);
   }
 
   void _markUserMessagesDeleted(String channel, String username) {
@@ -687,6 +682,9 @@ class ChatConnectionManager {
     try {
       final auth = twitchAuth;
       if (!auth.isConfigured || getCurrentUserId() == null) return;
+      // Already known to be rejected with 403 (not a moderator); skip so we
+      // don't re-attempt and re-log on every reconnect.
+      if (_moderationSkippedChannels.contains(channelName)) return;
       for (int attempt = 0; attempt < 3; attempt++) {
         final sessionId = eventSub.sessionId;
         if (sessionId == null) {
@@ -706,6 +704,12 @@ class ChatConnectionManager {
         );
         if (ok) {
           _moderationChannels.add(channelName);
+          return;
+        }
+        if (twitchApi.lastErrorStatus == 403) {
+          // Expected when the user isn't a moderator in this channel; not an
+          // actionable error, so skip it silently and don't retry it.
+          _moderationSkippedChannels.add(channelName);
           return;
         }
         debugPrint(
@@ -1140,26 +1144,6 @@ class ChatConnectionManager {
       _composeChatStatus(event.channel);
     });
 
-    ircUserStateSub?.cancel();
-    ircUserStateSub = irc.onUserState.listen((event) {
-      if (isDisposed) return;
-      final badges = event.badges?.map((b) => b.setId).toSet() ?? <String>{};
-      _myBadgeSetIds[event.channel] = {...badges, ..._globalBadgeSetIds};
-    });
-
-    ircGlobalUserStateSub?.cancel();
-    ircGlobalUserStateSub = irc.onGlobalUserState.listen((event) {
-      if (isDisposed) return;
-      _globalBadgeSetIds =
-          event.badges?.map((b) => b.setId).toSet() ?? <String>{};
-      for (final channel in List.of(_myBadgeSetIds.keys)) {
-        _myBadgeSetIds[channel] = {
-          ..._myBadgeSetIds[channel]!,
-          ..._globalBadgeSetIds,
-        };
-      }
-    });
-
     moderationSub ??= eventSub.onModeration.listen(_onModerationEvent);
 
     if (sevenTvClient != null) {
@@ -1361,9 +1345,6 @@ class ChatConnectionManager {
         msg.displayName.toLowerCase() == msg.login.toLowerCase()
         ? msg.displayName
         : msg.login;
-    if (msg.badges != null && msg.badges!.isNotEmpty) {
-      _myBadgeSetIds[channel] = msg.badges!.map((b) => b.setId).toSet();
-    }
     if (preferredName.isNotEmpty) {
       userStore.addUser(channel, preferredName);
     }
@@ -1383,17 +1364,6 @@ class ChatConnectionManager {
 
     bumpChannel(channel);
     precacheMessageEmotes(msg, channel);
-  }
-
-  /// Highest permission my account holds in [channel], based on badges seen
-  /// on my own messages. Unknown until I've sent a message there — defaults
-  /// to everyone so only non-mod commands are suggested.
-  CommandPermission myPermissionFor(String channel) {
-    final badges = _myBadgeSetIds[channel];
-    if (badges == null) return CommandPermission.everyone;
-    if (badges.contains('broadcaster')) return CommandPermission.owner;
-    if (badges.contains('moderator')) return CommandPermission.mod;
-    return CommandPermission.everyone;
   }
 
   void reconnectIfNecessary() {

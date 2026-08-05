@@ -15,7 +15,6 @@ import 'package:ermchat/services/twitch_api.dart';
 import 'package:ermchat/services/twitch_eventsub.dart';
 import 'package:ermchat/services/base_irc_connection.dart';
 import 'package:ermchat/services/twitch_irc.dart';
-import 'package:ermchat/services/twitch_irc_read.dart';
 import 'package:ermchat/services/recent_messages.dart';
 import 'package:ermchat/services/twitch_auth.dart';
 import 'package:ermchat/models/twitch_message.dart';
@@ -2740,8 +2739,7 @@ void main() {
       final dropdown = find.byKey(const Key('autocomplete_dropdown'));
       expect(dropdown, findsNothing);
     });
-
-    testWidgets('typing slash shows everyone commands only', (
+    testWidgets('typing slash shows all commands regardless of permission', (
       WidgetTester tester,
     ) async {
       SharedPreferences.setMockInitialValues({'access_token': 'test_token'});
@@ -2767,6 +2765,7 @@ void main() {
 
       irc.triggerConnect();
       await tester.pump();
+
       await tester.enterText(find.byKey(const Key('message_input')), '/');
       await tester.pump();
 
@@ -2780,64 +2779,8 @@ void main() {
         find.descendant(of: dropdown, matching: find.text('/color')),
         findsOneWidget,
       );
-      // Not a mod in this channel: mod-only commands must not appear.
-      expect(
-        find.descendant(of: dropdown, matching: find.text('/ban')),
-        findsNothing,
-      );
-    });
-
-    testWidgets('mod badge unlocks mod commands in that channel', (
-      WidgetTester tester,
-    ) async {
-      SharedPreferences.setMockInitialValues({'access_token': 'test_token'});
-      FlutterSecureStorage.setMockInitialValues({'access_token': 'test_token'});
-      final eventSub = _FakeEventSubService();
-      final irc = _FakeIrcService();
-      final recent = _FakeRecentMessagesService();
-      final ircRead = IrcReadService();
-
-      await tester.pumpWidget(
-        TwitchChatApp(
-          eventSubService: eventSub,
-          ircService: irc,
-          recentMessagesService: recent,
-          ircReadService: ircRead,
-        ),
-      );
-      await tester.pump();
-
-      await tester.tap(find.byIcon(Icons.add));
-      await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField).last, 'xqc');
-      await tester.tap(find.text('Join'));
-      await tester.pump();
-
-      // Simulate my own message echo carrying the moderator badge.
-      ircRead.emitOwnMessage(
-        IrcMessage(
-          tags: {
-            'display-name': 'Me',
-            'user-id': '1',
-            'id': 'own-1',
-            'badges': 'moderator/1',
-          },
-          prefix: 'me!me@me.tmi.twitch.tv',
-          command: 'PRIVMSG',
-          params: ['#xqc'],
-          trailing: 'hello',
-        ),
-      );
-      await tester.pump();
-
-      irc.triggerConnect();
-      await tester.pump();
-
-      await tester.enterText(find.byKey(const Key('message_input')), '/b');
-      await tester.pump();
-
-      final dropdown = find.byKey(const Key('autocomplete_dropdown'));
-      expect(dropdown, findsOneWidget);
+      // Mod-only commands are suggested to everyone too; the API rejects
+      // them with a clean error notice if the account cannot run them.
       expect(
         find.descendant(of: dropdown, matching: find.text('/ban')),
         findsOneWidget,
