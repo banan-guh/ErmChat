@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
@@ -256,6 +258,95 @@ void main() {
         );
         async.elapse(const Duration(milliseconds: 1250));
         expect(service.openAttempts, 2);
+
+        service.dispose();
+        channel.dispose();
+      });
+    });
+  });
+
+  group('disconnect status clears the socket first', () {
+    // The type bar hint renders the "connected" state whenever isConnected is
+    // true at rebuild time. Every disconnect path must therefore null the
+    // socket BEFORE emitting `disconnected`, or the hint flickers to
+    // "connected" for a frame during a disconnect (disconnect -> connect ->
+    // disconnect).
+    void expectDisconnectedWithSocketCleared(
+      void Function(FakeAsync async, _TestService service) trigger,
+    ) {
+      fakeAsync((async) {
+        final channel = FakeWebSocketChannel();
+        final service = _TestService([channel]);
+        final connectedAtDisconnect = <bool>[];
+        service.onStatus.listen((s) {
+          if (s == IrcConnectionStatus.disconnected) {
+            connectedAtDisconnect.add(service.isConnected);
+          }
+        });
+        service.connect(username: 'user', accessToken: 'token');
+        async.flushMicrotasks();
+
+        trigger(async, service);
+        async.flushMicrotasks();
+
+        expect(connectedAtDisconnect, isNotEmpty);
+        expect(
+          connectedAtDisconnect,
+          everyElement(isFalse),
+          reason: 'type bar must not read "connected" when disconnect fires',
+        );
+
+        service.dispose();
+        channel.dispose();
+      });
+    }
+
+    test('stream error', () {
+      expectDisconnectedWithSocketCleared((_, service) {
+        service.channels.last.failNow();
+      });
+    });
+
+    test('RECONNECT command', () {
+      expectDisconnectedWithSocketCleared((_, service) {
+        service.handleLine(':tmi.twitch.tv RECONNECT');
+      });
+    });
+
+    test('PONG timeout', () {
+      expectDisconnectedWithSocketCleared((async, _) {
+        async.elapse(const Duration(seconds: 301));
+        async.elapse(const Duration(seconds: 301));
+      });
+    });
+
+    test('forceReconnect', () {
+      expectDisconnectedWithSocketCleared((_, service) {
+        service.forceReconnect();
+      });
+    });
+  });
+
+  group('handshake does not report connected early', () {
+    test('isConnected stays false while the handshake is pending', () {
+      fakeAsync((async) {
+        final ready = Completer<void>();
+        final channel = FakeWebSocketChannel(readyCompleter: ready);
+        final service = _TestService([channel]);
+        service.connect(username: 'user', accessToken: 'token');
+        async.flushMicrotasks();
+
+        // openChannel resolved and assigned nothing yet: the handshake is
+        // still in flight, so the socket must not look connected yet.
+        expect(
+          service.isConnected,
+          isFalse,
+          reason: 'type bar hint must not flip to connected mid-handshake',
+        );
+
+        ready.complete();
+        async.flushMicrotasks();
+        expect(service.isConnected, isTrue);
 
         service.dispose();
         channel.dispose();

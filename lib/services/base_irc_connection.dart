@@ -69,15 +69,22 @@ abstract class BaseIrcConnection {
       _awaitingPong = false;
 
       try {
-        channel = await openChannel();
-        await channel!.ready;
+        final newChannel = await openChannel();
+        await newChannel.ready;
+        // Only claim the socket once the handshake completed; isConnected
+        // must stay false while the connection is still being established,
+        // otherwise the type bar hint flashes "connected" during the attempt.
+        channel = newChannel;
 
         _streamSub = channel!.stream.listen(
           (raw) => _handleLine(raw as String),
           onError: (e) {
             debugPrint('$debugPrefix stream error: $e');
-            _statusController.add(IrcConnectionStatus.disconnected);
+            // Clear the socket before notifying so listeners rebuilding on the
+            // status event (e.g. the type bar hint) never read a stale
+            // "connected" state.
             _disconnect();
+            _statusController.add(IrcConnectionStatus.disconnected);
             _scheduleReconnect();
           },
           onDone: () {
@@ -86,8 +93,8 @@ abstract class BaseIrcConnection {
               '(code: ${channel?.closeCode}, '
               'reason: ${channel?.closeReason})',
             );
-            _statusController.add(IrcConnectionStatus.disconnected);
             _disconnect();
+            _statusController.add(IrcConnectionStatus.disconnected);
             _scheduleReconnect();
           },
         );
@@ -110,10 +117,10 @@ abstract class BaseIrcConnection {
         _startPingTimer();
       } catch (e) {
         debugPrint('$debugPrefix connect error: $e');
-        _statusController.add(IrcConnectionStatus.disconnected);
         // A failed attempt must not leave a socket behind: otherwise
         // isConnected stays true and every reconnect bails out here.
         channel = null;
+        _statusController.add(IrcConnectionStatus.disconnected);
         _scheduleReconnect();
       }
     } finally {
@@ -149,8 +156,10 @@ abstract class BaseIrcConnection {
     _pingTimer = Timer.periodic(_pingInterval - jitter, (_) {
       if (_awaitingPong || channel == null) {
         debugPrint('$debugPrefix PONG timeout – reconnecting');
-        _statusController.add(IrcConnectionStatus.disconnected);
+        // Clear the socket before the status event so listeners that rebuild
+        // on it (e.g. the type bar hint) don't briefly show "connected".
         _disconnect();
+        _statusController.add(IrcConnectionStatus.disconnected);
         _scheduleReconnect();
         return;
       }
@@ -212,10 +221,11 @@ abstract class BaseIrcConnection {
   void forceReconnect() {
     if (channel == null) return;
     debugPrint('$debugPrefix force reconnect (unhealthy socket)');
-    _statusController.add(IrcConnectionStatus.disconnected);
     // Clear the zombie socket now; otherwise the reconnect attempt would
-    // bail out on isConnected before replacing it.
+    // bail out on isConnected before replacing it. Do it before the status
+    // event so rebuilding listeners see a real disconnect, not a stale one.
     _disconnect();
+    _statusController.add(IrcConnectionStatus.disconnected);
     _reconnectAttempt = 0;
     _scheduleReconnect();
   }
@@ -256,8 +266,8 @@ abstract class BaseIrcConnection {
       // Twitch asks clients to reconnect (maintenance / server move).
       if (cmd == 'RECONNECT') {
         debugPrint('$debugPrefix server requested reconnect');
-        _statusController.add(IrcConnectionStatus.disconnected);
         _disconnect();
+        _statusController.add(IrcConnectionStatus.disconnected);
         _scheduleReconnect();
         continue;
       }

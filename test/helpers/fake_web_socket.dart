@@ -29,16 +29,21 @@ class FakeWebSocketSink implements WebSocketSink {
 /// stream with an error.
 class FakeWebSocketChannel extends StreamChannelMixin<dynamic>
     implements WebSocketChannel {
-  FakeWebSocketChannel({this.failReady = false});
+  FakeWebSocketChannel({this.failReady = false, this.readyCompleter});
 
   final bool failReady;
+  final Completer<void>? readyCompleter;
   final StreamController<dynamic> _controller =
       StreamController<dynamic>.broadcast();
   final FakeWebSocketSink _sink = FakeWebSocketSink();
 
   @override
-  Future<void> get ready =>
-      failReady ? Future.error(Exception('connect failed')) : Future.value();
+  Future<void> get ready {
+    if (readyCompleter != null) return readyCompleter!.future;
+    return failReady
+        ? Future.error(Exception('connect failed'))
+        : Future.value();
+  }
 
   @override
   Stream<dynamic> get stream => _controller.stream;
