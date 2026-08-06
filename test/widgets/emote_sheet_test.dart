@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:url_launcher_platform_interface/link.dart';
 import 'package:url_launcher_platform_interface/url_launcher_platform_interface.dart';
 import 'package:ermchat/models/generic_emote.dart';
@@ -116,18 +115,6 @@ void main() {
     await tester.pump();
 
     expect(find.textContaining('Could not open'), findsOneWidget);
-  });
-
-  testWidgets('tapping the emote image opens the image URL', (tester) async {
-    await tester.pumpWidget(wrap(sevenTvEmote()));
-    await tester.pump();
-    await tester.pump();
-
-    await tester.tap(find.byType(CachedNetworkImage));
-    await tester.pump();
-    await tester.pump();
-
-    expect(fakeLauncher.lastUrl, 'https://cdn.7tv.app/emote/1/1x.webp');
   });
 
   testWidgets('multi-emote sheet swipes sideways to the next emote', (

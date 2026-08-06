@@ -105,34 +105,31 @@ class _EmoteSheetState extends State<EmoteSheet>
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // 128x128 emote preview, tappable to open the full image.
+              // 128x128 emote preview.
               Padding(
                 padding: const EdgeInsets.only(bottom: 16),
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(8),
-                  child: GestureDetector(
-                    onTap: () => _openUrl(emote.url),
-                    child: SizedBox(
-                      width: 128,
-                      height: 128,
-                      child: CachedNetworkImage(
-                        imageUrl: emote.url,
-                        fit: BoxFit.contain,
-                        fadeInDuration: Duration.zero,
-                        placeholder: (_, _) => const Center(
-                          child: SizedBox(
-                            width: 24,
-                            height: 24,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          ),
+                  child: SizedBox(
+                    width: 128,
+                    height: 128,
+                    child: CachedNetworkImage(
+                      imageUrl: emote.url,
+                      fit: BoxFit.contain,
+                      fadeInDuration: Duration.zero,
+                      placeholder: (_, _) => const Center(
+                        child: SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: CircularProgressIndicator(strokeWidth: 2),
                         ),
-                        errorWidget: (_, _, _) => Container(
-                          color: theme.colorScheme.surfaceContainerHighest,
-                          child: Icon(
-                            Icons.image,
-                            size: 32,
-                            color: theme.colorScheme.onSurfaceVariant,
-                          ),
+                      ),
+                      errorWidget: (_, _, _) => Container(
+                        color: theme.colorScheme.surfaceContainerHighest,
+                        child: Icon(
+                          Icons.image,
+                          size: 32,
+                          color: theme.colorScheme.onSurfaceVariant,
                         ),
                       ),
                     ),
