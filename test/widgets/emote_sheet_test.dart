@@ -36,11 +36,11 @@ void main() {
     UrlLauncherPlatform.instance = fakeLauncher;
   });
 
-  Widget wrap(GenericEmote emote) {
+  Widget wrapMany(List<GenericEmote> emotes) {
     return MaterialApp(
       home: Scaffold(
         body: EmoteSheet(
-          emotes: [emote],
+          emotes: emotes,
           messageController: TextEditingController(),
           focusNode: FocusNode(),
           onClose: () {},
@@ -48,6 +48,8 @@ void main() {
       ),
     );
   }
+
+  Widget wrap(GenericEmote emote) => wrapMany([emote]);
 
   GenericEmote sevenTvEmote({String? baseName, bool zeroWidth = false}) {
     return GenericEmote(
@@ -126,5 +128,36 @@ void main() {
     await tester.pump();
 
     expect(fakeLauncher.lastUrl, 'https://cdn.7tv.app/emote/1/1x.webp');
+  });
+
+  testWidgets('multi-emote sheet swipes sideways to the next emote', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      wrapMany(
+        List.generate(
+          2,
+          (i) => GenericEmote(
+            id: 'e$i',
+            code: 'Emote$i',
+            type: EmoteType.sevenTv,
+            url: 'https://cdn.7tv.app/emote/e$i/1x.webp',
+            baseName: i == 1 ? 'BaseEmote' : null,
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('Emote0'), findsWidgets);
+    expect(find.text('Alias of BaseEmote'), findsNothing);
+
+    await tester.drag(find.byType(TabBarView), const Offset(-300, 0));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pump();
+
+    expect(find.text('Alias of BaseEmote'), findsOneWidget);
   });
 }

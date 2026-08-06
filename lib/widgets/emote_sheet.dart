@@ -152,6 +152,7 @@ class _EmoteSheetState extends State<EmoteSheet>
                         style: TextStyle(
                           fontSize: 22,
                           fontWeight: FontWeight.w400,
+                          height: 1.3,
                           color: theme.colorScheme.onSurface,
                         ),
                       ),
@@ -218,6 +219,39 @@ class _EmoteSheetState extends State<EmoteSheet>
     );
   }
 
+  // Uniform height for the swipeable TabBarView: the tallest page across all
+  // emotes (image block vs. scaled text column, plus the three action rows).
+  double _pageHeight() {
+    final scale = MediaQuery.textScalerOf(context).scale(1.0);
+    var subRows = 0;
+    for (final e in widget.emotes) {
+      final rows =
+          (e.baseName != null ? 1 : 0) + (_ownerLabel(e) != null ? 1 : 0);
+      if (rows > subRows) subRows = rows;
+    }
+    final nameH = 22.0 * 1.3 * scale;
+    final rowH = 16.0 * 1.2 * scale;
+    final textColumn = 8 + nameH + 8 + rowH * (1 + subRows) + 8 * subRows;
+    final imageBlock = 128.0 + 16;
+    final header = textColumn > imageBlock ? textColumn : imageBlock;
+    final tiles = 3 * 48.0 * scale;
+    return header + tiles + 16;
+  }
+
+  Widget _buildEmotePages() {
+    if (widget.emotes.length <= 1) {
+      return _buildEmotePage(widget.emotes.first);
+    }
+    return SizedBox(
+      height: _pageHeight(),
+      child: TabBarView(
+        controller: _tabCtrl,
+        physics: const PageScrollPhysics(),
+        children: [for (final e in widget.emotes) _buildEmotePage(e)],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final hasMultiple = widget.emotes.length > 1;
@@ -248,9 +282,7 @@ class _EmoteSheetState extends State<EmoteSheet>
               tabs: widget.emotes.map((e) => Tab(text: e.code)).toList(),
             ),
           ],
-          _buildEmotePage(
-            hasMultiple ? widget.emotes[_tabCtrl.index] : widget.emotes.first,
-          ),
+          _buildEmotePages(),
         ],
       ),
     );

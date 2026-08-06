@@ -62,6 +62,8 @@
 - [ ] **Invalid argument(s): string is not well-formed UTF-16** - I believe it's a problem with specific characters in the chat messages.
 - [+] **Reconnected replacement sometimes misses** - `_addSystemMessage` only checks `msgs.first` for "Disconnected" when "Connected" arrives. If chat messages or subscribe warnings push "Disconnected" down the list, the replacement silently fails and both "Connected" and "Disconnected" stay visible. **Watching but probably fixed**
 - [x] **Kill notifications when app is opened** - Mention/whisper notifications should be dismissed when the app comes to the foreground.
+- [ ] **Add support for twitch widgets** - e.g. hype train, subs, polls
+- 
 
 ## Research / Open Ends
 
@@ -81,3 +83,5 @@
 - [ ] **Token refresh instead of re-auth every 60 days** - Access tokens expire roughly every 60 days; implement a refresh path instead of forcing full re-auth. Note: implicit-grant tokens (`response_type=token`) can't be refreshed - requires an auth flow change (e.g. device code grant).
 - [x] **Parallelize startup loading** - Increase overall loading speed by running independent startup fetches (emotes, badges, history, chat status) concurrently.
 - [x] **Add blocked menu** - `/block` `/unblock` commands implemented; blocked users removed from suggestions/profile. A dedicated un-block UI menu is future work.
+- [ ] **Fix bug with padding change on keyboard change** - padding changes when keyboard is extended / retracted for some reason
+- [ ] **Make select UI more friendly** - reference dankchat when selecting text.
