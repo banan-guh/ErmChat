@@ -197,6 +197,10 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
 
     if (deleted) {
       child = Opacity(opacity: 0.35, child: child);
+    } else if (msg.isBackfill) {
+      // Reconnect history backfill: greyed out but less faded than a
+      // hard deletion so catch-up messages stay distinguishable.
+      child = Opacity(opacity: 0.5, child: child);
     }
 
     if (msg.systemAccent != null) {

@@ -77,6 +77,36 @@ class _FakeRecentMessagesService extends RecentMessagesService {
   }
 }
 
+class _GappedRecentMessagesService extends RecentMessagesService {
+  int calls = 0;
+
+  @override
+  Future<List<TwitchMessage>> fetchRecent(
+    String channel, {
+    int limit = 100,
+  }) async {
+    calls++;
+    final now = DateTime.now();
+    return [
+      TwitchMessage(
+        login: 'alice',
+        text: 'early message',
+        channel: channel,
+        messageId: 'early-1',
+        timestamp: now.subtract(const Duration(minutes: 5)),
+      ),
+      if (calls > 1)
+        TwitchMessage(
+          login: 'bob',
+          text: 'missed during gap',
+          channel: channel,
+          messageId: 'gap-1',
+          timestamp: now.subtract(const Duration(minutes: 1)),
+        ),
+    ];
+  }
+}
+
 class _FakeIrcService extends IrcService {
   final _banCtrl = StreamController<IrcBanEvent>.broadcast(sync: true);
   final _noticeCtrl = StreamController<IrcNoticeEvent>.broadcast(sync: true);
@@ -1672,7 +1702,7 @@ void main() {
       expect(find.textContaining('Connected'), findsOneWidget);
     });
 
-    testWidgets('reconnect collapses to a single Reconnected status', (
+    testWidgets('statuses: Connected survives Disconnected; reconnect folds', (
       WidgetTester tester,
     ) async {
       final eventSub = _FakeEventSubService();
@@ -1687,20 +1717,85 @@ void main() {
 
       irc.triggerDisconnect();
       await tester.pump();
-      // The stale "Connected" status line is replaced by "Disconnected".
-      expect(find.textContaining('Connected'), findsNothing);
-      expect(find.textContaining('Disconnected'), findsWidgets);
+      // "Connected" is NOT swallowed by "Disconnected": both stay separate.
+      // (Chip also reads "Disconnected" while down, hence x2.)
+      expect(find.textContaining('Connected'), findsOneWidget);
+      expect(find.textContaining('Disconnected'), findsNWidgets(2));
 
       irc.triggerConnect();
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 600));
       await tester.pump();
 
-      // Exactly one status line, showing the reconnect; the boot-time
-      // "Connected" and the "Disconnected" are both gone.
+      // The transient "Disconnected" is folded into "Reconnected"; the
+      // boot "Connected" survives as its own line.
+      expect(find.textContaining('Connected'), findsOneWidget);
       expect(find.textContaining('Reconnected'), findsOneWidget);
-      expect(find.textContaining('Connected'), findsNothing);
       expect(find.textContaining('Disconnected'), findsNothing);
+    });
+
+    testWidgets(
+      'reconnect storm: one Reconnected per reconnect, final Disconnected',
+      (WidgetTester tester) async {
+        final eventSub = _FakeEventSubService();
+        final irc = _FakeIrcService();
+        await setupChannel(tester, eventSub: eventSub, irc: irc);
+
+        irc.triggerConnect();
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 600));
+        await tester.pump();
+
+        for (var i = 0; i < 4; i++) {
+          irc.triggerDisconnect();
+          await tester.pump();
+          irc.triggerConnect();
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 600));
+          await tester.pump();
+        }
+
+        irc.triggerDisconnect();
+        await tester.pump();
+
+        // Chat shows: Connected, Reconnected x4, Disconnected. The input
+        // chip also reads "Disconnected" while disconnected, hence x2.
+        expect(find.textContaining('Disconnected'), findsNWidgets(2));
+        expect(find.textContaining('Reconnected'), findsNWidgets(4));
+        expect(find.textContaining('Connected'), findsOneWidget);
+      },
+    );
+
+    testWidgets('reconnect history backfill renders greyed out', (
+      WidgetTester tester,
+    ) async {
+      final eventSub = _FakeEventSubService();
+      final irc = _FakeIrcService();
+      final recent = _GappedRecentMessagesService();
+      await setupChannel(tester, eventSub: eventSub, irc: irc, recent: recent);
+
+      irc.triggerConnect();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 600));
+      await tester.pump();
+      // Boot history loaded (first fetch), no backfill yet.
+      expect(find.textContaining('early message'), findsWidgets);
+
+      irc.triggerDisconnect();
+      await tester.pump();
+      irc.triggerConnect();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 600));
+      await tester.pump();
+
+      // The gap message recovered on reconnect renders at 0.5 opacity.
+      final opacityWidgets = tester.widgetList<Opacity>(
+        find.ancestor(
+          of: find.textContaining('missed during gap'),
+          matching: find.byType(Opacity),
+        ),
+      );
+      expect(opacityWidgets.any((o) => o.opacity == 0.5), isTrue);
     });
 
     testWidgets('disconnected appears only once', (WidgetTester tester) async {

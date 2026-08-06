@@ -604,6 +604,11 @@ class _HomeScreenState extends State<HomeScreen>
       if (!mounted || !_channels.contains(channel)) return;
       final existing = _channelMessages[channel];
       if (existing == null || history.isEmpty) return;
+      // Messages recovered from history after a reconnect gap are marked as
+      // backfill so they render greyed out, distinct from live chat.
+      for (final msg in history) {
+        msg.isBackfill = true;
+      }
       setState(() {
         _mergeHistoryIntoChannel(channel, history);
       });
@@ -988,11 +993,13 @@ class _HomeScreenState extends State<HomeScreen>
     super.dispose();
   }
 
-  // Connection status messages all represent one logical slot: collapse
-  // "Connected to IRC" into "Connected", convert "Disconnected" + "Connected"
-  // into "Reconnected", and remove any stale status lines (e.g. the boot
-  // "Connected" left behind after a reconnect). Prevents status line spam
-  // during reconnection storms.
+  // Connection status lines are chronological entries, but a transient
+  // "Disconnected" that is followed by a reconnect is folded into the
+  // "Reconnected" line (one per reconnect), so a reconnection storm shows:
+  // Connected, Reconnected, ..., Disconnected. Only a persistent outage (no
+  // reconnect) renders as "Disconnected", and it never removes a prior
+  // "Connected". Duplicate emissions are prevented upstream by the manager's
+  // edge triggering, so each status event lands exactly once here.
   void _addSystemMessage(String channel, String text, {Color? accent}) {
     _channelMessages.putIfAbsent(channel, () => []);
     final msgs = _channelMessages[channel]!;
@@ -1004,24 +1011,21 @@ class _HomeScreenState extends State<HomeScreen>
       'Reconnected',
     };
     if (statusTexts.contains(text)) {
-      final existing = msgs
-          .where((m) => m.isSystem && statusTexts.contains(m.text))
-          .toList();
-      String label = text;
+      final hasPriorStatus = msgs.any(
+        (m) => m.isSystem && statusTexts.contains(m.text),
+      );
       if (text == 'Connected' || text == 'Connected to IRC') {
-        label = existing.any((m) => m.text == 'Disconnected')
-            ? 'Reconnected'
-            : 'Connected';
+        final label = hasPriorStatus ? 'Reconnected' : 'Connected';
+        if (label == 'Reconnected') {
+          // The outage ended: fold the transient "Disconnected" into this
+          // "Reconnected" line rather than keeping a bogus outage entry.
+          final idx = msgs.indexWhere(
+            (m) => m.isSystem && m.text == 'Disconnected',
+          );
+          if (idx >= 0) msgs.removeAt(idx);
+        }
+        text = label;
       }
-      // Already showing this exact state at the top: nothing to do.
-      if (existing.length == 1 &&
-          existing.first == msgs.first &&
-          existing.first.text == label) {
-        return;
-      }
-      // Drop stale status lines, then show the current state at the top.
-      msgs.removeWhere((m) => m.isSystem && statusTexts.contains(m.text));
-      text = label;
     }
 
     msgs.insert(
@@ -1171,11 +1175,20 @@ class _HomeScreenState extends State<HomeScreen>
 
   // "Connected" is emitted as soon as IRC is up, which is usually before
   // the robotty history fetch completes. History messages are then inserted
-  // above it, so move it back to the most recent position to stay visible.
+  // above it, so move the newest connect-state line ("Reconnected" on a
+  // reconnect, otherwise "Connected") back to the most recent position to
+  // stay visible.
   void _moveConnectedMessageToTop(String channel) {
     final msgs = _channelMessages[channel];
     if (msgs == null || msgs.length < 2) return;
-    final idx = msgs.indexWhere((m) => m.isSystem && m.text == 'Connected');
+    int idx = msgs.indexWhere((m) => m.isSystem && m.text == 'Reconnected');
+    if (idx < 0) {
+      idx = msgs.indexWhere(
+        (m) =>
+            m.isSystem &&
+            (m.text == 'Connected' || m.text == 'Connected to IRC'),
+      );
+    }
     if (idx <= 0) return;
     final msg = msgs.removeAt(idx);
     msgs.insert(0, msg);

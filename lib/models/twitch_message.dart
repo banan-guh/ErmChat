@@ -33,6 +33,10 @@ class TwitchMessage {
   final String? channel;
   bool deleted;
   final bool isHistory;
+
+  /// True for messages backfilled from history after a disconnect/reconnect
+  /// gap, so the UI can grey them out to distinguish catch-up from live chat.
+  bool isBackfill;
   String? replyToParentId;
   final String? replyToUser;
   final String? replyToText;
@@ -77,6 +81,7 @@ class TwitchMessage {
     this.channel,
     this.deleted = false,
     this.isHistory = false,
+    this.isBackfill = false,
     this.replyToParentId,
     this.replyToUser,
     this.replyToText,
