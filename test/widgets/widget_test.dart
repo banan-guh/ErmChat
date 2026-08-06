@@ -666,6 +666,128 @@ void main() {
     },
   );
 
+  testWidgets(
+    'Swiping to a channel with unread mention clears the bell color',
+    (WidgetTester tester) async {
+      final eventSub = _FakeEventSubService();
+      final irc = _FakeIrcService();
+      final recent = _ConfigurableRecentMessagesService(const []);
+      await tester.pumpWidget(
+        TwitchChatApp(
+          eventSubService: eventSub,
+          ircService: irc,
+          recentMessagesService: recent,
+          initialCurrentUserLogin: 'me',
+        ),
+      );
+      await tester.pump();
+
+      for (final name in ['b', 'a']) {
+        await tester.tap(find.byIcon(Icons.add));
+        await tester.pumpAndSettle();
+        await tester.enterText(find.byType(TextField).last, name);
+        await tester.tap(find.text('Join'));
+        await tester.pump();
+      }
+
+      irc.emitMessage(
+        TwitchMessage(
+          login: 'carol',
+          text: 'hello @me',
+          channel: 'b',
+          messageId: 'm6',
+        ),
+      );
+      await tester.pump();
+      expect(
+        tester.widget<Icon>(find.byIcon(Icons.notifications_active)).color,
+        isNotNull,
+      );
+
+      // Switch via a TabBarView drag (not a tab tap). 'b' is at page 0 and
+      // 'a' at page 1, so drag right (positive dx). The focus-change handler
+      // clears the unread state mid-drag; on settle the index already equals
+      // the selection so onSelectedIndexChanged is skipped, which is exactly
+      // the path that used to leave the bell stale.
+      final barSize = tester.getSize(find.byType(TabBarView));
+      final barCenter = tester.getCenter(find.byType(TabBarView));
+      final gesture = await tester.startGesture(barCenter);
+      await gesture.moveBy(const Offset(1, 0));
+      await tester.pump();
+      await gesture.moveBy(Offset(barSize.width * 0.55, 0));
+      await tester.pump();
+      await gesture.up();
+      await tester.pumpAndSettle();
+      await tester.pump();
+
+      expect(
+        tester.widget<Icon>(find.byIcon(Icons.notifications_active)).color,
+        isNull,
+      );
+      expect(find.byKey(const Key('unread_mention_dot')), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'Leaving a channel with unread mentions clears the bell color',
+    (WidgetTester tester) async {
+      final eventSub = _FakeEventSubService();
+      final irc = _FakeIrcService();
+      final recent = _ConfigurableRecentMessagesService(const []);
+      await tester.pumpWidget(
+        TwitchChatApp(
+          eventSubService: eventSub,
+          ircService: irc,
+          recentMessagesService: recent,
+          initialCurrentUserLogin: 'me',
+        ),
+      );
+      await tester.pump();
+
+      for (final name in ['b', 'a']) {
+        await tester.tap(find.byIcon(Icons.add));
+        await tester.pumpAndSettle();
+        await tester.enterText(find.byType(TextField).last, name);
+        await tester.tap(find.text('Join'));
+        await tester.pump();
+      }
+
+      irc.emitMessage(
+        TwitchMessage(
+          login: 'carol',
+          text: 'hello @me',
+          channel: 'b',
+          messageId: 'm7',
+        ),
+      );
+      await tester.pump();
+      expect(
+        tester.widget<Icon>(find.byIcon(Icons.notifications_active)).color,
+        isNotNull,
+      );
+
+      // Leaving a channel must also drop its unread count, or the bell
+      // stays red with no per-channel dot left to clear.
+      await tester.tap(find.byIcon(Icons.settings));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Channels'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byIcon(Icons.remove_circle_outline).first);
+      await tester.pumpAndSettle();
+
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.widget<Icon>(find.byIcon(Icons.notifications_active)).color,
+        isNull,
+      );
+    },
+  );
+
   testWidgets('Adding second channel switches to it immediately', (
     WidgetTester tester,
   ) async {

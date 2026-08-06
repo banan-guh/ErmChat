@@ -1320,7 +1320,11 @@ class _HomeScreenState extends State<HomeScreen>
       _scrollControllers.remove(channel)?.dispose();
       _channelsWithUnread.remove(channel);
       _channelsWithUnreadMentions.remove(channel);
-      _unreadMentionsPerChannel.remove(channel);
+      final removedUnread = _unreadMentionsPerChannel.remove(channel) ?? 0;
+      if (removedUnread > 0) {
+        _unreadMentions -= removedUnread;
+        if (_unreadMentions < 0) _unreadMentions = 0;
+      }
       _messageKeys.removeWhere((k) => k.startsWith('$channel:'));
       if (_selectedChannel == channel) {
         _selectedChannel = _channels.isNotEmpty ? _channels.last : null;
@@ -1822,6 +1826,9 @@ class _HomeScreenState extends State<HomeScreen>
     if (cleared > 0) {
       _unreadMentions -= cleared;
       if (_unreadMentions < 0) _unreadMentions = 0;
+      // Focus changes (swipes) skip the _onChannelChanged setState path, so
+      // bump the bell's notifier to refresh the badge color.
+      _mentionsBump.value++;
     }
     _openThreadRoot = null;
     if (_suggestionsNotifier.value.isNotEmpty) {
