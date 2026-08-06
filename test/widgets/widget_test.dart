@@ -1680,6 +1680,51 @@ void main() {
       expect(find.textContaining('hello world'), findsAtLeast(1));
     });
 
+    testWidgets('settled message still greys out on CLEARMSG deletion', (
+      WidgetTester tester,
+    ) async {
+      final eventSub = _FakeEventSubService();
+      final irc = _FakeIrcService();
+      await setupChannel(tester, eventSub: eventSub, irc: irc);
+
+      // Send a live message and let its tile cache/element settle.
+      irc.emitMessage(
+        TwitchMessage(
+          login: 'bob',
+          text: 'will be deleted',
+          channel: 'testchannel',
+          messageId: 'live-1',
+        ),
+      );
+      await tester.pump();
+      // A second live message shifts the first, forcing a real reconciliation.
+      irc.emitMessage(
+        TwitchMessage(
+          login: 'carol',
+          text: 'shift me',
+          channel: 'testchannel',
+          messageId: 'live-2',
+        ),
+      );
+      await tester.pump();
+
+      irc.emitDeleted(
+        'live-1',
+        'testchannel',
+        user: 'mod',
+        deletedMessageText: 'will be deleted',
+      );
+      await tester.pump();
+
+      final opacityWidgets = tester.widgetList<Opacity>(
+        find.ancestor(
+          of: find.textContaining('will be deleted'),
+          matching: find.byType(Opacity),
+        ),
+      );
+      expect(opacityWidgets.any((o) => o.opacity == 0.35), isTrue);
+    });
+
     testWidgets('connected appears only once when EventSub connects', (
       WidgetTester tester,
     ) async {

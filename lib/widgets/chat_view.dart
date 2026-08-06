@@ -5,6 +5,11 @@ import '../widgets/emote_text.dart';
 import '../widgets/message_builder.dart';
 
 class ChatView extends StatelessWidget {
+  // Per-channel tile cache bound, well above the default max-messages-per-
+  // channel (200) so visible tiles always stay cached while old truncated
+  // messages evict.
+  static const int _maxCachedTiles = 300;
+
   final String channel;
   final List<TwitchMessage> messages;
   final Map<String, List<TwitchMessage>> frozenSnapshot;
@@ -80,11 +85,26 @@ class ChatView extends StatelessWidget {
                   () => <String?, Widget>{},
                 );
 
+                final idToIndex = <String, int>{};
+                for (var i = 0; i < msgs.length; i++) {
+                  final id = msgs[i].messageId;
+                  if (id != null) idToIndex[id] = i;
+                }
+
                 return ListView.builder(
                   key: ValueKey(channel),
                   controller: scrollController,
                   reverse: true,
                   itemCount: msgs.length,
+                  // Key-based reconciliation: when a message is inserted at
+                  // the top, existing elements are matched by their
+                  // messageId key instead of by index, so the cached
+                  // identical tile widgets short-circuit and only the new
+                  // message's tile is built/layout/painted.
+                  findChildIndexCallback: (key) {
+                    if (key is ValueKey<String>) return idToIndex[key.value];
+                    return null;
+                  },
                   itemBuilder: (_, i) {
                     final msg = msgs[i];
 
@@ -94,7 +114,7 @@ class ChatView extends StatelessWidget {
                     final Widget body;
                     if (msg.isSystem) {
                       body = ChatMessageTile(
-                        key: ValueKey(msg.messageId),
+                        key: _messageKey(msg),
                         message: msg,
                         channel: channel,
                         surface: surface,
@@ -106,7 +126,7 @@ class ChatView extends StatelessWidget {
                       );
                     } else {
                       body = ChatMessageTile(
-                        key: ValueKey(msg.messageId),
+                        key: _messageKey(msg),
                         message: msg,
                         channel: channel,
                         surface: surface,
@@ -125,10 +145,27 @@ class ChatView extends StatelessWidget {
                       );
                     }
 
+                    // Cache the RepaintBoundary-wrapped tile so paint
+                    // isolation survives across rebuilds and the identical
+                    // instance short-circuits element updates.
+                    final tile = RepaintBoundary(child: body);
                     if (msg.messageId != null) {
-                      cache[msg.messageId!] = body;
+                      cache[msg.messageId!] = tile;
+                      if (cache.length > _maxCachedTiles) {
+                        // Prefer evicting entries for messages that are no
+                        // longer in the list (truncated out), falling back
+                        // to the oldest built entry.
+                        String? stale;
+                        for (final k in cache.keys) {
+                          if (k != null && !idToIndex.containsKey(k)) {
+                            stale = k;
+                            break;
+                          }
+                        }
+                        cache.remove(stale ?? cache.keys.first);
+                      }
                     }
-                    return RepaintBoundary(child: body);
+                    return tile;
                   },
                 );
               },
@@ -156,6 +193,17 @@ class ChatView extends StatelessWidget {
           },
         ),
       ],
+    );
+  }
+
+  // Stable per-message key for tile reconciliation. Real messages key on
+  // their messageId; messageId-less messages fall back to an identity key
+  // derived from their (immutable) fields.
+  Key _messageKey(TwitchMessage msg) {
+    final id = msg.messageId;
+    if (id != null) return ValueKey<String>(id);
+    return ValueKey<String>(
+      'anon-${msg.timestamp.microsecondsSinceEpoch}-${msg.login}-${msg.text.hashCode}',
     );
   }
 

@@ -57,6 +57,7 @@ class ChatConnectionConfig {
     required this.lastSentWireText,
     required this.bumpChannel,
     required this.invalidateChannel,
+    required this.invalidateMessage,
     required this.mentionsChannel,
     required this.onRebuild,
     required this.onSystemMessage,
@@ -90,7 +91,7 @@ class ChatConnectionConfig {
   final TwitchAuth twitchAuth;
   final EmoteManager emoteManager;
   final Map<String, List<TwitchMessage>> channelMessages;
-  final Map<String, GlobalKey> messageKeys;
+  final Set<String> messageKeys;
   final Map<String, String> chatStatus;
   final Set<String> channelsWithUnread;
   final Set<String> channelsWithUnreadMentions;
@@ -103,6 +104,7 @@ class ChatConnectionConfig {
   final Map<String, String> lastSentWireText;
   final void Function(String channel) bumpChannel;
   final void Function(String channel) invalidateChannel;
+  final void Function(String channel, String? messageId) invalidateMessage;
   final String mentionsChannel;
   final VoidCallback onRebuild;
   final void Function(String, String, {Color? accent}) onSystemMessage;
@@ -137,7 +139,7 @@ class ChatConnectionManager {
   final TwitchAuth twitchAuth;
   final EmoteManager emoteManager;
   final Map<String, List<TwitchMessage>> channelMessages;
-  final Map<String, GlobalKey> messageKeys;
+  final Set<String> messageKeys;
   final Map<String, String> chatStatus;
   final Set<String> channelsWithUnread;
   final Set<String> channelsWithUnreadMentions;
@@ -150,6 +152,7 @@ class ChatConnectionManager {
   final Map<String, String> lastSentWireText;
   final void Function(String channel) bumpChannel;
   final void Function(String channel) invalidateChannel;
+  final void Function(String channel, String? messageId) invalidateMessage;
   final String mentionsChannel;
   final VoidCallback onRebuild;
   final void Function(String, String, {Color? accent}) onSystemMessage;
@@ -246,6 +249,7 @@ class ChatConnectionManager {
       lastSentWireText = config.lastSentWireText,
       bumpChannel = config.bumpChannel,
       invalidateChannel = config.invalidateChannel,
+      invalidateMessage = config.invalidateMessage,
       mentionsChannel = config.mentionsChannel,
       onRebuild = config.onRebuild,
       onSystemMessage = config.onSystemMessage,
@@ -311,6 +315,7 @@ class ChatConnectionManager {
           !msg.isSystem &&
           !msg.deleted) {
         msg.deleted = true;
+        invalidateMessage(channel, msg.messageId);
         count++;
       }
     }
@@ -396,7 +401,7 @@ class ChatConnectionManager {
     for (final m in msgs) {
       if (m.messageId == messageId) {
         m.text = newText;
-        invalidateChannel(channel);
+        invalidateMessage(channel, messageId);
         return;
       }
     }
@@ -1032,6 +1037,7 @@ class ChatConnectionManager {
       for (final msg in msgs) {
         if (msg.messageId == event.messageId && !msg.isSystem) {
           msg.deleted = true;
+          invalidateMessage(event.channel, msg.messageId);
           found = true;
           break;
         }
@@ -1129,6 +1135,7 @@ class ChatConnectionManager {
           if (!m.isSystem) m.deleted = true;
         }
       }
+      invalidateChannel(event.channel);
       onSystemMessage(event.channel, 'Chat was cleared.');
     });
 
@@ -1177,6 +1184,7 @@ class ChatConnectionManager {
           for (final m in msgs) {
             if (m.messageId == event.messageId && !m.isSystem) {
               m.deleted = true;
+              invalidateMessage(event.channel, m.messageId);
               break;
             }
           }
@@ -1196,6 +1204,7 @@ class ChatConnectionManager {
             if (!m.isSystem) m.deleted = true;
           }
         }
+        invalidateChannel(event.channel);
         onSystemMessage(event.channel, '$mod cleared the chat.');
         break;
       case 'ban':
@@ -1264,7 +1273,7 @@ class ChatConnectionManager {
     if (channel == null) return;
 
     if (msg.messageId != null &&
-        messageKeys.containsKey('$channel:${msg.messageId}')) {
+        messageKeys.contains('$channel:${msg.messageId}')) {
       return;
     }
 
@@ -1307,7 +1316,7 @@ class ChatConnectionManager {
     truncateChannelMessages(channel);
 
     if (msg.messageId != null) {
-      messageKeys.putIfAbsent('$channel:${msg.messageId}', () => GlobalKey());
+      messageKeys.add('$channel:${msg.messageId}');
     }
 
     if (msg.isHighlighted) {
@@ -1350,7 +1359,7 @@ class ChatConnectionManager {
     }
 
     if (msg.messageId != null &&
-        messageKeys.containsKey('$channel:${msg.messageId}')) {
+        messageKeys.contains('$channel:${msg.messageId}')) {
       return;
     }
 
@@ -1359,7 +1368,7 @@ class ChatConnectionManager {
     truncateChannelMessages(channel);
 
     if (msg.messageId != null) {
-      messageKeys.putIfAbsent('$channel:${msg.messageId}', () => GlobalKey());
+      messageKeys.add('$channel:${msg.messageId}');
     }
 
     bumpChannel(channel);

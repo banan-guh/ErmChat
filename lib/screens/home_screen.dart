@@ -109,6 +109,7 @@ class _HomeScreenState extends State<HomeScreen>
       lastSentWireText: _lastSentWireText,
       bumpChannel: _notifyNewMessage,
       invalidateChannel: _bumpChannel,
+      invalidateMessage: _invalidateMessage,
       mentionsChannel: _mentionsChannel,
       onRebuild: () {
         if (mounted) setState(() {});
@@ -190,7 +191,7 @@ class _HomeScreenState extends State<HomeScreen>
   final _frozenSnapshot = <String, List<TwitchMessage>>{};
   final _historyLoaded = <String>{};
   final _refetchingChannels = <String>{};
-  final _messageKeys = <String, GlobalKey>{};
+  final _messageKeys = <String>{};
   final _chatStatus = <String, String>{};
   final _channelUserIds = <String, String>{};
   final _channelsEmotesResolved = <String>{};
@@ -262,7 +263,6 @@ class _HomeScreenState extends State<HomeScreen>
     _emoteSheetCtrl.addListener(
       () => _onSheetSizeChanged(OverlayPanel.emotes, _emoteSheetCtrl),
     );
-    _mentionsBump.addListener(_onPanelDataChanged);
     _loadMaxMessages();
     _ensureBlockedUsersLoaded();
     _loadAltPings();
@@ -531,10 +531,7 @@ class _HomeScreenState extends State<HomeScreen>
         insertedCount++;
       }
       if (msg.messageId != null) {
-        _messageKeys.putIfAbsent(
-          '$channel:${msg.messageId}',
-          () => GlobalKey(),
-        );
+        _messageKeys.add('$channel:${msg.messageId}');
       }
       final login = _currentUserLogin?.toLowerCase();
       if (login != null &&
@@ -806,6 +803,7 @@ class _HomeScreenState extends State<HomeScreen>
       _bumpChannel(channel);
     } else {
       _mentionsBump.value++;
+      _onPanelDataChanged();
     }
   }
 
@@ -824,17 +822,35 @@ class _HomeScreenState extends State<HomeScreen>
   void _notifyNewMessage(String channel) {
     _messageNotifier(channel).value++;
     _mentionsBump.value++;
+    _onPanelDataChanged(channel);
   }
 
   void _bumpChannel(String channel) {
     _tileCache.remove(channel);
     _versionNotifier(channel).value++;
     _mentionsBump.value++;
+    _onPanelDataChanged(channel);
   }
 
-  void _onPanelDataChanged() {
+  // Targeted tile invalidation: evict a single message (deletions, edits)
+  // instead of clearing the whole channel cache. A null messageId is never
+  // cached, so only the notify is needed to re-read the mutated message.
+  void _invalidateMessage(String channel, String? messageId) {
+    if (messageId != null) {
+      _tileCache[channel]?.remove(messageId);
+    }
+    _messageNotifier(channel).value++;
+  }
+
+  void _onPanelDataChanged([String? changedChannel]) {
     if (_activePanel == OverlayPanel.closed) return;
     if (_activePanel == OverlayPanel.thread && _openThreadRoot != null) {
+      // Skip recomputation unless the new message belongs to the open thread's
+      // channel; the thread itself only mutates when that channel moves.
+      if (changedChannel != null &&
+          changedChannel != _openThreadRoot!.channel) {
+        return;
+      }
       final channel = _openThreadRoot!.channel!;
       _threadPanelData.value = ThreadPanelData(
         messages: _computeThreadMessages(),
@@ -1284,7 +1300,7 @@ class _HomeScreenState extends State<HomeScreen>
       _channelsWithUnread.remove(channel);
       _channelsWithUnreadMentions.remove(channel);
       _unreadMentionsPerChannel.remove(channel);
-      _messageKeys.removeWhere((k, _) => k.startsWith('$channel:'));
+      _messageKeys.removeWhere((k) => k.startsWith('$channel:'));
       if (_selectedChannel == channel) {
         _selectedChannel = _channels.isNotEmpty ? _channels.last : null;
         if (_channels.isNotEmpty) {
@@ -1996,7 +2012,7 @@ class _HomeScreenState extends State<HomeScreen>
                                         return ListenableBuilder(
                                           listenable: Listenable.merge([
                                             _selectedTabIndex,
-                                            _mentionsBump,
+                                            _messageNotifier(channel),
                                           ]),
                                           builder: (ctx, _) {
                                             final focused =
@@ -2352,7 +2368,7 @@ class _HomeScreenState extends State<HomeScreen>
                         ),
                         ListenableBuilder(
                           listenable: Listenable.merge([
-                            _mentionsBump,
+                            _versionNotifier(_selectedChannel ?? ''),
                             _selectedTabIndex,
                           ]),
                           builder: (context, _) {
