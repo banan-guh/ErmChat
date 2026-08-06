@@ -205,6 +205,7 @@ class _HomeScreenState extends State<HomeScreen>
   TwitchMessage? _replyToMsg;
   TwitchMessage? _openThreadRoot;
   bool _replyToRoot = false;
+  bool _preferEmotesFirst = false;
   OverlayPanel _activePanel = OverlayPanel.closed;
   int _maxMessagesPerChannel = 200;
   int _recentMessagesLimit = 100;
@@ -691,6 +692,7 @@ class _HomeScreenState extends State<HomeScreen>
         word: filterWord,
         emotes: emotes,
         users: users,
+        preferEmotesFirst: _preferEmotesFirst,
       );
     }
     _suggestionsNotifier.value = filtered;
@@ -976,6 +978,7 @@ class _HomeScreenState extends State<HomeScreen>
       _maxMessagesPerChannel = prefs.getInt('max_messages_per_channel') ?? 200;
       _recentMessagesLimit = prefs.getInt('recent_messages_limit') ?? 100;
       _replyToRoot = prefs.getBool('reply_to_thread_root') ?? false;
+      _preferEmotesFirst = prefs.getBool('prefer_emotes_first') ?? false;
     });
   }
 

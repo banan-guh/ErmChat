@@ -72,43 +72,63 @@ List<Suggestion> filterSuggestions({
   required List<GenericEmote> emotes,
   required Iterable<String> users,
   List<TwitchCommand> commands = const [],
+  bool preferEmotesFirst = false,
 }) {
-  final results = <Suggestion>[];
-
-  if (word.isEmpty) return results;
+  if (word.isEmpty) return const [];
 
   final lower = word.toLowerCase();
 
   // Slash words only match commands; users and emote codes cannot contain
   // slashes. Typing "/" alone surfaces the whole (unfiltered) list.
   if (word.startsWith('/')) {
+    final results = <Suggestion>[];
     for (final cmd in commands) {
       if (cmd.name.toLowerCase().startsWith(lower)) {
         results.add(CommandSuggestion(command: cmd.name));
       }
     }
-    return results;
+    return _numericFirst(results);
   }
 
+  final userMatches = <Suggestion>[];
   for (final user in users) {
     if (user.toLowerCase().startsWith(lower)) {
-      results.add(UserSuggestion(displayName: user));
+      userMatches.add(UserSuggestion(displayName: user));
     }
   }
 
   final matchedIds = <String>{};
-  final matchedEmotes = <GenericEmote>[];
+  final emoteMatches = <Suggestion>[];
   for (final emote in emotes) {
     if (emote.code.contains(word) || emote.code.toLowerCase().contains(lower)) {
       if (matchedIds.add(emote.id)) {
-        matchedEmotes.add(emote);
+        emoteMatches.add(EmoteSuggestion(emote: emote));
       }
     }
   }
-  for (final emote in matchedEmotes) {
-    results.add(EmoteSuggestion(emote: emote));
-    if (results.length >= 100) break;
-  }
 
-  return results;
+  // Numeric-leading suggestions still outrank everything (see _numericFirst);
+  // within that, the chosen type order is emotes before users or users first.
+  final combined = preferEmotesFirst
+      ? [...emoteMatches, ...userMatches]
+      : [...userMatches, ...emoteMatches];
+  return _numericFirst(combined).take(100).toList();
+}
+
+final _leadingDigit = RegExp(r'[0-9]');
+
+// Reorders suggestions so those whose text starts with a digit (e.g. "777",
+// "500k") appear first, preserving relative order within each group. Dart's
+// List.sort is not stable, so this partitions instead of sorting.
+List<Suggestion> _numericFirst(List<Suggestion> suggestions) {
+  final numeric = <Suggestion>[];
+  final rest = <Suggestion>[];
+  for (final suggestion in suggestions) {
+    if (suggestion.displayText.startsWith(_leadingDigit)) {
+      numeric.add(suggestion);
+    } else {
+      rest.add(suggestion);
+    }
+  }
+  return [...numeric, ...rest];
 }

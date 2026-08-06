@@ -71,6 +71,58 @@ void main() {
       expect(result[1], isA<EmoteSuggestion>());
     });
 
+    test('preferEmotesFirst puts emotes before users', () {
+      final result = filterSuggestions(
+        word: 'test',
+        emotes: [_e('1', 'testEmote')],
+        users: {'testUser'},
+        preferEmotesFirst: true,
+      );
+      expect(result.length, 2);
+      expect(result[0], isA<EmoteSuggestion>());
+      expect(result[1], isA<UserSuggestion>());
+    });
+
+    test('preferEmotesFirst does not override numeric-first', () {
+      final result = filterSuggestions(
+        word: '3',
+        emotes: [_e('1', 'pog3')],
+        users: {'3up'},
+        preferEmotesFirst: true,
+      );
+      expect(
+        result.map((s) => s.displayText).toList(),
+        ['3up', 'pog3'],
+        reason: 'numeric user still outranks a non-numeric emote',
+      );
+    });
+
+    test('suggestions starting with a digit sort above everything else', () {
+      final result = filterSuggestions(
+        word: 'k',
+        emotes: [_e('1', '500k'), _e('2', 'Kappa')],
+        users: {'king'},
+      );
+      expect(
+        result.map((s) => s.displayText).toList(),
+        ['500k', 'king', 'Kappa'],
+        reason: 'numeric emote outranks the user; non-numeric stays user-first',
+      );
+    });
+
+    test('numeric ordering preserves relative order within each group', () {
+      final result = filterSuggestions(
+        word: '7',
+        emotes: [_e('1', 'pog7'), _e('2', '777'), _e('3', '17tv')],
+        users: {'7up'},
+      );
+      expect(
+        result.map((s) => s.displayText).toList(),
+        ['7up', '777', '17tv', 'pog7'],
+        reason: 'numeric group keeps users-then-emotes order; rest follows',
+      );
+    });
+
     test('deduplicates emotes across case-sensitive and insensitive', () {
       final result = filterSuggestions(
         word: 'Pog',

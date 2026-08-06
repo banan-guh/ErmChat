@@ -22,6 +22,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
   bool _replyToRoot = false;
   bool _backgroundService = true;
   bool _mentionPush = false;
+  bool _preferEmotesFirst = false;
 
   @override
   void initState() {
@@ -39,6 +40,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
         _replyToRoot = prefs.getBool('reply_to_thread_root') ?? false;
         _backgroundService = prefs.getBool('background_service') ?? true;
         _mentionPush = prefs.getBool('mention_push') ?? false;
+        _preferEmotesFirst = prefs.getBool('prefer_emotes_first') ?? false;
       });
     }
   }
@@ -123,6 +125,19 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
               final prefs = await SharedPreferences.getInstance();
               await prefs.setBool('reply_to_thread_root', value);
               if (mounted) setState(() => _replyToRoot = value);
+            },
+          ),
+          SwitchListTile(
+            secondary: const Icon(Icons.sentiment_very_satisfied),
+            title: const Text('Prefer emote suggestions'),
+            subtitle: const Text(
+              'Show emotes above usernames in autocomplete',
+            ),
+            value: _preferEmotesFirst,
+            onChanged: (value) async {
+              final prefs = await SharedPreferences.getInstance();
+              await prefs.setBool('prefer_emotes_first', value);
+              if (mounted) setState(() => _preferEmotesFirst = value);
             },
           ),
           SwitchListTile(
