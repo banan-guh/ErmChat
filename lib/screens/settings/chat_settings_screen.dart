@@ -130,9 +130,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
           SwitchListTile(
             secondary: const Icon(Icons.sentiment_very_satisfied),
             title: const Text('Prefer emote suggestions'),
-            subtitle: const Text(
-              'Show emotes above usernames in autocomplete',
-            ),
+            subtitle: const Text('Show emotes above usernames in autocomplete'),
             value: _preferEmotesFirst,
             onChanged: (value) async {
               final prefs = await SharedPreferences.getInstance();

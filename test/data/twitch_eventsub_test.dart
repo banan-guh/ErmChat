@@ -229,4 +229,140 @@ void main() {
       );
     });
   });
+
+  Map<String, dynamic> widget(
+    String type,
+    Map<String, dynamic> event,
+  ) => <String, dynamic>{
+    'metadata': <String, dynamic>{
+      'message_type': 'notification',
+      'subscription_type': type,
+    },
+    'payload': <String, dynamic>{
+      'subscription': <String, dynamic>{
+        'condition': <String, dynamic>{'broadcaster_user_id': 'broadcaster1'},
+      },
+      'event': event,
+    },
+  };
+
+  group('notification (channel.hype_train)', () {
+    test(
+      'begin emits HypeTrainEvent with level, goal and contributors',
+      () async {
+        final events = <HypeTrainEvent>[];
+        service.onHypeTrain.listen(events.add);
+
+        service.handleRawMessage(
+          widget('channel.hype_train.begin', <String, dynamic>{
+            'level': 2,
+            'progress': 30,
+            'total': 100,
+            'expires_at': '2030-01-01T00:00:00Z',
+            'top_contributions': <Map<String, dynamic>>[
+              {'user_name': 'bitsuser', 'type': 'BITS', 'total': 2000},
+              {'user_name': 'subuser', 'type': 'SUBS', 'total': 5},
+            ],
+          }),
+        );
+
+        expect(events, hasLength(1));
+        final e = events[0];
+        expect(e.channel, 'testchannel');
+        expect(e.kind, 'begin');
+        expect(e.level, 2);
+        expect(e.progress, 30);
+        expect(e.total, 100);
+        expect(e.expiresAt, isNotNull);
+        expect(e.topContributions, hasLength(2));
+        expect(e.topContributions[0].userName, 'bitsuser');
+        expect(e.topContributions[0].type, 'BITS');
+      },
+    );
+
+    test('end emits event with no channel when mapping missing', () async {
+      final events = <HypeTrainEvent>[];
+      service.onHypeTrain.listen(events.add);
+
+      service.handleRawMessage(
+        widget('channel.hype_train.end', <String, dynamic>{
+          'level': 3,
+          'progress': 100,
+          'total': 100,
+        }),
+      );
+
+      // Mapping is present for broadcaster1, so the channel resolves.
+      expect(events, hasLength(1));
+      expect(events[0].kind, 'end');
+    });
+  });
+
+  group('notification (channel.poll)', () {
+    test('progress emits PollEvent with choices and votes', () async {
+      final events = <PollEvent>[];
+      service.onPoll.listen(events.add);
+
+      service.handleRawMessage(
+        widget('channel.poll.progress', <String, dynamic>{
+          'title': 'Best game?',
+          'status': 'ACTIVE',
+          'choices': <Map<String, dynamic>>[
+            {'id': '1', 'title': 'Minecraft', 'votes': 10},
+            {'id': '2', 'title': 'Terraria', 'votes': 20},
+          ],
+        }),
+      );
+
+      expect(events, hasLength(1));
+      final e = events[0];
+      expect(e.channel, 'testchannel');
+      expect(e.kind, 'progress');
+      expect(e.title, 'Best game?');
+      expect(e.choices, hasLength(2));
+      expect(e.choices[0].title, 'Minecraft');
+      expect(e.choices[0].votes, 10);
+      expect(e.choices[1].votes, 20);
+    });
+  });
+
+  group('notification (channel.prediction)', () {
+    test('lock emits PredictionEvent with outcomes', () async {
+      final events = <PredictionEvent>[];
+      service.onPrediction.listen(events.add);
+
+      service.handleRawMessage(
+        widget('channel.prediction.lock', <String, dynamic>{
+          'title': 'Will we win?',
+          'status': 'LOCKED',
+          'outcomes': <Map<String, dynamic>>[
+            {
+              'id': '1',
+              'title': 'Yes',
+              'users': 15,
+              'channel_points': 300,
+              'color': 'BLUE',
+            },
+            {
+              'id': '2',
+              'title': 'No',
+              'users': 5,
+              'channel_points': 100,
+              'color': 'PINK',
+            },
+          ],
+        }),
+      );
+
+      expect(events, hasLength(1));
+      final e = events[0];
+      expect(e.channel, 'testchannel');
+      expect(e.kind, 'lock');
+      expect(e.title, 'Will we win?');
+      expect(e.outcomes, hasLength(2));
+      expect(e.outcomes[0].title, 'Yes');
+      expect(e.outcomes[0].users, 15);
+      expect(e.outcomes[0].channelPoints, 300);
+    });
+  });
 }

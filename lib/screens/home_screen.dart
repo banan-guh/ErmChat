@@ -38,6 +38,7 @@ import '../widgets/emote_menu_panel.dart';
 import '../widgets/chat_view.dart';
 import '../widgets/message_builder.dart';
 import '../widgets/predictive_back_handler.dart';
+import '../widgets/chat_widget_cutout.dart';
 import '../widgets/join_channel_dialog.dart';
 import '../services/foreground_task.dart';
 
@@ -125,6 +126,9 @@ class _HomeScreenState extends State<HomeScreen>
           _analytics.recordMessage(channel, msg),
       onAnalyticsModeration: (channel, isTimeout) =>
           _analytics.recordModeration(channel, isTimeout),
+      onHypeTrain: _onHypeTrain,
+      onPoll: _onPoll,
+      onPrediction: _onPrediction,
       loadUserTwitchEmotes: _loadUserTwitchEmotes,
       onReconnected: _onReconnected,
       getMaxMessagesPerChannel: () => _maxMessagesPerChannel,
@@ -210,6 +214,25 @@ class _HomeScreenState extends State<HomeScreen>
   final _channelsWithUnreadMentions = <String>{};
   final _unreadMentionsPerChannel = <String, int>{};
 
+  // Broadcaster-only chat widgets (hype train / poll / prediction).
+  final _hypeTrains = <String, HypeTrainEvent>{};
+  final _polls = <String, PollEvent>{};
+  final _predictions = <String, PredictionEvent>{};
+  final _widgetsMinimized = <String, bool>{};
+  final _widgetPageCtrl = PageController();
+
+  // Dev-only fake chat widgets (see DevSettingsScreen "Test chat widgets").
+  Timer? _testWidgetsTimer;
+  int _fakeLevel = 1;
+  int _fakeProgress = 0;
+  int _fakeGoal = 100;
+  int _fakePollA = 120;
+  int _fakePollB = 80;
+  int _fakePollC = 40;
+  int _fakePredYes = 900;
+  int _fakePredNo = 450;
+  DateTime? _fakeTrainEndsAt;
+
   TwitchMessage? _replyToMsg;
   TwitchMessage? _openThreadRoot;
   bool _replyToRoot = false;
@@ -281,6 +304,7 @@ class _HomeScreenState extends State<HomeScreen>
     _ensureBlockedUsersLoaded();
     _loadAltPings();
     _loadNotificationSettings();
+    _loadTestWidgets();
     _chatConn.connect();
     _emoteManager.accessToken = widget.twitchAuth.accessToken;
     _emoteManager.preloadGlobalEmotes();
@@ -1002,6 +1026,8 @@ class _HomeScreenState extends State<HomeScreen>
     WidgetsBinding.instance.removeObserver(this);
     WidgetsBinding.instance.removeObserver(_predictiveBackHandler);
     _panelScaleCtrl.dispose();
+    _widgetPageCtrl.dispose();
+    _testWidgetsTimer?.cancel();
     _eventSub.dispose();
     _irc.dispose();
     _ircRead.dispose();
@@ -1045,6 +1071,201 @@ class _HomeScreenState extends State<HomeScreen>
   // reconnect) renders as "Disconnected", and it never removes a prior
   // "Connected". Duplicate emissions are prevented upstream by the manager's
   // edge triggering, so each status event lands exactly once here.
+  void _onHypeTrain(HypeTrainEvent event) {
+    if (!mounted) return;
+    setState(() {
+      if (event.kind == 'end') {
+        _hypeTrains.remove(event.channel);
+      } else {
+        _hypeTrains[event.channel] = event;
+      }
+    });
+    _clampWidgetPage();
+  }
+
+  void _onPoll(PollEvent event) {
+    if (!mounted) return;
+    setState(() {
+      if (event.kind == 'end') {
+        _polls.remove(event.channel);
+      } else {
+        _polls[event.channel] = event;
+      }
+    });
+    _clampWidgetPage();
+  }
+
+  void _onPrediction(PredictionEvent event) {
+    if (!mounted) return;
+    setState(() {
+      if (event.kind == 'end') {
+        _predictions.remove(event.channel);
+      } else {
+        _predictions[event.channel] = event;
+      }
+    });
+    _clampWidgetPage();
+  }
+
+  // Dev toggle: feeds fake poll / prediction / hype train events into the
+  // same state as the real EventSub pipeline so the cutout shows all three
+  // cards with updating data. Stops and clears when the toggle is off.
+  Future<void> _loadTestWidgets() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (!mounted) return;
+    if (prefs.getBool('test_chat_widgets') ?? false) {
+      _startTestWidgets();
+    } else {
+      _stopTestWidgets();
+    }
+  }
+
+  void _startTestWidgets() {
+    _fakeTrainEndsAt = DateTime.now().add(const Duration(minutes: 5));
+    _testWidgetsTimer?.cancel();
+    _testWidgetsTimer = Timer.periodic(
+      const Duration(seconds: 1),
+      (_) => _tickTestWidgets(),
+    );
+    _tickTestWidgets();
+  }
+
+  void _stopTestWidgets() {
+    _testWidgetsTimer?.cancel();
+    _testWidgetsTimer = null;
+    if (!mounted) return;
+    setState(() {
+      _hypeTrains.clear();
+      _polls.clear();
+      _predictions.clear();
+      _widgetsMinimized.clear();
+    });
+  }
+
+  void _tickTestWidgets() {
+    if (!mounted) return;
+    final channel = _selectedChannel;
+    if (channel == null) return;
+    setState(() {
+      _hypeTrains.clear();
+      _polls.clear();
+      _predictions.clear();
+
+      _fakeProgress += 9;
+      if (_fakeProgress >= _fakeGoal) {
+        _fakeLevel++;
+        _fakeGoal += 100;
+        _fakeProgress = 0;
+      }
+      _hypeTrains[channel] = HypeTrainEvent(
+        channel: channel,
+        kind: 'progress',
+        level: _fakeLevel,
+        progress: _fakeProgress,
+        total: _fakeGoal,
+        expiresAt: _fakeTrainEndsAt,
+        topContributions: [
+          HypeTrainContribution(
+            userName: 'fakebits',
+            type: 'BITS',
+            total: 5000,
+          ),
+          HypeTrainContribution(userName: 'fakesub', type: 'SUBS', total: 12),
+        ],
+      );
+
+      _fakePollA += 3;
+      _fakePollB += 2;
+      _fakePollC += 1;
+      _polls[channel] = PollEvent(
+        channel: channel,
+        kind: 'progress',
+        title: 'Fake poll: what should we play?',
+        choices: [
+          PollChoice(title: 'Minecraft', votes: _fakePollA),
+          PollChoice(title: 'Terraria', votes: _fakePollB),
+          PollChoice(title: 'Stardew', votes: _fakePollC),
+        ],
+        status: 'ACTIVE',
+      );
+
+      _fakePredYes += 12;
+      _fakePredNo += 5;
+      _predictions[channel] = PredictionEvent(
+        channel: channel,
+        kind: 'progress',
+        title: 'Fake prediction: will we win?',
+        outcomes: [
+          PredictionOutcome(
+            title: 'Yes',
+            users: _fakePredYes,
+            channelPoints: 9000,
+          ),
+          PredictionOutcome(
+            title: 'No',
+            users: _fakePredNo,
+            channelPoints: 4500,
+          ),
+        ],
+        status: 'ACTIVE',
+      );
+    });
+    _clampWidgetPage();
+  }
+
+  List<Widget> _widgetPagesFor(String channel) {
+    final pages = <Widget>[];
+    final poll = _polls[channel];
+    if (poll != null) pages.add(PollCard(event: poll));
+    final prediction = _predictions[channel];
+    if (prediction != null) pages.add(PredictionCard(event: prediction));
+    final hypeTrain = _hypeTrains[channel];
+    if (hypeTrain != null) pages.add(HypeTrainCard(event: hypeTrain));
+    return pages;
+  }
+
+  String _widgetLabelsFor(String channel) {
+    final labels = <String>[];
+    if (_polls.containsKey(channel)) labels.add('Poll');
+    if (_predictions.containsKey(channel)) labels.add('Prediction');
+    if (_hypeTrains.containsKey(channel)) labels.add('Hype Train');
+    return labels.join(' / ');
+  }
+
+  Widget? _buildWidgetOverlay(String channel) {
+    final pages = _widgetPagesFor(channel);
+    if (pages.isEmpty) return null;
+    if (_widgetsMinimized[channel] ?? false) {
+      return ChatWidgetMinimizedBar(
+        labels: _widgetLabelsFor(channel),
+        onRestore: () => setState(() => _widgetsMinimized[channel] = false),
+      );
+    }
+    return ChatWidgetCutout(
+      pages: pages,
+      controller: _widgetPageCtrl,
+      onMinimize: () => setState(() => _widgetsMinimized[channel] = true),
+    );
+  }
+
+  void _clampWidgetPage() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_widgetPageCtrl.hasClients) return;
+      final channel = _selectedChannel;
+      if (channel == null) return;
+      final pages = _widgetPagesFor(channel).length;
+      if (pages == 0) return;
+      final idx = _widgetPageCtrl.page?.round() ?? 0;
+      if (idx >= pages) {
+        _widgetPageCtrl.jumpToPage(pages - 1);
+      }
+    });
+  }
+
+  void _resetWidgetPage() {
+    if (_widgetPageCtrl.hasClients) _widgetPageCtrl.jumpToPage(0);
+  }
+
   void _addSystemMessage(String channel, String text, {Color? accent}) {
     _channelMessages.putIfAbsent(channel, () => []);
     final msgs = _channelMessages[channel]!;
@@ -1321,6 +1542,10 @@ class _HomeScreenState extends State<HomeScreen>
     _lastTypedText.remove(channel);
     _lastSentWireText.remove(channel);
     _chatStatus.remove(channel);
+    _hypeTrains.remove(channel);
+    _polls.remove(channel);
+    _predictions.remove(channel);
+    _widgetsMinimized.remove(channel);
     setState(() {
       _channels.remove(channel);
       _channelNotifier.value = List.of(_channels);
@@ -1843,6 +2068,7 @@ class _HomeScreenState extends State<HomeScreen>
     if (_suggestionsNotifier.value.isNotEmpty) {
       _suggestionsNotifier.value = [];
     }
+    _resetWidgetPage();
     _selectedTabIndex.value = index;
   }
 
@@ -1864,6 +2090,7 @@ class _HomeScreenState extends State<HomeScreen>
         _suggestionsNotifier.value = [];
       }
     });
+    _resetWidgetPage();
     _selectedTabIndex.value = index;
   }
 
@@ -2002,6 +2229,7 @@ class _HomeScreenState extends State<HomeScreen>
                                     onSettingsClosed: () {
                                       _loadAltPings();
                                       _loadMaxMessages();
+                                      _loadTestWidgets();
                                       if (mounted) setState(() {});
                                     },
                                   ),
@@ -2010,126 +2238,155 @@ class _HomeScreenState extends State<HomeScreen>
                             ),
                           ),
                           Expanded(
-                            child: Listener(
-                              behavior: HitTestBehavior.translucent,
-                              onPointerDown: (_) {
-                                _suggestionsNotifier.value = [];
-                              },
-                              child: _channels.isNotEmpty
-                                  ? TabbedLayout(
-                                      tabs: _channels,
-                                      selectedIndex: _channels.indexOf(
-                                        _selectedChannel ?? '',
-                                      ),
-                                      onSelectedIndexChanged: _onChannelChanged,
-                                      onFocusChanged: _onChannelFocusChanged,
-                                      pageBuilder: (_, i) {
-                                        final channel = _channels[i];
-                                        return ListenableBuilder(
-                                          listenable: _versionNotifier(channel),
-                                          builder: (_, _) => ChatView(
-                                            channel: channel,
-                                            messages:
-                                                _channelMessages[channel] ?? [],
-                                            frozenSnapshot: _frozenSnapshot,
-                                            tileCache: _tileCache,
-                                            atBottomNotifier: _atBottomNotifier(
-                                              channel,
-                                            ),
-                                            messageNotifier: _messageNotifier(
-                                              channel,
-                                            ),
-                                            scrollController: _scrollCtrl(
-                                              channel,
-                                            ),
-                                            messageBuilder: _messageBuilder,
-                                            onShowUserProfile:
-                                                (
-                                                  login,
-                                                  userId, {
-                                                  displayName,
-                                                }) => _showUserProfile(
-                                                  login,
-                                                  userId,
-                                                  displayName: displayName,
-                                                ),
-                                            onShowMessageMenu: _showMessageMenu,
-                                            onNewMessage: _notifyNewMessage,
-                                            onFindThreadRoot: _findThreadRoot,
-                                            onShowThreadView: _showThreadView,
+                            child: Stack(
+                              children: [
+                                Listener(
+                                  behavior: HitTestBehavior.translucent,
+                                  onPointerDown: (_) {
+                                    _suggestionsNotifier.value = [];
+                                  },
+                                  child: _channels.isNotEmpty
+                                      ? TabbedLayout(
+                                          tabs: _channels,
+                                          selectedIndex: _channels.indexOf(
+                                            _selectedChannel ?? '',
                                           ),
-                                        );
-                                      },
-                                      focusOnHalfDrag: true,
-                                      tabBuilder: (_, i) {
-                                        final channel = _channels[i];
-                                        return ListenableBuilder(
-                                          listenable: Listenable.merge([
-                                            _selectedTabIndex,
-                                            _messageNotifier(channel),
-                                          ]),
-                                          builder: (ctx, _) {
-                                            final focused =
-                                                i == _selectedTabIndex.value;
-                                            final selected =
-                                                focused ||
-                                                channel == _selectedChannel;
-                                            final hasUnreadMention =
-                                                _channelsWithUnreadMentions
-                                                    .contains(channel);
-                                            return Stack(
-                                              clipBehavior: Clip.none,
-                                              children: [
-                                                Text(
+                                          onSelectedIndexChanged:
+                                              _onChannelChanged,
+                                          onFocusChanged:
+                                              _onChannelFocusChanged,
+                                          pageBuilder: (_, i) {
+                                            final channel = _channels[i];
+                                            return ListenableBuilder(
+                                              listenable: _versionNotifier(
+                                                channel,
+                                              ),
+                                              builder: (_, _) => ChatView(
+                                                channel: channel,
+                                                messages:
+                                                    _channelMessages[channel] ??
+                                                    [],
+                                                frozenSnapshot: _frozenSnapshot,
+                                                tileCache: _tileCache,
+                                                atBottomNotifier:
+                                                    _atBottomNotifier(channel),
+                                                messageNotifier:
+                                                    _messageNotifier(channel),
+                                                scrollController: _scrollCtrl(
                                                   channel,
-                                                  style: TextStyle(
-                                                    fontSize: 14,
-                                                    fontWeight:
-                                                        selected ||
-                                                            _channelsWithUnread
-                                                                .contains(
-                                                                  channel,
-                                                                )
-                                                        ? FontWeight.w600
-                                                        : FontWeight.normal,
-                                                    color: selected
-                                                        ? theme
-                                                              .colorScheme
-                                                              .primary
-                                                        : _channelsWithUnread
-                                                              .contains(channel)
-                                                        ? theme
-                                                              .colorScheme
-                                                              .onSurface
-                                                        : null,
-                                                  ),
                                                 ),
-                                                if (hasUnreadMention &&
-                                                    !selected)
-                                                  Positioned(
-                                                    top: -2,
-                                                    right: -4,
-                                                    child: Container(
-                                                      key: const Key(
-                                                        'unread_mention_dot',
-                                                      ),
-                                                      width: 6,
-                                                      height: 6,
-                                                      decoration: BoxDecoration(
-                                                        color: theme
-                                                            .colorScheme
-                                                            .error,
-                                                        shape: BoxShape.circle,
-                                                      ),
+                                                messageBuilder: _messageBuilder,
+                                                onShowUserProfile:
+                                                    (
+                                                      login,
+                                                      userId, {
+                                                      displayName,
+                                                    }) => _showUserProfile(
+                                                      login,
+                                                      userId,
+                                                      displayName: displayName,
                                                     ),
-                                                  ),
-                                              ],
+                                                onShowMessageMenu:
+                                                    _showMessageMenu,
+                                                onNewMessage: _notifyNewMessage,
+                                                onFindThreadRoot:
+                                                    _findThreadRoot,
+                                                onShowThreadView:
+                                                    _showThreadView,
+                                              ),
                                             );
                                           },
-                                        );
-                                      },
-                                    )
-                                  : _buildEmpty(),
+                                          focusOnHalfDrag: true,
+                                          tabBuilder: (_, i) {
+                                            final channel = _channels[i];
+                                            return ListenableBuilder(
+                                              listenable: Listenable.merge([
+                                                _selectedTabIndex,
+                                                _messageNotifier(channel),
+                                              ]),
+                                              builder: (ctx, _) {
+                                                final focused =
+                                                    i ==
+                                                    _selectedTabIndex.value;
+                                                final selected =
+                                                    focused ||
+                                                    channel == _selectedChannel;
+                                                final hasUnreadMention =
+                                                    _channelsWithUnreadMentions
+                                                        .contains(channel);
+                                                return Stack(
+                                                  clipBehavior: Clip.none,
+                                                  children: [
+                                                    Text(
+                                                      channel,
+                                                      style: TextStyle(
+                                                        fontSize: 14,
+                                                        fontWeight:
+                                                            selected ||
+                                                                _channelsWithUnread
+                                                                    .contains(
+                                                                      channel,
+                                                                    )
+                                                            ? FontWeight.w600
+                                                            : FontWeight.normal,
+                                                        color: selected
+                                                            ? theme
+                                                                  .colorScheme
+                                                                  .primary
+                                                            : _channelsWithUnread
+                                                                  .contains(
+                                                                    channel,
+                                                                  )
+                                                            ? theme
+                                                                  .colorScheme
+                                                                  .onSurface
+                                                            : null,
+                                                      ),
+                                                    ),
+                                                    if (hasUnreadMention &&
+                                                        !selected)
+                                                      Positioned(
+                                                        top: -2,
+                                                        right: -4,
+                                                        child: Container(
+                                                          key: const Key(
+                                                            'unread_mention_dot',
+                                                          ),
+                                                          width: 6,
+                                                          height: 6,
+                                                          decoration:
+                                                              BoxDecoration(
+                                                                color: theme
+                                                                    .colorScheme
+                                                                    .error,
+                                                                shape: BoxShape
+                                                                    .circle,
+                                                              ),
+                                                        ),
+                                                      ),
+                                                  ],
+                                                );
+                                              },
+                                            );
+                                          },
+                                        )
+                                      : _buildEmpty(),
+                                ),
+                                if (_selectedChannel != null)
+                                  // Sits just below the channel tab bar
+                                  // (TabbedLayout's fixed 40px tab row) and
+                                  // floats over the chat messages.
+                                  Positioned(
+                                    top: 50,
+                                    left: 0,
+                                    right: 0,
+                                    child:
+                                        _buildWidgetOverlay(
+                                          _selectedChannel!,
+                                        ) ??
+                                        const SizedBox.shrink(),
+                                  ),
+                              ],
                             ),
                           ),
                         ],

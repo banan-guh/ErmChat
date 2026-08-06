@@ -81,6 +81,9 @@ class ChatConnectionConfig {
     this.isBlocked,
     this.onAnalyticsMessage,
     this.onAnalyticsModeration,
+    this.onHypeTrain,
+    this.onPoll,
+    this.onPrediction,
   });
 
   final TwitchApi twitchApi;
@@ -130,6 +133,9 @@ class ChatConnectionConfig {
   final bool Function(String login)? isBlocked;
   final void Function(String channel, TwitchMessage msg)? onAnalyticsMessage;
   final void Function(String channel, bool isTimeout)? onAnalyticsModeration;
+  final void Function(HypeTrainEvent event)? onHypeTrain;
+  final void Function(PollEvent event)? onPoll;
+  final void Function(PredictionEvent event)? onPrediction;
 }
 
 class ChatConnectionManager {
@@ -181,6 +187,9 @@ class ChatConnectionManager {
   final bool Function(String login)? isBlocked;
   final void Function(String channel, TwitchMessage msg)? onAnalyticsMessage;
   final void Function(String channel, bool isTimeout)? onAnalyticsModeration;
+  final void Function(HypeTrainEvent event)? onHypeTrain;
+  final void Function(PollEvent event)? onPoll;
+  final void Function(PredictionEvent event)? onPrediction;
 
   bool _wasConnected = false;
   bool _wasDisconnected = false;
@@ -197,6 +206,13 @@ class ChatConnectionManager {
   // re-attempt (and re-log) the subscription on every reconnect for the current
   // account.
   final _moderationSkippedChannels = <String>{};
+  // Channels with an active hype train / poll / prediction widget subscription
+  // (broadcaster-only; see _subscribeWidgets). Same lifecycle as
+  // _moderationChannels: cleared when the EventSub session dies.
+  final _widgetChannels = <String>{};
+  // Channels where the widget subscriptions were rejected with a 403 (not the
+  // broadcaster). Persists so we don't re-attempt doomed subscriptions.
+  final _widgetSkippedChannels = <String>{};
   static const _roomStateNoticeIds = {
     'followers_on_zero',
     'followers_on',
@@ -226,6 +242,9 @@ class ChatConnectionManager {
   StreamSubscription<IrcChannelClearEvent>? ircClearSub;
   StreamSubscription<IrcRoomStateEvent>? ircRoomStateSub;
   StreamSubscription<ModerationEvent>? moderationSub;
+  StreamSubscription<HypeTrainEvent>? hypeTrainSub;
+  StreamSubscription<PollEvent>? pollSub;
+  StreamSubscription<PredictionEvent>? predictionSub;
   StreamSubscription<SevenTvEmoteUpdateEvent>? sevenTvEmoteSub;
   StreamSubscription<SevenTvUserUpdate>? sevenTvUserSub;
   StreamSubscription<IrcConnectionStatus>? ircStatusSub;
@@ -278,7 +297,10 @@ class ChatConnectionManager {
       isChatReady = config.isChatReady,
       isBlocked = config.isBlocked,
       onAnalyticsMessage = config.onAnalyticsMessage,
-      onAnalyticsModeration = config.onAnalyticsModeration;
+      onAnalyticsModeration = config.onAnalyticsModeration,
+      onHypeTrain = config.onHypeTrain,
+      onPoll = config.onPoll,
+      onPrediction = config.onPrediction;
 
   void dispose() {
     isDisposed = true;
@@ -293,6 +315,9 @@ class ChatConnectionManager {
     ircClearSub?.cancel();
     ircRoomStateSub?.cancel();
     moderationSub?.cancel();
+    hypeTrainSub?.cancel();
+    pollSub?.cancel();
+    predictionSub?.cancel();
     sevenTvEmoteSub?.cancel();
     sevenTvUserSub?.cancel();
     ircStatusSub?.cancel();
@@ -659,6 +684,7 @@ class ChatConnectionManager {
       eventSub.setChannelMapping(channelUserId, channelName);
 
       unawaited(_subscribeModeration(channelName, channelUserId));
+      unawaited(_subscribeWidgets(channelName, channelUserId));
     } catch (_) {
       debugPrint('[ChatConn] subscribeChannel failed for $channelName');
     }
@@ -733,6 +759,70 @@ class ChatConnectionManager {
       }
     } catch (_) {
       debugPrint('[ChatConn] subscribeModeration failed for $channelName');
+    }
+  }
+
+  // Hype train / poll / prediction widgets are broadcaster-only: the EventSub
+  // subscription types require channel:read:hype_train/polls/predictions, which
+  // Twitch only issues to the channel owner. Skip every other channel up front
+  // so we don't fire a dozen doomed Helix calls per join.
+  Future<void> _subscribeWidgets(
+    String channelName,
+    String channelUserId,
+  ) async {
+    try {
+      final auth = twitchAuth;
+      if (!auth.isConfigured || getCurrentUserId() == null) return;
+      if (getCurrentUserId() != channelUserId) return;
+      if (_widgetSkippedChannels.contains(channelName)) return;
+      for (int attempt = 0; attempt < 3; attempt++) {
+        final sessionId = eventSub.sessionId;
+        if (sessionId == null) {
+          await Future.delayed(const Duration(seconds: 1));
+          continue;
+        }
+        if (attempt > 0) await Future.delayed(const Duration(seconds: 1));
+        const types = [
+          ('channel.hype_train.begin', '2'),
+          ('channel.hype_train.progress', '2'),
+          ('channel.hype_train.end', '2'),
+          ('channel.poll.begin', '1'),
+          ('channel.poll.progress', '1'),
+          ('channel.poll.end', '1'),
+          ('channel.prediction.begin', '1'),
+          ('channel.prediction.progress', '1'),
+          ('channel.prediction.lock', '1'),
+          ('channel.prediction.end', '1'),
+        ];
+        var failed = false;
+        for (final (type, version) in types) {
+          final ok = await twitchApi.createEventSubSubscription(
+            auth: auth,
+            sessionId: sessionId,
+            type: type,
+            version: version,
+            condition: {'broadcaster_user_id': channelUserId},
+          );
+          if (!ok) {
+            if (twitchApi.lastErrorStatus == 403) {
+              // Expected when the user isn't the broadcaster; skip silently.
+              _widgetSkippedChannels.add(channelName);
+            } else {
+              debugPrint(
+                '[ChatConn] $type subscription failed for $channelName (${twitchApi.lastError ?? "unknown"})',
+              );
+            }
+            failed = true;
+            break;
+          }
+        }
+        if (!failed) {
+          _widgetChannels.add(channelName);
+        }
+        return;
+      }
+    } catch (_) {
+      debugPrint('[ChatConn] subscribeWidgets failed for $channelName');
     }
   }
 
@@ -920,6 +1010,7 @@ class ChatConnectionManager {
         if (isDisposed) return;
         if (status == EventSubStatus.disconnected) {
           _moderationChannels.clear();
+          _widgetChannels.clear();
         }
       });
 
@@ -1161,6 +1252,22 @@ class ChatConnectionManager {
     });
 
     moderationSub ??= eventSub.onModeration.listen(_onModerationEvent);
+
+    hypeTrainSub ??= eventSub.onHypeTrain.listen((event) {
+      if (isDisposed) return;
+      if (!_widgetChannels.contains(event.channel)) return;
+      onHypeTrain?.call(event);
+    });
+    pollSub ??= eventSub.onPoll.listen((event) {
+      if (isDisposed) return;
+      if (!_widgetChannels.contains(event.channel)) return;
+      onPoll?.call(event);
+    });
+    predictionSub ??= eventSub.onPrediction.listen((event) {
+      if (isDisposed) return;
+      if (!_widgetChannels.contains(event.channel)) return;
+      onPrediction?.call(event);
+    });
 
     if (sevenTvClient != null) {
       sevenTvEmoteSub?.cancel();

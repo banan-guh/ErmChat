@@ -172,6 +172,7 @@ ChatConnectionManager _makeReconnectConn({
   Map<String, String>? chatStatus,
   void Function(String, String, {Color? accent})? onSystemMessage,
   String? currentUserLogin,
+  void Function(HypeTrainEvent event)? onHypeTrain,
 }) {
   final api = TwitchApi(client: http.Client());
   final auth = TwitchAuth();
@@ -219,6 +220,7 @@ ChatConnectionManager _makeReconnectConn({
       setReplyToMsg: (v) {},
       onRequestFocus: () {},
       onShowSnackBar: (m) {},
+      onHypeTrain: onHypeTrain,
     ),
   );
 }
@@ -1180,6 +1182,43 @@ void main() {
 
         conn.dispose();
       });
+    });
+  });
+
+  group('broadcaster-only chat widgets', () {
+    test('drops widget events without an active widget subscription', () async {
+      final eventSub = _NoopEventSub();
+      eventSub.setChannelMapping('broadcaster1', 'test');
+      final hypeTrains = <HypeTrainEvent>[];
+      final conn = _makeReconnectConn(
+        eventSub: eventSub,
+        irc: _TestIrc(),
+        onReconnected: () {},
+        onHypeTrain: hypeTrains.add,
+      );
+      await conn.connect();
+
+      eventSub.handleRawMessage(<String, dynamic>{
+        'metadata': <String, dynamic>{
+          'message_type': 'notification',
+          'subscription_type': 'channel.hype_train.begin',
+        },
+        'payload': <String, dynamic>{
+          'subscription': <String, dynamic>{
+            'condition': <String, dynamic>{
+              'broadcaster_user_id': 'broadcaster1',
+            },
+          },
+          'event': <String, dynamic>{'level': 1, 'progress': 0, 'total': 100},
+        },
+      });
+
+      expect(
+        hypeTrains,
+        isEmpty,
+        reason: 'a non-broadcaster viewer must never surface widget events',
+      );
+      conn.dispose();
     });
   });
 }

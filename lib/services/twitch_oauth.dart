@@ -47,7 +47,7 @@ class TwitchOAuth {
         '?client_id=${TwitchConfig.clientId}'
         '&redirect_uri=${Uri.encodeQueryComponent(TwitchConfig.redirectUri)}'
         '&response_type=token'
-        '&scope=chat:read%20chat:edit%20user:write:chat%20user:manage:chat_color%20moderator:manage:banned_users%20moderator:manage:chat_messages%20moderator:manage:announcements%20moderator:manage:shoutouts%20moderator:read:blocked_terms%20moderator:read:chat_settings%20moderator:read:unban_requests%20moderator:read:warnings%20moderator:read:moderators%20moderator:read:vips%20user:read:emotes%20user:manage:blocked_users%20user:read:blocked_users%20moderator:manage:chat_settings%20channel:manage:moderators%20channel:manage:vips%20channel:manage:commercials%20channel:manage:raids%20moderator:manage:shield_mode%20channel:manage:broadcast%20user:manage:whispers'
+        '&scope=chat:read%20chat:edit%20user:write:chat%20user:manage:chat_color%20moderator:manage:banned_users%20moderator:manage:chat_messages%20moderator:manage:announcements%20moderator:manage:shoutouts%20moderator:read:blocked_terms%20moderator:read:chat_settings%20moderator:read:unban_requests%20moderator:read:warnings%20moderator:read:moderators%20moderator:read:vips%20user:read:emotes%20user:manage:blocked_users%20user:read:blocked_users%20moderator:manage:chat_settings%20channel:manage:moderators%20channel:manage:vips%20channel:manage:commercials%20channel:manage:raids%20moderator:manage:shield_mode%20channel:manage:broadcast%20user:manage:whispers%20channel:read:hype_train%20channel:read:polls%20channel:read:predictions'
         '&state=$state'
         '&force_verify=true';
     return (url: url, state: state);

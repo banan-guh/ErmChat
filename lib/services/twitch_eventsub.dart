@@ -31,6 +31,93 @@ class ModerationEvent {
   });
 }
 
+/// A hype train event (broadcaster-only). [kind] is one of begin, progress, end.
+class HypeTrainEvent {
+  final String channel;
+  final String kind;
+  final int level;
+  final int progress;
+  final int total;
+  final DateTime? expiresAt;
+  final List<HypeTrainContribution> topContributions;
+
+  HypeTrainEvent({
+    required this.channel,
+    required this.kind,
+    required this.level,
+    required this.progress,
+    required this.total,
+    this.expiresAt,
+    this.topContributions = const [],
+  });
+}
+
+class HypeTrainContribution {
+  final String userName;
+  final String type;
+  final int total;
+
+  HypeTrainContribution({
+    required this.userName,
+    required this.type,
+    required this.total,
+  });
+}
+
+/// A channel poll event (broadcaster-only). [kind] is one of begin, progress, end.
+class PollEvent {
+  final String channel;
+  final String kind;
+  final String title;
+  final List<PollChoice> choices;
+  final String status;
+
+  PollEvent({
+    required this.channel,
+    required this.kind,
+    required this.title,
+    required this.choices,
+    required this.status,
+  });
+}
+
+class PollChoice {
+  final String title;
+  final int votes;
+
+  PollChoice({required this.title, required this.votes});
+}
+
+/// A channel prediction event (broadcaster-only). [kind] is one of begin,
+/// progress, lock, end.
+class PredictionEvent {
+  final String channel;
+  final String kind;
+  final String title;
+  final List<PredictionOutcome> outcomes;
+  final String status;
+
+  PredictionEvent({
+    required this.channel,
+    required this.kind,
+    required this.title,
+    required this.outcomes,
+    required this.status,
+  });
+}
+
+class PredictionOutcome {
+  final String title;
+  final int users;
+  final int channelPoints;
+
+  PredictionOutcome({
+    required this.title,
+    required this.users,
+    required this.channelPoints,
+  });
+}
+
 class EventSubService {
   static const _wsUrl = 'wss://eventsub.wss.twitch.tv/ws';
   static const _maxReconnectAttempts = 8;
@@ -60,6 +147,13 @@ class EventSubService {
   final _moderationController = StreamController<ModerationEvent>.broadcast(
     sync: true,
   );
+  final _hypeTrainController = StreamController<HypeTrainEvent>.broadcast(
+    sync: true,
+  );
+  final _pollController = StreamController<PollEvent>.broadcast(sync: true);
+  final _predictionController = StreamController<PredictionEvent>.broadcast(
+    sync: true,
+  );
   final _statusController = StreamController<EventSubStatus>.broadcast(
     sync: true,
   );
@@ -87,6 +181,9 @@ class EventSubService {
   EventSubService({this._connectivity});
 
   Stream<ModerationEvent> get onModeration => _moderationController.stream;
+  Stream<HypeTrainEvent> get onHypeTrain => _hypeTrainController.stream;
+  Stream<PollEvent> get onPoll => _pollController.stream;
+  Stream<PredictionEvent> get onPrediction => _predictionController.stream;
   Stream<EventSubStatus> get onStatus => _statusController.stream;
 
   void setChannelMapping(String broadcasterUserId, String channelName) {
@@ -268,14 +365,119 @@ class EventSubService {
     });
   }
 
-  /// Routes channel.moderate v2 notifications into [ModerationEvent]s.
+  /// Routes EventSub notifications into typed events. Moderation is channel
+  /// agnostic (moderator subscriptions); hype train, polls and predictions are
+  /// broadcaster-only and only ever arrive for channels where the logged-in
+  /// user is the broadcaster.
   void _onNotification(Map<String, dynamic> msg) {
     final meta = msg['metadata'] as Map<String, dynamic>;
-    if (meta['subscription_type'] != 'channel.moderate') return;
-
+    final type = meta['subscription_type'] as String? ?? '';
     final payload = msg['payload'] as Map<String, dynamic>;
     final event = payload['event'] as Map<String, dynamic>;
     final channel = _channelFromPayload(msg);
+
+    if (type.startsWith('channel.hype_train.')) {
+      if (channel == null) return;
+      _emitHypeTrain(
+        channel,
+        event,
+        type.substring('channel.hype_train.'.length),
+      );
+    } else if (type.startsWith('channel.poll.')) {
+      if (channel == null) return;
+      _emitPoll(channel, event, type.substring('channel.poll.'.length));
+    } else if (type.startsWith('channel.prediction.')) {
+      if (channel == null) return;
+      _emitPrediction(
+        channel,
+        event,
+        type.substring('channel.prediction.'.length),
+      );
+    } else if (type == 'channel.moderate') {
+      _emitModeration(channel, event);
+    }
+  }
+
+  void _emitHypeTrain(String channel, Map<String, dynamic> event, String kind) {
+    DateTime? expiresAt;
+    final exp = event['expires_at'] as String?;
+    if (exp != null) expiresAt = DateTime.tryParse(exp);
+
+    final contributions = <HypeTrainContribution>[];
+    for (final c in (event['top_contributions'] as List? ?? const [])) {
+      final m = c as Map<String, dynamic>;
+      contributions.add(
+        HypeTrainContribution(
+          userName: m['user_name'] as String? ?? 'Anonymous',
+          type: m['type'] as String? ?? '',
+          total: m['total'] as int? ?? 0,
+        ),
+      );
+    }
+
+    _hypeTrainController.add(
+      HypeTrainEvent(
+        channel: channel,
+        kind: kind,
+        level: event['level'] as int? ?? 1,
+        progress: event['progress'] as int? ?? 0,
+        total: event['total'] as int? ?? 0,
+        expiresAt: expiresAt,
+        topContributions: contributions,
+      ),
+    );
+  }
+
+  void _emitPoll(String channel, Map<String, dynamic> event, String kind) {
+    final choices = <PollChoice>[];
+    for (final c in (event['choices'] as List? ?? const [])) {
+      final m = c as Map<String, dynamic>;
+      choices.add(
+        PollChoice(
+          title: m['title'] as String? ?? '',
+          votes: m['votes'] as int? ?? 0,
+        ),
+      );
+    }
+    _pollController.add(
+      PollEvent(
+        channel: channel,
+        kind: kind,
+        title: event['title'] as String? ?? '',
+        choices: choices,
+        status: event['status'] as String? ?? '',
+      ),
+    );
+  }
+
+  void _emitPrediction(
+    String channel,
+    Map<String, dynamic> event,
+    String kind,
+  ) {
+    final outcomes = <PredictionOutcome>[];
+    for (final o in (event['outcomes'] as List? ?? const [])) {
+      final m = o as Map<String, dynamic>;
+      outcomes.add(
+        PredictionOutcome(
+          title: m['title'] as String? ?? '',
+          users: m['users'] as int? ?? 0,
+          channelPoints: m['channel_points'] as int? ?? 0,
+        ),
+      );
+    }
+    _predictionController.add(
+      PredictionEvent(
+        channel: channel,
+        kind: kind,
+        title: event['title'] as String? ?? '',
+        outcomes: outcomes,
+        status: event['status'] as String? ?? '',
+      ),
+    );
+  }
+
+  void _emitModeration(String? channel, Map<String, dynamic> event) {
     if (channel == null) return;
 
     final action = event['action'] as String? ?? '';
@@ -392,6 +594,9 @@ class EventSubService {
     _connectivitySub?.cancel();
     _connectivitySub = null;
     _moderationController.close();
+    _hypeTrainController.close();
+    _pollController.close();
+    _predictionController.close();
     _statusController.close();
   }
 }

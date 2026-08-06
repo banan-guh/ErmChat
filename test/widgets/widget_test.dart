@@ -2748,8 +2748,8 @@ void main() {
         expect(lastTileBottom, closeTo(listBottom, 1.0));
 
         // Keyboard up: nav bar covered by the keyboard, inset reported.
-      tester.view.padding = FakeViewPadding.zero;
-      tester.view.viewInsets = const FakeViewPadding(bottom: 400);
+        tester.view.padding = FakeViewPadding.zero;
+        tester.view.viewInsets = const FakeViewPadding(bottom: 400);
         await tester.pump();
 
         final listBottomUp = tester

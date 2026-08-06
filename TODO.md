@@ -62,7 +62,7 @@
 - [ ] **Invalid argument(s): string is not well-formed UTF-16** - I believe it's a problem with specific characters in the chat messages.
 - [+] **Reconnected replacement sometimes misses** - `_addSystemMessage` only checks `msgs.first` for "Disconnected" when "Connected" arrives. If chat messages or subscribe warnings push "Disconnected" down the list, the replacement silently fails and both "Connected" and "Disconnected" stay visible. **Watching but probably fixed**
 - [x] **Kill notifications when app is opened** - Mention/whisper notifications should be dismissed when the app comes to the foreground.
-- [ ] **Add support for twitch widgets** - e.g. hype train, subs, polls
+- [+] **Add support for twitch widgets** - e.g. hype train, subs, polls
 - 
 
 ## Research / Open Ends
