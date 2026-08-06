@@ -42,7 +42,7 @@ import '../widgets/chat_widget_cutout.dart';
 import '../widgets/join_channel_dialog.dart';
 import '../services/foreground_task.dart';
 
-enum OverlayPanel { closed, thread, mentions, emotes }
+enum OverlayPanel { closed, thread, mentions }
 
 class HomeScreen extends StatefulWidget {
   final TwitchAuth twitchAuth;
@@ -238,6 +238,7 @@ class _HomeScreenState extends State<HomeScreen>
   bool _replyToRoot = false;
   bool _preferEmotesFirst = false;
   OverlayPanel _activePanel = OverlayPanel.closed;
+  bool _emoteSheetOpen = false;
   int _maxMessagesPerChannel = 200;
   int _recentMessagesLimit = 100;
   int _nextSystemMessageId = 0;
@@ -282,12 +283,13 @@ class _HomeScreenState extends State<HomeScreen>
   String? _undoExpectedAfter;
 
   void _onSheetSizeChanged() {
-    // When the user drags the emote sheet down to size 0, close the panel.
-    if (_activePanel == OverlayPanel.emotes &&
+    // When the user drags the emote sheet down to size 0, close only the
+    // emote overlay; an open thread/mentions panel stays underneath.
+    if (_emoteSheetOpen &&
         _emoteSheetCtrl.isAttached &&
         _emoteSheetCtrl.size <= 0.001) {
       setState(() {
-        _activePanel = OverlayPanel.closed;
+        _emoteSheetOpen = false;
         _panelScaleCtrl.value = 1.0;
       });
     }
@@ -315,14 +317,14 @@ class _HomeScreenState extends State<HomeScreen>
     _messageController.addListener(_onInputChanged);
     WidgetsBinding.instance.addObserver(this);
     _predictiveBackHandler = PanelPredictiveBackHandler(
-      isPanelOpen: () => _activePanel != OverlayPanel.closed,
+      isPanelOpen: () => _activePanel != OverlayPanel.closed || _emoteSheetOpen,
       onProgress: (progress) {
         _panelScaleCtrl.value = 1.0 - 0.10 * progress;
       },
       onCancel: () {
         _panelScaleCtrl.animateTo(1.0);
       },
-      onCommit: _closePanel,
+      onCommit: _handlePanelBack,
     );
     WidgetsBinding.instance.addObserver(_predictiveBackHandler);
     WidgetsBinding.instance.addPostFrameCallback(
@@ -666,8 +668,8 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   void _onInputFocusChanged() {
-    if (_activePanel == OverlayPanel.emotes) {
-      _closePanel();
+    if (_emoteSheetOpen) {
+      unawaited(_closeEmoteSheet());
     }
   }
 
@@ -1690,7 +1692,7 @@ class _HomeScreenState extends State<HomeScreen>
   Future<void> _showThreadView(TwitchMessage rootMsg) async {
     final channel = rootMsg.channel;
     if (channel == null) return;
-    if (_activePanel != OverlayPanel.closed) await _closePanel();
+    await _closePanel();
     if (_selectedChannel != channel) {
       final idx = _channels.indexOf(channel);
       if (idx >= 0) _onChannelChanged(idx);
@@ -1716,7 +1718,7 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Future<void> _showMentionsView() async {
-    if (_activePanel != OverlayPanel.closed) await _closePanel();
+    await _closePanel();
     _focusNode.unfocus();
     setState(() {
       _activePanel = OverlayPanel.mentions;
@@ -1735,9 +1737,8 @@ class _HomeScreenState extends State<HomeScreen>
     });
   }
 
-  Future<void> _showEmoteMenu() async {
-    if (_activePanel != OverlayPanel.closed) await _closePanel();
-    setState(() => _activePanel = OverlayPanel.emotes);
+  void _showEmoteMenu() {
+    setState(() => _emoteSheetOpen = true);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && _emoteSheetCtrl.isAttached) {
         _emoteSheetCtrl.animateTo(
@@ -1747,6 +1748,31 @@ class _HomeScreenState extends State<HomeScreen>
         );
       }
     });
+  }
+
+  Future<void> _closeEmoteSheet() async {
+    if (!_emoteSheetOpen) return;
+    if (_emoteSheetCtrl.isAttached) {
+      await _emoteSheetCtrl.animateTo(
+        0.0,
+        duration: _sheetCloseDuration,
+        curve: Curves.easeOut,
+      );
+    }
+    if (mounted) {
+      setState(() {
+        _emoteSheetOpen = false;
+        _panelScaleCtrl.value = 1.0;
+      });
+    }
+  }
+
+  void _handlePanelBack() {
+    if (_emoteSheetOpen) {
+      unawaited(_closeEmoteSheet());
+    } else {
+      unawaited(_closePanel());
+    }
   }
 
   void _onEmoteSelected(GenericEmote emote) {
@@ -1763,16 +1789,13 @@ class _HomeScreenState extends State<HomeScreen>
 
   Future<void> _closePanel() async {
     final panelToClose = _activePanel;
-    if (panelToClose == OverlayPanel.closed) return;
-    if (panelToClose == OverlayPanel.emotes) {
-      if (_emoteSheetCtrl.isAttached) {
-        await _emoteSheetCtrl.animateTo(
-          0.0,
-          duration: _sheetCloseDuration,
-          curve: Curves.easeOut,
-        );
-      }
-    } else if (panelToClose == OverlayPanel.thread) {
+    if (panelToClose == OverlayPanel.closed && !_emoteSheetOpen) return;
+    await _closeEmoteSheet();
+    if (panelToClose == OverlayPanel.closed) {
+      if (mounted) setState(() {});
+      return;
+    }
+    if (panelToClose == OverlayPanel.thread) {
       await _animateRatio(
         _threadSheetRatio,
         _threadSheetRatio.value,
@@ -2129,11 +2152,16 @@ class _HomeScreenState extends State<HomeScreen>
     final theme = Theme.of(context);
 
     return PopScope(
-      canPop: _activePanel == OverlayPanel.closed && !_focusNode.hasFocus,
+      canPop:
+          _activePanel == OverlayPanel.closed &&
+          !_emoteSheetOpen &&
+          !_focusNode.hasFocus,
       onPopInvokedWithResult: (didPop, _) {
         if (didPop) return;
-        if (_activePanel != OverlayPanel.closed) {
-          _closePanel();
+        if (_emoteSheetOpen) {
+          unawaited(_closeEmoteSheet());
+        } else if (_activePanel != OverlayPanel.closed) {
+          unawaited(_closePanel());
         } else {
           _focusNode.unfocus();
           setState(() {});
@@ -2613,7 +2641,7 @@ class _HomeScreenState extends State<HomeScreen>
                             builder: (context, constraints) {
                               final totalAvailH = constraints.maxHeight;
                               return IgnorePointer(
-                                ignoring: _activePanel != OverlayPanel.emotes,
+                                ignoring: !_emoteSheetOpen,
                                 child: DraggableScrollableSheet(
                                   controller: _emoteSheetCtrl,
                                   initialChildSize: 0,
@@ -2632,12 +2660,10 @@ class _HomeScreenState extends State<HomeScreen>
                                               .scaffoldBackgroundColor,
                                           child: EmoteMenuPanelWidget(
                                             key: const ValueKey('emote_panel'),
-                                            isActive:
-                                                _activePanel ==
-                                                OverlayPanel.emotes,
+                                            isActive: _emoteSheetOpen,
                                             selectedChannel: _selectedChannel,
                                             onEmoteSelected: _onEmoteSelected,
-                                            onClose: _closePanel,
+                                            onClose: _closeEmoteSheet,
                                             emoteManager: _emoteManager,
                                             scrollController: scrollController,
                                             sheetCtrl: _emoteSheetCtrl,
@@ -2702,8 +2728,8 @@ class _HomeScreenState extends State<HomeScreen>
                           onSendLongPress: _onSendLongPress,
                           onTap: () => _suggestionsNotifier.value = [],
                           onEmoteToggle: () {
-                            if (_activePanel == OverlayPanel.emotes) {
-                              _closePanel();
+                            if (_emoteSheetOpen) {
+                              _closeEmoteSheet();
                             } else {
                               _showEmoteMenu();
                             }

@@ -1366,6 +1366,106 @@ void main() {
       },
     );
 
+    testWidgets('emote menu overlays the reply thread instead of closing it', (
+      WidgetTester tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({'access_token': 'test_token'});
+      FlutterSecureStorage.setMockInitialValues({'access_token': 'test_token'});
+      const channel = 'testchannel';
+      final parent = TwitchMessage(
+        login: 'alice',
+        text: 'parent msg',
+        messageId: 'p1',
+        timestamp: now.subtract(const Duration(minutes: 5)),
+        channel: channel,
+      );
+      final child = TwitchMessage(
+        login: 'bob',
+        text: 'child msg',
+        messageId: 'c1',
+        replyToParentId: 'p1',
+        replyToUser: 'alice',
+        replyToText: 'parent msg',
+        timestamp: now.subtract(const Duration(minutes: 4)),
+        isHistory: true,
+        channel: channel,
+      );
+      final irc = _FakeIrcService();
+      await joinChannel(
+        tester,
+        channelName: channel,
+        history: [parent, child],
+        irc: irc,
+      );
+      irc.triggerConnect();
+      await tester.pump();
+
+      await tester.tap(find.textContaining('replying to alice: parent msg'));
+      await tester.pumpAndSettle();
+      expect(find.text('Reply Thread'), findsOneWidget);
+
+      await tester.tap(find.byIcon(Icons.emoji_emotions_outlined));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Reply Thread'), findsOneWidget);
+      expect(find.text('Recent'), findsOneWidget);
+
+      await tester.tap(find.byIcon(Icons.emoji_emotions_outlined));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Recent'), findsNothing);
+      expect(find.text('Reply Thread'), findsOneWidget);
+    });
+
+    testWidgets('dragging the emote sheet down over a thread leaves it open', (
+      WidgetTester tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({'access_token': 'test_token'});
+      FlutterSecureStorage.setMockInitialValues({'access_token': 'test_token'});
+      const channel = 'testchannel';
+      final parent = TwitchMessage(
+        login: 'alice',
+        text: 'parent msg',
+        messageId: 'p1',
+        timestamp: now.subtract(const Duration(minutes: 5)),
+        channel: channel,
+      );
+      final child = TwitchMessage(
+        login: 'bob',
+        text: 'child msg',
+        messageId: 'c1',
+        replyToParentId: 'p1',
+        replyToUser: 'alice',
+        replyToText: 'parent msg',
+        timestamp: now.subtract(const Duration(minutes: 4)),
+        isHistory: true,
+        channel: channel,
+      );
+      final irc = _FakeIrcService();
+      await joinChannel(
+        tester,
+        channelName: channel,
+        history: [parent, child],
+        irc: irc,
+      );
+      irc.triggerConnect();
+      await tester.pump();
+
+      await tester.tap(find.textContaining('replying to alice: parent msg'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byIcon(Icons.emoji_emotions_outlined));
+      await tester.pumpAndSettle();
+      expect(find.text('Reply Thread'), findsOneWidget);
+      expect(find.text('Recent'), findsOneWidget);
+
+      await tester.fling(find.text('Recent'), const Offset(0, 300), 1000);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Recent'), findsNothing);
+      expect(find.text('Reply Thread'), findsOneWidget);
+    });
+
     testWidgets('long-press view thread on history child opens thread modal', (
       WidgetTester tester,
     ) async {
