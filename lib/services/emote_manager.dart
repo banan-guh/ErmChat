@@ -194,7 +194,7 @@ class EmoteManager extends ChangeNotifier {
   Future<void> preloadGlobalEmotes() async {
     if (_globalCache != null) return;
     final ttl = await _effectiveTtl();
-    final loaded = await _loadFromPrefs('emotes2_global', ttl);
+    final loaded = await _loadFromPrefs('emotes3_global', ttl);
     final cached = loaded.cached;
     if (cached != null) {
       _globalCache = cached;
@@ -210,7 +210,7 @@ class EmoteManager extends ChangeNotifier {
     // Stale or missing: keep showing stale data while revalidating.
     final emotes = await _enqueueFetch(_fetchAllGlobal);
     _globalCache = _buildChannelMap(emotes);
-    await _saveToPrefs('emotes2_global', _globalCache!, ttl);
+    await _saveToPrefs('emotes3_global', _globalCache!, ttl);
     _notify();
   }
 
@@ -243,7 +243,7 @@ class EmoteManager extends ChangeNotifier {
   Future<void> resolveEmotes(String channel, String? broadcasterId) async {
     final ttl = await _effectiveTtl();
     final loaded = await _loadFromPrefs(
-      'emotes2_$channel',
+      'emotes3_$channel',
       ttl,
       fetchTime: _channelFetchTimes[channel],
     );
@@ -276,7 +276,7 @@ class EmoteManager extends ChangeNotifier {
       () => _fetchAllChannel(broadcasterId, channelName: channel),
     );
     _applyChannelEmotes(channel, emotes);
-    await _saveToPrefs('emotes2_$channel', _channelCaches[channel]!, ttl);
+    await _saveToPrefs('emotes3_$channel', _channelCaches[channel]!, ttl);
   }
 
   void _applyChannelEmotes(String channel, List<GenericEmote> emotes) {
@@ -426,7 +426,9 @@ class EmoteManager extends ChangeNotifier {
             url: e.url,
             isAnimated: e.isAnimated,
             scope: e.scope,
+            ownerChannel: e.ownerChannel,
             isZeroWidth: e.isZeroWidth,
+            baseName: e.baseName,
             relativeScale: e.relativeScale,
             aspectRatio: e.aspectRatio,
           );

@@ -7,6 +7,7 @@ GenericEmote makeTestEmote({
   bool isZeroWidth = false,
   EmoteScope scope = EmoteScope.global,
   String? ownerChannel,
+  String? baseName,
   double relativeScale = 1.0,
 }) => GenericEmote(
   id: id,
@@ -16,5 +17,6 @@ GenericEmote makeTestEmote({
   isZeroWidth: isZeroWidth,
   scope: scope,
   ownerChannel: ownerChannel,
+  baseName: baseName,
   relativeScale: relativeScale,
 );

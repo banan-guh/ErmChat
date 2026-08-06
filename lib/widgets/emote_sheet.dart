@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../models/generic_emote.dart';
 
@@ -41,24 +42,17 @@ class _EmoteSheetState extends State<EmoteSheet>
   }
 
   String _typeLabel(GenericEmote emote) {
-    if (emote.type == EmoteType.twitch) {
-      var label = 'Twitch emote';
-      if (emote.isZeroWidth) {
-        label = '$label (Zero Width)';
-      }
-      return label;
-    }
-    final scope = switch (emote.scope) {
-      EmoteScope.global => 'Global',
-      EmoteScope.channel => 'Channel',
-    };
     final provider = switch (emote.type) {
+      EmoteType.twitch => 'Twitch',
       EmoteType.bttv => 'BTTV',
       EmoteType.ffz => 'FFZ',
       EmoteType.sevenTv => '7TV',
-      EmoteType.twitch => 'Twitch',
     };
-    var label = '$scope $provider emote';
+    if (emote.type == EmoteType.twitch) {
+      return emote.isZeroWidth ? 'Twitch Emote (Zero Width)' : 'Twitch Emote';
+    }
+    final scope = emote.scope == EmoteScope.global ? 'Global' : 'Channel';
+    var label = '$provider $scope Emote';
     if (emote.isZeroWidth) {
       label = '$label (Zero Width)';
     }
@@ -71,79 +65,124 @@ class _EmoteSheetState extends State<EmoteSheet>
     return 'Created by $owner';
   }
 
+  String _providerUrl(GenericEmote emote) {
+    return switch (emote.type) {
+      EmoteType.sevenTv => 'https://7tv.app/emotes/${emote.id}',
+      EmoteType.bttv => 'https://betterttv.com/emotes/${emote.id}',
+      EmoteType.ffz =>
+        'https://www.frankerfacez.com/emoticon/${emote.id}-${emote.code}',
+      EmoteType.twitch => 'https://chatvau.lt/emote/twitch/${emote.id}',
+    };
+  }
+
+  Future<void> _openUrl(String url) async {
+    final ok = await launchUrl(
+      Uri.parse(url),
+      mode: LaunchMode.externalApplication,
+    );
+    if (!ok && mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Could not open $url')));
+    }
+  }
+
   Widget _buildEmotePage(GenericEmote emote) {
     final theme = Theme.of(context);
+    final owner = _ownerLabel(emote);
+
+    final subtitleStyle = TextStyle(
+      fontSize: 16,
+      color: theme.colorScheme.onSurfaceVariant,
+      height: 1.2,
+    );
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+      padding: const EdgeInsets.fromLTRB(4, 4, 4, 8),
       child: Column(
         mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: CachedNetworkImage(
-                  imageUrl: emote.url,
-                  width: 96,
-                  height: 96,
-                  fit: BoxFit.contain,
-                  fadeInDuration: Duration.zero,
-                  placeholder: (_, _) => Container(
-                    width: 96,
-                    height: 96,
-                    color: theme.colorScheme.surfaceContainerHighest,
-                  ),
-                  errorWidget: (_, _, _) => Container(
-                    width: 96,
-                    height: 96,
-                    color: theme.colorScheme.surfaceContainerHighest,
-                    child: Icon(
-                      Icons.image,
-                      size: 32,
-                      color: theme.colorScheme.onSurfaceVariant,
+              // 128x128 emote preview, tappable to open the full image.
+              Padding(
+                padding: const EdgeInsets.only(bottom: 16),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: GestureDetector(
+                    onTap: () => _openUrl(emote.url),
+                    child: SizedBox(
+                      width: 128,
+                      height: 128,
+                      child: CachedNetworkImage(
+                        imageUrl: emote.url,
+                        fit: BoxFit.contain,
+                        fadeInDuration: Duration.zero,
+                        placeholder: (_, _) => const Center(
+                          child: SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        ),
+                        errorWidget: (_, _, _) => Container(
+                          color: theme.colorScheme.surfaceContainerHighest,
+                          child: Icon(
+                            Icons.image,
+                            size: 32,
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ),
                     ),
                   ),
                 ),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 8),
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      emote.code,
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w600,
-                        color: theme.colorScheme.onSurface,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      _typeLabel(emote),
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                    if (_ownerLabel(emote) != null) ...[
-                      const SizedBox(height: 2),
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 8, right: 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
                       Text(
-                        _ownerLabel(emote)!,
+                        emote.code,
+                        textAlign: TextAlign.center,
                         style: TextStyle(
-                          fontSize: 13,
-                          color: theme.colorScheme.onSurfaceVariant,
+                          fontSize: 22,
+                          fontWeight: FontWeight.w400,
+                          color: theme.colorScheme.onSurface,
                         ),
                       ),
+                      const SizedBox(height: 8),
+                      Text(
+                        _typeLabel(emote),
+                        textAlign: TextAlign.center,
+                        style: subtitleStyle,
+                      ),
+                      if (emote.baseName != null) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          'Alias of ${emote.baseName}',
+                          textAlign: TextAlign.center,
+                          style: subtitleStyle,
+                        ),
+                      ],
+                      if (owner != null) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          owner,
+                          textAlign: TextAlign.center,
+                          style: subtitleStyle,
+                        ),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 12),
           ListTile(
             dense: true,
             leading: const Icon(Icons.send),
@@ -151,7 +190,7 @@ class _EmoteSheetState extends State<EmoteSheet>
             onTap: () {
               widget.onClose();
               final text = widget.messageController.text;
-              final suffix = text.isEmpty ? emote.code : ' $emote.code';
+              final suffix = text.isEmpty ? emote.code : ' ${emote.code}';
               widget.messageController.text = '$text$suffix';
               widget.messageController.selection = TextSelection.fromPosition(
                 TextPosition(offset: widget.messageController.text.length),
@@ -172,12 +211,7 @@ class _EmoteSheetState extends State<EmoteSheet>
             dense: true,
             leading: const Icon(Icons.open_in_new),
             title: const Text('Open emote link'),
-            onTap: () {
-              widget.onClose();
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Emote link not yet available')),
-              );
-            },
+            onTap: () => _openUrl(_providerUrl(emote)),
           ),
         ],
       ),
@@ -189,7 +223,7 @@ class _EmoteSheetState extends State<EmoteSheet>
     final hasMultiple = widget.emotes.length > 1;
 
     return Padding(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(8),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -205,12 +239,12 @@ class _EmoteSheetState extends State<EmoteSheet>
             ),
           ),
           if (hasMultiple) ...[
-            const SizedBox(height: 10),
+            const SizedBox(height: 8),
             TabBar(
               controller: _tabCtrl,
               isScrollable: true,
               tabAlignment: TabAlignment.center,
-              labelStyle: const TextStyle(fontSize: 13),
+              labelStyle: const TextStyle(fontSize: 14),
               tabs: widget.emotes.map((e) => Tab(text: e.code)).toList(),
             ),
           ],

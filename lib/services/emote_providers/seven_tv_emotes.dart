@@ -117,6 +117,12 @@ class SevenTvEmoteProvider {
         );
       }
 
+      // Alias emotes carry the aliased emote's name in data.name; record it
+      // only when it differs from the display name (mirrors dankchat).
+      final baseName = data['name'] as String?;
+      final owner = data['owner'] as Map<String, dynamic>?;
+      final ownerName = owner?['display_name'] as String?;
+
       emotes.add(
         GenericEmote(
           id: id,
@@ -130,6 +136,8 @@ class SevenTvEmoteProvider {
               ? EmoteScope.channel
               : EmoteScope.global,
           isZeroWidth: isZeroWidth,
+          baseName: baseName != null && baseName != name ? baseName : null,
+          ownerChannel: ownerName,
           relativeScale: relativeScale,
           aspectRatio: aspectRatio,
         ),

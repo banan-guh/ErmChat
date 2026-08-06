@@ -46,6 +46,7 @@ void main() {
         scope: EmoteScope.channel,
         ownerChannel: 'testuser',
         relativeScale: 0.625,
+        baseName: 'AliasedEmote',
       );
       final json = original.toJson();
       final restored = GenericEmote.fromJson(json);
@@ -57,6 +58,7 @@ void main() {
       expect(restored.ownerChannel, original.ownerChannel);
       expect(restored.url, original.url);
       expect(restored.relativeScale, original.relativeScale);
+      expect(restored.baseName, 'AliasedEmote');
     });
 
     test('deserializes with defaults for missing fields', () {
@@ -102,6 +104,34 @@ void main() {
         final restored = GenericEmote.fromJson(json);
         expect(restored.scope, scope);
       }
+    });
+  });
+
+  group('7TV live updates', () {
+    test('renaming a 7TV emote preserves baseName and ownerChannel', () async {
+      final manager = EmoteManager(fetchStagger: Duration.zero);
+      manager.updateSevenTvEmotes(
+        'ch',
+        added: [
+          GenericEmote(
+            id: 'e1',
+            code: 'OldName',
+            type: EmoteType.sevenTv,
+            url: 'https://example.com/e1.png',
+            scope: EmoteScope.channel,
+            ownerChannel: 'Creator',
+            baseName: 'BaseEmote',
+          ),
+        ],
+      );
+      manager.updateSevenTvEmotes(
+        'ch',
+        renamed: {'e1': (newName: 'NewName', oldName: 'OldName')},
+      );
+      final emote = manager.byCode('ch')!.byCode['NewName'];
+      expect(emote, isNotNull);
+      expect(emote!.baseName, 'BaseEmote');
+      expect(emote.ownerChannel, 'Creator');
     });
   });
 
@@ -202,7 +232,7 @@ void main() {
 
     Map<String, Object> persistedCache({required bool fresh}) {
       return {
-        'emotes2_ch': jsonEncode({
+        'emotes3_ch': jsonEncode({
           'ts': DateTime.now()
               .subtract(
                 fresh ? const Duration(hours: 1) : const Duration(days: 2),
