@@ -19,6 +19,7 @@ import '../services/emote_manager.dart';
 import '../services/twitch_badge_service.dart';
 import '../services/emote_providers/twitch_emotes.dart';
 import '../util/mention.dart';
+import '../util/sheet_drag.dart';
 import '../util/thread_utils.dart';
 import '../widgets/settings.dart';
 import '../widgets/tabbed_layout.dart';
@@ -214,6 +215,7 @@ class _HomeScreenState extends State<HomeScreen>
   final _threadSheetRatio = ValueNotifier(0.0);
   final _mentionsSheetRatio = ValueNotifier(0.0);
   late final DraggableScrollableController _emoteSheetCtrl;
+  late final TabController _mentionsTabCtrl;
   final _threadPanelScrollCtrl = ScrollController();
   final _mentionsPanelScrollCtrl = ScrollController();
   double _panelDragStartRatio = 0.0;
@@ -260,6 +262,7 @@ class _HomeScreenState extends State<HomeScreen>
     super.initState();
     _currentUserLogin = widget.initialCurrentUserLogin;
     _emoteSheetCtrl = DraggableScrollableController();
+    _mentionsTabCtrl = TabController(length: 2, vsync: this);
     _emoteSheetCtrl.addListener(
       () => _onSheetSizeChanged(OverlayPanel.emotes, _emoteSheetCtrl),
     );
@@ -986,6 +989,7 @@ class _HomeScreenState extends State<HomeScreen>
     _threadSheetRatio.dispose();
     _mentionsSheetRatio.dispose();
     _emoteSheetCtrl.dispose();
+    _mentionsTabCtrl.dispose();
     _threadPanelScrollCtrl.dispose();
     _mentionsPanelScrollCtrl.dispose();
     _threadPanelData.dispose();
@@ -1549,7 +1553,7 @@ class _HomeScreenState extends State<HomeScreen>
     final animation = Tween(
       begin: from,
       end: to,
-    ).animate(CurvedAnimation(parent: controller, curve: Curves.easeOut));
+    ).animate(CurvedAnimation(parent: controller, curve: Curves.easeOutCubic));
     void listener() {
       ratio.value = animation.value;
     }
@@ -1565,6 +1569,7 @@ class _HomeScreenState extends State<HomeScreen>
     required double maxSize,
     required VoidCallback onClose,
     required VoidCallback onSnap,
+    Widget? header,
   }) {
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
@@ -1584,28 +1589,41 @@ class _HomeScreenState extends State<HomeScreen>
           maxSize,
         );
       },
-      onVerticalDragEnd: (_) {
-        if (ratio.value < maxSize * 0.9) {
+      onVerticalDragEnd: (details) {
+        if (shouldCloseSheet(
+          fraction: ratio.value / maxSize,
+          velocity: details.primaryVelocity ?? 0,
+        )) {
           onClose();
         } else {
           onSnap();
         }
       },
-      child: Container(
-        width: double.infinity,
-        color: Colors.transparent,
-        padding: const EdgeInsets.only(bottom: 50, top: 10),
-        child: Align(
-          alignment: Alignment.topCenter,
-          child: Container(
-            width: 36,
-            height: 4,
-            decoration: BoxDecoration(
-              color: Colors.grey.shade400,
-              borderRadius: BorderRadius.circular(2),
+      // The whole header strip (handle + title row + divider) is the drag
+      // surface, so a swipe-down starting anywhere above the list moves the
+      // sheet. The detector only registers vertical drags, so taps on the
+      // close button keep working.
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: double.infinity,
+            color: Colors.transparent,
+            padding: const EdgeInsets.only(top: 10, bottom: 28),
+            child: Align(
+              alignment: Alignment.topCenter,
+              child: Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade400,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
             ),
           ),
-        ),
+          ?header,
+        ],
       ),
     );
   }
@@ -2108,37 +2126,43 @@ class _HomeScreenState extends State<HomeScreen>
                                         _fullHeightFraction,
                                         _sheetAnimDuration,
                                       ),
-                                    ),
-                                    Padding(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 8,
-                                      ),
-                                      child: Row(
+                                      header: Column(
+                                        mainAxisSize: MainAxisSize.min,
                                         children: [
-                                          IconButton(
-                                            icon: const Icon(Icons.close),
-                                            tooltip: 'Close reply thread',
-                                            onPressed: _closePanel,
-                                          ),
-                                          const SizedBox(width: 4),
-                                          Expanded(
-                                            child: Text(
-                                              'Reply Thread',
-                                              style: TextStyle(
-                                                fontSize: 16,
-                                                fontWeight: FontWeight.w600,
-                                                color: Theme.of(
-                                                  context,
-                                                ).colorScheme.onSurface,
-                                              ),
+                                          Padding(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 8,
                                             ),
+                                            child: Row(
+                                              children: [
+                                                IconButton(
+                                                  icon: const Icon(Icons.close),
+                                                  tooltip: 'Close reply thread',
+                                                  onPressed: _closePanel,
+                                                ),
+                                                const SizedBox(width: 4),
+                                                Expanded(
+                                                  child: Text(
+                                                    'Reply Thread',
+                                                    style: TextStyle(
+                                                      fontSize: 20,
+                                                      color: Theme.of(
+                                                        context,
+                                                      ).colorScheme.onSurface,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                          Divider(
+                                            height: 1,
+                                            color: Theme.of(
+                                              context,
+                                            ).dividerColor,
                                           ),
                                         ],
                                       ),
-                                    ),
-                                    Divider(
-                                      height: 1,
-                                      color: Theme.of(context).dividerColor,
                                     ),
                                     Expanded(
                                       child: ThreadPanelWidget(
@@ -2189,49 +2213,74 @@ class _HomeScreenState extends State<HomeScreen>
                                         _fullHeightFraction,
                                         _sheetAnimDuration,
                                       ),
-                                    ),
-                                    Padding(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 8,
-                                      ),
-                                      child: Row(
+                                      header: Column(
+                                        mainAxisSize: MainAxisSize.min,
                                         children: [
-                                          IconButton(
-                                            icon: const Icon(Icons.arrow_back),
-                                            tooltip: 'Back',
-                                            onPressed: _closePanel,
-                                          ),
-                                          const SizedBox(width: 4),
-                                          Expanded(
-                                            child: Text(
-                                              'Mentions / Whispers',
-                                              style: TextStyle(
-                                                fontSize: 16,
-                                                fontWeight: FontWeight.w600,
-                                                color: Theme.of(
-                                                  context,
-                                                ).colorScheme.onSurface,
-                                              ),
+                                          Padding(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 8,
                                             ),
+                                            child: Row(
+                                              children: [
+                                                IconButton(
+                                                  icon: const Icon(
+                                                    Icons.arrow_back,
+                                                  ),
+                                                  tooltip: 'Back',
+                                                  onPressed: _closePanel,
+                                                ),
+                                                const SizedBox(width: 4),
+                                                Expanded(
+                                                  child: Text(
+                                                    'Mentions',
+                                                    style: TextStyle(
+                                                      fontSize: 20,
+                                                      color: Theme.of(
+                                                        context,
+                                                      ).colorScheme.onSurface,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                          TabBar(
+                                            controller: _mentionsTabCtrl,
+                                            tabs: const [
+                                              Tab(text: 'Mentions'),
+                                              Tab(text: 'Whispers'),
+                                            ],
+                                          ),
+                                          Divider(
+                                            height: 1,
+                                            color: Theme.of(
+                                              context,
+                                            ).dividerColor,
                                           ),
                                         ],
                                       ),
                                     ),
-                                    Divider(
-                                      height: 1,
-                                      color: Theme.of(context).dividerColor,
-                                    ),
                                     Expanded(
-                                      child: MentionsPanelWidget(
-                                        key: const ValueKey('mentions_panel'),
-                                        messages: _mentionsPanelData,
-                                        uiScale: 1.0,
-                                        buildBadgeSpans:
-                                            _messageBuilder.buildBadgeSpans,
-                                        buildMessageSpans:
-                                            _messageBuilder.buildMessageSpans,
-                                        scrollController:
-                                            _mentionsPanelScrollCtrl,
+                                      child: TabBarView(
+                                        controller: _mentionsTabCtrl,
+                                        children: [
+                                          MentionsPanelWidget(
+                                            key: const ValueKey(
+                                              'mentions_panel',
+                                            ),
+                                            messages: _mentionsPanelData,
+                                            uiScale: 1.0,
+                                            buildBadgeSpans:
+                                                _messageBuilder.buildBadgeSpans,
+                                            buildMessageSpans: _messageBuilder
+                                                .buildMessageSpans,
+                                            scrollController:
+                                                _mentionsPanelScrollCtrl,
+                                          ),
+                                          const Center(
+                                            child: Text('No whispers'),
+                                          ),
+                                        ],
                                       ),
                                     ),
                                   ],

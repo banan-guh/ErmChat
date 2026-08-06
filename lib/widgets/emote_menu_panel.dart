@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../models/generic_emote.dart';
 import '../services/emote_manager.dart';
+import '../util/sheet_drag.dart';
 import '../widgets/tabbed_layout.dart';
 
 class EmoteMenuPanelWidget extends StatefulWidget {
@@ -33,6 +34,10 @@ class EmoteMenuPanelWidget extends StatefulWidget {
 }
 
 class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
+  // Position-based close triggers below 5% of screen height (in sheet-size
+  // units, hence the division by emoteMaxFraction in onDragEnd).
+  static const double _emoteCloseFraction = 0.05;
+
   int _emoteTabIndex = 0;
   List<GenericEmote> _cachedRecentEmotes = [];
   bool _recentEmotesLoaded = false;
@@ -78,65 +83,86 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
         ],
       ),
       clipBehavior: Clip.hardEdge,
-      child: Column(
-        children: [
-          GestureDetector(
+      child: Builder(
+        builder: (context) {
+          // The whole header strip (pill + tab bar) is the drag surface: a
+          // swipe-down starting on the tab bar moves the sheet, just like
+          // DankChat. Only vertical drags are registered, so tab taps and
+          // horizontal swipes between tabs still win; the emote grids below
+          // are scrollables and keep winning their own vertical drags.
+          void onDragUpdate(DragUpdateDetails details) {
+            final newPixels = widget.sheetCtrl.pixels - details.primaryDelta!;
+            final newSize = widget.sheetCtrl
+                .pixelsToSize(newPixels)
+                .clamp(0.0, 1.0);
+            if (widget.sheetCtrl.isAttached) {
+              widget.sheetCtrl.jumpTo(newSize);
+            }
+          }
+
+          // Close on drag-below-threshold or a fast flick down (shared
+          // thresholds in util/sheet_drag.dart). Position close triggers at
+          // 5% of screen height (down from 8%); momentum is more sensitive
+          // than before. Velocity check prevents accidental close on slow
+          // drag from a high position.
+          void onDragEnd(DragEndDetails details) {
+            if (!widget.sheetCtrl.isAttached) return;
+            final velocity = details.primaryVelocity ?? 0;
+            final fraction = widget.sheetCtrl.size / widget.emoteMaxFraction;
+            if (shouldCloseSheet(
+              fraction: fraction,
+              velocity: velocity,
+              closeFraction: _emoteCloseFraction / widget.emoteMaxFraction,
+            )) {
+              widget.onClose();
+            } else {
+              widget.sheetCtrl.animateTo(
+                widget.emoteMaxFraction,
+                duration: widget.sheetAnimDuration,
+                curve: Curves.easeOutCubic,
+              );
+            }
+          }
+
+          return GestureDetector(
             key: const Key('emote_panel_handle'),
             behavior: HitTestBehavior.opaque,
-            onVerticalDragUpdate: (details) {
-              final newPixels = widget.sheetCtrl.pixels - details.primaryDelta!;
-              final newSize = widget.sheetCtrl
-                  .pixelsToSize(newPixels)
-                  .clamp(0.0, 1.0);
-              if (widget.sheetCtrl.isAttached) {
-                widget.sheetCtrl.jumpTo(newSize);
-              }
-            },
-            // Close on drag-below-threshold (8%) or fast flick down
-            // (>400px/s). Velocity check prevents accidental close on slow
-            // drag from a high position.
-            onVerticalDragEnd: (details) {
-              if (!widget.sheetCtrl.isAttached) return;
-              final velocity = details.primaryVelocity ?? 0;
-              if (widget.sheetCtrl.size < 0.08 || velocity > 400) {
-                widget.onClose();
-              } else {
-                widget.sheetCtrl.animateTo(
-                  widget.emoteMaxFraction,
-                  duration: widget.sheetAnimDuration,
-                  curve: Curves.easeOut,
-                );
-              }
-            },
-            child: Padding(
-              padding: const EdgeInsets.only(top: 12, bottom: 16),
-              child: Center(
-                child: SizedBox(
-                  width: 32,
-                  height: 4,
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      color: Colors.grey,
-                      borderRadius: BorderRadius.circular(2),
+            onVerticalDragUpdate: onDragUpdate,
+            onVerticalDragEnd: onDragEnd,
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(top: 12, bottom: 24),
+                  child: Center(
+                    child: SizedBox(
+                      width: 32,
+                      height: 4,
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: Colors.grey,
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
                     ),
                   ),
                 ),
-              ),
+                Expanded(
+                  child: TabbedLayout(
+                    tabAlignment: Alignment.center,
+                    tabs: const ['Recent', 'Subs', 'Channel', 'Global'],
+                    selectedIndex: _emoteTabIndex,
+                    onSelectedIndexChanged: (i) =>
+                        setState(() => _emoteTabIndex = i),
+                    pageBuilder: (_, i) => _buildEmoteTabPage(
+                      i,
+                      i == _emoteTabIndex ? widget.scrollController : null,
+                    ),
+                  ),
+                ),
+              ],
             ),
-          ),
-          Expanded(
-            child: TabbedLayout(
-              tabAlignment: Alignment.center,
-              tabs: const ['Recent', 'Subs', 'Channel', 'Global'],
-              selectedIndex: _emoteTabIndex,
-              onSelectedIndexChanged: (i) => setState(() => _emoteTabIndex = i),
-              pageBuilder: (_, i) => _buildEmoteTabPage(
-                i,
-                i == _emoteTabIndex ? widget.scrollController : null,
-              ),
-            ),
-          ),
-        ],
+          );
+        },
       ),
     );
   }

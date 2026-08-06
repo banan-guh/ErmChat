@@ -48,7 +48,7 @@ class MentionsPanelWidgetState extends State<MentionsPanelWidget> {
         if (messageList.isEmpty) {
           return CustomScrollView(
             controller: widget.scrollController,
-            physics: const BouncingScrollPhysics(),
+            physics: const ClampingScrollPhysics(),
             slivers: const [
               SliverFillRemaining(
                 hasScrollBody: false,
@@ -60,7 +60,7 @@ class MentionsPanelWidgetState extends State<MentionsPanelWidget> {
 
         return ListView.builder(
           controller: widget.scrollController,
-          physics: const BouncingScrollPhysics(),
+          physics: const ClampingScrollPhysics(),
           reverse: true,
           padding: const EdgeInsets.only(bottom: 8),
           itemCount: messageList.length,

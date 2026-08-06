@@ -429,7 +429,8 @@ void main() {
     await tester.tap(find.byIcon(Icons.notifications_active));
     await tester.pumpAndSettle();
 
-    expect(find.text('Mentions / Whispers'), findsOneWidget);
+    expect(find.text('Mentions'), findsNWidgets(2)); // title + tab
+    expect(find.text('Whispers'), findsOneWidget); // tab
     expect(find.text('No mentions or whispers'), findsOneWidget);
   });
 
@@ -1566,6 +1567,41 @@ void main() {
       expect(find.text('Copy message'), findsOneWidget);
       expect(find.text('More...'), findsOneWidget);
     });
+
+    testWidgets('swipe down on thread panel header closes the panel', (
+      WidgetTester tester,
+    ) async {
+      const channel = 'testchannel';
+      final parent = TwitchMessage(
+        login: 'alice',
+        text: 'parent msg',
+        messageId: 'p1',
+        timestamp: now.subtract(const Duration(minutes: 5)),
+        channel: channel,
+      );
+      final child = TwitchMessage(
+        login: 'bob',
+        text: 'child msg',
+        messageId: 'c1',
+        replyToParentId: 'p1',
+        replyToUser: 'alice',
+        replyToText: 'parent msg',
+        timestamp: now.subtract(const Duration(minutes: 4)),
+        isHistory: true,
+        channel: channel,
+      );
+      await joinChannel(tester, channelName: channel, history: [parent, child]);
+
+      await tester.tap(find.textContaining('replying to alice: parent msg'));
+      await tester.pumpAndSettle();
+      expect(find.text('Reply Thread'), findsOneWidget);
+
+      // Grab the header strip (title row, not the pill) and flick down.
+      await tester.fling(find.text('Reply Thread'), const Offset(0, 300), 1000);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Reply Thread'), findsNothing);
+    });
   });
 
   group('System messages', () {
@@ -1595,6 +1631,42 @@ void main() {
       await tester.pump();
       await tester.pump();
     }
+
+    Future<void> openEmoteMenu(WidgetTester tester) async {
+      final eventSub = _FakeEventSubService();
+      final irc = _FakeIrcService();
+      await setupChannel(tester, eventSub: eventSub, irc: irc);
+      irc.triggerConnect();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 600));
+      await tester.pump();
+
+      await tester.tap(find.byIcon(Icons.emoji_emotions_outlined));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('swipe down on emote tab bar closes the panel', (
+      WidgetTester tester,
+    ) async {
+      await openEmoteMenu(tester);
+
+      // The drag surface covers the tab bar strip, not just the pill.
+      await tester.fling(find.text('Recent'), const Offset(0, 300), 1000);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Recent'), findsNothing);
+    });
+
+    testWidgets('tab taps still work under the header drag surface', (
+      WidgetTester tester,
+    ) async {
+      await openEmoteMenu(tester);
+
+      await tester.tap(find.text('Subs'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('No subscriber emotes available'), findsOneWidget);
+    });
 
     testWidgets('permanent ban shows "user was banned" message', (
       WidgetTester tester,
