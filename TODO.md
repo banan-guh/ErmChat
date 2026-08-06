@@ -76,12 +76,12 @@
 - [ ] **Different mode** - Toggleable type box visibility and fullscreen.
 - [ ] **Robotty history bot backup** - Add fallback/backup for recent-messages.robotty.de service.
 - [ ] **Injectable TwitchBadgeService** - Currently standalone; consider making it injectable (like EventSubService/IrcService) for testability. Low priority.
-- [ ] **Analytics** self-explanatory. just a possible future feature.
+- [x] **Analytics** - Live per-channel chat analytics (total messages, unique chatters, rolling msgs/min, top chatters/emotes/words, bans/timeouts) surfaced via a Settings screen entry; accumulated client-side with no persistence.
 - [x] **Thread customization** - Currently locked into replying to previous user. should allow replying to the first user.
 - [x] **Add 0-width emotes to popup** - use tab bar menu, small addition
 - [ ] **Account switcher** - Quickly switch between logged-in Twitch accounts without going through the full login flow each time.
 - [ ] **Token refresh instead of re-auth every 60 days** - Access tokens expire roughly every 60 days; implement a refresh path instead of forcing full re-auth. Note: implicit-grant tokens (`response_type=token`) can't be refreshed - requires an auth flow change (e.g. device code grant).
 - [x] **Parallelize startup loading** - Increase overall loading speed by running independent startup fetches (emotes, badges, history, chat status) concurrently.
 - [x] **Add blocked menu** - `/block` `/unblock` commands implemented; blocked users removed from suggestions/profile. A dedicated un-block UI menu is future work.
-- [ ] **Fix bug with padding change on keyboard change** - padding changes when keyboard is extended / retracted for some reason
+- [x] **Fix bug with padding change on keyboard change** - padding changes when keyboard is extended / retracted for some reason
 - [ ] **Make select UI more friendly** - reference dankchat when selecting text.

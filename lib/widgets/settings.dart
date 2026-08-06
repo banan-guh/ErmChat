@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../screens/settings/settings_screen.dart';
+import '../services/analytics_service.dart';
 import '../services/twitch_auth.dart';
 
 class SettingsButton extends StatelessWidget {
@@ -12,6 +13,8 @@ class SettingsButton extends StatelessWidget {
   final ValueChanged<String>? onLeaveChannel;
   final ValueChanged<String>? onAddChannel;
   final ValueChanged<List<String>>? onReorderChannels;
+  final AnalyticsService? analyticsService;
+  final List<String>? channels;
   final VoidCallback? onSettingsOpened;
   final VoidCallback? onSettingsClosed;
 
@@ -26,6 +29,8 @@ class SettingsButton extends StatelessWidget {
     this.onLeaveChannel,
     this.onAddChannel,
     this.onReorderChannels,
+    this.analyticsService,
+    this.channels,
     this.onSettingsOpened,
     this.onSettingsClosed,
   });
@@ -49,6 +54,8 @@ class SettingsButton extends StatelessWidget {
               onLeaveChannel: onLeaveChannel,
               onAddChannel: onAddChannel,
               onReorderChannels: onReorderChannels,
+              analyticsService: analyticsService,
+              channels: channels,
             ),
           ),
         ).then((_) => onSettingsClosed?.call());

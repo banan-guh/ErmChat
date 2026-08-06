@@ -16,6 +16,7 @@ import '../services/seven_tv_event_client.dart';
 import '../services/command_handler.dart';
 import '../services/chat_connection_manager.dart';
 import '../services/emote_manager.dart';
+import '../services/analytics_service.dart';
 import '../services/twitch_badge_service.dart';
 import '../services/emote_providers/twitch_emotes.dart';
 import '../util/mention.dart';
@@ -86,6 +87,9 @@ class _HomeScreenState extends State<HomeScreen>
       widget.recentMessagesService ?? RecentMessagesService();
   late final _sevenTvClient = SevenTvEventClient(connectivity: _connectivity);
   late final _twitchApi = TwitchApi();
+  late final _analytics = AnalyticsService(
+    emoteLookup: (channel) => _emoteManager.byCode(channel),
+  );
   late final _chatConn = ChatConnectionManager(
     ChatConnectionConfig(
       twitchApi: _twitchApi,
@@ -117,6 +121,10 @@ class _HomeScreenState extends State<HomeScreen>
         if (mounted) setState(() {});
       },
       onSystemMessage: _addSystemMessage,
+      onAnalyticsMessage: (channel, msg) =>
+          _analytics.recordMessage(channel, msg),
+      onAnalyticsModeration: (channel, isTimeout) =>
+          _analytics.recordModeration(channel, isTimeout),
       loadUserTwitchEmotes: _loadUserTwitchEmotes,
       onReconnected: _onReconnected,
       getMaxMessagesPerChannel: () => _maxMessagesPerChannel,
@@ -1302,6 +1310,7 @@ class _HomeScreenState extends State<HomeScreen>
 
   void _removeChannel(String channel) {
     _chatConn.stopChatStatusTimer(channel);
+    _analytics.resetChannel(channel);
     _irc.part(channel);
     _ircRead.part(channel);
     _emoteManager.evictChannel(channel);
@@ -1986,6 +1995,8 @@ class _HomeScreenState extends State<HomeScreen>
                                     onLeaveChannel: _removeChannel,
                                     onAddChannel: _addChannel,
                                     onReorderChannels: _reorderChannels,
+                                    analyticsService: _analytics,
+                                    channels: _channels,
                                     onSettingsOpened: () =>
                                         _focusNode.unfocus(),
                                     onSettingsClosed: () {

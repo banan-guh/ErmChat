@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import '../../services/analytics_service.dart';
 import '../../services/twitch_auth.dart';
 import 'about_screen.dart';
 import 'account_screen.dart';
+import 'analytics_screen.dart';
 import 'channel_settings_screen.dart';
 import 'chat_settings_screen.dart';
 import 'customization_screen.dart';
@@ -18,6 +20,8 @@ class SettingsScreen extends StatelessWidget {
   final ValueChanged<String>? onLeaveChannel;
   final ValueChanged<String>? onAddChannel;
   final ValueChanged<List<String>>? onReorderChannels;
+  final AnalyticsService? analyticsService;
+  final List<String>? channels;
   final OAuthStarter? oAuthStarter;
 
   const SettingsScreen({
@@ -31,6 +35,8 @@ class SettingsScreen extends StatelessWidget {
     this.onLeaveChannel,
     this.onAddChannel,
     this.onReorderChannels,
+    this.analyticsService,
+    this.channels,
     this.oAuthStarter,
   });
 
@@ -84,6 +90,21 @@ class SettingsScreen extends StatelessWidget {
               ),
             ),
           ),
+          if (analyticsService != null && channels != null)
+            _buildTile(
+              context,
+              icon: Icons.insights,
+              title: 'Analytics',
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => AnalyticsScreen(
+                    analyticsService: analyticsService!,
+                    channels: channels!,
+                  ),
+                ),
+              ),
+            ),
           _buildTile(
             context,
             icon: Icons.person,

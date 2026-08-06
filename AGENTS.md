@@ -28,6 +28,7 @@ dart format .              # format all Dart files
 #### Screens
 - `lib/screens/home_screen.dart` - 2234‑line main screen: multi‑channel layout, EventSub + IRC integration, reply threads, mentions/whispers view, message input, system messages, chat room state, user profiles, emote menu, autocomplete
 - `lib/screens/settings/settings_screen.dart` - full-screen settings (dark mode toggle, Twitch credentials, channel management, injectable OAuth starter)
+- `lib/screens/settings/analytics_screen.dart` - per-channel chat analytics (total messages, unique chatters, live msgs/min, top chatters/emotes/words, bans/timeouts) with a channel selector, raw-vs-stopword word toggle, and per-channel/all resets
 
 #### Services
 - `lib/services/twitch_auth.dart` - credential holder (client ID + access token), persistence via FlutterSecureStorage; also caches the logged-in `login`/`userId` so cold start skips the Helix user lookup (`setUser`, cleared by `setCredentials`/`clear`)
@@ -37,7 +38,8 @@ dart format .              # format all Dart files
 - `lib/services/twitch_irc.dart` - IRC WebSocket: chat messages (`onMessage`), USERNOTICE subs/announcements/raids (`onUserNotice`), CLEARCHAT (bans/timeouts into `onBan`, full channel clears without a target into `onChannelClear`) and CLEARMSG (deletion) into `onMessageDeleted`, NOTICE, ROOMSTATE (`onRoomState`, feeds the chat status splash), USERSTATE/GLOBALUSERSTATE (`onUserState`/`onGlobalUserState`), jtv; exports `parseIrcMessage` and shared `parseIrcChatMessage`/`buildUserNoticeText`
 - `lib/services/twitch_irc_read.dart` - read-only IRC connection for own-message detection
 - `lib/services/recent_messages.dart` - recent‑messages.robotty.de client; exports `RecentMessagesService.parseIrcLine`
-- `lib/services/chat_connection_manager.dart` - central orchestrator: connection lifecycle, message routing, duplicate detection, chat status (room modes from ROOMSTATE + stream info from a 60s Helix poll, composed in `_composeChatStatus`); IRC is the chat pipeline, EventSub is moderation-only (channel.moderate v2 subscribed in channels where the user is a moderator, `_moderationChannels` suppresses duplicate IRC CLEARCHAT/CLEARMSG/NOTICE copies while active)
+- `lib/services/chat_connection_manager.dart` - central orchestrator: connection lifecycle, message routing, duplicate detection, chat status (room modes from ROOMSTATE + stream info from a 60s Helix poll, composed in `_composeChatStatus`); IRC is the chat pipeline, EventSub is moderation-only (channel.moderate v2 subscribed in channels where the user is a moderator, `_moderationChannels` suppresses duplicate IRC CLEARCHAT/CLEARMSG/NOTICE copies while active); optional `onAnalyticsMessage`/`onAnalyticsModeration` callbacks feed the AnalyticsService from the live message funnel (history merges bypass these, so backfill never pollutes stats)
+- `lib/services/analytics_service.dart` - `ChangeNotifier` per-channel chat stats accumulated live: total messages, unique chatters, top chatters, top emotes (Twitch positions + whole-token match against an injected `emoteLookup`, mirroring `EmoteText` semantics), top words with an optional stopword filter, a 60-minute rolling msgs/min window, and ban/timeout counters; no persistence, resets on app close or manually
 - `lib/services/base_irc_connection.dart` - shared abstract base for IRC WebSocket connections (reconnect, ping/pong, auth, disposal)
 - `lib/services/command_handler.dart` - command dispatcher (40+ commands: `/me`, `/color`, `/ban`, `/timeout`, `/unban`, `/untimeout`, `/delete`, `/clear`, `/announce` + color variants, `/mod` `/unmod` `/mods`, `/vip` `/unvip` `/vips`, chat modes `/slow` `/followers` `/emoteonly` `/subscribers` `/r9kbeta` `/uniquechat` + off variants, `/shoutout`, `/raid` `/unraid`, `/shield` `/shieldoff`, `/commercial`, `/marker`, `/w`, `/block` `/unblock`) via Helix API (`/me` is the only IRC command - Twitch deprecated the rest in Feb 2023); exposes `allCommands` (single source for / autocomplete, suggested to everyone regardless of permission - the API rejects with a clean error notice); failure notices follow DankChat wording (403 -> "You don't have permission to perform that action.", 401 -> "Missing required scope...", 429 -> rate-limit notice, other 4xx pass through the Helix message)
 - `lib/services/emote_manager.dart` - `ChangeNotifier`-based emote caching with 24h TTL on wifi / 48h on cellular (connectivity_plus probe, cached 60s); TTL-gated fetches go through a serialized queue with a 1.5s stagger (the one-by-one "rake"); fresh caches skip the network entirely, Twitch channel emotes refresh in the background per open; `updateSevenTvEmotes` applies live WebSocket deltas
@@ -87,6 +89,7 @@ dart format .              # format all Dart files
 - `text_bypass_test.dart` - bypassTextDuplicate tests
 - `command_handler_test.dart` - slash command tests (ban/timeout/unban/untimeout/delete/clear/announce/shoutout/color, mod/vip, chat modes, commercial/raid/shield/marker/whisper, block/unblock, Helix success, DankChat-style failure reporting, exception handling)
 - `user_store_test.dart` - UserStore add/retrieve/remove/capacity tests
+- `analytics_service_test.dart` - AnalyticsService counter accuracy, system/history/backfill exclusion, emote + word tokenization against a fake emote map, stopword filter, 60-min msgs/min rolloff (injected clock), moderation counts, resets, listener notification
 - `twitch_oauth_test.dart` - OAuth fragment parsing tests
 - `twitch_eventsub_service_test.dart` - EventSub service tests
 - `twitch_irc_service_test.dart` - IRC service tests
@@ -104,6 +107,7 @@ dart format .              # format all Dart files
 - `channel_bar_test.dart` - channel bar rendering, selection, underline painting, font weight, disappearance
 - `user_profile_sheet_test.dart` - profile sheet report button URL/launch failure
 - `draggable_scrollable_sheet_spike_test.dart` - draggable scrollable sheet interaction tests
+- `analytics_screen_test.dart` - analytics screen rendering, channel selector, stopword toggle, per-channel reset, moderation display
 
 ## Test naming convention
 

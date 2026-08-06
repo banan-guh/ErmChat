@@ -79,6 +79,8 @@ class ChatConnectionConfig {
     this.getAltPings,
     this.isChatReady,
     this.isBlocked,
+    this.onAnalyticsMessage,
+    this.onAnalyticsModeration,
   });
 
   final TwitchApi twitchApi;
@@ -126,6 +128,8 @@ class ChatConnectionConfig {
   final List<String> Function()? getAltPings;
   final bool Function()? isChatReady;
   final bool Function(String login)? isBlocked;
+  final void Function(String channel, TwitchMessage msg)? onAnalyticsMessage;
+  final void Function(String channel, bool isTimeout)? onAnalyticsModeration;
 }
 
 class ChatConnectionManager {
@@ -175,6 +179,8 @@ class ChatConnectionManager {
   final List<String> Function()? getAltPings;
   final bool Function()? isChatReady;
   final bool Function(String login)? isBlocked;
+  final void Function(String channel, TwitchMessage msg)? onAnalyticsMessage;
+  final void Function(String channel, bool isTimeout)? onAnalyticsModeration;
 
   bool _wasConnected = false;
   bool _wasDisconnected = false;
@@ -270,7 +276,9 @@ class ChatConnectionManager {
       onShowSnackBar = config.onShowSnackBar,
       getAltPings = config.getAltPings,
       isChatReady = config.isChatReady,
-      isBlocked = config.isBlocked;
+      isBlocked = config.isBlocked,
+      onAnalyticsMessage = config.onAnalyticsMessage,
+      onAnalyticsModeration = config.onAnalyticsModeration;
 
   void dispose() {
     isDisposed = true;
@@ -364,6 +372,7 @@ class ChatConnectionManager {
       '[ChatConn] IRC ban received: user=$user channel=$channel isTimeout=$isTimeout',
     );
     if (isDisposed) return;
+    onAnalyticsModeration?.call(channel, isTimeout);
     _markUserMessagesDeleted(channel, user);
     // While the channel.moderate v2 subscription is active, moderation
     // messages come from EventSub (with reason/duration) — skip the IRC copy.
@@ -1209,6 +1218,7 @@ class ChatConnectionManager {
         break;
       case 'ban':
       case 'timeout':
+        onAnalyticsModeration?.call(event.channel, event.action == 'timeout');
         if (target != null) _markUserMessagesDeleted(event.channel, target);
         final duration = event.durationSeconds != null
             ? ' for ${event.durationSeconds}s'
@@ -1276,6 +1286,8 @@ class ChatConnectionManager {
         messageKeys.contains('$channel:${msg.messageId}')) {
       return;
     }
+
+    onAnalyticsMessage?.call(channel, msg);
 
     if (msg.sourceBroadcasterId != null &&
         badgeService.resolveChannelAvatar(msg.sourceBroadcasterId!) == null) {
@@ -1362,6 +1374,8 @@ class ChatConnectionManager {
         messageKeys.contains('$channel:${msg.messageId}')) {
       return;
     }
+
+    onAnalyticsMessage?.call(channel, msg);
 
     channelMessages.putIfAbsent(channel, () => []);
     channelMessages[channel]!.insert(0, msg);
