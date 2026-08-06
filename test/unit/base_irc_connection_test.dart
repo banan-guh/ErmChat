@@ -121,7 +121,7 @@ void main() {
   });
 
   group('PING/PONG keepalive', () {
-    test('first tick sends PING, second tick with pending PONG reconnects', () {
+    test('sends keepalive PING and reconnects when no PONG arrives', () {
       fakeAsync((async) {
         final channel = FakeWebSocketChannel();
         final service = _TestService([channel]);
@@ -131,16 +131,39 @@ void main() {
         async.flushMicrotasks();
         expect(service.openAttempts, 1);
 
-        // Tick 1 (~300s): sends a keepalive PING.
-        async.elapse(const Duration(seconds: 301));
+        // Tick 1 (~60s): sends a keepalive PING.
+        async.elapse(const Duration(seconds: 61));
         expect(channel.sent, contains('PING :keepalive'));
         expect(statuses, isNot(contains(IrcConnectionStatus.disconnected)));
 
-        // Tick 2: previous PONG never arrived -> reconnect.
-        async.elapse(const Duration(seconds: 301));
+        // The dedicated PONG timer (30s) reconnects without waiting for the
+        // next keepalive tick.
+        async.elapse(const Duration(seconds: 31));
         expect(statuses, contains(IrcConnectionStatus.disconnected));
         async.elapse(const Duration(milliseconds: 1250));
         expect(service.openAttempts, 2);
+
+        service.dispose();
+        channel.dispose();
+      });
+    });
+
+    test('PONG within the pong window keeps the connection alive', () {
+      fakeAsync((async) {
+        final channel = FakeWebSocketChannel();
+        final service = _TestService([channel]);
+        final statuses = <IrcConnectionStatus>[];
+        service.onStatus.listen(statuses.add);
+        service.connect(username: 'user', accessToken: 'token');
+        async.flushMicrotasks();
+
+        async.elapse(const Duration(seconds: 61));
+        expect(channel.sent, contains('PING :keepalive'));
+
+        channel.push('PONG :keepalive');
+        async.flushMicrotasks();
+        async.elapse(const Duration(seconds: 31));
+        expect(statuses, isNot(contains(IrcConnectionStatus.disconnected)));
 
         service.dispose();
         channel.dispose();
@@ -189,7 +212,7 @@ void main() {
   });
 
   group('checkAlive', () {
-    test('returns true when a PONG arrives', () {
+    test('returns true when a PONG echoes the probe token', () {
       fakeAsync((async) {
         final channel = FakeWebSocketChannel();
         final service = _TestService([channel]);
@@ -199,10 +222,36 @@ void main() {
         bool? result;
         service.checkAlive().then((value) => result = value);
         async.flushMicrotasks();
-        expect(channel.sent, contains('PING :alive-check'));
+        expect(channel.sent, contains('PING :alive-check-0'));
         expect(result, isNull);
 
+        channel.push(':tmi.twitch.tv PONG tmi.twitch.tv :alive-check-0');
+        async.flushMicrotasks();
+        expect(result, isTrue);
+
+        service.dispose();
+        channel.dispose();
+      });
+    });
+
+    test('a stale keepalive PONG does not satisfy an in-flight probe', () {
+      fakeAsync((async) {
+        final channel = FakeWebSocketChannel();
+        final service = _TestService([channel]);
+        service.connect(username: 'user', accessToken: 'token');
+        async.flushMicrotasks();
+
+        bool? result;
+        service.checkAlive().then((value) => result = value);
+        async.flushMicrotasks();
+
+        // A PONG left over from a keepalive PING (or Twitch's bare-ping
+        // answer) must not be mistaken for a response to the probe.
         channel.push('PONG :tmi.twitch.tv');
+        async.flushMicrotasks();
+        expect(result, isNull);
+
+        channel.push(':tmi.twitch.tv PONG tmi.twitch.tv :alive-check-0');
         async.flushMicrotasks();
         expect(result, isTrue);
 
@@ -315,8 +364,8 @@ void main() {
 
     test('PONG timeout', () {
       expectDisconnectedWithSocketCleared((async, _) {
-        async.elapse(const Duration(seconds: 301));
-        async.elapse(const Duration(seconds: 301));
+        async.elapse(const Duration(seconds: 61));
+        async.elapse(const Duration(seconds: 31));
       });
     });
 
@@ -350,6 +399,35 @@ void main() {
 
         service.dispose();
         channel.dispose();
+      });
+    });
+
+    test('a hung handshake times out, releases the lock and retries', () {
+      fakeAsync((async) {
+        final ready = Completer<void>();
+        final hanging = FakeWebSocketChannel(readyCompleter: ready);
+        final service = _TestService([hanging, FakeWebSocketChannel()]);
+        final statuses = <IrcConnectionStatus>[];
+        service.onStatus.listen(statuses.add);
+        service.connect(username: 'user', accessToken: 'token');
+        async.flushMicrotasks();
+        expect(service.openAttempts, 1);
+
+        // The handshake never completes; the 10s connect timeout fails the
+        // attempt cleanly instead of hanging `_connecting` forever.
+        async.elapse(const Duration(seconds: 11));
+        expect(statuses, contains(IrcConnectionStatus.disconnected));
+
+        async.elapse(const Duration(milliseconds: 1250));
+        expect(service.openAttempts, 2);
+        expect(
+          service.isConnected,
+          isTrue,
+          reason: 'the next attempt connects because the lock was released',
+        );
+
+        service.dispose();
+        hanging.dispose();
       });
     });
   });

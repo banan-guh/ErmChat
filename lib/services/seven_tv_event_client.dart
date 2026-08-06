@@ -73,6 +73,7 @@ enum SevenTvEventStatus { connected, disconnected }
 
 class SevenTvEventClient {
   static const _wsUrl = 'wss://events.7tv.io/v3';
+  static const _connectTimeout = Duration(seconds: 10);
   static const _noReconnectCloseCodes = {4001, 4002, 4003, 4004, 4009, 4010};
   static const _maxReconnectAttempts = 8;
   static const _reconnectMinDelay = Duration(seconds: 1);
@@ -82,6 +83,7 @@ class SevenTvEventClient {
   WebSocketChannel? _channel;
   StreamSubscription<dynamic>? _streamSub;
   Timer? _heartbeatTimer;
+  Timer? _connectTimer;
   int? _heartbeatInterval;
   DateTime _lastHeartbeat = DateTime.now();
   bool _handshakeComplete = false;
@@ -114,6 +116,25 @@ class SevenTvEventClient {
 
   bool get isConnected => _channel != null;
 
+  /// True when the socket exists but no heartbeat has arrived for well over
+  /// the negotiated interval, i.e. a zombie socket that never errored on its
+  /// own (e.g. frozen by the OS while backgrounded).
+  bool get isStale {
+    if (_channel == null) return false;
+    final interval = _heartbeatInterval;
+    if (interval == null) return true;
+    return DateTime.now().difference(_lastHeartbeat).inMilliseconds >
+        3 * interval;
+  }
+
+  /// Tears down a (possibly zombie) socket and reconnects. Used on app resume
+  /// where [isConnected] alone can't be trusted.
+  Future<void> forceReconnect() {
+    if (_disposed || _connecting) return Future.value();
+    _disconnect();
+    return connect();
+  }
+
   Future<void> connect() async {
     if (_disposed || _connecting) return;
     _connecting = true;
@@ -124,7 +145,7 @@ class SevenTvEventClient {
       _disconnect();
       try {
         _channel = WebSocketChannel.connect(Uri.parse(_wsUrl));
-        await _channel!.ready;
+        await _waitForReady();
 
         _streamSub = _channel!.stream.listen(
           (raw) => _handleMessage(raw as String),
@@ -153,6 +174,9 @@ class SevenTvEventClient {
         );
       } catch (e) {
         debugPrint('7TV event connect error: $e');
+        // A failed or timed-out handshake must not leave a socket behind,
+        // otherwise isConnected stays true and resume-time checks skip it.
+        _disconnect();
         _scheduleReconnect();
       }
     } finally {
@@ -375,6 +399,33 @@ class SevenTvEventClient {
     _channel?.sink.add(message);
   }
 
+  /// Waits for the WebSocket handshake with an upper bound. The timeout timer
+  /// is tracked and cancelled on disconnect/dispose so a torn-down connect
+  /// never leaves a pending timer behind.
+  Future<void> _waitForReady() {
+    final channel = _channel;
+    if (channel == null) return Future.value();
+    final completer = Completer<void>();
+    _connectTimer?.cancel();
+    _connectTimer = Timer(_connectTimeout, () {
+      if (!completer.isCompleted) {
+        completer.completeError(TimeoutException('7TV connect timed out'));
+      }
+    });
+    channel.ready.then(
+      (_) {
+        if (!completer.isCompleted) completer.complete();
+      },
+      onError: (Object e, StackTrace st) {
+        if (!completer.isCompleted) completer.completeError(e, st);
+      },
+    );
+    return completer.future.whenComplete(() {
+      _connectTimer?.cancel();
+      _connectTimer = null;
+    });
+  }
+
   void _scheduleReconnect() {
     if (_reconnecting || _disposed) return;
     if (!_isOnline) return;
@@ -423,6 +474,8 @@ class SevenTvEventClient {
   void _disconnect() {
     _heartbeatTimer?.cancel();
     _heartbeatTimer = null;
+    _connectTimer?.cancel();
+    _connectTimer = null;
     _heartbeatInterval = null;
     _handshakeComplete = false;
     _reconnecting = false;

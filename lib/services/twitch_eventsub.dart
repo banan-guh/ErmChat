@@ -34,13 +34,18 @@ class ModerationEvent {
 class EventSubService {
   static const _wsUrl = 'wss://eventsub.wss.twitch.tv/ws';
   static const _maxReconnectAttempts = 8;
+  static const _connectTimeout = Duration(seconds: 10);
 
   final Connectivity? _connectivity;
 
   WebSocketChannel? _channel;
   String? _sessionId;
+  // When the last frame of any kind arrived; used by [isStale] to spot a
+  // zombie session on app resume.
+  DateTime _lastActivity = DateTime.now();
   Timer? _keepaliveTimer;
   Timer? _reconnectTimer;
+  Timer? _connectTimer;
   int _keepaliveTimeout = 10;
   var _sessionCompleter = Completer<String?>();
   StreamSubscription<dynamic>? _streamSub;
@@ -61,6 +66,23 @@ class EventSubService {
 
   bool get isConnected => _channel != null;
   String? get sessionId => _sessionId;
+
+  /// True when the socket exists but no frame has arrived for well over the
+  /// keepalive window, i.e. a zombie session that never errored on its own
+  /// (e.g. frozen by the OS while backgrounded).
+  bool get isStale {
+    if (_channel == null) return false;
+    final timeoutSeconds = (_keepaliveTimeout * 1.5).round();
+    return DateTime.now().difference(_lastActivity).inSeconds > timeoutSeconds;
+  }
+
+  /// Tears down a (possibly zombie) session and re-enters the reconnect path.
+  /// Used on app resume where [isConnected] alone can't be trusted.
+  Future<void> forceReconnect() {
+    if (_disposed || _connecting) return Future.value();
+    disconnect();
+    return connect();
+  }
 
   EventSubService({this._connectivity});
 
@@ -102,7 +124,7 @@ class EventSubService {
 
       try {
         _channel = WebSocketChannel.connect(Uri.parse(url ?? _wsUrl));
-        await _channel!.ready;
+        await _waitForReady();
 
         _streamSub = _channel!.stream.listen(
           (raw) {
@@ -123,6 +145,10 @@ class EventSubService {
         );
       } catch (e) {
         _safeComplete(null);
+        // A failed or timed-out handshake must not leave a socket behind,
+        // otherwise isConnected stays true and resume-time checks skip it.
+        _channel = null;
+        _streamSub = null;
         _statusController.add(EventSubStatus.disconnected);
         debugPrint('EventSub connect error: $e');
         _scheduleReconnect();
@@ -158,6 +184,33 @@ class EventSubService {
     if (!_sessionCompleter.isCompleted) {
       _sessionCompleter.complete(value);
     }
+  }
+
+  /// Waits for the WebSocket handshake with an upper bound. The timeout timer
+  /// is tracked and cancelled on disconnect/dispose so a torn-down connect
+  /// never leaves a pending timer behind.
+  Future<void> _waitForReady() {
+    final channel = _channel;
+    if (channel == null) return Future.value();
+    final completer = Completer<void>();
+    _connectTimer?.cancel();
+    _connectTimer = Timer(_connectTimeout, () {
+      if (!completer.isCompleted) {
+        completer.completeError(TimeoutException('EventSub connect timed out'));
+      }
+    });
+    channel.ready.then(
+      (_) {
+        if (!completer.isCompleted) completer.complete();
+      },
+      onError: (Object e, StackTrace st) {
+        if (!completer.isCompleted) completer.completeError(e, st);
+      },
+    );
+    return completer.future.whenComplete(() {
+      _connectTimer?.cancel();
+      _connectTimer = null;
+    });
   }
 
   void _handleMessage(Map<String, dynamic> msg) {
@@ -206,6 +259,7 @@ class EventSubService {
   // Reset on any message, not just keepalives — Twitch may skip explicit
   // keepalive frames during active chat. 1.5x multiplier gives grace period.
   void _resetKeepalive() {
+    _lastActivity = DateTime.now();
     _keepaliveTimer?.cancel();
     final timeoutSeconds = (_keepaliveTimeout * 1.5).round();
     _keepaliveTimer = Timer(Duration(seconds: timeoutSeconds), () {
@@ -310,6 +364,8 @@ class EventSubService {
     _reconnectTimer = null;
     _keepaliveTimer?.cancel();
     _keepaliveTimer = null;
+    _connectTimer?.cancel();
+    _connectTimer = null;
     _sessionId = null;
     _streamSub?.cancel();
     _streamSub = null;

@@ -33,6 +33,24 @@ class _NoopEventSub extends EventSubService {
   Future<void> connect({String? url}) async {}
 }
 
+class _StaleEventSub extends _NoopEventSub {
+  _StaleEventSub({this.stale = false});
+
+  final bool stale;
+  int forceCalls = 0;
+
+  @override
+  bool get isConnected => true;
+
+  @override
+  bool get isStale => stale;
+
+  @override
+  Future<void> forceReconnect() async {
+    forceCalls++;
+  }
+}
+
 class _TestIrc extends IrcService {
   final _statusCtrl = StreamController<IrcConnectionStatus>.broadcast(
     sync: true,
@@ -1107,6 +1125,58 @@ void main() {
         conn.reconnectIfNecessary();
         async.flushMicrotasks();
         expect(irc.connectCalls, 1);
+
+        conn.dispose();
+      });
+    });
+
+    test('reconnects a stale EventSub session on resume', () {
+      fakeAsync((async) {
+        final irc = _TestIrc();
+        irc.alive = true;
+        final eventSub = _StaleEventSub(stale: true);
+        final conn = _makeReconnectConn(
+          eventSub: eventSub,
+          irc: irc,
+          onReconnected: () {},
+          currentUserLogin: 'testuser',
+        );
+
+        irc.connect(username: 'testuser', accessToken: 'token');
+        irc.emitConnected();
+        conn.reconnectIfNecessary();
+        async.flushMicrotasks();
+        expect(
+          eventSub.forceCalls,
+          1,
+          reason: 'a zombie EventSub session must be torn down on resume',
+        );
+
+        conn.dispose();
+      });
+    });
+
+    test('does not reconnect a healthy EventSub session on resume', () {
+      fakeAsync((async) {
+        final irc = _TestIrc();
+        irc.alive = true;
+        final eventSub = _StaleEventSub(stale: false);
+        final conn = _makeReconnectConn(
+          eventSub: eventSub,
+          irc: irc,
+          onReconnected: () {},
+          currentUserLogin: 'testuser',
+        );
+
+        irc.connect(username: 'testuser', accessToken: 'token');
+        irc.emitConnected();
+        conn.reconnectIfNecessary();
+        async.flushMicrotasks();
+        expect(
+          eventSub.forceCalls,
+          0,
+          reason: 'a live session must not be torn down on every resume',
+        );
 
         conn.dispose();
       });

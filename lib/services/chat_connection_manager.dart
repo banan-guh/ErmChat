@@ -1410,11 +1410,14 @@ class ChatConnectionManager {
     } else {
       unawaited(ircRead.connect(username: login, accessToken: token));
     }
-    if (!eventSub.isConnected) {
-      unawaited(eventSub.connect());
+    // EventSub/7TV have no PING/PONG equivalent, so `isConnected` alone can't
+    // spot a zombie socket; a stale session is torn down and re-established.
+    if (!eventSub.isConnected || eventSub.isStale) {
+      unawaited(eventSub.forceReconnect());
     }
-    if (sevenTvClient != null && !sevenTvClient!.isConnected) {
-      unawaited(sevenTvClient!.connect());
+    if (sevenTvClient != null &&
+        (!sevenTvClient!.isConnected || sevenTvClient!.isStale)) {
+      unawaited(sevenTvClient!.forceReconnect());
     }
   }
 }
