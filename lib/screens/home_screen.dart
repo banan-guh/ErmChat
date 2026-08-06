@@ -36,6 +36,7 @@ import '../widgets/mentions_panel.dart';
 import '../widgets/emote_menu_panel.dart';
 import '../widgets/chat_view.dart';
 import '../widgets/message_builder.dart';
+import '../widgets/predictive_back_handler.dart';
 import '../widgets/join_channel_dialog.dart';
 import '../services/foreground_task.dart';
 
@@ -218,6 +219,15 @@ class _HomeScreenState extends State<HomeScreen>
   late final TabController _mentionsTabCtrl;
   final _threadPanelScrollCtrl = ScrollController();
   final _mentionsPanelScrollCtrl = ScrollController();
+
+  // Predictive back gesture: scales the open panel down (1.0 -> 0.90)
+  // following the Android back gesture, driven by PanelPredictiveBackHandler.
+  late final AnimationController _panelScaleCtrl = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 200),
+    value: 1.0,
+  );
+  late final PanelPredictiveBackHandler _predictiveBackHandler;
   double _panelDragStartRatio = 0.0;
   double _panelDragStartY = 0.0;
   static const _sheetAnimDuration = Duration(milliseconds: 250);
@@ -279,6 +289,17 @@ class _HomeScreenState extends State<HomeScreen>
     _focusNode.addListener(_onInputFocusChanged);
     _messageController.addListener(_onInputChanged);
     WidgetsBinding.instance.addObserver(this);
+    _predictiveBackHandler = PanelPredictiveBackHandler(
+      isPanelOpen: () => _activePanel != OverlayPanel.closed,
+      onProgress: (progress) {
+        _panelScaleCtrl.value = 1.0 - 0.10 * progress;
+      },
+      onCancel: () {
+        _panelScaleCtrl.animateTo(1.0);
+      },
+      onCommit: _closePanel,
+    );
+    WidgetsBinding.instance.addObserver(_predictiveBackHandler);
     WidgetsBinding.instance.addPostFrameCallback(
       (_) => _maybeShowWelcomeDialog(),
     );
@@ -976,6 +997,8 @@ class _HomeScreenState extends State<HomeScreen>
   void dispose() {
     _chatConn.dispose();
     WidgetsBinding.instance.removeObserver(this);
+    WidgetsBinding.instance.removeObserver(_predictiveBackHandler);
+    _panelScaleCtrl.dispose();
     _eventSub.dispose();
     _irc.dispose();
     _ircRead.dispose();
@@ -1444,6 +1467,7 @@ class _HomeScreenState extends State<HomeScreen>
       _activePanel = OverlayPanel.thread;
       _openThreadRoot = rootMsg;
     });
+    _panelScaleCtrl.value = 1.0;
     _threadPanelData.value = ThreadPanelData(
       messages: _computeThreadMessages(),
       channel: channel,
@@ -1467,6 +1491,7 @@ class _HomeScreenState extends State<HomeScreen>
       _activePanel = OverlayPanel.mentions;
       _openThreadRoot = null;
     });
+    _panelScaleCtrl.value = 1.0;
     _mentionsPanelData.value = _channelMessages[_mentionsChannel] ?? [];
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
@@ -1482,6 +1507,7 @@ class _HomeScreenState extends State<HomeScreen>
 
   Future<void> _showEmoteMenu() async {
     if (_activePanel != OverlayPanel.closed) await _closePanel();
+    _panelScaleCtrl.value = 1.0;
     setState(() => _activePanel = OverlayPanel.emotes);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && _emoteSheetCtrl.isAttached) {
@@ -2106,79 +2132,87 @@ class _HomeScreenState extends State<HomeScreen>
                         right: 0,
                         child: Offstage(
                           offstage: _activePanel != OverlayPanel.thread,
-                          child: _buildSheetPanel(
-                            ratio: _threadSheetRatio,
-                            child: RepaintBoundary(
-                              child: Material(
-                                color: Theme.of(
-                                  context,
-                                ).scaffoldBackgroundColor,
-                                clipBehavior: Clip.hardEdge,
-                                child: Column(
-                                  children: [
-                                    _buildPanelDragHandle(
-                                      ratio: _threadSheetRatio,
-                                      maxSize: _fullHeightFraction,
-                                      onClose: _closePanel,
-                                      onSnap: () => _animateRatio(
-                                        _threadSheetRatio,
-                                        _threadSheetRatio.value,
-                                        _fullHeightFraction,
-                                        _sheetAnimDuration,
-                                      ),
-                                      header: Column(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Padding(
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 8,
-                                            ),
-                                            child: Row(
-                                              children: [
-                                                IconButton(
-                                                  icon: const Icon(Icons.close),
-                                                  tooltip: 'Close reply thread',
-                                                  onPressed: _closePanel,
-                                                ),
-                                                const SizedBox(width: 4),
-                                                Expanded(
-                                                  child: Text(
-                                                    'Reply Thread',
-                                                    style: TextStyle(
-                                                      fontSize: 20,
-                                                      color: Theme.of(
-                                                        context,
-                                                      ).colorScheme.onSurface,
+                          child: ScaleTransition(
+                            scale: _panelScaleCtrl,
+                            alignment: Alignment.bottomCenter,
+                            child: _buildSheetPanel(
+                              ratio: _threadSheetRatio,
+                              child: RepaintBoundary(
+                                child: Material(
+                                  color: Theme.of(
+                                    context,
+                                  ).scaffoldBackgroundColor,
+                                  clipBehavior: Clip.hardEdge,
+                                  child: Column(
+                                    children: [
+                                      _buildPanelDragHandle(
+                                        ratio: _threadSheetRatio,
+                                        maxSize: _fullHeightFraction,
+                                        onClose: _closePanel,
+                                        onSnap: () => _animateRatio(
+                                          _threadSheetRatio,
+                                          _threadSheetRatio.value,
+                                          _fullHeightFraction,
+                                          _sheetAnimDuration,
+                                        ),
+                                        header: Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Padding(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                    horizontal: 8,
+                                                  ),
+                                              child: Row(
+                                                children: [
+                                                  IconButton(
+                                                    icon: const Icon(
+                                                      Icons.close,
+                                                    ),
+                                                    tooltip:
+                                                        'Close reply thread',
+                                                    onPressed: _closePanel,
+                                                  ),
+                                                  const SizedBox(width: 4),
+                                                  Expanded(
+                                                    child: Text(
+                                                      'Reply Thread',
+                                                      style: TextStyle(
+                                                        fontSize: 20,
+                                                        color: Theme.of(
+                                                          context,
+                                                        ).colorScheme.onSurface,
+                                                      ),
                                                     ),
                                                   ),
-                                                ),
-                                              ],
+                                                ],
+                                              ),
                                             ),
-                                          ),
-                                          Divider(
-                                            height: 1,
-                                            color: Theme.of(
-                                              context,
-                                            ).dividerColor,
-                                          ),
-                                        ],
+                                            Divider(
+                                              height: 1,
+                                              color: Theme.of(
+                                                context,
+                                              ).dividerColor,
+                                            ),
+                                          ],
+                                        ),
                                       ),
-                                    ),
-                                    Expanded(
-                                      child: ThreadPanelWidget(
-                                        key: const ValueKey('thread_panel'),
-                                        data: _threadPanelData,
-                                        uiScale: 1.0,
-                                        onLongPress: _showThreadMessageMenu,
-                                        buildBadgeSpans:
-                                            _messageBuilder.buildBadgeSpans,
-                                        buildMessageSpans:
-                                            _messageBuilder.buildMessageSpans,
-                                        scrollController:
-                                            _threadPanelScrollCtrl,
+                                      Expanded(
+                                        child: ThreadPanelWidget(
+                                          key: const ValueKey('thread_panel'),
+                                          data: _threadPanelData,
+                                          uiScale: 1.0,
+                                          onLongPress: _showThreadMessageMenu,
+                                          buildBadgeSpans:
+                                              _messageBuilder.buildBadgeSpans,
+                                          buildMessageSpans:
+                                              _messageBuilder.buildMessageSpans,
+                                          scrollController:
+                                              _threadPanelScrollCtrl,
+                                        ),
                                       ),
-                                    ),
-                                  ],
+                                    ],
+                                  ),
                                 ),
                               ),
                             ),
@@ -2193,97 +2227,102 @@ class _HomeScreenState extends State<HomeScreen>
                         right: 0,
                         child: Offstage(
                           offstage: _activePanel != OverlayPanel.mentions,
-                          child: _buildSheetPanel(
-                            ratio: _mentionsSheetRatio,
-                            child: RepaintBoundary(
-                              child: Material(
-                                color: Theme.of(
-                                  context,
-                                ).scaffoldBackgroundColor,
-                                clipBehavior: Clip.hardEdge,
-                                child: Column(
-                                  children: [
-                                    _buildPanelDragHandle(
-                                      ratio: _mentionsSheetRatio,
-                                      maxSize: _fullHeightFraction,
-                                      onClose: _closePanel,
-                                      onSnap: () => _animateRatio(
-                                        _mentionsSheetRatio,
-                                        _mentionsSheetRatio.value,
-                                        _fullHeightFraction,
-                                        _sheetAnimDuration,
-                                      ),
-                                      header: Column(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Padding(
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 8,
-                                            ),
-                                            child: Row(
-                                              children: [
-                                                IconButton(
-                                                  icon: const Icon(
-                                                    Icons.arrow_back,
+                          child: ScaleTransition(
+                            scale: _panelScaleCtrl,
+                            alignment: Alignment.bottomCenter,
+                            child: _buildSheetPanel(
+                              ratio: _mentionsSheetRatio,
+                              child: RepaintBoundary(
+                                child: Material(
+                                  color: Theme.of(
+                                    context,
+                                  ).scaffoldBackgroundColor,
+                                  clipBehavior: Clip.hardEdge,
+                                  child: Column(
+                                    children: [
+                                      _buildPanelDragHandle(
+                                        ratio: _mentionsSheetRatio,
+                                        maxSize: _fullHeightFraction,
+                                        onClose: _closePanel,
+                                        onSnap: () => _animateRatio(
+                                          _mentionsSheetRatio,
+                                          _mentionsSheetRatio.value,
+                                          _fullHeightFraction,
+                                          _sheetAnimDuration,
+                                        ),
+                                        header: Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Padding(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                    horizontal: 8,
                                                   ),
-                                                  tooltip: 'Back',
-                                                  onPressed: _closePanel,
-                                                ),
-                                                const SizedBox(width: 4),
-                                                Expanded(
-                                                  child: Text(
-                                                    'Mentions',
-                                                    style: TextStyle(
-                                                      fontSize: 20,
-                                                      color: Theme.of(
-                                                        context,
-                                                      ).colorScheme.onSurface,
+                                              child: Row(
+                                                children: [
+                                                  IconButton(
+                                                    icon: const Icon(
+                                                      Icons.arrow_back,
+                                                    ),
+                                                    tooltip: 'Back',
+                                                    onPressed: _closePanel,
+                                                  ),
+                                                  const SizedBox(width: 4),
+                                                  Expanded(
+                                                    child: Text(
+                                                      'Mentions',
+                                                      style: TextStyle(
+                                                        fontSize: 20,
+                                                        color: Theme.of(
+                                                          context,
+                                                        ).colorScheme.onSurface,
+                                                      ),
                                                     ),
                                                   ),
-                                                ),
+                                                ],
+                                              ),
+                                            ),
+                                            TabBar(
+                                              controller: _mentionsTabCtrl,
+                                              tabs: const [
+                                                Tab(text: 'Mentions'),
+                                                Tab(text: 'Whispers'),
                                               ],
                                             ),
-                                          ),
-                                          TabBar(
-                                            controller: _mentionsTabCtrl,
-                                            tabs: const [
-                                              Tab(text: 'Mentions'),
-                                              Tab(text: 'Whispers'),
-                                            ],
-                                          ),
-                                          Divider(
-                                            height: 1,
-                                            color: Theme.of(
-                                              context,
-                                            ).dividerColor,
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    Expanded(
-                                      child: TabBarView(
-                                        controller: _mentionsTabCtrl,
-                                        children: [
-                                          MentionsPanelWidget(
-                                            key: const ValueKey(
-                                              'mentions_panel',
+                                            Divider(
+                                              height: 1,
+                                              color: Theme.of(
+                                                context,
+                                              ).dividerColor,
                                             ),
-                                            messages: _mentionsPanelData,
-                                            uiScale: 1.0,
-                                            buildBadgeSpans:
-                                                _messageBuilder.buildBadgeSpans,
-                                            buildMessageSpans: _messageBuilder
-                                                .buildMessageSpans,
-                                            scrollController:
-                                                _mentionsPanelScrollCtrl,
-                                          ),
-                                          const Center(
-                                            child: Text('No whispers'),
-                                          ),
-                                        ],
+                                          ],
+                                        ),
                                       ),
-                                    ),
-                                  ],
+                                      Expanded(
+                                        child: TabBarView(
+                                          controller: _mentionsTabCtrl,
+                                          children: [
+                                            MentionsPanelWidget(
+                                              key: const ValueKey(
+                                                'mentions_panel',
+                                              ),
+                                              messages: _mentionsPanelData,
+                                              uiScale: 1.0,
+                                              buildBadgeSpans: _messageBuilder
+                                                  .buildBadgeSpans,
+                                              buildMessageSpans: _messageBuilder
+                                                  .buildMessageSpans,
+                                              scrollController:
+                                                  _mentionsPanelScrollCtrl,
+                                            ),
+                                            const Center(
+                                              child: Text('No whispers'),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                                 ),
                               ),
                             ),
@@ -2300,51 +2339,55 @@ class _HomeScreenState extends State<HomeScreen>
                         left: 0,
                         right: 0,
                         height: sheetBoxHeight,
-                        child: LayoutBuilder(
-                          builder: (context, constraints) {
-                            final totalAvailH = constraints.maxHeight;
-                            return IgnorePointer(
-                              ignoring: _activePanel != OverlayPanel.emotes,
-                              child: DraggableScrollableSheet(
-                                controller: _emoteSheetCtrl,
-                                initialChildSize: 0,
-                                minChildSize: 0,
-                                maxChildSize: _emoteMaxFraction,
-                                snap: true,
-                                builder: (context, scrollController) {
-                                  final sheetTheme = Theme.of(context);
-                                  return _buildSlideUpContent(
-                                    controller: _emoteSheetCtrl,
-                                    totalAvailH: totalAvailH,
-                                    maxSize: _emoteMaxFraction,
-                                    child: RepaintBoundary(
-                                      child: Material(
-                                        color:
-                                            sheetTheme.scaffoldBackgroundColor,
-                                        child: EmoteMenuPanelWidget(
-                                          key: const ValueKey('emote_panel'),
-                                          isActive:
-                                              _activePanel ==
-                                              OverlayPanel.emotes,
-                                          selectedChannel: _selectedChannel,
-                                          onEmoteSelected: _onEmoteSelected,
-                                          onClose: _closePanel,
-                                          emoteManager: _emoteManager,
-                                          scrollController: scrollController,
-                                          sheetCtrl: _emoteSheetCtrl,
-                                          emoteMaxFraction: _emoteMaxFraction,
-                                          sheetAnimDuration: _sheetAnimDuration,
+                        child: ScaleTransition(
+                          scale: _panelScaleCtrl,
+                          alignment: Alignment.bottomCenter,
+                          child: LayoutBuilder(
+                            builder: (context, constraints) {
+                              final totalAvailH = constraints.maxHeight;
+                              return IgnorePointer(
+                                ignoring: _activePanel != OverlayPanel.emotes,
+                                child: DraggableScrollableSheet(
+                                  controller: _emoteSheetCtrl,
+                                  initialChildSize: 0,
+                                  minChildSize: 0,
+                                  maxChildSize: _emoteMaxFraction,
+                                  snap: true,
+                                  builder: (context, scrollController) {
+                                    final sheetTheme = Theme.of(context);
+                                    return _buildSlideUpContent(
+                                      controller: _emoteSheetCtrl,
+                                      totalAvailH: totalAvailH,
+                                      maxSize: _emoteMaxFraction,
+                                      child: RepaintBoundary(
+                                        child: Material(
+                                          color: sheetTheme
+                                              .scaffoldBackgroundColor,
+                                          child: EmoteMenuPanelWidget(
+                                            key: const ValueKey('emote_panel'),
+                                            isActive:
+                                                _activePanel ==
+                                                OverlayPanel.emotes,
+                                            selectedChannel: _selectedChannel,
+                                            onEmoteSelected: _onEmoteSelected,
+                                            onClose: _closePanel,
+                                            emoteManager: _emoteManager,
+                                            scrollController: scrollController,
+                                            sheetCtrl: _emoteSheetCtrl,
+                                            emoteMaxFraction: _emoteMaxFraction,
+                                            sheetAnimDuration:
+                                                _sheetAnimDuration,
+                                          ),
                                         ),
                                       ),
-                                    ),
-                                  );
-                                },
-                              ),
-                            );
-                          },
+                                    );
+                                  },
+                                ),
+                              );
+                            },
+                          ),
                         ),
                       ),
-
                       // Autocomplete dropdown — floats above chat, anchored just
                       // above the message input, 60% width like DankChat's popup.
                       Positioned(
