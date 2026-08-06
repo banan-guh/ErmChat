@@ -249,20 +249,14 @@ class _HomeScreenState extends State<HomeScreen>
   String? _previousTextForUndo;
   String? _undoExpectedAfter;
 
-  void _onSheetSizeChanged(
-    OverlayPanel panel,
-    DraggableScrollableController ctrl,
-  ) {
-    // When the user drags a sheet down to size 0, close the panel.
-    if (_activePanel == panel && ctrl.isAttached && ctrl.size <= 0.001) {
+  void _onSheetSizeChanged() {
+    // When the user drags the emote sheet down to size 0, close the panel.
+    if (_activePanel == OverlayPanel.emotes &&
+        _emoteSheetCtrl.isAttached &&
+        _emoteSheetCtrl.size <= 0.001) {
       setState(() {
         _activePanel = OverlayPanel.closed;
-        if (panel == OverlayPanel.thread) {
-          _openThreadRoot = null;
-          _threadPanelData.value = null;
-        } else if (panel == OverlayPanel.mentions) {
-          _mentionsPanelData.value = null;
-        }
+        _panelScaleCtrl.value = 1.0;
       });
     }
   }
@@ -273,9 +267,7 @@ class _HomeScreenState extends State<HomeScreen>
     _currentUserLogin = widget.initialCurrentUserLogin;
     _emoteSheetCtrl = DraggableScrollableController();
     _mentionsTabCtrl = TabController(length: 2, vsync: this);
-    _emoteSheetCtrl.addListener(
-      () => _onSheetSizeChanged(OverlayPanel.emotes, _emoteSheetCtrl),
-    );
+    _emoteSheetCtrl.addListener(_onSheetSizeChanged);
     _loadMaxMessages();
     _ensureBlockedUsersLoaded();
     _loadAltPings();
@@ -1008,7 +1000,6 @@ class _HomeScreenState extends State<HomeScreen>
     _messageController.dispose();
     _focusNode.removeListener(_onInputFocusChanged);
     _focusNode.dispose();
-    _mentionsBump.removeListener(_onPanelDataChanged);
     _threadSheetRatio.dispose();
     _mentionsSheetRatio.dispose();
     _emoteSheetCtrl.dispose();
@@ -1467,7 +1458,6 @@ class _HomeScreenState extends State<HomeScreen>
       _activePanel = OverlayPanel.thread;
       _openThreadRoot = rootMsg;
     });
-    _panelScaleCtrl.value = 1.0;
     _threadPanelData.value = ThreadPanelData(
       messages: _computeThreadMessages(),
       channel: channel,
@@ -1491,7 +1481,6 @@ class _HomeScreenState extends State<HomeScreen>
       _activePanel = OverlayPanel.mentions;
       _openThreadRoot = null;
     });
-    _panelScaleCtrl.value = 1.0;
     _mentionsPanelData.value = _channelMessages[_mentionsChannel] ?? [];
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
@@ -1507,7 +1496,6 @@ class _HomeScreenState extends State<HomeScreen>
 
   Future<void> _showEmoteMenu() async {
     if (_activePanel != OverlayPanel.closed) await _closePanel();
-    _panelScaleCtrl.value = 1.0;
     setState(() => _activePanel = OverlayPanel.emotes);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && _emoteSheetCtrl.isAttached) {
@@ -1564,6 +1552,7 @@ class _HomeScreenState extends State<HomeScreen>
         _openThreadRoot = null;
         _threadPanelData.value = null;
         _mentionsPanelData.value = null;
+        _panelScaleCtrl.value = 1.0;
       });
     }
   }

@@ -83,86 +83,76 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
         ],
       ),
       clipBehavior: Clip.hardEdge,
-      child: Builder(
-        builder: (context) {
-          // The whole header strip (pill + tab bar) is the drag surface: a
-          // swipe-down starting on the tab bar moves the sheet, just like
-          // DankChat. Only vertical drags are registered, so tab taps and
-          // horizontal swipes between tabs still win; the emote grids below
-          // are scrollables and keep winning their own vertical drags.
-          void onDragUpdate(DragUpdateDetails details) {
-            final newPixels = widget.sheetCtrl.pixels - details.primaryDelta!;
-            final newSize = widget.sheetCtrl
-                .pixelsToSize(newPixels)
-                .clamp(0.0, 1.0);
-            if (widget.sheetCtrl.isAttached) {
-              widget.sheetCtrl.jumpTo(newSize);
-            }
+      // The whole header strip (pill + tab bar) is the drag surface: a
+      // swipe-down starting on the tab bar moves the sheet, just like
+      // DankChat. Only vertical drags are registered, so tab taps and
+      // horizontal swipes between tabs still win; the emote grids below
+      // are scrollables and keep winning their own vertical drags.
+      child: GestureDetector(
+        key: const Key('emote_panel_handle'),
+        behavior: HitTestBehavior.opaque,
+        onVerticalDragUpdate: (details) {
+          final newPixels = widget.sheetCtrl.pixels - details.primaryDelta!;
+          final newSize = widget.sheetCtrl
+              .pixelsToSize(newPixels)
+              .clamp(0.0, 1.0);
+          if (widget.sheetCtrl.isAttached) {
+            widget.sheetCtrl.jumpTo(newSize);
           }
-
-          // Close on drag-below-threshold or a fast flick down (shared
-          // thresholds in util/sheet_drag.dart). Position close triggers at
-          // 5% of screen height (down from 8%); momentum is more sensitive
-          // than before. Velocity check prevents accidental close on slow
-          // drag from a high position.
-          void onDragEnd(DragEndDetails details) {
-            if (!widget.sheetCtrl.isAttached) return;
-            final velocity = details.primaryVelocity ?? 0;
-            final fraction = widget.sheetCtrl.size / widget.emoteMaxFraction;
-            if (shouldCloseSheet(
-              fraction: fraction,
-              velocity: velocity,
-              closeFraction: _emoteCloseFraction / widget.emoteMaxFraction,
-            )) {
-              widget.onClose();
-            } else {
-              widget.sheetCtrl.animateTo(
-                widget.emoteMaxFraction,
-                duration: widget.sheetAnimDuration,
-                curve: Curves.easeOutCubic,
-              );
-            }
-          }
-
-          return GestureDetector(
-            key: const Key('emote_panel_handle'),
-            behavior: HitTestBehavior.opaque,
-            onVerticalDragUpdate: onDragUpdate,
-            onVerticalDragEnd: onDragEnd,
-            child: Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.only(top: 12, bottom: 24),
-                  child: Center(
-                    child: SizedBox(
-                      width: 32,
-                      height: 4,
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          color: Colors.grey,
-                          borderRadius: BorderRadius.circular(2),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                Expanded(
-                  child: TabbedLayout(
-                    tabAlignment: Alignment.center,
-                    tabs: const ['Recent', 'Subs', 'Channel', 'Global'],
-                    selectedIndex: _emoteTabIndex,
-                    onSelectedIndexChanged: (i) =>
-                        setState(() => _emoteTabIndex = i),
-                    pageBuilder: (_, i) => _buildEmoteTabPage(
-                      i,
-                      i == _emoteTabIndex ? widget.scrollController : null,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          );
         },
+        // Close on drag-below-threshold or a fast flick down (shared
+        // thresholds in util/sheet_drag.dart). Position close triggers at
+        // 5% of screen height; momentum is more sensitive than before.
+        onVerticalDragEnd: (details) {
+          if (!widget.sheetCtrl.isAttached) return;
+          final velocity = details.primaryVelocity ?? 0;
+          final fraction = widget.sheetCtrl.size / widget.emoteMaxFraction;
+          if (shouldCloseSheet(
+            fraction: fraction,
+            velocity: velocity,
+            closeFraction: _emoteCloseFraction / widget.emoteMaxFraction,
+          )) {
+            widget.onClose();
+          } else {
+            widget.sheetCtrl.animateTo(
+              widget.emoteMaxFraction,
+              duration: widget.sheetAnimDuration,
+              curve: Curves.easeOutCubic,
+            );
+          }
+        },
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(top: 12, bottom: 24),
+              child: Center(
+                child: SizedBox(
+                  width: 32,
+                  height: 4,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: Colors.grey,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            Expanded(
+              child: TabbedLayout(
+                tabAlignment: Alignment.center,
+                tabs: const ['Recent', 'Subs', 'Channel', 'Global'],
+                selectedIndex: _emoteTabIndex,
+                onSelectedIndexChanged: (i) =>
+                    setState(() => _emoteTabIndex = i),
+                pageBuilder: (_, i) => _buildEmoteTabPage(
+                  i,
+                  i == _emoteTabIndex ? widget.scrollController : null,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
