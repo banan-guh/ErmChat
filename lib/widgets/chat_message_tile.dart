@@ -2,6 +2,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import '../color_utils.dart';
 import '../models/twitch_message.dart';
+import '../util/timestamp_formatter.dart';
 
 class ChatMessageTile extends StatefulWidget {
   final TwitchMessage message;
@@ -27,6 +28,8 @@ class ChatMessageTile extends StatefulWidget {
   final void Function(String login, String? userId)? onTapUser;
   final VoidCallback? onLongPress;
   final Widget? replyIndicator;
+  final bool showTimestamp;
+  final String timestampFormat;
 
   const ChatMessageTile({
     super.key,
@@ -40,6 +43,8 @@ class ChatMessageTile extends StatefulWidget {
     this.onTapUser,
     this.onLongPress,
     this.replyIndicator,
+    this.showTimestamp = true,
+    this.timestampFormat = kDefaultTimestampFormat,
   });
 
   @override
@@ -85,7 +90,9 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
     final theme = Theme.of(context);
     final msg = widget.message;
     final s = widget.textScale;
-    final ts = msg.formattedTimestamp;
+    final ts = widget.showTimestamp
+        ? formatTimestamp(msg.timestamp, widget.timestampFormat)
+        : '';
 
     final List<InlineSpan> children;
     final String semanticsLabel;
@@ -177,10 +184,12 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
                   WidgetSpan(
                     alignment: PlaceholderAlignment.middle,
                     child: SizedBox(
-                      width: 14 * s * 3,
+                      width: ts.isEmpty ? 0 : ts.length * 8.5 * s,
                       child: Text(
                         ts,
                         textAlign: TextAlign.left,
+                        maxLines: 1,
+                        overflow: TextOverflow.clip,
                         style: tsStyle,
                       ),
                     ),

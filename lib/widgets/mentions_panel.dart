@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../models/twitch_message.dart';
+import '../util/timestamp_formatter.dart';
 import '../widgets/chat_message_tile.dart';
 
 class MentionsPanelWidget extends StatefulWidget {
@@ -18,6 +19,8 @@ class MentionsPanelWidget extends StatefulWidget {
   })
   buildMessageSpans;
   final String emptyText;
+  final bool showTimestamp;
+  final String timestampFormat;
 
   const MentionsPanelWidget({
     required this.scrollController,
@@ -26,6 +29,8 @@ class MentionsPanelWidget extends StatefulWidget {
     required this.buildBadgeSpans,
     required this.buildMessageSpans,
     this.emptyText = 'No mentions or whispers',
+    this.showTimestamp = true,
+    this.timestampFormat = kDefaultTimestampFormat,
     super.key,
   });
 
@@ -76,6 +81,8 @@ class MentionsPanelWidgetState extends State<MentionsPanelWidget> {
                 channel: channel,
                 surface: surface,
                 textScale: s,
+                showTimestamp: widget.showTimestamp,
+                timestampFormat: widget.timestampFormat,
                 buildBadgeSpans: widget.buildBadgeSpans,
                 buildMessageSpans: widget.buildMessageSpans,
               );
@@ -86,6 +93,8 @@ class MentionsPanelWidgetState extends State<MentionsPanelWidget> {
               channel: channel,
               surface: surface,
               textScale: s,
+              showTimestamp: widget.showTimestamp,
+              timestampFormat: widget.timestampFormat,
               buildBadgeSpans: widget.buildBadgeSpans,
               buildMessageSpans: widget.buildMessageSpans,
             );

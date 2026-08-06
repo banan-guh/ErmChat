@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../models/twitch_message.dart';
+import '../util/timestamp_formatter.dart';
 import '../widgets/chat_message_tile.dart';
 import '../widgets/emote_text.dart';
 import '../widgets/message_builder.dart';
@@ -24,6 +25,8 @@ class ChatView extends StatelessWidget {
   final void Function(String) onNewMessage;
   final TwitchMessage? Function(TwitchMessage) onFindThreadRoot;
   final void Function(TwitchMessage) onShowThreadView;
+  final bool showTimestamp;
+  final String timestampFormat;
 
   const ChatView({
     super.key,
@@ -40,6 +43,8 @@ class ChatView extends StatelessWidget {
     required this.onNewMessage,
     required this.onFindThreadRoot,
     required this.onShowThreadView,
+    this.showTimestamp = true,
+    this.timestampFormat = kDefaultTimestampFormat,
   });
 
   @override
@@ -124,6 +129,8 @@ class ChatView extends StatelessWidget {
                         channel: channel,
                         surface: surface,
                         textScale: s,
+                        showTimestamp: showTimestamp,
+                        timestampFormat: timestampFormat,
                         buildBadgeSpans: messageBuilder.buildBadgeSpans,
                         buildMessageSpans: messageBuilder.buildMessageSpans,
                         systemBodyBuilder: (msg, scale) =>
@@ -136,6 +143,8 @@ class ChatView extends StatelessWidget {
                         channel: channel,
                         surface: surface,
                         textScale: s,
+                        showTimestamp: showTimestamp,
+                        timestampFormat: timestampFormat,
                         buildBadgeSpans: messageBuilder.buildBadgeSpans,
                         buildMessageSpans: messageBuilder.buildMessageSpans,
                         onTapUser: (login, userId) => onShowUserProfile(

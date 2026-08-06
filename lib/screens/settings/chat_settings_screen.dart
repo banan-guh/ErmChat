@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../util/timestamp_formatter.dart';
 import 'pings_screen.dart';
 
 class ChatSettingsScreen extends StatefulWidget {
@@ -23,6 +24,8 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
   bool _backgroundService = true;
   bool _mentionPush = false;
   bool _preferEmotesFirst = false;
+  bool _showTimestamps = true;
+  String _timestampFormat = kDefaultTimestampFormat;
 
   @override
   void initState() {
@@ -41,8 +44,47 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
         _backgroundService = prefs.getBool('background_service') ?? true;
         _mentionPush = prefs.getBool('mention_push') ?? false;
         _preferEmotesFirst = prefs.getBool('prefer_emotes_first') ?? false;
+        _showTimestamps = prefs.getBool(kShowTimestampsPrefKey) ?? true;
+        _timestampFormat =
+            prefs.getString(kTimestampFormatPrefKey) ?? kDefaultTimestampFormat;
       });
     }
+  }
+
+  Future<void> _pickTimestampFormat() async {
+    final now = DateTime.now();
+    final selected = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Timestamp format'),
+        contentPadding: const EdgeInsets.symmetric(vertical: 8),
+        content: SizedBox(
+          width: 360,
+          height: 420,
+          child: RadioGroup<String>(
+            groupValue: _timestampFormat,
+            onChanged: (v) {
+              if (v != null) Navigator.pop(ctx, v);
+            },
+            child: ListView(
+              shrinkWrap: true,
+              children: [
+                for (final fmt in kTimestampFormats)
+                  RadioListTile<String>(
+                    value: fmt,
+                    title: Text(fmt),
+                    subtitle: Text('e.g. ${formatTimestamp(now, fmt)}'),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    if (selected == null || selected == _timestampFormat) return;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(kTimestampFormatPrefKey, selected);
+    if (mounted) setState(() => _timestampFormat = selected);
   }
 
   @override
@@ -67,7 +109,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
                 value: _maxMessagesPerChannel.toDouble(),
                 min: 100,
                 max: 1000,
-                divisions: 9,
+                divisions: 18,
                 label: '$_maxMessagesPerChannel',
                 onChanged: (value) async {
                   final v = value.toInt();
@@ -90,9 +132,9 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
               ),
               Slider(
                 value: _recentMessagesCount.toDouble(),
-                min: 10,
+                min: 0,
                 max: 500,
-                divisions: 49,
+                divisions: 10,
                 label: '$_recentMessagesCount',
                 onChanged: (value) async {
                   final v = value.toInt();
@@ -137,6 +179,24 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
               await prefs.setBool('prefer_emotes_first', value);
               if (mounted) setState(() => _preferEmotesFirst = value);
             },
+          ),
+          SwitchListTile(
+            secondary: const Icon(Icons.schedule),
+            title: const Text('Show timestamps'),
+            subtitle: const Text('Display a timestamp before every message'),
+            value: _showTimestamps,
+            onChanged: (value) async {
+              final prefs = await SharedPreferences.getInstance();
+              await prefs.setBool(kShowTimestampsPrefKey, value);
+              if (mounted) setState(() => _showTimestamps = value);
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.access_time),
+            title: const Text('Timestamp format'),
+            subtitle: Text(_timestampFormat),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: _pickTimestampFormat,
           ),
           SwitchListTile(
             secondary: const Icon(Icons.wifi_tethering),

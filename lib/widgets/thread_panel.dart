@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../models/twitch_message.dart';
+import '../util/timestamp_formatter.dart';
 import '../widgets/chat_message_tile.dart';
 
 class ThreadPanelData {
@@ -24,6 +25,8 @@ class ThreadPanelWidget extends StatefulWidget {
     double textScale,
   })
   buildMessageSpans;
+  final bool showTimestamp;
+  final String timestampFormat;
 
   const ThreadPanelWidget({
     required this.scrollController,
@@ -32,6 +35,8 @@ class ThreadPanelWidget extends StatefulWidget {
     required this.onLongPress,
     required this.buildBadgeSpans,
     required this.buildMessageSpans,
+    this.showTimestamp = true,
+    this.timestampFormat = kDefaultTimestampFormat,
     super.key,
   });
 
@@ -75,6 +80,8 @@ class ThreadPanelWidgetState extends State<ThreadPanelWidget> {
                 channel: data.channel,
                 surface: surface,
                 textScale: s,
+                showTimestamp: widget.showTimestamp,
+                timestampFormat: widget.timestampFormat,
                 buildBadgeSpans: widget.buildBadgeSpans,
                 buildMessageSpans: widget.buildMessageSpans,
               );
@@ -85,6 +92,8 @@ class ThreadPanelWidgetState extends State<ThreadPanelWidget> {
               channel: data.channel,
               surface: surface,
               textScale: s,
+              showTimestamp: widget.showTimestamp,
+              timestampFormat: widget.timestampFormat,
               buildBadgeSpans: widget.buildBadgeSpans,
               buildMessageSpans: widget.buildMessageSpans,
               onLongPress: () => widget.onLongPress(msg),

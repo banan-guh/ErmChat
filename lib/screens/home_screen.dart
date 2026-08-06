@@ -22,6 +22,7 @@ import '../services/emote_providers/twitch_emotes.dart';
 import '../util/mention.dart';
 import '../util/sheet_drag.dart';
 import '../util/thread_utils.dart';
+import '../util/timestamp_formatter.dart';
 import '../widgets/settings.dart';
 import '../widgets/tabbed_layout.dart';
 import '../widgets/welcome_dialog.dart';
@@ -244,6 +245,8 @@ class _HomeScreenState extends State<HomeScreen>
   int _maxMessagesPerChannel = 200;
   int _recentMessagesLimit = 100;
   int _nextSystemMessageId = 0;
+  bool _showTimestamps = true;
+  String _timestampFormat = kDefaultTimestampFormat;
 
   final _suggestionsNotifier = ValueNotifier<List<Suggestion>>([]);
   final _selectedTabIndex = ValueNotifier<int>(0);
@@ -1023,6 +1026,9 @@ class _HomeScreenState extends State<HomeScreen>
       _recentMessagesLimit = prefs.getInt('recent_messages_limit') ?? 100;
       _replyToRoot = prefs.getBool('reply_to_thread_root') ?? false;
       _preferEmotesFirst = prefs.getBool('prefer_emotes_first') ?? false;
+      _showTimestamps = prefs.getBool(kShowTimestampsPrefKey) ?? true;
+      _timestampFormat =
+          prefs.getString(kTimestampFormatPrefKey) ?? kDefaultTimestampFormat;
     });
   }
 
@@ -1419,8 +1425,9 @@ class _HomeScreenState extends State<HomeScreen>
               leading: const Icon(Icons.copy_all),
               title: const Text('Copy full message'),
               onTap: () {
-                final ts =
-                    '${msg.timestamp.toLocal().hour.toString().padLeft(2, '0')}:${msg.timestamp.toLocal().minute.toString().padLeft(2, '0')}';
+                final ts = _showTimestamps
+                    ? formatTimestamp(msg.timestamp, _timestampFormat)
+                    : '';
                 Clipboard.setData(
                   ClipboardData(
                     text: '$ts ${msg.formattedUsername}: ${msg.text}',
@@ -2378,6 +2385,7 @@ class _HomeScreenState extends State<HomeScreen>
                                       _loadAltPings();
                                       _loadMaxMessages();
                                       _loadTestWidgets();
+                                      _tileCache.clear();
                                       if (mounted) setState(() {});
                                     },
                                   ),
@@ -2424,6 +2432,9 @@ class _HomeScreenState extends State<HomeScreen>
                                                   channel,
                                                 ),
                                                 messageBuilder: _messageBuilder,
+                                                showTimestamp: _showTimestamps,
+                                                timestampFormat:
+                                                    _timestampFormat,
                                                 onShowUserProfile:
                                                     (
                                                       login,
@@ -2622,6 +2633,8 @@ class _HomeScreenState extends State<HomeScreen>
                                               _messageBuilder.buildBadgeSpans,
                                           buildMessageSpans:
                                               _messageBuilder.buildMessageSpans,
+                                          showTimestamp: _showTimestamps,
+                                          timestampFormat: _timestampFormat,
                                           scrollController:
                                               _threadPanelScrollCtrl,
                                         ),
@@ -2727,6 +2740,8 @@ class _HomeScreenState extends State<HomeScreen>
                                                   .buildBadgeSpans,
                                               buildMessageSpans: _messageBuilder
                                                   .buildMessageSpans,
+                                              showTimestamp: _showTimestamps,
+                                              timestampFormat: _timestampFormat,
                                               scrollController:
                                                   _mentionsPanelScrollCtrl,
                                             ),
@@ -2740,6 +2755,8 @@ class _HomeScreenState extends State<HomeScreen>
                                                   .buildBadgeSpans,
                                               buildMessageSpans: _messageBuilder
                                                   .buildMessageSpans,
+                                              showTimestamp: _showTimestamps,
+                                              timestampFormat: _timestampFormat,
                                               scrollController:
                                                   _whispersPanelScrollCtrl,
                                               emptyText: 'No whispers',

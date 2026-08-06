@@ -10,6 +10,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:ermchat/main.dart';
 import 'package:ermchat/screens/settings/account_screen.dart';
 import 'package:ermchat/screens/settings/channel_settings_screen.dart';
+import 'package:ermchat/screens/settings/chat_settings_screen.dart';
 import 'package:ermchat/screens/settings/customization_screen.dart';
 import 'package:ermchat/services/twitch_api.dart';
 import 'package:ermchat/services/twitch_eventsub.dart';
@@ -1088,6 +1089,87 @@ void main() {
 
     final timeText = find.textContaining(RegExp(r'^\d{2}:\d{2}$'));
     expect(timeText, findsAtLeast(1));
+  });
+
+  testWidgets('Message timestamp respects custom 12-hour format', (
+    WidgetTester tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({
+      'timestamp_format': 'h:mm a',
+      'show_timestamps': true,
+    });
+    final fakeEventSub = _FakeEventSubService();
+    final fakeIrc = _FakeIrcService();
+    final fakeRecent = _FakeRecentMessagesService();
+
+    await tester.pumpWidget(
+      TwitchChatApp(
+        eventSubService: fakeEventSub,
+        ircService: fakeIrc,
+        recentMessagesService: fakeRecent,
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.byIcon(Icons.add));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).last, 'xqc');
+    await tester.tap(find.text('Join'));
+    await tester.pump();
+
+    fakeIrc.emitMessage(
+      TwitchMessage(
+        login: 'xqc',
+        text: 'hello',
+        channel: 'xqc',
+        messageId: 'm1',
+      ),
+    );
+    await tester.pump();
+
+    expect(
+      find.textContaining(RegExp(r'^\d{1,2}:\d{2} (AM|PM)$')),
+      findsAtLeast(1),
+    );
+    expect(find.textContaining(RegExp(r'^\d{2}:\d{2}$')), findsNothing);
+  });
+
+  testWidgets('Timestamps can be hidden', (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues({
+      'timestamp_format': 'HH:mm',
+      'show_timestamps': false,
+    });
+    final fakeEventSub = _FakeEventSubService();
+    final fakeIrc = _FakeIrcService();
+    final fakeRecent = _FakeRecentMessagesService();
+
+    await tester.pumpWidget(
+      TwitchChatApp(
+        eventSubService: fakeEventSub,
+        ircService: fakeIrc,
+        recentMessagesService: fakeRecent,
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.byIcon(Icons.add));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).last, 'xqc');
+    await tester.tap(find.text('Join'));
+    await tester.pump();
+
+    fakeIrc.emitMessage(
+      TwitchMessage(
+        login: 'xqc',
+        text: 'hello',
+        channel: 'xqc',
+        messageId: 'm1',
+      ),
+    );
+    await tester.pump();
+
+    expect(find.textContaining(RegExp(r'^\d{2}:\d{2}$')), findsNothing);
+    expect(find.textContaining('hello'), findsWidgets);
   });
 
   testWidgets(
@@ -2613,6 +2695,35 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(addedChannel, 'newchannel');
+    });
+
+    testWidgets('Chat settings timestamp toggle and format picker persist', (
+      WidgetTester tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({});
+
+      await tester.pumpWidget(const MaterialApp(home: ChatSettingsScreen()));
+      await tester.pump();
+
+      final toggle = tester.widget<SwitchListTile>(
+        find.widgetWithText(SwitchListTile, 'Show timestamps'),
+      );
+      expect(toggle.value, isTrue);
+      expect(find.text('HH:mm'), findsOneWidget);
+
+      await tester.tap(find.widgetWithText(SwitchListTile, 'Show timestamps'));
+      await tester.pumpAndSettle();
+      var prefs = await SharedPreferences.getInstance();
+      expect(prefs.getBool('show_timestamps'), isFalse);
+
+      await tester.tap(find.widgetWithText(ListTile, 'Timestamp format'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('h:mm a'));
+      await tester.pumpAndSettle();
+
+      prefs = await SharedPreferences.getInstance();
+      expect(prefs.getString('timestamp_format'), 'h:mm a');
+      expect(find.text('h:mm a'), findsOneWidget);
     });
   });
 
