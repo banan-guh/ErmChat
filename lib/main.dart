@@ -18,6 +18,32 @@ void main() {
   runApp(const TwitchChatApp());
 }
 
+ThemeData buildLightTheme() => ThemeData(
+  colorScheme:
+      ColorScheme.fromSeed(
+        seedColor: Colors.deepPurple,
+        surface: const Color(0xFFF0F0F0),
+      ).copyWith(
+        onSurface: const Color(0xFF1A1A1A),
+        onSurfaceVariant: const Color(0xFF3A3A3A),
+        surfaceContainerLowest: const Color(0xFFFCFCFC),
+        surfaceContainerLow: const Color(0xFFF2F3F5),
+        surfaceContainer: const Color(0xFFEBEDEF),
+        surfaceContainerHigh: const Color(0xFFE0E3E7),
+        surfaceContainerHighest: const Color(0xFFCED1D6),
+      ),
+  useMaterial3: true,
+);
+
+ThemeData buildDarkTheme() => ThemeData(
+  colorScheme: ColorScheme.fromSeed(
+    seedColor: Colors.deepPurple,
+    brightness: Brightness.dark,
+    surface: Colors.black,
+  ),
+  useMaterial3: true,
+);
+
 class TwitchChatApp extends StatefulWidget {
   final EventSubService? eventSubService;
   final IrcService? ircService;
@@ -89,30 +115,8 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
     if (!_loaded) {
       return MaterialApp(
         themeMode: _themeMode,
-        theme: ThemeData(
-          colorScheme:
-              ColorScheme.fromSeed(
-                seedColor: Colors.deepPurple,
-                surface: const Color(0xFFF0F0F0),
-              ).copyWith(
-                onSurface: const Color(0xFF1A1A1A),
-                onSurfaceVariant: const Color(0xFF3A3A3A),
-                surfaceContainerLowest: const Color(0xFFFCFCFC),
-                surfaceContainerLow: const Color(0xFFF2F3F5),
-                surfaceContainer: const Color(0xFFEBEDEF),
-                surfaceContainerHigh: const Color(0xFFE0E3E7),
-                surfaceContainerHighest: const Color(0xFFCED1D6),
-              ),
-          useMaterial3: true,
-        ),
-        darkTheme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(
-            seedColor: Colors.deepPurple,
-            brightness: Brightness.dark,
-            surface: Colors.black,
-          ),
-          useMaterial3: true,
-        ),
+        theme: buildLightTheme(),
+        darkTheme: buildDarkTheme(),
         home: const Scaffold(body: Center(child: CircularProgressIndicator())),
       );
     }
@@ -120,30 +124,8 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
     return MaterialApp(
       title: 'ErmChat',
       themeMode: _themeMode,
-      theme: ThemeData(
-        colorScheme:
-            ColorScheme.fromSeed(
-              seedColor: Colors.deepPurple,
-              surface: const Color(0xFFF0F0F0),
-            ).copyWith(
-              onSurface: const Color(0xFF1A1A1A),
-              onSurfaceVariant: const Color(0xFF3A3A3A),
-              surfaceContainerLowest: const Color(0xFFFCFCFC),
-              surfaceContainerLow: const Color(0xFFF2F3F5),
-              surfaceContainer: const Color(0xFFEBEDEF),
-              surfaceContainerHigh: const Color(0xFFE0E3E7),
-              surfaceContainerHighest: const Color(0xFFCED1D6),
-            ),
-        useMaterial3: true,
-      ),
-      darkTheme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.deepPurple,
-          brightness: Brightness.dark,
-          surface: Colors.black,
-        ),
-        useMaterial3: true,
-      ),
+      theme: buildLightTheme(),
+      darkTheme: buildDarkTheme(),
       home: HomeScreen(
         twitchAuth: _twitchAuth,
         onThemeChanged: _setThemeMode,

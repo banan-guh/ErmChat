@@ -231,6 +231,7 @@ class ChatConnectionManager {
   bool _isConnecting = false;
   final _recentBanMeta = <String, List<_BanMeta>>{};
   static const _banDedupWindowSeconds = 10;
+  static final _spaceRe = RegExp(r'\s+');
 
   StreamSubscription<TwitchMessage>? messageSub;
   StreamSubscription<EventSubStatus>? statusSub;
@@ -429,7 +430,10 @@ class ChatConnectionManager {
       }
     }
     onSystemMessage(channel, text);
-    result.meta.firstMessageId = channelMessages[channel]?.first.messageId;
+    final msgs = channelMessages[channel];
+    result.meta.firstMessageId = msgs != null && msgs.isNotEmpty
+        ? msgs.first.messageId
+        : null;
   }
 
   void _updateMessageText(String channel, String messageId, String newText) {
@@ -458,7 +462,7 @@ class ChatConnectionManager {
     if (channelEmotes == null) return;
     final found = <GenericEmote>[];
     final seen = <String>{};
-    for (final word in msg.text.split(RegExp(r'\s+'))) {
+    for (final word in msg.text.split(_spaceRe)) {
       if (seen.contains(word)) continue;
       final emote = channelEmotes.byCode[word];
       if (emote != null) {
@@ -524,7 +528,9 @@ class ChatConnectionManager {
       if (tags['r9k'] == '1') parts.add('Unique chat');
     }
     parts.addAll(_streamStatusParts[channel] ?? const []);
-    chatStatus[channel] = parts.isNotEmpty ? parts.join(' · ') : '';
+    final newStatus = parts.isNotEmpty ? parts.join(' · ') : '';
+    if (chatStatus[channel] == newStatus) return;
+    chatStatus[channel] = newStatus;
     invalidateChannel(channel);
   }
 
@@ -551,14 +557,7 @@ class ChatConnectionManager {
 
     final threadGroups = <String, List<TwitchMessage>>{};
     for (final m in msgs) {
-      String? key;
-      if (m.replyThreadRootId != null) {
-        key = m.replyThreadRootId;
-      } else if (m.messageId != null && parentOf.containsKey(m.messageId)) {
-        key = resolveThreadRootId(m.messageId!, parentOf);
-      } else if (m.messageId != null) {
-        key = m.messageId;
-      }
+      final key = threadKeyFor(m, parentOf);
       if (key != null) {
         threadGroups.putIfAbsent(key, () => <TwitchMessage>[]).add(m);
       }
@@ -574,14 +573,7 @@ class ChatConnectionManager {
       if (m.isSystem) continue;
       if (visibleCount >= maxMessages) break;
       visibleCount++;
-      String? key;
-      if (m.replyThreadRootId != null) {
-        key = m.replyThreadRootId;
-      } else if (m.messageId != null && parentOf.containsKey(m.messageId)) {
-        key = resolveThreadRootId(m.messageId!, parentOf);
-      } else if (m.messageId != null) {
-        key = m.messageId;
-      }
+      final key = threadKeyFor(m, parentOf);
       if (key != null && threadGroups.containsKey(key)) {
         activeThreadKeys.add(key);
       }
@@ -605,14 +597,7 @@ class ChatConnectionManager {
       if (isActiveThread) {
         keepIndices.add(i);
       } else {
-        String? key;
-        if (m.replyThreadRootId != null) {
-          key = m.replyThreadRootId;
-        } else if (m.messageId != null && parentOf.containsKey(m.messageId)) {
-          key = resolveThreadRootId(m.messageId!, parentOf);
-        } else if (m.messageId != null) {
-          key = m.messageId;
-        }
+        final key = threadKeyFor(m, parentOf);
         final isOrphanThread =
             m.messageId != null &&
             !isActiveThread &&
@@ -1046,7 +1031,7 @@ class ChatConnectionManager {
             if (!firstConnect) {
               await Future.delayed(const Duration(milliseconds: 500));
             }
-            // "Connected" is emitted before subscriptions are created — the
+            // "Connected" is emitted before subscriptions are created - the
             // user sees it as soon as the socket is up, not after Helix calls.
             for (final channel in channels) {
               if (_connectedAcked.add(channel)) {
@@ -1239,7 +1224,7 @@ class ChatConnectionManager {
     ircClearSub = irc.onChannelClear.listen((event) {
       if (isDisposed) return;
       // With channel.moderate active, clears come from EventSub with the
-      // moderator's name — skip the IRC copy.
+      // moderator's name - skip the IRC copy.
       if (_moderationChannels.contains(event.channel)) return;
       final msgs = channelMessages[event.channel];
       if (msgs != null) {
@@ -1415,19 +1400,13 @@ class ChatConnectionManager {
 
     final login = getCurrentUserLogin()?.toLowerCase();
 
-    final isReplyToMe =
-        login != null &&
-        !msg.isSystem &&
-        msg.replyToUser != null &&
-        msg.replyToUser!.toLowerCase() == login;
     final altPings = getAltPings?.call() ?? const [];
+    final loweredText = msg.text.toLowerCase();
     final hasAltPing =
         !msg.isSystem &&
-        altPings.any((p) => msg.text.toLowerCase().contains(p.toLowerCase()));
+        altPings.any((p) => loweredText.contains(p.toLowerCase()));
     final isMentioned =
-        (login != null && !msg.isSystem && isMention(msg.text, login)) ||
-        isReplyToMe ||
-        hasAltPing;
+        (login != null && isMentionOf(msg, login)) || hasAltPing;
 
     if (isMentioned && msg.login != login) {
       if (!msg.isHighlighted &&
@@ -1527,7 +1506,7 @@ class ChatConnectionManager {
       unawaited(
         irc.checkAlive().then((alive) {
           if (!alive) {
-            debugPrint('[ChatConn] IRC zombie detected – forcing reconnect');
+            debugPrint('[ChatConn] IRC zombie detected - forcing reconnect');
             irc.forceReconnect();
           }
         }),
@@ -1540,7 +1519,7 @@ class ChatConnectionManager {
         ircRead.checkAlive().then((alive) {
           if (!alive) {
             debugPrint(
-              '[ChatConn] IRC read zombie detected – forcing reconnect',
+              '[ChatConn] IRC read zombie detected - forcing reconnect',
             );
             ircRead.forceReconnect();
           }

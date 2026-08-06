@@ -228,6 +228,19 @@ void main() {
         returnsNormally,
       );
     });
+
+    test('malformed frames do not crash', () {
+      expect(
+        () => service.handleRawMessage(<String, dynamic>{}),
+        returnsNormally,
+      );
+      expect(
+        () => service.handleRawMessage(<String, dynamic>{
+          'metadata': <String, dynamic>{'message_type': 123},
+        }),
+        returnsNormally,
+      );
+    });
   });
 
   Map<String, dynamic> widget(

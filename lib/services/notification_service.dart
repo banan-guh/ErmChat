@@ -83,7 +83,7 @@ class NotificationService {
     );
 
     final body = message.length > 200
-        ? '${message.substring(0, 200)}…'
+        ? '${message.substring(0, 200)}...'
         : message;
 
     final id = DateTime.now().millisecondsSinceEpoch ~/ 1000;

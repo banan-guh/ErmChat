@@ -6,6 +6,10 @@ import '../models/twitch_message.dart';
 import '../util/irc_utils.dart';
 import 'base_irc_connection.dart';
 
+final _loneLowSurrogateRe = RegExp(r'[\uDC00-\uDFFF]');
+final _orphanedHighSurrogateRe = RegExp(r'[\uD800-\uDBFF](?![\uDC00-\uDFFF])');
+final _replyPrefixRe = RegExp(r'^\s*@\S+\s+');
+
 class IrcBanEvent {
   final String channel;
   final String user;
@@ -43,40 +47,12 @@ class IrcChannelClearEvent {
 /// when off, "0" when always on, otherwise the minutes.
 class IrcRoomStateEvent {
   final String channel;
-  final int? slowSeconds;
-  final String? followersOnly;
-  final bool emoteOnly;
-  final bool subsOnly;
-  final bool r9k;
 
   /// Raw tag map; updates are partial (only changed tags), so callers that
   /// need the full state must merge with the previous event.
   final Map<String, String> tags;
 
-  IrcRoomStateEvent({
-    required this.channel,
-    this.slowSeconds,
-    this.followersOnly,
-    required this.emoteOnly,
-    required this.subsOnly,
-    required this.r9k,
-    required this.tags,
-  });
-}
-
-/// Own user state per channel (badges at JOIN). Global badges arrive once
-/// via GLOBALUSERSTATE instead.
-class IrcUserStateEvent {
-  final String channel;
-  final List<MessageBadge>? badges;
-
-  IrcUserStateEvent({required this.channel, this.badges});
-}
-
-class IrcGlobalUserStateEvent {
-  final List<MessageBadge>? badges;
-
-  IrcGlobalUserStateEvent({this.badges});
+  IrcRoomStateEvent({required this.channel, required this.tags});
 }
 
 class IrcMessageDeletedEvent {
@@ -249,11 +225,6 @@ class IrcService extends BaseIrcConnection {
   final _roomStateController = StreamController<IrcRoomStateEvent>.broadcast(
     sync: true,
   );
-  final _userStateController = StreamController<IrcUserStateEvent>.broadcast(
-    sync: true,
-  );
-  final _globalUserStateController =
-      StreamController<IrcGlobalUserStateEvent>.broadcast(sync: true);
   final _whisperController = StreamController<TwitchMessage>.broadcast(
     sync: true,
   );
@@ -263,9 +234,6 @@ class IrcService extends BaseIrcConnection {
   Stream<IrcNoticeEvent> get onJtvMessage => _jtvController.stream;
   Stream<IrcChannelClearEvent> get onChannelClear => _clearController.stream;
   Stream<IrcRoomStateEvent> get onRoomState => _roomStateController.stream;
-  Stream<IrcUserStateEvent> get onUserState => _userStateController.stream;
-  Stream<IrcGlobalUserStateEvent> get onGlobalUserState =>
-      _globalUserStateController.stream;
   Stream<IrcMessageDeletedEvent> get onMessageDeleted =>
       _deleteController.stream;
   Stream<TwitchMessage> get onMessage => _messageController.stream;
@@ -305,17 +273,10 @@ class IrcService extends BaseIrcConnection {
       _handleUserNotice(line);
       return;
     }
-    // GLOBALUSERSTATE contains "USERSTATE " as a substring — check first.
+    // GLOBALUSERSTATE contains "USERSTATE " as a substring - check first.
     // It also carries no params, so the command ends the line (no trailing
-    // space like the other handlers expect).
-    if (line.contains('GLOBALUSERSTATE ') || line.endsWith('GLOBALUSERSTATE')) {
-      _handleGlobalUserState(line);
-      return;
-    }
-    if (line.contains('USERSTATE ')) {
-      _handleUserState(line);
-      return;
-    }
+    // space like the other handlers expect). Neither event is consumed
+    // anywhere, so the lines are intentionally ignored.
     if (line.contains('ROOMSTATE ')) {
       _handleRoomState(line);
       return;
@@ -436,41 +397,7 @@ class IrcService extends BaseIrcConnection {
     if (channelName == null) return;
 
     _roomStateController.add(
-      IrcRoomStateEvent(
-        channel: channelName,
-        slowSeconds: int.tryParse(msg.tags['slow'] ?? ''),
-        followersOnly: msg.tags['followers-only'],
-        emoteOnly: msg.tags['emote-only'] == '1',
-        subsOnly: msg.tags['subs-only'] == '1',
-        r9k: msg.tags['r9k'] == '1',
-        tags: msg.tags,
-      ),
-    );
-  }
-
-  void _handleUserState(String line) {
-    final msg = parseIrcMessage(line);
-    if (msg == null || msg.command != 'USERSTATE') return;
-
-    final channelName = msg.params.isNotEmpty
-        ? msg.params[0].substring(1)
-        : null;
-    if (channelName == null) return;
-
-    _userStateController.add(
-      IrcUserStateEvent(
-        channel: channelName,
-        badges: parseIrcBadges(msg.tags['badges']),
-      ),
-    );
-  }
-
-  void _handleGlobalUserState(String line) {
-    final msg = parseIrcMessage(line);
-    if (msg == null || msg.command != 'GLOBALUSERSTATE') return;
-
-    _globalUserStateController.add(
-      IrcGlobalUserStateEvent(badges: parseIrcBadges(msg.tags['badges'])),
+      IrcRoomStateEvent(channel: channelName, tags: msg.tags),
     );
   }
 
@@ -566,8 +493,6 @@ class IrcService extends BaseIrcConnection {
     _userNoticeController.close();
     _clearController.close();
     _roomStateController.close();
-    _userStateController.close();
-    _globalUserStateController.close();
     _whisperController.close();
     super.dispose();
   }
@@ -620,7 +545,7 @@ TwitchMessage parseIrcChatMessage(
   // so the stored text matches what the user sees; emote positions from IRC
   // tags use original-text coordinates and must be adjusted by prefixLen below.
   if (ircReplyParentId != null) {
-    final prefixMatch = RegExp(r'^\s*@\S+\s+').firstMatch(strippedText);
+    final prefixMatch = _replyPrefixRe.firstMatch(strippedText);
     if (prefixMatch != null) {
       prefixLen += prefixMatch.end;
       strippedText = strippedText.substring(prefixMatch.end);
@@ -729,11 +654,8 @@ IrcMessage? parseIrcMessage(String line) {
           // Strip orphaned UTF-16 surrogates: low surrogates alone or high
           // surrogates not followed by low (Flutter's text engine crashes on
           // isolated surrogates from malformed Twitch IRC data).
-          decoded = decoded.replaceAll(RegExp(r'[\uDC00-\uDFFF]'), '');
-          decoded = decoded.replaceAll(
-            RegExp(r'[\uD800-\uDBFF](?![\uDC00-\uDFFF])'),
-            '',
-          );
+          decoded = decoded.replaceAll(_loneLowSurrogateRe, '');
+          decoded = decoded.replaceAll(_orphanedHighSurrogateRe, '');
           tagMap[tag.substring(0, eq)] = decoded;
         }
       }

@@ -4,6 +4,11 @@ import 'dart:math';
 import 'package:flutter_web_auth_2/flutter_web_auth_2.dart';
 import '../twitch_config.dart';
 
+/// A function that starts the OAuth flow and resolves with the access token
+/// on success or null on failure/cancel. Defined here so both the settings
+/// and account screens can inject a mocked flow without importing each other.
+typedef OAuthStarter = Future<String?> Function();
+
 class TwitchOAuth {
   static const _authorizeUrl = 'https://id.twitch.tv/oauth2/authorize';
 
@@ -11,6 +16,7 @@ class TwitchOAuth {
   static bool _flowInProgress = false;
 
   static Future<String?> startFlow() async {
+    lastError = null;
     if (_flowInProgress) {
       lastError = 'An authorization flow is already in progress.';
       return null;

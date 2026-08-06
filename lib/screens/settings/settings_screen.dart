@@ -1,14 +1,13 @@
 import 'package:flutter/material.dart';
 import '../../services/analytics_service.dart';
 import '../../services/twitch_auth.dart';
+import '../../services/twitch_oauth.dart';
 import 'about_screen.dart';
 import 'account_screen.dart';
 import 'analytics_screen.dart';
 import 'channel_settings_screen.dart';
 import 'chat_settings_screen.dart';
 import 'customization_screen.dart';
-
-typedef OAuthStarter = Future<String?> Function();
 
 class SettingsScreen extends StatelessWidget {
   final TwitchAuth twitchAuth;

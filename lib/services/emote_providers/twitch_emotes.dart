@@ -14,7 +14,7 @@ class TwitchEmoteProvider {
     }
     final res = await http.get(uri, headers: headers).timeout(httpTimeout);
     debugPrint(
-      'Twitch global emotes: ${res.statusCode} — ${res.body.length} bytes',
+      'Twitch global emotes: ${res.statusCode} - ${res.body.length} bytes',
     );
     if (res.statusCode != 200) return [];
     final data = jsonDecode(res.body) as Map<String, dynamic>;

@@ -20,7 +20,6 @@ class _ChannelStats {
   int banCount = 0;
   int timeoutCount = 0;
   late final DateTime trackingStartedAt;
-  DateTime? lastMessageAt;
 
   _ChannelStats(DateTime Function() now) {
     trackingStartedAt = now();
@@ -103,7 +102,6 @@ class AnalyticsService extends ChangeNotifier {
     final stats = _statsFor(channel);
     final now = _now();
     stats.totalMessages++;
-    stats.lastMessageAt = now;
     final login = msg.login.trim().toLowerCase();
     if (login.isNotEmpty) {
       stats.uniqueChatters.add(login);
@@ -152,8 +150,6 @@ class AnalyticsService extends ChangeNotifier {
 
   DateTime? trackingStartedAt(String channel) =>
       _stats(channel)?.trackingStartedAt;
-
-  DateTime? lastMessageAt(String channel) => _stats(channel)?.lastMessageAt;
 
   double messagesPerMinute(String channel) {
     final stats = _stats(channel);
@@ -275,10 +271,13 @@ class AnalyticsService extends ChangeNotifier {
     stats.wordCounts[word] = (stats.wordCounts[word] ?? 0) + 1;
   }
 
+  static final _leadingNonAlnum = RegExp(r'^[^a-z0-9]+');
+  static final _trailingNonAlnum = RegExp(r'[^a-z0-9]+$');
+
   String _normalizeWord(String token) {
     var word = token.toLowerCase();
-    word = word.replaceFirst(RegExp(r'^[^a-z0-9]+'), '');
-    word = word.replaceAll(RegExp(r'[^a-z0-9]+$'), '');
+    word = word.replaceFirst(_leadingNonAlnum, '');
+    word = word.replaceAll(_trailingNonAlnum, '');
     return word;
   }
 

@@ -159,13 +159,13 @@ class SevenTvEventClient {
             debugPrint('7TV event stream closed (code=$code reason="$reason")');
             if (_fatalCloseCode != null) {
               debugPrint(
-                '7TV: fatal end-of-stream code $_fatalCloseCode — not reconnecting',
+                '7TV: fatal end-of-stream code $_fatalCloseCode - not reconnecting',
               );
               return;
             }
             if (code != null && _noReconnectCloseCodes.contains(code)) {
               debugPrint(
-                '7TV: close code $code indicates client bug — not reconnecting',
+                '7TV: close code $code indicates client bug - not reconnecting',
               );
               return;
             }
@@ -265,7 +265,7 @@ class SevenTvEventClient {
           if (code != null && _noReconnectCloseCodes.contains(code)) {
             _fatalCloseCode = code;
             debugPrint(
-              '7TV: end-of-stream code $code is fatal — will not reconnect',
+              '7TV: end-of-stream code $code is fatal - will not reconnect',
             );
           }
           break;
@@ -386,7 +386,7 @@ class SevenTvEventClient {
         if (_channel == null) return;
         final elapsed = DateTime.now().difference(_lastHeartbeat);
         if (elapsed.inMilliseconds > 3 * _heartbeatInterval!) {
-          debugPrint('7TV heartbeat timeout — reconnecting');
+          debugPrint('7TV heartbeat timeout - reconnecting');
           _disconnect();
           _scheduleReconnect();
           return;
@@ -435,7 +435,7 @@ class SevenTvEventClient {
     _reconnectAttempt++;
     if (_reconnectAttempt > _maxReconnectAttempts) {
       debugPrint(
-        '7TV: max reconnect attempts ($_maxReconnectAttempts) reached — giving up',
+        '7TV: max reconnect attempts ($_maxReconnectAttempts) reached - giving up',
       );
       _reconnecting = false;
       return;

@@ -21,7 +21,7 @@ class EmoteManager extends ChangeNotifier {
   // Refresh TTLs: emote caches are only refetched once they're older than
   // the TTL. Unmetered connections refresh every 24h; cellular gets 48h so
   // the rake uses less data.
-  // TODO(expand): connectivity-based refresh policy — e.g. a "refresh only on
+  // TODO(expand): connectivity-based refresh policy - e.g. a "refresh only on
   // wifi" settings toggle, skip channel rakes entirely on cellular,
   // per-connection image precache policy, data-usage stats.
   static const _wifiTtl = Duration(hours: 24);
@@ -106,7 +106,11 @@ class EmoteManager extends ChangeNotifier {
       ..sort((a, b) => a.code.compareTo(b.code));
   }
 
+  Map<String, List<GenericEmote>>? _subsByChannelCache;
+
   Map<String, List<GenericEmote>> subscriberEmotesByChannel() {
+    final cached = _subsByChannelCache;
+    if (cached != null) return cached;
     final result = <String, List<GenericEmote>>{};
     final keys = _channelTwitchEmotes.keys.toList()..sort();
     for (final channel in keys) {
@@ -119,7 +123,7 @@ class EmoteManager extends ChangeNotifier {
             ..sort((a, b) => a.code.compareTo(b.code));
       if (subs.isNotEmpty) result[channel] = subs;
     }
-    return result;
+    return _subsByChannelCache = result;
   }
 
   static const _recentKey = 'recent_emotes';
@@ -228,6 +232,7 @@ class EmoteManager extends ChangeNotifier {
         ...emotes,
       ];
       _channelTwitchEmotes[channel] = merged;
+      _subsByChannelCache = null;
       final existingCache = _channelCaches[channel];
       final allEmotes = <GenericEmote>[
         ...merged,
@@ -311,6 +316,7 @@ class EmoteManager extends ChangeNotifier {
       ...subs,
       ...nonSub.where((e) => e.type == EmoteType.twitch),
     ];
+    _subsByChannelCache = null;
     return [...subs, ...nonSub];
   }
 
@@ -372,6 +378,7 @@ class EmoteManager extends ChangeNotifier {
     _channelCaches.remove(channel);
     _channelFetchTimes.remove(channel);
     _channelTwitchEmotes.remove(channel);
+    _subsByChannelCache = null;
     _sevenTvEmoteSetIds.remove(channel);
     _sevenTvUserIds.remove(channel);
     _mergedCache.remove(channel);

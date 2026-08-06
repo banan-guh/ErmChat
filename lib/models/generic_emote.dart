@@ -52,19 +52,40 @@ class GenericEmote {
     'aspectRatio': aspectRatio,
   };
 
-  factory GenericEmote.fromJson(Map<String, dynamic> json) => GenericEmote(
-    id: json['id'] as String,
-    code: json['code'] as String,
-    type: EmoteType.values.byName(json['type'] as String),
-    url: json['url'] as String,
-    isAnimated: json['isAnimated'] as bool? ?? false,
-    scope: EmoteScope.values.byName(json['scope'] as String? ?? 'global'),
-    ownerChannel: json['ownerChannel'] as String?,
-    tier: json['tier'] as String?,
-    emoteType: json['emoteType'] as String?,
-    isZeroWidth: json['isZeroWidth'] as bool? ?? false,
-    baseName: json['baseName'] as String?,
-    relativeScale: (json['relativeScale'] as num?)?.toDouble() ?? 1.0,
-    aspectRatio: (json['aspectRatio'] as num?)?.toDouble() ?? 1.0,
-  );
+  factory GenericEmote.fromJson(Map<String, dynamic> json) {
+    final id = json['id'];
+    final code = json['code'];
+    final url = json['url'];
+    if (id is! String || code is! String || url is! String) {
+      throw FormatException('Invalid emote json: $json');
+    }
+    return GenericEmote(
+      id: id,
+      code: code,
+      type: _enumByName(EmoteType.values, json['type'], EmoteType.twitch),
+      url: url,
+      isAnimated: json['isAnimated'] as bool? ?? false,
+      scope: _enumByName(EmoteScope.values, json['scope'], EmoteScope.global),
+      ownerChannel: json['ownerChannel'] as String?,
+      tier: json['tier'] as String?,
+      emoteType: json['emoteType'] as String?,
+      isZeroWidth: json['isZeroWidth'] as bool? ?? false,
+      baseName: json['baseName'] as String?,
+      relativeScale: (json['relativeScale'] as num?)?.toDouble() ?? 1.0,
+      aspectRatio: (json['aspectRatio'] as num?)?.toDouble() ?? 1.0,
+    );
+  }
+
+  static T _enumByName<T extends Enum>(
+    List<T> values,
+    Object? name,
+    T fallback,
+  ) {
+    if (name is String) {
+      for (final value in values) {
+        if (value.name == name) return value;
+      }
+    }
+    return fallback;
+  }
 }

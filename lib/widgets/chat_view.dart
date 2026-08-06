@@ -224,7 +224,7 @@ class ChatView extends StatelessWidget {
   Widget _buildReplyIndicator(BuildContext context, TwitchMessage msg) {
     final replyPreview = msg.replyToText ?? '';
     final preview = replyPreview.length > 60
-        ? '${replyPreview.substring(0, 60)}…'
+        ? '${replyPreview.substring(0, 60)}...'
         : replyPreview;
     final variant = Theme.of(context).colorScheme.onSurfaceVariant;
     return Padding(

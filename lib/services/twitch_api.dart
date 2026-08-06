@@ -130,31 +130,6 @@ class TwitchApi {
     return true;
   }
 
-  Future<Map<String, dynamic>?> getChatSettings(
-    TwitchAuth auth,
-    String broadcasterId,
-    String moderatorId,
-  ) async {
-    _clearError();
-    final uri = Uri.parse(
-      '$_base/chat/settings?broadcaster_id=$broadcasterId&moderator_id=$moderatorId',
-    );
-    final res = await _client.get(uri, headers: _headers(auth));
-    if (res.statusCode != 200) {
-      _setError('getChatSettings', res);
-      return null;
-    }
-    try {
-      final data = jsonDecode(res.body) as Map;
-      final list = data['data'] as List;
-      if (list.isEmpty) return null;
-      return list[0] as Map<String, dynamic>;
-    } catch (e) {
-      _setError('getChatSettings: bad response');
-      return null;
-    }
-  }
-
   Future<Map<String, dynamic>?> getStreamInfo(
     TwitchAuth auth,
     String broadcasterId,

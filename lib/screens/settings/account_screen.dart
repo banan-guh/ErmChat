@@ -7,7 +7,6 @@ import '../../services/twitch_api.dart';
 import '../../services/twitch_auth.dart';
 import '../../services/twitch_oauth.dart';
 import '../../twitch_config.dart';
-import 'settings_screen.dart';
 
 enum _AuthState { idle, waiting, success, error, needsSetup, pasteToken }
 

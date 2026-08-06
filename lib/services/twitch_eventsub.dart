@@ -225,8 +225,13 @@ class EventSubService {
 
         _streamSub = _channel!.stream.listen(
           (raw) {
-            final msg = jsonDecode(raw as String) as Map<String, dynamic>;
-            _handleMessage(msg);
+            if (raw is! String) return;
+            try {
+              final msg = jsonDecode(raw) as Map<String, dynamic>;
+              _handleMessage(msg);
+            } catch (e) {
+              debugPrint('EventSub frame parse error: $e');
+            }
           },
           onError: (e) {
             debugPrint('EventSub stream error: $e');
@@ -261,7 +266,7 @@ class EventSubService {
     if (_reconnecting || _disposed) return;
     if (!_isOnline) return;
     if (_reconnectAttempt >= _maxReconnectAttempts) {
-      debugPrint('EventSub max reconnect attempts reached – giving up');
+      debugPrint('EventSub max reconnect attempts reached - giving up');
       return;
     }
     _reconnecting = true;
@@ -311,21 +316,26 @@ class EventSubService {
   }
 
   void _handleMessage(Map<String, dynamic> msg) {
-    final meta = msg['metadata'] as Map<String, dynamic>;
-    final type = meta['message_type'] as String;
+    try {
+      final meta = msg['metadata'] as Map<String, dynamic>?;
+      final type = meta?['message_type'] as String?;
+      if (type == null) return;
 
-    switch (type) {
-      case 'session_welcome':
-        _onWelcome(msg);
-      case 'notification':
-        _onNotification(msg);
-      case 'session_reconnect':
-        _handleReconnect(msg);
-      case 'revocation':
-        debugPrint('EventSub subscription revoked');
+      switch (type) {
+        case 'session_welcome':
+          _onWelcome(msg);
+        case 'notification':
+          _onNotification(msg);
+        case 'session_reconnect':
+          _handleReconnect(msg);
+        case 'revocation':
+          debugPrint('EventSub subscription revoked');
+      }
+
+      _resetKeepalive();
+    } catch (e) {
+      debugPrint('EventSub message parse error: $e');
     }
-
-    _resetKeepalive();
   }
 
   void _onWelcome(Map<String, dynamic> msg) {
@@ -360,7 +370,7 @@ class EventSubService {
     _keepaliveTimer?.cancel();
     final timeoutSeconds = (_keepaliveTimeout * 1.5).round();
     _keepaliveTimer = Timer(Duration(seconds: timeoutSeconds), () {
-      debugPrint('EventSub keepalive timeout – reconnecting');
+      debugPrint('EventSub keepalive timeout - reconnecting');
       _scheduleReconnect();
     });
   }

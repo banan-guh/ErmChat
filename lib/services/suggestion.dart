@@ -100,7 +100,9 @@ List<Suggestion> filterSuggestions({
   final matchedIds = <String>{};
   final emoteMatches = <Suggestion>[];
   for (final emote in emotes) {
-    if (emote.code.contains(word) || emote.code.toLowerCase().contains(lower)) {
+    // Case-insensitive match only; the case-sensitive `contains(word)` check
+    // is redundant since lowercasing the code subsumes it.
+    if (emote.code.toLowerCase().contains(lower)) {
       if (matchedIds.add(emote.id)) {
         emoteMatches.add(EmoteSuggestion(emote: emote));
       }

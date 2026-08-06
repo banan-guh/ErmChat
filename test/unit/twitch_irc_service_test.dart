@@ -160,11 +160,11 @@ void main() {
 
       expect(states, hasLength(1));
       expect(states[0].channel, 'xqc');
-      expect(states[0].slowSeconds, 10);
-      expect(states[0].followersOnly, '30');
-      expect(states[0].emoteOnly, isFalse);
-      expect(states[0].subsOnly, isTrue);
-      expect(states[0].r9k, isTrue);
+      expect(states[0].tags['slow'], '10');
+      expect(states[0].tags['followers-only'], '30');
+      expect(states[0].tags['emote-only'], '0');
+      expect(states[0].tags['subs-only'], '1');
+      expect(states[0].tags['r9k'], '1');
     });
 
     test('parses partial updates with only the changed tags', () async {
@@ -175,59 +175,31 @@ void main() {
       await flush();
 
       expect(states, hasLength(1));
-      expect(states[0].slowSeconds, 0);
+      expect(states[0].tags['slow'], '0');
       expect(
-        states[0].followersOnly,
+        states[0].tags['followers-only'],
         isNull,
         reason: 'untouched tags are absent from partial updates',
       );
     });
   });
 
-  group('USERSTATE', () {
+  group('USERSTATE / GLOBALUSERSTATE', () {
     Future<void> flush() => Future<void>.delayed(Duration.zero);
 
-    test('parses per-channel badges', () async {
-      final states = <IrcUserStateEvent>[];
-      service.onUserState.listen(states.add);
+    test('lines are safely ignored', () async {
+      var messageCount = 0;
+      service.onMessage.listen((_) => messageCount++);
 
       service.handleLine(
         '@badges=moderator/1,vip/1;user-id=123 '
         ':tmi.twitch.tv USERSTATE #xqc',
       );
+      service.handleLine('@badges=staff/1 :tmi.twitch.tv GLOBALUSERSTATE');
       await flush();
 
-      expect(states, hasLength(1));
-      expect(states[0].channel, 'xqc');
-      expect(states[0].badges, hasLength(2));
-      expect(
-        states[0].badges!.map((b) => b.setId),
-        containsAll(['moderator', 'vip']),
-      );
+      expect(messageCount, 0);
     });
-
-    test(
-      'GLOBALUSERSTATE routes to its own stream (dispatch regression)',
-      () async {
-        final userStates = <IrcUserStateEvent>[];
-        final globalStates = <IrcGlobalUserStateEvent>[];
-        service.onUserState.listen(userStates.add);
-        service.onGlobalUserState.listen(globalStates.add);
-
-        service.handleLine('@badges=staff/1 :tmi.twitch.tv GLOBALUSERSTATE');
-        await flush();
-
-        expect(
-          userStates,
-          isEmpty,
-          reason:
-              'GLOBALUSERSTATE contains "USERSTATE " and must not be '
-              'swallowed by the USERSTATE handler',
-        );
-        expect(globalStates, hasLength(1));
-        expect(globalStates[0].badges!.single.setId, 'staff');
-      },
-    );
   });
 
   group('USERNOTICE', () {

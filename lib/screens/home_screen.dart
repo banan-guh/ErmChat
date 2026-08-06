@@ -135,7 +135,10 @@ class _HomeScreenState extends State<HomeScreen>
       getMaxMessagesPerChannel: () => _maxMessagesPerChannel,
       getSelectedChannel: () => _selectedChannel,
       getUnreadMentions: () => _unreadMentions,
-      setUnreadMentions: (v) => _unreadMentions = v,
+      setUnreadMentions: (v) {
+        _unreadMentions = v;
+        _mentionsBump.value++;
+      },
       getCurrentUserLogin: () => _currentUserLogin,
       setCurrentUserLogin: (v) {
         _currentUserLogin = v;
@@ -597,23 +600,14 @@ class _HomeScreenState extends State<HomeScreen>
         _messageKeys.add('$channel:${msg.messageId}');
       }
       final login = _currentUserLogin?.toLowerCase();
-      if (login != null &&
-          !msg.isSystem &&
-          !msg.isHighlighted &&
-          msg.login.toLowerCase() != login) {
-        final isReplyToMe =
-            msg.replyToUser != null && msg.replyToUser!.toLowerCase() == login;
-        if (isMention(msg.text, login) || isReplyToMe) {
-          msg.isHighlighted = true;
-          _channelMessages.putIfAbsent(_mentionsChannel, () => []);
-          final mentionList = _channelMessages[_mentionsChannel]!;
-          final existingMentionIds = mentionList
-              .map((m) => m.messageId)
-              .toSet();
-          if (msg.messageId == null ||
-              !existingMentionIds.contains(msg.messageId)) {
-            mentionList.insert(0, msg);
-          }
+      if (login != null && !msg.isHighlighted && isMentionOf(msg, login)) {
+        msg.isHighlighted = true;
+        _channelMessages.putIfAbsent(_mentionsChannel, () => []);
+        final mentionList = _channelMessages[_mentionsChannel]!;
+        final existingMentionIds = mentionList.map((m) => m.messageId).toSet();
+        if (msg.messageId == null ||
+            !existingMentionIds.contains(msg.messageId)) {
+          mentionList.insert(0, msg);
         }
       }
     }
@@ -885,14 +879,12 @@ class _HomeScreenState extends State<HomeScreen>
 
   void _notifyNewMessage(String channel) {
     _messageNotifier(channel).value++;
-    _mentionsBump.value++;
     _onPanelDataChanged(channel);
   }
 
   void _bumpChannel(String channel) {
     _tileCache.remove(channel);
     _versionNotifier(channel).value++;
-    _mentionsBump.value++;
     _onPanelDataChanged(channel);
   }
 
@@ -1959,6 +1951,53 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
+  Widget _buildOverlaySheet({
+    required bool offstage,
+    required ValueNotifier<double> ratio,
+    required Widget header,
+    required Widget body,
+  }) {
+    return Positioned(
+      top: MediaQuery.of(context).padding.top,
+      bottom: 0,
+      left: 0,
+      right: 0,
+      child: Offstage(
+        offstage: offstage,
+        child: ScaleTransition(
+          scale: _panelScaleCtrl,
+          alignment: Alignment.bottomCenter,
+          child: _buildSheetPanel(
+            ratio: ratio,
+            child: RepaintBoundary(
+              child: Material(
+                color: Theme.of(context).scaffoldBackgroundColor,
+                clipBehavior: Clip.hardEdge,
+                child: Column(
+                  children: [
+                    _buildPanelDragHandle(
+                      ratio: ratio,
+                      maxSize: _fullHeightFraction,
+                      onClose: _closePanel,
+                      onSnap: () => _animateRatio(
+                        ratio,
+                        ratio.value,
+                        _fullHeightFraction,
+                        _sheetAnimDuration,
+                      ),
+                      header: header,
+                    ),
+                    Expanded(child: body),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildSheetPanel({
     required ValueNotifier<double> ratio,
     required Widget child,
@@ -2049,18 +2088,10 @@ class _HomeScreenState extends State<HomeScreen>
       }
     }
 
-    String threadKeyFor(TwitchMessage m) {
-      if (m.replyThreadRootId != null) return m.replyThreadRootId!;
-      if (m.messageId != null && parentOf.containsKey(m.messageId)) {
-        return resolveThreadRootId(m.messageId!, parentOf);
-      }
-      return m.messageId ?? '';
-    }
-
-    final resolvedKey = threadKeyFor(entry);
+    final resolvedKey = threadKeyFor(entry, parentOf);
 
     final threadMsgs = allMsgs
-        .where((m) => threadKeyFor(m) == resolvedKey)
+        .where((m) => threadKeyFor(m, parentOf) == resolvedKey)
         .toList();
 
     threadMsgs.sort((a, b) => a.timestamp.compareTo(b.timestamp));
@@ -2201,7 +2232,7 @@ class _HomeScreenState extends State<HomeScreen>
   void _onChannelFocusChanged(int index) {
     final channel = _channels[index];
     if (_selectedChannel == channel) return;
-    _closePanel();
+    unawaited(_closePanel());
     _selectedChannel = channel;
     _channelsWithUnread.remove(channel);
     _channelsWithUnreadMentions.remove(channel);
@@ -2224,7 +2255,7 @@ class _HomeScreenState extends State<HomeScreen>
   void _onChannelChanged(int index) {
     final channel = _channels[index];
     if (_selectedChannel == channel) return;
-    _closePanel();
+    unawaited(_closePanel());
     setState(() {
       _selectedChannel = channel;
       _channelsWithUnread.remove(channel);
@@ -2253,18 +2284,10 @@ class _HomeScreenState extends State<HomeScreen>
     for (final entry in _channelMessages.entries) {
       if (entry.key == _mentionsChannel) continue;
       for (final msg in entry.value) {
-        if (msg.isSystem ||
-            msg.isHighlighted ||
-            msg.login.toLowerCase() == login) {
-          continue;
-        }
-        final isReplyToMe =
-            msg.replyToUser != null && msg.replyToUser!.toLowerCase() == login;
-        if (isMention(msg.text, login) || isReplyToMe) {
-          msg.isHighlighted = true;
-          _channelMessages.putIfAbsent(_mentionsChannel, () => []);
-          _channelMessages[_mentionsChannel]!.insert(0, msg);
-        }
+        if (msg.isHighlighted || !isMentionOf(msg, login)) continue;
+        msg.isHighlighted = true;
+        _channelMessages.putIfAbsent(_mentionsChannel, () => []);
+        _channelMessages[_mentionsChannel]!.insert(0, msg);
       }
     }
   }
@@ -2327,7 +2350,6 @@ class _HomeScreenState extends State<HomeScreen>
                                       style: TextStyle(
                                         fontSize: 22,
                                         fontWeight: FontWeight.w400,
-                                        color: null,
                                       ),
                                     ),
                                   ),
@@ -2355,7 +2377,7 @@ class _HomeScreenState extends State<HomeScreen>
                                         if (mounted) setState(() {});
                                         if (_activePanel ==
                                             OverlayPanel.mentions) {
-                                          _closePanel();
+                                          unawaited(_closePanel());
                                         } else {
                                           _showMentionsView();
                                         }
@@ -2551,225 +2573,129 @@ class _HomeScreenState extends State<HomeScreen>
                         ],
                       ),
                       // Thread sheet — offstage when closed to avoid layout cost.
-                      Positioned(
-                        top: statusBarH,
-                        bottom: 0,
-                        left: 0,
-                        right: 0,
-                        child: Offstage(
-                          offstage: _activePanel != OverlayPanel.thread,
-                          child: ScaleTransition(
-                            scale: _panelScaleCtrl,
-                            alignment: Alignment.bottomCenter,
-                            child: _buildSheetPanel(
-                              ratio: _threadSheetRatio,
-                              child: RepaintBoundary(
-                                child: Material(
-                                  color: Theme.of(
-                                    context,
-                                  ).scaffoldBackgroundColor,
-                                  clipBehavior: Clip.hardEdge,
-                                  child: Column(
-                                    children: [
-                                      _buildPanelDragHandle(
-                                        ratio: _threadSheetRatio,
-                                        maxSize: _fullHeightFraction,
-                                        onClose: _closePanel,
-                                        onSnap: () => _animateRatio(
-                                          _threadSheetRatio,
-                                          _threadSheetRatio.value,
-                                          _fullHeightFraction,
-                                          _sheetAnimDuration,
-                                        ),
-                                        header: Column(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Padding(
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                    horizontal: 8,
-                                                  ),
-                                              child: Row(
-                                                children: [
-                                                  IconButton(
-                                                    icon: const Icon(
-                                                      Icons.close,
-                                                    ),
-                                                    tooltip:
-                                                        'Close reply thread',
-                                                    onPressed: _closePanel,
-                                                  ),
-                                                  const SizedBox(width: 4),
-                                                  Expanded(
-                                                    child: Text(
-                                                      'Reply Thread',
-                                                      style: TextStyle(
-                                                        fontSize: 20,
-                                                        color: Theme.of(
-                                                          context,
-                                                        ).colorScheme.onSurface,
-                                                      ),
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
-                                            ),
-                                            Divider(
-                                              height: 1,
-                                              color: Theme.of(
-                                                context,
-                                              ).dividerColor,
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                      Expanded(
-                                        child: ThreadPanelWidget(
-                                          key: const ValueKey('thread_panel'),
-                                          data: _threadPanelData,
-                                          uiScale: 1.0,
-                                          onLongPress: _showThreadMessageMenu,
-                                          buildBadgeSpans:
-                                              _messageBuilder.buildBadgeSpans,
-                                          buildMessageSpans:
-                                              _messageBuilder.buildMessageSpans,
-                                          showTimestamp: _showTimestamps,
-                                          timestampFormat: _timestampFormat,
-                                          scrollController:
-                                              _threadPanelScrollCtrl,
-                                        ),
-                                      ),
-                                    ],
+                      _buildOverlaySheet(
+                        offstage: _activePanel != OverlayPanel.thread,
+                        ratio: _threadSheetRatio,
+                        header: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                              ),
+                              child: Row(
+                                children: [
+                                  IconButton(
+                                    icon: const Icon(Icons.close),
+                                    tooltip: 'Close reply thread',
+                                    onPressed: _closePanel,
                                   ),
-                                ),
+                                  const SizedBox(width: 4),
+                                  Expanded(
+                                    child: Text(
+                                      'Reply Thread',
+                                      style: TextStyle(
+                                        fontSize: 20,
+                                        color: Theme.of(
+                                          context,
+                                        ).colorScheme.onSurface,
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
-                          ),
+                            Divider(
+                              height: 1,
+                              color: Theme.of(context).dividerColor,
+                            ),
+                          ],
+                        ),
+                        body: ThreadPanelWidget(
+                          key: const ValueKey('thread_panel'),
+                          data: _threadPanelData,
+                          uiScale: 1.0,
+                          onLongPress: _showThreadMessageMenu,
+                          buildBadgeSpans: _messageBuilder.buildBadgeSpans,
+                          buildMessageSpans: _messageBuilder.buildMessageSpans,
+                          showTimestamp: _showTimestamps,
+                          timestampFormat: _timestampFormat,
+                          scrollController: _threadPanelScrollCtrl,
                         ),
                       ),
                       // Mentions sheet — offstage when closed to avoid layout cost.
-                      Positioned(
-                        top: statusBarH,
-                        bottom: 0,
-                        left: 0,
-                        right: 0,
-                        child: Offstage(
-                          offstage: _activePanel != OverlayPanel.mentions,
-                          child: ScaleTransition(
-                            scale: _panelScaleCtrl,
-                            alignment: Alignment.bottomCenter,
-                            child: _buildSheetPanel(
-                              ratio: _mentionsSheetRatio,
-                              child: RepaintBoundary(
-                                child: Material(
-                                  color: Theme.of(
-                                    context,
-                                  ).scaffoldBackgroundColor,
-                                  clipBehavior: Clip.hardEdge,
-                                  child: Column(
-                                    children: [
-                                      _buildPanelDragHandle(
-                                        ratio: _mentionsSheetRatio,
-                                        maxSize: _fullHeightFraction,
-                                        onClose: _closePanel,
-                                        onSnap: () => _animateRatio(
-                                          _mentionsSheetRatio,
-                                          _mentionsSheetRatio.value,
-                                          _fullHeightFraction,
-                                          _sheetAnimDuration,
-                                        ),
-                                        header: Column(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Padding(
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                    horizontal: 8,
-                                                  ),
-                                              child: Row(
-                                                children: [
-                                                  IconButton(
-                                                    icon: const Icon(
-                                                      Icons.arrow_back,
-                                                    ),
-                                                    tooltip: 'Back',
-                                                    onPressed: _closePanel,
-                                                  ),
-                                                  const SizedBox(width: 4),
-                                                  Expanded(
-                                                    child: Text(
-                                                      'Mentions',
-                                                      style: TextStyle(
-                                                        fontSize: 20,
-                                                        color: Theme.of(
-                                                          context,
-                                                        ).colorScheme.onSurface,
-                                                      ),
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
-                                            ),
-                                            TabBar(
-                                              controller: _mentionsTabCtrl,
-                                              tabs: const [
-                                                Tab(text: 'Mentions'),
-                                                Tab(text: 'Whispers'),
-                                              ],
-                                            ),
-                                            Divider(
-                                              height: 1,
-                                              color: Theme.of(
-                                                context,
-                                              ).dividerColor,
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                      Expanded(
-                                        child: TabBarView(
-                                          controller: _mentionsTabCtrl,
-                                          children: [
-                                            MentionsPanelWidget(
-                                              key: const ValueKey(
-                                                'mentions_panel',
-                                              ),
-                                              messages: _mentionsPanelData,
-                                              uiScale: 1.0,
-                                              buildBadgeSpans: _messageBuilder
-                                                  .buildBadgeSpans,
-                                              buildMessageSpans: _messageBuilder
-                                                  .buildMessageSpans,
-                                              showTimestamp: _showTimestamps,
-                                              timestampFormat: _timestampFormat,
-                                              scrollController:
-                                                  _mentionsPanelScrollCtrl,
-                                            ),
-                                            MentionsPanelWidget(
-                                              key: const ValueKey(
-                                                'whispers_panel',
-                                              ),
-                                              messages: _whispersPanelData,
-                                              uiScale: 1.0,
-                                              buildBadgeSpans: _messageBuilder
-                                                  .buildBadgeSpans,
-                                              buildMessageSpans: _messageBuilder
-                                                  .buildMessageSpans,
-                                              showTimestamp: _showTimestamps,
-                                              timestampFormat: _timestampFormat,
-                                              scrollController:
-                                                  _whispersPanelScrollCtrl,
-                                              emptyText: 'No whispers',
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ],
+                      _buildOverlaySheet(
+                        offstage: _activePanel != OverlayPanel.mentions,
+                        ratio: _mentionsSheetRatio,
+                        header: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                              ),
+                              child: Row(
+                                children: [
+                                  IconButton(
+                                    icon: const Icon(Icons.arrow_back),
+                                    tooltip: 'Back',
+                                    onPressed: _closePanel,
                                   ),
-                                ),
+                                  const SizedBox(width: 4),
+                                  Expanded(
+                                    child: Text(
+                                      'Mentions',
+                                      style: TextStyle(
+                                        fontSize: 20,
+                                        color: Theme.of(
+                                          context,
+                                        ).colorScheme.onSurface,
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
-                          ),
+                            TabBar(
+                              controller: _mentionsTabCtrl,
+                              tabs: const [
+                                Tab(text: 'Mentions'),
+                                Tab(text: 'Whispers'),
+                              ],
+                            ),
+                            Divider(
+                              height: 1,
+                              color: Theme.of(context).dividerColor,
+                            ),
+                          ],
+                        ),
+                        body: TabBarView(
+                          controller: _mentionsTabCtrl,
+                          children: [
+                            MentionsPanelWidget(
+                              key: const ValueKey('mentions_panel'),
+                              messages: _mentionsPanelData,
+                              uiScale: 1.0,
+                              buildBadgeSpans: _messageBuilder.buildBadgeSpans,
+                              buildMessageSpans:
+                                  _messageBuilder.buildMessageSpans,
+                              showTimestamp: _showTimestamps,
+                              timestampFormat: _timestampFormat,
+                              scrollController: _mentionsPanelScrollCtrl,
+                            ),
+                            MentionsPanelWidget(
+                              key: const ValueKey('whispers_panel'),
+                              messages: _whispersPanelData,
+                              uiScale: 1.0,
+                              buildBadgeSpans: _messageBuilder.buildBadgeSpans,
+                              buildMessageSpans:
+                                  _messageBuilder.buildMessageSpans,
+                              showTimestamp: _showTimestamps,
+                              timestampFormat: _timestampFormat,
+                              scrollController: _whispersPanelScrollCtrl,
+                              emptyText: 'No whispers',
+                            ),
+                          ],
                         ),
                       ),
                       // Emote sheet — always mounted, always 60%.
@@ -2877,7 +2803,7 @@ class _HomeScreenState extends State<HomeScreen>
                           onTap: () => _suggestionsNotifier.value = [],
                           onEmoteToggle: () {
                             if (_emoteSheetOpen) {
-                              _closeEmoteSheet();
+                              unawaited(_closeEmoteSheet());
                             } else {
                               _showEmoteMenu();
                             }
