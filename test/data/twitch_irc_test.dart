@@ -96,6 +96,21 @@ void main() {
       expect(msg.tags['msg-id'], 'slow_mode');
       expect(msg.trailing, 'You are sending messages too fast.');
     });
+
+    test('parses WHISPER message', () {
+      const line =
+          '@badges=;color=#FF0000;display-name=SomeUser;emotes=;message-id=whisper-1;thread-id=abc;turbo=0;user-id=999;user-type= :someuser!someuser@someuser.tmi.twitch.tv WHISPER recipient :hey there';
+      final msg = parseIrcMessage(line);
+      expect(msg, isNotNull);
+      expect(msg!.command, 'WHISPER');
+      expect(msg.prefix, 'someuser!someuser@someuser.tmi.twitch.tv');
+      expect(msg.params, ['recipient']);
+      expect(msg.trailing, 'hey there');
+      expect(msg.tags['message-id'], 'whisper-1');
+      expect(msg.tags['display-name'], 'SomeUser');
+      expect(msg.tags['color'], '#FF0000');
+      expect(msg.tags['user-id'], '999');
+    });
   });
 
   group('subNoticeMsgIds', () {

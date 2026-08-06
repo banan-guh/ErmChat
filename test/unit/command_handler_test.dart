@@ -45,7 +45,12 @@ void main() {
     irc.dispose();
   });
 
-  CommandHandler createHandler(MockClient client, {bool trackBlocks = false}) {
+  CommandHandler createHandler(
+    MockClient client, {
+    bool trackBlocks = false,
+    List<String>? whisperMessages,
+    List<({String target, String message})>? whisperSent,
+  }) {
     return CommandHandler(
       twitchApi: TwitchApi(client: client),
       irc: irc,
@@ -55,6 +60,13 @@ void main() {
       addSystemMessage: (channel, message) {
         systemMessages.add(message);
       },
+      whisperAddSystemMessage: whisperMessages == null
+          ? null
+          : (channel, message) => whisperMessages.add(message),
+      onWhisperSent: whisperSent == null
+          ? null
+          : (target, message) =>
+                whisperSent.add((target: target, message: message)),
       onUserBlocked: trackBlocks ? blocked.add : null,
       onUserUnblocked: trackBlocks ? unblocked.add : null,
     );
@@ -950,6 +962,42 @@ void main() {
 
       expect(calls, 0);
       expect(systemMessages.single, 'Usage: /w <username> <message>');
+    });
+
+    test('/w routes feedback and echo through whisper callbacks', () async {
+      final whisperMessages = <String>[];
+      final whisperSent = <({String target, String message})>[];
+      final handler = createHandler(
+        MockClient((req) async {
+          if (req.url.path == '/helix/users') return userFound();
+          return http.Response('', 204);
+        }),
+        whisperMessages: whisperMessages,
+        whisperSent: whisperSent,
+      );
+
+      await handler.handle('/w foo hey there', 'a', auth);
+
+      expect(systemMessages, isEmpty);
+      expect(whisperMessages, ['Whisper sent.']);
+      expect(whisperSent, [(target: 'foo', message: 'hey there')]);
+    });
+
+    test('/w failure reports through whisper feedback', () async {
+      final whisperMessages = <String>[];
+      final handler = createHandler(
+        MockClient((req) async {
+          if (req.url.path == '/helix/users') return userFound();
+          return http.Response('{"message":"rate limit"}', 429);
+        }),
+        whisperMessages: whisperMessages,
+      );
+
+      await handler.handle('/w foo hey', 'a', auth);
+
+      expect(systemMessages, isEmpty);
+      expect(whisperMessages.single, contains('Failed to send whisper'));
+      expect(whisperMessages.single, contains('rate-limited'));
     });
 
     test('/block blocks the user and reports the local list', () async {

@@ -85,3 +85,4 @@
 - [x] **Add blocked menu** - `/block` `/unblock` commands implemented; blocked users removed from suggestions/profile. A dedicated un-block UI menu is future work.
 - [x] **Fix bug with padding change on keyboard change** - padding changes when keyboard is extended / retracted for some reason
 - [ ] **Make select UI more friendly** - reference dankchat when selecting text.
+- [ ] **Inkwell on top** - move inkwell of half-under msgs to fully under (currently overlaps).

@@ -11,6 +11,8 @@ class CommandHandler {
   final String? Function() getCurrentUserId;
   final String? Function() getCurrentUserLogin;
   final void Function(String channel, String message) addSystemMessage;
+  final void Function(String channel, String message)? whisperAddSystemMessage;
+  final void Function(String target, String message)? onWhisperSent;
   final void Function(String login)? onUserBlocked;
   final void Function(String login)? onUserUnblocked;
   final _userIdCache = <String, String>{};
@@ -70,6 +72,8 @@ class CommandHandler {
     required this.getCurrentUserId,
     required this.getCurrentUserLogin,
     required this.addSystemMessage,
+    this.whisperAddSystemMessage,
+    this.onWhisperSent,
     this.onUserBlocked,
     this.onUserUnblocked,
   });
@@ -116,8 +120,67 @@ class CommandHandler {
       ok = false;
     }
     if (ok) return true;
-    addSystemMessage(channel, 'Failed to $action - ${_failureReason()}');
+    _moderationMessage(
+      action,
+      channel,
+      'Failed to $action - ${_failureReason()}',
+    );
     return false;
+  }
+
+  /// Routes whisper feedback to the whispers list when composed there;
+  /// otherwise falls back to the channel system messages.
+  void _whisperMessage(String channel, String text) {
+    final whisperMsg = whisperAddSystemMessage;
+    if (whisperMsg != null) {
+      whisperMsg(channel, text);
+    } else {
+      addSystemMessage(channel, text);
+    }
+  }
+
+  void _moderationMessage(String action, String channel, String text) {
+    if (action == 'send whisper') {
+      _whisperMessage(channel, text);
+    } else {
+      addSystemMessage(channel, text);
+    }
+  }
+
+  /// /w is account-scoped (whispers are not bound to a channel) and is
+  /// handled before the broadcaster-channel gate below.
+  Future<void> _handleWhisper(
+    String text,
+    String channel,
+    TwitchAuth auth,
+    String currentUserId,
+  ) async {
+    final parts = text.split(RegExp(r'\s+'));
+    final args = parts.length > 1 ? parts.sublist(1) : [];
+    if (args.length < 2) {
+      _whisperMessage(channel, 'Usage: /w <username> <message>');
+      return;
+    }
+    final targetId = await _resolveUserId(auth, args[0]);
+    if (targetId == null) {
+      _whisperMessage(channel, 'No user matching that username.');
+      return;
+    }
+    final message = args.sublist(1).join(' ');
+    final ok = await _moderate(
+      'send whisper',
+      channel,
+      () => twitchApi.sendWhisper(
+        auth,
+        fromUserId: currentUserId,
+        toUserId: targetId,
+        message: message,
+      ),
+    );
+    if (ok) {
+      _whisperMessage(channel, 'Whisper sent.');
+      onWhisperSent?.call(args[0], message);
+    }
   }
 
   /// Parses DankChat-style durations ("90", "2m", "1h30m", "1d", "2w").
@@ -178,6 +241,14 @@ class CommandHandler {
     }
     final broadcasterId = getChannelUserIds()[channel];
     final currentUserId = getCurrentUserId();
+    if (cmd == '/w') {
+      if (currentUserId == null) {
+        addSystemMessage(channel, 'Channel not joined.');
+        return;
+      }
+      await _handleWhisper(text, channel, auth, currentUserId);
+      return;
+    }
     if (currentUserId == null || broadcasterId == null) {
       addSystemMessage(channel, 'Channel not joined.');
       return;
@@ -803,28 +874,7 @@ class CommandHandler {
           }
 
         case '/w':
-          if (args.length < 2) {
-            addSystemMessage(channel, 'Usage: /w <username> <message>');
-            return;
-          }
-          final targetId = await _resolveUserId(auth, args[0]);
-          if (targetId == null) {
-            addSystemMessage(channel, 'No user matching that username.');
-            return;
-          }
-          final ok = await _moderate(
-            'send whisper',
-            channel,
-            () => twitchApi.sendWhisper(
-              auth,
-              fromUserId: currentUserId,
-              toUserId: targetId,
-              message: args.sublist(1).join(' '),
-            ),
-          );
-          if (ok) {
-            addSystemMessage(channel, 'Whisper sent.');
-          }
+          await _handleWhisper(text, channel, auth, currentUserId);
 
         case '/block':
         case '/unblock':

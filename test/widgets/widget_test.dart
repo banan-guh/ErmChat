@@ -788,6 +788,194 @@ void main() {
     );
   });
 
+  testWidgets(
+    'Incoming whisper turns the bell red and shows in the Whispers tab',
+    (WidgetTester tester) async {
+      final eventSub = _FakeEventSubService();
+      final irc = _FakeIrcService();
+      final recent = _ConfigurableRecentMessagesService(const []);
+      await tester.pumpWidget(
+        TwitchChatApp(
+          eventSubService: eventSub,
+          ircService: irc,
+          recentMessagesService: recent,
+          initialCurrentUserLogin: 'me',
+        ),
+      );
+      await tester.pump();
+
+      for (final name in ['b', 'a']) {
+        await tester.tap(find.byIcon(Icons.add));
+        await tester.pumpAndSettle();
+        await tester.enterText(find.byType(TextField).last, name);
+        await tester.tap(find.text('Join'));
+        await tester.pump();
+      }
+
+      irc.emitWhisper(
+        TwitchMessage(
+          login: 'carol',
+          text: 'hello @me',
+          channel: null,
+          messageId: 'w1',
+        ),
+      );
+      await tester.pump();
+
+      expect(
+        tester.widget<Icon>(find.byIcon(Icons.notifications_active)).color,
+        isNotNull,
+      );
+
+      await tester.tap(find.byIcon(Icons.notifications_active));
+      await tester.pumpAndSettle();
+
+      // The bell tap clears all unread (mentions + whispers).
+      expect(
+        tester.widget<Icon>(find.byIcon(Icons.notifications_active)).color,
+        isNull,
+      );
+
+      await tester.tap(find.text('Whispers'));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('hello @me'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'Type box unlocks only on the Whispers tab and hints the reply target',
+    (WidgetTester tester) async {
+      SharedPreferences.setMockInitialValues({'access_token': 'test_token'});
+      FlutterSecureStorage.setMockInitialValues({'access_token': 'test_token'});
+      final eventSub = _FakeEventSubService();
+      final irc = _FakeIrcService();
+      final recent = _ConfigurableRecentMessagesService(const []);
+      await tester.pumpWidget(
+        TwitchChatApp(
+          eventSubService: eventSub,
+          ircService: irc,
+          recentMessagesService: recent,
+        ),
+      );
+      await tester.pump();
+
+      for (final name in ['b', 'a']) {
+        await tester.tap(find.byIcon(Icons.add));
+        await tester.pumpAndSettle();
+        await tester.enterText(find.byType(TextField).last, name);
+        await tester.tap(find.text('Join'));
+        await tester.pump();
+      }
+      irc.triggerConnect();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 600));
+      await tester.pump();
+
+      irc.emitWhisper(
+        TwitchMessage(
+          login: 'carol',
+          text: 'hi',
+          channel: null,
+          messageId: 'w2',
+        ),
+      );
+      await tester.pump();
+
+      await tester.tap(find.byIcon(Icons.notifications_active));
+      await tester.pumpAndSettle();
+
+      // Mentions tab keeps the box locked.
+      expect(
+        tester
+            .widget<TextField>(find.byKey(const Key('message_input')))
+            .enabled,
+        isFalse,
+      );
+
+      await tester.tap(find.text('Whispers'));
+      await tester.pumpAndSettle();
+
+      expect(
+        tester
+            .widget<TextField>(find.byKey(const Key('message_input')))
+            .enabled,
+        isTrue,
+      );
+      expect(find.text('Whisper to carol...'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'Plain text in the Whispers tab sends a whisper to the latest partner',
+    (WidgetTester tester) async {
+      SharedPreferences.setMockInitialValues({'access_token': 'test_token'});
+      FlutterSecureStorage.setMockInitialValues({
+        'access_token': 'test_token',
+        'user_login': 'me',
+        'user_id': '42',
+      });
+      final eventSub = _FakeEventSubService();
+      final irc = _FakeIrcService();
+      final recent = _ConfigurableRecentMessagesService(const []);
+      await tester.pumpWidget(
+        TwitchChatApp(
+          eventSubService: eventSub,
+          ircService: irc,
+          recentMessagesService: recent,
+        ),
+      );
+      await tester.pump();
+
+      for (final name in ['b', 'a']) {
+        await tester.tap(find.byIcon(Icons.add));
+        await tester.pumpAndSettle();
+        await tester.enterText(find.byType(TextField).last, name);
+        await tester.tap(find.text('Join'));
+        await tester.pump();
+      }
+      irc.triggerConnect();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 600));
+      await tester.pump();
+
+      irc.emitWhisper(
+        TwitchMessage(
+          login: 'carol',
+          text: 'hi there',
+          channel: null,
+          messageId: 'w3',
+        ),
+      );
+      await tester.pump();
+
+      await tester.tap(find.byIcon(Icons.notifications_active));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Whispers'));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        find.byKey(const Key('message_input')),
+        'back at you',
+      );
+      await tester.tap(find.byIcon(Icons.send));
+      await tester.pumpAndSettle();
+      await tester.pump();
+
+      // Plain text is routed through the command handler as /w <target> <text>.
+      // The Helix user lookup fails in the test environment (400), which
+      // reports feedback into the whispers list.
+      expect(find.textContaining('No user matching'), findsOneWidget);
+      expect(
+        tester
+            .widget<TextField>(find.byKey(const Key('message_input')))
+            .controller!
+            .text,
+        isEmpty,
+      );
+    },
+  );
+
   testWidgets('Adding second channel switches to it immediately', (
     WidgetTester tester,
   ) async {

@@ -167,6 +167,7 @@ class ChatConnectionManager {
   final VoidCallback onRebuild;
   final void Function(String, String, {Color? accent}) onSystemMessage;
   void Function(String channel, TwitchMessage msg)? onMention;
+  void Function(TwitchMessage msg)? onWhisper;
   final Future<void> Function() loadUserTwitchEmotes;
   final VoidCallback? onReconnected;
   final int Function() getMaxMessagesPerChannel;
@@ -238,6 +239,7 @@ class ChatConnectionManager {
   StreamSubscription<IrcNoticeEvent>? ircNoticeSub;
   StreamSubscription<IrcNoticeEvent>? ircJtvSub;
   StreamSubscription<IrcMessage>? ircOwnMsgSub;
+  StreamSubscription<TwitchMessage>? whisperSub;
   StreamSubscription<UserNoticeEvent>? userNoticeSub;
   StreamSubscription<IrcChannelClearEvent>? ircClearSub;
   StreamSubscription<IrcRoomStateEvent>? ircRoomStateSub;
@@ -321,6 +323,7 @@ class ChatConnectionManager {
     sevenTvEmoteSub?.cancel();
     sevenTvUserSub?.cancel();
     ircStatusSub?.cancel();
+    whisperSub?.cancel();
     _httpClient.close();
     for (final t in _chatStatusTimers.values) {
       t.cancel();
@@ -1183,6 +1186,9 @@ class ChatConnectionManager {
     ircOwnMsgSub?.cancel();
     ircOwnMsgSub = ircRead.onOwnMessage.listen(onOwnIrcMessage);
 
+    whisperSub?.cancel();
+    whisperSub = irc.onWhisper.listen(onWhisperEvent);
+
     userNoticeSub?.cancel();
     userNoticeSub = irc.onUserNotice.listen((event) {
       if (isDisposed) return;
@@ -1459,6 +1465,12 @@ class ChatConnectionManager {
     }
     bumpChannel(channel);
     precacheMessageEmotes(msg, channel);
+  }
+
+  void onWhisperEvent(TwitchMessage msg) {
+    if (isDisposed) return;
+    if (!msg.isSystem && isBlocked?.call(msg.login) == true) return;
+    onWhisper?.call(msg);
   }
 
   void onOwnIrcMessage(IrcMessage ircMsg) {

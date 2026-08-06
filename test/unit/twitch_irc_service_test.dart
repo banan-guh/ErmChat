@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:ermchat/models/twitch_message.dart';
 import 'package:ermchat/services/twitch_irc.dart';
 
 void main() {
@@ -311,6 +312,40 @@ void main() {
       expect(notices, hasLength(1));
       expect(notices[0].msgId, 'slow_on');
       expect(notices[0].message, contains('slow mode'));
+    });
+  });
+
+  group('WHISPER', () {
+    Future<void> flush() => Future<void>.delayed(Duration.zero);
+
+    test('emits a TwitchMessage via onWhisper', () async {
+      final whispers = <TwitchMessage>[];
+      service.onWhisper.listen(whispers.add);
+
+      service.handleLine(
+        '@badges=;color=#FF0000;display-name=SomeUser;emotes=25:0-4;message-id=whisper-1;thread-id=abc;turbo=0;user-id=999;user-type= :someuser!someuser@someuser.tmi.twitch.tv WHISPER recipient :hey there',
+      );
+      await flush();
+
+      expect(whispers, hasLength(1));
+      final w = whispers[0];
+      expect(w.login, 'someuser');
+      expect(w.displayName, 'SomeUser');
+      expect(w.text, 'hey there');
+      expect(w.messageId, 'whisper-1');
+      expect(w.channel, isNull);
+      expect(w.color, '#FF0000');
+    });
+
+    test('emitWhisper test hook forwards to onWhisper', () async {
+      final whispers = <TwitchMessage>[];
+      service.onWhisper.listen(whispers.add);
+      service.emitWhisper(
+        TwitchMessage(login: 'carol', text: 'hello', messageId: 'w1'),
+      );
+      await flush();
+      expect(whispers, hasLength(1));
+      expect(whispers[0].login, 'carol');
     });
   });
 

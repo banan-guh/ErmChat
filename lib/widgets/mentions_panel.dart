@@ -17,6 +17,7 @@ class MentionsPanelWidget extends StatefulWidget {
     double textScale,
   })
   buildMessageSpans;
+  final String emptyText;
 
   const MentionsPanelWidget({
     required this.scrollController,
@@ -24,6 +25,7 @@ class MentionsPanelWidget extends StatefulWidget {
     required this.uiScale,
     required this.buildBadgeSpans,
     required this.buildMessageSpans,
+    this.emptyText = 'No mentions or whispers',
     super.key,
   });
 
@@ -49,10 +51,10 @@ class MentionsPanelWidgetState extends State<MentionsPanelWidget> {
           return CustomScrollView(
             controller: widget.scrollController,
             physics: const ClampingScrollPhysics(),
-            slivers: const [
+            slivers: [
               SliverFillRemaining(
                 hasScrollBody: false,
-                child: Center(child: Text('No mentions or whispers')),
+                child: Center(child: Text(widget.emptyText)),
               ),
             ],
           );

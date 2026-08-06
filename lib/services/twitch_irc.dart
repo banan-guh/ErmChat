@@ -254,6 +254,9 @@ class IrcService extends BaseIrcConnection {
   );
   final _globalUserStateController =
       StreamController<IrcGlobalUserStateEvent>.broadcast(sync: true);
+  final _whisperController = StreamController<TwitchMessage>.broadcast(
+    sync: true,
+  );
 
   Stream<IrcBanEvent> get onBan => _banController.stream;
   Stream<IrcNoticeEvent> get onNotice => _noticeController.stream;
@@ -267,6 +270,7 @@ class IrcService extends BaseIrcConnection {
       _deleteController.stream;
   Stream<TwitchMessage> get onMessage => _messageController.stream;
   Stream<UserNoticeEvent> get onUserNotice => _userNoticeController.stream;
+  Stream<TwitchMessage> get onWhisper => _whisperController.stream;
 
   @override
   String get debugPrefix => 'IRC';
@@ -318,6 +322,10 @@ class IrcService extends BaseIrcConnection {
     }
     if (line.contains('NOTICE ')) {
       _handleNotice(line);
+      return;
+    }
+    if (line.contains('WHISPER ')) {
+      _handleWhisper(line);
       return;
     }
     if (line.contains('PRIVMSG ')) {
@@ -530,8 +538,19 @@ class IrcService extends BaseIrcConnection {
     _messageController.add(parseIrcChatMessage(msg, channel: channelName));
   }
 
+  void _handleWhisper(String line) {
+    final msg = parseIrcMessage(line);
+    if (msg == null || msg.command != 'WHISPER' || msg.trailing == null) {
+      return;
+    }
+    _whisperController.add(parseIrcChatMessage(msg, channel: null));
+  }
+
   @visibleForTesting
   void emitChatMessage(TwitchMessage msg) => _messageController.add(msg);
+
+  @visibleForTesting
+  void emitWhisper(TwitchMessage msg) => _whisperController.add(msg);
 
   @visibleForTesting
   void emitUserNotice(UserNoticeEvent event) =>
@@ -549,6 +568,7 @@ class IrcService extends BaseIrcConnection {
     _roomStateController.close();
     _userStateController.close();
     _globalUserStateController.close();
+    _whisperController.close();
     super.dispose();
   }
 }
@@ -577,7 +597,7 @@ TwitchMessage parseIrcChatMessage(
     displayName: displayName.isNotEmpty ? displayName : null,
   );
 
-  final messageId = ircMsg.tags['id'];
+  final messageId = ircMsg.tags['id'] ?? ircMsg.tags['message-id'];
   // PRIVMSG text normally comes in the trailing; messages without a colon
   // carry the whole text as a single param instead.
   final text =

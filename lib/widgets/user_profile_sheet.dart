@@ -13,6 +13,7 @@ class UserProfileSheet extends StatefulWidget {
   final FocusNode focusNode;
   final VoidCallback onClose;
   final void Function(String login)? onUserBlocked;
+  final VoidCallback? onWhisperUser;
 
   const UserProfileSheet({
     super.key,
@@ -25,6 +26,7 @@ class UserProfileSheet extends StatefulWidget {
     required this.focusNode,
     required this.onClose,
     this.onUserBlocked,
+    this.onWhisperUser,
   });
 
   @override
@@ -194,9 +196,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
               title: const Text('Whisper user'),
               onTap: () {
                 widget.onClose();
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Whisper not yet supported')),
-                );
+                widget.onWhisperUser?.call();
               },
             ),
             ListTile(

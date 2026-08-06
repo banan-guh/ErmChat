@@ -171,6 +171,8 @@ class _HomeScreenState extends State<HomeScreen>
     getCurrentUserId: () => _currentUserId,
     getCurrentUserLogin: () => _currentUserLogin,
     addSystemMessage: _addSystemMessage,
+    whisperAddSystemMessage: _addWhisperSystemMessage,
+    onWhisperSent: _onWhisperSent,
     onUserBlocked: _onUserBlocked,
     onUserUnblocked: _onUserUnblocked,
   );
@@ -270,6 +272,11 @@ class _HomeScreenState extends State<HomeScreen>
   double? _emoteSheetBoxHeight;
   final _threadPanelData = ValueNotifier<ThreadPanelData?>(null);
   final _mentionsPanelData = ValueNotifier<List<TwitchMessage>?>(null);
+  final _whispersPanelData = ValueNotifier<List<TwitchMessage>?>(null);
+  final _whispersPanelScrollCtrl = ScrollController();
+  final _whispers = <TwitchMessage>[];
+  int _unreadWhispers = 0;
+  String? _whisperTarget;
 
   String? _currentUserLogin;
   bool _mentionScanDone = false;
@@ -301,6 +308,7 @@ class _HomeScreenState extends State<HomeScreen>
     _currentUserLogin = widget.initialCurrentUserLogin;
     _emoteSheetCtrl = DraggableScrollableController();
     _mentionsTabCtrl = TabController(length: 2, vsync: this);
+    _mentionsTabCtrl.addListener(_onMentionsTabChanged);
     _emoteSheetCtrl.addListener(_onSheetSizeChanged);
     _loadMaxMessages();
     _ensureBlockedUsersLoaded();
@@ -308,6 +316,7 @@ class _HomeScreenState extends State<HomeScreen>
     _loadNotificationSettings();
     _loadTestWidgets();
     _chatConn.connect();
+    _chatConn.onWhisper = _onWhisper;
     _emoteManager.accessToken = widget.twitchAuth.accessToken;
     _emoteManager.preloadGlobalEmotes();
     _emoteManager.addListener(_onEmotesChanged);
@@ -910,6 +919,7 @@ class _HomeScreenState extends State<HomeScreen>
       );
     } else if (_activePanel == OverlayPanel.mentions) {
       _mentionsPanelData.value = _channelMessages[_mentionsChannel] ?? [];
+      _whispersPanelData.value = List.of(_whispers);
     }
   }
 
@@ -1042,11 +1052,14 @@ class _HomeScreenState extends State<HomeScreen>
     _threadSheetRatio.dispose();
     _mentionsSheetRatio.dispose();
     _emoteSheetCtrl.dispose();
+    _mentionsTabCtrl.removeListener(_onMentionsTabChanged);
     _mentionsTabCtrl.dispose();
     _threadPanelScrollCtrl.dispose();
     _mentionsPanelScrollCtrl.dispose();
+    _whispersPanelScrollCtrl.dispose();
     _threadPanelData.dispose();
     _mentionsPanelData.dispose();
+    _whispersPanelData.dispose();
     for (final c in _scrollControllers.values) {
       c.dispose();
     }
@@ -1582,9 +1595,7 @@ class _HomeScreenState extends State<HomeScreen>
 
     final text = _messageController.text.trim();
     final channel = _selectedChannel;
-    if (text.isEmpty ||
-        channel == null ||
-        _activePanel == OverlayPanel.mentions) {
+    if (text.isEmpty || channel == null) {
       return;
     }
 
@@ -1592,6 +1603,39 @@ class _HomeScreenState extends State<HomeScreen>
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Connect an account to chat')),
       );
+      return;
+    }
+
+    // In the Whispers tab the box composes whispers: slash commands (incl.
+    // /w) go through the command handler, plain text replies to the latest
+    // whisper partner.
+    if (_isWhispersTabActive) {
+      if (text.startsWith('/')) {
+        _lastSentText = text;
+        _messageController.clear();
+        _doSendMessage(text, channel);
+      } else if (_whisperTarget != null) {
+        _lastSentText = text;
+        _messageController.clear();
+        unawaited(
+          _commandHandler.handle(
+            '/w $_whisperTarget $text',
+            channel,
+            widget.twitchAuth,
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Type /w <username> <message> to whisper'),
+          ),
+        );
+      }
+      return;
+    }
+
+    // The Mentions tab of the panel stays read-only.
+    if (_activePanel == OverlayPanel.mentions) {
       return;
     }
 
@@ -1725,6 +1769,7 @@ class _HomeScreenState extends State<HomeScreen>
       _openThreadRoot = null;
     });
     _mentionsPanelData.value = _channelMessages[_mentionsChannel] ?? [];
+    _whispersPanelData.value = List.of(_whispers);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         _animateRatio(
@@ -2033,6 +2078,7 @@ class _HomeScreenState extends State<HomeScreen>
         focusNode: _focusNode,
         onClose: () => Navigator.pop(ctx),
         onUserBlocked: _onUserBlocked,
+        onWhisperUser: () => _showWhispersForUser(username),
       ),
     );
   }
@@ -2059,6 +2105,79 @@ class _HomeScreenState extends State<HomeScreen>
       userName: msg.displayName,
       message: msg.text,
     );
+  }
+
+  bool get _isWhispersTabActive =>
+      _activePanel == OverlayPanel.mentions && _mentionsTabCtrl.index == 1;
+
+  void _onWhisper(TwitchMessage msg) {
+    if (!mounted) return;
+    _whispers.insert(0, msg);
+    if (_whispers.length > _maxMessagesPerChannel) {
+      _whispers.removeRange(_maxMessagesPerChannel, _whispers.length);
+    }
+    _whisperTarget = msg.login;
+    _whispersPanelData.value = List.of(_whispers);
+    if (!_isWhispersTabActive) {
+      _unreadWhispers++;
+      _unreadMentions++;
+    }
+    _mentionsBump.value++;
+  }
+
+  void _addWhisperSystemMessage(String channel, String text) {
+    _whispers.insert(
+      0,
+      TwitchMessage(login: '', text: text, isSystem: true, channel: null),
+    );
+    if (_whispers.length > _maxMessagesPerChannel) {
+      _whispers.removeRange(_maxMessagesPerChannel, _whispers.length);
+    }
+    _whispersPanelData.value = List.of(_whispers);
+    _mentionsBump.value++;
+  }
+
+  void _onWhisperSent(String target, String message) {
+    final login = _currentUserLogin;
+    if (login == null) return;
+    _whisperTarget = target;
+    _whispers.insert(
+      0,
+      TwitchMessage(
+        login: login,
+        displayName: login,
+        text: message,
+        channel: null,
+      ),
+    );
+    if (_whispers.length > _maxMessagesPerChannel) {
+      _whispers.removeRange(_maxMessagesPerChannel, _whispers.length);
+    }
+    _whispersPanelData.value = List.of(_whispers);
+    _mentionsBump.value++;
+  }
+
+  void _onMentionsTabChanged() {
+    if (_mentionsTabCtrl.index == 1 && _unreadWhispers > 0) {
+      _unreadMentions -= _unreadWhispers;
+      if (_unreadMentions < 0) _unreadMentions = 0;
+      _unreadWhispers = 0;
+      _mentionsBump.value++;
+    }
+    setState(() {});
+  }
+
+  void _showWhispersForUser(String login) {
+    _whisperTarget = login;
+    if (_activePanel != OverlayPanel.mentions) {
+      _showMentionsView();
+    }
+    _mentionsTabCtrl.animateTo(1);
+    _unreadMentions -= _unreadWhispers;
+    if (_unreadMentions < 0) _unreadMentions = 0;
+    _unreadWhispers = 0;
+    _mentionsBump.value++;
+    _focusNode.requestFocus();
   }
 
   void _onNotificationTap(String channel) {
@@ -2223,6 +2342,7 @@ class _HomeScreenState extends State<HomeScreen>
                                       tooltip: 'Mentions',
                                       onPressed: () {
                                         _unreadMentions = 0;
+                                        _unreadWhispers = 0;
                                         _channelsWithUnreadMentions.clear();
                                         _unreadMentionsPerChannel.clear();
                                         if (mounted) setState(() {});
@@ -2610,8 +2730,19 @@ class _HomeScreenState extends State<HomeScreen>
                                               scrollController:
                                                   _mentionsPanelScrollCtrl,
                                             ),
-                                            const Center(
-                                              child: Text('No whispers'),
+                                            MentionsPanelWidget(
+                                              key: const ValueKey(
+                                                'whispers_panel',
+                                              ),
+                                              messages: _whispersPanelData,
+                                              uiScale: 1.0,
+                                              buildBadgeSpans: _messageBuilder
+                                                  .buildBadgeSpans,
+                                              buildMessageSpans: _messageBuilder
+                                                  .buildMessageSpans,
+                                              scrollController:
+                                                  _whispersPanelScrollCtrl,
+                                              emptyText: 'No whispers',
                                             ),
                                           ],
                                         ),
@@ -2738,7 +2869,8 @@ class _HomeScreenState extends State<HomeScreen>
                           onCancelReply: () =>
                               setState(() => _replyToMsg = null),
                           enabled:
-                              _activePanel != OverlayPanel.mentions &&
+                              (_activePanel != OverlayPanel.mentions ||
+                                  _isWhispersTabActive) &&
                               widget.twitchAuth.isConfigured &&
                               _chatConn.irc.isConnected,
                           hintText: !widget.twitchAuth.isConfigured
@@ -2747,6 +2879,10 @@ class _HomeScreenState extends State<HomeScreen>
                               ? 'Disconnected'
                               : _activePanel == OverlayPanel.thread
                               ? 'Reply to thread...'
+                              : _isWhispersTabActive
+                              ? _whisperTarget != null
+                                    ? 'Whisper to $_whisperTarget...'
+                                    : 'Type /w <username> <message>'
                               : _activePanel == OverlayPanel.mentions
                               ? 'Type a message...'
                               : null,
