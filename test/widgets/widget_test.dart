@@ -20,6 +20,7 @@ import 'package:ermchat/services/twitch_auth.dart';
 import 'package:ermchat/models/twitch_message.dart';
 import 'package:ermchat/services/suggestion.dart';
 import 'package:ermchat/widgets/autocomplete_dropdown.dart';
+import 'package:ermchat/widgets/chat_message_tile.dart';
 
 class _FakeEventSubService extends EventSubService {
   final _statusCtrl = StreamController<EventSubStatus>.broadcast(sync: true);
@@ -728,65 +729,64 @@ void main() {
     },
   );
 
-  testWidgets(
-    'Leaving a channel with unread mentions clears the bell color',
-    (WidgetTester tester) async {
-      final eventSub = _FakeEventSubService();
-      final irc = _FakeIrcService();
-      final recent = _ConfigurableRecentMessagesService(const []);
-      await tester.pumpWidget(
-        TwitchChatApp(
-          eventSubService: eventSub,
-          ircService: irc,
-          recentMessagesService: recent,
-          initialCurrentUserLogin: 'me',
-        ),
-      );
+  testWidgets('Leaving a channel with unread mentions clears the bell color', (
+    WidgetTester tester,
+  ) async {
+    final eventSub = _FakeEventSubService();
+    final irc = _FakeIrcService();
+    final recent = _ConfigurableRecentMessagesService(const []);
+    await tester.pumpWidget(
+      TwitchChatApp(
+        eventSubService: eventSub,
+        ircService: irc,
+        recentMessagesService: recent,
+        initialCurrentUserLogin: 'me',
+      ),
+    );
+    await tester.pump();
+
+    for (final name in ['b', 'a']) {
+      await tester.tap(find.byIcon(Icons.add));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).last, name);
+      await tester.tap(find.text('Join'));
       await tester.pump();
+    }
 
-      for (final name in ['b', 'a']) {
-        await tester.tap(find.byIcon(Icons.add));
-        await tester.pumpAndSettle();
-        await tester.enterText(find.byType(TextField).last, name);
-        await tester.tap(find.text('Join'));
-        await tester.pump();
-      }
+    irc.emitMessage(
+      TwitchMessage(
+        login: 'carol',
+        text: 'hello @me',
+        channel: 'b',
+        messageId: 'm7',
+      ),
+    );
+    await tester.pump();
+    expect(
+      tester.widget<Icon>(find.byIcon(Icons.notifications_active)).color,
+      isNotNull,
+    );
 
-      irc.emitMessage(
-        TwitchMessage(
-          login: 'carol',
-          text: 'hello @me',
-          channel: 'b',
-          messageId: 'm7',
-        ),
-      );
-      await tester.pump();
-      expect(
-        tester.widget<Icon>(find.byIcon(Icons.notifications_active)).color,
-        isNotNull,
-      );
+    // Leaving a channel must also drop its unread count, or the bell
+    // stays red with no per-channel dot left to clear.
+    await tester.tap(find.byIcon(Icons.settings));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Channels'));
+    await tester.pumpAndSettle();
 
-      // Leaving a channel must also drop its unread count, or the bell
-      // stays red with no per-channel dot left to clear.
-      await tester.tap(find.byIcon(Icons.settings));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Channels'));
-      await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.remove_circle_outline).first);
+    await tester.pumpAndSettle();
 
-      await tester.tap(find.byIcon(Icons.remove_circle_outline).first);
-      await tester.pumpAndSettle();
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    await tester.pageBack();
+    await tester.pumpAndSettle();
 
-      await tester.pageBack();
-      await tester.pumpAndSettle();
-      await tester.pageBack();
-      await tester.pumpAndSettle();
-
-      expect(
-        tester.widget<Icon>(find.byIcon(Icons.notifications_active)).color,
-        isNull,
-      );
-    },
-  );
+    expect(
+      tester.widget<Icon>(find.byIcon(Icons.notifications_active)).color,
+      isNull,
+    );
+  });
 
   testWidgets('Adding second channel switches to it immediately', (
     WidgetTester tester,
@@ -2694,6 +2694,75 @@ void main() {
 
         // New message IS now visible after snapshot is removed
         expect(find.textContaining('new message while paused'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'last chat message stays flush with list bottom in any keyboard state',
+      (WidgetTester tester) async {
+        final now = DateTime.now();
+        final messages = List.generate(
+          3,
+          (i) => TwitchMessage(
+            login: 'user$i',
+            text: 'message number $i',
+            channel: 'testchannel',
+            messageId: 'msg-$i',
+            timestamp: now.subtract(Duration(minutes: 3 - i)),
+          ),
+        );
+        final fakeEventSub = _FakeEventSubService();
+        final fakeIrc = _FakeIrcService();
+        final fakeRecent = _ConfigurableRecentMessagesService(messages);
+
+        // Keyboard down: nav bar visible, no keyboard inset.
+        tester.view.padding = const FakeViewPadding(bottom: 48);
+        addTearDown(tester.view.reset);
+
+        await tester.pumpWidget(
+          TwitchChatApp(
+            eventSubService: fakeEventSub,
+            ircService: fakeIrc,
+            recentMessagesService: fakeRecent,
+          ),
+        );
+        await tester.pump();
+
+        await tester.tap(find.byIcon(Icons.add));
+        await tester.pumpAndSettle();
+        await tester.enterText(find.byType(TextField).last, 'testchannel');
+        await tester.tap(find.text('Join').last);
+        await tester.pump();
+        await tester.pump();
+
+        final listBottom = tester
+            .getBottomRight(find.byType(ListView).first)
+            .dy;
+        final lastTileBottom = tester
+            .getBottomRight(find.byType(ChatMessageTile).first)
+            .dy;
+
+        // The newest message (index 0 in a reverse list) hugs the viewport
+        // bottom instead of the implicit nav-bar safe-area padding creating
+        // a blank strip below it.
+        expect(lastTileBottom, closeTo(listBottom, 1.0));
+
+        // Keyboard up: nav bar covered by the keyboard, inset reported.
+      tester.view.padding = FakeViewPadding.zero;
+      tester.view.viewInsets = const FakeViewPadding(bottom: 400);
+        await tester.pump();
+
+        final listBottomUp = tester
+            .getBottomRight(find.byType(ListView).first)
+            .dy;
+        final lastTileBottomUp = tester
+            .getBottomRight(find.byType(ChatMessageTile).first)
+            .dy;
+
+        // Still flush — no padding gap in either keyboard state.
+        expect(lastTileBottomUp, closeTo(listBottomUp, 1.0));
+        // The list did move up with the keyboard (viewport bottom rose).
+        expect(listBottomUp, lessThan(listBottom));
       },
     );
 
