@@ -128,6 +128,21 @@ class UserNoticeEvent {
   });
 }
 
+/// USERNOTICE `msg-id` values that represent subscriptions / gift subs.
+/// These render like default (PRIMARY purple) announcements: the notice
+/// stays a system message but carries the announcement accent.
+const subNoticeMsgIds = <String>{
+  'sub',
+  'resub',
+  'subgift',
+  'anonsubgift',
+  'communitygift',
+  'submysterygift',
+  'giftpaidupgrade',
+  'anongiftpaidupgrade',
+  'primepaidupgrade',
+};
+
 /// Builds the system-message text for a USERNOTICE event. Announcements are
 /// the bare "Announcement" label (DankChat-style; the announcement text is
 /// rendered as a separate child chat message); everything else uses Twitch's

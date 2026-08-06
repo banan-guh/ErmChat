@@ -911,39 +911,115 @@ void main() {
       conn.dispose();
     });
 
-    test('non-announcement notices stay a single system message', () async {
-      final irc = _TestIrc();
-      final systemMessages = <(String, String, Color?)>[];
-      final channelMessages = <String, List<TwitchMessage>>{};
-      final conn = _makeReconnectConn(
-        eventSub: _NoopEventSub(),
-        irc: irc,
-        onReconnected: () {},
-        channelMessages: channelMessages,
-        onSystemMessage: (c, t, {Color? accent}) {
-          systemMessages.add((c, t, accent));
-        },
-      );
-      await conn.connect();
-      irc.emitConnected();
+    test(
+      'resub notice stays a single system message with the purple accent',
+      () async {
+        final irc = _TestIrc();
+        final systemMessages = <(String, String, Color?)>[];
+        final channelMessages = <String, List<TwitchMessage>>{};
+        final conn = _makeReconnectConn(
+          eventSub: _NoopEventSub(),
+          irc: irc,
+          onReconnected: () {},
+          channelMessages: channelMessages,
+          onSystemMessage: (c, t, {Color? accent}) {
+            systemMessages.add((c, t, accent));
+          },
+        );
+        await conn.connect();
+        irc.emitConnected();
 
-      irc.handleLine(
-        '@msg-id=resub;system-msg=ronni\\shas\\ssubscribed!;login=ronni;'
-        'display-name=ronni;'
-        ':tmi.twitch.tv USERNOTICE #test :Great stream!',
-      );
+        irc.handleLine(
+          '@msg-id=resub;system-msg=ronni\\shas\\ssubscribed!;login=ronni;'
+          'display-name=ronni;'
+          ':tmi.twitch.tv USERNOTICE #test :Great stream!',
+        );
 
-      expect(systemMessages, hasLength(1));
-      expect(systemMessages[0].$2, 'ronni has subscribed! "Great stream!"');
-      expect(systemMessages[0].$3, isNull);
-      expect(
-        channelMessages['test'],
-        isNull,
-        reason: 'non-announcements never produce a child message',
-      );
+        expect(systemMessages, hasLength(1));
+        expect(systemMessages[0].$1, 'test');
+        expect(systemMessages[0].$2, 'ronni has subscribed! "Great stream!"');
+        expect(systemMessages[0].$3, const Color(0xFF9146FF));
+        expect(
+          channelMessages['test'],
+          isNull,
+          reason: 'non-announcements never produce a child message',
+        );
 
-      conn.dispose();
-    });
+        conn.dispose();
+      },
+    );
+
+    test(
+      'subgift notice highlights like a default purple announcement',
+      () async {
+        final irc = _TestIrc();
+        final systemMessages = <(String, String, Color?)>[];
+        final channelMessages = <String, List<TwitchMessage>>{};
+        final conn = _makeReconnectConn(
+          eventSub: _NoopEventSub(),
+          irc: irc,
+          onReconnected: () {},
+          channelMessages: channelMessages,
+          onSystemMessage: (c, t, {Color? accent}) {
+            systemMessages.add((c, t, accent));
+          },
+        );
+        await conn.connect();
+        irc.emitConnected();
+
+        irc.handleLine(
+          '@msg-id=subgift;system-msg=TWW2\\sgifted\\sa\\sTier\\s1\\ssub\\sto\\s'
+          'Mr_Woodchuck!;login=tww2;display-name=TWW2;'
+          ':tmi.twitch.tv USERNOTICE #test',
+        );
+
+        expect(systemMessages, hasLength(1));
+        expect(
+          systemMessages[0].$2,
+          'TWW2 gifted a Tier 1 sub to Mr_Woodchuck!',
+        );
+        expect(systemMessages[0].$3, const Color(0xFF9146FF));
+
+        conn.dispose();
+      },
+    );
+
+    test(
+      'non-sub notices stay a single system message without accent',
+      () async {
+        final irc = _TestIrc();
+        final systemMessages = <(String, String, Color?)>[];
+        final channelMessages = <String, List<TwitchMessage>>{};
+        final conn = _makeReconnectConn(
+          eventSub: _NoopEventSub(),
+          irc: irc,
+          onReconnected: () {},
+          channelMessages: channelMessages,
+          onSystemMessage: (c, t, {Color? accent}) {
+            systemMessages.add((c, t, accent));
+          },
+        );
+        await conn.connect();
+        irc.emitConnected();
+
+        irc.handleLine(
+          '@msg-id=raid;system-msg=ronni\\sis\\sraiding\\sxqc!;login=ronni;'
+          'display-name=ronni;'
+          ':tmi.twitch.tv USERNOTICE #test',
+        );
+
+        expect(systemMessages, hasLength(1));
+        expect(systemMessages[0].$2, 'ronni is raiding xqc!');
+        expect(systemMessages[0].$3, isNull);
+        expect(
+          channelMessages['test'],
+          isNull,
+          reason: 'non-announcements never produce a child message',
+        );
+
+        conn.dispose();
+      },
+    );
   });
 
   group('IRC channel clear', () {

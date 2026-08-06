@@ -97,4 +97,28 @@ void main() {
       expect(msg.trailing, 'You are sending messages too fast.');
     });
   });
+
+  group('subNoticeMsgIds', () {
+    test('covers sub, gift sub and upgrade msg-ids', () {
+      expect(
+        subNoticeMsgIds,
+        containsAll(<String>[
+          'sub',
+          'resub',
+          'subgift',
+          'anonsubgift',
+          'communitygift',
+          'submysterygift',
+          'giftpaidupgrade',
+          'anongiftpaidupgrade',
+          'primepaidupgrade',
+        ]),
+      );
+    });
+
+    test('excludes non-sub notices like announcements and raids', () {
+      expect(subNoticeMsgIds, isNot(contains('announcement')));
+      expect(subNoticeMsgIds, isNot(contains('raid')));
+    });
+  });
 }

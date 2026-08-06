@@ -224,9 +224,13 @@ class RecentMessagesService {
         text: text,
       ),
       isSystem: true,
+      // Announcements carry their banner accent; subscriptions / gift subs
+      // highlight like a default (PRIMARY) purple announcement (DankChat-style).
       systemAccent: isAnnouncement
           ? announcementColorFor(msg.tags['msg-param-color']) ??
                 announcementColors['PRIMARY']
+          : subNoticeMsgIds.contains(msgId)
+          ? announcementColors['PRIMARY']
           : null,
       channel: channel,
       // 1ms after the child message so the sorted history keeps the child

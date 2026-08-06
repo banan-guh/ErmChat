@@ -181,6 +181,11 @@ void main() {
       expect(msg!.isSystem, isTrue);
       expect(msg.text, 'ronni has subscribed for 6 months! "Great stream!"');
       expect(msg.login, isEmpty, reason: 'non-announcement notices drop login');
+      expect(
+        msg.systemAccent,
+        const Color(0xFF9146FF),
+        reason: 'sub notices highlight like a default purple announcement',
+      );
     });
 
     test('parses subgift USERNOTICE without user message', () {
@@ -190,6 +195,17 @@ void main() {
       expect(msg, isNotNull);
       expect(msg!.isSystem, isTrue);
       expect(msg.text, 'TWW2 gifted a Tier 1 sub to Mr_Woodchuck!');
+      expect(msg.systemAccent, const Color(0xFF9146FF));
+    });
+
+    test('parses sub upgrade USERNOTICE with the purple accent', () {
+      const raw =
+          '@msg-id=giftpaidupgrade;system-msg=ronni\\sis\\snow\\sa\\spaid\\ssubscriber!;login=ronni;display-name=ronni;rm-received-ts=1700000000000 :tmi.twitch.tv USERNOTICE #xqc';
+      final msg = RecentMessagesService.parseIrcLine(raw);
+      expect(msg, isNotNull);
+      expect(msg!.isSystem, isTrue);
+      expect(msg.text, 'ronni is now a paid subscriber!');
+      expect(msg.systemAccent, const Color(0xFF9146FF));
     });
 
     test('parses announcement USERNOTICE into label with login', () {
@@ -221,9 +237,9 @@ void main() {
       expect(msg.systemAccent, const Color(0xFFFF6F00));
     });
 
-    test('non-announcement notices never carry an accent', () {
+    test('non-sub, non-announcement notices never carry an accent', () {
       const raw =
-          '@msg-id=resub;system-msg=ronni\\shas\\ssubscribed!;login=ronni;display-name=ronni;rm-received-ts=1700000000000 :tmi.twitch.tv USERNOTICE #xqc';
+          '@msg-id=raid;system-msg=ronni\\sis\\sraiding\\sxqc!;login=ronni;display-name=ronni;rm-received-ts=1700000000000 :tmi.twitch.tv USERNOTICE #xqc';
       final msg = RecentMessagesService.parseIrcLine(raw);
       expect(msg, isNotNull);
       expect(msg!.isSystem, isTrue);

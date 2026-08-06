@@ -1188,6 +1188,9 @@ class ChatConnectionManager {
       if (isDisposed) return;
       final isAnnouncement = event.msgId == 'announcement';
       if (!isAnnouncement) {
+        // Subscriptions / gift subs highlight like a default (PRIMARY) purple
+        // announcement: the notice stays a system message but carries the
+        // accent (DankChat-style). Other notices keep no accent.
         onSystemMessage(
           event.channel,
           buildUserNoticeText(
@@ -1196,6 +1199,9 @@ class ChatConnectionManager {
             systemMsg: event.systemMsg,
             text: event.text,
           ),
+          accent: subNoticeMsgIds.contains(event.msgId)
+              ? announcementColors['PRIMARY']
+              : null,
         );
         return;
       }
