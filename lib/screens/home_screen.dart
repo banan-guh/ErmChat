@@ -988,40 +988,42 @@ class _HomeScreenState extends State<HomeScreen>
     super.dispose();
   }
 
-  // Dedup connection status messages: collapse "Connected to IRC" into
-  // "Connected", convert "Disconnected" to "Reconnected" on immediate
-  // reconnect. Prevents status line spam during reconnection storms.
+  // Connection status messages all represent one logical slot: collapse
+  // "Connected to IRC" into "Connected", convert "Disconnected" + "Connected"
+  // into "Reconnected", and remove any stale status lines (e.g. the boot
+  // "Connected" left behind after a reconnect). Prevents status line spam
+  // during reconnection storms.
   void _addSystemMessage(String channel, String text, {Color? accent}) {
     _channelMessages.putIfAbsent(channel, () => []);
     final msgs = _channelMessages[channel]!;
-    if (msgs.isNotEmpty) {
-      final newest = msgs.first;
-      if (newest.isSystem) {
-        final now = DateTime.now();
-        final isRecent = now.difference(newest.timestamp).inMinutes < 1;
-        if (text == 'Connected to IRC') {
-          if (isRecent &&
-              (newest.text == 'Connected' ||
-                  newest.text == 'Connected to IRC')) {
-            return;
-          }
-        } else if (text == 'Connected') {
-          if (isRecent && newest.text == 'Connected') {
-            return;
-          }
-          if (isRecent && newest.text == 'Connected to IRC') {
-            newest.text = 'Connected';
-            _bumpChannel(channel);
-            return;
-          }
-          if (isRecent && newest.text == 'Disconnected') {
-            newest.text = 'Reconnected';
-            _bumpChannel(channel);
-            return;
-          }
-        }
+
+    const statusTexts = {
+      'Connected',
+      'Connected to IRC',
+      'Disconnected',
+      'Reconnected',
+    };
+    if (statusTexts.contains(text)) {
+      final existing = msgs
+          .where((m) => m.isSystem && statusTexts.contains(m.text))
+          .toList();
+      String label = text;
+      if (text == 'Connected' || text == 'Connected to IRC') {
+        label = existing.any((m) => m.text == 'Disconnected')
+            ? 'Reconnected'
+            : 'Connected';
       }
+      // Already showing this exact state at the top: nothing to do.
+      if (existing.length == 1 &&
+          existing.first == msgs.first &&
+          existing.first.text == label) {
+        return;
+      }
+      // Drop stale status lines, then show the current state at the top.
+      msgs.removeWhere((m) => m.isSystem && statusTexts.contains(m.text));
+      text = label;
     }
+
     msgs.insert(
       0,
       TwitchMessage(

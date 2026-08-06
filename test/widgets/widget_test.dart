@@ -1672,6 +1672,37 @@ void main() {
       expect(find.textContaining('Connected'), findsOneWidget);
     });
 
+    testWidgets('reconnect collapses to a single Reconnected status', (
+      WidgetTester tester,
+    ) async {
+      final eventSub = _FakeEventSubService();
+      final irc = _FakeIrcService();
+      await setupChannel(tester, eventSub: eventSub, irc: irc);
+
+      irc.triggerConnect();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 600));
+      await tester.pump();
+      expect(find.textContaining('Connected'), findsOneWidget);
+
+      irc.triggerDisconnect();
+      await tester.pump();
+      // The stale "Connected" status line is replaced by "Disconnected".
+      expect(find.textContaining('Connected'), findsNothing);
+      expect(find.textContaining('Disconnected'), findsWidgets);
+
+      irc.triggerConnect();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 600));
+      await tester.pump();
+
+      // Exactly one status line, showing the reconnect; the boot-time
+      // "Connected" and the "Disconnected" are both gone.
+      expect(find.textContaining('Reconnected'), findsOneWidget);
+      expect(find.textContaining('Connected'), findsNothing);
+      expect(find.textContaining('Disconnected'), findsNothing);
+    });
+
     testWidgets('disconnected appears only once', (WidgetTester tester) async {
       final eventSub = _FakeEventSubService();
       final irc = _FakeIrcService();
