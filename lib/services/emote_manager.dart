@@ -35,6 +35,28 @@ class EmoteManager extends ChangeNotifier {
     EmoteType.twitch: 3,
   };
 
+  // ── Disk-cache garbage collection ────────────────────────────────────
+  // The flutter_cache_manager disk cache defaults to a 200-file count cap
+  // with a 30-day stale period, which lets it balloon to hundreds of MB of
+  // emote images. We GC it aggressively instead: keep at most [_gcMaxEmotes]
+  // emotes, evicting overflow only once it's been unused for [_gcHotTtl],
+  // and hard-evict anything unused for [_gcHardTtl] regardless of count.
+  static const _gcMaxEmotes = 80;
+  static const _gcHotTtl = Duration(hours: 1);
+  static const _gcHardTtl = Duration(hours: 24);
+  static const _gcInterval = Duration(minutes: 30);
+  static const _usageKey = 'emote_usage';
+  static const _usageMaxEntries = 300;
+  static const _migrationKey = 'emote_gc_migrated_v1';
+
+  final Future<void> Function(String url) _removeCachedFile;
+  final DateTime Function() _now;
+  final Map<String, DateTime> _emoteUsage = {};
+  bool _usageLoaded = false;
+  bool _usageDirty = false;
+  bool _migrationRan = false;
+  Timer? _gcTimer;
+
   final Future<List<ConnectivityResult>> Function()? _connectivityProbe;
   final Duration _fetchStagger;
   ConnectivityResult _probeResult = ConnectivityResult.wifi;
@@ -44,7 +66,13 @@ class EmoteManager extends ChangeNotifier {
   EmoteManager({
     Future<List<ConnectivityResult>> Function()? probe,
     this._fetchStagger = _defaultFetchStagger,
-  }) : _connectivityProbe = probe;
+    Future<void> Function(String url)? removeCachedFile,
+    DateTime Function()? now,
+}) : _connectivityProbe = probe,
+       _removeCachedFile = removeCachedFile ??
+           ((String url) => DefaultCacheManager().removeFile(url)),
+       _now = now ?? DateTime.now;
+
   ChannelEmotes? _globalCache;
   final _channelCaches = <String, ChannelEmotes>{};
   final _channelFetchTimes = <String, DateTime>{};
@@ -183,6 +211,8 @@ class EmoteManager extends ChangeNotifier {
       _recentIds = _recentIds.sublist(0, _maxRecent);
     }
     await _saveRecent();
+    _touchUsage(emote.url);
+    await _flushUsage();
   }
 
   Future<List<GenericEmote>> recentEmotes() async {
@@ -656,6 +686,150 @@ class EmoteManager extends ChangeNotifier {
     }
   }
 
+  // ── Disk-cache GC: usage tracking ───────────────────────────────────
+
+  final Set<String> _pendingUsageTouches = {};
+
+  void _touchUsage(String url) {
+    if (url.isEmpty) return;
+    if (!_usageLoaded) {
+      // Not loaded yet: defer so we don't clobber the persisted registry
+      // with a partial in-memory view on the first flush.
+      _pendingUsageTouches.add(url);
+      return;
+    }
+    _emoteUsage[url] = _now();
+    _usageDirty = true;
+  }
+
+  Future<void> _ensureUsageLoaded() async {
+    if (_usageLoaded) return;
+    _usageLoaded = true;
+    final prefs = await _getPrefs();
+    final raw = prefs.getString(_usageKey);
+    if (raw != null) {
+      try {
+        final data = jsonDecode(raw) as Map<String, dynamic>;
+        for (final entry in data.entries) {
+          _emoteUsage[entry.key] = DateTime.parse(entry.value as String);
+        }
+      } catch (_) {
+        debugPrint('[EmoteManager] failed to parse emote usage registry');
+      }
+    }
+    if (_pendingUsageTouches.isNotEmpty) {
+      final now = _now();
+      for (final url in _pendingUsageTouches) {
+        _emoteUsage[url] = now;
+      }
+      _pendingUsageTouches.clear();
+      _usageDirty = true;
+    }
+  }
+
+  Future<void> _flushUsage() async {
+    if (!_usageLoaded) return;
+    await _ensureUsageLoaded();
+    if (!_usageDirty) return;
+    _usageDirty = false;
+    if (_emoteUsage.length > _usageMaxEntries) {
+      final entries = _emoteUsage.entries.toList()
+        ..sort((a, b) => a.value.compareTo(b.value));
+      final overflow = entries.length - _usageMaxEntries;
+      for (final entry in entries.take(overflow)) {
+        _emoteUsage.remove(entry.key);
+      }
+    }
+    final prefs = await _getPrefs();
+    final data = <String, String>{
+      for (final entry in _emoteUsage.entries)
+        entry.key: entry.value.toIso8601String(),
+    };
+    await prefs.setString(_usageKey, jsonEncode(data));
+  }
+
+  // ── Disk-cache GC: sweep ────────────────────────────────────────────
+
+  /// Starts the disk-cache garbage collector: runs the one-time migration,
+  /// an immediate sweep, then a periodic sweep every [_gcInterval].
+  Future<void> startCacheGc() async {
+    await _ensureUsageLoaded();
+    if (!_migrationRan) {
+      final prefs = await _getPrefs();
+      if (prefs.getBool(_migrationKey) ?? false) {
+        _migrationRan = true;
+      } else {
+        // First launch after the GC landed: the pre-existing cache was
+        // filled by the old 200-file/30-day policy and our usage registry
+        // can't track it, so clear it once. Emotes re-download on demand.
+        try {
+          await DefaultCacheManager().emptyCache();
+        } catch (_) {
+          debugPrint('[EmoteManager] cache migration emptyCache failed');
+        }
+        _migrationRan = true;
+        await prefs.setBool(_migrationKey, true);
+      }
+    }
+    await runCacheGc();
+    _gcTimer?.cancel();
+    _gcTimer = Timer.periodic(_gcInterval, (_) => runCacheGc());
+  }
+
+  /// Runs one sweep of the disk-cache GC. Evicts anything unused for
+  /// [_gcHardTtl] regardless of count, then trims to [_gcMaxEmotes] by
+  /// evicting the oldest entries that are also unused for [_gcHotTtl].
+  /// Exposed for tests; also cancellable via [dispose].
+  Future<void> runCacheGc() async {
+    await _ensureUsageLoaded();
+    final now = _now();
+    final evict = <String>[];
+    for (final entry in _emoteUsage.entries) {
+      if (now.difference(entry.value) > _gcHardTtl) {
+        evict.add(entry.key);
+      }
+    }
+    if (_emoteUsage.length > _gcMaxEmotes) {
+      final sorted = _emoteUsage.entries.toList()
+        ..sort((a, b) => a.value.compareTo(b.value));
+      final evictSet = evict.toSet();
+      for (final entry in sorted) {
+        if (_emoteUsage.length - evict.length <= _gcMaxEmotes) break;
+        if (evictSet.contains(entry.key)) continue;
+        if (now.difference(entry.value) > _gcHotTtl) {
+          evict.add(entry.key);
+        }
+      }
+    }
+    if (evict.isEmpty) {
+      await _flushUsage();
+      return;
+    }
+    await Future.wait(
+      evict.map((url) async {
+        try {
+          await _removeCachedFile(url);
+        } catch (_) {
+          debugPrint('[EmoteManager] cache GC failed to remove $url');
+        }
+      }),
+      eagerError: false,
+    );
+    for (final url in evict) {
+      _emoteUsage.remove(url);
+      _usageDirty = true;
+    }
+    await _flushUsage();
+  }
+
+  /// Cancels the periodic GC sweep. Safe to call even if GC never started.
+  @override
+  void dispose() {
+    _gcTimer?.cancel();
+    _gcTimer = null;
+    super.dispose();
+  }
+
   // ── Pre-cache queue for seen emotes ──────────────────────────────────
 
   final Set<String> _seenEmoteIds = {};
@@ -672,10 +846,14 @@ class EmoteManager extends ChangeNotifier {
     }
     if (fresh.isEmpty) return;
     if (_seenEmoteIds.length > 2000) _seenEmoteIds.clear();
+    for (final e in fresh) {
+      _touchUsage(e.url);
+    }
     _precacheQueue.addAll(fresh);
     if (!_isProcessingPrecache) {
       _processPrecacheQueue();
     }
+    unawaited(_flushUsage());
   }
 
   void _processPrecacheQueue() {

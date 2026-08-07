@@ -337,6 +337,7 @@ class _HomeScreenState extends State<HomeScreen>
     _chatConn.onWhisper = _onWhisper;
     _emoteManager.accessToken = widget.twitchAuth.accessToken;
     _emoteManager.preloadGlobalEmotes();
+    _emoteManager.startCacheGc();
     _emoteManager.addListener(_onEmotesChanged);
     _badgeService.fetchGlobalBadges(widget.twitchAuth);
     widget.twitchAuth.addListener(_onAuthChanged);
@@ -1088,6 +1089,7 @@ class _HomeScreenState extends State<HomeScreen>
     _ircRead.dispose();
     _sevenTvClient.dispose();
     _emoteManager.removeListener(_onEmotesChanged);
+    _emoteManager.dispose();
     widget.twitchAuth.removeListener(_onAuthChanged);
     _messageController.dispose();
     _focusNode.removeListener(_onInputFocusChanged);

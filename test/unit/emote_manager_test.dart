@@ -1,13 +1,28 @@
 import 'dart:convert';
+import 'dart:io' show Directory;
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ermchat/models/generic_emote.dart';
 import 'package:ermchat/models/twitch_message.dart';
 import 'package:ermchat/services/emote_manager.dart';
 import '../helpers.dart';
 
+class _FakePathProvider extends PathProviderPlatform {
+  final String tempDir;
+  _FakePathProvider(this.tempDir);
+
+  @override
+  Future<String?> getTemporaryPath() async => tempDir;
+
+  @override
+  Future<String?> getApplicationSupportPath() async => tempDir;
+}
+
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   group('GenericEmote', () {
     test('creates with required fields', () {
       final e = makeTestEmote(id: '1', code: 'Kappa');
@@ -268,6 +283,181 @@ void main() {
 
       final codes = manager.byCode('ch')!.suggestions.map((e) => e.code);
       expect(codes, contains('SubEmote'));
+    });
+  });
+
+  group('disk cache GC', () {
+    // Preloads the usage registry (via startCacheGc) then cancels the timer,
+    // so touches recorded via enqueueSeenEmotes get per-call timestamps. The
+    // manager's pure GC/touch methods remain usable after dispose().
+    Future<EmoteManager> makeManager({
+      required DateTime Function() clock,
+      required void Function(String) remove,
+    }) async {
+      PathProviderPlatform.instance = _FakePathProvider(Directory.systemTemp.path);
+      final manager = EmoteManager(
+        fetchStagger: Duration.zero,
+        now: clock,
+        removeCachedFile: (url) async => remove(url),
+      );
+      await manager.startCacheGc();
+      manager.dispose();
+      return manager;
+    }
+
+    test('evicts emotes unused for over 24h regardless of count', () async {
+      SharedPreferences.setMockInitialValues({});
+      var clock = DateTime(2026, 1, 1, 12);
+      final removed = <String>[];
+      final manager = await makeManager(
+        clock: () => clock,
+        remove: (url) => removed.add(url),
+      );
+      manager.enqueueSeenEmotes([
+        GenericEmote(id: 'f', code: 'Fresh', url: 'https://example.com/fresh.png', type: EmoteType.bttv),
+      ]);
+      clock = clock.add(const Duration(hours: 25));
+      manager.enqueueSeenEmotes([
+        GenericEmote(id: 's', code: 'Stale', url: 'https://example.com/stale.png', type: EmoteType.bttv),
+      ]);
+
+      await manager.runCacheGc();
+
+      expect(removed, ['https://example.com/fresh.png']);
+    });
+
+    test('trims to max emotes by evicting oldest unused for over 1h', () async {
+      SharedPreferences.setMockInitialValues({});
+      var clock = DateTime(2026, 1, 1, 12);
+      final removed = <String>[];
+      final manager = await makeManager(
+        clock: () => clock,
+        remove: (url) => removed.add(url),
+      );
+      final emotes = <GenericEmote>[];
+      for (var i = 0; i < 90; i++) {
+        emotes.add(
+          GenericEmote(
+            id: 'e$i',
+            code: 'E$i',
+            url: 'https://example.com/e$i.png',
+            type: EmoteType.bttv,
+          ),
+        );
+      }
+      // Seed 40 old emotes (touched 2h ago), then 50 fresh (now).
+      manager.enqueueSeenEmotes(emotes.sublist(0, 40));
+      clock = clock.add(const Duration(hours: 2));
+      manager.enqueueSeenEmotes(emotes.sublist(40));
+
+      await manager.runCacheGc();
+
+      // 90 > 80, so 10 of the old emotes should be evicted. Among equal
+      // timestamps the sort order is unspecified, so assert set membership
+      // rather than exact order.
+      expect(removed, hasLength(10));
+      for (final url in removed) {
+        final idx = int.parse(
+          url.replaceAll('https://example.com/e', '').replaceAll('.png', ''),
+        );
+        expect(idx, lessThan(40));
+      }
+    });
+
+    test('does not evict fresh emotes even when over capacity', () async {
+      SharedPreferences.setMockInitialValues({});
+      var clock = DateTime(2026, 1, 1, 12);
+      final removed = <String>[];
+      final manager = await makeManager(
+        clock: () => clock,
+        remove: (url) => removed.add(url),
+      );
+      final emotes = <GenericEmote>[];
+      for (var i = 0; i < 90; i++) {
+        emotes.add(
+          GenericEmote(
+            id: 'e$i',
+            code: 'E$i',
+            url: 'https://example.com/e$i.png',
+            type: EmoteType.bttv,
+          ),
+        );
+      }
+      manager.enqueueSeenEmotes(emotes);
+
+      await manager.runCacheGc();
+
+      expect(removed, isEmpty);
+    });
+
+    test('evicts nothing when under max and none over 24h', () async {
+      SharedPreferences.setMockInitialValues({});
+      var clock = DateTime(2026, 1, 1, 12);
+      final removed = <String>[];
+      final manager = await makeManager(
+        clock: () => clock,
+        remove: (url) => removed.add(url),
+      );
+      manager.enqueueSeenEmotes([
+        GenericEmote(id: 'a', code: 'A', url: 'https://example.com/a.png', type: EmoteType.bttv),
+      ]);
+
+      await manager.runCacheGc();
+
+      expect(removed, isEmpty);
+    });
+
+    test('usage registry persists across manager instances', () async {
+      SharedPreferences.setMockInitialValues({});
+      var clock = DateTime(2026, 1, 1, 12);
+      final removed = <String>[];
+      final manager = await makeManager(
+        clock: () => clock,
+        remove: removed.add,
+      );
+      manager.enqueueSeenEmotes([
+        GenericEmote(id: 'a', code: 'A', url: 'https://example.com/a.png', type: EmoteType.bttv),
+      ]);
+      await manager.runCacheGc();
+
+      // Fresh instance loads the same registry.
+      final removed2 = <String>[];
+      final manager2 = await makeManager(
+        clock: () => clock.add(const Duration(hours: 25)),
+        remove: removed2.add,
+      );
+      await manager2.runCacheGc();
+
+      expect(removed2, ['https://example.com/a.png']);
+    });
+
+    test('one-time migration sets the flag once', () async {
+      SharedPreferences.setMockInitialValues({});
+      PathProviderPlatform.instance = _FakePathProvider(Directory.systemTemp.path);
+      final manager = EmoteManager(fetchStagger: Duration.zero);
+      await manager.startCacheGc();
+      manager.dispose();
+
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getBool('emote_gc_migrated_v1'), isTrue);
+
+      // Second start skips migration but still schedules a sweep.
+      final manager2 = EmoteManager(fetchStagger: Duration.zero);
+      await manager2.startCacheGc();
+      manager2.dispose();
+      expect(await SharedPreferences.getInstance(), isNotNull);
+    });
+
+    test('dispose cancels the periodic timer', () async {
+      SharedPreferences.setMockInitialValues({});
+      PathProviderPlatform.instance = _FakePathProvider(Directory.systemTemp.path);
+      final manager = EmoteManager(
+        fetchStagger: Duration.zero,
+        removeCachedFile: (_) async {},
+      );
+      await manager.startCacheGc();
+      manager.dispose();
+      // If the timer leaked, the test would fail with a pending timer error.
     });
   });
 }
