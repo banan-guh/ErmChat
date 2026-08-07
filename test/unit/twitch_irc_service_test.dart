@@ -181,8 +181,8 @@ void main() {
       expect(messageCount, 0);
     });
 
-    test('emits emote-sets from GLOBALUSERSTATE', () async {
-      final sets = <List<String>>[];
+    test('emits emote-sets from GLOBALUSERSTATE without channel', () async {
+      final sets = <(String?, List<String>)>[];
       service.onUserEmoteSets.listen(sets.add);
 
       service.handleLine(
@@ -190,13 +190,13 @@ void main() {
       );
       await flush();
 
-      expect(sets, [
-        <String>['0', '123456789', '987654321'],
-      ]);
+      expect(sets, hasLength(1));
+      expect(sets.single.$1, isNull);
+      expect(sets.single.$2, <String>['0', '123456789', '987654321']);
     });
 
-    test('emits emote-sets from USERSTATE', () async {
-      final sets = <List<String>>[];
+    test('emits channel-scoped emote-sets from USERSTATE', () async {
+      final sets = <(String?, List<String>)>[];
       service.onUserEmoteSets.listen(sets.add);
 
       service.handleLine(
@@ -204,9 +204,9 @@ void main() {
       );
       await flush();
 
-      expect(sets, [
-        <String>['300374079', '0'],
-      ]);
+      expect(sets, hasLength(1));
+      expect(sets.single.$1, 'xqc');
+      expect(sets.single.$2, <String>['300374079', '0']);
     });
 
     test('does not emit when emote-sets tag is missing', () async {

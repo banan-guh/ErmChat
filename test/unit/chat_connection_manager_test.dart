@@ -146,7 +146,6 @@ ChatConnectionManager _makeConn({
       mentionsChannel: '@mentions',
       onRebuild: () {},
       onSystemMessage: (c, t, {Color? accent}) {},
-      loadUserTwitchEmotes: () async {},
       getMaxMessagesPerChannel: () => maxMessages,
       getSelectedChannel: () => null,
       getUnreadMentions: () => 0,
@@ -173,7 +172,7 @@ ChatConnectionManager _makeReconnectConn({
   void Function(String, String, {Color? accent})? onSystemMessage,
   String? currentUserLogin,
   void Function(HypeTrainEvent event)? onHypeTrain,
-  Future<void> Function(List<String>)? onUserEmoteSets,
+  Future<void> Function(String?, List<String>)? onUserEmoteSets,
 }) {
   final api = TwitchApi(client: http.Client());
   final auth = TwitchAuth();
@@ -206,7 +205,6 @@ ChatConnectionManager _makeReconnectConn({
       mentionsChannel: '@mentions',
       onRebuild: () {},
       onSystemMessage: onSystemMessage ?? (c, t, {Color? accent}) {},
-      loadUserTwitchEmotes: () async {},
       onReconnected: onReconnected,
       getMaxMessagesPerChannel: () => 100,
       getSelectedChannel: () => null,
@@ -614,7 +612,9 @@ void main() {
           'display-name': 'TestUser',
           'user-id': '12345',
           'id': 'msg-me2',
-          'emotes': '123:8-15',
+          // Twitch reports ACTION positions relative to the message body
+          // (after the \x01ACTION wrapper), not the raw PRIVMSG text.
+          'emotes': '123:0-7',
         },
         prefix: 'testuser!testuser@testuser.tmi.twitch.tv',
         command: 'PRIVMSG',
@@ -1216,13 +1216,13 @@ void main() {
     Future<void> flush() => Future<void>.delayed(Duration.zero);
 
     test('forwards GLOBALUSERSTATE emote-sets to onUserEmoteSets', () async {
-      final received = <List<String>>[];
+      final received = <(String?, List<String>)>[];
       final irc = _TestIrc();
       final conn = _makeReconnectConn(
         eventSub: _NoopEventSub(),
         irc: irc,
         onReconnected: () {},
-        onUserEmoteSets: (ids) async => received.add(ids),
+        onUserEmoteSets: (channel, ids) async => received.add((channel, ids)),
       );
       await conn.connect();
       await flush();
@@ -1230,9 +1230,30 @@ void main() {
       irc.handleLine('@emote-sets=0,123456789 :tmi.twitch.tv GLOBALUSERSTATE');
       await flush();
 
-      expect(received, [
-        <String>['0', '123456789'],
-      ]);
+      expect(received, hasLength(1));
+      expect(received.single.$1, isNull);
+      expect(received.single.$2, <String>['0', '123456789']);
+      conn.dispose();
+    });
+
+    test('forwards channel-scoped USERSTATE emote-sets', () async {
+      final received = <(String?, List<String>)>[];
+      final irc = _TestIrc();
+      final conn = _makeReconnectConn(
+        eventSub: _NoopEventSub(),
+        irc: irc,
+        onReconnected: () {},
+        onUserEmoteSets: (channel, ids) async => received.add((channel, ids)),
+      );
+      await conn.connect();
+      await flush();
+
+      irc.handleLine('@emote-sets=300374079,0 :tmi.twitch.tv USERSTATE #xqc');
+      await flush();
+
+      expect(received, hasLength(1));
+      expect(received.single.$1, 'xqc');
+      expect(received.single.$2, <String>['300374079', '0']);
       conn.dispose();
     });
 
@@ -1243,7 +1264,7 @@ void main() {
         eventSub: _NoopEventSub(),
         irc: irc,
         onReconnected: () {},
-        onUserEmoteSets: (_) async => called = true,
+        onUserEmoteSets: (_, _) async => called = true,
       );
       await conn.connect();
       await flush();

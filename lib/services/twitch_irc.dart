@@ -151,9 +151,11 @@ String buildBanText({
 }
 
 /// Parses the IRC `emotes` tag into [EmotePosition]s. Tag positions are
-/// relative to [originalText]; [prefixLen] is the number of characters
-/// stripped from the front (ACTION wrapper, reply prefix) and [strippedText]
-/// is the text those adjusted positions are measured against.
+/// measured against the message body: for regular messages that is
+/// [originalText], and for ACTION (/me) messages Twitch reports them relative
+/// to the text after the `\x01ACTION ` wrapper. [prefixLen] is the number of
+/// characters stripped from the front after that (reply prefix) and
+/// [strippedText] is the text those adjusted positions are measured against.
 List<EmotePosition>? parseIrcEmotePositions(
   String? emotesTag, {
   required String originalText,
@@ -161,6 +163,12 @@ List<EmotePosition>? parseIrcEmotePositions(
   int prefixLen = 0,
 }) {
   if (emotesTag == null || emotesTag.isEmpty) return null;
+  // ACTION wrapper: Twitch sends emote positions relative to the message
+  // body (after "\x01ACTION "), so use the body as the position base.
+  final baseText =
+      originalText.startsWith('\x01ACTION ') && originalText.endsWith('\x01')
+      ? originalText.substring(8)
+      : originalText;
   final positions = <EmotePosition>[];
   for (final emoteEntry in emotesTag.split('/')) {
     final colonIdx = emoteEntry.indexOf(':');
@@ -173,10 +181,10 @@ List<EmotePosition>? parseIrcEmotePositions(
       final start = int.tryParse(posStr.substring(0, dashIdx));
       final end = int.tryParse(posStr.substring(dashIdx + 1));
       if (start == null || end == null) continue;
-      final utf16Start = _tagToUtf16(originalText, start);
-      final utf16End = _tagToUtf16(originalText, end + 1);
-      if (utf16Start < 0 || utf16End > originalText.length) continue;
-      final emoteCode = originalText.substring(utf16Start, utf16End);
+      final utf16Start = _tagToUtf16(baseText, start);
+      final utf16End = _tagToUtf16(baseText, end + 1);
+      if (utf16Start < 0 || utf16End > baseText.length) continue;
+      final emoteCode = baseText.substring(utf16Start, utf16End);
       final adjStart = utf16Start - prefixLen;
       final adjEnd = utf16End - prefixLen;
       if (adjStart < 0 || adjEnd > strippedText.length) continue;
@@ -251,9 +259,10 @@ class IrcService extends BaseIrcConnection {
   final _whisperController = StreamController<TwitchMessage>.broadcast(
     sync: true,
   );
-  final _emoteSetsController = StreamController<List<String>>.broadcast(
-    sync: true,
-  );
+  // Channel-scoped emote-set ids: USERSTATE carries the channel its sets
+  // belong to; GLOBALUSERSTATE emits null (account-wide union).
+  final _emoteSetsController =
+      StreamController<(String?, List<String>)>.broadcast(sync: true);
 
   Stream<IrcBanEvent> get onBan => _banController.stream;
   Stream<IrcNoticeEvent> get onNotice => _noticeController.stream;
@@ -265,7 +274,8 @@ class IrcService extends BaseIrcConnection {
   Stream<TwitchMessage> get onMessage => _messageController.stream;
   Stream<UserNoticeEvent> get onUserNotice => _userNoticeController.stream;
   Stream<TwitchMessage> get onWhisper => _whisperController.stream;
-  Stream<List<String>> get onUserEmoteSets => _emoteSetsController.stream;
+  Stream<(String?, List<String>)> get onUserEmoteSets =>
+      _emoteSetsController.stream;
 
   @override
   String get debugPrefix => 'IRC';
@@ -436,7 +446,13 @@ class IrcService extends BaseIrcConnection {
         .split(',')
         .where((id) => id.trim().isNotEmpty)
         .toList();
-    if (ids.isNotEmpty) _emoteSetsController.add(ids);
+    if (ids.isEmpty) return;
+    // USERSTATE is sent per joined channel and its emote-sets are scoped to
+    // that channel; GLOBALUSERSTATE is the account-wide union (null channel).
+    final channel = msg.command == 'USERSTATE' && msg.params.isNotEmpty
+        ? msg.params[0].substring(1)
+        : null;
+    _emoteSetsController.add((channel, ids));
   }
 
   void _handleRoomState(String line) {
@@ -591,7 +607,9 @@ TwitchMessage parseIrcChatMessage(
   if (strippedText.startsWith('\x01ACTION ') && strippedText.endsWith('\x01')) {
     isAction = true;
     strippedText = strippedText.substring(8, strippedText.length - 1);
-    prefixLen += 8;
+    // Twitch reports emote positions for ACTION messages relative to the
+    // message body after the \x01ACTION wrapper (see parseIrcEmotePositions),
+    // so the wrapper must not count as a stripped prefix offset.
   }
 
   // Twitch IRC prepends "@username " to reply echoes. Strip this prefix

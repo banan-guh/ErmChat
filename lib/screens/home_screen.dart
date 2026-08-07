@@ -138,7 +138,6 @@ class _HomeScreenState extends State<HomeScreen>
       onHypeTrain: _onHypeTrain,
       onPoll: _onPoll,
       onPrediction: _onPrediction,
-      loadUserTwitchEmotes: _loadUserTwitchEmotes,
       onUserEmoteSets: _loadUserEmoteSets,
       onReconnected: _onReconnected,
       getMaxMessagesPerChannel: () => _maxMessagesPerChannel,
@@ -961,96 +960,69 @@ class _HomeScreenState extends State<HomeScreen>
           (c) => _emoteManager.resolveEmotes(c, _channelUserIds[c]),
         ),
       );
-      _chatConn.userTwitchEmotesLoaded = false;
-      unawaited(
-        _loadUserTwitchEmotes().catchError(
-          (e) => debugPrint('_loadUserTwitchEmotes failed: $e'),
-        ),
-      );
     } catch (e) {
       debugPrint('_refreshEmotesAfterAuth failed: $e');
     }
     if (mounted) setState(() {});
   }
 
-  Future<void> _loadUserTwitchEmotes() async {
-    final auth = widget.twitchAuth;
-    final userId = _currentUserId;
-    if (!auth.isConfigured || userId == null) return;
-    final byOwner = await TwitchEmoteProvider.fetchUserEmotes(
-      userId: userId,
-      accessToken: auth.accessToken,
-    );
-    await _storeUserEmotesByOwner(auth, byOwner);
-  }
-
-  // Maps a by-owner map (owner ID -> emotes) onto channel-scoped emotes and
-  // stores them. Shared by the Helix /chat/emotes/user load and the IRC
-  // emote-sets load so both sources feed the same channel map.
-  Future<void> _storeUserEmotesByOwner(
-    TwitchAuth auth,
-    Map<String, List<GenericEmote>> byOwner,
-  ) async {
-    if (byOwner.isEmpty) return;
-    final userIdToChannel = <String, String>{};
-    for (final entry in _channelUserIds.entries) {
-      userIdToChannel[entry.value] = entry.key;
-    }
-    final unknownIds = <String>[];
-    for (final ownerId in byOwner.keys) {
-      if (ownerId.isEmpty) continue;
-      if (!userIdToChannel.containsKey(ownerId)) {
-        unknownIds.add(ownerId);
-      }
-    }
-    if (unknownIds.isNotEmpty) {
-      final resolved = await _twitchApi.getUserLoginsByIds(auth, unknownIds);
-      userIdToChannel.addAll(resolved);
-    }
-    final perChannel = <String, List<GenericEmote>>{};
-    for (final entry in byOwner.entries) {
-      if (entry.key.isEmpty) continue;
-      final channel = userIdToChannel[entry.key];
-      if (channel == null) continue;
-      perChannel[channel] = entry.value
-          .map(
-            (e) => GenericEmote(
-              id: e.id,
-              code: e.code,
-              type: e.type,
-              url: e.url,
-              isAnimated: e.isAnimated,
-              scope: e.scope,
-              tier: e.tier,
-              emoteType: e.emoteType,
-              ownerChannel: channel,
-            ),
-          )
-          .toList();
-    }
-    if (perChannel.isNotEmpty) {
-      await _emoteManager.storeUserTwitchEmotes(perChannel);
-    }
-  }
-
-  // Second, independent source of the account's subscriber emotes: the IRC
-  // emote-sets tag (GLOBALUSERSTATE/USERSTATE) is populated more reliably than
-  // the Helix /chat/emotes/user endpoint, which omits certain grants (e.g. bot
-  // accounts). Fetches any emote sets not already seen and merges them.
-  Future<void> _loadUserEmoteSets(List<String> emoteSetIds) async {
+  // Loads the account's subscriber emotes from the IRC emote-sets tag
+  // (GLOBALUSERSTATE/USERSTATE), the authoritative source of which emote sets
+  // the account can use (the Helix /chat/emotes/user endpoint omits certain
+  // grants, e.g. bot accounts). USERSTATE is channel-scoped and stores the
+  // fetched emotes directly under its channel; GLOBALUSERSTATE (null channel)
+  // is the account-wide union and acts as a warm-up across open channels.
+  // Set IDs are only marked fetched after a successful fetch, so a failed
+  // fetch is retried by the next USERSTATE/GLOBALUSERSTATE.
+  Future<void> _loadUserEmoteSets(String? channel, List<String> emoteSetIds) async {
     final auth = widget.twitchAuth;
     if (!auth.isConfigured) return;
     final newSetIds = emoteSetIds
         .where((id) => !_fetchedEmoteSetIds.contains(id))
         .toList();
     if (newSetIds.isEmpty) return;
-    _fetchedEmoteSetIds.addAll(newSetIds);
     try {
       final byOwner = await TwitchEmoteProvider.fetchEmoteSets(
         newSetIds,
         accessToken: auth.accessToken,
       );
-      await _storeUserEmotesByOwner(auth, byOwner);
+      _fetchedEmoteSetIds.addAll(newSetIds);
+      // Skip the default set (owner ID empty, global emotes); only the
+      // account's channel-owned sets are stored per channel.
+      final emotes = <GenericEmote>[
+        for (final entry in byOwner.entries)
+          if (entry.key.isNotEmpty) ...entry.value,
+      ];
+      if (emotes.isEmpty) {
+        debugPrint(
+          '_loadUserEmoteSets: ${newSetIds.length} sets fetched, no channel emotes',
+        );
+        return;
+      }
+      final targets = channel != null ? [channel] : List.of(_channels);
+      if (targets.isEmpty) {
+        debugPrint('_loadUserEmoteSets: no channel targets (channel=$channel)');
+        return;
+      }
+      final perChannel = <String, List<GenericEmote>>{};
+      for (final target in targets) {
+        perChannel[target] = emotes
+            .map(
+              (e) => GenericEmote(
+                id: e.id,
+                code: e.code,
+                type: e.type,
+                url: e.url,
+                isAnimated: e.isAnimated,
+                scope: e.scope,
+                tier: e.tier,
+                emoteType: e.emoteType,
+                ownerChannel: target,
+              ),
+            )
+            .toList();
+      }
+      await _emoteManager.storeUserTwitchEmotes(perChannel);
     } catch (e) {
       debugPrint('_loadUserEmoteSets failed: $e');
     }

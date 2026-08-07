@@ -93,7 +93,6 @@ void main() {
           'moderator:manage:chat_messages',
           'moderator:manage:announcements',
           'moderator:manage:shoutouts',
-          'user:read:emotes',
         ]),
       );
     });

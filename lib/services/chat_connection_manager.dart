@@ -61,7 +61,6 @@ class ChatConnectionConfig {
     required this.mentionsChannel,
     required this.onRebuild,
     required this.onSystemMessage,
-    required this.loadUserTwitchEmotes,
     this.onUserEmoteSets,
     this.onReconnected,
     required this.getMaxMessagesPerChannel,
@@ -114,8 +113,7 @@ class ChatConnectionConfig {
   final String mentionsChannel;
   final VoidCallback onRebuild;
   final void Function(String, String, {Color? accent}) onSystemMessage;
-  final Future<void> Function() loadUserTwitchEmotes;
-  final Future<void> Function(List<String>)? onUserEmoteSets;
+  final Future<void> Function(String?, List<String>)? onUserEmoteSets;
   final VoidCallback? onReconnected;
   final int Function() getMaxMessagesPerChannel;
   final String? Function() getSelectedChannel;
@@ -170,8 +168,7 @@ class ChatConnectionManager {
   final void Function(String, String, {Color? accent}) onSystemMessage;
   void Function(String channel, TwitchMessage msg)? onMention;
   void Function(TwitchMessage msg)? onWhisper;
-  final Future<void> Function() loadUserTwitchEmotes;
-  final Future<void> Function(List<String>)? onUserEmoteSets;
+  final Future<void> Function(String?, List<String>)? onUserEmoteSets;
   final VoidCallback? onReconnected;
   final int Function() getMaxMessagesPerChannel;
   final String? Function() getSelectedChannel;
@@ -198,7 +195,6 @@ class ChatConnectionManager {
   bool _wasConnected = false;
   bool _wasDisconnected = false;
   DateTime? _lastSubscribeAll;
-  bool userTwitchEmotesLoaded = false;
   final _connectedAcked = <String>{};
   final _chatStatusTimers = <String, Timer>{};
   // Channels with an active channel.moderate v2 subscription. While present,
@@ -247,7 +243,7 @@ class ChatConnectionManager {
   StreamSubscription<UserNoticeEvent>? userNoticeSub;
   StreamSubscription<IrcChannelClearEvent>? ircClearSub;
   StreamSubscription<IrcRoomStateEvent>? ircRoomStateSub;
-  StreamSubscription<List<String>>? emoteSetsSub;
+  StreamSubscription<(String?, List<String>)>? emoteSetsSub;
   StreamSubscription<ModerationEvent>? moderationSub;
   StreamSubscription<HypeTrainEvent>? hypeTrainSub;
   StreamSubscription<PollEvent>? pollSub;
@@ -285,7 +281,6 @@ class ChatConnectionManager {
       mentionsChannel = config.mentionsChannel,
       onRebuild = config.onRebuild,
       onSystemMessage = config.onSystemMessage,
-      loadUserTwitchEmotes = config.loadUserTwitchEmotes,
       onUserEmoteSets = config.onUserEmoteSets,
       onReconnected = config.onReconnected,
       getMaxMessagesPerChannel = config.getMaxMessagesPerChannel,
@@ -666,15 +661,6 @@ class ChatConnectionManager {
         setCurrentUserId(currentUser['id']);
       }
 
-      if (!userTwitchEmotesLoaded) {
-        userTwitchEmotesLoaded = true;
-        unawaited(
-          loadUserTwitchEmotes().catchError(
-            (e) => debugPrint('[ChatConn] loadUserTwitchEmotes failed: $e'),
-          ),
-        );
-      }
-
       eventSub.setChannelMapping(channelUserId, channelName);
 
       unawaited(_subscribeModeration(channelName, channelUserId));
@@ -1045,16 +1031,6 @@ class ChatConnectionManager {
               }
             }
             subscribeAll();
-            if (!userTwitchEmotesLoaded) {
-              userTwitchEmotesLoaded = true;
-              unawaited(
-                loadUserTwitchEmotes().catchError(
-                  (e) => debugPrint(
-                    '[ChatConn] loadUserTwitchEmotes failed on reconnect: $e',
-                  ),
-                ),
-              );
-            }
           }
         }
         if (status == IrcConnectionStatus.disconnected && !_wasDisconnected) {
@@ -1255,9 +1231,10 @@ class ChatConnectionManager {
     });
 
     emoteSetsSub?.cancel();
-    emoteSetsSub = irc.onUserEmoteSets.listen((ids) {
+    emoteSetsSub = irc.onUserEmoteSets.listen((event) {
       if (isDisposed || onUserEmoteSets == null) return;
-      unawaited(onUserEmoteSets!(ids));
+      final (channel, ids) = event;
+      unawaited(onUserEmoteSets!(channel, ids));
     });
 
     moderationSub ??= eventSub.onModeration.listen(_onModerationEvent);

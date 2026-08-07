@@ -154,6 +154,48 @@ void main() {
         isNull,
       );
     });
+
+    test('ACTION messages use body-relative positions', () {
+      // Twitch reports /me emote positions relative to the message body
+      // (after "\x01ACTION "), e.g. emotes=25:0-4 for "\x01ACTION Kappa\x01".
+      final positions = parseIrcEmotePositions(
+        '25:0-4',
+        originalText: '\x01ACTION Kappa\x01',
+        strippedText: 'Kappa',
+      );
+      expect(positions, hasLength(1));
+      expect(positions!.first.emoteId, '25');
+      expect(positions.first.emoteCode, 'Kappa');
+      expect(positions.first.startIndex, 0);
+      expect(positions.first.endIndex, 5);
+    });
+
+    test('ACTION messages with emote mid-body', () {
+      final positions = parseIrcEmotePositions(
+        '25:6-10',
+        originalText: '\x01ACTION hello Kappa\x01',
+        strippedText: 'hello Kappa',
+      );
+      expect(positions, hasLength(1));
+      expect(positions!.first.emoteCode, 'Kappa');
+      expect(positions.first.startIndex, 6);
+      expect(positions.first.endIndex, 11);
+    });
+
+    test('ACTION messages with reply prefix adjust by reply length only', () {
+      // Positions stay body-relative (after the wrapper); the reply prefix
+      // "@User " is stripped and its length is subtracted separately.
+      final positions = parseIrcEmotePositions(
+        '25:9-13',
+        originalText: '\x01ACTION @User hi Kappa\x01',
+        strippedText: 'hi Kappa',
+        prefixLen: 6,
+      );
+      expect(positions, hasLength(1));
+      expect(positions!.first.emoteCode, 'Kappa');
+      expect(positions.first.startIndex, 3);
+      expect(positions.first.endIndex, 8);
+    });
   });
 
   group('subNoticeMsgIds', () {

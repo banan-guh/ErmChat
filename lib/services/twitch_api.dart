@@ -57,30 +57,6 @@ class TwitchApi {
     }
   }
 
-  Future<Map<String, String>> getUserLoginsByIds(
-    TwitchAuth auth,
-    List<String> userIds,
-  ) async {
-    final result = <String, String>{};
-    if (userIds.isEmpty) return result;
-    for (var i = 0; i < userIds.length; i += 100) {
-      final batch = userIds.sublist(i, (i + 100).clamp(0, userIds.length));
-      final params = batch.map((id) => 'id=$id').join('&');
-      final uri = Uri.parse('$_base/users?$params');
-      final res = await _client.get(uri, headers: _headers(auth));
-      if (res.statusCode != 200) continue;
-      final data = jsonDecode(res.body) as Map;
-      for (final u in (data['data'] as List<dynamic>? ?? [])) {
-        final uid = u['id'] as String?;
-        final login = u['login'] as String?;
-        if (uid != null && login != null) {
-          result[uid] = login;
-        }
-      }
-    }
-    return result;
-  }
-
   Future<Map<String, String>?> getCurrentUser(TwitchAuth auth) async {
     _clearError();
     final uri = Uri.parse('$_base/users');
