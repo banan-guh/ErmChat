@@ -35,14 +35,33 @@ ThemeData buildLightTheme() => ThemeData(
   useMaterial3: true,
 );
 
-ThemeData buildDarkTheme() => ThemeData(
-  colorScheme: ColorScheme.fromSeed(
-    seedColor: Colors.deepPurple,
-    brightness: Brightness.dark,
-    surface: Colors.black,
-  ),
-  useMaterial3: true,
-);
+ThemeData buildDarkTheme({bool trueDark = false}) {
+  final base =
+      ColorScheme.fromSeed(
+        seedColor: Colors.deepPurple,
+        brightness: Brightness.dark,
+      ).copyWith(
+        surfaceContainerLowest: const Color(0xFF141414),
+        surfaceContainerLow: const Color(0xFF1C1C1C),
+        surfaceContainer: const Color(0xFF222222),
+        surfaceContainerHigh: const Color(0xFF2A2A2A),
+        surfaceContainerHighest: const Color(0xFF343434),
+        surfaceVariant: const Color(0xFF3A3A3A),
+        outline: const Color(0xFF555555),
+        onSurfaceVariant: const Color(0xFF9E9E9E),
+      );
+  return ThemeData(
+    colorScheme: trueDark
+        ? base.copyWith(
+            surface: Colors.black,
+            background: Colors.black,
+            onSurface: Colors.white,
+            onBackground: Colors.white,
+          )
+        : base.copyWith(surface: const Color(0xFF121212)),
+    useMaterial3: true,
+  );
+}
 
 class TwitchChatApp extends StatefulWidget {
   final EventSubService? eventSubService;
@@ -67,6 +86,7 @@ class TwitchChatApp extends StatefulWidget {
 class _TwitchChatAppState extends State<TwitchChatApp> {
   ThemeMode _themeMode = ThemeMode.system;
   bool _keepScreenOn = true;
+  bool _trueDark = false;
   final _twitchAuth = TwitchAuth();
   bool _loaded = false;
 
@@ -88,6 +108,7 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
       }
       _keepScreenOn = prefs.getBool('keep_screen_on') ?? true;
       WakelockPlus.toggle(enable: _keepScreenOn).ignore();
+      _trueDark = prefs.getBool('true_dark') ?? false;
     } catch (e) {
       debugPrint('Failed to load preferences: $e');
     }
@@ -110,13 +131,20 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
     });
   }
 
+  void _setTrueDark(bool value) {
+    setState(() => _trueDark = value);
+    SharedPreferences.getInstance().then((prefs) {
+      prefs.setBool('true_dark', value);
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     if (!_loaded) {
       return MaterialApp(
         themeMode: _themeMode,
         theme: buildLightTheme(),
-        darkTheme: buildDarkTheme(),
+        darkTheme: buildDarkTheme(trueDark: _trueDark),
         home: const Scaffold(body: Center(child: CircularProgressIndicator())),
       );
     }
@@ -125,11 +153,12 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
       title: 'ErmChat',
       themeMode: _themeMode,
       theme: buildLightTheme(),
-      darkTheme: buildDarkTheme(),
+      darkTheme: buildDarkTheme(trueDark: _trueDark),
       home: HomeScreen(
         twitchAuth: _twitchAuth,
         onThemeChanged: _setThemeMode,
         onKeepScreenOnChanged: _setKeepScreenOn,
+        onTrueDarkChanged: _setTrueDark,
         eventSubService: widget.eventSubService,
         ircService: widget.ircService,
         ircReadService: widget.ircReadService,

@@ -7,6 +7,7 @@ class SettingsButton extends StatelessWidget {
   final TwitchAuth twitchAuth;
   final ValueChanged<ThemeMode> onThemeChanged;
   final ValueChanged<bool>? onKeepScreenOnChanged;
+  final ValueChanged<bool>? onTrueDarkChanged;
   final ValueChanged<bool>? onBackgroundServiceChanged;
   final ValueChanged<bool>? onMentionPushChanged;
   final ValueNotifier<List<String>>? channelNotifier;
@@ -23,6 +24,7 @@ class SettingsButton extends StatelessWidget {
     required this.twitchAuth,
     required this.onThemeChanged,
     this.onKeepScreenOnChanged,
+    this.onTrueDarkChanged,
     this.onBackgroundServiceChanged,
     this.onMentionPushChanged,
     this.channelNotifier,
@@ -48,6 +50,7 @@ class SettingsButton extends StatelessWidget {
               twitchAuth: twitchAuth,
               onThemeChanged: onThemeChanged,
               onKeepScreenOnChanged: onKeepScreenOnChanged,
+              onTrueDarkChanged: onTrueDarkChanged,
               onBackgroundServiceChanged: onBackgroundServiceChanged,
               onMentionPushChanged: onMentionPushChanged,
               channelNotifier: channelNotifier,

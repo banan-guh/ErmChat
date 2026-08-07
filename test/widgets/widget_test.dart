@@ -2632,6 +2632,64 @@ void main() {
       expect(changed, isFalse);
     });
 
+    testWidgets('Customization true dark toggle is disabled in light mode', (
+      WidgetTester tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({});
+      bool? changed;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: CustomizationScreen(
+            onThemeChanged: (_) {},
+            onTrueDarkChanged: (value) => changed = value,
+          ),
+        ),
+      );
+      await tester.pump();
+
+      final tile = tester.widget<SwitchListTile>(
+        find.widgetWithText(SwitchListTile, 'True dark mode'),
+      );
+      expect(tile.onChanged, isNull);
+
+      await tester.tap(find.widgetWithText(SwitchListTile, 'True dark mode'));
+      await tester.pumpAndSettle();
+
+      expect(changed, isNull);
+    });
+
+    testWidgets('Customization true dark toggle persists and calls '
+        'onTrueDarkChanged', (WidgetTester tester) async {
+      SharedPreferences.setMockInitialValues({});
+      bool? changed;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: ThemeData(brightness: Brightness.light),
+          darkTheme: ThemeData(brightness: Brightness.dark),
+          themeMode: ThemeMode.dark,
+          home: CustomizationScreen(
+            onThemeChanged: (_) {},
+            onTrueDarkChanged: (value) => changed = value,
+          ),
+        ),
+      );
+      await tester.pump();
+
+      final tile = tester.widget<SwitchListTile>(
+        find.widgetWithText(SwitchListTile, 'True dark mode'),
+      );
+      expect(tile.value, isFalse);
+
+      await tester.tap(find.widgetWithText(SwitchListTile, 'True dark mode'));
+      await tester.pumpAndSettle();
+
+      expect(changed, isTrue);
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getBool('true_dark'), isTrue);
+    });
+
     testWidgets('Channel settings shows joined channels', (
       WidgetTester tester,
     ) async {

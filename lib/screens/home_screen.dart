@@ -49,6 +49,7 @@ class HomeScreen extends StatefulWidget {
   final TwitchAuth twitchAuth;
   final ValueChanged<ThemeMode> onThemeChanged;
   final ValueChanged<bool>? onKeepScreenOnChanged;
+  final ValueChanged<bool>? onTrueDarkChanged;
   final EventSubService? eventSubService;
   final IrcService? ircService;
   final IrcReadService? ircReadService;
@@ -60,6 +61,7 @@ class HomeScreen extends StatefulWidget {
     required this.twitchAuth,
     required this.onThemeChanged,
     this.onKeepScreenOnChanged,
+    this.onTrueDarkChanged,
     this.eventSubService,
     this.ircService,
     this.ircReadService,
@@ -1971,7 +1973,7 @@ class _HomeScreenState extends State<HomeScreen>
             ratio: ratio,
             child: RepaintBoundary(
               child: Material(
-                color: Theme.of(context).scaffoldBackgroundColor,
+                color: Theme.of(context).colorScheme.surfaceContainerLow,
                 clipBehavior: Clip.hardEdge,
                 child: Column(
                   children: [
@@ -2392,6 +2394,7 @@ class _HomeScreenState extends State<HomeScreen>
                                     },
                                     onKeepScreenOnChanged:
                                         widget.onKeepScreenOnChanged,
+                                    onTrueDarkChanged: widget.onTrueDarkChanged,
                                     onBackgroundServiceChanged:
                                         _setBackgroundService,
                                     onMentionPushChanged: _setMentionPush,
@@ -2731,7 +2734,8 @@ class _HomeScreenState extends State<HomeScreen>
                                       child: RepaintBoundary(
                                         child: Material(
                                           color: sheetTheme
-                                              .scaffoldBackgroundColor,
+                                              .colorScheme
+                                              .surfaceContainerLow,
                                           child: EmoteMenuPanelWidget(
                                             key: const ValueKey('emote_panel'),
                                             isActive: _emoteSheetOpen,

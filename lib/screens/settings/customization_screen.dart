@@ -4,11 +4,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 class CustomizationScreen extends StatefulWidget {
   final ValueChanged<ThemeMode> onThemeChanged;
   final ValueChanged<bool>? onKeepScreenOnChanged;
+  final ValueChanged<bool>? onTrueDarkChanged;
 
   const CustomizationScreen({
     super.key,
     required this.onThemeChanged,
     this.onKeepScreenOnChanged,
+    this.onTrueDarkChanged,
   });
 
   @override
@@ -17,6 +19,7 @@ class CustomizationScreen extends StatefulWidget {
 
 class _CustomizationScreenState extends State<CustomizationScreen> {
   bool _keepScreenOn = true;
+  bool _trueDark = false;
 
   @override
   void initState() {
@@ -27,7 +30,10 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
   Future<void> _loadPrefs() async {
     final prefs = await SharedPreferences.getInstance();
     if (mounted) {
-      setState(() => _keepScreenOn = prefs.getBool('keep_screen_on') ?? true);
+      setState(() {
+        _keepScreenOn = prefs.getBool('keep_screen_on') ?? true;
+        _trueDark = prefs.getBool('true_dark') ?? false;
+      });
     }
   }
 
@@ -37,6 +43,14 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
       prefs.setBool('keep_screen_on', value);
     });
     widget.onKeepScreenOnChanged?.call(value);
+  }
+
+  void _setTrueDark(bool value) {
+    setState(() => _trueDark = value);
+    SharedPreferences.getInstance().then((prefs) {
+      prefs.setBool('true_dark', value);
+    });
+    widget.onTrueDarkChanged?.call(value);
   }
 
   @override
@@ -53,6 +67,12 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
             onChanged: (dark) {
               widget.onThemeChanged(dark ? ThemeMode.dark : ThemeMode.light);
             },
+          ),
+          SwitchListTile(
+            title: const Text('True dark mode'),
+            subtitle: const Text('Pure black chat background'),
+            value: _trueDark,
+            onChanged: isDark ? _setTrueDark : null,
           ),
           SwitchListTile(
             title: const Text('Keep screen on'),
