@@ -50,6 +50,9 @@ class HomeScreen extends StatefulWidget {
   final ValueChanged<ThemeMode> onThemeChanged;
   final ValueChanged<bool>? onKeepScreenOnChanged;
   final ValueChanged<bool>? onTrueDarkChanged;
+  final ValueChanged<bool>? onTintedTabBarChanged;
+  final ValueChanged<String>? onAccentColorChanged;
+  final bool tintedTabBar;
   final EventSubService? eventSubService;
   final IrcService? ircService;
   final IrcReadService? ircReadService;
@@ -62,6 +65,9 @@ class HomeScreen extends StatefulWidget {
     required this.onThemeChanged,
     this.onKeepScreenOnChanged,
     this.onTrueDarkChanged,
+    this.onTintedTabBarChanged,
+    this.onAccentColorChanged,
+    this.tintedTabBar = false,
     this.eventSubService,
     this.ircService,
     this.ircReadService,
@@ -2337,84 +2343,98 @@ class _HomeScreenState extends State<HomeScreen>
                     children: [
                       Column(
                         children: [
-                          SafeArea(
-                            bottom: false,
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 4,
-                              ),
-                              child: Row(
-                                children: [
-                                  Padding(
-                                    padding: const EdgeInsets.only(left: 8),
-                                    child: Text(
-                                      'ErmChat',
-                                      style: TextStyle(
-                                        fontSize: 22,
-                                        fontWeight: FontWeight.w400,
+                          ColoredBox(
+                            color: theme.colorScheme.surfaceContainer,
+                            child: SafeArea(
+                              bottom: false,
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 4,
+                                ),
+                                child: Row(
+                                  children: [
+                                    Padding(
+                                      padding: const EdgeInsets.only(left: 8),
+                                      child: Text(
+                                        'ErmChat',
+                                        style: TextStyle(
+                                          fontSize: 22,
+                                          fontWeight: FontWeight.w400,
+                                        ),
                                       ),
                                     ),
-                                  ),
-                                  const Spacer(),
-                                  IconButton(
-                                    icon: const Icon(Icons.add),
-                                    tooltip: 'Join channel',
-                                    onPressed: _addChannelDialog,
-                                  ),
-                                  ListenableBuilder(
-                                    listenable: _mentionsBump,
-                                    builder: (context, _) => IconButton(
-                                      icon: Icon(
-                                        Icons.notifications_active,
-                                        color: _unreadMentions > 0
-                                            ? theme.colorScheme.error
-                                            : null,
+                                    const Spacer(),
+                                    IconButton(
+                                      icon: const Icon(Icons.add),
+                                      tooltip: 'Join channel',
+                                      onPressed: _addChannelDialog,
+                                    ),
+                                    ListenableBuilder(
+                                      listenable: _mentionsBump,
+                                      builder: (context, _) => IconButton(
+                                        icon: Icon(
+                                          Icons.notifications_active,
+                                          color: _unreadMentions > 0
+                                              ? theme.colorScheme.error
+                                              : null,
+                                        ),
+                                        tooltip: 'Mentions',
+                                        onPressed: () {
+                                          _unreadMentions = 0;
+                                          _unreadWhispers = 0;
+                                          _channelsWithUnreadMentions.clear();
+                                          _unreadMentionsPerChannel.clear();
+                                          if (mounted) setState(() {});
+                                          if (_activePanel ==
+                                              OverlayPanel.mentions) {
+                                            unawaited(_closePanel());
+                                          } else {
+                                            _showMentionsView();
+                                          }
+                                        },
                                       ),
-                                      tooltip: 'Mentions',
-                                      onPressed: () {
-                                        _unreadMentions = 0;
-                                        _unreadWhispers = 0;
-                                        _channelsWithUnreadMentions.clear();
-                                        _unreadMentionsPerChannel.clear();
+                                    ),
+                                    SettingsButton(
+                                      twitchAuth: widget.twitchAuth,
+                                      onThemeChanged: (mode) {
+                                        _tileCache.clear();
+                                        widget.onThemeChanged(mode);
+                                      },
+                                      onKeepScreenOnChanged:
+                                          widget.onKeepScreenOnChanged,
+                                      onTrueDarkChanged:
+                                          widget.onTrueDarkChanged,
+                                      onAccentColorChanged: (name) {
+                                        _tileCache.clear();
+                                        widget.onAccentColorChanged?.call(name);
+                                      },
+                                      onTintedTabBarChanged: (value) {
+                                        _tileCache.clear();
+                                        widget.onTintedTabBarChanged?.call(
+                                          value,
+                                        );
+                                      },
+                                      onBackgroundServiceChanged:
+                                          _setBackgroundService,
+                                      onMentionPushChanged: _setMentionPush,
+                                      channelNotifier: _channelNotifier,
+                                      onLeaveChannel: _removeChannel,
+                                      onAddChannel: _addChannel,
+                                      onReorderChannels: _reorderChannels,
+                                      analyticsService: _analytics,
+                                      channels: _channels,
+                                      onSettingsOpened: () =>
+                                          _focusNode.unfocus(),
+                                      onSettingsClosed: () {
+                                        _loadAltPings();
+                                        _loadMaxMessages();
+                                        _loadTestWidgets();
+                                        _tileCache.clear();
                                         if (mounted) setState(() {});
-                                        if (_activePanel ==
-                                            OverlayPanel.mentions) {
-                                          unawaited(_closePanel());
-                                        } else {
-                                          _showMentionsView();
-                                        }
                                       },
                                     ),
-                                  ),
-                                  SettingsButton(
-                                    twitchAuth: widget.twitchAuth,
-                                    onThemeChanged: (mode) {
-                                      _tileCache.clear();
-                                      widget.onThemeChanged(mode);
-                                    },
-                                    onKeepScreenOnChanged:
-                                        widget.onKeepScreenOnChanged,
-                                    onTrueDarkChanged: widget.onTrueDarkChanged,
-                                    onBackgroundServiceChanged:
-                                        _setBackgroundService,
-                                    onMentionPushChanged: _setMentionPush,
-                                    channelNotifier: _channelNotifier,
-                                    onLeaveChannel: _removeChannel,
-                                    onAddChannel: _addChannel,
-                                    onReorderChannels: _reorderChannels,
-                                    analyticsService: _analytics,
-                                    channels: _channels,
-                                    onSettingsOpened: () =>
-                                        _focusNode.unfocus(),
-                                    onSettingsClosed: () {
-                                      _loadAltPings();
-                                      _loadMaxMessages();
-                                      _loadTestWidgets();
-                                      _tileCache.clear();
-                                      if (mounted) setState(() {});
-                                    },
-                                  ),
-                                ],
+                                  ],
+                                ),
                               ),
                             ),
                           ),
@@ -2432,6 +2452,11 @@ class _HomeScreenState extends State<HomeScreen>
                                           selectedIndex: _channels.indexOf(
                                             _selectedChannel ?? '',
                                           ),
+                                          tabBarColor: widget.tintedTabBar
+                                              ? theme
+                                                    .colorScheme
+                                                    .primaryContainer
+                                              : null,
                                           onSelectedIndexChanged:
                                               _onChannelChanged,
                                           onFocusChanged:
@@ -2661,7 +2686,12 @@ class _HomeScreenState extends State<HomeScreen>
                             ),
                             TabBar(
                               controller: _mentionsTabCtrl,
-                              padding: EdgeInsets.fromLTRB(100.0, 0.0, 100.0, 0.0),
+                              padding: EdgeInsets.fromLTRB(
+                                100.0,
+                                0.0,
+                                100.0,
+                                0.0,
+                              ),
                               tabs: const [
                                 Tab(text: 'Mentions'),
                                 Tab(text: 'Whispers'),
@@ -2727,29 +2757,23 @@ class _HomeScreenState extends State<HomeScreen>
                                   maxChildSize: _emoteMaxFraction,
                                   snap: true,
                                   builder: (context, scrollController) {
-                                    final sheetTheme = Theme.of(context);
                                     return _buildSlideUpContent(
                                       controller: _emoteSheetCtrl,
                                       totalAvailH: totalAvailH,
                                       maxSize: _emoteMaxFraction,
                                       child: RepaintBoundary(
-                                        child: Material(
-                                          color: sheetTheme
-                                              .colorScheme
-                                              .surfaceContainerLow,
-                                          child: EmoteMenuPanelWidget(
-                                            key: const ValueKey('emote_panel'),
-                                            isActive: _emoteSheetOpen,
-                                            selectedChannel: _selectedChannel,
-                                            onEmoteSelected: _onEmoteSelected,
-                                            onClose: _closeEmoteSheet,
-                                            emoteManager: _emoteManager,
-                                            scrollController: scrollController,
-                                            sheetCtrl: _emoteSheetCtrl,
-                                            emoteMaxFraction: _emoteMaxFraction,
-                                            sheetAnimDuration:
-                                                _sheetAnimDuration,
-                                          ),
+                                        child: EmoteMenuPanelWidget(
+                                          key: const ValueKey('emote_panel'),
+                                          isActive: _emoteSheetOpen,
+                                          selectedChannel: _selectedChannel,
+                                          onEmoteSelected: _onEmoteSelected,
+                                          onClose: _closeEmoteSheet,
+                                          emoteManager: _emoteManager,
+                                          scrollController: scrollController,
+                                          sheetCtrl: _emoteSheetCtrl,
+                                          emoteMaxFraction: _emoteMaxFraction,
+                                          sheetAnimDuration: _sheetAnimDuration,
+                                          tintedTabBar: widget.tintedTabBar,
                                         ),
                                       ),
                                     );

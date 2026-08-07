@@ -15,6 +15,7 @@ class EmoteMenuPanelWidget extends StatefulWidget {
   final DraggableScrollableController sheetCtrl;
   final double emoteMaxFraction;
   final Duration sheetAnimDuration;
+  final bool tintedTabBar;
 
   const EmoteMenuPanelWidget({
     required this.scrollController,
@@ -26,6 +27,7 @@ class EmoteMenuPanelWidget extends StatefulWidget {
     required this.emoteManager,
     required this.emoteMaxFraction,
     required this.sheetAnimDuration,
+    this.tintedTabBar = false,
     super.key,
   });
 
@@ -69,89 +71,92 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
   Widget build(BuildContext context) {
     if (!widget.isActive) return const SizedBox.shrink();
     final theme = Theme.of(context);
+    final panelColor = theme.colorScheme.surfaceContainerLow;
+    final radius = BorderRadius.circular(16);
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 4),
+      margin: const EdgeInsets.symmetric(horizontal: 10),
       decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerLow,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+        color: panelColor,
+        borderRadius: radius,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.085),
-            blurRadius: 8,
+            color: Colors.black.withValues(alpha: 0.12),
+            blurRadius: 12,
             offset: const Offset(0, -2),
           ),
         ],
       ),
-      clipBehavior: Clip.hardEdge,
-      // The whole header strip (pill + tab bar) is the drag surface: a
-      // swipe-down starting on the tab bar moves the sheet, just like
-      // DankChat. Only vertical drags are registered, so tab taps and
-      // horizontal swipes between tabs still win; the emote grids below
-      // are scrollables and keep winning their own vertical drags.
-      child: GestureDetector(
-        key: const Key('emote_panel_handle'),
-        behavior: HitTestBehavior.opaque,
-        onVerticalDragUpdate: (details) {
-          final newPixels = widget.sheetCtrl.pixels - details.primaryDelta!;
-          final newSize = widget.sheetCtrl
-              .pixelsToSize(newPixels)
-              .clamp(0.0, 1.0);
-          if (widget.sheetCtrl.isAttached) {
-            widget.sheetCtrl.jumpTo(newSize);
-          }
-        },
-        // Close on drag-below-threshold or a fast flick down (shared
-        // thresholds in util/sheet_drag.dart). Position close triggers at
-        // 5% of screen height; momentum is more sensitive than before.
-        onVerticalDragEnd: (details) {
-          if (!widget.sheetCtrl.isAttached) return;
-          final velocity = details.primaryVelocity ?? 0;
-          final fraction = widget.sheetCtrl.size / widget.emoteMaxFraction;
-          if (shouldCloseSheet(
-            fraction: fraction,
-            velocity: velocity,
-            closeFraction: _emoteCloseFraction / widget.emoteMaxFraction,
-          )) {
-            widget.onClose();
-          } else {
-            widget.sheetCtrl.animateTo(
-              widget.emoteMaxFraction,
-              duration: widget.sheetAnimDuration,
-              curve: Curves.easeOutCubic,
-            );
-          }
-        },
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.only(top: 12, bottom: 24),
-              child: Center(
-                child: SizedBox(
-                  width: 32,
-                  height: 4,
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      color: Colors.grey,
-                      borderRadius: BorderRadius.circular(2),
+      clipBehavior: Clip.none,
+      child: ClipRRect(
+        borderRadius: radius,
+        child: GestureDetector(
+          key: const Key('emote_panel_handle'),
+          behavior: HitTestBehavior.opaque,
+          onVerticalDragUpdate: (details) {
+            final newPixels = widget.sheetCtrl.pixels - details.primaryDelta!;
+            final newSize = widget.sheetCtrl
+                .pixelsToSize(newPixels)
+                .clamp(0.0, 1.0);
+            if (widget.sheetCtrl.isAttached) {
+              widget.sheetCtrl.jumpTo(newSize);
+            }
+          },
+          // Close on drag-below-threshold or a fast flick down (shared
+          // thresholds in util/sheet_drag.dart). Position close triggers at
+          // 5% of screen height; momentum is more sensitive than before.
+          onVerticalDragEnd: (details) {
+            if (!widget.sheetCtrl.isAttached) return;
+            final velocity = details.primaryVelocity ?? 0;
+            final fraction = widget.sheetCtrl.size / widget.emoteMaxFraction;
+            if (shouldCloseSheet(
+              fraction: fraction,
+              velocity: velocity,
+              closeFraction: _emoteCloseFraction / widget.emoteMaxFraction,
+            )) {
+              widget.onClose();
+            } else {
+              widget.sheetCtrl.animateTo(
+                widget.emoteMaxFraction,
+                duration: widget.sheetAnimDuration,
+                curve: Curves.easeOutCubic,
+              );
+            }
+          },
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.only(top: 12, bottom: 24),
+                child: Center(
+                  child: SizedBox(
+                    width: 32,
+                    height: 4,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade400,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
                     ),
                   ),
                 ),
               ),
-            ),
-            Expanded(
-              child: TabbedLayout(
-                tabAlignment: Alignment.center,
-                tabs: const ['Recent', 'Subs', 'Channel', 'Global'],
-                selectedIndex: _emoteTabIndex,
-                onSelectedIndexChanged: (i) =>
-                    setState(() => _emoteTabIndex = i),
-                pageBuilder: (_, i) => _buildEmoteTabPage(
-                  i,
-                  i == _emoteTabIndex ? widget.scrollController : null,
+              Expanded(
+                child: TabbedLayout(
+                  tabAlignment: Alignment.center,
+                  tabBarColor: widget.tintedTabBar
+                      ? theme.colorScheme.primaryContainer
+                      : panelColor,
+                  tabs: const ['Recent', 'Subs', 'Channel', 'Global'],
+                  selectedIndex: _emoteTabIndex,
+                  onSelectedIndexChanged: (i) =>
+                      setState(() => _emoteTabIndex = i),
+                  pageBuilder: (_, i) => _buildEmoteTabPage(
+                    i,
+                    i == _emoteTabIndex ? widget.scrollController : null,
+                  ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

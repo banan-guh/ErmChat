@@ -100,11 +100,14 @@ class ChatView extends StatelessWidget {
                   key: ValueKey(channel),
                   controller: scrollController,
                   reverse: true,
-                  // Don't let ScrollView's implicit MediaQuery safe-area
-                  // padding slip in: it adds the nav-bar height as a blank
-                  // strip below the last message when the keyboard is down
-                  // and drops to zero when the keyboard covers it.
-                  padding: EdgeInsets.zero,
+                  // Reserve the nav-bar inset as a constant scroll padding so
+                  // there is always a visible gap between the last message and
+                  // the type bar. Using viewPadding (not the ShrinkWrap
+                  // implicit padding) keeps the gap identical whether the
+                  // keyboard is up or down.
+                  padding: EdgeInsets.only(
+                    bottom: MediaQuery.viewPaddingOf(context).bottom,
+                  ),
                   itemCount: msgs.length,
                   // Key-based reconciliation: when a message is inserted at
                   // the top, existing elements are matched by their

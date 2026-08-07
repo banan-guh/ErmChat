@@ -9,6 +9,7 @@ import 'services/twitch_eventsub.dart';
 import 'services/twitch_irc.dart';
 import 'services/twitch_irc_read.dart';
 import 'services/recent_messages.dart';
+import 'theme_colors.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -18,47 +19,23 @@ void main() {
   runApp(const TwitchChatApp());
 }
 
-ThemeData buildLightTheme() => ThemeData(
-  colorScheme:
-      ColorScheme.fromSeed(
-        seedColor: Colors.deepPurple,
-        surface: const Color(0xFFF0F0F0),
-      ).copyWith(
-        onSurface: const Color(0xFF1A1A1A),
-        onSurfaceVariant: const Color(0xFF3A3A3A),
-        surfaceContainerLowest: const Color(0xFFFCFCFC),
-        surfaceContainerLow: const Color(0xFFF2F3F5),
-        surfaceContainer: const Color(0xFFEBEDEF),
-        surfaceContainerHigh: const Color(0xFFE0E3E7),
-        surfaceContainerHighest: const Color(0xFFCED1D6),
-      ),
+ThemeData buildLightTheme({Color seedColor = Colors.blue}) => ThemeData(
+  colorScheme: ColorScheme.fromSeed(seedColor: seedColor),
   useMaterial3: true,
 );
 
-ThemeData buildDarkTheme({bool trueDark = false}) {
-  final base =
-      ColorScheme.fromSeed(
-        seedColor: Colors.deepPurple,
-        brightness: Brightness.dark,
-      ).copyWith(
-        surfaceContainerLowest: const Color(0xFF141414),
-        surfaceContainerLow: const Color(0xFF1C1C1C),
-        surfaceContainer: const Color(0xFF222222),
-        surfaceContainerHigh: const Color(0xFF2A2A2A),
-        surfaceContainerHighest: const Color(0xFF343434),
-        surfaceVariant: const Color(0xFF3A3A3A),
-        outline: const Color(0xFF555555),
-        onSurfaceVariant: const Color(0xFF9E9E9E),
-      );
+ThemeData buildDarkTheme({
+  bool trueDark = false,
+  Color seedColor = Colors.blue,
+}) {
+  final base = ColorScheme.fromSeed(
+    seedColor: seedColor,
+    brightness: Brightness.dark,
+  );
   return ThemeData(
     colorScheme: trueDark
-        ? base.copyWith(
-            surface: Colors.black,
-            background: Colors.black,
-            onSurface: Colors.white,
-            onBackground: Colors.white,
-          )
-        : base.copyWith(surface: const Color(0xFF121212)),
+        ? base.copyWith(surface: Colors.black, onSurface: Colors.white)
+        : base,
     useMaterial3: true,
   );
 }
@@ -87,6 +64,10 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
   ThemeMode _themeMode = ThemeMode.system;
   bool _keepScreenOn = true;
   bool _trueDark = false;
+  String _accentKey = kDefaultAccent;
+  bool _tintedTabBar = false;
+  Color get _seedColor =>
+      kAccentPresets[_accentKey] ?? kAccentPresets[kDefaultAccent]!;
   final _twitchAuth = TwitchAuth();
   bool _loaded = false;
 
@@ -109,6 +90,8 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
       _keepScreenOn = prefs.getBool('keep_screen_on') ?? true;
       WakelockPlus.toggle(enable: _keepScreenOn).ignore();
       _trueDark = prefs.getBool('true_dark') ?? false;
+      _accentKey = prefs.getString('accent_color') ?? kDefaultAccent;
+      _tintedTabBar = prefs.getBool('tinted_tab_bar') ?? false;
     } catch (e) {
       debugPrint('Failed to load preferences: $e');
     }
@@ -138,13 +121,27 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
     });
   }
 
+  void _setAccentColor(String key) {
+    setState(() => _accentKey = key);
+    SharedPreferences.getInstance().then((prefs) {
+      prefs.setString('accent_color', key);
+    });
+  }
+
+  void _setTintedTabBar(bool value) {
+    setState(() => _tintedTabBar = value);
+    SharedPreferences.getInstance().then((prefs) {
+      prefs.setBool('tinted_tab_bar', value);
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     if (!_loaded) {
       return MaterialApp(
         themeMode: _themeMode,
-        theme: buildLightTheme(),
-        darkTheme: buildDarkTheme(trueDark: _trueDark),
+        theme: buildLightTheme(seedColor: _seedColor),
+        darkTheme: buildDarkTheme(trueDark: _trueDark, seedColor: _seedColor),
         home: const Scaffold(body: Center(child: CircularProgressIndicator())),
       );
     }
@@ -152,13 +149,16 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
     return MaterialApp(
       title: 'ErmChat',
       themeMode: _themeMode,
-      theme: buildLightTheme(),
-      darkTheme: buildDarkTheme(trueDark: _trueDark),
+      theme: buildLightTheme(seedColor: _seedColor),
+      darkTheme: buildDarkTheme(trueDark: _trueDark, seedColor: _seedColor),
       home: HomeScreen(
         twitchAuth: _twitchAuth,
         onThemeChanged: _setThemeMode,
         onKeepScreenOnChanged: _setKeepScreenOn,
         onTrueDarkChanged: _setTrueDark,
+        onAccentColorChanged: _setAccentColor,
+        onTintedTabBarChanged: _setTintedTabBar,
+        tintedTabBar: _tintedTabBar,
         eventSubService: widget.eventSubService,
         ircService: widget.ircService,
         ircReadService: widget.ircReadService,

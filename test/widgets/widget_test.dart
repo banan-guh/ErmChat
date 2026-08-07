@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import 'package:ermchat/main.dart';
+import 'package:ermchat/theme_colors.dart';
 import 'package:ermchat/screens/settings/account_screen.dart';
 import 'package:ermchat/screens/settings/channel_settings_screen.dart';
 import 'package:ermchat/screens/settings/chat_settings_screen.dart';
@@ -2149,6 +2150,25 @@ void main() {
       expect(find.text('Recent'), findsNothing);
     });
 
+    testWidgets(
+      'emote menu panel floats with rounded corners and side margin',
+      (WidgetTester tester) async {
+        await openEmoteMenu(tester);
+
+        final handleFinder = find.byKey(const Key('emote_panel_handle'));
+        expect(handleFinder, findsOneWidget);
+
+        final container = tester.widget<Container>(
+          find
+              .ancestor(of: handleFinder, matching: find.byType(Container))
+              .first,
+        );
+        expect(container.margin, const EdgeInsets.symmetric(horizontal: 10));
+        final decoration = container.decoration! as BoxDecoration;
+        expect(decoration.borderRadius, BorderRadius.circular(16));
+      },
+    );
+
     testWidgets('tab taps still work under the header drag surface', (
       WidgetTester tester,
     ) async {
@@ -2688,6 +2708,64 @@ void main() {
       expect(changed, isTrue);
       final prefs = await SharedPreferences.getInstance();
       expect(prefs.getBool('true_dark'), isTrue);
+    });
+
+    testWidgets('Customization accent picker selects a preset and persists', (
+      WidgetTester tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({});
+      String? changed;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: CustomizationScreen(
+            onThemeChanged: (_) {},
+            onAccentColorChanged: (value) => changed = value,
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.text('Accent color'), findsOneWidget);
+      // 10 presets rendered as swatches.
+      for (final key in kAccentPresets.keys) {
+        expect(find.byKey(ValueKey('accent_$key')), findsOneWidget);
+      }
+
+      await tester.tap(find.byKey(const ValueKey('accent_red')));
+      await tester.pumpAndSettle();
+
+      expect(changed, 'red');
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getString('accent_color'), 'red');
+    });
+
+    testWidgets('Customization tinted tab bar toggle persists and calls '
+        'onTintedTabBarChanged', (WidgetTester tester) async {
+      SharedPreferences.setMockInitialValues({});
+      bool? changed;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: CustomizationScreen(
+            onThemeChanged: (_) {},
+            onTintedTabBarChanged: (value) => changed = value,
+          ),
+        ),
+      );
+      await tester.pump();
+
+      final tile = tester.widget<SwitchListTile>(
+        find.widgetWithText(SwitchListTile, 'Tinted tab bar'),
+      );
+      expect(tile.value, isFalse);
+
+      await tester.tap(find.widgetWithText(SwitchListTile, 'Tinted tab bar'));
+      await tester.pumpAndSettle();
+
+      expect(changed, isTrue);
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getBool('tinted_tab_bar'), isTrue);
     });
 
     testWidgets('Channel settings shows joined channels', (

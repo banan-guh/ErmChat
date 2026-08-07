@@ -71,6 +71,7 @@ class TabbedLayout extends StatefulWidget {
   final IndexedWidgetBuilder? tabBuilder;
   final AlignmentGeometry tabAlignment;
   final bool focusOnHalfDrag;
+  final Color? tabBarColor;
 
   static const double minEdgeExclusion = 20.0;
 
@@ -84,6 +85,7 @@ class TabbedLayout extends StatefulWidget {
     this.tabBuilder,
     this.tabAlignment = Alignment.centerLeft,
     this.focusOnHalfDrag = false,
+    this.tabBarColor,
   });
 
   @override
@@ -213,6 +215,7 @@ class TabbedLayoutState extends State<TabbedLayout>
       children: [
         Container(
           decoration: BoxDecoration(
+            color: widget.tabBarColor ?? theme.colorScheme.surfaceContainer,
             border: Border(bottom: BorderSide(color: theme.dividerColor)),
           ),
           child: SizedBox(
