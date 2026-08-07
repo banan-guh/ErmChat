@@ -2647,7 +2647,7 @@ class _HomeScreenState extends State<HomeScreen>
                                   const SizedBox(width: 4),
                                   Expanded(
                                     child: Text(
-                                      'Mentions',
+                                      'Mentions / Whispers',
                                       style: TextStyle(
                                         fontSize: 20,
                                         color: Theme.of(
@@ -2661,6 +2661,7 @@ class _HomeScreenState extends State<HomeScreen>
                             ),
                             TabBar(
                               controller: _mentionsTabCtrl,
+                              padding: EdgeInsets.fromLTRB(100.0, 0.0, 100.0, 0.0),
                               tabs: const [
                                 Tab(text: 'Mentions'),
                                 Tab(text: 'Whispers'),
