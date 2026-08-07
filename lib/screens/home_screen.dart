@@ -139,6 +139,7 @@ class _HomeScreenState extends State<HomeScreen>
       onPoll: _onPoll,
       onPrediction: _onPrediction,
       loadUserTwitchEmotes: _loadUserTwitchEmotes,
+      onUserEmoteSets: _loadUserEmoteSets,
       onReconnected: _onReconnected,
       getMaxMessagesPerChannel: () => _maxMessagesPerChannel,
       getSelectedChannel: () => _selectedChannel,
@@ -223,6 +224,9 @@ class _HomeScreenState extends State<HomeScreen>
   final _chatStatus = <String, String>{};
   final _channelUserIds = <String, String>{};
   final _channelsEmotesResolved = <String>{};
+  // Emote set IDs already fetched via the IRC emote-sets path, so repeated
+  // USERSTATE (per channel join / message send) doesn't refetch them.
+  final _fetchedEmoteSetIds = <String>{};
   int _unreadMentions = 0;
   final _channelsWithUnread = <String>{};
   final _channelsWithUnreadMentions = <String>{};
@@ -976,6 +980,16 @@ class _HomeScreenState extends State<HomeScreen>
       userId: userId,
       accessToken: auth.accessToken,
     );
+    await _storeUserEmotesByOwner(auth, byOwner);
+  }
+
+  // Maps a by-owner map (owner ID -> emotes) onto channel-scoped emotes and
+  // stores them. Shared by the Helix /chat/emotes/user load and the IRC
+  // emote-sets load so both sources feed the same channel map.
+  Future<void> _storeUserEmotesByOwner(
+    TwitchAuth auth,
+    Map<String, List<GenericEmote>> byOwner,
+  ) async {
     if (byOwner.isEmpty) return;
     final userIdToChannel = <String, String>{};
     for (final entry in _channelUserIds.entries) {
@@ -1015,6 +1029,29 @@ class _HomeScreenState extends State<HomeScreen>
     }
     if (perChannel.isNotEmpty) {
       await _emoteManager.storeUserTwitchEmotes(perChannel);
+    }
+  }
+
+  // Second, independent source of the account's subscriber emotes: the IRC
+  // emote-sets tag (GLOBALUSERSTATE/USERSTATE) is populated more reliably than
+  // the Helix /chat/emotes/user endpoint, which omits certain grants (e.g. bot
+  // accounts). Fetches any emote sets not already seen and merges them.
+  Future<void> _loadUserEmoteSets(List<String> emoteSetIds) async {
+    final auth = widget.twitchAuth;
+    if (!auth.isConfigured) return;
+    final newSetIds = emoteSetIds
+        .where((id) => !_fetchedEmoteSetIds.contains(id))
+        .toList();
+    if (newSetIds.isEmpty) return;
+    _fetchedEmoteSetIds.addAll(newSetIds);
+    try {
+      final byOwner = await TwitchEmoteProvider.fetchEmoteSets(
+        newSetIds,
+        accessToken: auth.accessToken,
+      );
+      await _storeUserEmotesByOwner(auth, byOwner);
+    } catch (e) {
+      debugPrint('_loadUserEmoteSets failed: $e');
     }
   }
 

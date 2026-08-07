@@ -62,6 +62,7 @@ class ChatConnectionConfig {
     required this.onRebuild,
     required this.onSystemMessage,
     required this.loadUserTwitchEmotes,
+    this.onUserEmoteSets,
     this.onReconnected,
     required this.getMaxMessagesPerChannel,
     required this.getSelectedChannel,
@@ -114,6 +115,7 @@ class ChatConnectionConfig {
   final VoidCallback onRebuild;
   final void Function(String, String, {Color? accent}) onSystemMessage;
   final Future<void> Function() loadUserTwitchEmotes;
+  final Future<void> Function(List<String>)? onUserEmoteSets;
   final VoidCallback? onReconnected;
   final int Function() getMaxMessagesPerChannel;
   final String? Function() getSelectedChannel;
@@ -169,6 +171,7 @@ class ChatConnectionManager {
   void Function(String channel, TwitchMessage msg)? onMention;
   void Function(TwitchMessage msg)? onWhisper;
   final Future<void> Function() loadUserTwitchEmotes;
+  final Future<void> Function(List<String>)? onUserEmoteSets;
   final VoidCallback? onReconnected;
   final int Function() getMaxMessagesPerChannel;
   final String? Function() getSelectedChannel;
@@ -244,6 +247,7 @@ class ChatConnectionManager {
   StreamSubscription<UserNoticeEvent>? userNoticeSub;
   StreamSubscription<IrcChannelClearEvent>? ircClearSub;
   StreamSubscription<IrcRoomStateEvent>? ircRoomStateSub;
+  StreamSubscription<List<String>>? emoteSetsSub;
   StreamSubscription<ModerationEvent>? moderationSub;
   StreamSubscription<HypeTrainEvent>? hypeTrainSub;
   StreamSubscription<PollEvent>? pollSub;
@@ -282,6 +286,7 @@ class ChatConnectionManager {
       onRebuild = config.onRebuild,
       onSystemMessage = config.onSystemMessage,
       loadUserTwitchEmotes = config.loadUserTwitchEmotes,
+      onUserEmoteSets = config.onUserEmoteSets,
       onReconnected = config.onReconnected,
       getMaxMessagesPerChannel = config.getMaxMessagesPerChannel,
       getSelectedChannel = config.getSelectedChannel,
@@ -317,6 +322,7 @@ class ChatConnectionManager {
     userNoticeSub?.cancel();
     ircClearSub?.cancel();
     ircRoomStateSub?.cancel();
+    emoteSetsSub?.cancel();
     moderationSub?.cancel();
     hypeTrainSub?.cancel();
     pollSub?.cancel();
@@ -1246,6 +1252,12 @@ class ChatConnectionManager {
         ...event.tags,
       };
       _composeChatStatus(event.channel);
+    });
+
+    emoteSetsSub?.cancel();
+    emoteSetsSub = irc.onUserEmoteSets.listen((ids) {
+      if (isDisposed || onUserEmoteSets == null) return;
+      unawaited(onUserEmoteSets!(ids));
     });
 
     moderationSub ??= eventSub.onModeration.listen(_onModerationEvent);

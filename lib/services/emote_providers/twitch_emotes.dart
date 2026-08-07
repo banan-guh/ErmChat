@@ -117,6 +117,63 @@ class TwitchEmoteProvider {
     );
   }
 
+  static Future<Map<String, List<GenericEmote>>> fetchEmoteSets(
+    List<String> emoteSetIds, {
+    String? accessToken,
+  }) async {
+    final result = <String, List<GenericEmote>>{};
+    final headers = <String, String>{'Client-ID': TwitchConfig.clientId};
+    if (accessToken != null) {
+      headers['Authorization'] = 'Bearer $accessToken';
+    }
+    for (final setId in emoteSetIds) {
+      final uri = Uri.parse(
+        'https://api.twitch.tv/helix/chat/emotes/set?emote_set_id=$setId',
+      );
+      final res = await http.get(uri, headers: headers).timeout(httpTimeout);
+      if (res.statusCode != 200) {
+        debugPrint('Twitch emote set error: ${res.statusCode} ${res.body}');
+        continue;
+      }
+      final data = jsonDecode(res.body) as Map<String, dynamic>;
+      final items = data['data'] as List<dynamic>? ?? [];
+      for (final item in items) {
+        final id = item['id'] as String?;
+        final name = item['name'] as String?;
+        final ownerId = item['owner_id'] as String?;
+        if (id == null || name == null) continue;
+        final formats =
+            (item['format'] as List<dynamic>?)?.cast<String>() ?? [];
+        final isAnimated = formats.contains('animated');
+        final format = isAnimated ? 'animated' : 'static';
+        final scale =
+            (item['scale'] as List<dynamic>?)?.lastOrNull as String? ?? '3.0';
+        final theme =
+            (item['theme_mode'] as List<dynamic>?)?.firstOrNull as String? ??
+            'dark';
+        final url =
+            'https://static-cdn.jtvnw.net/emoticons/v2/$id/$format/$theme/$scale';
+        result
+            .putIfAbsent(ownerId ?? '', () => [])
+            .add(
+              GenericEmote(
+                id: id,
+                code: name,
+                type: EmoteType.twitch,
+                url: url,
+                isAnimated: isAnimated,
+                scope: ownerId != null && ownerId.isNotEmpty
+                    ? EmoteScope.channel
+                    : EmoteScope.global,
+                tier: item['tier'] as String?,
+                emoteType: item['emote_type'] as String?,
+              ),
+            );
+      }
+    }
+    return result;
+  }
+
   static List<GenericEmote> _parseEmotes(
     List<dynamic> items, {
     bool channel = false,

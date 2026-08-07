@@ -173,10 +173,12 @@ List<EmotePosition>? parseIrcEmotePositions(
       final start = int.tryParse(posStr.substring(0, dashIdx));
       final end = int.tryParse(posStr.substring(dashIdx + 1));
       if (start == null || end == null) continue;
-      if (start < 0 || end >= originalText.length) continue;
-      final emoteCode = originalText.substring(start, end + 1);
-      final adjStart = start - prefixLen;
-      final adjEnd = (end + 1) - prefixLen;
+      final utf16Start = _tagToUtf16(originalText, start);
+      final utf16End = _tagToUtf16(originalText, end + 1);
+      if (utf16Start < 0 || utf16End > originalText.length) continue;
+      final emoteCode = originalText.substring(utf16Start, utf16End);
+      final adjStart = utf16Start - prefixLen;
+      final adjEnd = utf16End - prefixLen;
       if (adjStart < 0 || adjEnd > strippedText.length) continue;
       positions.add(
         EmotePosition(
@@ -189,6 +191,27 @@ List<EmotePosition>? parseIrcEmotePositions(
     }
   }
   return positions.isEmpty ? null : positions;
+}
+
+/// Converts a position from the IRC `emotes` tag (which counts each
+/// supplementary/astral code point - any emoji or other non-BMP character -
+/// as a single offset) into a UTF-16 code unit index into [text], which is how
+/// Dart strings are indexed internally. Every supplementary character before
+/// the offset occupies 2 UTF-16 units but only counts as 1 in the tag, so each
+/// one shifts the resulting index forward by 1. Returns -1 if [tagOffset]
+/// exceeds the number of code points in [text].
+int _tagToUtf16(String text, int tagOffset) {
+  if (tagOffset <= 0) return tagOffset;
+  var utf16 = 0;
+  var codePoints = 0;
+  while (utf16 < text.length && codePoints < tagOffset) {
+    final unit = text.codeUnitAt(utf16);
+    codePoints++;
+    utf16++;
+    // High surrogate: this supplementary character occupies two UTF-16 units.
+    if (unit >= 0xD800 && unit <= 0xDBFF) utf16++;
+  }
+  return codePoints == tagOffset ? utf16 : -1;
 }
 
 /// Parses the IRC `badges` tag into [MessageBadge]s.
@@ -228,6 +251,9 @@ class IrcService extends BaseIrcConnection {
   final _whisperController = StreamController<TwitchMessage>.broadcast(
     sync: true,
   );
+  final _emoteSetsController = StreamController<List<String>>.broadcast(
+    sync: true,
+  );
 
   Stream<IrcBanEvent> get onBan => _banController.stream;
   Stream<IrcNoticeEvent> get onNotice => _noticeController.stream;
@@ -239,6 +265,7 @@ class IrcService extends BaseIrcConnection {
   Stream<TwitchMessage> get onMessage => _messageController.stream;
   Stream<UserNoticeEvent> get onUserNotice => _userNoticeController.stream;
   Stream<TwitchMessage> get onWhisper => _whisperController.stream;
+  Stream<List<String>> get onUserEmoteSets => _emoteSetsController.stream;
 
   @override
   String get debugPrefix => 'IRC';
@@ -275,8 +302,18 @@ class IrcService extends BaseIrcConnection {
     }
     // GLOBALUSERSTATE contains "USERSTATE " as a substring - check first.
     // It also carries no params, so the command ends the line (no trailing
-    // space like the other handlers expect). Neither event is consumed
-    // anywhere, so the lines are intentionally ignored.
+    // space like the other handlers expect). Both carry the emote-sets tag,
+    // the authoritative source of which emote sets the account can use (the
+    // Helix /chat/emotes/user endpoint is known to omit certain grants, e.g.
+    // bot accounts).
+    if (line.contains('GLOBALUSERSTATE')) {
+      _handleUserState(line);
+      return;
+    }
+    if (line.contains('USERSTATE ')) {
+      _handleUserState(line);
+      return;
+    }
     if (line.contains('ROOMSTATE ')) {
       _handleRoomState(line);
       return;
@@ -387,6 +424,21 @@ class IrcService extends BaseIrcConnection {
     );
   }
 
+  void _handleUserState(String line) {
+    final msg = parseIrcMessage(line);
+    if (msg == null ||
+        (msg.command != 'GLOBALUSERSTATE' && msg.command != 'USERSTATE')) {
+      return;
+    }
+    final emoteSets = msg.tags['emote-sets'];
+    if (emoteSets == null || emoteSets.isEmpty) return;
+    final ids = emoteSets
+        .split(',')
+        .where((id) => id.trim().isNotEmpty)
+        .toList();
+    if (ids.isNotEmpty) _emoteSetsController.add(ids);
+  }
+
   void _handleRoomState(String line) {
     final msg = parseIrcMessage(line);
     if (msg == null || msg.command != 'ROOMSTATE') return;
@@ -494,6 +546,7 @@ class IrcService extends BaseIrcConnection {
     _clearController.close();
     _roomStateController.close();
     _whisperController.close();
+    _emoteSetsController.close();
     super.dispose();
   }
 }

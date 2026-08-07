@@ -173,6 +173,7 @@ ChatConnectionManager _makeReconnectConn({
   void Function(String, String, {Color? accent})? onSystemMessage,
   String? currentUserLogin,
   void Function(HypeTrainEvent event)? onHypeTrain,
+  Future<void> Function(List<String>)? onUserEmoteSets,
 }) {
   final api = TwitchApi(client: http.Client());
   final auth = TwitchAuth();
@@ -221,6 +222,7 @@ ChatConnectionManager _makeReconnectConn({
       onRequestFocus: () {},
       onShowSnackBar: (m) {},
       onHypeTrain: onHypeTrain,
+      onUserEmoteSets: onUserEmoteSets,
     ),
   );
 }
@@ -1294,6 +1296,50 @@ void main() {
         isEmpty,
         reason: 'a non-broadcaster viewer must never surface widget events',
       );
+      conn.dispose();
+    });
+  });
+
+  group('IRC emote-sets', () {
+    Future<void> flush() => Future<void>.delayed(Duration.zero);
+
+    test('forwards GLOBALUSERSTATE emote-sets to onUserEmoteSets', () async {
+      final received = <List<String>>[];
+      final irc = _TestIrc();
+      final conn = _makeReconnectConn(
+        eventSub: _NoopEventSub(),
+        irc: irc,
+        onReconnected: () {},
+        onUserEmoteSets: (ids) async => received.add(ids),
+      );
+      await conn.connect();
+      await flush();
+
+      irc.handleLine('@emote-sets=0,123456789 :tmi.twitch.tv GLOBALUSERSTATE');
+      await flush();
+
+      expect(received, [
+        <String>['0', '123456789'],
+      ]);
+      conn.dispose();
+    });
+
+    test('does not call onUserEmoteSets when tag is missing', () async {
+      var called = false;
+      final irc = _TestIrc();
+      final conn = _makeReconnectConn(
+        eventSub: _NoopEventSub(),
+        irc: irc,
+        onReconnected: () {},
+        onUserEmoteSets: (_) async => called = true,
+      );
+      await conn.connect();
+      await flush();
+
+      irc.handleLine('@badges=staff/1 :tmi.twitch.tv GLOBALUSERSTATE');
+      await flush();
+
+      expect(called, isFalse);
       conn.dispose();
     });
   });

@@ -113,6 +113,49 @@ void main() {
     });
   });
 
+  group('parseIrcEmotePositions', () {
+    test('maps tag offset to emote code with no supplementary chars', () {
+      const text = 'hey app LUL';
+      final positions = parseIrcEmotePositions(
+        'emotesv2_1:8-10',
+        originalText: text,
+        strippedText: text,
+      );
+      expect(positions, hasLength(1));
+      expect(positions!.first.emoteId, 'emotesv2_1');
+      expect(positions.first.emoteCode, 'LUL');
+      expect(positions.first.startIndex, 8);
+      expect(positions.first.endIndex, 11);
+    });
+
+    test('adjusts for supplementary characters before the emote', () {
+      // '🙂' is a single codepoint occupying 2 UTF-16 units; the tag offset
+      // counts it as 1, so the emote (at UTF-16 index 7..10) reads as 6..8
+      // in tag space and must be shifted forward by 1 in Dart indexing.
+      const text = '🙂 hey LUL';
+      final positions = parseIrcEmotePositions(
+        'emotesv2_2:6-8',
+        originalText: text,
+        strippedText: text,
+      );
+      expect(positions, hasLength(1));
+      expect(positions!.first.emoteCode, 'LUL');
+      expect(positions.first.startIndex, 7);
+      expect(positions.first.endIndex, 10);
+    });
+
+    test('returns null for empty or null tag', () {
+      expect(
+        parseIrcEmotePositions('', originalText: 'x', strippedText: 'x'),
+        isNull,
+      );
+      expect(
+        parseIrcEmotePositions(null, originalText: 'x', strippedText: 'x'),
+        isNull,
+      );
+    });
+  });
+
   group('subNoticeMsgIds', () {
     test('covers sub, gift sub and upgrade msg-ids', () {
       expect(

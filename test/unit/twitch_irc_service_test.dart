@@ -200,6 +200,44 @@ void main() {
 
       expect(messageCount, 0);
     });
+
+    test('emits emote-sets from GLOBALUSERSTATE', () async {
+      final sets = <List<String>>[];
+      service.onUserEmoteSets.listen(sets.add);
+
+      service.handleLine(
+        '@emote-sets=0,123456789,987654321 :tmi.twitch.tv GLOBALUSERSTATE',
+      );
+      await flush();
+
+      expect(sets, [
+        <String>['0', '123456789', '987654321'],
+      ]);
+    });
+
+    test('emits emote-sets from USERSTATE', () async {
+      final sets = <List<String>>[];
+      service.onUserEmoteSets.listen(sets.add);
+
+      service.handleLine(
+        '@emote-sets=300374079,0 :tmi.twitch.tv USERSTATE #xqc',
+      );
+      await flush();
+
+      expect(sets, [
+        <String>['300374079', '0'],
+      ]);
+    });
+
+    test('does not emit when emote-sets tag is missing', () async {
+      var emitted = false;
+      service.onUserEmoteSets.listen((_) => emitted = true);
+
+      service.handleLine('@badges=staff/1 :tmi.twitch.tv GLOBALUSERSTATE');
+      await flush();
+
+      expect(emitted, isFalse);
+    });
   });
 
   group('USERNOTICE', () {
