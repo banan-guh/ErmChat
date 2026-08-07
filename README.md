@@ -44,9 +44,9 @@ Check [TODO.md](TODO.md) for the roadmap. Found a bug or want a feature? Open an
 - Background keepalive and mention push notifications (Android ONLY! iOS is still unpolished)
 - "Connected as {login}" account display, paste-token or browser OAuth login
 
-## Getting started (for people who clone the repo)
+## Getting started (for people who clone the repo for their own use)
 
-1. Create a Twitch app at https://dev.twitch.tv/console/apps and get an app token.
+1. Create a Twitch app at https://dev.twitch.tv/console/apps and get a client ID.
 2. Open `lib/twitch_config.dart` and put it there.
 3. NOTE: redirect URI from `lib/twitch_config.dart` must match EXACTLY with what's in your twitch dev console. even / count.
 4. Run the app (`flutter run`)
