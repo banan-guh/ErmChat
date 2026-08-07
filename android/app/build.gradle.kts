@@ -14,7 +14,7 @@ if (keystorePropertiesFile.exists()) {
 }
 
 android {
-    namespace = "com.example.flutter_twitch_app"
+    namespace = "io.github.bananguh.ErmChat"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 

@@ -1,4 +1,4 @@
-package com.example.flutter_twitch_app
+package io.github.bananguh.ErmChat
 
 import io.flutter.embedding.android.FlutterActivity
 
