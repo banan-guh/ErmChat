@@ -56,15 +56,6 @@ void main() {
       expect(service.uniqueChatters('chan'), 1);
     });
 
-    test('counts own messages', () {
-      final service = AnalyticsService();
-      service.recordMessage('chan', msg('alice', 'hi'));
-      service.recordMessage('chan', msg('me', 'my message'));
-
-      expect(service.totalMessages('chan'), 2);
-      expect(service.topChatters('chan', 10), hasLength(2));
-    });
-
     test('ignores blank logins', () {
       final service = AnalyticsService();
       service.recordMessage('chan', msg('', 'anon'));

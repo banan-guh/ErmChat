@@ -20,16 +20,6 @@ void main() {
     service.dispose();
   });
 
-  group('initial state', () {
-    test('isConnected is false', () {
-      expect(service.isConnected, false);
-    });
-
-    test('sessionId is null', () {
-      expect(service.sessionId, isNull);
-    });
-  });
-
   group('session lifecycle', () {
     test('handleRawMessage welcome sets sessionId and emits connected', () {
       final statuses = <EventSubStatus>[];

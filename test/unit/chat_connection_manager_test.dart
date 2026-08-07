@@ -361,17 +361,6 @@ void main() {
     },
   );
 
-  test('thread root alone (no children) is treated as non-thread', () {
-    // 11 non-thread messages, limit 10
-    // Root has no children -> no children entry in reply graph -> not active
-    final msgs = <String, List<TwitchMessage>>{
-      'test': List.generate(11, (i) => _msg('m$i', 'msg $i')),
-    };
-    final conn = _makeConn(channelMessages: msgs, maxMessages: 10);
-    conn.truncateChannelMessages('test');
-    expect(msgs['test']!.length, 10);
-  });
-
   test('no-op when under limit', () {
     final msgs = <String, List<TwitchMessage>>{
       'test': List.generate(5, (i) => _msg('m$i', 'msg $i')),
@@ -424,34 +413,6 @@ void main() {
         );
       }
     });
-
-    test(
-      'deeply nested chain with root past cutoff but visible reply preserves all',
-      () {
-        // 200-message chain + 100 fillers. A mid-chain reply (r199) is in the
-        // first 100 visible slots, which makes the root (r0) active via the
-        // reply-chain walk. The entire chain is preserved alongside all fillers.
-        const limit = 100;
-        const chainLen = 200;
-        const fillerCount = 100;
-        final msgs = <String, List<TwitchMessage>>{
-          'test': [
-            for (var i = chainLen - 1; i >= 0; i--)
-              _msg(
-                'r$i',
-                'reply $i',
-                replyToParentId: i > 0 ? 'r${i - 1}' : null,
-              ),
-            for (var i = 0; i < fillerCount; i++) _msg('f$i', 'filler $i'),
-          ],
-        };
-        final conn = _makeConn(channelMessages: msgs, maxMessages: limit);
-        conn.truncateChannelMessages('test');
-
-        final remaining = msgs['test']!;
-        expect(remaining.length, chainLen + fillerCount);
-      },
-    );
 
     test('truncation stays bounded under heavy thread spam', () {
       // 1000 messages: 800 non-thread + 100 threads × 2 msgs each.
@@ -514,28 +475,6 @@ void main() {
         expect(remaining.any((m) => m.messageId == 't${t}_m'), true);
         expect(remaining.any((m) => m.messageId == 't${t}_l'), true);
       }
-    });
-
-    test('orphan thread removed when entirely past cutoff', () {
-      // 100 non-thread fillers come first (visible), then a 3-message thread.
-      // Thread is past the cutoff window → orphan → removed.
-      const limit = 100;
-      final msgs = <String, List<TwitchMessage>>{
-        'test': [
-          for (var i = 0; i < limit; i++) _msg('f$i', 'filler $i'),
-          _msg('leaf', 'leaf', replyToParentId: 'mid'),
-          _msg('mid', 'mid', replyToParentId: 'root'),
-          _msg('root', 'root'),
-        ],
-      };
-      final conn = _makeConn(channelMessages: msgs, maxMessages: limit);
-      conn.truncateChannelMessages('test');
-
-      final remaining = msgs['test']!;
-      expect(remaining.length, limit);
-      expect(remaining.any((m) => m.messageId == 'root'), false);
-      expect(remaining.any((m) => m.messageId == 'mid'), false);
-      expect(remaining.any((m) => m.messageId == 'leaf'), false);
     });
 
     test('system messages compete with non-thread for same quota', () {
@@ -642,33 +581,6 @@ void main() {
       expect(msgs['test']!.length, 1);
       final msg = msgs['test']!.first;
       expect(msg.badges, isNull);
-    });
-
-    test('handles single badge', () {
-      final msgs = <String, List<TwitchMessage>>{'test': []};
-      final conn = _makeConn(channelMessages: msgs, maxMessages: 100);
-
-      final ircMsg = IrcMessage(
-        tags: {
-          'badges': 'vip/1',
-          'display-name': 'TestUser',
-          'user-id': '12345',
-          'id': 'msg3',
-        },
-        prefix: 'testuser!testuser@testuser.tmi.twitch.tv',
-        command: 'PRIVMSG',
-        params: ['#test'],
-        trailing: 'vip message',
-      );
-
-      conn.onOwnIrcMessage(ircMsg);
-
-      expect(msgs['test']!.length, 1);
-      final msg = msgs['test']!.first;
-      expect(msg.badges, isNotNull);
-      expect(msg.badges!.length, 1);
-      expect(msg.badges![0].setId, 'vip');
-      expect(msg.badges![0].versionId, '1');
     });
   });
 

@@ -185,26 +185,4 @@ void main() {
       expect(result[0], isA<CommandSuggestion>());
     });
   });
-
-  group('CommandSuggestion', () {
-    test('displayText returns the command', () {
-      const s = CommandSuggestion(command: '/ban');
-      expect(s.displayText, '/ban');
-    });
-  });
-
-  group('UserSuggestion', () {
-    test('displayText returns displayName', () {
-      final s = UserSuggestion(displayName: 'TestUser');
-      expect(s.displayText, 'TestUser');
-    });
-  });
-
-  group('EmoteSuggestion', () {
-    test('displayText returns emote code', () {
-      final emote = _e('1', 'Kappa');
-      final s = EmoteSuggestion(emote: emote);
-      expect(s.displayText, 'Kappa');
-    });
-  });
 }

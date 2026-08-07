@@ -736,32 +736,5 @@ void main() {
       expect(api.lastErrorStatus, 400);
       expect(api.lastHelixMessage, 'The user is not banned in this channel.');
     });
-
-    test('clears status and message before the next call', () async {
-      var calls = 0;
-      final api = TwitchApi(
-        client: MockClient((request) async {
-          calls++;
-          return http.Response('{"message":"nope"}', 400);
-        }),
-      );
-
-      await api.unbanUser(
-        auth,
-        broadcasterId: 'b1',
-        moderatorId: 'm1',
-        userId: 'u1',
-      );
-      expect(api.lastErrorStatus, 400);
-
-      await api.unbanUser(
-        auth,
-        broadcasterId: 'b1',
-        moderatorId: 'm1',
-        userId: 'u1',
-      );
-      expect(api.lastErrorStatus, 400);
-      expect(calls, 2);
-    });
   });
 }

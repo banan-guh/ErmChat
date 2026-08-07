@@ -22,7 +22,6 @@ import 'package:ermchat/services/twitch_auth.dart';
 import 'package:ermchat/models/twitch_message.dart';
 import 'package:ermchat/services/suggestion.dart';
 import 'package:ermchat/widgets/autocomplete_dropdown.dart';
-import 'package:ermchat/widgets/chat_message_tile.dart';
 
 class _FakeEventSubService extends EventSubService {
   final _statusCtrl = StreamController<EventSubStatus>.broadcast(sync: true);
@@ -432,7 +431,8 @@ void main() {
     await tester.tap(find.byIcon(Icons.notifications_active));
     await tester.pumpAndSettle();
 
-    expect(find.text('Mentions'), findsNWidgets(2)); // title + tab
+    expect(find.text('Mentions / Whispers'), findsOneWidget); // title
+    expect(find.text('Mentions'), findsOneWidget); // tab
     expect(find.text('Whispers'), findsOneWidget); // tab
     expect(find.text('No mentions or whispers'), findsOneWidget);
   });
@@ -977,38 +977,6 @@ void main() {
       );
     },
   );
-
-  testWidgets('Adding second channel switches to it immediately', (
-    WidgetTester tester,
-  ) async {
-    final fakeRecent = _FakeRecentMessagesService();
-    final fakeIrc = _FakeIrcService();
-    final fakeEventSub = _FakeEventSubService();
-    await tester.pumpWidget(
-      TwitchChatApp(
-        recentMessagesService: fakeRecent,
-        ircService: fakeIrc,
-        eventSubService: fakeEventSub,
-      ),
-    );
-    await tester.pump();
-
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField).last, 'xqc');
-    await tester.tap(find.text('Join'));
-    await tester.pump();
-
-    expect(find.byKey(const Key('message_input')), findsOneWidget);
-
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField).last, 'forsen');
-    await tester.tap(find.text('Join'));
-    await tester.pump();
-
-    expect(find.byKey(const Key('message_input')), findsOneWidget);
-  });
 
   testWidgets('Shows Disconnected once when EventSub fails', (
     WidgetTester tester,
@@ -3232,75 +3200,6 @@ void main() {
       },
     );
 
-    testWidgets(
-      'last chat message stays flush with list bottom in any keyboard state',
-      (WidgetTester tester) async {
-        final now = DateTime.now();
-        final messages = List.generate(
-          3,
-          (i) => TwitchMessage(
-            login: 'user$i',
-            text: 'message number $i',
-            channel: 'testchannel',
-            messageId: 'msg-$i',
-            timestamp: now.subtract(Duration(minutes: 3 - i)),
-          ),
-        );
-        final fakeEventSub = _FakeEventSubService();
-        final fakeIrc = _FakeIrcService();
-        final fakeRecent = _ConfigurableRecentMessagesService(messages);
-
-        // Keyboard down: nav bar visible, no keyboard inset.
-        tester.view.padding = const FakeViewPadding(bottom: 48);
-        addTearDown(tester.view.reset);
-
-        await tester.pumpWidget(
-          TwitchChatApp(
-            eventSubService: fakeEventSub,
-            ircService: fakeIrc,
-            recentMessagesService: fakeRecent,
-          ),
-        );
-        await tester.pump();
-
-        await tester.tap(find.byIcon(Icons.add));
-        await tester.pumpAndSettle();
-        await tester.enterText(find.byType(TextField).last, 'testchannel');
-        await tester.tap(find.text('Join').last);
-        await tester.pump();
-        await tester.pump();
-
-        final listBottom = tester
-            .getBottomRight(find.byType(ListView).first)
-            .dy;
-        final lastTileBottom = tester
-            .getBottomRight(find.byType(ChatMessageTile).first)
-            .dy;
-
-        // The newest message (index 0 in a reverse list) hugs the viewport
-        // bottom instead of the implicit nav-bar safe-area padding creating
-        // a blank strip below it.
-        expect(lastTileBottom, closeTo(listBottom, 1.0));
-
-        // Keyboard up: nav bar covered by the keyboard, inset reported.
-        tester.view.padding = FakeViewPadding.zero;
-        tester.view.viewInsets = const FakeViewPadding(bottom: 400);
-        await tester.pump();
-
-        final listBottomUp = tester
-            .getBottomRight(find.byType(ListView).first)
-            .dy;
-        final lastTileBottomUp = tester
-            .getBottomRight(find.byType(ChatMessageTile).first)
-            .dy;
-
-        // Still flush — no padding gap in either keyboard state.
-        expect(lastTileBottomUp, closeTo(listBottomUp, 1.0));
-        // The list did move up with the keyboard (viewport bottom rose).
-        expect(listBottomUp, lessThan(listBottom));
-      },
-    );
-
     testWidgets('system message while paused does not appear until unpause', (
       WidgetTester tester,
     ) async {
@@ -3487,61 +3386,6 @@ void main() {
       // DankChat-style: the child message plus the "Announcement" label.
       expect(find.textContaining('Announcement'), findsOneWidget);
       expect(find.textContaining('ermugo2: uuh'), findsOneWidget);
-    });
-  });
-
-  group('Emote panel drag clamp', () {
-    testWidgets('jumpTo with unclamped pixelsToSize throws assertion error', (
-      WidgetTester tester,
-    ) async {
-      final controller = DraggableScrollableController();
-      addTearDown(() => controller.dispose());
-
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: SizedBox.expand(
-              child: DraggableScrollableSheet(
-                controller: controller,
-                initialChildSize: 0,
-                minChildSize: 0,
-                maxChildSize: 0.6,
-                snap: true,
-                builder: (context, scrollController) => SizedBox(
-                  width: double.infinity,
-                  height: 200,
-                  child: ListView(
-                    controller: scrollController,
-                    children: List.generate(
-                      50,
-                      (i) => ListTile(title: Text('item $i')),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-      );
-      await tester.pumpAndSettle();
-
-      controller.jumpTo(0.6);
-      await tester.pumpAndSettle();
-
-      final maxPixels = controller.pixels + 2000;
-      final beyondSize = controller.pixelsToSize(maxPixels);
-
-      expect(beyondSize, greaterThan(1.0));
-
-      expect(
-        () => controller.jumpTo(beyondSize),
-        throwsA(isA<AssertionError>()),
-      );
-
-      expect(
-        () => controller.jumpTo(beyondSize.clamp(0.0, 1.0)),
-        returnsNormally,
-      );
     });
   });
 

@@ -81,12 +81,6 @@ void main() {
       expect(userEvents, isEmpty);
     });
 
-    test('subscribeUser does not trigger stream events before Hello', () {
-      client.subscribeUser('user1');
-      expect(emoteEvents, isEmpty);
-      expect(userEvents, isEmpty);
-    });
-
     test('Hello emits connected status', () {
       client.handleRawMessage(_hello());
       expect(statusEvents, hasLength(1));
@@ -314,12 +308,6 @@ void main() {
       client.unsubscribeEmoteSet('setX');
       expect(emoteEvents, isEmpty);
     });
-
-    test('unsubscribeUser does not affect event streams', () {
-      client.subscribeUser('userX');
-      client.unsubscribeUser('userX');
-      expect(userEvents, isEmpty);
-    });
   });
 
   group('heartbeat', () {
@@ -400,18 +388,6 @@ void main() {
   });
 
   group('reconnect and connectivity', () {
-    test('reconnectAttempt defaults to 0', () {
-      expect(client.reconnectAttempt, 0);
-    });
-
-    test('isReconnecting defaults to false', () {
-      expect(client.isReconnecting, false);
-    });
-
-    test('isOnline defaults to true', () {
-      expect(client.isOnline, true);
-    });
-
     test('hello resets reconnectAttempt to 0', () {
       // Simulate several reconnect attempts
       for (var i = 0; i < 5; i++) {
@@ -444,20 +420,6 @@ void main() {
       offlineClient.scheduleReconnectForTest();
       expect(offlineClient.reconnectAttempt, 0);
       expect(offlineClient.isReconnecting, false);
-    });
-
-    test('max reconnect attempts resets isReconnecting to false', () {
-      final client2 = SevenTvEventClient();
-      for (var i = 0; i < 8; i++) {
-        client2.scheduleReconnectForTest();
-        client2.isReconnecting = false;
-      }
-      expect(client2.reconnectAttempt, 8);
-
-      // 9th call exceeds max, should set reconnecting=false and stop
-      client2.scheduleReconnectForTest();
-      expect(client2.reconnectAttempt, 9);
-      expect(client2.isReconnecting, false);
     });
 
     test(

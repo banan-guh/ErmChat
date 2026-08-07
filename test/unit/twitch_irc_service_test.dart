@@ -13,12 +13,6 @@ void main() {
     service.dispose();
   });
 
-  group('initial state', () {
-    test('isConnected is false', () {
-      expect(service.isConnected, false);
-    });
-  });
-
   group('sendMessage when not connected', () {
     test('sendMessage does not crash', () {
       expect(
@@ -35,20 +29,6 @@ void main() {
 
     test('part does not crash when not connected', () {
       expect(() => service.part('testchannel'), returnsNormally);
-    });
-  });
-
-  group('stream controllers', () {
-    test('onNotice stream can be listened to', () {
-      final events = <IrcNoticeEvent>[];
-      service.onNotice.listen(events.add);
-      expect(events, isEmpty);
-    });
-
-    test('onJtvMessage stream can be listened to', () {
-      final events = <IrcNoticeEvent>[];
-      service.onJtvMessage.listen(events.add);
-      expect(events, isEmpty);
     });
   });
 

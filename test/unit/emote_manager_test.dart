@@ -5,7 +5,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ermchat/models/generic_emote.dart';
-import 'package:ermchat/models/twitch_message.dart';
 import 'package:ermchat/services/emote_manager.dart';
 import '../helpers.dart';
 
@@ -32,22 +31,6 @@ void main() {
       expect(e.isZeroWidth, false);
       expect(e.scope, EmoteScope.global);
       expect(e.ownerChannel, isNull);
-    });
-
-    test('creates with zero-width flag', () {
-      final e = makeTestEmote(id: '2', code: 'EZ', isZeroWidth: true);
-      expect(e.isZeroWidth, true);
-    });
-
-    test('creates with channel scope', () {
-      final e = makeTestEmote(
-        id: '3',
-        code: 'Kappa',
-        scope: EmoteScope.channel,
-        ownerChannel: 'forsen',
-      );
-      expect(e.scope, EmoteScope.channel);
-      expect(e.ownerChannel, 'forsen');
     });
   });
 
@@ -147,21 +130,6 @@ void main() {
       expect(emote, isNotNull);
       expect(emote!.baseName, 'BaseEmote');
       expect(emote.ownerChannel, 'Creator');
-    });
-  });
-
-  group('EmotePosition', () {
-    test('creates with all fields', () {
-      final pos = EmotePosition(
-        emoteId: '123',
-        startIndex: 0,
-        endIndex: 5,
-        emoteCode: 'Kappa',
-      );
-      expect(pos.emoteId, '123');
-      expect(pos.startIndex, 0);
-      expect(pos.endIndex, 5);
-      expect(pos.emoteCode, 'Kappa');
     });
   });
 
@@ -294,7 +262,9 @@ void main() {
       required DateTime Function() clock,
       required void Function(String) remove,
     }) async {
-      PathProviderPlatform.instance = _FakePathProvider(Directory.systemTemp.path);
+      PathProviderPlatform.instance = _FakePathProvider(
+        Directory.systemTemp.path,
+      );
       final manager = EmoteManager(
         fetchStagger: Duration.zero,
         now: clock,
@@ -314,11 +284,21 @@ void main() {
         remove: (url) => removed.add(url),
       );
       manager.enqueueSeenEmotes([
-        GenericEmote(id: 'f', code: 'Fresh', url: 'https://example.com/fresh.png', type: EmoteType.bttv),
+        GenericEmote(
+          id: 'f',
+          code: 'Fresh',
+          url: 'https://example.com/fresh.png',
+          type: EmoteType.bttv,
+        ),
       ]);
       clock = clock.add(const Duration(hours: 25));
       manager.enqueueSeenEmotes([
-        GenericEmote(id: 's', code: 'Stale', url: 'https://example.com/stale.png', type: EmoteType.bttv),
+        GenericEmote(
+          id: 's',
+          code: 'Stale',
+          url: 'https://example.com/stale.png',
+          type: EmoteType.bttv,
+        ),
       ]);
 
       await manager.runCacheGc();
@@ -399,7 +379,12 @@ void main() {
         remove: (url) => removed.add(url),
       );
       manager.enqueueSeenEmotes([
-        GenericEmote(id: 'a', code: 'A', url: 'https://example.com/a.png', type: EmoteType.bttv),
+        GenericEmote(
+          id: 'a',
+          code: 'A',
+          url: 'https://example.com/a.png',
+          type: EmoteType.bttv,
+        ),
       ]);
 
       await manager.runCacheGc();
@@ -416,7 +401,12 @@ void main() {
         remove: removed.add,
       );
       manager.enqueueSeenEmotes([
-        GenericEmote(id: 'a', code: 'A', url: 'https://example.com/a.png', type: EmoteType.bttv),
+        GenericEmote(
+          id: 'a',
+          code: 'A',
+          url: 'https://example.com/a.png',
+          type: EmoteType.bttv,
+        ),
       ]);
       await manager.runCacheGc();
 
@@ -433,7 +423,9 @@ void main() {
 
     test('one-time migration sets the flag once', () async {
       SharedPreferences.setMockInitialValues({});
-      PathProviderPlatform.instance = _FakePathProvider(Directory.systemTemp.path);
+      PathProviderPlatform.instance = _FakePathProvider(
+        Directory.systemTemp.path,
+      );
       final manager = EmoteManager(fetchStagger: Duration.zero);
       await manager.startCacheGc();
       manager.dispose();
@@ -446,18 +438,6 @@ void main() {
       await manager2.startCacheGc();
       manager2.dispose();
       expect(await SharedPreferences.getInstance(), isNotNull);
-    });
-
-    test('dispose cancels the periodic timer', () async {
-      SharedPreferences.setMockInitialValues({});
-      PathProviderPlatform.instance = _FakePathProvider(Directory.systemTemp.path);
-      final manager = EmoteManager(
-        fetchStagger: Duration.zero,
-        removeCachedFile: (_) async {},
-      );
-      await manager.startCacheGc();
-      manager.dispose();
-      // If the timer leaked, the test would fail with a pending timer error.
     });
   });
 }

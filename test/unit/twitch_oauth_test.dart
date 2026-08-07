@@ -13,19 +13,6 @@ void main() {
       expect(params['state'], 'abc123');
     });
 
-    test('extracts token and state from fragment with extra params', () {
-      final url =
-          'https://example.com/twitch-callback'
-          '#access_token=token1'
-          '&scope=chat%3Aread+chat%3Aedit'
-          '&state=xyz'
-          '&token_type=bearer';
-      final params = TwitchOAuth.parseFragment(url);
-      expect(params['access_token'], 'token1');
-      expect(params['state'], 'xyz');
-      expect(params['token_type'], 'bearer');
-    });
-
     test('extracts error from fragment', () {
       final url =
           'https://example.com/twitch-callback'

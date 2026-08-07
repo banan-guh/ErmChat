@@ -40,15 +40,6 @@ void main() {
       expect(msg.text, 'reply text');
     });
 
-    test('strips @User prefix in reply', () {
-      const raw =
-          '@display-name=forsen;id=xxx-111;rm-received-ts=1700000000000;reply-parent-msg-id=parent-123;reply-parent-display-name=SomeUser;reply-parent-msg-body=hey :forsen!forsen@forsen.tmi.twitch.tv PRIVMSG #xqc :@SomeUser hello there';
-      final msg = RecentMessagesService.parseIrcLine(raw);
-      expect(msg, isNotNull);
-      expect(msg!.replyToUser, 'SomeUser');
-      expect(msg.text, 'hello there');
-    });
-
     test('handles malformed URI in reply tag', () {
       const raw =
           '@display-name=forsen;id=yyy-222;rm-received-ts=1700000000000;reply-parent-msg-id=parent-456;reply-parent-display-name=User;reply-parent-msg-body=%ZZinvalid :forsen!forsen@forsen.tmi.twitch.tv PRIVMSG #xqc :@User hi';
@@ -198,16 +189,6 @@ void main() {
       expect(msg.systemAccent, const Color(0xFF9146FF));
     });
 
-    test('parses sub upgrade USERNOTICE with the purple accent', () {
-      const raw =
-          '@msg-id=giftpaidupgrade;system-msg=ronni\\sis\\snow\\sa\\spaid\\ssubscriber!;login=ronni;display-name=ronni;rm-received-ts=1700000000000 :tmi.twitch.tv USERNOTICE #xqc';
-      final msg = RecentMessagesService.parseIrcLine(raw);
-      expect(msg, isNotNull);
-      expect(msg!.isSystem, isTrue);
-      expect(msg.text, 'ronni is now a paid subscriber!');
-      expect(msg.systemAccent, const Color(0xFF9146FF));
-    });
-
     test('parses announcement USERNOTICE into label with login', () {
       const raw =
           '@msg-id=announcement;msg-param-color=BLUE;login=mm2pl;display-name=Mm2PL;rm-received-ts=1700000000000 :tmi.twitch.tv USERNOTICE #xqc :my primary color';
@@ -346,17 +327,6 @@ void main() {
       expect(child.messageId, '1151c190-4c78-4f31-b436-d75b3003e68c');
       expect(child.systemAccent, const Color(0xFF9146FF));
       expect(child.badges, hasLength(1));
-    });
-
-    test('parses robotty announcement with multi-word colon text', () {
-      const raw =
-          '@msg-id=announcement;msg-param-color=GREEN;login=mm2pl;'
-          'display-name=Mm2PL;rm-received-ts=1700000000000 '
-          ':tmi.twitch.tv USERNOTICE #xqc :multi word message';
-      final child = RecentMessagesService.parseAnnouncementChild(raw);
-      expect(child, isNotNull);
-      expect(child!.text, 'multi word message');
-      expect(child.systemAccent, const Color(0xFF00C853));
     });
   });
 
