@@ -142,7 +142,7 @@ void main() {
           'moderator:manage:chat_settings',
           'channel:manage:moderators',
           'channel:manage:vips',
-          'channel:manage:commercials',
+          'channel:edit:commercial',
           'channel:manage:raids',
           'moderator:manage:shield_mode',
           'channel:manage:broadcast',
