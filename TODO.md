@@ -63,6 +63,7 @@
 - [+] **Reconnected replacement sometimes misses** - `_addSystemMessage` only checks `msgs.first` for "Disconnected" when "Connected" arrives. If chat messages or subscribe warnings push "Disconnected" down the list, the replacement silently fails and both "Connected" and "Disconnected" stay visible. **Watching but probably fixed**
 - [x] **Kill notifications when app is opened** - Mention/whisper notifications should be dismissed when the app comes to the foreground.
 - [+] **Add support for twitch widgets** - e.g. hype train, subs, polls
+- [ ] **Show first time messages** - green
 - 
 
 ## Research / Open Ends
@@ -86,3 +87,5 @@
 - [x] **Fix bug with padding change on keyboard change** - padding changes when keyboard is extended / retracted for some reason
 - [ ] **Make select UI more friendly** - reference dankchat when selecting text.
 - [ ] **Inkwell on top** - move inkwell of half-under msgs to fully under (currently overlaps).
+- [ ] **Translations** - how?
+- [ ] **Accessibility** - make wishlist

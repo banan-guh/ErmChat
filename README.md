@@ -51,6 +51,16 @@ Check [TODO.md](TODO.md) for the roadmap. Found a bug or want a feature? Open an
 3. NOTE: redirect URI from `lib/twitch_config.dart` must match EXACTLY with what's in your twitch dev console. even / count.
 4. Run the app (`flutter run`)
 
+## Note for what the fastlane folder is
+
+It's just for the F-droid publication. if you want to clone this and put it on F-droid, you need the changelogs folder to have these txt files:
+10[].txt
+20[].txt
+40[].txt
+
+(the [] is the "+N" you have in pubspec, e.g. v0.5.8+14). Make sure you update this along with pubspec every update you push.
+You can delete old changelogs, they aren't necessary to keep around. Reason for 3 different changelogs is just the split-ABI structure.
+
 ## License
 
 MIT
