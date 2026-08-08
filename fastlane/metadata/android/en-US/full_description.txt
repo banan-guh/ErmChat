@@ -1,3 +1,1 @@
-ErmChat is a Twitch chat client built with Flutter, inspired by DankChat but built for multiple platforms rather than Android only. Beyond the usual chat features, it includes per-channel chat analytics (message rate, top chatters, top emotes), broadcaster widgets for hype trains, polls, and predictions, live 7TV emote updates over WebSocket, and reply threads that stay viewable even after their parent messages have scrolled out of history.
-
-Still rough around the edges — check the project's TODO for the current roadmap, and feel free to open issues or PRs.
+ErmChat is a DankChat-inspired chat client with more features, built for multi-platform. If you've had experience with other chat clients, this one is similar with some fun features stapled onto it, and a bit less polish.
