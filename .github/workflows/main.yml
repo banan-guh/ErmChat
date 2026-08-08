@@ -31,18 +31,11 @@ jobs:
       - name: Set up Flutter SDK
         uses: subosito/flutter-action@v2
         with:
-          channel: 'stable'
           flutter-version: '3.44.9'
           cache: true
 
       - name: Install dependencies
         run: flutter pub get
-
-      - name: Strip native build IDs (reproducible builds)
-        run: |
-          PUB_CACHE="${PUB_CACHE:-$HOME/.pub-cache}"
-          sed -i -e 's/-Wl,/-Wl,--build-id=none,/' "$PUB_CACHE"/hosted/pub.dev/jni-*/src/CMakeLists.txt || true
-          echo "Stripped build IDs from: $(ls "$PUB_CACHE"/hosted/pub.dev/jni-*/src/CMakeLists.txt 2>/dev/null || echo none)"
 
       - name: Set up release signing
         if: env.KEYSTORE_BASE64 != ''
@@ -87,7 +80,6 @@ jobs:
       - name: Set up Flutter SDK
         uses: subosito/flutter-action@v2
         with:
-          channel: 'stable'
           flutter-version: '3.44.9'
           cache: true
 
