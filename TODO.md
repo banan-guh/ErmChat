@@ -89,3 +89,10 @@
 - [ ] **Inkwell on top** - move inkwell of half-under msgs to fully under (currently overlaps).
 - [ ] **Translations** - how?
 - [ ] **Accessibility** - make wishlist
+
+
+## SMALL bugs
+- borders flicker white when tabbing in
+- fully transparent emote stops working for some reason
+- size emote menu better
+- fix no scope experience
