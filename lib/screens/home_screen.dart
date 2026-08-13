@@ -2464,9 +2464,16 @@ class _HomeScreenState extends State<HomeScreen>
                   if (MediaQuery.viewInsetsOf(context).bottom == 0) {
                     _emoteSheetBoxHeight = constraints.maxHeight;
                   }
-                  final sheetBoxHeight =
+                  final fullBoxH =
                       (_emoteSheetBoxHeight ?? constraints.maxHeight) -
                       statusBarH;
+                  // Squash the box only when the keyboard is taller than the
+                  // anticipated gap, so the sheet (0.6 of the box) never
+                  // extends past the top of the current Stack.
+                  final maxFitBoxH =
+                      (constraints.maxHeight - statusBarH) / _emoteMaxFraction;
+                  final sheetBoxHeight =
+                      fullBoxH < maxFitBoxH ? fullBoxH : maxFitBoxH;
                   return Stack(
                     clipBehavior: Clip.hardEdge,
                     children: [
@@ -2866,11 +2873,11 @@ class _HomeScreenState extends State<HomeScreen>
                           ],
                         ),
                       ),
-                      // Emote sheet — always mounted, always 60%.
-                      // Box height is fixed (captured without keyboard);
-                      // bottom: 0 stays anchored to the Stack's bottom edge
-                      // which already moves up when the keyboard shrinks
-                      // the Expanded area (same as the input below it).
+                      // Emote sheet - always mounted, always 60%.
+                      // Box height is captured with the keyboard closed and
+                      // squashed only when the keyboard shrinks the Stack
+                      // below the sheet's anticipated height, so the tabs
+                      // never flow past the top of the screen.
                       Positioned(
                         bottom: 0,
                         left: 0,

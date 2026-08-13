@@ -2133,7 +2133,7 @@ void main() {
               .ancestor(of: handleFinder, matching: find.byType(Container))
               .first,
         );
-        expect(container.margin, const EdgeInsets.symmetric(horizontal: 10));
+        expect(container.margin, const EdgeInsets.all(4));
         final decoration = container.decoration! as BoxDecoration;
         expect(decoration.borderRadius, BorderRadius.circular(16));
       },
@@ -2148,6 +2148,50 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('No subscriber emotes available'), findsOneWidget);
+    });
+
+    testWidgets('emote sheet box keeps full height until the keyboard overflows', (
+      WidgetTester tester,
+    ) async {
+      await openEmoteMenu(tester);
+
+      final sheetBox = find
+          .ancestor(
+            of: find.byKey(const ValueKey('emote_panel')),
+            matching: find.byType(Positioned),
+          )
+          .first;
+      final panelFinder = find.byKey(const ValueKey('emote_panel'));
+      final closedH = tester.widget<Positioned>(sheetBox).height!;
+      expect(closedH, greaterThan(0));
+
+      addTearDown(tester.view.reset);
+
+      // viewInsets are physical px; the test view has devicePixelRatio 3,
+      // so bottom: 300 is a ~100px logical keyboard. A keyboard that leaves
+      // room for the full sheet must not squash it.
+      tester.view.viewInsets = FakeViewPadding(bottom: 300);
+      await tester.pump();
+      expect(tester.widget<Positioned>(sheetBox).height, closedH);
+
+      // A tall keyboard squashes the box so the sheet fits the remaining
+      // space, and the panel's top stays on screen (never past the top).
+      tester.view.viewInsets = FakeViewPadding(bottom: 900);
+      await tester.pump();
+      final tallKbH = tester.widget<Positioned>(sheetBox).height!;
+      expect(tallKbH, lessThan(closedH));
+      expect(tester.getTopLeft(panelFinder).dy, greaterThanOrEqualTo(0));
+
+      // A taller keyboard squashes it further and still keeps it on screen.
+      tester.view.viewInsets = FakeViewPadding(bottom: 1200);
+      await tester.pump();
+      expect(tester.widget<Positioned>(sheetBox).height, lessThan(tallKbH));
+      expect(tester.getTopLeft(panelFinder).dy, greaterThanOrEqualTo(0));
+
+      // Keyboard closes -> box immediately back to the full height.
+      tester.view.viewInsets = FakeViewPadding.zero;
+      await tester.pump();
+      expect(tester.widget<Positioned>(sheetBox).height, closedH);
     });
 
     testWidgets('permanent ban shows "user was banned" message', (

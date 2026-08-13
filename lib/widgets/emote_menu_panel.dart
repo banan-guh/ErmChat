@@ -74,7 +74,7 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
     final panelColor = theme.colorScheme.surfaceContainerLow;
     final radius = BorderRadius.circular(16);
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 10),
+      margin: const EdgeInsets.all(4),
       decoration: BoxDecoration(
         color: panelColor,
         borderRadius: radius,
