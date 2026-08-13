@@ -19,8 +19,8 @@ class ChatSettingsScreen extends StatefulWidget {
 }
 
 class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
-  int _maxMessagesPerChannel = 200;
-  int _recentMessagesCount = 100;
+  int _maxMessagesPerChannel = 1000;
+  int _recentMessagesCount = 200;
   bool _replyToRoot = false;
   bool _backgroundService = false;
   bool _mentionPush = false;
