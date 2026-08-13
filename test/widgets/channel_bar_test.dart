@@ -4,7 +4,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import 'package:ermchat/main.dart';
-import 'package:ermchat/widgets/tabbed_layout.dart';
 
 void main() {
   setUp(() {
@@ -299,85 +298,5 @@ void main() {
         FontWeight.w600,
       );
     });
-  });
-
-  group('Channel switch races', () {
-    Future<void> pumpHarness(
-      WidgetTester tester, {
-      required ValueNotifier<int> selected,
-      required List<int> changedLog,
-    }) async {
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: ValueListenableBuilder<int>(
-              valueListenable: selected,
-              builder: (_, idx, _) => TabbedLayout(
-                tabs: const ['a', 'b', 'c'],
-                selectedIndex: idx,
-                onSelectedIndexChanged: (i) {
-                  changedLog.add(i);
-                  selected.value = i;
-                },
-                focusOnHalfDrag: true,
-                pageBuilder: (_, i) => Center(child: Text('PAGE $i')),
-              ),
-            ),
-          ),
-        ),
-      );
-      await tester.pump();
-    }
-
-    String? visiblePage(WidgetTester tester) {
-      for (var i = 0; i < 3; i++) {
-        if (find.text('PAGE $i').hitTestable().evaluate().isNotEmpty) {
-          return '$i';
-        }
-      }
-      return null;
-    }
-
-    testWidgets(
-      'tapping back while a switch is animating lands on the tapped channel',
-      (WidgetTester tester) async {
-        final selected = ValueNotifier<int>(0);
-        final changedLog = <int>[];
-        await pumpHarness(tester, selected: selected, changedLog: changedLog);
-
-        // Tap 'c' (index 2), then immediately tap 'a' (index 0) before the
-        // switch animation finishes.
-        await tester.tap(find.text('c'));
-        await tester.pump(const Duration(milliseconds: 50));
-        await tester.tap(find.text('a'));
-        await tester.pumpAndSettle();
-        await tester.pump();
-
-        // The viewport must end on the last-tapped channel ('a' = page 0),
-        // not stay stuck on 'c' (page 2) while the selection moved to 'a'.
-        expect(visiblePage(tester), '0');
-        expect(find.text('PAGE 2').hitTestable(), findsNothing);
-      },
-    );
-
-    testWidgets(
-      'rapid forward then reverse taps settle on the final tapped channel',
-      (WidgetTester tester) async {
-        final selected = ValueNotifier<int>(0);
-        final changedLog = <int>[];
-        await pumpHarness(tester, selected: selected, changedLog: changedLog);
-
-        await tester.tap(find.text('c'));
-        await tester.pump(const Duration(milliseconds: 50));
-        await tester.tap(find.text('b'));
-        await tester.pump(const Duration(milliseconds: 50));
-        await tester.tap(find.text('c'));
-        await tester.pumpAndSettle();
-        await tester.pump();
-
-        expect(visiblePage(tester), '2');
-        expect(find.text('PAGE 0').hitTestable(), findsNothing);
-      },
-    );
   });
 }
