@@ -6,7 +6,10 @@ import '../../models/generic_emote.dart';
 import '../../util/constants.dart';
 
 class TwitchEmoteProvider {
-  static Future<List<GenericEmote>> fetchGlobal({String? accessToken}) async {
+  static Future<List<GenericEmote>> fetchGlobal({
+    String? accessToken,
+    EmoteResolution resolution = EmoteResolution.high,
+  }) async {
     final uri = Uri.parse('https://api.twitch.tv/helix/chat/emotes/global');
     final headers = <String, String>{'Client-ID': TwitchConfig.clientId};
     if (accessToken != null) {
@@ -19,13 +22,17 @@ class TwitchEmoteProvider {
     throwOnTransientHttpError(res.statusCode, uri);
     if (res.statusCode != 200) return [];
     final data = jsonDecode(res.body) as Map<String, dynamic>;
-    return _parseEmotes(data['data'] as List<dynamic>? ?? []);
+    return _parseEmotes(
+      data['data'] as List<dynamic>? ?? [],
+      resolution: resolution,
+    );
   }
 
   static Future<List<GenericEmote>> fetchChannel(
     String broadcasterId, {
     String? accessToken,
     String? channelName,
+    EmoteResolution resolution = EmoteResolution.high,
   }) async {
     final uri = Uri.parse(
       'https://api.twitch.tv/helix/chat/emotes?broadcaster_id=$broadcasterId',
@@ -45,12 +52,14 @@ class TwitchEmoteProvider {
       data['data'] as List<dynamic>? ?? [],
       channel: true,
       channelName: channelName,
+      resolution: resolution,
     );
   }
 
   static Future<Map<String, List<GenericEmote>>> fetchEmoteSets(
     List<String> emoteSetIds, {
     String? accessToken,
+    EmoteResolution resolution = EmoteResolution.high,
   }) async {
     final result = <String, List<GenericEmote>>{};
     final headers = <String, String>{'Client-ID': TwitchConfig.clientId};
@@ -86,17 +95,15 @@ class TwitchEmoteProvider {
         final isAnimated = formats.contains('animated');
         final format = isAnimated ? 'animated' : 'static';
         final scales = (item['scale'] as List<dynamic>?)?.cast<String>() ?? [];
-        final smallScale = scales.contains('2.0')
-            ? '2.0'
-            : (scales.firstOrNull ?? '1.0');
-        final largeScale = scales.lastOrNull ?? '3.0';
+        final (smallScale, largeScale) = _selectScales(scales, resolution);
         final theme =
             (item['theme_mode'] as List<dynamic>?)?.firstOrNull as String? ??
             'dark';
         final url =
             'https://static-cdn.jtvnw.net/emoticons/v2/$id/$format/$theme/$smallScale';
-        final urlLarge =
-            'https://static-cdn.jtvnw.net/emoticons/v2/$id/$format/$theme/$largeScale';
+        final urlLarge = largeScale == null
+            ? null
+            : 'https://static-cdn.jtvnw.net/emoticons/v2/$id/$format/$theme/$largeScale';
         result
             .putIfAbsent(ownerId ?? '', () => [])
             .add(
@@ -123,6 +130,7 @@ class TwitchEmoteProvider {
     List<dynamic> items, {
     bool channel = false,
     String? channelName,
+    EmoteResolution resolution = EmoteResolution.high,
   }) {
     final emotes = <GenericEmote>[];
     for (final item in items) {
@@ -132,20 +140,16 @@ class TwitchEmoteProvider {
       final formats = (item['format'] as List<dynamic>?)?.cast<String>() ?? [];
       final isAnimated = formats.contains('animated');
       final scales = (item['scale'] as List<dynamic>?)?.cast<String>() ?? [];
-      // Chat renders at ~28dp; prefer the 2.0 scale tier and keep the largest
-      // (typically 3.0) for the larger sheet/menu.
-      final smallScale = scales.contains('2.0')
-          ? '2.0'
-          : (scales.firstOrNull ?? '1.0');
-      final largeScale = scales.lastOrNull ?? '3.0';
+      final (smallScale, largeScale) = _selectScales(scales, resolution);
       final theme =
           (item['theme_mode'] as List<dynamic>?)?.firstOrNull as String? ??
           'dark';
       final format = isAnimated ? 'animated' : 'static';
       final url =
           'https://static-cdn.jtvnw.net/emoticons/v2/$id/$format/$theme/$smallScale';
-      final urlLarge =
-          'https://static-cdn.jtvnw.net/emoticons/v2/$id/$format/$theme/$largeScale';
+      final urlLarge = largeScale == null
+          ? null
+          : 'https://static-cdn.jtvnw.net/emoticons/v2/$id/$format/$theme/$largeScale';
       final tier = item['tier'] as String?;
       emotes.add(
         GenericEmote(
@@ -163,5 +167,27 @@ class TwitchEmoteProvider {
     }
     debugPrint('Twitch parsed ${emotes.length} emotes');
     return emotes;
+  }
+
+  /// Selects the small/large scale tiers for the given resolution. The per-item
+  /// `scale` list is ordered ascending. Chat renders at ~28dp so medium/high
+  /// prefer the 2.0 tier; high additionally keeps the largest (typically 3.0)
+  /// for the larger sheet/menu.
+  static (String, String?) _selectScales(
+    List<String> scales,
+    EmoteResolution resolution,
+  ) {
+    final smallest = scales.firstOrNull ?? '1.0';
+    switch (resolution) {
+      case EmoteResolution.low:
+        return (scales.contains('1.0') ? '1.0' : smallest, null);
+      case EmoteResolution.medium:
+        return (scales.contains('2.0') ? '2.0' : smallest, null);
+      case EmoteResolution.high:
+        return (
+          scales.contains('2.0') ? '2.0' : smallest,
+          scales.lastOrNull ?? '3.0',
+        );
+    }
   }
 }

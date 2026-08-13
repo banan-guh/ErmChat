@@ -2,6 +2,20 @@ enum EmoteType { twitch, bttv, ffz, sevenTv }
 
 enum EmoteScope { global, channel }
 
+/// Image-resolution tier for emote fetching. Only used when a fetch actually
+/// happens (the `nothing` fetch tier never fetches at all). The 4x tier is
+/// scrapped entirely: no provider ever emits a 4x URL.
+enum EmoteResolution {
+  /// 1x for the low fetch tier (smallest available).
+  low,
+
+  /// 2x for medium/high; chat caches only ever store the 2x asset.
+  medium,
+
+  /// Adds an on-demand 3x asset (sheet/menu) on top of 2x.
+  high,
+}
+
 class GenericEmote {
   final String id;
   final String code;

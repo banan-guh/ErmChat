@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/widgets.dart';
 import 'package:http/http.dart' as http;
+import '../models/emote_fetch_tier.dart';
 import '../models/generic_emote.dart';
 import 'base_irc_connection.dart';
 import '../models/twitch_message.dart';
@@ -462,6 +463,7 @@ class ChatConnectionManager {
   }
 
   void precacheMessageEmotes(TwitchMessage msg, String channel) {
+    if (emoteManager.tier == EmoteFetchTier.nothing) return;
     if (msg.isSystem || msg.isHistory) return;
     final channelEmotes = emoteManager.byCode(channel);
     if (channelEmotes == null) return;

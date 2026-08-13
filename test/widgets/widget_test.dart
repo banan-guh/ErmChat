@@ -13,6 +13,8 @@ import 'package:ermchat/screens/settings/account_screen.dart';
 import 'package:ermchat/screens/settings/channel_settings_screen.dart';
 import 'package:ermchat/screens/settings/chat_settings_screen.dart';
 import 'package:ermchat/screens/settings/customization_screen.dart';
+import 'package:ermchat/screens/settings/emotes_settings_screen.dart';
+import 'package:ermchat/models/emote_fetch_tier.dart';
 import 'package:ermchat/services/twitch_api.dart';
 import 'package:ermchat/services/twitch_eventsub.dart';
 import 'package:ermchat/services/base_irc_connection.dart';
@@ -2828,6 +2830,213 @@ void main() {
       prefs = await SharedPreferences.getInstance();
       expect(prefs.getString('timestamp_format'), 'h:mm a');
       expect(find.text('h:mm a'), findsOneWidget);
+    });
+
+    testWidgets('emotes settings screen renders tier + cache sliders and '
+        'Apply button', (WidgetTester tester) async {
+      SharedPreferences.setMockInitialValues({});
+
+      await tester.pumpWidget(const MaterialApp(home: EmotesSettingsScreen()));
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.text('Emotes'), findsOneWidget);
+      expect(find.text('Emote fetching'), findsOneWidget);
+      expect(find.text('Auto data saver mode'), findsOneWidget);
+      expect(find.text('Emote image cache'), findsOneWidget);
+      expect(find.byKey(const Key('emote_tier_slider')), findsOneWidget);
+      expect(find.byKey(const Key('emote_cache_slider')), findsOneWidget);
+      expect(find.byKey(const Key('emote_cache_apply')), findsOneWidget);
+      expect(find.text('High'), findsOneWidget);
+      expect(find.text('500 emotes kept in cache'), findsOneWidget);
+      expect(find.textContaining('emotes stored'), findsOneWidget);
+    });
+
+    testWidgets('tier slider change persists emote_fetch_tier and fires '
+        'onEmoteTierChanged', (WidgetTester tester) async {
+      SharedPreferences.setMockInitialValues({
+        'emote_fetch_auto': EmoteFetchAutoMode.off.index,
+      });
+      int? changed;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: EmotesSettingsScreen(
+            onEmoteTierChanged: (value) => changed = value,
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      final slider = tester.widget<Slider>(
+        find.byKey(const Key('emote_tier_slider')),
+      );
+      slider.onChanged!(EmoteFetchTier.low.index.toDouble());
+      await tester.pump();
+      await tester.pump();
+
+      expect(changed, EmoteFetchTier.low.index);
+      expect(find.text('Low'), findsOneWidget);
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getInt('emote_fetch_tier'), EmoteFetchTier.low.index);
+    });
+
+    testWidgets('auto-mode switch persists emote_fetch_auto, fires callback, '
+        'and disables the tier slider', (WidgetTester tester) async {
+      SharedPreferences.setMockInitialValues({});
+      EmoteFetchAutoMode? changed;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: EmotesSettingsScreen(
+            onEmoteAutoModeChanged: (mode) => changed = mode,
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.byKey(const Key('emote_auto_mode')), findsOneWidget);
+      // Auto mode defaults to Balanced, so the manual tier slider is locked.
+      expect(find.text('Balanced'), findsOneWidget);
+      var slider = tester.widget<Slider>(
+        find.byKey(const Key('emote_tier_slider')),
+      );
+      expect(slider.onChanged, isNull);
+
+      await tester.tap(find.text('Aggressive'));
+      await tester.pump();
+      await tester.pump();
+
+      expect(changed, EmoteFetchAutoMode.aggressive);
+      final prefs = await SharedPreferences.getInstance();
+      expect(
+        prefs.getInt('emote_fetch_auto'),
+        EmoteFetchAutoMode.aggressive.index,
+      );
+      slider = tester.widget<Slider>(
+        find.byKey(const Key('emote_tier_slider')),
+      );
+      expect(slider.onChanged, isNull);
+
+      await tester.tap(find.text('Off'));
+      await tester.pump();
+      await tester.pump();
+
+      expect(changed, EmoteFetchAutoMode.off);
+      final unlocked = tester.widget<Slider>(
+        find.byKey(const Key('emote_tier_slider')),
+      );
+      expect(unlocked.onChanged, isNotNull);
+    });
+
+    testWidgets('toggling auto mode keeps the section below fixed in place', (
+      WidgetTester tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({
+        'emote_fetch_auto': EmoteFetchAutoMode.off.index,
+      });
+
+      await tester.pumpWidget(const MaterialApp(home: EmotesSettingsScreen()));
+      await tester.pump();
+      await tester.pump();
+
+      final before = tester
+          .getTopLeft(find.byKey(const Key('emote_auto_mode')))
+          .dy;
+
+      await tester.tap(find.text('Balanced'));
+      await tester.pumpAndSettle();
+
+      final after = tester
+          .getTopLeft(find.byKey(const Key('emote_auto_mode')))
+          .dy;
+      expect(after, before);
+    });
+
+    testWidgets('auto mode slider reflects the effective tier and follows '
+        'connectivity changes', (WidgetTester tester) async {
+      SharedPreferences.setMockInitialValues({
+        'emote_fetch_auto': EmoteFetchAutoMode.balanced.index,
+      });
+      final mobile = ValueNotifier<bool>(true);
+
+      await tester.pumpWidget(
+        MaterialApp(home: EmotesSettingsScreen(mobileNotifier: mobile)),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      // Balanced + cellular => Low is being picked and shown on the slider.
+      expect(find.text('Low'), findsOneWidget);
+      var slider = tester.widget<Slider>(
+        find.byKey(const Key('emote_tier_slider')),
+      );
+      expect(slider.value, EmoteFetchTier.low.index.toDouble());
+      expect(slider.onChanged, isNull);
+
+      // Hand off to Wi-Fi while the screen is open: the tier animates up to
+      // High; wait for the animation to settle before asserting the value.
+      mobile.value = false;
+      await tester.pumpAndSettle();
+      expect(find.text('High'), findsOneWidget);
+      expect(find.text('Low'), findsNothing);
+      slider = tester.widget<Slider>(
+        find.byKey(const Key('emote_tier_slider')),
+      );
+      expect(slider.value, EmoteFetchTier.high.index.toDouble());
+    });
+
+    testWidgets('cache-size slider only applies on Apply', (
+      WidgetTester tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({});
+      int? applied;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: EmotesSettingsScreen(
+            onEmoteCacheMaxChanged: (value) => applied = value,
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      final slider = tester.widget<Slider>(
+        find.byKey(const Key('emote_cache_slider')),
+      );
+      slider.onChanged!(1000.0);
+      await tester.pump();
+
+      expect(applied, isNull);
+      var prefs = await SharedPreferences.getInstance();
+      expect(prefs.getInt('emote_cache_max'), isNull);
+
+      await tester.tap(find.byKey(const Key('emote_cache_apply')));
+      await tester.pump();
+      await tester.pump();
+
+      expect(applied, 1000);
+      prefs = await SharedPreferences.getInstance();
+      expect(prefs.getInt('emote_cache_max'), 1000);
+    });
+
+    testWidgets('emotes settings shows the disk-cache usage footer', (
+      WidgetTester tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({
+        'emote_fetch_auto': EmoteFetchAutoMode.off.index,
+      });
+
+      await tester.pumpWidget(const MaterialApp(home: EmotesSettingsScreen()));
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.byKey(const Key('emote_cache_footer')), findsOneWidget);
+      expect(find.textContaining('emotes stored'), findsOneWidget);
+      expect(find.textContaining('B'), findsWidgets);
     });
   });
 

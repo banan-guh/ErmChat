@@ -4,7 +4,9 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../models/emote_fetch_tier.dart';
 import '../models/generic_emote.dart';
+import 'emote_cache_manager.dart';
 import 'emote_providers/twitch_emotes.dart';
 import 'emote_providers/bttv_emotes.dart';
 import 'emote_providers/ffz_emotes.dart';
@@ -27,6 +29,7 @@ class EmoteManager extends ChangeNotifier {
   static const _wifiTtl = Duration(hours: 24);
   static const _mobileTtl = Duration(hours: 48);
   static const _connectivityProbeTtl = Duration(seconds: 60);
+  static const _infiniteTtl = Duration(days: 365000);
   static const _defaultFetchStagger = Duration(milliseconds: 1500);
   static const _providerPriority = {
     EmoteType.sevenTv: 0,
@@ -36,18 +39,20 @@ class EmoteManager extends ChangeNotifier {
   };
 
   // ── Disk-cache garbage collection ────────────────────────────────────
-  // The flutter_cache_manager disk cache defaults to a 200-file count cap
-  // with a 30-day stale period, which lets it balloon to hundreds of MB of
-  // emote images. We GC it aggressively instead: keep at most [_gcMaxEmotes]
-  // emotes, evicting overflow only once it's been unused for [_gcHotTtl],
-  // and hard-evict anything unused for [_gcHardTtl] regardless of count.
-  static const _gcMaxEmotes = 80;
-  static const _gcHotTtl = Duration(hours: 1);
+  // We GC the emote disk cache aggressively instead of the flutter_cache_manager
+  // defaults: per-tier hard-TTL eviction (high/medium keep [_gcHardTtl],
+  // low/nothing never time-evict) followed by a pure LRU trim to [_cacheCap].
+  // There is no hot-TTL cooldown anymore: over-cap entries are evicted by
+  // last-use regardless of how recently they were touched.
   static const _gcHardTtl = Duration(hours: 24);
   static const _gcInterval = Duration(minutes: 30);
   static const _usageKey = 'emote_usage';
-  static const _usageMaxEntries = 300;
+  static const _usageMinEntries = 300;
   static const _migrationKey = 'emote_gc_migrated_v1';
+  static const _migrationKeyV2 = 'emote_gc_migrated_v2';
+
+  EmoteFetchTier _tier = EmoteFetchTier.high;
+  int _cacheCap = defaultEmoteCacheMax;
 
   final Future<void> Function(String url) _removeCachedFile;
   final DateTime Function() _now;
@@ -55,6 +60,7 @@ class EmoteManager extends ChangeNotifier {
   bool _usageLoaded = false;
   bool _usageDirty = false;
   bool _migrationRan = false;
+  bool _migrationRanV2 = false;
   Timer? _gcTimer;
 
   final Future<List<ConnectivityResult>> Function()? _connectivityProbe;
@@ -71,11 +77,33 @@ class EmoteManager extends ChangeNotifier {
     this._fetchStagger = _defaultFetchStagger,
     Future<void> Function(String url)? removeCachedFile,
     DateTime Function()? now,
+    EmoteFetchTier tier = EmoteFetchTier.high,
+    int cacheCap = defaultEmoteCacheMax,
   }) : _connectivityProbe = probe,
        _removeCachedFile =
            removeCachedFile ??
-           ((String url) => DefaultCacheManager().removeFile(url)),
-       _now = now ?? DateTime.now;
+           ((String url) => EmoteCacheManager().removeFile(url)),
+       _now = now ?? DateTime.now {
+    _tier = tier;
+    _cacheCap = cacheCap.clamp(minEmoteCacheMax, maxEmoteCacheMax).toInt();
+  }
+
+  /// Fetching tier controlling resolution, cache TTL, and GC behavior.
+  EmoteFetchTier get tier => _tier;
+
+  set tier(EmoteFetchTier value) {
+    if (value == _tier) return;
+    _tier = value;
+    _notify();
+  }
+
+  /// Max tracked emotes kept on disk by GC (default [defaultEmoteCacheMax],
+  /// clamped to [minEmoteCacheMax]..[maxEmoteCacheMax]).
+  int get cacheCap => _cacheCap;
+
+  set cacheCap(int value) {
+    _cacheCap = value.clamp(minEmoteCacheMax, maxEmoteCacheMax).toInt();
+  }
 
   ChannelEmotes? _globalCache;
   final _channelCaches = <String, ChannelEmotes>{};
@@ -243,13 +271,19 @@ class EmoteManager extends ChangeNotifier {
       _globalCache = cached;
       _notify();
       if (loaded.fresh) {
-        // Twitch global emotes aren't persisted (see _saveToPrefs), so they
-        // refresh in the background on every launch — mirrors the channel
-        // behavior. Non-blocking.
-        unawaited(_enqueueFetch(_refreshTwitchGlobalEmotes));
+        // Twitch global emotes aren't persisted on medium/high (see
+        // _saveToPrefs), so they refresh in the background on every launch —
+        // mirrors the channel behavior. On low/nothing they're already
+        // persisted and the cache is effectively infinite, so skip the
+        // network entirely. Non-blocking.
+        if (!_skipTwitchBackgroundRefresh) {
+          unawaited(_enqueueFetch(_refreshTwitchGlobalEmotes));
+        }
         return;
       }
     }
+    // The nothing tier never fetches: render only what's already cached.
+    if (_tier == EmoteFetchTier.nothing) return;
     // Stale or missing: keep showing stale data while revalidating.
     final emotes = await _enqueueFetch(_fetchAllGlobal);
     _globalCache = _buildChannelMap(emotes);
@@ -260,6 +294,7 @@ class EmoteManager extends ChangeNotifier {
   Future<void> storeUserTwitchEmotes(
     Map<String, List<GenericEmote>> perChannel,
   ) async {
+    if (_tier == EmoteFetchTier.nothing) return;
     for (final entry in perChannel.entries) {
       final channel = entry.key;
       final emotes = entry.value;
@@ -293,10 +328,10 @@ class EmoteManager extends ChangeNotifier {
     );
     final cached = loaded.cached;
     if (cached != null) {
-      // The persisted cache never contains Twitch emotes, so re-merge any
-      // subscriber emotes already stored for this channel (they come from the
-      // account's own emote list and must not be clobbered by re-applying the
-      // persisted cache).
+      // The persisted cache never contains Twitch emotes on medium/high, so
+      // re-merge any subscriber emotes already stored for this channel (they
+      // come from the account's own emote list and must not be clobbered by
+      // re-applying the persisted cache).
       final subs = _channelTwitchEmotes[channel] ?? const <GenericEmote>[];
       _channelCaches[channel] = subs.isEmpty
           ? cached
@@ -305,17 +340,23 @@ class EmoteManager extends ChangeNotifier {
       _notify(channel);
       if (loaded.fresh) {
         // Fresh cache: render immediately, then refresh only the Twitch
-        // channel emotes in the background (they aren't persisted, so
-        // sub-tier status changes between opens). Non-blocking.
-        unawaited(
-          _enqueueFetch(
-            () => _refreshTwitchChannelEmotes(channel, broadcasterId),
-          ),
-        );
+        // channel emotes in the background on medium/high (they aren't
+        // persisted there, so sub-tier status changes between opens). On
+        // low/nothing they're persisted and the cache is effectively
+        // infinite, so skip the network entirely. Non-blocking.
+        if (!_skipTwitchBackgroundRefresh) {
+          unawaited(
+            _enqueueFetch(
+              () => _refreshTwitchChannelEmotes(channel, broadcasterId),
+            ),
+          );
+        }
         return;
       }
       // Stale: keep showing stale data while revalidating below.
     }
+    // The nothing tier never fetches: render only what's already cached.
+    if (_tier == EmoteFetchTier.nothing) return;
     final emotes = await _enqueueFetch(
       () => _fetchAllChannel(broadcasterId, channelName: channel),
     );
@@ -375,6 +416,7 @@ class EmoteManager extends ChangeNotifier {
         broadcasterId,
         accessToken: _accessToken,
         channelName: channel,
+        resolution: _tier.resolution!,
       );
       if (emotes.isEmpty) return;
       final nonSub = emotes
@@ -406,6 +448,7 @@ class EmoteManager extends ChangeNotifier {
     try {
       final emotes = await TwitchEmoteProvider.fetchGlobal(
         accessToken: _accessToken,
+        resolution: _tier.resolution!,
       );
       if (emotes.isEmpty) return;
       _globalProviderEmotes['Twitch'] = emotes;
@@ -464,6 +507,7 @@ class EmoteManager extends ChangeNotifier {
     List<String> removedIds = const [],
     Map<String, ({String newName, String oldName})> renamed = const {},
   }) {
+    if (_tier == EmoteFetchTier.nothing) return;
     final cache = _channelCaches[channel];
     if (cache == null && added.isEmpty) return;
 
@@ -516,11 +560,26 @@ class EmoteManager extends ChangeNotifier {
     _notify(channel);
   }
 
+  /// Low/nothing tiers persist Twitch emotes (see [_saveToPrefs]) with an
+  /// effectively infinite TTL, so there's nothing to refresh in the
+  /// background on launch.
+  bool get _skipTwitchBackgroundRefresh =>
+      _tier == EmoteFetchTier.low || _tier == EmoteFetchTier.nothing;
+
   /// Connectivity-aware refresh TTL: refresh is cheaper on unmetered
   /// connections, so cellular gets a longer TTL to avoid data usage.
   Future<Duration> _effectiveTtl() async {
-    final isMobile = await _probeConnectivity() == ConnectivityResult.mobile;
-    return isMobile ? _mobileTtl : _wifiTtl;
+    switch (_tier) {
+      case EmoteFetchTier.low:
+      case EmoteFetchTier.nothing:
+        return _infiniteTtl;
+      case EmoteFetchTier.medium:
+        return const Duration(hours: 48);
+      case EmoteFetchTier.high:
+        final isMobile =
+            await _probeConnectivity() == ConnectivityResult.mobile;
+        return isMobile ? _mobileTtl : _wifiTtl;
+    }
   }
 
   /// One-shot connectivity probe, cached for [_connectivityProbeTtl] so the
@@ -606,22 +665,29 @@ class EmoteManager extends ChangeNotifier {
       'Twitch': () async {
         final emotes = await TwitchEmoteProvider.fetchGlobal(
           accessToken: _accessToken,
+          resolution: _tier.resolution!,
         );
         _globalProviderEmotes['Twitch'] = emotes;
         return emotes;
       },
       'BTTV': () async {
-        final emotes = await BttvEmoteProvider.fetchGlobal();
+        final emotes = await BttvEmoteProvider.fetchGlobal(
+          resolution: _tier.resolution!,
+        );
         _globalProviderEmotes['BTTV'] = emotes;
         return emotes;
       },
       'FFZ': () async {
-        final emotes = await FfzEmoteProvider.fetchGlobal();
+        final emotes = await FfzEmoteProvider.fetchGlobal(
+          resolution: _tier.resolution!,
+        );
         _globalProviderEmotes['FFZ'] = emotes;
         return emotes;
       },
       '7TV': () async {
-        final emotes = await SevenTvEmoteProvider.fetchGlobal();
+        final emotes = await SevenTvEmoteProvider.fetchGlobal(
+          resolution: _tier.resolution!,
+        );
         _globalProviderEmotes['7TV'] = emotes;
         return emotes;
       },
@@ -652,6 +718,7 @@ class EmoteManager extends ChangeNotifier {
           broadcasterId,
           accessToken: _accessToken,
           channelName: channelName,
+          resolution: _tier.resolution!,
         );
         final nonSub = fetched
             .where(
@@ -664,18 +731,25 @@ class EmoteManager extends ChangeNotifier {
         return nonSub;
       },
       'BTTV': () async {
-        final emotes = await BttvEmoteProvider.fetchChannel(broadcasterId);
+        final emotes = await BttvEmoteProvider.fetchChannel(
+          broadcasterId,
+          resolution: _tier.resolution!,
+        );
         map['BTTV'] = emotes;
         return emotes;
       },
       'FFZ': () async {
-        final emotes = await FfzEmoteProvider.fetchChannel(broadcasterId);
+        final emotes = await FfzEmoteProvider.fetchChannel(
+          broadcasterId,
+          resolution: _tier.resolution!,
+        );
         map['FFZ'] = emotes;
         return emotes;
       },
       '7TV': () async {
         final resp = await SevenTvEmoteProvider.fetchChannelResponse(
           broadcasterId,
+          resolution: _tier.resolution!,
         );
         if (channelName != null) {
           if (resp.emoteSetId != null) {
@@ -725,7 +799,13 @@ class EmoteManager extends ChangeNotifier {
       final data = jsonDecode(raw) as Map<String, dynamic>;
       final ts = DateTime.parse(data['ts'] as String);
       final cachedTime = fetchTime ?? ts;
-      final fresh = DateTime.now().difference(cachedTime) <= ttl;
+      final withinTtl = DateTime.now().difference(cachedTime) <= ttl;
+      // A tier tag from a different fetching tier means the cached URLs are
+      // at the wrong resolution; force a refetch (the 1x -> 2x overwrite).
+      // Caches written before the feature have no tag and are treated as
+      // matching.
+      final tierMatches = data['tier'] is! int || data['tier'] == _tier.index;
+      final fresh = withinTtl && tierMatches;
       final list = (data['emotes'] as List<dynamic>)
           .map((e) => GenericEmote.fromJson(e as Map<String, dynamic>))
           .toList();
@@ -741,23 +821,36 @@ class EmoteManager extends ChangeNotifier {
     ChannelEmotes channelEmotes,
     Duration ttl,
   ) async {
-    final nonTwitch = channelEmotes.suggestions
-        .where((e) => e.type != EmoteType.twitch)
-        .toList();
-    if (nonTwitch.isEmpty) return;
+    // Low/nothing cache forever, so persist non-sub Twitch emotes too (infinite
+    // TTL must mean zero per-launch network). Medium/high keep the historical
+    // behavior of persisting only non-Twitch emotes.
+    final persistTwitch =
+        _tier == EmoteFetchTier.low || _tier == EmoteFetchTier.nothing;
+    final saved = channelEmotes.suggestions.where((e) {
+      if (e.type != EmoteType.twitch) return true;
+      if (!persistTwitch) return false;
+      return !(e.emoteType == 'subscriptions' || e.tier != null);
+    }).toList();
+    if (saved.isEmpty) return;
     try {
       final prefs = await _getPrefs();
       final data = {
         'ts': DateTime.now().toIso8601String(),
-        'emotes': nonTwitch.map((e) => e.toJson()).toList(),
+        'tier': _tier.index,
+        'emotes': saved.map((e) => e.toJson()).toList(),
       };
       await prefs.setString(key, jsonEncode(data));
     } catch (_) {
-      debugPrint('[EmoteManager] failed to save nonTwitch emotes to prefs');
+      debugPrint('[EmoteManager] failed to save emotes to prefs');
     }
   }
 
   // ── Disk-cache GC: usage tracking ───────────────────────────────────
+
+  /// The usage registry must be able to hold at least the cache cap, so it
+  /// trims to max(300, [_cacheCap]) entries.
+  int get _usageMaxEntries =>
+      _cacheCap > _usageMinEntries ? _cacheCap : _usageMinEntries;
 
   final Set<String> _pendingUsageTouches = {};
 
@@ -842,34 +935,53 @@ class EmoteManager extends ChangeNotifier {
         await prefs.setBool(_migrationKey, true);
       }
     }
+    if (!_migrationRanV2) {
+      final prefs = await _getPrefs();
+      if (prefs.getBool(_migrationKeyV2) ?? false) {
+        _migrationRanV2 = true;
+      } else {
+        // Emote images now read/write/precache through EmoteCacheManager
+        // (emoteImageCacheV2). Clear the v1 DefaultCacheManager leftovers
+        // once so the orphaned old files stop occupying disk.
+        try {
+          await DefaultCacheManager().emptyCache();
+        } catch (_) {
+          debugPrint('[EmoteManager] cache v2 migration emptyCache failed');
+        }
+        _migrationRanV2 = true;
+        await prefs.setBool(_migrationKeyV2, true);
+      }
+    }
     await runCacheGc();
     _gcTimer?.cancel();
     _gcTimer = Timer.periodic(_gcInterval, (_) => runCacheGc());
   }
 
-  /// Runs one sweep of the disk-cache GC. Evicts anything unused for
-  /// [_gcHardTtl] regardless of count, then trims to [_gcMaxEmotes] by
-  /// evicting the oldest entries that are also unused for [_gcHotTtl].
-  /// Exposed for tests; also cancellable via [dispose].
+  /// Runs one sweep of the disk-cache GC. Evicts anything used less recently
+  /// than the per-tier hard TTL (high/medium: 24h; low/nothing: never), then
+  /// LRU-trims to [_cacheCap] by evicting the oldest-by-use entries with no
+  /// hot-TTL cooldown. Exposed for tests; also cancellable via [dispose].
   Future<void> runCacheGc() async {
     await _ensureUsageLoaded();
+    final hardTtl = switch (_tier) {
+      EmoteFetchTier.high || EmoteFetchTier.medium => _gcHardTtl,
+      EmoteFetchTier.low || EmoteFetchTier.nothing => _infiniteTtl,
+    };
     final now = _now();
     final evict = <String>[];
     for (final entry in _emoteUsage.entries) {
-      if (now.difference(entry.value) > _gcHardTtl) {
+      if (now.difference(entry.value) > hardTtl) {
         evict.add(entry.key);
       }
     }
-    if (_emoteUsage.length > _gcMaxEmotes) {
+    if (_emoteUsage.length > _cacheCap) {
       final sorted = _emoteUsage.entries.toList()
         ..sort((a, b) => a.value.compareTo(b.value));
       final evictSet = evict.toSet();
       for (final entry in sorted) {
-        if (_emoteUsage.length - evict.length <= _gcMaxEmotes) break;
+        if (_emoteUsage.length - evict.length <= _cacheCap) break;
         if (evictSet.contains(entry.key)) continue;
-        if (now.difference(entry.value) > _gcHotTtl) {
-          evict.add(entry.key);
-        }
+        evict.add(entry.key);
       }
     }
     if (evict.isEmpty) {
@@ -909,6 +1021,8 @@ class EmoteManager extends ChangeNotifier {
   static const _maxConcurrentPrecache = 5;
 
   void enqueueSeenEmotes(List<GenericEmote> emotes) {
+    // The nothing tier never fetches or precaches: no usage tracking either.
+    if (_tier == EmoteFetchTier.nothing) return;
     final fresh = <GenericEmote>[];
     for (final e in emotes) {
       if (_seenEmoteIds.add(e.id)) {
@@ -947,7 +1061,7 @@ class EmoteManager extends ChangeNotifier {
 
   Future<void> _precacheEmote(GenericEmote emote) async {
     try {
-      await DefaultCacheManager().getSingleFile(emote.url);
+      await EmoteCacheManager().getSingleFile(emote.url);
     } catch (_) {
       debugPrint('[EmoteManager] failed to precache emote: ${emote.code}');
     }

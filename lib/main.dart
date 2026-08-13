@@ -1,9 +1,11 @@
 import 'dart:io';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'screens/home_screen.dart';
+import 'services/emote_cache_manager.dart';
 import 'services/twitch_auth.dart';
 import 'services/twitch_eventsub.dart';
 import 'services/twitch_irc.dart';
@@ -13,6 +15,7 @@ import 'theme_colors.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  CachedNetworkImageProvider.defaultCacheManager = EmoteCacheManager();
   if (Platform.isAndroid) {
     FlutterForegroundTask.initCommunicationPort();
   }

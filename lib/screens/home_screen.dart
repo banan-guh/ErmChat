@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
+import '../models/emote_fetch_tier.dart';
 import '../models/generic_emote.dart';
 import '../models/twitch_message.dart';
 import '../services/twitch_api.dart';
@@ -197,6 +198,11 @@ class _HomeScreenState extends State<HomeScreen>
   bool _mentionPush = false;
   var _isBackgrounded = false;
 
+  int _manualEmoteTierIndex = EmoteFetchTier.high.index;
+  EmoteFetchAutoMode _emoteAutoMode = defaultEmoteFetchAutoMode;
+  final _isMobile = ValueNotifier<bool>(false);
+  StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
+
   late final _emoteManager = EmoteManager(
     probe: _connectivity.checkConnectivity,
   );
@@ -323,6 +329,7 @@ class _HomeScreenState extends State<HomeScreen>
   void initState() {
     super.initState();
     _currentUserLogin = widget.initialCurrentUserLogin;
+    _loadEmotePrefs();
     _emoteSheetCtrl = DraggableScrollableController();
     _mentionsTabCtrl = TabController(length: 2, vsync: this);
     _mentionsTabCtrl.addListener(_onMentionsTabChanged);
@@ -338,6 +345,12 @@ class _HomeScreenState extends State<HomeScreen>
     _emoteManager.preloadGlobalEmotes();
     _emoteManager.startCacheGc();
     _emoteManager.addListener(_onEmotesChanged);
+    _connectivitySub = _connectivity.onConnectivityChanged.listen((results) {
+      final isMobile = results.contains(ConnectivityResult.mobile);
+      if (isMobile == _isMobile.value) return;
+      _isMobile.value = isMobile;
+      _reconcileEmoteTier();
+    });
     _badgeService.fetchGlobalBadges(widget.twitchAuth);
     widget.twitchAuth.addListener(_onAuthChanged);
     _focusNode.addListener(_onInputFocusChanged);
@@ -936,6 +949,94 @@ class _HomeScreenState extends State<HomeScreen>
     _chatConn.connect();
   }
 
+  // Reads the persisted manual tier, auto mode, and disk-cache cap, then
+  // applies them to the emote manager. Runs first in initState so emotes
+  // resolve at the right tier; a persisted effective tier other than the
+  // default high re-resolves caches because connect() may already have
+  // fetched at the default.
+  Future<void> _loadEmotePrefs() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      _manualEmoteTierIndex =
+          prefs.getInt(emoteFetchTierPrefsKey) ?? EmoteFetchTier.high.index;
+      final autoIndex =
+          prefs.getInt(emoteFetchAutoPrefsKey) ??
+          defaultEmoteFetchAutoMode.index;
+      _emoteAutoMode = EmoteFetchAutoMode.values[autoIndex];
+      final loadedCacheCap =
+          prefs.getInt(emoteCacheMaxPrefsKey) ?? defaultEmoteCacheMax;
+      _applyCacheCap(loadedCacheCap);
+      await _refreshConnectivity();
+      _reconcileEmoteTier();
+    } catch (e) {
+      debugPrint('_loadEmotePrefs failed: $e');
+    }
+  }
+
+  Future<void> _refreshConnectivity() async {
+    try {
+      final results = await _connectivity.checkConnectivity();
+      _isMobile.value = results.contains(ConnectivityResult.mobile);
+    } catch (e) {
+      debugPrint('connectivity check failed: $e');
+    }
+  }
+
+  // Computes the effective tier from the manual tier + auto mode and applies
+  // it if it changed. Called at launch, on manual/auto setting changes, and
+  // on connectivity changes.
+  void _reconcileEmoteTier() {
+    final effective = effectiveEmoteFetchTier(
+      manual: EmoteFetchTier.values[_manualEmoteTierIndex],
+      auto: _emoteAutoMode,
+      isMobile: _isMobile.value,
+    );
+    if (effective == _emoteManager.tier) return;
+    _applyTier(effective);
+  }
+
+  void _applyEmoteTier(int index) {
+    _manualEmoteTierIndex = index;
+    _reconcileEmoteTier();
+  }
+
+  void _applyEmoteAutoMode(EmoteFetchAutoMode mode) {
+    _emoteAutoMode = mode;
+    _reconcileEmoteTier();
+  }
+
+  void _applyTier(EmoteFetchTier tier) {
+    try {
+      _emoteManager.tier = tier;
+      if (tier == EmoteFetchTier.nothing) {
+        // Rendering tier: wipe in-memory caches and render only whatever
+        // survives on disk, never fetch.
+        _emoteManager.evictGlobal();
+        for (final c in _channels) {
+          _emoteManager.evictChannel(c);
+        }
+        if (mounted) setState(() {});
+      } else {
+        // Re-resolve caches at the new tier's resolution; the tier tag on
+        // persisted caches makes stale-resolution entries refetch.
+        _emoteManager.evictGlobal();
+        _emoteManager.preloadGlobalEmotes();
+        for (final c in _channels) {
+          _emoteManager.evictChannel(c);
+          _emoteManager.resolveEmotes(c, _channelUserIds[c]);
+        }
+        if (mounted) setState(() {});
+      }
+    } catch (e) {
+      debugPrint('_applyTier failed: $e');
+    }
+  }
+
+  void _applyCacheCap(int cap) {
+    _emoteManager.cacheCap = cap;
+    unawaited(_emoteManager.runCacheGc());
+  }
+
   Future<void> _refreshEmotesAfterAuth() async {
     try {
       for (final channel in _channels) {
@@ -980,6 +1081,7 @@ class _HomeScreenState extends State<HomeScreen>
   ) async {
     final auth = widget.twitchAuth;
     if (!auth.isConfigured) return;
+    if (_emoteManager.tier == EmoteFetchTier.nothing) return;
     // Set "0" is Twitch's global emote set: it's already loaded by
     // preloadGlobalEmotes, so skip it here. Fetching it through this path
     // would duplicate global emotes into every per-channel cache and mislabel
@@ -992,6 +1094,7 @@ class _HomeScreenState extends State<HomeScreen>
       final byOwner = await TwitchEmoteProvider.fetchEmoteSets(
         newSetIds,
         accessToken: auth.accessToken,
+        resolution: _emoteManager.tier.resolution!,
       );
       _fetchedEmoteSetIds.addAll(newSetIds);
       // Only the account's channel-owned sets are stored per channel. The
@@ -1071,6 +1174,8 @@ class _HomeScreenState extends State<HomeScreen>
 
   @override
   void dispose() {
+    _connectivitySub?.cancel();
+    _isMobile.dispose();
     _chatConn.dispose();
     WidgetsBinding.instance.removeObserver(this);
     WidgetsBinding.instance.removeObserver(_predictiveBackHandler);
@@ -2449,6 +2554,11 @@ class _HomeScreenState extends State<HomeScreen>
                                       onBackgroundServiceChanged:
                                           _setBackgroundService,
                                       onMentionPushChanged: _setMentionPush,
+                                      onEmoteTierChanged: _applyEmoteTier,
+                                      onEmoteCacheMaxChanged: _applyCacheCap,
+                                      onEmoteAutoModeChanged:
+                                          _applyEmoteAutoMode,
+                                      mobileNotifier: _isMobile,
                                       channelNotifier: _channelNotifier,
                                       onLeaveChannel: _removeChannel,
                                       onAddChannel: _addChannel,

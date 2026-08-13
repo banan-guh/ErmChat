@@ -5,6 +5,7 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:ermchat/models/emote_fetch_tier.dart';
 import 'package:ermchat/models/generic_emote.dart';
 import 'package:ermchat/services/emote_manager.dart';
 import '../helpers.dart';
@@ -198,6 +199,60 @@ void main() {
       expect(probeCalls, 1);
     });
 
+    test('low tier caches forever (infinite TTL)', () async {
+      final manager = EmoteManager(
+        tier: EmoteFetchTier.low,
+        probe: () async => [ConnectivityResult.mobile],
+      );
+      expect(
+        await manager.effectiveTtlForTesting(),
+        const Duration(days: 365000),
+      );
+    });
+
+    test('nothing tier caches forever (infinite TTL)', () async {
+      final manager = EmoteManager(
+        tier: EmoteFetchTier.nothing,
+        probe: () async => [ConnectivityResult.mobile],
+      );
+      expect(
+        await manager.effectiveTtlForTesting(),
+        const Duration(days: 365000),
+      );
+    });
+
+    test(
+      'medium tier uses a flat 48h TTL regardless of connectivity',
+      () async {
+        final mobile = EmoteManager(
+          tier: EmoteFetchTier.medium,
+          probe: () async => [ConnectivityResult.mobile],
+        );
+        final wifi = EmoteManager(
+          tier: EmoteFetchTier.medium,
+          probe: () async => [ConnectivityResult.wifi],
+        );
+        expect(
+          await mobile.effectiveTtlForTesting(),
+          const Duration(hours: 48),
+        );
+        expect(await wifi.effectiveTtlForTesting(), const Duration(hours: 48));
+      },
+    );
+
+    test('high tier keeps the wifi/cellular TTL split', () async {
+      final mobile = EmoteManager(
+        tier: EmoteFetchTier.high,
+        probe: () async => [ConnectivityResult.mobile],
+      );
+      final wifi = EmoteManager(
+        tier: EmoteFetchTier.high,
+        probe: () async => [ConnectivityResult.wifi],
+      );
+      expect(await mobile.effectiveTtlForTesting(), const Duration(hours: 48));
+      expect(await wifi.effectiveTtlForTesting(), const Duration(hours: 24));
+    });
+
     test('fetch queue serializes actions in order', () async {
       final manager = EmoteManager(fetchStagger: Duration.zero);
       final order = <int>[];
@@ -334,6 +389,8 @@ void main() {
     Future<EmoteManager> makeManager({
       required DateTime Function() clock,
       required void Function(String) remove,
+      int cacheCap = defaultEmoteCacheMax,
+      EmoteFetchTier tier = EmoteFetchTier.high,
     }) async {
       PathProviderPlatform.instance = _FakePathProvider(
         Directory.systemTemp.path,
@@ -342,11 +399,23 @@ void main() {
         fetchStagger: Duration.zero,
         now: clock,
         removeCachedFile: (url) async => remove(url),
+        cacheCap: cacheCap,
+        tier: tier,
       );
       await manager.startCacheGc();
       manager.dispose();
       return manager;
     }
+
+    List<GenericEmote> makeEmotes(int count) => [
+      for (var i = 0; i < count; i++)
+        GenericEmote(
+          id: 'e$i',
+          code: 'E$i',
+          url: 'https://example.com/e$i.png',
+          type: EmoteType.bttv,
+        ),
+    ];
 
     test('evicts emotes unused for over 24h regardless of count', () async {
       SharedPreferences.setMockInitialValues({});
@@ -379,68 +448,75 @@ void main() {
       expect(removed, ['https://example.com/fresh.png']);
     });
 
-    test('trims to max emotes by evicting oldest unused for over 1h', () async {
+    test('LRU trims oldest even within the former 1h hot window', () async {
       SharedPreferences.setMockInitialValues({});
       var clock = DateTime(2026, 1, 1, 12);
       final removed = <String>[];
       final manager = await makeManager(
         clock: () => clock,
         remove: (url) => removed.add(url),
+        cacheCap: 5,
       );
-      final emotes = <GenericEmote>[];
-      for (var i = 0; i < 90; i++) {
-        emotes.add(
-          GenericEmote(
-            id: 'e$i',
-            code: 'E$i',
-            url: 'https://example.com/e$i.png',
-            type: EmoteType.bttv,
-          ),
-        );
-      }
-      // Seed 40 old emotes (touched 2h ago), then 50 fresh (now).
-      manager.enqueueSeenEmotes(emotes.sublist(0, 40));
+      final emotes = makeEmotes(10);
+      // Seed 4 old (touched 2h ago), then 6 fresh (now). Every entry is
+      // within the former 1h hot TTL, so trimming must be pure LRU.
+      manager.enqueueSeenEmotes(emotes.sublist(0, 4));
       clock = clock.add(const Duration(hours: 2));
-      manager.enqueueSeenEmotes(emotes.sublist(40));
+      manager.enqueueSeenEmotes(emotes.sublist(4));
 
       await manager.runCacheGc();
 
-      // 90 > 80, so 10 of the old emotes should be evicted. Among equal
-      // timestamps the sort order is unspecified, so assert set membership
-      // rather than exact order.
-      expect(removed, hasLength(10));
+      // 10 > cap 5: exactly 5 trimmed. Hard TTL (24h) doesn't touch the
+      // 2h-old entries, so the 4 oldest go first, then the earliest fresh.
+      expect(removed, hasLength(5));
       for (final url in removed) {
         final idx = int.parse(
           url.replaceAll('https://example.com/e', '').replaceAll('.png', ''),
         );
-        expect(idx, lessThan(40));
+        // The 4 old entries (0-3) are evicted regardless of age; the 5th is
+        // the earliest fresh (4), since ties sort in unspecified order.
+        expect(idx, lessThan(5));
       }
     });
 
-    test('does not evict fresh emotes even when over capacity', () async {
+    test('trims fresh emotes over the cache cap without a hot TTL', () async {
       SharedPreferences.setMockInitialValues({});
-      var clock = DateTime(2026, 1, 1, 12);
+      final clock = DateTime(2026, 1, 1, 12);
       final removed = <String>[];
       final manager = await makeManager(
         clock: () => clock,
         remove: (url) => removed.add(url),
+        cacheCap: 5,
       );
-      final emotes = <GenericEmote>[];
-      for (var i = 0; i < 90; i++) {
-        emotes.add(
-          GenericEmote(
-            id: 'e$i',
-            code: 'E$i',
-            url: 'https://example.com/e$i.png',
-            type: EmoteType.bttv,
-          ),
-        );
-      }
-      manager.enqueueSeenEmotes(emotes);
+      // All touched "now": previously protected by the hot TTL, now trimmed
+      // purely by LRU once over the cap.
+      manager.enqueueSeenEmotes(makeEmotes(10));
 
       await manager.runCacheGc();
 
-      expect(removed, isEmpty);
+      expect(removed, hasLength(5));
+    });
+
+    test('cacheCap setter is honored by the next GC sweep', () async {
+      SharedPreferences.setMockInitialValues({});
+      final clock = DateTime(2026, 1, 1, 12);
+      final removed = <String>[];
+      final manager = await makeManager(
+        clock: () => clock,
+        remove: (url) => removed.add(url),
+        cacheCap: 6,
+      );
+      manager.enqueueSeenEmotes(makeEmotes(12));
+
+      await manager.runCacheGc();
+      expect(removed, hasLength(6));
+      expect(manager.cacheCap, 6);
+
+      manager.cacheCap = 4;
+      await manager.runCacheGc();
+
+      // 6 remaining > new cap 4: two more evicted.
+      expect(removed, hasLength(8));
     });
 
     test('evicts nothing when under max and none over 24h', () async {
@@ -505,6 +581,8 @@ void main() {
 
       final prefs = await SharedPreferences.getInstance();
       expect(prefs.getBool('emote_gc_migrated_v1'), isTrue);
+      // v2 migration cleared the v1 DefaultCacheManager orphans once.
+      expect(prefs.getBool('emote_gc_migrated_v2'), isTrue);
 
       // Second start skips migration but still schedules a sweep.
       final manager2 = EmoteManager(fetchStagger: Duration.zero);
@@ -512,5 +590,235 @@ void main() {
       manager2.dispose();
       expect(await SharedPreferences.getInstance(), isNotNull);
     });
+  });
+
+  group('nothing fetch tier guards', () {
+    GenericEmote subEmote() => GenericEmote(
+      id: 's1',
+      code: 'SubEmote',
+      type: EmoteType.twitch,
+      url: 'https://example.com/s1.png',
+      scope: EmoteScope.channel,
+      tier: '3',
+      emoteType: 'subscriptions',
+    );
+
+    test(
+      'preloadGlobalEmotes loads the persisted cache without fetching',
+      () async {
+        final persisted = jsonEncode({
+          'ts': DateTime.now()
+              .subtract(const Duration(days: 1))
+              .toIso8601String(),
+          'tier': EmoteFetchTier.nothing.index,
+          'emotes': [makeTestEmote(id: 'g1', code: 'GlobalE').toJson()],
+        });
+        SharedPreferences.setMockInitialValues({'emotes3_global': persisted});
+        final manager = EmoteManager(
+          fetchStagger: Duration.zero,
+          tier: EmoteFetchTier.nothing,
+        );
+
+        await manager.preloadGlobalEmotes();
+
+        // Hoarded cache renders; nothing was fetched, so prefs are untouched.
+        expect(manager.byCode('any')!.byCode, contains('GlobalE'));
+        expect(manager.globalEmotes().map((e) => e.code), contains('GlobalE'));
+        final prefs = await SharedPreferences.getInstance();
+        expect(prefs.getString('emotes3_global'), persisted);
+      },
+    );
+
+    test(
+      'resolveEmotes loads the persisted channel cache without fetching',
+      () async {
+        SharedPreferences.setMockInitialValues({
+          'emotes3_ch': jsonEncode({
+            'ts': DateTime.now().toIso8601String(),
+            'tier': EmoteFetchTier.nothing.index,
+            'emotes': [
+              makeTestEmote(
+                id: 'c1',
+                code: 'ChanE',
+                scope: EmoteScope.channel,
+              ).toJson(),
+            ],
+          }),
+        });
+        final manager = EmoteManager(
+          fetchStagger: Duration.zero,
+          tier: EmoteFetchTier.nothing,
+        );
+
+        await manager.resolveEmotes('ch', 'b1');
+
+        expect(manager.byCode('ch')!.byCode, contains('ChanE'));
+      },
+    );
+
+    test('resolveEmotes with no persisted cache fetches nothing', () async {
+      SharedPreferences.setMockInitialValues({});
+      final manager = EmoteManager(
+        fetchStagger: Duration.zero,
+        tier: EmoteFetchTier.nothing,
+      );
+
+      await manager.resolveEmotes('ch', 'b1');
+
+      // No fetch, no cache, no throw.
+      expect(manager.byCode('ch'), isNull);
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getString('emotes3_ch'), isNull);
+    });
+
+    test('storeUserTwitchEmotes no-ops in the nothing tier', () async {
+      SharedPreferences.setMockInitialValues({});
+      final manager = EmoteManager(
+        fetchStagger: Duration.zero,
+        tier: EmoteFetchTier.nothing,
+      );
+
+      await manager.storeUserTwitchEmotes({
+        'ch': [subEmote()],
+      });
+
+      expect(manager.subscriberEmotesByChannel(), isEmpty);
+    });
+
+    test('updateSevenTvEmotes no-ops in the nothing tier', () {
+      final manager = EmoteManager(tier: EmoteFetchTier.nothing);
+
+      manager.updateSevenTvEmotes(
+        'ch',
+        added: [
+          GenericEmote(
+            id: 'e1',
+            code: 'E1',
+            type: EmoteType.sevenTv,
+            url: 'https://example.com/e1.png',
+            scope: EmoteScope.channel,
+          ),
+        ],
+      );
+
+      expect(manager.byCode('ch'), isNull);
+    });
+
+    test('enqueueSeenEmotes skips usage tracking and precache', () async {
+      SharedPreferences.setMockInitialValues({});
+      PathProviderPlatform.instance = _FakePathProvider(
+        Directory.systemTemp.path,
+      );
+      final removed = <String>[];
+      final manager = EmoteManager(
+        fetchStagger: Duration.zero,
+        tier: EmoteFetchTier.nothing,
+        cacheCap: 0,
+        now: () => DateTime(2026, 1, 1, 12),
+        removeCachedFile: (url) async => removed.add(url),
+      );
+      await manager.startCacheGc();
+      manager.dispose();
+
+      manager.enqueueSeenEmotes([
+        GenericEmote(
+          id: 'e1',
+          code: 'E1',
+          type: EmoteType.bttv,
+          url: 'https://example.com/e1.png',
+        ),
+      ]);
+      await manager.runCacheGc();
+
+      // cap 0 would evict any tracked usage; the nothing tier never tracked
+      // it, so nothing is removed.
+      expect(removed, isEmpty);
+    });
+  });
+
+  group('tier tag in persisted cache', () {
+    Map<String, Object> channelCache({required int tier, int ageHours = 1}) => {
+      'emotes3_ch': jsonEncode({
+        'ts': DateTime.now()
+            .subtract(Duration(hours: ageHours))
+            .toIso8601String(),
+        'tier': tier,
+        'emotes': [
+          makeTestEmote(
+            id: 'c1',
+            code: 'ChanE',
+            scope: EmoteScope.channel,
+          ).toJson(),
+        ],
+      }),
+    };
+
+    test('mismatched tier tag forces a refetch (1x -> 2x overwrite)', () async {
+      SharedPreferences.setMockInitialValues(
+        channelCache(tier: EmoteFetchTier.low.index),
+      );
+      final manager = EmoteManager(
+        fetchStagger: Duration.zero,
+        tier: EmoteFetchTier.medium,
+      );
+
+      await manager.resolveEmotes('ch', 'b1');
+
+      // The stale 1x cache still renders while revalidating...
+      expect(manager.byCode('ch')!.byCode, contains('ChanE'));
+      // ...and the refetch rewrote the cache with the new tier tag.
+      final prefs = await SharedPreferences.getInstance();
+      final data =
+          jsonDecode(prefs.getString('emotes3_ch')!) as Map<String, dynamic>;
+      expect(data['tier'], EmoteFetchTier.medium.index);
+    });
+
+    test('matching tier tag stays fresh without rewriting', () async {
+      SharedPreferences.setMockInitialValues(
+        channelCache(tier: EmoteFetchTier.medium.index),
+      );
+      final manager = EmoteManager(
+        fetchStagger: Duration.zero,
+        tier: EmoteFetchTier.medium,
+      );
+
+      await manager.resolveEmotes('ch', 'b1');
+
+      expect(manager.byCode('ch')!.byCode, contains('ChanE'));
+      final prefs = await SharedPreferences.getInstance();
+      final data =
+          jsonDecode(prefs.getString('emotes3_ch')!) as Map<String, dynamic>;
+      // No refetch happened: the persisted tier tag is untouched.
+      expect(data['tier'], EmoteFetchTier.medium.index);
+    });
+
+    test(
+      'missing tier tag (pre-feature cache) is treated as matching',
+      () async {
+        SharedPreferences.setMockInitialValues({
+          'emotes3_ch': jsonEncode({
+            'ts': DateTime.now()
+                .subtract(const Duration(minutes: 30))
+                .toIso8601String(),
+            'emotes': [
+              makeTestEmote(
+                id: 'c1',
+                code: 'ChanE',
+                scope: EmoteScope.channel,
+              ).toJson(),
+            ],
+          }),
+        });
+        final manager = EmoteManager(fetchStagger: Duration.zero);
+
+        await manager.resolveEmotes('ch', 'b1');
+
+        expect(manager.byCode('ch')!.byCode, contains('ChanE'));
+        final prefs = await SharedPreferences.getInstance();
+        final data =
+            jsonDecode(prefs.getString('emotes3_ch')!) as Map<String, dynamic>;
+        expect(data.containsKey('tier'), isFalse);
+      },
+    );
   });
 }

@@ -106,7 +106,7 @@ class ChatView extends StatelessWidget {
                   // implicit padding) keeps the gap identical whether the
                   // keyboard is up or down.
                   padding: EdgeInsets.only(
-                    bottom: 8,//MediaQuery.viewPaddingOf(context).bottom,
+                    bottom: 8, //MediaQuery.viewPaddingOf(context).bottom,
                   ),
                   itemCount: msgs.length,
                   // Key-based reconciliation: when a message is inserted at

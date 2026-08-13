@@ -101,5 +101,63 @@ void main() {
       expect(emote!.url, 'https://cdn.7tv.app/emote/1/1x/1x.webp');
       expect(emote.urlLarge, 'https://cdn.7tv.app/emote/1/1x/1x.webp');
     });
+
+    group('resolution tiers', () {
+      Map<String, dynamic> emote(List<String> names) => {
+        'id': 'res-1',
+        'name': 'Res',
+        'data': {
+          'name': 'Res',
+          'host': {
+            'url': '//cdn.7tv.app/emote/res',
+            'files': [
+              for (final n in names)
+                {'name': n, 'format': 'WEBP', 'width': 32, 'height': 32},
+            ],
+          },
+        },
+      };
+
+      const base = 'https://cdn.7tv.app/emote/res';
+
+      test('low picks the smallest file and drops urlLarge', () {
+        final e = SevenTvEmoteProvider.parseSingleEmote(
+          emote(['1x.webp', '2x.webp', '3x.webp', '4x.webp']),
+          resolution: EmoteResolution.low,
+        );
+        expect(e, isNotNull);
+        expect(e!.url, '$base/1x.webp');
+        expect(e.urlLarge, isNull);
+      });
+
+      test('medium picks the 2x file and drops urlLarge', () {
+        final e = SevenTvEmoteProvider.parseSingleEmote(
+          emote(['1x.webp', '2x.webp', '3x.webp', '4x.webp']),
+          resolution: EmoteResolution.medium,
+        );
+        expect(e, isNotNull);
+        expect(e!.url, '$base/2x.webp');
+        expect(e.urlLarge, isNull);
+      });
+
+      test('high picks 2x and urlLarge 3x even when a 4x file exists', () {
+        final e = SevenTvEmoteProvider.parseSingleEmote(
+          emote(['1x.webp', '2x.webp', '3x.webp', '4x.webp']),
+        );
+        expect(e, isNotNull);
+        expect(e!.url, '$base/2x.webp');
+        expect(e.urlLarge, '$base/3x.webp');
+        expect(e.urlLarge, isNot(contains('4x')));
+        expect(e.urlLarge, isNot(contains('4x.webp')));
+      });
+
+      test('high falls back to the 2x file when no 3x tier exists', () {
+        final e = SevenTvEmoteProvider.parseSingleEmote(
+          emote(['1x.webp', '2x.webp', '4x.webp']),
+        );
+        expect(e, isNotNull);
+        expect(e!.urlLarge, '$base/2x.webp');
+      });
+    });
   });
 }

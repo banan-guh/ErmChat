@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../models/emote_fetch_tier.dart';
 import '../screens/settings/settings_screen.dart';
 import '../services/analytics_service.dart';
 import '../services/twitch_auth.dart';
@@ -12,6 +13,10 @@ class SettingsButton extends StatelessWidget {
   final ValueChanged<bool>? onTintedTabBarChanged;
   final ValueChanged<bool>? onBackgroundServiceChanged;
   final ValueChanged<bool>? onMentionPushChanged;
+  final ValueChanged<int>? onEmoteTierChanged;
+  final ValueChanged<int>? onEmoteCacheMaxChanged;
+  final ValueChanged<EmoteFetchAutoMode>? onEmoteAutoModeChanged;
+  final ValueNotifier<bool>? mobileNotifier;
   final ValueNotifier<List<String>>? channelNotifier;
   final ValueChanged<String>? onLeaveChannel;
   final ValueChanged<String>? onAddChannel;
@@ -31,6 +36,10 @@ class SettingsButton extends StatelessWidget {
     this.onTintedTabBarChanged,
     this.onBackgroundServiceChanged,
     this.onMentionPushChanged,
+    this.onEmoteTierChanged,
+    this.onEmoteCacheMaxChanged,
+    this.onEmoteAutoModeChanged,
+    this.mobileNotifier,
     this.channelNotifier,
     this.onLeaveChannel,
     this.onAddChannel,
@@ -59,6 +68,10 @@ class SettingsButton extends StatelessWidget {
               onTintedTabBarChanged: onTintedTabBarChanged,
               onBackgroundServiceChanged: onBackgroundServiceChanged,
               onMentionPushChanged: onMentionPushChanged,
+              onEmoteTierChanged: onEmoteTierChanged,
+              onEmoteCacheMaxChanged: onEmoteCacheMaxChanged,
+              onEmoteAutoModeChanged: onEmoteAutoModeChanged,
+              mobileNotifier: mobileNotifier,
               channelNotifier: channelNotifier,
               onLeaveChannel: onLeaveChannel,
               onAddChannel: onAddChannel,

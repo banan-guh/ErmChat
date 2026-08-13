@@ -25,6 +25,7 @@ dart format .              # format all Dart files
 - `lib/models/generic_emote.dart` - cross-provider emote model (Twitch/BTTV/FFZ/7TV, zero-width, scale, aspectRatio)
 - `lib/models/twitch_badge.dart` - BadgeVersion, BadgeSet, MessageBadge data classes
 - `lib/models/twitch_command.dart` - `TwitchCommand` data class (name only; `allCommands` in command_handler lists all of them)
+- `lib/models/emote_fetch_tier.dart` - `EmoteFetchTier` (nothing/low/medium/high) with label/subtitle/resolution + pref keys `emote_fetch_tier` / `emote_cache_max` (default 500, 0-1500), `EmoteFetchAutoMode` (off/balanced/aggressive, default balanced) with labels/subtitles + `emote_fetch_auto` pref key via `effectiveEmoteFetchTier` (a connectivity resolver used by home_screen's `_reconcileEmoteTier`)
 
 #### Screens
 - `lib/screens/home_screen.dart` - 2941‑line main screen: multi‑channel layout, EventSub + IRC integration, reply threads, mentions/whispers view (Mentions + Whispers tabs; the Whispers tab composes whispers - plain text replies to the latest whisper partner, `/w` commands route through the command handler), message input, system messages, chat room state, user profiles, emote menu, autocomplete, broadcaster chat widgets, welcome dialog
@@ -32,6 +33,7 @@ dart format .              # format all Dart files
 - `lib/screens/settings/channel_settings_screen.dart` - channel management (add/leave/reorder)
 - `lib/screens/settings/customization_screen.dart` - theme (light/dark, true-dark), keep-screen-on, accent color, tinted tab bar
 - `lib/screens/settings/chat_settings_screen.dart` - message cutoff, recent-history limit, reply-to-root, background service, mention push, emote/username ordering, timestamps toggle + format; links to Pings
+- `lib/screens/settings/emotes_settings_screen.dart` - emote fetching tier slider (applies immediately) + a three-way emote auto-mode switch (off/balanced/aggressive; locks the tier slider when on, connectivity-picked) + emote image cache slider with Apply button (draft value, not applied on drag). Takes a live `mobileNotifier` (`ValueNotifier<bool>`) so while auto mode is on the tier slider tracks the effective tier that connectivity is currently picking (animated via `TweenAnimationBuilder` + `AnimatedSwitcher`, not a jump); footer (`emote_cache_footer`) shows the emote disk-cache usage (file count + bytes) via `EmoteCacheManager.stats()`
 - `lib/screens/settings/pings_screen.dart` - custom alt-ping highlight words
 - `lib/screens/settings/analytics_screen.dart` - per-channel chat analytics (total messages, unique chatters, live msgs/min, top chatters/emotes/words, bans/timeouts) with a channel selector, raw-vs-stopword word toggle, and per-channel/all resets
 - `lib/screens/settings/account_screen.dart` - account login (browser OAuth or paste-token), "Connected as {login}", logout
@@ -51,6 +53,7 @@ dart format .              # format all Dart files
 - `lib/services/base_irc_connection.dart` - shared abstract base for IRC WebSocket connections (reconnect, ping/pong, auth, disposal)
 - `lib/services/command_handler.dart` - command dispatcher (41 commands: `/me`, `/color`, `/ban`, `/timeout`, `/unban`, `/untimeout`, `/delete`, `/clear`, `/announce` + color variants, `/mod` `/unmod` `/mods`, `/vip` `/unvip` `/vips`, chat modes `/slow` `/followers` `/emoteonly` `/subscribers` `/r9kbeta` `/uniquechat` + off variants, `/shoutout`, `/raid` `/unraid`, `/shield` `/shieldoff`, `/commercial`, `/marker`, `/w`, `/block` `/unblock`) via Helix API (`/me` is the only IRC command - Twitch deprecated the rest in Feb 2023); `/w` is account-scoped (no broadcaster channel needed) and can route feedback into the whispers list via `whisperAddSystemMessage` plus a local echo through `onWhisperSent` (Twitch does not echo your own whispers); exposes `allCommands` (`List<TwitchCommand>`, single source for / autocomplete, suggested to everyone regardless of permission - the API rejects with a clean error notice); failure notices follow DankChat wording (403 -> "You don't have permission to perform that action.", 401 -> "Missing required scope...", 429 -> rate-limit notice, other 4xx pass through the Helix message)
 - `lib/services/emote_manager.dart` - `ChangeNotifier`-based emote caching with 24h TTL on wifi / 48h on cellular (connectivity_plus probe, cached 60s); TTL-gated fetches go through a serialized queue with a 1.5s stagger (the one-by-one "rake"); fresh caches skip the network entirely, Twitch channel emotes refresh in the background per open; `updateSevenTvEmotes` applies live WebSocket deltas
+- `lib/services/emote_cache_manager.dart` - dedicated emote image disk cache singleton (2000-file cap, 30d stale) used by every emote render via `CachedNetworkImageProvider.defaultCacheManager`; `stats()` returns `EmoteCacheStats` (file count + total bytes) for the settings footer
 - `lib/services/seven_tv_event_client.dart` - 7TV live emote update WebSocket client (add/remove/rename events)
 - `lib/services/twitch_badge_service.dart` - global + channel badge fetching from Twitch API
 - `lib/services/user_store.dart` - recent chatter tracking per channel (LRU, max 5000)
@@ -99,16 +102,20 @@ dart format .              # format all Dart files
 
 #### test/unit/
 - `color_utils_test.dart` - 18 tests: color picking, luminance, normalizeColor
-- `emote_manager_test.dart` - 21 tests: emote manager state, GenericEmote creation, relativeScale/aspectRatio JSON round-trip
+- `emote_manager_test.dart` - 39 tests: emote manager state, GenericEmote creation, relativeScale/aspectRatio JSON round-trip, per-tier TTL, hot-TTL-free GC (LRU trim + tier cap), nothing-tier no-fetch guards, tier-tag staleness
 - `emote_text_test.dart` - 16 tests: text parsing with emotes, segment building, whole-token matching, zero-width overlays
 - `twitch_auth_test.dart` - 9 tests: credential persistence and accessors
 - `twitch_config_test.dart` - 1 test: client ID constant
 - `twitch_message_test.dart` - 3 tests: model creation and reply threading
 - `chat_connection_manager_test.dart` - 40 tests: connection manager (pending messages, duplicate detection, channel subscription)
 - `seven_tv_event_client_test.dart` - 24 tests: 7TV WebSocket protocol (hello, emote-set update, reconnect)
-- `seven_tv_emotes_test.dart` - 5 tests: 7TV emote provider
+- `seven_tv_emotes_test.dart` - 11 tests: 7TV emote provider + resolution variants (no 4x)
+- `twitch_emotes_resolution_test.dart` - 4 tests: Twitch resolution URL selection per tier (no 4x)
+- `bttv_emotes_resolution_test.dart` - 3 tests: BTTV resolution variants (no 4x)
+- `ffz_emotes_resolution_test.dart` - 4 tests: FFZ resolution variants (no 4x)
 - `suggestion_filter_test.dart` - 15 tests: suggestion filtering/relevance
 - `current_word_test.dart` - 13 tests: getCurrentWord edge cases (spaces, punctuation, empty, cursor at bounds)
+- `emote_fetch_tier_test.dart` - 6 tests: effective tier resolver matrix (auto off passthrough, balanced wifi/cellular, aggressive wifi/cellular), labels/subtitles, prefs-key distinctness, default auto mode
 - `text_bypass_test.dart` - 7 tests: bypassTextDuplicate
 - `command_handler_test.dart` - 61 tests: slash commands (ban/timeout/unban/untimeout/delete/clear/announce/shoutout/color, mod/vip, chat modes, commercial/raid/shield/marker/whisper, block/unblock, Helix success, DankChat-style failure reporting, exception handling)
 - `user_store_test.dart` - 7 tests: UserStore add/retrieve/remove/capacity
@@ -130,7 +137,7 @@ dart format .              # format all Dart files
 - `recent_messages_test.dart` - 37 tests: Robotty IRC line parsing (TwitchMessage creation, ban/timeout, USERNOTICE subs/announcements, highlights)
 
 #### test/widgets/
-- `widget_test.dart` - 86 tests: main screen renders, channel bar, reply threads (10), system messages (7), settings screen (7), connected/disconnected dedup, join channel dialog, message cutoff, autocomplete, emote menu
+- `widget_test.dart` - 89 tests: main screen renders, channel bar, reply threads (10), system messages (7), settings screen (10), connected/disconnected dedup, join channel dialog, message cutoff, autocomplete, emote menu
 - `channel_bar_test.dart` - 12 tests: channel bar rendering, selection, underline painting, font weight, disappearance
 - `user_profile_sheet_test.dart` - 2 tests: profile sheet report button URL/launch failure
 - `draggable_scrollable_sheet_spike_test.dart` - 2 tests: draggable scrollable sheet interaction

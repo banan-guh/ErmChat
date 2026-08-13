@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../models/emote_fetch_tier.dart';
 import '../../services/analytics_service.dart';
 import '../../services/twitch_auth.dart';
 import '../../services/twitch_oauth.dart';
@@ -8,6 +9,7 @@ import 'analytics_screen.dart';
 import 'channel_settings_screen.dart';
 import 'chat_settings_screen.dart';
 import 'customization_screen.dart';
+import 'emotes_settings_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
   final TwitchAuth twitchAuth;
@@ -18,6 +20,10 @@ class SettingsScreen extends StatelessWidget {
   final ValueChanged<bool>? onTintedTabBarChanged;
   final ValueChanged<bool>? onBackgroundServiceChanged;
   final ValueChanged<bool>? onMentionPushChanged;
+  final ValueChanged<int>? onEmoteTierChanged;
+  final ValueChanged<int>? onEmoteCacheMaxChanged;
+  final ValueChanged<EmoteFetchAutoMode>? onEmoteAutoModeChanged;
+  final ValueNotifier<bool>? mobileNotifier;
   final ValueNotifier<List<String>>? channelNotifier;
   final ValueChanged<String>? onLeaveChannel;
   final ValueChanged<String>? onAddChannel;
@@ -36,6 +42,10 @@ class SettingsScreen extends StatelessWidget {
     this.onTintedTabBarChanged,
     this.onBackgroundServiceChanged,
     this.onMentionPushChanged,
+    this.onEmoteTierChanged,
+    this.onEmoteCacheMaxChanged,
+    this.onEmoteAutoModeChanged,
+    this.mobileNotifier,
     this.channelNotifier,
     this.onLeaveChannel,
     this.onAddChannel,
@@ -94,6 +104,22 @@ class SettingsScreen extends StatelessWidget {
                 builder: (_) => ChatSettingsScreen(
                   onBackgroundServiceChanged: onBackgroundServiceChanged,
                   onMentionPushChanged: onMentionPushChanged,
+                ),
+              ),
+            ),
+          ),
+          _buildTile(
+            context,
+            icon: Icons.emoji_emotions,
+            title: 'Emotes',
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => EmotesSettingsScreen(
+                  onEmoteTierChanged: onEmoteTierChanged,
+                  onEmoteCacheMaxChanged: onEmoteCacheMaxChanged,
+                  onEmoteAutoModeChanged: onEmoteAutoModeChanged,
+                  mobileNotifier: mobileNotifier,
                 ),
               ),
             ),

@@ -5,6 +5,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:ermchat/models/twitch_message.dart';
+import 'package:ermchat/models/emote_fetch_tier.dart';
+import 'package:ermchat/models/generic_emote.dart';
 import 'package:ermchat/services/base_irc_connection.dart';
 import 'package:ermchat/services/chat_connection_manager.dart';
 import 'package:ermchat/services/emote_manager.dart';
@@ -113,9 +115,36 @@ class _NoopIrcRead extends IrcReadService {
   }) async {}
 }
 
+/// EmoteManager that surfaces whether [enqueueSeenEmotes] is called and feeds
+/// a fake channel cache, so precache behavior is observable without fetching.
+class _SpyEmoteManager extends EmoteManager {
+  _SpyEmoteManager({required super.tier})
+    : super(fetchStagger: Duration.zero, cacheCap: 0);
+
+  static const _emote = GenericEmote(
+    id: 'e1',
+    code: 'E1',
+    type: EmoteType.bttv,
+    url: 'https://example.com/e1.png',
+  );
+
+  int enqueueSeenCalls = 0;
+
+  @override
+  void enqueueSeenEmotes(List<GenericEmote> emotes) {
+    enqueueSeenCalls++;
+    super.enqueueSeenEmotes(emotes);
+  }
+
+  @override
+  ChannelEmotes? byCode(String channel) =>
+      ChannelEmotes(byCode: const {'E1': _emote}, suggestions: const [_emote]);
+}
+
 ChatConnectionManager _makeConn({
   required Map<String, List<TwitchMessage>> channelMessages,
   required int maxMessages,
+  EmoteManager? emoteManager,
 }) {
   final api = TwitchApi(client: http.Client());
   return ChatConnectionManager(
@@ -124,7 +153,7 @@ ChatConnectionManager _makeConn({
       eventSub: EventSubService(),
       irc: IrcService(),
       ircRead: IrcReadService(),
-      emoteManager: EmoteManager(),
+      emoteManager: emoteManager ?? EmoteManager(),
       badgeService: TwitchBadgeService(),
       userStore: UserStore(),
       twitchAuth: TwitchAuth(),
@@ -1273,6 +1302,27 @@ void main() {
       await flush();
 
       expect(called, isFalse);
+      conn.dispose();
+    });
+  });
+
+  group('message emote precache', () {
+    test('nothing tier skips precaching entirely', () {
+      final emoteManager = _SpyEmoteManager(tier: EmoteFetchTier.nothing);
+      final msgs = <String, List<TwitchMessage>>{'test': []};
+      final conn = _makeConn(
+        channelMessages: msgs,
+        maxMessages: 100,
+        emoteManager: emoteManager,
+      );
+
+      conn.precacheMessageEmotes(_msg('m1', 'E1 hello'), 'test');
+
+      expect(
+        emoteManager.enqueueSeenCalls,
+        0,
+        reason: 'nothing tier must never precache or touch usage',
+      );
       conn.dispose();
     });
   });

@@ -15,19 +15,22 @@ class SevenTvChannelResponse {
 class SevenTvEmoteProvider {
   static const int _zeroWidthFlag = 1 << 8;
 
-  static Future<List<GenericEmote>> fetchGlobal() async {
+  static Future<List<GenericEmote>> fetchGlobal({
+    EmoteResolution resolution = EmoteResolution.high,
+  }) async {
     final uri = Uri.parse('https://7tv.io/v3/emote-sets/global');
     final res = await http.get(uri).timeout(httpTimeout);
     throwOnTransientHttpError(res.statusCode, uri);
     if (res.statusCode != 200) return [];
     final data = jsonDecode(res.body) as Map<String, dynamic>;
     final items = data['emotes'] as List<dynamic>? ?? [];
-    return _parseEmotes(items, global: true);
+    return _parseEmotes(items, global: true, resolution: resolution);
   }
 
   static Future<SevenTvChannelResponse> fetchChannelResponse(
-    String channelId,
-  ) async {
+    String channelId, {
+    EmoteResolution resolution = EmoteResolution.high,
+  }) async {
     final uri = Uri.parse('https://7tv.io/v3/users/twitch/$channelId');
     final res = await http.get(uri).timeout(httpTimeout);
     throwOnTransientHttpError(res.statusCode, uri);
@@ -37,7 +40,7 @@ class SevenTvEmoteProvider {
     final emoteSet = data['emote_set'] as Map<String, dynamic>?;
     final emoteSetId = emoteSet?['id'] as String?;
     final items = emoteSet?['emotes'] as List<dynamic>? ?? [];
-    final emotes = _parseEmotes(items, channel: true);
+    final emotes = _parseEmotes(items, channel: true, resolution: resolution);
     return SevenTvChannelResponse(
       emotes: emotes,
       userId: userId,
@@ -48,8 +51,13 @@ class SevenTvEmoteProvider {
   static GenericEmote? parseSingleEmote(
     Map<String, dynamic> item, {
     bool channel = false,
+    EmoteResolution resolution = EmoteResolution.high,
   }) {
-    final emotes = _parseEmotes([item], channel: channel);
+    final emotes = _parseEmotes(
+      [item],
+      channel: channel,
+      resolution: resolution,
+    );
     return emotes.isNotEmpty ? emotes.first : null;
   }
 
@@ -57,6 +65,7 @@ class SevenTvEmoteProvider {
     List<dynamic> items, {
     bool global = false,
     bool channel = false,
+    EmoteResolution resolution = EmoteResolution.high,
   }) {
     final emotes = <GenericEmote>[];
     for (final entry in items) {
@@ -85,10 +94,11 @@ class SevenTvEmoteProvider {
       double relativeScale = 1.0;
       double aspectRatio = 1.0;
       // host.files are ordered smallest to largest. Chat renders at ~28dp so
-      // prefer the 2x tier; the largest file is kept for the sheet/menu.
+      // medium/high prefer the 2x tier; high keeps the largest file at or
+      // below 3x (the 4x tier is scrapped) for the sheet/menu.
       String? first;
       String? best2x;
-      String? last;
+      String? lastLe3;
       for (final fileEntry in baseUrl) {
         final file = fileEntry as Map<String, dynamic>;
         final format = file['format'] as String?;
@@ -96,15 +106,15 @@ class SevenTvEmoteProvider {
         if (name == null || format != 'WEBP') continue;
         final hostUrl = host['url'] as String? ?? '';
         final fullUrl = 'https:$hostUrl/$name';
-        last = fullUrl;
         first ??= fullUrl;
         final multiplierStr = name.split('x').first;
         if (multiplierStr == '2') best2x ??= fullUrl;
+        final multiplier = int.tryParse(multiplierStr);
+        if (multiplier != null && multiplier <= 3) lastLe3 = fullUrl;
         isAnimated = true;
         final fileWidth = file['width'] as int?;
         final fileHeight = file['height'] as int?;
         if (fileHeight != null) {
-          final multiplier = int.tryParse(multiplierStr);
           if (multiplier != null && multiplier > 0) {
             relativeScale = fileHeight / (multiplier * 32.0);
           }
@@ -113,8 +123,18 @@ class SevenTvEmoteProvider {
           aspectRatio = fileWidth / fileHeight;
         }
       }
-      url = best2x ?? first;
-      urlLarge = last;
+      switch (resolution) {
+        case EmoteResolution.low:
+          url = first;
+          break;
+        case EmoteResolution.medium:
+          url = best2x ?? first;
+          break;
+        case EmoteResolution.high:
+          url = best2x ?? first;
+          urlLarge = lastLe3;
+          break;
+      }
       if (url == null) continue;
 
       bool isZeroWidth = false;
