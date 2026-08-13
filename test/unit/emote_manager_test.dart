@@ -380,6 +380,95 @@ void main() {
       final codes = manager.byCode('ch')!.suggestions.map((e) => e.code);
       expect(codes, contains('SubEmote'));
     });
+
+    test('storing the same sub emotes twice does not duplicate them', () async {
+      SharedPreferences.setMockInitialValues({});
+      final manager = EmoteManager(fetchStagger: Duration.zero);
+      final emote = subEmote();
+
+      await manager.storeUserTwitchEmotes({
+        'ch': [emote],
+      });
+      await manager.storeUserTwitchEmotes({
+        'ch': [emote],
+      });
+
+      final subs = manager.subscriberEmotesByChannel()['ch']!;
+      expect(subs.length, 1);
+      expect(subs.single.code, 'SubEmote');
+    });
+
+    test('groups subs by ownerChannel instead of storage channel', () async {
+      SharedPreferences.setMockInitialValues({});
+      final manager = EmoteManager(fetchStagger: Duration.zero);
+      final emote = GenericEmote(
+        id: 's1',
+        code: 'SubEmote',
+        type: EmoteType.twitch,
+        url: 'https://example.com/s1.png',
+        scope: EmoteScope.channel,
+        tier: '3',
+        emoteType: 'subscriptions',
+        ownerChannel: 'alpha',
+      );
+
+      // The account-wide union fans into every open channel's store.
+      await manager.storeUserTwitchEmotes({
+        'a': [emote],
+        'b': [emote],
+      });
+
+      final byChannel = manager.subscriberEmotesByChannel();
+      expect(byChannel.keys, ['alpha']);
+      expect(byChannel['alpha']!.length, 1);
+      expect(byChannel['alpha']!.single.code, 'SubEmote');
+    });
+
+    test('falls back to the storage channel when the owner is unknown', () async {
+      SharedPreferences.setMockInitialValues({});
+      final manager = EmoteManager(fetchStagger: Duration.zero);
+      await manager.storeUserTwitchEmotes({
+        'ch': [subEmote()],
+      });
+
+      final byChannel = manager.subscriberEmotesByChannel();
+      expect(byChannel.keys, ['ch']);
+      expect(byChannel['ch']!.single.code, 'SubEmote');
+    });
+
+    test('a fresh store replaces stale sub emotes for the channel', () async {
+      SharedPreferences.setMockInitialValues({});
+      final manager = EmoteManager(fetchStagger: Duration.zero);
+      final old = GenericEmote(
+        id: 's1',
+        code: 'OldEmote',
+        type: EmoteType.twitch,
+        url: 'https://example.com/s1.png',
+        scope: EmoteScope.channel,
+        tier: '3',
+        emoteType: 'subscriptions',
+      );
+      final fresh = GenericEmote(
+        id: 's1',
+        code: 'FreshEmote',
+        type: EmoteType.twitch,
+        url: 'https://example.com/s1.png',
+        scope: EmoteScope.channel,
+        tier: '3',
+        emoteType: 'subscriptions',
+      );
+
+      await manager.storeUserTwitchEmotes({
+        'ch': [old],
+      });
+      await manager.storeUserTwitchEmotes({
+        'ch': [fresh],
+      });
+
+      final subs = manager.subscriberEmotesByChannel()['ch']!;
+      expect(subs.length, 1);
+      expect(subs.single.code, 'FreshEmote');
+    });
   });
 
   group('disk cache GC', () {

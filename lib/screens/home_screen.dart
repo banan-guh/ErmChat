@@ -232,6 +232,14 @@ class _HomeScreenState extends State<HomeScreen>
   // Emote set IDs already fetched via the IRC emote-sets path, so repeated
   // USERSTATE (per channel join / message send) doesn't refetch them.
   final _fetchedEmoteSetIds = <String>{};
+  // Emote set IDs currently being fetched. Added before the network call so
+  // a concurrent USERSTATE/GLOBALUSERSTATE doesn't double-fetch the same
+  // sets; removed on failure so a failed fetch is retried by the next event.
+  final _inflightEmoteSetIds = <String>{};
+  // Owner id -> login for sub-emote owners, resolved once per session (open
+  // channels are derived from _channelUserIds; the rest via Helix /users).
+  final _emoteOwnerLogins = <String, String>{};
+  bool _emoteOwnerLookupDone = false;
   int _unreadMentions = 0;
   final _channelsWithUnread = <String>{};
   final _channelsWithUnreadMentions = <String>{};
@@ -1079,9 +1087,15 @@ class _HomeScreenState extends State<HomeScreen>
     // would duplicate global emotes into every per-channel cache and mislabel
     // them with whichever channel happens to be open.
     final newSetIds = emoteSetIds
-        .where((id) => id != '0' && !_fetchedEmoteSetIds.contains(id))
+        .where(
+          (id) =>
+              id != '0' &&
+              !_fetchedEmoteSetIds.contains(id) &&
+              !_inflightEmoteSetIds.contains(id),
+        )
         .toList();
     if (newSetIds.isEmpty) return;
+    _inflightEmoteSetIds.addAll(newSetIds);
     try {
       final byOwner = await TwitchEmoteProvider.fetchEmoteSets(
         newSetIds,
@@ -1105,6 +1119,7 @@ class _HomeScreenState extends State<HomeScreen>
         );
         return;
       }
+      await _ensureEmoteOwnerLogins(perOwner.keys.toList());
       final targets = channel != null ? [channel] : List.of(_channels);
       if (targets.isEmpty) {
         debugPrint('_loadUserEmoteSets: no channel targets (channel=$channel)');
@@ -1125,23 +1140,45 @@ class _HomeScreenState extends State<HomeScreen>
                 scope: e.scope,
                 tier: e.tier,
                 emoteType: e.emoteType,
-                ownerChannel: _channelNameForOwnerId(entry.key),
+                ownerChannel: _emoteOwnerLogins[entry.key],
               ),
         ];
       }
       await _emoteManager.storeUserTwitchEmotes(perChannel);
     } catch (e) {
       debugPrint('_loadUserEmoteSets failed: $e');
+    } finally {
+      // Leave successfully fetched IDs marked; failed IDs drop out of the
+      // in-flight set so the next USERSTATE/GLOBALUSERSTATE retries them.
+      _inflightEmoteSetIds.removeAll(newSetIds.where(
+        (id) => !_fetchedEmoteSetIds.contains(id),
+      ));
     }
   }
 
-  // Resolves a Twitch user ID to an open channel's login (for the emote sheet
-  // "Created by" label). Null when the owning channel isn't open.
-  String? _channelNameForOwnerId(String ownerId) {
+  // Resolves sub-emote owner IDs to logins once per session: open channels
+  // map directly, anything else goes through one batched Helix /users call.
+  Future<void> _ensureEmoteOwnerLogins(List<String> ownerIds) async {
+    if (_emoteOwnerLookupDone) return;
+    _emoteOwnerLookupDone = true;
+    // Seed from the open channels (login -> id), so they need no API call.
     for (final entry in _channelUserIds.entries) {
-      if (entry.value == ownerId) return entry.key;
+      _emoteOwnerLogins[entry.value] = entry.key;
     }
-    return null;
+    final unknown = ownerIds
+        .where((id) => !_emoteOwnerLogins.containsKey(id))
+        .toSet()
+        .toList();
+    if (unknown.isEmpty) return;
+    try {
+      final resolved = await _twitchApi.getUserLoginsByIds(
+        widget.twitchAuth,
+        unknown,
+      );
+      _emoteOwnerLogins.addAll(resolved);
+    } catch (e) {
+      debugPrint('_ensureEmoteOwnerLogins failed: $e');
+    }
   }
 
   void _loadMaxMessages() async {
@@ -1925,7 +1962,7 @@ class _HomeScreenState extends State<HomeScreen>
         _emoteSheetCtrl.animateTo(
           _emoteMaxFraction,
           duration: _sheetAnimDuration,
-          curve: Curves.easeOut,
+          curve: Curves.easeInOutCubicEmphasized,
         );
       }
     });
@@ -1934,10 +1971,16 @@ class _HomeScreenState extends State<HomeScreen>
   Future<void> _closeEmoteSheet() async {
     if (!_emoteSheetOpen) return;
     if (_emoteSheetCtrl.isAttached) {
+      // Scale the close duration by how open the sheet is, so a near-closed
+      // sheet dismisses quickly while a fully-open one eases down.
+      final fraction =
+          (_emoteSheetCtrl.size / _emoteMaxFraction).clamp(0.0, 1.0);
+      final duration =
+          Duration(milliseconds: (80 + 180 * fraction).round());
       await _emoteSheetCtrl.animateTo(
         0.0,
-        duration: _sheetCloseDuration,
-        curve: Curves.easeOut,
+        duration: duration,
+        curve: Curves.easeInOutCubicEmphasized,
       );
     }
     if (mounted) {
@@ -2913,7 +2956,6 @@ class _HomeScreenState extends State<HomeScreen>
                                           scrollController: scrollController,
                                           sheetCtrl: _emoteSheetCtrl,
                                           emoteMaxFraction: _emoteMaxFraction,
-                                          sheetAnimDuration: _sheetAnimDuration,
                                           tintedTabBar: widget.tintedTabBar,
                                         ),
                                       ),

@@ -14,7 +14,6 @@ class EmoteMenuPanelWidget extends StatefulWidget {
   final EmoteManager emoteManager;
   final DraggableScrollableController sheetCtrl;
   final double emoteMaxFraction;
-  final Duration sheetAnimDuration;
   final bool tintedTabBar;
 
   const EmoteMenuPanelWidget({
@@ -26,7 +25,6 @@ class EmoteMenuPanelWidget extends StatefulWidget {
     required this.onClose,
     required this.emoteManager,
     required this.emoteMaxFraction,
-    required this.sheetAnimDuration,
     this.tintedTabBar = false,
     super.key,
   });
@@ -39,6 +37,11 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
   // Position-based close triggers below 5% of screen height (in sheet-size
   // units, hence the division by emoteMaxFraction in onDragEnd).
   static const double _emoteCloseFraction = 0.05;
+
+  // Cap the panel width so emotes keep phone-sized proportions (5 columns of
+  // a consistent size) on wide devices like tablets instead of ballooning
+  // across the full screen.
+  static const double _maxPanelWidth = 480;
 
   int _emoteTabIndex = 0;
   List<GenericEmote> _cachedRecentEmotes = [];
@@ -73,89 +76,113 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
     final theme = Theme.of(context);
     final panelColor = theme.colorScheme.surfaceContainerLow;
     final radius = BorderRadius.circular(16);
-    return Container(
-      margin: const EdgeInsets.all(4),
-      decoration: BoxDecoration(
-        color: panelColor,
-        borderRadius: radius,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.12),
-            blurRadius: 12,
-            offset: const Offset(0, -2),
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: _maxPanelWidth),
+        child: Container(
+          margin: const EdgeInsets.all(4),
+          decoration: BoxDecoration(
+            color: panelColor,
+            borderRadius: radius,
+            border: Border.all(color: theme.colorScheme.outlineVariant),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.12),
+                blurRadius: 12,
+                offset: const Offset(0, -2),
+              ),
+            ],
           ),
-        ],
-      ),
-      clipBehavior: Clip.none,
-      child: ClipRRect(
-        borderRadius: radius,
-        child: GestureDetector(
-          key: const Key('emote_panel_handle'),
-          behavior: HitTestBehavior.opaque,
-          onVerticalDragUpdate: (details) {
-            final newPixels = widget.sheetCtrl.pixels - details.primaryDelta!;
-            final newSize = widget.sheetCtrl
-                .pixelsToSize(newPixels)
-                .clamp(0.0, 1.0);
-            if (widget.sheetCtrl.isAttached) {
-              widget.sheetCtrl.jumpTo(newSize);
-            }
-          },
-          // Close on drag-below-threshold or a fast flick down (shared
-          // thresholds in util/sheet_drag.dart). Position close triggers at
-          // 5% of screen height; momentum is more sensitive than before.
-          onVerticalDragEnd: (details) {
-            if (!widget.sheetCtrl.isAttached) return;
-            final velocity = details.primaryVelocity ?? 0;
-            final fraction = widget.sheetCtrl.size / widget.emoteMaxFraction;
-            if (shouldCloseSheet(
-              fraction: fraction,
-              velocity: velocity,
-              closeFraction: _emoteCloseFraction / widget.emoteMaxFraction,
-            )) {
-              widget.onClose();
-            } else {
-              widget.sheetCtrl.animateTo(
-                widget.emoteMaxFraction,
-                duration: widget.sheetAnimDuration,
-                curve: Curves.easeOutCubic,
-              );
-            }
-          },
-          child: Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.only(top: 12, bottom: 24),
-                child: Center(
-                  child: SizedBox(
-                    width: 32,
-                    height: 4,
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        color: Colors.grey.shade400,
-                        borderRadius: BorderRadius.circular(2),
+          clipBehavior: Clip.none,
+          child: ClipRRect(
+            borderRadius: radius,
+            child: GestureDetector(
+              key: const Key('emote_panel_handle'),
+              behavior: HitTestBehavior.opaque,
+              onVerticalDragUpdate: (details) {
+                final newPixels =
+                    widget.sheetCtrl.pixels - details.primaryDelta!;
+                final newSize = widget.sheetCtrl
+                    .pixelsToSize(newPixels)
+                    .clamp(0.0, 1.0);
+                if (widget.sheetCtrl.isAttached) {
+                  widget.sheetCtrl.jumpTo(newSize);
+                }
+              },
+              // Close on drag-below-threshold or a fast flick down (shared
+              // thresholds in util/sheet_drag.dart). Position close triggers
+              // at 5% of screen height; momentum is more sensitive than
+              // before.
+              onVerticalDragEnd: (details) {
+                if (!widget.sheetCtrl.isAttached) return;
+                final velocity = details.primaryVelocity ?? 0;
+                final fraction =
+                    widget.sheetCtrl.size / widget.emoteMaxFraction;
+                if (shouldCloseSheet(
+                  fraction: fraction,
+                  velocity: velocity,
+                  closeFraction: _emoteCloseFraction / widget.emoteMaxFraction,
+                )) {
+                  widget.onClose();
+                } else {
+                  // Scale the settle duration by how far the sheet still has
+                  // to travel and how fast it was released: a short remaining
+                  // distance or a quick fling settles faster.
+                  final remaining =
+                      ((widget.emoteMaxFraction - widget.sheetCtrl.size) /
+                              widget.emoteMaxFraction)
+                          .clamp(0.0, 1.0);
+                  final velocityFactor = (velocity.abs() / 5000).clamp(
+                    0.0,
+                    0.5,
+                  );
+                  final duration = Duration(
+                    milliseconds: (150 + 200 * remaining * (1 - velocityFactor))
+                        .round(),
+                  );
+                  widget.sheetCtrl.animateTo(
+                    widget.emoteMaxFraction,
+                    duration: duration,
+                    curve: Curves.easeInOutCubicEmphasized,
+                  );
+                }
+              },
+              child: Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.only(top: 15, bottom: 24), // exactly 15 to line up with the other line
+                    child: Center(
+                      child: SizedBox(
+                        width: 32,
+                        height: 4,
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade400,
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                        ),
                       ),
                     ),
                   ),
-                ),
-              ),
-              Expanded(
-                child: TabbedLayout(
-                  tabAlignment: Alignment.center,
-                  tabBarColor: widget.tintedTabBar
-                      ? theme.colorScheme.primaryContainer
-                      : panelColor,
-                  tabs: const ['Recent', 'Subs', 'Channel', 'Global'],
-                  selectedIndex: _emoteTabIndex,
-                  onSelectedIndexChanged: (i) =>
-                      setState(() => _emoteTabIndex = i),
-                  pageBuilder: (_, i) => _buildEmoteTabPage(
-                    i,
-                    i == _emoteTabIndex ? widget.scrollController : null,
+                  Expanded(
+                    child: TabbedLayout(
+                      tabAlignment: Alignment.center,
+                      tabBarColor: widget.tintedTabBar
+                          ? theme.colorScheme.primaryContainer
+                          : panelColor,
+                      tabs: const ['Recent', 'Subs', 'Channel', 'Global'],
+                      selectedIndex: _emoteTabIndex,
+                      onSelectedIndexChanged: (i) =>
+                          setState(() => _emoteTabIndex = i),
+                      pageBuilder: (_, i) => _buildEmoteTabPage(
+                        i,
+                        i == _emoteTabIndex ? widget.scrollController : null,
+                      ),
+                    ),
                   ),
-                ),
+                ],
               ),
-            ],
+            ),
           ),
         ),
       ),
@@ -218,8 +245,7 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
         const Center(child: Text('No subscriber emotes available')),
       );
     }
-    final screenWidth = MediaQuery.of(context).size.width;
-    final sidePadding = screenWidth * 0.08;
+    final sidePadding = _panelWidth * 0.08;
     return CustomScrollView(
       controller: scrollController,
       slivers: [
@@ -294,8 +320,7 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
     List<GenericEmote> emotes,
     ScrollController? scrollController,
   ) {
-    final screenWidth = MediaQuery.of(context).size.width;
-    final sidePadding = screenWidth * 0.08;
+    final sidePadding = _panelWidth * 0.08;
     return GridView.builder(
       controller: scrollController,
       padding: EdgeInsets.symmetric(horizontal: sidePadding, vertical: 4),
@@ -315,10 +340,14 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
   }
 
   double _computeCellPadding() {
-    final screenWidth = MediaQuery.of(context).size.width;
-    final sidePadding = screenWidth * 0.08;
-    final cellWidth = (screenWidth - 2 * sidePadding - 4 * 8) / 5;
+    final sidePadding = _panelWidth * 0.08;
+    final cellWidth = (_panelWidth - 2 * sidePadding - 4 * 8) / 5;
     return cellWidth * 0.08;
+  }
+
+  double get _panelWidth {
+    final w = MediaQuery.of(context).size.width;
+    return w > _maxPanelWidth ? _maxPanelWidth : w;
   }
 
   Widget _buildEmoteGridItem(GenericEmote emote, double cellPadding) {

@@ -116,6 +116,90 @@ void main() {
     });
   });
 
+  group('getUserLoginsByIds', () {
+    test('maps ids to logins with GET /helix/users?id=', () async {
+      late http.Request captured;
+      final api = createApi(
+        (req) => captured = req,
+        respond: () => http.Response(
+          '{"data": [{"id": "1", "login": "alpha"}, {"id": "2", "login": "beta"}]}',
+          200,
+        ),
+      );
+
+      final result = await api.getUserLoginsByIds(auth, ['1', '2']);
+
+      expect(result, {'1': 'alpha', '2': 'beta'});
+      expect(captured.method, 'GET');
+      expect(
+        captured.url.toString(),
+        'https://api.twitch.tv/helix/users?id=1&id=2',
+      );
+      expectAuthHeaders(captured);
+    });
+
+    test('batches into chunks of 100 and merges results', () async {
+      final requests = <String>[];
+      final api = TwitchApi(
+        client: MockClient((request) async {
+          requests.add(request.url.toString());
+          final ids = request.url.queryParametersAll['id'] ?? [];
+          final data = [
+            for (final id in ids)
+              {'id': id, 'login': 'user_$id'},
+          ];
+          return http.Response(jsonEncode({'data': data}), 200);
+        }),
+      );
+      final ids = [for (var i = 0; i < 150; i++) '$i'];
+
+      final result = await api.getUserLoginsByIds(auth, ids);
+
+      expect(requests.length, 2);
+      expect(requests[0], contains('id=0&id=1'));
+      expect(requests[1], isNot(contains('id=0')));
+      expect(result.length, 150);
+      expect(result['149'], 'user_149');
+      expect(result['0'], 'user_0');
+    });
+
+    test('dedups input ids before building the query', () async {
+      final requests = <String>[];
+      final api = TwitchApi(
+        client: MockClient((request) async {
+          requests.add(request.url.toString());
+          return http.Response('{"data": []}', 200);
+        }),
+      );
+
+      await api.getUserLoginsByIds(auth, ['1', '1', '1']);
+
+      expect(requests.single, 'https://api.twitch.tv/helix/users?id=1');
+    });
+
+    test('skips failed chunks and returns whatever resolved', () async {
+      var call = 0;
+      final api = TwitchApi(
+        client: MockClient((request) async {
+          call++;
+          if (call == 1) return http.Response('Error', 500);
+          return http.Response(
+            '{"data": [{"id": "target2", "login": "beta"}]}',
+            200,
+          );
+        }),
+      );
+      // 101 distinct ids: the first chunk (100 ids) fails, the second carries
+      // "target2".
+      final ids = [for (var i = 0; i < 100; i++) 'id$i', 'target2'];
+
+      final result = await api.getUserLoginsByIds(auth, ids);
+
+      expect(result, {'target2': 'beta'});
+      expect(api.lastError, contains('getUserLoginsByIds'));
+    });
+  });
+
   group('createEventSubSubscription', () {
     test(
       'sends POST /helix/eventsub/subscriptions with generic body',

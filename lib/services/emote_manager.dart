@@ -185,17 +185,33 @@ class EmoteManager extends ChangeNotifier {
   Map<String, List<GenericEmote>> subscriberEmotesByChannel() {
     final cached = _subsByChannelCache;
     if (cached != null) return cached;
-    final result = <String, List<GenericEmote>>{};
+    // The account's sub emotes are fanned into every open channel's store, so
+    // group by the emote's real owner (ownerChannel) instead of the storage
+    // channel and dedup by id: each emote appears exactly once, under the
+    // channel that owns it. Unknown owners fall back to the storage channel.
+    final byOwner = <String, GenericEmote>{};
+    final ownerOf = <String, String>{};
     final keys = _channelTwitchEmotes.keys.toList()..sort();
     for (final channel in keys) {
       final raw = _channelTwitchEmotes[channel];
       if (raw == null) continue;
-      final subs =
-          raw
-              .where((e) => e.emoteType == 'subscriptions' || e.tier != null)
-              .toList()
-            ..sort((a, b) => a.code.compareTo(b.code));
-      if (subs.isNotEmpty) result[channel] = subs;
+      for (final e in raw) {
+        if (e.emoteType != 'subscriptions' && e.tier == null) continue;
+        final key =
+            e.id.isNotEmpty
+            ? e.id
+            : '${e.code}|${e.ownerChannel ?? channel}';
+        if (byOwner.containsKey(key)) continue;
+        byOwner[key] = e;
+        ownerOf[key] = e.ownerChannel ?? channel;
+      }
+    }
+    final result = <String, List<GenericEmote>>{};
+    for (final entry in byOwner.entries) {
+      (result[ownerOf[entry.key] ?? ''] ??= []).add(entry.value);
+    }
+    for (final list in result.values) {
+      list.sort((a, b) => a.code.compareTo(b.code));
     }
     return _subsByChannelCache = result;
   }
@@ -309,11 +325,22 @@ class EmoteManager extends ChangeNotifier {
       final emotes = entry.value;
       if (emotes.isEmpty) continue;
       final existing = _channelTwitchEmotes[channel] ?? [];
-      final merged = <GenericEmote>[
-        for (final e in existing)
-          if (e.tier == null) e,
-        ...emotes,
-      ];
+      // Freshly fetched emotes first (new wins over same-id entries from an
+      // earlier store or channel fetch), then keep existing non-tiered
+      // entries that aren't already present. Existing tiered entries are
+      // replaced wholesale by the fresh fetch, and everything is deduped by
+      // id so overlapping emote sets or concurrent stores can't stack the
+      // same subscriber emote twice under one channel.
+      final merged = <GenericEmote>[];
+      final seen = <String>{};
+      for (final e in emotes) {
+        if (e.id.isEmpty || seen.add(e.id)) merged.add(e);
+      }
+      for (final e in existing) {
+        if (e.tier == null && (e.id.isEmpty || seen.add(e.id))) {
+          merged.add(e);
+        }
+      }
       _channelTwitchEmotes[channel] = merged;
       _subsByChannelCache = null;
       final existingCache = _channelCaches[channel];

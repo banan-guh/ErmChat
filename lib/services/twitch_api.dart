@@ -82,6 +82,46 @@ class TwitchApi {
     }
   }
 
+  /// Resolves user IDs to their lowercase login names (Helix GET /users,
+  /// batched at 100 IDs per request). Returns an id -> login map; IDs that
+  /// fail to resolve are simply absent. Used to label subscriber-emote owners
+  /// that aren't currently open channels.
+  Future<Map<String, String>> getUserLoginsByIds(
+    TwitchAuth auth,
+    List<String> ids,
+  ) async {
+    _clearError();
+    final result = <String, String>{};
+    final uniqueIds = ids.toSet().toList();
+    // Helix /users accepts up to 100 id params per request; chunk so a large
+    // batch doesn't spawn one request per ID.
+    const chunkSize = 100;
+    for (var i = 0; i < uniqueIds.length; i += chunkSize) {
+      var end = i + chunkSize;
+      if (end > uniqueIds.length) end = uniqueIds.length;
+      final chunk = uniqueIds.sublist(i, end);
+      final query = chunk.map((id) => 'id=$id').join('&');
+      final uri = Uri.parse('$_base/users?$query');
+      final res = await _client.get(uri, headers: _headers(auth));
+      if (res.statusCode != 200) {
+        _setError('getUserLoginsByIds', res);
+        continue;
+      }
+      try {
+        final data = jsonDecode(res.body) as Map;
+        final list = data['data'] as List? ?? [];
+        for (final item in list) {
+          final id = item['id'] as String?;
+          final login = item['login'] as String?;
+          if (id != null && login != null) result[id] = login;
+        }
+      } catch (e) {
+        _setError('getUserLoginsByIds: bad response');
+      }
+    }
+    return result;
+  }
+
   Future<bool> createEventSubSubscription({
     required TwitchAuth auth,
     required String sessionId,
