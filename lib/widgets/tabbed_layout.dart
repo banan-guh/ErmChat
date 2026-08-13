@@ -110,7 +110,17 @@ class TabbedLayoutState extends State<TabbedLayout>
     if (len == 0) return;
     final idx = widget.selectedIndex.clamp(0, len - 1);
     _lastFocusIndex = idx;
-    _tabController = TabController(length: len, vsync: this, initialIndex: idx);
+    // A zero animation duration makes tab taps switch instantly. TabBarView
+    // can't retarget a running animateTo (the page keeps sliding to the
+    // original target while the controller moves on), so overlapping taps
+    // would desync the visible page from the selected channel. Instant
+    // switches settle synchronously and stay consistent.
+    _tabController = TabController(
+      length: len,
+      vsync: this,
+      initialIndex: idx,
+      animationDuration: Duration.zero,
+    );
     _tabController!.addListener(_onTabChanged);
     if (widget.focusOnHalfDrag) {
       _tabController!.animation!.addListener(_onAnimationTick);
@@ -155,7 +165,11 @@ class TabbedLayoutState extends State<TabbedLayout>
       _tabLength = len;
       if (len > 0) {
         final idx = widget.selectedIndex.clamp(0, len - 1);
-        _tabController = TabController(length: len, vsync: this);
+        _tabController = TabController(
+          length: len,
+          vsync: this,
+          animationDuration: Duration.zero,
+        );
         _tabController!.addListener(_onTabChanged);
         if (widget.focusOnHalfDrag) {
           _tabController!.animation!.addListener(_onAnimationTick);
