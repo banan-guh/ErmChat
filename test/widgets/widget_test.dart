@@ -2773,6 +2773,35 @@ void main() {
       expect(find.text('No channels joined'), findsOneWidget);
     });
 
+    testWidgets('Channel settings drag handle reorders channels', (
+      WidgetTester tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({});
+      List<String>? reordered;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: ChannelSettingsScreen(
+            channelNotifier: ValueNotifier(['a', 'b', 'c']),
+            onReorderChannels: (channels) => reordered = channels,
+          ),
+        ),
+      );
+      await tester.pump();
+
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.text('a')),
+      );
+      await tester.pump(const Duration(milliseconds: 700));
+      await gesture.moveBy(const Offset(0, 120));
+      await tester.pump();
+      await gesture.up();
+      await tester.pumpAndSettle();
+
+      expect(reordered, isNotNull);
+      expect(reordered, isNot(equals(['a', 'b', 'c'])));
+    });
+
     testWidgets('Channel settings join channel dialog', (
       WidgetTester tester,
     ) async {
