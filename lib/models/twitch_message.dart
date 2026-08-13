@@ -48,6 +48,9 @@ class TwitchMessage {
   final String? sourceBroadcasterId;
   final String? sourceBroadcasterName;
   List<InlineSpan>? cachedSpans;
+  // EmoteManager.version at which cachedSpans was computed; when the manager
+  // notifies a higher version, the spans are rebuilt lazily on next render.
+  int? cachedSpansVersion;
   List<WidgetSpan>? cachedBadgeSpans;
   late final String formattedTimestamp =
       '${timestamp.toLocal().hour.toString().padLeft(2, '0')}:${timestamp.toLocal().minute.toString().padLeft(2, '0')}';

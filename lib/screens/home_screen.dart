@@ -867,24 +867,16 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   void _onEmotesChanged() {
+    // Emote data changed: cached message spans are validated against
+    // EmoteManager.version, so no O(total messages) clear is needed here.
+    // Just bump the affected channels so visible tiles lazily recompute.
     final channel = _emoteManager.consumeChangedChannel();
-    if (channel != null) {
-      final msgs = _channelMessages[channel];
-      if (msgs != null) {
-        for (final msg in msgs) {
-          msg.cachedSpans = null;
-        }
-      }
-    } else {
-      for (final msgs in _channelMessages.values) {
-        for (final msg in msgs) {
-          msg.cachedSpans = null;
-        }
-      }
-    }
     if (channel != null) {
       _bumpChannel(channel);
     } else {
+      for (final c in List.of(_channels)) {
+        _bumpChannel(c);
+      }
       _mentionsBump.value++;
       _onPanelDataChanged();
     }

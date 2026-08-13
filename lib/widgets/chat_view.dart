@@ -6,9 +6,8 @@ import '../widgets/emote_text.dart';
 import '../widgets/message_builder.dart';
 
 class ChatView extends StatelessWidget {
-  // Per-channel tile cache bound, well above the default max-messages-per-
-  // channel (200) so visible tiles always stay cached while old truncated
-  // messages evict.
+  // Per-channel tile cache bound, well above the visible viewport so tiles
+  // stay cached across message insertions while truncated messages evict.
   static const int _maxCachedTiles = 300;
 
   final String channel;
@@ -90,10 +89,17 @@ class ChatView extends StatelessWidget {
                   () => <String?, Widget>{},
                 );
 
+                // Reconciliation only needs indices for already-instantiated
+                // children (the cached tiles), so scanning stops once every
+                // cached id is located - channel buffers can be far larger
+                // than the tile cache bound, keeping this bounded per message.
+                final pending = cache.keys.whereType<String>().toSet();
                 final idToIndex = <String, int>{};
-                for (var i = 0; i < msgs.length; i++) {
+                for (var i = 0; i < msgs.length && pending.isNotEmpty; i++) {
                   final id = msgs[i].messageId;
-                  if (id != null) idToIndex[id] = i;
+                  if (id != null && pending.remove(id)) {
+                    idToIndex[id] = i;
+                  }
                 }
 
                 return ListView.builder(

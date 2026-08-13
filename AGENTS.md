@@ -32,7 +32,7 @@ dart format .              # format all Dart files
 - `lib/screens/settings/settings_screen.dart` - settings hub listing sub-screens (Channels, Customization, Chat, Analytics, Account, About)
 - `lib/screens/settings/channel_settings_screen.dart` - channel management (add/leave/reorder)
 - `lib/screens/settings/customization_screen.dart` - theme (light/dark, true-dark), keep-screen-on, accent color, tinted tab bar
-- `lib/screens/settings/chat_settings_screen.dart` - message cutoff, recent-history limit, reply-to-root, background service, mention push, emote/username ordering, timestamps toggle + format; links to Pings
+- `lib/screens/settings/chat_settings_screen.dart` - message cutoff (log-scaled slider over `kMaxMessagesPerChannelValues` 100-5000 in 100s/1000s, legacy values snap to the nearest step), recent-history limit, reply-to-root, background service, mention push, emote/username ordering, timestamps toggle + format; links to Pings
 - `lib/screens/settings/emotes_settings_screen.dart` - emote fetching tier slider (applies immediately) + a three-way emote auto-mode switch (off/balanced/aggressive; locks the tier slider when on, connectivity-picked) + emote image cache slider with Apply button (draft value, not applied on drag). Takes a live `mobileNotifier` (`ValueNotifier<bool>`) so while auto mode is on the tier slider tracks the effective tier that connectivity is currently picking (animated via `TweenAnimationBuilder` + `AnimatedSwitcher`, not a jump); footer (`emote_cache_footer`) shows the emote disk-cache usage (file count + bytes) via `EmoteCacheManager.stats()`
 - `lib/screens/settings/pings_screen.dart` - custom alt-ping highlight words
 - `lib/screens/settings/analytics_screen.dart` - per-channel chat analytics (total messages, unique chatters, live msgs/min, top chatters/emotes/words, bans/timeouts) with a channel selector, raw-vs-stopword word toggle, and per-channel/all resets
@@ -48,7 +48,7 @@ dart format .              # format all Dart files
 - `lib/services/twitch_irc.dart` - IRC WebSocket: chat messages (`onMessage`), USERNOTICE subs/announcements/raids (`onUserNotice`), CLEARCHAT (bans/timeouts into `onBan`, full channel clears without a target into `onChannelClear`) and CLEARMSG (deletion) into `onMessageDeleted`, NOTICE, ROOMSTATE (`onRoomState`, feeds the chat status splash), USERSTATE/GLOBALUSERSTATE (`onUserState`/`onGlobalUserState`), WHISPER (`onWhisper`, not channel-bound), jtv; exports `parseIrcMessage` and shared `parseIrcChatMessage`/`buildUserNoticeText`
 - `lib/services/twitch_irc_read.dart` - read-only IRC connection for own-message detection
 - `lib/services/recent_messages.dart` - recent‑messages.robotty.de client; exports `RecentMessagesService.parseIrcLine`
-- `lib/services/chat_connection_manager.dart` - central orchestrator: connection lifecycle, message routing, duplicate detection, chat status (room modes from ROOMSTATE + stream info from a 60s Helix poll, composed in `_composeChatStatus`); IRC is the chat pipeline, EventSub is moderation-only (channel.moderate v2 subscribed in channels where the user is a moderator, `_moderationChannels` suppresses duplicate IRC CLEARCHAT/CLEARMSG/NOTICE copies while active); optional `onAnalyticsMessage`/`onAnalyticsModeration` callbacks feed the AnalyticsService from the live message funnel (history merges bypass these, so backfill never pollutes stats)
+- `lib/services/chat_connection_manager.dart` - central orchestrator: connection lifecycle, message routing, duplicate detection, chat status (room modes from ROOMSTATE + stream info from a 60s Helix poll, composed in `_composeChatStatus`); IRC is the chat pipeline, EventSub is moderation-only (channel.moderate v2 subscribed in channels where the user is a moderator, `_moderationChannels` suppresses duplicate IRC CLEARCHAT/CLEARMSG/NOTICE copies while active); optional `onAnalyticsMessage`/`onAnalyticsModeration` callbacks feed the AnalyticsService from the live message funnel (history merges bypass these, so backfill never pollutes stats); truncation is coalesced for the per-message hot path (`_truncateWithCoalesce` defers the O(n) thread-aware `truncateChannelMessages` pass within a 250ms window, bounded by a 2x hard cap; `truncateNow`/`truncateCoalesceWindow` config is clock-injectable, default `clock.now()` so widget tests advance it via `tester.pump`)
 - `lib/services/analytics_service.dart` - `ChangeNotifier` per-channel chat stats accumulated live: total messages, unique chatters, top chatters, top emotes (Twitch positions + whole-token match against an injected `emoteLookup`, mirroring `EmoteText` semantics), top words with an optional stopword filter, a 60-minute rolling msgs/min window, and ban/timeout counters; no persistence, resets on app close or manually
 - `lib/services/base_irc_connection.dart` - shared abstract base for IRC WebSocket connections (reconnect, ping/pong, auth, disposal)
 - `lib/services/command_handler.dart` - command dispatcher (41 commands: `/me`, `/color`, `/ban`, `/timeout`, `/unban`, `/untimeout`, `/delete`, `/clear`, `/announce` + color variants, `/mod` `/unmod` `/mods`, `/vip` `/unvip` `/vips`, chat modes `/slow` `/followers` `/emoteonly` `/subscribers` `/r9kbeta` `/uniquechat` + off variants, `/shoutout`, `/raid` `/unraid`, `/shield` `/shieldoff`, `/commercial`, `/marker`, `/w`, `/block` `/unblock`) via Helix API (`/me` is the only IRC command - Twitch deprecated the rest in Feb 2023); `/w` is account-scoped (no broadcaster channel needed) and can route feedback into the whispers list via `whisperAddSystemMessage` plus a local echo through `onWhisperSent` (Twitch does not echo your own whispers); exposes `allCommands` (`List<TwitchCommand>`, single source for / autocomplete, suggested to everyone regardless of permission - the API rejects with a clean error notice); failure notices follow DankChat wording (403 -> "You don't have permission to perform that action.", 401 -> "Missing required scope...", 429 -> rate-limit notice, other 4xx pass through the Helix message)
@@ -69,8 +69,8 @@ dart format .              # format all Dart files
 
 #### Widgets
 - `lib/widgets/chat_message_tile.dart` - reusable chat message tile (badges, text spans, timestamps, tap/long-press handlers)
-- `lib/widgets/chat_view.dart` - channel chat list view (scroll handling, message cutoff)
-- `lib/widgets/message_builder.dart` - message widget construction shared by chat and threads
+- `lib/widgets/chat_view.dart` - channel chat list view (scroll handling, message cutoff, keyed reconciliation; `idToIndex` for `findChildIndexCallback` is built only over cached tile ids, bounded by `_maxCachedTiles` rather than the whole channel buffer)
+- `lib/widgets/message_builder.dart` - message widget construction shared by chat and threads (message spans cached per-message and validated against `EmoteManager.version` + `TwitchMessage.cachedSpansVersion`, so emote changes recompute lazily instead of clearing every message's spans)
 - `lib/widgets/emote_text.dart` - emote-aware text rendering with inline image spans, clickable links, zero-width overlay support
 - `lib/widgets/emote_sheet.dart` - emote detail bottom sheet (copy/share/trackpad)
 - `lib/widgets/emote_menu_panel.dart` - emote selection panel with provider tabs (Twitch/BTTV/FFZ/7TV) in a draggable scrollable sheet
@@ -103,11 +103,12 @@ dart format .              # format all Dart files
 #### test/unit/
 - `color_utils_test.dart` - 18 tests: color picking, luminance, normalizeColor
 - `emote_manager_test.dart` - 39 tests: emote manager state, GenericEmote creation, relativeScale/aspectRatio JSON round-trip, per-tier TTL, hot-TTL-free GC (LRU trim + tier cap), nothing-tier no-fetch guards, tier-tag staleness
+- `message_builder_test.dart` - 2 tests: span cache reuse while emote version unchanged, lazy recompute on version bump
 - `emote_text_test.dart` - 16 tests: text parsing with emotes, segment building, whole-token matching, zero-width overlays
 - `twitch_auth_test.dart` - 9 tests: credential persistence and accessors
 - `twitch_config_test.dart` - 1 test: client ID constant
 - `twitch_message_test.dart` - 3 tests: model creation and reply threading
-- `chat_connection_manager_test.dart` - 40 tests: connection manager (pending messages, duplicate detection, channel subscription)
+- `chat_connection_manager_test.dart` - 45 tests: connection manager (pending messages, duplicate detection, channel subscription, coalesced truncation)
 - `seven_tv_event_client_test.dart` - 24 tests: 7TV WebSocket protocol (hello, emote-set update, reconnect)
 - `seven_tv_emotes_test.dart` - 11 tests: 7TV emote provider + resolution variants (no 4x)
 - `twitch_emotes_resolution_test.dart` - 4 tests: Twitch resolution URL selection per tier (no 4x)
@@ -137,7 +138,7 @@ dart format .              # format all Dart files
 - `recent_messages_test.dart` - 37 tests: Robotty IRC line parsing (TwitchMessage creation, ban/timeout, USERNOTICE subs/announcements, highlights)
 
 #### test/widgets/
-- `widget_test.dart` - 89 tests: main screen renders, channel bar, reply threads (10), system messages (7), settings screen (10), connected/disconnected dedup, join channel dialog, message cutoff, autocomplete, emote menu
+- `widget_test.dart` - 94 tests: main screen renders, channel bar, reply threads (10), system messages (7), settings screen (10), connected/disconnected dedup, join channel dialog, message cutoff, autocomplete, emote menu
 - `channel_bar_test.dart` - 12 tests: channel bar rendering, selection, underline painting, font weight, disappearance
 - `user_profile_sheet_test.dart` - 2 tests: profile sheet report button URL/launch failure
 - `draggable_scrollable_sheet_spike_test.dart` - 2 tests: draggable scrollable sheet interaction

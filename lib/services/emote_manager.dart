@@ -119,8 +119,17 @@ class EmoteManager extends ChangeNotifier {
   String? _accessToken;
   final _mergedCache = <String, ChannelEmotes?>{};
   String? _changedChannel;
+  // Monotonic counter bumped on every notify; message span caches compare
+  // against it so stale spans can be detected lazily instead of clearing
+  // every message's cached spans on each emote change.
+  int _version = 0;
+
+  /// Current emote-data version. Increments on every [notifyListeners]
+  /// emission (tier/cache changes, global or per-channel emote updates).
+  int get version => _version;
 
   void _notify([String? channel]) {
+    _version++;
     _changedChannel = channel;
     if (channel != null) {
       _mergedCache.remove(channel);

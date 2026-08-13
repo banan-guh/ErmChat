@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'package:clock/clock.dart';
 import 'package:flutter/widgets.dart';
 import 'package:http/http.dart' as http;
 import '../models/emote_fetch_tier.dart';
@@ -85,6 +86,8 @@ class ChatConnectionConfig {
     this.onHypeTrain,
     this.onPoll,
     this.onPrediction,
+    this.truncateNow,
+    this.truncateCoalesceWindow = const Duration(milliseconds: 250),
   });
 
   final TwitchApi twitchApi;
@@ -137,6 +140,8 @@ class ChatConnectionConfig {
   final void Function(HypeTrainEvent event)? onHypeTrain;
   final void Function(PollEvent event)? onPoll;
   final void Function(PredictionEvent event)? onPrediction;
+  final DateTime Function()? truncateNow;
+  final Duration truncateCoalesceWindow;
 }
 
 class ChatConnectionManager {
@@ -258,6 +263,16 @@ class ChatConnectionManager {
   StreamSubscription<IrcConnectionStatus>? ircStatusSub;
   final _httpClient = http.Client();
 
+  // Truncation coalescing: the thread-aware pass is O(n) over the channel
+  // buffer, so while messages arrive faster than [_truncateCoalesceWindow]
+  // the full pass is deferred (the buffer may grow to
+  // [_truncateHardCapFactor]x the cap between passes). [_now] is injectable
+  // for deterministic tests.
+  final DateTime Function() _now;
+  final Duration _truncateCoalesceWindow;
+  DateTime? _lastTruncateAt;
+  static const _truncateHardCapFactor = 2;
+
   ChatConnectionManager(ChatConnectionConfig config)
     : twitchApi = config.twitchApi,
       eventSub = config.eventSub,
@@ -308,7 +323,9 @@ class ChatConnectionManager {
       onAnalyticsModeration = config.onAnalyticsModeration,
       onHypeTrain = config.onHypeTrain,
       onPoll = config.onPoll,
-      onPrediction = config.onPrediction;
+      onPrediction = config.onPrediction,
+      _now = config.truncateNow ?? clock.now,
+      _truncateCoalesceWindow = config.truncateCoalesceWindow;
 
   void dispose() {
     isDisposed = true;
@@ -549,6 +566,7 @@ class ChatConnectionManager {
     if (maxMessages <= 0) return;
     final msgs = channelMessages[channel];
     if (msgs == null || msgs.length <= maxMessages) return;
+    _lastTruncateAt = _now();
 
     // Phase 1: group messages by thread identity.
     // For messages with replyThreadRootId, the key is that value.
@@ -627,6 +645,32 @@ class ChatConnectionManager {
     msgs
       ..clear()
       ..addAll(retained);
+  }
+
+  /// Coalesced variant of [truncateChannelMessages] for the per-message hot
+  /// path: the full thread-aware pass only runs once per coalesce window (or
+  /// when the buffer balloons past the hard cap), keeping steady-state
+  /// truncation cost bounded while live messages just let the buffer grow a
+  /// little past the cap. The next message after the window elapses runs the
+  /// full pass.
+  void _truncateWithCoalesce(String channel) {
+    final maxMessages = getMaxMessagesPerChannel();
+    if (maxMessages <= 0) return;
+    final msgs = channelMessages[channel];
+    if (msgs == null || msgs.length <= maxMessages) return;
+
+    final now = _now();
+    final sinceLast = _lastTruncateAt == null
+        ? null
+        : now.difference(_lastTruncateAt!);
+    final overHardCap = msgs.length > maxMessages * _truncateHardCapFactor;
+    if (sinceLast != null &&
+        sinceLast < _truncateCoalesceWindow &&
+        !overHardCap) {
+      return;
+    }
+    _lastTruncateAt = now;
+    truncateChannelMessages(channel);
   }
 
   Future<void> subscribeChannel(String channelName) async {
@@ -1430,7 +1474,7 @@ class ChatConnectionManager {
 
     channelMessages.putIfAbsent(channel, () => []);
     channelMessages[channel]!.insert(0, msg);
-    truncateChannelMessages(channel);
+    _truncateWithCoalesce(channel);
 
     if (msg.messageId != null) {
       messageKeys.add('$channel:${msg.messageId}');
@@ -1490,7 +1534,7 @@ class ChatConnectionManager {
 
     channelMessages.putIfAbsent(channel, () => []);
     channelMessages[channel]!.insert(0, msg);
-    truncateChannelMessages(channel);
+    _truncateWithCoalesce(channel);
 
     if (msg.messageId != null) {
       messageKeys.add('$channel:${msg.messageId}');

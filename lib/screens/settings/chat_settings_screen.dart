@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../util/constants.dart';
 import '../../util/timestamp_formatter.dart';
 import 'pings_screen.dart';
 
@@ -21,7 +22,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
   int _maxMessagesPerChannel = 200;
   int _recentMessagesCount = 100;
   bool _replyToRoot = false;
-  bool _backgroundService = true;
+  bool _backgroundService = false;
   bool _mentionPush = false;
   bool _preferEmotesFirst = false;
   bool _showTimestamps = true;
@@ -37,9 +38,10 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
     final prefs = await SharedPreferences.getInstance();
     if (mounted) {
       setState(() {
-        _maxMessagesPerChannel =
-            prefs.getInt('max_messages_per_channel') ?? 200;
-        _recentMessagesCount = prefs.getInt('recent_messages_limit') ?? 100;
+        _maxMessagesPerChannel = snapToMaxMessagesStep(
+          prefs.getInt('max_messages_per_channel') ?? 1000,
+        );
+        _recentMessagesCount = prefs.getInt('recent_messages_limit') ?? 200;
         _replyToRoot = prefs.getBool('reply_to_thread_root') ?? false;
         _backgroundService = prefs.getBool('background_service') ?? true;
         _mentionPush = prefs.getBool('mention_push') ?? false;
@@ -49,6 +51,19 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
             prefs.getString(kTimestampFormatPrefKey) ?? kDefaultTimestampFormat;
       });
     }
+  }
+
+  int _stepIndexFor(int value) {
+    var best = 0;
+    var bestDistance = (value - kMaxMessagesPerChannelValues[0]).abs();
+    for (var i = 1; i < kMaxMessagesPerChannelValues.length; i++) {
+      final distance = (value - kMaxMessagesPerChannelValues[i]).abs();
+      if (distance < bestDistance) {
+        best = i;
+        bestDistance = distance;
+      }
+    }
+    return best;
   }
 
   Future<void> _pickTimestampFormat() async {
@@ -106,13 +121,13 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
                 ),
               ),
               Slider(
-                value: _maxMessagesPerChannel.toDouble(),
-                min: 100,
-                max: 1000,
-                divisions: 18,
+                value: _stepIndexFor(_maxMessagesPerChannel).toDouble(),
+                min: 0,
+                max: (kMaxMessagesPerChannelValues.length - 1).toDouble(),
+                divisions: kMaxMessagesPerChannelValues.length - 1,
                 label: '$_maxMessagesPerChannel',
                 onChanged: (value) async {
-                  final v = value.toInt();
+                  final v = kMaxMessagesPerChannelValues[value.round()];
                   final prefs = await SharedPreferences.getInstance();
                   await prefs.setInt('max_messages_per_channel', v);
                   if (mounted) setState(() => _maxMessagesPerChannel = v);

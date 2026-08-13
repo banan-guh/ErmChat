@@ -25,7 +25,11 @@ class MessageBuilder {
     bool colored = false,
     double textScale = 1.0,
   }) {
-    msg.cachedSpans ??= _computeMessageSpans(msg, channel, scale: textScale);
+    final emoteVersion = emoteManager.version;
+    if (msg.cachedSpans == null || msg.cachedSpansVersion != emoteVersion) {
+      msg.cachedSpans = _computeMessageSpans(msg, channel, scale: textScale);
+      msg.cachedSpansVersion = emoteVersion;
+    }
     if (colored) {
       return [
         ...msg.cachedSpans!.map((span) {

@@ -2832,6 +2832,34 @@ void main() {
       expect(find.text('h:mm a'), findsOneWidget);
     });
 
+    testWidgets('max messages slider is log-scaled and snaps to steps', (
+      WidgetTester tester,
+    ) async {
+      // Legacy value between steps snaps to the nearest log-scale step.
+      SharedPreferences.setMockInitialValues({'max_messages_per_channel': 275});
+
+      await tester.pumpWidget(const MaterialApp(home: ChatSettingsScreen()));
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.text('Max messages per channel: 300'), findsOneWidget);
+
+      final slider = tester.widget<Slider>(find.byType(Slider).first);
+      expect(slider.min, 0);
+      expect(slider.max, 9);
+      expect(slider.divisions, 9);
+
+      // Tap the far right of the track: snaps to the max step (5000).
+      final rect = tester.getRect(find.byType(Slider).first);
+      await tester.tapAt(Offset(rect.right - 2, rect.center.dy));
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.text('Max messages per channel: 5000'), findsOneWidget);
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getInt('max_messages_per_channel'), 5000);
+    });
+
     testWidgets('emotes settings screen renders tier + cache sliders and '
         'Apply button', (WidgetTester tester) async {
       SharedPreferences.setMockInitialValues({});
@@ -3273,6 +3301,22 @@ void main() {
           );
           await tester.pump();
         }
+        await tester.pump();
+
+        // Truncation is coalesced (250ms window), so the full pass is
+        // deferred: advance the clock and emit one more message so the
+        // thread-aware pass runs and drops the thread.
+        await tester.pump(const Duration(milliseconds: 300));
+        irc.emitMessage(
+          TwitchMessage(
+            login: 'newuser',
+            text: 'new message 4',
+            messageId: 'new4',
+            timestamp: DateTime.now(),
+            channel: channel,
+          ),
+        );
+        await tester.pump();
         await tester.pump();
 
         // Thread should now be removed — pushed past maxMessages=10.

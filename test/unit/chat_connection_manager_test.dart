@@ -145,6 +145,8 @@ ChatConnectionManager _makeConn({
   required Map<String, List<TwitchMessage>> channelMessages,
   required int maxMessages,
   EmoteManager? emoteManager,
+  DateTime Function()? truncateNow,
+  Duration? truncateCoalesceWindow,
 }) {
   final api = TwitchApi(client: http.Client());
   return ChatConnectionManager(
@@ -188,6 +190,9 @@ ChatConnectionManager _makeConn({
       setReplyToMsg: (v) {},
       onRequestFocus: () {},
       onShowSnackBar: (m) {},
+      truncateNow: truncateNow,
+      truncateCoalesceWindow:
+          truncateCoalesceWindow ?? const Duration(milliseconds: 250),
     ),
   );
 }
@@ -536,6 +541,90 @@ void main() {
       expect(remaining.any((m) => m.messageId == 'root'), true);
       expect(remaining.any((m) => m.messageId == 'mid'), true);
       expect(remaining.any((m) => m.messageId == 'leaf'), true);
+    });
+  });
+
+  group('truncate coalescing', () {
+    test('defers the full pass while messages arrive within the window', () {
+      var t = DateTime(2026, 1, 1, 12);
+      final msgs = <String, List<TwitchMessage>>{
+        'test': List.generate(11, (i) => _msg('m${10 - i}', 'msg ${10 - i}')),
+      };
+      final conn = _makeConn(
+        channelMessages: msgs,
+        maxMessages: 10,
+        truncateNow: () => t,
+      );
+      // Direct truncate seeds the last-full-pass timestamp.
+      conn.truncateChannelMessages('test');
+      expect(msgs['test']!.length, 10);
+
+      // Within the window: message inserts but truncation is deferred.
+      t = t.add(const Duration(milliseconds: 100));
+      conn.onMessage(_msg('new1', 'new one'));
+      expect(msgs['test']!.length, 11);
+    });
+
+    test('runs the full pass on the first message after the window', () {
+      var t = DateTime(2026, 1, 1, 12);
+      final msgs = <String, List<TwitchMessage>>{
+        'test': List.generate(11, (i) => _msg('m${10 - i}', 'msg ${10 - i}')),
+      };
+      final conn = _makeConn(
+        channelMessages: msgs,
+        maxMessages: 10,
+        truncateNow: () => t,
+      );
+      conn.truncateChannelMessages('test');
+      expect(msgs['test']!.length, 10);
+
+      // Past the window: the message triggers the full pass.
+      t = t.add(const Duration(milliseconds: 300));
+      conn.onMessage(_msg('new1', 'new one'));
+      expect(msgs['test']!.length, 10);
+    });
+
+    test('runs the full pass immediately when the hard cap is exceeded', () {
+      var t = DateTime(2026, 1, 1, 12);
+      final msgs = <String, List<TwitchMessage>>{
+        'test': List.generate(11, (i) => _msg('m${10 - i}', 'msg ${10 - i}')),
+      };
+      final conn = _makeConn(
+        channelMessages: msgs,
+        maxMessages: 10,
+        truncateNow: () => t,
+      );
+      conn.truncateChannelMessages('test');
+      expect(msgs['test']!.length, 10);
+
+      // 11 messages within the window push past 2x the cap (20): the full
+      // pass runs even though the window has not elapsed.
+      t = t.add(const Duration(milliseconds: 100));
+      for (var i = 1; i <= 11; i++) {
+        conn.onMessage(_msg('b$i', 'burst $i'));
+      }
+      expect(msgs['test']!.length, 10);
+    });
+
+    test('keeps the buffer bounded between passes', () {
+      var t = DateTime(2026, 1, 1, 12);
+      final msgs = <String, List<TwitchMessage>>{
+        'test': List.generate(11, (i) => _msg('m${10 - i}', 'msg ${10 - i}')),
+      };
+      final conn = _makeConn(
+        channelMessages: msgs,
+        maxMessages: 10,
+        truncateNow: () => t,
+      );
+      conn.truncateChannelMessages('test');
+      expect(msgs['test']!.length, 10);
+
+      // 4 deferred messages stay in the buffer (hard cap not reached).
+      t = t.add(const Duration(milliseconds: 100));
+      for (var i = 1; i <= 4; i++) {
+        conn.onMessage(_msg('b$i', 'burst $i'));
+      }
+      expect(msgs['test']!.length, 14);
     });
   });
 
