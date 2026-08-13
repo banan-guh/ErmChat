@@ -330,7 +330,7 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
         child: Padding(
           padding: EdgeInsets.all(cellPadding),
           child: CachedNetworkImage(
-            imageUrl: emote.url,
+            imageUrl: emote.urlLarge ?? emote.url,
             width: double.infinity,
             height: double.infinity,
             fit: BoxFit.contain,

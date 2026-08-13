@@ -196,6 +196,10 @@ class ChatConnectionManager {
   bool _wasDisconnected = false;
   DateTime? _lastSubscribeAll;
   final _connectedAcked = <String>{};
+  // Channels whose JOIN has been confirmed by the server (ROOMSTATE for that
+  // channel). isConnected only reflects the socket; a fresh/reconnected socket
+  // hasn't necessarily processed the JOINs yet, so sends gate on this.
+  final _joinedChannels = <String>{};
   final _chatStatusTimers = <String, Timer>{};
   // Channels with an active channel.moderate v2 subscription. While present,
   // moderation system messages come from EventSub (richer data) instead of
@@ -945,11 +949,19 @@ class ChatConnectionManager {
     lastTypedText[channel] = text;
     lastSentWireText[channel] = wireText;
 
-    // Primary: send via IRC for low latency over the persistent socket
-    irc.sendMessage(channel, wireText, replyParentMessageId: reply?.messageId);
-
-    // Fallback: Helix API when the IRC write socket isn't available
-    if (!irc.isConnected && getCurrentUserId() != null && auth.isConfigured) {
+    // Primary: send via IRC once the channel's JOIN is confirmed (ROOMSTATE
+    // for that channel). isConnected alone only means the socket is up; right
+    // after a (re)connect Twitch may not have processed the JOIN yet, and a
+    // PRIVMSG sent in that window can be dropped with no error and no local
+    // echo. Fall back to Helix until the channel is confirmed joined.
+    final canHelix = getCurrentUserId() != null && auth.isConfigured;
+    if (irc.isConnected && (_joinedChannels.contains(channel) || !canHelix)) {
+      irc.sendMessage(
+        channel,
+        wireText,
+        replyParentMessageId: reply?.messageId,
+      );
+    } else if (canHelix) {
       final broadcasterId =
           channelUserIds[channel] ?? await twitchApi.getUserId(auth, channel);
       if (broadcasterId != null) {
@@ -1038,6 +1050,7 @@ class ChatConnectionManager {
           _wasConnected = false;
           _connectedAcked.clear();
           _lastSubscribeAll = null;
+          _joinedChannels.clear();
           for (final channel in channels) {
             onSystemMessage(channel, 'Disconnected');
           }
@@ -1221,6 +1234,9 @@ class ChatConnectionManager {
     ircRoomStateSub?.cancel();
     ircRoomStateSub = irc.onRoomState.listen((event) {
       if (isDisposed) return;
+      // ROOMSTATE arrives after a successful JOIN, confirming this channel is
+      // ready for PRIVMSG.
+      _joinedChannels.add(event.channel);
       // ROOMSTATE updates are partial (only the changed tags): merge with
       // the previous state before recomposing the status splash.
       _roomStateTags[event.channel] = {

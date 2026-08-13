@@ -114,7 +114,7 @@ class _EmoteSheetState extends State<EmoteSheet>
                     width: 128,
                     height: 128,
                     child: CachedNetworkImage(
-                      imageUrl: emote.url,
+                      imageUrl: emote.urlLarge ?? emote.url,
                       fit: BoxFit.contain,
                       fadeInDuration: Duration.zero,
                       placeholder: (_, _) => const Center(

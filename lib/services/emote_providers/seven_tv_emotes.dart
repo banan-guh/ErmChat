@@ -18,6 +18,7 @@ class SevenTvEmoteProvider {
   static Future<List<GenericEmote>> fetchGlobal() async {
     final uri = Uri.parse('https://7tv.io/v3/emote-sets/global');
     final res = await http.get(uri).timeout(httpTimeout);
+    throwOnTransientHttpError(res.statusCode, uri);
     if (res.statusCode != 200) return [];
     final data = jsonDecode(res.body) as Map<String, dynamic>;
     final items = data['emotes'] as List<dynamic>? ?? [];
@@ -29,6 +30,7 @@ class SevenTvEmoteProvider {
   ) async {
     final uri = Uri.parse('https://7tv.io/v3/users/twitch/$channelId');
     final res = await http.get(uri).timeout(httpTimeout);
+    throwOnTransientHttpError(res.statusCode, uri);
     if (res.statusCode != 200) return SevenTvChannelResponse(emotes: []);
     final data = jsonDecode(res.body) as Map<String, dynamic>;
     final userId = (data['user'] as Map<String, dynamic>?)?['id'] as String?;
@@ -78,33 +80,41 @@ class SevenTvEmoteProvider {
       if (baseUrl == null || baseUrl.isEmpty) continue;
 
       String? url;
+      String? urlLarge;
       bool isAnimated = false;
       double relativeScale = 1.0;
       double aspectRatio = 1.0;
-      for (final fileEntry in baseUrl.reversed) {
+      // host.files are ordered smallest to largest. Chat renders at ~28dp so
+      // prefer the 2x tier; the largest file is kept for the sheet/menu.
+      String? first;
+      String? best2x;
+      String? last;
+      for (final fileEntry in baseUrl) {
         final file = fileEntry as Map<String, dynamic>;
         final format = file['format'] as String?;
         final name = file['name'] as String?;
-        if (name == null) continue;
-        if (format == 'WEBP') {
-          final hostUrl = host['url'] as String? ?? '';
-          url = 'https:$hostUrl/$name';
-          isAnimated = true;
-          final fileWidth = file['width'] as int?;
-          final fileHeight = file['height'] as int?;
-          if (fileHeight != null) {
-            final multiplierStr = name.split('x').first;
-            final multiplier = int.tryParse(multiplierStr);
-            if (multiplier != null && multiplier > 0) {
-              relativeScale = fileHeight / (multiplier * 32.0);
-            }
+        if (name == null || format != 'WEBP') continue;
+        final hostUrl = host['url'] as String? ?? '';
+        final fullUrl = 'https:$hostUrl/$name';
+        last = fullUrl;
+        first ??= fullUrl;
+        final multiplierStr = name.split('x').first;
+        if (multiplierStr == '2') best2x ??= fullUrl;
+        isAnimated = true;
+        final fileWidth = file['width'] as int?;
+        final fileHeight = file['height'] as int?;
+        if (fileHeight != null) {
+          final multiplier = int.tryParse(multiplierStr);
+          if (multiplier != null && multiplier > 0) {
+            relativeScale = fileHeight / (multiplier * 32.0);
           }
-          if (fileWidth != null && fileHeight != null && fileHeight > 0) {
-            aspectRatio = fileWidth / fileHeight;
-          }
-          break;
+        }
+        if (fileWidth != null && fileHeight != null && fileHeight > 0) {
+          aspectRatio = fileWidth / fileHeight;
         }
       }
+      url = best2x ?? first;
+      urlLarge = last;
       if (url == null) continue;
 
       bool isZeroWidth = false;
@@ -129,6 +139,7 @@ class SevenTvEmoteProvider {
           code: name,
           type: EmoteType.sevenTv,
           url: url,
+          urlLarge: urlLarge,
           isAnimated: isAnimated,
           scope: global
               ? EmoteScope.global

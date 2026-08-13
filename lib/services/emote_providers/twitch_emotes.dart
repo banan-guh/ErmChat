@@ -16,6 +16,7 @@ class TwitchEmoteProvider {
     debugPrint(
       'Twitch global emotes: ${res.statusCode} - ${res.body.length} bytes',
     );
+    throwOnTransientHttpError(res.statusCode, uri);
     if (res.statusCode != 200) return [];
     final data = jsonDecode(res.body) as Map<String, dynamic>;
     return _parseEmotes(data['data'] as List<dynamic>? ?? []);
@@ -36,8 +37,9 @@ class TwitchEmoteProvider {
     final res = await http.get(uri, headers: headers).timeout(httpTimeout);
     if (res.statusCode != 200) {
       debugPrint('Twitch channel emotes error: ${res.statusCode}');
-      return [];
     }
+    throwOnTransientHttpError(res.statusCode, uri);
+    if (res.statusCode != 200) return [];
     final data = jsonDecode(res.body) as Map<String, dynamic>;
     return _parseEmotes(
       data['data'] as List<dynamic>? ?? [],
@@ -55,11 +57,19 @@ class TwitchEmoteProvider {
     if (accessToken != null) {
       headers['Authorization'] = 'Bearer $accessToken';
     }
-    for (final setId in emoteSetIds) {
+    // Twitch accepts up to 25 emote_set_id params per request; chunk so a
+    // batch with many sets doesn't spawn one request per set.
+    const chunkSize = 25;
+    for (var i = 0; i < emoteSetIds.length; i += chunkSize) {
+      var end = i + chunkSize;
+      if (end > emoteSetIds.length) end = emoteSetIds.length;
+      final chunk = emoteSetIds.sublist(i, end);
+      final query = chunk.map((id) => 'emote_set_id=$id').join('&');
       final uri = Uri.parse(
-        'https://api.twitch.tv/helix/chat/emotes/set?emote_set_id=$setId',
+        'https://api.twitch.tv/helix/chat/emotes/set?$query',
       );
       final res = await http.get(uri, headers: headers).timeout(httpTimeout);
+      throwOnTransientHttpError(res.statusCode, uri);
       if (res.statusCode != 200) {
         debugPrint('Twitch emote set error: ${res.statusCode} ${res.body}');
         continue;
@@ -75,13 +85,18 @@ class TwitchEmoteProvider {
             (item['format'] as List<dynamic>?)?.cast<String>() ?? [];
         final isAnimated = formats.contains('animated');
         final format = isAnimated ? 'animated' : 'static';
-        final scale =
-            (item['scale'] as List<dynamic>?)?.lastOrNull as String? ?? '3.0';
+        final scales = (item['scale'] as List<dynamic>?)?.cast<String>() ?? [];
+        final smallScale = scales.contains('2.0')
+            ? '2.0'
+            : (scales.firstOrNull ?? '1.0');
+        final largeScale = scales.lastOrNull ?? '3.0';
         final theme =
             (item['theme_mode'] as List<dynamic>?)?.firstOrNull as String? ??
             'dark';
         final url =
-            'https://static-cdn.jtvnw.net/emoticons/v2/$id/$format/$theme/$scale';
+            'https://static-cdn.jtvnw.net/emoticons/v2/$id/$format/$theme/$smallScale';
+        final urlLarge =
+            'https://static-cdn.jtvnw.net/emoticons/v2/$id/$format/$theme/$largeScale';
         result
             .putIfAbsent(ownerId ?? '', () => [])
             .add(
@@ -90,6 +105,7 @@ class TwitchEmoteProvider {
                 code: name,
                 type: EmoteType.twitch,
                 url: url,
+                urlLarge: urlLarge,
                 isAnimated: isAnimated,
                 scope: ownerId != null && ownerId.isNotEmpty
                     ? EmoteScope.channel
@@ -115,14 +131,21 @@ class TwitchEmoteProvider {
       if (id == null || name == null) continue;
       final formats = (item['format'] as List<dynamic>?)?.cast<String>() ?? [];
       final isAnimated = formats.contains('animated');
-      final scale =
-          (item['scale'] as List<dynamic>?)?.lastOrNull as String? ?? '3.0';
+      final scales = (item['scale'] as List<dynamic>?)?.cast<String>() ?? [];
+      // Chat renders at ~28dp; prefer the 2.0 scale tier and keep the largest
+      // (typically 3.0) for the larger sheet/menu.
+      final smallScale = scales.contains('2.0')
+          ? '2.0'
+          : (scales.firstOrNull ?? '1.0');
+      final largeScale = scales.lastOrNull ?? '3.0';
       final theme =
           (item['theme_mode'] as List<dynamic>?)?.firstOrNull as String? ??
           'dark';
       final format = isAnimated ? 'animated' : 'static';
       final url =
-          'https://static-cdn.jtvnw.net/emoticons/v2/$id/$format/$theme/$scale';
+          'https://static-cdn.jtvnw.net/emoticons/v2/$id/$format/$theme/$smallScale';
+      final urlLarge =
+          'https://static-cdn.jtvnw.net/emoticons/v2/$id/$format/$theme/$largeScale';
       final tier = item['tier'] as String?;
       emotes.add(
         GenericEmote(
@@ -130,6 +153,7 @@ class TwitchEmoteProvider {
           code: name,
           type: EmoteType.twitch,
           url: url,
+          urlLarge: urlLarge,
           isAnimated: isAnimated,
           scope: channel ? EmoteScope.channel : EmoteScope.global,
           tier: tier,

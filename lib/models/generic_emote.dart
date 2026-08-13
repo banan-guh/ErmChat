@@ -7,6 +7,10 @@ class GenericEmote {
   final String code;
   final EmoteType type;
   final String url;
+
+  /// Higher-resolution asset for larger render surfaces (emote sheet, picker
+  /// grid). Null when the provider only exposes one tier.
+  final String? urlLarge;
   final bool isAnimated;
   final EmoteScope scope;
   final String? ownerChannel;
@@ -25,6 +29,7 @@ class GenericEmote {
     required this.code,
     required this.type,
     required this.url,
+    this.urlLarge,
     this.isAnimated = false,
     this.scope = EmoteScope.global,
     this.ownerChannel,
@@ -41,6 +46,7 @@ class GenericEmote {
     'code': code,
     'type': type.name,
     'url': url,
+    'urlLarge': urlLarge,
     'isAnimated': isAnimated,
     'scope': scope.name,
     'ownerChannel': ownerChannel,
@@ -64,6 +70,7 @@ class GenericEmote {
       code: code,
       type: _enumByName(EmoteType.values, json['type'], EmoteType.twitch),
       url: url,
+      urlLarge: json['urlLarge'] as String?,
       isAnimated: json['isAnimated'] as bool? ?? false,
       scope: _enumByName(EmoteScope.values, json['scope'], EmoteScope.global),
       ownerChannel: json['ownerChannel'] as String?,

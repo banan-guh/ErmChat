@@ -61,15 +61,19 @@ class EmoteManager extends ChangeNotifier {
   final Duration _fetchStagger;
   ConnectivityResult _probeResult = ConnectivityResult.wifi;
   DateTime? _probeAt;
-  Future<void> _fetchQueue = Future.value();
+  // Bounds in-flight provider fetches so a full refresh doesn't burst the
+  // network, while letting more than one channel refresh at a time.
+  static const _maxConcurrentFetches = 2;
+  final _fetchGate = _Semaphore(_maxConcurrentFetches);
 
   EmoteManager({
     Future<List<ConnectivityResult>> Function()? probe,
     this._fetchStagger = _defaultFetchStagger,
     Future<void> Function(String url)? removeCachedFile,
     DateTime Function()? now,
-}) : _connectivityProbe = probe,
-       _removeCachedFile = removeCachedFile ??
+  }) : _connectivityProbe = probe,
+       _removeCachedFile =
+           removeCachedFile ??
            ((String url) => DefaultCacheManager().removeFile(url)),
        _now = now ?? DateTime.now;
 
@@ -79,6 +83,11 @@ class EmoteManager extends ChangeNotifier {
   final _channelTwitchEmotes = <String, List<GenericEmote>>{};
   final _sevenTvEmoteSetIds = <String, String>{};
   final _sevenTvUserIds = <String, String>{};
+  // Per-provider retention: each provider's fetch result is kept separately so
+  // a single flaky provider (429/5xx, timeout) never clobbers that provider's
+  // previous good data or the other providers' entries in the merged cache.
+  final _globalProviderEmotes = <String, List<GenericEmote>>{};
+  final _channelProviderEmotes = <String, Map<String, List<GenericEmote>>>{};
   String? _accessToken;
   final _mergedCache = <String, ChannelEmotes?>{};
   String? _changedChannel;
@@ -315,6 +324,12 @@ class EmoteManager extends ChangeNotifier {
   }
 
   void _applyChannelEmotes(String channel, List<GenericEmote> emotes) {
+    // Nothing came back from any provider this cycle and we already have
+    // cached emotes: keep showing them rather than wiping the channel.
+    if (emotes.isEmpty && _channelCaches[channel] != null) {
+      debugPrint('[EmoteManager] no emotes for $channel, keeping cached');
+      return;
+    }
     // Split subscriber-only Twitch emotes from the main cache. They're stored
     // separately and re-merged via storeUserTwitchEmotes, which preserves
     // tiered versions over non-tiered for sub-gated emotes.
@@ -369,6 +384,9 @@ class EmoteManager extends ChangeNotifier {
                     (e.tier != null || e.emoteType == 'subscriptions')),
           )
           .toList();
+      (_channelProviderEmotes[channel] ??=
+              <String, List<GenericEmote>>{})['Twitch'] =
+          nonSub;
       final merged = _mergeWithStoredSubs(channel, nonSub);
       final existing = _channelCaches[channel];
       if (existing != null) {
@@ -390,6 +408,7 @@ class EmoteManager extends ChangeNotifier {
         accessToken: _accessToken,
       );
       if (emotes.isEmpty) return;
+      _globalProviderEmotes['Twitch'] = emotes;
       final current = _globalCache;
       final all = <GenericEmote>[
         if (current != null)
@@ -411,11 +430,13 @@ class EmoteManager extends ChangeNotifier {
     _subsByChannelCache = null;
     _sevenTvEmoteSetIds.remove(channel);
     _sevenTvUserIds.remove(channel);
+    _channelProviderEmotes.remove(channel);
     _mergedCache.remove(channel);
   }
 
   void evictGlobal() {
     _globalCache = null;
+    _globalProviderEmotes.clear();
     _mergedCache.clear();
   }
 
@@ -461,6 +482,7 @@ class EmoteManager extends ChangeNotifier {
             code: entry.value.newName,
             type: e.type,
             url: e.url,
+            urlLarge: e.urlLarge,
             isAnimated: e.isAnimated,
             scope: e.scope,
             ownerChannel: e.ownerChannel,
@@ -523,16 +545,21 @@ class EmoteManager extends ChangeNotifier {
     return _probeResult;
   }
 
-  /// Serializes all provider fetches into a single chain with a stagger
-  /// between fetches, so a full refresh rakes channels one-by-one and the
-  /// radio can idle between batches. Fresh caches never enter the queue.
+  /// Serializes fetches through a small concurrency gate with a stagger that
+  /// is measured from when each fetch was enqueued (not from when the previous
+  /// one finished). A single stale channel still idles the radio for one
+  /// stagger, but N stale channels no longer stack N full stagger + fetch
+  /// rounds behind each other; the [_maxConcurrentFetches] cap keeps a full
+  /// refresh from bursting the network. Fresh caches never enter the queue.
   Future<T> _enqueueFetch<T>(Future<T> Function() action) {
-    final result = _fetchQueue.then((_) async {
-      await Future.delayed(_fetchStagger);
+    final enqueuedAt = DateTime.now();
+    return _fetchGate.withPermit(() async {
+      final elapsed = DateTime.now().difference(enqueuedAt);
+      if (elapsed < _fetchStagger) {
+        await Future.delayed(_fetchStagger - elapsed);
+      }
       return action();
     });
-    _fetchQueue = result.then((_) {}, onError: (_) {});
-    return result;
   }
 
   @visibleForTesting
@@ -575,32 +602,77 @@ class EmoteManager extends ChangeNotifier {
   }
 
   Future<List<GenericEmote>> _fetchAllGlobal() async {
-    final all = <GenericEmote>[];
     final providers = <String, Future<List<GenericEmote>> Function()>{
-      'Twitch': () =>
-          TwitchEmoteProvider.fetchGlobal(accessToken: _accessToken),
-      'BTTV': BttvEmoteProvider.fetchGlobal,
-      'FFZ': FfzEmoteProvider.fetchGlobal,
-      '7TV': SevenTvEmoteProvider.fetchGlobal,
+      'Twitch': () async {
+        final emotes = await TwitchEmoteProvider.fetchGlobal(
+          accessToken: _accessToken,
+        );
+        _globalProviderEmotes['Twitch'] = emotes;
+        return emotes;
+      },
+      'BTTV': () async {
+        final emotes = await BttvEmoteProvider.fetchGlobal();
+        _globalProviderEmotes['BTTV'] = emotes;
+        return emotes;
+      },
+      'FFZ': () async {
+        final emotes = await FfzEmoteProvider.fetchGlobal();
+        _globalProviderEmotes['FFZ'] = emotes;
+        return emotes;
+      },
+      '7TV': () async {
+        final emotes = await SevenTvEmoteProvider.fetchGlobal();
+        _globalProviderEmotes['7TV'] = emotes;
+        return emotes;
+      },
     };
-    await _fetchConcurrent(providers, all, maxConcurrent: 2);
-    return all;
+    await _fetchConcurrent(providers, maxConcurrent: 2);
+    return <GenericEmote>[
+      for (final list in _globalProviderEmotes.values) ...list,
+    ];
   }
 
   Future<List<GenericEmote>> _fetchAllChannel(
     String? broadcasterId, {
     String? channelName,
   }) async {
-    if (broadcasterId == null) return [];
-    final all = <GenericEmote>[];
+    if (broadcasterId == null) {
+      // Nothing to fetch (e.g. unknown user id): fall back to whatever this
+      // channel already retained so a transient miss never wipes the cache.
+      final retained = _channelProviderEmotes[channelName];
+      if (retained == null) return [];
+      return <GenericEmote>[for (final list in retained.values) ...list];
+    }
+    final channelKey = channelName ?? '';
+    final map = _channelProviderEmotes[channelKey] ??=
+        <String, List<GenericEmote>>{};
     final providers = <String, Future<List<GenericEmote>> Function()>{
-      'Twitch': () => TwitchEmoteProvider.fetchChannel(
-        broadcasterId,
-        accessToken: _accessToken,
-        channelName: channelName,
-      ),
-      'BTTV': () => BttvEmoteProvider.fetchChannel(broadcasterId),
-      'FFZ': () => FfzEmoteProvider.fetchChannel(broadcasterId),
+      'Twitch': () async {
+        final fetched = await TwitchEmoteProvider.fetchChannel(
+          broadcasterId,
+          accessToken: _accessToken,
+          channelName: channelName,
+        );
+        final nonSub = fetched
+            .where(
+              (e) =>
+                  !(e.type == EmoteType.twitch &&
+                      (e.tier != null || e.emoteType == 'subscriptions')),
+            )
+            .toList();
+        map['Twitch'] = nonSub;
+        return nonSub;
+      },
+      'BTTV': () async {
+        final emotes = await BttvEmoteProvider.fetchChannel(broadcasterId);
+        map['BTTV'] = emotes;
+        return emotes;
+      },
+      'FFZ': () async {
+        final emotes = await FfzEmoteProvider.fetchChannel(broadcasterId);
+        map['FFZ'] = emotes;
+        return emotes;
+      },
       '7TV': () async {
         final resp = await SevenTvEmoteProvider.fetchChannelResponse(
           broadcasterId,
@@ -613,16 +685,16 @@ class EmoteManager extends ChangeNotifier {
             _sevenTvUserIds[channelName] = resp.userId!;
           }
         }
+        map['7TV'] = resp.emotes;
         return resp.emotes;
       },
     };
-    await _fetchConcurrent(providers, all, maxConcurrent: 3);
-    return all;
+    await _fetchConcurrent(providers, maxConcurrent: 3);
+    return <GenericEmote>[for (final list in map.values) ...list];
   }
 
   Future<void> _fetchConcurrent(
-    Map<String, Future<List<GenericEmote>> Function()> providers,
-    List<GenericEmote> out, {
+    Map<String, Future<List<GenericEmote>> Function()> providers, {
     required int maxConcurrent,
   }) async {
     final sem = _Semaphore(maxConcurrent);
@@ -631,10 +703,9 @@ class EmoteManager extends ChangeNotifier {
       futures.add(
         sem.withPermit(() async {
           try {
-            out.addAll(await entry.value());
+            await entry.value();
           } catch (e) {
-            final msg = e.toString();
-            debugPrint('EmoteManager: ${entry.key} failed: $msg');
+            debugPrint('EmoteManager: ${entry.key} failed: $e');
           }
         }),
       );
@@ -890,10 +961,10 @@ class _Semaphore {
 
   _Semaphore(this.maxPermits) : _permits = maxPermits;
 
-  Future<void> withPermit(Future<void> Function() action) async {
+  Future<T> withPermit<T>(Future<T> Function() action) async {
     await _acquire();
     try {
-      await action();
+      return await action();
     } finally {
       _release();
     }

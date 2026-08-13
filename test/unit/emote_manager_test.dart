@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io' show Directory;
 import 'package:connectivity_plus/connectivity_plus.dart';
@@ -103,6 +104,28 @@ void main() {
         expect(restored.scope, scope);
       }
     });
+
+    test('round-trips urlLarge', () {
+      final original = GenericEmote(
+        id: 'id-url',
+        code: 'Emote',
+        type: EmoteType.bttv,
+        url: 'https://example.com/2x.png',
+        urlLarge: 'https://example.com/3x.png',
+      );
+      final restored = GenericEmote.fromJson(original.toJson());
+      expect(restored.urlLarge, original.urlLarge);
+    });
+
+    test('urlLarge is null when not provided', () {
+      final e = GenericEmote(
+        id: '1',
+        code: 'Test',
+        type: EmoteType.bttv,
+        url: 'https://example.com/1x.png',
+      );
+      expect(e.urlLarge, isNull);
+    });
   });
 
   group('7TV live updates', () {
@@ -199,6 +222,56 @@ void main() {
       await manager.enqueueFetchForTesting(() async => order.add(1));
 
       expect(order, [1]);
+    });
+
+    test('allows up to two in-flight fetches to overlap', () async {
+      final manager = EmoteManager(fetchStagger: Duration.zero);
+      final started = <String>[];
+      final gates = [Completer<void>(), Completer<void>()];
+      final f1 = manager.enqueueFetchForTesting(() async {
+        started.add('a');
+        await gates[0].future;
+      });
+      final f2 = manager.enqueueFetchForTesting(() async {
+        started.add('b');
+        await gates[1].future;
+      });
+
+      await Future<void>.delayed(Duration.zero);
+
+      expect(started, containsAll(['a', 'b']));
+
+      gates[0].complete();
+      gates[1].complete();
+      await Future.wait([f1, f2]);
+    });
+
+    test('third fetch waits for a free slot before starting', () async {
+      final manager = EmoteManager(fetchStagger: Duration.zero);
+      final started = <String>[];
+      final gates = [Completer<void>(), Completer<void>()];
+      final f1 = manager.enqueueFetchForTesting(() async {
+        started.add('a');
+        await gates[0].future;
+      });
+      final f2 = manager.enqueueFetchForTesting(() async {
+        started.add('b');
+        await gates[1].future;
+      });
+      final f3 = manager.enqueueFetchForTesting(() async => started.add('c'));
+
+      await Future<void>.delayed(Duration.zero);
+
+      expect(started, containsAll(['a', 'b']));
+      expect(started, isNot(contains('c')));
+
+      gates[0].complete();
+      await Future<void>.delayed(Duration.zero);
+
+      expect(started, contains('c'));
+
+      gates[1].complete();
+      await Future.wait([f1, f2, f3]);
     });
   });
 

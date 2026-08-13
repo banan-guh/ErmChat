@@ -68,5 +68,38 @@ void main() {
       expect(emote, isNotNull);
       expect(emote!.isZeroWidth, isTrue);
     });
+
+    test('picks 2x for chat and largest for large surfaces', () {
+      final emote = SevenTvEmoteProvider.parseSingleEmote({
+        'id': 'emote-6',
+        'name': 'Size',
+        'data': {
+          'name': 'Size',
+          'host': {
+            'url': '//cdn.7tv.app/emote/size',
+            'files': [
+              {'name': '1x.webp', 'format': 'WEBP', 'width': 32, 'height': 32},
+              {'name': '2x.webp', 'format': 'WEBP', 'width': 64, 'height': 64},
+              {'name': '3x.webp', 'format': 'WEBP', 'width': 96, 'height': 96},
+            ],
+          },
+        },
+      });
+      expect(emote, isNotNull);
+      expect(emote!.url, 'https://cdn.7tv.app/emote/size/2x.webp');
+      expect(emote.urlLarge, 'https://cdn.7tv.app/emote/size/3x.webp');
+      expect(emote.relativeScale, 1.0);
+    });
+
+    test('falls back to smallest file when no 2x tier exists', () {
+      final emote = SevenTvEmoteProvider.parseSingleEmote({
+        'id': 'emote-7',
+        'name': 'Small',
+        'data': {'name': 'Small', 'host': _host('1x.webp')},
+      });
+      expect(emote, isNotNull);
+      expect(emote!.url, 'https://cdn.7tv.app/emote/1/1x/1x.webp');
+      expect(emote.urlLarge, 'https://cdn.7tv.app/emote/1/1x/1x.webp');
+    });
   });
 }

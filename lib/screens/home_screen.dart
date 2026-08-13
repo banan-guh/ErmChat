@@ -974,11 +974,18 @@ class _HomeScreenState extends State<HomeScreen>
   // is the account-wide union and acts as a warm-up across open channels.
   // Set IDs are only marked fetched after a successful fetch, so a failed
   // fetch is retried by the next USERSTATE/GLOBALUSERSTATE.
-  Future<void> _loadUserEmoteSets(String? channel, List<String> emoteSetIds) async {
+  Future<void> _loadUserEmoteSets(
+    String? channel,
+    List<String> emoteSetIds,
+  ) async {
     final auth = widget.twitchAuth;
     if (!auth.isConfigured) return;
+    // Set "0" is Twitch's global emote set: it's already loaded by
+    // preloadGlobalEmotes, so skip it here. Fetching it through this path
+    // would duplicate global emotes into every per-channel cache and mislabel
+    // them with whichever channel happens to be open.
     final newSetIds = emoteSetIds
-        .where((id) => !_fetchedEmoteSetIds.contains(id))
+        .where((id) => id != '0' && !_fetchedEmoteSetIds.contains(id))
         .toList();
     if (newSetIds.isEmpty) return;
     try {
@@ -987,13 +994,17 @@ class _HomeScreenState extends State<HomeScreen>
         accessToken: auth.accessToken,
       );
       _fetchedEmoteSetIds.addAll(newSetIds);
-      // Skip the default set (owner ID empty, global emotes); only the
-      // account's channel-owned sets are stored per channel.
-      final emotes = <GenericEmote>[
-        for (final entry in byOwner.entries)
-          if (entry.key.isNotEmpty) ...entry.value,
-      ];
-      if (emotes.isEmpty) {
+      // Only the account's channel-owned sets are stored per channel. The
+      // owner label is resolved from each set's owner_id to an open channel;
+      // a set owned by a channel that isn't open must not be labeled with
+      // whichever channel happens to be open (GLOBALUSERSTATE fans the union
+      // of all the account's sets across every open channel).
+      final perOwner = <String, List<GenericEmote>>{};
+      for (final entry in byOwner.entries) {
+        if (entry.key.isEmpty) continue;
+        perOwner[entry.key] = entry.value;
+      }
+      if (perOwner.isEmpty) {
         debugPrint(
           '_loadUserEmoteSets: ${newSetIds.length} sets fetched, no channel emotes',
         );
@@ -1006,26 +1017,36 @@ class _HomeScreenState extends State<HomeScreen>
       }
       final perChannel = <String, List<GenericEmote>>{};
       for (final target in targets) {
-        perChannel[target] = emotes
-            .map(
-              (e) => GenericEmote(
+        perChannel[target] = <GenericEmote>[
+          for (final entry in perOwner.entries)
+            for (final e in entry.value)
+              GenericEmote(
                 id: e.id,
                 code: e.code,
                 type: e.type,
                 url: e.url,
+                urlLarge: e.urlLarge,
                 isAnimated: e.isAnimated,
                 scope: e.scope,
                 tier: e.tier,
                 emoteType: e.emoteType,
-                ownerChannel: target,
+                ownerChannel: _channelNameForOwnerId(entry.key),
               ),
-            )
-            .toList();
+        ];
       }
       await _emoteManager.storeUserTwitchEmotes(perChannel);
     } catch (e) {
       debugPrint('_loadUserEmoteSets failed: $e');
     }
+  }
+
+  // Resolves a Twitch user ID to an open channel's login (for the emote sheet
+  // "Created by" label). Null when the owning channel isn't open.
+  String? _channelNameForOwnerId(String ownerId) {
+    for (final entry in _channelUserIds.entries) {
+      if (entry.value == ownerId) return entry.key;
+    }
+    return null;
   }
 
   void _loadMaxMessages() async {
