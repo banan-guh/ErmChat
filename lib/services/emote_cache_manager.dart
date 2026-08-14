@@ -134,7 +134,7 @@ class EmoteCacheManager extends CacheManager {
     // Ensure User-Agent is present (some CDNs 403 without it).
     final mergedHeaders = <String, String>{
       'User-Agent': 'ermchat',
-      if (headers != null) ...headers,
+      ...?headers,
     };
 
     if (!await _tryReserve()) {

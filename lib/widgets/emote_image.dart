@@ -182,10 +182,14 @@ Future<Uint8List> _fetchBytes(String url) async {
 }
 
 /// Memory-only fetch used by bursty render sites (the emote menu): downloads
+/// Shared client for memory-only fetches (emote menu bursts) to reuse
+/// connections and avoid per-request TCP+TLS handshake overhead.
+final http.Client _memoryFetchClient = http.Client();
+
 /// straight to RAM, never writing to or evicting from [EmoteCacheManager], so
 /// panel bursts can't grow or churn the disk cache.
 Future<Uint8List> _fetchBytesMemoryOnly(String url) async {
-  final resp = await http
+  final resp = await _memoryFetchClient
       .get(Uri.parse(url), headers: const {'User-Agent': 'ermchat'})
       .timeout(const Duration(seconds: 10));
   if (resp.statusCode != 200) {
@@ -221,7 +225,16 @@ EmoteFormat sniffEmoteFormat(Uint8List bytes) {
   return EmoteFormat.other;
 }
 
+/// When true, animated emotes (WebP/GIF) use Flutter's engine codec
+/// ([instantiateImageCodec]) instead of the pure-Dart decoder.
+/// This is for debugging/comparison — the engine codec has known transparency
+/// bugs for animated WebP (wrong disposal, grey artifacts in transparent areas).
+bool useEngineCodecForAnimated = false;
+
 Future<EmoteFrameData> _decodeBytes(Uint8List bytes) {
+  if (useEngineCodecForAnimated) {
+    return _decodeWithEngineCodec(bytes);
+  }
   switch (sniffEmoteFormat(bytes)) {
     case EmoteFormat.gif:
       return _decodeGif(bytes);
@@ -236,6 +249,21 @@ Future<EmoteFrameData> _decodeBytes(Uint8List bytes) {
 /// for animated WebP/GIF) → premultiply alpha → decodeImageFromPixels → ui.Image.
 /// This is the exact path used by [EmoteClipRegistry.acquire].
 Future<EmoteFrameData> decodeEmoteBytes(Uint8List bytes) => _decodeBytes(bytes);
+
+/// Fallback decode using Flutter's engine codec for all formats (including animated).
+/// Uses [instantiateImageCodec] which handles frame durations but has known
+/// transparency/compositing bugs for animated WebP.
+Future<EmoteFrameData> _decodeWithEngineCodec(Uint8List bytes) async {
+  final codec = await ui.instantiateImageCodec(bytes);
+  final frames = <ui.Image>[];
+  final durations = <Duration>[];
+  for (var i = 0; i < codec.frameCount; i++) {
+    final frame = await codec.getNextFrame();
+    frames.add(frame.image);
+    durations.add(frame.duration);
+  }
+  return EmoteFrameData(frames: frames, durations: durations);
+}
 
 Future<EmoteFrameData> _decodeGif(Uint8List bytes) async {
   final decoded = await Isolate.run(() {
@@ -634,7 +662,7 @@ class _EmoteImageState extends State<EmoteImage>
   bool _failed = false;
   int _frameIndex = 0;
   Ticker? _ticker;
-  bool _released = false;
+  Object? _loadToken;
 
   @override
   void initState() {
@@ -644,30 +672,23 @@ class _EmoteImageState extends State<EmoteImage>
 
   Future<void> _load() async {
     final url = widget.url;
+    final token = Object();
+    _loadToken = token;
     try {
       final fetcher = widget.memoryOnly ? _fetchBytesMemoryOnly : null;
       final frames = await EmoteClipRegistry.instance.acquire(
         url,
         fetcher: fetcher,
       );
-      if (!mounted) {
-        _release(url);
-        return;
-      }
+      if (!mounted || _loadToken != token) return;
       setState(() => _frames = frames);
       if (frames.isAnimated) {
         _ticker = createTicker(_onTick)..start();
       }
     } on Object {
-      if (!mounted) return;
+      if (!mounted || _loadToken != token) return;
       setState(() => _failed = true);
     }
-  }
-
-  void _release(String url) {
-    if (_released) return;
-    _released = true;
-    EmoteClipRegistry.instance.release(url);
   }
 
   void _onTick(Duration elapsed) {
@@ -691,7 +712,7 @@ class _EmoteImageState extends State<EmoteImage>
   @override
   void dispose() {
     _ticker?.dispose();
-    _release(widget.url);
+    EmoteClipRegistry.instance.release(widget.url);
     super.dispose();
   }
 
@@ -699,13 +720,12 @@ class _EmoteImageState extends State<EmoteImage>
   void didUpdateWidget(EmoteImage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.url != oldWidget.url) {
-      _release(oldWidget.url);
+      EmoteClipRegistry.instance.release(oldWidget.url);
       _ticker?.dispose();
       _ticker = null;
       _frames = null;
       _failed = false;
       _frameIndex = 0;
-      _released = false;
       _load();
     }
   }
