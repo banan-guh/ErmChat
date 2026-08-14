@@ -35,14 +35,15 @@ void main() {
     expect(identical(again, spans), isTrue);
   });
 
-  test('cached spans recompute when the emote version changes', () {
+  test('cached spans stay frozen across a live 7TV delta', () {
     final em = EmoteManager();
     final msg = makeMsg();
     final spans = makeBuilder(em).buildMessageSpans(msg, 'test', Colors.black);
     expect(spans.any((s) => s is WidgetSpan), isFalse);
 
-    // Emote data changes without any explicit span clearing: the version
-    // bumps and the next build lazily recomputes.
+    // A live 7TV delta does not bump the version: already-rendered messages
+    // keep the emote state they were built with (no retroactive re-render on
+    // add/remove).
     em.updateSevenTvEmotes(
       'test',
       added: [
@@ -54,12 +55,24 @@ void main() {
         ),
       ],
     );
+    expect(em.version, msg.cachedSpansVersion);
+
+    final again = makeBuilder(em).buildMessageSpans(msg, 'test', Colors.black);
+    expect(identical(again, spans), isTrue);
+  });
+
+  test('cached spans recompute after a full refetch notify', () async {
+    final em = EmoteManager();
+    final msg = makeMsg();
+    final spans = makeBuilder(em).buildMessageSpans(msg, 'test', Colors.black);
+    expect(spans.any((s) => s is WidgetSpan), isFalse);
+
+    // A non-delta notify (full refetch) bumps the version and the next build
+    // lazily recomputes against the fresh emote data.
+    await em.storeUserTwitchEmotes({});
     expect(em.version, greaterThan(msg.cachedSpansVersion!));
 
-    final recomputed = makeBuilder(
-      em,
-    ).buildMessageSpans(msg, 'test', Colors.black);
-    expect(recomputed.any((s) => s is WidgetSpan), isTrue);
+    makeBuilder(em).buildMessageSpans(msg, 'test', Colors.black);
     expect(msg.cachedSpansVersion, em.version);
   });
 }

@@ -880,7 +880,14 @@ class _HomeScreenState extends State<HomeScreen>
     // Just bump the affected channels so visible tiles lazily recompute.
     final channel = _emoteManager.consumeChangedChannel();
     if (channel != null) {
-      _bumpChannel(channel);
+      // A live 7TV delta never re-renders existing messages: they keep the
+      // emote state they were built with (no retroactive add/remove in chat),
+      // and the sheet/autocomplete read the updated lists themselves. Only a
+      // full refetch (no delta codes) clears the channel's tile cache.
+      if (_emoteManager.consumeChangedCodes(channel) != null) return;
+      _tileCache.remove(channel);
+      _versionNotifier(channel).value++;
+      _onPanelDataChanged(channel);
     } else {
       for (final c in List.of(_channels)) {
         _bumpChannel(c);

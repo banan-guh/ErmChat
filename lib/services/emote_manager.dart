@@ -128,8 +128,11 @@ class EmoteManager extends ChangeNotifier {
   /// emission (tier/cache changes, global or per-channel emote updates).
   int get version => _version;
 
-  void _notify([String? channel]) {
-    _version++;
+  // [bumpVersion] controls whether the span-cache version advances. Live 7TV
+  // deltas skip it so already-rendered messages keep the emote state they
+  // were built with (no retroactive re-rendering); full refetches bump it.
+  void _notify({String? channel, bool bumpVersion = true}) {
+    if (bumpVersion) _version++;
     _changedChannel = channel;
     if (channel != null) {
       _mergedCache.remove(channel);
@@ -147,6 +150,23 @@ class EmoteManager extends ChangeNotifier {
     _changedChannel = null;
     return c;
   }
+
+  // Emote codes touched by the last 7TV delta per channel (added codes,
+  // removed codes, rename old+new). Only set by updateSevenTvEmotes; other
+  // notifies leave it absent so callers can treat them as full refetches.
+  final _lastChangedCodes = <String, Set<String>>{};
+
+  /// Consumes and clears the emote codes touched by the last 7TV delta for
+  /// [channel]. Returns null when the last notify was not a 7TV delta (full
+  /// refetch, tier change), in which case callers should refresh everything.
+  Set<String>? consumeChangedCodes(String channel) {
+    return _lastChangedCodes.remove(channel);
+  }
+
+  // Live 7TV emote list per channel as of the last WebSocket delta. Re-applied
+  // whenever a fetch rebuilds the channel cache, so an in-flight fetch that
+  // started before a delta can't clobber the live add/remove/rename.
+  final _sevenTvLive = <String, List<GenericEmote>>{};
 
   set accessToken(String? value) => _accessToken = value;
 
@@ -407,8 +427,9 @@ class EmoteManager extends ChangeNotifier {
       _channelCaches[channel] = subs.isEmpty
           ? cached
           : _buildChannelMap([...cached.suggestions, ...subs]);
+      _reapplyLiveSevenTv(channel);
       _channelFetchTimes[channel] = DateTime.now();
-      _notify(channel);
+      _notify(channel: channel);
       if (loaded.fresh) {
         // Fresh cache: render immediately, then refresh only the Twitch
         // channel emotes in the background on medium/high (they aren't
@@ -454,8 +475,32 @@ class EmoteManager extends ChangeNotifier {
         .toList();
     final merged = _mergeWithStoredSubs(channel, nonSubEmotes);
     _channelCaches[channel] = _buildChannelMap(merged);
+    _reapplyLiveSevenTv(channel);
     _channelFetchTimes[channel] = DateTime.now();
-    _notify(channel);
+    _notify(channel: channel);
+  }
+
+  // Re-applies the live 7TV delta state after a fetch rebuilds the channel
+  // cache, so an in-flight fetch that started before a WebSocket delta can't
+  // clobber the live add/remove/rename.
+  void _reapplyLiveSevenTv(String channel) {
+    final live = _sevenTvLive[channel];
+    if (live == null) return;
+    final cache = _channelCaches[channel];
+    if (cache == null) return;
+    final byCode = <String, GenericEmote>{};
+    for (final e in cache.byCode.values) {
+      if (e.type != EmoteType.sevenTv) byCode[e.code] = e;
+    }
+    for (final e in live) {
+      byCode[e.code] = e;
+    }
+    final suggestions = byCode.values.toList()
+      ..sort((a, b) => a.code.compareTo(b.code));
+    _channelCaches[channel] = ChannelEmotes(
+      byCode: byCode,
+      suggestions: suggestions,
+    );
   }
 
   // Merges freshly fetched channel emotes with any subscriber-only Twitch
@@ -509,7 +554,7 @@ class EmoteManager extends ChangeNotifier {
         ];
         _channelCaches[channel] = _buildChannelMap(combined);
       }
-      _notify(channel);
+      _notify(channel: channel);
     } catch (e) {
       debugPrint('[EmoteManager] twitch refresh failed for $channel: $e');
     }
@@ -546,6 +591,7 @@ class EmoteManager extends ChangeNotifier {
     _sevenTvUserIds.remove(channel);
     _channelProviderEmotes.remove(channel);
     _mergedCache.remove(channel);
+    _sevenTvLive.remove(channel);
   }
 
   void evictGlobal() {
@@ -570,8 +616,13 @@ class EmoteManager extends ChangeNotifier {
   }
 
   // Live 7TV emote patch: applies add/remove/rename deltas from the 7TV
-  // WebSocket. Only affects 7TV-type emotes. Add checks scope and provider
-  // priority to avoid downgrading higher-priority entries from other providers.
+  // WebSocket in place on the channel's sorted emote list, so an add/remove
+  // at position k only shifts the entries below it. Only affects 7TV-type
+  // emotes. Add checks scope and provider priority to avoid downgrading
+  // higher-priority entries from other providers. Records the affected emote
+  // codes (consumed via [consumeChangedCodes]) so callers can re-render only
+  // what the delta touched, and evicts removed emotes from the disk cache
+  // when no other channel uses them anymore.
   void updateSevenTvEmotes(
     String channel, {
     List<GenericEmote> added = const [],
@@ -579,56 +630,169 @@ class EmoteManager extends ChangeNotifier {
     Map<String, ({String newName, String oldName})> renamed = const {},
   }) {
     if (_tier == EmoteFetchTier.nothing) return;
-    final cache = _channelCaches[channel];
+    var cache = _channelCaches[channel];
     if (cache == null && added.isEmpty) return;
 
-    final byCode = Map<String, GenericEmote>.from(cache?.byCode ?? {});
+    final changedCodes = <String>{};
+    final removedIdsWithUrls = <(String, List<String>)>[];
 
-    for (final id in removedIds) {
-      byCode.removeWhere((_, e) => e.id == id && e.type == EmoteType.sevenTv);
-    }
+    if (cache == null) {
+      // No cache yet: build one from the added emotes.
+      final sorted = List.of(added)
+        ..sort((a, b) => a.code.compareTo(b.code));
+      cache = ChannelEmotes(
+        byCode: {for (final e in sorted) e.code: e},
+        suggestions: sorted,
+      );
+      _channelCaches[channel] = cache;
+      changedCodes.addAll(added.map((e) => e.code));
+    } else {
+      final byCode = cache.byCode;
+      final suggestions = cache.suggestions;
 
-    for (final entry in renamed.entries) {
-      for (final e in byCode.values.toList()) {
-        if (e.id == entry.key && e.type == EmoteType.sevenTv) {
+      for (final id in removedIds) {
+        final removed = byCode.values
+            .where((e) => e.id == id && e.type == EmoteType.sevenTv)
+            .toList();
+        for (final e in removed) {
           byCode.remove(e.code);
-          final renamedEmote = GenericEmote(
-            id: e.id,
-            code: entry.value.newName,
-            type: e.type,
-            url: e.url,
-            urlLarge: e.urlLarge,
-            isAnimated: e.isAnimated,
-            scope: e.scope,
-            ownerChannel: e.ownerChannel,
-            isZeroWidth: e.isZeroWidth,
-            baseName: e.baseName,
-            relativeScale: e.relativeScale,
-            aspectRatio: e.aspectRatio,
-          );
-          byCode[entry.value.newName] = renamedEmote;
-          break;
+          _removeFromSuggestions(suggestions, e.code);
+          changedCodes.add(e.code);
+          removedIdsWithUrls.add((
+            e.id,
+            [
+              e.url,
+              if (e.urlLarge != null) e.urlLarge!,
+            ],
+          ));
         }
       }
+
+      for (final entry in renamed.entries) {
+        final e = byCode.values
+            .where((x) => x.id == entry.key && x.type == EmoteType.sevenTv)
+            .firstOrNull;
+        if (e == null) continue;
+        byCode.remove(e.code);
+        _removeFromSuggestions(suggestions, e.code);
+        final renamedEmote = GenericEmote(
+          id: e.id,
+          code: entry.value.newName,
+          type: e.type,
+          url: e.url,
+          urlLarge: e.urlLarge,
+          isAnimated: e.isAnimated,
+          scope: e.scope,
+          ownerChannel: e.ownerChannel,
+          isZeroWidth: e.isZeroWidth,
+          baseName: e.baseName,
+          relativeScale: e.relativeScale,
+          aspectRatio: e.aspectRatio,
+        );
+        byCode[renamedEmote.code] = renamedEmote;
+        _insertSorted(suggestions, renamedEmote);
+        changedCodes
+          ..add(e.code)
+          ..add(renamedEmote.code);
+      }
+
+      for (final emote in added) {
+        final existing = byCode[emote.code];
+        if (existing != null &&
+            !(existing.scope.index <= emote.scope.index &&
+                _providerPriority[emote.type]! <
+                    _providerPriority[existing.type]!)) {
+          continue;
+        }
+        if (existing != null) {
+          _removeFromSuggestions(suggestions, emote.code);
+        }
+        byCode[emote.code] = emote;
+        _insertSorted(suggestions, emote);
+        changedCodes.add(emote.code);
+      }
+
+      _channelCaches[channel] = cache;
     }
 
-    for (final emote in added) {
-      final existing = byCode[emote.code];
-      if (existing == null ||
-          (existing.scope.index <= emote.scope.index &&
-              _providerPriority[emote.type]! <
-                  _providerPriority[existing.type]!)) {
-        byCode[emote.code] = emote;
+    // Keep the per-provider stash in sync so a transient fetch miss can't
+    // resurrect the delta from stale retained data, and record the live 7TV
+    // list so any concurrent fetch rebuild re-applies it.
+    final providerStash = _channelProviderEmotes[channel];
+    if (providerStash != null && providerStash.containsKey('7TV')) {
+      providerStash['7TV'] = cache.suggestions
+          .where((e) => e.type == EmoteType.sevenTv)
+          .toList();
+    }
+    _sevenTvLive[channel] = cache.suggestions
+        .where((e) => e.type == EmoteType.sevenTv)
+        .toList();
+
+    _lastChangedCodes[channel] = changedCodes;
+    // Live deltas don't bump the span-cache version: messages keep the emote
+    // state they were rendered with (no retroactive re-rendering on add or
+    // remove). The sheet, autocomplete and recents read the updated lists
+    // directly through the listener.
+    _notify(channel: channel, bumpVersion: false);
+
+    // Evict removed emotes from the disk cache once they're gone from every
+    // channel (7TV emotes can be shared across channels), so a removed emote
+    // only lingers in RAM until the next restart.
+    final unused = removedIdsWithUrls.where(
+      (entry) => !_isEmoteUsedElsewhere(entry.$1),
+    );
+    if (unused.isNotEmpty) {
+      unawaited(_evictEmoteImages([
+        for (final entry in unused) ...entry.$2,
+      ]));
+    }
+  }
+
+  // Removes the entry with the given code from a code-sorted list in place.
+  void _removeFromSuggestions(List<GenericEmote> list, String code) {
+    final index = list.indexWhere((e) => e.code == code);
+    if (index != -1) list.removeAt(index);
+  }
+
+  // Inserts an emote into a code-sorted list in place, replacing the entry
+  // with the same code if one exists.
+  void _insertSorted(List<GenericEmote> list, GenericEmote emote) {
+    final existingIndex = list.indexWhere((e) => e.code == emote.code);
+    if (existingIndex != -1) {
+      list[existingIndex] = emote;
+      return;
+    }
+    var i = 0;
+    while (i < list.length && list[i].code.compareTo(emote.code) < 0) {
+      i++;
+    }
+    list.insert(i, emote);
+  }
+
+  bool _isEmoteUsedElsewhere(String id) {
+    for (final c in _channelCaches.values) {
+      if (c.byCode.values.any((e) => e.id == id)) return true;
+    }
+    return _globalCache?.byCode.values.any((e) => e.id == id) ?? false;
+  }
+
+  Future<void> _evictEmoteImages(List<String> urls) async {
+    await _ensureUsageLoaded();
+    var removed = false;
+    for (final url in urls) {
+      if (url.isEmpty) continue;
+      _emoteUsage.remove(url);
+      removed = true;
+      try {
+        await _removeCachedFile(url);
+      } catch (_) {
+        debugPrint('[EmoteManager] failed to evict unused emote $url');
       }
     }
-
-    final suggestions = byCode.values.toList()
-      ..sort((a, b) => a.code.compareTo(b.code));
-    _channelCaches[channel] = ChannelEmotes(
-      byCode: byCode,
-      suggestions: suggestions,
-    );
-    _notify(channel);
+    if (removed) {
+      _usageDirty = true;
+      await _flushUsage();
+    }
   }
 
   /// Low/nothing tiers persist Twitch emotes (see [_saveToPrefs]) with an

@@ -155,6 +155,223 @@ void main() {
       expect(emote!.baseName, 'BaseEmote');
       expect(emote.ownerChannel, 'Creator');
     });
+
+    GenericEmote sevenTv(String id, String code) => GenericEmote(
+      id: id,
+      code: code,
+      type: EmoteType.sevenTv,
+      url: 'https://example.com/$id.png',
+      scope: EmoteScope.channel,
+    );
+
+    test('incremental adds keep the suggestions code-sorted', () {
+      final manager = EmoteManager(fetchStagger: Duration.zero);
+      manager.updateSevenTvEmotes('ch', added: [
+        sevenTv('a', 'Alpha'),
+        sevenTv('c', 'Charlie'),
+      ]);
+      manager.updateSevenTvEmotes('ch', added: [
+        sevenTv('b', 'Bravo'),
+      ]);
+
+      final codes = manager
+          .byCode('ch')!
+          .suggestions
+          .map((e) => e.code)
+          .toList();
+      expect(codes, ['Alpha', 'Bravo', 'Charlie']);
+    });
+
+    test('incremental removes drop the entry and keep sorting', () async {
+      SharedPreferences.setMockInitialValues({});
+      final manager = EmoteManager(
+        fetchStagger: Duration.zero,
+        removeCachedFile: (url) async {},
+      );
+      manager.updateSevenTvEmotes('ch', added: [
+        sevenTv('a', 'Alpha'),
+        sevenTv('b', 'Bravo'),
+        sevenTv('c', 'Charlie'),
+      ]);
+      manager.updateSevenTvEmotes('ch', removedIds: ['b']);
+      await pumpEventQueue();
+
+      final emotes = manager.byCode('ch')!;
+      expect(emotes.byCode.keys, ['Alpha', 'Charlie']);
+      expect(emotes.suggestions.map((e) => e.code).toList(), [
+        'Alpha',
+        'Charlie',
+      ]);
+    });
+
+    test('rename re-sorts the renamed emote into place', () {
+      final manager = EmoteManager(fetchStagger: Duration.zero);
+      manager.updateSevenTvEmotes('ch', added: [
+        sevenTv('a', 'Alpha'),
+        sevenTv('b', 'Bravo'),
+        sevenTv('c', 'Charlie'),
+      ]);
+      manager.updateSevenTvEmotes('ch', renamed: {
+        'c': (newName: 'Aaron', oldName: 'Charlie'),
+      });
+
+      final codes = manager
+          .byCode('ch')!
+          .suggestions
+          .map((e) => e.code)
+          .toList();
+      expect(codes, ['Aaron', 'Alpha', 'Bravo']);
+    });
+
+    test('consumeChangedCodes returns the touched codes per delta', () async {
+      SharedPreferences.setMockInitialValues({});
+      final manager = EmoteManager(
+        fetchStagger: Duration.zero,
+        removeCachedFile: (url) async {},
+      );
+      manager.updateSevenTvEmotes('ch', added: [
+        sevenTv('a', 'Alpha'),
+        sevenTv('b', 'Bravo'),
+      ]);
+      expect(manager.consumeChangedCodes('ch'), {'Alpha', 'Bravo'});
+
+      manager.updateSevenTvEmotes('ch', removedIds: ['a']);
+      await pumpEventQueue();
+      expect(manager.consumeChangedCodes('ch'), {'Alpha'});
+
+      manager.updateSevenTvEmotes('ch', renamed: {
+        'b': (newName: 'Beta', oldName: 'Bravo'),
+      });
+      expect(manager.consumeChangedCodes('ch'), {'Bravo', 'Beta'});
+      expect(manager.consumeChangedCodes('ch'), isNull);
+    });
+
+    test('consumeChangedCodes is null after a non-7TV notify', () async {
+      SharedPreferences.setMockInitialValues({});
+      final manager = EmoteManager(fetchStagger: Duration.zero);
+      await manager.storeUserTwitchEmotes({
+        'ch': [
+          GenericEmote(
+            id: 's1',
+            code: 'SubEmote',
+            type: EmoteType.twitch,
+            url: 'https://example.com/s1.png',
+            scope: EmoteScope.channel,
+            tier: '3',
+            emoteType: 'subscriptions',
+          ),
+        ],
+      });
+
+      expect(manager.consumeChangedCodes('ch'), isNull);
+    });
+
+    test('removed emote is evicted from disk when unused elsewhere', () async {
+      SharedPreferences.setMockInitialValues({});
+      final removed = <String>[];
+      final manager = EmoteManager(
+        fetchStagger: Duration.zero,
+        removeCachedFile: (url) async => removed.add(url),
+      );
+      manager.updateSevenTvEmotes('ch', added: [
+        sevenTv('a', 'Alpha'),
+        sevenTv('b', 'Bravo'),
+      ]);
+
+      manager.updateSevenTvEmotes('ch', removedIds: ['a']);
+      await pumpEventQueue();
+
+      expect(removed, contains('https://example.com/a.png'));
+      expect(removed, isNot(contains('https://example.com/b.png')));
+    });
+
+    test('removed emote stays on disk when another channel still uses it', (
+      ) async {
+      SharedPreferences.setMockInitialValues({});
+      final removed = <String>[];
+      final manager = EmoteManager(
+        fetchStagger: Duration.zero,
+        removeCachedFile: (url) async => removed.add(url),
+      );
+      manager.updateSevenTvEmotes('ch1', added: [sevenTv('a', 'Alpha')]);
+      manager.updateSevenTvEmotes('ch2', added: [sevenTv('a', 'Alpha')]);
+
+      manager.updateSevenTvEmotes('ch1', removedIds: ['a']);
+      await pumpEventQueue();
+
+      expect(removed, isEmpty);
+    });
+
+    test('a 7TV delta does not bump the span-cache version', () async {
+      SharedPreferences.setMockInitialValues({});
+      final manager = EmoteManager(
+        fetchStagger: Duration.zero,
+        removeCachedFile: (url) async {},
+      );
+      final before = manager.version;
+
+      manager.updateSevenTvEmotes('ch', added: [sevenTv('a', 'Alpha')]);
+      expect(manager.version, before);
+
+      // Non-delta notifies (full refetches) still bump, so cached spans
+      // recompute against the fresh data.
+      await manager.storeUserTwitchEmotes({'ch': []});
+      expect(manager.version, greaterThan(before));
+    });
+
+    test('a no-op delta still counts as a delta, not a refetch', () {
+      final manager = EmoteManager(
+        fetchStagger: Duration.zero,
+        removeCachedFile: (url) async {},
+      );
+      manager.updateSevenTvEmotes('ch', added: [sevenTv('a', 'Alpha')]);
+
+      // Renaming an emote that isn't cached changes nothing, but the event
+      // is still a live delta: callers must not treat it as a full refetch.
+      manager.updateSevenTvEmotes('ch', renamed: {
+        'missing': (newName: 'X', oldName: 'Y'),
+      });
+
+      final codes = manager.consumeChangedCodes('ch');
+      expect(codes, isNotNull);
+      expect(codes, isEmpty);
+    });
+
+    test('a fetch re-load re-applies live 7TV deltas', () async {
+      SharedPreferences.setMockInitialValues({
+        'emotes3_ch': jsonEncode({
+          'ts': DateTime.now().toIso8601String(),
+          'tier': EmoteFetchTier.high.index,
+          'emotes': [
+            sevenTv('old', 'Old7tv').toJson(),
+            makeTestEmote(id: 'n1', code: 'NonTwitch').toJson(),
+          ],
+        }),
+      });
+      final manager = EmoteManager(
+        fetchStagger: Duration.zero,
+        removeCachedFile: (url) async {},
+      );
+      await manager.resolveEmotes('ch', 'b1');
+
+      // Live deltas: remove the persisted 7TV emote, add a new one.
+      manager.updateSevenTvEmotes('ch', removedIds: ['old']);
+      manager.updateSevenTvEmotes('ch', added: [sevenTv('live', 'LiveEmote')]);
+      await pumpEventQueue();
+
+      // Re-loading the still-fresh persisted cache must not clobber the
+      // live state.
+      await manager.resolveEmotes('ch', 'b1');
+
+      final codes = manager
+          .byCode('ch')!
+          .suggestions
+          .map((e) => e.code)
+          .toList();
+      expect(codes, contains('LiveEmote'));
+      expect(codes, isNot(contains('Old7tv')));
+      expect(codes, contains('NonTwitch'));
+    });
   });
 
   group('EmoteManager refresh policy', () {

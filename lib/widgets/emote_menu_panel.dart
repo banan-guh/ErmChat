@@ -46,18 +46,45 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
   int _emoteTabIndex = 0;
   List<GenericEmote> _cachedRecentEmotes = [];
   bool _recentEmotesLoaded = false;
+  // Cached grid cells keyed by emote id. A 7TV delta only adds/removes/moves
+  // cells at and below the change point in the code-sorted lists; unchanged
+  // emotes return the identical cached widget instance, so Flutter
+  // short-circuits rebuilds above the event. Validated against the emote's
+  // URL + the cell padding, so refetches and width changes rebuild cleanly.
+  final Map<String, ({String url, double padding, Widget widget})>
+  _cellCache = {};
+  double? _lastPanelWidth;
 
   @override
   void initState() {
     super.initState();
     _loadRecentEmotes();
-    widget.emoteManager.addListener(_loadRecentEmotes);
+    widget.emoteManager.addListener(_onEmoteManagerChanged);
+  }
+
+  @override
+  void didUpdateWidget(covariant EmoteMenuPanelWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isActive && !oldWidget.isActive) {
+      // Fresh recents + a clean cell cache on (re)open.
+      _cellCache.clear();
+      _loadRecentEmotes();
+    } else if (!widget.isActive && oldWidget.isActive) {
+      _cellCache.clear();
+    }
   }
 
   @override
   void dispose() {
-    widget.emoteManager.removeListener(_loadRecentEmotes);
+    widget.emoteManager.removeListener(_onEmoteManagerChanged);
     super.dispose();
+  }
+
+  void _onEmoteManagerChanged() {
+    // Rebuild only while the sheet is open; recents refresh on reopen via
+    // didUpdateWidget.
+    if (!widget.isActive) return;
+    _loadRecentEmotes();
   }
 
   Future<void> _loadRecentEmotes() async {
@@ -73,6 +100,12 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
   @override
   Widget build(BuildContext context) {
     if (!widget.isActive) return const SizedBox.shrink();
+    final width = _panelWidth;
+    if (_lastPanelWidth != null && _lastPanelWidth != width) {
+      // Cell padding is baked into cached cells; rebuild them on width change.
+      _cellCache.clear();
+    }
+    _lastPanelWidth = width;
     final theme = Theme.of(context);
     final panelColor = theme.colorScheme.surfaceContainerLow;
     final radius = BorderRadius.circular(16);
@@ -303,10 +336,14 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
                 crossAxisSpacing: 8,
                 childAspectRatio: 1,
               ),
-              delegate: SliverChildBuilderDelegate((_, i) {
-                final cellPadding = _computeCellPadding();
-                return _buildEmoteGridItem(entry.value[i], cellPadding);
-              }, childCount: entry.value.length),
+              delegate: SliverChildBuilderDelegate(
+                (_, i) {
+                  final cellPadding = _computeCellPadding();
+                  return _buildEmoteGridItem(entry.value[i], cellPadding);
+                },
+                childCount: entry.value.length,
+                findChildIndexCallback: _idToIndexClosure(entry.value),
+              ),
             ),
           ),
         ],
@@ -345,7 +382,33 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
         final cellPadding = _computeCellPadding();
         return _buildEmoteGridItem(emotes[i], cellPadding);
       },
+      findChildIndexCallback: _idToIndexClosure(emotes),
     );
+  }
+
+  // Maps cached-cell emote ids to their current index in a displayed list,
+  // scanning only until every cached id is located (lists can be far larger
+  // than the cache). Keyed reconciliation lets Flutter move unchanged cells
+  // below a 7TV delta instead of rebuilding them.
+  Map<String, int> _idToIndex(List<GenericEmote> emotes) {
+    final pending = _cellCache.keys.toSet();
+    if (pending.isEmpty) return const {};
+    final map = <String, int>{};
+    for (var i = 0; i < emotes.length && pending.isNotEmpty; i++) {
+      final id = emotes[i].id;
+      if (id.isNotEmpty && pending.remove(id)) {
+        map[id] = i;
+      }
+    }
+    return map;
+  }
+
+  ChildIndexGetter _idToIndexClosure(List<GenericEmote> emotes) {
+    final idToIndex = _idToIndex(emotes);
+    return (key) {
+      if (key is ValueKey<String>) return idToIndex[key.value];
+      return null;
+    };
   }
 
   double _computeCellPadding() {
@@ -360,7 +423,13 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
   }
 
   Widget _buildEmoteGridItem(GenericEmote emote, double cellPadding) {
-    return Material(
+    final url = emote.urlLarge ?? emote.url;
+    final cached = _cellCache[emote.id];
+    if (cached != null && cached.url == url && cached.padding == cellPadding) {
+      return cached.widget;
+    }
+    final cell = Material(
+      key: ValueKey<String>(emote.id),
       type: MaterialType.transparency,
       clipBehavior: Clip.hardEdge,
       child: InkWell(
@@ -368,7 +437,7 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
         child: Padding(
           padding: EdgeInsets.all(cellPadding),
           child: CachedNetworkImage(
-            imageUrl: emote.urlLarge ?? emote.url,
+            imageUrl: url,
             width: double.infinity,
             height: double.infinity,
             fit: BoxFit.contain,
@@ -379,5 +448,9 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
         ),
       ),
     );
+    if (emote.id.isNotEmpty) {
+      _cellCache[emote.id] = (url: url, padding: cellPadding, widget: cell);
+    }
+    return cell;
   }
 }
