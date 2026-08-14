@@ -2,12 +2,15 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io' show Directory;
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ermchat/models/emote_fetch_tier.dart';
 import 'package:ermchat/models/generic_emote.dart';
+import 'package:ermchat/services/emote_cache_manager.dart';
 import 'package:ermchat/services/emote_manager.dart';
+import 'package:ermchat/services/emote_providers/seven_tv_emotes.dart';
 import '../helpers.dart';
 
 class _FakePathProvider extends PathProviderPlatform {
@@ -20,6 +23,16 @@ class _FakePathProvider extends PathProviderPlatform {
   @override
   Future<String?> getApplicationSupportPath() async => tempDir;
 }
+
+/// A cache manager with a no-op repo and an in-memory file system, so unit
+/// tests exercise the cap/priority wiring without touching path_provider.
+EmoteCacheManager testCacheManager() => EmoteCacheManager.forTesting(
+  Config(
+    'test',
+    repo: NonStoringObjectProvider(),
+    fileSystem: MemoryCacheSystem(),
+  ),
+);
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -166,13 +179,11 @@ void main() {
 
     test('incremental adds keep the suggestions code-sorted', () {
       final manager = EmoteManager(fetchStagger: Duration.zero);
-      manager.updateSevenTvEmotes('ch', added: [
-        sevenTv('a', 'Alpha'),
-        sevenTv('c', 'Charlie'),
-      ]);
-      manager.updateSevenTvEmotes('ch', added: [
-        sevenTv('b', 'Bravo'),
-      ]);
+      manager.updateSevenTvEmotes(
+        'ch',
+        added: [sevenTv('a', 'Alpha'), sevenTv('c', 'Charlie')],
+      );
+      manager.updateSevenTvEmotes('ch', added: [sevenTv('b', 'Bravo')]);
 
       final codes = manager
           .byCode('ch')!
@@ -188,11 +199,14 @@ void main() {
         fetchStagger: Duration.zero,
         removeCachedFile: (url) async {},
       );
-      manager.updateSevenTvEmotes('ch', added: [
-        sevenTv('a', 'Alpha'),
-        sevenTv('b', 'Bravo'),
-        sevenTv('c', 'Charlie'),
-      ]);
+      manager.updateSevenTvEmotes(
+        'ch',
+        added: [
+          sevenTv('a', 'Alpha'),
+          sevenTv('b', 'Bravo'),
+          sevenTv('c', 'Charlie'),
+        ],
+      );
       manager.updateSevenTvEmotes('ch', removedIds: ['b']);
       await pumpEventQueue();
 
@@ -206,14 +220,18 @@ void main() {
 
     test('rename re-sorts the renamed emote into place', () {
       final manager = EmoteManager(fetchStagger: Duration.zero);
-      manager.updateSevenTvEmotes('ch', added: [
-        sevenTv('a', 'Alpha'),
-        sevenTv('b', 'Bravo'),
-        sevenTv('c', 'Charlie'),
-      ]);
-      manager.updateSevenTvEmotes('ch', renamed: {
-        'c': (newName: 'Aaron', oldName: 'Charlie'),
-      });
+      manager.updateSevenTvEmotes(
+        'ch',
+        added: [
+          sevenTv('a', 'Alpha'),
+          sevenTv('b', 'Bravo'),
+          sevenTv('c', 'Charlie'),
+        ],
+      );
+      manager.updateSevenTvEmotes(
+        'ch',
+        renamed: {'c': (newName: 'Aaron', oldName: 'Charlie')},
+      );
 
       final codes = manager
           .byCode('ch')!
@@ -229,19 +247,20 @@ void main() {
         fetchStagger: Duration.zero,
         removeCachedFile: (url) async {},
       );
-      manager.updateSevenTvEmotes('ch', added: [
-        sevenTv('a', 'Alpha'),
-        sevenTv('b', 'Bravo'),
-      ]);
+      manager.updateSevenTvEmotes(
+        'ch',
+        added: [sevenTv('a', 'Alpha'), sevenTv('b', 'Bravo')],
+      );
       expect(manager.consumeChangedCodes('ch'), {'Alpha', 'Bravo'});
 
       manager.updateSevenTvEmotes('ch', removedIds: ['a']);
       await pumpEventQueue();
       expect(manager.consumeChangedCodes('ch'), {'Alpha'});
 
-      manager.updateSevenTvEmotes('ch', renamed: {
-        'b': (newName: 'Beta', oldName: 'Bravo'),
-      });
+      manager.updateSevenTvEmotes(
+        'ch',
+        renamed: {'b': (newName: 'Beta', oldName: 'Bravo')},
+      );
       expect(manager.consumeChangedCodes('ch'), {'Bravo', 'Beta'});
       expect(manager.consumeChangedCodes('ch'), isNull);
     });
@@ -273,10 +292,10 @@ void main() {
         fetchStagger: Duration.zero,
         removeCachedFile: (url) async => removed.add(url),
       );
-      manager.updateSevenTvEmotes('ch', added: [
-        sevenTv('a', 'Alpha'),
-        sevenTv('b', 'Bravo'),
-      ]);
+      manager.updateSevenTvEmotes(
+        'ch',
+        added: [sevenTv('a', 'Alpha'), sevenTv('b', 'Bravo')],
+      );
 
       manager.updateSevenTvEmotes('ch', removedIds: ['a']);
       await pumpEventQueue();
@@ -285,22 +304,24 @@ void main() {
       expect(removed, isNot(contains('https://example.com/b.png')));
     });
 
-    test('removed emote stays on disk when another channel still uses it', (
-      ) async {
-      SharedPreferences.setMockInitialValues({});
-      final removed = <String>[];
-      final manager = EmoteManager(
-        fetchStagger: Duration.zero,
-        removeCachedFile: (url) async => removed.add(url),
-      );
-      manager.updateSevenTvEmotes('ch1', added: [sevenTv('a', 'Alpha')]);
-      manager.updateSevenTvEmotes('ch2', added: [sevenTv('a', 'Alpha')]);
+    test(
+      'removed emote stays on disk when another channel still uses it',
+      () async {
+        SharedPreferences.setMockInitialValues({});
+        final removed = <String>[];
+        final manager = EmoteManager(
+          fetchStagger: Duration.zero,
+          removeCachedFile: (url) async => removed.add(url),
+        );
+        manager.updateSevenTvEmotes('ch1', added: [sevenTv('a', 'Alpha')]);
+        manager.updateSevenTvEmotes('ch2', added: [sevenTv('a', 'Alpha')]);
 
-      manager.updateSevenTvEmotes('ch1', removedIds: ['a']);
-      await pumpEventQueue();
+        manager.updateSevenTvEmotes('ch1', removedIds: ['a']);
+        await pumpEventQueue();
 
-      expect(removed, isEmpty);
-    });
+        expect(removed, isEmpty);
+      },
+    );
 
     test('a 7TV delta does not bump the span-cache version', () async {
       SharedPreferences.setMockInitialValues({});
@@ -328,9 +349,10 @@ void main() {
 
       // Renaming an emote that isn't cached changes nothing, but the event
       // is still a live delta: callers must not treat it as a full refetch.
-      manager.updateSevenTvEmotes('ch', renamed: {
-        'missing': (newName: 'X', oldName: 'Y'),
-      });
+      manager.updateSevenTvEmotes(
+        'ch',
+        renamed: {'missing': (newName: 'X', oldName: 'Y')},
+      );
 
       final codes = manager.consumeChangedCodes('ch');
       expect(codes, isNotNull);
@@ -374,31 +396,141 @@ void main() {
     });
   });
 
+  group('7TV startup reconcile', () {
+    GenericEmote sevenTv(String id, String code) => GenericEmote(
+      id: id,
+      code: code,
+      type: EmoteType.sevenTv,
+      url: 'https://example.com/$id.png',
+      scope: EmoteScope.channel,
+    );
+
+    Map<String, Object> cache(List<GenericEmote> emotes) => {
+      'emotes3_ch': jsonEncode({
+        'ts': DateTime.now()
+            .subtract(const Duration(hours: 1))
+            .toIso8601String(),
+        'emotes': emotes.map((e) => e.toJson()).toList(),
+      }),
+    };
+
+    test('applies add/remove/rename deltas against the loaded cache', () async {
+      SharedPreferences.setMockInitialValues(
+        cache([
+          sevenTv('a', 'Alpha'),
+          sevenTv('b', 'Bravo'),
+          sevenTv('c', 'Charlie'),
+        ]),
+      );
+      final manager = EmoteManager(
+        fetchStagger: Duration.zero,
+        tier: EmoteFetchTier.medium,
+        removeCachedFile: (url) async {},
+        sevenTvChannelFetcher: (id, resolution) async => SevenTvChannelResponse(
+          emotes: [
+            sevenTv('b', 'Bravo'),
+            sevenTv('c', 'Charlee'),
+            sevenTv('d', 'Delta'),
+          ],
+          emoteSetId: 'set1',
+          userId: 'u1',
+        ),
+      );
+
+      await manager.resolveEmotes('ch', 'b1');
+      await pumpEventQueue();
+
+      final codes = manager
+          .byCode('ch')!
+          .suggestions
+          .map((e) => e.code)
+          .toList();
+      expect(codes, ['Bravo', 'Charlee', 'Delta']);
+      expect(manager.getSevenTvEmoteSetId('ch'), 'set1');
+      expect(manager.getSevenTvUserId('ch'), 'u1');
+    });
+
+    test('skips the reconcile in the low tier', () async {
+      SharedPreferences.setMockInitialValues(cache([sevenTv('a', 'Alpha')]));
+      var fetched = false;
+      final manager = EmoteManager(
+        fetchStagger: Duration.zero,
+        tier: EmoteFetchTier.low,
+        removeCachedFile: (url) async {},
+        sevenTvChannelFetcher: (id, resolution) async {
+          fetched = true;
+          return SevenTvChannelResponse(emotes: [sevenTv('b', 'Bravo')]);
+        },
+      );
+
+      await manager.resolveEmotes('ch', 'b1');
+      await pumpEventQueue();
+
+      expect(fetched, isFalse);
+      expect(manager.byCode('ch')!.suggestions.map((e) => e.code), ['Alpha']);
+    });
+
+    test('skips the reconcile without a broadcaster id', () async {
+      SharedPreferences.setMockInitialValues(cache([sevenTv('a', 'Alpha')]));
+      var fetched = false;
+      final manager = EmoteManager(
+        fetchStagger: Duration.zero,
+        tier: EmoteFetchTier.medium,
+        removeCachedFile: (url) async {},
+        sevenTvChannelFetcher: (id, resolution) async {
+          fetched = true;
+          return SevenTvChannelResponse(emotes: [sevenTv('b', 'Bravo')]);
+        },
+      );
+
+      await manager.resolveEmotes('ch', null);
+      await pumpEventQueue();
+
+      expect(fetched, isFalse);
+    });
+
+    test('a failed reconcile leaves the cache untouched', () async {
+      SharedPreferences.setMockInitialValues(cache([sevenTv('a', 'Alpha')]));
+      final manager = EmoteManager(
+        fetchStagger: Duration.zero,
+        tier: EmoteFetchTier.medium,
+        removeCachedFile: (url) async {},
+        sevenTvChannelFetcher: (id, resolution) async =>
+            throw Exception('boom'),
+      );
+
+      await manager.resolveEmotes('ch', 'b1');
+      await pumpEventQueue();
+
+      expect(manager.byCode('ch')!.suggestions.map((e) => e.code), ['Alpha']);
+    });
+  });
+
   group('EmoteManager refresh policy', () {
-    test('cellular connection gets the longer 48h TTL', () async {
+    test('cellular connection gets the longer 24h TTL', () async {
       final manager = EmoteManager(
         probe: () async => [ConnectivityResult.mobile],
       );
-      expect(await manager.effectiveTtlForTesting(), const Duration(hours: 48));
+      expect(await manager.effectiveTtlForTesting(), const Duration(hours: 24));
     });
 
-    test('wifi connection gets the 24h TTL', () async {
+    test('wifi connection gets the 12h TTL', () async {
       final manager = EmoteManager(
         probe: () async => [ConnectivityResult.wifi],
       );
-      expect(await manager.effectiveTtlForTesting(), const Duration(hours: 24));
+      expect(await manager.effectiveTtlForTesting(), const Duration(hours: 12));
     });
 
-    test('probe failure falls back to the 24h wifi TTL', () async {
+    test('probe failure falls back to the 12h wifi TTL', () async {
       final manager = EmoteManager(
         probe: () async => throw Exception('probe failed'),
       );
-      expect(await manager.effectiveTtlForTesting(), const Duration(hours: 24));
+      expect(await manager.effectiveTtlForTesting(), const Duration(hours: 12));
     });
 
-    test('no probe configured falls back to the 24h wifi TTL', () async {
+    test('no probe configured falls back to the 12h wifi TTL', () async {
       final manager = EmoteManager();
-      expect(await manager.effectiveTtlForTesting(), const Duration(hours: 24));
+      expect(await manager.effectiveTtlForTesting(), const Duration(hours: 12));
     });
 
     test('connectivity probe result is cached within the 60s window', () async {
@@ -439,7 +571,7 @@ void main() {
     });
 
     test(
-      'medium tier uses a flat 48h TTL regardless of connectivity',
+      'medium tier uses a flat 24h TTL regardless of connectivity',
       () async {
         final mobile = EmoteManager(
           tier: EmoteFetchTier.medium,
@@ -451,9 +583,9 @@ void main() {
         );
         expect(
           await mobile.effectiveTtlForTesting(),
-          const Duration(hours: 48),
+          const Duration(hours: 24),
         );
-        expect(await wifi.effectiveTtlForTesting(), const Duration(hours: 48));
+        expect(await wifi.effectiveTtlForTesting(), const Duration(hours: 24));
       },
     );
 
@@ -466,8 +598,8 @@ void main() {
         tier: EmoteFetchTier.high,
         probe: () async => [ConnectivityResult.wifi],
       );
-      expect(await mobile.effectiveTtlForTesting(), const Duration(hours: 48));
-      expect(await wifi.effectiveTtlForTesting(), const Duration(hours: 24));
+      expect(await mobile.effectiveTtlForTesting(), const Duration(hours: 24));
+      expect(await wifi.effectiveTtlForTesting(), const Duration(hours: 12));
     });
 
     test('fetch queue serializes actions in order', () async {
@@ -641,17 +773,20 @@ void main() {
       expect(byChannel['alpha']!.single.code, 'SubEmote');
     });
 
-    test('falls back to the storage channel when the owner is unknown', () async {
-      SharedPreferences.setMockInitialValues({});
-      final manager = EmoteManager(fetchStagger: Duration.zero);
-      await manager.storeUserTwitchEmotes({
-        'ch': [subEmote()],
-      });
+    test(
+      'falls back to the storage channel when the owner is unknown',
+      () async {
+        SharedPreferences.setMockInitialValues({});
+        final manager = EmoteManager(fetchStagger: Duration.zero);
+        await manager.storeUserTwitchEmotes({
+          'ch': [subEmote()],
+        });
 
-      final byChannel = manager.subscriberEmotesByChannel();
-      expect(byChannel.keys, ['ch']);
-      expect(byChannel['ch']!.single.code, 'SubEmote');
-    });
+        final byChannel = manager.subscriberEmotesByChannel();
+        expect(byChannel.keys, ['ch']);
+        expect(byChannel['ch']!.single.code, 'SubEmote');
+      },
+    );
 
     test('a fresh store replaces stale sub emotes for the channel', () async {
       SharedPreferences.setMockInitialValues({});
@@ -688,15 +823,12 @@ void main() {
     });
   });
 
-  group('disk cache GC', () {
-    // Preloads the usage registry (via startCacheGc) then cancels the timer,
-    // so touches recorded via enqueueSeenEmotes get per-call timestamps. The
-    // manager's pure GC/touch methods remain usable after dispose().
+  group('cache cap + usage registry', () {
     Future<EmoteManager> makeManager({
       required DateTime Function() clock,
-      required void Function(String) remove,
       int cacheCap = defaultEmoteCacheMax,
       EmoteFetchTier tier = EmoteFetchTier.high,
+      EmoteCacheManager? cache,
     }) async {
       PathProviderPlatform.instance = _FakePathProvider(
         Directory.systemTemp.path,
@@ -704,9 +836,9 @@ void main() {
       final manager = EmoteManager(
         fetchStagger: Duration.zero,
         now: clock,
-        removeCachedFile: (url) async => remove(url),
         cacheCap: cacheCap,
         tier: tier,
+        cacheManager: cache ?? testCacheManager(),
       );
       await manager.startCacheGc();
       manager.dispose();
@@ -723,157 +855,78 @@ void main() {
         ),
     ];
 
-    test('evicts emotes unused for over 24h regardless of count', () async {
+    test('cacheCap setter forwards the cap to the cache manager', () async {
       SharedPreferences.setMockInitialValues({});
-      var clock = DateTime(2026, 1, 1, 12);
-      final removed = <String>[];
-      final manager = await makeManager(
-        clock: () => clock,
-        remove: (url) => removed.add(url),
+      final cache = testCacheManager();
+      final manager = EmoteManager(
+        fetchStagger: Duration.zero,
+        cacheManager: cache,
       );
-      manager.enqueueSeenEmotes([
-        GenericEmote(
-          id: 'f',
-          code: 'Fresh',
-          url: 'https://example.com/fresh.png',
-          type: EmoteType.bttv,
-        ),
-      ]);
-      clock = clock.add(const Duration(hours: 25));
-      manager.enqueueSeenEmotes([
-        GenericEmote(
-          id: 's',
-          code: 'Stale',
-          url: 'https://example.com/stale.png',
-          type: EmoteType.bttv,
-        ),
-      ]);
-
-      await manager.runCacheGc();
-
-      expect(removed, ['https://example.com/fresh.png']);
+      manager.cacheCap = 123;
+      expect(manager.cacheCap, 123);
+      expect(cache.maxObjects, 123);
     });
 
-    test('LRU trims oldest even within the former 1h hot window', () async {
+    test('cacheCap setter clamps to the allowed range', () async {
       SharedPreferences.setMockInitialValues({});
-      var clock = DateTime(2026, 1, 1, 12);
-      final removed = <String>[];
-      final manager = await makeManager(
-        clock: () => clock,
-        remove: (url) => removed.add(url),
-        cacheCap: 5,
+      final manager = EmoteManager(
+        fetchStagger: Duration.zero,
+        cacheManager: testCacheManager(),
       );
-      final emotes = makeEmotes(10);
-      // Seed 4 old (touched 2h ago), then 6 fresh (now). Every entry is
-      // within the former 1h hot TTL, so trimming must be pure LRU.
-      manager.enqueueSeenEmotes(emotes.sublist(0, 4));
-      clock = clock.add(const Duration(hours: 2));
-      manager.enqueueSeenEmotes(emotes.sublist(4));
-
-      await manager.runCacheGc();
-
-      // 10 > cap 5: exactly 5 trimmed. Hard TTL (24h) doesn't touch the
-      // 2h-old entries, so the 4 oldest go first, then the earliest fresh.
-      expect(removed, hasLength(5));
-      for (final url in removed) {
-        final idx = int.parse(
-          url.replaceAll('https://example.com/e', '').replaceAll('.png', ''),
-        );
-        // The 4 old entries (0-3) are evicted regardless of age; the 5th is
-        // the earliest fresh (4), since ties sort in unspecified order.
-        expect(idx, lessThan(5));
-      }
+      manager.cacheCap = 999999;
+      expect(manager.cacheCap, maxEmoteCacheMax);
+      manager.cacheCap = -5;
+      expect(manager.cacheCap, minEmoteCacheMax);
     });
 
-    test('trims fresh emotes over the cache cap without a hot TTL', () async {
+    test('markEmoteViewed records usage in the registry', () async {
       SharedPreferences.setMockInitialValues({});
       final clock = DateTime(2026, 1, 1, 12);
-      final removed = <String>[];
-      final manager = await makeManager(
-        clock: () => clock,
-        remove: (url) => removed.add(url),
-        cacheCap: 5,
+      final manager = await makeManager(clock: () => clock);
+      manager.markEmoteViewed(makeEmotes(1)[0]);
+      await pumpEventQueue();
+
+      final prefs = await SharedPreferences.getInstance();
+      expect(
+        prefs.getString('emote_usage'),
+        contains('https://example.com/e0.png'),
       );
-      // All touched "now": previously protected by the hot TTL, now trimmed
-      // purely by LRU once over the cap.
-      manager.enqueueSeenEmotes(makeEmotes(10));
-
-      await manager.runCacheGc();
-
-      expect(removed, hasLength(5));
-    });
-
-    test('cacheCap setter is honored by the next GC sweep', () async {
-      SharedPreferences.setMockInitialValues({});
-      final clock = DateTime(2026, 1, 1, 12);
-      final removed = <String>[];
-      final manager = await makeManager(
-        clock: () => clock,
-        remove: (url) => removed.add(url),
-        cacheCap: 6,
-      );
-      manager.enqueueSeenEmotes(makeEmotes(12));
-
-      await manager.runCacheGc();
-      expect(removed, hasLength(6));
-      expect(manager.cacheCap, 6);
-
-      manager.cacheCap = 4;
-      await manager.runCacheGc();
-
-      // 6 remaining > new cap 4: two more evicted.
-      expect(removed, hasLength(8));
-    });
-
-    test('evicts nothing when under max and none over 24h', () async {
-      SharedPreferences.setMockInitialValues({});
-      var clock = DateTime(2026, 1, 1, 12);
-      final removed = <String>[];
-      final manager = await makeManager(
-        clock: () => clock,
-        remove: (url) => removed.add(url),
-      );
-      manager.enqueueSeenEmotes([
-        GenericEmote(
-          id: 'a',
-          code: 'A',
-          url: 'https://example.com/a.png',
-          type: EmoteType.bttv,
-        ),
-      ]);
-
-      await manager.runCacheGc();
-
-      expect(removed, isEmpty);
     });
 
     test('usage registry persists across manager instances', () async {
       SharedPreferences.setMockInitialValues({});
-      var clock = DateTime(2026, 1, 1, 12);
-      final removed = <String>[];
-      final manager = await makeManager(
-        clock: () => clock,
-        remove: removed.add,
-      );
-      manager.enqueueSeenEmotes([
-        GenericEmote(
-          id: 'a',
-          code: 'A',
-          url: 'https://example.com/a.png',
-          type: EmoteType.bttv,
-        ),
-      ]);
-      await manager.runCacheGc();
+      final clock = DateTime(2026, 1, 1, 12);
+      final manager = await makeManager(clock: () => clock);
+      manager.markEmoteViewed(makeEmotes(1)[0]);
+      await pumpEventQueue();
 
-      // Fresh instance loads the same registry.
-      final removed2 = <String>[];
-      final manager2 = await makeManager(
-        clock: () => clock.add(const Duration(hours: 25)),
-        remove: removed2.add,
-      );
-      await manager2.runCacheGc();
+      // A fresh instance loads the same registry and surfaces it through the
+      // cache manager's priority source.
+      final cache = testCacheManager();
+      await makeManager(clock: () => clock, cache: cache);
+      final lastUsed = cache.lastUsedAt!('https://example.com/e0.png');
+      expect(lastUsed, clock);
+    });
 
-      expect(removed2, ['https://example.com/a.png']);
+    test('enqueueSeenEmotes skips precache when the cap is zero', () async {
+      SharedPreferences.setMockInitialValues({});
+      final capped = EmoteManager(
+        fetchStagger: Duration.zero,
+        cacheCap: 0,
+        now: () => DateTime(2026, 1, 1, 12),
+        cacheManager: testCacheManager(),
+      );
+      capped.enqueueSeenEmotes(makeEmotes(7));
+      expect(capped.precacheQueueLengthForTesting, 0);
+
+      final uncapped = EmoteManager(
+        fetchStagger: Duration.zero,
+        now: () => DateTime(2026, 1, 1, 12),
+        cacheManager: testCacheManager(),
+      );
+      uncapped.enqueueSeenEmotes(makeEmotes(7));
+      // 7 emotes, 5 dequeued by the first step: 2 remain queued.
+      expect(uncapped.precacheQueueLengthForTesting, 2);
     });
 
     test('one-time migration sets the flag once', () async {
@@ -881,7 +934,10 @@ void main() {
       PathProviderPlatform.instance = _FakePathProvider(
         Directory.systemTemp.path,
       );
-      final manager = EmoteManager(fetchStagger: Duration.zero);
+      final manager = EmoteManager(
+        fetchStagger: Duration.zero,
+        cacheManager: testCacheManager(),
+      );
       await manager.startCacheGc();
       manager.dispose();
 
@@ -890,8 +946,11 @@ void main() {
       // v2 migration cleared the v1 DefaultCacheManager orphans once.
       expect(prefs.getBool('emote_gc_migrated_v2'), isTrue);
 
-      // Second start skips migration but still schedules a sweep.
-      final manager2 = EmoteManager(fetchStagger: Duration.zero);
+      // Second start skips migration and enforces the cap once more.
+      final manager2 = EmoteManager(
+        fetchStagger: Duration.zero,
+        cacheManager: testCacheManager(),
+      );
       await manager2.startCacheGc();
       manager2.dispose();
       expect(await SharedPreferences.getInstance(), isNotNull);
@@ -931,56 +990,74 @@ void main() {
         expect(manager.byCode('any')!.byCode, contains('GlobalE'));
         expect(
           manager.globalEmotesByProvider().values.expand((e) => e),
-          contains(
-            predicate((GenericEmote e) => e.code == 'GlobalE'),
-          ),
+          contains(predicate((GenericEmote e) => e.code == 'GlobalE')),
         );
         final prefs = await SharedPreferences.getInstance();
         expect(prefs.getString('emotes3_global'), persisted);
       },
     );
 
-    test('globalEmotesByProvider groups by provider in display order', () async {
-      final persisted = jsonEncode({
-        'ts': DateTime.now()
-            .subtract(const Duration(days: 1))
-            .toIso8601String(),
-        'tier': EmoteFetchTier.nothing.index,
-        'emotes': [
-          makeTestEmote(id: 'g1', code: 'A_Ffz', type: EmoteType.ffz)
-              .toJson(),
-          makeTestEmote(id: 'g2', code: 'B_Bttv', type: EmoteType.bttv)
-              .toJson(),
-          makeTestEmote(id: 'g3', code: 'C_Twitch', type: EmoteType.twitch)
-              .toJson(),
-          makeTestEmote(id: 'g4', code: 'D_SevenTv', type: EmoteType.sevenTv)
-              .toJson(),
-          makeTestEmote(id: 'g5', code: 'A_SevenTv', type: EmoteType.sevenTv)
-              .toJson(),
-        ],
-      });
-      SharedPreferences.setMockInitialValues({'emotes3_global': persisted});
-      final manager = EmoteManager(
-        fetchStagger: Duration.zero,
-        tier: EmoteFetchTier.nothing,
-      );
+    test(
+      'globalEmotesByProvider groups by provider in display order',
+      () async {
+        final persisted = jsonEncode({
+          'ts': DateTime.now()
+              .subtract(const Duration(days: 1))
+              .toIso8601String(),
+          'tier': EmoteFetchTier.nothing.index,
+          'emotes': [
+            makeTestEmote(
+              id: 'g1',
+              code: 'A_Ffz',
+              type: EmoteType.ffz,
+            ).toJson(),
+            makeTestEmote(
+              id: 'g2',
+              code: 'B_Bttv',
+              type: EmoteType.bttv,
+            ).toJson(),
+            makeTestEmote(
+              id: 'g3',
+              code: 'C_Twitch',
+              type: EmoteType.twitch,
+            ).toJson(),
+            makeTestEmote(
+              id: 'g4',
+              code: 'D_SevenTv',
+              type: EmoteType.sevenTv,
+            ).toJson(),
+            makeTestEmote(
+              id: 'g5',
+              code: 'A_SevenTv',
+              type: EmoteType.sevenTv,
+            ).toJson(),
+          ],
+        });
+        SharedPreferences.setMockInitialValues({'emotes3_global': persisted});
+        final manager = EmoteManager(
+          fetchStagger: Duration.zero,
+          tier: EmoteFetchTier.nothing,
+        );
 
-      await manager.preloadGlobalEmotes();
+        await manager.preloadGlobalEmotes();
 
-      final byProvider = manager.globalEmotesByProvider();
-      expect(
-        byProvider.keys.toList(),
-        ['SevenTV', 'Twitch', 'BetterTTV', 'FrankerFaceZ'],
-      );
-      // Each group is sorted by code.
-      expect(
-        byProvider['SevenTV']!.map((e) => e.code).toList(),
-        ['A_SevenTv', 'D_SevenTv'],
-      );
-      expect(byProvider['Twitch']!.single.code, 'C_Twitch');
-      expect(byProvider['BetterTTV']!.single.code, 'B_Bttv');
-      expect(byProvider['FrankerFaceZ']!.single.code, 'A_Ffz');
-    });
+        final byProvider = manager.globalEmotesByProvider();
+        expect(byProvider.keys.toList(), [
+          'SevenTV',
+          'Twitch',
+          'BetterTTV',
+          'FrankerFaceZ',
+        ]);
+        // Each group is sorted by code.
+        expect(byProvider['SevenTV']!.map((e) => e.code).toList(), [
+          'A_SevenTv',
+          'D_SevenTv',
+        ]);
+        expect(byProvider['Twitch']!.single.code, 'C_Twitch');
+        expect(byProvider['BetterTTV']!.single.code, 'B_Bttv');
+        expect(byProvider['FrankerFaceZ']!.single.code, 'A_Ffz');
+      },
+    );
 
     test(
       'resolveEmotes loads the persisted channel cache without fetching',
@@ -1062,13 +1139,11 @@ void main() {
       PathProviderPlatform.instance = _FakePathProvider(
         Directory.systemTemp.path,
       );
-      final removed = <String>[];
       final manager = EmoteManager(
         fetchStagger: Duration.zero,
         tier: EmoteFetchTier.nothing,
-        cacheCap: 0,
         now: () => DateTime(2026, 1, 1, 12),
-        removeCachedFile: (url) async => removed.add(url),
+        cacheManager: testCacheManager(),
       );
       await manager.startCacheGc();
       manager.dispose();
@@ -1081,11 +1156,12 @@ void main() {
           url: 'https://example.com/e1.png',
         ),
       ]);
-      await manager.runCacheGc();
+      await pumpEventQueue();
 
-      // cap 0 would evict any tracked usage; the nothing tier never tracked
-      // it, so nothing is removed.
-      expect(removed, isEmpty);
+      // The nothing tier never tracks usage or precaches.
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getString('emote_usage'), isNull);
+      expect(manager.precacheQueueLengthForTesting, 0);
     });
   });
 

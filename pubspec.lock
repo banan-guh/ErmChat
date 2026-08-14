@@ -170,7 +170,7 @@ packages:
     source: hosted
     version: "2.2.0"
   file:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: file
       sha256: a3b4f84adafef897088c160faf7dfffb7696046cb13ae90b508c2cbc95d3b8d4
@@ -505,7 +505,7 @@ packages:
     source: hosted
     version: "1.9.1"
   path_provider:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: path_provider
       sha256: a7f4874f987173da295a61c181b8ee71dab59b332a486b391babf26a1b884825

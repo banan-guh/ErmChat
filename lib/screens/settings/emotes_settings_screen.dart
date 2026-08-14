@@ -81,10 +81,16 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
   }
 
   Future<void> _applyCacheMax() async {
+    final cache = widget.cacheManager ?? EmoteCacheManager();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt(emoteCacheMaxPrefsKey, _draftCacheMax);
     widget.onEmoteCacheMaxChanged?.call(_draftCacheMax);
-    if (mounted) setState(() => _appliedCacheMax = _draftCacheMax);
+    // Evict now so the footer reflects the new cap immediately, not just on
+    // the next emote fetch.
+    cache.maxObjects = _draftCacheMax;
+    await cache.enforceNow();
+    if (!mounted) return;
+    setState(() => _appliedCacheMax = _draftCacheMax);
     _loadStats();
   }
 

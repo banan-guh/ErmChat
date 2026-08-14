@@ -51,8 +51,8 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
   // emotes return the identical cached widget instance, so Flutter
   // short-circuits rebuilds above the event. Validated against the emote's
   // URL + the cell padding, so refetches and width changes rebuild cleanly.
-  final Map<String, ({String url, double padding, Widget widget})>
-  _cellCache = {};
+  final Map<String, ({String url, double padding, Widget widget})> _cellCache =
+      {};
   double? _lastPanelWidth;
 
   @override
@@ -183,7 +183,10 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
               child: Column(
                 children: [
                   Padding(
-                    padding: const EdgeInsets.only(top: 15, bottom: 24), // exactly 15 to line up with the other line
+                    padding: const EdgeInsets.only(
+                      top: 15,
+                      bottom: 24,
+                    ), // exactly 15 to line up with the other line
                     child: Center(
                       child: SizedBox(
                         width: 32,
@@ -428,6 +431,7 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
     if (cached != null && cached.url == url && cached.padding == cellPadding) {
       return cached.widget;
     }
+    widget.emoteManager.markEmoteViewed(emote);
     final cell = Material(
       key: ValueKey<String>(emote.id),
       type: MaterialType.transparency,

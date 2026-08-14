@@ -21,13 +21,13 @@ class ChannelEmotes {
 
 class EmoteManager extends ChangeNotifier {
   // Refresh TTLs: emote caches are only refetched once they're older than
-  // the TTL. Unmetered connections refresh every 24h; cellular gets 48h so
+  // the TTL. Unmetered connections refresh every 12h; cellular gets 24h so
   // the rake uses less data.
   // TODO(expand): connectivity-based refresh policy - e.g. a "refresh only on
   // wifi" settings toggle, skip channel rakes entirely on cellular,
   // per-connection image precache policy, data-usage stats.
-  static const _wifiTtl = Duration(hours: 24);
-  static const _mobileTtl = Duration(hours: 48);
+  static const _wifiTtl = Duration(hours: 12);
+  static const _mobileTtl = Duration(hours: 24);
   static const _connectivityProbeTtl = Duration(seconds: 60);
   static const _infiniteTtl = Duration(days: 365000);
   static const _defaultFetchStagger = Duration(milliseconds: 1500);
@@ -38,14 +38,11 @@ class EmoteManager extends ChangeNotifier {
     EmoteType.twitch: 3,
   };
 
-  // ── Disk-cache garbage collection ────────────────────────────────────
-  // We GC the emote disk cache aggressively instead of the flutter_cache_manager
-  // defaults: per-tier hard-TTL eviction (high/medium keep [_gcHardTtl],
-  // low/nothing never time-evict) followed by a pure LRU trim to [_cacheCap].
-  // There is no hot-TTL cooldown anymore: over-cap entries are evicted by
-  // last-use regardless of how recently they were touched.
-  static const _gcHardTtl = Duration(hours: 24);
-  static const _gcInterval = Duration(minutes: 30);
+  // ── Disk-cache cap + usage registry ─────────────────────────────────
+  // The emote image cache is capped inline by EmoteCacheManager (evicting the
+  // least-recently-used extras once it grows past maxObjects). This manager
+  // only owns the usage registry that feeds that priority, plus the one-time
+  // migrations from the old cache layouts.
   static const _usageKey = 'emote_usage';
   static const _usageMinEntries = 300;
   static const _migrationKey = 'emote_gc_migrated_v1';
@@ -54,14 +51,25 @@ class EmoteManager extends ChangeNotifier {
   EmoteFetchTier _tier = EmoteFetchTier.high;
   int _cacheCap = defaultEmoteCacheMax;
 
-  final Future<void> Function(String url) _removeCachedFile;
+  late final Future<void> Function(String url) _removeCachedFile;
   final DateTime Function() _now;
+  final Future<SevenTvChannelResponse> Function(
+    String channelId,
+    EmoteResolution resolution,
+  )
+  _sevenTvChannelFetcher;
+  final EmoteCacheManager? _injectedCacheManager;
+  EmoteCacheManager? _cacheManagerInstance;
   final Map<String, DateTime> _emoteUsage = {};
+
+  /// Resolved lazily so constructing an [EmoteManager] (e.g. in tests) never
+  /// instantiates the path-provider-backed cache singleton until it's needed.
+  EmoteCacheManager get _cacheManager =>
+      _cacheManagerInstance ??= (_injectedCacheManager ?? EmoteCacheManager());
   bool _usageLoaded = false;
   bool _usageDirty = false;
   bool _migrationRan = false;
   bool _migrationRanV2 = false;
-  Timer? _gcTimer;
 
   final Future<List<ConnectivityResult>> Function()? _connectivityProbe;
   final Duration _fetchStagger;
@@ -79,16 +87,29 @@ class EmoteManager extends ChangeNotifier {
     DateTime Function()? now,
     EmoteFetchTier tier = EmoteFetchTier.high,
     int cacheCap = defaultEmoteCacheMax,
+    Future<SevenTvChannelResponse> Function(
+      String channelId,
+      EmoteResolution resolution,
+    )?
+    sevenTvChannelFetcher,
+    EmoteCacheManager? cacheManager,
   }) : _connectivityProbe = probe,
-       _removeCachedFile =
-           removeCachedFile ??
-           ((String url) => EmoteCacheManager().removeFile(url)),
+       _injectedCacheManager = cacheManager,
+       _sevenTvChannelFetcher =
+           sevenTvChannelFetcher ??
+           ((String channelId, EmoteResolution resolution) =>
+               SevenTvEmoteProvider.fetchChannelResponse(
+                 channelId,
+                 resolution: resolution,
+               )),
        _now = now ?? DateTime.now {
+    _removeCachedFile =
+        removeCachedFile ?? ((String url) => _cacheManager.removeFile(url));
     _tier = tier;
     _cacheCap = cacheCap.clamp(minEmoteCacheMax, maxEmoteCacheMax).toInt();
   }
 
-  /// Fetching tier controlling resolution, cache TTL, and GC behavior.
+  /// Fetching tier controlling resolution, cache TTL, and 7TV reconcile gating.
   EmoteFetchTier get tier => _tier;
 
   set tier(EmoteFetchTier value) {
@@ -97,12 +118,16 @@ class EmoteManager extends ChangeNotifier {
     _notify();
   }
 
-  /// Max tracked emotes kept on disk by GC (default [defaultEmoteCacheMax],
-  /// clamped to [minEmoteCacheMax]..[maxEmoteCacheMax]).
+  /// Max emote image files the disk cache keeps (default [defaultEmoteCacheMax],
+  /// clamped to [minEmoteCacheMax]..[maxEmoteCacheMax]). Enforced inline by the
+  /// [EmoteCacheManager] on the next fetch.
   int get cacheCap => _cacheCap;
 
   set cacheCap(int value) {
     _cacheCap = value.clamp(minEmoteCacheMax, maxEmoteCacheMax).toInt();
+    final cache = _cacheManager;
+    cache.maxObjects = _cacheCap;
+    cache.lastUsedAt = (url) => _emoteUsage[url];
   }
 
   ChannelEmotes? _globalCache;
@@ -218,7 +243,9 @@ class EmoteManager extends ChangeNotifier {
     }
     final result = <String, List<GenericEmote>>{};
     final types = _globalSortPriority.keys.toList()
-      ..sort((a, b) => _globalSortPriority[a]!.compareTo(_globalSortPriority[b]!));
+      ..sort(
+        (a, b) => _globalSortPriority[a]!.compareTo(_globalSortPriority[b]!),
+      );
     for (final t in types) {
       final list = grouped[t];
       if (list == null || list.isEmpty) continue;
@@ -252,8 +279,7 @@ class EmoteManager extends ChangeNotifier {
       if (raw == null) continue;
       for (final e in raw) {
         if (e.emoteType != 'subscriptions' && e.tier == null) continue;
-        final key =
-            e.id.isNotEmpty
+        final key = e.id.isNotEmpty
             ? e.id
             : '${e.code}|${e.ownerChannel ?? channel}';
         if (byOwner.containsKey(key)) continue;
@@ -330,6 +356,14 @@ class EmoteManager extends ChangeNotifier {
     await _saveRecent();
     _touchUsage(emote.url);
     await _flushUsage();
+  }
+
+  /// Records that an emote was displayed (emote menu / autocomplete render)
+  /// so the cache cap evicts never-shown emotes before recently-viewed ones.
+  void markEmoteViewed(GenericEmote emote) {
+    if (_tier == EmoteFetchTier.nothing) return;
+    _touchUsage(emote.url);
+    unawaited(_flushUsage());
   }
 
   Future<List<GenericEmote>> recentEmotes() async {
@@ -441,6 +475,14 @@ class EmoteManager extends ChangeNotifier {
             _enqueueFetch(
               () => _refreshTwitchChannelEmotes(channel, broadcasterId),
             ),
+          );
+        }
+        // Reconcile 7TV deltas (medium/high) so cross-session changes are
+        // reflected at startup without waiting for the TTL rake.
+        if (broadcasterId != null &&
+            _tier.index >= EmoteFetchTier.medium.index) {
+          unawaited(
+            _enqueueFetch(() => _reconcileSevenTv(channel, broadcasterId)),
           );
         }
         return;
@@ -582,6 +624,64 @@ class EmoteManager extends ChangeNotifier {
     }
   }
 
+  // Fetches the channel's 7TV emote set and diffs it against the loaded cache,
+  // applying add/remove/rename deltas through the same pipeline the 7TV
+  // WebSocket uses. Runs once on a fresh cache (medium/high) so 7TV changes
+  // between sessions show up at startup without waiting for the TTL rake.
+  // Nothing/low are fully cache-driven and never reach this.
+  Future<void> _reconcileSevenTv(String channel, String broadcasterId) async {
+    if (_tier.index < EmoteFetchTier.medium.index) return;
+    try {
+      final resp = await _sevenTvChannelFetcher(
+        broadcasterId,
+        _tier.resolution!,
+      );
+      final existing = _channelCaches[channel];
+      if (existing == null) return;
+
+      if (resp.emoteSetId != null) {
+        setSevenTvEmoteSetId(channel, resp.emoteSetId!);
+      }
+      if (resp.userId != null) {
+        _sevenTvUserIds[channel] = resp.userId!;
+      }
+      // A failed or genuinely empty fetch must not wipe cached 7TV emotes
+      // (a non-200 response returns an empty list rather than throwing).
+      if (resp.emotes.isEmpty) return;
+
+      final current = existing.suggestions
+          .where((e) => e.type == EmoteType.sevenTv)
+          .toList();
+      final currentById = {for (final e in current) e.id: e};
+      final incomingById = {for (final e in resp.emotes) e.id: e};
+
+      final added = <GenericEmote>[];
+      final removedIds = <String>[];
+      final renamed = <String, ({String newName, String oldName})>{};
+      for (final e in resp.emotes) {
+        final old = currentById[e.id];
+        if (old == null) {
+          added.add(e);
+        } else if (old.code != e.code) {
+          renamed[e.id] = (newName: e.code, oldName: old.code);
+        }
+      }
+      for (final id in currentById.keys) {
+        if (!incomingById.containsKey(id)) removedIds.add(id);
+      }
+
+      if (added.isEmpty && removedIds.isEmpty && renamed.isEmpty) return;
+      updateSevenTvEmotes(
+        channel,
+        added: added,
+        removedIds: removedIds,
+        renamed: renamed,
+      );
+    } catch (e) {
+      debugPrint('[EmoteManager] 7TV reconcile failed for $channel: $e');
+    }
+  }
+
   void evictChannel(String channel) {
     _channelCaches.remove(channel);
     _channelFetchTimes.remove(channel);
@@ -638,8 +738,7 @@ class EmoteManager extends ChangeNotifier {
 
     if (cache == null) {
       // No cache yet: build one from the added emotes.
-      final sorted = List.of(added)
-        ..sort((a, b) => a.code.compareTo(b.code));
+      final sorted = List.of(added)..sort((a, b) => a.code.compareTo(b.code));
       cache = ChannelEmotes(
         byCode: {for (final e in sorted) e.code: e},
         suggestions: sorted,
@@ -660,10 +759,7 @@ class EmoteManager extends ChangeNotifier {
           changedCodes.add(e.code);
           removedIdsWithUrls.add((
             e.id,
-            [
-              e.url,
-              if (e.urlLarge != null) e.urlLarge!,
-            ],
+            [e.url, if (e.urlLarge != null) e.urlLarge!],
           ));
         }
       }
@@ -742,9 +838,7 @@ class EmoteManager extends ChangeNotifier {
       (entry) => !_isEmoteUsedElsewhere(entry.$1),
     );
     if (unused.isNotEmpty) {
-      unawaited(_evictEmoteImages([
-        for (final entry in unused) ...entry.$2,
-      ]));
+      unawaited(_evictEmoteImages([for (final entry in unused) ...entry.$2]));
     }
   }
 
@@ -809,7 +903,7 @@ class EmoteManager extends ChangeNotifier {
       case EmoteFetchTier.nothing:
         return _infiniteTtl;
       case EmoteFetchTier.medium:
-        return const Duration(hours: 48);
+        return const Duration(hours: 24);
       case EmoteFetchTier.high:
         final isMobile =
             await _probeConnectivity() == ConnectivityResult.mobile;
@@ -858,6 +952,9 @@ class EmoteManager extends ChangeNotifier {
 
   @visibleForTesting
   Future<Duration> effectiveTtlForTesting() => _effectiveTtl();
+
+  @visibleForTesting
+  int get precacheQueueLengthForTesting => _precacheQueue.length;
 
   @visibleForTesting
   Future<void> enqueueFetchForTesting(Future<void> Function() action) =>
@@ -1147,12 +1244,16 @@ class EmoteManager extends ChangeNotifier {
     await prefs.setString(_usageKey, jsonEncode(data));
   }
 
-  // ── Disk-cache GC: sweep ────────────────────────────────────────────
+  // ── Cache init + migrations ─────────────────────────────────────────
 
-  /// Starts the disk-cache garbage collector: runs the one-time migration,
-  /// an immediate sweep, then a periodic sweep every [_gcInterval].
+  /// Runs the one-time migrations, registers the usage registry as the cache's
+  /// priority source, and enforces the cap once. There is no periodic sweep:
+  /// [EmoteCacheManager] simply stops persisting once the cap is reached.
   Future<void> startCacheGc() async {
     await _ensureUsageLoaded();
+    final cache = _cacheManager;
+    cache.maxObjects = _cacheCap;
+    cache.lastUsedAt = (url) => _emoteUsage[url];
     if (!_migrationRan) {
       final prefs = await _getPrefs();
       if (prefs.getBool(_migrationKey) ?? false) {
@@ -1187,65 +1288,7 @@ class EmoteManager extends ChangeNotifier {
         await prefs.setBool(_migrationKeyV2, true);
       }
     }
-    await runCacheGc();
-    _gcTimer?.cancel();
-    _gcTimer = Timer.periodic(_gcInterval, (_) => runCacheGc());
-  }
-
-  /// Runs one sweep of the disk-cache GC. Evicts anything used less recently
-  /// than the per-tier hard TTL (high/medium: 24h; low/nothing: never), then
-  /// LRU-trims to [_cacheCap] by evicting the oldest-by-use entries with no
-  /// hot-TTL cooldown. Exposed for tests; also cancellable via [dispose].
-  Future<void> runCacheGc() async {
-    await _ensureUsageLoaded();
-    final hardTtl = switch (_tier) {
-      EmoteFetchTier.high || EmoteFetchTier.medium => _gcHardTtl,
-      EmoteFetchTier.low || EmoteFetchTier.nothing => _infiniteTtl,
-    };
-    final now = _now();
-    final evict = <String>[];
-    for (final entry in _emoteUsage.entries) {
-      if (now.difference(entry.value) > hardTtl) {
-        evict.add(entry.key);
-      }
-    }
-    if (_emoteUsage.length > _cacheCap) {
-      final sorted = _emoteUsage.entries.toList()
-        ..sort((a, b) => a.value.compareTo(b.value));
-      final evictSet = evict.toSet();
-      for (final entry in sorted) {
-        if (_emoteUsage.length - evict.length <= _cacheCap) break;
-        if (evictSet.contains(entry.key)) continue;
-        evict.add(entry.key);
-      }
-    }
-    if (evict.isEmpty) {
-      await _flushUsage();
-      return;
-    }
-    await Future.wait(
-      evict.map((url) async {
-        try {
-          await _removeCachedFile(url);
-        } catch (_) {
-          debugPrint('[EmoteManager] cache GC failed to remove $url');
-        }
-      }),
-      eagerError: false,
-    );
-    for (final url in evict) {
-      _emoteUsage.remove(url);
-      _usageDirty = true;
-    }
-    await _flushUsage();
-  }
-
-  /// Cancels the periodic GC sweep. Safe to call even if GC never started.
-  @override
-  void dispose() {
-    _gcTimer?.cancel();
-    _gcTimer = null;
-    super.dispose();
+    await cache.enforceNow();
   }
 
   // ── Pre-cache queue for seen emotes ──────────────────────────────────
@@ -1269,9 +1312,13 @@ class EmoteManager extends ChangeNotifier {
     for (final e in fresh) {
       _touchUsage(e.url);
     }
-    _precacheQueue.addAll(fresh);
-    if (!_isProcessingPrecache) {
-      _processPrecacheQueue();
+    // A zero cap means nothing is kept: skip the download entirely instead of
+    // precaching files the next enforcement pass would immediately evict.
+    if (_cacheCap > 0) {
+      _precacheQueue.addAll(fresh);
+      if (!_isProcessingPrecache) {
+        _processPrecacheQueue();
+      }
     }
     unawaited(_flushUsage());
   }
@@ -1295,8 +1342,9 @@ class EmoteManager extends ChangeNotifier {
   }
 
   Future<void> _precacheEmote(GenericEmote emote) async {
+    if (await _cacheManager.isFull()) return;
     try {
-      await EmoteCacheManager().getSingleFile(emote.url);
+      await _cacheManager.getSingleFile(emote.url);
     } catch (_) {
       debugPrint('[EmoteManager] failed to precache emote: ${emote.code}');
     }

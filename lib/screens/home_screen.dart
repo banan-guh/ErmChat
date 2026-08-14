@@ -1041,7 +1041,6 @@ class _HomeScreenState extends State<HomeScreen>
 
   void _applyCacheCap(int cap) {
     _emoteManager.cacheCap = cap;
-    unawaited(_emoteManager.runCacheGc());
   }
 
   Future<void> _refreshEmotesAfterAuth() async {
@@ -2993,6 +2992,7 @@ class _HomeScreenState extends State<HomeScreen>
                                   AutocompleteDropdown(
                                     suggestions: suggestions,
                                     onSelect: _onSuggestionSelected,
+                                    onEmoteViewed: _emoteManager.markEmoteViewed,
                                   ),
                             ),
                           ),

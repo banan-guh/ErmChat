@@ -1,15 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import '../models/generic_emote.dart';
 import '../services/suggestion.dart';
 
 class AutocompleteDropdown extends StatefulWidget {
   final List<Suggestion> suggestions;
   final void Function(Suggestion) onSelect;
+  final void Function(GenericEmote)? onEmoteViewed;
 
   const AutocompleteDropdown({
     super.key,
     required this.suggestions,
     required this.onSelect,
+    this.onEmoteViewed,
   });
 
   @override
@@ -74,6 +77,9 @@ class _AutocompleteDropdownState extends State<AutocompleteDropdown> {
   }
 
   Widget _buildRow(ThemeData theme, Suggestion suggestion) {
+    if (suggestion is EmoteSuggestion) {
+      widget.onEmoteViewed?.call(suggestion.emote);
+    }
     return Material(
       type: MaterialType.transparency,
       child: InkWell(

@@ -8,10 +8,10 @@ enum EmoteFetchTier {
   /// Fetch rakes + subscriber emotes at 1x, cache forever.
   low,
 
-  /// Fetch rakes + subscriber emotes at 2x, refresh every 48h.
+  /// Fetch rakes + subscriber emotes at 2x, refresh every 24h.
   medium,
 
-  /// 2x with on-demand 3x assets, refresh every 24h (current behavior).
+  /// 2x with on-demand 3x assets, refresh every 12h on wifi / 24h on cellular.
   high,
 }
 
