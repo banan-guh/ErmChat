@@ -39,11 +39,14 @@ void main() {
       fetchStagger: Duration.zero,
       removeCachedFile: (url) async {},
     );
-    manager.updateSevenTvEmotes('ch', added: [
-      sevenTv('a', 'Alpha'),
-      sevenTv('c', 'Charlie'),
-      sevenTv('d', 'Delta'),
-    ]);
+    manager.updateSevenTvEmotes(
+      'ch',
+      added: [
+        sevenTv('a', 'Alpha'),
+        sevenTv('c', 'Charlie'),
+        sevenTv('d', 'Delta'),
+      ],
+    );
 
     await tester.pumpWidget(wrap(manager));
     await tester.tap(find.text('Channel'));
@@ -58,14 +61,8 @@ void main() {
     manager.updateSevenTvEmotes('ch', added: [sevenTv('b', 'Bravo')]);
     await tester.pumpAndSettle();
 
-    expect(
-      tester.element(find.byKey(const ValueKey('a'))),
-      same(alphaElement),
-    );
-    expect(
-      tester.element(find.byKey(const ValueKey('d'))),
-      same(deltaElement),
-    );
+    expect(tester.element(find.byKey(const ValueKey('a'))), same(alphaElement));
+    expect(tester.element(find.byKey(const ValueKey('d'))), same(deltaElement));
     expect(find.byKey(const ValueKey('b')), findsOneWidget);
   });
 
@@ -76,11 +73,14 @@ void main() {
       fetchStagger: Duration.zero,
       removeCachedFile: (url) async {},
     );
-    manager.updateSevenTvEmotes('ch', added: [
-      sevenTv('a', 'Alpha'),
-      sevenTv('b', 'Bravo'),
-      sevenTv('d', 'Delta'),
-    ]);
+    manager.updateSevenTvEmotes(
+      'ch',
+      added: [
+        sevenTv('a', 'Alpha'),
+        sevenTv('b', 'Bravo'),
+        sevenTv('d', 'Delta'),
+      ],
+    );
 
     await tester.pumpWidget(wrap(manager));
     await tester.tap(find.text('Channel'));
@@ -92,14 +92,40 @@ void main() {
     manager.updateSevenTvEmotes('ch', removedIds: ['b']);
     await tester.pumpAndSettle();
 
-    expect(
-      tester.element(find.byKey(const ValueKey('a'))),
-      same(alphaElement),
-    );
-    expect(
-      tester.element(find.byKey(const ValueKey('d'))),
-      same(deltaElement),
-    );
+    expect(tester.element(find.byKey(const ValueKey('a'))), same(alphaElement));
+    expect(tester.element(find.byKey(const ValueKey('d'))), same(deltaElement));
     expect(find.byKey(const ValueKey('b')), findsNothing);
+  });
+
+  testWidgets('the viewed channel sub group is pinned above the others', (
+    WidgetTester tester,
+  ) async {
+    final manager = EmoteManager(
+      fetchStagger: Duration.zero,
+      removeCachedFile: (url) async {},
+    );
+    GenericEmote subOf(String id, String code, String owner) => GenericEmote(
+      id: id,
+      code: code,
+      type: EmoteType.twitch,
+      url: 'https://example.com/$id.png',
+      scope: EmoteScope.channel,
+      tier: '3',
+      emoteType: 'subscriptions',
+      ownerChannel: owner,
+    );
+    // Alphabetically 'alpha' would come first; 'ch' is the viewed channel.
+    await manager.storeUserTwitchEmotes({
+      'ch': [subOf('a1', 'AlphaEmote', 'alpha'), subOf('c1', 'ChEmote', 'ch')],
+    });
+
+    await tester.pumpWidget(wrap(manager));
+    await tester.tap(find.text('Subs'));
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.getTopLeft(find.text('ch')).dy,
+      lessThan(tester.getTopLeft(find.text('alpha')).dy),
+    );
   });
 }
