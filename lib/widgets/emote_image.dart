@@ -146,12 +146,10 @@ class EmoteClipRegistry {
   }
 
   static int _estimateByteSize(EmoteFrameData frames) {
-    // Approximate: 4 bytes per pixel (RGBA) per frame
-    int total = 0;
-    for (final frame in frames.frames) {
-      total += frame.width * frame.height * 4;
-    }
-    return total;
+    // All frames are full-canvas RGBA (canvasW x canvasH x 4 bytes)
+    if (frames.frames.isEmpty) return 0;
+    final frame = frames.frames.first;
+    return frame.width * frame.height * 4 * frames.frames.length;
   }
 
   static void _disposeFrames(EmoteFrameData frames) {
@@ -366,14 +364,8 @@ Future<EmoteFrameData> _decodeWebp(Uint8List bytes) async {
           blend: img.BlendMode.direct,
         );
       } else {
-        // Normal alpha blend
-        img.compositeImage(
-          canvas,
-          converted,
-          dstX: frameInfo.x,
-          dstY: frameInfo.y,
-          blend: img.BlendMode.alpha,
-        );
+        // Normal alpha blend — use WebP's exact straight-alpha formula
+        _compositeWebpBlend(canvas, converted, frameInfo.x, frameInfo.y);
       }
 
       // Snapshot current canvas as this frame's output (explicit copy to avoid aliasing)
@@ -434,6 +426,81 @@ class _FrameMeta {
   });
   final bool noBlend;
   final bool disposeToBackground;
+}
+
+/// Composites [src] over [dst] using WebP's exact straight-alpha blend formula.
+///
+/// WebP spec (straight alpha):
+///   blend.A = src.A + dst.A * (1 - src.A/255)
+///   blend.RGB = (src.RGB*src.A + dst.RGB*dst.A*(1 - src.A/255)) / blend.A
+///
+/// This is NOT the same as generic `srcOver` (which uses `src.A + dst.A*(1-src.A)`).
+/// WebP normalizes by the resulting alpha, not the source alpha.
+///
+/// [src] must be 4-channel (RGBA). [dst] is modified in place.
+/// [dstX], [dstY] is the top-left position of [src] within [dst].
+/// Blending is clipped to [dst] bounds.
+void _compositeWebpBlend(
+  img.Image dst,
+  img.Image src,
+  int dstX,
+  int dstY,
+) {
+  final srcW = src.width;
+  final srcH = src.height;
+  final dstW = dst.width;
+  final dstH = dst.height;
+
+  final srcBytes = src.toUint8List();
+  final dstBytes = dst.toUint8List();
+
+  for (var y = 0; y < srcH; y++) {
+    final dy = dstY + y;
+    if (dy < 0 || dy >= dstH) continue;
+    for (var x = 0; x < srcW; x++) {
+      final dx = dstX + x;
+      if (dx < 0 || dx >= dstW) continue;
+
+      final srcIdx = (y * srcW + x) * 4;
+      final dstIdx = (dy * dstW + dx) * 4;
+
+      final srcA = srcBytes[srcIdx + 3];
+      if (srcA == 0) continue; // Fully transparent source: no change
+
+      final dstR = dstBytes[dstIdx];
+      final dstG = dstBytes[dstIdx + 1];
+      final dstB = dstBytes[dstIdx + 2];
+      final dstA = dstBytes[dstIdx + 3];
+
+      // WebP blend formula (straight alpha, per spec)
+      // blend.A = src.A + dst.A * (1 - src.A/255)
+      // blend.RGB = (src.RGB*src.A + dst.RGB*dst.A*(1 - src.A/255)) / blend.A
+      final invSrcA = 255 - srcA;
+      final blendA = srcA + (dstA * invSrcA) ~/ 255;
+      if (blendA == 0) {
+        dstBytes[dstIdx] = 0;
+        dstBytes[dstIdx + 1] = 0;
+        dstBytes[dstIdx + 2] = 0;
+        dstBytes[dstIdx + 3] = 0;
+        continue;
+      }
+
+      final srcR = srcBytes[srcIdx];
+      final srcG = srcBytes[srcIdx + 1];
+      final srcB = srcBytes[srcIdx + 2];
+
+      // Integer math matching spec: (src*srcA + dst*dstA*invSrcA/255) / blendA
+      // We compute numerator first to avoid intermediate precision loss.
+      final r = (srcR * srcA + (dstR * dstA * invSrcA) ~/ 255) ~/ blendA;
+      final g = (srcG * srcA + (dstG * dstA * invSrcA) ~/ 255) ~/ blendA;
+      final b = (srcB * srcA + (dstB * dstA * invSrcA) ~/ 255) ~/ blendA;
+
+      dstBytes[dstIdx] = r.clamp(0, 255);
+      dstBytes[dstIdx + 1] = g.clamp(0, 255);
+      dstBytes[dstIdx + 2] = b.clamp(0, 255);
+      dstBytes[dstIdx + 3] = blendA;
+    }
+  }
 }
 
 List<_FrameMeta> _parseAnmfFrames(Uint8List bytes, int canvasW, int canvasH) {
