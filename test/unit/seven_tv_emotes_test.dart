@@ -159,5 +159,65 @@ void main() {
         expect(e!.urlLarge, '$base/2x.webp');
       });
     });
+
+    group('AVIF preference', () {
+      Map<String, dynamic> emote(List<Map<String, dynamic>> files) => {
+        'id': 'avif-1',
+        'name': 'Avif',
+        'data': {
+          'name': 'Avif',
+          'host': {'url': '//cdn.7tv.app/emote/avif', 'files': files},
+        },
+      };
+
+      test('prefers AVIF when both AVIF and WEBP tiers exist', () {
+        final e = SevenTvEmoteProvider.parseSingleEmote(
+          emote([
+            {'name': '1x.webp', 'format': 'WEBP', 'width': 32, 'height': 32},
+            {'name': '2x.webp', 'format': 'WEBP', 'width': 64, 'height': 64},
+            {'name': '1x.avif', 'format': 'AVIF', 'width': 32, 'height': 32},
+            {'name': '2x.avif', 'format': 'AVIF', 'width': 64, 'height': 64},
+            {'name': '3x.avif', 'format': 'AVIF', 'width': 96, 'height': 96},
+          ]),
+        );
+        expect(e, isNotNull);
+        expect(e!.url, 'https://cdn.7tv.app/emote/avif/2x.avif');
+        expect(e.urlLarge, 'https://cdn.7tv.app/emote/avif/3x.avif');
+        expect(e.url, isNot(contains('webp')));
+      });
+
+      test('falls back to WEBP when no AVIF tier exists', () {
+        final e = SevenTvEmoteProvider.parseSingleEmote(
+          emote([
+            {'name': '1x.webp', 'format': 'WEBP', 'width': 32, 'height': 32},
+            {'name': '2x.webp', 'format': 'WEBP', 'width': 64, 'height': 64},
+          ]),
+        );
+        expect(e, isNotNull);
+        expect(e!.url, 'https://cdn.7tv.app/emote/avif/2x.webp');
+      });
+
+      test('marks emotes with a GIF variant as animated', () {
+        final e = SevenTvEmoteProvider.parseSingleEmote(
+          emote([
+            {'name': '1x.webp', 'format': 'WEBP', 'width': 32, 'height': 32},
+            {'name': '1x.gif', 'format': 'GIF', 'width': 32, 'height': 32},
+          ]),
+        );
+        expect(e, isNotNull);
+        expect(e!.isAnimated, isTrue);
+      });
+
+      test('static emotes (no GIF variant) are not animated', () {
+        final e = SevenTvEmoteProvider.parseSingleEmote(
+          emote([
+            {'name': '1x.avif', 'format': 'AVIF', 'width': 32, 'height': 32},
+            {'name': '2x.avif', 'format': 'AVIF', 'width': 64, 'height': 64},
+          ]),
+        );
+        expect(e, isNotNull);
+        expect(e!.isAnimated, isFalse);
+      });
+    });
   });
 }

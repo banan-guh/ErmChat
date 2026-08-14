@@ -3,7 +3,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:cached_network_image/cached_network_image.dart';
+import 'emote_image.dart';
 import '../models/generic_emote.dart';
 import '../models/twitch_message.dart';
 import '../services/emote_manager.dart';
@@ -235,14 +235,13 @@ class EmoteText {
   }
 
   static Widget _emoteImage(String url, double width, double height) {
-    return CachedNetworkImage(
-      imageUrl: url,
+    return EmoteImage(
+      url: url,
       width: width,
       height: height,
       fit: BoxFit.contain,
-      fadeInDuration: Duration.zero,
-      placeholder: (_, _) => SizedBox(width: width, height: height),
-      errorWidget: (_, _, _) => SizedBox(width: width, height: height),
+      placeholder: SizedBox(width: width, height: height),
+      errorWidget: SizedBox(width: width, height: height),
     );
   }
 

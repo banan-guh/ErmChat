@@ -93,25 +93,36 @@ class SevenTvEmoteProvider {
       bool isAnimated = false;
       double relativeScale = 1.0;
       double aspectRatio = 1.0;
-      // host.files are ordered smallest to largest. Chat renders at ~28dp so
-      // medium/high prefer the 2x tier; high keeps the largest file at or
-      // below 3x (the 4x tier is scrapped) for the sheet/menu.
-      String? first;
-      String? best2x;
-      String? lastLe3;
+      // host.files are ordered smallest to largest. AVIF is preferred (7TV
+      // serves every emote as AVIF and it is smaller than WEBP); WEBP is the
+      // fallback. Chat renders at ~28dp so medium/high prefer the 2x tier;
+      // high keeps the largest file at or below 3x (the 4x tier is scrapped)
+      // for the sheet/menu.
+      final firstUrls = <String, String>{};
+      final best2xUrls = <String, String>{};
+      final lastLe3Urls = <String, String>{};
       for (final fileEntry in baseUrl) {
         final file = fileEntry as Map<String, dynamic>;
         final format = file['format'] as String?;
         final name = file['name'] as String?;
-        if (name == null || format != 'WEBP') continue;
+        if (name == null) continue;
+        if (format == 'GIF') {
+          // Animated emotes always carry a GIF variant; the renderer sniffs
+          // bytes anyway, but the flag keeps metadata honest.
+          isAnimated = true;
+          continue;
+        }
+        if (format != 'AVIF' && format != 'WEBP') continue;
+        final f = format!;
         final hostUrl = host['url'] as String? ?? '';
         final fullUrl = 'https:$hostUrl/$name';
-        first ??= fullUrl;
+        firstUrls.putIfAbsent(f, () => fullUrl);
         final multiplierStr = name.split('x').first;
-        if (multiplierStr == '2') best2x ??= fullUrl;
+        if (multiplierStr == '2') best2xUrls.putIfAbsent(f, () => fullUrl);
         final multiplier = int.tryParse(multiplierStr);
-        if (multiplier != null && multiplier <= 3) lastLe3 = fullUrl;
-        isAnimated = true;
+        if (multiplier != null && multiplier <= 3) {
+          lastLe3Urls[f] = fullUrl;
+        }
         final fileWidth = file['width'] as int?;
         final fileHeight = file['height'] as int?;
         if (fileHeight != null) {
@@ -123,6 +134,10 @@ class SevenTvEmoteProvider {
           aspectRatio = fileWidth / fileHeight;
         }
       }
+      final fmt = firstUrls.containsKey('AVIF') ? 'AVIF' : 'WEBP';
+      final first = firstUrls[fmt];
+      final best2x = best2xUrls[fmt];
+      final lastLe3 = lastLe3Urls[fmt];
       switch (resolution) {
         case EmoteResolution.low:
           url = first;

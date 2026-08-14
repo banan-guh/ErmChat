@@ -3,6 +3,7 @@ import '../models/generic_emote.dart';
 import '../services/emote_manager.dart';
 import '../util/sheet_drag.dart';
 import '../widgets/tabbed_layout.dart';
+import 'emote_image.dart';
 
 class EmoteMenuPanelWidget extends StatefulWidget {
   final ScrollController scrollController;
@@ -438,19 +439,16 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
   }
 
   Widget _buildEmoteGridItem(GenericEmote emote, double cellPadding) {
-    // Preview cells are memory-only: Image.network uses Flutter's in-memory
-    // image cache instead of the emote disk cache, so panel bursts never
-    // write to (or evict from) cached files. Decode at cell size via
-    // cacheWidth so a grid of 3x emotes doesn't blow up RAM either.
+    // Preview cells render through EmoteImage like chat: frames are decoded
+    // once per URL, shared, and disposed with the last visible widget, so a
+    // panel burst never grows the disk cache or holds decoded frames longer
+    // than the panel is open.
     final url = emote.url;
     final cached = _cellCache[emote.id];
     if (cached != null && cached.url == url && cached.padding == cellPadding) {
       return cached.widget;
     }
     widget.emoteManager.markEmoteViewed(emote);
-    final dpr = MediaQuery.of(context).devicePixelRatio;
-    final sidePadding = _panelWidth * 0.08;
-    final cellWidth = (_panelWidth - 2 * sidePadding - 4 * 8) / 5;
     final cell = Material(
       key: ValueKey<String>(emote.id),
       type: MaterialType.transparency,
@@ -459,18 +457,13 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
         onTap: () => widget.onEmoteSelected(emote),
         child: Padding(
           padding: EdgeInsets.all(cellPadding),
-          child: Image.network(
-            url,
+          child: EmoteImage(
+            url: url,
             width: double.infinity,
             height: double.infinity,
             fit: BoxFit.contain,
-            cacheWidth: (cellWidth * dpr).round(),
-            gaplessPlayback: true,
-            frameBuilder: (_, child, frame, wasSynchronouslyLoaded) {
-              if (wasSynchronouslyLoaded || frame != null) return child;
-              return const SizedBox.shrink();
-            },
-            errorBuilder: (_, _, _) => const Icon(Icons.broken_image, size: 20),
+            placeholder: const SizedBox.shrink(),
+            errorWidget: const Icon(Icons.broken_image, size: 20),
           ),
         ),
       ),
