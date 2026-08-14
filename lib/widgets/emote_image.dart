@@ -132,10 +132,9 @@ class EmoteClipRegistry {
     if (_totalBytes <= _maxBytes) return;
 
     // Collect evictable clips (refs == 0), oldest first
-    final evictable = _clips.values
-        .where((c) => c.refs == 0 && c.frames != null)
-        .toList()
-      ..sort((a, b) => a.lastAccessed.compareTo(b.lastAccessed));
+    final evictable =
+        _clips.values.where((c) => c.refs == 0 && c.frames != null).toList()
+          ..sort((a, b) => a.lastAccessed.compareTo(b.lastAccessed));
 
     for (final clip in evictable) {
       if (_totalBytes <= _maxBytes) break;
@@ -233,6 +232,11 @@ Future<EmoteFrameData> _decodeBytes(Uint8List bytes) {
   }
 }
 
+/// Production decode pipeline: sniff format → decode in isolate (with compositing
+/// for animated WebP/GIF) → premultiply alpha → decodeImageFromPixels → ui.Image.
+/// This is the exact path used by [EmoteClipRegistry.acquire].
+Future<EmoteFrameData> decodeEmoteBytes(Uint8List bytes) => _decodeBytes(bytes);
+
 Future<EmoteFrameData> _decodeGif(Uint8List bytes) async {
   final decoded = await Isolate.run(() {
     final decoder = img.GifDecoder();
@@ -321,7 +325,9 @@ Future<EmoteFrameData> _decodeWebp(Uint8List bytes) async {
         rgba.add(snapshot.toUint8List());
         final ms = frameInfo.duration;
         durations.add(
-          ms > 0 ? Duration(milliseconds: ms) : const Duration(milliseconds: 80),
+          ms > 0
+              ? Duration(milliseconds: ms)
+              : const Duration(milliseconds: 80),
         );
         continue;
       }
@@ -420,10 +426,7 @@ class _WebpAnimResult {
 }
 
 class _FrameMeta {
-  _FrameMeta({
-    required this.noBlend,
-    required this.disposeToBackground,
-  });
+  _FrameMeta({required this.noBlend, required this.disposeToBackground});
   final bool noBlend;
   final bool disposeToBackground;
 }
@@ -440,12 +443,7 @@ class _FrameMeta {
 /// [src] must be 4-channel (RGBA). [dst] is modified in place.
 /// [dstX], [dstY] is the top-left position of [src] within [dst].
 /// Blending is clipped to [dst] bounds.
-void _compositeWebpBlend(
-  img.Image dst,
-  img.Image src,
-  int dstX,
-  int dstY,
-) {
+void _compositeWebpBlend(img.Image dst, img.Image src, int dstX, int dstY) {
   final srcW = src.width;
   final srcH = src.height;
   final dstW = dst.width;
@@ -523,7 +521,8 @@ List<_FrameMeta> _parseAnmfFrames(Uint8List bytes, int canvasW, int canvasH) {
   int pos = 12;
   while (pos + 8 <= bytes.length) {
     final fourcc = String.fromCharCodes(bytes.sublist(pos, pos + 4));
-    final chunkSize = bytes[pos + 4] |
+    final chunkSize =
+        bytes[pos + 4] |
         (bytes[pos + 5] << 8) |
         (bytes[pos + 6] << 16) |
         (bytes[pos + 7] << 24);
@@ -541,7 +540,12 @@ List<_FrameMeta> _parseAnmfFrames(Uint8List bytes, int canvasW, int canvasH) {
         final flags = data[p];
         final noBlend = (flags & 0x02) != 0;
         final disposeToBackground = (flags & 0x01) != 0;
-        metas.add(_FrameMeta(noBlend: noBlend, disposeToBackground: disposeToBackground));
+        metas.add(
+          _FrameMeta(
+            noBlend: noBlend,
+            disposeToBackground: disposeToBackground,
+          ),
+        );
       }
     }
 
@@ -563,10 +567,22 @@ Future<EmoteFrameData> _decodeStatic(Uint8List bytes) async {
   }
 }
 
+Uint8List _premultiply(Uint8List rgba) {
+  final out = Uint8List(rgba.length);
+  for (var i = 0; i < rgba.length; i += 4) {
+    final a = rgba[i + 3];
+    out[i] = (rgba[i] * a) ~/ 255;
+    out[i + 1] = (rgba[i + 1] * a) ~/ 255;
+    out[i + 2] = (rgba[i + 2] * a) ~/ 255;
+    out[i + 3] = a;
+  }
+  return out;
+}
+
 Future<ui.Image> _imageFromRgba(ByteBuffer rgba, int width, int height) {
   final completer = Completer<ui.Image>();
   ui.decodeImageFromPixels(
-    rgba.asUint8List(),
+    _premultiply(rgba.asUint8List()),
     width,
     height,
     ui.PixelFormat.rgba8888,

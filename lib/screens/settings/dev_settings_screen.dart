@@ -3,8 +3,8 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
-import 'package:image/image.dart' as img;
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../widgets/emote_image.dart';
 import '../../widgets/welcome_dialog.dart';
 
 class DevSettingsScreen extends StatefulWidget {
@@ -54,88 +54,66 @@ class _DevSettingsScreenState extends State<DevSettingsScreen> {
       debugPrint('[BENCH] $s');
     }
 
-    // Test 1: Local boink fixture (from assets)
-    log('=== Local boink (220KB, 190x64, 252 frames) ===');
-    try {
-      final assetData = await rootBundle.load('test/fixtures/7tv_boink_2x.webp');
-      final bytes = assetData.buffer.asUint8List();
-      log('Loaded asset: ${bytes.length} bytes');
-      
-      // Pure Dart per-frame
-      final swDart = Stopwatch()..start();
-      final dec = img.WebPDecoder(bytes);
-      dec.startDecode(bytes);
-      for (var i = 0; i < dec.numFrames(); i++) {
-        dec.decodeFrame(i);
-      }
-      swDart.stop();
-      log('Pure-Dart decodeFrame x${dec.numFrames()}: ${swDart.elapsedMilliseconds}ms');
-      
-      // Engine codec
+    Future<void> runTest(String name, Uint8List bytes) async {
+      log('\n=== $name (${bytes.length} bytes) ===');
+
+      // Production pipeline (what the app actually uses)
+      final swProd = Stopwatch()..start();
+      final frames = await decodeEmoteBytes(bytes);
+      swProd.stop();
+      log(
+        'Production decodeEmoteBytes: ${swProd.elapsedMilliseconds}ms '
+        '(${frames.frames.length} frames, ${frames.totalDuration.inMilliseconds}ms total)',
+      );
+
+      // Engine codec (for comparison - only used for static images in production)
       final swEngine = Stopwatch()..start();
-      final codec = await ui.instantiateImageCodec(bytes);
-      for (var i = 0; i < codec.frameCount; i++) {
-        await codec.getNextFrame();
+      try {
+        final codec = await ui.instantiateImageCodec(bytes);
+        for (var i = 0; i < codec.frameCount; i++) {
+          await codec.getNextFrame();
+        }
+        swEngine.stop();
+        log(
+          'Engine instantiateImageCodec: ${swEngine.elapsedMilliseconds}ms '
+          '(${codec.frameCount} frames)',
+        );
+      } catch (e) {
+        swEngine.stop();
+        log('Engine codec failed: $e');
       }
-      swEngine.stop();
-      log('Engine instantiateImageCodec x${codec.frameCount}: ${swEngine.elapsedMilliseconds}ms');
+    }
+
+    // Test 1: Local boink fixture
+    try {
+      final assetData = await rootBundle.load(
+        'test/fixtures/7tv_boink_2x.webp',
+      );
+      await runTest(
+        'Local boink (190x64, animated WebP)',
+        assetData.buffer.asUint8List(),
+      );
     } catch (e) {
-      log('Local test failed: $e');
+      log('Local boink test failed: $e');
     }
 
     // Test 2: Local kiss fixture
-    log('\n=== Local kiss (48KB, 64x64, 47 frames) ===');
     try {
       final assetData = await rootBundle.load('test/fixtures/7tv_kiss_2x.webp');
-      final bytes = assetData.buffer.asUint8List();
-      log('Loaded asset: ${bytes.length} bytes');
-      
-      final swDart = Stopwatch()..start();
-      final dec = img.WebPDecoder(bytes);
-      dec.startDecode(bytes);
-      for (var i = 0; i < dec.numFrames(); i++) {
-        dec.decodeFrame(i);
-      }
-      swDart.stop();
-      log('Pure-Dart decodeFrame x${dec.numFrames()}: ${swDart.elapsedMilliseconds}ms');
-      
-      final swEngine = Stopwatch()..start();
-      final codec = await ui.instantiateImageCodec(bytes);
-      for (var i = 0; i < codec.frameCount; i++) {
-        await codec.getNextFrame();
-      }
-      swEngine.stop();
-      log('Engine instantiateImageCodec x${codec.frameCount}: ${swEngine.elapsedMilliseconds}ms');
+      await runTest(
+        'Local kiss (64x64, animated WebP)',
+        assetData.buffer.asUint8List(),
+      );
     } catch (e) {
-      log('Kiss test failed: $e');
+      log('Local kiss test failed: $e');
     }
 
     // Test 3: Fetch a real 7TV emote
-    log('\n=== Remote 7TV emote (2x) ===');
     try {
-      const url = 'https://cdn.7tv.app/emote/01JN98CJKDXP87J3QSW4M3CDXF/2x.webp';
+      const url =
+          'https://cdn.7tv.app/emote/01JN98CJKDXP87J3QSW4M3CDXF/2x.webp';
       final resp = await http.get(Uri.parse(url));
-      final bytes = resp.bodyBytes;
-      log('Downloaded ${bytes.length} bytes');
-      
-      // Pure Dart
-      final swDart = Stopwatch()..start();
-      final dec = img.WebPDecoder(bytes);
-      dec.startDecode(bytes);
-      for (var i = 0; i < dec.numFrames(); i++) {
-        dec.decodeFrame(i);
-      }
-      swDart.stop();
-      log('Pure-Dart decodeFrame x${dec.numFrames()}: ${swDart.elapsedMilliseconds}ms');
-      
-      // Engine
-      final swEngine = Stopwatch()..start();
-      final codec = await ui.instantiateImageCodec(bytes);
-      for (var i = 0; i < codec.frameCount; i++) {
-        await codec.getNextFrame();
-      }
-      swEngine.stop();
-      log('Engine instantiateImageCodec x${codec.frameCount}: ${swEngine.elapsedMilliseconds}ms');
+      await runTest('Remote 7TV emote (2x)', resp.bodyBytes);
     } catch (e) {
       log('Remote test failed: $e');
     }
@@ -146,10 +124,16 @@ class _DevSettingsScreenState extends State<DevSettingsScreen> {
       builder: (_) => AlertDialog(
         title: const Text('Decode Benchmark Results'),
         content: SingleChildScrollView(
-          child: SelectableText(results.join('\n'), style: const TextStyle(fontFamily: 'monospace')),
+          child: SelectableText(
+            results.join('\n'),
+            style: const TextStyle(fontFamily: 'monospace'),
+          ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('OK')),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('OK'),
+          ),
         ],
       ),
     );
@@ -181,7 +165,9 @@ class _DevSettingsScreenState extends State<DevSettingsScreen> {
           ListTile(
             leading: const Icon(Icons.speed),
             title: const Text('Run WebP decode benchmark'),
-            subtitle: const Text('Compares pure-Dart vs engine codec on real emotes'),
+            subtitle: const Text(
+              'Compares pure-Dart vs engine codec on real emotes',
+            ),
             onTap: () => _runDecodeBenchmark(context),
           ),
         ],
