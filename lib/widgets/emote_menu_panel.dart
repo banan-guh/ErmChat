@@ -245,11 +245,43 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
         const Center(child: Text('No subscriber emotes available')),
       );
     }
+    return _buildGroupedEmoteGrid(byChannel, scrollController);
+  }
+
+  Widget _buildEmoteChannelGrid(ScrollController? scrollController) {
+    final channel = widget.selectedChannel ?? '';
+    final emotes = widget.emoteManager.channelNonTwitchEmotes(channel);
+    if (emotes.isEmpty) {
+      return _buildEmoteEmptyState(
+        scrollController,
+        const Center(child: Text('No channel emotes')),
+      );
+    }
+    return _buildEmoteGrid(emotes, scrollController);
+  }
+
+  Widget _buildEmoteGlobalGrid(ScrollController? scrollController) {
+    final byProvider = widget.emoteManager.globalEmotesByProvider();
+    if (byProvider.isEmpty) {
+      return _buildEmoteEmptyState(
+        scrollController,
+        const Center(child: Text('No global emotes')),
+      );
+    }
+    return _buildGroupedEmoteGrid(byProvider, scrollController);
+  }
+
+  // Sectioned grid with a header per group (used by the Subs tab grouped by
+  // channel and the Global tab grouped by provider).
+  Widget _buildGroupedEmoteGrid(
+    Map<String, List<GenericEmote>> groups,
+    ScrollController? scrollController,
+  ) {
     final sidePadding = _panelWidth * 0.08;
     return CustomScrollView(
       controller: scrollController,
       slivers: [
-        for (final entry in byChannel.entries) ...[
+        for (final entry in groups.entries) ...[
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.only(left: 8, top: 8, right: 8),
@@ -280,29 +312,6 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
         ],
       ],
     );
-  }
-
-  Widget _buildEmoteChannelGrid(ScrollController? scrollController) {
-    final channel = widget.selectedChannel ?? '';
-    final emotes = widget.emoteManager.channelNonTwitchEmotes(channel);
-    if (emotes.isEmpty) {
-      return _buildEmoteEmptyState(
-        scrollController,
-        const Center(child: Text('No channel emotes')),
-      );
-    }
-    return _buildEmoteGrid(emotes, scrollController);
-  }
-
-  Widget _buildEmoteGlobalGrid(ScrollController? scrollController) {
-    final emotes = widget.emoteManager.globalEmotes();
-    if (emotes.isEmpty) {
-      return _buildEmoteEmptyState(
-        scrollController,
-        const Center(child: Text('No global emotes')),
-      );
-    }
-    return _buildEmoteGrid(emotes, scrollController);
   }
 
   Widget _buildEmoteEmptyState(

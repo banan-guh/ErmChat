@@ -171,7 +171,42 @@ class EmoteManager extends ChangeNotifier {
     return result;
   }
 
-  List<GenericEmote> globalEmotes() => _globalCache?.suggestions ?? [];
+  // Display order for the global emote grid: 7TV, Twitch, BTTV, FFZ (differs
+  // from _providerPriority, which is the dedup precedence).
+  static const _globalSortPriority = {
+    EmoteType.sevenTv: 0,
+    EmoteType.twitch: 1,
+    EmoteType.bttv: 2,
+    EmoteType.ffz: 3,
+  };
+
+  static const _globalProviderLabels = {
+    EmoteType.sevenTv: 'SevenTV',
+    EmoteType.twitch: 'Twitch',
+    EmoteType.bttv: 'BetterTTV',
+    EmoteType.ffz: 'FrankerFaceZ',
+  };
+
+  // Global emotes grouped by provider for the emote sheet, in display order
+  // (7TV, Twitch, BTTV, FFZ); each group sorted by code.
+  Map<String, List<GenericEmote>> globalEmotesByProvider() {
+    final cached = _globalCache;
+    if (cached == null) return {};
+    final grouped = <EmoteType, List<GenericEmote>>{};
+    for (final e in cached.suggestions) {
+      (grouped[e.type] ??= []).add(e);
+    }
+    final result = <String, List<GenericEmote>>{};
+    final types = _globalSortPriority.keys.toList()
+      ..sort((a, b) => _globalSortPriority[a]!.compareTo(_globalSortPriority[b]!));
+    for (final t in types) {
+      final list = grouped[t];
+      if (list == null || list.isEmpty) continue;
+      list.sort((a, b) => a.code.compareTo(b.code));
+      result[_globalProviderLabels[t] ?? ''] = list;
+    }
+    return result;
+  }
 
   List<GenericEmote> channelNonTwitchEmotes(String channel) {
     final cached = _channelCaches[channel];

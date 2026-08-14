@@ -712,11 +712,58 @@ void main() {
 
         // Hoarded cache renders; nothing was fetched, so prefs are untouched.
         expect(manager.byCode('any')!.byCode, contains('GlobalE'));
-        expect(manager.globalEmotes().map((e) => e.code), contains('GlobalE'));
+        expect(
+          manager.globalEmotesByProvider().values.expand((e) => e),
+          contains(
+            predicate((GenericEmote e) => e.code == 'GlobalE'),
+          ),
+        );
         final prefs = await SharedPreferences.getInstance();
         expect(prefs.getString('emotes3_global'), persisted);
       },
     );
+
+    test('globalEmotesByProvider groups by provider in display order', () async {
+      final persisted = jsonEncode({
+        'ts': DateTime.now()
+            .subtract(const Duration(days: 1))
+            .toIso8601String(),
+        'tier': EmoteFetchTier.nothing.index,
+        'emotes': [
+          makeTestEmote(id: 'g1', code: 'A_Ffz', type: EmoteType.ffz)
+              .toJson(),
+          makeTestEmote(id: 'g2', code: 'B_Bttv', type: EmoteType.bttv)
+              .toJson(),
+          makeTestEmote(id: 'g3', code: 'C_Twitch', type: EmoteType.twitch)
+              .toJson(),
+          makeTestEmote(id: 'g4', code: 'D_SevenTv', type: EmoteType.sevenTv)
+              .toJson(),
+          makeTestEmote(id: 'g5', code: 'A_SevenTv', type: EmoteType.sevenTv)
+              .toJson(),
+        ],
+      });
+      SharedPreferences.setMockInitialValues({'emotes3_global': persisted});
+      final manager = EmoteManager(
+        fetchStagger: Duration.zero,
+        tier: EmoteFetchTier.nothing,
+      );
+
+      await manager.preloadGlobalEmotes();
+
+      final byProvider = manager.globalEmotesByProvider();
+      expect(
+        byProvider.keys.toList(),
+        ['SevenTV', 'Twitch', 'BetterTTV', 'FrankerFaceZ'],
+      );
+      // Each group is sorted by code.
+      expect(
+        byProvider['SevenTV']!.map((e) => e.code).toList(),
+        ['A_SevenTv', 'D_SevenTv'],
+      );
+      expect(byProvider['Twitch']!.single.code, 'C_Twitch');
+      expect(byProvider['BetterTTV']!.single.code, 'B_Bttv');
+      expect(byProvider['FrankerFaceZ']!.single.code, 'A_Ffz');
+    });
 
     test(
       'resolveEmotes loads the persisted channel cache without fetching',
