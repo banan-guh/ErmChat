@@ -131,15 +131,21 @@ class EmoteCacheManager extends CacheManager {
     Map<String, String>? headers,
     bool withProgress = false,
   }) async* {
+    // Ensure User-Agent is present (some CDNs 403 without it).
+    final mergedHeaders = <String, String>{
+      'User-Agent': 'ermchat',
+      if (headers != null) ...headers,
+    };
+
     if (!await _tryReserve()) {
-      yield* _serveFromMemory(url, headers, withProgress);
+      yield* _serveFromMemory(url, mergedHeaders, withProgress);
       return;
     }
     try {
       await for (final response in super.getFileStream(
         url,
         key: key,
-        headers: headers,
+        headers: mergedHeaders,
         withProgress: withProgress,
       )) {
         yield response;
@@ -196,6 +202,8 @@ class EmoteCacheManager extends CacheManager {
     try {
       final request = http.Request('GET', Uri.parse(url));
       if (headers != null) request.headers.addAll(headers);
+      // Some CDNs 403 bare requests; match what the main fetch path sends.
+      request.headers.putIfAbsent('User-Agent', () => 'ermchat');
       final response = await client.send(request).timeout(_downloadTimeout);
       if (response.statusCode != 200) {
         throw HttpExceptionWithStatus(

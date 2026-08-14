@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:cached_network_image/cached_network_image.dart';
+import 'emote_image.dart';
 import '../models/generic_emote.dart';
 
 class EmoteSheet extends StatefulWidget {
@@ -113,18 +113,17 @@ class _EmoteSheetState extends State<EmoteSheet>
                   child: SizedBox(
                     width: 128,
                     height: 128,
-                    child: CachedNetworkImage(
-                      imageUrl: emote.urlLarge ?? emote.url,
+                    child: EmoteImage(
+                      url: emote.urlLarge ?? emote.url,
                       fit: BoxFit.contain,
-                      fadeInDuration: Duration.zero,
-                      placeholder: (_, _) => const Center(
+                      placeholder: const Center(
                         child: SizedBox(
                           width: 24,
                           height: 24,
                           child: CircularProgressIndicator(strokeWidth: 2),
                         ),
                       ),
-                      errorWidget: (_, _, _) => Container(
+                      errorWidget: Container(
                         color: theme.colorScheme.surfaceContainerHighest,
                         child: Icon(
                           Icons.image,

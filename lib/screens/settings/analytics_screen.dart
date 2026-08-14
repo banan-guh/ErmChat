@@ -1,7 +1,7 @@
 import 'dart:async';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../widgets/emote_image.dart';
 import '../../models/generic_emote.dart';
 import '../../services/analytics_service.dart';
 
@@ -270,14 +270,13 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         ListTile(
           dense: true,
           contentPadding: EdgeInsets.zero,
-          leading: CachedNetworkImage(
-            imageUrl: entry.emote.url,
+          leading: EmoteImage(
+            url: entry.emote.url,
             width: 28,
             height: 28,
             fit: BoxFit.contain,
-            fadeInDuration: Duration.zero,
-            placeholder: (_, _) => const SizedBox(width: 28, height: 28),
-            errorWidget: (_, _, _) => const SizedBox(width: 28, height: 28),
+            placeholder: const SizedBox(width: 28, height: 28),
+            errorWidget: const SizedBox(width: 28, height: 28),
           ),
           title: Text(entry.emote.code),
           trailing: Text('${entry.count}'),
