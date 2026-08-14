@@ -331,25 +331,29 @@ Future<EmoteFrameData> _decodeWebp(Uint8List bytes) async {
       // Convert frame to RGBA
       final converted = frameImg.convert(numChannels: 4);
 
-      // Get frame metadata: prefer ANMF for blend flag
+      // Get frame metadata
       final noBlend = (i < framesMeta.length) ? framesMeta[i].noBlend : false;
 
-      // Clear CURRENT frame's region to transparent BEFORE compositing.
-      // This ensures each frame is independent with transparent background,
-      // regardless of WebP disposal method (which assumes a solid bg color).
-      final clearImg = img.Image(
-        width: frameInfo.width,
-        height: frameInfo.height,
-        numChannels: 4,
-      );
-      clearImg.clear(img.ColorRgba8(0, 0, 0, 0));
-      img.compositeImage(
-        canvas,
-        clearImg,
-        dstX: frameInfo.x,
-        dstY: frameInfo.y,
-        blend: img.BlendMode.direct,
-      );
+      // Apply PREVIOUS frame's disposal before compositing current frame
+      if (i > 0 && i - 1 < framesMeta.length) {
+        final prevMeta = framesMeta[i - 1];
+        if (prevMeta.disposeToBackground) {
+          final prevInfo = info.frames[i - 1];
+          final clearImg = img.Image(
+            width: prevInfo.width,
+            height: prevInfo.height,
+            numChannels: 4,
+          );
+          clearImg.clear(img.ColorRgba8(0, 0, 0, 0));
+          img.compositeImage(
+            canvas,
+            clearImg,
+            dstX: prevInfo.x,
+            dstY: prevInfo.y,
+            blend: img.BlendMode.direct,
+          );
+        }
+      }
 
       // Blend current frame
       if (noBlend) {
@@ -372,12 +376,13 @@ Future<EmoteFrameData> _decodeWebp(Uint8List bytes) async {
         );
       }
 
-      // Snapshot current canvas as this frame's output
+      // Snapshot current canvas as this frame's output (explicit copy to avoid aliasing)
+      final frameBytes = Uint8List.fromList(canvas.toUint8List());
       final snapshot = img.Image.fromBytes(
         width: canvasW,
         height: canvasH,
         numChannels: 4,
-        bytes: canvas.toUint8List().buffer,
+        bytes: frameBytes.buffer,
       );
       rgba.add(snapshot.toUint8List());
 
@@ -425,8 +430,10 @@ class _WebpAnimResult {
 class _FrameMeta {
   _FrameMeta({
     required this.noBlend,
+    required this.disposeToBackground,
   });
   final bool noBlend;
+  final bool disposeToBackground;
 }
 
 List<_FrameMeta> _parseAnmfFrames(Uint8List bytes, int canvasW, int canvasH) {
@@ -466,7 +473,8 @@ List<_FrameMeta> _parseAnmfFrames(Uint8List bytes, int canvasW, int canvasH) {
         p += 15;
         final flags = data[p];
         final noBlend = (flags & 0x02) != 0;
-        metas.add(_FrameMeta(noBlend: noBlend));
+        final disposeToBackground = (flags & 0x01) != 0;
+        metas.add(_FrameMeta(noBlend: noBlend, disposeToBackground: disposeToBackground));
       }
     }
 
@@ -602,6 +610,21 @@ class _EmoteImageState extends State<EmoteImage>
     _ticker?.dispose();
     _release(widget.url);
     super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(EmoteImage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.url != oldWidget.url) {
+      _release(oldWidget.url);
+      _ticker?.dispose();
+      _ticker = null;
+      _frames = null;
+      _failed = false;
+      _frameIndex = 0;
+      _released = false;
+      _load();
+    }
   }
 
   @override
