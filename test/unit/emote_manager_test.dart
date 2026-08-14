@@ -821,6 +821,38 @@ void main() {
       expect(subs.length, 1);
       expect(subs.single.code, 'FreshEmote');
     });
+
+    test('groups subs alphabetically by owner channel', () async {
+      SharedPreferences.setMockInitialValues({});
+      final manager = EmoteManager(fetchStagger: Duration.zero);
+      GenericEmote subOf(String id, String code, String owner) => GenericEmote(
+        id: id,
+        code: code,
+        type: EmoteType.twitch,
+        url: 'https://example.com/$id.png',
+        scope: EmoteScope.channel,
+        tier: '3',
+        emoteType: 'subscriptions',
+        ownerChannel: owner,
+      );
+
+      // The union fans both owners into every open channel's store; the
+      // first-seen order inside the first storage channel is zeta before
+      // alpha, which must not leak into the group order.
+      await manager.storeUserTwitchEmotes({
+        'm': [
+          subOf('z1', 'ZetaEmote', 'zeta'),
+          subOf('a1', 'AlphaEmote', 'alpha'),
+        ],
+        'n': [
+          subOf('a1', 'AlphaEmote', 'alpha'),
+          subOf('z1', 'ZetaEmote', 'zeta'),
+        ],
+      });
+
+      final byChannel = manager.subscriberEmotesByChannel();
+      expect(byChannel.keys, ['alpha', 'zeta']);
+    });
   });
 
   group('cache cap + usage registry', () {

@@ -287,9 +287,14 @@ class EmoteManager extends ChangeNotifier {
         ownerOf[key] = e.ownerChannel ?? channel;
       }
     }
-    final result = <String, List<GenericEmote>>{};
+    final grouped = <String, List<GenericEmote>>{};
     for (final entry in byOwner.entries) {
-      (result[ownerOf[entry.key] ?? ''] ??= []).add(entry.value);
+      (grouped[ownerOf[entry.key] ?? ''] ??= []).add(entry.value);
+    }
+    final owners = grouped.keys.toList()..sort();
+    final result = <String, List<GenericEmote>>{};
+    for (final owner in owners) {
+      result[owner] = grouped[owner]!;
     }
     for (final list in result.values) {
       list.sort((a, b) => a.code.compareTo(b.code));
