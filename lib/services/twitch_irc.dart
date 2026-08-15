@@ -669,6 +669,7 @@ TwitchMessage parseIrcChatMessage(
     ),
     badges: parseIrcBadges(ircMsg.tags['badges']),
     sourceBroadcasterId: sourceBroadcasterId,
+    isFirstMessage: ircMsg.tags['first-msg'] == '1',
     isHistory: isHistory,
   );
 }

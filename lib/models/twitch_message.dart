@@ -43,6 +43,7 @@ class TwitchMessage {
   String? replyThreadRootId;
   bool isHighlighted;
   String? userId;
+  final bool isFirstMessage;
   final List<EmotePosition>? emotePositions;
   final List<MessageBadge>? badges;
   final String? sourceBroadcasterId;
@@ -90,6 +91,7 @@ class TwitchMessage {
     this.replyToText,
     this.replyThreadRootId,
     this.isHighlighted = false,
+    this.isFirstMessage = false,
     this.userId,
     this.emotePositions,
     this.badges,
