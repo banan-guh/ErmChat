@@ -623,6 +623,29 @@ void main() {
         expect(find.byType(Shimmer), findsNothing);
       });
 
+      testWidgets('the global shimmer placeholder has a transparent base', (
+        tester,
+      ) async {
+        // Zero-width overlays sit on top of a base emote; an opaque loading
+        // box would hide it. The placeholder must paint only the moving
+        // highlight band, with a transparent base.
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: ShimmerEmotePlaceholder(width: 28, height: 28),
+            ),
+          ),
+        );
+
+        final shimmer = tester.widget<Shimmer>(find.byType(Shimmer));
+        final gradient = shimmer.gradient;
+        expect(gradient, isA<LinearGradient>());
+        final colors = (gradient as LinearGradient).colors;
+        // fromColors builds [base, base, highlight, base, base].
+        expect(colors.first, Colors.transparent);
+        expect(colors.last, Colors.transparent);
+      });
+
       testWidgets(
         'a registry-sourced placeholder animates on the shared clock',
         (tester) async {

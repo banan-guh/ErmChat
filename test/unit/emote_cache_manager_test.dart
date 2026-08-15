@@ -112,6 +112,34 @@ void main() {
     expect(repo.keys, hasLength(3));
   });
 
+  test('a fresh overflow file is not evicted before it is read', () async {
+    // A full cache serves new emotes from OS temp files. A burst of
+    // concurrent fetches must not delete one fetch's temp file while another
+    // is still reading it: eviction only targets files older than the grace
+    // period. Both downloads fail here (mocked 400), so the assertions pass
+    // only if no eviction race surfaces as a PathNotFoundException.
+    final t = DateTime(2026, 1, 1, 12);
+    repo.seed([
+      _obj('https://example.com/a.png', t, id: 1),
+      _obj('https://example.com/b.png', t.add(const Duration(hours: 1)), id: 2),
+      _obj('https://example.com/c.png', t.add(const Duration(hours: 2)), id: 3),
+    ]);
+    manager.maxObjects = 3;
+
+    expect(await manager.isFull(), isTrue);
+
+    await expectLater(
+      manager.getFileStream('https://example.com/new1.png'),
+      emitsError(anything),
+    );
+    await expectLater(
+      manager.getFileStream('https://example.com/new2.png'),
+      emitsError(anything),
+    );
+
+    expect(repo.keys, hasLength(3));
+  });
+
   test('writes are accepted while under the cap', () async {
     final t = DateTime(2026, 1, 1, 12);
     repo.seed([_obj('https://example.com/a.png', t, id: 1)]);

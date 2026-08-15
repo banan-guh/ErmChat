@@ -25,7 +25,7 @@ dart format .              # format all Dart files
 - `lib/models/generic_emote.dart` - cross-provider emote model (Twitch/BTTV/FFZ/7TV, zero-width, scale, aspectRatio)
 - `lib/models/twitch_badge.dart` - BadgeVersion, BadgeSet, MessageBadge data classes
 - `lib/models/twitch_command.dart` - `TwitchCommand` data class (name only; `allCommands` in command_handler lists all of them)
-- `lib/models/emote_fetch_tier.dart` - `EmoteFetchTier` (nothing/low/medium/high) with label/subtitle/resolution + pref keys `emote_fetch_tier` / `emote_cache_max` (default 500, 0-1500), `EmoteFetchAutoMode` (off/balanced/aggressive, default balanced) with labels/subtitles + `emote_fetch_auto` pref key via `effectiveEmoteFetchTier` (a connectivity resolver used by home_screen's `_reconcileEmoteTier`)
+- `lib/models/emote_fetch_tier.dart` - `EmoteFetchTier` (nothing/low/medium/high) with label/subtitle/resolution + pref keys `emote_fetch_tier` / `emote_cache_max` (default 500, 0-2000), `EmoteFetchAutoMode` (off/balanced/aggressive, default balanced) with labels/subtitles + `emote_fetch_auto` pref key via `effectiveEmoteFetchTier` (a connectivity resolver used by home_screen's `_reconcileEmoteTier`)
 
 #### Screens
 - `lib/screens/home_screen.dart` - 2941‑line main screen: multi‑channel layout, EventSub + IRC integration, reply threads, mentions/whispers view (Mentions + Whispers tabs; the Whispers tab composes whispers - plain text replies to the latest whisper partner, `/w` commands route through the command handler), message input, system messages, chat room state, user profiles, emote menu, autocomplete, broadcaster chat widgets, welcome dialog

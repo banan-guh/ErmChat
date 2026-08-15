@@ -11,7 +11,8 @@ import '../models/emote_fetch_tier.dart';
 
 /// Shared HTTP client for the cache-full fallback path, reused across calls so
 /// a burst of overflow downloads doesn't spin up a connection per emote.
-final http.Client _emoteFetchClient = http.Client();
+/// Also used by the emote image loader's full-cache direct fetch.
+final http.Client emoteFetchClient = http.Client();
 
 /// Snapshot of the emote image disk cache.
 class EmoteCacheStats {
@@ -30,13 +31,14 @@ class EmoteCacheStats {
 ///
 /// The cache never exceeds [maxObjects]: a write is only accepted while the
 /// repo count (plus in-flight writes) is below the cap, so a burst of new
-/// emotes can't overshoot it. When the cache is full, new emotes are fetched
-/// into an OS temp file and served as a [FileInfo] without ever entering the
-/// repo, so renders keep working but the disk cache stays put. [isFull] backs
-/// the precacher's skip decision, and [enforceNow] (settings Apply / startup)
-/// evicts down to a newly reduced cap by priority ([lastUsedAt] registry
-/// lookup, falling back to the file's touched time). The 2000-file manager
-/// cap is a safety net only.
+/// emotes can't overshoot it. When the cache is full, new emotes are served
+/// from an OS temp file without ever entering the repo, so renders keep
+/// working but the disk cache stays put (temp files are evicted once older
+/// than [_overflowGrace], so a consumer can never race a deletion mid-read).
+/// [isFull] backs the precacher's skip decision, and [enforceNow] (settings
+/// Apply / startup) evicts down to a newly reduced cap by priority
+/// ([lastUsedAt] registry lookup, falling back to the file's touched time).
+/// The 2000-file manager cap is a safety net only.
 class EmoteCacheManager extends CacheManager {
   static final EmoteCacheManager _instance = EmoteCacheManager._();
 
@@ -55,7 +57,11 @@ class EmoteCacheManager extends CacheManager {
   EmoteCacheManager.forTesting(super.config);
 
   static const _downloadTimeout = Duration(seconds: 10);
-  static const _maxOverflowFiles = 8;
+
+  /// Overflow temp files younger than this are never deleted: a consumer may
+  /// still be reading them. Reads complete in milliseconds, so the grace is
+  /// generous; only files that have certainly been consumed are evicted.
+  static const _overflowGrace = Duration(seconds: 30);
 
   /// How long a repo object-count read is trusted. Bursts of fetches (e.g. an
   /// emote menu opening with dozens of cells) share one count within the TTL
@@ -75,9 +81,11 @@ class EmoteCacheManager extends CacheManager {
   int? _cachedCount;
   DateTime? _cachedCountAt;
 
-  /// Temp files served while the cache was full, kept small (FIFO) so the
-  /// renderer has already read a file long before it gets deleted.
-  final List<File> _overflowFiles = [];
+  /// Temp files served while the cache was full. Evicted only once they're
+  /// older than [_overflowGrace] (the consumer has certainly read them by
+  /// then); fresh files are never deleted, so a concurrent fetch can't hit a
+  /// PathNotFoundException mid-read.
+  final List<({File file, DateTime createdAt})> _overflowFiles = [];
 
   /// Last-used timestamp for a cached URL, or null to fall back to the file's
   /// own touched time. Set by [EmoteManager] from its usage registry.
@@ -202,11 +210,17 @@ class EmoteCacheManager extends CacheManager {
       '${dir.path}/emote_overflow_${DateTime.now().microsecondsSinceEpoch}',
     );
     await file.create();
-    _overflowFiles.add(file);
-    if (_overflowFiles.length > _maxOverflowFiles) {
-      final oldest = _overflowFiles.removeAt(0);
+    final now = DateTime.now();
+    _overflowFiles.add((file: file, createdAt: now));
+    // Evict only files old enough that their consumer has certainly finished
+    // reading them. Fresh files are never deleted, so a concurrent fetch can't
+    // race a deletion mid-read.
+    final evictBefore = now.subtract(_overflowGrace);
+    for (final entry in _overflowFiles.toList()) {
+      if (entry.createdAt.isAfter(evictBefore)) continue;
+      _overflowFiles.remove(entry);
       try {
-        await oldest.delete();
+        await entry.file.delete();
       } catch (_) {
         // The file is gone already or not deletable; the OS temp dir cleans up.
       }
@@ -227,7 +241,7 @@ class EmoteCacheManager extends CacheManager {
       if (headers != null) request.headers.addAll(headers);
       // Some CDNs 403 bare requests; match what the main fetch path sends.
       request.headers.putIfAbsent('User-Agent', () => 'ermchat');
-      final response = await _emoteFetchClient
+      final response = await emoteFetchClient
           .send(request)
           .timeout(_downloadTimeout);
       if (response.statusCode != 200) {

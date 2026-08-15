@@ -228,7 +228,7 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
           value: _draftCacheMax.toDouble(),
           min: minEmoteCacheMax.toDouble(),
           max: maxEmoteCacheMax.toDouble(),
-          divisions: 30,
+          divisions: 40,
           label: '$_draftCacheMax',
           onChanged: (value) => setState(() => _draftCacheMax = value.toInt()),
         ),

@@ -36,7 +36,7 @@ class EmoteFrameData {
 
 typedef EmoteFrameDecoder = Future<EmoteFrameData> Function(Uint8List bytes);
 
-/// Per-URL cache of decoded emote frames with an LRU byte cap (100 MB default,
+/// Per-URL cache of decoded emote frames with an LRU byte cap (200 MB default,
 /// matching Flutter's [ImageCache]). Clips are retained until the cap is
 /// exceeded, then least-recently-used clips are evicted.
 class EmoteClipRegistry {
@@ -47,9 +47,9 @@ class EmoteClipRegistry {
   @visibleForTesting
   static EmoteFrameDecoder? debugDecodeOverride;
 
-  /// Maximum bytes for all cached decoded frames (default 100 MB, like
+  /// Maximum bytes for all cached decoded frames (default 200 MB, like
   /// Flutter's [ImageCache]).
-  static const int _defaultMaxBytes = 100 << 20;
+  static const int _defaultMaxBytes = 200 << 20;
 
   /// Caps concurrent decodes so a burst (e.g. the emote menu opening with
   /// dozens of animated WebP cells) doesn't spawn one isolate per emote at
@@ -327,15 +327,35 @@ class _EmoteClip extends ChangeNotifier {
   }
 }
 
+const _emoteDownloadTimeout = Duration(seconds: 10);
+
 Future<Uint8List> _fetchBytes(String url) async {
-  // getFileStream already routes around a full cache (temp-file fallback in
-  // EmoteCacheManager), so no upfront isFull() probe is needed here.
-  await for (final response in EmoteCacheManager().getFileStream(url)) {
-    if (response is FileInfo) {
-      return response.file.readAsBytes();
+  // When there's room in the disk cache, stream through it (read cached file
+  // or download + persist) exactly as before. When the cache is full (or
+  // maxObjects == 0, meaning "always full" by design), skip disk entirely and
+  // fetch straight into memory: the temp-file overflow path is racy under
+  // concurrency (an overflow file can be evicted while another fetch is still
+  // reading it) and wastes disk I/O at the exact moment we can least afford
+  // it. The count read is TTL-cached, so the isFull probe is cheap.
+  if (!await EmoteCacheManager().isFull()) {
+    await for (final response in EmoteCacheManager().getFileStream(url)) {
+      if (response is FileInfo) {
+        return response.file.readAsBytes();
+      }
     }
+    throw StateError('no emote bytes for $url');
   }
-  throw StateError('no emote bytes for $url');
+  final resp = await emoteFetchClient
+      .get(Uri.parse(url), headers: const {'User-Agent': 'ermchat'})
+      .timeout(_emoteDownloadTimeout);
+  if (resp.statusCode != 200) {
+    throw HttpExceptionWithStatus(
+      resp.statusCode,
+      'Failed to download $url',
+      uri: Uri.parse(url),
+    );
+  }
+  return resp.bodyBytes;
 }
 
 enum EmoteFormat { gif, webp, other }
@@ -793,8 +813,11 @@ class EmoteImage extends StatefulWidget {
 
 /// Shimmer placeholder shown while an emote's frames are still loading.
 ///
-/// [Shimmer] sweeps a moving gradient over an opaque child, so the child is a
-/// solid [Container] matching the emote box. Colors come from the theme.
+/// [Shimmer] sweeps a moving gradient over the child, which acts as an alpha
+/// mask (the shimmer composites with `srcIn`, so the child's color is
+/// ignored). The base color is transparent so the placeholder never hides
+/// content underneath it (e.g. a zero-width overlay must not obscure the base
+/// emote it sits on); only the moving highlight band paints.
 class ShimmerEmotePlaceholder extends StatelessWidget {
   const ShimmerEmotePlaceholder({super.key, this.width, this.height});
 
@@ -804,12 +827,11 @@ class ShimmerEmotePlaceholder extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final base = scheme.surface;
-    final highlight = Color.lerp(base, scheme.surfaceContainerHighest, 0.7)!;
+    final highlight = scheme.surfaceContainerHighest;
     return Shimmer.fromColors(
-      baseColor: base,
+      baseColor: Colors.transparent,
       highlightColor: highlight,
-      child: Container(width: width, height: height, color: base),
+      child: Container(width: width, height: height, color: Colors.white),
     );
   }
 }
