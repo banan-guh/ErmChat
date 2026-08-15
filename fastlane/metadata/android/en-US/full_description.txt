@@ -1,1 +1,1 @@
-ErmChat is a DankChat-inspired chat client with more features, built for multi-platform. If you've had experience with other chat clients, this one is similar with some fun features stapled onto it, and a bit less polish.
+ErmChat is a DankChat-inspired chat client with more features and multi-platform. If you've had experience with other chat clients, this one is similar with fun features stapled onto it and less polish.

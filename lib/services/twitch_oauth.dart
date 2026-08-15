@@ -15,7 +15,12 @@ class TwitchOAuth {
   static String? lastError;
   static bool _flowInProgress = false;
 
-  static Future<String?> startFlow() async {
+  /// Starts the OAuth flow. Set [ephemeral] to launch the login in an
+  /// incognito-style session with no shared cookies. That skips Twitch's
+  /// "hi again, [user] - not you? log out" interstitial (which can hand the
+  /// flow off to the installed Twitch app via Android App Links) and shows the
+  /// plain login form instead - used for the switch-account / re-auth path.
+  static Future<String?> startFlow({bool ephemeral = false}) async {
     lastError = null;
     if (_flowInProgress) {
       lastError = 'An authorization flow is already in progress.';
@@ -30,6 +35,7 @@ class TwitchOAuth {
       final result = await FlutterWebAuth2.authenticate(
         url: urlInfo.url,
         callbackUrlScheme: TwitchConfig.callbackUrlScheme,
+        options: FlutterWebAuth2Options(preferEphemeral: ephemeral),
       ).timeout(const Duration(minutes: 5));
 
       return _extractToken(result, urlInfo.state);

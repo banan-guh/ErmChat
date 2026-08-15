@@ -90,7 +90,7 @@ class _AccountScreenState extends State<AccountScreen> {
     super.dispose();
   }
 
-  Future<void> _startOAuth() async {
+  Future<void> _startOAuth({bool ephemeral = false}) async {
     setState(() {
       _authState = _AuthState.waiting;
       _authError = null;
@@ -104,8 +104,10 @@ class _AccountScreenState extends State<AccountScreen> {
     if (_useBrowserOAuth) {
       _startBrowserOAuth();
     } else {
-      final starter = widget.oAuthStarter ?? TwitchOAuth.startFlow;
-      final token = await starter();
+      final starter = widget.oAuthStarter;
+      final token = starter != null
+          ? await starter()
+          : await TwitchOAuth.startFlow(ephemeral: ephemeral);
 
       if (!mounted) return;
 
@@ -445,7 +447,7 @@ class _AccountScreenState extends State<AccountScreen> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     OutlinedButton.icon(
-                      onPressed: _startOAuth,
+                      onPressed: () => _startOAuth(ephemeral: true),
                       icon: const Icon(Icons.person_add),
                       label: const Text('Add account'),
                     ),
