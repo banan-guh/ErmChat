@@ -37,6 +37,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
   Map<String, dynamic>? _profile;
   bool _loading = true;
   String? _error;
+  bool _anonymous = false;
 
   String get _formattedDisplayName {
     final display = _profile?['display_name'] as String? ?? widget.displayName;
@@ -51,6 +52,16 @@ class UserProfileSheetState extends State<UserProfileSheet> {
   }
 
   Future<void> _fetchProfile() async {
+    // Helix requires a token; without one show the reduced anonymous profile
+    // instead of failing the fetch.
+    if (!widget.twitchAuth.isConfigured) {
+      if (!mounted) return;
+      setState(() {
+        _anonymous = true;
+        _loading = false;
+      });
+      return;
+    }
     try {
       final profile = await widget.twitchApi.getUserProfile(
         widget.twitchAuth,
@@ -124,6 +135,48 @@ class UserProfileSheetState extends State<UserProfileSheet> {
                 ),
               ),
             ),
+          ] else if (_anonymous) ...[
+            Row(
+              children: [
+                Container(
+                  width: 64,
+                  height: 64,
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(
+                    Icons.person,
+                    size: 32,
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _formattedDisplayName,
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w600,
+                          color: theme.colorScheme.onSurface,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Connect an account to see profile',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ] else if (_profile != null) ...[
             Row(
               children: [
@@ -173,108 +226,114 @@ class UserProfileSheetState extends State<UserProfileSheet> {
               ],
             ),
             const SizedBox(height: 12),
-            ListTile(
-              dense: true,
-              leading: const Icon(Icons.alternate_email),
-              title: const Text('Mention user'),
-              onTap: () {
-                widget.onClose();
-                final text = widget.messageController.text;
-                final prefix = text.isEmpty
-                    ? '@${widget.username} '
-                    : '@${widget.username} ';
-                widget.messageController.text = '$prefix$text';
-                widget.messageController.selection = TextSelection.fromPosition(
-                  TextPosition(offset: widget.messageController.text.length),
-                );
-                widget.focusNode.requestFocus();
-              },
-            ),
-            ListTile(
-              dense: true,
-              leading: const Icon(Icons.chat_bubble_outline),
-              title: const Text('Whisper user'),
-              onTap: () {
-                widget.onClose();
-                widget.onWhisperUser?.call();
-              },
-            ),
-            ListTile(
-              dense: true,
-              leading: const Icon(Icons.block),
-              title: const Text('Block'),
-              onTap: () async {
-                final userId = widget.userId ?? _profile?['id'] as String?;
-                if (userId == null) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Cannot block: user ID unknown'),
-                    ),
-                  );
-                  return;
-                }
-                final confirmed = await showDialog<bool>(
-                  context: context,
-                  builder: (ctx) => AlertDialog(
-                    title: const Text('Block user'),
-                    content: Text(
-                      'Block ${widget.displayName}? They will not be able to whisper you or host your channel.',
-                    ),
-                    actions: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(ctx, false),
-                        child: const Text('Cancel'),
-                      ),
-                      FilledButton(
-                        onPressed: () => Navigator.pop(ctx, true),
-                        child: const Text('Block'),
-                      ),
-                    ],
-                  ),
-                );
-                if (confirmed != true || !context.mounted) return;
-                final ok = await widget.twitchApi.blockUser(
-                  widget.twitchAuth,
-                  userId,
-                );
-                if (!context.mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      ok
-                          ? '${widget.displayName} blocked'
-                          : 'Block failed: ${widget.twitchApi.lastError ?? "unknown"}',
-                    ),
-                  ),
-                );
-                if (ok) widget.onUserBlocked?.call(widget.username);
-                widget.onClose();
-              },
-            ),
-            ListTile(
-              dense: true,
-              leading: const Icon(Icons.flag_outlined),
-              title: const Text('Report'),
-              onTap: () async {
-                final url = Uri.parse(
-                  'https://twitch.tv/${widget.username}/report',
-                );
-                final ok = await launchUrl(
-                  url,
-                  mode: LaunchMode.externalApplication,
-                );
-                if (!ok && context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Could not open the report page'),
-                    ),
-                  );
-                }
-              },
-            ),
+            ..._buildActionTiles(),
           ],
         ],
       ),
     );
+  }
+
+  List<Widget> _buildActionTiles() {
+    return [
+      ListTile(
+        dense: true,
+        leading: const Icon(Icons.alternate_email),
+        title: const Text('Mention user'),
+        onTap: () {
+          widget.onClose();
+          final text = widget.messageController.text;
+          final prefix = text.isEmpty
+              ? '@${widget.username} '
+              : '@${widget.username} ';
+          widget.messageController.text = '$prefix$text';
+          widget.messageController.selection = TextSelection.fromPosition(
+            TextPosition(offset: widget.messageController.text.length),
+          );
+          widget.focusNode.requestFocus();
+        },
+      ),
+      ListTile(
+        dense: true,
+        leading: const Icon(Icons.chat_bubble_outline),
+        title: const Text('Whisper user'),
+        onTap: () {
+          widget.onClose();
+          widget.onWhisperUser?.call();
+        },
+      ),
+      ListTile(
+        dense: true,
+        leading: const Icon(Icons.block),
+        title: const Text('Block'),
+          onTap: () async {
+            final userId = widget.userId ?? _profile?['id'] as String?;
+            if (userId == null) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Cannot block: user ID unknown'),
+                ),
+              );
+              return;
+            }
+            final confirmed = await showDialog<bool>(
+              context: context,
+              builder: (ctx) => AlertDialog(
+                title: const Text('Block user'),
+                content: Text(
+                  'Block ${widget.displayName}? They will not be able to whisper you or host your channel.',
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(ctx, false),
+                    child: const Text('Cancel'),
+                  ),
+                  FilledButton(
+                    onPressed: () => Navigator.pop(ctx, true),
+                    child: const Text('Block'),
+                  ),
+                ],
+              ),
+            );
+            if (confirmed != true || !mounted) return;
+            final ok = await widget.twitchApi.blockUser(
+              widget.twitchAuth,
+              userId,
+            );
+            if (!mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  ok
+                      ? '${widget.displayName} blocked'
+                      : 'Block failed: ${widget.twitchApi.lastError ?? "unknown"}',
+                ),
+              ),
+            );
+            if (ok) widget.onUserBlocked?.call(widget.username);
+            widget.onClose();
+          },
+        ),
+      ListTile(
+        dense: true,
+        leading: const Icon(Icons.flag_outlined),
+        title: const Text('Report'),
+        onTap: () async {
+          final url = Uri.parse(
+            'https://twitch.tv/${widget.username}/report',
+          );
+          final ok = await launchUrl(
+            url,
+            mode: LaunchMode.externalApplication,
+          );
+          if (!ok && mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Could not open the report page'),
+              ),
+            );
+          }
+        },
+      ),
+    ];
   }
 }

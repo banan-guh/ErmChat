@@ -98,5 +98,5 @@
 - fully transparent emote stops working for some reason X
 - size emote menu better
 - fix no scope experience
-- fix links parsing
+- fix links parsing X
 - fix bypass

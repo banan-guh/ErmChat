@@ -679,7 +679,13 @@ class ChatConnectionManager {
 
     try {
       final auth = twitchAuth;
-      final channelUserId = await twitchApi.getUserId(auth, channelName);
+      var channelUserId = auth.accessToken != null
+          ? await twitchApi.getUserId(auth, channelName)
+          : null;
+      // Anonymous: Helix 401s without a token, so the channel user ID comes
+      // from the IRC ROOMSTATE room-id tag instead (powers the third-party
+      // emote providers and badge fetches).
+      channelUserId ??= await _waitForRoomId(channelName);
       if (channelUserId == null) return;
       channelUserIds[channelName] = channelUserId;
       badgeService.fetchChannelBadges(auth, channelUserId, channelName);
@@ -704,17 +710,19 @@ class ChatConnectionManager {
 
       unawaited(_resolveSevenTvAndSubscribe(channelName, channelUserId));
 
-      if (getCurrentUserLogin() == null) {
+      if (getCurrentUserLogin() == null && auth.accessToken != null) {
         final currentUser = await _ensureCurrentUser(auth);
-        if (currentUser == null) return;
-        setCurrentUserLogin(currentUser['login']);
-        setCurrentUserId(currentUser['id']);
+        if (currentUser != null) {
+          setCurrentUserLogin(currentUser['login']);
+          setCurrentUserId(currentUser['id']);
+        }
       }
 
-      eventSub.setChannelMapping(channelUserId, channelName);
-
-      unawaited(_subscribeModeration(channelName, channelUserId));
-      unawaited(_subscribeWidgets(channelName, channelUserId));
+      if (getCurrentUserLogin() != null && getCurrentUserId() != null) {
+        eventSub.setChannelMapping(channelUserId, channelName);
+        unawaited(_subscribeModeration(channelName, channelUserId));
+        unawaited(_subscribeWidgets(channelName, channelUserId));
+      }
     } catch (_) {
       debugPrint('[ChatConn] subscribeChannel failed for $channelName');
     }
@@ -725,6 +733,29 @@ class ChatConnectionManager {
       const Duration(seconds: 60),
       (_) => fetchChatStatus(channelName),
     );
+  }
+
+  // Anonymous fallback for the channel user ID: ROOMSTATE carries a room-id
+  // tag right after JOIN, which Helix normally provides. Waits (bounded) for
+  // the ROOMSTATE if it hasn't arrived yet.
+  final _roomIdWaiters = <String, List<Completer<String?>>>{};
+
+  Future<String?> _waitForRoomId(
+    String channel, {
+    Duration timeout = const Duration(seconds: 10),
+  }) async {
+    final existing = _roomStateTags[channel]?['room-id'];
+    if (existing != null && existing.isNotEmpty) return existing;
+    final completer = Completer<String?>();
+    _roomIdWaiters.putIfAbsent(channel, () => []).add(completer);
+    try {
+      return await completer.future.timeout(timeout, onTimeout: () => null);
+    } finally {
+      _roomIdWaiters[channel]?.remove(completer);
+      if (_roomIdWaiters[channel]?.isEmpty ?? true) {
+        _roomIdWaiters.remove(channel);
+      }
+    }
   }
 
   Future<Map<String, dynamic>?>? _currentUserFetch;
@@ -1036,8 +1067,6 @@ class ChatConnectionManager {
 
       _setupSubscriptions();
 
-      if (!auth.isConfigured) return;
-
       sevenTvClient?.connect();
 
       // EventSub session lifecycle: subscriptions are session-scoped, so drop
@@ -1102,6 +1131,7 @@ class ChatConnectionManager {
           }
         }
       });
+
       // Use the cached account if available so cold start skips the Helix
       // user lookup entirely.
       if (getCurrentUserLogin() == null &&
@@ -1114,9 +1144,12 @@ class ChatConnectionManager {
       // EventSub needs no credentials — connect it in parallel with the
       // current-user lookup. Only IRC needs the login, so the sockets wait
       // for the lookup but not for each other.
-      final eventSubFuture = eventSub.connect();
+      final hasToken = auth.accessToken != null;
+      final eventSubFuture = hasToken
+          ? eventSub.connect()
+          : Future<void>.value();
       Future<Map<String, dynamic>?>? userFuture;
-      if (getCurrentUserLogin() == null) {
+      if (getCurrentUserLogin() == null && hasToken) {
         userFuture = _ensureCurrentUser(auth);
       }
 
@@ -1133,7 +1166,7 @@ class ChatConnectionManager {
         setCurrentUserId(currentUser['id']);
       }
 
-      if (getCurrentUserLogin() != null && auth.accessToken != null) {
+      if (getCurrentUserLogin() != null && hasToken) {
         try {
           await Future.wait([
             irc.connect(
@@ -1148,12 +1181,34 @@ class ChatConnectionManager {
         } catch (e) {
           debugPrint('IRC connect failed: $e');
         }
+      } else {
+        // Read-only anonymous mode: Twitch accepts a justinfan NICK without
+        // credentials, which still delivers chat (with the emotes tag) but
+        // can't send messages or call Helix.
+        try {
+          await Future.wait([
+            irc.connect(
+              username: _anonymousNick(1),
+              accessToken: 'anonymous',
+            ),
+            ircRead.connect(
+              username: _anonymousNick(2),
+              accessToken: 'anonymous',
+            ),
+          ]);
+        } catch (e) {
+          debugPrint('Anonymous IRC connect failed: $e');
+        }
       }
 
       await eventSubFuture;
     } finally {
       _isConnecting = false;
     }
+  }
+
+  String _anonymousNick(int seed) {
+    return 'justinfan${(DateTime.now().millisecondsSinceEpoch + seed) % 80000 + 1000}';
   }
 
   void _setupSubscriptions() {
@@ -1289,6 +1344,15 @@ class ChatConnectionManager {
         ...?_roomStateTags[event.channel],
         ...event.tags,
       };
+      final roomId = event.tags['room-id'];
+      if (roomId != null && roomId.isNotEmpty) {
+        final waiters = _roomIdWaiters.remove(event.channel);
+        if (waiters != null) {
+          for (final w in waiters) {
+            if (!w.isCompleted) w.complete(roomId);
+          }
+        }
+      }
       _composeChatStatus(event.channel);
     });
 
@@ -1561,7 +1625,9 @@ class ChatConnectionManager {
   void reconnectIfNecessary() {
     final login = getCurrentUserLogin();
     final token = twitchAuth.accessToken;
-    if (login == null || token == null) return;
+    final anonymous = login == null || token == null;
+    final username = login ?? _anonymousNick(1);
+    final accessToken = token ?? 'anonymous';
 
     // A socket can exist while being dead (frozen by the OS during
     // backgrounding). When it looks connected, verify with a PING/PONG
@@ -1577,7 +1643,7 @@ class ChatConnectionManager {
         }),
       );
     } else {
-      unawaited(irc.connect(username: login, accessToken: token));
+      unawaited(irc.connect(username: username, accessToken: accessToken));
     }
     if (ircRead.isConnected) {
       unawaited(
@@ -1591,7 +1657,12 @@ class ChatConnectionManager {
         }),
       );
     } else {
-      unawaited(ircRead.connect(username: login, accessToken: token));
+      unawaited(
+        ircRead.connect(
+          username: anonymous ? _anonymousNick(2) : username,
+          accessToken: accessToken,
+        ),
+      );
     }
     // EventSub/7TV have no PING/PONG equivalent, so `isConnected` alone can't
     // spot a zombie socket; a stale session is torn down and re-established.

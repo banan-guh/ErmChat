@@ -1700,12 +1700,6 @@ class _HomeScreenState extends State<HomeScreen>
           _maybeAddConnected(name);
         });
 
-    final auth = widget.twitchAuth;
-    if (!auth.isConfigured) {
-      if (mounted) setState(() {});
-      return;
-    }
-
     debugPrint('[HomeScreen] joining channel: $name');
     await _subscribeChannel(name);
 
