@@ -1338,4 +1338,114 @@ void main() {
       },
     );
   });
+
+  group('EmoteUsageRecord scoring', () {
+    // Unix hour for a fixed date.
+    final hour = DateTime(2026, 1, 1, 12).millisecondsSinceEpoch ~/ 3600000;
+    final now = DateTime(2026, 1, 1, 12);
+
+    EmoteUsageRecord record({
+      required DateTime lastUsedAt,
+      List<int>? buckets,
+      int? base,
+    }) => EmoteUsageRecord(
+      lastUsedAt: lastUsedAt,
+      bucketBase: base ?? hour,
+      buckets: buckets ?? List.filled(24, 0),
+    );
+
+    test('a just-used emote scores high even with a single view', () {
+      final r = EmoteUsageRecord.bumped(
+        record(lastUsedAt: now),
+        hour,
+        now: now,
+      );
+      expect(r.score(now, hour: hour), greaterThan(0.9));
+    });
+
+    test('steady daily use outranks a one-hour spam burst', () {
+      // Steady: 40 uses spread evenly over the day, last use 3h ago.
+      final steady = record(
+        lastUsedAt: now.subtract(const Duration(hours: 3)),
+        buckets: List.filled(24, 1)..[hour % 24] = 17,
+      );
+      // Burst: 100 uses all in one hour, 8h ago, silent since.
+      final burst = record(
+        lastUsedAt: now.subtract(const Duration(hours: 8)),
+        buckets: List.filled(24, 0)..[(hour - 8) % 24] = 100,
+      );
+      final steadyScore = steady.score(now, hour: hour);
+      final burstScore = burst.score(now, hour: hour);
+      expect(steadyScore, greaterThan(burstScore));
+      // The burst's entropy collapses its steady term to zero.
+      expect(burstScore, lessThan(0.5));
+    });
+
+    test('an emote unused for a day scores near zero', () {
+      // Views happened 25h ago (base anchored there); the 24h window has
+      // rolled past every bucket, so only the recency term remains - and it
+      // has decayed to nothing.
+      final r = EmoteUsageRecord.rolledForward(
+        EmoteUsageRecord(
+          lastUsedAt: now.subtract(const Duration(hours: 25)),
+          bucketBase: hour - 25,
+          buckets: List.filled(24, 1),
+        ),
+        hour,
+      );
+      expect(r.score(now, hour: hour), lessThan(0.05));
+    });
+
+    test('uniform distribution scores higher than a clustered one', () {
+      final uniform = record(
+        lastUsedAt: now.subtract(const Duration(hours: 1)),
+        buckets: List.filled(24, 4),
+      );
+      final clustered = record(
+        lastUsedAt: now.subtract(const Duration(hours: 1)),
+        buckets: List.filled(24, 0)
+          ..[hour % 24] = 48
+          ..[(hour - 1) % 24] = 48,
+      );
+      expect(
+        uniform.score(now, hour: hour),
+        greaterThan(clustered.score(now, hour: hour)),
+      );
+    });
+
+    test('bumping rolls the window forward and ages out stale buckets', () {
+      var r = record(lastUsedAt: now);
+      r = EmoteUsageRecord.bumped(r, hour, now: now);
+      // The roll on the hour+1 bump moves the window, so that hour's views
+      // land in bucket 0.
+      r = EmoteUsageRecord.bumped(
+        r,
+        hour + 1,
+        now: now.add(const Duration(hours: 1)),
+      );
+      r = EmoteUsageRecord.bumped(
+        r,
+        hour + 1,
+        now: now.add(const Duration(hours: 1)),
+      );
+      expect(r.buckets[0], 2);
+      expect(r.bucketBase, hour + 1);
+      // 25 hours later, everything has rolled out of the window.
+      r = EmoteUsageRecord.rolledForward(r, hour + 25);
+      expect(r.bucketBase, hour + 25);
+      expect(r.buckets.every((b) => b == 0), isTrue);
+    });
+
+    test('json round-trip preserves buckets and last use', () {
+      final r = record(
+        lastUsedAt: now.subtract(const Duration(hours: 2)),
+        buckets: List.filled(24, 0)..[hour % 24] = 5,
+      );
+      final parsed = EmoteUsageRecord.fromJson(r.toJson())!;
+      expect(parsed.lastUsedAt, r.lastUsedAt);
+      expect(parsed.bucketBase, r.bucketBase);
+      expect(parsed.buckets, r.buckets);
+      expect(parsed.score(now, hour: hour), r.score(now, hour: hour));
+    });
+  });
 }

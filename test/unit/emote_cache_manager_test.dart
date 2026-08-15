@@ -54,8 +54,7 @@ void main() {
       _obj('https://example.com/b.png', t, id: 2),
     ]);
     manager.maxObjects = 1;
-    manager.lastUsedAt = (url) =>
-        url.contains('b.png') ? t.add(const Duration(hours: 10)) : t;
+    manager.priorityScore = (url) => url.contains('b.png') ? 1.0 : 0.0;
 
     await manager.enforceNow();
 
@@ -91,7 +90,7 @@ void main() {
     ]);
   });
 
-  test('a full cache is full and does not persist new files', () async {
+  test('a full cache evicts the lowest-priority file to make room', () async {
     final t = DateTime(2026, 1, 1, 12);
     repo.seed([
       _obj('https://example.com/a.png', t, id: 1),
@@ -102,31 +101,32 @@ void main() {
 
     expect(await manager.isFull(), isTrue);
 
-    // Served in-memory instead: the mocked 400 download fails, but the repo
-    // must stay untouched (no entry is added for the new URL).
+    // The write evicts the lowest-priority file (a, oldest by far) before
+    // attempting the download. The mocked 400 download then fails, so the
+    // repo keeps the two higher-priority files and gains nothing.
     await expectLater(
       manager.getFileStream('https://example.com/new.png'),
       emitsError(anything),
     );
 
-    expect(repo.keys, hasLength(3));
+    expect(repo.keys, [
+      'https://example.com/b.png',
+      'https://example.com/c.png',
+    ]);
   });
 
-  test('a fresh overflow file is not evicted before it is read', () async {
-    // A full cache serves new emotes from OS temp files. A burst of
-    // concurrent fetches must not delete one fetch's temp file while another
-    // is still reading it: eviction only targets files older than the grace
-    // period. Both downloads fail here (mocked 400), so the assertions pass
-    // only if no eviction race surfaces as a PathNotFoundException.
-    final t = DateTime(2026, 1, 1, 12);
+  test('write-time eviction skips candidates within the read grace', () async {
+    // All candidates were used/stored within the grace window, so nothing is
+    // evictable and the write falls back to the temp-file path: the mocked
+    // download fails but the repo stays untouched (the overflow grace is
+    // covered by the 30s temp-file policy, not repo eviction).
+    final t = DateTime.now();
     repo.seed([
       _obj('https://example.com/a.png', t, id: 1),
-      _obj('https://example.com/b.png', t.add(const Duration(hours: 1)), id: 2),
-      _obj('https://example.com/c.png', t.add(const Duration(hours: 2)), id: 3),
+      _obj('https://example.com/b.png', t, id: 2),
+      _obj('https://example.com/c.png', t, id: 3),
     ]);
     manager.maxObjects = 3;
-
-    expect(await manager.isFull(), isTrue);
 
     await expectLater(
       manager.getFileStream('https://example.com/new1.png'),
@@ -138,6 +138,33 @@ void main() {
     );
 
     expect(repo.keys, hasLength(3));
+  });
+
+  test('write-time eviction picks the lowest-scored entry', () async {
+    final t = DateTime(2026, 1, 1, 12);
+    repo.seed([
+      _obj('https://example.com/a.png', t, id: 1),
+      _obj('https://example.com/b.png', t, id: 2),
+      _obj('https://example.com/c.png', t, id: 3),
+    ]);
+    manager.maxObjects = 3;
+    // b is the lowest-scored emote even though it is not the oldest on disk.
+    manager.priorityScore = (url) => switch (url) {
+      'https://example.com/a.png' => 1.0,
+      'https://example.com/b.png' => 0.2,
+      _ => 0.9,
+    };
+    manager.lastUsedAt = (url) => t.add(const Duration(days: 1));
+
+    await expectLater(
+      manager.getFileStream('https://example.com/new.png'),
+      emitsError(anything),
+    );
+
+    expect(repo.keys, [
+      'https://example.com/a.png',
+      'https://example.com/c.png',
+    ]);
   });
 
   test('writes are accepted while under the cap', () async {

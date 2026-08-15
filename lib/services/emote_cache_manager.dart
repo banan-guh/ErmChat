@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:file/file.dart';
 import 'package:file/local.dart';
@@ -87,9 +88,24 @@ class EmoteCacheManager extends CacheManager {
   /// PathNotFoundException mid-read.
   final List<({File file, DateTime createdAt})> _overflowFiles = [];
 
-  /// Last-used timestamp for a cached URL, or null to fall back to the file's
-  /// own touched time. Set by [EmoteManager] from its usage registry.
+  /// Keep-priority score for a cached URL, or null when there is no usage
+  /// data (the file then falls back to a recency decay from its stored time).
+  /// Set by [EmoteManager] from its usage registry.
+  double? Function(String url)? priorityScore;
+
+  /// Last-use time for a cached URL (used only for the eviction grace check,
+  /// so a file a render is still reading is never deleted mid-read). Null
+  /// when the URL has no usage history.
   DateTime? Function(String url)? lastUsedAt;
+
+  /// Recency half-life for the no-registry fallback, matching the usage
+  /// registry's own recency term.
+  static const _fallbackHalfLife = Duration(hours: 6);
+
+  /// Eviction candidates used/stored within this window are skipped: a
+  /// render may still be reading the file (the same reason overflow temp
+  /// files get a grace period).
+  static const _evictionGrace = Duration(seconds: 2);
 
   /// Hard cap on cached emote files. Once reached, new emotes are served from
   /// temp files instead of being written to the cache.
@@ -111,6 +127,25 @@ class EmoteCacheManager extends CacheManager {
   /// does work after the cap was reduced.
   Future<void> enforceNow() => _enforceCap();
 
+  /// Reserves a write slot: accepts while under the cap, or evicts the
+  /// lowest-priority cached file to free one. Returns false when the cache is
+  /// full and nothing is evictable (repo empty or every candidate within the
+  /// read grace); callers then serve from a temp file instead.
+  Future<bool> _acquireWriteSlot() async {
+    if (await _tryReserve()) return true;
+    if (!await _evictLowest()) return false;
+    // The eviction freed a slot; the cached "full" count is now stale.
+    _invalidateCount();
+    _pendingWrites++;
+    return true;
+  }
+
+  Future<void> _invalidateCount() {
+    _cachedCount = null;
+    _cachedCountAt = null;
+    return Future.value();
+  }
+
   /// Reserves a write slot, or returns false when the cache is full. Callers
   /// must release the slot (via [_pendingWrites]-- ) after the write lands.
   Future<bool> _tryReserve() async {
@@ -125,7 +160,7 @@ class EmoteCacheManager extends CacheManager {
     String? key,
     Map<String, String>? headers,
   }) async {
-    if (!await _tryReserve()) {
+    if (!await _acquireWriteSlot()) {
       // Full: serve the already-cached copy if there is one; otherwise the
       // precacher skips this emote (it only wants files the cache keeps).
       try {
@@ -158,7 +193,7 @@ class EmoteCacheManager extends CacheManager {
       ...?headers,
     };
 
-    if (!await _tryReserve()) {
+    if (!await _acquireWriteSlot()) {
       yield* _serveFromMemory(url, mergedHeaders, withProgress);
       return;
     }
@@ -283,12 +318,61 @@ class EmoteCacheManager extends CacheManager {
     }
   }
 
+  /// Serializes evictions so concurrent full-cache writes never race a
+  /// removal against another eviction's scan.
+  Future<bool> _evictionTail = Future.value(true);
+
+  /// Evicts the lowest-priority cached file, returning false when nothing is
+  /// evictable (empty repo, or every candidate is within [_evictionGrace] of
+  /// its last use/store and might be mid-read).
+  Future<bool> _evictLowest() {
+    final tail = _evictionTail.then((_) async {
+      try {
+        final objects = await config.repo.getAllObjects();
+        if (objects.isEmpty) return false;
+        final now = DateTime.now();
+        CacheObject? victim;
+        double? bestScore;
+        for (final object in objects) {
+          if (_withinGrace(object, now)) continue;
+          final score = _score(object);
+          if (victim == null || score < bestScore!) {
+            victim = object;
+            bestScore = score;
+          }
+        }
+        if (victim == null) return false;
+        await removeFile(victim.url);
+        debugPrint(
+          '[EmoteCacheManager] evicted url=${victim.url} '
+          'score=${bestScore!.toStringAsFixed(3)}',
+        );
+        return true;
+      } catch (_) {
+        // Enumeration or removal failed; the caller falls back to temp files.
+        return false;
+      }
+    });
+    _evictionTail = tail;
+    return tail;
+  }
+
+  bool _withinGrace(CacheObject object, DateTime now) {
+    final used = lastUsedAt?.call(object.url);
+    if (used != null && now.difference(used).compareTo(_evictionGrace) < 0) {
+      return true;
+    }
+    final touched = object.touched;
+    return touched != null &&
+        now.difference(touched).compareTo(_evictionGrace) < 0;
+  }
+
   Future<void> _enforceCap() async {
     try {
       final objects = await config.repo.getAllObjects();
       if (objects.length <= _maxObjects) return;
       final overflow = objects.length - _maxObjects;
-      objects.sort((a, b) => _priority(a).compareTo(_priority(b)));
+      objects.sort((a, b) => _score(a).compareTo(_score(b)));
       for (final object in objects.take(overflow)) {
         try {
           await removeFile(object.url);
@@ -301,11 +385,16 @@ class EmoteCacheManager extends CacheManager {
     }
   }
 
-  DateTime _priority(CacheObject object) {
-    final fromRegistry = lastUsedAt?.call(object.url);
-    if (fromRegistry != null) return fromRegistry;
-    return object.touched ??
-        DateTime.fromMillisecondsSinceEpoch(object.id ?? 0);
+  /// Keep-priority score: the registry's score when it has usage data,
+  /// otherwise a recency decay from the file's stored time (unviewed files
+  /// age out like unused registry entries).
+  double _score(CacheObject object) {
+    final scored = priorityScore?.call(object.url);
+    if (scored != null) return scored;
+    final stored =
+        object.touched ?? DateTime.fromMillisecondsSinceEpoch(object.id ?? 0);
+    final hours = DateTime.now().difference(stored).inHours;
+    return math.exp(-hours / (_fallbackHalfLife.inHours.toDouble()));
   }
 
   /// Counts the cached emote files still present on disk and their total size

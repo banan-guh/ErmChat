@@ -91,9 +91,8 @@ fallback (missing lib / decode error / tests without a host build).
 - [x] `externalNativeBuild { cmake { path = "src/main/cpp/CMakeLists.txt" } }` in
       `android/app/build.gradle.kts`.
 - [x] Build the APK locally + `flutter analyze`/`flutter test`.
-      (Local full APK needed a JDK 17/21: system JDK 26 breaks AGP 9's
-      JdkImageTransform jlink step; CI uses Zulu 17. APK contains
-      `libemote_codec.so` for arm64-v8a/armeabi-v7a/x86_64.)
+      (Verified clean APK builds with JDK 17, 21, and 26 (CI uses Zulu 17).
+      APK contains `libemote_codec.so` for arm64-v8a/armeabi-v7a/x86_64.)
 
 ### 5. iOS build (`ios/emote_codec.podspec`)
 

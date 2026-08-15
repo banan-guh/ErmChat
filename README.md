@@ -46,10 +46,20 @@ Check [TODO.md](TODO.md) for the roadmap. Found a bug or want a feature? Open an
 
 ## Getting started (for people who clone the repo for their own use)
 
-1. Create a Twitch app at https://dev.twitch.tv/console/apps and get a client ID.
-2. Open `lib/twitch_config.dart` and put it there.
-3. NOTE: redirect URI from `lib/twitch_config.dart` must match EXACTLY with what's in your twitch dev console. even / count.
-4. Run the app (`flutter run`)
+1. Clone with submodules (the native WebP decoder is a pinned libwebp submodule at
+   `third_party/libwebp`, built from source - no prebuilt binaries, no extra downloads):
+   `git clone --recursive <repo-url>` (or `git submodule update --init` in an existing checkout).
+2. Create a Twitch app at https://dev.twitch.tv/console/apps and get a client ID.
+3. Open `lib/twitch_config.dart` and put it there.
+4. NOTE: redirect URI from `lib/twitch_config.dart` must match EXACTLY with what's in your twitch dev console. even / count.
+5. Android: JDK 17, 21, or 26 all work (CI uses Zulu 17), plus the standard
+   Android NDK, then run the app:
+   `flutter run`
+6. iOS: install pods first (the podspec compiles libwebp from the submodule too):
+   `pod install` inside `ios/`, then `flutter run`
+
+`flutter test` and `flutter analyze` need no extra setup. The optional host-side native
+build (`tool/build_native_linux.sh`) is only for the gated native-codec tests.
 
 ## Note for what the fastlane folder is
 
