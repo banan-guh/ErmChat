@@ -1,124 +1,149 @@
-# Emote Scale URLs + Cached-Placeholder Plan
+# Native WebP Decoder Plan (libwebp via FFI + git submodule)
 
-Goal: make the emote image stack scale-aware and stop showing a blank/shimmer box while
-an emote's required resolution is fetching. Three cached-source rules, then a model
-change to give every emote its full set of scale URLs.
+## Top note: libwebp ships as a git submodule (DECISION)
 
-## Resolved scope
+F-Droid is the distribution channel, so all native code must build from source on
+F-Droid's build server with no prebuilt binaries and no build-time downloads.
 
-- **`GenericEmote` URLs become scale-aware**: keep `url` (active render URL, e.g. 2x)
-  as-is for minimal churn, add `url1x` and rename `urlLarge` -> `url3x`. 7TV is the
-  only provider producing a genuinely distinct 3x/file, so `urlLarge` was really only
-  correct there; the extra field still future-proofs BTTV/Twitch.
-- **Sheet resolution is always "best scale still in cache"**, not tier-picked:
-  regardless of Nothing/Low/Medium/High, the emote sheet/menu picker shows the largest
-  scale that is still cached, falling back to smaller cached scales as placeholders.
-  (In practice the best scale is 2x for 7TV since that is its chat default, but the
-  logic is not hard-coded.)
-- **"Still loading" placeholder = the smaller cached image with the shimmer sweep kept
-  faintly on top**, not a plain image and not a bare shimmer box.
+- **Chosen mechanism: git submodule** pinned to libwebp tag `v1.4.0` (commit
+  `845d5476...`) from the GitHub mirror (`https://github.com/webmproject/libwebp`).
+  F-Droid's own metadata docs recommend submodules over srclibs ("Because srclibs
+  can't be updated automatically, git submodule is a better choice."), and the F-Droid
+  recipe only needs `submodules: true` (runs `git submodule update --init --recursive`).
+- Submodule lives at `third_party/libwebp`; zero library bytes in our git history,
+  updates are a one-commit pointer bump.
+- **Verify first, submodule later**: prove the whole FFI pipeline works against a local
+  libwebp checkout (spike build + decode correctness/speed harness) BEFORE wiring the
+  submodule + gradle/podspec plumbing. The spike already proved the decoder is
+  pixel/duration-identical to the pure-Dart reference and 19-60x faster; what remains
+  to be proven is the shim + FFI integration in-app.
 
-## The cached-source rule (as confirmed)
+## Goal
 
-When a render surface needs an emote at a *required resolution*:
+Replace the pure-Dart animated-WebP decoder (slow, ~5x slower worst case; engine codec
+is pixel-close but janky on ~9% of emotes and non-looping on ~1%) with Google's
+canonical `libwebp` `WebPAnimDecoder` via dart:ffi. Keep the pure-Dart decoder as a
+fallback (missing lib / decode error / tests without a host build).
 
-1. **Exact match cached** (need 2x, cache has 2x) -> use it directly. Already works via
-   `EmoteClipRegistry.tryAcquireCached` (decoded frames) and `getFileStream` yielding a
-   valid cached `FileInfo` first.
-2. **Smaller variant cached** (need 2x, cache has 1x) -> render the small cached image
-   as the placeholder while the required resolution fetches, with the shimmer sweep kept
-   faint on top; swap in the real emote when it lands.
-3. **Nothing cached** -> shimmer only, then the fetched image.
+## Why not alternatives (decided)
+
+- **pub.dev packages** (`native_animated_image` etc.): ship prebuilt binaries, which
+  F-Droid's scanner deletes -> app builds but codec is gone at runtime. Decoders are
+  third-party reimplementations (not Google's libwebp), unverified publishers,
+  `image-webp`/Rust correctness unproven, AVIF removed upstream.
+- **Engine codec**: fixed on our fixtures (frame count/sizes/alpha/durations exact,
+  pixel diff <2.5%) but still known-bad on transparent-frame compositing (non-looping
+  emotes); can't detect bad output at runtime (subjective).
+- **Vendoring libwebp into the repo**: works but ~4-6 MB of third-party source in git;
+  submodule is the documented, cleaner dependency mechanism.
+- **srclib / FetchContent**: srclib can't be auto-updated and lives in fdroiddata
+  metadata; FetchContent downloads at CMake configure time (F-Droid permits it but
+  reviewers prefer the documented submodule path).
 
 ## Tasks
 
-### 1. GenericEmote model (`lib/models/generic_emote.dart`)
+### 1. Spike: shim + FFI decode harness (VERIFY FIRST - current step)
 
-- [x] Rename `urlLarge` -> `url3x`; add `url1x` (nullable). Keep `url` = active render
-      URL (chat at ~28dp).
-- [x] Document the read convention (doc comment on the class):
-      `url` is what chat/autocomplete renders; `url1x`/`url3x` are the scale
-      alternatives used by the sheet/menu resolution picker and as cached-fallback
-      placeholders. `url3x` is only set where the provider has a true 3x (7TV);
-      FFZ has no 3x (documented).
-- [x] Update `toJson`/`fromJson` (`url1x`/`url3x`), keeping `urlLarge` out.
+- [x] Build libwebp 1.4.0 locally (done in `/tmp/opencode/libwebp`): static `libwebp` +
+      `libwebpdemux` (contains `WebPAnimDecoder`). Verified: 47-frame kiss = 3.4 ms,
+      252-frame boink = 27.0 ms; Dart = 204.6 ms / 515.9 ms; pixel diff (premultiplied)
+      1.1% / 2.1%; durations exact.
+- [x] Write the C shim `native/emote_codec.{c,h}` and build it on the host against the
+      local libwebp.
+- [x] Dart FFI bindings + a decode test harness comparing native vs pure-Dart output on
+      `test/fixtures/7tv_kiss_2x.webp` / `7tv_boink_2x.webp` (pixel + duration equality).
+- [x] Proof gate: shim correctness + FFI loading + in-app `_decodeBytes` dispatch with
+      fallback. Only then proceed to submodule + platform plumbing.
+- [x] `tool/build_native_linux.sh`: builds libwebp (CMake, static, PIC) + shim into
+      `build/native/libemote_codec.so`; verification harness runs via
+      `EMOTE_CODEC_SO=build/native/libemote_codec.so flutter test test/verify/`.
+      Verified: kiss 9.9x / boink 4.6x speedup, exact durations, 1-2% pixel diff.
+      (Skips silently without the env var, so `flutter test` stays green everywhere.)
 
-### 2. Providers emit all scales in-hand (no new fetches)
+### 2. C shim (`native/emote_codec.{c,h}`)
 
-- [x] `lib/services/emote_providers/twitch_emotes.dart`: `url` = smallScale slot
-      (current), `url1x` = the `1.0` scale when the `scale` list contains it,
-      `url3x` = largeScale (rename). `_selectScales` now returns `(small, oneX, large)`.
-- [x] `lib/services/emote_providers/bttv_emotes.dart`: `url1x` = `/1x`,
-      `url3x` = `/3x` (both already constructed as strings); `url` stays `/2x`
-      (or `/1x` on low, as today). `url3x` only on high (3x is the heavy asset).
-- [x] `lib/services/emote_providers/ffz_emotes.dart`: `url1x` = `urls['1']`,
-      `url3x` = `urls['4']` (FFZ has no 3x size; its largest 4x serves as the
-      high-res sheet/menu asset since the sheet needs sharper than 2x).
-- [x] `lib/services/emote_providers/seven_tv_emotes.dart`: capture `first`/`best2x`/
-      `lastLe3` into `url1x`/`url`/`url3x` (7TV files are ordered smallest -> largest;
-      `lastLe3` caps at 3x, never 4x; `url1x` only when it differs from `url`).
+- [x] `EmoteDecodedFrames` struct: canvas_w/h, frame_count, loop_count, `int*`
+      durations_ms, `uint8_t*` straight-alpha RGBA (w*h*4 per frame).
+- [x] `emote_decode_webp(bytes, len, out)` -> WebPAnimDecoder (MODE_RGBA), copy frames
+      into one malloc'd buffer; `emote_free_frames()`.
+- [x] Keep the API shape format-agnostic so AVIF (`emote_decode_avif`) can slot in
+      later behind the same struct.
 
-### 3. Shared scale-URL plumbing
+### 3. Git submodule (only after task 1 passes)
 
-- [x] `lib/screens/home_screen.dart` (~1144): the per-owner `GenericEmote` clone must
-      forward `url1x`/`url3x`.
-- [x] `lib/services/emote_manager.dart:767` (7TV removal URL list) + `:784` (rename
-      clone): forward/sweep all scales (`[url, url1x?, url3x?]`).
-- [ ] Precache/usage touch sites that only touch `emote.url` may optionally touch all
-      stored scales so the smaller files get use-priority too - confirm benefit before
-      spreading (precache writes the fetch-size file; smaller files only exist if a
-      lower tier fetched them).
+- [x] `git submodule add https://github.com/webmproject/libwebp third_party/libwebp`
+      then `git checkout v1.4.0` (commit `845d5476a866141ba35ac133f856fa62f0b7445f`).
+- [x] `.gitmodules` + gitlink committed; update `AGENTS.md` (clone instructions gain
+      `--recursive` / `git submodule update --init`).
+- [x] License note: BSD-3-Clause, add to `THIRD_PARTY_LICENSES`.
 
-### 4. Faint-shimmer cached placeholder in `lib/widgets/emote_image.dart`
+### 4. Android build (`android/app/src/main/cpp/CMakeLists.txt`)
 
-- [ ] `EmoteImage` gains an optional `alternateUrls` (smaller scale URLs, e.g. the
-      emote's `url1x`) alongside the required `url`.
-- [ ] While the required URL's `_load` is in flight (fetch/parse), probe the smaller
-      scale URLs, in order, via `EmoteCacheManager().getFileFromCache(url)` (reads the
-      repo regardless of cap) and/or `EmoteClipRegistry.tryAcquireCached`: on the first
-      hit, decode those bytes (same `_decodeBytes` path, as a throwaway placeholder
-      clip, not the shared playback `_EmoteClip`) and render the frames under a faint
-      `Shimmer.fromColors` sweep (`Opacity`-reduced highlight) to keep the "still
-      loading" cue.
-- [ ] When the required URL's frames land, tear down the placeholder (release the
-      throwaway clip) and swap to the real shared clip.
-- [ ] Keep rule 3: bare shimmer when nothing is cached.
-- [ ] Test hooks: reuse `debugFetchOverride`/`debugDecodeOverride`; expose the
-      placeholder decode path for widget tests (e.g. assert a small-cached frame is
-      painted under a `Shimmer` while the required URL is deliberately delayed).
+- [x] `set(WEBP_BUILD_CWEBP OFF)`, `WEBP_BUILD_DWEBP OFF`,
+      `WEBP_BUILD_ANIM_UTILS OFF`, `WEBP_BUILD_LIBWEBPMUX OFF`;
+      `add_subdirectory(third_party/libwebp)` -> link `webpdemux` + `webp`.
+      (options need `set(... CACHE BOOL FORCE)` to override `option()` defaults;
+      AGP 9 dropped the `externalNativeBuild.arguments` DSL hook, so
+      `-Wl,--build-id=none` moved into CMakeLists.txt)
+- [x] `add_library(emote_codec SHARED native/emote_codec.c)`; include dirs for
+      libwebp headers; `-Wl,--build-id=none` for reproducible builds (existing pattern
+      in `android/build.gradle.kts`).
+- [x] `externalNativeBuild { cmake { path = "src/main/cpp/CMakeLists.txt" } }` in
+      `android/app/build.gradle.kts`.
+- [x] Build the APK locally + `flutter analyze`/`flutter test`.
+      (Local full APK needed a JDK 17/21: system JDK 26 breaks AGP 9's
+      JdkImageTransform jlink step; CI uses Zulu 17. APK contains
+      `libemote_codec.so` for arm64-v8a/armeabi-v7a/x86_64.)
 
-### 5. Emote sheet / menu resolution picker ("best scale still in cache")
+### 5. iOS build (`ios/emote_codec.podspec`)
 
-- [ ] `lib/widgets/emote_sheet.dart:117`: stop assuming `urlLarge ?? url`. Pick the
-      largest of `url3x`/`url`/`url1x` that is still cached (probe repo via
-      `getFileFromCache`; on a probe hit pass that URL directly, else fall through the
-      rules above). Keep it not hard-coded to 7TV.
-- [ ] `lib/widgets/emote_menu_panel.dart` + `autocomplete_dropdown.dart` +
-      `analytics_screen.dart`: thread the emote's smaller scale URL into `EmoteImage`
-      as `alternateUrls` where the render also has the `GenericEmote` in hand.
-- [ ] `lib/widgets/emote_text.dart` `_emoteImage` (span builder + overlay builder):
-      thread the base/overlay emote's `url1x` as the alternate when the emote object is
-      available (currently a URL-only `_emoteImage`; may need the emote or its
-      `url1x`).
+- [x] Podspec with `source_files` covering the shim + `../third_party/libwebp/src`
+      compile set (dec/demux/dsp/utils/webp); `s.static_framework = true`.
+      (F-Droid is Android-only; this serves the GH Actions iOS job.)
+- [ ] Verify via CI (`flutter build ios --no-codesign`) on macOS runner.
 
-### 6. Tests
+### 6. Dart FFI bindings (`lib/services/emote_codec/native_emote_codec.dart`)
 
-- [ ] `test/unit/twitch_emotes_resolution_test.dart`: assert `url1x`/`url3x`
-      population per tier; no-4x stays.
-- [ ] `test/unit/bttv_emotes_resolution_test.dart`: `url1x` = /1x and `url3x` = /3x
-      on high, null on low/medium as designed.
-- [ ] `test/unit/ffz_emotes_resolution_test.dart`: `url1x` from `urls['1']`,
-      `url3x` always null.
-- [ ] `test/unit/seven_tv_emotes_test.dart`: `url1x`/`url3x` from ordered files
-      (smallest / <=3x), no 4x.
-- [ ] `test/unit/emote_image_test.dart`: new widget tests - small-cached placeholder
-      renders under faint shimmer while required URL delayed; swap to required frames;
-      shimmer-only when nothing cached; alternate-URL probe order.
-- [ ] `test/unit/emote_manager_test.dart`: update `urlLarge` references to `url3x`;
-      rename/precache/removal URL lists carry all scales.
-- [ ] `test/widgets/widget_test.dart` (emote sheet): shows best scale still in cache
-      across tiers.
+- [x] `DynamicLibrary.open('libemote_codec.so')` (Android) / `DynamicLibrary.process()`
+      (iOS); lazy `isAvailable` probe, cached.
+- [x] `decodeWebp(Uint8List) -> EmoteFrameData?`: call C, copy frames, premultiply
+      (reuse `_premultiply`), `decodeImageFromPixels` -> `ui.Image`, free C buffer.
+- [x] Debug prints `[NativeEmoteCodec]` on load success/failure (mirrors existing
+      `[EmoteImage]` style).
+
+### 7. Wiring + fallback (`lib/widgets/emote_image.dart`)
+
+- [x] `_decodeBytes` animated-WebP branch (currently `_decodeWebp` -> `Isolate.run` ->
+      `img.WebPDecoder`): try `NativeEmoteCodec.decodeWebp` first, pure-Dart fallback on
+      null/throw. Static WebP / GIF / PNG paths unchanged (engine codec).
+- [x] Decode stays inside `Isolate.run` (FFI call is isolate-safe); semaphore unchanged.
+
+### 8. Tests
+
+- [x] Existing suite must stay green (fallback path is the default in `flutter test`
+      without a host-built `.so`).
+- [x] `test/unit/native_emote_codec_test.dart`: gated on host build presence
+      (`tool/build_native_linux.sh`); pixel + duration equality vs `decodeWebpPureDart`
+      on both fixtures; `isAvailable` false when lib missing; free-path leak sanity.
+- [x] Dispatch tests: `test/unit/emote_image_test.dart` covers the fallback when the
+      lib is missing; the verify harness covers the native-success path through the
+      production pipeline (dispatch output byte-identical to the inline decode).
+- [x] `tool/build_native_linux.sh`: builds the shim against the submodule checkout for
+      host (used by the gated test group + local verification).
+
+### 9. F-Droid recipe (fdroiddata, outside this repo)
+
+- [ ] Add `submodules: true` to the app's build block (MR to fdroiddata).
+- [ ] Confirm CMake/NDK toolchain needs (standard F-Droid native path).
+
+## Out of scope (later, separately)
+
+- **AVIF**: libavif + dav1d, same shim/FFI plumbing (`emote_decode_avif`). No provider
+  emits AVIF today; the shim API stays format-agnostic so it slots in without rework.
+- **ImageCache/ImageProvider migration** of `EmoteClipRegistry` (separate effort).
 
 ## Verification
 
-`dart format .`, `flutter analyze`, full `flutter test`.
+`dart format .`, `flutter analyze`, full `flutter test`, device/emulator run with the
+native lib (check `[NativeEmoteCodec]` load line + emote menu speed), F-Droid recipe
+with `submodules: true`.

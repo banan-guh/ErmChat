@@ -158,7 +158,8 @@ dart format .              # format all Dart files
 
 ## Setup
 
-1. Open `lib/twitch_config.dart` and set `clientId` to your Twitch app's Client ID (get one at https://dev.twitch.tv/console/apps). Add the `redirectUri` (e.g. `https://banan-guh.github.io/twitch-app-oauth`) to your app's "OAuth Redirect URLs" - it must match exactly.
+1. Clone with submodules: `git clone --recursive <repo-url>` (or `git submodule update --init` in an existing checkout). `third_party/libwebp` (pinned v1.4.0) is required to build `libemote_codec`.
+2. Open `lib/twitch_config.dart` and set `clientId` to your Twitch app's Client ID (get one at https://dev.twitch.tv/console/apps). Add the `redirectUri` (e.g. `https://banan-guh.github.io/twitch-app-oauth`) to your app's "OAuth Redirect URLs" - it must match exactly.
 
 ## Notes
 

@@ -11,6 +11,7 @@ import 'package:image/image.dart' as img;
 import 'package:shimmer/shimmer.dart';
 
 import '../services/emote_cache_manager.dart';
+import '../services/emote_codec/native_emote_codec.dart';
 
 /// Decoded emote frames with their per-frame durations.
 ///
@@ -402,10 +403,10 @@ Future<EmoteFrameData> _decodeBytes(Uint8List bytes) {
     case EmoteFormat.webp:
       // Animated WebP is the only format that hits the engine codec's
       // compositing/transparency bug (grey artifacts, wrong disposal), so it
-      // gets the reinforced pure-Dart decoder. Static WebP is safe natively
-      // and much cheaper.
+      // gets the native libwebp decoder (when present) with the pure-Dart
+      // decoder as fallback. Static WebP is safe natively and much cheaper.
       if (webpIsAnimated(bytes)) {
-        return _decodeWebp(bytes);
+        return _decodeAnimatedWebp(bytes);
       }
       return _decodeStatic(bytes);
     case EmoteFormat.other:
@@ -449,6 +450,25 @@ bool webpIsAnimated(Uint8List bytes) {
 /// → decodeImageFromPixels → ui.Image. This is the exact path used by
 /// [EmoteClipRegistry.acquire].
 Future<EmoteFrameData> decodeEmoteBytes(Uint8List bytes) => _decodeBytes(bytes);
+
+/// Animated WebP via the native libwebp shim, falling back to the pure-Dart
+/// decoder when the library is missing or the decode fails.
+Future<EmoteFrameData> _decodeAnimatedWebp(Uint8List bytes) async {
+  try {
+    final native = await NativeEmoteCodec.decodeWebp(bytes);
+    if (native != null) return native;
+  } catch (_) {
+    // Fall through to the pure-Dart decoder.
+  }
+  return _decodeWebp(bytes);
+}
+
+/// Pure-Dart animated WebP decode (the [NativeEmoteCodec] fallback). Exposed
+/// for tests that want to compare against the reference decoder regardless of
+/// the production dispatch in [_decodeAnimatedWebp].
+@visibleForTesting
+Future<EmoteFrameData> decodeWebpPureDart(Uint8List bytes) =>
+    _decodeWebp(bytes);
 
 /// Fallback decode using Flutter's engine codec for all formats (including animated).
 /// Uses [instantiateImageCodec] which handles frame durations but has known

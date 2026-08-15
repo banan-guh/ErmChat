@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 import 'package:shimmer/shimmer.dart';
 
+import 'package:ermchat/services/emote_codec/native_emote_codec.dart';
 import 'package:ermchat/widgets/emote_image.dart';
 
 import '../helpers/gif_fixture.dart';
@@ -338,6 +339,32 @@ void main() {
       expect(frames.frames, hasLength(47));
       expect(frames.durations, everyElement(isNot(Duration.zero)));
     });
+  });
+
+  group('animated WebP dispatch', () {
+    setUp(() {
+      NativeEmoteCodec.debugLibPath = '/nonexistent/libemote_codec.so';
+      NativeEmoteCodec.reset();
+    });
+
+    tearDown(() {
+      NativeEmoteCodec.debugLibPath = null;
+      NativeEmoteCodec.reset();
+    });
+
+    test(
+      'falls back to the pure-Dart decoder when the native lib is missing',
+      () async {
+        final bytes = File('test/fixtures/7tv_kiss_2x.webp').readAsBytesSync();
+        final frames = await decodeEmoteBytes(bytes);
+        expect(frames.isAnimated, isTrue);
+        expect(frames.frames, hasLength(47));
+        expect(frames.durations, everyElement(isNot(Duration.zero)));
+        for (final f in frames.frames) {
+          f.dispose();
+        }
+      },
+    );
   });
 
   group('EmoteImage widget', () {
