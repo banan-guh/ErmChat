@@ -222,7 +222,7 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
       );
     }
 
-    if (msg.isFirstMessage || true) {
+    if (msg.isFirstMessage) {
       child = ColoredBox(
         color: Color.alphaBlend(
           Colors.green.withValues(alpha: 0.2),

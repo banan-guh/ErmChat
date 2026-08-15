@@ -200,19 +200,26 @@ class ChatView extends StatelessWidget {
         ValueListenableBuilder<bool>(
           valueListenable: atBottomNotifier,
           builder: (_, atBottom, _) {
-            if (atBottom) return const SizedBox.shrink();
             return Positioned(
               right: 16,
               bottom: 16,
-              child: FloatingActionButton(
-                heroTag: 'scroll_down_$channel',
-                onPressed: () {
-                  atBottomNotifier.value = true;
-                  frozenSnapshot.remove(channel);
-                  scrollController.jumpTo(0);
-                  onNewMessage(channel);
-                },
-                child: const Icon(Icons.keyboard_arrow_down),
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 100),
+                transitionBuilder: (child, animation) =>
+                    FadeTransition(opacity: animation, child: child),
+                child: atBottom
+                    ? const SizedBox.shrink()
+                    : FloatingActionButton(
+                        key: const ValueKey('scroll_down'),
+                        heroTag: 'scroll_down_$channel',
+                        onPressed: () {
+                          atBottomNotifier.value = true;
+                          frozenSnapshot.remove(channel);
+                          scrollController.jumpTo(0);
+                          onNewMessage(channel);
+                        },
+                        child: const Icon(Icons.keyboard_arrow_down),
+                      ),
               ),
             );
           },
