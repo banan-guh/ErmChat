@@ -251,6 +251,48 @@ void main() {
       expect(frames.frames.first.width, 2);
       EmoteClipRegistry.instance.release('https://x/em.png');
     });
+
+    test('releasing does not evict; only an over-cap insert does', () async {
+      // 2x2 RGBA frames estimate to 16 bytes each, so a 48-byte cap holds
+      // three clips and the fourth insert overflows.
+      final registry = EmoteClipRegistry(maxBytes: 48);
+      EmoteClipRegistry.debugFetchOverride = (url) async =>
+          Uint8List.fromList('GIF89a'.codeUnits);
+      EmoteClipRegistry.debugDecodeOverride = (bytes) async => EmoteFrameData(
+        frames: [await _makeImage(255, 0, 0)],
+        durations: const [Duration.zero],
+      );
+
+      final urls = [
+        for (var i = 0; i < 4; i++) 'https://example.com/emote_$i.gif',
+      ];
+      for (final url in urls.take(3)) {
+        await registry.acquire(url);
+      }
+      for (final url in urls.take(3)) {
+        registry.release(url);
+      }
+
+      // Releasing all three (refs 0) must NOT evict anything: the cache
+      // stays intact for instant re-acquire, like Flutter's ImageCache.
+      expect(registry.tryAcquireCached(urls[0]), isNotNull);
+      expect(registry.tryAcquireCached(urls[1]), isNotNull);
+      expect(registry.tryAcquireCached(urls[2]), isNotNull);
+      registry.release(urls[0]);
+      registry.release(urls[1]);
+      registry.release(urls[2]);
+
+      // The fourth insert pushes the total over the cap: the oldest
+      // zero-ref clip is evicted to make room.
+      await registry.acquire(urls[3]);
+      expect(registry.tryAcquireCached(urls[0]), isNull);
+      expect(registry.tryAcquireCached(urls[1]), isNotNull);
+      expect(registry.tryAcquireCached(urls[2]), isNotNull);
+      expect(registry.tryAcquireCached(urls[3]), isNotNull);
+      registry.release(urls[1]);
+      registry.release(urls[2]);
+      registry.release(urls[3]);
+    });
   });
 
   group('real emote bytes decode through the production pipeline', () {

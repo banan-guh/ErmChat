@@ -15,8 +15,9 @@ import '../services/emote_cache_manager.dart';
 /// Decoded emote frames with their per-frame durations.
 ///
 /// The frames are owned by the [EmoteClipRegistry] clip that produced them;
-/// renderers must not dispose them. [EmoteImage] releases the clip (which
-/// disposes the frames) when the last widget using it unmounts.
+/// renderers must not dispose them. [EmoteImage] releases the clip when the
+/// last widget using it unmounts; the frames are kept cached (and only
+/// disposed by eviction at the next over-cap insert).
 class EmoteFrameData {
   EmoteFrameData({required this.frames, required this.durations});
 
@@ -37,8 +38,10 @@ class EmoteFrameData {
 typedef EmoteFrameDecoder = Future<EmoteFrameData> Function(Uint8List bytes);
 
 /// Per-URL cache of decoded emote frames with an LRU byte cap (200 MB default,
-/// matching Flutter's [ImageCache]). Clips are retained until the cap is
-/// exceeded, then least-recently-used clips are evicted.
+/// matching Flutter's [ImageCache]). Eviction mirrors [ImageCache]: it only
+/// runs at insert time, when a new clip would push the total over the cap;
+/// releasing a clip never triggers eviction, so a burst of unmounts (tab
+/// switches, scrolling through a virtualized list) leaves the cache intact.
 class EmoteClipRegistry {
   /// Test hooks; fall back to the production fetcher/decoder when null.
   @visibleForTesting
@@ -61,7 +64,12 @@ class EmoteClipRegistry {
 
   final Map<String, _EmoteClip> _clips = {};
   int _totalBytes = 0;
-  final int _maxBytes = _defaultMaxBytes;
+
+  /// Cache size limit. Tests pass a small value so eviction is reachable
+  /// without decoding hundreds of megabytes.
+  EmoteClipRegistry({@visibleForTesting this._maxBytes = _defaultMaxBytes});
+
+  final int _maxBytes;
 
   /// Registers a reference to [url] and returns the decoded frames. Throws
   /// (with the original error) when the fetch or decode fails; the next
@@ -99,9 +107,9 @@ class EmoteClipRegistry {
     return frames;
   }
 
-  /// Drops the reference count. The clip is kept in memory (not disposed)
-  /// so subsequent acquires are instant. If the cache exceeds its byte cap,
-  /// least-recently-used clips with zero refs are evicted.
+  /// Drops the reference count. The clip is kept in memory (not disposed,
+  /// and never evicted here) so subsequent acquires are instant; eviction
+  /// only runs at insert time, mirroring Flutter's [ImageCache].
   void release(String url) {
     final clip = _clips[url];
     if (clip == null) return;
@@ -110,7 +118,6 @@ class EmoteClipRegistry {
     if (clip.refs <= 0 && !clip.hasActiveListeners) {
       clip.stopPlayback();
     }
-    _evictIfNeeded();
   }
 
   /// Subscribes [listener] to the shared playback clock for [url], starting
@@ -218,7 +225,6 @@ class EmoteClipRegistry {
     final evictable =
         _clips.values.where((c) => c.refs == 0 && c.frames != null).toList()
           ..sort((a, b) => a.lastAccessed.compareTo(b.lastAccessed));
-
     for (final clip in evictable) {
       if (_totalBytes <= _maxBytes) break;
       clip.stopPlayback();
