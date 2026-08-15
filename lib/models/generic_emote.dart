@@ -98,7 +98,10 @@ class GenericEmote {
       type: _enumByName(EmoteType.values, json['type'], EmoteType.twitch),
       url: url,
       url1x: json['url1x'] as String?,
-      url3x: json['url3x'] as String?,
+      // Legacy caches (pre-scale-model) stored the high-res asset under
+      // 'urlLarge'; recover it so old persisted emotes still upgrade in the
+      // sheet instead of silently losing the 3x until a refetch.
+      url3x: (json['url3x'] ?? json['urlLarge']) as String?,
       isAnimated: json['isAnimated'] as bool? ?? false,
       scope: _enumByName(EmoteScope.values, json['scope'], EmoteScope.global),
       ownerChannel: json['ownerChannel'] as String?,

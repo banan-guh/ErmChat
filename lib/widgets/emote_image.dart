@@ -121,6 +121,15 @@ class EmoteClipRegistry {
     if (clip == null) return;
     if (startOffset != null && !clip.hasActiveListeners) {
       clip.seedPlayback(startOffset);
+      debugPrint(
+        '[EmoteClipRegistry] seeded url=$url offset=${startOffset.inMilliseconds}ms '
+        '-> frameIndex=${clip.frameIndex}',
+      );
+    } else if (startOffset != null) {
+      debugPrint(
+        '[EmoteClipRegistry] seed skipped url=$url (already playing, '
+        'listeners=${clip.hasActiveListeners})',
+      );
     }
     clip.addListener(listener);
     clip.startPlaybackIfNeeded();
@@ -848,12 +857,20 @@ class _EmoteImageState extends State<EmoteImage> {
     // synchronously avoids a one-frame placeholder flash on every new tile.
     final cached = EmoteClipRegistry.instance.tryAcquireCached(widget.url);
     if (cached != null) {
+      debugPrint(
+        '[EmoteImage] fast-path hit url=${widget.url} '
+        'frames=${cached.frames.length}',
+      );
       _frames = cached;
       _frameIndex = EmoteClipRegistry.instance.currentFrame(widget.url);
       EmoteClipRegistry.instance.subscribe(widget.url, _onClipChanged);
       _subscribed = true;
       return;
     }
+    debugPrint(
+      '[EmoteImage] init url=${widget.url} '
+      'alternates=${widget.alternateUrls ?? []} (miss, loading)',
+    );
     _load();
     _probePlaceholder();
   }
@@ -874,6 +891,10 @@ class _EmoteImageState extends State<EmoteImage> {
       // sync with the rest of the app.
       final cached = EmoteClipRegistry.instance.tryAcquireCached(altUrl);
       if (cached != null) {
+        debugPrint(
+          '[EmoteImage] placeholder registry-hit altUrl=$altUrl '
+          'frames=${cached.frames.length}',
+        );
         if (!mounted || _loadToken != token) {
           EmoteClipRegistry.instance.release(altUrl);
           return;
@@ -889,7 +910,14 @@ class _EmoteImageState extends State<EmoteImage> {
       }
       try {
         final file = await EmoteCacheManager().getFileFromCache(altUrl);
-        if (file == null) continue;
+        if (file == null) {
+          debugPrint('[EmoteImage] placeholder miss altUrl=$altUrl');
+          continue;
+        }
+        debugPrint(
+          '[EmoteImage] placeholder disk-hit altUrl=$altUrl '
+          'file=${file.file.path}',
+        );
         final bytes = await file.file.readAsBytes();
         final frames = await decodeEmoteBytes(bytes);
         if (!mounted || _loadToken != token) {
@@ -909,8 +937,9 @@ class _EmoteImageState extends State<EmoteImage> {
           ),
         );
         return;
-      } on Object {
+      } on Object catch (e) {
         // Try the next alternate; any error just means no cached placeholder.
+        debugPrint('[EmoteImage] placeholder error altUrl=$altUrl err=$e');
       }
     }
   }
@@ -931,9 +960,16 @@ class _EmoteImageState extends State<EmoteImage> {
       // The required URL replaced a cached smaller scale; seed the new clip's
       // playback from where the placeholder was so the animation continues
       // instead of restarting. Ignored when the clip is already playing.
-      final startOffset = _placeholderFromRegistry && _placeholderUrl != null
+      final placeholderElapsed =
+          _placeholderFromRegistry && _placeholderUrl != null
           ? EmoteClipRegistry.instance.currentElapsed(_placeholderUrl!)
           : null;
+      final startOffset = placeholderElapsed;
+      debugPrint(
+        '[EmoteImage] load complete url=$url frames=${frames.frames.length} '
+        'placeholderUrl=$_placeholderUrl '
+        'placeholderElapsed=$placeholderElapsed',
+      );
       // Join the shared playback clock for this URL so all widgets showing
       // the same emote render the same frame (and a new tile syncs to the
       // frame the existing ones are already on).
@@ -947,9 +983,11 @@ class _EmoteImageState extends State<EmoteImage> {
         _frames = frames;
         _frameIndex = EmoteClipRegistry.instance.currentFrame(url);
       });
+      debugPrint('[EmoteImage] swapped to url=$url frameIndex=$_frameIndex');
       _releasePlaceholder();
-    } on Object {
+    } on Object catch (e) {
       if (!mounted || _loadToken != token) return;
+      debugPrint('[EmoteImage] load failed url=$url err=$e');
       setState(() => _failed = true);
     }
   }
@@ -1057,11 +1095,10 @@ class _EmoteImageState extends State<EmoteImage> {
         return Stack(
           alignment: Alignment.center,
           children: [
-            RawImage(
-              image: placeholderImage,
-              width: widget.width,
-              height: widget.height,
-              fit: widget.fit,
+            // Fill the available box so a small cached scale is scaled up to
+            // the frame (fit applied), not shown at its intrinsic size.
+            Positioned.fill(
+              child: RawImage(image: placeholderImage, fit: widget.fit),
             ),
             Positioned.fill(
               child: Shimmer.fromColors(

@@ -143,6 +143,23 @@ void main() {
       expect(e.url1x, isNull);
       expect(e.url3x, isNull);
     });
+
+    test('recovers url3x from the legacy urlLarge key', () {
+      final legacy = {
+        'id': 'legacy-1',
+        'code': 'Legacy',
+        'type': 'sevenTv',
+        'url': 'https://example.com/2x.png',
+        'urlLarge': 'https://example.com/3x.png',
+        'isAnimated': false,
+        'scope': 'global',
+        'relativeScale': 1.0,
+        'aspectRatio': 1.0,
+      };
+      final restored = GenericEmote.fromJson(legacy);
+      expect(restored.url1x, isNull);
+      expect(restored.url3x, 'https://example.com/3x.png');
+    });
   });
 
   group('7TV live updates', () {

@@ -635,6 +635,50 @@ void main() {
         },
       );
 
+      testWidgets('a small cached placeholder is scaled up to the frame size', (
+        tester,
+      ) async {
+        final altFrame = await tester.runAsync(() => _makeImage(255, 0, 0));
+        final gate = Completer<Uint8List>();
+        final altBytes = Uint8List.fromList([1, 2, 3]);
+
+        final altUrl = 'https://example.com/emote_1x.gif';
+        EmoteClipRegistry.debugFetchOverride = (url) {
+          if (url == altUrl) return Future.value(altBytes);
+          return gate.future;
+        };
+        EmoteClipRegistry.debugDecodeOverride = (bytes) async => EmoteFrameData(
+          frames: [altFrame!],
+          durations: const [Duration.zero],
+        );
+        // Pre-seed the alternate clip so the placeholder is registry-sourced.
+        await EmoteClipRegistry.instance.acquire(altUrl);
+        EmoteClipRegistry.instance.release(altUrl);
+
+        // No width/height on EmoteImage (like the emote sheet): the
+        // placeholder must fill the 128x128 box instead of sitting at the
+        // small cached frame's intrinsic size.
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: SizedBox(
+                width: 128,
+                height: 128,
+                child: EmoteImage(
+                  url: 'https://example.com/emote.gif',
+                  alternateUrls: [altUrl],
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pump();
+
+        final raw = tester.widget<RawImage>(find.byType(RawImage));
+        expect(raw.image, same(altFrame));
+        expect(tester.getSize(find.byType(RawImage)), const Size(128, 128));
+      });
+
       testWidgets('swap seeds the required clip at the placeholder position', (
         tester,
       ) async {

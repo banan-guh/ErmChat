@@ -103,10 +103,16 @@ class _EmoteSheetState extends State<EmoteSheet>
 
     // The preview targets the largest scale (3x); the cached 2x from chat
     // renders as the placeholder while it loads, then the 3x replaces it.
-    final previewUrl = _scaleUrls(emote).firstOrNull ?? emote.url;
-    final alternateUrls = _scaleUrls(
-      emote,
-    ).skip(1).where((u) => u != previewUrl).toList();
+    final scaleUrls = _scaleUrls(emote);
+    final previewUrl = scaleUrls.firstOrNull ?? emote.url;
+    final alternateUrls = scaleUrls
+        .skip(1)
+        .where((u) => u != previewUrl)
+        .toList();
+    debugPrint(
+      '[EmoteSheet] emote=${emote.code} scales=$scaleUrls '
+      'previewUrl=$previewUrl alternates=$alternateUrls',
+    );
 
     final subtitleStyle = TextStyle(
       fontSize: 16,
