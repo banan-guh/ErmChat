@@ -11,15 +11,31 @@ import 'twitch_irc.dart';
 class RecentMessagesService {
   static const _baseUrl =
       'https://recent-messages.robotty.de/api/v2/recent-messages';
+  // Mirror of the same service (robotty/recent-messages2) hosted by zneix.
+  // Falls back here when the primary is unavailable (5xx / network error).
+  static const _mirrorBaseUrl =
+      'https://recent-messages.zneix.eu/api/v2/recent-messages';
 
   Future<List<TwitchMessage>> fetchRecent(
     String channel, {
     int limit = 100,
   }) async {
-    final uri = Uri.parse(
-      '$_baseUrl/${Uri.encodeComponent(channel.toLowerCase())}'
-      '?limit=${limit.clamp(1, 500)}',
-    );
+    final path =
+        '/${Uri.encodeComponent(channel.toLowerCase())}'
+        '?limit=${limit.clamp(1, 800)}';
+    try {
+      return await _fetchFrom('$_baseUrl$path', channel);
+    } catch (primaryError) {
+      debugPrint(
+        '[RecentMessages] primary fetch failed ($primaryError) - '
+        'trying mirror',
+      );
+      return _fetchFrom('$_mirrorBaseUrl$path', channel);
+    }
+  }
+
+  Future<List<TwitchMessage>> _fetchFrom(String url, String channel) async {
+    final uri = Uri.parse(url);
     final res = await http.get(uri).timeout(httpTimeout);
 
     if (res.statusCode != 200) {
