@@ -196,7 +196,7 @@ class _HomeScreenState extends State<HomeScreen>
 
   final _notificationService = NotificationService();
   StreamSubscription<String>? _notificationTapSub;
-  bool _backgroundService = true;
+  bool _backgroundService = false;
   bool _mentionPush = false;
   var _isBackgrounded = false;
 
@@ -393,7 +393,7 @@ class _HomeScreenState extends State<HomeScreen>
 
   Future<void> _loadNotificationSettings() async {
     final prefs = await SharedPreferences.getInstance();
-    final backgroundService = prefs.getBool('background_service') ?? true;
+    final backgroundService = prefs.getBool('background_service') ?? false;
     final mentionPush = prefs.getBool('mention_push') ?? false;
     if (!mounted) return;
     setState(() {
@@ -402,9 +402,7 @@ class _HomeScreenState extends State<HomeScreen>
     });
     if (!Platform.isAndroid) return;
     if (backgroundService) {
-      _initForegroundService();
-    } else if (mentionPush) {
-      requestForegroundPermissions();
+      initForegroundService();
     }
     if (mentionPush) {
       _initNotificationInfra();
@@ -443,6 +441,7 @@ class _HomeScreenState extends State<HomeScreen>
     setState(() => _mentionPush = value);
     if (!Platform.isAndroid) return;
     if (value) {
+      requestForegroundPermissions();
       _initNotificationInfra();
     } else {
       _notificationService.clearMentionNotifications();

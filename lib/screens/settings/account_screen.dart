@@ -29,7 +29,6 @@ class AccountScreen extends StatefulWidget {
 class _AccountScreenState extends State<AccountScreen> {
   _AuthState _authState = _AuthState.idle;
   String? _authError;
-  bool _useBrowserOAuth = false;
   String? _browserAuthState;
   String? _browserAuthUrl;
   String? _connectedLogin;
@@ -45,7 +44,6 @@ class _AccountScreenState extends State<AccountScreen> {
       _authState = _AuthState.success;
       _loadConnectedLogin();
     }
-    _loadOAuthMode();
   }
 
   Future<void> _loadConnectedLogin() async {
@@ -70,20 +68,6 @@ class _AccountScreenState extends State<AccountScreen> {
     setState(() => _connectedLogin = login);
   }
 
-  Future<void> _loadOAuthMode() async {
-    final prefs = await SharedPreferences.getInstance();
-    if (mounted) {
-      setState(() {
-        _useBrowserOAuth = prefs.getBool('use_browser_oauth') ?? false;
-      });
-    }
-  }
-
-  Future<void> _saveOAuthMode(bool value) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('use_browser_oauth', value);
-  }
-
   @override
   void dispose() {
     _pasteController.dispose();
@@ -101,7 +85,9 @@ class _AccountScreenState extends State<AccountScreen> {
       return;
     }
 
-    if (_useBrowserOAuth) {
+    final prefs = await SharedPreferences.getInstance();
+    final useBrowserOAuth = prefs.getBool('use_browser_oauth') ?? false;
+    if (useBrowserOAuth) {
       _startBrowserOAuth();
     } else {
       final starter = widget.oAuthStarter;
@@ -201,17 +187,6 @@ class _AccountScreenState extends State<AccountScreen> {
         children: [
           if (widget.twitchAuth.accounts.isNotEmpty) _buildAccountSection(),
           _buildBody(),
-          SwitchListTile(
-            title: const Text('Use browser for OAuth'),
-            subtitle: const Text(
-              'Opens Twitch login in external browser instead of in-app WebView',
-            ),
-            value: _useBrowserOAuth,
-            onChanged: (value) {
-              setState(() => _useBrowserOAuth = value);
-              _saveOAuthMode(value);
-            },
-          ),
         ],
       ),
     );

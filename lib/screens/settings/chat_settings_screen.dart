@@ -43,7 +43,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
         );
         _recentMessagesCount = prefs.getInt('recent_messages_limit') ?? 200;
         _replyToRoot = prefs.getBool('reply_to_thread_root') ?? false;
-        _backgroundService = prefs.getBool('background_service') ?? true;
+        _backgroundService = prefs.getBool('background_service') ?? false;
         _mentionPush = prefs.getBool('mention_push') ?? false;
         _preferEmotesFirst = prefs.getBool('prefer_emotes_first') ?? false;
         _showTimestamps = prefs.getBool(kShowTimestampsPrefKey) ?? true;

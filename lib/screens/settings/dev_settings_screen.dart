@@ -16,11 +16,13 @@ class DevSettingsScreen extends StatefulWidget {
 
 class _DevSettingsScreenState extends State<DevSettingsScreen> {
   bool _testWidgets = false;
+  bool _useBrowserOAuth = false;
 
   @override
   void initState() {
     super.initState();
     _loadTestWidgetsPref();
+    _loadOAuthMode();
   }
 
   Future<void> _loadTestWidgetsPref() async {
@@ -33,6 +35,20 @@ class _DevSettingsScreenState extends State<DevSettingsScreen> {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('test_chat_widgets', value);
     if (mounted) setState(() => _testWidgets = value);
+  }
+
+  Future<void> _loadOAuthMode() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (!mounted) return;
+    setState(
+      () => _useBrowserOAuth = prefs.getBool('use_browser_oauth') ?? false,
+    );
+  }
+
+  Future<void> _setOAuthMode(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('use_browser_oauth', value);
+    if (mounted) setState(() => _useBrowserOAuth = value);
   }
 
   Future<void> _replayWelcomeScreen(BuildContext context) async {
@@ -153,6 +169,16 @@ class _DevSettingsScreenState extends State<DevSettingsScreen> {
             ),
             value: _testWidgets,
             onChanged: _setTestWidgets,
+          ),
+          const Divider(),
+          SwitchListTile(
+            secondary: const Icon(Icons.language),
+            title: const Text('Use browser for OAuth'),
+            subtitle: const Text(
+              'Opens Twitch login in external browser instead of in-app WebView',
+            ),
+            value: _useBrowserOAuth,
+            onChanged: _setOAuthMode,
           ),
           const Divider(),
           ListTile(
