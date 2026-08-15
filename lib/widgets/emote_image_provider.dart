@@ -81,6 +81,32 @@ class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
     return _EmoteImageCompleter(url: key.url, engineDecode: decode);
   }
 
+  /// Seeds the shared completer for [url] so its animation starts from the
+  /// frame [sourceUrl]'s completer is currently showing instead of frame 0
+  /// (used when a higher-res copy replaces a cached smaller scale, so the
+  /// swap continues the animation in phase). Ignored once [url] is already
+  /// playing or when [sourceUrl] has no frames yet.
+  static void seedPlayback(String url, String sourceUrl) {
+    _completerFor(url)?.seedFrom(sourceUrl);
+  }
+
+  /// Current frame index of the shared completer for [url] (0 when not
+  /// loaded). Exposed for tests.
+  @visibleForTesting
+  static int currentFrame(String url) =>
+      _completerFor(url)?.currentFrameIndex ?? 0;
+
+  /// The shared completer for [url], created on demand when missing (which
+  /// starts the fetch, matching what the stock [Image] widget would do).
+  static _EmoteImageCompleter? _completerFor(String url) {
+    final stream = EmoteUrlProvider(url).resolve(ImageConfiguration.empty);
+    final completer = stream.completer;
+    if (completer is _EmoteImageCompleter && !completer._disposed) {
+      return completer;
+    }
+    return null;
+  }
+
   @override
   bool operator ==(Object other) =>
       other is EmoteUrlProvider && other.url == url;
@@ -119,6 +145,21 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
   ImageStreamCompleter? _engineCompleter;
   ImageStreamListener? _engineListener;
 
+  /// The engine completer's codec, captured so an engine-path completer can
+  /// report its current frame index (the engine's own counter is private; we
+  /// mirror it via [_engineFramesDelivered]).
+  ui.Codec? _engineCodec;
+
+  /// Non-sync frames forwarded from the engine completer; the engine emits
+  /// its current frame synchronously on every listener attach (dropped by the
+  /// forwarder without incrementing), so this mirrors the engine's own frame
+  /// counter exactly.
+  int _engineFramesDelivered = 0;
+
+  /// Source URL whose shared completer's current frame should seed this
+  /// completer's playback start (a cached smaller scale of the same emote).
+  String? _seedFromUrl;
+
   /// Keeps the engine completer alive while this completer is alive.
   ///
   /// The engine completer disposes itself as soon as its last listener
@@ -134,9 +175,15 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
       final bytes =
           await (EmoteUrlProvider.debugFetchOverride ?? fetchEmoteBytes)(url);
       if (_disposed) return;
-      if (sniffEmoteFormat(bytes) == EmoteFormat.webp &&
-          webpIsAnimated(bytes)) {
+      final format = sniffEmoteFormat(bytes);
+      final isWebpAnim = format == EmoteFormat.webp && webpIsAnimated(bytes);
+      final seeded = _seedFromUrl != null;
+      if (isWebpAnim || (format == EmoteFormat.gif && seeded)) {
         // Animated WebP: our decoder (native libwebp, pure-Dart fallback).
+        // Animated GIF: the engine codec decodes (interlace, transparency and
+        // disposal are all solid), but seeding requires our own playback
+        // clock, so a GIF that must continue a smaller scale's animation is
+        // decoded here instead of handed to the engine completer.
         final frames = await _decodeGate.withPermit(
           () =>
               (EmoteUrlProvider.debugDecodeOverride ?? decodeEmoteBytes)(bytes),
@@ -144,7 +191,8 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
         if (_disposed) return;
         _frames = frames;
         if (frames.frames.isNotEmpty) {
-          _emitFrame(0);
+          _applySeed();
+          _emitFrame(_frameIndex);
           _scheduleNext();
         }
       } else {
@@ -154,8 +202,17 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
           buffer.dispose();
           return;
         }
+        final codecFuture = _engineDecode(buffer);
+        codecFuture.then(
+          (codec) {
+            if (!_disposed) _engineCodec = codec;
+          },
+          onError: (_) {
+            // The engine completer reports the error itself.
+          },
+        );
         final inner = MultiFrameImageStreamCompleter(
-          codec: _engineDecode(buffer),
+          codec: codecFuture,
           scale: 1.0,
           debugLabel: 'emote-$url',
         );
@@ -179,6 +236,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
               info.dispose();
               return;
             }
+            _engineFramesDelivered++;
             setImage(info);
           },
           onError: (error, stack) {
@@ -199,6 +257,45 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
       // no retry. Evict ourselves so the next resolve fetches again.
       PaintingBinding.instance.imageCache.evict(EmoteUrlProvider(url));
     }
+  }
+
+  /// Seeds this completer's playback start from [sourceUrl]'s current frame.
+  /// Applies when the frames land (or immediately when they already have);
+  /// ignored once playback is running (the source clock and this clock are
+  /// the same in that case only if already in phase, which the shared
+  /// completer guarantees when playing).
+  void seedFrom(String? sourceUrl) {
+    if (_disposed || sourceUrl == null || sourceUrl == url) return;
+    _seedFromUrl = sourceUrl;
+    if (_frames != null) _applySeed();
+  }
+
+  void _applySeed() {
+    if (_disposed) return;
+    if (_timer?.isActive ?? false) return;
+    final frames = _frames;
+    if (frames == null || frames.frames.isEmpty) return;
+    final sourceUrl = _seedFromUrl;
+    if (sourceUrl == null) return;
+    final source = EmoteUrlProvider._completerFor(sourceUrl);
+    if (source == null) return;
+    _seedFromUrl = null;
+    _frameIndex = source.currentFrameIndex.clamp(0, frames.frames.length - 1);
+    debugPrint(
+      '[EmoteImage] seeded url=$url from=$sourceUrl '
+      'frameIndex=$_frameIndex',
+    );
+  }
+
+  /// Current frame index: [_frameIndex] on the self-driven playback path, or
+  /// the mirrored engine counter on the engine path (0 when not loaded).
+  int get currentFrameIndex {
+    final frames = _frames;
+    if (frames != null) return _frameIndex;
+    final codec = _engineCodec;
+    final delivered = _engineFramesDelivered;
+    if (codec == null || delivered == 0 || codec.frameCount == 0) return 0;
+    return (delivered - 1) % codec.frameCount;
   }
 
   /// Emits frame [index] as a clone handle (the completer's [setImage]
@@ -284,6 +381,8 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
     _engineHandle = null;
     _engineCompleter = null;
     _engineListener = null;
+    _engineCodec = null;
+    _seedFromUrl = null;
     final frames = _frames;
     _frames = null;
     if (frames != null) {

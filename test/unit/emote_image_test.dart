@@ -725,6 +725,139 @@ void main() {
         expect(find.byType(Shimmer), findsNothing);
       });
 
+      testWidgets('a cached alternate placeholder expands to fill the box', (
+        tester,
+      ) async {
+        final gif = File('test/fixtures/7tv_kiss_2x.gif').readAsBytesSync();
+        final altUrl = 'https://example.com/emote_2x.gif';
+        final previewUrl = 'https://example.com/emote_3x.gif';
+        final gate = Completer<Uint8List>();
+        EmoteUrlProvider.debugFetchOverride = (url) {
+          if (url == altUrl) return Future.value(gif);
+          return gate.future;
+        };
+
+        // Cache the 2x in memory first (as chat would have).
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: SizedBox(
+                width: 28,
+                height: 28,
+                child: EmoteImage(url: altUrl, width: 28, height: 28),
+              ),
+            ),
+          ),
+        );
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 200)),
+        );
+        await tester.pump();
+        await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
+        await tester.pump();
+
+        // The sheet-style preview: a bounded 128x128 box with the cached 2x
+        // as the alternate while the 3x is gated.
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: SizedBox(
+                width: 128,
+                height: 128,
+                child: EmoteImage(url: previewUrl, alternateUrls: [altUrl]),
+              ),
+            ),
+          ),
+        );
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 200)),
+        );
+        await tester.pump();
+
+        // The placeholder renders the cached alternate scaled to fill the
+        // box, not at its intrinsic size.
+        final raws = tester.widgetList<RawImage>(find.byType(RawImage));
+        final placeholderRaw = raws.singleWhere((r) => r.image != null);
+        expect(
+          tester.getSize(find.byWidget(placeholderRaw)),
+          const Size(128, 128),
+        );
+      });
+
+      testWidgets(
+        "a higher-scale preview continues the cached alternate's animation "
+        'clock instead of restarting',
+        (tester) async {
+          final gif = File('test/fixtures/7tv_kiss_2x.gif').readAsBytesSync();
+          final altUrl = 'https://example.com/emote_2x.gif';
+          final previewUrl = 'https://example.com/emote_3x.gif';
+          EmoteUrlProvider.debugFetchOverride = (url) async => gif;
+
+          // The 2x is playing in chat (its own widget holds the shared
+          // completer).
+          await tester.pumpWidget(
+            MaterialApp(
+              home: Scaffold(
+                body: SizedBox(
+                  width: 28,
+                  height: 28,
+                  child: EmoteImage(url: altUrl, width: 28, height: 28),
+                ),
+              ),
+            ),
+          );
+          await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 200)),
+          );
+          await tester.pump();
+          // Let the 2x animation advance several frames (the engine codec
+          // decodes on the real event loop, so each cycle decodes + displays
+          // one frame).
+          for (var i = 0; i < 3; i++) {
+            await tester.runAsync(
+              () => Future<void>.delayed(const Duration(milliseconds: 150)),
+            );
+            await tester.pump(const Duration(milliseconds: 160));
+          }
+          final frameBefore = EmoteUrlProvider.currentFrame(altUrl);
+          expect(frameBefore, greaterThan(0));
+
+          // The sheet opens: the 3x fetch is gated, the 2x becomes the
+          // placeholder and seeds the 3x's playback.
+          final gate = Completer<Uint8List>();
+          EmoteUrlProvider.debugFetchOverride = (url) {
+            if (url == previewUrl) return gate.future;
+            return Future.value(gif);
+          };
+          await tester.pumpWidget(
+            MaterialApp(
+              home: Scaffold(
+                body: SizedBox(
+                  width: 128,
+                  height: 128,
+                  child: EmoteImage(url: previewUrl, alternateUrls: [altUrl]),
+                ),
+              ),
+            ),
+          );
+          await tester.pump();
+          gate.complete(gif);
+          await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 500)),
+          );
+          // One frame's worth: both the 2x (frame callback) and the seeded 3x
+          // (timer) advance exactly one frame (frame 2 is 140ms, the rest
+          // 70ms, so 100ms is safely between one and two frame durations).
+          await tester.pump(const Duration(milliseconds: 100));
+
+          // The 3x started from the 2x's frame and stays in phase with it.
+          final frame2x = EmoteUrlProvider.currentFrame(altUrl);
+          final frame3x = EmoteUrlProvider.currentFrame(previewUrl);
+          expect(frame3x, greaterThan(0));
+          expect(frame3x, frame2x);
+        },
+      );
+
       testWidgets('falls back to bare shimmer when no alternate is cached', (
         tester,
       ) async {

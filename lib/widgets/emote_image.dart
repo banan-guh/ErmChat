@@ -567,6 +567,10 @@ class _EmoteImageState extends State<EmoteImage> {
       )) {
         debugPrint('[EmoteImage] placeholder memory-hit altUrl=$altUrl');
         _setPlaceholder(altUrl, token);
+        // Continue the placeholder's animation clock on the required URL so
+        // the swap happens in phase (same emote, higher scale) instead of
+        // restarting from frame 0.
+        EmoteUrlProvider.seedPlayback(widget.url, altUrl);
         return;
       }
       try {
@@ -660,9 +664,10 @@ class _EmoteImageState extends State<EmoteImage> {
         if (altUrl != null) {
           // A smaller cached scale is showing under a faint shimmer while
           // the required resolution loads. The placeholder follows the
-          // alternate's own completer (animated in sync with chat); the
-          // shimmer sweep stays subtle so the emote reads clearly, only
-          // hinting that a higher-res copy is coming.
+          // alternate's own completer (animated in sync with chat; its
+          // playback seeds the required URL when it lands); the shimmer
+          // sweep stays subtle so the emote reads clearly, only hinting
+          // that a higher-res copy is coming.
           final scheme = Theme.of(context).colorScheme;
           final base = scheme.surface;
           final highlight = Color.lerp(
@@ -670,28 +675,25 @@ class _EmoteImageState extends State<EmoteImage> {
             scheme.surfaceContainerHighest,
             0.7,
           )!;
-          overlay = Stack(
-            alignment: Alignment.center,
-            children: [
-              Image(
-                image: EmoteUrlProvider(altUrl),
-                fit: widget.fit,
-                gaplessPlayback: true,
+          // _loadingStack expands the alternate to fill the box (like the
+          // required image) so a small cached scale scales up instead of
+          // rendering at its intrinsic size.
+          overlay = _loadingStack(
+            Image(
+              image: EmoteUrlProvider(altUrl),
+              fit: widget.fit,
+              gaplessPlayback: true,
+            ),
+            SizedBox(
+              width: widget.width,
+              height: widget.height,
+              child: Shimmer.fromColors(
+                baseColor: base.withValues(alpha: 0.25),
+                highlightColor: highlight.withValues(alpha: 0.25),
+                period: const Duration(milliseconds: 1200),
+                child: const ColoredBox(color: Colors.white),
               ),
-              // Explicit size: bounded parents override it (tight
-              // constraints), and an unbounded parent won't see the shimmer
-              // expand to infinity.
-              SizedBox(
-                width: widget.width,
-                height: widget.height,
-                child: Shimmer.fromColors(
-                  baseColor: base.withValues(alpha: 0.25),
-                  highlightColor: highlight.withValues(alpha: 0.25),
-                  period: const Duration(milliseconds: 1200),
-                  child: const ColoredBox(color: Colors.white),
-                ),
-              ),
-            ],
+            ),
           );
         } else {
           overlay =
