@@ -4,11 +4,11 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
-import 'package:flutter/widgets.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
-import 'package:http/http.dart' as http;
 import 'package:image/image.dart' as img;
+import 'package:shimmer/shimmer.dart';
 
 import '../services/emote_cache_manager.dart';
 
@@ -34,7 +34,6 @@ class EmoteFrameData {
   }
 }
 
-typedef EmoteBytesFetcher = Future<Uint8List> Function(String url);
 typedef EmoteFrameDecoder = Future<EmoteFrameData> Function(Uint8List bytes);
 
 /// Per-URL cache of decoded emote frames with an LRU byte cap (100 MB default,
@@ -43,7 +42,7 @@ typedef EmoteFrameDecoder = Future<EmoteFrameData> Function(Uint8List bytes);
 class EmoteClipRegistry {
   /// Test hooks; fall back to the production fetcher/decoder when null.
   @visibleForTesting
-  static EmoteBytesFetcher? debugFetchOverride;
+  static Future<Uint8List> Function(String url)? debugFetchOverride;
 
   @visibleForTesting
   static EmoteFrameDecoder? debugDecodeOverride;
@@ -62,10 +61,8 @@ class EmoteClipRegistry {
   /// (with the original error) when the fetch or decode fails; the next
   /// [acquire] of the same URL after a failure retries.
   ///
-  /// [fetcher] overrides how bytes are fetched for this clip; memory-only
-  /// render sites (the emote menu) pass one that skips [EmoteCacheManager].
-  /// When null, [debugFetchOverride] (tests) then [_fetchBytes] apply.
-  Future<EmoteFrameData> acquire(String url, {EmoteBytesFetcher? fetcher}) {
+  /// [debugFetchOverride] (tests) then [_fetchBytes] apply.
+  Future<EmoteFrameData> acquire(String url) {
     final clip = _clips.putIfAbsent(url, () => _EmoteClip(url: url));
     if (clip.refs == 0) {
       clip.lastAccessed = DateTime.now();
@@ -73,7 +70,7 @@ class EmoteClipRegistry {
     clip.refs++;
     final pending = clip.decode;
     if (pending != null) return pending;
-    final future = _load(url, clip, fetcher);
+    final future = _load(url, clip);
     clip.decode = future;
     return future;
   }
@@ -134,10 +131,15 @@ class EmoteClipRegistry {
   /// Current shared frame index for [url] (0 when not cached).
   int currentFrame(String url) => _clips[url]?.frameIndex ?? 0;
 
-  /// Test hook; disposes and drops every cached clip.
+  /// Test hook; disposes and drops every cached clip. Clips with active refs
+  /// or listeners are left alone so widgets mid-paint never reference a
+  /// disposed image.
   @visibleForTesting
   void debugClear() {
-    for (final clip in _clips.values) {
+    final idle = _clips.values
+        .where((c) => c.refs <= 0 && !c.hasActiveListeners)
+        .toList();
+    for (final clip in idle) {
       clip.refs = 0;
       clip.stopPlayback();
       final frames = clip.frames;
@@ -146,18 +148,14 @@ class EmoteClipRegistry {
       } else {
         clip.decode?.then(_disposeFrames, onError: (_) {});
       }
+      _clips.remove(clip.url);
     }
-    _clips.clear();
-    _totalBytes = 0;
+    _totalBytes = _clips.values.fold(0, (sum, c) => sum + c.byteSize);
   }
 
-  Future<EmoteFrameData> _load(
-    String url,
-    _EmoteClip clip,
-    EmoteBytesFetcher? fetcher,
-  ) async {
+  Future<EmoteFrameData> _load(String url, _EmoteClip clip) async {
     try {
-      final fetch = debugFetchOverride ?? fetcher ?? _fetchBytes;
+      final fetch = debugFetchOverride ?? _fetchBytes;
       final decode = debugDecodeOverride ?? _decodeBytes;
       final bytes = await fetch(url);
       final frames = await decode(bytes);
@@ -282,22 +280,6 @@ Future<Uint8List> _fetchBytes(String url) async {
 }
 
 /// Memory-only fetch used by bursty render sites (the emote menu): downloads
-/// Shared client for memory-only fetches (emote menu bursts) to reuse
-/// connections and avoid per-request TCP+TLS handshake overhead.
-final http.Client _memoryFetchClient = http.Client();
-
-/// straight to RAM, never writing to or evicting from [EmoteCacheManager], so
-/// panel bursts can't grow or churn the disk cache.
-Future<Uint8List> _fetchBytesMemoryOnly(String url) async {
-  final resp = await _memoryFetchClient
-      .get(Uri.parse(url), headers: const {'User-Agent': 'ermchat'})
-      .timeout(const Duration(seconds: 10));
-  if (resp.statusCode != 200) {
-    throw StateError('emote fetch ${resp.statusCode} for $url');
-  }
-  return resp.bodyBytes;
-}
-
 enum EmoteFormat { gif, webp, other }
 
 /// Sniffs the image format from magic bytes. Exposed for tests; renderers use
@@ -325,29 +307,63 @@ EmoteFormat sniffEmoteFormat(Uint8List bytes) {
   return EmoteFormat.other;
 }
 
-/// When true, animated emotes (WebP/GIF) use Flutter's engine codec
-/// ([instantiateImageCodec]) instead of the pure-Dart decoder.
-/// This is for debugging/comparison — the engine codec has known transparency
-/// bugs for animated WebP (wrong disposal, grey artifacts in transparent areas).
-bool useEngineCodecForAnimated = false;
-
 Future<EmoteFrameData> _decodeBytes(Uint8List bytes) {
-  if (useEngineCodecForAnimated) {
-    return _decodeWithEngineCodec(bytes);
-  }
   switch (sniffEmoteFormat(bytes)) {
     case EmoteFormat.gif:
-      return _decodeGif(bytes);
+      // The engine codec renders animated GIFs correctly (interlace,
+      // transparency and disposal are all solid); the known bug is specific
+      // to animated WebP. Route GIFs native to avoid the isolate-heavy
+      // pure-Dart decoder.
+      return _decodeWithEngineCodec(bytes);
     case EmoteFormat.webp:
-      return _decodeWebp(bytes);
+      // Animated WebP is the only format that hits the engine codec's
+      // compositing/transparency bug (grey artifacts, wrong disposal), so it
+      // gets the reinforced pure-Dart decoder. Static WebP is safe natively
+      // and much cheaper.
+      if (webpIsAnimated(bytes)) {
+        return _decodeWebp(bytes);
+      }
+      return _decodeStatic(bytes);
     case EmoteFormat.other:
       return _decodeStatic(bytes);
   }
 }
 
-/// Production decode pipeline: sniff format → decode in isolate (with compositing
-/// for animated WebP/GIF) → premultiply alpha → decodeImageFromPixels → ui.Image.
-/// This is the exact path used by [EmoteClipRegistry.acquire].
+/// True when a WebP has an ANMF frame chunk (i.e. it is animated). Static
+/// WebP decodes cheaper through the engine codec, so [EmoteClipRegistry]
+/// routes only animated WebP to the pure-Dart decoder. Exposed for tests.
+bool webpIsAnimated(Uint8List bytes) {
+  // RIFF 'WEBP' header (12 bytes) followed by chunks.
+  if (bytes.length < 12 ||
+      bytes[0] != 0x52 ||
+      bytes[1] != 0x49 ||
+      bytes[2] != 0x46 ||
+      bytes[3] != 0x46 ||
+      bytes[8] != 0x57 ||
+      bytes[9] != 0x45 ||
+      bytes[10] != 0x42 ||
+      bytes[11] != 0x50) {
+    return false;
+  }
+  int pos = 12;
+  while (pos + 8 <= bytes.length) {
+    final fourcc = String.fromCharCodes(bytes.sublist(pos, pos + 4));
+    final chunkSize =
+        bytes[pos + 4] |
+        (bytes[pos + 5] << 8) |
+        (bytes[pos + 6] << 16) |
+        (bytes[pos + 7] << 24);
+    if (fourcc == 'ANMF') return true;
+    if (chunkSize >= bytes.length) return false;
+    pos += 8 + chunkSize + (chunkSize & 1);
+  }
+  return false;
+}
+
+/// Production decode pipeline: sniff format → decode (pure-Dart isolate for
+/// animated WebP only, engine codec for everything else) → premultiply alpha
+/// → decodeImageFromPixels → ui.Image. This is the exact path used by
+/// [EmoteClipRegistry.acquire].
 Future<EmoteFrameData> decodeEmoteBytes(Uint8List bytes) => _decodeBytes(bytes);
 
 /// Fallback decode using Flutter's engine codec for all formats (including animated).
@@ -363,44 +379,6 @@ Future<EmoteFrameData> _decodeWithEngineCodec(Uint8List bytes) async {
     durations.add(frame.duration);
   }
   return EmoteFrameData(frames: frames, durations: durations);
-}
-
-Future<EmoteFrameData> _decodeGif(Uint8List bytes) async {
-  final decoded = await Isolate.run(() {
-    final decoder = img.GifDecoder();
-    final image = decoder.decode(bytes);
-    if (image == null) {
-      throw StateError('GIF decode failed');
-    }
-    final frames = image.frames;
-    final rgba = <Uint8List>[];
-    final widths = <int>[];
-    final heights = <int>[];
-    final durations = <Duration>[];
-    for (final frame in frames) {
-      final converted = frame.convert(numChannels: 4);
-      rgba.add(converted.toUint8List());
-      widths.add(converted.width);
-      heights.add(converted.height);
-      final ms = frame.frameDuration;
-      durations.add(
-        ms > 0 ? Duration(milliseconds: ms) : const Duration(milliseconds: 80),
-      );
-    }
-    return (rgba: rgba, widths: widths, heights: heights, durations: durations);
-  });
-
-  final out = <ui.Image>[];
-  for (var i = 0; i < decoded.rgba.length; i++) {
-    out.add(
-      await _imageFromRgba(
-        decoded.rgba[i].buffer,
-        decoded.widths[i],
-        decoded.heights[i],
-      ),
-    );
-  }
-  return EmoteFrameData(frames: out, durations: decoded.durations);
 }
 
 Future<EmoteFrameData> _decodeWebp(Uint8List bytes) async {
@@ -722,13 +700,11 @@ Future<ui.Image> _imageFromRgba(ByteBuffer rgba, int width, int height) {
 /// Emote renderer that never relies on the engine's animated-image codec.
 ///
 /// Bytes flow through [EmoteCacheManager] (the settings cap and overflow
-/// temp-file path both apply) unless [memoryOnly] is set, in which case they
-/// are fetched straight over HTTP. GIFs and WebP are decoded in pure Dart
-/// (correct transparency and disposal, per-frame delays from the file);
-/// playback is driven by a single shared [Ticker] per URL owned by the
-/// [EmoteClipRegistry], so every widget showing the same emote stays in sync.
-/// Static images go through the engine codec, which is only buggy for
-/// multi-frame transparency.
+/// temp-file path both apply). Only animated WebP uses the reinforced
+/// pure-Dart decoder (the engine codec mishandles its compositing/transparency);
+/// GIFs and static images route through the engine codec. Playback is driven
+/// by a single shared [Ticker] per URL owned by the [EmoteClipRegistry], so
+/// every widget showing the same emote stays in sync.
 class EmoteImage extends StatefulWidget {
   const EmoteImage({
     super.key,
@@ -738,7 +714,6 @@ class EmoteImage extends StatefulWidget {
     this.fit = BoxFit.contain,
     this.placeholder,
     this.errorWidget,
-    this.memoryOnly = false,
   });
 
   final String url;
@@ -748,13 +723,35 @@ class EmoteImage extends StatefulWidget {
   final Widget? placeholder;
   final Widget? errorWidget;
 
-  /// When true, bytes are fetched with [_fetchBytesMemoryOnly] (plain HTTP,
-  /// no [EmoteCacheManager]) so bursty grids like the emote menu never write
-  /// to or evict from the disk cache.
-  final bool memoryOnly;
-
   @override
   State<EmoteImage> createState() => _EmoteImageState();
+}
+
+/// Shimmer placeholder shown while an emote's frames are still loading.
+///
+/// [Shimmer] sweeps a moving gradient over an opaque child, so the child is a
+/// solid [Container] matching the emote box. Colors come from the theme.
+class ShimmerEmotePlaceholder extends StatelessWidget {
+  const ShimmerEmotePlaceholder({super.key, this.width, this.height});
+
+  final double? width;
+  final double? height;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final base = scheme.surfaceContainerHighest;
+    final highlight = Color.lerp(base, Colors.white, 0.5)!;
+    return Shimmer.fromColors(
+      baseColor: base,
+      highlightColor: highlight,
+      child: Container(
+        width: width,
+        height: height,
+        color: base,
+      ),
+    );
+  }
 }
 
 class _EmoteImageState extends State<EmoteImage> {
@@ -787,11 +784,7 @@ class _EmoteImageState extends State<EmoteImage> {
     final token = Object();
     _loadToken = token;
     try {
-      final fetcher = widget.memoryOnly ? _fetchBytesMemoryOnly : null;
-      final frames = await EmoteClipRegistry.instance.acquire(
-        url,
-        fetcher: fetcher,
-      );
+      final frames = await EmoteClipRegistry.instance.acquire(url);
       if (!mounted || _loadToken != token) return;
       // Join the shared playback clock for this URL so all widgets showing
       // the same emote render the same frame (and a new tile syncs to the
@@ -857,7 +850,10 @@ class _EmoteImageState extends State<EmoteImage> {
     if (_failed || frames == null) {
       return widget.errorWidget ??
           widget.placeholder ??
-          SizedBox(width: widget.width, height: widget.height);
+          ShimmerEmotePlaceholder(
+            width: widget.width,
+            height: widget.height,
+          );
     }
     final image = frames.frames[_frameIndex];
     return RawImage(

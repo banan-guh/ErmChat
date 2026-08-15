@@ -440,9 +440,7 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
 
   Widget _buildEmoteGridItem(GenericEmote emote, double cellPadding) {
     // Preview cells render through EmoteImage like chat: frames are decoded
-    // once per URL, shared, and disposed with the last visible widget. The
-    // memory-only path fetches straight over HTTP (no EmoteCacheManager), so a
-    // panel burst never writes to or evicts from the disk cache.
+    // once per URL, shared, and disposed with the last visible widget.
     final url = emote.url;
     final cached = _cellCache[emote.id];
     if (cached != null && cached.url == url && cached.padding == cellPadding) {
@@ -462,8 +460,7 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
             width: double.infinity,
             height: double.infinity,
             fit: BoxFit.contain,
-            memoryOnly: true,
-            placeholder: const SizedBox.shrink(),
+            placeholder: const ShimmerEmotePlaceholder(),
             errorWidget: const Icon(Icons.broken_image, size: 20),
           ),
         ),

@@ -104,7 +104,10 @@ class _AutocompleteDropdownState extends State<AutocompleteDropdown> {
                       width: _emoteSize,
                       height: _emoteSize,
                       fit: BoxFit.contain,
-                      placeholder: const SizedBox(),
+                      placeholder: ShimmerEmotePlaceholder(
+                        width: _emoteSize,
+                        height: _emoteSize,
+                      ),
                       errorWidget: const Icon(Icons.image, size: 16),
                     ),
                   ),

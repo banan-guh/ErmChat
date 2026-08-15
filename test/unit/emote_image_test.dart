@@ -83,6 +83,35 @@ void main() {
     });
   });
 
+  group('webpIsAnimated', () {
+    Uint8List webpWithChunk(String fourcc, {bool anmf = true}) {
+      final header = Uint8List.fromList([
+        0x52, 0x49, 0x46, 0x46, // RIFF
+        0, 0, 0, 0, // size (unused by the sniff)
+        0x57, 0x45, 0x42, 0x50, // WEBP
+        ...fourcc.codeUnits, // chunk fourcc
+        0x0A, 0x00, 0x00, 0x00, // chunk size
+      ]);
+      return header;
+    }
+
+    test('detects ANMF chunk as animated', () {
+      expect(webpIsAnimated(webpWithChunk('ANMF')), isTrue);
+    });
+
+    test('treats VP8 / VP8L / VP8X static chunks as not animated', () {
+      expect(webpIsAnimated(webpWithChunk('VP8 ')), isFalse);
+      expect(webpIsAnimated(webpWithChunk('VP8L')), isFalse);
+      expect(webpIsAnimated(webpWithChunk('VP8X')), isFalse);
+    });
+
+    test('returns false for truncated or non-WebP bytes', () {
+      expect(webpIsAnimated(Uint8List(4)), isFalse);
+      expect(webpIsAnimated(Uint8List.fromList('RIFF....WEBP'.codeUnits)),
+          isFalse);
+    });
+  });
+
   group('EmoteClipRegistry', () {
     test('dedups concurrent acquires of the same URL', () async {
       var fetches = 0;

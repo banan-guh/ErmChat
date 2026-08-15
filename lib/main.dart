@@ -13,7 +13,7 @@ import 'services/twitch_irc_read.dart';
 import 'services/recent_messages.dart';
 import 'theme_colors.dart';
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   CachedNetworkImageProvider.defaultCacheManager = EmoteCacheManager();
   if (Platform.isAndroid) {

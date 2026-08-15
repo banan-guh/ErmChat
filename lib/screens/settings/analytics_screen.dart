@@ -275,7 +275,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             width: 28,
             height: 28,
             fit: BoxFit.contain,
-            placeholder: const SizedBox(width: 28, height: 28),
+            placeholder: const ShimmerEmotePlaceholder(width: 28, height: 28),
             errorWidget: const SizedBox(width: 28, height: 28),
           ),
           title: Text(entry.emote.code),

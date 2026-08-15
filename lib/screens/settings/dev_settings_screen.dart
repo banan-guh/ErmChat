@@ -16,13 +16,11 @@ class DevSettingsScreen extends StatefulWidget {
 
 class _DevSettingsScreenState extends State<DevSettingsScreen> {
   bool _testWidgets = false;
-  bool _forceEngineCodec = false;
 
   @override
   void initState() {
     super.initState();
     _loadTestWidgetsPref();
-    _loadEngineCodecPref();
   }
 
   Future<void> _loadTestWidgetsPref() async {
@@ -35,20 +33,6 @@ class _DevSettingsScreenState extends State<DevSettingsScreen> {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('test_chat_widgets', value);
     if (mounted) setState(() => _testWidgets = value);
-  }
-
-  Future<void> _loadEngineCodecPref() async {
-    final prefs = await SharedPreferences.getInstance();
-    if (!mounted) return;
-    setState(() => _forceEngineCodec = prefs.getBool('force_engine_codec') ?? false);
-    useEngineCodecForAnimated = _forceEngineCodec;
-  }
-
-  Future<void> _setForceEngineCodec(bool value) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('force_engine_codec', value);
-    if (mounted) setState(() => _forceEngineCodec = value);
-    useEngineCodecForAnimated = value;
   }
 
   Future<void> _replayWelcomeScreen(BuildContext context) async {
@@ -169,16 +153,6 @@ class _DevSettingsScreenState extends State<DevSettingsScreen> {
             ),
             value: _testWidgets,
             onChanged: _setTestWidgets,
-          ),
-          const Divider(),
-          SwitchListTile(
-            secondary: const Icon(Icons.layers_outlined),
-            title: const Text('Force engine codec for animated emotes'),
-            subtitle: const Text(
-              'Use Flutter instantiateImageCodec for WebP/GIF (has transparency bugs)',
-            ),
-            value: _forceEngineCodec,
-            onChanged: _setForceEngineCodec,
           ),
           const Divider(),
           ListTile(
