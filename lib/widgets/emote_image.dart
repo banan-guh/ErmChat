@@ -6,19 +6,19 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
-import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:image/image.dart' as img;
 import 'package:shimmer/shimmer.dart';
 
 import '../services/emote_cache_manager.dart';
 import '../services/emote_codec/native_emote_codec.dart';
+import 'emote_image_provider.dart';
 
 /// Decoded emote frames with their per-frame durations.
 ///
-/// The frames are owned by the [EmoteClipRegistry] clip that produced them;
-/// renderers must not dispose them. [EmoteImage] releases the clip when the
-/// last widget using it unmounts; the frames are kept cached (and only
-/// disposed by eviction at the next over-cap insert).
+/// The frames are owned by the playback stream the emote image provider
+/// produces (one completer per URL, cached by the stock [ImageCache]);
+/// renderers must not dispose them. [EmoteImage] renders via the stock
+/// [Image] widget, which holds clone handles to the frames.
 class EmoteFrameData {
   EmoteFrameData({required this.frames, required this.durations});
 
@@ -37,333 +37,6 @@ class EmoteFrameData {
 }
 
 typedef EmoteFrameDecoder = Future<EmoteFrameData> Function(Uint8List bytes);
-
-/// Per-URL cache of decoded emote frames with an LRU byte cap (200 MB default,
-/// matching Flutter's [ImageCache]). Eviction mirrors [ImageCache]: it only
-/// runs at insert time, when a new clip would push the total over the cap;
-/// releasing a clip never triggers eviction, so a burst of unmounts (tab
-/// switches, scrolling through a virtualized list) leaves the cache intact.
-class EmoteClipRegistry {
-  /// Test hooks; fall back to the production fetcher/decoder when null.
-  @visibleForTesting
-  static Future<Uint8List> Function(String url)? debugFetchOverride;
-
-  @visibleForTesting
-  static EmoteFrameDecoder? debugDecodeOverride;
-
-  /// Maximum bytes for all cached decoded frames (default 200 MB, like
-  /// Flutter's [ImageCache]).
-  static const int _defaultMaxBytes = 200 << 20;
-
-  /// Caps concurrent decodes so a burst (e.g. the emote menu opening with
-  /// dozens of animated WebP cells) doesn't spawn one isolate per emote at
-  /// once.
-  static const int _maxConcurrentDecodes = 10;
-  static final _Semaphore _decodeGate = _Semaphore(_maxConcurrentDecodes);
-
-  static final EmoteClipRegistry instance = EmoteClipRegistry();
-
-  final Map<String, _EmoteClip> _clips = {};
-  int _totalBytes = 0;
-
-  /// Cache size limit. Tests pass a small value so eviction is reachable
-  /// without decoding hundreds of megabytes.
-  EmoteClipRegistry({@visibleForTesting this._maxBytes = _defaultMaxBytes});
-
-  final int _maxBytes;
-
-  /// Registers a reference to [url] and returns the decoded frames. Throws
-  /// (with the original error) when the fetch or decode fails; the next
-  /// [acquire] of the same URL after a failure retries.
-  ///
-  /// [debugFetchOverride] (tests) then [_fetchBytes] apply.
-  Future<EmoteFrameData> acquire(String url) {
-    final clip = _clips.putIfAbsent(url, () => _EmoteClip(url: url));
-    if (clip.refs == 0) {
-      clip.lastAccessed = DateTime.now();
-    }
-    clip.refs++;
-    final pending = clip.decode;
-    if (pending != null) return pending;
-    final future = _load(url, clip);
-    clip.decode = future;
-    return future;
-  }
-
-  /// Registers a reference to [url] and returns its frames synchronously when
-  /// the clip is already decoded and cached. Returns null when the clip is
-  /// missing, still loading, or previously failed; callers fall back to
-  /// [acquire] and show a placeholder while it loads.
-  ///
-  /// Like [acquire], the returned frames imply a reference that must be
-  /// balanced with [release].
-  EmoteFrameData? tryAcquireCached(String url) {
-    final clip = _clips[url];
-    final frames = clip?.frames;
-    if (clip == null || frames == null) return null;
-    if (clip.refs == 0) {
-      clip.lastAccessed = DateTime.now();
-    }
-    clip.refs++;
-    return frames;
-  }
-
-  /// Drops the reference count. The clip is kept in memory (not disposed,
-  /// and never evicted here) so subsequent acquires are instant; eviction
-  /// only runs at insert time, mirroring Flutter's [ImageCache].
-  void release(String url) {
-    final clip = _clips[url];
-    if (clip == null) return;
-    clip.refs--;
-    clip.lastAccessed = DateTime.now();
-    if (clip.refs <= 0 && !clip.hasActiveListeners) {
-      clip.stopPlayback();
-    }
-  }
-
-  /// Subscribes [listener] to the shared playback clock for [url], starting
-  /// the shared ticker once frames are available. Must be called after
-  /// [acquire] so the clip exists and the ref is held.
-  ///
-  /// [startOffset] seeds a fresh clip's playback position (e.g. when a
-  /// higher-res copy replaces a placeholder so the animation continues from
-  /// where the old clip was instead of restarting). It is ignored when the
-  /// clip is already playing.
-  void subscribe(String url, VoidCallback listener, {Duration? startOffset}) {
-    final clip = _clips[url];
-    if (clip == null) return;
-    if (startOffset != null && !clip.hasActiveListeners) {
-      clip.seedPlayback(startOffset);
-      debugPrint(
-        '[EmoteClipRegistry] seeded url=$url offset=${startOffset.inMilliseconds}ms '
-        '-> frameIndex=${clip.frameIndex}',
-      );
-    } else if (startOffset != null) {
-      debugPrint(
-        '[EmoteClipRegistry] seed skipped url=$url (already playing, '
-        'listeners=${clip.hasActiveListeners})',
-      );
-    }
-    clip.addListener(listener);
-    clip.startPlaybackIfNeeded();
-  }
-
-  /// Removes [listener] from the shared playback clock; stops the ticker when
-  /// no listeners remain.
-  void unsubscribe(String url, VoidCallback listener) {
-    final clip = _clips[url];
-    if (clip == null) return;
-    clip.removeListener(listener);
-    if (!clip.hasActiveListeners && clip.refs <= 0) {
-      clip.stopPlayback();
-    }
-  }
-
-  /// Current shared frame index for [url] (0 when not cached).
-  int currentFrame(String url) => _clips[url]?.frameIndex ?? 0;
-
-  /// Current playback position for [url] (frame-aligned: the sum of durations
-  /// up to the current frame). Zero when not cached.
-  Duration currentElapsed(String url) {
-    final clip = _clips[url];
-    final frames = clip?.frames;
-    if (clip == null || frames == null || frames.frames.isEmpty) {
-      return Duration.zero;
-    }
-    var total = Duration.zero;
-    for (var i = 0; i < clip.frameIndex && i < frames.durations.length; i++) {
-      total += frames.durations[i];
-    }
-    return total;
-  }
-
-  /// Test hook; disposes and drops every cached clip. Clips with active refs
-  /// or listeners are left alone so widgets mid-paint never reference a
-  /// disposed image.
-  @visibleForTesting
-  void debugClear() {
-    final idle = _clips.values
-        .where((c) => c.refs <= 0 && !c.hasActiveListeners)
-        .toList();
-    for (final clip in idle) {
-      clip.refs = 0;
-      clip.stopPlayback();
-      final frames = clip.frames;
-      if (frames != null) {
-        _disposeFrames(frames);
-      } else {
-        clip.decode?.then(_disposeFrames, onError: (_) {});
-      }
-      _clips.remove(clip.url);
-    }
-    _totalBytes = _clips.values.fold(0, (sum, c) => sum + c.byteSize);
-  }
-
-  Future<EmoteFrameData> _load(String url, _EmoteClip clip) async {
-    try {
-      final fetch = debugFetchOverride ?? _fetchBytes;
-      final decode = debugDecodeOverride ?? _decodeBytes;
-      final bytes = await fetch(url);
-      final frames = await _decodeGate.withPermit(() => decode(bytes));
-      clip.frames = frames;
-      clip.byteSize = _estimateByteSize(frames);
-      clip.lastAccessed = DateTime.now();
-      clip.startPlaybackIfNeeded();
-      _totalBytes += clip.byteSize;
-      _evictIfNeeded();
-      return frames;
-    } on Object catch (e) {
-      clip.error = e;
-      clip.decode = null;
-      rethrow;
-    }
-  }
-
-  void _evictIfNeeded() {
-    if (_totalBytes <= _maxBytes) return;
-
-    // Collect evictable clips (refs == 0), oldest first
-    final evictable =
-        _clips.values.where((c) => c.refs == 0 && c.frames != null).toList()
-          ..sort((a, b) => a.lastAccessed.compareTo(b.lastAccessed));
-    for (final clip in evictable) {
-      if (_totalBytes <= _maxBytes) break;
-      clip.stopPlayback();
-      _disposeFrames(clip.frames!);
-      _totalBytes -= clip.byteSize;
-      _clips.remove(clip.url);
-    }
-  }
-
-  static int _estimateByteSize(EmoteFrameData frames) {
-    // All frames are full-canvas RGBA (canvasW x canvasH x 4 bytes)
-    if (frames.frames.isEmpty) return 0;
-    final frame = frames.frames.first;
-    return frame.width * frame.height * 4 * frames.frames.length;
-  }
-
-  static void _disposeFrames(EmoteFrameData frames) {
-    for (final frame in frames.frames) {
-      frame.dispose();
-    }
-  }
-}
-
-/// One decoded emote clip plus the single shared playback clock for its URL.
-/// Every [EmoteImage] rendering the same URL subscribes to the same clip, so
-/// they all render the same frame at the same time (mirroring how Flutter's
-/// ImageCache shares one ImageStreamCompleter per provider key).
-class _EmoteClip extends ChangeNotifier {
-  _EmoteClip({required this.url}) : lastAccessed = DateTime.now();
-
-  final String url;
-  int refs = 0;
-  Future<EmoteFrameData>? decode;
-  EmoteFrameData? frames;
-  Object? error;
-  int byteSize = 0;
-  DateTime lastAccessed;
-
-  Ticker? _ticker;
-  int _frameIndex = 0;
-
-  /// Playback offset in microseconds applied to the ticker's elapsed time,
-  /// so a clip can start mid-animation (e.g. when a higher-res copy replaces
-  /// a placeholder without restarting the loop).
-  int _startOffsetUs = 0;
-
-  /// Current frame index of the shared playback clock.
-  int get frameIndex => _frameIndex;
-
-  /// Whether any [EmoteImage] is currently rendering this clip.
-  bool get hasActiveListeners => hasListeners;
-
-  /// Seeds the playback position for a not-yet-playing clip from [offset]
-  /// (frame-aligned). Has no effect once the ticker is running.
-  void seedPlayback(Duration offset) {
-    if (_ticker != null) return;
-    final frames = this.frames;
-    if (frames == null || frames.frames.isEmpty) return;
-    final totalUs = frames.totalDuration.inMicroseconds;
-    _startOffsetUs = totalUs > 0 ? offset.inMicroseconds % totalUs : 0;
-    _frameIndex = _frameAt(_startOffsetUs);
-  }
-
-  /// Starts the shared ticker when the clip is animated and has listeners.
-  void startPlaybackIfNeeded() {
-    final frames = this.frames;
-    if (_ticker != null ||
-        !hasListeners ||
-        frames == null ||
-        !frames.isAnimated) {
-      return;
-    }
-    _ticker = Ticker(_onTick, debugLabel: 'emote-$url')..start();
-  }
-
-  /// Stops the shared ticker when the last listener detaches.
-  void stopPlayback() {
-    _ticker?.dispose();
-    _ticker = null;
-  }
-
-  /// Frame index for the given elapsed time within this clip's frame timeline.
-  int _frameAt(int elapsedUs) {
-    final frames = this.frames;
-    if (frames == null || frames.frames.isEmpty) return 0;
-    var t = elapsedUs;
-    for (var i = 0; i < frames.durations.length; i++) {
-      final d = frames.durations[i].inMicroseconds;
-      if (t < d) return i;
-      t -= d;
-    }
-    return frames.frames.length - 1;
-  }
-
-  void _onTick(Duration elapsed) {
-    final frames = this.frames;
-    if (frames == null || !frames.isAnimated) return;
-    final totalUs = frames.totalDuration.inMicroseconds;
-    if (totalUs <= 0) return;
-    final t = (elapsed.inMicroseconds + _startOffsetUs) % totalUs;
-    final index = _frameAt(t);
-    if (index != _frameIndex) {
-      _frameIndex = index;
-      notifyListeners();
-    }
-  }
-}
-
-const _emoteDownloadTimeout = Duration(seconds: 10);
-
-Future<Uint8List> _fetchBytes(String url) async {
-  // When there's room in the disk cache, stream through it (read cached file
-  // or download + persist) exactly as before. When the cache is full (or
-  // maxObjects == 0, meaning "always full" by design), skip disk entirely and
-  // fetch straight into memory: the temp-file overflow path is racy under
-  // concurrency (an overflow file can be evicted while another fetch is still
-  // reading it) and wastes disk I/O at the exact moment we can least afford
-  // it. The count read is TTL-cached, so the isFull probe is cheap.
-  if (!await EmoteCacheManager().isFull()) {
-    await for (final response in EmoteCacheManager().getFileStream(url)) {
-      if (response is FileInfo) {
-        return response.file.readAsBytes();
-      }
-    }
-    throw StateError('no emote bytes for $url');
-  }
-  final resp = await emoteFetchClient
-      .get(Uri.parse(url), headers: const {'User-Agent': 'ermchat'})
-      .timeout(_emoteDownloadTimeout);
-  if (resp.statusCode != 200) {
-    throw HttpExceptionWithStatus(
-      resp.statusCode,
-      'Failed to download $url',
-      uri: Uri.parse(url),
-    );
-  }
-  return resp.bodyBytes;
-}
 
 enum EmoteFormat { gif, webp, other }
 
@@ -415,8 +88,8 @@ Future<EmoteFrameData> _decodeBytes(Uint8List bytes) {
 }
 
 /// True when a WebP has an ANMF frame chunk (i.e. it is animated). Static
-/// WebP decodes cheaper through the engine codec, so [EmoteClipRegistry]
-/// routes only animated WebP to the pure-Dart decoder. Exposed for tests.
+/// WebP decodes cheaper through the engine codec, so the emote pipeline
+/// routes only animated WebP to the reinforced decoder. Exposed for tests.
 bool webpIsAnimated(Uint8List bytes) {
   // RIFF 'WEBP' header (12 bytes) followed by chunks.
   if (bytes.length < 12 ||
@@ -447,8 +120,8 @@ bool webpIsAnimated(Uint8List bytes) {
 
 /// Production decode pipeline: sniff format → decode (pure-Dart isolate for
 /// animated WebP only, engine codec for everything else) → premultiply alpha
-/// → decodeImageFromPixels → ui.Image. This is the exact path used by
-/// [EmoteClipRegistry.acquire].
+/// → decodeImageFromPixels → ui.Image. This is the exact path used by the
+/// emote image provider's animated-WebP branch.
 Future<EmoteFrameData> decodeEmoteBytes(Uint8List bytes) => _decodeBytes(bytes);
 
 /// Animated WebP via the native libwebp shim, falling back to the pure-Dart
@@ -801,14 +474,15 @@ Future<ui.Image> _imageFromRgba(ByteBuffer rgba, int width, int height) {
   return completer.future;
 }
 
-/// Emote renderer that never relies on the engine's animated-image codec.
+/// Emote renderer that never relies on the engine's animated-WebP codec.
 ///
-/// Bytes flow through [EmoteCacheManager] (the settings cap and overflow
-/// temp-file path both apply). Only animated WebP uses the reinforced
-/// pure-Dart decoder (the engine codec mishandles its compositing/transparency);
-/// GIFs and static images route through the engine codec. Playback is driven
-/// by a single shared [Ticker] per URL owned by the [EmoteClipRegistry], so
-/// every widget showing the same emote stays in sync.
+/// Bytes are fetched through [EmoteUrlProvider] -> [fetchEmoteBytes]
+/// ([EmoteCacheManager]'s settings cap and overflow path both apply) and
+/// decoded inside the shared completer the stock [ImageCache] keeps per URL:
+/// animated WebP uses the reinforced decoder (native libwebp, pure-Dart
+/// fallback), while GIFs and static images route through the engine codec.
+/// Playback is driven by the completer, so every widget showing the same
+/// emote stays in sync.
 class EmoteImage extends StatefulWidget {
   const EmoteImage({
     super.key,
@@ -829,8 +503,9 @@ class EmoteImage extends StatefulWidget {
   final Widget? errorWidget;
 
   /// Smaller-scale URLs (e.g. the emote's 1x) tried as cached placeholders
-  /// while [url] is still fetching. When a smaller scale is already in the
-  /// disk cache it renders under a faint shimmer instead of an empty box.
+  /// while [url] is still fetching. When a smaller scale is already cached in
+  /// memory or on disk it renders under a faint shimmer instead of an empty
+  /// box.
   final List<String>? alternateUrls;
 
   @override
@@ -863,110 +538,49 @@ class ShimmerEmotePlaceholder extends StatelessWidget {
 }
 
 class _EmoteImageState extends State<EmoteImage> {
-  EmoteFrameData? _frames;
-  bool _failed = false;
-  int _frameIndex = 0;
-  bool _subscribed = false;
-  Object? _loadToken;
-
-  /// Decoded frames of a smaller cached scale, shown under a faint shimmer
-  /// while [EmoteImage.url] is still loading. Owned by this widget (disposed
-  /// on swap/unmount) when [_placeholderFromRegistry] is false; otherwise the
-  /// frames belong to the [EmoteClipRegistry] clip and only the reference and
-  /// playback subscription need releasing.
-  EmoteFrameData? _placeholderFrames;
+  /// A smaller cached scale shown under a faint shimmer while the required
+  /// URL loads (null until the probe finds one).
   String? _placeholderUrl;
-  bool _placeholderFromRegistry = false;
-  bool _placeholderSubscribed = false;
+  Object? _loadToken;
 
   @override
   void initState() {
     super.initState();
-    // Fast path: the clip may already be decoded in the registry (e.g. a
-    // just-sent emote that other tiles are already showing). Rendering it
-    // synchronously avoids a one-frame placeholder flash on every new tile.
-    final cached = EmoteClipRegistry.instance.tryAcquireCached(widget.url);
-    if (cached != null) {
-      debugPrint(
-        '[EmoteImage] fast-path hit url=${widget.url} '
-        'frames=${cached.frames.length}',
-      );
-      _frames = cached;
-      _frameIndex = EmoteClipRegistry.instance.currentFrame(widget.url);
-      EmoteClipRegistry.instance.subscribe(widget.url, _onClipChanged);
-      _subscribed = true;
-      return;
-    }
-    debugPrint(
-      '[EmoteImage] init url=${widget.url} '
-      'alternates=${widget.alternateUrls ?? []} (miss, loading)',
-    );
-    _load();
     _probePlaceholder();
   }
 
   /// Probes the smaller alternate scales for a cached copy to use as the
-  /// placeholder while [EmoteImage.url] is loading. Picks the first hit
-  /// (the smallest scale is listed first by convention).
+  /// placeholder while [EmoteImage.url] is loading. Picks the first hit (the
+  /// smallest scale is listed first by convention). Memory-cached copies
+  /// render from the shared completer (animated in sync with the rest of the
+  /// app); disk-cached copies fetch through the same provider path.
   Future<void> _probePlaceholder() async {
     final alternates = widget.alternateUrls;
     if (alternates == null || alternates.isEmpty) return;
-    final token = _loadToken;
+    final token = Object();
+    _loadToken = token;
     for (final altUrl in alternates) {
       if (!mounted || _loadToken != token) return;
       if (altUrl == widget.url) continue;
-      // Fast path: the alternate may already be decoded in the registry (e.g.
-      // the same emote's 1x was rendered elsewhere recently). Hold a ref and
-      // subscribe to its shared playback clock so the placeholder animates in
-      // sync with the rest of the app.
-      final cached = EmoteClipRegistry.instance.tryAcquireCached(altUrl);
-      if (cached != null) {
-        debugPrint(
-          '[EmoteImage] placeholder registry-hit altUrl=$altUrl '
-          'frames=${cached.frames.length}',
-        );
-        if (!mounted || _loadToken != token) {
-          EmoteClipRegistry.instance.release(altUrl);
-          return;
-        }
-        setState(() {
-          _placeholderFrames = cached;
-          _placeholderUrl = altUrl;
-          _placeholderFromRegistry = true;
-        });
-        EmoteClipRegistry.instance.subscribe(altUrl, _onPlaceholderClipChanged);
-        _placeholderSubscribed = true;
+      if (PaintingBinding.instance.imageCache.containsKey(
+        EmoteUrlProvider(altUrl),
+      )) {
+        debugPrint('[EmoteImage] placeholder memory-hit altUrl=$altUrl');
+        _setPlaceholder(altUrl, token);
         return;
       }
       try {
         final file = await EmoteCacheManager().getFileFromCache(altUrl);
-        if (file == null) {
-          debugPrint('[EmoteImage] placeholder miss altUrl=$altUrl');
-          continue;
-        }
-        debugPrint(
-          '[EmoteImage] placeholder disk-hit altUrl=$altUrl '
-          'file=${file.file.path}',
-        );
-        final bytes = await file.file.readAsBytes();
-        final frames = await decodeEmoteBytes(bytes);
-        if (!mounted || _loadToken != token) {
-          _disposeDecoded(frames);
+        if (!mounted || _loadToken != token) return;
+        if (file != null) {
+          debugPrint(
+            '[EmoteImage] placeholder disk-hit altUrl=$altUrl '
+            'file=${file.file.path}',
+          );
+          _setPlaceholder(altUrl, token);
           return;
         }
-        setState(() {
-          _placeholderFrames = frames;
-          _placeholderUrl = altUrl;
-          _placeholderFromRegistry = false;
-        });
-        // Dispose the remaining frames; the placeholder only needs frame 0.
-        _disposeDecoded(
-          EmoteFrameData(
-            frames: frames.frames.skip(1).toList(),
-            durations: const [],
-          ),
-        );
-        return;
+        debugPrint('[EmoteImage] placeholder miss altUrl=$altUrl');
       } on Object catch (e) {
         // Try the next alternate; any error just means no cached placeholder.
         debugPrint('[EmoteImage] placeholder error altUrl=$altUrl err=$e');
@@ -974,94 +588,20 @@ class _EmoteImageState extends State<EmoteImage> {
     }
   }
 
-  void _disposeDecoded(EmoteFrameData frames) {
-    for (final frame in frames.frames) {
-      frame.dispose();
-    }
-  }
-
-  Future<void> _load() async {
-    final url = widget.url;
-    final token = Object();
-    _loadToken = token;
-    try {
-      final frames = await EmoteClipRegistry.instance.acquire(url);
+  void _setPlaceholder(String altUrl, Object token) {
+    // The probe can resolve mid-build (async disk I/O completes between
+    // frames); defer the setState so it never lands inside a build phase.
+    SchedulerBinding.instance.addPostFrameCallback((_) {
       if (!mounted || _loadToken != token) return;
-      // The required URL replaced a cached smaller scale; seed the new clip's
-      // playback from where the placeholder was so the animation continues
-      // instead of restarting. Ignored when the clip is already playing.
-      final placeholderElapsed =
-          _placeholderFromRegistry && _placeholderUrl != null
-          ? EmoteClipRegistry.instance.currentElapsed(_placeholderUrl!)
-          : null;
-      final startOffset = placeholderElapsed;
-      debugPrint(
-        '[EmoteImage] load complete url=$url frames=${frames.frames.length} '
-        'placeholderUrl=$_placeholderUrl '
-        'placeholderElapsed=$placeholderElapsed',
-      );
-      // Join the shared playback clock for this URL so all widgets showing
-      // the same emote render the same frame (and a new tile syncs to the
-      // frame the existing ones are already on).
-      EmoteClipRegistry.instance.subscribe(
-        url,
-        _onClipChanged,
-        startOffset: startOffset,
-      );
-      _subscribed = true;
-      setState(() {
-        _frames = frames;
-        _frameIndex = EmoteClipRegistry.instance.currentFrame(url);
-      });
-      debugPrint('[EmoteImage] swapped to url=$url frameIndex=$_frameIndex');
-      _releasePlaceholder();
-    } on Object catch (e) {
-      if (!mounted || _loadToken != token) return;
-      debugPrint('[EmoteImage] load failed url=$url err=$e');
-      setState(() => _failed = true);
-    }
-  }
-
-  /// Releases the placeholder frames (decoded from a smaller cached scale)
-  /// once the required URL's frames have landed or the widget unmounts.
-  void _releasePlaceholder() {
-    if (_placeholderSubscribed) {
-      _placeholderSubscribed = false;
-      EmoteClipRegistry.instance.unsubscribe(
-        _placeholderUrl!,
-        _onPlaceholderClipChanged,
-      );
-    }
-    final frames = _placeholderFrames;
-    _placeholderFrames = null;
-    if (_placeholderFromRegistry) {
-      _placeholderFromRegistry = false;
-      EmoteClipRegistry.instance.release(_placeholderUrl!);
-    } else if (frames != null) {
-      _disposeDecoded(frames);
-    }
-    _placeholderUrl = null;
-  }
-
-  void _onClipChanged() {
-    if (!mounted) return;
-    setState(() {
-      _frameIndex = EmoteClipRegistry.instance.currentFrame(widget.url);
+      if (_placeholderUrl == altUrl) return;
+      setState(() => _placeholderUrl = altUrl);
     });
-  }
-
-  void _onPlaceholderClipChanged() {
-    if (!mounted) return;
-    setState(() {});
   }
 
   @override
   void dispose() {
-    if (_subscribed) {
-      EmoteClipRegistry.instance.unsubscribe(widget.url, _onClipChanged);
-    }
-    EmoteClipRegistry.instance.release(widget.url);
-    _releasePlaceholder();
+    // Invalidate any in-flight probe; the completer/cache own the rest.
+    _loadToken = Object();
     super.dispose();
   }
 
@@ -1069,118 +609,102 @@ class _EmoteImageState extends State<EmoteImage> {
   void didUpdateWidget(EmoteImage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.url != oldWidget.url) {
-      if (_subscribed) {
-        EmoteClipRegistry.instance.unsubscribe(oldWidget.url, _onClipChanged);
-      }
-      EmoteClipRegistry.instance.release(oldWidget.url);
-      _subscribed = false;
-      _frames = null;
-      _failed = false;
-      _frameIndex = 0;
-      // Invalidate any in-flight load for the old URL.
       _loadToken = Object();
-      _releasePlaceholder();
-      final cached = EmoteClipRegistry.instance.tryAcquireCached(widget.url);
-      if (cached != null) {
-        _frames = cached;
-        _frameIndex = EmoteClipRegistry.instance.currentFrame(widget.url);
-        EmoteClipRegistry.instance.subscribe(widget.url, _onClipChanged);
-        _subscribed = true;
-        return;
-      }
-      _load();
+      _placeholderUrl = null;
       _probePlaceholder();
     }
   }
 
+  /// Wraps the loading state: the (frameless) main image on the bottom with
+  /// [overlay] (a placeholder or a cached smaller scale under a faint
+  /// shimmer) on top.
+  ///
+  /// A Stack with positioned/filled children requires bounded constraints
+  /// (e.g. [EmoteImage] with `double.infinity` inside an unbounded parent
+  /// would crash), so the fill behavior only applies when the incoming
+  /// constraints are bounded; otherwise the children keep their own size,
+  /// matching the old raw-image behavior.
+  Widget _loadingStack(Widget main, Widget overlay) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final bounded =
+            constraints.hasBoundedWidth && constraints.hasBoundedHeight;
+        if (bounded) {
+          return Stack(
+            fit: StackFit.expand,
+            alignment: Alignment.center,
+            children: [main, overlay],
+          );
+        }
+        return Stack(alignment: Alignment.center, children: [main, overlay]);
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    if (_failed) {
-      return widget.errorWidget ?? const Icon(Icons.broken_image, size: 20);
-    }
-    final frames = _frames;
-    if (frames == null) {
-      final placeholderFrames = _placeholderFrames;
-      if (placeholderFrames != null && placeholderFrames.frames.isNotEmpty) {
-        // A smaller cached scale is showing under a faint shimmer while the
-        // required resolution loads. Registry-sourced placeholders follow the
-        // shared playback clock (animated in sync with chat); disk-sourced
-        // ones are static frame 0. The shimmer sweep stays subtle so the
-        // emote reads clearly, only hinting that a higher-res copy is coming.
-        final placeholderIndex = _placeholderFromRegistry
-            ? EmoteClipRegistry.instance.currentFrame(_placeholderUrl!)
-            : 0;
-        final placeholderImage =
-            placeholderFrames.frames[placeholderIndex.clamp(
-              0,
-              placeholderFrames.frames.length - 1,
-            )];
-        final scheme = Theme.of(context).colorScheme;
-        final base = scheme.surface;
-        final highlight = Color.lerp(
-          base,
-          scheme.surfaceContainerHighest,
-          0.7,
-        )!;
-        return Stack(
-          alignment: Alignment.center,
-          children: [
-            // Fill the available box so a small cached scale is scaled up to
-            // the frame (fit applied), not shown at its intrinsic size.
-            Positioned.fill(
-              child: RawImage(image: placeholderImage, fit: widget.fit),
-            ),
-            Positioned.fill(
-              child: Shimmer.fromColors(
-                baseColor: base.withValues(alpha: 0.25),
-                highlightColor: highlight.withValues(alpha: 0.25),
-                period: const Duration(milliseconds: 1200),
-                child: const ColoredBox(color: Colors.white),
-              ),
-            ),
-          ],
-        );
-      }
-      return widget.placeholder ??
-          ShimmerEmotePlaceholder(width: widget.width, height: widget.height);
-    }
-    final image = frames.frames[_frameIndex];
-    return RawImage(
-      image: image,
+    final altUrl = _placeholderUrl;
+    return Image(
+      image: EmoteUrlProvider(widget.url),
       width: widget.width,
       height: widget.height,
       fit: widget.fit,
+      gaplessPlayback: true,
+      frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+        // The first frame replaces the loading overlay (errorBuilder handles
+        // failures before this runs). gaplessPlayback keeps the previous
+        // frame showing while a URL change loads, so the overlay only
+        // appears on the first load.
+        if (frame != null) return child;
+        final Widget overlay;
+        if (altUrl != null) {
+          // A smaller cached scale is showing under a faint shimmer while
+          // the required resolution loads. The placeholder follows the
+          // alternate's own completer (animated in sync with chat); the
+          // shimmer sweep stays subtle so the emote reads clearly, only
+          // hinting that a higher-res copy is coming.
+          final scheme = Theme.of(context).colorScheme;
+          final base = scheme.surface;
+          final highlight = Color.lerp(
+            base,
+            scheme.surfaceContainerHighest,
+            0.7,
+          )!;
+          overlay = Stack(
+            alignment: Alignment.center,
+            children: [
+              Image(
+                image: EmoteUrlProvider(altUrl),
+                fit: widget.fit,
+                gaplessPlayback: true,
+              ),
+              // Explicit size: bounded parents override it (tight
+              // constraints), and an unbounded parent won't see the shimmer
+              // expand to infinity.
+              SizedBox(
+                width: widget.width,
+                height: widget.height,
+                child: Shimmer.fromColors(
+                  baseColor: base.withValues(alpha: 0.25),
+                  highlightColor: highlight.withValues(alpha: 0.25),
+                  period: const Duration(milliseconds: 1200),
+                  child: const ColoredBox(color: Colors.white),
+                ),
+              ),
+            ],
+          );
+        } else {
+          overlay =
+              widget.placeholder ??
+              ShimmerEmotePlaceholder(
+                width: widget.width,
+                height: widget.height,
+              );
+        }
+        return _loadingStack(child, overlay);
+      },
+      errorBuilder: (context, error, stack) =>
+          widget.errorWidget ?? const Icon(Icons.broken_image, size: 20),
     );
-  }
-}
-
-/// Simple FIFO permit gate: [withPermit] runs [action] only once a permit is
-/// free, keeping at most [maxPermits] actions in flight (used to cap
-/// concurrent emote decodes so a grid burst doesn't spawn dozens of isolates
-/// at once).
-class _Semaphore {
-  _Semaphore(this.maxPermits) : _permits = maxPermits;
-
-  final int maxPermits;
-  int _permits;
-  final List<Completer<void>> _waiters = [];
-
-  Future<T> withPermit<T>(Future<T> Function() action) async {
-    if (_permits > 0) {
-      _permits--;
-    } else {
-      final completer = Completer<void>();
-      _waiters.add(completer);
-      await completer.future;
-    }
-    try {
-      return await action();
-    } finally {
-      if (_waiters.isNotEmpty) {
-        _waiters.removeAt(0).complete();
-      } else {
-        _permits++;
-      }
-    }
   }
 }

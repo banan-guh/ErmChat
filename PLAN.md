@@ -140,7 +140,29 @@ fallback (missing lib / decode error / tests without a host build).
 
 - **AVIF**: libavif + dav1d, same shim/FFI plumbing (`emote_decode_avif`). No provider
   emits AVIF today; the shim API stays format-agnostic so it slots in without rework.
-- **ImageCache/ImageProvider migration** of `EmoteClipRegistry` (separate effort).
+
+## ImageCache migration (done)
+
+`EmoteClipRegistry` (custom clip cache + manual Ticker playback) was retired in favor of
+the stock `Image` widget + stock `ImageCache` via `EmoteUrlProvider`
+(`lib/widgets/emote_image_provider.dart`):
+
+- `EmoteUrlProvider extends ImageProvider`, keyed by URL: animated WebP decodes through
+  the reinforced decoder, everything else through the stock engine codec
+  (`MultiFrameImageStreamCompleter`). In-flight fetches of the same URL dedup via the
+  cache; one completer per URL = shared playback clock across widgets.
+- `_EmoteImageCompleter` plays `EmoteFrameData` with a Timer (pauses when the last
+  listener detaches, resumes on re-attach), frees all frames in `onDisposed`, and
+  self-evicts from the ImageCache on error so failed loads retry on the next widget
+  (the stock cache keeps errored completers in `_pendingImages` forever).
+- Frames are handed to the completer as refcounted `ui.Image.clone()` handles, so
+  `setImage`'s per-emission disposal never frees the cached originals.
+- `EmoteImage` is now a thin stock-`Image` wrapper: the loading overlay (bare shimmer
+  or a cached smaller scale under a faint shimmer) lives inside `frameBuilder`
+  (bounded/unbounded safe via LayoutBuilder); `errorBuilder` handles failures.
+- Accepted trade-offs: byte accounting is stock (`w*h*4` per entry, i.e. one frame),
+  so the 100MB cap undercounts animated entries ~frameCountx; the 1000-entry cap is
+  the effective bound. Decode semaphore (10) moved into the provider.
 
 ## Verification
 

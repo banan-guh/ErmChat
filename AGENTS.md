@@ -71,6 +71,8 @@ dart format .              # format all Dart files
 - `lib/widgets/chat_message_tile.dart` - reusable chat message tile (badges, text spans, timestamps, tap/long-press handlers)
 - `lib/widgets/chat_view.dart` - channel chat list view (scroll handling, message cutoff, keyed reconciliation; `idToIndex` for `findChildIndexCallback` is built only over cached tile ids, bounded by `_maxCachedTiles` rather than the whole channel buffer)
 - `lib/widgets/message_builder.dart` - message widget construction shared by chat and threads (message spans cached per-message and validated against `EmoteManager.version` + `TwitchMessage.cachedSpansVersion`, so emote changes recompute lazily instead of clearing every message's spans)
+- `lib/widgets/emote_image.dart` - emote renderer: thin stock-`Image` wrapper with a loading overlay (bare shimmer or cached smaller scale under a faint shimmer) driven by `frameBuilder`; the decode stack (`decodeEmoteBytes`, animated WebP via native libwebp + pure-Dart fallback, `sniffEmoteFormat`/`webpIsAnimated`, `decodeWebpPureDart`) lives here too
+- `lib/widgets/emote_image_provider.dart` - `EmoteUrlProvider` (URL-keyed `ImageProvider`, so the stock `ImageCache` dedups fetches and shares one playback stream per URL) + the Timer-driven frame-sequence completer (pauses when the last listener detaches, resumes on re-attach, frees frames in `onDisposed`, self-evicts on error so failed loads retry); `fetchEmoteBytes` (emote disk cache + memory overflow path) and the decode semaphore moved here
 - `lib/widgets/emote_text.dart` - emote-aware text rendering with inline image spans, clickable links, zero-width overlay support
 - `lib/widgets/emote_sheet.dart` - emote detail bottom sheet (copy/share/trackpad)
 - `lib/widgets/emote_menu_panel.dart` - emote selection panel with provider tabs (Twitch/BTTV/FFZ/7TV) in a draggable scrollable sheet
@@ -107,6 +109,8 @@ dart format .              # format all Dart files
 - `color_utils_test.dart` - 18 tests: color picking, luminance, normalizeColor
 - `emote_manager_test.dart` - 61 tests: emote manager state, GenericEmote creation, relativeScale/aspectRatio JSON round-trip, per-tier TTL (12h/24h), cache cap + usage registry (cap forwarding, markEmoteViewed, registry persistence, precache-skip-at-0, one-time migrations), 7TV startup reconcile (add/remove/rename deltas, tier/broadcaster gating, failure swallow), 7TV live updates, nothing-tier no-fetch guards, tier-tag staleness
 - `emote_cache_manager_test.dart` - 6 tests: inline cap enforcement (evicts to maxObjects by least-recently-touched, registry priority overrides file touched time, cap 0 empties all, no-op under cap), full-cache no-persist behavior, isFull false under the cap, via a fake repo
+- `emote_image_test.dart` - 24 tests: format sniffing, animated-WebP dispatch fallback, production decode of the real fixtures, stock-Image widget behavior (placeholder/error/animation/shared fetch/sync re-render from cache/retry after failure, cached smaller-scale placeholder under shimmer)
+- `native_emote_codec_test.dart` - 5 tests (gated on `EMOTE_CODEC_SO`): shim load/unavailable, decode equality vs the pure-Dart reference, garbage input, repeated-decode state sanity
 - `message_builder_test.dart` - 2 tests: span cache reuse while emote version unchanged, lazy recompute on version bump
 - `emote_text_test.dart` - 16 tests: text parsing with emotes, segment building, whole-token matching, zero-width overlays
 - `twitch_auth_test.dart` - 9 tests: credential persistence and accessors
