@@ -201,6 +201,11 @@ class ChatConnectionManager {
   bool _wasConnected = false;
   bool _wasDisconnected = false;
   DateTime? _lastSubscribeAll;
+  // Credentials the IRC sockets were last told to use. Compared against the
+  // desired account on connect() so an account switch tears the sockets down
+  // (an already-connected socket otherwise skips the reconnect).
+  String? _lastIrcUsername;
+  String? _lastIrcToken;
   final _connectedAcked = <String>{};
   // Channels whose JOIN has been confirmed by the server (ROOMSTATE for that
   // channel). isConnected only reflects the socket; a fresh/reconnected socket
@@ -353,6 +358,14 @@ class ChatConnectionManager {
       t.cancel();
     }
     _chatStatusTimers.clear();
+    // Release any anonymous channel-user-ID waiters so their timeout timers
+    // don't outlive the manager (and don't trip widget-test teardown).
+    for (final waiters in _roomIdWaiters.values) {
+      for (final waiter in waiters) {
+        if (!waiter.isCompleted) waiter.complete(null);
+      }
+    }
+    _roomIdWaiters.clear();
   }
 
   void stopChatStatusTimer(String channel) {
@@ -765,7 +778,11 @@ class ChatConnectionManager {
         .getCurrentUser(auth)
         .then((user) {
           if (user != null) {
-            auth.setUser(user['login'], user['id']);
+            auth.setUser(
+              user['login'],
+              user['id'],
+              profileImageUrl: user['profile_image_url'],
+            );
           }
           return user;
         })
@@ -1166,6 +1183,20 @@ class ChatConnectionManager {
         setCurrentUserId(currentUser['id']);
       }
 
+      // Account switch: an already-connected socket would skip the reconnect
+      // and stay on the previous account. Tear the sockets down when the
+      // desired account differs from what they were last told to use. Login
+      // alone distinguishes accounts (the token always follows it); anonymous
+      // mode is a distinct, stable state (null) so it doesn't flap.
+      final desiredUsername = (getCurrentUserLogin() ?? auth.login)
+          ?.toLowerCase();
+      final desiredToken = auth.accessToken ?? 'anonymous';
+      if (_lastIrcUsername != desiredUsername ||
+          _lastIrcToken != desiredToken) {
+        irc.disconnect(emitStatus: false);
+        ircRead.disconnect(emitStatus: false);
+      }
+
       if (getCurrentUserLogin() != null && hasToken) {
         try {
           await Future.wait([
@@ -1181,16 +1212,15 @@ class ChatConnectionManager {
         } catch (e) {
           debugPrint('IRC connect failed: $e');
         }
+        _lastIrcUsername = getCurrentUserLogin()?.toLowerCase();
+        _lastIrcToken = auth.accessToken;
       } else {
         // Read-only anonymous mode: Twitch accepts a justinfan NICK without
         // credentials, which still delivers chat (with the emotes tag) but
         // can't send messages or call Helix.
         try {
           await Future.wait([
-            irc.connect(
-              username: _anonymousNick(1),
-              accessToken: 'anonymous',
-            ),
+            irc.connect(username: _anonymousNick(1), accessToken: 'anonymous'),
             ircRead.connect(
               username: _anonymousNick(2),
               accessToken: 'anonymous',
@@ -1199,6 +1229,8 @@ class ChatConnectionManager {
         } catch (e) {
           debugPrint('Anonymous IRC connect failed: $e');
         }
+        _lastIrcUsername = null;
+        _lastIrcToken = 'anonymous';
       }
 
       await eventSubFuture;

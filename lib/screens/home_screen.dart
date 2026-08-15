@@ -949,6 +949,15 @@ class _HomeScreenState extends State<HomeScreen>
   void _onAuthChanged() {
     _emoteManager.accessToken = widget.twitchAuth.accessToken;
     _refreshEmotesAfterAuth();
+    if (_currentUserLogin?.toLowerCase() !=
+        widget.twitchAuth.login?.toLowerCase()) {
+      // Account switched (or signed out): drop the cached user so the manager
+      // re-resolves the active account and reconnects with its credentials.
+      _currentUserLogin = null;
+      _currentUserId = null;
+      _scanHistoryForMentions();
+      unawaited(_ensureBlockedUsersLoaded());
+    }
     _chatConn.connect();
   }
 
@@ -2533,96 +2542,107 @@ class _HomeScreenState extends State<HomeScreen>
                         children: [
                           ColoredBox(
                             color: theme.colorScheme.surfaceContainer,
-                            child: SafeArea(
-                              bottom: false,
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 4,
-                                ),
-                                child: Row(
-                                  children: [
-                                    Padding(
-                                      padding: const EdgeInsets.only(left: 8),
-                                      child: Text(
-                                        'ErmChat',
-                                        style: TextStyle(
-                                          fontSize: 22,
-                                          fontWeight: FontWeight.w400,
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                SafeArea(
+                                  bottom: false,
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 4,
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Padding(
+                                          padding: const EdgeInsets.only(
+                                            left: 8,
+                                          ),
+                                          child: Text(
+                                            'ErmChat',
+                                            style: TextStyle(
+                                              fontSize: 22,
+                                              fontWeight: FontWeight.w400,
+                                            ),
+                                          ),
                                         ),
-                                      ),
-                                    ),
-                                    const Spacer(),
-                                    IconButton(
-                                      icon: const Icon(Icons.add),
-                                      tooltip: 'Join channel',
-                                      onPressed: _addChannelDialog,
-                                    ),
-                                    ListenableBuilder(
-                                      listenable: _mentionsBump,
-                                      builder: (context, _) => IconButton(
-                                        icon: Icon(
-                                          Icons.notifications_active,
-                                          color: _unreadMentions > 0
-                                              ? theme.colorScheme.error
-                                              : null,
+                                        const Spacer(),
+                                        IconButton(
+                                          icon: const Icon(Icons.add),
+                                          tooltip: 'Join channel',
+                                          onPressed: _addChannelDialog,
                                         ),
-                                        tooltip: 'Mentions',
-                                        onPressed: () {
-                                          _unreadMentions = 0;
-                                          _unreadWhispers = 0;
-                                          _channelsWithUnreadMentions.clear();
-                                          _unreadMentionsPerChannel.clear();
-                                          if (mounted) setState(() {});
-                                          if (_activePanel ==
-                                              OverlayPanel.mentions) {
-                                            unawaited(_closePanel());
-                                          } else {
-                                            _showMentionsView();
-                                          }
-                                        },
-                                      ),
+                                        ListenableBuilder(
+                                          listenable: _mentionsBump,
+                                          builder: (context, _) => IconButton(
+                                            icon: Icon(
+                                              Icons.notifications_active,
+                                              color: _unreadMentions > 0
+                                                  ? theme.colorScheme.error
+                                                  : null,
+                                            ),
+                                            tooltip: 'Mentions',
+                                            onPressed: () {
+                                              _unreadMentions = 0;
+                                              _unreadWhispers = 0;
+                                              _channelsWithUnreadMentions
+                                                  .clear();
+                                              _unreadMentionsPerChannel.clear();
+                                              if (mounted) setState(() {});
+                                              if (_activePanel ==
+                                                  OverlayPanel.mentions) {
+                                                unawaited(_closePanel());
+                                              } else {
+                                                _showMentionsView();
+                                              }
+                                            },
+                                          ),
+                                        ),
+                                        SettingsButton(
+                                          twitchAuth: widget.twitchAuth,
+                                          onThemeChanged: (mode) {
+                                            _tileCache.clear();
+                                            widget.onThemeChanged(mode);
+                                          },
+                                          onKeepScreenOnChanged:
+                                              widget.onKeepScreenOnChanged,
+                                          onTrueDarkChanged:
+                                              widget.onTrueDarkChanged,
+                                          onAccentColorChanged: (name) {
+                                            _tileCache.clear();
+                                            widget.onAccentColorChanged?.call(
+                                              name,
+                                            );
+                                          },
+                                          onBackgroundServiceChanged:
+                                              _setBackgroundService,
+                                          onMentionPushChanged: _setMentionPush,
+                                          onEmoteTierChanged: _applyEmoteTier,
+                                          onEmoteCacheMaxChanged:
+                                              _applyCacheCap,
+                                          onEmoteAutoModeChanged:
+                                              _applyEmoteAutoMode,
+                                          mobileNotifier: _isMobile,
+                                          channelNotifier: _channelNotifier,
+                                          onLeaveChannel: _removeChannel,
+                                          onAddChannel: _addChannel,
+                                          onReorderChannels: _reorderChannels,
+                                          analyticsService: _analytics,
+                                          channels: _channels,
+                                          onSettingsOpened: () =>
+                                              _focusNode.unfocus(),
+                                          onSettingsClosed: () {
+                                            _loadAltPings();
+                                            _loadMaxMessages();
+                                            _loadTestWidgets();
+                                            _tileCache.clear();
+                                            if (mounted) setState(() {});
+                                          },
+                                        ),
+                                      ],
                                     ),
-                                    SettingsButton(
-                                      twitchAuth: widget.twitchAuth,
-                                      onThemeChanged: (mode) {
-                                        _tileCache.clear();
-                                        widget.onThemeChanged(mode);
-                                      },
-                                      onKeepScreenOnChanged:
-                                          widget.onKeepScreenOnChanged,
-                                      onTrueDarkChanged:
-                                          widget.onTrueDarkChanged,
-                                      onAccentColorChanged: (name) {
-                                        _tileCache.clear();
-                                        widget.onAccentColorChanged?.call(name);
-                                      },
-                                      onBackgroundServiceChanged:
-                                          _setBackgroundService,
-                                      onMentionPushChanged: _setMentionPush,
-                                      onEmoteTierChanged: _applyEmoteTier,
-                                      onEmoteCacheMaxChanged: _applyCacheCap,
-                                      onEmoteAutoModeChanged:
-                                          _applyEmoteAutoMode,
-                                      mobileNotifier: _isMobile,
-                                      channelNotifier: _channelNotifier,
-                                      onLeaveChannel: _removeChannel,
-                                      onAddChannel: _addChannel,
-                                      onReorderChannels: _reorderChannels,
-                                      analyticsService: _analytics,
-                                      channels: _channels,
-                                      onSettingsOpened: () =>
-                                          _focusNode.unfocus(),
-                                      onSettingsClosed: () {
-                                        _loadAltPings();
-                                        _loadMaxMessages();
-                                        _loadTestWidgets();
-                                        _tileCache.clear();
-                                        if (mounted) setState(() {});
-                                      },
-                                    ),
-                                  ],
+                                  ),
                                 ),
-                              ),
+                              ],
                             ),
                           ),
                           Expanded(

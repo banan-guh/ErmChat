@@ -80,7 +80,7 @@
 - [x] **Analytics** - Live per-channel chat analytics (total messages, unique chatters, rolling msgs/min, top chatters/emotes/words, bans/timeouts) surfaced via a Settings screen entry; accumulated client-side with no persistence.
 - [x] **Thread customization** - Currently locked into replying to previous user. should allow replying to the first user.
 - [x] **Add 0-width emotes to popup** - use tab bar menu, small addition
-- [ ] **Account switcher** - Quickly switch between logged-in Twitch accounts without going through the full login flow each time.
+- [x] **Account switcher** - Quickly switch between logged-in Twitch accounts without going through the full login flow each time.
 - [ ] **AVIF support** - Decode AVIF emotes via libavif + dav1d through the existing FFI shim (`emote_decode_avif`; the shim API is already format-agnostic, see PLAN.md). 7tv uses AVIF so if we can get this to work we can save lots.
 - [ ] **Token refresh instead of re-auth every 60 days** - Access tokens expire roughly every 60 days; implement a refresh path instead of forcing full re-auth. Note: implicit-grant tokens (`response_type=token`) can't be refreshed - requires an auth flow change (e.g. device code grant).
 - [x] **Parallelize startup loading** - Increase overall loading speed by running independent startup fetches (emotes, badges, history, chat status) concurrently.

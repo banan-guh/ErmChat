@@ -55,6 +55,14 @@ class _AccountScreenState extends State<AccountScreen> {
     try {
       final user = await _twitchApi.getCurrentUser(auth);
       login = user?['login'];
+      if (login != null && login.isNotEmpty) {
+        // Keep the saved account's avatar fresh on every resolution.
+        auth.setUser(
+          login,
+          user?['id'],
+          profileImageUrl: user?['profile_image_url'],
+        );
+      }
     } catch (_) {
       login = null;
     }
@@ -166,13 +174,21 @@ class _AccountScreenState extends State<AccountScreen> {
     });
   }
 
-  void _clearCredentials() {
-    widget.twitchAuth.clear();
+  Future<void> _clearCredentials() async {
+    await widget.twitchAuth.clear();
+    if (!mounted) return;
     setState(() {
-      _authState = _AuthState.idle;
+      // With multiple saved accounts, clearing the active one falls back to
+      // the next account instead of logging out entirely.
+      _authState = widget.twitchAuth.isConfigured
+          ? _AuthState.success
+          : _AuthState.idle;
       _authError = null;
       _connectedLogin = null;
     });
+    if (widget.twitchAuth.isConfigured) {
+      _loadConnectedLogin();
+    }
   }
 
   @override
@@ -181,6 +197,7 @@ class _AccountScreenState extends State<AccountScreen> {
       appBar: AppBar(title: const Text('Account')),
       body: ListView(
         children: [
+          if (widget.twitchAuth.accounts.isNotEmpty) _buildAccountSection(),
           _buildBody(),
           SwitchListTile(
             title: const Text('Use browser for OAuth'),
@@ -196,6 +213,81 @@ class _AccountScreenState extends State<AccountScreen> {
         ],
       ),
     );
+  }
+
+  // Saved accounts: tap to switch, long-press to remove (with confirmation).
+  Widget _buildAccountSection() {
+    final auth = widget.twitchAuth;
+    return ListenableBuilder(
+      listenable: auth,
+      builder: (context, _) {
+        final accounts = auth.accounts;
+        if (accounts.isEmpty) return const SizedBox.shrink();
+        final theme = Theme.of(context);
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+              child: Text(
+                'Accounts',
+                style: theme.textTheme.titleSmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+            for (final account in accounts)
+              ListTile(
+                leading: _AccountAvatar(account: account),
+                title: Text(account.login),
+                subtitle:
+                    account.login.toLowerCase() == auth.login?.toLowerCase()
+                    ? const Text('Active')
+                    : null,
+                trailing:
+                    account.login.toLowerCase() == auth.login?.toLowerCase()
+                    ? Icon(Icons.check, color: theme.colorScheme.primary)
+                    : null,
+                onTap: () => auth.switchTo(account.login),
+                onLongPress: () => _confirmRemove(account),
+              ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _confirmRemove(TwitchAccount account) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Remove account?'),
+        content: Text('Are you sure you want to remove @${account.login}?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    await widget.twitchAuth.removeAccount(account.login);
+    if (!mounted) return;
+    setState(() {
+      _authState = widget.twitchAuth.isConfigured
+          ? _AuthState.success
+          : _AuthState.idle;
+      _authError = null;
+      _connectedLogin = null;
+    });
+    if (widget.twitchAuth.isConfigured) {
+      _loadConnectedLogin();
+    }
   }
 
   Widget _buildBody() {
@@ -341,18 +433,29 @@ class _AccountScreenState extends State<AccountScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.check_circle, size: 64, color: Colors.green),
-                const SizedBox(height: 16),
+                Icon(Icons.check_circle, size: 40, color: Colors.green),
+                const SizedBox(height: 8),
                 Text(
                   _connectedLogin != null
                       ? 'Connected as $_connectedLogin'
                       : 'Connected',
                 ),
-                const SizedBox(height: 24),
-                TextButton.icon(
-                  onPressed: _clearCredentials,
-                  icon: const Icon(Icons.logout),
-                  label: const Text('Disconnect'),
+                const SizedBox(height: 16),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    OutlinedButton.icon(
+                      onPressed: _startOAuth,
+                      icon: const Icon(Icons.person_add),
+                      label: const Text('Add account'),
+                    ),
+                    const SizedBox(width: 12),
+                    TextButton.icon(
+                      onPressed: _clearCredentials,
+                      icon: const Icon(Icons.logout),
+                      label: const Text('Disconnect'),
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -386,5 +489,37 @@ class _AccountScreenState extends State<AccountScreen> {
           ),
         );
     }
+  }
+}
+
+// Account avatar: the saved profile picture when available, otherwise the
+// first letter of the login.
+class _AccountAvatar extends StatelessWidget {
+  final TwitchAccount account;
+
+  const _AccountAvatar({required this.account});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final letter = Text(
+      account.login.isEmpty ? '?' : account.login[0].toUpperCase(),
+      style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
+    );
+    final url = account.profileImageUrl;
+    if (url == null || url.isEmpty) {
+      return CircleAvatar(
+        radius: 18,
+        backgroundColor: theme.colorScheme.surfaceContainerHighest,
+        child: letter,
+      );
+    }
+    return CircleAvatar(
+      radius: 18,
+      backgroundColor: theme.colorScheme.surfaceContainerHighest,
+      foregroundImage: NetworkImage(url),
+      onForegroundImageError: (_, _) {},
+      child: letter,
+    );
   }
 }

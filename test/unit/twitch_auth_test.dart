@@ -89,5 +89,108 @@ void main() {
       expect(auth.login, isNull);
       expect(auth.userId, isNull);
     });
+
+    test('setCredentials + setUser registers multiple accounts', () async {
+      final auth = TwitchAuth();
+      auth.setCredentials(accessToken: 'token_a');
+      auth.setUser('alice', '111');
+      auth.setCredentials(accessToken: 'token_b');
+      auth.setUser('bob', '222');
+      expect(auth.accounts.length, 2);
+      expect(auth.accounts.map((a) => a.login), containsAll(['alice', 'bob']));
+      expect(auth.login, 'bob');
+    });
+
+    test('switchTo changes the active account', () async {
+      final auth = TwitchAuth();
+      auth.setCredentials(accessToken: 'token_a');
+      auth.setUser('alice', '111');
+      auth.setCredentials(accessToken: 'token_b');
+      auth.setUser('bob', '222');
+
+      await auth.switchTo('alice');
+      expect(auth.login, 'alice');
+      expect(auth.accessToken, 'token_a');
+      expect(auth.isConfigured, isTrue);
+
+      await auth.switchTo('bob');
+      expect(auth.login, 'bob');
+      expect(auth.accessToken, 'token_b');
+    });
+
+    test('accounts persist across load with active login', () async {
+      final auth = TwitchAuth();
+      auth.setCredentials(accessToken: 'token_a');
+      auth.setUser('alice', '111');
+      auth.setCredentials(accessToken: 'token_b');
+      auth.setUser('bob', '222');
+      await auth.switchTo('alice');
+
+      final reloaded = TwitchAuth();
+      await reloaded.load();
+      expect(reloaded.accounts.length, 2);
+      expect(reloaded.login, 'alice');
+      expect(reloaded.accessToken, 'token_a');
+      expect(reloaded.userId, '111');
+    });
+
+    test('removeAccount falls back to the next account', () async {
+      final auth = TwitchAuth();
+      auth.setCredentials(accessToken: 'token_a');
+      auth.setUser('alice', '111');
+      auth.setCredentials(accessToken: 'token_b');
+      auth.setUser('bob', '222');
+      await auth.switchTo('alice');
+
+      await auth.removeAccount('alice');
+      expect(auth.accounts.length, 1);
+      expect(auth.login, 'bob');
+      expect(auth.accessToken, 'token_b');
+    });
+
+    test('removeAccount of the last account logs out', () async {
+      final auth = TwitchAuth();
+      auth.setCredentials(accessToken: 'token_a');
+      auth.setUser('alice', '111');
+
+      await auth.removeAccount('alice');
+      expect(auth.accounts, isEmpty);
+      expect(auth.accessToken, isNull);
+      expect(auth.login, isNull);
+      expect(auth.isConfigured, isFalse);
+    });
+
+    test('setUser persists profile image url', () async {
+      final auth = TwitchAuth();
+      auth.setCredentials(accessToken: 'token_a');
+      auth.setUser(
+        'alice',
+        '111',
+        profileImageUrl: 'https://example.com/a.png',
+      );
+      await auth.switchTo('alice');
+
+      expect(auth.profileImageUrl, 'https://example.com/a.png');
+      expect(auth.accounts.single.profileImageUrl, 'https://example.com/a.png');
+
+      final reloaded = TwitchAuth();
+      await reloaded.load();
+      expect(reloaded.login, 'alice');
+      expect(reloaded.profileImageUrl, 'https://example.com/a.png');
+    });
+
+    test('clear removes the active account and falls back', () async {
+      final auth = TwitchAuth();
+      auth.setCredentials(accessToken: 'token_a');
+      auth.setUser('alice', '111');
+      auth.setCredentials(accessToken: 'token_b');
+      auth.setUser('bob', '222');
+      await auth.switchTo('alice');
+
+      await auth.clear();
+      expect(auth.accounts.length, 1);
+      expect(auth.login, 'bob');
+      expect(auth.accessToken, 'token_b');
+    });
   });
 }

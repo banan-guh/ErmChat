@@ -280,6 +280,17 @@ abstract class BaseIrcConnection {
 
   /// Kills the (possibly zombie) socket and re-enters the reconnect loop;
   /// used when [checkAlive] fails but the socket never errored on its own.
+  /// Tears down the socket without scheduling a reconnect. Used when the
+  /// credentials change (account switch) so the next [connect] can attach the
+  /// new account instead of being skipped by the already-connected check.
+  void disconnect({bool emitStatus = true}) {
+    if (channel == null) return;
+    _disconnect();
+    if (emitStatus) {
+      _statusController.add(IrcConnectionStatus.disconnected);
+    }
+  }
+
   void forceReconnect() {
     if (channel == null) return;
     debugPrint('$debugPrefix force reconnect (unhealthy socket)');

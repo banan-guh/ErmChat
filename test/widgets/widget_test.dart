@@ -277,7 +277,13 @@ void main() {
   testWidgets('Home screen shows credentials message when not configured', (
     WidgetTester tester,
   ) async {
-    await tester.pumpWidget(const TwitchChatApp());
+    await tester.pumpWidget(
+      TwitchChatApp(
+        eventSubService: _FakeEventSubService(),
+        ircService: _FakeIrcService(),
+        recentMessagesService: _FakeRecentMessagesService(),
+      ),
+    );
     await tester.pump();
 
     expect(find.byIcon(Icons.add), findsOneWidget);
@@ -286,6 +292,8 @@ void main() {
       find.text('Configure Twitch credentials in Settings first'),
       findsOneWidget,
     );
+    // Let the anonymous-mode socket attempts resolve so no timer pends.
+    await tester.pumpAndSettle();
   });
 
   testWidgets('Plus button opens join channel dialog', (
@@ -413,10 +421,18 @@ void main() {
   testWidgets('Shows notification bell without badge when no mentions', (
     WidgetTester tester,
   ) async {
-    await tester.pumpWidget(const TwitchChatApp());
+    await tester.pumpWidget(
+      TwitchChatApp(
+        eventSubService: _FakeEventSubService(),
+        ircService: _FakeIrcService(),
+        recentMessagesService: _FakeRecentMessagesService(),
+      ),
+    );
     await tester.pump();
 
     expect(find.byIcon(Icons.notifications_active), findsOneWidget);
+    // Let the anonymous-mode socket attempts resolve so no timer pends.
+    await tester.pumpAndSettle();
   });
 
   testWidgets('Notification bell opens mentions modal', (

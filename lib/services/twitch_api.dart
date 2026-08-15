@@ -57,7 +57,7 @@ class TwitchApi {
     }
   }
 
-  Future<Map<String, String>?> getCurrentUser(TwitchAuth auth) async {
+  Future<Map<String, String?>?> getCurrentUser(TwitchAuth auth) async {
     _clearError();
     final uri = Uri.parse('$_base/users');
     final res = await _client.get(uri, headers: _headers(auth));
@@ -72,9 +72,13 @@ class TwitchApi {
         _setError('No user associated with token');
         return null;
       }
+      final raw = list[0] as Map;
+      final login = raw['login'] as String? ?? '';
       return {
-        'id': list[0]['id'] as String,
-        'login': list[0]['login'] as String,
+        'id': raw['id'] as String?,
+        'login': login,
+        'display_name': raw['display_name'] as String? ?? login,
+        'profile_image_url': raw['profile_image_url'] as String?,
       };
     } catch (e) {
       _setError('getCurrentUser: bad response');

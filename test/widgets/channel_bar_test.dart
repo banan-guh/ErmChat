@@ -41,6 +41,8 @@ void main() {
       await tester.pump();
 
       expect(find.byType(TabBar), findsNothing);
+      // Let the anonymous-mode socket attempts resolve so no timer pends.
+      await tester.pumpAndSettle();
     });
 
     testWidgets('renders channel name after joining', (

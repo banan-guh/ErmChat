@@ -64,11 +64,8 @@ Future<ServiceRequestResult> startForegroundService(
     return const ServiceRequestFailure(error: 'no channels');
   }
 
-  final title =
-      'Live chat: ${channelNames.take(2).map((c) => '#$c').join(', ')}';
-  final text = channelNames.length > 2
-      ? '+${channelNames.length - 2} more'
-      : 'Connected in background';
+  final title = 'g;pr[SomgomgAtYou';
+  final text = 'alias of glorpKaraoke';
 
   if (await FlutterForegroundTask.isRunningService) {
     return FlutterForegroundTask.updateService(
