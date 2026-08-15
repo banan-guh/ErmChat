@@ -119,26 +119,29 @@ void main() {
       }
     });
 
-    test('round-trips urlLarge', () {
+    test('round-trips url1x/url3x', () {
       final original = GenericEmote(
         id: 'id-url',
         code: 'Emote',
         type: EmoteType.bttv,
         url: 'https://example.com/2x.png',
-        urlLarge: 'https://example.com/3x.png',
+        url1x: 'https://example.com/1x.png',
+        url3x: 'https://example.com/3x.png',
       );
       final restored = GenericEmote.fromJson(original.toJson());
-      expect(restored.urlLarge, original.urlLarge);
+      expect(restored.url1x, original.url1x);
+      expect(restored.url3x, original.url3x);
     });
 
-    test('urlLarge is null when not provided', () {
+    test('url1x/url3x are null when not provided', () {
       final e = GenericEmote(
         id: '1',
         code: 'Test',
         type: EmoteType.bttv,
         url: 'https://example.com/1x.png',
       );
-      expect(e.urlLarge, isNull);
+      expect(e.url1x, isNull);
+      expect(e.url3x, isNull);
     });
   });
 

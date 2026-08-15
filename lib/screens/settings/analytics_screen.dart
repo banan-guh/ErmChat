@@ -275,6 +275,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             width: 28,
             height: 28,
             fit: BoxFit.contain,
+            alternateUrls: [if (entry.emote.url1x != null) entry.emote.url1x!],
             errorWidget: const SizedBox(width: 28, height: 28),
           ),
           title: Text(entry.emote.code),

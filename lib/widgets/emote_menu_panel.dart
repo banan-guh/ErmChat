@@ -460,6 +460,7 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
             width: double.infinity,
             height: double.infinity,
             fit: BoxFit.contain,
+            alternateUrls: [if (emote.url1x != null) emote.url1x!],
             errorWidget: const Icon(Icons.broken_image, size: 20),
           ),
         ),

@@ -1,11 +1,12 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:typed_data';
 import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
+import 'package:shimmer/shimmer.dart';
 
 import 'package:ermchat/widgets/emote_image.dart';
 
@@ -107,8 +108,10 @@ void main() {
 
     test('returns false for truncated or non-WebP bytes', () {
       expect(webpIsAnimated(Uint8List(4)), isFalse);
-      expect(webpIsAnimated(Uint8List.fromList('RIFF....WEBP'.codeUnits)),
-          isFalse);
+      expect(
+        webpIsAnimated(Uint8List.fromList('RIFF....WEBP'.codeUnits)),
+        isFalse,
+      );
     });
   });
 
@@ -134,25 +137,28 @@ void main() {
       EmoteClipRegistry.instance.release(url);
     });
 
-    test('re-acquires after the last release uses cached frames (no re-fetch)', () async {
-      var fetches = 0;
-      EmoteClipRegistry.debugFetchOverride = (url) async {
-        fetches++;
-        return Uint8List.fromList('GIF89a'.codeUnits);
-      };
-      EmoteClipRegistry.debugDecodeOverride = (bytes) async => EmoteFrameData(
-        frames: [await _makeImage(255, 0, 0)],
-        durations: const [Duration.zero],
-      );
+    test(
+      're-acquires after the last release uses cached frames (no re-fetch)',
+      () async {
+        var fetches = 0;
+        EmoteClipRegistry.debugFetchOverride = (url) async {
+          fetches++;
+          return Uint8List.fromList('GIF89a'.codeUnits);
+        };
+        EmoteClipRegistry.debugDecodeOverride = (bytes) async => EmoteFrameData(
+          frames: [await _makeImage(255, 0, 0)],
+          durations: const [Duration.zero],
+        );
 
-      final url = 'https://example.com/emote.gif';
-      await EmoteClipRegistry.instance.acquire(url);
-      EmoteClipRegistry.instance.release(url);
-      await EmoteClipRegistry.instance.acquire(url);
-      // With the new "keep forever" behavior, re-acquire should use cached frames
-      expect(fetches, 1);
-      EmoteClipRegistry.instance.release(url);
-    });
+        final url = 'https://example.com/emote.gif';
+        await EmoteClipRegistry.instance.acquire(url);
+        EmoteClipRegistry.instance.release(url);
+        await EmoteClipRegistry.instance.acquire(url);
+        // With the new "keep forever" behavior, re-acquire should use cached frames
+        expect(fetches, 1);
+        EmoteClipRegistry.instance.release(url);
+      },
+    );
 
     test('propagates fetch errors and retries on the next acquire', () async {
       var fetches = 0;
@@ -418,11 +424,7 @@ void main() {
       expect(find.byType(RawImage), findsOneWidget);
 
       // Recreate the whole tree with a fresh State (simulates a new tile).
-      await tester.pumpWidget(
-        const MaterialApp(
-          home: SizedBox.shrink(),
-        ),
-      );
+      await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
       await tester.pump();
 
       // A brand-new widget for the same URL must render the cached frame on
@@ -479,19 +481,234 @@ void main() {
       }
 
       await pumpTwo();
-      final raws = tester
-          .widgetList<RawImage>(find.byType(RawImage))
-          .toList();
+      final raws = tester.widgetList<RawImage>(find.byType(RawImage)).toList();
       expect(raws, hasLength(2));
       expect(raws[0].image, same(frame0));
       expect(raws[1].image, same(frame0));
 
       await tester.pump(const Duration(milliseconds: 100));
-      final raws2 = tester
-          .widgetList<RawImage>(find.byType(RawImage))
-          .toList();
+      final raws2 = tester.widgetList<RawImage>(find.byType(RawImage)).toList();
       expect(raws2[0].image, same(frame1));
       expect(raws2[1].image, same(frame1));
+    });
+
+    group('cached smaller-scale placeholder', () {
+      testWidgets('renders a cached alternate under a faint shimmer while the '
+          'required URL is delayed, then swaps', (tester) async {
+        final requiredFrame = await tester.runAsync(
+          () => _makeImage(0, 0, 255),
+        );
+        final altFrame = await tester.runAsync(() => _makeImage(255, 0, 0));
+        final requiredGate = Completer<Uint8List>();
+        final altBytes = Uint8List.fromList([1, 2, 3]);
+        final requiredBytes = Uint8List.fromList([4, 5, 6]);
+
+        // The required URL is slow; the alternate is already decoded in the
+        // registry (simulating a 1x that was rendered before).
+        final altUrl = 'https://example.com/emote_1x.gif';
+        EmoteClipRegistry.debugFetchOverride = (url) {
+          if (url == altUrl) {
+            return Future.value(altBytes);
+          }
+          return requiredGate.future;
+        };
+        // URL-aware decode: the in-flight load captured this override at
+        // acquire time, so it must distinguish the two URLs' bytes itself.
+        EmoteClipRegistry.debugDecodeOverride = (bytes) async => EmoteFrameData(
+          frames: [listEquals(bytes, altBytes) ? altFrame! : requiredFrame!],
+          durations: const [Duration.zero],
+        );
+        // Pre-seed the registry with the alternate so the probe finds it.
+        await EmoteClipRegistry.instance.acquire(altUrl);
+        EmoteClipRegistry.instance.release(altUrl);
+        // The registry keeps the decoded frames after release, so a later
+        // acquire is instant.
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: EmoteImage(
+                url: 'https://example.com/emote.gif',
+                width: 28,
+                height: 28,
+                alternateUrls: [altUrl],
+              ),
+            ),
+          ),
+        );
+        await tester.pump();
+
+        // The placeholder renders the cached alternate under a Shimmer.
+        final raw = tester.widget<RawImage>(find.byType(RawImage));
+        expect(raw.image, same(altFrame));
+        expect(find.byType(Shimmer), findsWidgets);
+
+        // Required URL lands; the placeholder is replaced.
+        requiredGate.complete(requiredBytes);
+        await tester.pump();
+        await tester.pump();
+        final raws = tester
+            .widgetList<RawImage>(find.byType(RawImage))
+            .toList();
+        expect(raws, hasLength(1));
+        expect(raws.single.image, same(requiredFrame));
+        expect(find.byType(Shimmer), findsNothing);
+      });
+
+      testWidgets('falls back to bare shimmer when no alternate is cached', (
+        tester,
+      ) async {
+        final frame = await tester.runAsync(() => _makeImage(0, 0, 255));
+        final gate = Completer<Uint8List>();
+        EmoteClipRegistry.debugFetchOverride = (url) => gate.future;
+        EmoteClipRegistry.debugDecodeOverride = (bytes) async =>
+            EmoteFrameData(frames: [frame!], durations: const [Duration.zero]);
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: EmoteImage(
+                url: 'https://example.com/emote.gif',
+                width: 28,
+                height: 28,
+                alternateUrls: const ['https://example.com/emote_1x.gif'],
+              ),
+            ),
+          ),
+        );
+        await tester.pump();
+
+        expect(find.byType(RawImage), findsNothing);
+        expect(find.byType(Shimmer), findsOneWidget);
+
+        gate.complete(Uint8List.fromList([1, 2, 3]));
+        await tester.pump();
+        await tester.pump();
+        expect(find.byType(RawImage), findsOneWidget);
+        expect(find.byType(Shimmer), findsNothing);
+      });
+
+      testWidgets(
+        'a registry-sourced placeholder animates on the shared clock',
+        (tester) async {
+          final altFrame0 = await tester.runAsync(() => _makeImage(255, 0, 0));
+          final altFrame1 = await tester.runAsync(() => _makeImage(0, 255, 0));
+          final gate = Completer<Uint8List>();
+          final altBytes = Uint8List.fromList([1, 2, 3]);
+
+          final altUrl = 'https://example.com/emote_1x.gif';
+          EmoteClipRegistry.debugFetchOverride = (url) {
+            if (url == altUrl) return Future.value(altBytes);
+            return gate.future;
+          };
+          EmoteClipRegistry.debugDecodeOverride = (bytes) async =>
+              EmoteFrameData(
+                frames: [altFrame0!, altFrame1!],
+                durations: const [
+                  Duration(milliseconds: 100),
+                  Duration(milliseconds: 200),
+                ],
+              );
+          // Pre-seed the alternate clip so the placeholder is registry-sourced.
+          await EmoteClipRegistry.instance.acquire(altUrl);
+          EmoteClipRegistry.instance.release(altUrl);
+
+          await tester.pumpWidget(
+            MaterialApp(
+              home: Scaffold(
+                body: EmoteImage(
+                  url: 'https://example.com/emote.gif',
+                  width: 28,
+                  height: 28,
+                  alternateUrls: [altUrl],
+                ),
+              ),
+            ),
+          );
+          await tester.pump();
+
+          // The placeholder follows the alternate clip's shared playback clock.
+          RawImage raw() => tester.widget<RawImage>(find.byType(RawImage));
+          expect(raw().image, same(altFrame0));
+          await tester.pump(const Duration(milliseconds: 100));
+          expect(raw().image, same(altFrame1));
+        },
+      );
+
+      testWidgets('swap seeds the required clip at the placeholder position', (
+        tester,
+      ) async {
+        final altFrame0 = await tester.runAsync(() => _makeImage(255, 0, 0));
+        final altFrame1 = await tester.runAsync(() => _makeImage(0, 255, 0));
+        final requiredFrame0 = await tester.runAsync(
+          () => _makeImage(0, 0, 255),
+        );
+        final requiredFrame1 = await tester.runAsync(
+          () => _makeImage(255, 255, 0),
+        );
+        final requiredGate = Completer<Uint8List>();
+        final altBytes = Uint8List.fromList([1, 2, 3]);
+        final requiredBytes = Uint8List.fromList([4, 5, 6]);
+
+        final altUrl = 'https://example.com/emote_1x.gif';
+        final requiredUrl = 'https://example.com/emote.gif';
+        EmoteClipRegistry.debugFetchOverride = (url) {
+          if (url == altUrl) return Future.value(altBytes);
+          return requiredGate.future;
+        };
+        EmoteClipRegistry.debugDecodeOverride = (bytes) async {
+          if (listEquals(bytes, altBytes)) {
+            return EmoteFrameData(
+              frames: [altFrame0!, altFrame1!],
+              durations: const [
+                Duration(milliseconds: 100),
+                Duration(milliseconds: 200),
+              ],
+            );
+          }
+          return EmoteFrameData(
+            frames: [requiredFrame0!, requiredFrame1!],
+            durations: const [
+              Duration(milliseconds: 100),
+              Duration(milliseconds: 200),
+            ],
+          );
+        };
+        // Pre-seed the alternate clip (registry-sourced placeholder).
+        await EmoteClipRegistry.instance.acquire(altUrl);
+        EmoteClipRegistry.instance.release(altUrl);
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: EmoteImage(
+                url: requiredUrl,
+                width: 28,
+                height: 28,
+                alternateUrls: [altUrl],
+              ),
+            ),
+          ),
+        );
+        await tester.pump();
+
+        // The placeholder advances to frame 1 (100ms into the loop).
+        await tester.pump(const Duration(milliseconds: 100));
+        RawImage raw() => tester.widget<RawImage>(find.byType(RawImage));
+        expect(raw().image, same(altFrame1));
+
+        // Required URL lands; the new clip must pick up at the same position
+        // (frame 1), not restart from frame 0.
+        requiredGate.complete(requiredBytes);
+        await tester.pump();
+        await tester.pump();
+        final raws = tester
+            .widgetList<RawImage>(find.byType(RawImage))
+            .toList();
+        expect(raws, hasLength(1));
+        expect(raws.single.image, same(requiredFrame1));
+        expect(find.byType(Shimmer), findsNothing);
+      });
     });
   });
 }

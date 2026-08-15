@@ -50,11 +50,15 @@ class BttvEmoteProvider {
       final isAnimated = item['imageType'] == 'gif';
       // Chat renders at ~28dp; low fetches the 1x tier, medium/high the 2x
       // (56px) which covers up to 2x device pixel ratio without the byte cost
-      // of 3x. 3x stays for the large sheet/menu on high only.
+      // of 3x. 3x stays for the large sheet/menu on high only. The 1x/3x URLs
+      // are always derivable from the pattern, so both scale fields are
+      // populated regardless of tier (1x doubles as the cached-fallback
+      // placeholder).
       final url = resolution == EmoteResolution.low
           ? 'https://cdn.betterttv.net/emote/$id/1x'
           : 'https://cdn.betterttv.net/emote/$id/2x';
-      final urlLarge = resolution == EmoteResolution.high
+      final url1x = 'https://cdn.betterttv.net/emote/$id/1x';
+      final url3x = resolution == EmoteResolution.high
           ? 'https://cdn.betterttv.net/emote/$id/3x'
           : null;
 
@@ -74,7 +78,8 @@ class BttvEmoteProvider {
           code: code,
           type: EmoteType.bttv,
           url: url,
-          urlLarge: urlLarge,
+          url1x: url1x,
+          url3x: url3x,
           isAnimated: isAnimated,
           scope: global
               ? EmoteScope.global

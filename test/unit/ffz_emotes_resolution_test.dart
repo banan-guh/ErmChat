@@ -151,31 +151,44 @@ void main() {
       return FfzEmoteProvider.fetchGlobal(resolution: resolution);
     }
 
-    test('low uses the 1x url and never sets urlLarge', () async {
+    test('low uses the 1x url with url1x and keeps the 4x as url3x', () async {
       final result = await fetchGlobal(
         EmoteResolution.low,
         urls: {'1': '$base/1', '2': '$base/2', '4': '$base/4'},
       );
       expect(result.single.url, '$base/1');
-      expect(result.single.urlLarge, isNull);
+      expect(result.single.url1x, '$base/1');
+      expect(result.single.url3x, '$base/4');
     });
 
-    test('medium uses the 2x url and never sets urlLarge', () async {
+    test('medium uses the 2x url with url1x and the 4x url3x', () async {
       final result = await fetchGlobal(
         EmoteResolution.medium,
         urls: {'1': '$base/1', '2': '$base/2', '4': '$base/4'},
       );
       expect(result.single.url, '$base/2');
-      expect(result.single.urlLarge, isNull);
+      expect(result.single.url1x, '$base/1');
+      expect(result.single.url3x, '$base/4');
     });
 
-    test('high uses the 2x url and still never sets urlLarge', () async {
+    test('high uses the 2x url with url1x and the 4x url3x', () async {
       final result = await fetchGlobal(
         EmoteResolution.high,
         urls: {'1': '$base/1', '2': '$base/2', '4': '$base/4'},
       );
       expect(result.single.url, '$base/2');
-      expect(result.single.urlLarge, isNull);
+      expect(result.single.url1x, '$base/1');
+      expect(result.single.url3x, '$base/4');
+    });
+
+    test('drops url1x/url3x when the emote lacks those sizes', () async {
+      final result = await fetchGlobal(
+        EmoteResolution.medium,
+        urls: {'2': '$base/2'},
+      );
+      expect(result.single.url, '$base/2');
+      expect(result.single.url1x, isNull);
+      expect(result.single.url3x, isNull);
     });
 
     test('never emits a 4x url even as a fallback', () async {

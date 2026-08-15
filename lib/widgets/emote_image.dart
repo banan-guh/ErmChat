@@ -111,9 +111,17 @@ class EmoteClipRegistry {
   /// Subscribes [listener] to the shared playback clock for [url], starting
   /// the shared ticker once frames are available. Must be called after
   /// [acquire] so the clip exists and the ref is held.
-  void subscribe(String url, VoidCallback listener) {
+  ///
+  /// [startOffset] seeds a fresh clip's playback position (e.g. when a
+  /// higher-res copy replaces a placeholder so the animation continues from
+  /// where the old clip was instead of restarting). It is ignored when the
+  /// clip is already playing.
+  void subscribe(String url, VoidCallback listener, {Duration? startOffset}) {
     final clip = _clips[url];
     if (clip == null) return;
+    if (startOffset != null && !clip.hasActiveListeners) {
+      clip.seedPlayback(startOffset);
+    }
     clip.addListener(listener);
     clip.startPlaybackIfNeeded();
   }
@@ -131,6 +139,21 @@ class EmoteClipRegistry {
 
   /// Current shared frame index for [url] (0 when not cached).
   int currentFrame(String url) => _clips[url]?.frameIndex ?? 0;
+
+  /// Current playback position for [url] (frame-aligned: the sum of durations
+  /// up to the current frame). Zero when not cached.
+  Duration currentElapsed(String url) {
+    final clip = _clips[url];
+    final frames = clip?.frames;
+    if (clip == null || frames == null || frames.frames.isEmpty) {
+      return Duration.zero;
+    }
+    var total = Duration.zero;
+    for (var i = 0; i < clip.frameIndex && i < frames.durations.length; i++) {
+      total += frames.durations[i];
+    }
+    return total;
+  }
 
   /// Test hook; disposes and drops every cached clip. Clips with active refs
   /// or listeners are left alone so widgets mid-paint never reference a
@@ -223,16 +246,35 @@ class _EmoteClip extends ChangeNotifier {
   Ticker? _ticker;
   int _frameIndex = 0;
 
+  /// Playback offset in microseconds applied to the ticker's elapsed time,
+  /// so a clip can start mid-animation (e.g. when a higher-res copy replaces
+  /// a placeholder without restarting the loop).
+  int _startOffsetUs = 0;
+
   /// Current frame index of the shared playback clock.
   int get frameIndex => _frameIndex;
 
   /// Whether any [EmoteImage] is currently rendering this clip.
   bool get hasActiveListeners => hasListeners;
 
+  /// Seeds the playback position for a not-yet-playing clip from [offset]
+  /// (frame-aligned). Has no effect once the ticker is running.
+  void seedPlayback(Duration offset) {
+    if (_ticker != null) return;
+    final frames = this.frames;
+    if (frames == null || frames.frames.isEmpty) return;
+    final totalUs = frames.totalDuration.inMicroseconds;
+    _startOffsetUs = totalUs > 0 ? offset.inMicroseconds % totalUs : 0;
+    _frameIndex = _frameAt(_startOffsetUs);
+  }
+
   /// Starts the shared ticker when the clip is animated and has listeners.
   void startPlaybackIfNeeded() {
     final frames = this.frames;
-    if (_ticker != null || !hasListeners || frames == null || !frames.isAnimated) {
+    if (_ticker != null ||
+        !hasListeners ||
+        frames == null ||
+        !frames.isAnimated) {
       return;
     }
     _ticker = Ticker(_onTick, debugLabel: 'emote-$url')..start();
@@ -244,26 +286,28 @@ class _EmoteClip extends ChangeNotifier {
     _ticker = null;
   }
 
+  /// Frame index for the given elapsed time within this clip's frame timeline.
+  int _frameAt(int elapsedUs) {
+    final frames = this.frames;
+    if (frames == null || frames.frames.isEmpty) return 0;
+    var t = elapsedUs;
+    for (var i = 0; i < frames.durations.length; i++) {
+      final d = frames.durations[i].inMicroseconds;
+      if (t < d) return i;
+      t -= d;
+    }
+    return frames.frames.length - 1;
+  }
+
   void _onTick(Duration elapsed) {
     final frames = this.frames;
     if (frames == null || !frames.isAnimated) return;
     final totalUs = frames.totalDuration.inMicroseconds;
     if (totalUs <= 0) return;
-    var t = elapsed.inMicroseconds % totalUs;
-    for (var i = 0; i < frames.durations.length; i++) {
-      final d = frames.durations[i].inMicroseconds;
-      if (t < d) {
-        if (i != _frameIndex) {
-          _frameIndex = i;
-          notifyListeners();
-        }
-        return;
-      }
-      t -= d;
-    }
-    final last = frames.frames.length - 1;
-    if (last != _frameIndex) {
-      _frameIndex = last;
+    final t = (elapsed.inMicroseconds + _startOffsetUs) % totalUs;
+    final index = _frameAt(t);
+    if (index != _frameIndex) {
+      _frameIndex = index;
       notifyListeners();
     }
   }
@@ -737,6 +781,7 @@ class EmoteImage extends StatefulWidget {
     this.fit = BoxFit.contain,
     this.placeholder,
     this.errorWidget,
+    this.alternateUrls,
   });
 
   final String url;
@@ -745,6 +790,11 @@ class EmoteImage extends StatefulWidget {
   final BoxFit fit;
   final Widget? placeholder;
   final Widget? errorWidget;
+
+  /// Smaller-scale URLs (e.g. the emote's 1x) tried as cached placeholders
+  /// while [url] is still fetching. When a smaller scale is already in the
+  /// disk cache it renders under a faint shimmer instead of an empty box.
+  final List<String>? alternateUrls;
 
   @override
   State<EmoteImage> createState() => _EmoteImageState();
@@ -768,11 +818,7 @@ class ShimmerEmotePlaceholder extends StatelessWidget {
     return Shimmer.fromColors(
       baseColor: base,
       highlightColor: highlight,
-      child: Container(
-        width: width,
-        height: height,
-        color: base,
-      ),
+      child: Container(width: width, height: height, color: base),
     );
   }
 }
@@ -784,14 +830,23 @@ class _EmoteImageState extends State<EmoteImage> {
   bool _subscribed = false;
   Object? _loadToken;
 
+  /// Decoded frames of a smaller cached scale, shown under a faint shimmer
+  /// while [EmoteImage.url] is still loading. Owned by this widget (disposed
+  /// on swap/unmount) when [_placeholderFromRegistry] is false; otherwise the
+  /// frames belong to the [EmoteClipRegistry] clip and only the reference and
+  /// playback subscription need releasing.
+  EmoteFrameData? _placeholderFrames;
+  String? _placeholderUrl;
+  bool _placeholderFromRegistry = false;
+  bool _placeholderSubscribed = false;
+
   @override
   void initState() {
     super.initState();
     // Fast path: the clip may already be decoded in the registry (e.g. a
     // just-sent emote that other tiles are already showing). Rendering it
     // synchronously avoids a one-frame placeholder flash on every new tile.
-    final cached =
-        EmoteClipRegistry.instance.tryAcquireCached(widget.url);
+    final cached = EmoteClipRegistry.instance.tryAcquireCached(widget.url);
     if (cached != null) {
       _frames = cached;
       _frameIndex = EmoteClipRegistry.instance.currentFrame(widget.url);
@@ -800,6 +855,70 @@ class _EmoteImageState extends State<EmoteImage> {
       return;
     }
     _load();
+    _probePlaceholder();
+  }
+
+  /// Probes the smaller alternate scales for a cached copy to use as the
+  /// placeholder while [EmoteImage.url] is loading. Picks the first hit
+  /// (the smallest scale is listed first by convention).
+  Future<void> _probePlaceholder() async {
+    final alternates = widget.alternateUrls;
+    if (alternates == null || alternates.isEmpty) return;
+    final token = _loadToken;
+    for (final altUrl in alternates) {
+      if (!mounted || _loadToken != token) return;
+      if (altUrl == widget.url) continue;
+      // Fast path: the alternate may already be decoded in the registry (e.g.
+      // the same emote's 1x was rendered elsewhere recently). Hold a ref and
+      // subscribe to its shared playback clock so the placeholder animates in
+      // sync with the rest of the app.
+      final cached = EmoteClipRegistry.instance.tryAcquireCached(altUrl);
+      if (cached != null) {
+        if (!mounted || _loadToken != token) {
+          EmoteClipRegistry.instance.release(altUrl);
+          return;
+        }
+        setState(() {
+          _placeholderFrames = cached;
+          _placeholderUrl = altUrl;
+          _placeholderFromRegistry = true;
+        });
+        EmoteClipRegistry.instance.subscribe(altUrl, _onPlaceholderClipChanged);
+        _placeholderSubscribed = true;
+        return;
+      }
+      try {
+        final file = await EmoteCacheManager().getFileFromCache(altUrl);
+        if (file == null) continue;
+        final bytes = await file.file.readAsBytes();
+        final frames = await decodeEmoteBytes(bytes);
+        if (!mounted || _loadToken != token) {
+          _disposeDecoded(frames);
+          return;
+        }
+        setState(() {
+          _placeholderFrames = frames;
+          _placeholderUrl = altUrl;
+          _placeholderFromRegistry = false;
+        });
+        // Dispose the remaining frames; the placeholder only needs frame 0.
+        _disposeDecoded(
+          EmoteFrameData(
+            frames: frames.frames.skip(1).toList(),
+            durations: const [],
+          ),
+        );
+        return;
+      } on Object {
+        // Try the next alternate; any error just means no cached placeholder.
+      }
+    }
+  }
+
+  void _disposeDecoded(EmoteFrameData frames) {
+    for (final frame in frames.frames) {
+      frame.dispose();
+    }
   }
 
   Future<void> _load() async {
@@ -809,19 +928,51 @@ class _EmoteImageState extends State<EmoteImage> {
     try {
       final frames = await EmoteClipRegistry.instance.acquire(url);
       if (!mounted || _loadToken != token) return;
+      // The required URL replaced a cached smaller scale; seed the new clip's
+      // playback from where the placeholder was so the animation continues
+      // instead of restarting. Ignored when the clip is already playing.
+      final startOffset = _placeholderFromRegistry && _placeholderUrl != null
+          ? EmoteClipRegistry.instance.currentElapsed(_placeholderUrl!)
+          : null;
       // Join the shared playback clock for this URL so all widgets showing
       // the same emote render the same frame (and a new tile syncs to the
       // frame the existing ones are already on).
-      EmoteClipRegistry.instance.subscribe(url, _onClipChanged);
+      EmoteClipRegistry.instance.subscribe(
+        url,
+        _onClipChanged,
+        startOffset: startOffset,
+      );
       _subscribed = true;
       setState(() {
         _frames = frames;
         _frameIndex = EmoteClipRegistry.instance.currentFrame(url);
       });
+      _releasePlaceholder();
     } on Object {
       if (!mounted || _loadToken != token) return;
       setState(() => _failed = true);
     }
+  }
+
+  /// Releases the placeholder frames (decoded from a smaller cached scale)
+  /// once the required URL's frames have landed or the widget unmounts.
+  void _releasePlaceholder() {
+    if (_placeholderSubscribed) {
+      _placeholderSubscribed = false;
+      EmoteClipRegistry.instance.unsubscribe(
+        _placeholderUrl!,
+        _onPlaceholderClipChanged,
+      );
+    }
+    final frames = _placeholderFrames;
+    _placeholderFrames = null;
+    if (_placeholderFromRegistry) {
+      _placeholderFromRegistry = false;
+      EmoteClipRegistry.instance.release(_placeholderUrl!);
+    } else if (frames != null) {
+      _disposeDecoded(frames);
+    }
+    _placeholderUrl = null;
   }
 
   void _onClipChanged() {
@@ -831,12 +982,18 @@ class _EmoteImageState extends State<EmoteImage> {
     });
   }
 
+  void _onPlaceholderClipChanged() {
+    if (!mounted) return;
+    setState(() {});
+  }
+
   @override
   void dispose() {
     if (_subscribed) {
       EmoteClipRegistry.instance.unsubscribe(widget.url, _onClipChanged);
     }
     EmoteClipRegistry.instance.release(widget.url);
+    _releasePlaceholder();
     super.dispose();
   }
 
@@ -854,8 +1011,8 @@ class _EmoteImageState extends State<EmoteImage> {
       _frameIndex = 0;
       // Invalidate any in-flight load for the old URL.
       _loadToken = Object();
-      final cached =
-          EmoteClipRegistry.instance.tryAcquireCached(widget.url);
+      _releasePlaceholder();
+      final cached = EmoteClipRegistry.instance.tryAcquireCached(widget.url);
       if (cached != null) {
         _frames = cached;
         _frameIndex = EmoteClipRegistry.instance.currentFrame(widget.url);
@@ -864,6 +1021,7 @@ class _EmoteImageState extends State<EmoteImage> {
         return;
       }
       _load();
+      _probePlaceholder();
     }
   }
 
@@ -874,11 +1032,50 @@ class _EmoteImageState extends State<EmoteImage> {
     }
     final frames = _frames;
     if (frames == null) {
+      final placeholderFrames = _placeholderFrames;
+      if (placeholderFrames != null && placeholderFrames.frames.isNotEmpty) {
+        // A smaller cached scale is showing under a faint shimmer while the
+        // required resolution loads. Registry-sourced placeholders follow the
+        // shared playback clock (animated in sync with chat); disk-sourced
+        // ones are static frame 0. The shimmer sweep stays subtle so the
+        // emote reads clearly, only hinting that a higher-res copy is coming.
+        final placeholderIndex = _placeholderFromRegistry
+            ? EmoteClipRegistry.instance.currentFrame(_placeholderUrl!)
+            : 0;
+        final placeholderImage =
+            placeholderFrames.frames[placeholderIndex.clamp(
+              0,
+              placeholderFrames.frames.length - 1,
+            )];
+        final scheme = Theme.of(context).colorScheme;
+        final base = scheme.surface;
+        final highlight = Color.lerp(
+          base,
+          scheme.surfaceContainerHighest,
+          0.7,
+        )!;
+        return Stack(
+          alignment: Alignment.center,
+          children: [
+            RawImage(
+              image: placeholderImage,
+              width: widget.width,
+              height: widget.height,
+              fit: widget.fit,
+            ),
+            Positioned.fill(
+              child: Shimmer.fromColors(
+                baseColor: base.withValues(alpha: 0.25),
+                highlightColor: highlight.withValues(alpha: 0.25),
+                period: const Duration(milliseconds: 1200),
+                child: const ColoredBox(color: Colors.white),
+              ),
+            ),
+          ],
+        );
+      }
       return widget.placeholder ??
-          ShimmerEmotePlaceholder(
-            width: widget.width,
-            height: widget.height,
-          );
+          ShimmerEmotePlaceholder(width: widget.width, height: widget.height);
     }
     final image = frames.frames[_frameIndex];
     return RawImage(

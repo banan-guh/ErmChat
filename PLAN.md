@@ -1,152 +1,123 @@
-# Emote Fetching Tiers Plan
+# Emote Scale URLs + Cached-Placeholder Plan
 
-Goal: add a settings-driven emote fetching tier (Nothing / Low / Medium / High) plus an
-adjustable emote image cache. Tiers control fetch behavior, image resolution, cache
-TTLs, and GC aggressiveness. The default is High (current behavior).
+Goal: make the emote image stack scale-aware and stop showing a blank/shimmer box while
+an emote's required resolution is fetching. Three cached-source rules, then a model
+change to give every emote its full set of scale URLs.
 
-## Tier matrix
+## Resolved scope
 
-| | Nothing | Low | Medium | High |
-|---|---|---|---|---|
-| Fetch global/channel rakes | no | yes, 1x | yes, 2x | yes, 2x |
-| Subscriber emotes | no | yes, 1x | yes, 2x | yes, 2x |
-| 3x for sheet/menu | - | - | - | on-demand only |
-| Metadata cache TTL | n/a | infinite | 48h | 24h (wifi) / 48h (cellular) |
-| Disk GC hard TTL | infinite | infinite | 24h | 24h |
-| Precache | off | 1x | 2x | 2x |
-| Cache cap (emotes) | user slider 0-1500 | same | same | same |
+- **`GenericEmote` URLs become scale-aware**: keep `url` (active render URL, e.g. 2x)
+  as-is for minimal churn, add `url1x` and rename `urlLarge` -> `url3x`. 7TV is the
+  only provider producing a genuinely distinct 3x/file, so `urlLarge` was really only
+  correct there; the extra field still future-proofs BTTV/Twitch.
+- **Sheet resolution is always "best scale still in cache"**, not tier-picked:
+  regardless of Nothing/Low/Medium/High, the emote sheet/menu picker shows the largest
+  scale that is still cached, falling back to smaller cached scales as placeholders.
+  (In practice the best scale is 2x for 7TV since that is its chat default, but the
+  logic is not hard-coded.)
+- **"Still loading" placeholder = the smaller cached image with the shimmer sweep kept
+  faintly on top**, not a plain image and not a bare shimmer box.
 
-- **4x scrapped entirely.** No provider emits a 4x URL (FFZ `urlLarge`, 7TV largest file).
-- **1x -> 2x overwrite:** switching to medium/high triggers a re-resolve; the cache
-  tier-tag makes old 1x data stale, so emotes re-store with 2x URLs. Old 1x files become
-  untracked and get GC'd.
-- **Hoarding:** low/nothing render whatever is already cached (hoarded while on
-  medium/high). No hard-TTL eviction on low/nothing; entries persist until LRU-trimmed
-  at the cache cap.
-- **Hot TTL is gone.** `_gcHotTtl` and its cooldown branch are removed. GC = per-tier
-  hard-TTL eviction + pure LRU trim to the cache cap.
+## The cached-source rule (as confirmed)
+
+When a render surface needs an emote at a *required resolution*:
+
+1. **Exact match cached** (need 2x, cache has 2x) -> use it directly. Already works via
+   `EmoteClipRegistry.tryAcquireCached` (decoded frames) and `getFileStream` yielding a
+   valid cached `FileInfo` first.
+2. **Smaller variant cached** (need 2x, cache has 1x) -> render the small cached image
+   as the placeholder while the required resolution fetches, with the shimmer sweep kept
+   faint on top; swap in the real emote when it lands.
+3. **Nothing cached** -> shimmer only, then the fetched image.
 
 ## Tasks
 
-### 1. New types
+### 1. GenericEmote model (`lib/models/generic_emote.dart`)
 
-- [ ] `lib/models/emote_fetch_tier.dart`: `enum EmoteFetchTier { nothing, low, medium, high }`
-      with `label`/`subtitle` for the settings UI, plus prefs keys
-      `'emote_fetch_tier'` (int) and `'emote_cache_max'` (int, 0-1500, default 500).
-- [ ] `EmoteResolution { low, medium, high }` in `lib/models/generic_emote.dart`.
-      Tier -> resolution: nothing = no fetch, low = low, medium = medium, high = high.
+- [x] Rename `urlLarge` -> `url3x`; add `url1x` (nullable). Keep `url` = active render
+      URL (chat at ~28dp).
+- [x] Document the read convention (doc comment on the class):
+      `url` is what chat/autocomplete renders; `url1x`/`url3x` are the scale
+      alternatives used by the sheet/menu resolution picker and as cached-fallback
+      placeholders. `url3x` is only set where the provider has a true 3x (7TV);
+      FFZ has no 3x (documented).
+- [x] Update `toJson`/`fromJson` (`url1x`/`url3x`), keeping `urlLarge` out.
 
-### 2. Custom image cache (`lib/services/emote_cache_manager.dart`)
+### 2. Providers emit all scales in-hand (no new fetches)
 
-- [ ] Lazy singleton `CacheManager(Config('emoteImageCacheV2', maxNrOfCacheObjects: 2000,
-      stalePeriod: 30d))`. The 2000-file manager cap is a safety net; EmoteManager's GC
-      is the real enforcer.
-- [ ] `main.dart`: set `CachedNetworkImageProvider.defaultCacheManager = EmoteCacheManager()`
-      once at startup so every emote render (chat `emote_text.dart`, emote menu,
-      emote sheet, autocomplete, analytics top-emotes) uses the big cache with no
-      per-widget threading.
-- [ ] `EmoteManager._removeCachedFile` default and `_precacheEmote` use the same
-      `EmoteCacheManager()` singleton.
-- [ ] One-time migration: `DefaultCacheManager().emptyCache()` under a new
-      `emote_gc_migrated_v2` flag (mirrors the existing v1 migration) to clear v1
-      orphans.
+- [x] `lib/services/emote_providers/twitch_emotes.dart`: `url` = smallScale slot
+      (current), `url1x` = the `1.0` scale when the `scale` list contains it,
+      `url3x` = largeScale (rename). `_selectScales` now returns `(small, oneX, large)`.
+- [x] `lib/services/emote_providers/bttv_emotes.dart`: `url1x` = `/1x`,
+      `url3x` = `/3x` (both already constructed as strings); `url` stays `/2x`
+      (or `/1x` on low, as today). `url3x` only on high (3x is the heavy asset).
+- [x] `lib/services/emote_providers/ffz_emotes.dart`: `url1x` = `urls['1']`,
+      `url3x` = `urls['4']` (FFZ has no 3x size; its largest 4x serves as the
+      high-res sheet/menu asset since the sheet needs sharper than 2x).
+- [x] `lib/services/emote_providers/seven_tv_emotes.dart`: capture `first`/`best2x`/
+      `lastLe3` into `url1x`/`url`/`url3x` (7TV files are ordered smallest -> largest;
+      `lastLe3` caps at 3x, never 4x; `url1x` only when it differs from `url`).
 
-### 3. EmoteManager (`lib/services/emote_manager.dart`)
+### 3. Shared scale-URL plumbing
 
-- [ ] `_tier` field (default high) + getter/setter (setter notifies).
-- [ ] `_cacheCap` field (default 500) + setter; GC uses it.
-- [ ] Remove `_gcHotTtl` and the cooldown condition in `runCacheGc`. GC =
-      per-tier hard-TTL eviction + LRU trim to `_cacheCap`.
-- [ ] `_usageMaxEntries` becomes derived from `_cacheCap` (registry trims to the cap,
-      currently a static 300).
-- [ ] `_effectiveTtl()` tier-based: high 24h (keep wifi/48h cellular split for high),
-      medium 48h, low/nothing `Duration.infinite`.
-- [ ] Thread `_resolution` into all provider fetches (`_fetchAllGlobal`, `_fetchAllChannel`,
-      `_refreshTwitchGlobalEmotes`, `_refreshTwitchChannelEmotes`).
-- [ ] Low/nothing persistence: `_saveToPrefs` includes Twitch non-sub emotes; the
-      background Twitch-only refresh branches (`preloadGlobalEmotes` / `resolveEmotes`
-      fresh paths) are skipped on low/nothing so infinite TTL means zero per-launch
-      network.
-- [ ] Nothing-tier guards: `preloadGlobalEmotes`, `resolveEmotes`, `storeUserTwitchEmotes`,
-      `updateSevenTvEmotes`, `enqueueSeenEmotes` early-return. `byCode()` still returns
-      the hoarded cache so cached emotes render; uncached ones fall back to text.
-- [ ] Cache tier-tag: store the `tier` int in the prefs JSON written by `_saveToPrefs`;
-      `_loadFromPrefs` treats a mismatched tier as stale so switching tiers refetches at
-      the new resolution (the 1x -> 2x overwrite mechanism).
+- [x] `lib/screens/home_screen.dart` (~1144): the per-owner `GenericEmote` clone must
+      forward `url1x`/`url3x`.
+- [x] `lib/services/emote_manager.dart:767` (7TV removal URL list) + `:784` (rename
+      clone): forward/sweep all scales (`[url, url1x?, url3x?]`).
+- [ ] Precache/usage touch sites that only touch `emote.url` may optionally touch all
+      stored scales so the smaller files get use-priority too - confirm benefit before
+      spreading (precache writes the fetch-size file; smaller files only exist if a
+      lower tier fetched them).
 
-### 4. Providers (resolution param)
+### 4. Faint-shimmer cached placeholder in `lib/widgets/emote_image.dart`
 
-- [ ] Add `EmoteResolution resolution` to:
-      `TwitchEmoteProvider.fetchGlobal/fetchChannel/fetchEmoteSets`,
-      `BttvEmoteProvider.fetchGlobal/fetchChannel`,
-      `FfzEmoteProvider.fetchGlobal/fetchChannel`,
-      `SevenTvEmoteProvider.fetchGlobal/fetchChannelResponse`.
-- [ ] URL selection per resolution (4x never emitted):
-      - Twitch: low 1.0/1.0, medium 2.0/2.0 (urlLarge null), high 2.0 + 3.0.
-      - BTTV: low 1x/1x, medium 2x/2x, high 2x + 3x.
-      - FFZ: low 1/1, medium 2/2, high 2 + urlLarge null (largest is 4x, scrapped).
-      - 7TV: low smallest (1x if present, else smallest)/same, medium 2x/2x,
-        high 2x + 3x (largest capped at 3x, never 4x).
+- [ ] `EmoteImage` gains an optional `alternateUrls` (smaller scale URLs, e.g. the
+      emote's `url1x`) alongside the required `url`.
+- [ ] While the required URL's `_load` is in flight (fetch/parse), probe the smaller
+      scale URLs, in order, via `EmoteCacheManager().getFileFromCache(url)` (reads the
+      repo regardless of cap) and/or `EmoteClipRegistry.tryAcquireCached`: on the first
+      hit, decode those bytes (same `_decodeBytes` path, as a throwaway placeholder
+      clip, not the shared playback `_EmoteClip`) and render the frames under a faint
+      `Shimmer.fromColors` sweep (`Opacity`-reduced highlight) to keep the "still
+      loading" cue.
+- [ ] When the required URL's frames land, tear down the placeholder (release the
+      throwaway clip) and swap to the real shared clip.
+- [ ] Keep rule 3: bare shimmer when nothing is cached.
+- [ ] Test hooks: reuse `debugFetchOverride`/`debugDecodeOverride`; expose the
+      placeholder decode path for widget tests (e.g. assert a small-cached frame is
+      painted under a `Shimmer` while the required URL is deliberately delayed).
 
-### 5. Home screen (`lib/screens/home_screen.dart`)
+### 5. Emote sheet / menu resolution picker ("best scale still in cache")
 
-- [ ] Load `emote_fetch_tier` + `emote_cache_max` in init before `_chatConn.connect()`
-      and set both on `_emoteManager`.
-- [ ] `_applyEmoteTier(int)`: set tier; evict + re-resolve for low/medium/high;
-      evict + notify (no fetch) for nothing. Called immediately on slider change.
-- [ ] `_applyCacheCap(int)`: set cap + run one GC sweep. Called only after the Apply
-      button.
-- [ ] `_loadUserEmoteSets`: skip in nothing tier; pass resolution to `fetchEmoteSets`.
+- [ ] `lib/widgets/emote_sheet.dart:117`: stop assuming `urlLarge ?? url`. Pick the
+      largest of `url3x`/`url`/`url1x` that is still cached (probe repo via
+      `getFileFromCache`; on a probe hit pass that URL directly, else fall through the
+      rules above). Keep it not hard-coded to 7TV.
+- [ ] `lib/widgets/emote_menu_panel.dart` + `autocomplete_dropdown.dart` +
+      `analytics_screen.dart`: thread the emote's smaller scale URL into `EmoteImage`
+      as `alternateUrls` where the render also has the `GenericEmote` in hand.
+- [ ] `lib/widgets/emote_text.dart` `_emoteImage` (span builder + overlay builder):
+      thread the base/overlay emote's `url1x` as the alternate when the emote object is
+      available (currently a URL-only `_emoteImage`; may need the emote or its
+      `url1x`).
 
-### 6. Settings UI
+### 6. Tests
 
-- [ ] New `lib/screens/settings/emotes_settings_screen.dart`: fetch-tier labeled slider
-      (4 stops, applies immediately + persists) and a cache-size slider 0-1500 that only
-      persists + applies via an **Apply** button (draft value held in state so people
-      don't wipe their cache accidentally).
-- [ ] Add an "Emotes" tile to `settings_screen.dart` (Icons.emoji_emotions); forward
-      `onEmoteTierChanged` + `onEmoteCacheMaxChanged` through `widgets/settings.dart`.
-
-### 7. Tests
-
-- [ ] `test/unit/emote_manager_test.dart`: per-tier TTL, hot-TTL-free GC (LRU trim to cap
-      + hard eviction, cap setter), tier-tag staleness (1x -> 2x overwrite via refetch),
-      nothing-tier no-fetch guards.
-- [ ] Provider tests: resolution variants incl. no-4x (extend `seven_tv_emotes_test.dart`,
-      small BTTV/FFZ/Twitch additions).
-- [ ] `test/unit/chat_connection_manager_test.dart`: precache skip in nothing tier.
-- [ ] `test/widgets/widget_test.dart`: Emotes screen renders tier slider + cache-size
-      slider + Apply; nothing tier renders hoarded cache as images, text for unknown.
-- [ ] Update `AGENTS.md` structure/test lists.
-
-### 8. Auto tier selection
-
-- [x] `EmoteFetchAutoMode { off, balanced, aggressive }` in `emote_fetch_tier.dart`
-      with `label`/`subtitle` and `effectiveEmoteFetchTier(manual, auto, isMobile)`:
-      off = manual; balanced = high on Wi-Fi / low on cellular; aggressive =
-      medium on Wi-Fi / nothing on cellular. Prefs key `'emote_fetch_auto'`; the
-      default (no persisted value) is `balanced`.
-- [x] Home screen: load `emote_fetch_auto` in `_loadEmotePrefs`; track the current
-      connectivity with `Connectivity().onConnectivityChanged` (`_isMobile`, a live
-      `ValueNotifier<bool>`); a `_reconcileEmoteTier()` recomputes the effective tier
-      and re-applies it when it changes (launch, setting change, connectivity handoff).
-      `_applyEmoteTier` now records the manual tier; `_applyEmoteAutoMode` sets the
-      mode; both route through `_reconcileEmoteTier`/`_applyTier`. The notifier is
-      passed to the settings screen so the tier slider stays in sync live.
-- [x] Emotes settings screen: a three-way `SegmentedButton` (Off/Balanced/Aggressive)
-      below the tier slider, in its own "Auto mode" section; switching it on disables
-      the manual tier slider with a note and the slider/value label track the
-      effective tier (`mobileNotifier`), updating live on connectivity handoffs
-      with a `TweenAnimationBuilder` slide (from the current position, never a
-      jump) plus `AnimatedSwitcher` crossfades for the tier label and auto note.
-      New
-      `onEmoteAutoModeChanged` threaded through `settings_screen.dart` /
-      `widgets/settings.dart`. A footer (`emote_cache_footer`) shows live disk-cache
-      usage: file count + total bytes via `EmoteCacheManager.stats()`
-      (`EmoteCacheStats`), refreshed on open and after cache Apply.
-- [x] Tests: `test/unit/emote_fetch_tier_test.dart` (resolver matrix, labels, prefs
-      keys, default balanced) + widget tests for the switch (persist, callback, slider
-      lock/unlock), live connectivity sync, and the cache-usage footer.
+- [ ] `test/unit/twitch_emotes_resolution_test.dart`: assert `url1x`/`url3x`
+      population per tier; no-4x stays.
+- [ ] `test/unit/bttv_emotes_resolution_test.dart`: `url1x` = /1x and `url3x` = /3x
+      on high, null on low/medium as designed.
+- [ ] `test/unit/ffz_emotes_resolution_test.dart`: `url1x` from `urls['1']`,
+      `url3x` always null.
+- [ ] `test/unit/seven_tv_emotes_test.dart`: `url1x`/`url3x` from ordered files
+      (smallest / <=3x), no 4x.
+- [ ] `test/unit/emote_image_test.dart`: new widget tests - small-cached placeholder
+      renders under faint shimmer while required URL delayed; swap to required frames;
+      shimmer-only when nothing cached; alternate-URL probe order.
+- [ ] `test/unit/emote_manager_test.dart`: update `urlLarge` references to `url3x`;
+      rename/precache/removal URL lists carry all scales.
+- [ ] `test/widgets/widget_test.dart` (emote sheet): shows best scale still in cache
+      across tiers.
 
 ## Verification
 

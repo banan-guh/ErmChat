@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:url_launcher_platform_interface/link.dart';
 import 'package:url_launcher_platform_interface/url_launcher_platform_interface.dart';
 import 'package:ermchat/models/generic_emote.dart';
+import 'package:ermchat/widgets/emote_image.dart';
 import 'package:ermchat/widgets/emote_sheet.dart';
 
 class _FakeUrlLauncher extends UrlLauncherPlatform {
@@ -115,6 +116,29 @@ void main() {
     await tester.pump();
 
     expect(find.textContaining('Could not open'), findsOneWidget);
+  });
+
+  testWidgets('preview targets the 3x with the smaller scales as alternates', (
+    tester,
+  ) async {
+    final emote = GenericEmote(
+      id: 'scale-1',
+      code: 'Scale',
+      type: EmoteType.sevenTv,
+      url: 'https://cdn.7tv.app/emote/scale/2x.webp',
+      url1x: 'https://cdn.7tv.app/emote/scale/1x.webp',
+      url3x: 'https://cdn.7tv.app/emote/scale/3x.webp',
+    );
+
+    await tester.pumpWidget(wrap(emote));
+    await tester.pump();
+
+    final preview = tester.widget<EmoteImage>(find.byType(EmoteImage));
+    expect(preview.url, 'https://cdn.7tv.app/emote/scale/3x.webp');
+    expect(preview.alternateUrls, [
+      'https://cdn.7tv.app/emote/scale/2x.webp',
+      'https://cdn.7tv.app/emote/scale/1x.webp',
+    ]);
   });
 
   testWidgets('multi-emote sheet swipes sideways to the next emote', (

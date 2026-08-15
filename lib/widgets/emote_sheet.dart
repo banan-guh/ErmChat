@@ -41,6 +41,16 @@ class _EmoteSheetState extends State<EmoteSheet>
     super.dispose();
   }
 
+  /// Scales for [emote], largest first, deduplicated.
+  List<String> _scaleUrls(GenericEmote emote) {
+    final urls = <String>[
+      if (emote.url3x != null) emote.url3x!,
+      emote.url,
+      if (emote.url1x != null) emote.url1x!,
+    ];
+    return <String>{...urls}.toList();
+  }
+
   String _typeLabel(GenericEmote emote) {
     final provider = switch (emote.type) {
       EmoteType.twitch => 'Twitch',
@@ -91,6 +101,13 @@ class _EmoteSheetState extends State<EmoteSheet>
     final theme = Theme.of(context);
     final owner = _ownerLabel(emote);
 
+    // The preview targets the largest scale (3x); the cached 2x from chat
+    // renders as the placeholder while it loads, then the 3x replaces it.
+    final previewUrl = _scaleUrls(emote).firstOrNull ?? emote.url;
+    final alternateUrls = _scaleUrls(
+      emote,
+    ).skip(1).where((u) => u != previewUrl).toList();
+
     final subtitleStyle = TextStyle(
       fontSize: 16,
       color: theme.colorScheme.onSurfaceVariant,
@@ -114,15 +131,9 @@ class _EmoteSheetState extends State<EmoteSheet>
                     width: 128,
                     height: 128,
                     child: EmoteImage(
-                      url: emote.urlLarge ?? emote.url,
+                      url: previewUrl,
+                      alternateUrls: alternateUrls,
                       fit: BoxFit.contain,
-                      placeholder: const Center(
-                        child: SizedBox(
-                          width: 24,
-                          height: 24,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        ),
-                      ),
                       errorWidget: Container(
                         color: theme.colorScheme.surfaceContainerHighest,
                         child: Icon(

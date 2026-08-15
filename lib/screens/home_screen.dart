@@ -1141,7 +1141,8 @@ class _HomeScreenState extends State<HomeScreen>
                 code: e.code,
                 type: e.type,
                 url: e.url,
-                urlLarge: e.urlLarge,
+                url1x: e.url1x,
+                url3x: e.url3x,
                 isAnimated: e.isAnimated,
                 scope: e.scope,
                 tier: e.tier,
@@ -1156,9 +1157,9 @@ class _HomeScreenState extends State<HomeScreen>
     } finally {
       // Leave successfully fetched IDs marked; failed IDs drop out of the
       // in-flight set so the next USERSTATE/GLOBALUSERSTATE retries them.
-      _inflightEmoteSetIds.removeAll(newSetIds.where(
-        (id) => !_fetchedEmoteSetIds.contains(id),
-      ));
+      _inflightEmoteSetIds.removeAll(
+        newSetIds.where((id) => !_fetchedEmoteSetIds.contains(id)),
+      );
     }
   }
 
@@ -1979,10 +1980,11 @@ class _HomeScreenState extends State<HomeScreen>
     if (_emoteSheetCtrl.isAttached) {
       // Scale the close duration by how open the sheet is, so a near-closed
       // sheet dismisses quickly while a fully-open one eases down.
-      final fraction =
-          (_emoteSheetCtrl.size / _emoteMaxFraction).clamp(0.0, 1.0);
-      final duration =
-          Duration(milliseconds: (80 + 180 * fraction).round());
+      final fraction = (_emoteSheetCtrl.size / _emoteMaxFraction).clamp(
+        0.0,
+        1.0,
+      );
+      final duration = Duration(milliseconds: (80 + 180 * fraction).round());
       await _emoteSheetCtrl.animateTo(
         0.0,
         duration: duration,
@@ -2521,8 +2523,9 @@ class _HomeScreenState extends State<HomeScreen>
                   // extends past the top of the current Stack.
                   final maxFitBoxH =
                       (constraints.maxHeight - statusBarH) / _emoteMaxFraction;
-                  final sheetBoxHeight =
-                      fullBoxH < maxFitBoxH ? fullBoxH : maxFitBoxH;
+                  final sheetBoxHeight = fullBoxH < maxFitBoxH
+                      ? fullBoxH
+                      : maxFitBoxH;
                   return Stack(
                     clipBehavior: Clip.hardEdge,
                     children: [
@@ -2992,7 +2995,8 @@ class _HomeScreenState extends State<HomeScreen>
                                   AutocompleteDropdown(
                                     suggestions: suggestions,
                                     onSelect: _onSuggestionSelected,
-                                    onEmoteViewed: _emoteManager.markEmoteViewed,
+                                    onEmoteViewed:
+                                        _emoteManager.markEmoteViewed,
                                   ),
                             ),
                           ),

@@ -48,6 +48,8 @@ class FfzEmoteProvider {
               code: parsed.code,
               type: parsed.type,
               url: parsed.url,
+              url1x: parsed.url1x,
+              url3x: parsed.url3x,
               isAnimated: parsed.isAnimated,
               scope: EmoteScope.channel,
               ownerChannel: channelId,
@@ -65,9 +67,11 @@ class FfzEmoteProvider {
     if (id == null || name == null) return null;
     final urls = item['urls'] as Map<String, dynamic>?;
     // Chat renders at ~28dp; low prefers the 1x tier, medium/high the 2x. FFZ
-    // has no 3x and the 4x tier is scrapped, so no urlLarge is ever set.
+    // has no 3x size; its largest is 4x, which is used as the high-res
+    // sheet/menu asset (url3x) since the sheet needs something sharper than 2x.
     final url1 = urls?['1'] as String?;
     final url2 = urls?['2'] as String?;
+    final url4 = urls?['4'] as String?;
     final String? urlPart;
     switch (resolution) {
       case EmoteResolution.low:
@@ -86,6 +90,8 @@ class FfzEmoteProvider {
       code: name,
       type: EmoteType.ffz,
       url: abs(urlPart),
+      url1x: url1 == null ? null : abs(url1),
+      url3x: url4 == null ? null : abs(url4),
       isAnimated: isAnimated,
     );
   }

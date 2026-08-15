@@ -764,7 +764,11 @@ class EmoteManager extends ChangeNotifier {
           changedCodes.add(e.code);
           removedIdsWithUrls.add((
             e.id,
-            [e.url, if (e.urlLarge != null) e.urlLarge!],
+            [
+              e.url,
+              if (e.url1x != null) e.url1x!,
+              if (e.url3x != null) e.url3x!,
+            ],
           ));
         }
       }
@@ -781,7 +785,8 @@ class EmoteManager extends ChangeNotifier {
           code: entry.value.newName,
           type: e.type,
           url: e.url,
-          urlLarge: e.urlLarge,
+          url1x: e.url1x,
+          url3x: e.url3x,
           isAnimated: e.isAnimated,
           scope: e.scope,
           ownerChannel: e.ownerChannel,
