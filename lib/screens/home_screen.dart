@@ -2691,19 +2691,6 @@ class _HomeScreenState extends State<HomeScreen>
                                           },
                                           itemBuilder: (_) => const [
                                             PopupMenuItem(
-                                              value: 'upload',
-                                              child: Text('Upload media'),
-                                            ),
-                                            PopupMenuItem(
-                                              value: 'reload_emotes',
-                                              child: Text('Reload emotes'),
-                                            ),
-                                            PopupMenuItem(
-                                              value: 'reconnect',
-                                              child: Text('Reconnect'),
-                                            ),
-                                            PopupMenuDivider(),
-                                            PopupMenuItem(
                                               value: 'settings',
                                               child: Row(
                                                 children: [
@@ -2715,6 +2702,19 @@ class _HomeScreenState extends State<HomeScreen>
                                                   Text('Settings'),
                                                 ],
                                               ),
+                                            ),
+                                            PopupMenuDivider(),
+                                            PopupMenuItem(
+                                              value: 'upload',
+                                              child: Text('Upload media'),
+                                            ),
+                                            PopupMenuItem(
+                                              value: 'reload_emotes',
+                                              child: Text('Reload emotes'),
+                                            ),
+                                            PopupMenuItem(
+                                              value: 'reconnect',
+                                              child: Text('Reconnect'),
                                             ),
                                           ],
                                           // Long-press on the 3-dot button
