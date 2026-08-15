@@ -2759,34 +2759,6 @@ void main() {
       expect(prefs.getString('accent_color'), 'red');
     });
 
-    testWidgets('Customization tinted tab bar toggle persists and calls '
-        'onTintedTabBarChanged', (WidgetTester tester) async {
-      SharedPreferences.setMockInitialValues({});
-      bool? changed;
-
-      await tester.pumpWidget(
-        MaterialApp(
-          home: CustomizationScreen(
-            onThemeChanged: (_) {},
-            onTintedTabBarChanged: (value) => changed = value,
-          ),
-        ),
-      );
-      await tester.pump();
-
-      final tile = tester.widget<SwitchListTile>(
-        find.widgetWithText(SwitchListTile, 'Tinted tab bar'),
-      );
-      expect(tile.value, isFalse);
-
-      await tester.tap(find.widgetWithText(SwitchListTile, 'Tinted tab bar'));
-      await tester.pumpAndSettle();
-
-      expect(changed, isTrue);
-      final prefs = await SharedPreferences.getInstance();
-      expect(prefs.getBool('tinted_tab_bar'), isTrue);
-    });
-
     testWidgets('Channel settings shows joined channels', (
       WidgetTester tester,
     ) async {

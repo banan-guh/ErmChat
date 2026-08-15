@@ -10,7 +10,6 @@ class SettingsButton extends StatelessWidget {
   final ValueChanged<bool>? onKeepScreenOnChanged;
   final ValueChanged<bool>? onTrueDarkChanged;
   final ValueChanged<String>? onAccentColorChanged;
-  final ValueChanged<bool>? onTintedTabBarChanged;
   final ValueChanged<bool>? onBackgroundServiceChanged;
   final ValueChanged<bool>? onMentionPushChanged;
   final ValueChanged<int>? onEmoteTierChanged;
@@ -33,7 +32,6 @@ class SettingsButton extends StatelessWidget {
     this.onKeepScreenOnChanged,
     this.onTrueDarkChanged,
     this.onAccentColorChanged,
-    this.onTintedTabBarChanged,
     this.onBackgroundServiceChanged,
     this.onMentionPushChanged,
     this.onEmoteTierChanged,
@@ -65,7 +63,6 @@ class SettingsButton extends StatelessWidget {
               onKeepScreenOnChanged: onKeepScreenOnChanged,
               onTrueDarkChanged: onTrueDarkChanged,
               onAccentColorChanged: onAccentColorChanged,
-              onTintedTabBarChanged: onTintedTabBarChanged,
               onBackgroundServiceChanged: onBackgroundServiceChanged,
               onMentionPushChanged: onMentionPushChanged,
               onEmoteTierChanged: onEmoteTierChanged,

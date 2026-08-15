@@ -7,7 +7,6 @@ class CustomizationScreen extends StatefulWidget {
   final ValueChanged<bool>? onKeepScreenOnChanged;
   final ValueChanged<bool>? onTrueDarkChanged;
   final ValueChanged<String>? onAccentColorChanged;
-  final ValueChanged<bool>? onTintedTabBarChanged;
 
   const CustomizationScreen({
     super.key,
@@ -15,7 +14,6 @@ class CustomizationScreen extends StatefulWidget {
     this.onKeepScreenOnChanged,
     this.onTrueDarkChanged,
     this.onAccentColorChanged,
-    this.onTintedTabBarChanged,
   });
 
   @override
@@ -25,7 +23,6 @@ class CustomizationScreen extends StatefulWidget {
 class _CustomizationScreenState extends State<CustomizationScreen> {
   bool _keepScreenOn = true;
   bool _trueDark = false;
-  bool _tintedTabBar = false;
   String _accentKey = kDefaultAccent;
 
   @override
@@ -40,7 +37,6 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
       setState(() {
         _keepScreenOn = prefs.getBool('keep_screen_on') ?? true;
         _trueDark = prefs.getBool('true_dark') ?? false;
-        _tintedTabBar = prefs.getBool('tinted_tab_bar') ?? false;
         _accentKey = prefs.getString('accent_color') ?? kDefaultAccent;
       });
     }
@@ -68,14 +64,6 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
       prefs.setString('accent_color', key);
     });
     widget.onAccentColorChanged?.call(key);
-  }
-
-  void _setTintedTabBar(bool value) {
-    setState(() => _tintedTabBar = value);
-    SharedPreferences.getInstance().then((prefs) {
-      prefs.setBool('tinted_tab_bar', value);
-    });
-    widget.onTintedTabBarChanged?.call(value);
   }
 
   @override
@@ -121,12 +109,6 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
                   ),
               ],
             ),
-          ),
-          SwitchListTile(
-            title: const Text('Tinted tab bar'),
-            subtitle: const Text('Color the tab bar with the accent'),
-            value: _tintedTabBar,
-            onChanged: _setTintedTabBar,
           ),
           SwitchListTile(
             title: const Text('Keep screen on'),

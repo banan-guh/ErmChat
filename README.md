@@ -38,7 +38,7 @@ Check [TODO.md](TODO.md) for the roadmap. Found a bug or want a feature? Open an
 - Hype train, poll, and prediction cards rendered in a swipeable cutout above chat (for the broadcaster's own channels, read-only)
 
 **Customization & settings**
-- Dark mode toggle, true-dark, accent color picker, tinted tab bar
+- Dark mode toggle, true-dark, accent color picker
 - Timestamp format picker, keep-screen-on, custom ping highlights
 - Per-channel chat analytics (total messages, unique chatters, msgs/min, top chatters/emotes/words, bans/timeouts)
 - Background keepalive and mention push notifications (Android ONLY! iOS is still unpolished)

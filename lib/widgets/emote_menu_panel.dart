@@ -14,7 +14,6 @@ class EmoteMenuPanelWidget extends StatefulWidget {
   final EmoteManager emoteManager;
   final DraggableScrollableController sheetCtrl;
   final double emoteMaxFraction;
-  final bool tintedTabBar;
 
   const EmoteMenuPanelWidget({
     required this.scrollController,
@@ -25,7 +24,6 @@ class EmoteMenuPanelWidget extends StatefulWidget {
     required this.onClose,
     required this.emoteManager,
     required this.emoteMaxFraction,
-    this.tintedTabBar = false,
     super.key,
   });
 
@@ -203,9 +201,7 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
                   Expanded(
                     child: TabbedLayout(
                       tabAlignment: Alignment.center,
-                      tabBarColor: widget.tintedTabBar
-                          ? theme.colorScheme.primaryContainer
-                          : panelColor,
+                      tabBarColor: panelColor,
                       tabs: const ['Recent', 'Subs', 'Channel', 'Global'],
                       selectedIndex: _emoteTabIndex,
                       onSelectedIndexChanged: (i) =>

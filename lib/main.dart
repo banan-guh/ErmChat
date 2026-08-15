@@ -68,7 +68,6 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
   bool _keepScreenOn = true;
   bool _trueDark = false;
   String _accentKey = kDefaultAccent;
-  bool _tintedTabBar = false;
   Color get _seedColor =>
       kAccentPresets[_accentKey] ?? kAccentPresets[kDefaultAccent]!;
   final _twitchAuth = TwitchAuth();
@@ -94,7 +93,6 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
       WakelockPlus.toggle(enable: _keepScreenOn).ignore();
       _trueDark = prefs.getBool('true_dark') ?? false;
       _accentKey = prefs.getString('accent_color') ?? kDefaultAccent;
-      _tintedTabBar = prefs.getBool('tinted_tab_bar') ?? false;
     } catch (e) {
       debugPrint('Failed to load preferences: $e');
     }
@@ -131,13 +129,6 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
     });
   }
 
-  void _setTintedTabBar(bool value) {
-    setState(() => _tintedTabBar = value);
-    SharedPreferences.getInstance().then((prefs) {
-      prefs.setBool('tinted_tab_bar', value);
-    });
-  }
-
   @override
   Widget build(BuildContext context) {
     if (!_loaded) {
@@ -160,8 +151,6 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
         onKeepScreenOnChanged: _setKeepScreenOn,
         onTrueDarkChanged: _setTrueDark,
         onAccentColorChanged: _setAccentColor,
-        onTintedTabBarChanged: _setTintedTabBar,
-        tintedTabBar: _tintedTabBar,
         eventSubService: widget.eventSubService,
         ircService: widget.ircService,
         ircReadService: widget.ircReadService,

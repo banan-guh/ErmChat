@@ -51,9 +51,7 @@ class HomeScreen extends StatefulWidget {
   final ValueChanged<ThemeMode> onThemeChanged;
   final ValueChanged<bool>? onKeepScreenOnChanged;
   final ValueChanged<bool>? onTrueDarkChanged;
-  final ValueChanged<bool>? onTintedTabBarChanged;
   final ValueChanged<String>? onAccentColorChanged;
-  final bool tintedTabBar;
   final EventSubService? eventSubService;
   final IrcService? ircService;
   final IrcReadService? ircReadService;
@@ -66,9 +64,7 @@ class HomeScreen extends StatefulWidget {
     required this.onThemeChanged,
     this.onKeepScreenOnChanged,
     this.onTrueDarkChanged,
-    this.onTintedTabBarChanged,
     this.onAccentColorChanged,
-    this.tintedTabBar = false,
     this.eventSubService,
     this.ircService,
     this.ircReadService,
@@ -2606,12 +2602,6 @@ class _HomeScreenState extends State<HomeScreen>
                                         _tileCache.clear();
                                         widget.onAccentColorChanged?.call(name);
                                       },
-                                      onTintedTabBarChanged: (value) {
-                                        _tileCache.clear();
-                                        widget.onTintedTabBarChanged?.call(
-                                          value,
-                                        );
-                                      },
                                       onBackgroundServiceChanged:
                                           _setBackgroundService,
                                       onMentionPushChanged: _setMentionPush,
@@ -2655,11 +2645,6 @@ class _HomeScreenState extends State<HomeScreen>
                                           selectedIndex: _channels.indexOf(
                                             _selectedChannel ?? '',
                                           ),
-                                          tabBarColor: widget.tintedTabBar
-                                              ? theme
-                                                    .colorScheme
-                                                    .primaryContainer
-                                              : null,
                                           onSelectedIndexChanged:
                                               _onChannelChanged,
                                           onFocusChanged:
@@ -2975,7 +2960,6 @@ class _HomeScreenState extends State<HomeScreen>
                                           scrollController: scrollController,
                                           sheetCtrl: _emoteSheetCtrl,
                                           emoteMaxFraction: _emoteMaxFraction,
-                                          tintedTabBar: widget.tintedTabBar,
                                         ),
                                       ),
                                     );
