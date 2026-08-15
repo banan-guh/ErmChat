@@ -6,6 +6,75 @@ import '../../widgets/tabbed_layout.dart';
 import '../../models/generic_emote.dart';
 import '../../services/analytics_service.dart';
 
+/// Formats the elapsed tracking time (e.g. `1h 5m`, `3m 2s`, `12s`).
+String formatAnalyticsElapsed(DateTime start) {
+  final elapsed = DateTime.now().difference(start);
+  final hours = elapsed.inHours;
+  final minutes = elapsed.inMinutes % 60;
+  final seconds = elapsed.inSeconds % 60;
+  if (hours > 0) return '${hours}h ${minutes}m';
+  if (minutes > 0) return '${minutes}m ${seconds}s';
+  return '${seconds}s';
+}
+
+/// Self-contained one-second ticker for the "Tracking for" value. The
+/// analytics screen used to run a screen-wide 1s `Timer.periodic` + `setState`
+/// that rebuilt the whole `TabbedLayout` every second; when one of those
+/// rebuilds landed mid-swipe/scroll the framework threw `child.hasSize` /
+/// `RenderBox was not laid out` layout assertions. Ticking only this small
+/// text in place never changes the list structure, so it can't trigger that.
+class _ElapsedText extends StatefulWidget {
+  const _ElapsedText({this.startedAt});
+
+  final DateTime? startedAt;
+
+  @override
+  State<_ElapsedText> createState() => _ElapsedTextState();
+}
+
+class _ElapsedTextState extends State<_ElapsedText> {
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _syncTimer();
+  }
+
+  @override
+  void didUpdateWidget(_ElapsedText oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _syncTimer();
+  }
+
+  void _syncTimer() {
+    final started = widget.startedAt;
+    if (started == null) {
+      _timer?.cancel();
+      _timer = null;
+    } else {
+      _timer ??= Timer.periodic(const Duration(seconds: 1), (_) {
+        if (mounted) setState(() {});
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final started = widget.startedAt;
+    return Text(
+      started == null ? '0s' : formatAnalyticsElapsed(started),
+      style: const TextStyle(fontWeight: FontWeight.w600),
+    );
+  }
+}
+
 class AnalyticsScreen extends StatefulWidget {
   final AnalyticsService analyticsService;
   final List<String> channels;
@@ -25,21 +94,11 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
 
   String? _selectedChannel;
   bool _useStopwords = false;
-  Timer? _ticker;
 
   @override
   void initState() {
     super.initState();
     _loadPrefs();
-    _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted) setState(() {});
-    });
-  }
-
-  @override
-  void dispose() {
-    _ticker?.cancel();
-    super.dispose();
   }
 
   Future<void> _loadPrefs() async {
@@ -74,16 +133,6 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     return 0;
   }
 
-  String _formatElapsed(DateTime start) {
-    final elapsed = DateTime.now().difference(start);
-    final hours = elapsed.inHours;
-    final minutes = elapsed.inMinutes % 60;
-    final seconds = elapsed.inSeconds % 60;
-    if (hours > 0) return '${hours}h ${minutes}m';
-    if (minutes > 0) return '${minutes}m ${seconds}s';
-    return '${seconds}s';
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -114,17 +163,19 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       ),
       body: widget.channels.isEmpty
           ? const Center(child: Text('Join a channel to start tracking stats'))
-          : ListenableBuilder(
-              listenable: widget.analyticsService,
-              builder: (context, _) => TabbedLayout(
-                tabs: widget.channels,
-                selectedIndex: _channelIndex,
-                onSelectedIndexChanged: (i) {
-                  setState(() => _selectedChannel = widget.channels[i]);
-                },
-                tabBarColor: Theme.of(context).colorScheme.surface,
-                pageBuilder: (context, i) =>
-                    _buildStats(context, widget.channels[i]),
+          : TabbedLayout(
+              tabs: widget.channels,
+              selectedIndex: _channelIndex,
+              onSelectedIndexChanged: (i) {
+                setState(() => _selectedChannel = widget.channels[i]);
+              },
+              tabBarColor: Theme.of(context).colorScheme.surface,
+              // The ListenableBuilder is scoped to the page content rather
+              // than the whole TabbedLayout so a live message never rebuilds
+              // the tab bar / controller mid-swipe.
+              pageBuilder: (context, i) => ListenableBuilder(
+                listenable: widget.analyticsService,
+                builder: (context, _) => _buildStats(context, widget.channels[i]),
               ),
             ),
     );
@@ -158,9 +209,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                   'Messages per minute',
                   service.messagesPerMinute(channel).toStringAsFixed(1),
                 ),
-                _summaryRow(
+                _summaryRowWidget(
                   'Tracking for',
-                  startedAt == null ? '0s' : _formatElapsed(startedAt),
+                  _ElapsedText(startedAt: startedAt),
                 ),
               ],
             ),
@@ -213,14 +264,18 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   }
 
   Widget _summaryRow(String label, String value) {
+    return _summaryRowWidget(
+      label,
+      Text(value, style: const TextStyle(fontWeight: FontWeight.w600)),
+    );
+  }
+
+  Widget _summaryRowWidget(String label, Widget value) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 2),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(label),
-          Text(value, style: const TextStyle(fontWeight: FontWeight.w600)),
-        ],
+        children: [Text(label), value],
       ),
     );
   }

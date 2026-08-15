@@ -2591,6 +2591,20 @@ void main() {
       expect(find.byIcon(Icons.settings), findsOneWidget);
     });
 
+    testWidgets('Long-pressing the 3-dot button opens Settings directly', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(const TwitchChatApp());
+      await tester.pump();
+
+      await tester.longPress(find.byIcon(Icons.more_vert));
+      await tester.pumpAndSettle();
+
+      // Settings screen is pushed, not the overflow menu.
+      expect(find.text('Customization'), findsOneWidget);
+      expect(find.text('Upload media'), findsNothing);
+    });
+
     testWidgets('Account screen idle state shows login button', (
       WidgetTester tester,
     ) async {

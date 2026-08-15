@@ -2665,13 +2665,12 @@ class _HomeScreenState extends State<HomeScreen>
                                           ),
                                         ),
                                         PopupMenuButton<String>(
-                                          icon: const Icon(Icons.more_vert),
-                                          tooltip: 'More',
-                                          popUpAnimationStyle: const AnimationStyle(
-                                            duration: Duration(
-                                              milliseconds: 175,
-                                            ),
-                                          ),
+                                          popUpAnimationStyle:
+                                              const AnimationStyle(
+                                                duration: Duration(
+                                                  milliseconds: 175,
+                                                ),
+                                              ),
                                           onSelected: (value) {
                                             switch (value) {
                                               case 'upload':
@@ -2718,6 +2717,21 @@ class _HomeScreenState extends State<HomeScreen>
                                               ),
                                             ),
                                           ],
+                                          // Long-press on the 3-dot button
+                                          // fast-tracks straight to Settings;
+                                          // a quick tap opens the overflow
+                                          // menu. The long-press sits on the
+                                          // button's child (innermost in the
+                                          // hit-test path) so it wins the
+                                          // gesture arena over the Tooltip
+                                          // PopupMenuButton always adds.
+                                          child: GestureDetector(
+                                            onLongPress: _openSettings,
+                                            child: const Padding(
+                                              padding: EdgeInsets.all(12),
+                                              child: Icon(Icons.more_vert),
+                                            ),
+                                          ),
                                         ),
                                       ],
                                     ),
