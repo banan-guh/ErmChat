@@ -649,6 +649,11 @@ class _EmoteImageState extends State<EmoteImage> {
   Widget build(BuildContext context) {
     final altUrl = _placeholderUrl;
     return Image(
+      // Key by URL: when a recycled widget (e.g. an autocomplete row whose
+      // list content shifted) switches to a different emote, the inner Image
+      // state is recreated so gaplessPlayback can never keep painting the
+      // previous emote's stale frame while the new URL loads.
+      key: ValueKey(widget.url),
       image: EmoteUrlProvider(widget.url),
       width: widget.width,
       height: widget.height,
@@ -680,6 +685,7 @@ class _EmoteImageState extends State<EmoteImage> {
           // rendering at its intrinsic size.
           overlay = _loadingStack(
             Image(
+              key: ValueKey('ph-$altUrl'),
               image: EmoteUrlProvider(altUrl),
               fit: widget.fit,
               gaplessPlayback: true,

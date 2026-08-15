@@ -250,6 +250,62 @@ void main() {
       expect(find.text('loading'), findsNothing);
     });
 
+    testWidgets(
+      'a recycled widget switched to a new URL never shows the old emote\'s '
+      'stale frame',
+      (tester) async {
+        final frameA = await tester.runAsync(() => _makeImage(255, 0, 0));
+        final frameB = await tester.runAsync(() => _makeImage(0, 0, 255));
+        final bBytes = Uint8List.fromList([...animatedWebpBytes(), 0xAB]);
+        final gateB = Completer<Uint8List>();
+        EmoteUrlProvider.debugFetchOverride = (url) {
+          if (url == 'https://example.com/b.gif') return gateB.future;
+          return Future.value(animatedWebpBytes());
+        };
+        EmoteUrlProvider.debugDecodeOverride = (bytes) async => EmoteFrameData(
+          frames: [listEquals(bytes, bBytes) ? frameB! : frameA!],
+          durations: const [Duration.zero],
+        );
+
+        await pumpEmote(tester, url: 'https://example.com/a.gif');
+        RawImage raw() => tester.widget<RawImage>(find.byType(RawImage));
+        expect(
+          await tester.runAsync(() => _firstPixel(raw().image!)),
+          '255,0,0,255',
+        );
+
+        // The same widget position is reused for emote B (like an
+        // autocomplete row whose filtered list shifted), whose bytes are
+        // still in flight.
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: EmoteImage(
+                url: 'https://example.com/b.gif',
+                width: 28,
+                height: 28,
+                fit: BoxFit.contain,
+              ),
+            ),
+          ),
+        );
+        await tester.pump();
+        // The stale frame is gone: the loading state shows instead of A's
+        // pixels (gaplessPlayback would otherwise keep painting A).
+        expect(raw().image, isNull);
+        expect(find.byType(Shimmer), findsWidgets);
+
+        // B lands and renders.
+        gateB.complete(bBytes);
+        await tester.pump();
+        await tester.pump();
+        expect(
+          await tester.runAsync(() => _firstPixel(raw().image!)),
+          '0,0,255,255',
+        );
+      },
+    );
+
     testWidgets('shows the error widget when the fetch fails', (tester) async {
       EmoteUrlProvider.debugFetchOverride = (url) async =>
           throw StateError('boom');
