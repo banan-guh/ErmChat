@@ -740,8 +740,8 @@ class ShimmerEmotePlaceholder extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final base = scheme.surfaceContainerHighest;
-    final highlight = Color.lerp(base, Colors.white, 0.5)!;
+    final base = scheme.surface;
+    final highlight = Color.lerp(base, scheme.surfaceContainerHighest, 0.7)!;
     return Shimmer.fromColors(
       baseColor: base,
       highlightColor: highlight,
@@ -846,10 +846,12 @@ class _EmoteImageState extends State<EmoteImage> {
 
   @override
   Widget build(BuildContext context) {
+    if (_failed) {
+      return widget.errorWidget ?? const Icon(Icons.broken_image, size: 20);
+    }
     final frames = _frames;
-    if (_failed || frames == null) {
-      return widget.errorWidget ??
-          widget.placeholder ??
+    if (frames == null) {
+      return widget.placeholder ??
           ShimmerEmotePlaceholder(
             width: widget.width,
             height: widget.height,

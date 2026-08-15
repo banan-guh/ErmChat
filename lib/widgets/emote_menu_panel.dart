@@ -460,7 +460,6 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
             width: double.infinity,
             height: double.infinity,
             fit: BoxFit.contain,
-            placeholder: const ShimmerEmotePlaceholder(),
             errorWidget: const Icon(Icons.broken_image, size: 20),
           ),
         ),

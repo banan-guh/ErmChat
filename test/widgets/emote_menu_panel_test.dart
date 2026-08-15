@@ -50,7 +50,10 @@ void main() {
 
     await tester.pumpWidget(wrap(manager));
     await tester.tap(find.text('Channel'));
-    await tester.pumpAndSettle();
+    // The loading shimmer animates indefinitely, so pump fixed durations
+    // instead of pumpAndSettle (which would never settle).
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
 
     final alphaElement = tester.element(find.byKey(const ValueKey('a')));
     final deltaElement = tester.element(find.byKey(const ValueKey('d')));
@@ -59,7 +62,8 @@ void main() {
     // element), Delta shifts down but keeps its element via keyed
     // reconciliation, and only the new cell is built.
     manager.updateSevenTvEmotes('ch', added: [sevenTv('b', 'Bravo')]);
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
 
     expect(tester.element(find.byKey(const ValueKey('a'))), same(alphaElement));
     expect(tester.element(find.byKey(const ValueKey('d'))), same(deltaElement));
@@ -84,13 +88,15 @@ void main() {
 
     await tester.pumpWidget(wrap(manager));
     await tester.tap(find.text('Channel'));
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
 
     final alphaElement = tester.element(find.byKey(const ValueKey('a')));
     final deltaElement = tester.element(find.byKey(const ValueKey('d')));
 
     manager.updateSevenTvEmotes('ch', removedIds: ['b']);
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
 
     expect(tester.element(find.byKey(const ValueKey('a'))), same(alphaElement));
     expect(tester.element(find.byKey(const ValueKey('d'))), same(deltaElement));
@@ -121,7 +127,8 @@ void main() {
 
     await tester.pumpWidget(wrap(manager));
     await tester.tap(find.text('Subs'));
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
 
     expect(
       tester.getTopLeft(find.text('ch')).dy,

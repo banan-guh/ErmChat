@@ -240,7 +240,6 @@ class EmoteText {
       width: width,
       height: height,
       fit: BoxFit.contain,
-      placeholder: ShimmerEmotePlaceholder(width: width, height: height),
       errorWidget: SizedBox(width: width, height: height),
     );
   }
