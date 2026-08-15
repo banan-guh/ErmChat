@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../widgets/emote_image.dart';
+import '../../widgets/tabbed_layout.dart';
 import '../../models/generic_emote.dart';
 import '../../services/analytics_service.dart';
 
@@ -62,6 +63,17 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     return widget.channels.first;
   }
 
+  int get _channelIndex {
+    final channels = widget.channels;
+    if (channels.isEmpty) return 0;
+    final selected = _selectedChannel;
+    if (selected != null) {
+      final idx = channels.indexOf(selected);
+      if (idx != -1) return idx;
+    }
+    return 0;
+  }
+
   String _formatElapsed(DateTime start) {
     final elapsed = DateTime.now().difference(start);
     final hours = elapsed.inHours;
@@ -102,47 +114,24 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       ),
       body: widget.channels.isEmpty
           ? const Center(child: Text('Join a channel to start tracking stats'))
-          : Column(
-              children: [
-                SizedBox(
-                  height: 48,
-                  child: ListView(
-                    scrollDirection: Axis.horizontal,
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    children: [
-                      for (final channel in widget.channels)
-                        Padding(
-                          padding: const EdgeInsets.only(right: 8),
-                          child: ChoiceChip(
-                            label: Text(channel),
-                            selected: channel == _channel,
-                            onSelected: (_) {
-                              setState(() => _selectedChannel = channel);
-                            },
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-                Expanded(
-                  child: ListenableBuilder(
-                    listenable: widget.analyticsService,
-                    builder: (context, _) => _buildStats(context),
-                  ),
-                ),
-              ],
+          : ListenableBuilder(
+              listenable: widget.analyticsService,
+              builder: (context, _) => TabbedLayout(
+                tabs: widget.channels,
+                selectedIndex: _channelIndex,
+                onSelectedIndexChanged: (i) {
+                  setState(() => _selectedChannel = widget.channels[i]);
+                },
+                tabBarColor: Theme.of(context).colorScheme.surface,
+                pageBuilder: (context, i) =>
+                    _buildStats(context, widget.channels[i]),
+              ),
             ),
     );
   }
 
-  Widget _buildStats(BuildContext context) {
+  Widget _buildStats(BuildContext context, String channel) {
     final service = widget.analyticsService;
-    final channel = _channel;
-    if (channel == null) {
-      return const Center(
-        child: Text('Join a channel to start tracking stats'),
-      );
-    }
     final theme = Theme.of(context);
     final startedAt = service.trackingStartedAt(channel);
 

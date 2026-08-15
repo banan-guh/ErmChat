@@ -97,7 +97,7 @@
 - borders flicker white when tabbing in
 - fully transparent emote stops working for some reason X
 - size emote menu better
-- fix no scope experience
+- fix no scope experience X
 - fix links parsing X
-- fix bypass
-- add tab bar in analytics
+- fix chat bypass
+- add tab bar in analytics X

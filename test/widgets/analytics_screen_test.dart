@@ -62,8 +62,8 @@ void main() {
 
     expect(find.text('carol'), findsNothing);
 
-    await tester.tap(find.widgetWithText(ChoiceChip, 'chan2'));
-    await tester.pump();
+    await tester.tap(find.widgetWithText(Tab, 'chan2'));
+    await tester.pumpAndSettle();
 
     expect(find.text('carol'), findsOneWidget);
     expect(find.text('alice'), findsNothing);
