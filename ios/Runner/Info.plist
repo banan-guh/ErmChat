@@ -26,6 +26,12 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>Used to take photos or videos to upload and share in chat.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Used to record video with sound for uploads to share in chat.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Used to pick images or videos to upload and share in chat.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

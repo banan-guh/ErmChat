@@ -75,7 +75,7 @@
 
 - [+] **OS notifications + background** - Push notifications when mentioned/whispered while app is backgrounded; run keepalive in background. - background finished, notifs finished for android only, not apple
 - [ ] **Different mode** - Toggleable type box visibility and fullscreen.
-- [ ] **Robotty history bot backup** - Add fallback/backup for recent-messages.robotty.de service.
+- [x] **Robotty history bot backup** - Add fallback/backup for recent-messages.robotty.de service. - zneix.eu
 - [ ] **Injectable TwitchBadgeService** - Currently standalone; consider making it injectable (like EventSubService/IrcService) for testability. Low priority.
 - [x] **Analytics** - Live per-channel chat analytics (total messages, unique chatters, rolling msgs/min, top chatters/emotes/words, bans/timeouts) surfaced via a Settings screen entry; accumulated client-side with no persistence.
 - [x] **Thread customization** - Currently locked into replying to previous user. should allow replying to the first user.
@@ -101,5 +101,5 @@
 - fix links parsing X
 - fix chat bypass
 - add tab bar in analytics X
-- ping recent messages to see max msgs
+- ping recent messages to see max msgs - not deterministic, do later
 - add reload emotes / reload chat button

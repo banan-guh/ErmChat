@@ -54,6 +54,7 @@ dependencies:
   shimmer: ^3.0.0
   ffi: ^2.2.0
   linkify: ^5.0.0
+  image_picker: ^1.2.3
 dev_dependencies:
   flutter_test:
     sdk: flutter

@@ -119,7 +119,9 @@ void main() {
 
       await joinChannel(tester, 'xqc');
 
-      await tester.tap(find.byIcon(Icons.settings));
+      await tester.tap(find.byIcon(Icons.more_vert));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Settings'));
       await tester.pumpAndSettle();
 
       await tester.tap(find.text('Channels'));

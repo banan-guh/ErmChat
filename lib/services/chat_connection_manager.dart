@@ -1654,6 +1654,16 @@ class ChatConnectionManager {
     precacheMessageEmotes(msg, channel);
   }
 
+  /// Brute-force teardown + reconnect of every socket (manual "Reconnect"
+  /// button). Unlike [reconnectIfNecessary], it never checks liveness - it
+  /// always disconnects and re-establishes the IRC/EventSub/7TV connections.
+  void forceReconnect() {
+    irc.forceReconnect();
+    ircRead.forceReconnect();
+    unawaited(eventSub.forceReconnect());
+    unawaited(sevenTvClient?.forceReconnect());
+  }
+
   void reconnectIfNecessary() {
     final login = getCurrentUserLogin();
     final token = twitchAuth.accessToken;

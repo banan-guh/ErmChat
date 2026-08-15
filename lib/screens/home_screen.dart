@@ -17,6 +17,7 @@ import '../services/seven_tv_event_client.dart';
 import '../services/command_handler.dart';
 import '../services/chat_connection_manager.dart';
 import '../services/emote_manager.dart';
+import '../services/emote_cache_manager.dart';
 import '../services/analytics_service.dart';
 import '../services/twitch_badge_service.dart';
 import '../services/emote_providers/twitch_emotes.dart';
@@ -24,7 +25,7 @@ import '../util/mention.dart';
 import '../util/sheet_drag.dart';
 import '../util/thread_utils.dart';
 import '../util/timestamp_formatter.dart';
-import '../widgets/settings.dart';
+import '../screens/settings/settings_screen.dart';
 import '../widgets/tabbed_layout.dart';
 import '../widgets/welcome_dialog.dart';
 import '../services/user_store.dart';
@@ -34,6 +35,7 @@ import '../widgets/autocomplete_dropdown.dart';
 import '../widgets/user_profile_sheet.dart';
 import '../widgets/emote_sheet.dart';
 import '../widgets/message_input.dart';
+import '../widgets/media_upload_controller.dart';
 import '../widgets/thread_panel.dart';
 import '../widgets/mentions_panel.dart';
 import '../widgets/emote_menu_panel.dart';
@@ -187,6 +189,10 @@ class _HomeScreenState extends State<HomeScreen>
   );
   final _messageController = TextEditingController();
   final _focusNode = FocusNode();
+  late final MediaUploadController _uploadController = MediaUploadController(
+    input: _messageController,
+    focusNode: _focusNode,
+  );
 
   final _notificationService = NotificationService();
   StreamSubscription<String>? _notificationTapSub;
@@ -1078,6 +1084,27 @@ class _HomeScreenState extends State<HomeScreen>
     if (mounted) setState(() {});
   }
 
+  // Manual "Reload emotes": clears the emote image cache on disk plus all
+  // cached emote metadata, then re-fetches everything (list + images) for all
+  // channels.
+  Future<void> _reloadEmotes() async {
+    try {
+      await EmoteCacheManager().emptyCache();
+    } catch (e) {
+      debugPrint('_reloadEmotes: cache clear failed: $e');
+    }
+    await _refreshEmotesAfterAuth();
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Emotes reloaded')));
+  }
+
+  // Manual "Reconnect": brute-force teardown + reconnect of every socket.
+  void _reconnect() {
+    _chatConn.forceReconnect();
+  }
+
   // Loads the account's subscriber emotes from the IRC emote-sets tag
   // (GLOBALUSERSTATE/USERSTATE), the authoritative source of which emote sets
   // the account can use (the Helix /chat/emotes/user endpoint omits certain
@@ -1863,6 +1890,46 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
+  void _openSettings() {
+    _focusNode.unfocus();
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => SettingsScreen(
+          twitchAuth: widget.twitchAuth,
+          onThemeChanged: (mode) {
+            _tileCache.clear();
+            widget.onThemeChanged(mode);
+          },
+          onKeepScreenOnChanged: widget.onKeepScreenOnChanged,
+          onTrueDarkChanged: widget.onTrueDarkChanged,
+          onAccentColorChanged: (name) {
+            _tileCache.clear();
+            widget.onAccentColorChanged?.call(name);
+          },
+          onBackgroundServiceChanged: _setBackgroundService,
+          onMentionPushChanged: _setMentionPush,
+          onEmoteTierChanged: _applyEmoteTier,
+          onEmoteCacheMaxChanged: _applyCacheCap,
+          onEmoteAutoModeChanged: _applyEmoteAutoMode,
+          mobileNotifier: _isMobile,
+          channelNotifier: _channelNotifier,
+          onLeaveChannel: _removeChannel,
+          onAddChannel: _addChannel,
+          onReorderChannels: _reorderChannels,
+          analyticsService: _analytics,
+          channels: _channels,
+        ),
+      ),
+    ).then((_) {
+      _loadAltPings();
+      _loadMaxMessages();
+      _loadTestWidgets();
+      _tileCache.clear();
+      if (mounted) setState(() {});
+    });
+  }
+
   /// Handles slash commands by routing to the appropriate Twitch API endpoint.
   Future<void> _handleCommand(
     String text,
@@ -2597,46 +2664,60 @@ class _HomeScreenState extends State<HomeScreen>
                                             },
                                           ),
                                         ),
-                                        SettingsButton(
-                                          twitchAuth: widget.twitchAuth,
-                                          onThemeChanged: (mode) {
-                                            _tileCache.clear();
-                                            widget.onThemeChanged(mode);
+                                        PopupMenuButton<String>(
+                                          icon: const Icon(Icons.more_vert),
+                                          tooltip: 'More',
+                                          popUpAnimationStyle: const AnimationStyle(
+                                            duration: Duration(
+                                              milliseconds: 175,
+                                            ),
+                                          ),
+                                          onSelected: (value) {
+                                            switch (value) {
+                                              case 'upload':
+                                                _uploadController.pickAndUpload(
+                                                  context,
+                                                );
+                                                break;
+                                              case 'reload_emotes':
+                                                _reloadEmotes();
+                                                break;
+                                              case 'reconnect':
+                                                _reconnect();
+                                                break;
+                                              case 'settings':
+                                                _openSettings();
+                                                break;
+                                            }
                                           },
-                                          onKeepScreenOnChanged:
-                                              widget.onKeepScreenOnChanged,
-                                          onTrueDarkChanged:
-                                              widget.onTrueDarkChanged,
-                                          onAccentColorChanged: (name) {
-                                            _tileCache.clear();
-                                            widget.onAccentColorChanged?.call(
-                                              name,
-                                            );
-                                          },
-                                          onBackgroundServiceChanged:
-                                              _setBackgroundService,
-                                          onMentionPushChanged: _setMentionPush,
-                                          onEmoteTierChanged: _applyEmoteTier,
-                                          onEmoteCacheMaxChanged:
-                                              _applyCacheCap,
-                                          onEmoteAutoModeChanged:
-                                              _applyEmoteAutoMode,
-                                          mobileNotifier: _isMobile,
-                                          channelNotifier: _channelNotifier,
-                                          onLeaveChannel: _removeChannel,
-                                          onAddChannel: _addChannel,
-                                          onReorderChannels: _reorderChannels,
-                                          analyticsService: _analytics,
-                                          channels: _channels,
-                                          onSettingsOpened: () =>
-                                              _focusNode.unfocus(),
-                                          onSettingsClosed: () {
-                                            _loadAltPings();
-                                            _loadMaxMessages();
-                                            _loadTestWidgets();
-                                            _tileCache.clear();
-                                            if (mounted) setState(() {});
-                                          },
+                                          itemBuilder: (_) => const [
+                                            PopupMenuItem(
+                                              value: 'upload',
+                                              child: Text('Upload media'),
+                                            ),
+                                            PopupMenuItem(
+                                              value: 'reload_emotes',
+                                              child: Text('Reload emotes'),
+                                            ),
+                                            PopupMenuItem(
+                                              value: 'reconnect',
+                                              child: Text('Reconnect'),
+                                            ),
+                                            PopupMenuDivider(),
+                                            PopupMenuItem(
+                                              value: 'settings',
+                                              child: Row(
+                                                children: [
+                                                  Icon(
+                                                    Icons.settings,
+                                                    size: 20,
+                                                  ),
+                                                  SizedBox(width: 12),
+                                                  Text('Settings'),
+                                                ],
+                                              ),
+                                            ),
+                                          ],
                                         ),
                                       ],
                                     ),

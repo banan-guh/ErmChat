@@ -14,6 +14,11 @@ import 'package:ermchat/screens/settings/channel_settings_screen.dart';
 import 'package:ermchat/screens/settings/chat_settings_screen.dart';
 import 'package:ermchat/screens/settings/customization_screen.dart';
 import 'package:ermchat/screens/settings/emotes_settings_screen.dart';
+import 'package:ermchat/screens/settings/tools_settings_screen.dart';
+import 'package:ermchat/screens/settings/uploader_settings_screen.dart';
+import 'package:ermchat/screens/settings/recent_uploads_screen.dart';
+import 'package:ermchat/services/media_uploader.dart';
+import 'package:ermchat/services/analytics_service.dart';
 import 'package:ermchat/models/emote_fetch_tier.dart';
 import 'package:ermchat/services/twitch_api.dart';
 import 'package:ermchat/services/twitch_eventsub.dart';
@@ -287,7 +292,8 @@ void main() {
     await tester.pump();
 
     expect(find.byIcon(Icons.add), findsOneWidget);
-    expect(find.byIcon(Icons.settings), findsOneWidget);
+    expect(find.byIcon(Icons.more_vert), findsOneWidget);
+    expect(find.byIcon(Icons.settings), findsNothing);
     expect(
       find.text('Configure Twitch credentials in Settings first'),
       findsOneWidget,
@@ -366,7 +372,9 @@ void main() {
     await tester.pumpWidget(const TwitchChatApp());
     await tester.pump();
 
-    await tester.tap(find.byIcon(Icons.settings));
+    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Settings'));
     await tester.pumpAndSettle();
 
     expect(find.text('Settings'), findsOneWidget);
@@ -407,7 +415,9 @@ void main() {
     await tester.tap(find.text('Join'));
     await tester.pump();
 
-    await tester.tap(find.byIcon(Icons.settings));
+    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Settings'));
     await tester.pumpAndSettle();
 
     expect(find.text('Channels'), findsOneWidget);
@@ -793,7 +803,9 @@ void main() {
 
     // Leaving a channel must also drop its unread count, or the bell
     // stays red with no per-channel dot left to clear.
-    await tester.tap(find.byIcon(Icons.settings));
+    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Settings'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Channels'));
     await tester.pumpAndSettle();
@@ -2563,6 +2575,22 @@ void main() {
   });
 
   group('Settings screen', () {
+    testWidgets('Overflow menu lists Upload media, Reload emotes, Reconnect, Settings', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(const TwitchChatApp());
+      await tester.pump();
+
+      await tester.tap(find.byIcon(Icons.more_vert));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Upload media'), findsOneWidget);
+      expect(find.text('Reload emotes'), findsOneWidget);
+      expect(find.text('Reconnect'), findsOneWidget);
+      expect(find.text('Settings'), findsOneWidget);
+      expect(find.byIcon(Icons.settings), findsOneWidget);
+    });
+
     testWidgets('Account screen idle state shows login button', (
       WidgetTester tester,
     ) async {
@@ -3189,6 +3217,90 @@ void main() {
       // Let the cache store's one-shot cleanup timer fire so the test ends
       // without pending timers.
       await tester.pump(const Duration(seconds: 10));
+    });
+  });
+
+  group('Tools settings', () {
+    testWidgets('Tools screen links to uploader, recents, and analytics', (
+      WidgetTester tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({});
+      await tester.pumpWidget(
+        MaterialApp(
+          home: ToolsSettingsScreen(
+            analyticsService: AnalyticsService(),
+            channels: ['channel1'],
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.text('Tools'), findsOneWidget);
+      expect(find.text('Image uploader'), findsOneWidget);
+      expect(find.text('Recent uploads'), findsOneWidget);
+      expect(find.text('Analytics'), findsOneWidget);
+
+      await tester.tap(find.text('Image uploader'));
+      await tester.pumpAndSettle();
+      expect(find.text('Image uploader'), findsWidgets);
+      expect(find.text('Save'), findsOneWidget);
+    });
+
+    testWidgets('Tools screen hides analytics when no service is provided', (
+      WidgetTester tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({});
+      await tester.pumpWidget(const MaterialApp(home: ToolsSettingsScreen()));
+      await tester.pump();
+
+      expect(find.text('Image uploader'), findsOneWidget);
+      expect(find.text('Recent uploads'), findsOneWidget);
+      expect(find.text('Analytics'), findsNothing);
+    });
+
+    testWidgets('Uploader settings screen loads kappa.lol defaults', (
+      WidgetTester tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({});
+      await tester.pumpWidget(
+        const MaterialApp(home: UploaderSettingsScreen()),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.text('https://kappa.lol/api/upload'), findsOneWidget);
+      expect(find.text('file'), findsOneWidget);
+    });
+
+    testWidgets(
+      'Recent uploads screen shows stored uploads and copies on tap',
+      (WidgetTester tester) async {
+        SharedPreferences.setMockInitialValues({});
+        final uploader = MediaUploader();
+        await uploader.addRecent(
+          const UploadResult(imageLink: 'https://kappa.lol/abc'),
+        );
+        await tester.pumpWidget(const MaterialApp(home: RecentUploadsScreen()));
+        await tester.pump();
+        await tester.pump();
+
+        expect(find.text('https://kappa.lol/abc'), findsOneWidget);
+
+        await tester.tap(find.byType(ListTile).first);
+        await tester.pumpAndSettle();
+        expect(find.text('Copied https://kappa.lol/abc'), findsOneWidget);
+      },
+    );
+
+    testWidgets('Recent uploads screen shows empty state', (
+      WidgetTester tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({});
+      await tester.pumpWidget(const MaterialApp(home: RecentUploadsScreen()));
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.text('No uploads yet'), findsOneWidget);
     });
   });
 
