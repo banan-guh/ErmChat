@@ -158,22 +158,25 @@ void main() {
       return TwitchEmoteProvider.fetchGlobal(resolution: resolution);
     }
 
-    test('low uses the smallest scale and no urlLarge', () async {
+    test('low uses the smallest scale and no url3x', () async {
       final result = await fetchGlobal(EmoteResolution.low);
       expect(result.single.url, _url('1', '1.0'));
-      expect(result.single.urlLarge, isNull);
+      expect(result.single.url1x, _url('1', '1.0'));
+      expect(result.single.url3x, isNull);
     });
 
-    test('medium uses the 2.0 scale and no urlLarge', () async {
+    test('medium uses the 2.0 scale and no url3x', () async {
       final result = await fetchGlobal(EmoteResolution.medium);
       expect(result.single.url, _url('1', '2.0'));
-      expect(result.single.urlLarge, isNull);
+      expect(result.single.url1x, _url('1', '1.0'));
+      expect(result.single.url3x, isNull);
     });
 
-    test('high uses 2.0 and the largest (3.0) urlLarge', () async {
+    test('high uses 2.0, 1x alternate and the largest (3.0) url3x', () async {
       final result = await fetchGlobal(EmoteResolution.high);
       expect(result.single.url, _url('1', '2.0'));
-      expect(result.single.urlLarge, _url('1', '3.0'));
+      expect(result.single.url1x, _url('1', '1.0'));
+      expect(result.single.url3x, _url('1', '3.0'));
     });
 
     test('low falls back to the smallest available scale', () async {
@@ -184,7 +187,8 @@ void main() {
         ],
       );
       expect(result.single.url, _url('2', '3.0'));
-      expect(result.single.urlLarge, isNull);
+      expect(result.single.url1x, isNull);
+      expect(result.single.url3x, isNull);
     });
   });
 }

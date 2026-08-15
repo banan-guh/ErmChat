@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:cached_network_image/cached_network_image.dart';
+import 'emote_image.dart';
 import '../models/generic_emote.dart';
 
 class EmoteSheet extends StatefulWidget {
@@ -39,6 +39,16 @@ class _EmoteSheetState extends State<EmoteSheet>
   void dispose() {
     _tabCtrl.dispose();
     super.dispose();
+  }
+
+  /// Scales for [emote], largest first, deduplicated.
+  List<String> _scaleUrls(GenericEmote emote) {
+    final urls = <String>[
+      if (emote.url3x != null) emote.url3x!,
+      emote.url,
+      if (emote.url1x != null) emote.url1x!,
+    ];
+    return <String>{...urls}.toList();
   }
 
   String _typeLabel(GenericEmote emote) {
@@ -91,6 +101,19 @@ class _EmoteSheetState extends State<EmoteSheet>
     final theme = Theme.of(context);
     final owner = _ownerLabel(emote);
 
+    // The preview targets the largest scale (3x); the cached 2x from chat
+    // renders as the placeholder while it loads, then the 3x replaces it.
+    final scaleUrls = _scaleUrls(emote);
+    final previewUrl = scaleUrls.firstOrNull ?? emote.url;
+    final alternateUrls = scaleUrls
+        .skip(1)
+        .where((u) => u != previewUrl)
+        .toList();
+    debugPrint(
+      '[EmoteSheet] emote=${emote.code} scales=$scaleUrls '
+      'previewUrl=$previewUrl alternates=$alternateUrls',
+    );
+
     final subtitleStyle = TextStyle(
       fontSize: 16,
       color: theme.colorScheme.onSurfaceVariant,
@@ -113,18 +136,11 @@ class _EmoteSheetState extends State<EmoteSheet>
                   child: SizedBox(
                     width: 128,
                     height: 128,
-                    child: CachedNetworkImage(
-                      imageUrl: emote.urlLarge ?? emote.url,
+                    child: EmoteImage(
+                      url: previewUrl,
+                      alternateUrls: alternateUrls,
                       fit: BoxFit.contain,
-                      fadeInDuration: Duration.zero,
-                      placeholder: (_, _) => const Center(
-                        child: SizedBox(
-                          width: 24,
-                          height: 24,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        ),
-                      ),
-                      errorWidget: (_, _, _) => Container(
+                      errorWidget: Container(
                         color: theme.colorScheme.surfaceContainerHighest,
                         child: Icon(
                           Icons.image,

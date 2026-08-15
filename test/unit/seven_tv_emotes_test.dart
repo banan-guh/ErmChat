@@ -87,7 +87,8 @@ void main() {
       });
       expect(emote, isNotNull);
       expect(emote!.url, 'https://cdn.7tv.app/emote/size/2x.webp');
-      expect(emote.urlLarge, 'https://cdn.7tv.app/emote/size/3x.webp');
+      expect(emote.url1x, 'https://cdn.7tv.app/emote/size/1x.webp');
+      expect(emote.url3x, 'https://cdn.7tv.app/emote/size/3x.webp');
       expect(emote.relativeScale, 1.0);
     });
 
@@ -99,7 +100,8 @@ void main() {
       });
       expect(emote, isNotNull);
       expect(emote!.url, 'https://cdn.7tv.app/emote/1/1x/1x.webp');
-      expect(emote.urlLarge, 'https://cdn.7tv.app/emote/1/1x/1x.webp');
+      expect(emote.url1x, isNull);
+      expect(emote.url3x, 'https://cdn.7tv.app/emote/1/1x/1x.webp');
     });
 
     group('resolution tiers', () {
@@ -120,43 +122,50 @@ void main() {
 
       const base = 'https://cdn.7tv.app/emote/res';
 
-      test('low picks the smallest file and drops urlLarge', () {
+      test('low picks the smallest file and drops url1x/url3x', () {
         final e = SevenTvEmoteProvider.parseSingleEmote(
           emote(['1x.webp', '2x.webp', '3x.webp', '4x.webp']),
           resolution: EmoteResolution.low,
         );
         expect(e, isNotNull);
         expect(e!.url, '$base/1x.webp');
-        expect(e.urlLarge, isNull);
+        expect(e.url1x, isNull);
+        expect(e.url3x, isNull);
       });
 
-      test('medium picks the 2x file and drops urlLarge', () {
+      test('medium picks the 2x file with 1x alternate and drops url3x', () {
         final e = SevenTvEmoteProvider.parseSingleEmote(
           emote(['1x.webp', '2x.webp', '3x.webp', '4x.webp']),
           resolution: EmoteResolution.medium,
         );
         expect(e, isNotNull);
         expect(e!.url, '$base/2x.webp');
-        expect(e.urlLarge, isNull);
+        expect(e.url1x, '$base/1x.webp');
+        expect(e.url3x, isNull);
       });
 
-      test('high picks 2x and urlLarge 3x even when a 4x file exists', () {
-        final e = SevenTvEmoteProvider.parseSingleEmote(
-          emote(['1x.webp', '2x.webp', '3x.webp', '4x.webp']),
-        );
-        expect(e, isNotNull);
-        expect(e!.url, '$base/2x.webp');
-        expect(e.urlLarge, '$base/3x.webp');
-        expect(e.urlLarge, isNot(contains('4x')));
-        expect(e.urlLarge, isNot(contains('4x.webp')));
-      });
+      test(
+        'high picks 2x, 1x alternate and url3x even when a 4x file exists',
+        () {
+          final e = SevenTvEmoteProvider.parseSingleEmote(
+            emote(['1x.webp', '2x.webp', '3x.webp', '4x.webp']),
+          );
+          expect(e, isNotNull);
+          expect(e!.url, '$base/2x.webp');
+          expect(e.url1x, '$base/1x.webp');
+          expect(e.url3x, '$base/3x.webp');
+          expect(e.url3x, isNot(contains('4x')));
+          expect(e.url3x, isNot(contains('4x.webp')));
+        },
+      );
 
       test('high falls back to the 2x file when no 3x tier exists', () {
         final e = SevenTvEmoteProvider.parseSingleEmote(
           emote(['1x.webp', '2x.webp', '4x.webp']),
         );
         expect(e, isNotNull);
-        expect(e!.urlLarge, '$base/2x.webp');
+        expect(e!.url1x, '$base/1x.webp');
+        expect(e.url3x, '$base/2x.webp');
       });
     });
   });

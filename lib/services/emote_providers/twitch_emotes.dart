@@ -95,13 +95,19 @@ class TwitchEmoteProvider {
         final isAnimated = formats.contains('animated');
         final format = isAnimated ? 'animated' : 'static';
         final scales = (item['scale'] as List<dynamic>?)?.cast<String>() ?? [];
-        final (smallScale, largeScale) = _selectScales(scales, resolution);
+        final (smallScale, oneXScale, largeScale) = _selectScales(
+          scales,
+          resolution,
+        );
         final theme =
             (item['theme_mode'] as List<dynamic>?)?.firstOrNull as String? ??
             'dark';
         final url =
             'https://static-cdn.jtvnw.net/emoticons/v2/$id/$format/$theme/$smallScale';
-        final urlLarge = largeScale == null
+        final url1x = oneXScale == null
+            ? null
+            : 'https://static-cdn.jtvnw.net/emoticons/v2/$id/$format/$theme/$oneXScale';
+        final url3x = largeScale == null
             ? null
             : 'https://static-cdn.jtvnw.net/emoticons/v2/$id/$format/$theme/$largeScale';
         result
@@ -112,7 +118,8 @@ class TwitchEmoteProvider {
                 code: name,
                 type: EmoteType.twitch,
                 url: url,
-                urlLarge: urlLarge,
+                url1x: url1x,
+                url3x: url3x,
                 isAnimated: isAnimated,
                 scope: ownerId != null && ownerId.isNotEmpty
                     ? EmoteScope.channel
@@ -140,14 +147,20 @@ class TwitchEmoteProvider {
       final formats = (item['format'] as List<dynamic>?)?.cast<String>() ?? [];
       final isAnimated = formats.contains('animated');
       final scales = (item['scale'] as List<dynamic>?)?.cast<String>() ?? [];
-      final (smallScale, largeScale) = _selectScales(scales, resolution);
+      final (smallScale, oneXScale, largeScale) = _selectScales(
+        scales,
+        resolution,
+      );
       final theme =
           (item['theme_mode'] as List<dynamic>?)?.firstOrNull as String? ??
           'dark';
       final format = isAnimated ? 'animated' : 'static';
       final url =
           'https://static-cdn.jtvnw.net/emoticons/v2/$id/$format/$theme/$smallScale';
-      final urlLarge = largeScale == null
+      final url1x = oneXScale == null
+          ? null
+          : 'https://static-cdn.jtvnw.net/emoticons/v2/$id/$format/$theme/$oneXScale';
+      final url3x = largeScale == null
           ? null
           : 'https://static-cdn.jtvnw.net/emoticons/v2/$id/$format/$theme/$largeScale';
       final tier = item['tier'] as String?;
@@ -157,7 +170,8 @@ class TwitchEmoteProvider {
           code: name,
           type: EmoteType.twitch,
           url: url,
-          urlLarge: urlLarge,
+          url1x: url1x,
+          url3x: url3x,
           isAnimated: isAnimated,
           scope: channel ? EmoteScope.channel : EmoteScope.global,
           tier: tier,
@@ -169,23 +183,26 @@ class TwitchEmoteProvider {
     return emotes;
   }
 
-  /// Selects the small/large scale tiers for the given resolution. The per-item
-  /// `scale` list is ordered ascending. Chat renders at ~28dp so medium/high
-  /// prefer the 2.0 tier; high additionally keeps the largest (typically 3.0)
-  /// for the larger sheet/menu.
-  static (String, String?) _selectScales(
+  /// Selects the small/1x/large scale tiers for the given resolution. The
+  /// per-item `scale` list is ordered ascending. Chat renders at ~28dp so
+  /// medium/high prefer the 2.0 tier; high additionally keeps the largest
+  /// (typically 3.0) for the larger sheet/menu. `url1x` (the 1.0 scale, when
+  /// the list has one) is kept as a cached-fallback placeholder candidate.
+  static (String, String?, String?) _selectScales(
     List<String> scales,
     EmoteResolution resolution,
   ) {
     final smallest = scales.firstOrNull ?? '1.0';
+    final oneX = scales.contains('1.0') ? '1.0' : null;
     switch (resolution) {
       case EmoteResolution.low:
-        return (scales.contains('1.0') ? '1.0' : smallest, null);
+        return (scales.contains('1.0') ? '1.0' : smallest, oneX, null);
       case EmoteResolution.medium:
-        return (scales.contains('2.0') ? '2.0' : smallest, null);
+        return (scales.contains('2.0') ? '2.0' : smallest, oneX, null);
       case EmoteResolution.high:
         return (
           scales.contains('2.0') ? '2.0' : smallest,
+          oneX,
           scales.lastOrNull ?? '3.0',
         );
     }

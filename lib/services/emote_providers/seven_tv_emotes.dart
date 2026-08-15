@@ -89,7 +89,8 @@ class SevenTvEmoteProvider {
       if (baseUrl == null || baseUrl.isEmpty) continue;
 
       String? url;
-      String? urlLarge;
+      String? url1x;
+      String? url3x;
       bool isAnimated = false;
       double relativeScale = 1.0;
       double aspectRatio = 1.0;
@@ -126,13 +127,16 @@ class SevenTvEmoteProvider {
       switch (resolution) {
         case EmoteResolution.low:
           url = first;
+          url1x = null;
           break;
         case EmoteResolution.medium:
           url = best2x ?? first;
+          url1x = best2x != null && first != best2x ? first : null;
           break;
         case EmoteResolution.high:
           url = best2x ?? first;
-          urlLarge = lastLe3;
+          url1x = best2x != null && first != best2x ? first : null;
+          url3x = lastLe3;
           break;
       }
       if (url == null) continue;
@@ -159,7 +163,8 @@ class SevenTvEmoteProvider {
           code: name,
           type: EmoteType.sevenTv,
           url: url,
-          urlLarge: urlLarge,
+          url1x: url1x,
+          url3x: url3x,
           isAnimated: isAnimated,
           scope: global
               ? EmoteScope.global

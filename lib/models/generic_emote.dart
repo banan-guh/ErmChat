@@ -16,15 +16,26 @@ enum EmoteResolution {
   high,
 }
 
+/// Note on the scale fields (`url1x`/`url3x`):
+/// `url` is the active render URL (what chat/autocomplete render at ~28dp).
+/// `url1x`/`url3x` are the scale alternatives used by the emote sheet/menu
+/// resolution picker ("best scale still in cache") and as cached-fallback
+/// placeholders while the required resolution is fetching. `url3x` is only set
+/// where the provider has a true high-res asset (7TV/BTTV/Twitch 3x; FFZ maps
+/// its largest 4x size here since it has no 3x).
 class GenericEmote {
   final String id;
   final String code;
   final EmoteType type;
   final String url;
 
+  /// Smallest-scale asset (1x) for cached-fallback placeholders and resolution
+  /// pickers. Null when the provider only exposes a single scale.
+  final String? url1x;
+
   /// Higher-resolution asset for larger render surfaces (emote sheet, picker
-  /// grid). Null when the provider only exposes one tier.
-  final String? urlLarge;
+  /// grid). Null when the provider only exposes one tier or has no 3x.
+  final String? url3x;
   final bool isAnimated;
   final EmoteScope scope;
   final String? ownerChannel;
@@ -43,7 +54,8 @@ class GenericEmote {
     required this.code,
     required this.type,
     required this.url,
-    this.urlLarge,
+    this.url1x,
+    this.url3x,
     this.isAnimated = false,
     this.scope = EmoteScope.global,
     this.ownerChannel,
@@ -60,7 +72,8 @@ class GenericEmote {
     'code': code,
     'type': type.name,
     'url': url,
-    'urlLarge': urlLarge,
+    'url1x': url1x,
+    'url3x': url3x,
     'isAnimated': isAnimated,
     'scope': scope.name,
     'ownerChannel': ownerChannel,
@@ -84,7 +97,11 @@ class GenericEmote {
       code: code,
       type: _enumByName(EmoteType.values, json['type'], EmoteType.twitch),
       url: url,
-      urlLarge: json['urlLarge'] as String?,
+      url1x: json['url1x'] as String?,
+      // Legacy caches (pre-scale-model) stored the high-res asset under
+      // 'urlLarge'; recover it so old persisted emotes still upgrade in the
+      // sheet instead of silently losing the 3x until a refetch.
+      url3x: (json['url3x'] ?? json['urlLarge']) as String?,
       isAnimated: json['isAnimated'] as bool? ?? false,
       scope: _enumByName(EmoteScope.values, json['scope'], EmoteScope.global),
       ownerChannel: json['ownerChannel'] as String?,

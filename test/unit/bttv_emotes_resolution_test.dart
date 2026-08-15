@@ -133,22 +133,25 @@ void main() {
       return BttvEmoteProvider.fetchGlobal(resolution: resolution);
     }
 
-    test('low uses the 1x url and no urlLarge', () async {
+    test('low uses the 1x url and no url3x', () async {
       final result = await fetchGlobal(EmoteResolution.low);
       expect(result.single.url, 'https://cdn.betterttv.net/emote/b1/1x');
-      expect(result.single.urlLarge, isNull);
+      expect(result.single.url1x, 'https://cdn.betterttv.net/emote/b1/1x');
+      expect(result.single.url3x, isNull);
     });
 
-    test('medium uses the 2x url and no urlLarge', () async {
+    test('medium uses the 2x url with 1x alternate and no url3x', () async {
       final result = await fetchGlobal(EmoteResolution.medium);
       expect(result.single.url, 'https://cdn.betterttv.net/emote/b1/2x');
-      expect(result.single.urlLarge, isNull);
+      expect(result.single.url1x, 'https://cdn.betterttv.net/emote/b1/1x');
+      expect(result.single.url3x, isNull);
     });
 
-    test('high uses the 2x url and the 3x urlLarge', () async {
+    test('high uses the 2x url, 1x alternate and the 3x url3x', () async {
       final result = await fetchGlobal(EmoteResolution.high);
       expect(result.single.url, 'https://cdn.betterttv.net/emote/b1/2x');
-      expect(result.single.urlLarge, 'https://cdn.betterttv.net/emote/b1/3x');
+      expect(result.single.url1x, 'https://cdn.betterttv.net/emote/b1/1x');
+      expect(result.single.url3x, 'https://cdn.betterttv.net/emote/b1/3x');
     });
   });
 }

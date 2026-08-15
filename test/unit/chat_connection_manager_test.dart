@@ -129,12 +129,22 @@ class _SpyEmoteManager extends EmoteManager {
   );
 
   int enqueueSeenCalls = 0;
+  final List<String> viewedIds = [];
 
   @override
   void enqueueSeenEmotes(List<GenericEmote> emotes) {
     enqueueSeenCalls++;
     super.enqueueSeenEmotes(emotes);
   }
+
+  @override
+  void markEmoteViewed(GenericEmote emote) {
+    viewedIds.add(emote.id);
+    super.markEmoteViewed(emote);
+  }
+
+  @override
+  GenericEmote? emoteById(String id) => id == _emote.id ? _emote : null;
 
   @override
   ChannelEmotes? byCode(String channel) =>
@@ -1412,6 +1422,72 @@ void main() {
         0,
         reason: 'nothing tier must never precache or touch usage',
       );
+      conn.dispose();
+    });
+
+    test('live messages feed the usage registry through emote positions', () {
+      final emoteManager = _SpyEmoteManager(tier: EmoteFetchTier.high);
+      final msgs = <String, List<TwitchMessage>>{'test': []};
+      final conn = _makeConn(
+        channelMessages: msgs,
+        maxMessages: 100,
+        emoteManager: emoteManager,
+      );
+
+      final msg = TwitchMessage(
+        login: 'user',
+        text: 'E1 E1',
+        messageId: 'm1',
+        channel: 'test',
+        emotePositions: const [
+          EmotePosition(
+            emoteId: 'e1',
+            startIndex: 0,
+            endIndex: 2,
+            emoteCode: 'E1',
+          ),
+          EmotePosition(
+            emoteId: 'e1',
+            startIndex: 3,
+            endIndex: 5,
+            emoteCode: 'E1',
+          ),
+        ],
+      );
+      conn.onMessage(msg);
+
+      expect(emoteManager.viewedIds, ['e1', 'e1']);
+      conn.dispose();
+    });
+
+    test('history messages do not feed the usage registry', () {
+      final emoteManager = _SpyEmoteManager(tier: EmoteFetchTier.high);
+      final msgs = <String, List<TwitchMessage>>{'test': []};
+      final conn = _makeConn(
+        channelMessages: msgs,
+        maxMessages: 100,
+        emoteManager: emoteManager,
+      );
+
+      conn.onMessage(
+        TwitchMessage(
+          login: 'user',
+          text: 'E1',
+          messageId: 'm1',
+          channel: 'test',
+          isHistory: true,
+          emotePositions: const [
+            EmotePosition(
+              emoteId: 'e1',
+              startIndex: 0,
+              endIndex: 2,
+              emoteCode: 'E1',
+            ),
+          ],
+        ),
+      );
+
+      expect(emoteManager.viewedIds, isEmpty);
       conn.dispose();
     });
   });

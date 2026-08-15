@@ -145,8 +145,7 @@ void main() {
           requests.add(request.url.toString());
           final ids = request.url.queryParametersAll['id'] ?? [];
           final data = [
-            for (final id in ids)
-              {'id': id, 'login': 'user_$id'},
+            for (final id in ids) {'id': id, 'login': 'user_$id'},
           ];
           return http.Response(jsonEncode({'data': data}), 200);
         }),

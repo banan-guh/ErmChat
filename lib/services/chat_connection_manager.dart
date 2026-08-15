@@ -1442,6 +1442,20 @@ class ChatConnectionManager {
       return;
     }
 
+    // Feed the emote usage registry from live chat: the emotes people are
+    // actually staring at get cache priority. History/backfill are skipped
+    // (they would re-touch old messages on every reconnect and skew the
+    // 24-hour histograms).
+    if (!msg.isHistory && msg.isSystem == false) {
+      final positions = msg.emotePositions;
+      if (positions != null && positions.isNotEmpty) {
+        for (final position in positions) {
+          final emote = emoteManager.emoteById(position.emoteId);
+          if (emote != null) emoteManager.markEmoteViewed(emote);
+        }
+      }
+    }
+
     onAnalyticsMessage?.call(channel, msg);
 
     if (msg.sourceBroadcasterId != null &&

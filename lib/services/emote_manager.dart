@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
@@ -17,6 +18,152 @@ class ChannelEmotes {
   final List<GenericEmote> suggestions;
 
   ChannelEmotes({required this.byCode, required this.suggestions});
+}
+
+/// Per-URL usage history feeding the disk-cache eviction priority.
+///
+/// Tracks the last-use time plus a rolling 24-hour histogram of view counts
+/// in hourly buckets, so the cache can keep emotes that are *steadily* used
+/// over time and evict ones that were spammed in a single burst then went
+/// quiet. The score combines:
+///
+///   recency r = exp(-hoursSinceLastUse / [_recencyHalfLife])
+///   total   T = views in the last 24 hours
+///   entropy H = normalized entropy of the bucket distribution (1 = spread
+///               evenly across the day, 0 = all views in one hour)
+///   steady  s = min(T / [_steadyRate], 1) * H
+///   score   = r + [_steadyWeight] * s
+///
+/// Pure logic (no I/O); the [EmoteManager] owns persistence. The bucket
+/// index is anchored at [_EmoteUsageRecord.bucketBase] (unix hour of the
+/// oldest bucket) so advancing an hour never shifts the list.
+class EmoteUsageRecord {
+  EmoteUsageRecord({
+    required this.lastUsedAt,
+    required this.bucketBase,
+    required List<int> buckets,
+  }) : buckets = List.unmodifiable(buckets) {
+    assert(buckets.length == _bucketCount);
+  }
+
+  /// Views within the last [Duration] window are counted in these buckets.
+  static const int _bucketCount = 24;
+  static const _recencyHalfLife = Duration(hours: 6);
+  static const _steadyRate = 50;
+  static const _steadyWeight = 0.75;
+
+  /// Unix hour of [buckets] index 0; buckets are zeroed as the window rolls
+  /// past them, so older data simply ages out.
+  final int bucketBase;
+
+  final DateTime lastUsedAt;
+  final List<int> buckets;
+
+  /// Records a view at the given unix hour (0-23 UTC is not used; the hour is
+  /// an absolute unix hour). Rolls the window forward first so stale buckets
+  /// age out.
+  static EmoteUsageRecord bumped(
+    EmoteUsageRecord record,
+    int hour, {
+    required DateTime now,
+  }) {
+    final rolled = rolledForward(record, hour);
+    final index = ((hour - rolled.bucketBase) % _bucketCount).toInt();
+    final buckets = List<int>.of(rolled.buckets);
+    buckets[index]++;
+    return EmoteUsageRecord(
+      lastUsedAt: now,
+      buckets: buckets,
+      bucketBase: rolled.bucketBase,
+    );
+  }
+
+  /// Instance form of [bumped] for a just-created zero record.
+  EmoteUsageRecord bumpedAt(int hour, {required DateTime now}) =>
+      EmoteUsageRecord.bumped(this, hour, now: now);
+
+  /// Returns a record whose window starts at (or covers) [hour], zeroing
+  /// buckets that rolled out. Cheap for records that were just bumped; only
+  /// stale records pay for the roll.
+  static EmoteUsageRecord rolledForward(EmoteUsageRecord record, int hour) {
+    var base = record.bucketBase;
+    if (hour < base || hour - base >= _bucketCount) {
+      // Clock moved backwards or the whole window is stale: rebuild empty.
+      if (hour < base) return record;
+      return EmoteUsageRecord(
+        lastUsedAt: record.lastUsedAt,
+        buckets: List.filled(_bucketCount, 0),
+        bucketBase: hour,
+      );
+    }
+    if (hour == base) return record;
+    final buckets = List<int>.of(record.buckets);
+    final advance = hour - base;
+    // Bucket i covers hour (base + i), so hours that rolled out are exactly
+    // buckets 0..advance-1 (the bucket list wraps, but the base never does).
+    for (var i = 0; i < advance; i++) {
+      buckets[i] = 0;
+    }
+    return EmoteUsageRecord(
+      lastUsedAt: record.lastUsedAt,
+      buckets: buckets,
+      bucketBase: hour,
+    );
+  }
+
+  /// Keep-priority score at [now]; higher means the emote should stay cached.
+  /// Only meaningful for records whose window covers [now] (roll first).
+  double score(DateTime now, {required int hour}) {
+    final hours = now.difference(lastUsedAt).inHours;
+    final r = math.exp(-hours / _recencyHalfLife.inHours.toDouble());
+    var total = 0;
+    for (final b in buckets) {
+      total += b;
+    }
+    if (total == 0) return r;
+    final steady = (total / _steadyRate).clamp(0.0, 1.0) * _entropy();
+    return r + _steadyWeight * steady;
+  }
+
+  double _entropy() {
+    var total = 0;
+    for (final b in buckets) {
+      total += b;
+    }
+    if (total == 0) return 0;
+    var entropy = 0.0;
+    for (final b in buckets) {
+      if (b == 0) continue;
+      final p = b / total;
+      entropy -= p * math.log(p);
+    }
+    return entropy / math.log(_bucketCount.toDouble());
+  }
+
+  Map<String, dynamic> toJson() => {
+    't': lastUsedAt.millisecondsSinceEpoch,
+    'h': bucketBase,
+    'b': buckets.join(','),
+  };
+
+  static EmoteUsageRecord? fromJson(Map<String, dynamic> json) {
+    final t = json['t'];
+    final h = json['h'];
+    final b = json['b'];
+    if (t is! int || h is! int || b is! String) return null;
+    final buckets = <int>[];
+    for (final part in b.split(',')) {
+      final v = int.tryParse(part);
+      if (v == null || v < 0) return null;
+      buckets.add(v);
+    }
+    if (buckets.length != _bucketCount) return null;
+    return EmoteUsageRecord(
+      lastUsedAt: DateTime.fromMillisecondsSinceEpoch(t),
+      buckets: buckets,
+      bucketBase: h,
+    );
+  }
 }
 
 class EmoteManager extends ChangeNotifier {
@@ -60,7 +207,7 @@ class EmoteManager extends ChangeNotifier {
   _sevenTvChannelFetcher;
   final EmoteCacheManager? _injectedCacheManager;
   EmoteCacheManager? _cacheManagerInstance;
-  final Map<String, DateTime> _emoteUsage = {};
+  final Map<String, EmoteUsageRecord> _emoteUsage = {};
 
   /// Resolved lazily so constructing an [EmoteManager] (e.g. in tests) never
   /// instantiates the path-provider-backed cache singleton until it's needed.
@@ -80,6 +227,13 @@ class EmoteManager extends ChangeNotifier {
   static const _maxConcurrentFetches = 2;
   final _fetchGate = _Semaphore(_maxConcurrentFetches);
 
+  // How long view-touch flushes wait for quiet before persisting. The emote
+  // menu marks dozens of cells viewed on open; the debounce collapses that
+  // burst into a single prefs write.
+  static const _defaultUsageFlushDelay = Duration(milliseconds: 250);
+  final Duration _usageFlushDelay;
+  Timer? _usageFlushTimer;
+
   EmoteManager({
     Future<List<ConnectivityResult>> Function()? probe,
     this._fetchStagger = _defaultFetchStagger,
@@ -87,6 +241,7 @@ class EmoteManager extends ChangeNotifier {
     DateTime Function()? now,
     EmoteFetchTier tier = EmoteFetchTier.high,
     int cacheCap = defaultEmoteCacheMax,
+    this._usageFlushDelay = _defaultUsageFlushDelay,
     Future<SevenTvChannelResponse> Function(
       String channelId,
       EmoteResolution resolution,
@@ -127,7 +282,8 @@ class EmoteManager extends ChangeNotifier {
     _cacheCap = value.clamp(minEmoteCacheMax, maxEmoteCacheMax).toInt();
     final cache = _cacheManager;
     cache.maxObjects = _cacheCap;
-    cache.lastUsedAt = (url) => _emoteUsage[url];
+    cache.priorityScore = _registryScore;
+    cache.lastUsedAt = (url) => _emoteUsage[url]?.lastUsedAt;
   }
 
   ChannelEmotes? _globalCache;
@@ -262,6 +418,13 @@ class EmoteManager extends ChangeNotifier {
       ..sort((a, b) => a.code.compareTo(b.code));
   }
 
+  /// Whether [channel]'s emote cache has been resolved at least once (even a
+  /// stale copy counts; revalidation happens in the background).
+  bool hasChannelCache(String channel) => _channelCaches.containsKey(channel);
+
+  /// Whether the global emote cache has been resolved at least once.
+  bool get hasGlobalCache => _globalCache != null;
+
   Map<String, List<GenericEmote>>? _subsByChannelCache;
 
   Map<String, List<GenericEmote>> subscriberEmotesByChannel() {
@@ -332,6 +495,9 @@ class EmoteManager extends ChangeNotifier {
   }
 
   /// Resolve an emote by ID across all caches.
+  GenericEmote? emoteById(String id) => _emoteById(id);
+
+  /// Resolve an emote by ID across all caches.
   GenericEmote? _emoteById(String id) {
     if (_globalCache != null) {
       for (final e in _globalCache!.suggestions) {
@@ -363,12 +529,13 @@ class EmoteManager extends ChangeNotifier {
     await _flushUsage();
   }
 
-  /// Records that an emote was displayed (emote menu / autocomplete render)
-  /// so the cache cap evicts never-shown emotes before recently-viewed ones.
+  /// Records that an emote was displayed (chat renders, emote menu, and
+  /// autocomplete) so the cache eviction keeps steadily-used emotes and drops
+  /// ones that were spammed once then went quiet.
   void markEmoteViewed(GenericEmote emote) {
     if (_tier == EmoteFetchTier.nothing) return;
     _touchUsage(emote.url);
-    unawaited(_flushUsage());
+    _scheduleUsageFlush();
   }
 
   Future<List<GenericEmote>> recentEmotes() async {
@@ -764,7 +931,11 @@ class EmoteManager extends ChangeNotifier {
           changedCodes.add(e.code);
           removedIdsWithUrls.add((
             e.id,
-            [e.url, if (e.urlLarge != null) e.urlLarge!],
+            [
+              e.url,
+              if (e.url1x != null) e.url1x!,
+              if (e.url3x != null) e.url3x!,
+            ],
           ));
         }
       }
@@ -781,7 +952,8 @@ class EmoteManager extends ChangeNotifier {
           code: entry.value.newName,
           type: e.type,
           url: e.url,
-          urlLarge: e.urlLarge,
+          url1x: e.url1x,
+          url3x: e.url3x,
           isAnimated: e.isAnimated,
           scope: e.scope,
           ownerChannel: e.ownerChannel,
@@ -1191,6 +1363,22 @@ class EmoteManager extends ChangeNotifier {
 
   final Set<String> _pendingUsageTouches = {};
 
+  /// Keep-priority score fed to the cache manager's eviction order. Rolls the
+  /// record to the current hour (so stale buckets age out) and scores it;
+  /// null when the URL has no usage history (the cache manager then falls
+  /// back to a recency decay from the file's stored time).
+  double? _registryScore(String url) {
+    final record = _emoteUsage[url];
+    if (record == null) return null;
+    final now = _now();
+    final hour = now.millisecondsSinceEpoch ~/ _hourMs;
+    final rolled = EmoteUsageRecord.rolledForward(record, hour);
+    if (!identical(rolled, record)) _emoteUsage[url] = rolled;
+    return rolled.score(now, hour: hour);
+  }
+
+  static const _hourMs = 3600000;
+
   void _touchUsage(String url) {
     if (url.isEmpty) return;
     if (!_usageLoaded) {
@@ -1199,7 +1387,16 @@ class EmoteManager extends ChangeNotifier {
       _pendingUsageTouches.add(url);
       return;
     }
-    _emoteUsage[url] = _now();
+    final now = _now();
+    final hour = now.millisecondsSinceEpoch ~/ _hourMs;
+    final existing = _emoteUsage[url];
+    _emoteUsage[url] = existing == null
+        ? EmoteUsageRecord(
+            lastUsedAt: now,
+            bucketBase: hour,
+            buckets: List.filled(EmoteUsageRecord._bucketCount, 0),
+          ).bumpedAt(hour, now: now)
+        : EmoteUsageRecord.bumped(existing, hour, now: now);
     _usageDirty = true;
   }
 
@@ -1211,17 +1408,28 @@ class EmoteManager extends ChangeNotifier {
     if (raw != null) {
       try {
         final data = jsonDecode(raw) as Map<String, dynamic>;
-        for (final entry in data.entries) {
-          _emoteUsage[entry.key] = DateTime.parse(entry.value as String);
+        final entries = data['e'];
+        if (entries is Map<String, dynamic>) {
+          final now = _now();
+          final hour = now.millisecondsSinceEpoch ~/ _hourMs;
+          for (final entry in entries.entries) {
+            final value = entry.value;
+            if (value is! Map<String, dynamic>) continue;
+            final record = EmoteUsageRecord.fromJson(value);
+            if (record == null) continue;
+            _emoteUsage[entry.key] = EmoteUsageRecord.rolledForward(
+              record,
+              hour,
+            );
+          }
         }
       } catch (_) {
         debugPrint('[EmoteManager] failed to parse emote usage registry');
       }
     }
     if (_pendingUsageTouches.isNotEmpty) {
-      final now = _now();
       for (final url in _pendingUsageTouches) {
-        _emoteUsage[url] = now;
+        _touchUsage(url);
       }
       _pendingUsageTouches.clear();
       _usageDirty = true;
@@ -1234,19 +1442,49 @@ class EmoteManager extends ChangeNotifier {
     if (!_usageDirty) return;
     _usageDirty = false;
     if (_emoteUsage.length > _usageMaxEntries) {
+      // Drop the lowest-scored entries (the same policy the cache uses).
+      final now = _now();
+      final hour = now.millisecondsSinceEpoch ~/ _hourMs;
       final entries = _emoteUsage.entries.toList()
-        ..sort((a, b) => a.value.compareTo(b.value));
+        ..sort(
+          (a, b) => a.value
+              .score(now, hour: hour)
+              .compareTo(b.value.score(now, hour: hour)),
+        );
       final overflow = entries.length - _usageMaxEntries;
       for (final entry in entries.take(overflow)) {
         _emoteUsage.remove(entry.key);
       }
     }
     final prefs = await _getPrefs();
-    final data = <String, String>{
-      for (final entry in _emoteUsage.entries)
-        entry.key: entry.value.toIso8601String(),
+    final data = <String, dynamic>{
+      'v': 2,
+      'e': {
+        for (final entry in _emoteUsage.entries)
+          entry.key: entry.value.toJson(),
+      },
     };
     await prefs.setString(_usageKey, jsonEncode(data));
+  }
+
+  /// Debounced flush for high-frequency view tracking (emote menu cells,
+  /// autocomplete renders): a burst of touches coalesces into a single prefs
+  /// write after [_usageFlushDelay] of quiet instead of one write per touch.
+  /// Skipped until the registry is loaded (touches defer into
+  /// [_pendingUsageTouches] anyway and are flushed once loading happens).
+  void _scheduleUsageFlush() {
+    if (!_usageLoaded) return;
+    _usageFlushTimer?.cancel();
+    _usageFlushTimer = Timer(_usageFlushDelay, () {
+      _usageFlushTimer = null;
+      unawaited(_flushUsage());
+    });
+  }
+
+  @override
+  void dispose() {
+    _usageFlushTimer?.cancel();
+    super.dispose();
   }
 
   // ── Cache init + migrations ─────────────────────────────────────────
@@ -1258,7 +1496,8 @@ class EmoteManager extends ChangeNotifier {
     await _ensureUsageLoaded();
     final cache = _cacheManager;
     cache.maxObjects = _cacheCap;
-    cache.lastUsedAt = (url) => _emoteUsage[url];
+    cache.priorityScore = _registryScore;
+    cache.lastUsedAt = (url) => _emoteUsage[url]?.lastUsedAt;
     if (!_migrationRan) {
       final prefs = await _getPrefs();
       if (prefs.getBool(_migrationKey) ?? false) {
@@ -1325,7 +1564,7 @@ class EmoteManager extends ChangeNotifier {
         _processPrecacheQueue();
       }
     }
-    unawaited(_flushUsage());
+    _scheduleUsageFlush();
   }
 
   void _processPrecacheQueue() {

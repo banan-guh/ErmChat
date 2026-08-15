@@ -54,6 +54,12 @@ android {
         includeInApk = false
         includeInBundle = false
     }
+
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+        }
+    }
 }
 
 kotlin {

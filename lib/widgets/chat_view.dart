@@ -133,7 +133,6 @@ class ChatView extends StatelessWidget {
                     final Widget body;
                     if (msg.isSystem) {
                       body = ChatMessageTile(
-                        key: _messageKey(msg),
                         message: msg,
                         channel: channel,
                         surface: surface,
@@ -147,7 +146,6 @@ class ChatView extends StatelessWidget {
                       );
                     } else {
                       body = ChatMessageTile(
-                        key: _messageKey(msg),
                         message: msg,
                         channel: channel,
                         surface: surface,
@@ -168,10 +166,14 @@ class ChatView extends StatelessWidget {
                       );
                     }
 
-                    // Cache the RepaintBoundary-wrapped tile so paint
-                    // isolation survives across rebuilds and the identical
-                    // instance short-circuits element updates.
-                    final tile = RepaintBoundary(child: body);
+                    // Key the RepaintBoundary (the ListView's direct child) so
+                    // key-based reconciliation can rematch elements by
+                    // messageId on index shifts; the cached identical tile
+                    // then short-circuits instead of recreating its state.
+                    final tile = RepaintBoundary(
+                      key: _messageKey(msg),
+                      child: body,
+                    );
                     if (msg.messageId != null) {
                       cache[msg.messageId!] = tile;
                       if (cache.length > _maxCachedTiles) {

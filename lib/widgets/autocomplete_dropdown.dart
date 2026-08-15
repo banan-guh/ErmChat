@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:cached_network_image/cached_network_image.dart';
+import 'emote_image.dart';
 import '../models/generic_emote.dart';
 import '../services/suggestion.dart';
 
@@ -99,15 +99,16 @@ class _AutocompleteDropdownState extends State<AutocompleteDropdown> {
                   EmoteSuggestion() => SizedBox(
                     width: _emoteSize,
                     height: _emoteSize,
-                    child: CachedNetworkImage(
-                      imageUrl: suggestion.emote.url,
+                    child: EmoteImage(
+                      url: suggestion.emote.url,
                       width: _emoteSize,
                       height: _emoteSize,
                       fit: BoxFit.contain,
-                      fadeInDuration: Duration.zero,
-                      placeholder: (_, _) => const SizedBox(),
-                      errorWidget: (_, _, _) =>
-                          const Icon(Icons.image, size: 16),
+                      alternateUrls: [
+                        if (suggestion.emote.url1x != null)
+                          suggestion.emote.url1x!,
+                      ],
+                      errorWidget: const Icon(Icons.image, size: 16),
                     ),
                   ),
                   CommandSuggestion() => Icon(

@@ -5,6 +5,10 @@ import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 class FakeCacheRepo implements CacheInfoRepository {
   final Map<String, CacheObject> _byKey = {};
 
+  /// Number of full-repo scans; lets tests assert the count read is cached
+  /// within its TTL instead of re-scanning per call.
+  int getAllObjectsCalls = 0;
+
   void seed(List<CacheObject> objects) {
     for (final o in objects) {
       _byKey[o.key] = o;
@@ -61,7 +65,10 @@ class FakeCacheRepo implements CacheInfoRepository {
   }
 
   @override
-  Future<List<CacheObject>> getAllObjects() async => _byKey.values.toList();
+  Future<List<CacheObject>> getAllObjects() async {
+    getAllObjectsCalls++;
+    return _byKey.values.toList();
+  }
 
   @override
   Future<List<CacheObject>> getObjectsOverCapacity(int capacity) async => [];
