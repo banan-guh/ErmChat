@@ -37,6 +37,7 @@ void main() {
   ) async {
     final manager = EmoteManager(
       fetchStagger: Duration.zero,
+      usageFlushDelay: Duration.zero,
       removeCachedFile: (url) async {},
     );
     manager.updateSevenTvEmotes(
@@ -75,6 +76,7 @@ void main() {
   ) async {
     final manager = EmoteManager(
       fetchStagger: Duration.zero,
+      usageFlushDelay: Duration.zero,
       removeCachedFile: (url) async {},
     );
     manager.updateSevenTvEmotes(
@@ -108,6 +110,7 @@ void main() {
   ) async {
     final manager = EmoteManager(
       fetchStagger: Duration.zero,
+      usageFlushDelay: Duration.zero,
       removeCachedFile: (url) async {},
     );
     GenericEmote subOf(String id, String code, String owner) => GenericEmote(

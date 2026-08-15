@@ -1963,6 +1963,16 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   void _showEmoteMenu() {
+    // Kick emote resolution for the current channel + globals if the menu is
+    // opened before the join-time rake finished (cold start), so the grids
+    // aren't stuck on empty states until the next manager notify.
+    final channel = _selectedChannel;
+    if (channel != null && !_emoteManager.hasChannelCache(channel)) {
+      unawaited(_emoteManager.resolveEmotes(channel, _channelUserIds[channel]));
+    }
+    if (!_emoteManager.hasGlobalCache) {
+      unawaited(_emoteManager.preloadGlobalEmotes());
+    }
     setState(() => _emoteSheetOpen = true);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && _emoteSheetCtrl.isAttached) {

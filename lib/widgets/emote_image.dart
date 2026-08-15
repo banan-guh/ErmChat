@@ -7,7 +7,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
-import 'package:http/http.dart' as http;
 import 'package:image/image.dart' as img;
 import 'package:shimmer/shimmer.dart';
 
@@ -51,6 +50,12 @@ class EmoteClipRegistry {
   /// Maximum bytes for all cached decoded frames (default 100 MB, like
   /// Flutter's [ImageCache]).
   static const int _defaultMaxBytes = 100 << 20;
+
+  /// Caps concurrent decodes so a burst (e.g. the emote menu opening with
+  /// dozens of animated WebP cells) doesn't spawn one isolate per emote at
+  /// once.
+  static const int _maxConcurrentDecodes = 10;
+  static final _Semaphore _decodeGate = _Semaphore(_maxConcurrentDecodes);
 
   static final EmoteClipRegistry instance = EmoteClipRegistry();
 
@@ -191,7 +196,7 @@ class EmoteClipRegistry {
       final fetch = debugFetchOverride ?? _fetchBytes;
       final decode = debugDecodeOverride ?? _decodeBytes;
       final bytes = await fetch(url);
-      final frames = await decode(bytes);
+      final frames = await _decodeGate.withPermit(() => decode(bytes));
       clip.frames = frames;
       clip.byteSize = _estimateByteSize(frames);
       clip.lastAccessed = DateTime.now();
@@ -322,38 +327,15 @@ class _EmoteClip extends ChangeNotifier {
   }
 }
 
-/// Shared client for the cache-full fallback, reused across calls so bursts
-/// of fetches don't each spin up their own connection.
-final http.Client _emoteFetchClient = http.Client();
-
-const _emoteDownloadTimeout = Duration(seconds: 10);
-
 Future<Uint8List> _fetchBytes(String url) async {
-  // Decide upfront whether there's room in the disk cache. When there is,
-  // stream through the cache (write + read) exactly as before; when the cache
-  // is full (or maxObjects == 0, meaning "always full" by design), skip disk
-  // entirely and fetch straight into memory. This is the same graceful
-  // overflow fallback the cache manager used to serve via a temp file, but
-  // with no unnecessary disk I/O at the exact moment we can least afford it.
-  if (!await EmoteCacheManager().isFull()) {
-    await for (final response in EmoteCacheManager().getFileStream(url)) {
-      if (response is FileInfo) {
-        return response.file.readAsBytes();
-      }
+  // getFileStream already routes around a full cache (temp-file fallback in
+  // EmoteCacheManager), so no upfront isFull() probe is needed here.
+  await for (final response in EmoteCacheManager().getFileStream(url)) {
+    if (response is FileInfo) {
+      return response.file.readAsBytes();
     }
-    throw StateError('no emote bytes for $url');
   }
-  final resp = await _emoteFetchClient
-      .get(Uri.parse(url), headers: const {'User-Agent': 'ermchat'})
-      .timeout(_emoteDownloadTimeout);
-  if (resp.statusCode != 200) {
-    throw HttpExceptionWithStatus(
-      resp.statusCode,
-      'Failed to download $url',
-      uri: Uri.parse(url),
-    );
-  }
-  return resp.bodyBytes;
+  throw StateError('no emote bytes for $url');
 }
 
 enum EmoteFormat { gif, webp, other }
@@ -1121,5 +1103,36 @@ class _EmoteImageState extends State<EmoteImage> {
       height: widget.height,
       fit: widget.fit,
     );
+  }
+}
+
+/// Simple FIFO permit gate: [withPermit] runs [action] only once a permit is
+/// free, keeping at most [maxPermits] actions in flight (used to cap
+/// concurrent emote decodes so a grid burst doesn't spawn dozens of isolates
+/// at once).
+class _Semaphore {
+  _Semaphore(this.maxPermits) : _permits = maxPermits;
+
+  final int maxPermits;
+  int _permits;
+  final List<Completer<void>> _waiters = [];
+
+  Future<T> withPermit<T>(Future<T> Function() action) async {
+    if (_permits > 0) {
+      _permits--;
+    } else {
+      final completer = Completer<void>();
+      _waiters.add(completer);
+      await completer.future;
+    }
+    try {
+      return await action();
+    } finally {
+      if (_waiters.isNotEmpty) {
+        _waiters.removeAt(0).complete();
+      } else {
+        _permits++;
+      }
+    }
   }
 }

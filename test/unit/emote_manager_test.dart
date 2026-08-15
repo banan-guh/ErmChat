@@ -890,6 +890,7 @@ void main() {
         now: clock,
         cacheCap: cacheCap,
         tier: tier,
+        usageFlushDelay: Duration.zero,
         cacheManager: cache ?? testCacheManager(),
       );
       await manager.startCacheGc();
@@ -960,11 +961,45 @@ void main() {
       expect(lastUsed, clock);
     });
 
+    test('markEmoteViewed flushes are debounced', () async {
+      SharedPreferences.setMockInitialValues({});
+      PathProviderPlatform.instance = _FakePathProvider(
+        Directory.systemTemp.path,
+      );
+      final manager = EmoteManager(
+        fetchStagger: Duration.zero,
+        usageFlushDelay: const Duration(milliseconds: 50),
+        now: () => DateTime(2026, 1, 1, 12),
+        cacheManager: testCacheManager(),
+      );
+      await manager.startCacheGc();
+      manager.dispose();
+
+      final emotes = makeEmotes(3);
+      manager.markEmoteViewed(emotes[0]);
+      // Immediately after the first touch, nothing is persisted yet.
+      var prefs = await SharedPreferences.getInstance();
+      expect(prefs.getString('emote_usage'), isNull);
+
+      // A burst of touches within the debounce window lands as one write.
+      manager.markEmoteViewed(emotes[1]);
+      manager.markEmoteViewed(emotes[2]);
+      prefs = await SharedPreferences.getInstance();
+      expect(prefs.getString('emote_usage'), isNull);
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+      prefs = await SharedPreferences.getInstance();
+      final persisted = prefs.getString('emote_usage');
+      expect(persisted, contains('https://example.com/e0.png'));
+      expect(persisted, contains('https://example.com/e1.png'));
+      expect(persisted, contains('https://example.com/e2.png'));
+    });
+
     test('enqueueSeenEmotes skips precache when the cap is zero', () async {
       SharedPreferences.setMockInitialValues({});
       final capped = EmoteManager(
         fetchStagger: Duration.zero,
         cacheCap: 0,
+        usageFlushDelay: Duration.zero,
         now: () => DateTime(2026, 1, 1, 12),
         cacheManager: testCacheManager(),
       );
@@ -973,6 +1008,7 @@ void main() {
 
       final uncapped = EmoteManager(
         fetchStagger: Duration.zero,
+        usageFlushDelay: Duration.zero,
         now: () => DateTime(2026, 1, 1, 12),
         cacheManager: testCacheManager(),
       );

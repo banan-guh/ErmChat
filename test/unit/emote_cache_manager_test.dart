@@ -119,4 +119,20 @@ void main() {
 
     expect(await manager.isFull(), isFalse);
   });
+
+  test('repeated isFull within the TTL reuses one repo scan', () async {
+    final t = DateTime(2026, 1, 1, 12);
+    repo.seed([
+      _obj('https://example.com/a.png', t, id: 1),
+      _obj('https://example.com/b.png', t, id: 2),
+    ]);
+    manager.maxObjects = 3;
+
+    // A burst of sequential fetches: each isFull must not re-scan the repo.
+    expect(await manager.isFull(), isFalse);
+    expect(await manager.isFull(), isFalse);
+    expect(await manager.isFull(), isFalse);
+
+    expect(repo.getAllObjectsCalls, 1);
+  });
 }

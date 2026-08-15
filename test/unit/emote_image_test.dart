@@ -137,6 +137,41 @@ void main() {
       EmoteClipRegistry.instance.release(url);
     });
 
+    test('caps concurrent decodes with the semaphore', () async {
+      var active = 0;
+      var peak = 0;
+      final releaseAll = Completer<void>();
+      EmoteClipRegistry.debugFetchOverride = (url) async =>
+          Uint8List.fromList('GIF89a'.codeUnits);
+      EmoteClipRegistry.debugDecodeOverride = (bytes) async {
+        active++;
+        if (active > peak) peak = active;
+        await releaseAll.future;
+        final frame = await _makeImage(255, 0, 0);
+        active--;
+        return EmoteFrameData(
+          frames: [frame],
+          durations: const [Duration.zero],
+        );
+      };
+
+      final urls = [
+        for (var i = 0; i < 25; i++) 'https://example.com/emote_$i.gif',
+      ];
+      final acquires = [
+        for (final url in urls) EmoteClipRegistry.instance.acquire(url),
+      ];
+      // Let the first wave reach the decode gate before releasing it.
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+      expect(peak, lessThanOrEqualTo(10));
+      releaseAll.complete();
+      await Future.wait(acquires);
+      for (final url in urls) {
+        EmoteClipRegistry.instance.release(url);
+      }
+    });
+
     test(
       're-acquires after the last release uses cached frames (no re-fetch)',
       () async {

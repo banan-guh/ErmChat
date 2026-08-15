@@ -9,6 +9,10 @@ import 'package:path_provider/path_provider.dart';
 
 import '../models/emote_fetch_tier.dart';
 
+/// Shared HTTP client for the cache-full fallback path, reused across calls so
+/// a burst of overflow downloads doesn't spin up a connection per emote.
+final http.Client _emoteFetchClient = http.Client();
+
 /// Snapshot of the emote image disk cache.
 class EmoteCacheStats {
   const EmoteCacheStats({required this.fileCount, required this.totalBytes});
@@ -53,14 +57,23 @@ class EmoteCacheManager extends CacheManager {
   static const _downloadTimeout = Duration(seconds: 10);
   static const _maxOverflowFiles = 8;
 
+  /// How long a repo object-count read is trusted. Bursts of fetches (e.g. an
+  /// emote menu opening with dozens of cells) share one count within the TTL
+  /// instead of re-scanning the repo per emote; [isFull] only gates soft
+  /// decisions (persist vs. temp-file serve), so slight staleness is fine.
+  static const _countTtl = Duration(milliseconds: 1500);
+
   int _maxObjects = defaultEmoteCacheMax;
 
   /// Writes currently in flight through the parent [CacheManager]. They will
   /// land in the repo shortly, so they count toward the cap while pending.
   int _pendingWrites = 0;
 
-  /// Serialized, always-fresh read of the repo object count.
+  /// Serialized read of the repo object count, coalesced across simultaneous
+  /// callers and reused within [_countTtl] for sequential ones.
   Future<int>? _countRead;
+  int? _cachedCount;
+  DateTime? _cachedCountAt;
 
   /// Temp files served while the cache was full, kept small (FIFO) so the
   /// renderer has already read a file long before it gets deleted.
@@ -158,8 +171,19 @@ class EmoteCacheManager extends CacheManager {
   Future<int> _objectCount() {
     final inFlight = _countRead;
     if (inFlight != null) return inFlight;
+    final cached = _cachedCount;
+    final cachedAt = _cachedCountAt;
+    if (cached != null &&
+        cachedAt != null &&
+        DateTime.now().difference(cachedAt) < _countTtl) {
+      return Future.value(cached);
+    }
     final read = _readObjectCount()..whenComplete(() => _countRead = null);
     _countRead = read;
+    read.then((count) {
+      _cachedCount = count;
+      _cachedCountAt = DateTime.now();
+    });
     return read;
   }
 
@@ -197,14 +221,15 @@ class EmoteCacheManager extends CacheManager {
     Map<String, String>? headers,
     bool withProgress,
   ) async* {
-    final client = http.Client();
     File? file;
     try {
       final request = http.Request('GET', Uri.parse(url));
       if (headers != null) request.headers.addAll(headers);
       // Some CDNs 403 bare requests; match what the main fetch path sends.
       request.headers.putIfAbsent('User-Agent', () => 'ermchat');
-      final response = await client.send(request).timeout(_downloadTimeout);
+      final response = await _emoteFetchClient
+          .send(request)
+          .timeout(_downloadTimeout);
       if (response.statusCode != 200) {
         throw HttpExceptionWithStatus(
           response.statusCode,
@@ -241,8 +266,6 @@ class EmoteCacheManager extends CacheManager {
         }
       }
       rethrow;
-    } finally {
-      client.close();
     }
   }
 

@@ -80,6 +80,13 @@ class EmoteManager extends ChangeNotifier {
   static const _maxConcurrentFetches = 2;
   final _fetchGate = _Semaphore(_maxConcurrentFetches);
 
+  // How long view-touch flushes wait for quiet before persisting. The emote
+  // menu marks dozens of cells viewed on open; the debounce collapses that
+  // burst into a single prefs write.
+  static const _defaultUsageFlushDelay = Duration(milliseconds: 250);
+  final Duration _usageFlushDelay;
+  Timer? _usageFlushTimer;
+
   EmoteManager({
     Future<List<ConnectivityResult>> Function()? probe,
     this._fetchStagger = _defaultFetchStagger,
@@ -87,6 +94,7 @@ class EmoteManager extends ChangeNotifier {
     DateTime Function()? now,
     EmoteFetchTier tier = EmoteFetchTier.high,
     int cacheCap = defaultEmoteCacheMax,
+    this._usageFlushDelay = _defaultUsageFlushDelay,
     Future<SevenTvChannelResponse> Function(
       String channelId,
       EmoteResolution resolution,
@@ -262,6 +270,13 @@ class EmoteManager extends ChangeNotifier {
       ..sort((a, b) => a.code.compareTo(b.code));
   }
 
+  /// Whether [channel]'s emote cache has been resolved at least once (even a
+  /// stale copy counts; revalidation happens in the background).
+  bool hasChannelCache(String channel) => _channelCaches.containsKey(channel);
+
+  /// Whether the global emote cache has been resolved at least once.
+  bool get hasGlobalCache => _globalCache != null;
+
   Map<String, List<GenericEmote>>? _subsByChannelCache;
 
   Map<String, List<GenericEmote>> subscriberEmotesByChannel() {
@@ -368,7 +383,7 @@ class EmoteManager extends ChangeNotifier {
   void markEmoteViewed(GenericEmote emote) {
     if (_tier == EmoteFetchTier.nothing) return;
     _touchUsage(emote.url);
-    unawaited(_flushUsage());
+    _scheduleUsageFlush();
   }
 
   Future<List<GenericEmote>> recentEmotes() async {
@@ -1254,6 +1269,26 @@ class EmoteManager extends ChangeNotifier {
     await prefs.setString(_usageKey, jsonEncode(data));
   }
 
+  /// Debounced flush for high-frequency view tracking (emote menu cells,
+  /// autocomplete renders): a burst of touches coalesces into a single prefs
+  /// write after [_usageFlushDelay] of quiet instead of one write per touch.
+  /// Skipped until the registry is loaded (touches defer into
+  /// [_pendingUsageTouches] anyway and are flushed once loading happens).
+  void _scheduleUsageFlush() {
+    if (!_usageLoaded) return;
+    _usageFlushTimer?.cancel();
+    _usageFlushTimer = Timer(_usageFlushDelay, () {
+      _usageFlushTimer = null;
+      unawaited(_flushUsage());
+    });
+  }
+
+  @override
+  void dispose() {
+    _usageFlushTimer?.cancel();
+    super.dispose();
+  }
+
   // ── Cache init + migrations ─────────────────────────────────────────
 
   /// Runs the one-time migrations, registers the usage registry as the cache's
@@ -1330,7 +1365,7 @@ class EmoteManager extends ChangeNotifier {
         _processPrecacheQueue();
       }
     }
-    unawaited(_flushUsage());
+    _scheduleUsageFlush();
   }
 
   void _processPrecacheQueue() {
