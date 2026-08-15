@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
+import 'package:http/http.dart' as http;
 import 'package:image/image.dart' as img;
 import 'package:shimmer/shimmer.dart';
 
@@ -268,18 +269,40 @@ class _EmoteClip extends ChangeNotifier {
   }
 }
 
+/// Shared client for the cache-full fallback, reused across calls so bursts
+/// of fetches don't each spin up their own connection.
+final http.Client _emoteFetchClient = http.Client();
+
+const _emoteDownloadTimeout = Duration(seconds: 10);
+
 Future<Uint8List> _fetchBytes(String url) async {
-  // Stream (not getSingleFile) so a full cache still serves the overflow
-  // temp file instead of throwing.
-  await for (final response in EmoteCacheManager().getFileStream(url)) {
-    if (response is FileInfo) {
-      return response.file.readAsBytes();
+  // Decide upfront whether there's room in the disk cache. When there is,
+  // stream through the cache (write + read) exactly as before; when the cache
+  // is full (or maxObjects == 0, meaning "always full" by design), skip disk
+  // entirely and fetch straight into memory. This is the same graceful
+  // overflow fallback the cache manager used to serve via a temp file, but
+  // with no unnecessary disk I/O at the exact moment we can least afford it.
+  if (!await EmoteCacheManager().isFull()) {
+    await for (final response in EmoteCacheManager().getFileStream(url)) {
+      if (response is FileInfo) {
+        return response.file.readAsBytes();
+      }
     }
+    throw StateError('no emote bytes for $url');
   }
-  throw StateError('no emote bytes for $url');
+  final resp = await _emoteFetchClient
+      .get(Uri.parse(url), headers: const {'User-Agent': 'ermchat'})
+      .timeout(_emoteDownloadTimeout);
+  if (resp.statusCode != 200) {
+    throw HttpExceptionWithStatus(
+      resp.statusCode,
+      'Failed to download $url',
+      uri: Uri.parse(url),
+    );
+  }
+  return resp.bodyBytes;
 }
 
-/// Memory-only fetch used by bursty render sites (the emote menu): downloads
 enum EmoteFormat { gif, webp, other }
 
 /// Sniffs the image format from magic bytes. Exposed for tests; renderers use
