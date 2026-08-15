@@ -565,7 +565,6 @@ class _EmoteImageState extends State<EmoteImage> {
       if (PaintingBinding.instance.imageCache.containsKey(
         EmoteUrlProvider(altUrl),
       )) {
-        debugPrint('[EmoteImage] placeholder memory-hit altUrl=$altUrl');
         _setPlaceholder(altUrl, token);
         // Continue the placeholder's animation clock on the required URL so
         // the swap happens in phase (same emote, higher scale) instead of
@@ -577,17 +576,11 @@ class _EmoteImageState extends State<EmoteImage> {
         final file = await EmoteCacheManager().getFileFromCache(altUrl);
         if (!mounted || _loadToken != token) return;
         if (file != null) {
-          debugPrint(
-            '[EmoteImage] placeholder disk-hit altUrl=$altUrl '
-            'file=${file.file.path}',
-          );
           _setPlaceholder(altUrl, token);
           return;
         }
-        debugPrint('[EmoteImage] placeholder miss altUrl=$altUrl');
-      } on Object catch (e) {
+      } on Object {
         // Try the next alternate; any error just means no cached placeholder.
-        debugPrint('[EmoteImage] placeholder error altUrl=$altUrl err=$e');
       }
     }
   }

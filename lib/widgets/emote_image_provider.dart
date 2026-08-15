@@ -281,10 +281,6 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
     if (source == null) return;
     _seedFromUrl = null;
     _frameIndex = source.currentFrameIndex.clamp(0, frames.frames.length - 1);
-    debugPrint(
-      '[EmoteImage] seeded url=$url from=$sourceUrl '
-      'frameIndex=$_frameIndex',
-    );
   }
 
   /// Current frame index: [_frameIndex] on the self-driven playback path, or

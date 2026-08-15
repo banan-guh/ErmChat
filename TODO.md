@@ -100,3 +100,4 @@
 - fix no scope experience
 - fix links parsing X
 - fix bypass
+- add tab bar in analytics
