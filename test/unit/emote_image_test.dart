@@ -354,5 +354,115 @@ void main() {
       expect(find.byType(RawImage), findsNWidgets(2));
       expect(fetches, 1);
     });
+
+    testWidgets('a new widget with a cached URL renders synchronously', (
+      tester,
+    ) async {
+      final frame0 = await tester.runAsync(() => _makeImage(255, 0, 0));
+      final frame1 = await tester.runAsync(() => _makeImage(0, 0, 255));
+      EmoteClipRegistry.debugFetchOverride = (url) async =>
+          Uint8List.fromList('GIF89a'.codeUnits);
+      EmoteClipRegistry.debugDecodeOverride = (bytes) async => EmoteFrameData(
+        frames: [frame0!, frame1!],
+        durations: const [
+          Duration(milliseconds: 100),
+          Duration(milliseconds: 200),
+        ],
+      );
+
+      Future<void> pumpOne() async {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: EmoteImage(
+              url: 'https://example.com/a.gif',
+              width: 28,
+              height: 28,
+              placeholder: const Text('loading'),
+            ),
+          ),
+        );
+        await tester.pump();
+      }
+
+      await pumpOne();
+      expect(find.text('loading'), findsNothing);
+      expect(find.byType(RawImage), findsOneWidget);
+
+      // Recreate the whole tree with a fresh State (simulates a new tile).
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: SizedBox.shrink(),
+        ),
+      );
+      await tester.pump();
+
+      // A brand-new widget for the same URL must render the cached frame on
+      // its very first build, without flashing the placeholder.
+      await tester.pumpWidget(
+        MaterialApp(
+          home: EmoteImage(
+            url: 'https://example.com/a.gif',
+            width: 28,
+            height: 28,
+            placeholder: const Text('loading'),
+          ),
+        ),
+      );
+      expect(find.text('loading'), findsNothing);
+      expect(find.byType(RawImage), findsOneWidget);
+    });
+
+    testWidgets('two widgets with the same URL stay in sync on one clock', (
+      tester,
+    ) async {
+      final frame0 = await tester.runAsync(() => _makeImage(255, 0, 0));
+      final frame1 = await tester.runAsync(() => _makeImage(0, 0, 255));
+      EmoteClipRegistry.debugFetchOverride = (url) async =>
+          Uint8List.fromList('GIF89a'.codeUnits);
+      EmoteClipRegistry.debugDecodeOverride = (bytes) async => EmoteFrameData(
+        frames: [frame0!, frame1!],
+        durations: const [
+          Duration(milliseconds: 100),
+          Duration(milliseconds: 200),
+        ],
+      );
+
+      Future<void> pumpTwo() async {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Row(
+              children: const [
+                EmoteImage(
+                  url: 'https://example.com/a.gif',
+                  width: 28,
+                  height: 28,
+                ),
+                EmoteImage(
+                  url: 'https://example.com/a.gif',
+                  width: 28,
+                  height: 28,
+                ),
+              ],
+            ),
+          ),
+        );
+        await tester.pump();
+      }
+
+      await pumpTwo();
+      final raws = tester
+          .widgetList<RawImage>(find.byType(RawImage))
+          .toList();
+      expect(raws, hasLength(2));
+      expect(raws[0].image, same(frame0));
+      expect(raws[1].image, same(frame0));
+
+      await tester.pump(const Duration(milliseconds: 100));
+      final raws2 = tester
+          .widgetList<RawImage>(find.byType(RawImage))
+          .toList();
+      expect(raws2[0].image, same(frame1));
+      expect(raws2[1].image, same(frame1));
+    });
   });
 }

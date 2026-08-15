@@ -78,6 +78,24 @@ class EmoteClipRegistry {
     return future;
   }
 
+  /// Registers a reference to [url] and returns its frames synchronously when
+  /// the clip is already decoded and cached. Returns null when the clip is
+  /// missing, still loading, or previously failed; callers fall back to
+  /// [acquire] and show a placeholder while it loads.
+  ///
+  /// Like [acquire], the returned frames imply a reference that must be
+  /// balanced with [release].
+  EmoteFrameData? tryAcquireCached(String url) {
+    final clip = _clips[url];
+    final frames = clip?.frames;
+    if (clip == null || frames == null) return null;
+    if (clip.refs == 0) {
+      clip.lastAccessed = DateTime.now();
+    }
+    clip.refs++;
+    return frames;
+  }
+
   /// Drops the reference count. The clip is kept in memory (not disposed)
   /// so subsequent acquires are instant. If the cache exceeds its byte cap,
   /// least-recently-used clips with zero refs are evicted.
@@ -86,14 +104,42 @@ class EmoteClipRegistry {
     if (clip == null) return;
     clip.refs--;
     clip.lastAccessed = DateTime.now();
+    if (clip.refs <= 0 && !clip.hasActiveListeners) {
+      clip.stopPlayback();
+    }
     _evictIfNeeded();
   }
+
+  /// Subscribes [listener] to the shared playback clock for [url], starting
+  /// the shared ticker once frames are available. Must be called after
+  /// [acquire] so the clip exists and the ref is held.
+  void subscribe(String url, VoidCallback listener) {
+    final clip = _clips[url];
+    if (clip == null) return;
+    clip.addListener(listener);
+    clip.startPlaybackIfNeeded();
+  }
+
+  /// Removes [listener] from the shared playback clock; stops the ticker when
+  /// no listeners remain.
+  void unsubscribe(String url, VoidCallback listener) {
+    final clip = _clips[url];
+    if (clip == null) return;
+    clip.removeListener(listener);
+    if (!clip.hasActiveListeners && clip.refs <= 0) {
+      clip.stopPlayback();
+    }
+  }
+
+  /// Current shared frame index for [url] (0 when not cached).
+  int currentFrame(String url) => _clips[url]?.frameIndex ?? 0;
 
   /// Test hook; disposes and drops every cached clip.
   @visibleForTesting
   void debugClear() {
     for (final clip in _clips.values) {
       clip.refs = 0;
+      clip.stopPlayback();
       final frames = clip.frames;
       if (frames != null) {
         _disposeFrames(frames);
@@ -118,6 +164,7 @@ class EmoteClipRegistry {
       clip.frames = frames;
       clip.byteSize = _estimateByteSize(frames);
       clip.lastAccessed = DateTime.now();
+      clip.startPlaybackIfNeeded();
       _totalBytes += clip.byteSize;
       _evictIfNeeded();
       return frames;
@@ -138,6 +185,7 @@ class EmoteClipRegistry {
 
     for (final clip in evictable) {
       if (_totalBytes <= _maxBytes) break;
+      clip.stopPlayback();
       _disposeFrames(clip.frames!);
       _totalBytes -= clip.byteSize;
       _clips.remove(clip.url);
@@ -158,7 +206,11 @@ class EmoteClipRegistry {
   }
 }
 
-class _EmoteClip {
+/// One decoded emote clip plus the single shared playback clock for its URL.
+/// Every [EmoteImage] rendering the same URL subscribes to the same clip, so
+/// they all render the same frame at the same time (mirroring how Flutter's
+/// ImageCache shares one ImageStreamCompleter per provider key).
+class _EmoteClip extends ChangeNotifier {
   _EmoteClip({required this.url}) : lastAccessed = DateTime.now();
 
   final String url;
@@ -168,6 +220,54 @@ class _EmoteClip {
   Object? error;
   int byteSize = 0;
   DateTime lastAccessed;
+
+  Ticker? _ticker;
+  int _frameIndex = 0;
+
+  /// Current frame index of the shared playback clock.
+  int get frameIndex => _frameIndex;
+
+  /// Whether any [EmoteImage] is currently rendering this clip.
+  bool get hasActiveListeners => hasListeners;
+
+  /// Starts the shared ticker when the clip is animated and has listeners.
+  void startPlaybackIfNeeded() {
+    final frames = this.frames;
+    if (_ticker != null || !hasListeners || frames == null || !frames.isAnimated) {
+      return;
+    }
+    _ticker = Ticker(_onTick, debugLabel: 'emote-$url')..start();
+  }
+
+  /// Stops the shared ticker when the last listener detaches.
+  void stopPlayback() {
+    _ticker?.dispose();
+    _ticker = null;
+  }
+
+  void _onTick(Duration elapsed) {
+    final frames = this.frames;
+    if (frames == null || !frames.isAnimated) return;
+    final totalUs = frames.totalDuration.inMicroseconds;
+    if (totalUs <= 0) return;
+    var t = elapsed.inMicroseconds % totalUs;
+    for (var i = 0; i < frames.durations.length; i++) {
+      final d = frames.durations[i].inMicroseconds;
+      if (t < d) {
+        if (i != _frameIndex) {
+          _frameIndex = i;
+          notifyListeners();
+        }
+        return;
+      }
+      t -= d;
+    }
+    final last = frames.frames.length - 1;
+    if (last != _frameIndex) {
+      _frameIndex = last;
+      notifyListeners();
+    }
+  }
 }
 
 Future<Uint8List> _fetchBytes(String url) async {
@@ -625,9 +725,10 @@ Future<ui.Image> _imageFromRgba(ByteBuffer rgba, int width, int height) {
 /// temp-file path both apply) unless [memoryOnly] is set, in which case they
 /// are fetched straight over HTTP. GIFs and WebP are decoded in pure Dart
 /// (correct transparency and disposal, per-frame delays from the file);
-/// playback is driven by a per-widget [Ticker] at the file's real frame
-/// durations. Static images go through the engine codec, which is only buggy
-/// for multi-frame transparency.
+/// playback is driven by a single shared [Ticker] per URL owned by the
+/// [EmoteClipRegistry], so every widget showing the same emote stays in sync.
+/// Static images go through the engine codec, which is only buggy for
+/// multi-frame transparency.
 class EmoteImage extends StatefulWidget {
   const EmoteImage({
     super.key,
@@ -656,17 +757,28 @@ class EmoteImage extends StatefulWidget {
   State<EmoteImage> createState() => _EmoteImageState();
 }
 
-class _EmoteImageState extends State<EmoteImage>
-    with SingleTickerProviderStateMixin {
+class _EmoteImageState extends State<EmoteImage> {
   EmoteFrameData? _frames;
   bool _failed = false;
   int _frameIndex = 0;
-  Ticker? _ticker;
+  bool _subscribed = false;
   Object? _loadToken;
 
   @override
   void initState() {
     super.initState();
+    // Fast path: the clip may already be decoded in the registry (e.g. a
+    // just-sent emote that other tiles are already showing). Rendering it
+    // synchronously avoids a one-frame placeholder flash on every new tile.
+    final cached =
+        EmoteClipRegistry.instance.tryAcquireCached(widget.url);
+    if (cached != null) {
+      _frames = cached;
+      _frameIndex = EmoteClipRegistry.instance.currentFrame(widget.url);
+      EmoteClipRegistry.instance.subscribe(widget.url, _onClipChanged);
+      _subscribed = true;
+      return;
+    }
     _load();
   }
 
@@ -681,37 +793,33 @@ class _EmoteImageState extends State<EmoteImage>
         fetcher: fetcher,
       );
       if (!mounted || _loadToken != token) return;
-      setState(() => _frames = frames);
-      if (frames.isAnimated) {
-        _ticker = createTicker(_onTick)..start();
-      }
+      // Join the shared playback clock for this URL so all widgets showing
+      // the same emote render the same frame (and a new tile syncs to the
+      // frame the existing ones are already on).
+      EmoteClipRegistry.instance.subscribe(url, _onClipChanged);
+      _subscribed = true;
+      setState(() {
+        _frames = frames;
+        _frameIndex = EmoteClipRegistry.instance.currentFrame(url);
+      });
     } on Object {
       if (!mounted || _loadToken != token) return;
       setState(() => _failed = true);
     }
   }
 
-  void _onTick(Duration elapsed) {
-    final frames = _frames;
-    if (frames == null || !frames.isAnimated) return;
-    final totalUs = frames.totalDuration.inMicroseconds;
-    if (totalUs <= 0) return;
-    var t = elapsed.inMicroseconds % totalUs;
-    for (var i = 0; i < frames.durations.length; i++) {
-      final d = frames.durations[i].inMicroseconds;
-      if (t < d) {
-        if (i != _frameIndex) setState(() => _frameIndex = i);
-        return;
-      }
-      t -= d;
-    }
-    final last = frames.frames.length - 1;
-    if (last != _frameIndex) setState(() => _frameIndex = last);
+  void _onClipChanged() {
+    if (!mounted) return;
+    setState(() {
+      _frameIndex = EmoteClipRegistry.instance.currentFrame(widget.url);
+    });
   }
 
   @override
   void dispose() {
-    _ticker?.dispose();
+    if (_subscribed) {
+      EmoteClipRegistry.instance.unsubscribe(widget.url, _onClipChanged);
+    }
     EmoteClipRegistry.instance.release(widget.url);
     super.dispose();
   }
@@ -720,12 +828,25 @@ class _EmoteImageState extends State<EmoteImage>
   void didUpdateWidget(EmoteImage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.url != oldWidget.url) {
+      if (_subscribed) {
+        EmoteClipRegistry.instance.unsubscribe(oldWidget.url, _onClipChanged);
+      }
       EmoteClipRegistry.instance.release(oldWidget.url);
-      _ticker?.dispose();
-      _ticker = null;
+      _subscribed = false;
       _frames = null;
       _failed = false;
       _frameIndex = 0;
+      // Invalidate any in-flight load for the old URL.
+      _loadToken = Object();
+      final cached =
+          EmoteClipRegistry.instance.tryAcquireCached(widget.url);
+      if (cached != null) {
+        _frames = cached;
+        _frameIndex = EmoteClipRegistry.instance.currentFrame(widget.url);
+        EmoteClipRegistry.instance.subscribe(widget.url, _onClipChanged);
+        _subscribed = true;
+        return;
+      }
       _load();
     }
   }
