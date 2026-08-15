@@ -2,6 +2,7 @@ import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
+import 'package:linkify/linkify.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'emote_image.dart';
 import '../models/generic_emote.dart';
@@ -336,10 +337,6 @@ class EmoteSegment implements _Segment {
   });
 }
 
-final _urlRegExp = RegExp(
-  r'(?:https?://|www\.)[^\s<]+'
-  r'|[a-zA-Z0-9-]+\.[a-zA-Z]{2,}(?:/\S*)?',
-);
 final _collapseSpace = RegExp(r' {2,}');
 
 List<InlineSpan> parseTextWithLinks(String text) {
@@ -348,27 +345,22 @@ List<InlineSpan> parseTextWithLinks(String text) {
   if (!collapsed.contains('.')) return [TextSpan(text: collapsed)];
   try {
     final spans = <InlineSpan>[];
-    int lastEnd = 0;
-    for (final match in _urlRegExp.allMatches(collapsed)) {
-      if (match.start > lastEnd) {
-        spans.add(TextSpan(text: collapsed.substring(lastEnd, match.start)));
+    for (final element in linkify(
+      collapsed,
+      options: const LinkifyOptions(humanize: false),
+    )) {
+      if (element is UrlElement) {
+        spans.add(
+          TextSpan(
+            text: element.text,
+            style: const TextStyle(color: Colors.blue),
+            recognizer: TapGestureRecognizer()
+              ..onTap = () => launchUrl(Uri.parse(element.url)),
+          ),
+        );
+      } else {
+        spans.add(TextSpan(text: element.text));
       }
-      var url = match.group(0)!;
-      if (!url.startsWith('http://') && !url.startsWith('https://')) {
-        url = 'https://$url';
-      }
-      spans.add(
-        TextSpan(
-          text: match.group(0),
-          style: const TextStyle(color: Colors.blue),
-          recognizer: TapGestureRecognizer()
-            ..onTap = () => launchUrl(Uri.parse(url)),
-        ),
-      );
-      lastEnd = match.end;
-    }
-    if (lastEnd < collapsed.length) {
-      spans.add(TextSpan(text: collapsed.substring(lastEnd)));
     }
     return spans;
   } catch (e, stack) {
