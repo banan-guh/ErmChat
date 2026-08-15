@@ -74,4 +74,7 @@ flutter {
 
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
+    // Session-bound Custom Tabs for the OAuth flow (keeps navigation inside
+    // the tab instead of handing app links to the installed Twitch app).
+    implementation("androidx.browser:browser:1.8.0")
 }

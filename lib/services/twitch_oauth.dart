@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io' show Platform;
 import 'dart:math';
+import 'package:flutter/services.dart';
 import 'package:flutter_web_auth_2/flutter_web_auth_2.dart';
 import '../twitch_config.dart';
 
@@ -11,6 +13,7 @@ typedef OAuthStarter = Future<String?> Function();
 
 class TwitchOAuth {
   static const _authorizeUrl = 'https://id.twitch.tv/oauth2/authorize';
+  static const _channel = MethodChannel('ermchat/oauth');
 
   static String? lastError;
   static bool _flowInProgress = false;
@@ -20,6 +23,8 @@ class TwitchOAuth {
   /// "hi again, [user] - not you? log out" interstitial (which can hand the
   /// flow off to the installed Twitch app via Android App Links) and shows the
   /// plain login form instead - used for the switch-account / re-auth path.
+  /// On Android this is a no-op: the session-bound Custom Tab already keeps
+  /// every navigation inside the tab regardless of cookies.
   static Future<String?> startFlow({bool ephemeral = false}) async {
     lastError = null;
     if (_flowInProgress) {
@@ -32,11 +37,13 @@ class TwitchOAuth {
 
     _flowInProgress = true;
     try {
-      final result = await FlutterWebAuth2.authenticate(
-        url: urlInfo.url,
-        callbackUrlScheme: TwitchConfig.callbackUrlScheme,
-        options: FlutterWebAuth2Options(preferEphemeral: ephemeral),
-      ).timeout(const Duration(minutes: 5));
+      final result = Platform.isAndroid
+          ? await _authenticateAndroid(urlInfo.url)
+          : await FlutterWebAuth2.authenticate(
+              url: urlInfo.url,
+              callbackUrlScheme: TwitchConfig.callbackUrlScheme,
+              options: FlutterWebAuth2Options(preferEphemeral: ephemeral),
+            ).timeout(const Duration(minutes: 5));
 
       return _extractToken(result, urlInfo.state);
     } on TimeoutException {
@@ -48,6 +55,30 @@ class TwitchOAuth {
     } finally {
       _flowInProgress = false;
     }
+  }
+
+  // Android: the native side (MainActivity) launches the auth URL in a
+  // session-bound Custom Tab so nothing inside it can hand off to a verified
+  // native app, and delivers the redirect back via MainActivity.onNewIntent.
+  static Future<String> _authenticateAndroid(String url) {
+    final completer = Completer<String>();
+    Timer? timeoutTimer;
+
+    _channel.setMethodCallHandler((call) async {
+      if (call.method == 'onRedirect' && !completer.isCompleted) {
+        timeoutTimer?.cancel();
+        completer.complete(call.arguments as String);
+      }
+    });
+
+    timeoutTimer = Timer(const Duration(minutes: 5), () {
+      if (!completer.isCompleted) {
+        completer.completeError(TimeoutException('Authorization timed out.'));
+      }
+    });
+
+    unawaited(_channel.invokeMethod('launchCustomTab', {'url': url}));
+    return completer.future;
   }
 
   static ({String url, String state})? generateAuthUrl() {
