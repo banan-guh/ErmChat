@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:isolate';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../../models/generic_emote.dart';
@@ -22,9 +23,13 @@ class SevenTvEmoteProvider {
     final res = await http.get(uri).timeout(httpTimeout);
     throwOnTransientHttpError(res.statusCode, uri);
     if (res.statusCode != 200) return [];
-    final data = jsonDecode(res.body) as Map<String, dynamic>;
-    final items = data['emotes'] as List<dynamic>? ?? [];
-    return _parseEmotes(items, global: true, resolution: resolution);
+    // The global set is ~2MB / thousands of emotes: decode + parse off the
+    // main isolate so startup and the 12h rake don't jank the UI thread.
+    return Isolate.run(() {
+      final data = jsonDecode(res.body) as Map<String, dynamic>;
+      final items = data['emotes'] as List<dynamic>? ?? [];
+      return _parseEmotes(items, global: true, resolution: resolution);
+    });
   }
 
   static Future<SevenTvChannelResponse> fetchChannelResponse(
@@ -35,17 +40,18 @@ class SevenTvEmoteProvider {
     final res = await http.get(uri).timeout(httpTimeout);
     throwOnTransientHttpError(res.statusCode, uri);
     if (res.statusCode != 200) return SevenTvChannelResponse(emotes: []);
-    final data = jsonDecode(res.body) as Map<String, dynamic>;
-    final userId = (data['user'] as Map<String, dynamic>?)?['id'] as String?;
-    final emoteSet = data['emote_set'] as Map<String, dynamic>?;
-    final emoteSetId = emoteSet?['id'] as String?;
-    final items = emoteSet?['emotes'] as List<dynamic>? ?? [];
-    final emotes = _parseEmotes(items, channel: true, resolution: resolution);
-    return SevenTvChannelResponse(
-      emotes: emotes,
-      userId: userId,
-      emoteSetId: emoteSetId,
-    );
+    return Isolate.run(() {
+      final data = jsonDecode(res.body) as Map<String, dynamic>;
+      final userId = (data['user'] as Map<String, dynamic>?)?['id'] as String?;
+      final emoteSet = data['emote_set'] as Map<String, dynamic>?;
+      final emoteSetId = emoteSet?['id'] as String?;
+      final items = emoteSet?['emotes'] as List<dynamic>? ?? [];
+      return SevenTvChannelResponse(
+        emotes: _parseEmotes(items, channel: true, resolution: resolution),
+        userId: userId,
+        emoteSetId: emoteSetId,
+      );
+    });
   }
 
   static GenericEmote? parseSingleEmote(

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:isolate';
 import 'dart:math' as math;
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
@@ -113,7 +114,7 @@ class EmoteUsageRecord {
 
   /// Keep-priority score at [now]; higher means the emote should stay cached.
   /// Only meaningful for records whose window covers [now] (roll first).
-  double score(DateTime now, {required int hour}) {
+  double score(DateTime now) {
     final hours = now.difference(lastUsedAt).inHours;
     final r = math.exp(-hours / _recencyHalfLife.inHours.toDouble());
     var total = 0;
@@ -314,6 +315,7 @@ class EmoteManager extends ChangeNotifier {
   // were built with (no retroactive re-rendering); full refetches bump it.
   void _notify({String? channel, bool bumpVersion = true}) {
     if (bumpVersion) _version++;
+    _emoteIndexDirty = true;
     _changedChannel = channel;
     if (channel != null) {
       _mergedCache.remove(channel);
@@ -497,24 +499,38 @@ class EmoteManager extends ChangeNotifier {
   /// Resolve an emote by ID across all caches.
   GenericEmote? emoteById(String id) => _emoteById(id);
 
-  /// Resolve an emote by ID across all caches.
-  GenericEmote? _emoteById(String id) {
-    if (_globalCache != null) {
-      for (final e in _globalCache!.suggestions) {
-        if (e.id == id) return e;
+  // Lazily rebuilt id index: emoteById runs once per emote per chat message,
+  // so the linear scan over every cached emote (global + all channels) is the
+  // hottest lookup in the pipeline. The index is rebuilt only when a notify
+  // or eviction marks it dirty.
+  Map<String, GenericEmote> _emoteByIdIndex = {};
+  bool _emoteIndexDirty = true;
+
+  void _rebuildEmoteIndex() {
+    final index = <String, GenericEmote>{};
+    void addAll(Iterable<GenericEmote> emotes) {
+      for (final e in emotes) {
+        // putIfAbsent preserves the scan order's precedence (global first,
+        // then channels, then raw Twitch lists) on id collisions.
+        index.putIfAbsent(e.id, () => e);
       }
     }
+
+    if (_globalCache != null) addAll(_globalCache!.suggestions);
     for (final cached in _channelCaches.values) {
-      for (final e in cached.suggestions) {
-        if (e.id == id) return e;
-      }
+      addAll(cached.suggestions);
     }
     for (final raw in _channelTwitchEmotes.values) {
-      for (final e in raw) {
-        if (e.id == id) return e;
-      }
+      addAll(raw);
     }
-    return null;
+    _emoteByIdIndex = index;
+    _emoteIndexDirty = false;
+  }
+
+  /// Resolve an emote by ID across all caches.
+  GenericEmote? _emoteById(String id) {
+    if (_emoteIndexDirty) _rebuildEmoteIndex();
+    return _emoteByIdIndex[id];
   }
 
   Future<void> markEmoteUsed(GenericEmote emote) async {
@@ -864,12 +880,14 @@ class EmoteManager extends ChangeNotifier {
     _channelProviderEmotes.remove(channel);
     _mergedCache.remove(channel);
     _sevenTvLive.remove(channel);
+    _emoteIndexDirty = true;
   }
 
   void evictGlobal() {
     _globalCache = null;
     _globalProviderEmotes.clear();
     _mergedCache.clear();
+    _emoteIndexDirty = true;
   }
 
   void setSevenTvEmoteSetId(String channel, String emoteSetId) {
@@ -1305,20 +1323,23 @@ class EmoteManager extends ChangeNotifier {
     final raw = prefs.getString(key);
     if (raw == null) return (cached: null, fresh: false);
     try {
-      final data = jsonDecode(raw) as Map<String, dynamic>;
-      final ts = DateTime.parse(data['ts'] as String);
+      // Persisted caches can be large (the 7TV global set alone is thousands
+      // of emotes): decode + map-build off the main isolate so startup stays
+      // smooth. The tier/ttl check needs live state, so it stays here.
+      final tierIndex = _tier.index;
+      final parsed = await Isolate.run(() {
+        final data = jsonDecode(raw) as Map<String, dynamic>;
+        final list = (data['emotes'] as List<dynamic>)
+            .map((e) => GenericEmote.fromJson(e as Map<String, dynamic>))
+            .toList();
+        final tierMatches = data['tier'] is! int || data['tier'] == tierIndex;
+        return (list: list, tierMatches: tierMatches, ts: data['ts'] as String);
+      });
+      final ts = DateTime.parse(parsed.ts);
       final cachedTime = fetchTime ?? ts;
       final withinTtl = DateTime.now().difference(cachedTime) <= ttl;
-      // A tier tag from a different fetching tier means the cached URLs are
-      // at the wrong resolution; force a refetch (the 1x -> 2x overwrite).
-      // Caches written before the feature have no tag and are treated as
-      // matching.
-      final tierMatches = data['tier'] is! int || data['tier'] == _tier.index;
-      final fresh = withinTtl && tierMatches;
-      final list = (data['emotes'] as List<dynamic>)
-          .map((e) => GenericEmote.fromJson(e as Map<String, dynamic>))
-          .toList();
-      return (cached: _buildChannelMap(list), fresh: fresh);
+      final fresh = withinTtl && parsed.tierMatches;
+      return (cached: _buildChannelMap(parsed.list), fresh: fresh);
     } catch (_) {
       debugPrint('[EmoteManager] failed to parse cached emotes');
       return (cached: null, fresh: false);
@@ -1374,7 +1395,7 @@ class EmoteManager extends ChangeNotifier {
     final hour = now.millisecondsSinceEpoch ~/ _hourMs;
     final rolled = EmoteUsageRecord.rolledForward(record, hour);
     if (!identical(rolled, record)) _emoteUsage[url] = rolled;
-    return rolled.score(now, hour: hour);
+    return rolled.score(now);
   }
 
   static const _hourMs = 3600000;
@@ -1444,13 +1465,8 @@ class EmoteManager extends ChangeNotifier {
     if (_emoteUsage.length > _usageMaxEntries) {
       // Drop the lowest-scored entries (the same policy the cache uses).
       final now = _now();
-      final hour = now.millisecondsSinceEpoch ~/ _hourMs;
       final entries = _emoteUsage.entries.toList()
-        ..sort(
-          (a, b) => a.value
-              .score(now, hour: hour)
-              .compareTo(b.value.score(now, hour: hour)),
-        );
+        ..sort((a, b) => a.value.score(now).compareTo(b.value.score(now)));
       final overflow = entries.length - _usageMaxEntries;
       for (final entry in entries.take(overflow)) {
         _emoteUsage.remove(entry.key);
@@ -1541,6 +1557,11 @@ class EmoteManager extends ChangeNotifier {
   final _precacheQueue = <GenericEmote>[];
   bool _isProcessingPrecache = false;
   static const _maxConcurrentPrecache = 5;
+  // The dedup set and queue are bounded: a fast channel can enqueue faster
+  // than the 5-wide drain, and an unbounded set/queue would grow for the
+  // whole session.
+  static const _maxSeenEmoteIds = 2000;
+  static const _maxPrecacheQueue = 300;
 
   void enqueueSeenEmotes(List<GenericEmote> emotes) {
     // The nothing tier never fetches or precaches: no usage tracking either.
@@ -1552,7 +1573,13 @@ class EmoteManager extends ChangeNotifier {
       }
     }
     if (fresh.isEmpty) return;
-    if (_seenEmoteIds.length > 2000) _seenEmoteIds.clear();
+    // Evict the oldest-seen ids (insertion order) instead of clearing the
+    // whole set, so a bounded dedup keeps working past the cap.
+    while (_seenEmoteIds.length > _maxSeenEmoteIds) {
+      final it = _seenEmoteIds.iterator;
+      it.moveNext();
+      _seenEmoteIds.remove(it.current);
+    }
     for (final e in fresh) {
       _touchUsage(e.url);
     }
@@ -1560,6 +1587,14 @@ class EmoteManager extends ChangeNotifier {
     // precaching files the next enforcement pass would immediately evict.
     if (_cacheCap > 0) {
       _precacheQueue.addAll(fresh);
+      // Bound the queue: drop the oldest pending entries when a fast channel
+      // outpaces the drain; they are least likely to be seen again anyway.
+      if (_precacheQueue.length > _maxPrecacheQueue) {
+        _precacheQueue.removeRange(
+          0,
+          _precacheQueue.length - _maxPrecacheQueue,
+        );
+      }
       if (!_isProcessingPrecache) {
         _processPrecacheQueue();
       }

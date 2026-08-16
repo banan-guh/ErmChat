@@ -5,6 +5,7 @@ import '../services/twitch_auth.dart';
 import '../services/twitch_irc.dart';
 
 class CommandHandler {
+  static final _whitespaceRe = RegExp(r'\s+');
   final TwitchApi twitchApi;
   final IrcService irc;
   final Map<String, String> Function() getChannelUserIds;
@@ -155,7 +156,7 @@ class CommandHandler {
     TwitchAuth auth,
     String currentUserId,
   ) async {
-    final parts = text.split(RegExp(r'\s+'));
+    final parts = text.split(_whitespaceRe);
     final args = parts.length > 1 ? parts.sublist(1) : [];
     if (args.length < 2) {
       _whisperMessage(channel, 'Usage: /w <username> <message>');
@@ -218,7 +219,7 @@ class CommandHandler {
   }
 
   Future<void> handle(String text, String channel, TwitchAuth auth) async {
-    final parts = text.split(RegExp(r'\s+'));
+    final parts = text.split(_whitespaceRe);
     final cmd = parts[0].toLowerCase();
     final args = parts.length > 1 ? parts.sublist(1) : [];
 

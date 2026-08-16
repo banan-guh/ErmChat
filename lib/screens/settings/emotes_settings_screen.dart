@@ -57,7 +57,10 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
         final autoIndex =
             prefs.getInt(emoteFetchAutoPrefsKey) ??
             defaultEmoteFetchAutoMode.index;
-        _autoMode = EmoteFetchAutoMode.values[autoIndex];
+        _autoMode =
+            autoIndex >= 0 && autoIndex < EmoteFetchAutoMode.values.length
+            ? EmoteFetchAutoMode.values[autoIndex]
+            : defaultEmoteFetchAutoMode;
         _appliedCacheMax =
             prefs.getInt(emoteCacheMaxPrefsKey) ?? defaultEmoteCacheMax;
         _draftCacheMax = _appliedCacheMax;

@@ -298,57 +298,48 @@ class IrcService extends BaseIrcConnection {
 
   @override
   void dispatchLine(String line) {
-    if (line.contains('CLEARCHAT ')) {
-      _handleClearChat(line);
-      return;
-    }
-    if (line.contains('CLEARMSG ')) {
-      _handleClearMsg(line);
-      return;
-    }
-    if (line.contains('USERNOTICE ')) {
-      _handleUserNotice(line);
-      return;
-    }
-    // GLOBALUSERSTATE contains "USERSTATE " as a substring - check first.
-    // It also carries no params, so the command ends the line (no trailing
-    // space like the other handlers expect). Both carry the emote-sets tag,
-    // the authoritative source of which emote sets the account can use (the
-    // Helix /chat/emotes/user endpoint is known to omit certain grants, e.g.
-    // bot accounts).
-    if (line.contains('GLOBALUSERSTATE')) {
-      _handleUserState(line);
-      return;
-    }
-    if (line.contains('USERSTATE ')) {
-      _handleUserState(line);
-      return;
-    }
-    if (line.contains('ROOMSTATE ')) {
-      _handleRoomState(line);
-      return;
-    }
-    if (line.contains('NOTICE ')) {
-      _handleNotice(line);
-      return;
-    }
-    if (line.contains('WHISPER ')) {
-      _handleWhisper(line);
-      return;
-    }
-    if (line.contains('PRIVMSG ')) {
-      if (line.contains(':jtv ')) {
-        _handleJtvMessage(line);
-      } else {
-        _handleChatMessage(line);
-      }
+    // Parse each line exactly once and dispatch on the parsed command; the
+    // old contains()-based routing matched trailing chat text and silently
+    // dropped or misrouted messages whose text contained command words.
+    final msg = parseIrcMessage(line);
+    if (msg == null) return;
+    switch (msg.command) {
+      case 'CLEARCHAT':
+        _handleClearChat(msg);
+        return;
+      case 'CLEARMSG':
+        _handleClearMsg(msg);
+        return;
+      case 'USERNOTICE':
+        _handleUserNotice(msg);
+        return;
+      case 'NOTICE':
+        _handleNotice(msg);
+        return;
+      case 'WHISPER':
+        _handleWhisper(msg);
+        return;
+      // Both carry the emote-sets tag, the authoritative source of which
+      // emote sets the account can use (the Helix /chat/emotes/user endpoint
+      // is known to omit certain grants, e.g. bot accounts).
+      case 'USERSTATE':
+      case 'GLOBALUSERSTATE':
+        _handleUserState(msg);
+        return;
+      case 'ROOMSTATE':
+        _handleRoomState(msg);
+        return;
+      case 'PRIVMSG':
+        if (msg.prefix != null && msg.prefix!.contains('jtv.tmi.twitch.tv')) {
+          _handleJtvMessage(msg);
+        } else {
+          _handleChatMessage(msg);
+        }
+        return;
     }
   }
 
-  void _handleClearChat(String line) {
-    final msg = parseIrcMessage(line);
-    if (msg == null || msg.command != 'CLEARCHAT') return;
-
+  void _handleClearChat(IrcMessage msg) {
     final channelName = msg.params.isNotEmpty
         ? msg.params[0].substring(1)
         : null;
@@ -378,10 +369,7 @@ class IrcService extends BaseIrcConnection {
     );
   }
 
-  void _handleClearMsg(String line) {
-    final msg = parseIrcMessage(line);
-    if (msg == null || msg.command != 'CLEARMSG') return;
-
+  void _handleClearMsg(IrcMessage msg) {
     final channelName = msg.params.isNotEmpty
         ? msg.params[0].substring(1)
         : null;
@@ -402,10 +390,7 @@ class IrcService extends BaseIrcConnection {
     );
   }
 
-  void _handleNotice(String line) {
-    final msg = parseIrcMessage(line);
-    if (msg == null || msg.command != 'NOTICE') return;
-
+  void _handleNotice(IrcMessage msg) {
     final channelName = msg.params.isNotEmpty
         ? msg.params[0].substring(1)
         : null;
@@ -420,10 +405,8 @@ class IrcService extends BaseIrcConnection {
     );
   }
 
-  void _handleJtvMessage(String line) {
-    final msg = parseIrcMessage(line);
-    if (msg == null || msg.trailing == null) return;
-
+  void _handleJtvMessage(IrcMessage msg) {
+    if (msg.trailing == null) return;
     final channelName = msg.params.isNotEmpty
         ? msg.params[0].substring(1)
         : null;
@@ -434,12 +417,7 @@ class IrcService extends BaseIrcConnection {
     );
   }
 
-  void _handleUserState(String line) {
-    final msg = parseIrcMessage(line);
-    if (msg == null ||
-        (msg.command != 'GLOBALUSERSTATE' && msg.command != 'USERSTATE')) {
-      return;
-    }
+  void _handleUserState(IrcMessage msg) {
     final emoteSets = msg.tags['emote-sets'];
     if (emoteSets == null || emoteSets.isEmpty) return;
     final ids = emoteSets
@@ -455,10 +433,7 @@ class IrcService extends BaseIrcConnection {
     _emoteSetsController.add((channel, ids));
   }
 
-  void _handleRoomState(String line) {
-    final msg = parseIrcMessage(line);
-    if (msg == null || msg.command != 'ROOMSTATE') return;
-
+  void _handleRoomState(IrcMessage msg) {
     final channelName = msg.params.isNotEmpty
         ? msg.params[0].substring(1)
         : null;
@@ -469,10 +444,7 @@ class IrcService extends BaseIrcConnection {
     );
   }
 
-  void _handleUserNotice(String line) {
-    final msg = parseIrcMessage(line);
-    if (msg == null || msg.command != 'USERNOTICE') return;
-
+  void _handleUserNotice(IrcMessage msg) {
     final channelName = msg.params.isNotEmpty
         ? msg.params[0].substring(1)
         : null;
@@ -483,9 +455,7 @@ class IrcService extends BaseIrcConnection {
         : null;
     final login = (msg.tags['login'] ?? ircPrefLogin ?? '').toLowerCase();
     final displayName = msg.tags['display-name'] ?? login;
-    final systemMsg = msg.tags['system-msg'] != null
-        ? unescapeIrcTag(msg.tags['system-msg']!)
-        : null;
+    final systemMsg = msg.tags['system-msg'];
     final text = msg.trailing;
 
     _userNoticeController.add(
@@ -512,11 +482,8 @@ class IrcService extends BaseIrcConnection {
     );
   }
 
-  void _handleChatMessage(String line) {
-    final msg = parseIrcMessage(line);
-    if (msg == null || msg.command != 'PRIVMSG' || msg.trailing == null) {
-      return;
-    }
+  void _handleChatMessage(IrcMessage msg) {
+    if (msg.trailing == null) return;
     final channelName = msg.params.isNotEmpty
         ? msg.params[0].substring(1)
         : null;
@@ -533,11 +500,8 @@ class IrcService extends BaseIrcConnection {
     _messageController.add(parseIrcChatMessage(msg, channel: channelName));
   }
 
-  void _handleWhisper(String line) {
-    final msg = parseIrcMessage(line);
-    if (msg == null || msg.command != 'WHISPER' || msg.trailing == null) {
-      return;
-    }
+  void _handleWhisper(IrcMessage msg) {
+    if (msg.trailing == null) return;
     _whisperController.add(parseIrcChatMessage(msg, channel: null));
   }
 
@@ -622,12 +586,8 @@ TwitchMessage parseIrcChatMessage(
       strippedText = strippedText.substring(prefixMatch.end);
     }
   }
-  final ircReplyUser = unescapeIrcTagNullable(
-    ircMsg.tags['reply-parent-display-name'],
-  );
-  final ircReplyText = unescapeIrcTagNullable(
-    ircMsg.tags['reply-parent-msg-body'],
-  );
+  final ircReplyUser = ircMsg.tags['reply-parent-display-name'];
+  final ircReplyText = ircMsg.tags['reply-parent-msg-body'];
 
   final tsMs = ircMsg.tags['tmi-sent-ts'];
   final effectiveTimestamp =
@@ -717,12 +677,8 @@ IrcMessage? parseIrcMessage(String line) {
       for (final tag in tags.split(';')) {
         final eq = tag.indexOf('=');
         if (eq != -1) {
-          String decoded;
-          try {
-            decoded = Uri.decodeComponent(tag.substring(eq + 1));
-          } catch (_) {
-            decoded = tag.substring(eq + 1);
-          }
+          // Twitch IRCv3 tags are backslash-escaped, not percent-encoded.
+          String decoded = unescapeIrcTag(tag.substring(eq + 1));
           // Strip orphaned UTF-16 surrogates: low surrogates alone or high
           // surrogates not followed by low (Flutter's text engine crashes on
           // isolated surrogates from malformed Twitch IRC data).

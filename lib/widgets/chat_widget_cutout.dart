@@ -304,9 +304,9 @@ class PollCard extends StatelessWidget {
             ),
             const SizedBox(height: 3),
           ],
-          if (event.choices.length > 3)
+          if (event.choices.length > 2)
             Text(
-              '+${event.choices.length - 3} more options',
+              '+${event.choices.length - 2} more options',
               style: theme.textTheme.labelSmall,
             ),
         ],

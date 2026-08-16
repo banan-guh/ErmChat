@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:isolate';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../../twitch_config.dart';
@@ -21,11 +22,13 @@ class TwitchEmoteProvider {
     );
     throwOnTransientHttpError(res.statusCode, uri);
     if (res.statusCode != 200) return [];
-    final data = jsonDecode(res.body) as Map<String, dynamic>;
-    return _parseEmotes(
-      data['data'] as List<dynamic>? ?? [],
-      resolution: resolution,
-    );
+    return Isolate.run(() {
+      final data = jsonDecode(res.body) as Map<String, dynamic>;
+      return _parseEmotes(
+        data['data'] as List<dynamic>? ?? [],
+        resolution: resolution,
+      );
+    });
   }
 
   static Future<List<GenericEmote>> fetchChannel(
@@ -47,13 +50,15 @@ class TwitchEmoteProvider {
     }
     throwOnTransientHttpError(res.statusCode, uri);
     if (res.statusCode != 200) return [];
-    final data = jsonDecode(res.body) as Map<String, dynamic>;
-    return _parseEmotes(
-      data['data'] as List<dynamic>? ?? [],
-      channel: true,
-      channelName: channelName,
-      resolution: resolution,
-    );
+    return Isolate.run(() {
+      final data = jsonDecode(res.body) as Map<String, dynamic>;
+      return _parseEmotes(
+        data['data'] as List<dynamic>? ?? [],
+        channel: true,
+        channelName: channelName,
+        resolution: resolution,
+      );
+    });
   }
 
   static Future<Map<String, List<GenericEmote>>> fetchEmoteSets(
@@ -61,7 +66,6 @@ class TwitchEmoteProvider {
     String? accessToken,
     EmoteResolution resolution = EmoteResolution.high,
   }) async {
-    final result = <String, List<GenericEmote>>{};
     final headers = <String, String>{'Client-ID': TwitchConfig.clientId};
     if (accessToken != null) {
       headers['Authorization'] = 'Bearer $accessToken';
@@ -69,6 +73,7 @@ class TwitchEmoteProvider {
     // Twitch accepts up to 25 emote_set_id params per request; chunk so a
     // batch with many sets doesn't spawn one request per set.
     const chunkSize = 25;
+    final bodies = <String>[];
     for (var i = 0; i < emoteSetIds.length; i += chunkSize) {
       var end = i + chunkSize;
       if (end > emoteSetIds.length) end = emoteSetIds.length;
@@ -83,54 +88,64 @@ class TwitchEmoteProvider {
         debugPrint('Twitch emote set error: ${res.statusCode} ${res.body}');
         continue;
       }
-      final data = jsonDecode(res.body) as Map<String, dynamic>;
-      final items = data['data'] as List<dynamic>? ?? [];
-      for (final item in items) {
-        final id = item['id'] as String?;
-        final name = item['name'] as String?;
-        final ownerId = item['owner_id'] as String?;
-        if (id == null || name == null) continue;
-        final formats =
-            (item['format'] as List<dynamic>?)?.cast<String>() ?? [];
-        final isAnimated = formats.contains('animated');
-        final format = isAnimated ? 'animated' : 'static';
-        final scales = (item['scale'] as List<dynamic>?)?.cast<String>() ?? [];
-        final (smallScale, oneXScale, largeScale) = _selectScales(
-          scales,
-          resolution,
-        );
-        final theme =
-            (item['theme_mode'] as List<dynamic>?)?.firstOrNull as String? ??
-            'dark';
-        final url =
-            'https://static-cdn.jtvnw.net/emoticons/v2/$id/$format/$theme/$smallScale';
-        final url1x = oneXScale == null
-            ? null
-            : 'https://static-cdn.jtvnw.net/emoticons/v2/$id/$format/$theme/$oneXScale';
-        final url3x = largeScale == null
-            ? null
-            : 'https://static-cdn.jtvnw.net/emoticons/v2/$id/$format/$theme/$largeScale';
-        result
-            .putIfAbsent(ownerId ?? '', () => [])
-            .add(
-              GenericEmote(
-                id: id,
-                code: name,
-                type: EmoteType.twitch,
-                url: url,
-                url1x: url1x,
-                url3x: url3x,
-                isAnimated: isAnimated,
-                scope: ownerId != null && ownerId.isNotEmpty
-                    ? EmoteScope.channel
-                    : EmoteScope.global,
-                tier: item['tier'] as String?,
-                emoteType: item['emote_type'] as String?,
-              ),
-            );
-      }
+      bodies.add(res.body);
     }
-    return result;
+    if (bodies.isEmpty) return {};
+    // Decode + parse every chunk off the main isolate (accounts can hold
+    // many emote sets; the combined payload is comparable to the global set).
+    return Isolate.run(() {
+      final result = <String, List<GenericEmote>>{};
+      for (final body in bodies) {
+        final data = jsonDecode(body) as Map<String, dynamic>;
+        final items = data['data'] as List<dynamic>? ?? [];
+        for (final item in items) {
+          final id = item['id'] as String?;
+          final name = item['name'] as String?;
+          final ownerId = item['owner_id'] as String?;
+          if (id == null || name == null) continue;
+          final formats =
+              (item['format'] as List<dynamic>?)?.cast<String>() ?? [];
+          final isAnimated = formats.contains('animated');
+          final format = isAnimated ? 'animated' : 'static';
+          final scales =
+              (item['scale'] as List<dynamic>?)?.cast<String>() ?? [];
+          final (smallScale, oneXScale, largeScale) = _selectScales(
+            scales,
+            resolution,
+          );
+          final theme =
+              (item['theme_mode'] as List<dynamic>?)?.firstOrNull as String? ??
+              'dark';
+          final url =
+              'https://static-cdn.jtvnw.net/emoticons/v2/$id/$format/$theme/$smallScale';
+          final url1x = oneXScale == null
+              ? null
+              : 'https://static-cdn.jtvnw.net/emoticons/v2/$id/$format/$theme/$oneXScale';
+          final url3x = largeScale == null
+              ? null
+              : 'https://static-cdn.jtvnw.net/emoticons/v2/$id/$format/$theme/$largeScale';
+          result
+              .putIfAbsent(ownerId ?? '', () => [])
+              .add(
+                GenericEmote(
+                  id: id,
+                  code: name,
+                  type: EmoteType.twitch,
+                  url: url,
+                  url1x: url1x,
+                  url3x: url3x,
+                  isAnimated: isAnimated,
+                  scope: ownerId != null && ownerId.isNotEmpty
+                      ? EmoteScope.channel
+                      : EmoteScope.global,
+                  tier: item['tier'] as String?,
+                  emoteType: item['emote_type'] as String?,
+                ),
+              );
+        }
+      }
+      return result;
+    });
   }
 
   static List<GenericEmote> _parseEmotes(

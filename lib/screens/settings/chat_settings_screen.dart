@@ -1,3 +1,6 @@
+import 'dart:io' show Platform;
+
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../util/constants.dart';
@@ -245,20 +248,23 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
               widget.onBackgroundServiceChanged?.call(value);
             },
           ),
-          SwitchListTile(
-            secondary: const Icon(Icons.notifications_active),
-            title: const Text('Mention notifications'),
-            subtitle: const Text(
-              'Get a notification when someone mentions you in chat',
+          // Mention push is Android-only (the foreground service path); the
+          // iOS toggle would silently do nothing, so hide it there.
+          if (!kIsWeb && !Platform.isIOS)
+            SwitchListTile(
+              secondary: const Icon(Icons.notifications_active),
+              title: const Text('Mention notifications'),
+              subtitle: const Text(
+                'Get a notification when someone mentions you in chat',
+              ),
+              value: _mentionPush,
+              onChanged: (value) async {
+                final prefs = await SharedPreferences.getInstance();
+                await prefs.setBool('mention_push', value);
+                if (mounted) setState(() => _mentionPush = value);
+                widget.onMentionPushChanged?.call(value);
+              },
             ),
-            value: _mentionPush,
-            onChanged: (value) async {
-              final prefs = await SharedPreferences.getInstance();
-              await prefs.setBool('mention_push', value);
-              if (mounted) setState(() => _mentionPush = value);
-              widget.onMentionPushChanged?.call(value);
-            },
-          ),
         ],
       ),
     );

@@ -35,6 +35,12 @@ Future<Uint8List> fetchEmoteBytes(String url) async {
     }
     throw StateError('no emote bytes for $url');
   }
+  // Full cache: serve an already-cached copy from disk when the repo still
+  // has it; only then fall back to the network.
+  final cached = await EmoteCacheManager().getCachedFile(url);
+  if (cached != null) {
+    return cached.readAsBytes();
+  }
   final resp = await emoteFetchClient
       .get(Uri.parse(url), headers: const {'User-Agent': 'ermchat'})
       .timeout(_emoteDownloadTimeout);

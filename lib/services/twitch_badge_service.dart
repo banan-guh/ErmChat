@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../twitch_config.dart';
 import '../models/twitch_badge.dart';
+import '../util/constants.dart';
 import 'twitch_auth.dart';
 
 class TwitchBadgeService {
@@ -11,19 +12,52 @@ class TwitchBadgeService {
   final _channelAvatars = <String, String>{};
 
   bool _globalFetched = false;
+  // In-flight dedup: callers (subscribeChannel, _refreshEmotesAfterAuth, and
+  // per shared-chat message avatar lookups) can fire concurrent fetches for
+  // the same resource; only the first starts a request.
+  Future<void>? _inflightGlobal;
+  final _inflightChannelBadges = <String, Future<void>>{};
+  final _inflightAvatars = <String, Future<void>>{};
 
   Future<void> fetchGlobalBadges(TwitchAuth auth) async {
     if (_globalFetched) return;
-    _globalBadges.addAll(
-      await _fetchBadgeSets(
+    _inflightGlobal ??= () async {
+      final sets = await _fetchBadgeSets(
         Uri.parse('https://api.twitch.tv/helix/chat/badges/global'),
         auth,
-      ),
-    );
-    _globalFetched = true;
+      );
+      if (sets.isEmpty) {
+        // Don't latch the failed state: a transient failure must be retried
+        // on the next call, not frozen until the service is recreated.
+        return;
+      }
+      _globalBadges.addAll(sets);
+      _globalFetched = true;
+    }();
+    try {
+      await _inflightGlobal!;
+    } finally {
+      _inflightGlobal = null;
+    }
   }
 
   Future<void> fetchChannelBadges(
+    TwitchAuth auth,
+    String broadcasterId,
+    String channel,
+  ) async {
+    final existing = _inflightChannelBadges[channel];
+    if (existing != null) return existing;
+    final future = _doFetchChannelBadges(auth, broadcasterId, channel);
+    _inflightChannelBadges[channel] = future;
+    try {
+      await future;
+    } finally {
+      _inflightChannelBadges.remove(channel);
+    }
+  }
+
+  Future<void> _doFetchChannelBadges(
     TwitchAuth auth,
     String broadcasterId,
     String channel,
@@ -68,6 +102,21 @@ class TwitchBadgeService {
 
   Future<void> fetchChannelAvatar(TwitchAuth auth, String broadcasterId) async {
     if (_channelAvatars.containsKey(broadcasterId)) return;
+    final existing = _inflightAvatars[broadcasterId];
+    if (existing != null) return existing;
+    final future = _doFetchChannelAvatar(auth, broadcasterId);
+    _inflightAvatars[broadcasterId] = future;
+    try {
+      await future;
+    } finally {
+      _inflightAvatars.remove(broadcasterId);
+    }
+  }
+
+  Future<void> _doFetchChannelAvatar(
+    TwitchAuth auth,
+    String broadcasterId,
+  ) async {
     try {
       final uri = Uri.parse(
         'https://api.twitch.tv/helix/users?id=$broadcasterId',
@@ -76,7 +125,7 @@ class TwitchBadgeService {
         'Client-ID': TwitchConfig.clientId,
         'Authorization': 'Bearer ${auth.accessToken ?? ''}',
       };
-      final res = await http.get(uri, headers: headers);
+      final res = await http.get(uri, headers: headers).timeout(httpTimeout);
       if (res.statusCode != 200) return;
       final data = jsonDecode(res.body) as Map<String, dynamic>;
       final list = data['data'] as List<dynamic>?;
@@ -105,7 +154,7 @@ class TwitchBadgeService {
         'Client-ID': TwitchConfig.clientId,
         'Authorization': 'Bearer ${auth.accessToken ?? ''}',
       };
-      final res = await http.get(uri, headers: headers);
+      final res = await http.get(uri, headers: headers).timeout(httpTimeout);
       if (res.statusCode != 200) {
         debugPrint('Badge fetch failed (${res.statusCode}): ${res.body}');
         return {};

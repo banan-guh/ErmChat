@@ -31,7 +31,7 @@ void main() {
 
     test('parses reply IRC tags', () {
       const raw =
-          '@display-name=forsen;id=ghi-789;rm-received-ts=1700000000000;reply-parent-msg-id=parent-123;reply-parent-display-name=previousUser;reply-parent-msg-body=original%20message :forsen!forsen@forsen.tmi.twitch.tv PRIVMSG #xqc :@previousUser reply text';
+          '@display-name=forsen;id=ghi-789;rm-received-ts=1700000000000;reply-parent-msg-id=parent-123;reply-parent-display-name=previousUser;reply-parent-msg-body=original\\smessage :forsen!forsen@forsen.tmi.twitch.tv PRIVMSG #xqc :@previousUser reply text';
       final msg = RecentMessagesService.parseIrcLine(raw);
       expect(msg, isNotNull);
       expect(msg!.replyToParentId, 'parent-123');
@@ -40,12 +40,12 @@ void main() {
       expect(msg.text, 'reply text');
     });
 
-    test('handles malformed URI in reply tag', () {
+    test('handles malformed escape in reply tag', () {
       const raw =
-          '@display-name=forsen;id=yyy-222;rm-received-ts=1700000000000;reply-parent-msg-id=parent-456;reply-parent-display-name=User;reply-parent-msg-body=%ZZinvalid :forsen!forsen@forsen.tmi.twitch.tv PRIVMSG #xqc :@User hi';
+          '@display-name=forsen;id=yyy-222;rm-received-ts=1700000000000;reply-parent-msg-id=parent-456;reply-parent-display-name=User;reply-parent-msg-body=unknown\\qescape :forsen!forsen@forsen.tmi.twitch.tv PRIVMSG #xqc :@User hi';
       final msg = RecentMessagesService.parseIrcLine(raw);
       expect(msg, isNotNull);
-      expect(msg!.replyToText, '%ZZinvalid');
+      expect(msg!.replyToText, r'unknown\qescape');
     });
 
     test('returns null for JOIN', () {

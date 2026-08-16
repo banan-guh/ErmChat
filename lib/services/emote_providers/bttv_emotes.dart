@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:isolate';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../../models/generic_emote.dart';
@@ -12,8 +13,10 @@ class BttvEmoteProvider {
     final res = await http.get(uri).timeout(httpTimeout);
     throwOnTransientHttpError(res.statusCode, uri);
     if (res.statusCode != 200) return [];
-    final data = jsonDecode(res.body) as List<dynamic>;
-    return _parseEmotes(data, global: true, resolution: resolution);
+    return Isolate.run(() {
+      final data = jsonDecode(res.body) as List<dynamic>;
+      return _parseEmotes(data, global: true, resolution: resolution);
+    });
   }
 
   static Future<List<GenericEmote>> fetchChannel(
@@ -26,13 +29,15 @@ class BttvEmoteProvider {
     final res = await http.get(uri).timeout(httpTimeout);
     throwOnTransientHttpError(res.statusCode, uri);
     if (res.statusCode != 200) return [];
-    final data = jsonDecode(res.body) as Map<String, dynamic>;
-    final channelEmotes = data['channelEmotes'] as List<dynamic>? ?? [];
-    final sharedEmotes = data['sharedEmotes'] as List<dynamic>? ?? [];
-    return [
-      ..._parseEmotes(channelEmotes, channel: true, resolution: resolution),
-      ..._parseEmotes(sharedEmotes, channel: true, resolution: resolution),
-    ];
+    return Isolate.run(() {
+      final data = jsonDecode(res.body) as Map<String, dynamic>;
+      final channelEmotes = data['channelEmotes'] as List<dynamic>? ?? [];
+      final sharedEmotes = data['sharedEmotes'] as List<dynamic>? ?? [];
+      return [
+        ..._parseEmotes(channelEmotes, channel: true, resolution: resolution),
+        ..._parseEmotes(sharedEmotes, channel: true, resolution: resolution),
+      ];
+    });
   }
 
   static List<GenericEmote> _parseEmotes(

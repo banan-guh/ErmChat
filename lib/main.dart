@@ -96,7 +96,13 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
     } catch (e) {
       debugPrint('Failed to load preferences: $e');
     }
-    await _twitchAuth.load();
+    try {
+      await _twitchAuth.load();
+    } catch (e) {
+      // A secure-storage failure must not hang the app on the loading
+      // spinner forever; fall back to anonymous.
+      debugPrint('Failed to load accounts: $e');
+    }
     if (mounted) setState(() => _loaded = true);
   }
 

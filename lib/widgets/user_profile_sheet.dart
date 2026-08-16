@@ -242,9 +242,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
         onTap: () {
           widget.onClose();
           final text = widget.messageController.text;
-          final prefix = text.isEmpty
-              ? '@${widget.username} '
-              : '@${widget.username} ';
+          final prefix = '@${widget.username} ';
           widget.messageController.text = '$prefix$text';
           widget.messageController.selection = TextSelection.fromPosition(
             TextPosition(offset: widget.messageController.text.length),
@@ -265,71 +263,62 @@ class UserProfileSheetState extends State<UserProfileSheet> {
         dense: true,
         leading: const Icon(Icons.block),
         title: const Text('Block'),
-          onTap: () async {
-            final userId = widget.userId ?? _profile?['id'] as String?;
-            if (userId == null) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Cannot block: user ID unknown'),
-                ),
-              );
-              return;
-            }
-            final confirmed = await showDialog<bool>(
-              context: context,
-              builder: (ctx) => AlertDialog(
-                title: const Text('Block user'),
-                content: Text(
-                  'Block ${widget.displayName}? They will not be able to whisper you or host your channel.',
-                ),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.pop(ctx, false),
-                    child: const Text('Cancel'),
-                  ),
-                  FilledButton(
-                    onPressed: () => Navigator.pop(ctx, true),
-                    child: const Text('Block'),
-                  ),
-                ],
-              ),
-            );
-            if (confirmed != true || !mounted) return;
-            final ok = await widget.twitchApi.blockUser(
-              widget.twitchAuth,
-              userId,
-            );
-            if (!mounted) return;
+        onTap: () async {
+          final userId = widget.userId ?? _profile?['id'] as String?;
+          if (userId == null) {
             ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(
-                  ok
-                      ? '${widget.displayName} blocked'
-                      : 'Block failed: ${widget.twitchApi.lastError ?? "unknown"}',
-                ),
-              ),
+              const SnackBar(content: Text('Cannot block: user ID unknown')),
             );
-            if (ok) widget.onUserBlocked?.call(widget.username);
-            widget.onClose();
-          },
-        ),
+            return;
+          }
+          final confirmed = await showDialog<bool>(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              title: const Text('Block user'),
+              content: Text(
+                'Block ${widget.displayName}? They will not be able to whisper you or host your channel.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.pop(ctx, true),
+                  child: const Text('Block'),
+                ),
+              ],
+            ),
+          );
+          if (confirmed != true || !mounted) return;
+          final ok = await widget.twitchApi.blockUser(
+            widget.twitchAuth,
+            userId,
+          );
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                ok
+                    ? '${widget.displayName} blocked'
+                    : 'Block failed: ${widget.twitchApi.lastError ?? "unknown"}',
+              ),
+            ),
+          );
+          if (ok) widget.onUserBlocked?.call(widget.username);
+          widget.onClose();
+        },
+      ),
       ListTile(
         dense: true,
         leading: const Icon(Icons.flag_outlined),
         title: const Text('Report'),
         onTap: () async {
-          final url = Uri.parse(
-            'https://twitch.tv/${widget.username}/report',
-          );
-          final ok = await launchUrl(
-            url,
-            mode: LaunchMode.externalApplication,
-          );
+          final url = Uri.parse('https://twitch.tv/${widget.username}/report');
+          final ok = await launchUrl(url, mode: LaunchMode.externalApplication);
           if (!ok && mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Could not open the report page'),
-              ),
+              const SnackBar(content: Text('Could not open the report page')),
             );
           }
         },

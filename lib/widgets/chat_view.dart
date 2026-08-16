@@ -111,9 +111,7 @@ class ChatView extends StatelessWidget {
                   // the type bar. Using viewPadding (not the ShrinkWrap
                   // implicit padding) keeps the gap identical whether the
                   // keyboard is up or down.
-                  padding: EdgeInsets.only(
-                    bottom: 8, //MediaQuery.viewPaddingOf(context).bottom,
-                  ),
+                  padding: const EdgeInsets.only(bottom: 8),
                   itemCount: msgs.length,
                   // Key-based reconciliation: when a message is inserted at
                   // the top, existing elements are matched by their

@@ -49,8 +49,8 @@ class MentionsPanelWidgetState extends State<MentionsPanelWidget> {
     return ValueListenableBuilder<List<TwitchMessage>?>(
       valueListenable: widget.messages,
       builder: (_, messages, _) {
-        final messageList = messages ?? [];
         if (messages == null) return const SizedBox.shrink();
+        final messageList = messages;
 
         if (messageList.isEmpty) {
           return CustomScrollView(

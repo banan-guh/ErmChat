@@ -22,6 +22,11 @@ class AutocompleteDropdown extends StatefulWidget {
 class _AutocompleteDropdownState extends State<AutocompleteDropdown> {
   static const _fontSize = 16.0;
 
+  // Usage marks fire post-frame, deduped per emote for the dropdown's
+  // lifetime: the dropdown rebuilds on every keystroke, so marking from
+  // build() would re-record the same emotes on every rebuild.
+  final _viewedEmotes = <String>{};
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -78,7 +83,15 @@ class _AutocompleteDropdownState extends State<AutocompleteDropdown> {
 
   Widget _buildRow(ThemeData theme, Suggestion suggestion) {
     if (suggestion is EmoteSuggestion) {
-      widget.onEmoteViewed?.call(suggestion.emote);
+      final emote = suggestion.emote;
+      if (_viewedEmotes.add(emote.id)) {
+        final cb = widget.onEmoteViewed;
+        if (cb != null) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) cb(emote);
+          });
+        }
+      }
     }
     return Material(
       type: MaterialType.transparency,

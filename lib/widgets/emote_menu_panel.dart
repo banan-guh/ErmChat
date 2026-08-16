@@ -229,10 +229,8 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
         return _buildEmoteSubsGrid(scrollController);
       case 2:
         return _buildEmoteChannelGrid(scrollController);
-      case 3:
-        return _buildEmoteGlobalGrid(scrollController);
       default:
-        return const SizedBox();
+        return _buildEmoteGlobalGrid(scrollController);
     }
   }
 
@@ -442,7 +440,12 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
     if (cached != null && cached.url == url && cached.padding == cellPadding) {
       return cached.widget;
     }
-    widget.emoteManager.markEmoteViewed(emote);
+    // Usage marks are a side effect, so they must not run during build (the
+    // grid rebuilds while the panel is open); the cell cache dedups the
+    // mark to once per cell.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) widget.emoteManager.markEmoteViewed(emote);
+    });
     final cell = Material(
       key: ValueKey<String>(emote.id),
       type: MaterialType.transparency,

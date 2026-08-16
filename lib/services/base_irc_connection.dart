@@ -61,6 +61,13 @@ abstract class BaseIrcConnection {
 
   BaseIrcConnection({this.connectivity});
 
+  /// Emits a status event, no-oping after [dispose] so a racing connect or
+  /// reconnect can never throw on the closed controller.
+  void _emitStatus(IrcConnectionStatus status) {
+    if (_disposed) return;
+    _statusController.add(status);
+  }
+
   Future<void> connect({
     required String username,
     required String accessToken,
@@ -78,7 +85,7 @@ abstract class BaseIrcConnection {
         debugPrint('[$debugPrefix] already connected, skipping reconnect');
         return;
       }
-      _statusController.add(IrcConnectionStatus.connecting);
+      _emitStatus(IrcConnectionStatus.connecting);
       _ensureConnectivityListener();
       _disconnect();
       _awaitingPong = false;
@@ -87,6 +94,13 @@ abstract class BaseIrcConnection {
       try {
         newChannel = await openChannel();
         await _waitForReady(newChannel);
+        // dispose() may have run while the handshake was in flight (account
+        // switch, app teardown): the status controller is closed and the
+        // timers are cancelled, so abandon the socket instead of resuming.
+        if (_disposed) {
+          newChannel.sink.close();
+          return;
+        }
         // Only claim the socket once the handshake completed; isConnected
         // must stay false while the connection is still being established,
         // otherwise the type bar hint flashes "connected" during the attempt.
@@ -100,7 +114,7 @@ abstract class BaseIrcConnection {
             // status event (e.g. the type bar hint) never read a stale
             // "connected" state.
             _disconnect();
-            _statusController.add(IrcConnectionStatus.disconnected);
+            _emitStatus(IrcConnectionStatus.disconnected);
             _scheduleReconnect();
           },
           onDone: () {
@@ -110,7 +124,7 @@ abstract class BaseIrcConnection {
               'reason: ${channel?.closeReason})',
             );
             _disconnect();
-            _statusController.add(IrcConnectionStatus.disconnected);
+            _emitStatus(IrcConnectionStatus.disconnected);
             _scheduleReconnect();
           },
         );
@@ -127,7 +141,7 @@ abstract class BaseIrcConnection {
           sendLine('JOIN #$channel');
         }
 
-        _statusController.add(IrcConnectionStatus.connected);
+        _emitStatus(IrcConnectionStatus.connected);
         _reconnectAttempt = 0;
 
         _startPingTimer();
@@ -138,7 +152,7 @@ abstract class BaseIrcConnection {
         // timed-out handshake also gets its socket closed so it can't leak.
         newChannel?.sink.close();
         channel = null;
-        _statusController.add(IrcConnectionStatus.disconnected);
+        _emitStatus(IrcConnectionStatus.disconnected);
         _scheduleReconnect();
       }
     } finally {
@@ -218,7 +232,7 @@ abstract class BaseIrcConnection {
     // Clear the socket before the status event so listeners that rebuild on it
     // (e.g. the type bar hint) don't briefly show "connected".
     _disconnect();
-    _statusController.add(IrcConnectionStatus.disconnected);
+    _emitStatus(IrcConnectionStatus.disconnected);
     _scheduleReconnect();
   }
 
@@ -287,7 +301,7 @@ abstract class BaseIrcConnection {
     if (channel == null) return;
     _disconnect();
     if (emitStatus) {
-      _statusController.add(IrcConnectionStatus.disconnected);
+      _emitStatus(IrcConnectionStatus.disconnected);
     }
   }
 
@@ -298,7 +312,7 @@ abstract class BaseIrcConnection {
     // bail out on isConnected before replacing it. Do it before the status
     // event so rebuilding listeners see a real disconnect, not a stale one.
     _disconnect();
-    _statusController.add(IrcConnectionStatus.disconnected);
+    _emitStatus(IrcConnectionStatus.disconnected);
     _reconnectAttempt = 0;
     _scheduleReconnect();
   }
@@ -356,7 +370,7 @@ abstract class BaseIrcConnection {
       if (cmd == 'RECONNECT') {
         debugPrint('$debugPrefix server requested reconnect');
         _disconnect();
-        _statusController.add(IrcConnectionStatus.disconnected);
+        _emitStatus(IrcConnectionStatus.disconnected);
         _scheduleReconnect();
         continue;
       }

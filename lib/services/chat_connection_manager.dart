@@ -250,6 +250,19 @@ class ChatConnectionManager {
   final _recentBanMeta = <String, List<_BanMeta>>{};
   static const _banDedupWindowSeconds = 10;
   static final _spaceRe = RegExp(r'\s+');
+  // Memoized lowercase alt pings: the ping list is stable between settings
+  // loads, so per-message toLowerCase churn is avoidable.
+  List<String>? _lastAltPings;
+  List<String> _lastLoweredAltPings = const [];
+
+  List<String> _loweredAltPings() {
+    final raw = getAltPings?.call() ?? const [];
+    if (!identical(raw, _lastAltPings)) {
+      _lastAltPings = raw;
+      _lastLoweredAltPings = raw.map((p) => p.toLowerCase()).toList();
+    }
+    return _lastLoweredAltPings;
+  }
 
   StreamSubscription<TwitchMessage>? messageSub;
   StreamSubscription<EventSubStatus>? statusSub;
@@ -529,7 +542,15 @@ class ChatConnectionManager {
     final userId = channelUserIds[channel];
     if (userId == null || getCurrentUserId() == null) return;
 
-    final stream = await twitchApi.getStreamInfo(auth, userId);
+    // Timer-driven: a network blip (or the client being closed in dispose)
+    // must not surface as an unhandled async exception every 60s per channel.
+    final Map<String, dynamic>? stream;
+    try {
+      stream = await twitchApi.getStreamInfo(auth, userId);
+    } catch (e) {
+      debugPrint('[ChatConn] fetchChatStatus failed for $channel: $e');
+      return;
+    }
 
     final parts = <String>[];
     if (stream != null && stream['type'] == 'live') {
@@ -657,6 +678,11 @@ class ChatConnectionManager {
     for (int i = 0; i < msgs.length; i++) {
       if (keepIndices.contains(i)) {
         retained.add(msgs[i]);
+      } else if (msgs[i].messageId != null) {
+        // Drop the dedup key for messages that fell off the buffer; the key
+        // exists to catch live/history double delivery while a message is on
+        // screen, not to accumulate for the whole session.
+        messageKeys.remove('$channel:${msgs[i].messageId}');
       }
     }
     msgs
@@ -1009,6 +1035,24 @@ class ChatConnectionManager {
     }
   }
 
+  /// Re-creates the session-scoped EventSub subscriptions after a new session
+  /// comes up (session_reconnect / keepalive reconnect). Skip sets and the
+  /// already-subscribed sets are respected by the per-channel methods.
+  void _resubscribeEventSubChannels() {
+    final uid = getCurrentUserId();
+    if (uid == null) return;
+    for (final channel in channels) {
+      final channelUserId = channelUserIds[channel];
+      if (channelUserId == null) continue;
+      if (!_moderationChannels.contains(channel)) {
+        unawaited(_subscribeModeration(channel, channelUserId));
+      }
+      if (uid == channelUserId && !_widgetChannels.contains(channel)) {
+        unawaited(_subscribeWidgets(channel, channelUserId));
+      }
+    }
+  }
+
   Future<void> doSendMessage(
     String text,
     String channel, {
@@ -1096,13 +1140,17 @@ class ChatConnectionManager {
 
       // EventSub session lifecycle: subscriptions are session-scoped, so drop
       // moderation-channel state when the session dies (IRC fallback resumes)
-      // until the session comes back and subscriptions are re-created.
+      // and re-subscribe when a new session comes up (session_reconnect or
+      // keepalive reconnect) — otherwise moderation and the broadcaster
+      // widgets stay dead until the next IRC reconnect.
       statusSub?.cancel();
       statusSub = eventSub.onStatus.listen((status) {
         if (isDisposed) return;
         if (status == EventSubStatus.disconnected) {
           _moderationChannels.clear();
           _widgetChannels.clear();
+        } else if (status == EventSubStatus.connected) {
+          _resubscribeEventSubChannels();
         }
       });
 
@@ -1203,6 +1251,11 @@ class ChatConnectionManager {
           _lastIrcToken != desiredToken) {
         irc.disconnect(emitStatus: false);
         ircRead.disconnect(emitStatus: false);
+        // 403 skip sets are account-scoped: a non-mod account's rejection
+        // must not permanently disable moderation/widgets for a mod account
+        // on the same channel after a switch.
+        _moderationSkippedChannels.clear();
+        _widgetSkippedChannels.clear();
       }
 
       if (getCurrentUserLogin() != null && hasToken) {
@@ -1578,11 +1631,10 @@ class ChatConnectionManager {
 
     final login = getCurrentUserLogin()?.toLowerCase();
 
-    final altPings = getAltPings?.call() ?? const [];
+    final loweredAltPings = _loweredAltPings();
     final loweredText = msg.text.toLowerCase();
     final hasAltPing =
-        !msg.isSystem &&
-        altPings.any((p) => loweredText.contains(p.toLowerCase()));
+        !msg.isSystem && loweredAltPings.any(loweredText.contains);
     final isMentioned =
         (login != null && isMentionOf(msg, login)) || hasAltPing;
 

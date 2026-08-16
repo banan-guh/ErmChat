@@ -4,7 +4,6 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../util/constants.dart';
 import '../models/twitch_message.dart';
-import '../util/irc_utils.dart';
 import '../color_utils.dart';
 import 'twitch_irc.dart';
 
@@ -221,7 +220,7 @@ class RecentMessagesService {
     final displayName = msg.tags['display-name'] ?? login;
     final systemMsg =
         msg.tags['system-msg'] != null && msg.tags['system-msg']!.isNotEmpty
-        ? unescapeIrcTag(msg.tags['system-msg']!)
+        ? msg.tags['system-msg']
         : null;
 
     final tsMs = msg.tags['rm-received-ts'];

@@ -1014,6 +1014,9 @@ class _HomeScreenState extends State<HomeScreen>
       _emoteOwnerLogins.clear();
       _emoteOwnerLookupDone = false;
       _blocksFetched = false;
+      // The previous account's block list must not keep filtering the new
+      // account's chat; the re-fetch below repopulates it.
+      _blockedLogins.clear();
       _mentionScanDone = false;
       _channelsEmotesResolved.clear();
       _scanHistoryForMentions();
@@ -1035,7 +1038,12 @@ class _HomeScreenState extends State<HomeScreen>
       final autoIndex =
           prefs.getInt(emoteFetchAutoPrefsKey) ??
           defaultEmoteFetchAutoMode.index;
-      _emoteAutoMode = EmoteFetchAutoMode.values[autoIndex];
+      // A corrupt/out-of-range persisted index would throw RangeError at
+      // startup; fall back to the default instead.
+      _emoteAutoMode =
+          autoIndex >= 0 && autoIndex < EmoteFetchAutoMode.values.length
+          ? EmoteFetchAutoMode.values[autoIndex]
+          : defaultEmoteFetchAutoMode;
       final loadedCacheCap =
           prefs.getInt(emoteCacheMaxPrefsKey) ?? defaultEmoteCacheMax;
       _applyCacheCap(loadedCacheCap);
@@ -1822,6 +1830,14 @@ class _HomeScreenState extends State<HomeScreen>
     _polls.remove(channel);
     _predictions.remove(channel);
     _widgetsMinimized.remove(channel);
+    // Per-channel notifiers and tile state must die with the channel: a
+    // re-joined channel would otherwise reuse stale notifiers and an old
+    // frozen snapshot, and the maps would grow for the session.
+    _chatVersions.remove(channel)?.dispose();
+    _messageNotifiers.remove(channel)?.dispose();
+    _atBottomNotifiers.remove(channel)?.dispose();
+    _tileCache.remove(channel);
+    _frozenSnapshot.remove(channel);
     setState(() {
       _channels.remove(channel);
       _channelNotifier.value = List.of(_channels);
@@ -1844,9 +1860,6 @@ class _HomeScreenState extends State<HomeScreen>
       }
     });
     _saveChannels();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) setState(() {});
-    });
   }
 
   void _sendMessage() {
@@ -2524,6 +2537,9 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   void _onMentionsTabChanged() {
+    // TabController notifies on every animation tick while a swipe is in
+    // progress; rebuilding the whole screen per frame is wasted work.
+    if (_mentionsTabCtrl.indexIsChanging) return;
     if (_mentionsTabCtrl.index == 1 && _unreadWhispers > 0) {
       _unreadMentions -= _unreadWhispers;
       if (_unreadMentions < 0) _unreadMentions = 0;

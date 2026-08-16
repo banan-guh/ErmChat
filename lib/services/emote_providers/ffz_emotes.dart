@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:isolate';
 import 'package:http/http.dart' as http;
 import '../../models/generic_emote.dart';
 import '../../util/constants.dart';
@@ -11,18 +12,20 @@ class FfzEmoteProvider {
     final res = await http.get(uri).timeout(httpTimeout);
     throwOnTransientHttpError(res.statusCode, uri);
     if (res.statusCode != 200) return [];
-    final data = jsonDecode(res.body) as Map<String, dynamic>;
-    final sets = data['sets'] as Map<String, dynamic>? ?? {};
-    final emotes = <GenericEmote>[];
-    for (final setEntry in sets.values) {
-      final setMap = setEntry as Map<String, dynamic>;
-      final items = setMap['emoticons'] as List<dynamic>? ?? [];
-      for (final item in items) {
-        final parsed = _parseEmote(item, resolution);
-        if (parsed != null) emotes.add(parsed);
+    return Isolate.run(() {
+      final data = jsonDecode(res.body) as Map<String, dynamic>;
+      final sets = data['sets'] as Map<String, dynamic>? ?? {};
+      final emotes = <GenericEmote>[];
+      for (final setEntry in sets.values) {
+        final setMap = setEntry as Map<String, dynamic>;
+        final items = setMap['emoticons'] as List<dynamic>? ?? [];
+        for (final item in items) {
+          final parsed = _parseEmote(item, resolution);
+          if (parsed != null) emotes.add(parsed);
+        }
       }
-    }
-    return emotes;
+      return emotes;
+    });
   }
 
   static Future<List<GenericEmote>> fetchChannel(
@@ -33,32 +36,34 @@ class FfzEmoteProvider {
     final res = await http.get(uri).timeout(httpTimeout);
     throwOnTransientHttpError(res.statusCode, uri);
     if (res.statusCode != 200) return [];
-    final data = jsonDecode(res.body) as Map<String, dynamic>;
-    final sets = data['sets'] as Map<String, dynamic>? ?? {};
-    final emotes = <GenericEmote>[];
-    for (final setEntry in sets.values) {
-      final setMap = setEntry as Map<String, dynamic>;
-      final items = setMap['emoticons'] as List<dynamic>? ?? [];
-      for (final item in items) {
-        final parsed = _parseEmote(item, resolution);
-        if (parsed != null) {
-          emotes.add(
-            GenericEmote(
-              id: parsed.id,
-              code: parsed.code,
-              type: parsed.type,
-              url: parsed.url,
-              url1x: parsed.url1x,
-              url3x: parsed.url3x,
-              isAnimated: parsed.isAnimated,
-              scope: EmoteScope.channel,
-              ownerChannel: channelId,
-            ),
-          );
+    return Isolate.run(() {
+      final data = jsonDecode(res.body) as Map<String, dynamic>;
+      final sets = data['sets'] as Map<String, dynamic>? ?? {};
+      final emotes = <GenericEmote>[];
+      for (final setEntry in sets.values) {
+        final setMap = setEntry as Map<String, dynamic>;
+        final items = setMap['emoticons'] as List<dynamic>? ?? [];
+        for (final item in items) {
+          final parsed = _parseEmote(item, resolution);
+          if (parsed != null) {
+            emotes.add(
+              GenericEmote(
+                id: parsed.id,
+                code: parsed.code,
+                type: parsed.type,
+                url: parsed.url,
+                url1x: parsed.url1x,
+                url3x: parsed.url3x,
+                isAnimated: parsed.isAnimated,
+                scope: EmoteScope.channel,
+                ownerChannel: channelId,
+              ),
+            );
+          }
         }
       }
-    }
-    return emotes;
+      return emotes;
+    });
   }
 
   static GenericEmote? _parseEmote(dynamic item, EmoteResolution resolution) {

@@ -2575,21 +2575,22 @@ void main() {
   });
 
   group('Settings screen', () {
-    testWidgets('Overflow menu lists Upload media, Reload emotes, Reconnect, Settings', (
-      WidgetTester tester,
-    ) async {
-      await tester.pumpWidget(const TwitchChatApp());
-      await tester.pump();
+    testWidgets(
+      'Overflow menu lists Upload media, Reload emotes, Reconnect, Settings',
+      (WidgetTester tester) async {
+        await tester.pumpWidget(const TwitchChatApp());
+        await tester.pump();
 
-      await tester.tap(find.byIcon(Icons.more_vert));
-      await tester.pumpAndSettle();
+        await tester.tap(find.byIcon(Icons.more_vert));
+        await tester.pumpAndSettle();
 
-      expect(find.text('Upload media'), findsOneWidget);
-      expect(find.text('Reload emotes'), findsOneWidget);
-      expect(find.text('Reconnect'), findsOneWidget);
-      expect(find.text('Settings'), findsOneWidget);
-      expect(find.byIcon(Icons.settings), findsOneWidget);
-    });
+        expect(find.text('Upload media'), findsOneWidget);
+        expect(find.text('Reload emotes'), findsOneWidget);
+        expect(find.text('Reconnect'), findsOneWidget);
+        expect(find.text('Settings'), findsOneWidget);
+        expect(find.byIcon(Icons.settings), findsOneWidget);
+      },
+    );
 
     testWidgets('Long-pressing the 3-dot button opens Settings directly', (
       WidgetTester tester,

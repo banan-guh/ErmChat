@@ -175,7 +175,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               // the tab bar / controller mid-swipe.
               pageBuilder: (context, i) => ListenableBuilder(
                 listenable: widget.analyticsService,
-                builder: (context, _) => _buildStats(context, widget.channels[i]),
+                builder: (context, _) =>
+                    _buildStats(context, widget.channels[i]),
               ),
             ),
     );

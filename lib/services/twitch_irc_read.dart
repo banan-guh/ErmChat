@@ -15,16 +15,16 @@ class IrcReadService extends BaseIrcConnection {
 
   @override
   void dispatchLine(String line) {
-    if (line.contains('PRIVMSG ') && username != null) {
-      final msg = parseIrcMessage(line);
-      if (msg != null && msg.command == 'PRIVMSG' && msg.prefix != null) {
-        final sender = msg.prefix!.contains('!')
-            ? msg.prefix!.split('!')[0].toLowerCase()
-            : msg.prefix!.toLowerCase();
-        if (sender == username) {
-          _ownMessageController.add(msg);
-        }
-      }
+    if (username == null) return;
+    final msg = parseIrcMessage(line);
+    if (msg == null || msg.command != 'PRIVMSG' || msg.prefix == null) {
+      return;
+    }
+    final sender = msg.prefix!.contains('!')
+        ? msg.prefix!.split('!')[0].toLowerCase()
+        : msg.prefix!.toLowerCase();
+    if (sender == username) {
+      _ownMessageController.add(msg);
     }
   }
 

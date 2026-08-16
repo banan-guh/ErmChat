@@ -1360,7 +1360,7 @@ void main() {
         hour,
         now: now,
       );
-      expect(r.score(now, hour: hour), greaterThan(0.9));
+      expect(r.score(now), greaterThan(0.9));
     });
 
     test('steady daily use outranks a one-hour spam burst', () {
@@ -1374,8 +1374,8 @@ void main() {
         lastUsedAt: now.subtract(const Duration(hours: 8)),
         buckets: List.filled(24, 0)..[(hour - 8) % 24] = 100,
       );
-      final steadyScore = steady.score(now, hour: hour);
-      final burstScore = burst.score(now, hour: hour);
+      final steadyScore = steady.score(now);
+      final burstScore = burst.score(now);
       expect(steadyScore, greaterThan(burstScore));
       // The burst's entropy collapses its steady term to zero.
       expect(burstScore, lessThan(0.5));
@@ -1393,7 +1393,7 @@ void main() {
         ),
         hour,
       );
-      expect(r.score(now, hour: hour), lessThan(0.05));
+      expect(r.score(now), lessThan(0.05));
     });
 
     test('uniform distribution scores higher than a clustered one', () {
@@ -1407,10 +1407,7 @@ void main() {
           ..[hour % 24] = 48
           ..[(hour - 1) % 24] = 48,
       );
-      expect(
-        uniform.score(now, hour: hour),
-        greaterThan(clustered.score(now, hour: hour)),
-      );
+      expect(uniform.score(now), greaterThan(clustered.score(now)));
     });
 
     test('bumping rolls the window forward and ages out stale buckets', () {
@@ -1445,7 +1442,7 @@ void main() {
       expect(parsed.lastUsedAt, r.lastUsedAt);
       expect(parsed.bucketBase, r.bucketBase);
       expect(parsed.buckets, r.buckets);
-      expect(parsed.score(now, hour: hour), r.score(now, hour: hour));
+      expect(parsed.score(now), r.score(now));
     });
   });
 }

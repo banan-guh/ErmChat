@@ -150,10 +150,16 @@ Future<EmoteFrameData> _decodeWithEngineCodec(Uint8List bytes) async {
   final codec = await ui.instantiateImageCodec(bytes);
   final frames = <ui.Image>[];
   final durations = <Duration>[];
-  for (var i = 0; i < codec.frameCount; i++) {
-    final frame = await codec.getNextFrame();
-    frames.add(frame.image);
-    durations.add(frame.duration);
+  try {
+    for (var i = 0; i < codec.frameCount; i++) {
+      final frame = await codec.getNextFrame();
+      frames.add(frame.image);
+      durations.add(frame.duration);
+    }
+  } finally {
+    // The engine codec holds native memory; _decodeStatic disposes it, so
+    // this path must too (the frame images stay valid after disposal).
+    codec.dispose();
   }
   return EmoteFrameData(frames: frames, durations: durations);
 }

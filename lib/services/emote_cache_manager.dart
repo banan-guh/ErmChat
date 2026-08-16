@@ -122,6 +122,19 @@ class EmoteCacheManager extends CacheManager {
     return count + _pendingWrites >= _maxObjects;
   }
 
+  /// The cached file for [url] when the repo still has it, else null. Read
+  /// path for the cache-full branch: an emote that was persisted before the
+  /// cache filled up must be served from disk instead of re-downloaded.
+  Future<File?> getCachedFile(String url) async {
+    try {
+      final info = await getFileFromCache(url);
+      return info?.file;
+    } catch (_) {
+      // DB or file gone; the caller falls back to the network.
+      return null;
+    }
+  }
+
   /// Runs an enforcement pass immediately (used by the settings Apply path and
   /// at startup). Normally a no-op since writes are already capped; it only
   /// does work after the cap was reduced.
@@ -272,6 +285,18 @@ class EmoteCacheManager extends CacheManager {
   ) async* {
     File? file;
     try {
+      // Write slots are busy (or the cache is full): if the repo still has
+      // the file, serve it instead of downloading a duplicate.
+      final cached = await getCachedFile(url);
+      if (cached != null) {
+        yield FileInfo(
+          cached,
+          FileSource.Cache,
+          DateTime.now().add(const Duration(hours: 1)),
+          url,
+        );
+        return;
+      }
       final request = http.Request('GET', Uri.parse(url));
       if (headers != null) request.headers.addAll(headers);
       // Some CDNs 403 bare requests; match what the main fetch path sends.

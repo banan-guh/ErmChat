@@ -7,6 +7,9 @@ class NotificationService {
   final _tapController = StreamController<String>.broadcast();
   final _postedIds = <int>{};
   String? _pendingLaunchChannel;
+  // Monotonic suffix so two mentions in the same second get distinct IDs
+  // (a bare epoch-second ID would replace the first notification).
+  int _idSeq = 0;
 
   Stream<String> get onNotificationTap => _tapController.stream;
   String? get pendingLaunchChannel => _pendingLaunchChannel;
@@ -86,7 +89,7 @@ class NotificationService {
         ? '${message.substring(0, 200)}...'
         : message;
 
-    final id = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    final id = DateTime.now().millisecondsSinceEpoch ~/ 1000 + _idSeq++;
     _postedIds.add(id);
 
     await _plugin.show(
