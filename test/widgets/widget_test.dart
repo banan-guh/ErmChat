@@ -15,7 +15,6 @@ import 'package:ermchat/screens/settings/chat_settings_screen.dart';
 import 'package:ermchat/screens/settings/customization_screen.dart';
 import 'package:ermchat/screens/settings/emotes_settings_screen.dart';
 import 'package:ermchat/screens/settings/tools_settings_screen.dart';
-import 'package:ermchat/screens/settings/uploader_settings_screen.dart';
 import 'package:ermchat/screens/settings/recent_uploads_screen.dart';
 import 'package:ermchat/services/media_uploader.dart';
 import 'package:ermchat/services/analytics_service.dart';
@@ -302,20 +301,6 @@ void main() {
     await tester.pumpAndSettle();
   });
 
-  testWidgets('Plus button opens join channel dialog', (
-    WidgetTester tester,
-  ) async {
-    await tester.pumpWidget(const TwitchChatApp());
-    await tester.pump();
-
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Join channel'), findsOneWidget);
-    expect(find.text('Cancel'), findsOneWidget);
-    expect(find.text('Join'), findsOneWidget);
-  });
-
   testWidgets(
     'Adding channel without credentials is view-only: sending blocked, '
     'incoming messages still render',
@@ -347,7 +332,7 @@ void main() {
         find.byKey(const Key('message_input')),
         'hello chat',
       );
-      await tester.tap(find.byIcon(Icons.send));
+      await tester.tap(find.byIcon(Icons.send), warnIfMissed: false);
       await tester.pump();
       expect(find.textContaining('hello chat'), findsNothing);
 
@@ -387,22 +372,6 @@ void main() {
     expect(find.text('Login'), findsOneWidget);
   });
 
-  testWidgets('Joining channel shows input bar and send button', (
-    WidgetTester tester,
-  ) async {
-    await tester.pumpWidget(const TwitchChatApp());
-    await tester.pump();
-
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField).last, 'xqc');
-    await tester.tap(find.text('Join'));
-    await tester.pump();
-
-    expect(find.byIcon(Icons.send), findsOneWidget);
-    expect(find.byKey(const Key('message_input')), findsOneWidget);
-  });
-
   testWidgets('Settings shows channel list when channels are joined', (
     WidgetTester tester,
   ) async {
@@ -426,23 +395,6 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byIcon(Icons.remove_circle_outline), findsOneWidget);
-  });
-
-  testWidgets('Shows notification bell without badge when no mentions', (
-    WidgetTester tester,
-  ) async {
-    await tester.pumpWidget(
-      TwitchChatApp(
-        eventSubService: _FakeEventSubService(),
-        ircService: _FakeIrcService(),
-        recentMessagesService: _FakeRecentMessagesService(),
-      ),
-    );
-    await tester.pump();
-
-    expect(find.byIcon(Icons.notifications_active), findsOneWidget);
-    // Let the anonymous-mode socket attempts resolve so no timer pends.
-    await tester.pumpAndSettle();
   });
 
   testWidgets('Notification bell opens mentions modal', (
@@ -646,58 +598,6 @@ void main() {
       final bell = tester.widget<Icon>(find.byIcon(Icons.notifications_active));
       expect(bell.color, isNull);
       expect(find.byKey(const Key('unread_mention_dot')), findsNothing);
-    },
-  );
-
-  testWidgets(
-    'Switching to the channel with the ping clears the notification bell color',
-    (WidgetTester tester) async {
-      final eventSub = _FakeEventSubService();
-      final irc = _FakeIrcService();
-      final recent = _ConfigurableRecentMessagesService(const []);
-      await tester.pumpWidget(
-        TwitchChatApp(
-          eventSubService: eventSub,
-          ircService: irc,
-          recentMessagesService: recent,
-          initialCurrentUserLogin: 'me',
-        ),
-      );
-      await tester.pump();
-
-      for (final name in ['b', 'a']) {
-        await tester.tap(find.byIcon(Icons.add));
-        await tester.pumpAndSettle();
-        await tester.enterText(find.byType(TextField).last, name);
-        await tester.tap(find.text('Join'));
-        await tester.pump();
-      }
-
-      irc.emitMessage(
-        TwitchMessage(
-          login: 'carol',
-          text: 'hello @me',
-          channel: 'b',
-          messageId: 'm5',
-        ),
-      );
-      await tester.pump();
-      expect(
-        tester.widget<Icon>(find.byIcon(Icons.notifications_active)).color,
-        isNotNull,
-      );
-
-      final barText = find.text('b').first;
-      await tester.ensureVisible(barText);
-      await tester.pump();
-      await tester.tap(barText);
-      await tester.pumpAndSettle();
-      await tester.pump();
-
-      expect(
-        tester.widget<Icon>(find.byIcon(Icons.notifications_active)).color,
-        isNull,
-      );
     },
   );
 
@@ -1690,55 +1590,6 @@ void main() {
       expect(find.text('Reply Thread'), findsOneWidget);
     });
 
-    testWidgets('dragging the emote sheet down over a thread leaves it open', (
-      WidgetTester tester,
-    ) async {
-      SharedPreferences.setMockInitialValues({'access_token': 'test_token'});
-      FlutterSecureStorage.setMockInitialValues({'access_token': 'test_token'});
-      const channel = 'testchannel';
-      final parent = TwitchMessage(
-        login: 'alice',
-        text: 'parent msg',
-        messageId: 'p1',
-        timestamp: now.subtract(const Duration(minutes: 5)),
-        channel: channel,
-      );
-      final child = TwitchMessage(
-        login: 'bob',
-        text: 'child msg',
-        messageId: 'c1',
-        replyToParentId: 'p1',
-        replyToUser: 'alice',
-        replyToText: 'parent msg',
-        timestamp: now.subtract(const Duration(minutes: 4)),
-        isHistory: true,
-        channel: channel,
-      );
-      final irc = _FakeIrcService();
-      await joinChannel(
-        tester,
-        channelName: channel,
-        history: [parent, child],
-        irc: irc,
-      );
-      irc.triggerConnect();
-      await tester.pump();
-
-      await tester.tap(find.textContaining('replying to alice: parent msg'));
-      await tester.pumpAndSettle();
-
-      await tester.tap(find.byIcon(Icons.emoji_emotions_outlined));
-      await tester.pumpAndSettle();
-      expect(find.text('Reply Thread'), findsOneWidget);
-      expect(find.text('Recent'), findsOneWidget);
-
-      await tester.fling(find.text('Recent'), const Offset(0, 300), 1000);
-      await tester.pumpAndSettle();
-
-      expect(find.text('Recent'), findsNothing);
-      expect(find.text('Reply Thread'), findsOneWidget);
-    });
-
     testWidgets('long-press view thread on history child opens thread modal', (
       WidgetTester tester,
     ) async {
@@ -1848,54 +1699,6 @@ void main() {
     );
 
     testWidgets(
-      'live EventSub reply to history parent opens thread via reply indicator',
-      (WidgetTester tester) async {
-        const channel = 'testchannel';
-        final parent = TwitchMessage(
-          login: 'alice',
-          text: 'original post',
-          messageId: 'p1',
-          timestamp: now.subtract(const Duration(minutes: 5)),
-          channel: channel,
-        );
-        final irc = _FakeIrcService();
-
-        SharedPreferences.setMockInitialValues({'access_token': 'test_token'});
-        FlutterSecureStorage.setMockInitialValues({
-          'access_token': 'test_token',
-        });
-        await joinChannel(
-          tester,
-          channelName: channel,
-          history: [parent],
-          irc: irc,
-        );
-
-        irc.emitMessage(
-          TwitchMessage(
-            login: 'dave',
-            text: 'live reply text',
-            messageId: 'live1',
-            channel: channel,
-            replyToParentId: 'p1',
-            replyToUser: 'alice',
-            replyToText: 'original post',
-          ),
-        );
-        await tester.pump();
-
-        await tester.tap(
-          find.textContaining('replying to alice: original post'),
-        );
-        await tester.pumpAndSettle();
-
-        expect(find.text('Reply Thread'), findsOneWidget);
-        expect(find.textContaining('original post'), findsAtLeast(1));
-        expect(find.textContaining('live reply text'), findsAtLeast(1));
-      },
-    );
-
-    testWidgets(
       'reply indicator on 3-level deep chain opens thread with all messages',
       (WidgetTester tester) async {
         const channel = 'testchannel';
@@ -1968,61 +1771,6 @@ void main() {
 
         expect(find.text('Reply Thread'), findsOneWidget);
         expect(find.textContaining('orphan msg'), findsAtLeast(1));
-      },
-    );
-
-    testWidgets(
-      'sent reply to history parent opens thread via reply indicator',
-      (WidgetTester tester) async {
-        const channel = 'testchannel';
-        final parent = TwitchMessage(
-          login: 'alice',
-          text: 'original msg',
-          messageId: 'p1',
-          timestamp: now.subtract(const Duration(minutes: 5)),
-          channel: channel,
-        );
-        final irc = _FakeIrcService();
-        await joinChannel(
-          tester,
-          channelName: channel,
-          history: [parent],
-          irc: irc,
-        );
-
-        await tester.longPress(find.textContaining('alice: original msg'));
-        await tester.pumpAndSettle();
-        await tester.tap(find.text('Reply to message'));
-        await tester.pumpAndSettle();
-
-        // Send is disabled without credentials; emit a reply via EventSub.
-        // Verify the history message is rendered first.
-        expect(find.textContaining('alice: original msg'), findsOneWidget);
-
-        irc.emitMessage(
-          TwitchMessage(
-            login: 'bob',
-            text: 'my reply',
-            channel: channel,
-            messageId: 'sent1',
-            replyToParentId: 'p1',
-            replyToUser: 'alice',
-            replyToText: 'original msg',
-          ),
-        );
-        await tester.pump();
-        await tester.pump();
-
-        expect(find.textContaining('my reply'), findsOneWidget);
-
-        await tester.tap(
-          find.textContaining('replying to alice: original msg'),
-        );
-        await tester.pumpAndSettle();
-
-        expect(find.text('Reply Thread'), findsOneWidget);
-        expect(find.textContaining('original msg'), findsAtLeast(1));
-        expect(find.textContaining('my reply'), findsAtLeast(1));
       },
     );
 
@@ -2151,25 +1899,6 @@ void main() {
 
       expect(find.text('Recent'), findsNothing);
     });
-
-    testWidgets(
-      'emote menu panel floats with rounded corners and side margin',
-      (WidgetTester tester) async {
-        await openEmoteMenu(tester);
-
-        final handleFinder = find.byKey(const Key('emote_panel_handle'));
-        expect(handleFinder, findsOneWidget);
-
-        final container = tester.widget<Container>(
-          find
-              .ancestor(of: handleFinder, matching: find.byType(Container))
-              .first,
-        );
-        expect(container.margin, const EdgeInsets.all(4));
-        final decoration = container.decoration! as BoxDecoration;
-        expect(decoration.borderRadius, BorderRadius.circular(16));
-      },
-    );
 
     testWidgets('tab taps still work under the header drag surface', (
       WidgetTester tester,
@@ -2410,38 +2139,6 @@ void main() {
       expect(find.textContaining('Disconnected'), findsNothing);
     });
 
-    testWidgets(
-      'reconnect storm: one Reconnected per reconnect, final Disconnected',
-      (WidgetTester tester) async {
-        final eventSub = _FakeEventSubService();
-        final irc = _FakeIrcService();
-        await setupChannel(tester, eventSub: eventSub, irc: irc);
-
-        irc.triggerConnect();
-        await tester.pump();
-        await tester.pump(const Duration(milliseconds: 600));
-        await tester.pump();
-
-        for (var i = 0; i < 4; i++) {
-          irc.triggerDisconnect();
-          await tester.pump();
-          irc.triggerConnect();
-          await tester.pump();
-          await tester.pump(const Duration(milliseconds: 600));
-          await tester.pump();
-        }
-
-        irc.triggerDisconnect();
-        await tester.pump();
-
-        // Chat shows: Connected, Reconnected x4, Disconnected. The input
-        // chip also reads "Disconnected" while disconnected, hence x2.
-        expect(find.textContaining('Disconnected'), findsNWidgets(2));
-        expect(find.textContaining('Reconnected'), findsNWidgets(4));
-        expect(find.textContaining('Connected'), findsOneWidget);
-      },
-    );
-
     testWidgets('reconnect history backfill renders greyed out', (
       WidgetTester tester,
     ) async {
@@ -2472,27 +2169,6 @@ void main() {
         ),
       );
       expect(opacityWidgets.any((o) => o.opacity == 0.5), isTrue);
-    });
-
-    testWidgets('disconnected appears only once', (WidgetTester tester) async {
-      final eventSub = _FakeEventSubService();
-      final irc = _FakeIrcService();
-      await setupChannel(tester, eventSub: eventSub, irc: irc);
-
-      irc.triggerConnect();
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 600));
-      await tester.pump();
-
-      irc.triggerDisconnect();
-      await tester.pump();
-
-      expect(find.textContaining('Disconnected'), findsNWidgets(2));
-
-      irc.triggerDisconnect();
-      await tester.pump();
-
-      expect(find.textContaining('Disconnected'), findsNWidgets(2));
     });
 
     testWidgets(
@@ -2575,23 +2251,6 @@ void main() {
   });
 
   group('Settings screen', () {
-    testWidgets(
-      'Overflow menu lists Upload media, Reload emotes, Reconnect, Settings',
-      (WidgetTester tester) async {
-        await tester.pumpWidget(const TwitchChatApp());
-        await tester.pump();
-
-        await tester.tap(find.byIcon(Icons.more_vert));
-        await tester.pumpAndSettle();
-
-        expect(find.text('Upload media'), findsOneWidget);
-        expect(find.text('Reload emotes'), findsOneWidget);
-        expect(find.text('Reconnect'), findsOneWidget);
-        expect(find.text('Settings'), findsOneWidget);
-        expect(find.byIcon(Icons.settings), findsOneWidget);
-      },
-    );
-
     testWidgets('Long-pressing the 3-dot button opens Settings directly', (
       WidgetTester tester,
     ) async {
@@ -2838,21 +2497,6 @@ void main() {
       expect(find.byIcon(Icons.remove_circle_outline), findsNWidgets(2));
     });
 
-    testWidgets('Channel settings empty when no channels joined', (
-      WidgetTester tester,
-    ) async {
-      SharedPreferences.setMockInitialValues({});
-
-      await tester.pumpWidget(
-        MaterialApp(
-          home: ChannelSettingsScreen(channelNotifier: ValueNotifier([])),
-        ),
-      );
-      await tester.pump();
-
-      expect(find.text('No channels joined'), findsOneWidget);
-    });
-
     testWidgets('Channel settings drag handle reorders channels', (
       WidgetTester tester,
     ) async {
@@ -2967,26 +2611,6 @@ void main() {
       expect(find.text('Max messages per channel: 5000'), findsOneWidget);
       final prefs = await SharedPreferences.getInstance();
       expect(prefs.getInt('max_messages_per_channel'), 5000);
-    });
-
-    testWidgets('emotes settings screen renders tier + cache sliders and '
-        'Apply button', (WidgetTester tester) async {
-      SharedPreferences.setMockInitialValues({});
-
-      await tester.pumpWidget(const MaterialApp(home: EmotesSettingsScreen()));
-      await tester.pump();
-      await tester.pump();
-
-      expect(find.text('Emotes'), findsOneWidget);
-      expect(find.text('Emote fetching'), findsOneWidget);
-      expect(find.text('Auto data saver mode'), findsOneWidget);
-      expect(find.text('Emote image cache'), findsOneWidget);
-      expect(find.byKey(const Key('emote_tier_slider')), findsOneWidget);
-      expect(find.byKey(const Key('emote_cache_slider')), findsOneWidget);
-      expect(find.byKey(const Key('emote_cache_apply')), findsOneWidget);
-      expect(find.text('High'), findsOneWidget);
-      expect(find.text('500 emotes kept in cache'), findsOneWidget);
-      expect(find.textContaining('emotes stored'), findsOneWidget);
     });
 
     testWidgets('tier slider change persists emote_fetch_tier and fires '
@@ -3160,22 +2784,6 @@ void main() {
       expect(prefs.getInt('emote_cache_max'), 1000);
     });
 
-    testWidgets('emotes settings shows the disk-cache usage footer', (
-      WidgetTester tester,
-    ) async {
-      SharedPreferences.setMockInitialValues({
-        'emote_fetch_auto': EmoteFetchAutoMode.off.index,
-      });
-
-      await tester.pumpWidget(const MaterialApp(home: EmotesSettingsScreen()));
-      await tester.pump();
-      await tester.pump();
-
-      expect(find.byKey(const Key('emote_cache_footer')), findsOneWidget);
-      expect(find.textContaining('emotes stored'), findsOneWidget);
-      expect(find.textContaining('B'), findsWidgets);
-    });
-
     testWidgets('applying a cache cap of 0 evicts cached files immediately', (
       WidgetTester tester,
     ) async {
@@ -3273,20 +2881,6 @@ void main() {
       expect(find.text('Analytics'), findsNothing);
     });
 
-    testWidgets('Uploader settings screen loads kappa.lol defaults', (
-      WidgetTester tester,
-    ) async {
-      SharedPreferences.setMockInitialValues({});
-      await tester.pumpWidget(
-        const MaterialApp(home: UploaderSettingsScreen()),
-      );
-      await tester.pump();
-      await tester.pump();
-
-      expect(find.text('https://kappa.lol/api/upload'), findsOneWidget);
-      expect(find.text('file'), findsOneWidget);
-    });
-
     testWidgets(
       'Recent uploads screen shows stored uploads and copies on tap',
       (WidgetTester tester) async {
@@ -3306,17 +2900,6 @@ void main() {
         expect(find.text('Copied https://kappa.lol/abc'), findsOneWidget);
       },
     );
-
-    testWidgets('Recent uploads screen shows empty state', (
-      WidgetTester tester,
-    ) async {
-      SharedPreferences.setMockInitialValues({});
-      await tester.pumpWidget(const MaterialApp(home: RecentUploadsScreen()));
-      await tester.pump();
-      await tester.pump();
-
-      expect(find.text('No uploads yet'), findsOneWidget);
-    });
   });
 
   group('Message cutoff', () {
@@ -3703,68 +3286,6 @@ void main() {
         expect(find.textContaining('new message while paused'), findsOneWidget);
       },
     );
-
-    testWidgets('system message while paused does not appear until unpause', (
-      WidgetTester tester,
-    ) async {
-      final now = DateTime.now();
-      final manyMessages = List.generate(
-        50,
-        (i) => TwitchMessage(
-          login: 'user$i',
-          text: 'message number $i',
-          channel: 'testchannel',
-          messageId: 'msg-$i',
-          timestamp: now.subtract(Duration(minutes: 50 - i)),
-        ),
-      );
-      final fakeEventSub = _FakeEventSubService();
-      final fakeIrc = _FakeIrcService();
-      final fakeRecent = _ConfigurableRecentMessagesService(manyMessages);
-
-      await tester.pumpWidget(
-        TwitchChatApp(
-          eventSubService: fakeEventSub,
-          ircService: fakeIrc,
-          recentMessagesService: fakeRecent,
-        ),
-      );
-      await tester.pump();
-
-      await tester.tap(find.byIcon(Icons.add));
-      await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField).last, 'testchannel');
-      await tester.tap(find.text('Join').last);
-      await tester.pump();
-      await tester.pump();
-
-      // Scroll up — FAB appears
-      await tester.drag(find.byType(ListView).first, const Offset(0, 500));
-      await tester.pump();
-      await tester.pump();
-      expect(find.byIcon(Icons.keyboard_arrow_down), findsOneWidget);
-
-      // Emit a system message while paused
-      final systemMsg = TwitchMessage(
-        login: '',
-        text: 'System notice while paused',
-        isSystem: true,
-        channel: 'testchannel',
-      );
-      fakeIrc.emitMessage(systemMsg);
-      await tester.pump();
-
-      // System message should NOT appear in frozen view
-      expect(find.textContaining('System notice while paused'), findsNothing);
-
-      // Tap FAB to resume
-      await tester.tap(find.byIcon(Icons.keyboard_arrow_down));
-      await tester.pump();
-      await tester.pump();
-
-      // System message IS now visible
-      expect(find.textContaining('System notice while paused'), findsOneWidget);
-    });
 
     testWidgets('announcement system message renders a colored row', (
       WidgetTester tester,

@@ -8,6 +8,7 @@ import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/emote_fetch_tier.dart';
 import '../models/generic_emote.dart';
+import '../util/log.dart';
 import 'emote_cache_manager.dart';
 import 'emote_providers/twitch_emotes.dart';
 import 'emote_providers/bttv_emotes.dart';
@@ -487,7 +488,7 @@ class EmoteManager extends ChangeNotifier {
     try {
       _recentIds = (jsonDecode(raw) as List<dynamic>).cast<String>();
     } catch (_) {
-      debugPrint('[EmoteManager] failed to parse recent emotes');
+      logDebug('[EmoteManager] failed to parse recent emotes');
     }
   }
 
@@ -690,7 +691,7 @@ class EmoteManager extends ChangeNotifier {
     // Nothing came back from any provider this cycle and we already have
     // cached emotes: keep showing them rather than wiping the channel.
     if (emotes.isEmpty && _channelCaches[channel] != null) {
-      debugPrint('[EmoteManager] no emotes for $channel, keeping cached');
+      logDebug('[EmoteManager] no emotes for $channel, keeping cached');
       return;
     }
     // Split subscriber-only Twitch emotes from the main cache. They're stored
@@ -786,7 +787,7 @@ class EmoteManager extends ChangeNotifier {
       }
       _notify(channel: channel);
     } catch (e) {
-      debugPrint('[EmoteManager] twitch refresh failed for $channel: $e');
+      logDebug('[EmoteManager] twitch refresh failed for $channel: $e');
     }
   }
 
@@ -808,7 +809,7 @@ class EmoteManager extends ChangeNotifier {
       _globalCache = _buildChannelMap(all);
       _notify();
     } catch (e) {
-      debugPrint('[EmoteManager] twitch global refresh failed: $e');
+      logDebug('[EmoteManager] twitch global refresh failed: $e');
     }
   }
 
@@ -866,7 +867,7 @@ class EmoteManager extends ChangeNotifier {
         renamed: renamed,
       );
     } catch (e) {
-      debugPrint('[EmoteManager] 7TV reconcile failed for $channel: $e');
+      logDebug('[EmoteManager] 7TV reconcile failed for $channel: $e');
     }
   }
 
@@ -1075,7 +1076,7 @@ class EmoteManager extends ChangeNotifier {
       try {
         await _removeCachedFile(url);
       } catch (_) {
-        debugPrint('[EmoteManager] failed to evict unused emote $url');
+        logDebug('[EmoteManager] failed to evict unused emote $url');
       }
     }
     if (removed) {
@@ -1306,7 +1307,7 @@ class EmoteManager extends ChangeNotifier {
           try {
             await entry.value();
           } catch (e) {
-            debugPrint('EmoteManager: ${entry.key} failed: $e');
+            logDebug('EmoteManager: ${entry.key} failed: $e');
           }
         }),
       );
@@ -1341,7 +1342,7 @@ class EmoteManager extends ChangeNotifier {
       final fresh = withinTtl && parsed.tierMatches;
       return (cached: _buildChannelMap(parsed.list), fresh: fresh);
     } catch (_) {
-      debugPrint('[EmoteManager] failed to parse cached emotes');
+      logDebug('[EmoteManager] failed to parse cached emotes');
       return (cached: null, fresh: false);
     }
   }
@@ -1371,7 +1372,7 @@ class EmoteManager extends ChangeNotifier {
       };
       await prefs.setString(key, jsonEncode(data));
     } catch (_) {
-      debugPrint('[EmoteManager] failed to save emotes to prefs');
+      logDebug('[EmoteManager] failed to save emotes to prefs');
     }
   }
 
@@ -1445,7 +1446,7 @@ class EmoteManager extends ChangeNotifier {
           }
         }
       } catch (_) {
-        debugPrint('[EmoteManager] failed to parse emote usage registry');
+        logDebug('[EmoteManager] failed to parse emote usage registry');
       }
     }
     if (_pendingUsageTouches.isNotEmpty) {
@@ -1525,7 +1526,7 @@ class EmoteManager extends ChangeNotifier {
         try {
           await DefaultCacheManager().emptyCache();
         } catch (_) {
-          debugPrint('[EmoteManager] cache migration emptyCache failed');
+          logDebug('[EmoteManager] cache migration emptyCache failed');
         }
         _migrationRan = true;
         await prefs.setBool(_migrationKey, true);
@@ -1542,7 +1543,7 @@ class EmoteManager extends ChangeNotifier {
         try {
           await DefaultCacheManager().emptyCache();
         } catch (_) {
-          debugPrint('[EmoteManager] cache v2 migration emptyCache failed');
+          logDebug('[EmoteManager] cache v2 migration emptyCache failed');
         }
         _migrationRanV2 = true;
         await prefs.setBool(_migrationKeyV2, true);
@@ -1625,7 +1626,7 @@ class EmoteManager extends ChangeNotifier {
     try {
       await _cacheManager.getSingleFile(emote.url);
     } catch (_) {
-      debugPrint('[EmoteManager] failed to precache emote: ${emote.code}');
+      logDebug('[EmoteManager] failed to precache emote: ${emote.code}');
     }
   }
 }

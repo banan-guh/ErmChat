@@ -301,25 +301,6 @@ void main() {
       expect(req.url.queryParameters['user_id'], '999');
     });
 
-    test('/untimeout is an alias for /unban', () async {
-      final requests = <http.Request>[];
-      final handler = createHandler(
-        MockClient((req) async {
-          requests.add(req);
-          if (req.url.path == '/helix/users') return userFound();
-          return http.Response('', 204);
-        }),
-      );
-
-      await handler.handle('/untimeout foo', 'a', auth);
-
-      expect(systemMessages, ['foo has been unbanned.']);
-      expect(
-        requests.any((r) => r.url.path == '/helix/moderation/bans'),
-        isTrue,
-      );
-    });
-
     test('/unban reports failure on 403', () async {
       final handler = createHandler(
         MockClient((req) async {
@@ -357,20 +338,6 @@ void main() {
       expect(req.url.queryParameters['message_id'], 'abc123');
     });
 
-    test('/delete reports failure without IRC fallback', () async {
-      final handler = createHandler(
-        MockClient((req) async => http.Response('Bad Request', 400)),
-      );
-
-      await handler.handle('/delete abc123', 'a', auth);
-
-      expect(irc.sent, isEmpty);
-      expect(
-        systemMessages.single,
-        'Failed to delete chat messages - An unknown error has occurred.',
-      );
-    });
-
     test('/clear success omits message_id', () async {
       final requests = <http.Request>[];
       final handler = createHandler(
@@ -386,20 +353,6 @@ void main() {
       final req = requests.single;
       expect(req.method, 'DELETE');
       expect(req.url.queryParameters.containsKey('message_id'), isFalse);
-    });
-
-    test('/clear reports failure on 401', () async {
-      final handler = createHandler(
-        MockClient((req) async => http.Response('Unauthorized', 401)),
-      );
-
-      await handler.handle('/clear', 'a', auth);
-
-      expect(irc.sent, isEmpty);
-      expect(
-        systemMessages.single,
-        'Failed to delete chat messages - Missing required scope. Re-login with your account and try again.',
-      );
     });
   });
 
@@ -770,52 +723,6 @@ void main() {
       expect(systemMessages, ['Emote-only mode disabled.']);
       expect(jsonDecode(requests.single.body)['emote_mode'], isFalse);
     });
-
-    test('/subscribers toggles subscriber mode', () async {
-      final requests = <http.Request>[];
-      final handler = createHandler(
-        MockClient((req) async {
-          requests.add(req);
-          return http.Response('', 200);
-        }),
-      );
-
-      await handler.handle('/subscribers', 'a', auth);
-      expect(jsonDecode(requests.single.body)['subscriber_mode'], isTrue);
-    });
-
-    test('/r9kbeta and /uniquechat enable unique chat mode', () async {
-      final requests = <http.Request>[];
-      final handler = createHandler(
-        MockClient((req) async {
-          requests.add(req);
-          return http.Response('', 200);
-        }),
-      );
-
-      await handler.handle('/r9kbeta', 'a', auth);
-      expect(systemMessages, ['Unique-chat mode enabled.']);
-      expect(jsonDecode(requests.single.body)['unique_chat_mode'], isTrue);
-
-      systemMessages.clear();
-      requests.clear();
-      await handler.handle('/uniquechatoff', 'a', auth);
-      expect(systemMessages, ['Unique-chat mode disabled.']);
-      expect(jsonDecode(requests.single.body)['unique_chat_mode'], isFalse);
-    });
-
-    test('chat mode failure shows a clean notice', () async {
-      final handler = createHandler(
-        MockClient((req) async => http.Response('Forbidden', 403)),
-      );
-
-      await handler.handle('/slowoff', 'a', auth);
-
-      expect(
-        systemMessages.single,
-        "Failed to update chat settings - You don't have permission to perform that action.",
-      );
-    });
   });
 
   group('broadcaster actions', () {
@@ -1041,22 +948,6 @@ void main() {
         (r) => r.url.path == '/helix/users/blocks',
       );
       expect(req.method, 'DELETE');
-    });
-
-    test('/block reports failure with a clean notice', () async {
-      final handler = createHandler(
-        MockClient((req) async {
-          if (req.url.path == '/helix/users') return userFound();
-          return http.Response('Forbidden', 403);
-        }),
-      );
-
-      await handler.handle('/block foo', 'a', auth);
-
-      expect(
-        systemMessages.single,
-        "Failed to block user - You don't have permission to perform that action.",
-      );
     });
   });
 

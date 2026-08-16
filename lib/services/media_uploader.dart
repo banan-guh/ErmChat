@@ -1,9 +1,9 @@
 import 'dart:convert';
 import 'dart:io';
-import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../util/constants.dart';
+import '../util/log.dart';
 
 /// Configuration for a Chatterino-style image uploader endpoint. The default
 /// points at kappa.lol; every field mirrors the uploader settings used by
@@ -109,7 +109,7 @@ class MediaUploader {
     try {
       return UploaderConfig.fromJson(jsonDecode(raw) as Map<String, Object?>);
     } catch (e) {
-      debugPrint('MediaUploader: failed to parse uploader config: $e');
+      logDebug('MediaUploader: failed to parse uploader config: $e');
       return UploaderConfig.defaultConfig;
     }
   }
@@ -232,7 +232,7 @@ class MediaUploader {
           .map((e) => RecentUpload.fromJson(e as Map<String, Object?>))
           .toList();
     } catch (e) {
-      debugPrint('MediaUploader: failed to parse recent uploads: $e');
+      logDebug('MediaUploader: failed to parse recent uploads: $e');
       return [];
     }
   }

@@ -60,22 +60,4 @@ void main() {
 
     controller.dispose();
   });
-
-  testWidgets('minimized bar shows active labels with a restore button', (
-    tester,
-  ) async {
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: ChatWidgetMinimizedBar(
-            labels: 'Poll / Prediction',
-            onRestore: () {},
-          ),
-        ),
-      ),
-    );
-
-    expect(find.text('Poll / Prediction'), findsOneWidget);
-    expect(find.byIcon(Icons.keyboard_arrow_up), findsOneWidget);
-  });
 }

@@ -1,10 +1,10 @@
 import 'dart:convert';
 import 'dart:isolate';
-import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../../twitch_config.dart';
 import '../../models/generic_emote.dart';
 import '../../util/constants.dart';
+import '../../util/log.dart';
 
 class TwitchEmoteProvider {
   static Future<List<GenericEmote>> fetchGlobal({
@@ -17,7 +17,7 @@ class TwitchEmoteProvider {
       headers['Authorization'] = 'Bearer $accessToken';
     }
     final res = await http.get(uri, headers: headers).timeout(httpTimeout);
-    debugPrint(
+    logDebug(
       'Twitch global emotes: ${res.statusCode} - ${res.body.length} bytes',
     );
     throwOnTransientHttpError(res.statusCode, uri);
@@ -46,7 +46,7 @@ class TwitchEmoteProvider {
     }
     final res = await http.get(uri, headers: headers).timeout(httpTimeout);
     if (res.statusCode != 200) {
-      debugPrint('Twitch channel emotes error: ${res.statusCode}');
+      logDebug('Twitch channel emotes error: ${res.statusCode}');
     }
     throwOnTransientHttpError(res.statusCode, uri);
     if (res.statusCode != 200) return [];
@@ -85,7 +85,7 @@ class TwitchEmoteProvider {
       final res = await http.get(uri, headers: headers).timeout(httpTimeout);
       throwOnTransientHttpError(res.statusCode, uri);
       if (res.statusCode != 200) {
-        debugPrint('Twitch emote set error: ${res.statusCode} ${res.body}');
+        logDebug('Twitch emote set error: ${res.statusCode} ${res.body}');
         continue;
       }
       bodies.add(res.body);
@@ -194,7 +194,7 @@ class TwitchEmoteProvider {
         ),
       );
     }
-    debugPrint('Twitch parsed ${emotes.length} emotes');
+    logDebug('Twitch parsed ${emotes.length} emotes');
     return emotes;
   }
 

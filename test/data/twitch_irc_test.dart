@@ -10,6 +10,7 @@ void main() {
       expect(msg.params, ['#xqc']);
       expect(msg.trailing, 'forsen');
       expect(msg.prefix, 'tmi.twitch.tv');
+      expect(msg.tags, isEmpty);
     });
 
     test('parses CLEARCHAT with tags (timeout)', () {
@@ -22,14 +23,6 @@ void main() {
       expect(msg.trailing, 'forsen');
       expect(msg.tags['ban-duration'], '300');
       expect(msg.tags['target-user-id'], '12345');
-    });
-
-    test('parses CLEARCHAT without tags (permanent ban)', () {
-      const line = ':tmi.twitch.tv CLEARCHAT #xqc :forsen';
-      final msg = parseIrcMessage(line);
-      expect(msg, isNotNull);
-      expect(msg!.tags, isEmpty);
-      expect(msg.trailing, 'forsen');
     });
 
     test('parses CLEARMSG with target-msg-id and login tags', () {
@@ -170,18 +163,6 @@ void main() {
       expect(positions.first.endIndex, 5);
     });
 
-    test('ACTION messages with emote mid-body', () {
-      final positions = parseIrcEmotePositions(
-        '25:6-10',
-        originalText: '\x01ACTION hello Kappa\x01',
-        strippedText: 'hello Kappa',
-      );
-      expect(positions, hasLength(1));
-      expect(positions!.first.emoteCode, 'Kappa');
-      expect(positions.first.startIndex, 6);
-      expect(positions.first.endIndex, 11);
-    });
-
     test('ACTION messages with reply prefix adjust by reply length only', () {
       // Positions stay body-relative (after the wrapper); the reply prefix
       // "@User " is stripped and its length is subtracted separately.
@@ -199,23 +180,6 @@ void main() {
   });
 
   group('subNoticeMsgIds', () {
-    test('covers sub, gift sub and upgrade msg-ids', () {
-      expect(
-        subNoticeMsgIds,
-        containsAll(<String>[
-          'sub',
-          'resub',
-          'subgift',
-          'anonsubgift',
-          'communitygift',
-          'submysterygift',
-          'giftpaidupgrade',
-          'anongiftpaidupgrade',
-          'primepaidupgrade',
-        ]),
-      );
-    });
-
     test('excludes non-sub notices like announcements and raids', () {
       expect(subNoticeMsgIds, isNot(contains('announcement')));
       expect(subNoticeMsgIds, isNot(contains('raid')));

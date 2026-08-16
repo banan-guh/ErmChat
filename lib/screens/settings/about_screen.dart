@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import '../../util/log.dart';
 import 'dev_settings_screen.dart';
 
 class AboutScreen extends StatefulWidget {
@@ -27,7 +28,7 @@ class _AboutScreenState extends State<AboutScreen> {
         setState(() => _version = '${info.version}+${info.buildNumber}');
       }
     } catch (_) {
-      debugPrint('[AboutScreen] failed to load package info');
+      logDebug('[AboutScreen] failed to load package info');
       if (mounted) setState(() => _version = 'unknown');
     }
   }

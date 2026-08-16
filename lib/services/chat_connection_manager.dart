@@ -5,6 +5,7 @@ import 'package:flutter/widgets.dart';
 import 'package:http/http.dart' as http;
 import '../models/emote_fetch_tier.dart';
 import '../models/generic_emote.dart';
+import '../util/log.dart';
 import 'base_irc_connection.dart';
 import '../models/twitch_message.dart';
 import '../services/twitch_api.dart';
@@ -394,7 +395,7 @@ class ChatConnectionManager {
   void _markUserMessagesDeleted(String channel, String username) {
     final msgs = channelMessages[channel];
     if (msgs == null) {
-      debugPrint(
+      logDebug(
         '[ChatConn] _markUserMessagesDeleted: no messages for channel=$channel',
       );
       return;
@@ -409,7 +410,7 @@ class ChatConnectionManager {
         count++;
       }
     }
-    debugPrint(
+    logDebug(
       '[ChatConn] _markUserMessagesDeleted: marked $count messages deleted for user=$username in channel=$channel (total msgs in channel=${msgs.length})',
     );
   }
@@ -450,7 +451,7 @@ class ChatConnectionManager {
     required bool isTimeout,
     required int? duration,
   }) {
-    debugPrint(
+    logDebug(
       '[ChatConn] IRC ban received: user=$user channel=$channel isTimeout=$isTimeout',
     );
     if (isDisposed) return;
@@ -474,7 +475,7 @@ class ChatConnectionManager {
         ? base.substring(0, base.length - 1)
         : base;
     final text = '$trimmed$stacked.';
-    debugPrint('[ChatConn] IRC ban system message: $text');
+    logDebug('[ChatConn] IRC ban system message: $text');
 
     if (result.stackCount > 1) {
       if (result.meta.firstMessageId != null) {
@@ -548,7 +549,7 @@ class ChatConnectionManager {
     try {
       stream = await twitchApi.getStreamInfo(auth, userId);
     } catch (e) {
-      debugPrint('[ChatConn] fetchChatStatus failed for $channel: $e');
+      logDebug('[ChatConn] fetchChatStatus failed for $channel: $e');
       return;
     }
 
@@ -734,7 +735,7 @@ class ChatConnectionManager {
       badgeService.fetchChannelBadges(auth, channelUserId, channelName);
 
       emoteManager.accessToken = auth.accessToken;
-      debugPrint(
+      logDebug(
         'subscribeChannel $channelName userId=$channelUserId '
         'hasToken=${auth.accessToken != null} resolved=${channelsEmotesResolved.contains(channelName)}',
       );
@@ -744,7 +745,7 @@ class ChatConnectionManager {
           emoteManager
               .resolveEmotes(channelName, channelUserId)
               .catchError(
-                (e) => debugPrint(
+                (e) => logDebug(
                   '[ChatConn] resolveEmotes failed for $channelName: $e',
                 ),
               ),
@@ -767,7 +768,7 @@ class ChatConnectionManager {
         unawaited(_subscribeWidgets(channelName, channelUserId));
       }
     } catch (_) {
-      debugPrint('[ChatConn] subscribeChannel failed for $channelName');
+      logDebug('[ChatConn] subscribeChannel failed for $channelName');
     }
     onRebuild();
     fetchChatStatus(channelName);
@@ -860,13 +861,13 @@ class ChatConnectionManager {
           _moderationSkippedChannels.add(channelName);
           return;
         }
-        debugPrint(
+        logDebug(
           '[ChatConn] channel.moderate subscription failed for $channelName (${twitchApi.lastError ?? "unknown"})',
         );
         return;
       }
     } catch (_) {
-      debugPrint('[ChatConn] subscribeModeration failed for $channelName');
+      logDebug('[ChatConn] subscribeModeration failed for $channelName');
     }
   }
 
@@ -916,7 +917,7 @@ class ChatConnectionManager {
               // Expected when the user isn't the broadcaster; skip silently.
               _widgetSkippedChannels.add(channelName);
             } else {
-              debugPrint(
+              logDebug(
                 '[ChatConn] $type subscription failed for $channelName (${twitchApi.lastError ?? "unknown"})',
               );
             }
@@ -930,7 +931,7 @@ class ChatConnectionManager {
         return;
       }
     } catch (_) {
-      debugPrint('[ChatConn] subscribeWidgets failed for $channelName');
+      logDebug('[ChatConn] subscribeWidgets failed for $channelName');
     }
   }
 
@@ -973,7 +974,7 @@ class ChatConnectionManager {
 
     sevenTvClient!.subscribeEmoteSet(finalEmoteSetId);
     sevenTvClient!.subscribeUser(finalUserId);
-    debugPrint(
+    logDebug(
       '[7TV] subscribed channel=$channelName emoteSetId=$finalEmoteSetId userId=$finalUserId',
     );
   }
@@ -1231,7 +1232,7 @@ class ChatConnectionManager {
         try {
           currentUser = await userFuture;
         } catch (_) {
-          debugPrint('[ChatConn] getCurrentUser failed');
+          logDebug('[ChatConn] getCurrentUser failed');
         }
       }
       if (currentUser != null) {
@@ -1271,7 +1272,7 @@ class ChatConnectionManager {
             ),
           ]);
         } catch (e) {
-          debugPrint('IRC connect failed: $e');
+          logDebug('IRC connect failed: $e');
         }
         _lastIrcUsername = getCurrentUserLogin()?.toLowerCase();
         _lastIrcToken = auth.accessToken;
@@ -1288,7 +1289,7 @@ class ChatConnectionManager {
             ),
           ]);
         } catch (e) {
-          debugPrint('Anonymous IRC connect failed: $e');
+          logDebug('Anonymous IRC connect failed: $e');
         }
         _lastIrcUsername = null;
         _lastIrcToken = 'anonymous';
@@ -1748,7 +1749,7 @@ class ChatConnectionManager {
       unawaited(
         irc.checkAlive().then((alive) {
           if (!alive) {
-            debugPrint('[ChatConn] IRC zombie detected - forcing reconnect');
+            logDebug('[ChatConn] IRC zombie detected - forcing reconnect');
             irc.forceReconnect();
           }
         }),
@@ -1760,7 +1761,7 @@ class ChatConnectionManager {
       unawaited(
         ircRead.checkAlive().then((alive) {
           if (!alive) {
-            debugPrint(
+            logDebug(
               '[ChatConn] IRC read zombie detected - forcing reconnect',
             );
             ircRead.forceReconnect();

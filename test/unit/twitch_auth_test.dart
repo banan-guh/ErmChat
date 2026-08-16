@@ -24,16 +24,19 @@ void main() {
       expect(auth.isConfigured, isTrue);
     });
 
-    test('clear removes tokens', () async {
+    test('clear removes tokens and cached user', () async {
       final auth = TwitchAuth();
       auth.setCredentials(
         accessToken: 'test_token',
         refreshToken: 'test_refresh',
       );
+      auth.setUser('testuser', '12345');
       await auth.clear();
       expect(auth.accessToken, isNull);
       expect(auth.refreshToken, isNull);
       expect(auth.isConfigured, isFalse);
+      expect(auth.login, isNull);
+      expect(auth.userId, isNull);
     });
 
     test('load restores tokens from secure storage', () async {
@@ -78,14 +81,6 @@ void main() {
       final auth = TwitchAuth();
       auth.setUser('testuser', '12345');
       auth.setCredentials(accessToken: 'new_token');
-      expect(auth.login, isNull);
-      expect(auth.userId, isNull);
-    });
-
-    test('clear removes cached login and user id', () async {
-      final auth = TwitchAuth();
-      auth.setUser('testuser', '12345');
-      await auth.clear();
       expect(auth.login, isNull);
       expect(auth.userId, isNull);
     });

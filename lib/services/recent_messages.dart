@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import '../util/constants.dart';
 import '../models/twitch_message.dart';
 import '../color_utils.dart';
+import '../util/log.dart';
 import 'twitch_irc.dart';
 
 class RecentMessagesService {
@@ -25,7 +26,7 @@ class RecentMessagesService {
     try {
       return await _fetchFrom('$_baseUrl$path', channel);
     } catch (primaryError) {
-      debugPrint(
+      logDebug(
         '[RecentMessages] primary fetch failed ($primaryError) - '
         'trying mirror',
       );

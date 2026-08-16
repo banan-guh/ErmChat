@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../util/log.dart';
 import 'emote_image.dart';
 import '../models/generic_emote.dart';
 
@@ -109,7 +110,7 @@ class _EmoteSheetState extends State<EmoteSheet>
         .skip(1)
         .where((u) => u != previewUrl)
         .toList();
-    debugPrint(
+    logDebug(
       '[EmoteSheet] emote=${emote.code} scales=$scaleUrls '
       'previewUrl=$previewUrl alternates=$alternateUrls',
     );

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import 'package:linkify/linkify.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../util/log.dart';
 import 'emote_image.dart';
 import '../models/generic_emote.dart';
 import '../models/twitch_message.dart';
@@ -33,9 +34,9 @@ class EmoteText {
         scale: scale,
       );
     } catch (e, stack) {
-      debugPrint('[EmoteText.build] error: $e');
-      debugPrint('[EmoteText.build] text="$text"');
-      debugPrint('[EmoteText.build] stack=$stack');
+      logDebug('[EmoteText.build] error: $e');
+      logDebug('[EmoteText.build] text="$text"');
+      logDebug('[EmoteText.build] stack=$stack');
       return parseTextWithLinks(text);
     }
   }
@@ -364,9 +365,9 @@ List<InlineSpan> parseTextWithLinks(String text) {
     }
     return spans;
   } catch (e, stack) {
-    debugPrint('[parseTextWithLinks] error: $e');
-    debugPrint('[parseTextWithLinks] text="$collapsed"');
-    debugPrint('[parseTextWithLinks] stack=$stack');
+    logDebug('[parseTextWithLinks] error: $e');
+    logDebug('[parseTextWithLinks] text="$collapsed"');
+    logDebug('[parseTextWithLinks] stack=$stack');
     return [TextSpan(text: collapsed)];
   }
 }

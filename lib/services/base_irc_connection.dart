@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import '../util/constants.dart';
+import '../util/log.dart';
 
 enum IrcConnectionStatus { disconnected, connecting, connected }
 
@@ -82,7 +83,7 @@ abstract class BaseIrcConnection {
     _connecting = true;
     try {
       if (isConnected) {
-        debugPrint('[$debugPrefix] already connected, skipping reconnect');
+        logDebug('[$debugPrefix] already connected, skipping reconnect');
         return;
       }
       _emitStatus(IrcConnectionStatus.connecting);
@@ -109,7 +110,7 @@ abstract class BaseIrcConnection {
         _streamSub = channel!.stream.listen(
           (raw) => _handleLine(raw as String),
           onError: (e) {
-            debugPrint('$debugPrefix stream error: $e');
+            logDebug('$debugPrefix stream error: $e');
             // Clear the socket before notifying so listeners rebuilding on the
             // status event (e.g. the type bar hint) never read a stale
             // "connected" state.
@@ -118,7 +119,7 @@ abstract class BaseIrcConnection {
             _scheduleReconnect();
           },
           onDone: () {
-            debugPrint(
+            logDebug(
               '$debugPrefix stream closed '
               '(code: ${channel?.closeCode}, '
               'reason: ${channel?.closeReason})',
@@ -132,7 +133,7 @@ abstract class BaseIrcConnection {
         sendLine('CAP REQ :twitch.tv/tags twitch.tv/commands');
         sendLine('PASS oauth:$token');
         sendLine('NICK $username');
-        debugPrint(
+        logDebug(
           '[$debugPrefix] connected, re-joining '
           '${_channels.length} channels: $_channels',
         );
@@ -146,7 +147,7 @@ abstract class BaseIrcConnection {
 
         _startPingTimer();
       } catch (e) {
-        debugPrint('$debugPrefix connect error: $e');
+        logDebug('$debugPrefix connect error: $e');
         // A failed attempt must not leave a socket behind: otherwise
         // isConnected stays true and every reconnect bails out here. A
         // timed-out handshake also gets its socket closed so it can't leak.
@@ -228,7 +229,7 @@ abstract class BaseIrcConnection {
   }
 
   void _handlePongTimeout() {
-    debugPrint('$debugPrefix PONG timeout - reconnecting');
+    logDebug('$debugPrefix PONG timeout - reconnecting');
     // Clear the socket before the status event so listeners that rebuild on it
     // (e.g. the type bar hint) don't briefly show "connected".
     _disconnect();
@@ -307,7 +308,7 @@ abstract class BaseIrcConnection {
 
   void forceReconnect() {
     if (channel == null) return;
-    debugPrint('$debugPrefix force reconnect (unhealthy socket)');
+    logDebug('$debugPrefix force reconnect (unhealthy socket)');
     // Clear the zombie socket now; otherwise the reconnect attempt would
     // bail out on isConnected before replacing it. Do it before the status
     // event so rebuilding listeners see a real disconnect, not a stale one.
@@ -321,7 +322,7 @@ abstract class BaseIrcConnection {
     try {
       channel?.sink.add(message);
     } catch (e) {
-      debugPrint('$debugPrefix send failed: $e');
+      logDebug('$debugPrefix send failed: $e');
     }
   }
 
@@ -368,7 +369,7 @@ abstract class BaseIrcConnection {
 
       // Twitch asks clients to reconnect (maintenance / server move).
       if (cmd == 'RECONNECT') {
-        debugPrint('$debugPrefix server requested reconnect');
+        logDebug('$debugPrefix server requested reconnect');
         _disconnect();
         _emitStatus(IrcConnectionStatus.disconnected);
         _scheduleReconnect();
@@ -391,7 +392,7 @@ abstract class BaseIrcConnection {
   void dispatchLine(String line);
 
   void join(String channel) {
-    debugPrint('[$debugPrefix] join channel=$channel');
+    logDebug('[$debugPrefix] join channel=$channel');
     _channels.add(channel);
     if (this.channel != null) {
       sendLine('JOIN #$channel');
@@ -399,7 +400,7 @@ abstract class BaseIrcConnection {
   }
 
   void part(String channel) {
-    debugPrint('[$debugPrefix] part channel=$channel');
+    logDebug('[$debugPrefix] part channel=$channel');
     _channels.remove(channel);
     if (this.channel != null) {
       sendLine('PART #$channel');

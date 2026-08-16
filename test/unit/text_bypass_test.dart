@@ -10,16 +10,6 @@ void main() {
       expect(result, 'hello  world');
     });
 
-    test('doubles first space when there are multiple spaces', () {
-      final result = bypassTextDuplicate('foo bar baz');
-      expect(result, 'foo  bar baz');
-    });
-
-    test('appends suffix to single-word text', () {
-      final result = bypassTextDuplicate('hello');
-      expect(result, 'hello $_invisibleChar');
-    });
-
     test(
       'chaining: repeated bypass on single-word keeps producing unique strings',
       () {

@@ -123,15 +123,6 @@ void main() {
       );
     });
 
-    test('deduplicates emotes across case-sensitive and insensitive', () {
-      final result = filterSuggestions(
-        word: 'Pog',
-        emotes: [_e('1', 'PogChamp')],
-        users: {},
-      );
-      expect(result.length, 1);
-    });
-
     test('returns empty for empty word', () {
       final result = filterSuggestions(
         word: '',

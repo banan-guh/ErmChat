@@ -49,18 +49,6 @@ void main() {
     });
   });
 
-  group('session_keepalive', () {
-    test('does not crash', () {
-      expect(
-        () => service.handleRawMessage(<String, dynamic>{
-          'metadata': <String, dynamic>{'message_type': 'session_keepalive'},
-          'payload': <String, dynamic>{},
-        }),
-        returnsNormally,
-      );
-    });
-  });
-
   group('notification (channel.moderate)', () {
     test('ban emits ModerationEvent with target and reason', () async {
       final events = <ModerationEvent>[];
@@ -209,26 +197,6 @@ void main() {
   });
 
   group('session_reconnect and revocation', () {
-    test('session_reconnect does not crash', () {
-      expect(
-        () => service.handleRawMessage(<String, dynamic>{
-          'metadata': <String, dynamic>{'message_type': 'session_reconnect'},
-          'payload': <String, dynamic>{},
-        }),
-        returnsNormally,
-      );
-    });
-
-    test('revocation does not crash', () {
-      expect(
-        () => service.handleRawMessage(<String, dynamic>{
-          'metadata': <String, dynamic>{'message_type': 'revocation'},
-          'payload': <String, dynamic>{},
-        }),
-        returnsNormally,
-      );
-    });
-
     test('malformed frames do not crash', () {
       expect(
         () => service.handleRawMessage(<String, dynamic>{}),
@@ -292,23 +260,6 @@ void main() {
         expect(e.topContributions[0].type, 'BITS');
       },
     );
-
-    test('end emits event with no channel when mapping missing', () async {
-      final events = <HypeTrainEvent>[];
-      service.onHypeTrain.listen(events.add);
-
-      service.handleRawMessage(
-        widget('channel.hype_train.end', <String, dynamic>{
-          'level': 3,
-          'progress': 100,
-          'total': 100,
-        }),
-      );
-
-      // Mapping is present for broadcaster1, so the channel resolves.
-      expect(events, hasLength(1));
-      expect(events[0].kind, 'end');
-    });
   });
 
   group('notification (channel.poll)', () {

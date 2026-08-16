@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import '../util/constants.dart';
+import '../util/log.dart';
 
 /// A channel.moderate v2 event: a moderator performed a moderation action.
 /// `action` is one of ban, timeout, unban, untimeout, clear, delete, mod,
@@ -198,7 +199,7 @@ class EventSubService {
       final userId = condition['broadcaster_user_id'] as String;
       return _channelUserIds[userId];
     } catch (_) {
-      debugPrint('[EventSub] failed to extract channel from payload');
+      logDebug('[EventSub] failed to extract channel from payload');
       return null;
     }
   }
@@ -230,11 +231,11 @@ class EventSubService {
               final msg = jsonDecode(raw) as Map<String, dynamic>;
               _handleMessage(msg);
             } catch (e) {
-              debugPrint('EventSub frame parse error: $e');
+              logDebug('EventSub frame parse error: $e');
             }
           },
           onError: (e) {
-            debugPrint('EventSub stream error: $e');
+            logDebug('EventSub stream error: $e');
             _safeComplete(null);
             _statusController.add(EventSubStatus.disconnected);
             _scheduleReconnect();
@@ -252,7 +253,7 @@ class EventSubService {
         _channel = null;
         _streamSub = null;
         _statusController.add(EventSubStatus.disconnected);
-        debugPrint('EventSub connect error: $e');
+        logDebug('EventSub connect error: $e');
         _scheduleReconnect();
       }
     } finally {
@@ -266,7 +267,7 @@ class EventSubService {
     if (_reconnecting || _disposed) return;
     if (!_isOnline) return;
     if (_reconnectAttempt >= _maxReconnectAttempts) {
-      debugPrint('EventSub max reconnect attempts reached - giving up');
+      logDebug('EventSub max reconnect attempts reached - giving up');
       return;
     }
     _reconnecting = true;
@@ -329,12 +330,12 @@ class EventSubService {
         case 'session_reconnect':
           _handleReconnect(msg);
         case 'revocation':
-          debugPrint('EventSub subscription revoked');
+          logDebug('EventSub subscription revoked');
       }
 
       _resetKeepalive();
     } catch (e) {
-      debugPrint('EventSub message parse error: $e');
+      logDebug('EventSub message parse error: $e');
     }
   }
 
@@ -355,11 +356,11 @@ class EventSubService {
       final session = payload['session'] as Map<String, dynamic>;
       final reconnectUrl = session['reconnect_url'] as String?;
       if (reconnectUrl != null && reconnectUrl.isNotEmpty) {
-        debugPrint('EventSub reconnecting to $reconnectUrl');
+        logDebug('EventSub reconnecting to $reconnectUrl');
         connect(url: reconnectUrl);
       }
     } catch (e) {
-      debugPrint('EventSub reconnect failed: $e');
+      logDebug('EventSub reconnect failed: $e');
     }
   }
 
@@ -370,7 +371,7 @@ class EventSubService {
     _keepaliveTimer?.cancel();
     final timeoutSeconds = (_keepaliveTimeout * 1.5).round();
     _keepaliveTimer = Timer(Duration(seconds: timeoutSeconds), () {
-      debugPrint('EventSub keepalive timeout - reconnecting');
+      logDebug('EventSub keepalive timeout - reconnecting');
       _scheduleReconnect();
     });
   }

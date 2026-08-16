@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import '../util/constants.dart';
+import '../util/log.dart';
 
 class SevenTvEmoteUpdateEvent {
   final String emoteSetId;
@@ -150,21 +151,21 @@ class SevenTvEventClient {
         _streamSub = _channel!.stream.listen(
           (raw) => _handleMessage(raw as String),
           onError: (e) {
-            debugPrint('7TV event stream error: $e');
+            logDebug('7TV event stream error: $e');
             _scheduleReconnect();
           },
           onDone: () {
             final code = _channel?.closeCode;
             final reason = _channel?.closeReason;
-            debugPrint('7TV event stream closed (code=$code reason="$reason")');
+            logDebug('7TV event stream closed (code=$code reason="$reason")');
             if (_fatalCloseCode != null) {
-              debugPrint(
+              logDebug(
                 '7TV: fatal end-of-stream code $_fatalCloseCode - not reconnecting',
               );
               return;
             }
             if (code != null && _noReconnectCloseCodes.contains(code)) {
-              debugPrint(
+              logDebug(
                 '7TV: close code $code indicates client bug - not reconnecting',
               );
               return;
@@ -173,7 +174,7 @@ class SevenTvEventClient {
           },
         );
       } catch (e) {
-        debugPrint('7TV event connect error: $e');
+        logDebug('7TV event connect error: $e');
         // A failed or timed-out handshake must not leave a socket behind,
         // otherwise isConnected stays true and resume-time checks skip it.
         _disconnect();
@@ -214,7 +215,7 @@ class SevenTvEventClient {
     required bool subscribe,
   }) {
     if (objectId.isEmpty) {
-      debugPrint(
+      logDebug(
         '7TV: refusing to send $type '
         '${subscribe ? 'subscribe' : 'unsubscribe'} with empty objectId',
       );
@@ -254,24 +255,24 @@ class SevenTvEventClient {
         case 2:
           _lastHeartbeat = DateTime.now();
         case 4:
-          debugPrint('7TV server requested reconnect');
+          logDebug('7TV server requested reconnect');
           connect();
         case 5:
           break;
         case 7:
           final code = d?['code'] as int?;
           final message = d?['message'] as String?;
-          debugPrint('7TV end-of-stream: code=$code message="$message"');
+          logDebug('7TV end-of-stream: code=$code message="$message"');
           if (code != null && _noReconnectCloseCodes.contains(code)) {
             _fatalCloseCode = code;
-            debugPrint(
+            logDebug(
               '7TV: end-of-stream code $code is fatal - will not reconnect',
             );
           }
           break;
       }
     } catch (e) {
-      debugPrint('7TV event parse error: $e');
+      logDebug('7TV event parse error: $e');
     }
   }
 
@@ -386,7 +387,7 @@ class SevenTvEventClient {
         if (_channel == null) return;
         final elapsed = DateTime.now().difference(_lastHeartbeat);
         if (elapsed.inMilliseconds > 3 * _heartbeatInterval!) {
-          debugPrint('7TV heartbeat timeout - reconnecting');
+          logDebug('7TV heartbeat timeout - reconnecting');
           _disconnect();
           _scheduleReconnect();
           return;
@@ -434,7 +435,7 @@ class SevenTvEventClient {
     _statusCtrl.add(SevenTvEventStatus.disconnected);
     _reconnectAttempt++;
     if (_reconnectAttempt > _maxReconnectAttempts) {
-      debugPrint(
+      logDebug(
         '7TV: max reconnect attempts ($_maxReconnectAttempts) reached - giving up',
       );
       _reconnecting = false;
@@ -449,7 +450,7 @@ class SevenTvEventClient {
       );
       delay = applyReconnectJitter(base);
     }
-    debugPrint(
+    logDebug(
       '7TV scheduling reconnect in ${delay.inMilliseconds}ms (attempt $_reconnectAttempt)',
     );
     Timer(delay, () {

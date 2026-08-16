@@ -12,6 +12,7 @@ import 'services/twitch_irc.dart';
 import 'services/twitch_irc_read.dart';
 import 'services/recent_messages.dart';
 import 'theme_colors.dart';
+import 'util/log.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -94,14 +95,14 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
       _trueDark = prefs.getBool('true_dark') ?? false;
       _accentKey = prefs.getString('accent_color') ?? kDefaultAccent;
     } catch (e) {
-      debugPrint('Failed to load preferences: $e');
+      logDebug('Failed to load preferences: $e');
     }
     try {
       await _twitchAuth.load();
     } catch (e) {
       // A secure-storage failure must not hang the app on the loading
       // spinner forever; fall back to anonymous.
-      debugPrint('Failed to load accounts: $e');
+      logDebug('Failed to load accounts: $e');
     }
     if (mounted) setState(() => _loaded = true);
   }

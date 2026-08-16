@@ -1,9 +1,9 @@
 import 'dart:convert';
 import 'dart:isolate';
-import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../../models/generic_emote.dart';
 import '../../util/constants.dart';
+import '../../util/log.dart';
 
 class BttvEmoteProvider {
   static Future<List<GenericEmote>> fetchGlobal({
@@ -72,7 +72,7 @@ class BttvEmoteProvider {
       if (zwField is bool) {
         isZeroWidth = zwField;
       } else if (zwField != null) {
-        debugPrint(
+        logDebug(
           'BTTV: unexpected zeroWidth field type: ${zwField.runtimeType}',
         );
       }

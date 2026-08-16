@@ -1,9 +1,9 @@
 import 'dart:convert';
-import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../twitch_config.dart';
 import '../models/twitch_badge.dart';
 import '../util/constants.dart';
+import '../util/log.dart';
 import 'twitch_auth.dart';
 
 class TwitchBadgeService {
@@ -134,7 +134,7 @@ class TwitchBadgeService {
       final avatarUrl = user['profile_image_url'] as String?;
       if (avatarUrl != null) _channelAvatars[broadcasterId] = avatarUrl;
     } catch (e) {
-      debugPrint('Channel avatar fetch error: $e');
+      logDebug('Channel avatar fetch error: $e');
     }
   }
 
@@ -156,7 +156,7 @@ class TwitchBadgeService {
       };
       final res = await http.get(uri, headers: headers).timeout(httpTimeout);
       if (res.statusCode != 200) {
-        debugPrint('Badge fetch failed (${res.statusCode}): ${res.body}');
+        logDebug('Badge fetch failed (${res.statusCode}): ${res.body}');
         return {};
       }
       final data = jsonDecode(res.body) as Map<String, dynamic>;
@@ -185,7 +185,7 @@ class TwitchBadgeService {
       }
       return sets;
     } catch (e) {
-      debugPrint('Badge fetch error: $e');
+      logDebug('Badge fetch error: $e');
       return {};
     }
   }

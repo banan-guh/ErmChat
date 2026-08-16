@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../util/log.dart';
 import '../../widgets/emote_image.dart';
 import '../../widgets/welcome_dialog.dart';
 
@@ -67,7 +68,7 @@ class _DevSettingsScreenState extends State<DevSettingsScreen> {
     final results = <String>[];
     void log(String s) {
       results.add(s);
-      debugPrint('[BENCH] $s');
+      logDebug('[BENCH] $s');
     }
 
     Future<void> runTest(String name, Uint8List bytes) async {

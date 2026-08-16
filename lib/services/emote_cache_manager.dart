@@ -9,6 +9,7 @@ import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 
 import '../models/emote_fetch_tier.dart';
+import '../util/log.dart';
 
 /// Shared HTTP client for the cache-full fallback path, reused across calls so
 /// a burst of overflow downloads doesn't spin up a connection per emote.
@@ -368,7 +369,7 @@ class EmoteCacheManager extends CacheManager {
         }
         if (victim == null) return false;
         await removeFile(victim.url);
-        debugPrint(
+        logDebug(
           '[EmoteCacheManager] evicted url=${victim.url} '
           'score=${bestScore!.toStringAsFixed(3)}',
         );

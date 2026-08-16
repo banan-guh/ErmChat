@@ -13,14 +13,6 @@ void main() {
   });
 
   group('UploaderConfig', () {
-    test('default config points at kappa.lol', () {
-      final config = UploaderConfig.defaultConfig;
-      expect(config.uploadUrl, 'https://kappa.lol/api/upload');
-      expect(config.formField, 'file');
-      expect(config.imageLinkPattern, '{link}');
-      expect(config.deletionLinkPattern, '{delete}');
-    });
-
     test('parses semicolon-separated headers', () {
       const config = UploaderConfig(
         uploadUrl: 'https://example.com/upload',

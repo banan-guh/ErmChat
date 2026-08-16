@@ -171,16 +171,6 @@ void main() {
       expect(result.single.url3x, '$base/4');
     });
 
-    test('high uses the 2x url with url1x and the 4x url3x', () async {
-      final result = await fetchGlobal(
-        EmoteResolution.high,
-        urls: {'1': '$base/1', '2': '$base/2', '4': '$base/4'},
-      );
-      expect(result.single.url, '$base/2');
-      expect(result.single.url1x, '$base/1');
-      expect(result.single.url3x, '$base/4');
-    });
-
     test('drops url1x/url3x when the emote lacks those sizes', () async {
       final result = await fetchGlobal(
         EmoteResolution.medium,

@@ -5,6 +5,7 @@ import '../models/generic_emote.dart';
 import '../models/twitch_message.dart';
 import '../services/emote_manager.dart';
 import '../services/twitch_badge_service.dart';
+import '../util/log.dart';
 import 'emote_text.dart';
 
 class MessageBuilder {
@@ -97,7 +98,7 @@ class MessageBuilder {
                     placeholder: (_, _) =>
                         SizedBox(width: badgeSize, height: badgeSize),
                     errorWidget: (_, url, error) {
-                      debugPrint(
+                      logDebug(
                         'Shared chat badge image failed: $url - $error',
                       );
                       return SizedBox(width: badgeSize, height: badgeSize);
@@ -136,7 +137,7 @@ class MessageBuilder {
                   placeholder: (_, _) =>
                       SizedBox(width: badgeSize, height: badgeSize),
                   errorWidget: (_, url, error) {
-                    debugPrint('Badge image load failed: $url - $error');
+                    logDebug('Badge image load failed: $url - $error');
                     return SizedBox(width: badgeSize, height: badgeSize);
                   },
                 ),

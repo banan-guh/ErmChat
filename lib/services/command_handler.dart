@@ -1,8 +1,8 @@
-import 'package:flutter/foundation.dart';
 import '../models/twitch_command.dart';
 import '../services/twitch_api.dart';
 import '../services/twitch_auth.dart';
 import '../services/twitch_irc.dart';
+import '../util/log.dart';
 
 class CommandHandler {
   static final _whitespaceRe = RegExp(r'\s+');
@@ -117,7 +117,7 @@ class CommandHandler {
     try {
       ok = await helixCall();
     } catch (e) {
-      debugPrint('[CommandHandler] $action failed: $e');
+      logDebug('[CommandHandler] $action failed: $e');
       ok = false;
     }
     if (ok) return true;
@@ -914,7 +914,7 @@ class CommandHandler {
           addSystemMessage(channel, '$cmd is not a known command');
       }
     } catch (e) {
-      debugPrint('[CommandHandler] $cmd failed: $e');
+      logDebug('[CommandHandler] $cmd failed: $e');
       addSystemMessage(channel, 'Command failed: ${_failureReason()}');
     }
   }

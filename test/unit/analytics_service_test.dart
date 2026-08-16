@@ -186,11 +186,6 @@ void main() {
       expect(service.totalMessages('chan'), 6);
     });
 
-    test('messages per minute is zero without messages', () {
-      final service = AnalyticsService();
-      expect(service.messagesPerMinute('chan'), 0);
-    });
-
     test('records moderation bans and timeouts', () {
       final service = AnalyticsService();
       service.recordModeration('chan', false);
@@ -199,6 +194,13 @@ void main() {
 
       expect(service.banCount('chan'), 1);
       expect(service.timeoutCount('chan'), 2);
+    });
+
+    test('unknown channels read as zero', () {
+      final service = AnalyticsService();
+      expect(service.messagesPerMinute('chan'), 0);
+      expect(service.totalMessages('other'), 0);
+      expect(service.uniqueChatters('other'), 0);
     });
 
     test('resets single channel', () {
@@ -230,14 +232,6 @@ void main() {
       service.recordModeration('chan', true);
 
       expect(notified, 2);
-    });
-
-    test('keeps channels isolated', () {
-      final service = AnalyticsService();
-      service.recordMessage('chan', msg('alice', 'hi'));
-
-      expect(service.totalMessages('other'), 0);
-      expect(service.uniqueChatters('other'), 0);
     });
   });
 }

@@ -21,6 +21,7 @@ import '../services/emote_cache_manager.dart';
 import '../services/analytics_service.dart';
 import '../services/twitch_badge_service.dart';
 import '../services/emote_providers/twitch_emotes.dart';
+import '../util/log.dart';
 import '../util/mention.dart';
 import '../util/sheet_drag.dart';
 import '../util/thread_utils.dart';
@@ -556,7 +557,7 @@ class _HomeScreenState extends State<HomeScreen>
           .timeout(const Duration(seconds: 5));
       _blockedLogins.addAll(blocked);
     } catch (e) {
-      debugPrint('[HomeScreen] failed to fetch blocked users: $e');
+      logDebug('[HomeScreen] failed to fetch blocked users: $e');
     }
     if (!mounted) return;
     _blocksReady = true;
@@ -745,7 +746,7 @@ class _HomeScreenState extends State<HomeScreen>
         _mergeHistoryIntoChannel(channel, history);
       });
     } catch (e) {
-      debugPrint('[HomeScreen] history re-fetch failed for $channel: $e');
+      logDebug('[HomeScreen] history re-fetch failed for $channel: $e');
     } finally {
       _refetchingChannels.remove(channel);
     }
@@ -1050,7 +1051,7 @@ class _HomeScreenState extends State<HomeScreen>
       await _refreshConnectivity();
       _reconcileEmoteTier();
     } catch (e) {
-      debugPrint('_loadEmotePrefs failed: $e');
+      logDebug('_loadEmotePrefs failed: $e');
     }
   }
 
@@ -1059,7 +1060,7 @@ class _HomeScreenState extends State<HomeScreen>
       final results = await _connectivity.checkConnectivity();
       _isMobile.value = results.contains(ConnectivityResult.mobile);
     } catch (e) {
-      debugPrint('connectivity check failed: $e');
+      logDebug('connectivity check failed: $e');
     }
   }
 
@@ -1109,7 +1110,7 @@ class _HomeScreenState extends State<HomeScreen>
         if (mounted) setState(() {});
       }
     } catch (e) {
-      debugPrint('_applyTier failed: $e');
+      logDebug('_applyTier failed: $e');
     }
   }
 
@@ -1142,7 +1143,7 @@ class _HomeScreenState extends State<HomeScreen>
         ),
       );
     } catch (e) {
-      debugPrint('_refreshEmotesAfterAuth failed: $e');
+      logDebug('_refreshEmotesAfterAuth failed: $e');
     }
     if (mounted) setState(() {});
   }
@@ -1154,7 +1155,7 @@ class _HomeScreenState extends State<HomeScreen>
     try {
       await EmoteCacheManager().emptyCache();
     } catch (e) {
-      debugPrint('_reloadEmotes: cache clear failed: $e');
+      logDebug('_reloadEmotes: cache clear failed: $e');
     }
     await _refreshEmotesAfterAuth();
     if (!mounted) return;
@@ -1215,7 +1216,7 @@ class _HomeScreenState extends State<HomeScreen>
         perOwner[entry.key] = entry.value;
       }
       if (perOwner.isEmpty) {
-        debugPrint(
+        logDebug(
           '_loadUserEmoteSets: ${newSetIds.length} sets fetched, no channel emotes',
         );
         return;
@@ -1223,7 +1224,7 @@ class _HomeScreenState extends State<HomeScreen>
       await _ensureEmoteOwnerLogins(perOwner.keys.toList());
       final targets = channel != null ? [channel] : List.of(_channels);
       if (targets.isEmpty) {
-        debugPrint('_loadUserEmoteSets: no channel targets (channel=$channel)');
+        logDebug('_loadUserEmoteSets: no channel targets (channel=$channel)');
         return;
       }
       final perChannel = <String, List<GenericEmote>>{};
@@ -1248,7 +1249,7 @@ class _HomeScreenState extends State<HomeScreen>
       }
       await _emoteManager.storeUserTwitchEmotes(perChannel);
     } catch (e) {
-      debugPrint('_loadUserEmoteSets failed: $e');
+      logDebug('_loadUserEmoteSets failed: $e');
     } finally {
       // Leave successfully fetched IDs marked; failed IDs drop out of the
       // in-flight set so the next USERSTATE/GLOBALUSERSTATE retries them.
@@ -1279,7 +1280,7 @@ class _HomeScreenState extends State<HomeScreen>
       );
       _emoteOwnerLogins.addAll(resolved);
     } catch (e) {
-      debugPrint('_ensureEmoteOwnerLogins failed: $e');
+      logDebug('_ensureEmoteOwnerLogins failed: $e');
     }
   }
 
@@ -1799,7 +1800,7 @@ class _HomeScreenState extends State<HomeScreen>
           _maybeAddConnected(name);
         });
 
-    debugPrint('[HomeScreen] joining channel: $name');
+    logDebug('[HomeScreen] joining channel: $name');
     await _subscribeChannel(name);
 
     if (mounted) setState(() {});
@@ -2016,7 +2017,7 @@ class _HomeScreenState extends State<HomeScreen>
     try {
       await _commandHandler.handle(text, channel, auth);
     } catch (e) {
-      debugPrint('[HomeScreen] command failed: $e');
+      logDebug('[HomeScreen] command failed: $e');
       _addSystemMessage(channel, 'Command failed: $e');
     }
   }

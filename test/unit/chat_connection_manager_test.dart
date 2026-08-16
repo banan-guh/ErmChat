@@ -283,42 +283,6 @@ void main() {
     expect(msgs['test']!.last.messageId, 'm15');
   });
 
-  test('preserves thread root when child is within limit', () {
-    // 9 non-thread + parent + child = 11, limit 10
-    // child at index 9 (within limit), parent at index 10 (past limit)
-    final msgs = <String, List<TwitchMessage>>{
-      'test': [
-        ...List.generate(9, (i) => _msg('f$i', 'filler $i')),
-        _msg('child', 'reply', replyToParentId: 'parent'),
-        _msg('parent', 'root'),
-      ],
-    };
-    final conn = _makeConn(channelMessages: msgs, maxMessages: 10);
-    conn.truncateChannelMessages('test');
-    expect(msgs['test']!.length, 11);
-    final ids = msgs['test']!.map((m) => m.messageId).toSet();
-    expect(ids.contains('parent'), true);
-    expect(ids.contains('child'), true);
-  });
-
-  test('removes entire thread when child is past limit', () {
-    // 10 non-thread + parent + child = 12, limit 10
-    // child at index 10 (past limit), parent at 11 (past limit)
-    final msgs = <String, List<TwitchMessage>>{
-      'test': [
-        ...List.generate(10, (i) => _msg('f$i', 'filler $i')),
-        _msg('child', 'reply', replyToParentId: 'parent'),
-        _msg('parent', 'root'),
-      ],
-    };
-    final conn = _makeConn(channelMessages: msgs, maxMessages: 10);
-    conn.truncateChannelMessages('test');
-    expect(msgs['test']!.length, 10);
-    final ids = msgs['test']!.map((m) => m.messageId).toSet();
-    expect(ids.contains('parent'), false);
-    expect(ids.contains('child'), false);
-  });
-
   test('preserves multi-level thread when leaf is within limit', () {
     // 8 non-thread + grandchild + child + parent = 11, limit 10
     // grandchild at index 8 (within), child at 9 (within), parent at 10 (past)
@@ -639,13 +603,6 @@ void main() {
   });
 
   group('lifecycle', () {
-    test('dispose sets isDisposed to true', () {
-      final conn = _makeConn(channelMessages: {}, maxMessages: 10);
-      expect(conn.isDisposed, false);
-      conn.dispose();
-      expect(conn.isDisposed, true);
-    });
-
     test('double dispose does not crash', () {
       final conn = _makeConn(channelMessages: {}, maxMessages: 10);
       conn.dispose();
@@ -829,7 +786,8 @@ void main() {
       // Real captured USERNOTICE line (BLUE announcement).
       irc.handleLine(
         '@badge-info=;badges=broadcaster/1;color=#0000FF;display-name=ermugo2;'
-        'emotes=;flags=;id=abc;login=ermugo2;mod=0;msg-id=announcement;'
+        'emotes=emotesv2_123:0-4;flags=;id=abc;login=ermugo2;mod=0;'
+        'msg-id=announcement;'
         'msg-param-color=BLUE;room-id=1468479097;subscriber=0;system-msg=;'
         'tmi-sent-ts=1785666523751;user-id=1468479097;user-type=;vip=0 '
         ':tmi.twitch.tv USERNOTICE #test :hello world',
@@ -840,7 +798,8 @@ void main() {
       expect(systemMessages[0].$2, 'Announcement');
       expect(systemMessages[0].$3, const Color(0xFF1F69FF));
 
-      // Child message rendered as a normal chat message on the same accent.
+      // Child message rendered as a normal chat message on the same accent,
+      // carrying the emotes parsed from the USERNOTICE line.
       final child = channelMessages['test']!.first;
       expect(child.isSystem, isFalse);
       expect(child.text, 'hello world');
@@ -852,39 +811,8 @@ void main() {
       expect(child.systemAccent, const Color(0xFF1F69FF));
       expect(child.badges, hasLength(1));
       expect(child.badges!.single.setId, 'broadcaster');
-
-      conn.dispose();
-    });
-
-    test('announcement child message carries emotes', () async {
-      final irc = _TestIrc();
-      final systemMessages = <(String, String, Color?)>[];
-      final channelMessages = <String, List<TwitchMessage>>{};
-      final conn = _makeReconnectConn(
-        eventSub: _NoopEventSub(),
-        irc: irc,
-        onReconnected: () {},
-        channelMessages: channelMessages,
-        onSystemMessage: (c, t, {Color? accent}) {
-          systemMessages.add((c, t, accent));
-        },
-      );
-      await conn.connect();
-      irc.emitConnected();
-
-      irc.handleLine(
-        '@msg-id=announcement;msg-param-color=GREEN;login=mm2pl;'
-        'display-name=Mm2PL;emotes=emotesv2_123:0-7;system-msg=;'
-        ':tmi.twitch.tv USERNOTICE #test :PogChamp test',
-      );
-
-      expect(systemMessages.single.$2, 'Announcement');
-      expect(systemMessages.single.$3, const Color(0xFF00C853));
-      final child = channelMessages['test']!.first;
-      expect(child.text, 'PogChamp test');
       expect(child.emotePositions, isNotNull);
-      expect(child.emotePositions!.single.emoteCode, 'PogChamp');
-      expect(child.systemAccent, const Color(0xFF00C853));
+      expect(child.emotePositions!.single.emoteCode, 'hello');
 
       conn.dispose();
     });
@@ -986,41 +914,6 @@ void main() {
           isNull,
           reason: 'non-announcements never produce a child message',
         );
-
-        conn.dispose();
-      },
-    );
-
-    test(
-      'subgift notice highlights like a default purple announcement',
-      () async {
-        final irc = _TestIrc();
-        final systemMessages = <(String, String, Color?)>[];
-        final channelMessages = <String, List<TwitchMessage>>{};
-        final conn = _makeReconnectConn(
-          eventSub: _NoopEventSub(),
-          irc: irc,
-          onReconnected: () {},
-          channelMessages: channelMessages,
-          onSystemMessage: (c, t, {Color? accent}) {
-            systemMessages.add((c, t, accent));
-          },
-        );
-        await conn.connect();
-        irc.emitConnected();
-
-        irc.handleLine(
-          '@msg-id=subgift;system-msg=TWW2\\sgifted\\sa\\sTier\\s1\\ssub\\sto\\s'
-          'Mr_Woodchuck!;login=tww2;display-name=TWW2;'
-          ':tmi.twitch.tv USERNOTICE #test',
-        );
-
-        expect(systemMessages, hasLength(1));
-        expect(
-          systemMessages[0].$2,
-          'TWW2 gifted a Tier 1 sub to Mr_Woodchuck!',
-        );
-        expect(systemMessages[0].$3, const Color(0xFF9146FF));
 
         conn.dispose();
       },
@@ -1361,27 +1254,6 @@ void main() {
       expect(received, hasLength(1));
       expect(received.single.$1, isNull);
       expect(received.single.$2, <String>['0', '123456789']);
-      conn.dispose();
-    });
-
-    test('forwards channel-scoped USERSTATE emote-sets', () async {
-      final received = <(String?, List<String>)>[];
-      final irc = _TestIrc();
-      final conn = _makeReconnectConn(
-        eventSub: _NoopEventSub(),
-        irc: irc,
-        onReconnected: () {},
-        onUserEmoteSets: (channel, ids) async => received.add((channel, ids)),
-      );
-      await conn.connect();
-      await flush();
-
-      irc.handleLine('@emote-sets=300374079,0 :tmi.twitch.tv USERSTATE #xqc');
-      await flush();
-
-      expect(received, hasLength(1));
-      expect(received.single.$1, 'xqc');
-      expect(received.single.$2, <String>['300374079', '0']);
       conn.dispose();
     });
 

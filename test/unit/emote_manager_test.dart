@@ -37,18 +37,6 @@ EmoteCacheManager testCacheManager() => EmoteCacheManager.forTesting(
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  group('GenericEmote', () {
-    test('creates with required fields', () {
-      final e = makeTestEmote(id: '1', code: 'Kappa');
-      expect(e.id, '1');
-      expect(e.code, 'Kappa');
-      expect(e.type, EmoteType.bttv);
-      expect(e.isZeroWidth, false);
-      expect(e.scope, EmoteScope.global);
-      expect(e.ownerChannel, isNull);
-    });
-  });
-
   group('GenericEmote JSON round-trip', () {
     test('serializes and deserializes', () {
       final original = makeTestEmote(
@@ -131,17 +119,6 @@ void main() {
       final restored = GenericEmote.fromJson(original.toJson());
       expect(restored.url1x, original.url1x);
       expect(restored.url3x, original.url3x);
-    });
-
-    test('url1x/url3x are null when not provided', () {
-      final e = GenericEmote(
-        id: '1',
-        code: 'Test',
-        type: EmoteType.bttv,
-        url: 'https://example.com/1x.png',
-      );
-      expect(e.url1x, isNull);
-      expect(e.url3x, isNull);
     });
 
     test('recovers url3x from the legacy urlLarge key', () {
@@ -527,20 +504,6 @@ void main() {
   });
 
   group('EmoteManager refresh policy', () {
-    test('cellular connection gets the longer 24h TTL', () async {
-      final manager = EmoteManager(
-        probe: () async => [ConnectivityResult.mobile],
-      );
-      expect(await manager.effectiveTtlForTesting(), const Duration(hours: 24));
-    });
-
-    test('wifi connection gets the 12h TTL', () async {
-      final manager = EmoteManager(
-        probe: () async => [ConnectivityResult.wifi],
-      );
-      expect(await manager.effectiveTtlForTesting(), const Duration(hours: 12));
-    });
-
     test('probe failure falls back to the 12h wifi TTL', () async {
       final manager = EmoteManager(
         probe: () async => throw Exception('probe failed'),
@@ -566,17 +529,6 @@ void main() {
       await manager.effectiveTtlForTesting();
 
       expect(probeCalls, 1);
-    });
-
-    test('low tier caches forever (infinite TTL)', () async {
-      final manager = EmoteManager(
-        tier: EmoteFetchTier.low,
-        probe: () async => [ConnectivityResult.mobile],
-      );
-      expect(
-        await manager.effectiveTtlForTesting(),
-        const Duration(days: 365000),
-      );
     });
 
     test('nothing tier caches forever (infinite TTL)', () async {

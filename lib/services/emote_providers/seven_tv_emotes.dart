@@ -1,9 +1,9 @@
 import 'dart:convert';
 import 'dart:isolate';
-import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../../models/generic_emote.dart';
 import '../../util/constants.dart';
+import '../../util/log.dart';
 
 class SevenTvChannelResponse {
   final List<GenericEmote> emotes;
@@ -152,7 +152,7 @@ class SevenTvEmoteProvider {
       if (flags is int) {
         isZeroWidth = (flags & _zeroWidthFlag) != 0;
       } else if (flags != null) {
-        debugPrint(
+        logDebug(
           '7TV: unexpected flags type: ${flags.runtimeType} (value: $flags)',
         );
       }

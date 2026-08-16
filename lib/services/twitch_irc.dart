@@ -4,6 +4,7 @@ import '../color_utils.dart';
 import '../models/twitch_badge.dart';
 import '../models/twitch_message.dart';
 import '../util/irc_utils.dart';
+import '../util/log.dart';
 import 'base_irc_connection.dart';
 
 final _loneLowSurrogateRe = RegExp(r'[\uDC00-\uDFFF]');
@@ -697,7 +698,7 @@ IrcMessage? parseIrcMessage(String line) {
       trailing: trailing,
     );
   } catch (_) {
-    debugPrint('[parseIrcMessage] failed to parse line: $line');
+    logDebug('[parseIrcMessage] failed to parse line: $line');
     return null;
   }
 }

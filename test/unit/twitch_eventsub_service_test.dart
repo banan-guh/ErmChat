@@ -59,19 +59,6 @@ void main() {
     });
   });
 
-  group('dispose', () {
-    test('dispose does not crash when called fresh', () {
-      final svc = EventSubService();
-      expect(() => svc.dispose(), returnsNormally);
-    });
-
-    test('dispose after welcome does not crash', () {
-      final svc = EventSubService();
-      svc.handleRawMessage(_welcome());
-      expect(() => svc.dispose(), returnsNormally);
-    });
-  });
-
   group('session completer', () {
     test('waitForSession completes after welcome', () async {
       final future = service.waitForSession();

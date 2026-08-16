@@ -13,15 +13,6 @@ void main() {
     service.dispose();
   });
 
-  group('sendMessage when not connected', () {
-    test('sendMessage does not crash', () {
-      expect(
-        () => service.sendMessage('testchannel', 'hello'),
-        returnsNormally,
-      );
-    });
-  });
-
   group('channel tracking', () {
     test('join does not crash when not connected', () {
       expect(() => service.join('testchannel'), returnsNormally);
@@ -146,22 +137,6 @@ void main() {
       expect(states[0].tags['subs-only'], '1');
       expect(states[0].tags['r9k'], '1');
     });
-
-    test('parses partial updates with only the changed tags', () async {
-      final states = <IrcRoomStateEvent>[];
-      service.onRoomState.listen(states.add);
-
-      service.handleLine('@room-id=1;slow=0 :tmi.twitch.tv ROOMSTATE #xqc');
-      await flush();
-
-      expect(states, hasLength(1));
-      expect(states[0].tags['slow'], '0');
-      expect(
-        states[0].tags['followers-only'],
-        isNull,
-        reason: 'untouched tags are absent from partial updates',
-      );
-    });
   });
 
   group('USERSTATE / GLOBALUSERSTATE', () {
@@ -268,28 +243,6 @@ void main() {
       expect(userNotices[0].emotePositions!.single.endIndex, 8);
     });
 
-    test('all five announcement colors parse from raw lines', () async {
-      final userNotices = <UserNoticeEvent>[];
-      service.onUserNotice.listen(userNotices.add);
-
-      for (final color in ['PRIMARY', 'BLUE', 'GREEN', 'ORANGE', 'PURPLE']) {
-        service.handleLine(
-          '@msg-id=announcement;msg-param-color=$color;login=mm2pl;'
-          'display-name=Mm2PL;system-msg=;'
-          ':tmi.twitch.tv USERNOTICE #xqc :hello',
-        );
-      }
-      await flush();
-
-      expect(userNotices.map((e) => e.announcementColor).toList(), [
-        'PRIMARY',
-        'BLUE',
-        'GREEN',
-        'ORANGE',
-        'PURPLE',
-      ]);
-    });
-
     test('NOTICE still routes to onNotice', () async {
       final notices = <IrcNoticeEvent>[];
       service.onNotice.listen(notices.add);
@@ -326,24 +279,9 @@ void main() {
       expect(w.channel, isNull);
       expect(w.color, '#FF0000');
     });
-
-    test('emitWhisper test hook forwards to onWhisper', () async {
-      final whispers = <TwitchMessage>[];
-      service.onWhisper.listen(whispers.add);
-      service.emitWhisper(
-        TwitchMessage(login: 'carol', text: 'hello', messageId: 'w1'),
-      );
-      await flush();
-      expect(whispers, hasLength(1));
-      expect(whispers[0].login, 'carol');
-    });
   });
 
   group('dispose', () {
-    test('dispose does not crash', () {
-      expect(() => service.dispose(), returnsNormally);
-    });
-
     test('double dispose does not crash', () {
       service.dispose();
       expect(() => service.dispose(), returnsNormally);

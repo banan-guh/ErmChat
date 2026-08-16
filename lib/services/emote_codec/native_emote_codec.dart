@@ -6,6 +6,7 @@ import 'dart:ui' as ui;
 import 'package:ffi/ffi.dart';
 import 'package:flutter/foundation.dart';
 
+import '../../util/log.dart';
 import '../../widgets/emote_image.dart';
 
 typedef NativeDecodeWebp =
@@ -105,12 +106,12 @@ class NativeEmoteCodec {
         'emote_free_frames',
       );
       _available = true;
-      debugPrint(
+      logDebug(
         '[NativeEmoteCodec] loaded (${_libPath() ?? 'process symbols'})',
       );
     } catch (e) {
       _available = false;
-      debugPrint('[NativeEmoteCodec] unavailable: $e');
+      logDebug('[NativeEmoteCodec] unavailable: $e');
     }
     return _available!;
   }

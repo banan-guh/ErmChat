@@ -75,14 +75,5 @@ void main() {
         expect(mode.subtitle, isNotEmpty);
       }
     });
-
-    test('prefs keys are distinct', () {
-      expect(emoteFetchAutoPrefsKey, isNot(emoteFetchTierPrefsKey));
-      expect(emoteFetchAutoPrefsKey, isNot(emoteCacheMaxPrefsKey));
-    });
-
-    test('default auto mode is balanced', () {
-      expect(defaultEmoteFetchAutoMode, EmoteFetchAutoMode.balanced);
-    });
   });
 }

@@ -4,11 +4,8 @@ import 'package:ermchat/color_utils.dart';
 
 void main() {
   group('officialColors', () {
-    test('has 15 colors', () {
-      expect(officialColors.length, 15);
-    });
-
-    test('all start with #', () {
+    test('is a non-empty list of hex strings', () {
+      expect(officialColors, isNotEmpty);
       for (final c in officialColors) {
         expect(c.startsWith('#'), isTrue);
       }

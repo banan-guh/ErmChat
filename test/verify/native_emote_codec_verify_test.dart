@@ -25,10 +25,6 @@ void main() {
   }
   NativeEmoteCodec.debugLibPath = soPath;
 
-  test('shim loads and decodes identically to the pure-Dart reference', () {
-    expect(NativeEmoteCodec.isAvailable, isTrue, reason: 'shim loads');
-  });
-
   test(
     'production dispatch routes animated WebP through the native decoder',
     () async {

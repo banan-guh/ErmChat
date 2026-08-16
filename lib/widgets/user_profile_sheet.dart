@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../services/twitch_api.dart';
 import '../services/twitch_auth.dart';
+import '../util/log.dart';
 
 class UserProfileSheet extends StatefulWidget {
   final String username;
@@ -93,7 +94,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
       final dt = DateTime.parse(iso);
       return '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
     } catch (_) {
-      debugPrint('[UserProfileSheet] failed to parse date: $iso');
+      logDebug('[UserProfileSheet] failed to parse date: $iso');
       return iso;
     }
   }
