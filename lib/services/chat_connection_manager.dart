@@ -243,6 +243,10 @@ class ChatConnectionManager {
   };
   bool isDisposed = false;
   bool _isConnecting = false;
+  // Set when a connect() call is dropped by the re-entrancy guard above (e.g.
+  // a login landing while a startup connect is still in-flight). Drained at
+  // the end of the in-flight connect so the dropped credentials are honored.
+  bool _connectRetryRequested = false;
   final _recentBanMeta = <String, List<_BanMeta>>{};
   static const _banDedupWindowSeconds = 10;
   static final _spaceRe = RegExp(r'\s+');
@@ -1077,7 +1081,11 @@ class ChatConnectionManager {
   }
 
   Future<void> connect() async {
-    if (_isConnecting || isDisposed) return;
+    if (isDisposed) return;
+    if (_isConnecting) {
+      _connectRetryRequested = true;
+      return;
+    }
     _isConnecting = true;
     try {
       final auth = twitchAuth;
@@ -1236,6 +1244,15 @@ class ChatConnectionManager {
       await eventSubFuture;
     } finally {
       _isConnecting = false;
+      // A connect dropped by the re-entrancy guard (e.g. a login landing
+      // while a startup connect is still in-flight) is re-run now that the
+      // current connect finished, so the dropped credentials are honored
+      // instead of the app staying on the previous (or anonymous) account
+      // until a restart.
+      if (!isDisposed && _connectRetryRequested) {
+        _connectRetryRequested = false;
+        unawaited(connect());
+      }
     }
   }
 

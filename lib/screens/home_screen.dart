@@ -448,6 +448,49 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
+  void _setMaxMessagesPerChannel(int value) {
+    if (_maxMessagesPerChannel == value) return;
+    setState(() => _maxMessagesPerChannel = value);
+    // Apply a lower cap immediately instead of waiting for the next incoming
+    // message to hit the truncation path.
+    for (final channel in List.of(_channels)) {
+      _chatConn.truncateChannelMessages(channel);
+      _bumpChannel(channel);
+    }
+  }
+
+  void _setRecentMessagesLimit(int value) {
+    if (_recentMessagesLimit == value) return;
+    setState(() => _recentMessagesLimit = value);
+  }
+
+  void _setReplyToRoot(bool value) {
+    if (_replyToRoot == value) return;
+    setState(() => _replyToRoot = value);
+  }
+
+  void _setPreferEmotesFirst(bool value) {
+    if (_preferEmotesFirst == value) return;
+    setState(() => _preferEmotesFirst = value);
+  }
+
+  void _setShowTimestamps(bool value) {
+    if (_showTimestamps == value) return;
+    setState(() => _showTimestamps = value);
+    // Rendered tiles bake the timestamp setting in; re-render all channels.
+    for (final channel in List.of(_channels)) {
+      _bumpChannel(channel);
+    }
+  }
+
+  void _setTimestampFormat(String value) {
+    if (_timestampFormat == value) return;
+    setState(() => _timestampFormat = value);
+    for (final channel in List.of(_channels)) {
+      _bumpChannel(channel);
+    }
+  }
+
   Future<void> _initForegroundService() async {
     initForegroundService();
     await requestForegroundPermissions();
@@ -491,6 +534,7 @@ class _HomeScreenState extends State<HomeScreen>
       final newIdx = _channels.indexOf(_selectedChannel!);
       if (newIdx >= 0) _selectedTabIndex.value = newIdx;
     }
+    if (mounted) setState(() {});
     _saveChannels();
   }
 
@@ -960,6 +1004,18 @@ class _HomeScreenState extends State<HomeScreen>
       // re-resolves the active account and reconnects with its credentials.
       _currentUserLogin = null;
       _currentUserId = null;
+      // The emote-set / block / mention caches are per-account: reset them so
+      // the new account's USERSTATE re-fetches its sub emotes (instead of the
+      // old account's set IDs being deduped out), blocks are re-fetched, the
+      // retroactive mention scan re-runs, and channels re-resolve emotes with
+      // the new token.
+      _fetchedEmoteSetIds.clear();
+      _inflightEmoteSetIds.clear();
+      _emoteOwnerLogins.clear();
+      _emoteOwnerLookupDone = false;
+      _blocksFetched = false;
+      _mentionScanDone = false;
+      _channelsEmotesResolved.clear();
       _scanHistoryForMentions();
       unawaited(_ensureBlockedUsersLoaded());
     }
@@ -1901,13 +1957,22 @@ class _HomeScreenState extends State<HomeScreen>
             widget.onThemeChanged(mode);
           },
           onKeepScreenOnChanged: widget.onKeepScreenOnChanged,
-          onTrueDarkChanged: widget.onTrueDarkChanged,
+          onTrueDarkChanged: (value) {
+            _tileCache.clear();
+            widget.onTrueDarkChanged?.call(value);
+          },
           onAccentColorChanged: (name) {
             _tileCache.clear();
             widget.onAccentColorChanged?.call(name);
           },
           onBackgroundServiceChanged: _setBackgroundService,
           onMentionPushChanged: _setMentionPush,
+          onMaxMessagesPerChannelChanged: _setMaxMessagesPerChannel,
+          onRecentMessagesChanged: _setRecentMessagesLimit,
+          onReplyToRootChanged: _setReplyToRoot,
+          onPreferEmotesFirstChanged: _setPreferEmotesFirst,
+          onShowTimestampsChanged: _setShowTimestamps,
+          onTimestampFormatChanged: _setTimestampFormat,
           onEmoteTierChanged: _applyEmoteTier,
           onEmoteCacheMaxChanged: _applyCacheCap,
           onEmoteAutoModeChanged: _applyEmoteAutoMode,

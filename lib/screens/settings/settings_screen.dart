@@ -19,6 +19,12 @@ class SettingsScreen extends StatelessWidget {
   final ValueChanged<String>? onAccentColorChanged;
   final ValueChanged<bool>? onBackgroundServiceChanged;
   final ValueChanged<bool>? onMentionPushChanged;
+  final ValueChanged<int>? onMaxMessagesPerChannelChanged;
+  final ValueChanged<int>? onRecentMessagesChanged;
+  final ValueChanged<bool>? onReplyToRootChanged;
+  final ValueChanged<bool>? onPreferEmotesFirstChanged;
+  final ValueChanged<bool>? onShowTimestampsChanged;
+  final ValueChanged<String>? onTimestampFormatChanged;
   final ValueChanged<int>? onEmoteTierChanged;
   final ValueChanged<int>? onEmoteCacheMaxChanged;
   final ValueChanged<EmoteFetchAutoMode>? onEmoteAutoModeChanged;
@@ -40,6 +46,12 @@ class SettingsScreen extends StatelessWidget {
     this.onAccentColorChanged,
     this.onBackgroundServiceChanged,
     this.onMentionPushChanged,
+    this.onMaxMessagesPerChannelChanged,
+    this.onRecentMessagesChanged,
+    this.onReplyToRootChanged,
+    this.onPreferEmotesFirstChanged,
+    this.onShowTimestampsChanged,
+    this.onTimestampFormatChanged,
     this.onEmoteTierChanged,
     this.onEmoteCacheMaxChanged,
     this.onEmoteAutoModeChanged,
@@ -101,6 +113,13 @@ class SettingsScreen extends StatelessWidget {
                 builder: (_) => ChatSettingsScreen(
                   onBackgroundServiceChanged: onBackgroundServiceChanged,
                   onMentionPushChanged: onMentionPushChanged,
+                  onMaxMessagesPerChannelChanged:
+                      onMaxMessagesPerChannelChanged,
+                  onRecentMessagesChanged: onRecentMessagesChanged,
+                  onReplyToRootChanged: onReplyToRootChanged,
+                  onPreferEmotesFirstChanged: onPreferEmotesFirstChanged,
+                  onShowTimestampsChanged: onShowTimestampsChanged,
+                  onTimestampFormatChanged: onTimestampFormatChanged,
                 ),
               ),
             ),

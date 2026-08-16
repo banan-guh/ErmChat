@@ -7,11 +7,23 @@ import 'pings_screen.dart';
 class ChatSettingsScreen extends StatefulWidget {
   final ValueChanged<bool>? onBackgroundServiceChanged;
   final ValueChanged<bool>? onMentionPushChanged;
+  final ValueChanged<int>? onMaxMessagesPerChannelChanged;
+  final ValueChanged<int>? onRecentMessagesChanged;
+  final ValueChanged<bool>? onReplyToRootChanged;
+  final ValueChanged<bool>? onPreferEmotesFirstChanged;
+  final ValueChanged<bool>? onShowTimestampsChanged;
+  final ValueChanged<String>? onTimestampFormatChanged;
 
   const ChatSettingsScreen({
     super.key,
     this.onBackgroundServiceChanged,
     this.onMentionPushChanged,
+    this.onMaxMessagesPerChannelChanged,
+    this.onRecentMessagesChanged,
+    this.onReplyToRootChanged,
+    this.onPreferEmotesFirstChanged,
+    this.onShowTimestampsChanged,
+    this.onTimestampFormatChanged,
   });
 
   @override
@@ -100,6 +112,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(kTimestampFormatPrefKey, selected);
     if (mounted) setState(() => _timestampFormat = selected);
+    widget.onTimestampFormatChanged?.call(selected);
   }
 
   @override
@@ -131,6 +144,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
                   final prefs = await SharedPreferences.getInstance();
                   await prefs.setInt('max_messages_per_channel', v);
                   if (mounted) setState(() => _maxMessagesPerChannel = v);
+                  widget.onMaxMessagesPerChannelChanged?.call(v);
                 },
               ),
             ],
@@ -156,6 +170,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
                   final prefs = await SharedPreferences.getInstance();
                   await prefs.setInt('recent_messages_limit', v);
                   if (mounted) setState(() => _recentMessagesCount = v);
+                  widget.onRecentMessagesChanged?.call(v);
                 },
               ),
             ],
@@ -182,6 +197,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
               final prefs = await SharedPreferences.getInstance();
               await prefs.setBool('reply_to_thread_root', value);
               if (mounted) setState(() => _replyToRoot = value);
+              widget.onReplyToRootChanged?.call(value);
             },
           ),
           SwitchListTile(
@@ -193,6 +209,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
               final prefs = await SharedPreferences.getInstance();
               await prefs.setBool('prefer_emotes_first', value);
               if (mounted) setState(() => _preferEmotesFirst = value);
+              widget.onPreferEmotesFirstChanged?.call(value);
             },
           ),
           SwitchListTile(
@@ -204,6 +221,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
               final prefs = await SharedPreferences.getInstance();
               await prefs.setBool(kShowTimestampsPrefKey, value);
               if (mounted) setState(() => _showTimestamps = value);
+              widget.onShowTimestampsChanged?.call(value);
             },
           ),
           ListTile(
