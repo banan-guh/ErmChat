@@ -2,13 +2,34 @@ import 'dart:async';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
-import 'package:connectivity_plus/connectivity_plus.dart';
+import 'connectivity_service.dart';
 import '../util/constants.dart';
+import '../util/irc_utils.dart';
 import '../util/log.dart';
 
 enum IrcConnectionStatus { disconnected, connecting, connected }
 
-abstract class BaseIrcConnection {
+/// Which socket this connection is: the chat write socket or the read-only
+/// socket. Mirrors DankChat's ChatConnectionType: the connection loop,
+/// keepalive, JOIN handling and backoff are identical for both; only the
+/// message semantics differ (the write socket sends PRIVMSG, the read socket
+/// only watches for own echoes).
+enum IrcSocketRole { read, write }
+
+final _loneLowSurrogateRe = RegExp(r'[\uDC00-\uDFFF]');
+final _orphanedHighSurrogateRe = RegExp(r'[\uD800-\uDBFF](?![\uDC00-\uDFFF])');
+
+/// A single Twitch IRC connection. One instance per socket (write + read);
+/// both share this class and differ only in [role].
+///
+/// The whole lifecycle - initial connect AND every reconnect - is a single
+/// loop guarded by a generation counter (the semaphore). [connect] starts one
+/// run; a failure backs off (1s/2s/4s/8s capped, retrying forever) inside that
+/// same loop and retries. There is no separate reconnect path that could race
+/// the initial connect: exactly one run can open a socket at a time, and a
+/// new [connect]/[forceReconnect]/[disconnect] bumps the generation to
+/// invalidate any run still in flight.
+abstract class IrcConnection {
   static const _wsUrl = 'wss://irc-ws.chat.twitch.tv:443';
   // DankChat-style backoff: delays are 1s, 2s, 4s, then capped at 8s,
   // retrying forever (no give-up). The cap is the max attempt used for the
@@ -24,16 +45,30 @@ abstract class BaseIrcConnection {
   // connection dead and reconnect.
   static const _keepalivePongTimeout = Duration(seconds: 30);
   // Upper bound on the connect handshake. Without it a reconnect over a dead
-  // network can hang forever while `_connecting` blocks every further attempt.
+  // network can hang forever while the loop waits on an attempt.
   static const _connectTimeout = Duration(seconds: 10);
+  // JOIN rate limiting: Twitch throttles connections that fire JOINs too
+  // fast. Bursts are kept small and spaced out; the ROOMSTATE sweep re-sends
+  // any JOIN the server silently dropped.
+  static const _joinTickInterval = Duration(seconds: 2);
+  static const _joinMaxPerTick = 20;
+  // ROOMSTATE echoes a processed JOIN; a channel that hasn't confirmed within
+  // this window is re-sent (up to a few rounds, then we stop nagging).
+  static const _joinConfirmInterval = Duration(seconds: 10);
+  static const _joinSweepMaxRounds = 4;
 
-  final Connectivity? connectivity;
+  final ConnectivityService? connectivityService;
+  final IrcSocketRole role;
 
   WebSocketChannel? channel;
   String? username;
   String? token;
-  bool _reconnecting = false;
-  bool _connecting = false;
+
+  // Generation counter: the connect/reconnect semaphore. Every connect(),
+  // forceReconnect() and disconnect() bumps it, invalidating any run still in
+  // flight so exactly one loop can ever open a socket.
+  int _runGeneration = 0;
+
   bool _disposed = false;
   int _reconnectAttempt = 0;
   bool _awaitingPong = false;
@@ -41,15 +76,34 @@ abstract class BaseIrcConnection {
   // sends; a PONG is only accepted for the exact token it echoes.
   final _pingAwaiters = <String, Completer<bool>>{};
   int _pingSeq = 0;
-  StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
-  bool _isOnline = true;
+  VoidCallback? _connectivityListener;
+  bool _wasOnline = true;
   final _channels = <String>{};
+  // Channels whose JOIN was sent but not yet confirmed: Twitch may silently
+  // drop JOINs fired in a burst right after connect, so anything the server
+  // hasn't echoed back as ROOMSTATE gets re-sent by the sweep.
+  final _joinPending = <String>{};
+  // Channels the server confirmed via ROOMSTATE for this socket.
+  final _joinConfirmed = <String>{};
+  // JOINs waiting behind the rate limiter.
+  final _joinQueue = <String>[];
+  Timer? _joinFlushTimer;
+  Timer? _joinSweepTimer;
+  int _joinSweepRound = 0;
 
   StreamSubscription<dynamic>? _streamSub;
   Timer? _pingTimer;
   Timer? _pongTimer;
   Timer? _connectTimer;
-  Timer? _reconnectTimer;
+  // The backoff sleep of the running loop: cancelled by _disconnect() and
+  // completed early by the connectivity accelerator (online again -> retry
+  // now instead of waiting out the remaining delay).
+  Timer? _sleepTimer;
+  Completer<_WakeReason>? _sleepCompleter;
+  // Completes when the serving socket dies; awaited by _attemptConnect so the
+  // loop knows the attempt is over.
+  Completer<_DeathReason>? _socketDeath;
+  bool _attemptInFlight = false;
 
   final _statusController = StreamController<IrcConnectionStatus>.broadcast(
     sync: true,
@@ -60,7 +114,7 @@ abstract class BaseIrcConnection {
 
   String get debugPrefix;
 
-  BaseIrcConnection({this.connectivity});
+  IrcConnection({this.connectivityService, this.role = IrcSocketRole.write});
 
   /// Emits a status event, no-oping after [dispose] so a racing connect or
   /// reconnect can never throw on the closed controller.
@@ -69,64 +123,88 @@ abstract class BaseIrcConnection {
     _statusController.add(status);
   }
 
+  /// Starts the connection loop. Returns a future that completes once the
+  /// first attempt has settled (connected or failed); the loop keeps running
+  /// in the background, backing off and retrying until an explicit
+  /// [disconnect]/[dispose] (or a new [connect]) supersedes it.
   Future<void> connect({
     required String username,
     required String accessToken,
-  }) async {
+  }) {
+    if (_disposed) return Future.value();
     this.username = username.toLowerCase();
     token = accessToken;
-    await _connect();
+    if (isConnected) {
+      logDebug('[$debugPrefix] already connected, skipping reconnect');
+      return Future.value();
+    }
+    _runGeneration++;
+    final firstSettled = Completer<void>();
+    unawaited(_run(_runGeneration, firstSettled));
+    return firstSettled.future;
   }
 
-  Future<void> _connect() async {
-    if (_connecting) return;
-    _connecting = true;
-    try {
-      if (isConnected) {
-        logDebug('[$debugPrefix] already connected, skipping reconnect');
-        return;
+  Future<void> _run(int gen, Completer<void> firstSettled) async {
+    var settled = false;
+    void settle() {
+      if (!settled) {
+        settled = true;
+        firstSettled.complete();
       }
-      _emitStatus(IrcConnectionStatus.connecting);
-      _ensureConnectivityListener();
-      _disconnect();
-      _awaitingPong = false;
+    }
 
+    _ensureConnectivityListener();
+    _reconnectAttempt = 0;
+    while (!_disposed && gen == _runGeneration) {
+      final outcome = await _attemptConnect(gen, settle);
+      if (_disposed || gen != _runGeneration) break;
+      // A server-requested reconnect is honored immediately (no backoff).
+      if (outcome == _AttemptOutcome.reconnect) continue;
+      if (outcome == _AttemptOutcome.stopped) break;
+      _reconnectAttempt++;
+      final wake = await _sleep(_backoffDelay(_reconnectAttempt), gen);
+      if (_disposed || gen != _runGeneration) break;
+      if (wake == _WakeReason.connectivity) _reconnectAttempt = 0;
+    }
+    settle();
+  }
+
+  Future<_AttemptOutcome> _attemptConnect(
+    int gen,
+    void Function() onSettled,
+  ) async {
+    if (_disposed || gen != _runGeneration) return _AttemptOutcome.stopped;
+    _attemptInFlight = true;
+    try {
+      _emitStatus(IrcConnectionStatus.connecting);
       WebSocketChannel? newChannel;
       try {
         newChannel = await openChannel();
         await _waitForReady(newChannel);
-        // dispose() may have run while the handshake was in flight (account
-        // switch, app teardown): the status controller is closed and the
-        // timers are cancelled, so abandon the socket instead of resuming.
-        if (_disposed) {
+        if (_disposed || gen != _runGeneration) {
           newChannel.sink.close();
-          return;
+          return _AttemptOutcome.stopped;
         }
         // Only claim the socket once the handshake completed; isConnected
         // must stay false while the connection is still being established,
         // otherwise the type bar hint flashes "connected" during the attempt.
         channel = newChannel;
+        onSettled();
 
+        final death = Completer<_DeathReason>();
+        _socketDeath = death;
         _streamSub = channel!.stream.listen(
           (raw) => _handleLine(raw as String),
           onError: (e) {
             logDebug('$debugPrefix stream error: $e');
-            // Clear the socket before notifying so listeners rebuilding on the
-            // status event (e.g. the type bar hint) never read a stale
-            // "connected" state.
-            _disconnect();
-            _emitStatus(IrcConnectionStatus.disconnected);
-            _scheduleReconnect();
+            _signalDeath(_DeathReason.error);
           },
           onDone: () {
             logDebug(
               '$debugPrefix stream closed '
-              '(code: ${channel?.closeCode}, '
-              'reason: ${channel?.closeReason})',
+              '(code: ${channel?.closeCode}, reason: ${channel?.closeReason})',
             );
-            _disconnect();
-            _emitStatus(IrcConnectionStatus.disconnected);
-            _scheduleReconnect();
+            _signalDeath(_DeathReason.closed);
           },
         );
 
@@ -134,44 +212,95 @@ abstract class BaseIrcConnection {
         sendLine('PASS oauth:$token');
         sendLine('NICK $username');
         logDebug(
-          '[$debugPrefix] connected, re-joining '
+          '[$debugPrefix] connected, queueing '
           '${_channels.length} channels: $_channels',
         );
-
-        for (final channel in _channels) {
-          sendLine('JOIN #$channel');
+        // Route the re-JOINs through the limiter: a burst of JOINs right
+        // after connect is exactly what Twitch drops. The ROOMSTATE sweep
+        // re-sends anything the server never confirmed.
+        for (final channelName in _channels) {
+          _queueJoin(channelName);
         }
+        _startJoinSweep();
 
         _emitStatus(IrcConnectionStatus.connected);
         _reconnectAttempt = 0;
-
         _startPingTimer();
+
+        // Serve until the socket dies (error, close, server RECONNECT, PONG
+        // timeout or an explicit disconnect).
+        await death.future;
+        // Clear the socket before the status event so listeners that rebuild
+        // on it (e.g. the type bar hint) don't briefly show "connected".
+        _disconnect();
+        _emitStatus(IrcConnectionStatus.disconnected);
+        return _AttemptOutcome.failure;
       } catch (e) {
         logDebug('$debugPrefix connect error: $e');
+        onSettled();
         // A failed attempt must not leave a socket behind: otherwise
         // isConnected stays true and every reconnect bails out here. A
         // timed-out handshake also gets its socket closed so it can't leak.
         newChannel?.sink.close();
         channel = null;
+        _streamSub?.cancel();
+        _streamSub = null;
+        _socketDeath = null;
         _emitStatus(IrcConnectionStatus.disconnected);
-        _scheduleReconnect();
+        return _AttemptOutcome.failure;
       }
     } finally {
-      _connecting = false;
+      _attemptInFlight = false;
     }
   }
 
-  void _ensureConnectivityListener() {
-    final conn = connectivity;
-    if (conn == null || _connectivitySub != null) return;
-    _connectivitySub = conn.onConnectivityChanged.listen((results) {
-      final wasOffline = !_isOnline;
-      _isOnline = !results.contains(ConnectivityResult.none);
-      if (wasOffline && _isOnline && channel == null && !_connecting) {
-        _reconnectAttempt = 0;
-        _connect();
-      }
+  Duration _backoffDelay(int attempt) {
+    final capped = attempt.clamp(1, _maxReconnectDelayAttempts);
+    return applyReconnectJitter(Duration(seconds: 1 << (capped - 1)));
+  }
+
+  Future<_WakeReason> _sleep(Duration delay, int gen) {
+    final completer = Completer<_WakeReason>();
+    _sleepCompleter?.complete(_WakeReason.stopped);
+    _sleepCompleter = completer;
+    final timer = Timer(delay, () {
+      if (!completer.isCompleted) completer.complete(_WakeReason.timer);
     });
+    _sleepTimer?.cancel();
+    _sleepTimer = timer;
+    return completer.future.then((reason) {
+      timer.cancel();
+      if (_sleepTimer == timer) _sleepTimer = null;
+      if (_sleepCompleter == completer) _sleepCompleter = null;
+      if (_disposed || gen != _runGeneration) return _WakeReason.stopped;
+      return reason;
+    });
+  }
+
+  void _signalDeath(_DeathReason reason) {
+    final death = _socketDeath;
+    _socketDeath = null;
+    if (death != null && !death.isCompleted) death.complete(reason);
+  }
+
+  void _ensureConnectivityListener() {
+    final service = connectivityService;
+    if (service == null || _connectivityListener != null) return;
+    _connectivityListener = () {
+      if (service.isOnline && !_wasOnline) {
+        // Back online: wake the backoff sleep so the loop retries now instead
+        // of waiting out the remaining delay. The loop retries regardless of
+        // connectivity (no gate), so this only shortens the wait.
+        _reconnectAttempt = 0;
+        final sleep = _sleepCompleter;
+        if (sleep != null && !sleep.isCompleted) {
+          sleep.complete(_WakeReason.connectivity);
+        }
+      }
+      _wasOnline = service.isOnline;
+    };
+    _wasOnline = service.isOnline;
+    service.addListener(_connectivityListener!);
   }
 
   /// Opens the socket; overridable in tests.
@@ -231,15 +360,20 @@ abstract class BaseIrcConnection {
   void _handlePongTimeout() {
     logDebug('$debugPrefix PONG timeout - reconnecting');
     // Clear the socket before the status event so listeners that rebuild on it
-    // (e.g. the type bar hint) don't briefly show "connected".
+    // (e.g. the type bar hint) don't briefly show "connected". The serving
+    // loop wakes via _signalDeath and emits the status after the teardown.
     _disconnect();
-    _emitStatus(IrcConnectionStatus.disconnected);
-    _scheduleReconnect();
+    _signalDeath(_DeathReason.error);
   }
 
   void _disconnect() {
-    _reconnectTimer?.cancel();
-    _reconnectTimer = null;
+    _sleepTimer?.cancel();
+    _sleepTimer = null;
+    final sleep = _sleepCompleter;
+    _sleepCompleter = null;
+    if (sleep != null && !sleep.isCompleted) {
+      sleep.complete(_WakeReason.stopped);
+    }
     _pingTimer?.cancel();
     _pingTimer = null;
     _pongTimer?.cancel();
@@ -251,26 +385,52 @@ abstract class BaseIrcConnection {
     channel?.sink.close();
     channel = null;
     _awaitingPong = false;
-    _reconnecting = false;
+    _stopJoinFlush();
+    _stopJoinSweep();
+    _joinQueue.clear();
+    _joinPending.clear();
+    _joinConfirmed.clear();
+    _joinSweepRound = 0;
   }
 
-  // DankChat-style backoff: 1s, 2s, 4s, then 8s forever (±25% jitter). The
-  // attempt counter survives _disconnect so it actually accumulates; it is
-  // reset on a successful connect or any received line.
-  void _scheduleReconnect() {
-    if (_reconnecting || _disposed) return;
-    if (!_isOnline) return;
-    _reconnecting = true;
-    _reconnectAttempt++;
-    final capped = _reconnectAttempt.clamp(1, _maxReconnectDelayAttempts);
-    final delay = applyReconnectJitter(Duration(seconds: 1 << (capped - 1)));
-    _reconnectTimer?.cancel();
-    _reconnectTimer = Timer(delay, () {
-      _reconnecting = false;
-      if (!_disposed && username != null && token != null) {
-        _connect();
-      }
-    });
+  /// Tears down the socket and stops the loop. Used on account switch so the
+  /// next [connect] can attach the new account instead of being skipped by
+  /// the already-connected check.
+  void disconnect({bool emitStatus = true}) {
+    if (_disposed) return;
+    final wasActive =
+        channel != null ||
+        _socketDeath != null ||
+        _sleepCompleter != null ||
+        _attemptInFlight;
+    if (!wasActive) return;
+    _runGeneration++;
+    _disconnect();
+    _signalDeath(_DeathReason.closed);
+    if (emitStatus) _emitStatus(IrcConnectionStatus.disconnected);
+  }
+
+  void forceReconnect() {
+    if (channel == null) return;
+    logDebug('$debugPrefix force reconnect (unhealthy socket)');
+    // Bump the generation first so the running loop breaks immediately when
+    // it wakes, then clear the zombie socket before the status event so
+    // rebuilding listeners see a real disconnect, not a stale one.
+    _runGeneration++;
+    _reconnectAttempt = 0;
+    _disconnect();
+    _signalDeath(_DeathReason.closed);
+    _emitStatus(IrcConnectionStatus.disconnected);
+    final firstSettled = Completer<void>();
+    unawaited(_run(_runGeneration, firstSettled));
+  }
+
+  void sendLine(String message) {
+    try {
+      channel?.sink.add(message);
+    } catch (e) {
+      logDebug('$debugPrefix send failed: $e');
+    }
   }
 
   /// Pings the server and waits for a PONG to confirm the socket is truly
@@ -290,39 +450,6 @@ abstract class BaseIrcConnection {
       return await completer.future.timeout(timeout, onTimeout: () => false);
     } finally {
       _pingAwaiters.remove(token);
-    }
-  }
-
-  /// Kills the (possibly zombie) socket and re-enters the reconnect loop;
-  /// used when [checkAlive] fails but the socket never errored on its own.
-  /// Tears down the socket without scheduling a reconnect. Used when the
-  /// credentials change (account switch) so the next [connect] can attach the
-  /// new account instead of being skipped by the already-connected check.
-  void disconnect({bool emitStatus = true}) {
-    if (channel == null) return;
-    _disconnect();
-    if (emitStatus) {
-      _emitStatus(IrcConnectionStatus.disconnected);
-    }
-  }
-
-  void forceReconnect() {
-    if (channel == null) return;
-    logDebug('$debugPrefix force reconnect (unhealthy socket)');
-    // Clear the zombie socket now; otherwise the reconnect attempt would
-    // bail out on isConnected before replacing it. Do it before the status
-    // event so rebuilding listeners see a real disconnect, not a stale one.
-    _disconnect();
-    _emitStatus(IrcConnectionStatus.disconnected);
-    _reconnectAttempt = 0;
-    _scheduleReconnect();
-  }
-
-  void sendLine(String message) {
-    try {
-      channel?.sink.add(message);
-    } catch (e) {
-      logDebug('$debugPrefix send failed: $e');
     }
   }
 
@@ -371,9 +498,18 @@ abstract class BaseIrcConnection {
       if (cmd == 'RECONNECT') {
         logDebug('$debugPrefix server requested reconnect');
         _disconnect();
-        _emitStatus(IrcConnectionStatus.disconnected);
-        _scheduleReconnect();
+        _signalDeath(_DeathReason.reconnect);
         continue;
+      }
+
+      // ROOMSTATE is the server's acknowledgement that a JOIN was processed;
+      // the sweep uses it to tell dropped JOINs from confirmed memberships.
+      if (cmd == 'ROOMSTATE' && parts.length > 2) {
+        final channel = parts.last.replaceFirst('#', '');
+        if (_channels.contains(channel)) {
+          _joinPending.remove(channel);
+          _joinConfirmed.add(channel);
+        }
       }
 
       dispatchLine(line);
@@ -394,32 +530,229 @@ abstract class BaseIrcConnection {
   void join(String channel) {
     logDebug('[$debugPrefix] join channel=$channel');
     _channels.add(channel);
-    if (this.channel != null) {
-      sendLine('JOIN #$channel');
-    }
+    _queueJoin(channel);
   }
 
   void part(String channel) {
     logDebug('[$debugPrefix] part channel=$channel');
     _channels.remove(channel);
+    _joinConfirmed.remove(channel);
+    _joinPending.remove(channel);
+    _joinQueue.remove(channel);
     if (this.channel != null) {
       sendLine('PART #$channel');
     }
   }
 
+  /// Queues a JOIN behind the rate limiter. No-ops while disconnected: the
+  /// connect path re-queues every [_channels] entry after the handshake.
+  void _queueJoin(String channel) {
+    if (_joinQueue.contains(channel)) return;
+    _joinQueue.add(channel);
+    _kickJoinFlush();
+  }
+
+  void _kickJoinFlush() {
+    if (channel == null) return;
+    if (_joinFlushTimer != null) return;
+    _joinFlushTimer = Timer.periodic(_joinTickInterval, (_) => _flushJoins());
+    // Coalesce a synchronous burst of joins: flush after the current microtask
+    // queue drains so back-to-back join() calls land in one rate-limited batch
+    // instead of each firing its own immediate JOIN.
+    Future.microtask(() {
+      if (_joinFlushTimer != null) _flushJoins();
+    });
+  }
+
+  void _flushJoins() {
+    if (channel == null) {
+      _stopJoinFlush();
+      return;
+    }
+    var sent = 0;
+    while (sent < _joinMaxPerTick && _joinQueue.isNotEmpty) {
+      final ch = _joinQueue.removeAt(0);
+      sendLine('JOIN #$ch');
+      _joinPending.add(ch);
+      sent++;
+    }
+    if (_joinQueue.isEmpty) _stopJoinFlush();
+  }
+
+  /// Watches for JOINs the server never confirmed (no ROOMSTATE echoed back).
+  /// Runs a few rounds of re-queueing unconfirmed channels, then stops.
+  void _startJoinSweep() {
+    _joinSweepRound = 0;
+    _joinSweepTimer?.cancel();
+    _joinSweepTimer = Timer.periodic(_joinConfirmInterval, (_) {
+      _runJoinSweep();
+    });
+  }
+
+  void _runJoinSweep() {
+    _joinSweepRound++;
+    final unconfirmed = _channels
+        .where((c) => !_joinConfirmed.contains(c))
+        .toList();
+    if (unconfirmed.isEmpty || _joinSweepRound > _joinSweepMaxRounds) {
+      _stopJoinSweep();
+      return;
+    }
+    logDebug(
+      '[$debugPrefix] rejoin sweep $_joinSweepRound '
+      'unconfirmed: $unconfirmed',
+    );
+    for (final ch in unconfirmed) {
+      if (!_joinQueue.contains(ch)) _queueJoin(ch);
+    }
+  }
+
+  void _stopJoinFlush() {
+    _joinFlushTimer?.cancel();
+    _joinFlushTimer = null;
+  }
+
+  void _stopJoinSweep() {
+    _joinSweepTimer?.cancel();
+    _joinSweepTimer = null;
+  }
+
   @mustCallSuper
   void dispose() {
     _disposed = true;
-    _reconnecting = false;
-    _connectivitySub?.cancel();
-    _connectivitySub = null;
-    _reconnectTimer?.cancel();
-    _reconnectTimer = null;
-    _pingTimer?.cancel();
-    _pongTimer?.cancel();
-    _connectTimer?.cancel();
-    _streamSub?.cancel();
-    channel?.sink.close();
+    _runGeneration++;
+    _disconnect();
+    _signalDeath(_DeathReason.closed);
+    final listener = _connectivityListener;
+    if (listener != null) connectivityService?.removeListener(listener);
+    _connectivityListener = null;
     _statusController.close();
   }
 }
+
+/// The read-only socket: joins channels and watches for the current user's own
+/// PRIVMSG echoes so sends can be confirmed without trusting the write socket.
+class IrcReadService extends IrcConnection {
+  final _ownMessageController = StreamController<IrcMessage>.broadcast();
+
+  Stream<IrcMessage> get onOwnMessage => _ownMessageController.stream;
+
+  IrcReadService({super.connectivityService}) : super(role: IrcSocketRole.read);
+
+  @override
+  String get debugPrefix => 'IRC read';
+
+  @override
+  void dispatchLine(String line) {
+    if (username == null) return;
+    final msg = parseIrcMessage(line);
+    if (msg == null || msg.command != 'PRIVMSG' || msg.prefix == null) {
+      return;
+    }
+    final sender = msg.prefix!.contains('!')
+        ? msg.prefix!.split('!')[0].toLowerCase()
+        : msg.prefix!.toLowerCase();
+    if (sender == username) {
+      _ownMessageController.add(msg);
+    }
+  }
+
+  @override
+  void dispose() {
+    _ownMessageController.close();
+    super.dispose();
+  }
+
+  @visibleForTesting
+  void emitOwnMessage(IrcMessage msg) => _ownMessageController.add(msg);
+}
+
+IrcMessage? parseIrcMessage(String line) {
+  try {
+    String? tags;
+    String? prefix;
+    String command;
+    List<String> params = [];
+    String? trailing;
+
+    int pos = 0;
+
+    if (line.startsWith('@')) {
+      final end = line.indexOf(' ');
+      if (end == -1) return null;
+      tags = line.substring(1, end);
+      pos = end + 1;
+    }
+
+    if (pos < line.length && line[pos] == ':') {
+      final end = line.indexOf(' ', pos);
+      if (end == -1) return null;
+      prefix = line.substring(pos + 1, end);
+      pos = end + 1;
+    }
+
+    final rest = line.substring(pos);
+    final parts = rest.split(' ');
+    command = parts[0];
+
+    int i = 1;
+    while (i < parts.length) {
+      if (parts[i].startsWith(':')) {
+        trailing = parts.sublist(i).join(' ').substring(1);
+        break;
+      }
+      params.add(parts[i]);
+      i++;
+    }
+
+    final tagMap = <String, String>{};
+    if (tags != null) {
+      for (final tag in tags.split(';')) {
+        final eq = tag.indexOf('=');
+        if (eq != -1) {
+          // Twitch IRCv3 tags are backslash-escaped, not percent-encoded.
+          String decoded = unescapeIrcTag(tag.substring(eq + 1));
+          // Strip orphaned UTF-16 surrogates: low surrogates alone or high
+          // surrogates not followed by low (Flutter's text engine crashes on
+          // isolated surrogates from malformed Twitch IRC data).
+          decoded = decoded.replaceAll(_loneLowSurrogateRe, '');
+          decoded = decoded.replaceAll(_orphanedHighSurrogateRe, '');
+          tagMap[tag.substring(0, eq)] = decoded;
+        }
+      }
+    }
+
+    return IrcMessage(
+      tags: tagMap,
+      prefix: prefix,
+      command: command,
+      params: params,
+      trailing: trailing,
+    );
+  } catch (_) {
+    logDebug('[parseIrcMessage] failed to parse line: $line');
+    return null;
+  }
+}
+
+class IrcMessage {
+  final Map<String, String> tags;
+  final String? prefix;
+  final String command;
+  final List<String> params;
+  final String? trailing;
+
+  IrcMessage({
+    required this.tags,
+    this.prefix,
+    required this.command,
+    required this.params,
+    this.trailing,
+  });
+}
+
+enum _DeathReason { error, closed, reconnect }
+
+enum _WakeReason { timer, connectivity, stopped }
+
+enum _AttemptOutcome { failure, reconnect, stopped }

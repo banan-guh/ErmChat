@@ -3,7 +3,6 @@ import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:connectivity_plus/connectivity_plus.dart';
 import '../models/emote_fetch_tier.dart';
 import '../models/generic_emote.dart';
 import '../models/twitch_message.dart';
@@ -11,7 +10,7 @@ import '../services/twitch_api.dart';
 import '../services/twitch_auth.dart';
 import '../services/twitch_eventsub.dart';
 import '../services/twitch_irc.dart';
-import '../services/twitch_irc_read.dart';
+import '../services/connectivity_service.dart';
 import '../services/recent_messages.dart';
 import '../services/seven_tv_event_client.dart';
 import '../services/command_handler.dart';
@@ -59,6 +58,7 @@ class HomeScreen extends StatefulWidget {
   final IrcService? ircService;
   final IrcReadService? ircReadService;
   final RecentMessagesService? recentMessagesService;
+  final ConnectivityService? connectivityService;
   final String? initialCurrentUserLogin;
 
   const HomeScreen({
@@ -72,6 +72,7 @@ class HomeScreen extends StatefulWidget {
     this.ircService,
     this.ircReadService,
     this.recentMessagesService,
+    this.connectivityService,
     this.initialCurrentUserLogin,
   });
 
@@ -86,16 +87,22 @@ class _HomeScreenState extends State<HomeScreen>
 
   List<String> _altPings = _defaultAltPings;
 
-  late final _connectivity = Connectivity();
+  late final _connectivityService =
+      widget.connectivityService ?? ConnectivityService();
   late final _eventSub =
-      widget.eventSubService ?? EventSubService(connectivity: _connectivity);
+      widget.eventSubService ??
+      EventSubService(connectivityService: _connectivityService);
   late final _irc =
-      widget.ircService ?? IrcService(connectivity: _connectivity);
+      widget.ircService ??
+      IrcService(connectivityService: _connectivityService);
   late final _ircRead =
-      widget.ircReadService ?? IrcReadService(connectivity: _connectivity);
+      widget.ircReadService ??
+      IrcReadService(connectivityService: _connectivityService);
   late final _recentMessages =
       widget.recentMessagesService ?? RecentMessagesService();
-  late final _sevenTvClient = SevenTvEventClient(connectivity: _connectivity);
+  late final _sevenTvClient = SevenTvEventClient(
+    connectivityService: _connectivityService,
+  );
   late final _twitchApi = TwitchApi();
   late final _analytics = AnalyticsService(
     emoteLookup: (channel) => _emoteManager.byCode(channel),
@@ -204,10 +211,10 @@ class _HomeScreenState extends State<HomeScreen>
   int _manualEmoteTierIndex = EmoteFetchTier.high.index;
   EmoteFetchAutoMode _emoteAutoMode = defaultEmoteFetchAutoMode;
   final _isMobile = ValueNotifier<bool>(false);
-  StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
+  VoidCallback? _connectivityListener;
 
   late final _emoteManager = EmoteManager(
-    probe: _connectivity.checkConnectivity,
+    probe: _connectivityService.checkConnectivity,
   );
   final _badgeService = TwitchBadgeService();
   final _userStore = UserStore();
@@ -356,12 +363,14 @@ class _HomeScreenState extends State<HomeScreen>
     _emoteManager.preloadGlobalEmotes();
     _emoteManager.startCacheGc();
     _emoteManager.addListener(_onEmotesChanged);
-    _connectivitySub = _connectivity.onConnectivityChanged.listen((results) {
-      final isMobile = results.contains(ConnectivityResult.mobile);
+    _connectivityService.init();
+    _connectivityListener = () {
+      final isMobile = _connectivityService.isMobile;
       if (isMobile == _isMobile.value) return;
       _isMobile.value = isMobile;
       _reconcileEmoteTier();
-    });
+    };
+    _connectivityService.addListener(_connectivityListener!);
     _badgeService.fetchGlobalBadges(widget.twitchAuth);
     widget.twitchAuth.addListener(_onAuthChanged);
     _focusNode.addListener(_onInputFocusChanged);
@@ -812,6 +821,7 @@ class _HomeScreenState extends State<HomeScreen>
         emotes: emotes,
         users: users,
         preferEmotesFirst: _preferEmotesFirst,
+        recentEmoteIds: _emoteManager.recentEmoteIds,
       );
     }
     _suggestionsNotifier.value = filtered;
@@ -1056,12 +1066,9 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Future<void> _refreshConnectivity() async {
-    try {
-      final results = await _connectivity.checkConnectivity();
-      _isMobile.value = results.contains(ConnectivityResult.mobile);
-    } catch (e) {
-      logDebug('connectivity check failed: $e');
-    }
+    // The service seeds itself in init() and corrects on later events, so
+    // here we just read its cached state (avoiding a redundant plugin probe).
+    _isMobile.value = _connectivityService.isMobile;
   }
 
   // Computes the effective tier from the manual tier + auto mode and applies
@@ -1306,7 +1313,9 @@ class _HomeScreenState extends State<HomeScreen>
 
   @override
   void dispose() {
-    _connectivitySub?.cancel();
+    final listener = _connectivityListener;
+    if (listener != null) _connectivityService.removeListener(listener);
+    _connectivityListener = null;
     _isMobile.dispose();
     _chatConn.dispose();
     WidgetsBinding.instance.removeObserver(this);
@@ -1565,22 +1574,46 @@ class _HomeScreenState extends State<HomeScreen>
       'Connected to IRC',
       'Disconnected',
       'Reconnected',
+      'Chat reconnecting...',
     };
     if (statusTexts.contains(text)) {
-      final hasPriorStatus = msgs.any(
-        (m) => m.isSystem && statusTexts.contains(m.text),
-      );
       if (text == 'Connected' || text == 'Connected to IRC') {
-        final label = hasPriorStatus ? 'Reconnected' : 'Connected';
-        if (label == 'Reconnected') {
-          // The outage ended: fold the transient "Disconnected" into this
-          // "Reconnected" line rather than keeping a bogus outage entry.
-          final idx = msgs.indexWhere(
+        final hasPriorStatus = msgs.any(
+          (m) => m.isSystem && statusTexts.contains(m.text),
+        );
+        text = hasPriorStatus ? 'Reconnected' : 'Connected';
+      }
+      final top = msgs.isEmpty ? null : msgs.first;
+      if (text == 'Reconnected') {
+        // The outage ended: fold the transient markers into this line rather
+        // than leaving a bogus outage entry behind.
+        msgs.removeWhere(
+          (m) =>
+              m.isSystem &&
+              (m.text == 'Disconnected' || m.text == 'Chat reconnecting...'),
+        );
+        // The write and read sockets both report the recovery; keep a single
+        // line instead of stacking duplicates.
+        final newTop = msgs.isEmpty ? null : msgs.first;
+        if (newTop != null && newTop.isSystem && newTop.text == 'Reconnected') {
+          return;
+        }
+      } else if (text == 'Disconnected' || text == 'Chat reconnecting...') {
+        // "Disconnected" is the dominant outage marker: it describes the whole
+        // app being down, so "Chat reconnecting..." never replaces it.
+        if (text == 'Chat reconnecting...') {
+          final hasDisconnected = msgs.any(
             (m) => m.isSystem && m.text == 'Disconnected',
           );
-          if (idx >= 0) msgs.removeAt(idx);
+          if (hasDisconnected) return;
+          if (top != null && top.isSystem && top.text == text) return;
+        } else {
+          // A flapping socket must not pile up markers.
+          if (top != null && top.isSystem && top.text == text) return;
+          msgs.removeWhere(
+            (m) => m.isSystem && m.text == 'Chat reconnecting...',
+          );
         }
-        text = label;
       }
     }
 
@@ -3226,7 +3259,7 @@ class _HomeScreenState extends State<HomeScreen>
                           hintText: !widget.twitchAuth.isConfigured
                               ? 'Connect an account to chat'
                               : !_chatConn.irc.isConnected
-                              ? 'Disconnected'
+                              ? 'Reconnecting...'
                               : _activePanel == OverlayPanel.thread
                               ? 'Reply to thread...'
                               : _isWhispersTabActive

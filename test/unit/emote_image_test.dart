@@ -876,7 +876,6 @@ void main() {
         expect(tester.widget<RawImage>(find.byType(RawImage)).image, isNotNull);
         expect(find.byType(Shimmer), findsNothing);
       });
-
     });
   });
 }

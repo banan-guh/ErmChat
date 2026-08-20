@@ -3,12 +3,13 @@ import 'dart:async';
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
-import 'package:ermchat/services/base_irc_connection.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:ermchat/services/connectivity_service.dart';
 import 'package:ermchat/services/twitch_irc.dart';
 import '../helpers/fake_web_socket.dart';
 
 class _TestService extends IrcService {
-  _TestService(this.channels, {this.onOpen});
+  _TestService(this.channels, {this.onOpen, super.connectivityService});
 
   final List<FakeWebSocketChannel> channels;
   final void Function()? onOpen;
@@ -287,7 +288,7 @@ void main() {
   });
 
   group('forceReconnect', () {
-    test('closes the zombie socket and reconnects at ~1s', () {
+    test('closes the zombie socket and reconnects immediately', () {
       fakeAsync((async) {
         final channel = FakeWebSocketChannel();
         final service = _TestService([channel]);
@@ -300,13 +301,9 @@ void main() {
         service.forceReconnect();
         async.flushMicrotasks();
         expect(statuses, contains(IrcConnectionStatus.disconnected));
-        expect(
-          service.isConnected,
-          isFalse,
-          reason: 'zombie socket must be cleared before reconnecting',
-        );
-        async.elapse(const Duration(milliseconds: 1250));
+        // The loop restarts right away (no backoff) on a fresh generation.
         expect(service.openAttempts, 2);
+        expect(service.isConnected, isTrue);
 
         service.dispose();
         channel.dispose();
@@ -428,6 +425,148 @@ void main() {
 
         service.dispose();
         hanging.dispose();
+      });
+    });
+  });
+
+  group('JOIN rate limiting', () {
+    test('JOINs are batched at the tick rate, not fired in a burst', () {
+      fakeAsync((async) {
+        final channel = FakeWebSocketChannel();
+        final service = _TestService([channel]);
+        service.connect(username: 'user', accessToken: 'token');
+        async.flushMicrotasks();
+
+        // 25 channels exceed the per-tick burst cap.
+        for (var i = 0; i < 25; i++) {
+          service.join('c$i');
+        }
+        async.flushMicrotasks();
+
+        List<String> joins() =>
+            channel.sent.where((l) => l.startsWith('JOIN')).toList();
+
+        // First flush sends up to the burst cap immediately...
+        expect(joins(), hasLength(20));
+        // ...the rest wait for the next tick.
+        async.elapse(const Duration(seconds: 2));
+        async.flushMicrotasks();
+        expect(joins(), hasLength(25));
+
+        service.dispose();
+        channel.dispose();
+      });
+    });
+
+    test('a duplicate join is not queued twice', () {
+      fakeAsync((async) {
+        final channel = FakeWebSocketChannel();
+        final service = _TestService([channel]);
+        service.connect(username: 'user', accessToken: 'token');
+        async.flushMicrotasks();
+
+        service.join('abc');
+        service.join('abc');
+        async.flushMicrotasks();
+
+        final joins = channel.sent.where((l) => l == 'JOIN #abc').toList();
+        expect(joins, hasLength(1));
+
+        service.dispose();
+        channel.dispose();
+      });
+    });
+  });
+
+  group('ROOMSTATE rejoin sweep', () {
+    test('re-sends unconfirmed JOINs and stops once confirmed', () {
+      fakeAsync((async) {
+        final channel = FakeWebSocketChannel();
+        final service = _TestService([channel]);
+        service.connect(username: 'user', accessToken: 'token');
+        async.flushMicrotasks();
+
+        service.join('abc');
+        async.flushMicrotasks();
+        List<String> joins() =>
+            channel.sent.where((l) => l == 'JOIN #abc').toList();
+        expect(joins(), hasLength(1));
+
+        // No ROOMSTATE echoed: the sweep re-JOINs after the confirm window.
+        async.elapse(const Duration(seconds: 11));
+        async.flushMicrotasks();
+        expect(joins(), hasLength(2));
+
+        // ROOMSTATE confirms the JOIN: the sweep stops re-sending.
+        channel.push('@room-id=1 :tmi.twitch.tv ROOMSTATE #abc');
+        async.flushMicrotasks();
+        async.elapse(const Duration(seconds: 22));
+        async.flushMicrotasks();
+        expect(
+          joins(),
+          hasLength(2),
+          reason: 'a confirmed channel is never re-sent',
+        );
+
+        service.dispose();
+        channel.dispose();
+      });
+    });
+  });
+
+  group('connectivity accelerator', () {
+    test('coming back online wakes the backoff sleep early', () {
+      fakeAsync((async) {
+        final conn = ConnectivityService();
+        conn.debugSetResults(const [ConnectivityResult.none]);
+        final times = <Duration>[];
+        final service = _TestService(
+          [FakeWebSocketChannel(failReady: true)],
+          connectivityService: conn,
+          onOpen: () => times.add(async.elapsed),
+        );
+        service.connect(username: 'user', accessToken: 'token');
+        async.flushMicrotasks();
+        expect(times, hasLength(1));
+
+        // Still offline: the next attempt waits on the backoff timer.
+        async.elapse(const Duration(milliseconds: 200));
+        expect(times, hasLength(1));
+
+        // Back online: the sleep is woken immediately and the retry fires now.
+        conn.debugSetResults(const [ConnectivityResult.wifi]);
+        async.flushMicrotasks();
+        expect(times, hasLength(2));
+        expect(
+          times[1],
+          lessThan(const Duration(milliseconds: 900)),
+          reason: 'the backoff wait must be shortened, not run out',
+        );
+
+        service.dispose();
+        conn.dispose();
+      });
+    });
+
+    test('an offline blip does not stop the retry loop (no gate)', () {
+      fakeAsync((async) {
+        final conn = ConnectivityService();
+        conn.debugSetResults(const [ConnectivityResult.none]);
+        final times = <Duration>[];
+        final service = _TestService(
+          [FakeWebSocketChannel(failReady: true)],
+          connectivityService: conn,
+          onOpen: () => times.add(async.elapsed),
+        );
+        service.connect(username: 'user', accessToken: 'token');
+        async.flushMicrotasks();
+
+        // Even fully offline, the loop keeps retrying on its own schedule.
+        async.elapse(const Duration(seconds: 30));
+        expect(times.length, greaterThanOrEqualTo(4));
+
+        service.dispose();
+        conn.dispose();
       });
     });
   });

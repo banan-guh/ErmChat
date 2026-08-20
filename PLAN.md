@@ -401,3 +401,121 @@ out of scope for now.
   `_tagToUtf16` O(n*m) scan, clock-backwards histogram bucket bump, three duplicate
   pagination loops in `twitch_api.dart`, `rm-received-ts` epoch-0 fallback inconsistency
   (`recent_messages.dart`), `debugPrint` on every Twitch parse (`twitch_emotes.dart:182`).
+
+---
+
+# Localization / i18n (Aug 2026, planned)
+
+Not yet implemented. No architectural changes required - Flutter l10n is additive and the
+codebase's existing patterns (prefs-backed settings state, constructor-injected service
+configs) already fit it. Current state: no `intl`, no `flutter_localizations`, no
+`l10n.yaml`, no ARB files; `MaterialApp` (main.dart:142,150) has no
+`localizationsDelegates`. ~160+ user-facing literals in screens/widgets plus ~50-100 in
+services (command usage/error texts, "Connected"/"Disconnected", "Live with X viewers
+for Yh Zm", notification titles, loading/error messages) = ~300-400 unique strings.
+
+## L1. Dependency + wiring (small)
+
+- Problem: the app has no localization infrastructure at all, so nothing can be
+  translated.
+- Solution:
+  - Add `flutter_localizations` (SDK) + `intl` to pubspec; create `l10n.yaml` and
+    `lib/l10n/app_en.arb` (English is the source locale; other locales start as AI
+    translations).
+  - Wire `MaterialApp` (both instances in main.dart): `localizationsDelegates:
+    AppLocalizations.localizationsDelegates`, `supportedLocales`, and `locale` bound
+    to a prefs-backed state field using the existing `_themeMode`/`_setThemeMode`
+    pattern (main.dart:103) so the language can switch at runtime.
+  - Add a language picker to Settings (prefs key, e.g. `locale`).
+
+## L2. Service access to translations (the one design decision)
+
+- Problem: services build user-facing strings without a BuildContext: `CommandHandler`
+  (usage/error texts), `ChatConnectionManager` ("Connected", "Live with X viewers..."),
+  `NotificationService` (ping titles), `RecentMessagesService`, `MediaUploader`,
+  `foreground_task`. These are composed into system messages rendered in chat, so they
+  must be translated at composition time, not at the edge.
+- Solution: inject an l10n accessor into services via the existing config-injection
+  pattern (`ChatConnectionConfig` already takes ~20 callbacks). A narrow interface,
+  e.g. `String Function(String key, {List<Object> args})` (or a `AppLocalizations`
+  wrapper), keeps services decoupled from Flutter's localization machinery and is
+  trivially testable. Do NOT use a global singleton or leave service strings in
+  English.
+
+## L3. String extraction (the big mechanical chunk)
+
+- Problem: ~300-400 hardcoded literals across screens, widgets, and services.
+- Solution: replace literals with `AppLocalizations.of(context)!...` keys; use ICU
+  placeholders/plurals for dynamic strings ("Live with {viewers} viewers",
+  "timed out for {duration}s", "{count} more options"). Order of extraction: settings
+  screens -> widgets -> home_screen -> services (via L2).
+- Boundary: Twitch's own `system-msg` (sub/raid notices), usernames, emotes, and chat
+  text stay untranslated - only app-authored labels translate. Message span/tile
+  caches are unaffected (they hold chat content, not labels).
+
+## L4. AI translation workflow + validation (the safety net)
+
+- Problem: AI-generated translations are good for short UI strings but fail
+  mechanically on ICU placeholders/plurals (renaming or reordering
+  `{placeholders}`), and drift on chat-domain jargon ("emote", "sub", "raid",
+  "shoutout", "whispers", "ping") without a glossary.
+- Solution:
+  - Generate launch locales (de, es, fr, pt, ja recommended; dev/debug screens can
+    stay English) with a strict prompt: preserve `{placeholders}` verbatim, keep ARB
+    keys and one line per string, obey the glossary.
+  - Maintain a glossary of frozen terms: "ErmChat", "emote", "sub", "raid",
+    "shoutout", "whispers", "ping", "true dark" - and the intentional placeholder
+    strings that must never be translated (e.g. `g;pr[SomgomgAtYou`,
+    "glorpKaraoke", foreground_task.dart:67-68).
+  - Add a validation test (~50 lines): every ARB parses; every key in `app_en.arb`
+    exists in each locale; every `{placeholder}` in the English string exists in the
+    translated string (catches the #1 AI failure mode before it ships).
+  - Longer translated strings can break layouts (German/CJK) - QA pass per locale;
+    RTL languages (ar/he) need a layout pass on the custom tab bar / input row (no
+    structural work, Directionality comes from the delegates).
+
+## Verification
+
+`flutter gen-l10n` succeeds; the ARB validation test passes for every locale; app
+launches with each locale set; runtime language switch via Settings applies without
+restart; services render translated system messages; chat content and Twitch
+`system-msg` remain untranslated.
+
+---
+
+# DankChat Reference Audit (Aug 2026)
+
+Reference repo: `/home/linuxugo/dankchat`.
+
+## Hashes
+
+- Old checkout (first audited): `5816b53550cadc99d4a9ba65afa550d1556caf81` (Release 3.11.11, detached HEAD).
+- Latest head (fetched + checked out for comparison): `ef04205af700f4393ef7981c74e9cc71c8ff86bb` (develop branch, v4.0.42; default branch is `develop`).
+- IRC code in both: `app/src/main/kotlin/com/flxrs/dankchat/data/twitch/chat/ChatConnection.kt`. Between the two, it was rewritten from OkHttp callbacks (v3.11.11) to a Ktor WebSocket coroutine loop (v4), but behavior is unchanged.
+
+## What dankchat does (the same bug we are fixing)
+
+- Same split Read/Write WebSockets (`ChatConnectionType.Read/Write`, `ConnectionModule.kt:24,33`). Own messages render only from the Read socket's echo - no optimistic render. A dead Read socket = sends vanish with zero feedback. Write-side failures are invisible too (`connectionState` is driven only by the Read socket's `366` event).
+- JOINs are paced, not burst: chunks of 5 per comma-delimited `JOIN #a,#b,...` line, 600ms/channel (~16.7 joins/10s), 10s JOIN-echo grace (`ChatConnection.kt:127-135,401-416`). On reconnect the full channel list is re-queued through the same pacing.
+- Reconnect: INFINITE retries with backoff capped at 8s (`RECONNECT_MAX_ATTEMPTS=4`, 1s/2s/4s/8s + 250ms jitter). No connectivity/`isOnline` flag exists anywhere, so DNS failures just funnel into the retry loop - dankchat can never get permanently stuck the way ermchat's `_isOnline` gate can. At latest head the retry loop is `while (retryCount <= RECONNECT_MAX_ATTEMPTS)` where the counter never exceeds 4, so it is still effectively infinite; the "failed after 4 retries" log is dead code.
+- "This channel does not exist" is a JOIN-echo timeout ONLY (10s), deliberately suppressed while disconnected (`setupJoinCheckInterval`, `ChatConnection.kt:377-395`). It is NOT a connect-failure message.
+
+## dankchat's flaw (user-reported: with ~35 channels, channels randomly drop as "does not exist" after hours/days)
+
+- A join is confirmed ONLY by the IRC JOIN echo within 10s; ROOMSTATE/366/NOTICE are never used as confirmation. Any other reason the echo is missing is mislabeled "does not exist".
+- Ranked causes (from audit):
+  1. Twitch silently drops JOINs for reasons other than nonexistence (100-channel concurrent-join cap since 2024; join-rate-limit enforcement).
+  2. Reconnect race: the 10s join-checks are launched into the long-lived class `scope` and never cancelled; an old connection's check can fire against a newer connection whose re-joined echo is still pending.
+  3. Half-open socket: `connected` stays true, the drain keeps "sending" to the dead socket (`send()` result ignored), the whole list accumulates in the attempt set and false-flags in a burst; the 5-min PING watchdog is far slower than the 10s checks.
+  4. Pacing sits exactly at the 20/10s limit (5 per 3s = 20 per rolling 10s) - reconnect overlap or scheduling jitter tips it over and denies JOINs.
+  5. Case-sensitivity mismatch in the `UserName` sets (upstream bug #1164); possible self-JOIN echo suppression in >1000-chatter channels.
+- Latest head (v4.0.42) audit: reconnect is still infinite-with-capped-backoff, JOIN pacing and the ChannelNonExistent race are UNCHANGED and NOT fixed, read/write split unchanged. The false "does not exist" bug still exists upstream at head.
+
+## Design consequences for the ermchat fix (not yet implemented)
+
+- Do NOT replicate the JOIN-echo-timeout "channel does not exist" detector. Confirm joins via ROOMSTATE, which ermchat already does (`_joinedChannels` in `chat_connection_manager.dart:1439-1443`; `_waitForRoomId` for anonymous mode).
+- Planned ermchat changes:
+  - **A1**: shared JOIN/PART limiter (~18/10s, 1 per ~550ms) injected into both `IrcService`/`IrcReadService`; `_connect()` rejoin and `join()`/`part()` enqueue through it instead of `sendLine`.
+  - **A2**: rejoin-until-confirmed - track per-channel ROOMSTATE confirmation in `BaseIrcConnection` (cleared on disconnect); a bounded sweep re-enqueues unconfirmed JOINs after a reconnect (every ~10s, up to ~4 passes, silent) so a rate-limited JOIN gets retried instead of the channel dying.
+  - **B**: remove the `if (!_isOnline) return;` gate in `_scheduleReconnect` (`base_irc_connection.dart:261`) so the reconnect loop cannot be permanently stalled by a stale offline flag.
+  - **C**: subscribe `ChatConnectionManager` to `ircRead.onStatus`; edge-triggered "Chat reconnecting..." system message + type-bar hint, folded into "Reconnected".

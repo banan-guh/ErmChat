@@ -9,7 +9,6 @@ import 'services/emote_cache_manager.dart';
 import 'services/twitch_auth.dart';
 import 'services/twitch_eventsub.dart';
 import 'services/twitch_irc.dart';
-import 'services/twitch_irc_read.dart';
 import 'services/recent_messages.dart';
 import 'theme_colors.dart';
 import 'util/log.dart';

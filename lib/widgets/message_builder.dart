@@ -98,9 +98,7 @@ class MessageBuilder {
                     placeholder: (_, _) =>
                         SizedBox(width: badgeSize, height: badgeSize),
                     errorWidget: (_, url, error) {
-                      logDebug(
-                        'Shared chat badge image failed: $url - $error',
-                      );
+                      logDebug('Shared chat badge image failed: $url - $error');
                       return SizedBox(width: badgeSize, height: badgeSize);
                     },
                   ),

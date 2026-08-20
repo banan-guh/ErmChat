@@ -7,7 +7,6 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:ermchat/models/twitch_message.dart';
 import 'package:ermchat/models/emote_fetch_tier.dart';
 import 'package:ermchat/models/generic_emote.dart';
-import 'package:ermchat/services/base_irc_connection.dart';
 import 'package:ermchat/services/chat_connection_manager.dart';
 import 'package:ermchat/services/emote_manager.dart';
 import 'package:ermchat/services/twitch_api.dart';
@@ -15,7 +14,6 @@ import 'package:ermchat/services/twitch_auth.dart';
 import 'package:ermchat/services/twitch_badge_service.dart';
 import 'package:ermchat/services/twitch_eventsub.dart';
 import 'package:ermchat/services/twitch_irc.dart';
-import 'package:ermchat/services/twitch_irc_read.dart';
 import '../helpers/fake_web_socket.dart';
 import 'package:ermchat/services/user_store.dart';
 
@@ -115,6 +113,35 @@ class _NoopIrcRead extends IrcReadService {
   }) async {}
 }
 
+class _TestIrcRead extends IrcReadService {
+  final _statusCtrl = StreamController<IrcConnectionStatus>.broadcast(
+    sync: true,
+  );
+
+  @override
+  Future<void> connect({
+    required String username,
+    required String accessToken,
+  }) async {}
+
+  @override
+  Stream<IrcConnectionStatus> get onStatus => _statusCtrl.stream;
+
+  void emitConnected() {
+    _statusCtrl.add(IrcConnectionStatus.connected);
+  }
+
+  void emitDisconnected() {
+    _statusCtrl.add(IrcConnectionStatus.disconnected);
+  }
+
+  @override
+  void dispose() {
+    _statusCtrl.close();
+    super.dispose();
+  }
+}
+
 /// EmoteManager that surfaces whether [enqueueSeenEmotes] is called and feeds
 /// a fake channel cache, so precache behavior is observable without fetching.
 class _SpyEmoteManager extends EmoteManager {
@@ -211,6 +238,8 @@ ChatConnectionManager _makeReconnectConn({
   required EventSubService eventSub,
   required IrcService irc,
   required void Function() onReconnected,
+  IrcReadService? ircRead,
+  List<String>? channels,
   Map<String, List<TwitchMessage>>? channelMessages,
   Map<String, String>? chatStatus,
   void Function(String, String, {Color? accent})? onSystemMessage,
@@ -226,7 +255,7 @@ ChatConnectionManager _makeReconnectConn({
       twitchApi: api,
       eventSub: eventSub,
       irc: irc,
-      ircRead: _NoopIrcRead(),
+      ircRead: ircRead ?? _NoopIrcRead(),
       emoteManager: EmoteManager(),
       badgeService: TwitchBadgeService(),
       userStore: UserStore(),
@@ -237,7 +266,7 @@ ChatConnectionManager _makeReconnectConn({
       channelsWithUnread: {},
       channelsWithUnreadMentions: {},
       unreadMentionsPerChannel: {},
-      channels: [],
+      channels: channels ?? [],
       historyLoaded: {},
       channelsEmotesResolved: {},
       channelUserIds: {},
@@ -1112,14 +1141,9 @@ void main() {
         irc.emitConnected();
         conn.reconnectIfNecessary();
         async.flushMicrotasks();
-        // forceReconnect schedules a retry; it must not open a socket yet.
-        expect(irc.openAttempts, 0);
-        async.elapse(const Duration(milliseconds: 1250));
-        expect(
-          irc.openAttempts,
-          1,
-          reason: 'unhealthy socket must be replaced after resume',
-        );
+        // forceReconnect restarts the loop immediately (no backoff).
+        expect(irc.openAttempts, 1);
+        expect(irc.isConnected, isTrue);
 
         conn.dispose();
       });
@@ -1190,6 +1214,77 @@ void main() {
           0,
           reason: 'a live session must not be torn down on every resume',
         );
+
+        conn.dispose();
+      });
+    });
+  });
+
+  group('read socket status', () {
+    test('read outage surfaces as Chat reconnecting... then Reconnected', () {
+      fakeAsync((async) {
+        final messages = <(String, String)>[];
+        final ircRead = _TestIrcRead();
+        final irc = _TestIrc();
+        final conn = _makeReconnectConn(
+          eventSub: _NoopEventSub(),
+          irc: irc,
+          ircRead: ircRead,
+          onReconnected: () {},
+          channels: const ['test'],
+          currentUserLogin: 'testuser',
+          onSystemMessage: (c, t, {Color? accent}) => messages.add((c, t)),
+        );
+
+        conn.connect();
+        async.flushMicrotasks();
+
+        // The read socket dies alone (write stays up): an explicit marker is
+        // emitted so the outage is not invisible.
+        ircRead.emitDisconnected();
+        async.flushMicrotasks();
+        expect(messages, contains(('test', 'Chat reconnecting...')));
+
+        // Recovery is announced and the marker is not re-emitted for a
+        // repeated connected status.
+        ircRead.emitConnected();
+        async.flushMicrotasks();
+        expect(messages, contains(('test', 'Reconnected')));
+
+        ircRead.emitConnected();
+        async.flushMicrotasks();
+        expect(
+          messages.where((m) => m.$2 == 'Reconnected').length,
+          1,
+          reason: 'repeated connected must not re-announce recovery',
+        );
+
+        conn.dispose();
+      });
+    });
+
+    test('read outage before a channel joins emits nothing for it', () {
+      fakeAsync((async) {
+        final messages = <(String, String)>[];
+        final ircRead = _TestIrcRead();
+        final irc = _TestIrc();
+        final conn = _makeReconnectConn(
+          eventSub: _NoopEventSub(),
+          irc: irc,
+          ircRead: ircRead,
+          onReconnected: () {},
+          channels: const [],
+          currentUserLogin: 'testuser',
+          onSystemMessage: (c, t, {Color? accent}) => messages.add((c, t)),
+        );
+
+        conn.connect();
+        async.flushMicrotasks();
+
+        // No channels yet: a disconnect is invisible (nothing to mark).
+        ircRead.emitDisconnected();
+        async.flushMicrotasks();
+        expect(messages, isEmpty);
 
         conn.dispose();
       });

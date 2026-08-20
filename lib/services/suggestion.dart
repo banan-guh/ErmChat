@@ -73,64 +73,105 @@ List<Suggestion> filterSuggestions({
   required Iterable<String> users,
   List<TwitchCommand> commands = const [],
   bool preferEmotesFirst = false,
+  Set<String> recentEmoteIds = const {},
 }) {
   if (word.isEmpty) return const [];
-
-  final lower = word.toLowerCase();
 
   // Slash words only match commands; users and emote codes cannot contain
   // slashes. Typing "/" alone surfaces the whole (unfiltered) list.
   if (word.startsWith('/')) {
     final results = <Suggestion>[];
+    final lower = word.toLowerCase();
     for (final cmd in commands) {
       if (cmd.name.toLowerCase().startsWith(lower)) {
         results.add(CommandSuggestion(command: cmd.name));
       }
     }
-    return _numericFirst(results);
+    return results;
   }
 
-  final userMatches = <Suggestion>[];
-  for (final user in users) {
-    if (user.toLowerCase().startsWith(lower)) {
-      userMatches.add(UserSuggestion(displayName: user));
-    }
-  }
-
+  // Score-based ranking (ported from dankchat's SuggestionProvider, itself
+  // Chatterino's SmartEmoteStrategy): shorter, case-exact, recently used
+  // matches rank first. Users carry a small penalty so emotes win near-ties.
+  // preferEmotesFirst keeps the classic type split: every emote before any
+  // user.
+  final emoteScored = <(Suggestion, int)>[];
   final matchedIds = <String>{};
-  final emoteMatches = <Suggestion>[];
   for (final emote in emotes) {
-    // Case-insensitive match only; the case-sensitive `contains(word)` check
-    // is redundant since lowercasing the code subsumes it.
-    if (emote.code.toLowerCase().contains(lower)) {
-      if (matchedIds.add(emote.id)) {
-        emoteMatches.add(EmoteSuggestion(emote: emote));
-      }
+    final score = _scoreEmote(
+      emote.code,
+      word,
+      recentEmoteIds.contains(emote.id),
+    );
+    if (score == _noMatch) continue;
+    if (matchedIds.add(emote.id)) {
+      emoteScored.add((EmoteSuggestion(emote: emote), score));
     }
   }
+  final userScored = <(Suggestion, int)>[];
+  for (final user in users) {
+    final score = _scoreEmote(user, word, false);
+    if (score == _noMatch) continue;
+    userScored.add((
+      UserSuggestion(displayName: user),
+      score + _userScorePenalty,
+    ));
+  }
 
-  // Numeric-leading suggestions still outrank everything (see _numericFirst);
-  // within that, the chosen type order is emotes before users or users first.
-  final combined = preferEmotesFirst
-      ? [...emoteMatches, ...userMatches]
-      : [...userMatches, ...emoteMatches];
-  return _numericFirst(combined).take(100).toList();
+  emoteScored.sort(_byScore);
+  userScored.sort(_byScore);
+
+  if (preferEmotesFirst) {
+    return [
+      ...emoteScored,
+      ...userScored,
+    ].take(_maxSuggestions).map((e) => e.$1).toList();
+  }
+
+  // Merge the two pre-sorted lists by score; emotes win exact ties.
+  final merged = <Suggestion>[];
+  var i = 0;
+  var j = 0;
+  while (merged.length < _maxSuggestions &&
+      (i < emoteScored.length || j < userScored.length)) {
+    final pick = i >= emoteScored.length
+        ? userScored[j++]
+        : j >= userScored.length
+        ? emoteScored[i++]
+        : emoteScored[i].$2 <= userScored[j].$2
+        ? emoteScored[i++]
+        : userScored[j++];
+    merged.add(pick.$1);
+  }
+  return merged;
 }
 
-final _leadingDigit = RegExp(r'[0-9]');
+int _byScore((Suggestion, int) a, (Suggestion, int) b) {
+  final byScore = a.$2.compareTo(b.$2);
+  if (byScore != 0) return byScore;
+  return a.$1.displayText.compareTo(b.$1.displayText);
+}
 
-// Reorders suggestions so those whose text starts with a digit (e.g. "777",
-// "500k") appear first, preserving relative order within each group. Dart's
-// List.sort is not stable, so this partitions instead of sorting.
-List<Suggestion> _numericFirst(List<Suggestion> suggestions) {
-  final numeric = <Suggestion>[];
-  final rest = <Suggestion>[];
-  for (final suggestion in suggestions) {
-    if (suggestion.displayText.startsWith(_leadingDigit)) {
-      numeric.add(suggestion);
-    } else {
-      rest.add(suggestion);
-    }
+const _noMatch = -1 << 62;
+const _userScorePenalty = 25;
+const _maxSuggestions = 100;
+
+// How costly it is to turn the query into the code: match anywhere
+// (case-insensitive), then charge for case differences and extra characters.
+// An exact-case match gets a flat -10; recently used emotes get a -50 boost.
+// Lower is better. Ported from dankchat's SuggestionProvider, which credits
+// Chatterino2's SmartEmoteStrategy by Mm2PL (chatterino2#4987).
+int _scoreEmote(String code, String query, bool isRecentlyUsed) {
+  final matchIndex = code.toLowerCase().indexOf(query.toLowerCase());
+  if (matchIndex < 0) return _noMatch;
+
+  var caseDiffs = 0;
+  for (var i = 0; i < query.length; i++) {
+    if (code[matchIndex + i] != query[i]) caseDiffs++;
   }
-  return [...numeric, ...rest];
+
+  final extraChars = code.length - query.length;
+  final caseCost = caseDiffs == 0 ? -10 : caseDiffs;
+  final usageBoost = isRecentlyUsed ? -50 : 0;
+  return caseCost + extraChars * 100 + usageBoost;
 }

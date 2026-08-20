@@ -6,13 +6,11 @@ import 'package:http/http.dart' as http;
 import '../models/emote_fetch_tier.dart';
 import '../models/generic_emote.dart';
 import '../util/log.dart';
-import 'base_irc_connection.dart';
 import '../models/twitch_message.dart';
 import '../services/twitch_api.dart';
 import '../services/twitch_auth.dart';
 import '../services/twitch_eventsub.dart';
 import '../services/twitch_irc.dart';
-import '../services/twitch_irc_read.dart';
 import '../services/emote_manager.dart';
 import '../services/emote_providers/seven_tv_emotes.dart';
 import '../services/seven_tv_event_client.dart';
@@ -201,6 +199,10 @@ class ChatConnectionManager {
 
   bool _wasConnected = false;
   bool _wasDisconnected = false;
+  // Read-socket outage tracking: the read socket dying alone (e.g. a DNS
+  // error) must still surface as a visible "Chat reconnecting..." instead of
+  // silently freezing chat.
+  bool _wasReadDisconnected = false;
   DateTime? _lastSubscribeAll;
   // Credentials the IRC sockets were last told to use. Compared against the
   // desired account on connect() so an account switch tears the sockets down
@@ -284,6 +286,7 @@ class ChatConnectionManager {
   StreamSubscription<SevenTvEmoteUpdateEvent>? sevenTvEmoteSub;
   StreamSubscription<SevenTvUserUpdate>? sevenTvUserSub;
   StreamSubscription<IrcConnectionStatus>? ircStatusSub;
+  StreamSubscription<IrcConnectionStatus>? ircReadStatusSub;
   final _httpClient = http.Client();
 
   // Truncation coalescing: the thread-aware pass is O(n) over the channel
@@ -370,6 +373,7 @@ class ChatConnectionManager {
     sevenTvEmoteSub?.cancel();
     sevenTvUserSub?.cancel();
     ircStatusSub?.cancel();
+    ircReadStatusSub?.cancel();
     whisperSub?.cancel();
     _httpClient.close();
     for (final t in _chatStatusTimers.values) {
@@ -1206,6 +1210,27 @@ class ChatConnectionManager {
         }
       });
 
+      // The read-only socket reconnects independently of the write socket. A
+      // read-socket outage alone (DNS failure, server move) would otherwise be
+      // invisible: chat freezes with no "Disconnected" (the write socket is
+      // still fine) and no recovery notice. Surface it as an explicit status.
+      ircReadStatusSub?.cancel();
+      ircReadStatusSub = ircRead.onStatus.listen((status) {
+        if (isDisposed) return;
+        if (status == IrcConnectionStatus.connected && _wasReadDisconnected) {
+          _wasReadDisconnected = false;
+          for (final channel in channels) {
+            onSystemMessage(channel, 'Reconnected');
+          }
+        } else if (status == IrcConnectionStatus.disconnected &&
+            !_wasReadDisconnected) {
+          _wasReadDisconnected = true;
+          for (final channel in channels) {
+            onSystemMessage(channel, 'Chat reconnecting...');
+          }
+        }
+      });
+
       // Use the cached account if available so cold start skips the Helix
       // user lookup entirely.
       if (getCurrentUserLogin() == null &&
@@ -1761,9 +1786,7 @@ class ChatConnectionManager {
       unawaited(
         ircRead.checkAlive().then((alive) {
           if (!alive) {
-            logDebug(
-              '[ChatConn] IRC read zombie detected - forcing reconnect',
-            );
+            logDebug('[ChatConn] IRC read zombie detected - forcing reconnect');
             ircRead.forceReconnect();
           }
         }),

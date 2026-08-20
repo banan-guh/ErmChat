@@ -101,5 +101,7 @@
 - fix links parsing X
 - fix chat bypass
 - add tab bar in analytics X
-- ping recent messages to see max msgs - not deterministic, do later
+- ping recent messages to see max msgs - not deterministic, do later X it's just disabled during connect
 - add reload emotes / reload chat button X
+- fix 7tv badges
+- fix 7tv colorful names

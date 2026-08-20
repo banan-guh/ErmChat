@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
-import 'package:connectivity_plus/connectivity_plus.dart';
+import 'connectivity_service.dart';
 import '../util/constants.dart';
 import '../util/log.dart';
 
@@ -124,7 +124,7 @@ class EventSubService {
   static const _maxReconnectAttempts = 8;
   static const _connectTimeout = Duration(seconds: 10);
 
-  final Connectivity? _connectivity;
+  final ConnectivityService? _connectivityService;
 
   WebSocketChannel? _channel;
   String? _sessionId;
@@ -141,7 +141,7 @@ class EventSubService {
   bool _connecting = false;
   bool _disposed = false;
   int _reconnectAttempt = 0;
-  StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
+  VoidCallback? _connectivityListener;
   bool _isOnline = true;
   final _channelUserIds = <String, String>{};
 
@@ -179,7 +179,7 @@ class EventSubService {
     return connect();
   }
 
-  EventSubService({this._connectivity});
+  EventSubService({this._connectivityService});
 
   Stream<ModerationEvent> get onModeration => _moderationController.stream;
   Stream<HypeTrainEvent> get onHypeTrain => _hypeTrainController.stream;
@@ -560,15 +560,19 @@ class EventSubService {
   }
 
   void _ensureConnectivityListener() {
-    if (_connectivity == null || _connectivitySub != null) return;
-    _connectivitySub = _connectivity.onConnectivityChanged.listen((results) {
+    final service = _connectivityService;
+    if (service == null || _connectivityListener != null) return;
+    _connectivityListener = () {
+      final online = service.isOnline;
       final wasOffline = !_isOnline;
-      _isOnline = !results.contains(ConnectivityResult.none);
-      if (wasOffline && _isOnline && _channel == null && !_connecting) {
+      _isOnline = online;
+      if (wasOffline && online && _channel == null && !_connecting) {
         _reconnectAttempt = 0;
         connect();
       }
-    });
+    };
+    _isOnline = service.isOnline;
+    service.addListener(_connectivityListener!);
   }
 
   void disconnect({bool emitStatus = true}) {
@@ -602,8 +606,9 @@ class EventSubService {
   void dispose() {
     _disposed = true;
     disconnect();
-    _connectivitySub?.cancel();
-    _connectivitySub = null;
+    final listener = _connectivityListener;
+    if (listener != null) _connectivityService?.removeListener(listener);
+    _connectivityListener = null;
     _moderationController.close();
     _hypeTrainController.close();
     _pollController.close();

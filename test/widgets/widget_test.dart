@@ -21,7 +21,6 @@ import 'package:ermchat/services/analytics_service.dart';
 import 'package:ermchat/models/emote_fetch_tier.dart';
 import 'package:ermchat/services/twitch_api.dart';
 import 'package:ermchat/services/twitch_eventsub.dart';
-import 'package:ermchat/services/base_irc_connection.dart';
 import 'package:ermchat/services/twitch_irc.dart';
 import 'package:ermchat/services/recent_messages.dart';
 import 'package:ermchat/services/twitch_auth.dart';
@@ -928,11 +927,12 @@ void main() {
 
     await tester.pump(const Duration(seconds: 5));
 
-    final disconnectCount = find
-        .textContaining('Disconnected')
-        .evaluate()
-        .length;
-    expect(disconnectCount, 1);
+    // The sockets were already down before the channel was joined, so no
+    // outage system message is emitted for it; the input hint reads
+    // "Reconnecting...".
+    expect(find.textContaining('Reconnecting'), findsOneWidget);
+    expect(find.textContaining('Disconnected'), findsNothing);
+    expect(find.textContaining('Chat reconnecting...'), findsNothing);
   });
 
   testWidgets('Duplicate channel join is silently ignored', (
@@ -2123,9 +2123,11 @@ void main() {
       irc.triggerDisconnect();
       await tester.pump();
       // "Connected" is NOT swallowed by "Disconnected": both stay separate.
-      // (Chip also reads "Disconnected" while down, hence x2.)
+      // (The input hint reads "Reconnecting..." while down, hence one
+      // "Disconnected" system line and one "Reconnecting..." hint.)
       expect(find.textContaining('Connected'), findsOneWidget);
-      expect(find.textContaining('Disconnected'), findsNWidgets(2));
+      expect(find.textContaining('Disconnected'), findsOneWidget);
+      expect(find.textContaining('Reconnecting'), findsOneWidget);
 
       irc.triggerConnect();
       await tester.pump();

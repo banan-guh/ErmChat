@@ -3,12 +3,16 @@ import 'package:flutter/foundation.dart';
 import '../color_utils.dart';
 import '../models/twitch_badge.dart';
 import '../models/twitch_message.dart';
-import '../util/irc_utils.dart';
-import '../util/log.dart';
 import 'base_irc_connection.dart';
 
-final _loneLowSurrogateRe = RegExp(r'[\uDC00-\uDFFF]');
-final _orphanedHighSurrogateRe = RegExp(r'[\uD800-\uDBFF](?![\uDC00-\uDFFF])');
+export 'base_irc_connection.dart'
+    show
+        IrcConnection,
+        IrcReadService,
+        IrcConnectionStatus,
+        IrcMessage,
+        parseIrcMessage;
+
 final _replyPrefixRe = RegExp(r'^\s*@\S+\s+');
 
 class IrcBanEvent {
@@ -239,7 +243,7 @@ List<MessageBadge>? parseIrcBadges(String? badgesTag) {
   return badges.isEmpty ? null : badges;
 }
 
-class IrcService extends BaseIrcConnection {
+class IrcService extends IrcConnection {
   final _banController = StreamController<IrcBanEvent>.broadcast();
   final _noticeController = StreamController<IrcNoticeEvent>.broadcast();
   final _jtvController = StreamController<IrcNoticeEvent>.broadcast();
@@ -281,7 +285,7 @@ class IrcService extends BaseIrcConnection {
   @override
   String get debugPrefix => 'IRC';
 
-  IrcService({super.connectivity});
+  IrcService({super.connectivityService});
 
   void sendMessage(
     String channelName,
@@ -633,88 +637,4 @@ TwitchMessage parseIrcChatMessage(
     isFirstMessage: ircMsg.tags['first-msg'] == '1',
     isHistory: isHistory,
   );
-}
-
-IrcMessage? parseIrcMessage(String line) {
-  try {
-    String? tags;
-    String? prefix;
-    String command;
-    List<String> params = [];
-    String? trailing;
-
-    int pos = 0;
-
-    if (line.startsWith('@')) {
-      final end = line.indexOf(' ');
-      if (end == -1) return null;
-      tags = line.substring(1, end);
-      pos = end + 1;
-    }
-
-    if (pos < line.length && line[pos] == ':') {
-      final end = line.indexOf(' ', pos);
-      if (end == -1) return null;
-      prefix = line.substring(pos + 1, end);
-      pos = end + 1;
-    }
-
-    final rest = line.substring(pos);
-    final parts = rest.split(' ');
-    command = parts[0];
-
-    int i = 1;
-    while (i < parts.length) {
-      if (parts[i].startsWith(':')) {
-        trailing = parts.sublist(i).join(' ').substring(1);
-        break;
-      }
-      params.add(parts[i]);
-      i++;
-    }
-
-    final tagMap = <String, String>{};
-    if (tags != null) {
-      for (final tag in tags.split(';')) {
-        final eq = tag.indexOf('=');
-        if (eq != -1) {
-          // Twitch IRCv3 tags are backslash-escaped, not percent-encoded.
-          String decoded = unescapeIrcTag(tag.substring(eq + 1));
-          // Strip orphaned UTF-16 surrogates: low surrogates alone or high
-          // surrogates not followed by low (Flutter's text engine crashes on
-          // isolated surrogates from malformed Twitch IRC data).
-          decoded = decoded.replaceAll(_loneLowSurrogateRe, '');
-          decoded = decoded.replaceAll(_orphanedHighSurrogateRe, '');
-          tagMap[tag.substring(0, eq)] = decoded;
-        }
-      }
-    }
-
-    return IrcMessage(
-      tags: tagMap,
-      prefix: prefix,
-      command: command,
-      params: params,
-      trailing: trailing,
-    );
-  } catch (_) {
-    logDebug('[parseIrcMessage] failed to parse line: $line');
-    return null;
-  }
-}
-
-class IrcMessage {
-  final Map<String, String> tags;
-  final String? prefix;
-  final String command;
-  final List<String> params;
-  final String? trailing;
-
-  IrcMessage({
-    required this.tags,
-    this.prefix,
-    required this.command,
-    required this.params,
-    this.trailing,
-  });
 }

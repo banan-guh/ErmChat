@@ -497,6 +497,14 @@ class EmoteManager extends ChangeNotifier {
     await prefs.setString(_recentKey, jsonEncode(_recentIds));
   }
 
+  /// Recently used emote ids (most recent first), used to boost autocomplete
+  /// ranking. The persisted list loads lazily, so the first keystroke after
+  /// launch may rank without it.
+  Set<String> get recentEmoteIds {
+    if (!_recentLoaded) unawaited(_ensureRecentLoaded());
+    return _recentIds.toSet();
+  }
+
   /// Resolve an emote by ID across all caches.
   GenericEmote? emoteById(String id) => _emoteById(id);
 
