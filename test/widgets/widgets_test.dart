@@ -2629,7 +2629,10 @@ void main() {
       var prefs = await SharedPreferences.getInstance();
       expect(prefs.getBool('show_timestamps'), isFalse);
 
-      await tester.tap(find.widgetWithText(ListTile, 'Timestamp format'));
+      final formatTile = find.widgetWithText(ListTile, 'Timestamp format');
+      await tester.ensureVisible(formatTile);
+      await tester.pumpAndSettle();
+      await tester.tap(formatTile);
       await tester.pumpAndSettle();
       await tester.tap(find.text('h:mm a'));
       await tester.pumpAndSettle();

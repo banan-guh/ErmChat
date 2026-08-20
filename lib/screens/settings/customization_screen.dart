@@ -7,6 +7,7 @@ class CustomizationScreen extends StatefulWidget {
   final ValueChanged<bool>? onKeepScreenOnChanged;
   final ValueChanged<bool>? onTrueDarkChanged;
   final ValueChanged<String>? onAccentColorChanged;
+  final ValueChanged<double>? onChatFontScaleChanged;
 
   const CustomizationScreen({
     super.key,
@@ -14,6 +15,7 @@ class CustomizationScreen extends StatefulWidget {
     this.onKeepScreenOnChanged,
     this.onTrueDarkChanged,
     this.onAccentColorChanged,
+    this.onChatFontScaleChanged,
   });
 
   @override
@@ -24,6 +26,7 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
   bool _keepScreenOn = true;
   bool _trueDark = false;
   String _accentKey = kDefaultAccent;
+  double _chatFontSize = 14.0;
 
   @override
   void initState() {
@@ -38,6 +41,7 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
         _keepScreenOn = prefs.getBool('keep_screen_on') ?? true;
         _trueDark = prefs.getBool('true_dark') ?? false;
         _accentKey = prefs.getString('accent_color') ?? kDefaultAccent;
+        _chatFontSize = prefs.getDouble('chat_font_size') ?? 14.0;
       });
     }
   }
@@ -109,6 +113,33 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
                   ),
               ],
             ),
+          ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
+                child: Text(
+                  'Chat font size: ${_chatFontSize.round()}',
+                ),
+              ),
+              Slider(
+                value: _chatFontSize,
+                min: 8,
+                max: 24,
+                divisions: 16,
+                label: '${_chatFontSize.round()}',
+                onChanged: (value) async {
+                  final prefs = await SharedPreferences.getInstance();
+                  await prefs.setDouble('chat_font_size', value);
+                  if (mounted) setState(() => _chatFontSize = value);
+                  widget.onChatFontScaleChanged?.call(value);
+                },
+              ),
+            ],
           ),
           SwitchListTile(
             title: const Text('Keep screen on'),

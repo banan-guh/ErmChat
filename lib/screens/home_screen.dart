@@ -291,6 +291,7 @@ class _HomeScreenState extends State<HomeScreen>
   int _nextSystemMessageId = 0;
   bool _showTimestamps = true;
   String _timestampFormat = kDefaultTimestampFormat;
+  double _chatFontSize = 14.0;
 
   final _suggestionsNotifier = ValueNotifier<List<Suggestion>>([]);
   final _selectedTabIndex = ValueNotifier<int>(0);
@@ -502,6 +503,14 @@ class _HomeScreenState extends State<HomeScreen>
   void _setTimestampFormat(String value) {
     if (_timestampFormat == value) return;
     setState(() => _timestampFormat = value);
+    for (final channel in List.of(_channels)) {
+      _bumpChannel(channel);
+    }
+  }
+
+  void _setChatFontScale(double value) {
+    if (_chatFontSize == value) return;
+    setState(() => _chatFontSize = value);
     for (final channel in List.of(_channels)) {
       _bumpChannel(channel);
     }
@@ -1308,6 +1317,7 @@ class _HomeScreenState extends State<HomeScreen>
       _showTimestamps = prefs.getBool(kShowTimestampsPrefKey) ?? true;
       _timestampFormat =
           prefs.getString(kTimestampFormatPrefKey) ?? kDefaultTimestampFormat;
+      _chatFontSize = prefs.getDouble('chat_font_size') ?? 14.0;
     });
   }
 
@@ -2026,6 +2036,7 @@ class _HomeScreenState extends State<HomeScreen>
           onPreferEmotesFirstChanged: _setPreferEmotesFirst,
           onShowTimestampsChanged: _setShowTimestamps,
           onTimestampFormatChanged: _setTimestampFormat,
+          onChatFontScaleChanged: _setChatFontScale,
           onEmoteTierChanged: _applyEmoteTier,
           onEmoteCacheMaxChanged: _applyCacheCap,
           onEmoteAutoModeChanged: _applyEmoteAutoMode,
@@ -2903,6 +2914,8 @@ class _HomeScreenState extends State<HomeScreen>
                                                 showTimestamp: _showTimestamps,
                                                 timestampFormat:
                                                     _timestampFormat,
+                                                chatFontScale:
+                                                    _chatFontSize / 14.0,
                                                 onShowUserProfile:
                                                     (
                                                       login,
@@ -3060,7 +3073,7 @@ class _HomeScreenState extends State<HomeScreen>
                         body: ThreadPanelWidget(
                           key: const ValueKey('thread_panel'),
                           data: _threadPanelData,
-                          uiScale: 1.0,
+                          chatFontScale: _chatFontSize / 14.0,
                           onLongPress: _showThreadMessageMenu,
                           buildBadgeSpans: _messageBuilder.buildBadgeSpans,
                           buildMessageSpans: _messageBuilder.buildMessageSpans,
@@ -3127,7 +3140,7 @@ class _HomeScreenState extends State<HomeScreen>
                             MentionsPanelWidget(
                               key: const ValueKey('mentions_panel'),
                               messages: _mentionsPanelData,
-                              uiScale: 1.0,
+                              chatFontScale: _chatFontSize / 14.0,
                               buildBadgeSpans: _messageBuilder.buildBadgeSpans,
                               buildMessageSpans:
                                   _messageBuilder.buildMessageSpans,
@@ -3138,7 +3151,7 @@ class _HomeScreenState extends State<HomeScreen>
                             MentionsPanelWidget(
                               key: const ValueKey('whispers_panel'),
                               messages: _whispersPanelData,
-                              uiScale: 1.0,
+                              chatFontScale: _chatFontSize / 14.0,
                               buildBadgeSpans: _messageBuilder.buildBadgeSpans,
                               buildMessageSpans:
                                   _messageBuilder.buildMessageSpans,

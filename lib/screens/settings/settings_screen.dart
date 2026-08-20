@@ -26,6 +26,7 @@ class SettingsScreen extends StatelessWidget {
   final ValueChanged<bool>? onPreferEmotesFirstChanged;
   final ValueChanged<bool>? onShowTimestampsChanged;
   final ValueChanged<String>? onTimestampFormatChanged;
+  final ValueChanged<double>? onChatFontScaleChanged;
   final ValueChanged<int>? onEmoteTierChanged;
   final ValueChanged<int>? onEmoteCacheMaxChanged;
   final ValueChanged<EmoteFetchAutoMode>? onEmoteAutoModeChanged;
@@ -54,6 +55,7 @@ class SettingsScreen extends StatelessWidget {
     this.onPreferEmotesFirstChanged,
     this.onShowTimestampsChanged,
     this.onTimestampFormatChanged,
+    this.onChatFontScaleChanged,
     this.onEmoteTierChanged,
     this.onEmoteCacheMaxChanged,
     this.onEmoteAutoModeChanged,
@@ -102,6 +104,7 @@ class SettingsScreen extends StatelessWidget {
                   onKeepScreenOnChanged: onKeepScreenOnChanged,
                   onTrueDarkChanged: onTrueDarkChanged,
                   onAccentColorChanged: onAccentColorChanged,
+                  onChatFontScaleChanged: onChatFontScaleChanged,
                 ),
               ),
             ),

@@ -7,7 +7,7 @@ import '../widgets/chat_message_tile.dart';
 class MentionsPanelWidget extends StatefulWidget {
   final ScrollController scrollController;
   final ValueListenable<List<TwitchMessage>?> messages;
-  final double uiScale;
+  final double chatFontScale;
   final List<WidgetSpan> Function(String, TwitchMessage, {double badgeScale})
   buildBadgeSpans;
   final List<InlineSpan> Function(
@@ -25,7 +25,7 @@ class MentionsPanelWidget extends StatefulWidget {
   const MentionsPanelWidget({
     required this.scrollController,
     required this.messages,
-    required this.uiScale,
+    required this.chatFontScale,
     required this.buildBadgeSpans,
     required this.buildMessageSpans,
     this.emptyText = 'No mentions or whispers',
@@ -44,7 +44,7 @@ class MentionsPanelWidgetState extends State<MentionsPanelWidget> {
     final theme = Theme.of(context);
     final surface = theme.colorScheme.surface;
     final systemScale = MediaQuery.textScalerOf(context).scale(1.0);
-    final s = widget.uiScale * systemScale;
+    final s = widget.chatFontScale * systemScale;
 
     return ValueListenableBuilder<List<TwitchMessage>?>(
       valueListenable: widget.messages,

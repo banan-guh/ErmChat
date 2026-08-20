@@ -26,6 +26,7 @@ class ChatView extends StatelessWidget {
   final void Function(TwitchMessage) onShowThreadView;
   final bool showTimestamp;
   final String timestampFormat;
+  final double chatFontScale;
 
   const ChatView({
     super.key,
@@ -44,13 +45,14 @@ class ChatView extends StatelessWidget {
     required this.onShowThreadView,
     this.showTimestamp = true,
     this.timestampFormat = kDefaultTimestampFormat,
+    this.chatFontScale = 1.0,
   });
 
   @override
   Widget build(BuildContext context) {
     final surface = Theme.of(context).colorScheme.surface;
     final systemScale = MediaQuery.textScalerOf(context).scale(1.0);
-    final s = 1.0 * systemScale;
+    final s = chatFontScale * systemScale;
 
     return Stack(
       clipBehavior: Clip.hardEdge,

@@ -13,7 +13,7 @@ class ThreadPanelData {
 class ThreadPanelWidget extends StatefulWidget {
   final ScrollController scrollController;
   final ValueListenable<ThreadPanelData?> data;
-  final double uiScale;
+  final double chatFontScale;
   final void Function(TwitchMessage) onLongPress;
   final List<WidgetSpan> Function(String, TwitchMessage, {double badgeScale})
   buildBadgeSpans;
@@ -31,7 +31,7 @@ class ThreadPanelWidget extends StatefulWidget {
   const ThreadPanelWidget({
     required this.scrollController,
     required this.data,
-    required this.uiScale,
+    required this.chatFontScale,
     required this.onLongPress,
     required this.buildBadgeSpans,
     required this.buildMessageSpans,
@@ -50,7 +50,7 @@ class ThreadPanelWidgetState extends State<ThreadPanelWidget> {
     final theme = Theme.of(context);
     final surface = theme.colorScheme.surface;
     final systemScale = MediaQuery.textScalerOf(context).scale(1.0);
-    final s = widget.uiScale * systemScale;
+    final s = widget.chatFontScale * systemScale;
 
     return ValueListenableBuilder<ThreadPanelData?>(
       valueListenable: widget.data,
