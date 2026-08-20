@@ -313,45 +313,46 @@ void main() {
   });
 
   group('bypassTextDuplicate', () {
-    test('doubles first space in multi-word text', () {
-      final result = bypassTextDuplicate('hello world');
-      expect(result, 'hello  world');
+    test('first send (no previous wire) sends text unchanged', () {
+      expect(bypassTextDuplicate('hello', null), 'hello');
     });
 
-    test(
-      'chaining: repeated bypass on single-word keeps producing unique strings',
-      () {
-        var wire = 'hello';
-        wire = bypassTextDuplicate(wire);
-        expect(wire, 'hello $_invisibleChar');
-        wire = bypassTextDuplicate(wire);
-        expect(wire, 'hello  $_invisibleChar');
-        wire = bypassTextDuplicate(wire);
-        expect(wire, 'hello   $_invisibleChar');
-      },
-    );
+    test('toggles invisible suffix on/off for repeated identical sends', () {
+      var wire = bypassTextDuplicate('hello', null);
+      expect(wire, 'hello');
+      wire = bypassTextDuplicate('hello', wire);
+      expect(wire, 'hello $_invisibleChar');
+      wire = bypassTextDuplicate('hello', wire);
+      expect(wire, 'hello');
+      wire = bypassTextDuplicate('hello', wire);
+      expect(wire, 'hello $_invisibleChar');
+    });
 
-    test(
-      'chaining: repeated bypass on multi-word keeps producing unique strings',
-      () {
-        var wire = 'hello world';
-        wire = bypassTextDuplicate(wire);
-        expect(wire, 'hello  world');
-        wire = bypassTextDuplicate(wire);
-        expect(wire, 'hello   world');
-        wire = bypassTextDuplicate(wire);
-        expect(wire, 'hello    world');
-      },
-    );
+    test('toggles for multi-word text without a visible double space', () {
+      var wire = bypassTextDuplicate('hello world', null);
+      expect(wire, 'hello world');
+      wire = bypassTextDuplicate('hello world', wire);
+      expect(wire, 'hello world $_invisibleChar');
+      wire = bypassTextDuplicate('hello world', wire);
+      expect(wire, 'hello world');
+    });
+
+    test('different text from last wire is sent unchanged', () {
+      expect(bypassTextDuplicate('hello', 'goodbye'), 'hello');
+    });
+
+    test('strips suffix when text already ends with the invisible char', () {
+      final wire =
+          bypassTextDuplicate('hello$_invisibleChar', 'hello$_invisibleChar');
+      expect(wire, 'hello');
+    });
 
     test('handles empty string', () {
-      final result = bypassTextDuplicate('');
-      expect(result, ' $_invisibleChar');
+      expect(bypassTextDuplicate('', null), ' $_invisibleChar');
     });
 
-    test('text with only spaces doubles first space', () {
-      final result = bypassTextDuplicate(' ');
-      expect(result, '  ');
+    test('text with only spaces', () {
+      expect(bypassTextDuplicate(' ', null), ' $_invisibleChar');
     });
   });
 

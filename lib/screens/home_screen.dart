@@ -128,7 +128,6 @@ class _HomeScreenState extends State<HomeScreen>
       historyLoaded: _historyLoaded,
       channelsEmotesResolved: _channelsEmotesResolved,
       channelUserIds: _channelUserIds,
-      lastTypedText: _lastTypedText,
       lastSentWireText: _lastSentWireText,
       bumpChannel: _notifyNewMessage,
       invalidateChannel: _bumpChannel,
@@ -323,7 +322,6 @@ class _HomeScreenState extends State<HomeScreen>
   bool _mentionScanDone = false;
   String? _currentUserId;
   String? _lastSentText;
-  final Map<String, String> _lastTypedText = {};
   final Map<String, String> _lastSentWireText = {};
 
   ({int start, String originalText, String replacementText})? _lastAutoUndo;
@@ -1857,7 +1855,6 @@ class _HomeScreenState extends State<HomeScreen>
     _channelsEmotesResolved.remove(channel);
     _historyLoaded.remove(channel);
     _channelUserIds.remove(channel);
-    _lastTypedText.remove(channel);
     _lastSentWireText.remove(channel);
     _chatStatus.remove(channel);
     _hypeTrains.remove(channel);

@@ -54,7 +54,6 @@ class ChatConnectionConfig {
     required this.historyLoaded,
     required this.channelsEmotesResolved,
     required this.channelUserIds,
-    required this.lastTypedText,
     required this.lastSentWireText,
     required this.bumpChannel,
     required this.invalidateChannel,
@@ -108,7 +107,6 @@ class ChatConnectionConfig {
   final Set<String> historyLoaded;
   final Set<String> channelsEmotesResolved;
   final Map<String, String> channelUserIds;
-  final Map<String, String> lastTypedText;
   final Map<String, String> lastSentWireText;
   final void Function(String channel) bumpChannel;
   final void Function(String channel) invalidateChannel;
@@ -163,7 +161,6 @@ class ChatConnectionManager {
   final Set<String> historyLoaded;
   final Set<String> channelsEmotesResolved;
   final Map<String, String> channelUserIds;
-  final Map<String, String> lastTypedText;
   final Map<String, String> lastSentWireText;
   final void Function(String channel) bumpChannel;
   final void Function(String channel) invalidateChannel;
@@ -319,7 +316,7 @@ class ChatConnectionManager {
       historyLoaded = config.historyLoaded,
       channelsEmotesResolved = config.channelsEmotesResolved,
       channelUserIds = config.channelUserIds,
-      lastTypedText = config.lastTypedText,
+
       lastSentWireText = config.lastSentWireText,
       bumpChannel = config.bumpChannel,
       invalidateChannel = config.invalidateChannel,
@@ -1083,17 +1080,11 @@ class ChatConnectionManager {
       return;
     }
 
-    // Twitch rejects duplicate messages. If user sends the same visible text
-    // again, inject an invisible \u034F bypass so wire text differs while
-    // appearing identical. Two tracks (typed vs sent) prevent cascading bypass.
-    final String wireText;
-    if (text == lastTypedText[channel]) {
-      final lastWire = lastSentWireText[channel] ?? text;
-      wireText = bypassTextDuplicate(lastWire);
-    } else {
-      wireText = text;
-    }
-    lastTypedText[channel] = text;
+    // Twitch rejects duplicate messages. Mirror DankChat: when the text equals
+    // the last wire text we actually sent, toggle a trailing invisible-char
+    // suffix on/off so consecutive sends differ on the wire yet look identical.
+    // The suffix never accumulates.
+    final wireText = bypassTextDuplicate(text, lastSentWireText[channel]);
     lastSentWireText[channel] = wireText;
 
     // Primary: send via IRC once the channel's JOIN is confirmed (ROOMSTATE

@@ -94,7 +94,7 @@
 
 
 ## SMALL bugs
-- borders flicker white when tabbing in
+- borders flicker white when tabbing in +
 - fully transparent emote stops working for some reason X
 - size emote menu better
 - fix no scope experience X
