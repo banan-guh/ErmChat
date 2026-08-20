@@ -476,6 +476,30 @@ void main() {
         channel.dispose();
       });
     });
+
+    test('JOINs queued before connect are sent once the socket opens', () {
+      // Regression: channels are joined before/around connect() (socket still
+      // coming up), which pre-loads the queue but cannot flush yet. The
+      // dedup guard must not strand them, or the channel is never joined and
+      // the read socket stays dead on initial connect.
+      fakeAsync((async) {
+        final channel = FakeWebSocketChannel();
+        final service = _TestService([channel]);
+        service.join('awootismm');
+        service.join('ermugo2');
+        async.flushMicrotasks();
+        expect(channel.sent, isEmpty, reason: 'nothing sent before connect');
+
+        service.connect(username: 'user', accessToken: 'token');
+        async.flushMicrotasks();
+
+        expect(channel.sent, contains('JOIN #awootismm'));
+        expect(channel.sent, contains('JOIN #ermugo2'));
+
+        service.dispose();
+        channel.dispose();
+      });
+    });
   });
 
   group('ROOMSTATE rejoin sweep', () {
