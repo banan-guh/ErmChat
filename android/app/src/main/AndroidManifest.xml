@@ -60,5 +60,11 @@
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
         </intent>
+        <!-- Required so TextToSpeech.getEngines() can enumerate installed TTS
+             engines on Android 11+ (package visibility), otherwise the engine
+             list comes back empty. -->
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE"/>
+        </intent>
     </queries>
 </manifest>

@@ -4,6 +4,7 @@ import android.content.ComponentName
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+
 import androidx.browser.customtabs.CustomTabsClient
 import androidx.browser.customtabs.CustomTabsIntent
 import androidx.browser.customtabs.CustomTabsServiceConnection
@@ -18,6 +19,12 @@ class MainActivity : FlutterActivity() {
     private var customTabsSession: CustomTabsSession? = null
     private var pendingUrl: String? = null
     private var pendingRedirect: String? = null
+
+    // TTS engine selection is delegated to the system "Text-to-speech output"
+    // screen (same as dankchat's ACTION_INSTALL_TTS_DATA flow), so we only need
+    // an intent to open it.
+    private val ttsChannelName = "ermchat/tts"
+    private var ttsMethodChannel: MethodChannel? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -41,6 +48,20 @@ class MainActivity : FlutterActivity() {
         pendingRedirect?.let {
             methodChannel?.invokeMethod("onRedirect", it)
             pendingRedirect = null
+        }
+        ttsMethodChannel =
+            MethodChannel(flutterEngine.dartExecutor.binaryMessenger, ttsChannelName)
+        ttsMethodChannel?.setMethodCallHandler { call, result ->
+            when (call.method) {
+                "openTtsSettings" -> {
+                    try {
+                        startActivity(Intent("com.android.settings.TTS_SETTINGS"))
+                    } catch (_: Exception) {
+                    }
+                    result.success(null)
+                }
+                else -> result.notImplemented()
+            }
         }
     }
 

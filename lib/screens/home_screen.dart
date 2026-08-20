@@ -31,6 +31,7 @@ import '../widgets/welcome_dialog.dart';
 import '../services/user_store.dart';
 import '../services/suggestion.dart';
 import '../services/notification_service.dart';
+import '../services/tts_controller.dart';
 import '../widgets/autocomplete_dropdown.dart';
 import '../widgets/user_profile_sheet.dart';
 import '../widgets/emote_sheet.dart';
@@ -107,6 +108,8 @@ class _HomeScreenState extends State<HomeScreen>
   late final _analytics = AnalyticsService(
     emoteLookup: (channel) => _emoteManager.byCode(channel),
   );
+  final _ttsController = TtsController();
+
   late final _chatConn = ChatConnectionManager(
     ChatConnectionConfig(
       twitchApi: _twitchApi,
@@ -148,6 +151,8 @@ class _HomeScreenState extends State<HomeScreen>
       onReconnected: _onReconnected,
       getMaxMessagesPerChannel: () => _maxMessagesPerChannel,
       getSelectedChannel: () => _selectedChannel,
+      onChatMessage: (channel, msg) =>
+          _ttsController.handleMessage(channel, msg, _selectedChannel),
       getUnreadMentions: () => _unreadMentions,
       setUnreadMentions: (v) {
         _unreadMentions = v;
@@ -170,9 +175,11 @@ class _HomeScreenState extends State<HomeScreen>
       getAltPings: () => _altPings,
       onShowSnackBar: (msg) {
         if (mounted) {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(SnackBar(content: Text(msg)));
+          final messenger = ScaffoldMessenger.of(context);
+          // Replace any current snackbar so identical/rapid info popups don't
+          // queue up one after another.
+          messenger.removeCurrentSnackBar();
+          messenger.showSnackBar(SnackBar(content: Text(msg)));
         }
       },
     ),
@@ -344,6 +351,7 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   void initState() {
     super.initState();
+    unawaited(_ttsController.init());
     _currentUserLogin = widget.initialCurrentUserLogin;
     _loadEmotePrefs();
     _emoteSheetCtrl = DraggableScrollableController();
@@ -1316,6 +1324,7 @@ class _HomeScreenState extends State<HomeScreen>
     _connectivityListener = null;
     _isMobile.dispose();
     _chatConn.dispose();
+    unawaited(_ttsController.shutdown());
     WidgetsBinding.instance.removeObserver(this);
     WidgetsBinding.instance.removeObserver(_predictiveBackHandler);
     _panelScaleCtrl.dispose();
@@ -2027,6 +2036,7 @@ class _HomeScreenState extends State<HomeScreen>
           onReorderChannels: _reorderChannels,
           analyticsService: _analytics,
           channels: _channels,
+          ttsController: _ttsController,
         ),
       ),
     ).then((_) {

@@ -3,6 +3,7 @@ import '../../models/emote_fetch_tier.dart';
 import '../../services/analytics_service.dart';
 import '../../services/twitch_auth.dart';
 import '../../services/twitch_oauth.dart';
+import '../../services/tts_controller.dart';
 import 'about_screen.dart';
 import 'account_screen.dart';
 import 'channel_settings_screen.dart';
@@ -36,6 +37,7 @@ class SettingsScreen extends StatelessWidget {
   final AnalyticsService? analyticsService;
   final List<String>? channels;
   final OAuthStarter? oAuthStarter;
+  final TtsController? ttsController;
 
   const SettingsScreen({
     super.key,
@@ -63,6 +65,7 @@ class SettingsScreen extends StatelessWidget {
     this.analyticsService,
     this.channels,
     this.oAuthStarter,
+    this.ttsController,
   });
 
   @override
@@ -151,6 +154,7 @@ class SettingsScreen extends StatelessWidget {
                   builder: (_) => ToolsSettingsScreen(
                     analyticsService: analyticsService,
                     channels: channels,
+                    ttsController: ttsController,
                   ),
                 ),
               ),

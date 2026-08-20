@@ -84,6 +84,7 @@ class ChatConnectionConfig {
     this.onHypeTrain,
     this.onPoll,
     this.onPrediction,
+    this.onChatMessage,
     this.truncateNow,
     this.truncateCoalesceWindow = const Duration(milliseconds: 250),
   });
@@ -137,6 +138,7 @@ class ChatConnectionConfig {
   final void Function(HypeTrainEvent event)? onHypeTrain;
   final void Function(PollEvent event)? onPoll;
   final void Function(PredictionEvent event)? onPrediction;
+  final void Function(String channel, TwitchMessage msg)? onChatMessage;
   final DateTime Function()? truncateNow;
   final Duration truncateCoalesceWindow;
 }
@@ -193,6 +195,7 @@ class ChatConnectionManager {
   final void Function(HypeTrainEvent event)? onHypeTrain;
   final void Function(PollEvent event)? onPoll;
   final void Function(PredictionEvent event)? onPrediction;
+  final void Function(String channel, TwitchMessage msg)? onChatMessage;
 
   bool _wasConnected = false;
   bool _wasDisconnected = false;
@@ -347,6 +350,7 @@ class ChatConnectionManager {
       onHypeTrain = config.onHypeTrain,
       onPoll = config.onPoll,
       onPrediction = config.onPrediction,
+      onChatMessage = config.onChatMessage,
       _now = config.truncateNow ?? clock.now,
       _truncateCoalesceWindow = config.truncateCoalesceWindow;
 
@@ -1409,6 +1413,21 @@ class ChatConnectionManager {
               ? announcementColors['PRIMARY']
               : null,
         );
+        onChatMessage?.call(
+          event.channel,
+          TwitchMessage(
+            login: event.login,
+            displayName: event.displayName,
+            text: buildUserNoticeText(
+              msgId: event.msgId,
+              displayName: event.displayName,
+              systemMsg: event.systemMsg,
+              text: event.text,
+            ),
+            channel: event.channel,
+            isSystem: true,
+          ),
+        );
         return;
       }
       // DankChat-style: the "Announcement" label plus the announcement text
@@ -1691,6 +1710,7 @@ class ChatConnectionManager {
     }
     bumpChannel(channel);
     precacheMessageEmotes(msg, channel);
+    onChatMessage?.call(channel, msg);
   }
 
   void onWhisperEvent(TwitchMessage msg) {
@@ -1738,6 +1758,10 @@ class ChatConnectionManager {
 
     bumpChannel(channel);
     precacheMessageEmotes(msg, channel);
+    // Own messages arrive on the read socket (not the channel echo), so they
+    // would otherwise never be read aloud; surface them like any other chat
+    // message so TTS can speak them too.
+    onChatMessage?.call(channel, msg);
   }
 
   /// Brute-force teardown + reconnect of every socket (manual "Reconnect"

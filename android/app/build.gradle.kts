@@ -3,6 +3,10 @@ import java.util.Properties
 
 plugins {
     id("com.android.application")
+    // Built-in Kotlin is disabled (android.builtInKotlin=false), so the Kotlin
+    // Gradle plugin must be applied here explicitly for the app's Kotlin
+    // sources (MainActivity.kt) to compile.
+    id("org.jetbrains.kotlin.android")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
