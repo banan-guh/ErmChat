@@ -278,14 +278,14 @@ class TabbedLayoutState extends State<TabbedLayout>
                 top: 0,
                 bottom: 0,
                 width: leftExclude,
-                child: const _EdgeExclusionZone(),
+                child: const EdgeExclusionZone(),
               ),
               Positioned(
                 right: 0,
                 top: 0,
                 bottom: 0,
                 width: rightExclude,
-                child: const _EdgeExclusionZone(),
+                child: const EdgeExclusionZone(),
               ),
             ],
           ),
@@ -304,8 +304,8 @@ class TabbedLayoutState extends State<TabbedLayout>
 // translucent GestureDetector that registers only a horizontal-drag recognizer
 // means taps, long-press, and vertical scrolling fall through to the content
 // beneath, while a horizontal drag is still captured so the page never moves.
-class _EdgeExclusionZone extends StatelessWidget {
-  const _EdgeExclusionZone();
+class EdgeExclusionZone extends StatelessWidget {
+  const EdgeExclusionZone({super.key});
 
   @override
   Widget build(BuildContext context) {

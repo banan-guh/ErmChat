@@ -132,11 +132,14 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
                 max: 24,
                 divisions: 16,
                 label: '${_chatFontSize.round()}',
-                onChanged: (value) async {
-                  final prefs = await SharedPreferences.getInstance();
-                  await prefs.setDouble('chat_font_size', value);
-                  if (mounted) setState(() => _chatFontSize = value);
+                onChanged: (value) {
+                  setState(() => _chatFontSize = value);
                   widget.onChatFontScaleChanged?.call(value);
+                },
+                onChangeEnd: (value) {
+                  SharedPreferences.getInstance().then(
+                    (prefs) => prefs.setDouble('chat_font_size', value),
+                  );
                 },
               ),
             ],

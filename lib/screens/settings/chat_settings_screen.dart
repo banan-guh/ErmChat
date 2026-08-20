@@ -142,12 +142,16 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
                 max: (kMaxMessagesPerChannelValues.length - 1).toDouble(),
                 divisions: kMaxMessagesPerChannelValues.length - 1,
                 label: '$_maxMessagesPerChannel',
-                onChanged: (value) async {
+                onChanged: (value) {
                   final v = kMaxMessagesPerChannelValues[value.round()];
-                  final prefs = await SharedPreferences.getInstance();
-                  await prefs.setInt('max_messages_per_channel', v);
-                  if (mounted) setState(() => _maxMessagesPerChannel = v);
+                  setState(() => _maxMessagesPerChannel = v);
                   widget.onMaxMessagesPerChannelChanged?.call(v);
+                },
+                onChangeEnd: (value) {
+                  final v = kMaxMessagesPerChannelValues[value.round()];
+                  SharedPreferences.getInstance().then(
+                    (prefs) => prefs.setInt('max_messages_per_channel', v),
+                  );
                 },
               ),
             ],
@@ -168,12 +172,16 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
                 max: 800,
                 divisions: 10,
                 label: '$_recentMessagesCount',
-                onChanged: (value) async {
+                onChanged: (value) {
                   final v = value.toInt();
-                  final prefs = await SharedPreferences.getInstance();
-                  await prefs.setInt('recent_messages_limit', v);
-                  if (mounted) setState(() => _recentMessagesCount = v);
+                  setState(() => _recentMessagesCount = v);
                   widget.onRecentMessagesChanged?.call(v);
+                },
+                onChangeEnd: (value) {
+                  final v = value.toInt();
+                  SharedPreferences.getInstance().then(
+                    (prefs) => prefs.setInt('recent_messages_limit', v),
+                  );
                 },
               ),
             ],

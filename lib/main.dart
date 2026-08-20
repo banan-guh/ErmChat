@@ -12,6 +12,7 @@ import 'services/twitch_irc.dart';
 import 'services/recent_messages.dart';
 import 'theme_colors.dart';
 import 'util/log.dart';
+import 'widgets/tabbed_layout.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -25,6 +26,7 @@ void main() async {
 ThemeData buildLightTheme({Color seedColor = Colors.blue}) => ThemeData(
   colorScheme: ColorScheme.fromSeed(seedColor: seedColor),
   useMaterial3: true,
+  sliderTheme: const SliderThemeData(year2023: false), // ignore: deprecated_member_use
 );
 
 ThemeData buildDarkTheme({
@@ -40,6 +42,34 @@ ThemeData buildDarkTheme({
         ? base.copyWith(surface: Colors.black, onSurface: Colors.white)
         : base,
     useMaterial3: true,
+    sliderTheme: const SliderThemeData(year2023: false), // ignore: deprecated_member_use
+  );
+}
+
+Widget _edgeExclusionWrapper(BuildContext context, Widget? child) {
+  final mq = MediaQuery.of(context);
+  final left = mq.systemGestureInsets.left;
+  final right = mq.systemGestureInsets.right;
+  return Stack(
+    children: [
+      child!,
+      if (left > 0)
+        Positioned(
+          left: 0,
+          top: 0,
+          bottom: 0,
+          width: left,
+          child: const EdgeExclusionZone(),
+        ),
+      if (right > 0)
+        Positioned(
+          right: 0,
+          top: 0,
+          bottom: 0,
+          width: right,
+          child: const EdgeExclusionZone(),
+        ),
+    ],
   );
 }
 
@@ -142,6 +172,7 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
         themeMode: _themeMode,
         theme: buildLightTheme(seedColor: _seedColor),
         darkTheme: buildDarkTheme(trueDark: _trueDark, seedColor: _seedColor),
+        builder: _edgeExclusionWrapper,
         home: const Scaffold(body: Center(child: CircularProgressIndicator())),
       );
     }
@@ -151,6 +182,7 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
       themeMode: _themeMode,
       theme: buildLightTheme(seedColor: _seedColor),
       darkTheme: buildDarkTheme(trueDark: _trueDark, seedColor: _seedColor),
+      builder: _edgeExclusionWrapper,
       home: HomeScreen(
         twitchAuth: _twitchAuth,
         onThemeChanged: _setThemeMode,
