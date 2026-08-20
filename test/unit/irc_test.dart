@@ -1,10 +1,16 @@
 import 'dart:async';
 import 'package:fake_async/fake_async.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:http/http.dart' as http;
 import 'package:web_socket_channel/web_socket_channel.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:ermchat/services/connectivity_service.dart';
+import 'package:ermchat/services/twitch_irc.dart';
+import '../helpers/fake_web_socket.dart';
 import 'package:ermchat/models/twitch_message.dart';
+import 'package:ermchat/services/twitch_eventsub.dart';
+import 'package:ermchat/services/seven_tv_event_client.dart';
+import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'package:ermchat/models/emote_fetch_tier.dart';
 import 'package:ermchat/models/generic_emote.dart';
 import 'package:ermchat/services/chat_connection_manager.dart';
@@ -12,10 +18,84 @@ import 'package:ermchat/services/emote_manager.dart';
 import 'package:ermchat/services/twitch_api.dart';
 import 'package:ermchat/services/twitch_auth.dart';
 import 'package:ermchat/services/twitch_badge_service.dart';
-import 'package:ermchat/services/twitch_eventsub.dart';
-import 'package:ermchat/services/twitch_irc.dart';
-import '../helpers/fake_web_socket.dart';
 import 'package:ermchat/services/user_store.dart';
+
+class _TestService extends IrcService {
+  _TestService(this.channels, {this.onOpen, super.connectivityService});
+
+  final List<FakeWebSocketChannel> channels;
+  final void Function()? onOpen;
+  int openAttempts = 0;
+
+  @override
+  Future<WebSocketChannel> openChannel() async {
+    openAttempts++;
+    onOpen?.call();
+    final idx = (openAttempts - 1).clamp(0, channels.length - 1);
+    return channels[idx];
+  }
+}
+
+Map<String, dynamic> _welcome({String id = 'session-test', int timeout = 10}) =>
+    {
+      'metadata': {'message_type': 'session_welcome'},
+      'payload': {
+        'session': {'id': id, 'keepalive_timeout_seconds': timeout},
+      },
+    };
+
+Map<String, dynamic> _hello({int heartbeatInterval = 30000}) => {
+  'op': 1,
+  'd': {'heartbeat_interval': heartbeatInterval},
+};
+
+Map<String, dynamic> _emoteSetUpdate({
+  required String emoteSetId,
+  List<Map<String, dynamic>>? pushed,
+  List<Map<String, dynamic>>? pulled,
+  List<Map<String, dynamic>>? updated,
+  String? actor,
+}) => {
+  'op': 0,
+  'd': {
+    'type': 'emote_set.update',
+    // ignore: use_null_aware_elements
+    'body': <String, dynamic>{
+      'id': emoteSetId,
+      'pushed': ?pushed,
+      'pulled': ?pulled,
+      'updated': ?updated,
+      if (actor != null) 'actor': {'display_name': actor},
+    },
+  },
+};
+
+Map<String, dynamic> _userUpdate({
+  required String userId,
+  required String newEmoteSetId,
+  required String oldEmoteSetId,
+  int connectionIndex = 0,
+  String? actor,
+}) => {
+  'op': 0,
+  'd': {
+    'type': 'user.update',
+    'id': userId,
+    'body': {
+      'connection_index': connectionIndex,
+      'change_map': {
+        'fields': [
+          {
+            'key': 'emote_set_id',
+            'value': newEmoteSetId,
+            'old_value': oldEmoteSetId,
+          },
+        ],
+      },
+      if (actor != null) 'actor': {'display_name': actor},
+    },
+  },
+};
 
 TwitchMessage _msg(String id, String text, {String? replyToParentId}) =>
     TwitchMessage(
@@ -299,6 +379,1314 @@ ChatConnectionManager _makeReconnectConn({
 }
 
 void main() {
+  group('reconnect backoff', () {
+    test('delays grow 1s, 2s, 4s, then cap at 8s and never give up', () {
+      fakeAsync((async) {
+        final times = <Duration>[];
+        final service = _TestService(
+          List.generate(12, (_) => FakeWebSocketChannel(failReady: true)),
+          onOpen: () => times.add(async.elapsed),
+        );
+        service.connect(username: 'user', accessToken: 'token');
+        async.flushMicrotasks();
+        expect(times, hasLength(1));
+
+        async.elapse(const Duration(seconds: 30));
+        async.flushMicrotasks();
+        expect(times.length, greaterThanOrEqualTo(6), reason: 'keeps retrying');
+
+        final gaps = [
+          for (var i = 1; i < times.length; i++) times[i] - times[i - 1],
+        ];
+        // 1s, 2s, 4s, then 8s (all with ±25% jitter).
+        expect(gaps[0].inMilliseconds, inInclusiveRange(700, 1300));
+        expect(gaps[1].inMilliseconds, inInclusiveRange(1400, 2600));
+        expect(gaps[2].inMilliseconds, inInclusiveRange(2800, 5200));
+        expect(gaps[3].inMilliseconds, inInclusiveRange(5600, 10400));
+        expect(
+          gaps[4].inMilliseconds,
+          inInclusiveRange(5600, 10400),
+          reason: 'capped at 8s',
+        );
+
+        // Never gives up: keeps retrying long after the old 8-attempt cap.
+        async.elapse(const Duration(seconds: 60));
+        expect(times.length, greaterThan(8));
+
+        service.dispose();
+      });
+    });
+
+    test('success resets the counter (next failure retries at ~1s)', () {
+      fakeAsync((async) {
+        final service = _TestService([
+          FakeWebSocketChannel(failReady: true),
+          FakeWebSocketChannel(failReady: true),
+          FakeWebSocketChannel(failReady: true),
+          FakeWebSocketChannel(),
+        ]);
+        final statuses = <IrcConnectionStatus>[];
+        service.onStatus.listen(statuses.add);
+        service.connect(username: 'user', accessToken: 'token');
+        async.flushMicrotasks();
+
+        async.elapse(const Duration(milliseconds: 1250));
+        expect(service.openAttempts, 2);
+        async.elapse(const Duration(milliseconds: 2600));
+        expect(service.openAttempts, 3);
+        // 4th attempt succeeds.
+        async.elapse(const Duration(milliseconds: 5200));
+        expect(service.openAttempts, 4);
+        expect(statuses, contains(IrcConnectionStatus.connected));
+
+        // Kill the healthy socket: next retry is ~1s, not 8s.
+        final channel = service.channels.last;
+        channel.failNow();
+        async.flushMicrotasks();
+        expect(statuses, contains(IrcConnectionStatus.disconnected));
+        async.elapse(const Duration(milliseconds: 1250));
+        expect(service.openAttempts, 5);
+
+        service.dispose();
+        channel.dispose();
+      });
+    });
+
+    test('a failed connect does not leave a zombie socket behind', () {
+      fakeAsync((async) {
+        final service = _TestService([FakeWebSocketChannel(failReady: true)]);
+        service.connect(username: 'user', accessToken: 'token');
+        async.flushMicrotasks();
+        expect(
+          service.isConnected,
+          isFalse,
+          reason: 'failed handshake must not look connected',
+        );
+
+        async.elapse(const Duration(milliseconds: 1250));
+        expect(
+          service.openAttempts,
+          2,
+          reason: 'reconnect must not bail on the stale socket',
+        );
+
+        service.dispose();
+      });
+    });
+  });
+
+  group('PING/PONG keepalive', () {
+    test('sends keepalive PING and reconnects when no PONG arrives', () {
+      fakeAsync((async) {
+        final channel = FakeWebSocketChannel();
+        final service = _TestService([channel]);
+        final statuses = <IrcConnectionStatus>[];
+        service.onStatus.listen(statuses.add);
+        service.connect(username: 'user', accessToken: 'token');
+        async.flushMicrotasks();
+        expect(service.openAttempts, 1);
+
+        // Tick 1 (~60s): sends a keepalive PING.
+        async.elapse(const Duration(seconds: 61));
+        expect(channel.sent, contains('PING :keepalive'));
+        expect(statuses, isNot(contains(IrcConnectionStatus.disconnected)));
+
+        // The dedicated PONG timer (30s) reconnects without waiting for the
+        // next keepalive tick.
+        async.elapse(const Duration(seconds: 31));
+        expect(statuses, contains(IrcConnectionStatus.disconnected));
+        async.elapse(const Duration(milliseconds: 1250));
+        expect(service.openAttempts, 2);
+
+        service.dispose();
+        channel.dispose();
+      });
+    });
+
+    test('PONG within the pong window keeps the connection alive', () {
+      fakeAsync((async) {
+        final channel = FakeWebSocketChannel();
+        final service = _TestService([channel]);
+        final statuses = <IrcConnectionStatus>[];
+        service.onStatus.listen(statuses.add);
+        service.connect(username: 'user', accessToken: 'token');
+        async.flushMicrotasks();
+
+        async.elapse(const Duration(seconds: 61));
+        expect(channel.sent, contains('PING :keepalive'));
+
+        channel.push('PONG :keepalive');
+        async.flushMicrotasks();
+        async.elapse(const Duration(seconds: 31));
+        expect(statuses, isNot(contains(IrcConnectionStatus.disconnected)));
+
+        service.dispose();
+        channel.dispose();
+      });
+    });
+
+    test('incoming PONG clears awaitingPong', () {
+      fakeAsync((async) {
+        final channel = FakeWebSocketChannel();
+        final service = _TestService([channel]);
+        service.connect(username: 'user', accessToken: 'token');
+        async.flushMicrotasks();
+
+        service.awaitingPong = true;
+        channel.push('PONG :tmi.twitch.tv');
+        async.flushMicrotasks();
+        expect(service.awaitingPong, isFalse);
+
+        service.dispose();
+        channel.dispose();
+      });
+    });
+  });
+
+  group('RECONNECT command', () {
+    test('reconnects when the server asks for it', () {
+      fakeAsync((async) {
+        final channel = FakeWebSocketChannel();
+        final service = _TestService([channel]);
+        final statuses = <IrcConnectionStatus>[];
+        service.onStatus.listen(statuses.add);
+        service.connect(username: 'user', accessToken: 'token');
+        async.flushMicrotasks();
+        expect(service.openAttempts, 1);
+
+        service.handleLine(':tmi.twitch.tv RECONNECT');
+        async.flushMicrotasks();
+        expect(statuses, contains(IrcConnectionStatus.disconnected));
+        async.elapse(const Duration(milliseconds: 1250));
+        expect(service.openAttempts, 2);
+
+        service.dispose();
+        channel.dispose();
+      });
+    });
+  });
+
+  group('checkAlive', () {
+    test('returns true when a PONG echoes the probe token', () {
+      fakeAsync((async) {
+        final channel = FakeWebSocketChannel();
+        final service = _TestService([channel]);
+        service.connect(username: 'user', accessToken: 'token');
+        async.flushMicrotasks();
+
+        bool? result;
+        service.checkAlive().then((value) => result = value);
+        async.flushMicrotasks();
+        expect(channel.sent, contains('PING :alive-check-0'));
+        expect(result, isNull);
+
+        channel.push(':tmi.twitch.tv PONG tmi.twitch.tv :alive-check-0');
+        async.flushMicrotasks();
+        expect(result, isTrue);
+
+        service.dispose();
+        channel.dispose();
+      });
+    });
+
+    test('a stale keepalive PONG does not satisfy an in-flight probe', () {
+      fakeAsync((async) {
+        final channel = FakeWebSocketChannel();
+        final service = _TestService([channel]);
+        service.connect(username: 'user', accessToken: 'token');
+        async.flushMicrotasks();
+
+        bool? result;
+        service.checkAlive().then((value) => result = value);
+        async.flushMicrotasks();
+
+        // A PONG left over from a keepalive PING (or Twitch's bare-ping
+        // answer) must not be mistaken for a response to the probe.
+        channel.push('PONG :tmi.twitch.tv');
+        async.flushMicrotasks();
+        expect(result, isNull);
+
+        channel.push(':tmi.twitch.tv PONG tmi.twitch.tv :alive-check-0');
+        async.flushMicrotasks();
+        expect(result, isTrue);
+
+        service.dispose();
+        channel.dispose();
+      });
+    });
+
+    test('returns false on timeout when no PONG arrives', () {
+      fakeAsync((async) {
+        final channel = FakeWebSocketChannel();
+        final service = _TestService([channel]);
+        service.connect(username: 'user', accessToken: 'token');
+        async.flushMicrotasks();
+
+        bool? result;
+        service.checkAlive().then((value) => result = value);
+        async.flushMicrotasks();
+        async.elapse(const Duration(seconds: 6));
+        async.flushMicrotasks();
+        expect(result, isFalse);
+
+        service.dispose();
+        channel.dispose();
+      });
+    });
+
+    test('returns false when there is no socket', () async {
+      final service = _TestService([FakeWebSocketChannel()]);
+      expect(await service.checkAlive(), isFalse);
+      service.dispose();
+    });
+  });
+
+  group('forceReconnect', () {
+    test('closes the zombie socket and reconnects immediately', () {
+      fakeAsync((async) {
+        final channel = FakeWebSocketChannel();
+        final service = _TestService([channel]);
+        final statuses = <IrcConnectionStatus>[];
+        service.onStatus.listen(statuses.add);
+        service.connect(username: 'user', accessToken: 'token');
+        async.flushMicrotasks();
+        expect(service.openAttempts, 1);
+
+        service.forceReconnect();
+        async.flushMicrotasks();
+        expect(statuses, contains(IrcConnectionStatus.disconnected));
+        // The loop restarts right away (no backoff) on a fresh generation.
+        expect(service.openAttempts, 2);
+        expect(service.isConnected, isTrue);
+
+        service.dispose();
+        channel.dispose();
+      });
+    });
+  });
+
+  group('disconnect status clears the socket first', () {
+    // The type bar hint renders the "connected" state whenever isConnected is
+    // true at rebuild time. Every disconnect path must therefore null the
+    // socket BEFORE emitting `disconnected`, or the hint flickers to
+    // "connected" for a frame during a disconnect (disconnect -> connect ->
+    // disconnect).
+    void expectDisconnectedWithSocketCleared(
+      void Function(FakeAsync async, _TestService service) trigger,
+    ) {
+      fakeAsync((async) {
+        final channel = FakeWebSocketChannel();
+        final service = _TestService([channel]);
+        final connectedAtDisconnect = <bool>[];
+        service.onStatus.listen((s) {
+          if (s == IrcConnectionStatus.disconnected) {
+            connectedAtDisconnect.add(service.isConnected);
+          }
+        });
+        service.connect(username: 'user', accessToken: 'token');
+        async.flushMicrotasks();
+
+        trigger(async, service);
+        async.flushMicrotasks();
+
+        expect(connectedAtDisconnect, isNotEmpty);
+        expect(
+          connectedAtDisconnect,
+          everyElement(isFalse),
+          reason: 'type bar must not read "connected" when disconnect fires',
+        );
+
+        service.dispose();
+        channel.dispose();
+      });
+    }
+
+    test('stream error', () {
+      expectDisconnectedWithSocketCleared((_, service) {
+        service.channels.last.failNow();
+      });
+    });
+
+    test('RECONNECT command', () {
+      expectDisconnectedWithSocketCleared((_, service) {
+        service.handleLine(':tmi.twitch.tv RECONNECT');
+      });
+    });
+
+    test('PONG timeout', () {
+      expectDisconnectedWithSocketCleared((async, _) {
+        async.elapse(const Duration(seconds: 61));
+        async.elapse(const Duration(seconds: 31));
+      });
+    });
+
+    test('forceReconnect', () {
+      expectDisconnectedWithSocketCleared((_, service) {
+        service.forceReconnect();
+      });
+    });
+  });
+
+  group('handshake does not report connected early', () {
+    test('isConnected stays false while the handshake is pending', () {
+      fakeAsync((async) {
+        final ready = Completer<void>();
+        final channel = FakeWebSocketChannel(readyCompleter: ready);
+        final service = _TestService([channel]);
+        service.connect(username: 'user', accessToken: 'token');
+        async.flushMicrotasks();
+
+        // openChannel resolved and assigned nothing yet: the handshake is
+        // still in flight, so the socket must not look connected yet.
+        expect(
+          service.isConnected,
+          isFalse,
+          reason: 'type bar hint must not flip to connected mid-handshake',
+        );
+
+        ready.complete();
+        async.flushMicrotasks();
+        expect(service.isConnected, isTrue);
+
+        service.dispose();
+        channel.dispose();
+      });
+    });
+
+    test('a hung handshake times out, releases the lock and retries', () {
+      fakeAsync((async) {
+        final ready = Completer<void>();
+        final hanging = FakeWebSocketChannel(readyCompleter: ready);
+        final service = _TestService([hanging, FakeWebSocketChannel()]);
+        final statuses = <IrcConnectionStatus>[];
+        service.onStatus.listen(statuses.add);
+        service.connect(username: 'user', accessToken: 'token');
+        async.flushMicrotasks();
+        expect(service.openAttempts, 1);
+
+        // The handshake never completes; the 10s connect timeout fails the
+        // attempt cleanly instead of hanging `_connecting` forever.
+        async.elapse(const Duration(seconds: 11));
+        expect(statuses, contains(IrcConnectionStatus.disconnected));
+
+        async.elapse(const Duration(milliseconds: 1250));
+        expect(service.openAttempts, 2);
+        expect(
+          service.isConnected,
+          isTrue,
+          reason: 'the next attempt connects because the lock was released',
+        );
+
+        service.dispose();
+        hanging.dispose();
+      });
+    });
+  });
+
+  group('JOIN rate limiting', () {
+    test('JOINs are batched at the tick rate, not fired in a burst', () {
+      fakeAsync((async) {
+        final channel = FakeWebSocketChannel();
+        final service = _TestService([channel]);
+        service.connect(username: 'user', accessToken: 'token');
+        async.flushMicrotasks();
+
+        // 25 channels exceed the per-tick burst cap.
+        for (var i = 0; i < 25; i++) {
+          service.join('c$i');
+        }
+        async.flushMicrotasks();
+
+        List<String> joins() =>
+            channel.sent.where((l) => l.startsWith('JOIN')).toList();
+
+        // First flush sends up to the burst cap immediately...
+        expect(joins(), hasLength(20));
+        // ...the rest wait for the next tick.
+        async.elapse(const Duration(seconds: 2));
+        async.flushMicrotasks();
+        expect(joins(), hasLength(25));
+
+        service.dispose();
+        channel.dispose();
+      });
+    });
+
+    test('a duplicate join is not queued twice', () {
+      fakeAsync((async) {
+        final channel = FakeWebSocketChannel();
+        final service = _TestService([channel]);
+        service.connect(username: 'user', accessToken: 'token');
+        async.flushMicrotasks();
+
+        service.join('abc');
+        service.join('abc');
+        async.flushMicrotasks();
+
+        final joins = channel.sent.where((l) => l == 'JOIN #abc').toList();
+        expect(joins, hasLength(1));
+
+        service.dispose();
+        channel.dispose();
+      });
+    });
+
+    test('JOINs queued before connect are sent once the socket opens', () {
+      // Regression: channels are joined before/around connect() (socket still
+      // coming up), which pre-loads the queue but cannot flush yet. The
+      // dedup guard must not strand them, or the channel is never joined and
+      // the read socket stays dead on initial connect.
+      fakeAsync((async) {
+        final channel = FakeWebSocketChannel();
+        final service = _TestService([channel]);
+        service.join('awootismm');
+        service.join('ermugo2');
+        async.flushMicrotasks();
+        expect(channel.sent, isEmpty, reason: 'nothing sent before connect');
+
+        service.connect(username: 'user', accessToken: 'token');
+        async.flushMicrotasks();
+
+        expect(channel.sent, contains('JOIN #awootismm'));
+        expect(channel.sent, contains('JOIN #ermugo2'));
+
+        service.dispose();
+        channel.dispose();
+      });
+    });
+  });
+
+  group('ROOMSTATE rejoin sweep', () {
+    test('re-sends unconfirmed JOINs and stops once confirmed', () {
+      fakeAsync((async) {
+        final channel = FakeWebSocketChannel();
+        final service = _TestService([channel]);
+        service.connect(username: 'user', accessToken: 'token');
+        async.flushMicrotasks();
+
+        service.join('abc');
+        async.flushMicrotasks();
+        List<String> joins() =>
+            channel.sent.where((l) => l == 'JOIN #abc').toList();
+        expect(joins(), hasLength(1));
+
+        // No ROOMSTATE echoed: the sweep re-JOINs after the confirm window.
+        async.elapse(const Duration(seconds: 11));
+        async.flushMicrotasks();
+        expect(joins(), hasLength(2));
+
+        // ROOMSTATE confirms the JOIN: the sweep stops re-sending.
+        channel.push('@room-id=1 :tmi.twitch.tv ROOMSTATE #abc');
+        async.flushMicrotasks();
+        async.elapse(const Duration(seconds: 22));
+        async.flushMicrotasks();
+        expect(
+          joins(),
+          hasLength(2),
+          reason: 'a confirmed channel is never re-sent',
+        );
+
+        service.dispose();
+        channel.dispose();
+      });
+    });
+  });
+
+  group('connectivity accelerator', () {
+    test('coming back online wakes the backoff sleep early', () {
+      fakeAsync((async) {
+        final conn = ConnectivityService();
+        conn.debugSetResults(const [ConnectivityResult.none]);
+        final times = <Duration>[];
+        final service = _TestService(
+          [FakeWebSocketChannel(failReady: true)],
+          connectivityService: conn,
+          onOpen: () => times.add(async.elapsed),
+        );
+        service.connect(username: 'user', accessToken: 'token');
+        async.flushMicrotasks();
+        expect(times, hasLength(1));
+
+        // Still offline: the next attempt waits on the backoff timer.
+        async.elapse(const Duration(milliseconds: 200));
+        expect(times, hasLength(1));
+
+        // Back online: the sleep is woken immediately and the retry fires now.
+        conn.debugSetResults(const [ConnectivityResult.wifi]);
+        async.flushMicrotasks();
+        expect(times, hasLength(2));
+        expect(
+          times[1],
+          lessThan(const Duration(milliseconds: 900)),
+          reason: 'the backoff wait must be shortened, not run out',
+        );
+
+        service.dispose();
+        conn.dispose();
+      });
+    });
+
+    test('an offline blip does not stop the retry loop (no gate)', () {
+      fakeAsync((async) {
+        final conn = ConnectivityService();
+        conn.debugSetResults(const [ConnectivityResult.none]);
+        final times = <Duration>[];
+        final service = _TestService(
+          [FakeWebSocketChannel(failReady: true)],
+          connectivityService: conn,
+          onOpen: () => times.add(async.elapsed),
+        );
+        service.connect(username: 'user', accessToken: 'token');
+        async.flushMicrotasks();
+
+        // Even fully offline, the loop keeps retrying on its own schedule.
+        async.elapse(const Duration(seconds: 30));
+        expect(times.length, greaterThanOrEqualTo(4));
+
+        service.dispose();
+        conn.dispose();
+      });
+    });
+  });
+
+  late IrcService service;
+
+  setUp(() {
+    service = IrcService();
+  });
+
+  tearDown(() {
+    service.dispose();
+  });
+
+  group('channel tracking', () {
+    test('join does not crash when not connected', () {
+      expect(() => service.join('testchannel'), returnsNormally);
+    });
+
+    test('part does not crash when not connected', () {
+      expect(() => service.part('testchannel'), returnsNormally);
+    });
+  });
+
+  group('CLEARMSG', () {
+    Future<void> flush() => Future<void>.delayed(Duration.zero);
+
+    test('emits delete event with messageId, user, and deleted text', () async {
+      final events = <IrcMessageDeletedEvent>[];
+      service.onMessageDeleted.listen(events.add);
+
+      service.handleLine(
+        '@login=forsen;target-msg-id=abc-123 :tmi.twitch.tv CLEARMSG #xqc :bad message',
+      );
+      await flush();
+
+      expect(events, hasLength(1));
+      expect(events[0].channel, 'xqc');
+      expect(events[0].messageId, 'abc-123');
+      expect(events[0].user, 'forsen');
+      expect(events[0].deletedMessageText, 'bad message');
+    });
+
+    test('ignores CLEARMSG without target-msg-id', () async {
+      final events = <IrcMessageDeletedEvent>[];
+      service.onMessageDeleted.listen(events.add);
+
+      service.handleLine(
+        '@login=forsen :tmi.twitch.tv CLEARMSG #xqc :bad message',
+      );
+      await flush();
+
+      expect(events, isEmpty);
+    });
+
+    test('defaults user to unknown when login tag missing', () async {
+      final events = <IrcMessageDeletedEvent>[];
+      service.onMessageDeleted.listen(events.add);
+
+      service.handleLine(
+        '@target-msg-id=xyz :tmi.twitch.tv CLEARMSG #xqc :deleted',
+      );
+      await flush();
+
+      expect(events, hasLength(1));
+      expect(events[0].user, 'unknown');
+    });
+  });
+
+  group('CLEARCHAT', () {
+    Future<void> flush() => Future<void>.delayed(Duration.zero);
+
+    test('emits ban event for permanent ban', () async {
+      final events = <IrcBanEvent>[];
+      service.onBan.listen(events.add);
+
+      service.handleLine(':tmi.twitch.tv CLEARCHAT #xqc :forsen');
+      await flush();
+
+      expect(events, hasLength(1));
+      expect(events[0].channel, 'xqc');
+      expect(events[0].user, 'forsen');
+      expect(events[0].isTimeout, isFalse);
+      expect(events[0].duration, isNull);
+    });
+
+    test('emits timeout event with duration', () async {
+      final events = <IrcBanEvent>[];
+      service.onBan.listen(events.add);
+
+      service.handleLine(
+        '@ban-duration=300;target-user-id=12345 :tmi.twitch.tv CLEARCHAT #xqc :forsen',
+      );
+      await flush();
+
+      expect(events, hasLength(1));
+      expect(events[0].user, 'forsen');
+      expect(events[0].isTimeout, isTrue);
+      expect(events[0].duration, 300);
+      expect(events[0].userId, '12345');
+    });
+
+    test('emits channel clear for full room clear (no target user)', () async {
+      final bans = <IrcBanEvent>[];
+      final clears = <IrcChannelClearEvent>[];
+      service.onBan.listen(bans.add);
+      service.onChannelClear.listen(clears.add);
+
+      service.handleLine(':tmi.twitch.tv CLEARCHAT #xqc');
+      await flush();
+
+      expect(bans, isEmpty);
+      expect(clears, hasLength(1));
+      expect(clears[0].channel, 'xqc');
+    });
+  });
+
+  group('ROOMSTATE', () {
+    Future<void> flush() => Future<void>.delayed(Duration.zero);
+
+    test('parses full room state', () async {
+      final states = <IrcRoomStateEvent>[];
+      service.onRoomState.listen(states.add);
+
+      service.handleLine(
+        '@emote-only=0;followers-only=30;r9k=1;room-id=1;slow=10;subs-only=1 '
+        ':tmi.twitch.tv ROOMSTATE #xqc',
+      );
+      await flush();
+
+      expect(states, hasLength(1));
+      expect(states[0].channel, 'xqc');
+      expect(states[0].tags['slow'], '10');
+      expect(states[0].tags['followers-only'], '30');
+      expect(states[0].tags['emote-only'], '0');
+      expect(states[0].tags['subs-only'], '1');
+      expect(states[0].tags['r9k'], '1');
+    });
+  });
+
+  group('USERSTATE / GLOBALUSERSTATE', () {
+    Future<void> flush() => Future<void>.delayed(Duration.zero);
+
+    test('lines are safely ignored', () async {
+      var messageCount = 0;
+      service.onMessage.listen((_) => messageCount++);
+
+      service.handleLine(
+        '@badges=moderator/1,vip/1;user-id=123 '
+        ':tmi.twitch.tv USERSTATE #xqc',
+      );
+      service.handleLine('@badges=staff/1 :tmi.twitch.tv GLOBALUSERSTATE');
+      await flush();
+
+      expect(messageCount, 0);
+    });
+
+    test('emits emote-sets from GLOBALUSERSTATE without channel', () async {
+      final sets = <(String?, List<String>)>[];
+      service.onUserEmoteSets.listen(sets.add);
+
+      service.handleLine(
+        '@emote-sets=0,123456789,987654321 :tmi.twitch.tv GLOBALUSERSTATE',
+      );
+      await flush();
+
+      expect(sets, hasLength(1));
+      expect(sets.single.$1, isNull);
+      expect(sets.single.$2, <String>['0', '123456789', '987654321']);
+    });
+
+    test('emits channel-scoped emote-sets from USERSTATE', () async {
+      final sets = <(String?, List<String>)>[];
+      service.onUserEmoteSets.listen(sets.add);
+
+      service.handleLine(
+        '@emote-sets=300374079,0 :tmi.twitch.tv USERSTATE #xqc',
+      );
+      await flush();
+
+      expect(sets, hasLength(1));
+      expect(sets.single.$1, 'xqc');
+      expect(sets.single.$2, <String>['300374079', '0']);
+    });
+
+    test('does not emit when emote-sets tag is missing', () async {
+      var emitted = false;
+      service.onUserEmoteSets.listen((_) => emitted = true);
+
+      service.handleLine('@badges=staff/1 :tmi.twitch.tv GLOBALUSERSTATE');
+      await flush();
+
+      expect(emitted, isFalse);
+    });
+  });
+
+  group('USERNOTICE', () {
+    Future<void> flush() => Future<void>.delayed(Duration.zero);
+
+    test(
+      'routes to onUserNotice, not onNotice (dispatch regression)',
+      () async {
+        final notices = <IrcNoticeEvent>[];
+        final userNotices = <UserNoticeEvent>[];
+        service.onNotice.listen(notices.add);
+        service.onUserNotice.listen(userNotices.add);
+
+        service.handleLine(
+          '@msg-id=announcement;msg-param-color=PRIMARY;login=mm2pl;'
+          'display-name=Mm2PL;system-msg=;'
+          ':tmi.twitch.tv USERNOTICE #xqc :test',
+        );
+        await flush();
+
+        expect(
+          notices,
+          isEmpty,
+          reason: 'USERNOTICE must not be swallowed by the NOTICE handler',
+        );
+        expect(userNotices, hasLength(1));
+        expect(userNotices[0].msgId, 'announcement');
+        expect(userNotices[0].text, 'test');
+        expect(userNotices[0].announcementColor, 'PRIMARY');
+      },
+    );
+
+    test('parses announcement emotes into emote positions', () async {
+      final userNotices = <UserNoticeEvent>[];
+      service.onUserNotice.listen(userNotices.add);
+
+      service.handleLine(
+        '@msg-id=announcement;msg-param-color=GREEN;login=mm2pl;'
+        'display-name=Mm2PL;emotes=emotesv2_123:0-7;system-msg=;'
+        ':tmi.twitch.tv USERNOTICE #xqc :PogChamp test',
+      );
+      await flush();
+
+      expect(userNotices, hasLength(1));
+      expect(userNotices[0].emotePositions, isNotNull);
+      expect(userNotices[0].emotePositions!.single.emoteCode, 'PogChamp');
+      expect(userNotices[0].emotePositions!.single.startIndex, 0);
+      expect(userNotices[0].emotePositions!.single.endIndex, 8);
+    });
+
+    test('NOTICE still routes to onNotice', () async {
+      final notices = <IrcNoticeEvent>[];
+      service.onNotice.listen(notices.add);
+
+      service.handleLine(
+        '@msg-id=slow_on :tmi.twitch.tv NOTICE #xqc :This room is now in slow mode.',
+      );
+      await flush();
+
+      expect(notices, hasLength(1));
+      expect(notices[0].msgId, 'slow_on');
+      expect(notices[0].message, contains('slow mode'));
+    });
+  });
+
+  group('WHISPER', () {
+    Future<void> flush() => Future<void>.delayed(Duration.zero);
+
+    test('emits a TwitchMessage via onWhisper', () async {
+      final whispers = <TwitchMessage>[];
+      service.onWhisper.listen(whispers.add);
+
+      service.handleLine(
+        '@badges=;color=#FF0000;display-name=SomeUser;emotes=25:0-4;message-id=whisper-1;thread-id=abc;turbo=0;user-id=999;user-type= :someuser!someuser@someuser.tmi.twitch.tv WHISPER recipient :hey there',
+      );
+      await flush();
+
+      expect(whispers, hasLength(1));
+      final w = whispers[0];
+      expect(w.login, 'someuser');
+      expect(w.displayName, 'SomeUser');
+      expect(w.text, 'hey there');
+      expect(w.messageId, 'whisper-1');
+      expect(w.channel, isNull);
+      expect(w.color, '#FF0000');
+    });
+  });
+
+  group('dispose', () {
+    test('double dispose does not crash', () {
+      service.dispose();
+      expect(() => service.dispose(), returnsNormally);
+    });
+  });
+
+  late EventSubService esService;
+
+  setUp(() {
+    esService = EventSubService();
+  });
+
+  tearDown(() {
+    esService.dispose();
+  });
+
+  group('session lifecycle', () {
+    test('handleRawMessage welcome sets sessionId and emits connected', () {
+      final statuses = <EventSubStatus>[];
+      esService.onStatus.listen(statuses.add);
+
+      esService.handleRawMessage(_welcome(id: 'sess-lifecycle'));
+
+      expect(esService.sessionId, 'sess-lifecycle');
+      expect(statuses, contains(EventSubStatus.connected));
+    });
+
+    test('second welcome overwrites sessionId', () {
+      esService.handleRawMessage(_welcome(id: 'sess-a'));
+      expect(esService.sessionId, 'sess-a');
+
+      esService.handleRawMessage(_welcome(id: 'sess-b'));
+      expect(esService.sessionId, 'sess-b');
+    });
+
+    test('disconnect clears sessionId', () {
+      esService.handleRawMessage(_welcome(id: 'sess-clear'));
+      expect(esService.sessionId, 'sess-clear');
+
+      esService.disconnect();
+      expect(esService.sessionId, isNull);
+    });
+
+    test('welcome after disconnect sets sessionId again', () {
+      esService.handleRawMessage(_welcome(id: 'first'));
+      expect(esService.sessionId, 'first');
+
+      esService.disconnect();
+      expect(esService.sessionId, isNull);
+
+      esService.handleRawMessage(_welcome(id: 'second'));
+      expect(esService.sessionId, 'second');
+    });
+  });
+
+  group('session completer', () {
+    test('waitForSession completes after welcome', () async {
+      final future = esService.waitForSession();
+
+      esService.handleRawMessage(_welcome(id: 'sess-completer'));
+
+      final result = await future;
+      expect(result, 'sess-completer');
+    });
+
+    test('waitForSession returns immediately if session already set', () async {
+      esService.emitConnected();
+
+      final result = await esService.waitForSession();
+      expect(result, 'test-session-id');
+    });
+  });
+
+  late SevenTvEventClient client;
+  late List<SevenTvEmoteUpdateEvent> emoteEvents;
+  late List<SevenTvUserUpdate> userEvents;
+  late List<SevenTvEventStatus> statusEvents;
+
+  setUp(() {
+    client = SevenTvEventClient();
+    emoteEvents = [];
+    userEvents = [];
+    statusEvents = [];
+    client.onEmoteSetUpdate.listen((e) => emoteEvents.add(e));
+    client.onUserUpdate.listen((e) => userEvents.add(e));
+    client.onStatus.listen((e) => statusEvents.add(e));
+  });
+
+  tearDown(() {
+    client.dispose();
+  });
+
+  group('subscription queueing', () {
+    test('subscribeEmoteSet does not trigger stream events before Hello', () {
+      client.subscribeEmoteSet('set1');
+      expect(emoteEvents, isEmpty);
+      expect(userEvents, isEmpty);
+    });
+
+    test('Hello emits connected status', () {
+      client.handleRawMessage(_hello());
+      expect(statusEvents, hasLength(1));
+      expect(statusEvents.first, SevenTvEventStatus.connected);
+    });
+  });
+
+  group('dispatch events', () {
+    setUp(() {
+      client.handleRawMessage(_hello());
+      emoteEvents.clear();
+      userEvents.clear();
+      statusEvents.clear();
+    });
+
+    test('emote_set.update parses added emote', () {
+      client.handleRawMessage(
+        _emoteSetUpdate(
+          emoteSetId: 'set123',
+          pushed: [
+            {
+              'value': {'id': 'abc', 'name': 'KEKW'},
+            },
+          ],
+          actor: 'streamer',
+        ),
+      );
+
+      expect(emoteEvents, hasLength(1));
+      expect(emoteEvents[0].emoteSetId, 'set123');
+      expect(emoteEvents[0].added, hasLength(1));
+      expect(emoteEvents[0].added[0].id, 'abc');
+      expect(emoteEvents[0].added[0].name, 'KEKW');
+      expect(emoteEvents[0].added[0].raw['id'], 'abc');
+      expect(emoteEvents[0].actor, 'streamer');
+      expect(emoteEvents[0].removed, isEmpty);
+      expect(emoteEvents[0].renamed, isEmpty);
+    });
+
+    test('emote_set.update parses removed emote', () {
+      client.handleRawMessage(
+        _emoteSetUpdate(
+          emoteSetId: 'set123',
+          pulled: [
+            {
+              'old_value': {'id': 'xyz', 'name': 'PogU'},
+            },
+          ],
+        ),
+      );
+
+      expect(emoteEvents, hasLength(1));
+      expect(emoteEvents[0].added, isEmpty);
+      expect(emoteEvents[0].removed, hasLength(1));
+      expect(emoteEvents[0].removed[0].id, 'xyz');
+      expect(emoteEvents[0].removed[0].name, 'PogU');
+      expect(emoteEvents[0].renamed, isEmpty);
+    });
+
+    test('emote_set.update parses renamed emote', () {
+      client.handleRawMessage(
+        _emoteSetUpdate(
+          emoteSetId: 'set123',
+          updated: [
+            {
+              'value': {'id': 'def', 'name': 'NewName'},
+              'old_value': {'id': 'def', 'name': 'OldName'},
+            },
+          ],
+        ),
+      );
+
+      expect(emoteEvents, hasLength(1));
+      expect(emoteEvents[0].added, isEmpty);
+      expect(emoteEvents[0].removed, isEmpty);
+      expect(emoteEvents[0].renamed, hasLength(1));
+      expect(emoteEvents[0].renamed[0].id, 'def');
+      expect(emoteEvents[0].renamed[0].newName, 'NewName');
+      expect(emoteEvents[0].renamed[0].oldName, 'OldName');
+    });
+
+    test('emote_set.update handles multiple changes at once', () {
+      client.handleRawMessage(
+        _emoteSetUpdate(
+          emoteSetId: 'set123',
+          pushed: [
+            {
+              'value': {'id': 'a1', 'name': 'Emote1'},
+            },
+            {
+              'value': {'id': 'a2', 'name': 'Emote2'},
+            },
+          ],
+          pulled: [
+            {
+              'old_value': {'id': 'r1', 'name': 'Removed1'},
+            },
+          ],
+          updated: [
+            {
+              'value': {'id': 'u1', 'name': 'RenamedNew'},
+              'old_value': {'id': 'u1', 'name': 'RenamedOld'},
+            },
+          ],
+          actor: 'mod',
+        ),
+      );
+
+      expect(emoteEvents, hasLength(1));
+      final event = emoteEvents[0];
+      expect(event.emoteSetId, 'set123');
+      expect(event.added, hasLength(2));
+      expect(event.removed, hasLength(1));
+      expect(event.renamed, hasLength(1));
+      expect(event.actor, 'mod');
+    });
+
+    test('emote_set.update handles empty body gracefully', () {
+      client.handleRawMessage({
+        'op': 0,
+        'd': {'type': 'emote_set.update', 'id': 'set123'},
+      });
+
+      expect(emoteEvents, hasLength(1));
+      expect(emoteEvents[0].added, isEmpty);
+      expect(emoteEvents[0].removed, isEmpty);
+      expect(emoteEvents[0].renamed, isEmpty);
+      expect(emoteEvents[0].actor, isNull);
+    });
+
+    test('user.update parses emote set switch', () {
+      client.handleRawMessage(
+        _userUpdate(
+          userId: 'user123',
+          newEmoteSetId: 'newset',
+          oldEmoteSetId: 'oldset',
+          connectionIndex: 0,
+          actor: 'streamer',
+        ),
+      );
+
+      expect(userEvents, hasLength(1));
+      expect(userEvents[0].userId, 'user123');
+      expect(userEvents[0].newEmoteSetId, 'newset');
+      expect(userEvents[0].oldEmoteSetId, 'oldset');
+      expect(userEvents[0].connectionIndex, 0);
+      expect(userEvents[0].actor, 'streamer');
+    });
+
+    test('user.update handles missing actor', () {
+      client.handleRawMessage(
+        _userUpdate(
+          userId: 'user456',
+          newEmoteSetId: 'setA',
+          oldEmoteSetId: 'setB',
+        ),
+      );
+
+      expect(userEvents, hasLength(1));
+      expect(userEvents[0].actor, isNull);
+    });
+
+    test('user.update ignores non-emote_set_id fields', () {
+      client.handleRawMessage({
+        'op': 0,
+        'd': {
+          'type': 'user.update',
+          'id': 'user789',
+          'body': {
+            'connection_index': 0,
+            'change_map': {
+              'fields': [
+                {'key': 'other_field', 'value': 'foo', 'old_value': 'bar'},
+              ],
+            },
+          },
+        },
+      });
+
+      expect(userEvents, isEmpty);
+    });
+
+    test('user.update ignores empty new emote set id', () {
+      client.handleRawMessage({
+        'op': 0,
+        'd': {
+          'type': 'user.update',
+          'id': 'userx',
+          'body': {
+            'change_map': {
+              'fields': [
+                {'key': 'emote_set_id', 'value': '', 'old_value': 'old'},
+              ],
+            },
+          },
+        },
+      });
+
+      expect(userEvents, isEmpty);
+    });
+  });
+
+  group('status events', () {
+    test('emitDisconnected sets disconnected status', () {
+      client.emitDisconnected();
+      expect(statusEvents, hasLength(1));
+      expect(statusEvents.first, SevenTvEventStatus.disconnected);
+    });
+
+    test('handleRawMessage ignores unknown op codes gracefully', () {
+      client.handleRawMessage({'op': 99, 'd': {}});
+      expect(emoteEvents, isEmpty);
+      expect(userEvents, isEmpty);
+      expect(statusEvents, isEmpty);
+    });
+  });
+
+  group('unsubscribe', () {
+    setUp(() {
+      client.handleRawMessage(_hello());
+    });
+
+    test('unsubscribeEmoteSet does not affect event streams', () {
+      client.subscribeEmoteSet('setX');
+      client.unsubscribeEmoteSet('setX');
+      expect(emoteEvents, isEmpty);
+    });
+  });
+
+  group('heartbeat', () {
+    test('op 2 heartbeat does not emit any events', () {
+      client.handleRawMessage(_hello());
+      statusEvents.clear();
+
+      client.handleRawMessage({
+        'op': 2,
+        'd': {'count': 1},
+      });
+
+      expect(emoteEvents, isEmpty);
+      expect(userEvents, isEmpty);
+      expect(statusEvents, isEmpty);
+    });
+  });
+
+  group('op 4 reconnect request', () {
+    test('op 4 message is handled gracefully', () {
+      client.handleRawMessage({'op': 4, 'd': {}});
+      expect(emoteEvents, isEmpty);
+      expect(userEvents, isEmpty);
+    });
+  });
+
+  group('op 5 and op 7 ignored', () {
+    setUp(() {
+      client.handleRawMessage(_hello());
+      emoteEvents.clear();
+      userEvents.clear();
+      statusEvents.clear();
+    });
+
+    test('ack message (op 5) is ignored', () {
+      client.handleRawMessage({'op': 5, 'd': {}});
+      expect(emoteEvents, isEmpty);
+      expect(userEvents, isEmpty);
+      expect(statusEvents, isEmpty);
+    });
+
+    test('end of stream message (op 7) is ignored', () {
+      client.handleRawMessage({'op': 7, 'd': {}});
+      expect(emoteEvents, isEmpty);
+      expect(userEvents, isEmpty);
+      expect(statusEvents, isEmpty);
+    });
+  });
+
+  group('dispose', () {
+    test('onEmoteSetUpdate stream completes after dispose', () async {
+      final events = <SevenTvEmoteUpdateEvent>[];
+      final sub = client.onEmoteSetUpdate.listen(events.add);
+
+      client.handleRawMessage(_hello());
+      client.handleRawMessage(
+        _emoteSetUpdate(
+          emoteSetId: 's1',
+          pushed: [
+            {
+              'value': {'id': 'e1', 'name': 'Test'},
+            },
+          ],
+        ),
+      );
+
+      expect(events, hasLength(1));
+
+      client.dispose();
+
+      expect(
+        () => client.handleRawMessage(_emoteSetUpdate(emoteSetId: 's2')),
+        returnsNormally,
+      );
+
+      await sub.cancel();
+    });
+  });
+
+  group('reconnect and connectivity', () {
+    test('hello resets reconnectAttempt to 0', () {
+      // Simulate several reconnect attempts
+      for (var i = 0; i < 5; i++) {
+        client.scheduleReconnectForTest();
+        client.isReconnecting = false;
+      }
+      expect(client.reconnectAttempt, 5);
+
+      client.handleRawMessage(_hello());
+      expect(client.reconnectAttempt, 0);
+    });
+
+    test('scheduleReconnect increments reconnectAttempt', () {
+      client.scheduleReconnectForTest();
+      expect(client.reconnectAttempt, 1);
+      expect(client.isReconnecting, true);
+    });
+
+    test('scheduleReconnect returns early when isReconnecting is true', () {
+      client.scheduleReconnectForTest();
+      expect(client.reconnectAttempt, 1);
+
+      client.scheduleReconnectForTest();
+      expect(client.reconnectAttempt, 1);
+    });
+
+    test('scheduleReconnect returns early when isOnline is false', () {
+      final offlineClient = SevenTvEventClient();
+      offlineClient.isOnline = false;
+      offlineClient.scheduleReconnectForTest();
+      expect(offlineClient.reconnectAttempt, 0);
+      expect(offlineClient.isReconnecting, false);
+    });
+
+    test(
+      'reconnectAttempt capped after max and resets reconnecting on each call',
+      () {
+        final client2 = SevenTvEventClient();
+        for (var i = 0; i < 8; i++) {
+          client2.scheduleReconnectForTest();
+          client2.isReconnecting = false;
+        }
+        client2.scheduleReconnectForTest();
+        expect(client2.reconnectAttempt, 9);
+        expect(client2.isReconnecting, false);
+
+        client2.scheduleReconnectForTest();
+        expect(client2.reconnectAttempt, 10);
+        expect(client2.isReconnecting, false);
+      },
+    );
+  });
+
   TestWidgetsFlutterBinding.ensureInitialized();
   test('keeps exactly maxMessages when no threads exist', () {
     // 25 messages, newest first (m24, m23, ..., m0)

@@ -1,13 +1,41 @@
-import 'dart:convert';
-
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:ermchat/services/twitch_auth.dart';
+import 'package:ermchat/services/twitch_oauth.dart';
+import 'package:ermchat/services/user_store.dart';
+import 'package:ermchat/models/generic_emote.dart';
+import 'package:ermchat/models/twitch_message.dart';
+import 'package:ermchat/services/analytics_service.dart';
+import 'package:ermchat/services/emote_manager.dart';
+import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-
 import 'package:ermchat/services/command_handler.dart';
 import 'package:ermchat/services/twitch_api.dart';
-import 'package:ermchat/services/twitch_auth.dart';
 import 'package:ermchat/services/twitch_irc.dart';
+
+TwitchMessage msg(
+  String login,
+  String text, {
+  List<EmotePosition>? positions,
+  bool isSystem = false,
+  bool isHistory = false,
+  bool isBackfill = false,
+}) {
+  return TwitchMessage(
+    login: login,
+    text: text,
+    channel: 'chan',
+    emotePositions: positions,
+    isSystem: isSystem,
+    isHistory: isHistory,
+    isBackfill: isBackfill,
+  );
+}
+
+ChannelEmotes emoteMap(Map<String, GenericEmote> byCode) {
+  return ChannelEmotes(byCode: byCode, suggestions: byCode.values.toList());
+}
 
 class _RecordingIrcService extends IrcService {
   final sent = <String>[];
@@ -26,6 +54,605 @@ class _RecordingIrcService extends IrcService {
 }
 
 void main() {
+  setUp(() {
+    FlutterSecureStorage.setMockInitialValues({});
+  });
+
+  group('TwitchAuth', () {
+    test('isConfigured returns false when no token', () {
+      final auth = TwitchAuth();
+      expect(auth.isConfigured, isFalse);
+    });
+
+    test('setCredentials persists token', () async {
+      final auth = TwitchAuth();
+      auth.setCredentials(
+        accessToken: 'test_token',
+        refreshToken: 'test_refresh',
+      );
+      expect(auth.accessToken, 'test_token');
+      expect(auth.refreshToken, 'test_refresh');
+      expect(auth.isConfigured, isTrue);
+    });
+
+    test('clear removes tokens and cached user', () async {
+      final auth = TwitchAuth();
+      auth.setCredentials(
+        accessToken: 'test_token',
+        refreshToken: 'test_refresh',
+      );
+      auth.setUser('testuser', '12345');
+      await auth.clear();
+      expect(auth.accessToken, isNull);
+      expect(auth.refreshToken, isNull);
+      expect(auth.isConfigured, isFalse);
+      expect(auth.login, isNull);
+      expect(auth.userId, isNull);
+    });
+
+    test('load restores tokens from secure storage', () async {
+      FlutterSecureStorage.setMockInitialValues({
+        'access_token': 'stored_token',
+        'refresh_token': 'stored_refresh',
+      });
+      final auth = TwitchAuth();
+      await auth.load();
+      expect(auth.accessToken, 'stored_token');
+      expect(auth.refreshToken, 'stored_refresh');
+      expect(auth.isConfigured, isTrue);
+    });
+
+    test('load handles missing tokens', () async {
+      final auth = TwitchAuth();
+      await auth.load();
+      expect(auth.accessToken, isNull);
+      expect(auth.refreshToken, isNull);
+    });
+
+    test('setUser persists login and user id', () async {
+      final auth = TwitchAuth();
+      auth.setUser('testuser', '12345');
+      expect(auth.login, 'testuser');
+      expect(auth.userId, '12345');
+    });
+
+    test('load restores cached login and user id', () async {
+      FlutterSecureStorage.setMockInitialValues({
+        'access_token': 'stored_token',
+        'user_login': 'stored_login',
+        'user_id': 'stored_id',
+      });
+      final auth = TwitchAuth();
+      await auth.load();
+      expect(auth.login, 'stored_login');
+      expect(auth.userId, 'stored_id');
+    });
+
+    test('setCredentials clears cached login and user id', () async {
+      final auth = TwitchAuth();
+      auth.setUser('testuser', '12345');
+      auth.setCredentials(accessToken: 'new_token');
+      expect(auth.login, isNull);
+      expect(auth.userId, isNull);
+    });
+
+    test('setCredentials + setUser registers multiple accounts', () async {
+      final auth = TwitchAuth();
+      auth.setCredentials(accessToken: 'token_a');
+      auth.setUser('alice', '111');
+      auth.setCredentials(accessToken: 'token_b');
+      auth.setUser('bob', '222');
+      expect(auth.accounts.length, 2);
+      expect(auth.accounts.map((a) => a.login), containsAll(['alice', 'bob']));
+      expect(auth.login, 'bob');
+    });
+
+    test('switchTo changes the active account', () async {
+      final auth = TwitchAuth();
+      auth.setCredentials(accessToken: 'token_a');
+      auth.setUser('alice', '111');
+      auth.setCredentials(accessToken: 'token_b');
+      auth.setUser('bob', '222');
+
+      await auth.switchTo('alice');
+      expect(auth.login, 'alice');
+      expect(auth.accessToken, 'token_a');
+      expect(auth.isConfigured, isTrue);
+
+      await auth.switchTo('bob');
+      expect(auth.login, 'bob');
+      expect(auth.accessToken, 'token_b');
+    });
+
+    test('accounts persist across load with active login', () async {
+      final auth = TwitchAuth();
+      auth.setCredentials(accessToken: 'token_a');
+      auth.setUser('alice', '111');
+      auth.setCredentials(accessToken: 'token_b');
+      auth.setUser('bob', '222');
+      await auth.switchTo('alice');
+
+      final reloaded = TwitchAuth();
+      await reloaded.load();
+      expect(reloaded.accounts.length, 2);
+      expect(reloaded.login, 'alice');
+      expect(reloaded.accessToken, 'token_a');
+      expect(reloaded.userId, '111');
+    });
+
+    test('removeAccount falls back to the next account', () async {
+      final auth = TwitchAuth();
+      auth.setCredentials(accessToken: 'token_a');
+      auth.setUser('alice', '111');
+      auth.setCredentials(accessToken: 'token_b');
+      auth.setUser('bob', '222');
+      await auth.switchTo('alice');
+
+      await auth.removeAccount('alice');
+      expect(auth.accounts.length, 1);
+      expect(auth.login, 'bob');
+      expect(auth.accessToken, 'token_b');
+    });
+
+    test('removeAccount of the last account logs out', () async {
+      final auth = TwitchAuth();
+      auth.setCredentials(accessToken: 'token_a');
+      auth.setUser('alice', '111');
+
+      await auth.removeAccount('alice');
+      expect(auth.accounts, isEmpty);
+      expect(auth.accessToken, isNull);
+      expect(auth.login, isNull);
+      expect(auth.isConfigured, isFalse);
+    });
+
+    test('setUser persists profile image url', () async {
+      final auth = TwitchAuth();
+      auth.setCredentials(accessToken: 'token_a');
+      auth.setUser(
+        'alice',
+        '111',
+        profileImageUrl: 'https://example.com/a.png',
+      );
+      await auth.switchTo('alice');
+
+      expect(auth.profileImageUrl, 'https://example.com/a.png');
+      expect(auth.accounts.single.profileImageUrl, 'https://example.com/a.png');
+
+      final reloaded = TwitchAuth();
+      await reloaded.load();
+      expect(reloaded.login, 'alice');
+      expect(reloaded.profileImageUrl, 'https://example.com/a.png');
+    });
+
+    test('clear removes the active account and falls back', () async {
+      final auth = TwitchAuth();
+      auth.setCredentials(accessToken: 'token_a');
+      auth.setUser('alice', '111');
+      auth.setCredentials(accessToken: 'token_b');
+      auth.setUser('bob', '222');
+      await auth.switchTo('alice');
+
+      await auth.clear();
+      expect(auth.accounts.length, 1);
+      expect(auth.login, 'bob');
+      expect(auth.accessToken, 'token_b');
+    });
+  });
+
+  group('TwitchOAuth.parseFragment', () {
+    test('extracts access_token and state from fragment (implicit grant)', () {
+      final url =
+          'https://example.com/twitch-callback'
+          '#access_token=testtoken123'
+          '&state=abc123';
+      final params = TwitchOAuth.parseFragment(url);
+      expect(params['access_token'], 'testtoken123');
+      expect(params['state'], 'abc123');
+    });
+
+    test('extracts error from fragment', () {
+      final url =
+          'https://example.com/twitch-callback'
+          '#error=access_denied&error_description=User+denied+access';
+      final params = TwitchOAuth.parseFragment(url);
+      expect(params['error'], 'access_denied');
+      expect(params['error_description'], 'User denied access');
+    });
+
+    test('returns empty map for URL without fragment', () {
+      final url = 'https://example.com/twitch-callback';
+      final params = TwitchOAuth.parseFragment(url);
+      expect(params, isEmpty);
+    });
+
+    test('returns empty map when no auth-related params present', () {
+      final url = 'https://example.com/twitch-callback#foo=bar';
+      final params = TwitchOAuth.parseFragment(url);
+      expect(params['access_token'], isNull);
+      expect(params['state'], isNull);
+      expect(params['error'], isNull);
+      expect(params['foo'], 'bar');
+    });
+
+    test('handles URL with query params and fragment', () {
+      final url =
+          'https://example.com/twitch-callback'
+          '?some=query'
+          '#access_token=token123&state=abc';
+      final params = TwitchOAuth.parseFragment(url);
+      // parseFragment only looks at the fragment, not query params
+      expect(params['access_token'], 'token123');
+      expect(params['state'], 'abc');
+    });
+
+    test('extracts token from complex redirect URL', () {
+      final url =
+          'https://example.com/twitch-callback'
+          '#access_token=abc123def456'
+          '&scope=chat%3Aread+chat%3Aedit'
+          '&state=csrf_token_here'
+          '&token_type=bearer';
+      final params = TwitchOAuth.parseFragment(url);
+      expect(params['access_token'], 'abc123def456');
+      expect(params['scope'], 'chat:read chat:edit');
+      expect(params['state'], 'csrf_token_here');
+      expect(params['token_type'], 'bearer');
+    });
+  });
+
+  group('TwitchOAuth.generateAuthUrl', () {
+    test('requests blocked_users scopes for the block feature', () {
+      final urlInfo = TwitchOAuth.generateAuthUrl();
+      expect(urlInfo, isNotNull);
+
+      final url = Uri.parse(urlInfo!.url);
+      final scopes = url.queryParameters['scope']!.split(' ');
+      expect(
+        scopes,
+        containsAll(['user:manage:blocked_users', 'user:read:blocked_users']),
+      );
+    });
+
+    test('requests core chat scopes', () {
+      final urlInfo = TwitchOAuth.generateAuthUrl();
+      expect(urlInfo, isNotNull);
+
+      final url = Uri.parse(urlInfo!.url);
+      final scopes = url.queryParameters['scope']!.split(' ');
+      expect(
+        scopes,
+        containsAll([
+          'chat:read',
+          'chat:edit',
+          'user:write:chat',
+          'user:manage:chat_color',
+          'moderator:manage:banned_users',
+          'moderator:manage:chat_messages',
+          'moderator:manage:announcements',
+          'moderator:manage:shoutouts',
+        ]),
+      );
+    });
+
+    test('requests channel.moderate scopes for the moderation feed', () {
+      final urlInfo = TwitchOAuth.generateAuthUrl();
+      expect(urlInfo, isNotNull);
+
+      final url = Uri.parse(urlInfo!.url);
+      final scopes = url.queryParameters['scope']!.split(' ');
+      expect(
+        scopes,
+        containsAll([
+          'moderator:read:blocked_terms',
+          'moderator:read:chat_settings',
+          'moderator:read:unban_requests',
+          'moderator:read:warnings',
+          'moderator:read:moderators',
+          'moderator:read:vips',
+        ]),
+      );
+    });
+
+    test('requests scopes for the extended command set', () {
+      final urlInfo = TwitchOAuth.generateAuthUrl();
+      expect(urlInfo, isNotNull);
+
+      final url = Uri.parse(urlInfo!.url);
+      final scopes = url.queryParameters['scope']!.split(' ');
+      expect(
+        scopes,
+        containsAll([
+          'moderator:manage:chat_settings',
+          'channel:manage:moderators',
+          'channel:manage:vips',
+          'channel:edit:commercial',
+          'channel:manage:raids',
+          'moderator:manage:shield_mode',
+          'channel:manage:broadcast',
+          'user:manage:whispers',
+        ]),
+      );
+    });
+
+    test('does not request EventSub-only scopes', () {
+      final urlInfo = TwitchOAuth.generateAuthUrl();
+      expect(urlInfo, isNotNull);
+
+      final url = Uri.parse(urlInfo!.url);
+      final scopes = url.queryParameters['scope']!.split(' ');
+      expect(scopes, isNot(contains('user:read:chat')));
+      expect(scopes, isNot(contains('channel:moderate')));
+    });
+  });
+
+  group('UserStore', () {
+    test('returns empty set for unknown channel', () {
+      final store = UserStore();
+      expect(store.usersForChannel('channel'), isEmpty);
+    });
+
+    test('returns added users for channel', () {
+      final store = UserStore();
+      store.addUser('chan', 'User1');
+      store.addUser('chan', 'User2');
+      final users = store.usersForChannel('chan');
+      expect(users, contains('User1'));
+      expect(users, contains('User2'));
+      expect(users.length, 2);
+    });
+
+    test('touches user moves to end of LRU', () {
+      final store = UserStore();
+      store.addUser('chan', 'User1');
+      store.addUser('chan', 'User2');
+      store.addUser('chan', 'User1');
+      final users = store.usersForChannel('chan');
+      final list = users.toList();
+      expect(list.first, 'User2');
+      expect(list.last, 'User1');
+    });
+
+    test('isolates channels', () {
+      final store = UserStore();
+      store.addUser('chan1', 'User1');
+      store.addUser('chan2', 'User2');
+      expect(store.usersForChannel('chan1'), {'User1'});
+      expect(store.usersForChannel('chan2'), {'User2'});
+    });
+
+    test('evicts oldest when exceeding max', () {
+      final store = UserStore();
+      for (var i = 0; i < 5001; i++) {
+        store.addUser('chan', 'User$i');
+      }
+      final users = store.usersForChannel('chan');
+      expect(users.length, 5000);
+      expect(users, isNot(contains('User0')));
+      expect(users, contains('User5000'));
+    });
+
+    test('removeChannel clears channel', () {
+      final store = UserStore();
+      store.addUser('chan', 'User1');
+      store.removeChannel('chan');
+      expect(store.usersForChannel('chan'), isEmpty);
+    });
+
+    test('ignores empty display name', () {
+      final store = UserStore();
+      store.addUser('chan', '');
+      expect(store.usersForChannel('chan'), isEmpty);
+    });
+  });
+
+  group('AnalyticsService', () {
+    test('records totals, unique chatters and top chatters', () {
+      final service = AnalyticsService();
+      service.recordMessage('chan', msg('alice', 'hi'));
+      service.recordMessage('chan', msg('bob', 'hello'));
+      service.recordMessage('chan', msg('alice', 'again'));
+
+      expect(service.totalMessages('chan'), 3);
+      expect(service.uniqueChatters('chan'), 2);
+      expect(service.trackingStartedAt('chan'), isNotNull);
+
+      final top = service.topChatters('chan', 10);
+      expect(top, hasLength(2));
+      expect(top.first.name, 'alice');
+      expect(top.first.count, 2);
+    });
+
+    test('excludes system, history and backfill messages', () {
+      final service = AnalyticsService();
+      service.recordMessage('chan', msg('alice', 'real'));
+      service.recordMessage('chan', msg('bot', 'sys', isSystem: true));
+      service.recordMessage('chan', msg('bot', 'hist', isHistory: true));
+      service.recordMessage('chan', msg('bot', 'back', isBackfill: true));
+
+      expect(service.totalMessages('chan'), 1);
+      expect(service.uniqueChatters('chan'), 1);
+    });
+
+    test('ignores blank logins', () {
+      final service = AnalyticsService();
+      service.recordMessage('chan', msg('', 'anon'));
+
+      expect(service.totalMessages('chan'), 1);
+      expect(service.uniqueChatters('chan'), 0);
+      expect(service.topChatters('chan', 10), isEmpty);
+    });
+
+    test('counts twitch emotes from positions and remaining text as words', () {
+      final service = AnalyticsService();
+      final positions = [
+        EmotePosition(
+          emoteId: '123',
+          startIndex: 0,
+          endIndex: 8,
+          emoteCode: 'PogChamp',
+        ),
+      ];
+      service.recordMessage(
+        'chan',
+        msg('alice', 'PogChamp hello', positions: positions),
+      );
+
+      final emotes = service.topEmotes('chan', 10);
+      expect(emotes, hasLength(1));
+      expect(emotes.first.emote.code, 'PogChamp');
+      expect(emotes.first.count, 1);
+      expect(service.topWords('chan', 10).single.word, 'hello');
+    });
+
+    test('counts third-party emotes by token match', () {
+      final service = AnalyticsService(
+        emoteLookup: (_) => emoteMap({
+          'monkaS': GenericEmote(
+            id: 'b1',
+            code: 'monkaS',
+            type: EmoteType.bttv,
+            url: 'https://x',
+          ),
+        }),
+      );
+      service.recordMessage('chan', msg('alice', 'monkaS monkaS hi'));
+
+      final emotes = service.topEmotes('chan', 10);
+      expect(emotes, hasLength(1));
+      expect(emotes.first.emote.code, 'monkaS');
+      expect(emotes.first.count, 2);
+      expect(service.topWords('chan', 10).single.word, 'hi');
+    });
+
+    test('twitch positions take precedence over token match', () {
+      final service = AnalyticsService(
+        emoteLookup: (_) => emoteMap({
+          'PogChamp': GenericEmote(
+            id: 'b1',
+            code: 'PogChamp',
+            type: EmoteType.bttv,
+            url: 'https://x',
+          ),
+        }),
+      );
+      final positions = [
+        EmotePosition(
+          emoteId: '123',
+          startIndex: 0,
+          endIndex: 8,
+          emoteCode: 'PogChamp',
+        ),
+        EmotePosition(
+          emoteId: '123',
+          startIndex: 9,
+          endIndex: 17,
+          emoteCode: 'PogChamp',
+        ),
+      ];
+      service.recordMessage(
+        'chan',
+        msg('alice', 'PogChamp PogChamp', positions: positions),
+      );
+
+      final emotes = service.topEmotes('chan', 10);
+      expect(emotes, hasLength(1));
+      expect(emotes.first.emote.id, 'b1');
+      expect(emotes.first.count, 2);
+      expect(service.topWords('chan', 10), isEmpty);
+    });
+
+    test('normalizes words and strips punctuation', () {
+      final service = AnalyticsService();
+      service.recordMessage('chan', msg('alice', 'Hello, world!!'));
+
+      final words = service.topWords('chan', 10);
+      expect(words, hasLength(2));
+      expect(words.any((w) => w.word == 'hello'), isTrue);
+      expect(words.any((w) => w.word == 'world'), isTrue);
+    });
+
+    test('stopword filter excludes common words', () {
+      final service = AnalyticsService();
+      service.recordMessage('chan', msg('alice', 'the cat and dog'));
+
+      final raw = service.topWords('chan', 10);
+      expect(raw, hasLength(4));
+
+      final filtered = service.topWords('chan', 10, useStopwords: true);
+      final filteredWords = filtered.map((w) => w.word).toList();
+      expect(filteredWords, contains('cat'));
+      expect(filteredWords, contains('dog'));
+      expect(filteredWords, isNot(contains('the')));
+      expect(filteredWords, isNot(contains('and')));
+    });
+
+    test('messages per minute rolls off after 60 minutes', () {
+      var now = DateTime(2024, 1, 1, 12, 0, 0);
+      final service = AnalyticsService(now: () => now);
+
+      for (var i = 0; i < 5; i++) {
+        service.recordMessage('chan', msg('alice', 'hello'));
+      }
+      expect(service.messagesPerMinute('chan'), 5.0);
+
+      now = now.add(const Duration(minutes: 61));
+      service.recordMessage('chan', msg('alice', 'new hour'));
+
+      final rate = service.messagesPerMinute('chan');
+      expect(rate, closeTo(1 / 60, 0.0001));
+      expect(service.totalMessages('chan'), 6);
+    });
+
+    test('records moderation bans and timeouts', () {
+      final service = AnalyticsService();
+      service.recordModeration('chan', false);
+      service.recordModeration('chan', true);
+      service.recordModeration('chan', true);
+
+      expect(service.banCount('chan'), 1);
+      expect(service.timeoutCount('chan'), 2);
+    });
+
+    test('unknown channels read as zero', () {
+      final service = AnalyticsService();
+      expect(service.messagesPerMinute('chan'), 0);
+      expect(service.totalMessages('other'), 0);
+      expect(service.uniqueChatters('other'), 0);
+    });
+
+    test('resets single channel', () {
+      final service = AnalyticsService();
+      service.recordMessage('chan', msg('alice', 'hi'));
+      service.recordMessage('other', msg('bob', 'yo'));
+
+      service.resetChannel('chan');
+      expect(service.isTracking('chan'), isFalse);
+      expect(service.totalMessages('chan'), 0);
+      expect(service.isTracking('other'), isTrue);
+    });
+
+    test('resets all channels', () {
+      final service = AnalyticsService();
+      service.recordMessage('chan', msg('alice', 'hi'));
+      service.recordMessage('other', msg('bob', 'yo'));
+
+      service.resetAll();
+      expect(service.trackedChannels(), isEmpty);
+    });
+
+    test('notifies listeners on record', () {
+      final service = AnalyticsService();
+      var notified = 0;
+      service.addListener(() => notified++);
+
+      service.recordMessage('chan', msg('alice', 'hi'));
+      service.recordModeration('chan', true);
+
+      expect(notified, 2);
+    });
+  });
+
   late TwitchAuth auth;
   late _RecordingIrcService irc;
   final systemMessages = <String>[];

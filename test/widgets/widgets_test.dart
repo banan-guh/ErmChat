@@ -1,12 +1,10 @@
 import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-
 import 'package:ermchat/main.dart';
 import 'package:ermchat/theme_colors.dart';
 import 'package:ermchat/screens/settings/account_screen.dart';
@@ -29,8 +27,17 @@ import 'package:ermchat/services/suggestion.dart';
 import 'package:ermchat/widgets/autocomplete_dropdown.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:ermchat/services/emote_cache_manager.dart';
-
 import '../helpers/fake_cache_repo.dart';
+import 'package:ermchat/screens/settings/analytics_screen.dart';
+import 'package:ermchat/widgets/chat_widget_cutout.dart';
+import 'package:ermchat/models/generic_emote.dart';
+import 'package:ermchat/services/emote_manager.dart';
+import 'package:ermchat/widgets/emote_menu_panel.dart';
+import 'package:url_launcher_platform_interface/link.dart';
+import 'package:url_launcher_platform_interface/url_launcher_platform_interface.dart';
+import 'package:ermchat/widgets/emote_image.dart';
+import 'package:ermchat/widgets/emote_sheet.dart';
+import 'package:ermchat/widgets/user_profile_sheet.dart';
 
 class _FakeEventSubService extends EventSubService {
   final _statusCtrl = StreamController<EventSubStatus>.broadcast(sync: true);
@@ -269,6 +276,51 @@ class _GatedRecentMessagesService extends RecentMessagesService {
     }
     return responses[idx];
   }
+}
+
+PollEvent _poll() => PollEvent(
+  channel: 'c',
+  kind: 'begin',
+  title: 'A or B?',
+  choices: [
+    PollChoice(title: 'A', votes: 10),
+    PollChoice(title: 'B', votes: 5),
+  ],
+  status: 'ACTIVE',
+);
+
+HypeTrainEvent _hypeTrain() => HypeTrainEvent(
+  channel: 'c',
+  kind: 'begin',
+  level: 1,
+  progress: 10,
+  total: 50,
+  expiresAt: DateTime.now().add(const Duration(minutes: 5)),
+  topContributions: [
+    HypeTrainContribution(userName: 'bitsuser', type: 'BITS', total: 100),
+  ],
+);
+
+class _FakeUrlLauncher extends UrlLauncherPlatform {
+  bool succeed = true;
+  String? lastUrl;
+  PreferredLaunchMode? lastMode;
+
+  @override
+  LinkDelegate? get linkDelegate => null;
+
+  @override
+  Future<bool> canLaunch(String url) async => true;
+
+  @override
+  Future<bool> launchUrl(String url, LaunchOptions options) async {
+    lastUrl = url;
+    lastMode = options.mode;
+    return succeed;
+  }
+
+  @override
+  Future<void> closeWebView() async {}
 }
 
 void main() {
@@ -3664,6 +3716,847 @@ void main() {
 
       final controller = tester.widget<TextField>(inputFinder).controller!;
       expect(controller.text, '/me ');
+    });
+  });
+
+  setUp(() {
+    FlutterSecureStorage.setMockInitialValues({});
+  });
+
+  Widget wrapAccountScreen(TwitchAuth auth) {
+    return MaterialApp(home: AccountScreen(twitchAuth: auth));
+  }
+
+  TwitchAuth twoAccounts() {
+    final auth = TwitchAuth();
+    auth.setCredentials(accessToken: 'token_a');
+    auth.setUser('alice', '111', profileImageUrl: 'https://example.com/a.png');
+    auth.setCredentials(accessToken: 'token_b');
+    auth.setUser('bob', '222');
+    return auth;
+  }
+
+  testWidgets('lists saved accounts with the active one marked', (
+    tester,
+  ) async {
+    final auth = twoAccounts();
+    await tester.pumpWidget(wrapAccountScreen(auth));
+    await tester.pump();
+
+    expect(find.text('Accounts'), findsOneWidget);
+    expect(find.text('alice'), findsOneWidget);
+    expect(find.text('bob'), findsOneWidget);
+    expect(find.text('Active'), findsOneWidget);
+    expect(find.byIcon(Icons.check), findsOneWidget);
+  });
+
+  testWidgets('tapping an account switches the active account', (tester) async {
+    final auth = twoAccounts();
+    await tester.pumpWidget(wrapAccountScreen(auth));
+    await tester.pump();
+    expect(auth.login, 'bob');
+
+    await tester.tap(find.text('alice'));
+    await tester.pumpAndSettle();
+    expect(auth.login, 'alice');
+    expect(auth.accessToken, 'token_a');
+  });
+
+  testWidgets('avatar uses the saved profile image url', (tester) async {
+    final auth = twoAccounts();
+    await tester.pumpWidget(wrapAccountScreen(auth));
+    await tester.pump();
+
+    final avatars = tester.widgetList<CircleAvatar>(find.byType(CircleAvatar));
+    final urls = avatars
+        .map((a) => a.foregroundImage)
+        .whereType<NetworkImage>()
+        .map((n) => n.url)
+        .toList();
+    expect(urls, contains('https://example.com/a.png'));
+  });
+
+  testWidgets('long press asks for confirmation and removes the account', (
+    tester,
+  ) async {
+    final auth = twoAccounts();
+    await tester.pumpWidget(wrapAccountScreen(auth));
+    await tester.pump();
+
+    await tester.longPress(find.text('alice'));
+    await tester.pumpAndSettle();
+    expect(find.text('Remove account?'), findsOneWidget);
+    expect(
+      find.text('Are you sure you want to remove @alice?'),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.text('Remove'));
+    await tester.pumpAndSettle();
+    expect(auth.accounts.length, 1);
+    expect(auth.accounts.single.login, 'bob');
+    expect(find.text('alice'), findsNothing);
+  });
+
+  testWidgets('cancel keeps the account', (tester) async {
+    final auth = twoAccounts();
+    await tester.pumpWidget(wrapAccountScreen(auth));
+    await tester.pump();
+
+    await tester.longPress(find.text('alice'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+
+    expect(auth.accounts.length, 2);
+    expect(find.text('alice'), findsOneWidget);
+  });
+
+  testWidgets('success state offers Add account and Disconnect', (
+    tester,
+  ) async {
+    final auth = twoAccounts();
+    await tester.pumpWidget(wrapAccountScreen(auth));
+    await tester.pump();
+
+    expect(find.text('Add account'), findsOneWidget);
+    expect(find.text('Disconnect'), findsOneWidget);
+  });
+
+  testWidgets('removing the last account falls back to the login button', (
+    tester,
+  ) async {
+    final auth = TwitchAuth();
+    auth.setCredentials(accessToken: 'token_a');
+    auth.setUser('alice', '111');
+    await tester.pumpWidget(wrapAccountScreen(auth));
+    await tester.pump();
+
+    await tester.longPress(find.text('alice'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Remove'));
+    await tester.pumpAndSettle();
+
+    expect(auth.accounts, isEmpty);
+    expect(find.text('Login'), findsOneWidget);
+  });
+
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+  });
+
+  AnalyticsService seededService() {
+    final service = AnalyticsService();
+    service.recordMessage(
+      'chan1',
+      TwitchMessage(login: 'alice', text: 'hello world', channel: 'chan1'),
+    );
+    service.recordMessage(
+      'chan1',
+      TwitchMessage(login: 'bob', text: 'hello', channel: 'chan1'),
+    );
+    service.recordMessage(
+      'chan2',
+      TwitchMessage(login: 'carol', text: 'yo', channel: 'chan2'),
+    );
+    return service;
+  }
+
+  Widget wrapAnalytics(AnalyticsService service, List<String> channels) {
+    return MaterialApp(
+      home: AnalyticsScreen(analyticsService: service, channels: channels),
+    );
+  }
+
+  testWidgets('shows empty state when no channels', (tester) async {
+    await tester.pumpWidget(wrapAnalytics(AnalyticsService(), []));
+    await tester.pump();
+    expect(find.text('Join a channel to start tracking stats'), findsOneWidget);
+  });
+
+  testWidgets('renders summary and top lists for the first channel', (
+    tester,
+  ) async {
+    await tester.pumpWidget(wrapAnalytics(seededService(), ['chan1', 'chan2']));
+    await tester.pump();
+
+    expect(find.text('Total messages'), findsOneWidget);
+    expect(find.text('Unique chatters'), findsOneWidget);
+    expect(find.text('Messages per minute'), findsOneWidget);
+    expect(find.text('Tracking for'), findsOneWidget);
+    expect(find.text('Top chatters'), findsOneWidget);
+    expect(find.text('Top emotes'), findsOneWidget);
+    expect(find.text('Top words'), findsOneWidget);
+    expect(find.text('alice'), findsOneWidget);
+    expect(find.text('bob'), findsOneWidget);
+  });
+
+  testWidgets('channel selector switches the displayed stats', (tester) async {
+    await tester.pumpWidget(wrapAnalytics(seededService(), ['chan1', 'chan2']));
+    await tester.pump();
+
+    expect(find.text('carol'), findsNothing);
+
+    await tester.tap(find.widgetWithText(Tab, 'chan2'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('carol'), findsOneWidget);
+    expect(find.text('alice'), findsNothing);
+  });
+
+  testWidgets('stopword toggle filters common words', (tester) async {
+    final service = AnalyticsService();
+    service.recordMessage(
+      'chan',
+      TwitchMessage(login: 'alice', text: 'the hello', channel: 'chan'),
+    );
+    await tester.pumpWidget(wrapAnalytics(service, ['chan']));
+    await tester.pump();
+
+    expect(find.text('the'), findsOneWidget);
+
+    await tester.tap(find.text('Filter common words'));
+    await tester.pump();
+
+    expect(find.text('the'), findsNothing);
+    expect(find.text('hello'), findsOneWidget);
+  });
+
+  testWidgets('reset this channel clears the stats', (tester) async {
+    final service = seededService();
+    await tester.pumpWidget(wrapAnalytics(service, ['chan1', 'chan2']));
+    await tester.pump();
+
+    await tester.tap(find.byIcon(Icons.refresh));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    await tester.tap(find.text('Reset this channel'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(find.text('No messages yet'), findsOneWidget);
+    expect(find.text('alice'), findsNothing);
+    expect(service.trackingStartedAt('chan1'), isNull);
+  });
+
+  testWidgets('shows moderation counts when bans occur', (tester) async {
+    final service = AnalyticsService();
+    service.recordModeration('chan', false);
+    service.recordModeration('chan', true);
+    await tester.pumpWidget(wrapAnalytics(service, ['chan']));
+    await tester.pump();
+
+    expect(find.text('Moderation'), findsOneWidget);
+    expect(find.text('Bans'), findsOneWidget);
+    expect(find.text('Timeouts'), findsOneWidget);
+  });
+
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+    FlutterSecureStorage.setMockInitialValues({});
+  });
+
+  Future<void> joinChannel(WidgetTester tester, String name) async {
+    await tester.tap(find.byIcon(Icons.add));
+    await tester.pumpAndSettle();
+    final dialogField = find.descendant(
+      of: find.byType(AlertDialog),
+      matching: find.byType(TextField),
+    );
+    await tester.enterText(dialogField, name);
+    await tester.tap(find.text('Join').last);
+    await tester.pumpAndSettle();
+    await tester.pump();
+  }
+
+  Future<void> tapChannel(WidgetTester tester, String channel) async {
+    final barText = find.text(channel).first;
+    await tester.ensureVisible(barText);
+    await tester.pump();
+    await tester.tap(barText);
+    await tester.pumpAndSettle();
+    await tester.pump();
+  }
+
+  group('Channel bar', () {
+    testWidgets('is absent when no channels are joined', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(const TwitchChatApp());
+      await tester.pump();
+
+      expect(find.byType(TabBar), findsNothing);
+      // Let the anonymous-mode socket attempts resolve so no timer pends.
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('renders channel name after joining', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(const TwitchChatApp());
+      await tester.pump();
+
+      await joinChannel(tester, 'xqc');
+
+      expect(find.text('xqc'), findsOneWidget);
+    });
+
+    testWidgets('channel bar disappears when last channel is removed', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(const TwitchChatApp());
+      await tester.pump();
+
+      await joinChannel(tester, 'xqc');
+
+      await tester.tap(find.byIcon(Icons.more_vert));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Settings'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Channels'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byIcon(Icons.remove_circle_outline));
+      await tester.pump();
+      await tester.pump();
+      await tester.pump();
+
+      await tester.tap(find.byIcon(Icons.arrow_back));
+      await tester.pumpAndSettle();
+
+      expect(find.text('xqc'), findsNothing);
+      expect(find.byType(TabBar), findsNothing);
+    });
+
+    testWidgets('unselected channel has normal font weight', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(const TwitchChatApp());
+      await tester.pump();
+
+      await joinChannel(tester, 'a');
+      await joinChannel(tester, 'b');
+
+      expect(
+        tester.widget<Text>(find.text('b')).style?.fontWeight,
+        FontWeight.w600,
+      );
+      expect(
+        tester.widget<Text>(find.text('a')).style?.fontWeight,
+        FontWeight.normal,
+      );
+    });
+  });
+
+  group('Channel focus on swipe', () {
+    testWidgets('swiping past halfway switches focus before settle', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(const TwitchChatApp());
+      await tester.pump();
+      await joinChannel(tester, 'a');
+      await joinChannel(tester, 'b');
+      await tapChannel(tester, 'a');
+
+      final size = tester.getSize(find.byType(TabBarView));
+      final center = tester.getCenter(find.byType(TabBarView));
+      final gesture = await tester.startGesture(center);
+      await gesture.moveBy(const Offset(-1, 0));
+      await tester.pump();
+      await gesture.moveBy(Offset(-size.width * 0.55, 0));
+      await tester.pump();
+      // Don't release — verify focus switched mid-drag
+      expect(
+        tester
+            .widget<Text>(
+              find.descendant(
+                of: find.byType(TabBar),
+                matching: find.text('b'),
+              ),
+            )
+            .style
+            ?.fontWeight,
+        FontWeight.w600,
+      );
+      expect(
+        tester
+            .widget<Text>(
+              find.descendant(
+                of: find.byType(TabBar),
+                matching: find.text('a'),
+              ),
+            )
+            .style
+            ?.fontWeight,
+        FontWeight.normal,
+      );
+
+      await gesture.up();
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('dragging under halfway keeps focus unchanged', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(const TwitchChatApp());
+      await tester.pump();
+      await joinChannel(tester, 'a');
+      await joinChannel(tester, 'b');
+      await tapChannel(tester, 'a');
+
+      final size = tester.getSize(find.byType(TabBarView));
+      final center = tester.getCenter(find.byType(TabBarView));
+      final gesture = await tester.startGesture(center);
+      await gesture.moveBy(const Offset(-1, 0));
+      await tester.pump();
+      await gesture.moveBy(Offset(-size.width * 0.45, 0)); // under 50%
+      await tester.pump();
+      await gesture.up();
+      await tester.pumpAndSettle();
+
+      expect(
+        tester
+            .widget<Text>(
+              find.descendant(
+                of: find.byType(TabBar),
+                matching: find.text('a'),
+              ),
+            )
+            .style
+            ?.fontWeight,
+        FontWeight.w600,
+      );
+      expect(
+        tester
+            .widget<Text>(
+              find.descendant(
+                of: find.byType(TabBar),
+                matching: find.text('b'),
+              ),
+            )
+            .style
+            ?.fontWeight,
+        FontWeight.normal,
+      );
+    });
+
+    testWidgets('crossing then returning before release restores focus', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(const TwitchChatApp());
+      await tester.pump();
+      await joinChannel(tester, 'a');
+      await joinChannel(tester, 'b');
+      await tapChannel(tester, 'a');
+
+      final size = tester.getSize(find.byType(TabBarView));
+      final center = tester.getCenter(find.byType(TabBarView));
+      final gesture = await tester.startGesture(center);
+      await gesture.moveBy(const Offset(-1, 0));
+      await tester.pump();
+      // Cross 50%
+      await gesture.moveBy(Offset(-size.width * 0.6, 0));
+      await tester.pump();
+      // Return below 50%
+      await gesture.moveBy(Offset(size.width * 0.3, 0));
+      await tester.pump();
+      await gesture.up();
+      await tester.pumpAndSettle();
+
+      expect(
+        tester
+            .widget<Text>(
+              find.descendant(
+                of: find.byType(TabBar),
+                matching: find.text('a'),
+              ),
+            )
+            .style
+            ?.fontWeight,
+        FontWeight.w600,
+      );
+    });
+  });
+
+  testWidgets('cutout swipes between pages and minimize fires callback', (
+    tester,
+  ) async {
+    final controller = PageController();
+    var minimized = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ChatWidgetCutout(
+            pages: [
+              PollCard(event: _poll()),
+              HypeTrainCard(event: _hypeTrain()),
+            ],
+            controller: controller,
+            onMinimize: () => minimized++,
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('A or B?'), findsOneWidget);
+    expect(find.byIcon(Icons.keyboard_arrow_down), findsOneWidget);
+
+    await tester.drag(find.byType(PageView), const Offset(-500, 0));
+    await tester.pumpAndSettle();
+    expect(find.text('Hype Train'), findsOneWidget);
+    expect(find.text('A or B?'), findsNothing);
+
+    await tester.tap(find.byIcon(Icons.keyboard_arrow_down));
+    expect(minimized, 1);
+
+    controller.dispose();
+  });
+
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  GenericEmote sevenTv(String id, String code) => GenericEmote(
+    id: id,
+    code: code,
+    type: EmoteType.sevenTv,
+    url: 'https://example.com/$id.png',
+    scope: EmoteScope.channel,
+  );
+
+  Widget wrapEmoteMenu(EmoteManager manager) {
+    return MaterialApp(
+      home: Scaffold(
+        body: EmoteMenuPanelWidget(
+          isActive: true,
+          selectedChannel: 'ch',
+          onEmoteSelected: (_) {},
+          onClose: () {},
+          emoteManager: manager,
+          scrollController: ScrollController(),
+          sheetCtrl: DraggableScrollableController(),
+          emoteMaxFraction: 0.8,
+        ),
+      ),
+    );
+  }
+
+  testWidgets('a 7TV insert only builds cells at and below the change', (
+    WidgetTester tester,
+  ) async {
+    final manager = EmoteManager(
+      fetchStagger: Duration.zero,
+      usageFlushDelay: Duration.zero,
+      removeCachedFile: (url) async {},
+    );
+    manager.updateSevenTvEmotes(
+      'ch',
+      added: [
+        sevenTv('a', 'Alpha'),
+        sevenTv('c', 'Charlie'),
+        sevenTv('d', 'Delta'),
+      ],
+    );
+
+    await tester.pumpWidget(wrapEmoteMenu(manager));
+    await tester.tap(find.text('Channel'));
+    // The loading shimmer animates indefinitely, so pump fixed durations
+    // instead of pumpAndSettle (which would never settle).
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+
+    final alphaElement = tester.element(find.byKey(const ValueKey('a')));
+    final deltaElement = tester.element(find.byKey(const ValueKey('d')));
+
+    // Insert between Alpha and Charlie: Alpha stays in place (identical
+    // element), Delta shifts down but keeps its element via keyed
+    // reconciliation, and only the new cell is built.
+    manager.updateSevenTvEmotes('ch', added: [sevenTv('b', 'Bravo')]);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(tester.element(find.byKey(const ValueKey('a'))), same(alphaElement));
+    expect(tester.element(find.byKey(const ValueKey('d'))), same(deltaElement));
+    expect(find.byKey(const ValueKey('b')), findsOneWidget);
+  });
+
+  testWidgets('a 7TV removal reuses the elements below the change', (
+    WidgetTester tester,
+  ) async {
+    final manager = EmoteManager(
+      fetchStagger: Duration.zero,
+      usageFlushDelay: Duration.zero,
+      removeCachedFile: (url) async {},
+    );
+    manager.updateSevenTvEmotes(
+      'ch',
+      added: [
+        sevenTv('a', 'Alpha'),
+        sevenTv('b', 'Bravo'),
+        sevenTv('d', 'Delta'),
+      ],
+    );
+
+    await tester.pumpWidget(wrapEmoteMenu(manager));
+    await tester.tap(find.text('Channel'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+
+    final alphaElement = tester.element(find.byKey(const ValueKey('a')));
+    final deltaElement = tester.element(find.byKey(const ValueKey('d')));
+
+    manager.updateSevenTvEmotes('ch', removedIds: ['b']);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(tester.element(find.byKey(const ValueKey('a'))), same(alphaElement));
+    expect(tester.element(find.byKey(const ValueKey('d'))), same(deltaElement));
+    expect(find.byKey(const ValueKey('b')), findsNothing);
+  });
+
+  testWidgets('the viewed channel sub group is pinned above the others', (
+    WidgetTester tester,
+  ) async {
+    final manager = EmoteManager(
+      fetchStagger: Duration.zero,
+      usageFlushDelay: Duration.zero,
+      removeCachedFile: (url) async {},
+    );
+    GenericEmote subOf(String id, String code, String owner) => GenericEmote(
+      id: id,
+      code: code,
+      type: EmoteType.twitch,
+      url: 'https://example.com/$id.png',
+      scope: EmoteScope.channel,
+      tier: '3',
+      emoteType: 'subscriptions',
+      ownerChannel: owner,
+    );
+    // Alphabetically 'alpha' would come first; 'ch' is the viewed channel.
+    await manager.storeUserTwitchEmotes({
+      'ch': [subOf('a1', 'AlphaEmote', 'alpha'), subOf('c1', 'ChEmote', 'ch')],
+    });
+
+    await tester.pumpWidget(wrapEmoteMenu(manager));
+    await tester.tap(find.text('Subs'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+
+    expect(
+      tester.getTopLeft(find.text('ch')).dy,
+      lessThan(tester.getTopLeft(find.text('alpha')).dy),
+    );
+  });
+
+  group('emote sheet', () {
+    late _FakeUrlLauncher emoteSheetLauncher;
+
+    setUp(() {
+      emoteSheetLauncher = _FakeUrlLauncher();
+      UrlLauncherPlatform.instance = emoteSheetLauncher;
+    });
+
+    Widget wrapMany(List<GenericEmote> emotes) {
+      return MaterialApp(
+        home: Scaffold(
+          body: EmoteSheet(
+            emotes: emotes,
+            messageController: TextEditingController(),
+            focusNode: FocusNode(),
+            onClose: () {},
+          ),
+        ),
+      );
+    }
+
+    Widget wrapEmoteSheet(GenericEmote emote) => wrapMany([emote]);
+
+    GenericEmote sevenTvEmote({String? baseName, bool zeroWidth = false}) {
+      return GenericEmote(
+        id: '7tv-1',
+        code: 'Cope',
+        type: EmoteType.sevenTv,
+        url: 'https://cdn.7tv.app/emote/1/1x.webp',
+        baseName: baseName,
+        isZeroWidth: zeroWidth,
+        ownerChannel: 'CopeQueen',
+      );
+    }
+
+    testWidgets('shows name, type label and creator rows', (tester) async {
+      await tester.pumpWidget(wrapEmoteSheet(sevenTvEmote()));
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.text('Cope'), findsOneWidget);
+      expect(find.text('7TV Global Emote'), findsOneWidget);
+      expect(find.text('Created by CopeQueen'), findsOneWidget);
+      expect(find.textContaining('Alias of'), findsNothing);
+    });
+
+    testWidgets('shows "Alias of" row for 7TV alias emotes', (tester) async {
+      await tester.pumpWidget(
+        wrapEmoteSheet(sevenTvEmote(baseName: 'BaseEmote')),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.text('Alias of BaseEmote'), findsOneWidget);
+    });
+
+    testWidgets('type label appends Zero Width suffix', (tester) async {
+      await tester.pumpWidget(wrapEmoteSheet(sevenTvEmote(zeroWidth: true)));
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.text('7TV Global Emote (Zero Width)'), findsOneWidget);
+    });
+
+    testWidgets('Open emote link opens the provider URL', (tester) async {
+      await tester.pumpWidget(wrapEmoteSheet(sevenTvEmote()));
+      await tester.pump();
+      await tester.pump();
+
+      await tester.tap(find.text('Open emote link'));
+      await tester.pump();
+      await tester.pump();
+
+      expect(emoteSheetLauncher.lastUrl, 'https://7tv.app/emotes/7tv-1');
+      expect(
+        emoteSheetLauncher.lastMode,
+        PreferredLaunchMode.externalApplication,
+      );
+    });
+
+    testWidgets('Open emote link shows a snackbar when launch fails', (
+      tester,
+    ) async {
+      emoteSheetLauncher.succeed = false;
+      await tester.pumpWidget(wrapEmoteSheet(sevenTvEmote()));
+      await tester.pump();
+      await tester.pump();
+
+      await tester.tap(find.text('Open emote link'));
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.textContaining('Could not open'), findsOneWidget);
+    });
+
+    testWidgets(
+      'preview targets the 3x with the smaller scales as alternates',
+      (tester) async {
+        final emote = GenericEmote(
+          id: 'scale-1',
+          code: 'Scale',
+          type: EmoteType.sevenTv,
+          url: 'https://cdn.7tv.app/emote/scale/2x.webp',
+          url1x: 'https://cdn.7tv.app/emote/scale/1x.webp',
+          url3x: 'https://cdn.7tv.app/emote/scale/3x.webp',
+        );
+
+        await tester.pumpWidget(wrapEmoteSheet(emote));
+        await tester.pump();
+
+        final preview = tester.widget<EmoteImage>(find.byType(EmoteImage));
+        expect(preview.url, 'https://cdn.7tv.app/emote/scale/3x.webp');
+        expect(preview.alternateUrls, [
+          'https://cdn.7tv.app/emote/scale/2x.webp',
+          'https://cdn.7tv.app/emote/scale/1x.webp',
+        ]);
+      },
+    );
+
+    testWidgets('multi-emote sheet swipes sideways to the next emote', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        wrapMany(
+          List.generate(
+            2,
+            (i) => GenericEmote(
+              id: 'e$i',
+              code: 'Emote$i',
+              type: EmoteType.sevenTv,
+              url: 'https://cdn.7tv.app/emote/e$i/1x.webp',
+              baseName: i == 1 ? 'BaseEmote' : null,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.text('Emote0'), findsWidgets);
+      expect(find.text('Alias of BaseEmote'), findsNothing);
+
+      await tester.drag(find.byType(TabBarView), const Offset(-300, 0));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump();
+
+      expect(find.text('Alias of BaseEmote'), findsOneWidget);
+    });
+  });
+
+  group('user profile sheet', () {
+    late _FakeUrlLauncher profileLauncher;
+
+    setUp(() {
+      profileLauncher = _FakeUrlLauncher();
+      UrlLauncherPlatform.instance = profileLauncher;
+    });
+
+    TwitchApi createApi() {
+      return TwitchApi(
+        client: MockClient(
+          (_) async => http.Response(
+            '{"data": [{"id": "123", "login": "testuser", "display_name": "TestUser", "created_at": "2020-01-01T00:00:00Z", "profile_image_url": "https://example.com/img.png"}]}',
+            200,
+          ),
+        ),
+      );
+    }
+
+    Widget wrapUserProfile(TwitchApi api) {
+      return MaterialApp(
+        home: Scaffold(
+          body: UserProfileSheet(
+            username: 'testuser',
+            userId: '123',
+            displayName: 'TestUser',
+            twitchApi: api,
+            twitchAuth: TwitchAuth()..accessToken = 'test-token',
+            messageController: TextEditingController(),
+            focusNode: FocusNode(),
+            onClose: () {},
+          ),
+        ),
+      );
+    }
+
+    testWidgets('Report button opens twitch.tv/<login>/report', (tester) async {
+      await tester.pumpWidget(wrapUserProfile(createApi()));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Report'));
+      await tester.pumpAndSettle();
+
+      expect(profileLauncher.lastUrl, 'https://twitch.tv/testuser/report');
+      expect(profileLauncher.lastMode, PreferredLaunchMode.externalApplication);
+    });
+
+    testWidgets('Report button shows snackbar when launch fails', (
+      tester,
+    ) async {
+      profileLauncher.succeed = false;
+      await tester.pumpWidget(wrapUserProfile(createApi()));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Report'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Could not open the report page'), findsOneWidget);
     });
   });
 }

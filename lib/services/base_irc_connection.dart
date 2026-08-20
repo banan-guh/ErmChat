@@ -544,18 +544,18 @@ abstract class IrcConnection {
     }
   }
 
-/// Queues a JOIN behind the rate limiter. No-ops while disconnected: the
-/// connect path re-queues every [_channels] entry after the handshake.
-void _queueJoin(String channel) {
-  if (!_joinQueue.contains(channel)) {
-    _joinQueue.add(channel);
+  /// Queues a JOIN behind the rate limiter. No-ops while disconnected: the
+  /// connect path re-queues every [_channels] entry after the handshake.
+  void _queueJoin(String channel) {
+    if (!_joinQueue.contains(channel)) {
+      _joinQueue.add(channel);
+    }
+    // Always kick the flush: if the channel was already queued pre-connect
+    // (socket down, so the first kick was a no-op), this is what finally sends
+    // it once the socket is up. Skipping here would strand it in the queue
+    // forever (the dedup guard would also block the rejoin sweep).
+    _kickJoinFlush();
   }
-  // Always kick the flush: if the channel was already queued pre-connect
-  // (socket down, so the first kick was a no-op), this is what finally sends
-  // it once the socket is up. Skipping here would strand it in the queue
-  // forever (the dedup guard would also block the rejoin sweep).
-  _kickJoinFlush();
-}
 
   void _kickJoinFlush() {
     if (channel == null) return;

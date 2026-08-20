@@ -1,17 +1,107 @@
-import 'dart:async';
-import 'dart:convert';
-import 'dart:io' show Directory;
-import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:ermchat/services/emote_cache_manager.dart';
+import '../helpers/fake_cache_repo.dart';
+import 'dart:async';
+import 'dart:io';
+import 'dart:ui' as ui;
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+import 'package:shimmer/shimmer.dart';
+import 'package:ermchat/services/emote_codec/native_emote_codec.dart';
+import 'package:ermchat/widgets/emote_image.dart';
+import 'package:ermchat/widgets/emote_image_provider.dart';
+import 'dart:convert';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ermchat/models/emote_fetch_tier.dart';
 import 'package:ermchat/models/generic_emote.dart';
-import 'package:ermchat/services/emote_cache_manager.dart';
 import 'package:ermchat/services/emote_manager.dart';
 import 'package:ermchat/services/emote_providers/seven_tv_emotes.dart';
 import '../helpers.dart';
+import 'package:ermchat/models/twitch_message.dart';
+import 'package:ermchat/widgets/emote_text.dart';
+import 'package:ermchat/models/twitch_command.dart';
+import 'package:ermchat/services/suggestion.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
+import 'package:ermchat/services/media_uploader.dart';
+
+CacheObject _obj(String url, DateTime touched, {int? id}) => CacheObject(
+  url,
+  id: id,
+  relativePath: 'file_${url.hashCode}.png',
+  validTill: DateTime(2030),
+  touched: touched,
+);
+
+/// Minimal bytes that sniff as an animated WebP (RIFF+WEBP header with an
+/// ANMF chunk), so the emote pipeline routes them through the reinforced
+/// decoder (and the test decode override) instead of the engine codec.
+Uint8List animatedWebpBytes() => Uint8List.fromList([
+  0x52, 0x49, 0x46, 0x46, // RIFF
+  0, 0, 0, 0,
+  0x57, 0x45, 0x42, 0x50, // WEBP
+  0x41, 0x4E, 0x4D, 0x46, // ANMF
+  0, 0, 0, 0,
+]);
+
+/// First pixel of [image] as a String; identity assertions don't survive the
+/// stock Image pipeline (it clones frame handles), so tests compare pixels.
+Future<String> _firstPixel(ui.Image image) async {
+  final data = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+  final b = data!.buffer.asUint8List();
+  return '${b[0]},${b[1]},${b[2]},${b[3]}';
+}
+
+Future<ui.Image> _makeImage(int r, int g, int b) {
+  final bytes = Uint8List(4 * 2 * 2);
+  for (var i = 0; i < bytes.length; i += 4) {
+    bytes[i] = r;
+    bytes[i + 1] = g;
+    bytes[i + 2] = b;
+    bytes[i + 3] = 255;
+  }
+  final completer = Completer<ui.Image>();
+  ui.decodeImageFromPixels(
+    bytes,
+    2,
+    2,
+    ui.PixelFormat.rgba8888,
+    completer.complete,
+  );
+  return completer.future;
+}
+
+/// Toggles a second [EmoteImage] into its own subtree on demand, so it mounts
+/// during a narrow rebuild of that subtree only (other widgets in the tree are
+/// not under the current build target).
+class _RevealWidget extends StatefulWidget {
+  const _RevealWidget({super.key, required this.url});
+
+  final String url;
+
+  @override
+  State<_RevealWidget> createState() => _RevealWidgetState();
+}
+
+class _RevealWidgetState extends State<_RevealWidget> {
+  bool _show = false;
+
+  void show() => setState(() => _show = true);
+
+  @override
+  Widget build(BuildContext context) {
+    return _show
+        ? SizedBox(
+            width: 28,
+            height: 28,
+            child: EmoteImage(url: widget.url, width: 28, height: 28),
+          )
+        : const SizedBox.shrink();
+  }
+}
 
 class _FakePathProvider extends PathProviderPlatform {
   final String tempDir;
@@ -34,7 +124,1049 @@ EmoteCacheManager testCacheManager() => EmoteCacheManager.forTesting(
   ),
 );
 
+ChannelEmotes _makeEmotes(Map<String, GenericEmote> byCode) {
+  return ChannelEmotes(byCode: byCode, suggestions: byCode.values.toList());
+}
+
+Map<String, dynamic> _host(String name, {int width = 32, int height = 32}) => {
+  'url': '//cdn.7tv.app/emote/1/1x',
+  'files': [
+    {'name': name, 'format': 'WEBP', 'width': width, 'height': height},
+  ],
+};
+
+GenericEmote _e(String id, String code, [EmoteType type = EmoteType.bttv]) =>
+    GenericEmote(
+      id: id,
+      code: code,
+      type: type,
+      url: 'https://example.com/$id.png',
+    );
+
+const _commands = <TwitchCommand>[
+  TwitchCommand(name: '/me'),
+  TwitchCommand(name: '/color'),
+  TwitchCommand(name: '/ban'),
+];
+
+List<String> _codes(List<Suggestion> suggestions) =>
+    suggestions.map((s) => s.displayText).toList();
+
+Future<File> _tempFile() async {
+  final dir = await Directory.systemTemp.createTemp('ermchat_test');
+  final file = File('${dir.path}/image.png');
+  await file.writeAsBytes([0x89, 0x50, 0x4E, 0x47]);
+  return file;
+}
+
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  late FakeCacheRepo repo;
+  late EmoteCacheManager manager;
+
+  setUp(() {
+    repo = FakeCacheRepo();
+    manager = EmoteCacheManager.forTesting(
+      Config('test', repo: repo, fileSystem: MemoryCacheSystem()),
+    );
+  });
+
+  test('evicts down to maxObjects by least-recently-touched', () async {
+    final t = DateTime(2026, 1, 1, 12);
+    repo.seed([
+      _obj('https://example.com/a.png', t, id: 1),
+      _obj('https://example.com/b.png', t.add(const Duration(hours: 1)), id: 2),
+      _obj('https://example.com/c.png', t.add(const Duration(hours: 2)), id: 3),
+      _obj('https://example.com/d.png', t.add(const Duration(hours: 3)), id: 4),
+      _obj('https://example.com/e.png', t.add(const Duration(hours: 4)), id: 5),
+    ]);
+    manager.maxObjects = 3;
+
+    await manager.enforceNow();
+
+    expect(repo.keys, [
+      'https://example.com/c.png',
+      'https://example.com/d.png',
+      'https://example.com/e.png',
+    ]);
+  });
+
+  test('registry priority overrides the file touched time', () async {
+    final t = DateTime(2026, 1, 1, 12);
+    repo.seed([
+      // a: recently touched on disk, but long-unused per the registry.
+      _obj('https://example.com/a.png', t.add(const Duration(hours: 5)), id: 1),
+      // b: long untouched on disk, but recently used per the registry.
+      _obj('https://example.com/b.png', t, id: 2),
+    ]);
+    manager.maxObjects = 1;
+    manager.priorityScore = (url) => url.contains('b.png') ? 1.0 : 0.0;
+
+    await manager.enforceNow();
+
+    expect(repo.keys, ['https://example.com/b.png']);
+  });
+
+  test('a zero cap evicts everything', () async {
+    final t = DateTime(2026, 1, 1, 12);
+    repo.seed([
+      _obj('https://example.com/a.png', t, id: 1),
+      _obj('https://example.com/b.png', t.add(const Duration(hours: 1)), id: 2),
+    ]);
+    manager.maxObjects = 0;
+
+    await manager.enforceNow();
+
+    expect(repo.keys, isEmpty);
+  });
+
+  test('evicts nothing when under maxObjects', () async {
+    final t = DateTime(2026, 1, 1, 12);
+    repo.seed([
+      _obj('https://example.com/a.png', t, id: 1),
+      _obj('https://example.com/b.png', t.add(const Duration(hours: 1)), id: 2),
+    ]);
+    manager.maxObjects = 5;
+
+    await manager.enforceNow();
+
+    expect(repo.keys, [
+      'https://example.com/a.png',
+      'https://example.com/b.png',
+    ]);
+  });
+
+  test('a full cache evicts the lowest-priority file to make room', () async {
+    final t = DateTime(2026, 1, 1, 12);
+    repo.seed([
+      _obj('https://example.com/a.png', t, id: 1),
+      _obj('https://example.com/b.png', t.add(const Duration(hours: 1)), id: 2),
+      _obj('https://example.com/c.png', t.add(const Duration(hours: 2)), id: 3),
+    ]);
+    manager.maxObjects = 3;
+
+    expect(await manager.isFull(), isTrue);
+
+    // The write evicts the lowest-priority file (a, oldest by far) before
+    // attempting the download. The mocked 400 download then fails, so the
+    // repo keeps the two higher-priority files and gains nothing.
+    await expectLater(
+      manager.getFileStream('https://example.com/new.png'),
+      emitsError(anything),
+    );
+
+    expect(repo.keys, [
+      'https://example.com/b.png',
+      'https://example.com/c.png',
+    ]);
+  });
+
+  test('write-time eviction skips candidates within the read grace', () async {
+    // All candidates were used/stored within the grace window, so nothing is
+    // evictable and the write falls back to the temp-file path: the mocked
+    // download fails but the repo stays untouched (the overflow grace is
+    // covered by the 30s temp-file policy, not repo eviction).
+    final t = DateTime.now();
+    repo.seed([
+      _obj('https://example.com/a.png', t, id: 1),
+      _obj('https://example.com/b.png', t, id: 2),
+      _obj('https://example.com/c.png', t, id: 3),
+    ]);
+    manager.maxObjects = 3;
+
+    await expectLater(
+      manager.getFileStream('https://example.com/new1.png'),
+      emitsError(anything),
+    );
+    await expectLater(
+      manager.getFileStream('https://example.com/new2.png'),
+      emitsError(anything),
+    );
+
+    expect(repo.keys, hasLength(3));
+  });
+
+  test('write-time eviction picks the lowest-scored entry', () async {
+    final t = DateTime(2026, 1, 1, 12);
+    repo.seed([
+      _obj('https://example.com/a.png', t, id: 1),
+      _obj('https://example.com/b.png', t, id: 2),
+      _obj('https://example.com/c.png', t, id: 3),
+    ]);
+    manager.maxObjects = 3;
+    // b is the lowest-scored emote even though it is not the oldest on disk.
+    manager.priorityScore = (url) => switch (url) {
+      'https://example.com/a.png' => 1.0,
+      'https://example.com/b.png' => 0.2,
+      _ => 0.9,
+    };
+    manager.lastUsedAt = (url) => t.add(const Duration(days: 1));
+
+    await expectLater(
+      manager.getFileStream('https://example.com/new.png'),
+      emitsError(anything),
+    );
+
+    expect(repo.keys, [
+      'https://example.com/a.png',
+      'https://example.com/c.png',
+    ]);
+  });
+
+  test('writes are accepted while under the cap', () async {
+    final t = DateTime(2026, 1, 1, 12);
+    repo.seed([_obj('https://example.com/a.png', t, id: 1)]);
+    manager.maxObjects = 3;
+
+    expect(await manager.isFull(), isFalse);
+  });
+
+  test('repeated isFull within the TTL reuses one repo scan', () async {
+    final t = DateTime(2026, 1, 1, 12);
+    repo.seed([
+      _obj('https://example.com/a.png', t, id: 1),
+      _obj('https://example.com/b.png', t, id: 2),
+    ]);
+    manager.maxObjects = 3;
+
+    // A burst of sequential fetches: each isFull must not re-scan the repo.
+    expect(await manager.isFull(), isFalse);
+    expect(await manager.isFull(), isFalse);
+    expect(await manager.isFull(), isFalse);
+
+    expect(repo.getAllObjectsCalls, 1);
+  });
+
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  setUp(() {
+    EmoteUrlProvider.debugFetchOverride = null;
+    EmoteUrlProvider.debugDecodeOverride = null;
+    NativeEmoteCodec.debugLibPath = '/nonexistent/libemote_codec.so';
+    NativeEmoteCodec.reset();
+  });
+
+  tearDown(() async {
+    EmoteUrlProvider.debugFetchOverride = null;
+    EmoteUrlProvider.debugDecodeOverride = null;
+    NativeEmoteCodec.debugLibPath = null;
+    NativeEmoteCodec.reset();
+    PaintingBinding.instance.imageCache.clearLiveImages();
+    PaintingBinding.instance.imageCache.clear();
+  });
+
+  group('sniffEmoteFormat', () {
+    test('detects GIF magic', () {
+      expect(
+        sniffEmoteFormat(Uint8List.fromList('GIF89a'.codeUnits)),
+        EmoteFormat.gif,
+      );
+      expect(
+        sniffEmoteFormat(Uint8List.fromList('GIF87a'.codeUnits)),
+        EmoteFormat.gif,
+      );
+    });
+
+    test('detects WebP magic', () {
+      final webp = Uint8List.fromList('RIFF....WEBP'.codeUnits);
+      expect(sniffEmoteFormat(webp), EmoteFormat.webp);
+    });
+
+    test('everything else is other', () {
+      final png = Uint8List.fromList([
+        0x89,
+        0x50,
+        0x4E,
+        0x47,
+        0x0D,
+        0x0A,
+        0x1A,
+        0x0A,
+      ]);
+      final avifBrand = Uint8List.fromList([
+        0, 0, 0, 32, 0x66, 0x74, 0x79, 0x70, // ftyp
+        0x61, 0x76, 0x69, 0x66, // avif brand (unsupported)
+      ]);
+      expect(sniffEmoteFormat(png), EmoteFormat.other);
+      expect(sniffEmoteFormat(avifBrand), EmoteFormat.other);
+      expect(sniffEmoteFormat(Uint8List(4)), EmoteFormat.other);
+    });
+  });
+
+  group('webpIsAnimated', () {
+    Uint8List webpWithChunk(String fourcc, {bool anmf = true}) {
+      final header = Uint8List.fromList([
+        0x52, 0x49, 0x46, 0x46, // RIFF
+        0, 0, 0, 0, // size (unused by the sniff)
+        0x57, 0x45, 0x42, 0x50, // WEBP
+        ...fourcc.codeUnits, // chunk fourcc
+        0x0A, 0x00, 0x00, 0x00, // chunk size
+      ]);
+      return header;
+    }
+
+    test('detects ANMF chunk as animated', () {
+      expect(webpIsAnimated(webpWithChunk('ANMF')), isTrue);
+    });
+
+    test('treats VP8 / VP8L / VP8X static chunks as not animated', () {
+      expect(webpIsAnimated(webpWithChunk('VP8 ')), isFalse);
+      expect(webpIsAnimated(webpWithChunk('VP8L')), isFalse);
+      expect(webpIsAnimated(webpWithChunk('VP8X')), isFalse);
+    });
+
+    test('returns false for truncated or non-WebP bytes', () {
+      expect(webpIsAnimated(Uint8List(4)), isFalse);
+      expect(
+        webpIsAnimated(Uint8List.fromList('RIFF....WEBP'.codeUnits)),
+        isFalse,
+      );
+    });
+  });
+
+  group('real emote bytes decode through the production pipeline', () {
+    Future<EmoteFrameData> decodeFile(String path) async {
+      final bytes = File('test/fixtures/$path').readAsBytesSync();
+      return decodeEmoteBytes(bytes);
+    }
+
+    test(
+      '7TV animated WebP (annycatKISS) decodes all frames in pure Dart',
+      () async {
+        final frames = await decodeFile('7tv_kiss_2x.webp');
+        // Reference frame count is 47 (from the 7TV emote metadata).
+        expect(frames.isAnimated, isTrue);
+        expect(frames.frames, hasLength(47));
+        expect(frames.durations, everyElement(isNot(Duration.zero)));
+        // Frames carry real alpha (transparency preserved, not composited opaque).
+        final index = frames.frames.length ~/ 2;
+        expect(frames.frames[index].width, greaterThan(0));
+        expect(frames.frames[index].height, greaterThan(0));
+        for (final f in frames.frames) {
+          f.dispose();
+        }
+      },
+    );
+
+    test(
+      '7TV large animated WebP (wideBoink) decodes all 252 frames',
+      () async {
+        final frames = await decodeFile('7tv_boink_2x.webp');
+        expect(frames.isAnimated, isTrue);
+        expect(frames.frames, hasLength(252));
+        expect(frames.durations, hasLength(252));
+        expect(frames.durations, everyElement(isNot(Duration.zero)));
+        for (final f in frames.frames) {
+          f.dispose();
+        }
+      },
+    );
+
+    test('7TV animated GIF (annycatKISS) decodes all 47 frames', () async {
+      final frames = await decodeFile('7tv_kiss_2x.gif');
+      expect(frames.isAnimated, isTrue);
+      expect(frames.frames, hasLength(47));
+      expect(frames.durations, everyElement(isNot(Duration.zero)));
+      for (final f in frames.frames) {
+        f.dispose();
+      }
+    });
+  });
+
+  group('EmoteImage widget', () {
+    Future<void> pumpEmote(
+      WidgetTester tester, {
+      String url = 'https://example.com/emote.gif',
+      Widget? placeholder,
+      Widget? errorWidget,
+      List<String>? alternateUrls,
+    }) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: EmoteImage(
+              url: url,
+              width: 28,
+              height: 28,
+              fit: BoxFit.contain,
+              placeholder: placeholder,
+              errorWidget: errorWidget,
+              alternateUrls: alternateUrls,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+    }
+
+    testWidgets('shows the placeholder until the first frame', (tester) async {
+      final frame = await tester.runAsync(() => _makeImage(255, 0, 0));
+      final gate = Completer<Uint8List>();
+      EmoteUrlProvider.debugFetchOverride = (url) => gate.future;
+      EmoteUrlProvider.debugDecodeOverride = (bytes) async =>
+          EmoteFrameData(frames: [frame!], durations: const [Duration.zero]);
+
+      await pumpEmote(tester, placeholder: const Text('loading'));
+      // The main Image widget is in the tree from the start, but its RawImage
+      // has no frame yet.
+      expect(tester.widget<RawImage>(find.byType(RawImage)).image, isNull);
+      expect(find.text('loading'), findsOneWidget);
+
+      gate.complete(animatedWebpBytes());
+      // The fetch->decode->setState chain spans several microtask hops; the
+      // second pump lets them all land.
+      await tester.pump();
+      await tester.pump();
+      expect(tester.widget<RawImage>(find.byType(RawImage)).image, isNotNull);
+      expect(find.text('loading'), findsNothing);
+    });
+
+    testWidgets(
+      'a recycled widget switched to a new URL never shows the old emote\'s '
+      'stale frame',
+      (tester) async {
+        final frameA = await tester.runAsync(() => _makeImage(255, 0, 0));
+        final frameB = await tester.runAsync(() => _makeImage(0, 0, 255));
+        final bBytes = Uint8List.fromList([...animatedWebpBytes(), 0xAB]);
+        final gateB = Completer<Uint8List>();
+        EmoteUrlProvider.debugFetchOverride = (url) {
+          if (url == 'https://example.com/b.gif') return gateB.future;
+          return Future.value(animatedWebpBytes());
+        };
+        EmoteUrlProvider.debugDecodeOverride = (bytes) async => EmoteFrameData(
+          frames: [listEquals(bytes, bBytes) ? frameB! : frameA!],
+          durations: const [Duration.zero],
+        );
+
+        await pumpEmote(tester, url: 'https://example.com/a.gif');
+        RawImage raw() => tester.widget<RawImage>(find.byType(RawImage));
+        expect(
+          await tester.runAsync(() => _firstPixel(raw().image!)),
+          '255,0,0,255',
+        );
+
+        // The same widget position is reused for emote B (like an
+        // autocomplete row whose filtered list shifted), whose bytes are
+        // still in flight.
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: EmoteImage(
+                url: 'https://example.com/b.gif',
+                width: 28,
+                height: 28,
+                fit: BoxFit.contain,
+              ),
+            ),
+          ),
+        );
+        await tester.pump();
+        // The stale frame is gone: the loading state shows instead of A's
+        // pixels (gaplessPlayback would otherwise keep painting A).
+        expect(raw().image, isNull);
+        expect(find.byType(Shimmer), findsWidgets);
+
+        // B lands and renders.
+        gateB.complete(bBytes);
+        await tester.pump();
+        await tester.pump();
+        expect(
+          await tester.runAsync(() => _firstPixel(raw().image!)),
+          '0,0,255,255',
+        );
+      },
+    );
+
+    testWidgets('shows the error widget when the fetch fails', (tester) async {
+      EmoteUrlProvider.debugFetchOverride = (url) async =>
+          throw StateError('boom');
+      await pumpEmote(tester, errorWidget: const Icon(Icons.error));
+      expect(find.byType(Icon), findsOneWidget);
+      expect(find.byType(RawImage), findsNothing);
+    });
+
+    testWidgets('shows the error widget when the decode fails', (tester) async {
+      EmoteUrlProvider.debugFetchOverride = (url) async => animatedWebpBytes();
+      EmoteUrlProvider.debugDecodeOverride = (bytes) async =>
+          throw StateError('bad bytes');
+      await pumpEmote(tester, errorWidget: const Icon(Icons.error));
+      expect(find.byType(Icon), findsOneWidget);
+    });
+
+    testWidgets('animates through frames at their durations', (tester) async {
+      final frame0 = await tester.runAsync(() => _makeImage(255, 0, 0));
+      final frame1 = await tester.runAsync(() => _makeImage(0, 0, 255));
+      EmoteUrlProvider.debugFetchOverride = (url) async => animatedWebpBytes();
+      EmoteUrlProvider.debugDecodeOverride = (bytes) async => EmoteFrameData(
+        frames: [frame0!, frame1!],
+        durations: const [
+          Duration(milliseconds: 100),
+          Duration(milliseconds: 200),
+        ],
+      );
+
+      await pumpEmote(tester);
+      RawImage raw() => tester.widget<RawImage>(find.byType(RawImage));
+      // The stock Image pipeline hands the widget clone handles, so compare
+      // pixels instead of identity.
+      expect(
+        await tester.runAsync(() => _firstPixel(raw().image!)),
+        '255,0,0,255',
+      );
+
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(
+        await tester.runAsync(() => _firstPixel(raw().image!)),
+        '0,0,255,255',
+      );
+
+      await tester.pump(const Duration(milliseconds: 200));
+      expect(
+        await tester.runAsync(() => _firstPixel(raw().image!)),
+        '255,0,0,255',
+      );
+
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(
+        await tester.runAsync(() => _firstPixel(raw().image!)),
+        '0,0,255,255',
+      );
+    });
+
+    testWidgets('two widgets with the same URL share one fetch', (
+      tester,
+    ) async {
+      var fetches = 0;
+      EmoteUrlProvider.debugFetchOverride = (url) async {
+        fetches++;
+        return animatedWebpBytes();
+      };
+      EmoteUrlProvider.debugDecodeOverride = (bytes) async => EmoteFrameData(
+        frames: [await _makeImage(255, 0, 0)],
+        durations: const [Duration.zero],
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Row(
+            children: const [
+              EmoteImage(
+                url: 'https://example.com/a.gif',
+                width: 28,
+                height: 28,
+              ),
+              EmoteImage(
+                url: 'https://example.com/a.gif',
+                width: 28,
+                height: 28,
+              ),
+            ],
+          ),
+        ),
+      );
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      );
+      await tester.pump();
+      await tester.pump();
+      expect(find.byType(RawImage), findsNWidgets(2));
+      expect(fetches, 1);
+    });
+
+    testWidgets('two widgets with the same URL stay in sync on one clock', (
+      tester,
+    ) async {
+      final frame0 = await tester.runAsync(() => _makeImage(255, 0, 0));
+      final frame1 = await tester.runAsync(() => _makeImage(0, 0, 255));
+      EmoteUrlProvider.debugFetchOverride = (url) async => animatedWebpBytes();
+      EmoteUrlProvider.debugDecodeOverride = (bytes) async => EmoteFrameData(
+        frames: [frame0!, frame1!],
+        durations: const [
+          Duration(milliseconds: 100),
+          Duration(milliseconds: 200),
+        ],
+      );
+
+      Future<void> pumpTwo() async {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Row(
+              children: const [
+                EmoteImage(
+                  url: 'https://example.com/a.gif',
+                  width: 28,
+                  height: 28,
+                ),
+                EmoteImage(
+                  url: 'https://example.com/a.gif',
+                  width: 28,
+                  height: 28,
+                ),
+              ],
+            ),
+          ),
+        );
+        await tester.pump();
+        await tester.pump();
+      }
+
+      await pumpTwo();
+      final raws = tester.widgetList<RawImage>(find.byType(RawImage)).toList();
+      expect(raws, hasLength(2));
+      expect(
+        await tester.runAsync(() => _firstPixel(raws[0].image!)),
+        '255,0,0,255',
+      );
+      expect(
+        await tester.runAsync(() => _firstPixel(raws[1].image!)),
+        '255,0,0,255',
+      );
+
+      await tester.pump(const Duration(milliseconds: 100));
+      final raws2 = tester.widgetList<RawImage>(find.byType(RawImage)).toList();
+      expect(
+        await tester.runAsync(() => _firstPixel(raws2[0].image!)),
+        '0,0,255,255',
+      );
+      expect(
+        await tester.runAsync(() => _firstPixel(raws2[1].image!)),
+        '0,0,255,255',
+      );
+    });
+
+    testWidgets('does not re-fetch or re-decode while cached after unmount', (
+      tester,
+    ) async {
+      var fetches = 0;
+      var decodes = 0;
+      EmoteUrlProvider.debugFetchOverride = (url) async {
+        fetches++;
+        return animatedWebpBytes();
+      };
+      EmoteUrlProvider.debugDecodeOverride = (bytes) async {
+        decodes++;
+        return EmoteFrameData(
+          frames: [await _makeImage(255, 0, 0)],
+          durations: const [Duration.zero],
+        );
+      };
+
+      Future<void> pumpOne() async {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: EmoteImage(
+              url: 'https://example.com/a.gif',
+              width: 28,
+              height: 28,
+            ),
+          ),
+        );
+        await tester.pump();
+        await tester.pump();
+      }
+
+      await pumpOne();
+      expect(fetches, 1);
+      expect(decodes, 1);
+
+      // Unmount (the completer stays cached in the stock ImageCache), then
+      // re-mount: no fetch, no decode, instant render.
+      await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
+      await tester.pump();
+      await pumpOne();
+      expect(fetches, 1);
+      expect(decodes, 1);
+      expect(find.byType(RawImage), findsOneWidget);
+    });
+
+    testWidgets('engine-path images survive unmount/remount and eviction', (
+      tester,
+    ) async {
+      final gif = File('test/fixtures/7tv_kiss_2x.gif').readAsBytesSync();
+      var fetches = 0;
+      EmoteUrlProvider.debugFetchOverride = (url) async {
+        fetches++;
+        return gif;
+      };
+
+      Future<void> pumpOne() async {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: EmoteImage(
+                url: 'https://example.com/engine.gif',
+                width: 28,
+                height: 28,
+              ),
+            ),
+          ),
+        );
+        await tester.pump();
+        // The engine codec decodes on the real event loop; let it deliver
+        // its first frame (real async engine work cannot run in fake async).
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 200)),
+        );
+        await tester.pump();
+      }
+
+      await pumpOne();
+      expect(fetches, 1);
+      expect(find.byType(RawImage), findsOneWidget);
+
+      // Unmount: the forwarder detaches and the engine completer pauses.
+      await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
+      await tester.pump();
+
+      // Re-mount: the cached completer re-attaches to the (kept-alive)
+      // engine completer. Regression: this used to throw "Stream has been
+      // disposed" because the engine completer disposed itself on detach and
+      // re-attaching to a disposed completer is a hard error.
+      await pumpOne();
+      expect(fetches, 1);
+      expect(find.byType(RawImage), findsOneWidget);
+
+      // Evict from the cache (forces the onDisposed cleanup path) and
+      // re-mount: a fresh fetch must succeed without exceptions.
+      await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
+      await tester.pump();
+      PaintingBinding.instance.imageCache.evict(
+        EmoteUrlProvider('https://example.com/engine.gif'),
+      );
+      await tester.pump();
+      await pumpOne();
+      expect(fetches, 2);
+      expect(find.byType(RawImage), findsOneWidget);
+    });
+
+    testWidgets('a second engine-path widget mounting mid-build does not '
+        'setState on unrelated widgets', (tester) async {
+      final gif = File('test/fixtures/7tv_kiss_2x.gif').readAsBytesSync();
+      EmoteUrlProvider.debugFetchOverride = (url) async => gif;
+
+      final revealKey = GlobalKey<_RevealWidgetState>();
+      final reveal = _RevealWidget(
+        key: revealKey,
+        url: 'https://example.com/shared.gif',
+      );
+
+      Future<void> pumpAll() async {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: Column(
+                children: [
+                  const SizedBox(
+                    width: 28,
+                    height: 28,
+                    child: EmoteImage(
+                      url: 'https://example.com/shared.gif',
+                      width: 28,
+                      height: 28,
+                    ),
+                  ),
+                  reveal,
+                ],
+              ),
+            ),
+          ),
+        );
+        await tester.pump();
+        // The engine codec decodes on the real event loop; let it deliver.
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 200)),
+        );
+        await tester.pump();
+      }
+
+      await pumpAll();
+      expect(find.byType(RawImage), findsOneWidget);
+
+      // Mount a second widget with the same URL inside a narrow rebuild of
+      // its own subtree. Regression: the engine's synchronous re-delivery of
+      // its current frame used to be rebroadcast through setImage, calling
+      // setState on the first widget while the second subtree was building
+      // ("setState() or markNeedsBuild() called during build").
+      revealKey.currentState!.show();
+      await tester.pump();
+      await tester.pump();
+      expect(find.byType(RawImage), findsNWidgets(2));
+    });
+
+    testWidgets('a failed fetch retries on the next widget', (tester) async {
+      var fetches = 0;
+      EmoteUrlProvider.debugFetchOverride = (url) async {
+        fetches++;
+        if (fetches == 1) throw StateError('network down');
+        return animatedWebpBytes();
+      };
+      EmoteUrlProvider.debugDecodeOverride = (bytes) async => EmoteFrameData(
+        frames: [await _makeImage(255, 0, 0)],
+        durations: const [Duration.zero],
+      );
+
+      await pumpEmote(tester, errorWidget: const Icon(Icons.error));
+      expect(find.byType(Icon), findsOneWidget);
+
+      // A fresh widget for the same URL must retry (failed completers are
+      // not cached).
+      await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
+      await tester.pump();
+      await pumpEmote(tester);
+      expect(fetches, 2);
+      expect(find.byType(RawImage), findsOneWidget);
+    });
+
+    group('cached smaller-scale placeholder', () {
+      testWidgets('renders a cached alternate under a faint shimmer while the '
+          'required URL is delayed, then swaps', (tester) async {
+        final requiredFrame = await tester.runAsync(
+          () => _makeImage(0, 0, 255),
+        );
+        final altFrame = await tester.runAsync(() => _makeImage(255, 0, 0));
+        final requiredGate = Completer<Uint8List>();
+        final altBytes = animatedWebpBytes();
+        final requiredBytes = Uint8List.fromList([
+          ...animatedWebpBytes(),
+          0xAA,
+        ]);
+
+        // The required URL is slow; the alternate is already decoded in the
+        // image cache (simulating a 1x that was rendered before).
+        final altUrl = 'https://example.com/emote_1x.gif';
+        EmoteUrlProvider.debugFetchOverride = (url) {
+          if (url == altUrl) {
+            return Future.value(altBytes);
+          }
+          return requiredGate.future;
+        };
+        EmoteUrlProvider.debugDecodeOverride = (bytes) async => EmoteFrameData(
+          frames: [listEquals(bytes, altBytes) ? altFrame! : requiredFrame!],
+          durations: const [Duration.zero],
+        );
+        // Pre-seed the alternate in the image cache.
+        await tester.pumpWidget(
+          MaterialApp(home: EmoteImage(url: altUrl, width: 28, height: 28)),
+        );
+        await tester.pump();
+        await tester.pump();
+        await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
+        await tester.pump();
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: EmoteImage(
+                url: 'https://example.com/emote.gif',
+                width: 28,
+                height: 28,
+                alternateUrls: [altUrl],
+              ),
+            ),
+          ),
+        );
+        await tester.pump();
+
+        // The placeholder renders the cached alternate under a Shimmer (the
+        // main image's RawImage is present but frameless).
+        final placeholderRaws = tester
+            .widgetList<RawImage>(find.byType(RawImage))
+            .toList();
+        final placeholderRaw = placeholderRaws.singleWhere(
+          (r) => r.image != null,
+        );
+        expect(
+          await tester.runAsync(() => _firstPixel(placeholderRaw.image!)),
+          '255,0,0,255',
+        );
+        expect(find.byType(Shimmer), findsWidgets);
+
+        // Required URL lands; the placeholder is replaced.
+        requiredGate.complete(requiredBytes);
+        await tester.pump();
+        await tester.pump();
+        await tester.pump();
+        await tester.pump();
+        final raws = tester
+            .widgetList<RawImage>(find.byType(RawImage))
+            .toList();
+        expect(raws, hasLength(1));
+        expect(
+          await tester.runAsync(() => _firstPixel(raws.single.image!)),
+          '0,0,255,255',
+        );
+        expect(find.byType(Shimmer), findsNothing);
+      });
+
+      testWidgets('a cached alternate placeholder expands to fill the box', (
+        tester,
+      ) async {
+        final gif = File('test/fixtures/7tv_kiss_2x.gif').readAsBytesSync();
+        final altUrl = 'https://example.com/emote_2x.gif';
+        final previewUrl = 'https://example.com/emote_3x.gif';
+        final gate = Completer<Uint8List>();
+        EmoteUrlProvider.debugFetchOverride = (url) {
+          if (url == altUrl) return Future.value(gif);
+          return gate.future;
+        };
+
+        // Cache the 2x in memory first (as chat would have).
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: SizedBox(
+                width: 28,
+                height: 28,
+                child: EmoteImage(url: altUrl, width: 28, height: 28),
+              ),
+            ),
+          ),
+        );
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 200)),
+        );
+        await tester.pump();
+        await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
+        await tester.pump();
+
+        // The sheet-style preview: a bounded 128x128 box with the cached 2x
+        // as the alternate while the 3x is gated.
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: SizedBox(
+                width: 128,
+                height: 128,
+                child: EmoteImage(url: previewUrl, alternateUrls: [altUrl]),
+              ),
+            ),
+          ),
+        );
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 200)),
+        );
+        await tester.pump();
+
+        // The placeholder renders the cached alternate scaled to fill the
+        // box, not at its intrinsic size.
+        final raws = tester.widgetList<RawImage>(find.byType(RawImage));
+        final placeholderRaw = raws.singleWhere((r) => r.image != null);
+        expect(
+          tester.getSize(find.byWidget(placeholderRaw)),
+          const Size(128, 128),
+        );
+      });
+
+      testWidgets(
+        "a higher-scale preview continues the cached alternate's animation "
+        'clock instead of restarting',
+        (tester) async {
+          final gif = File('test/fixtures/7tv_kiss_2x.gif').readAsBytesSync();
+          final altUrl = 'https://example.com/emote_2x.gif';
+          final previewUrl = 'https://example.com/emote_3x.gif';
+          EmoteUrlProvider.debugFetchOverride = (url) async => gif;
+
+          // The 2x is playing in chat (its own widget holds the shared
+          // completer).
+          await tester.pumpWidget(
+            MaterialApp(
+              home: Scaffold(
+                body: SizedBox(
+                  width: 28,
+                  height: 28,
+                  child: EmoteImage(url: altUrl, width: 28, height: 28),
+                ),
+              ),
+            ),
+          );
+          await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 200)),
+          );
+          await tester.pump();
+          // Let the 2x animation advance several frames (the engine codec
+          // decodes on the real event loop, so each cycle decodes + displays
+          // one frame).
+          for (var i = 0; i < 3; i++) {
+            await tester.runAsync(
+              () => Future<void>.delayed(const Duration(milliseconds: 150)),
+            );
+            await tester.pump(const Duration(milliseconds: 160));
+          }
+          final frameBefore = EmoteUrlProvider.currentFrame(altUrl);
+          expect(frameBefore, greaterThan(0));
+
+          // The sheet opens: the 3x fetch is gated, the 2x becomes the
+          // placeholder and seeds the 3x's playback.
+          final gate = Completer<Uint8List>();
+          EmoteUrlProvider.debugFetchOverride = (url) {
+            if (url == previewUrl) return gate.future;
+            return Future.value(gif);
+          };
+          await tester.pumpWidget(
+            MaterialApp(
+              home: Scaffold(
+                body: SizedBox(
+                  width: 128,
+                  height: 128,
+                  child: EmoteImage(url: previewUrl, alternateUrls: [altUrl]),
+                ),
+              ),
+            ),
+          );
+          await tester.pump();
+          gate.complete(gif);
+          await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 500)),
+          );
+          // One frame's worth: both the 2x (frame callback) and the seeded 3x
+          // (timer) advance exactly one frame (frame 2 is 140ms, the rest
+          // 70ms, so 100ms is safely between one and two frame durations).
+          await tester.pump(const Duration(milliseconds: 100));
+
+          // The 3x started from the 2x's frame and stays in phase with it.
+          final frame2x = EmoteUrlProvider.currentFrame(altUrl);
+          final frame3x = EmoteUrlProvider.currentFrame(previewUrl);
+          expect(frame3x, greaterThan(0));
+          expect(frame3x, frame2x);
+        },
+      );
+
+      testWidgets('falls back to bare shimmer when no alternate is cached', (
+        tester,
+      ) async {
+        final frame = await tester.runAsync(() => _makeImage(0, 0, 255));
+        final gate = Completer<Uint8List>();
+        EmoteUrlProvider.debugFetchOverride = (url) => gate.future;
+        EmoteUrlProvider.debugDecodeOverride = (bytes) async =>
+            EmoteFrameData(frames: [frame!], durations: const [Duration.zero]);
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: EmoteImage(
+                url: 'https://example.com/emote.gif',
+                width: 28,
+                height: 28,
+                alternateUrls: const ['https://example.com/emote_1x.gif'],
+              ),
+            ),
+          ),
+        );
+        await tester.pump();
+
+        expect(tester.widget<RawImage>(find.byType(RawImage)).image, isNull);
+        expect(find.byType(Shimmer), findsOneWidget);
+
+        gate.complete(animatedWebpBytes());
+        await tester.pump();
+        await tester.pump();
+        expect(tester.widget<RawImage>(find.byType(RawImage)).image, isNotNull);
+        expect(find.byType(Shimmer), findsNothing);
+      });
+    });
+  });
+
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('GenericEmote JSON round-trip', () {
@@ -1395,6 +2527,928 @@ void main() {
       expect(parsed.bucketBase, r.bucketBase);
       expect(parsed.buckets, r.buckets);
       expect(parsed.score(now), r.score(now));
+    });
+  });
+
+  group('EmoteFetchAutoMode helpers', () {
+    test('effectiveEmoteFetchTier with auto off returns the manual tier', () {
+      for (final tier in EmoteFetchTier.values) {
+        expect(
+          effectiveEmoteFetchTier(
+            manual: tier,
+            auto: EmoteFetchAutoMode.off,
+            isMobile: false,
+          ),
+          tier,
+        );
+        expect(
+          effectiveEmoteFetchTier(
+            manual: tier,
+            auto: EmoteFetchAutoMode.off,
+            isMobile: true,
+          ),
+          tier,
+        );
+      }
+    });
+
+    test('balanced picks high on wifi, low on cellular', () {
+      bool isMobile = false;
+      expect(
+        effectiveEmoteFetchTier(
+          manual: EmoteFetchTier.medium,
+          auto: EmoteFetchAutoMode.balanced,
+          isMobile: isMobile,
+        ),
+        EmoteFetchTier.high,
+      );
+      isMobile = true;
+      expect(
+        effectiveEmoteFetchTier(
+          manual: EmoteFetchTier.medium,
+          auto: EmoteFetchAutoMode.balanced,
+          isMobile: isMobile,
+        ),
+        EmoteFetchTier.low,
+      );
+    });
+
+    test('aggressive picks medium on wifi, nothing on cellular', () {
+      bool isMobile = false;
+      expect(
+        effectiveEmoteFetchTier(
+          manual: EmoteFetchTier.high,
+          auto: EmoteFetchAutoMode.aggressive,
+          isMobile: isMobile,
+        ),
+        EmoteFetchTier.medium,
+      );
+      isMobile = true;
+      expect(
+        effectiveEmoteFetchTier(
+          manual: EmoteFetchTier.high,
+          auto: EmoteFetchAutoMode.aggressive,
+          isMobile: isMobile,
+        ),
+        EmoteFetchTier.nothing,
+      );
+    });
+
+    test('labels and subtitles cover every mode', () {
+      expect(EmoteFetchAutoMode.values.length, 3);
+      expect(EmoteFetchAutoMode.off.label, 'Off');
+      expect(EmoteFetchAutoMode.balanced.label, 'Balanced');
+      expect(EmoteFetchAutoMode.aggressive.label, 'Aggressive');
+      for (final mode in EmoteFetchAutoMode.values) {
+        expect(mode.subtitle, isNotEmpty);
+      }
+    });
+  });
+
+  group('EmoteText.build', () {
+    test('plain text with no emotes returns URL-parsed spans', () {
+      final spans = EmoteText.build(
+        text: 'hello world',
+        twitchPositions: null,
+        channelEmotes: null,
+      );
+      expect(spans, hasLength(1));
+      expect(spans[0], isA<TextSpan>());
+      expect((spans[0] as TextSpan).text, 'hello world');
+    });
+
+    test('plain text with no emote matches returns URL-parsed spans', () {
+      final emotes = _makeEmotes(<String, GenericEmote>{});
+      final spans = EmoteText.build(
+        text: 'hello world',
+        twitchPositions: null,
+        channelEmotes: emotes,
+      );
+      // Whitespace tokenization splits into: hello, ' ', world
+      expect(spans.length, greaterThanOrEqualTo(3));
+      expect((spans[0] as TextSpan).text, 'hello');
+      expect((spans[1] as TextSpan).text, ' ');
+      expect((spans[2] as TextSpan).text, 'world');
+    });
+
+    test('single known emote by text match returns WidgetSpan', () {
+      final emotes = _makeEmotes({
+        'Kappa': makeTestEmote(id: '1', code: 'Kappa'),
+      });
+      final spans = EmoteText.build(
+        text: 'Kappa',
+        twitchPositions: null,
+        channelEmotes: emotes,
+      );
+      expect(spans, hasLength(1));
+      expect(spans[0], isA<WidgetSpan>());
+    });
+
+    test('text + emote + text mix returns correct span types', () {
+      final emotes = _makeEmotes({
+        'Kappa': makeTestEmote(id: '1', code: 'Kappa'),
+      });
+      final spans = EmoteText.build(
+        text: 'hi Kappa there',
+        twitchPositions: null,
+        channelEmotes: emotes,
+      );
+      // Contains at least one WidgetSpan for the emote
+      expect(spans.any((s) => s is WidgetSpan), isTrue);
+      expect(spans.length, greaterThanOrEqualTo(3));
+    });
+
+    test('Twitch emote position overrides text match', () {
+      final emotes = _makeEmotes({
+        'Kappa': makeTestEmote(id: '1', code: 'Kappa'),
+        'KappaPride': makeTestEmote(
+          id: '2',
+          code: 'KappaPride',
+          type: EmoteType.twitch,
+        ),
+      });
+      final spans = EmoteText.build(
+        text: 'KappaPride',
+        twitchPositions: [
+          EmotePosition(
+            emoteId: '2',
+            startIndex: 0,
+            endIndex: 10,
+            emoteCode: 'KappaPride',
+          ),
+        ],
+        channelEmotes: emotes,
+      );
+      // Should match the Twitch emote (KappaPride), not a text match on Kappa
+      expect(spans, hasLength(1));
+      expect(spans[0], isA<WidgetSpan>());
+    });
+
+    test('Twitch base emote + BTTV zero-width overlay', () {
+      final emotes = _makeEmotes({
+        'Sunglasses': makeTestEmote(
+          id: 'tw-1',
+          code: 'Sunglasses',
+          type: EmoteType.twitch,
+        ),
+        'EZ': makeTestEmote(
+          id: 'bttv-1',
+          code: 'EZ',
+          type: EmoteType.bttv,
+          isZeroWidth: true,
+        ),
+      });
+      final spans = EmoteText.build(
+        text: 'Sunglasses EZ',
+        twitchPositions: [
+          EmotePosition(
+            emoteId: 'tw-1',
+            startIndex: 0,
+            endIndex: 11,
+            emoteCode: 'Sunglasses',
+          ),
+        ],
+        channelEmotes: emotes,
+      );
+      // Sunglasses (from Twitch positions) should have EZ overlaid on it
+      expect(spans, hasLength(1));
+      expect(spans[0], isA<WidgetSpan>());
+    });
+
+    test('URL detection in plain text segments', () {
+      final emotes = _makeEmotes({
+        'Kappa': makeTestEmote(id: '1', code: 'Kappa'),
+      });
+      final spans = EmoteText.build(
+        text: 'Kappa check https://example.com',
+        twitchPositions: null,
+        channelEmotes: emotes,
+      );
+      // Kappa (WidgetSpan) + ' ' + 'check' + ' ' + url (TextSpan with blue style)
+      expect(spans.length, greaterThanOrEqualTo(5));
+      expect(spans[0], isA<WidgetSpan>());
+      expect(spans.last, isA<TextSpan>());
+      final urlSpan = spans.last as TextSpan;
+      expect(urlSpan.text, 'https://example.com');
+      expect(urlSpan.style?.color, Colors.blue);
+    });
+
+    test('zero-width emote at start renders standalone', () {
+      final emotes = _makeEmotes({
+        'EZ': makeTestEmote(id: '1', code: 'EZ', isZeroWidth: true),
+      });
+      final spans = EmoteText.build(
+        text: 'EZ',
+        twitchPositions: null,
+        channelEmotes: emotes,
+      );
+      // Zero-width at start with no base should render as standalone WidgetSpan
+      expect(spans, hasLength(1));
+      expect(spans[0], isA<WidgetSpan>());
+    });
+
+    test('zero-width after plain text breaks chain', () {
+      final emotes = _makeEmotes({
+        'Kappa': makeTestEmote(id: '1', code: 'Kappa'),
+        'EZ': makeTestEmote(id: '2', code: 'EZ', isZeroWidth: true),
+      });
+      final spans = EmoteText.build(
+        text: 'hello EZ',
+        twitchPositions: null,
+        channelEmotes: emotes,
+      );
+      // 'hello' breaks chain, ' ' is space, EZ is standalone
+      expect(spans.length, greaterThanOrEqualTo(3));
+      expect(spans[0], isA<TextSpan>());
+      expect((spans[0] as TextSpan).text, 'hello');
+      expect(spans[1], isA<TextSpan>());
+      expect(spans.last, isA<WidgetSpan>());
+    });
+
+    test('base emote followed by zero-width overlay stacks', () {
+      final emotes = _makeEmotes({
+        'Kappa': makeTestEmote(id: '1', code: 'Kappa'),
+        'EZ': makeTestEmote(id: '2', code: 'EZ', isZeroWidth: true),
+      });
+      final spans = EmoteText.build(
+        text: 'Kappa EZ',
+        twitchPositions: null,
+        channelEmotes: emotes,
+      );
+      // Kappa + EZ overlay → single WidgetSpan
+      expect(spans, hasLength(1));
+      expect(spans[0], isA<WidgetSpan>());
+    });
+
+    test('base emote followed by two zero-width overlays', () {
+      final emotes = _makeEmotes({
+        'Kappa': makeTestEmote(id: '1', code: 'Kappa'),
+        'EZ': makeTestEmote(id: '2', code: 'EZ', isZeroWidth: true),
+        'HYPERS': makeTestEmote(id: '3', code: 'HYPERS', isZeroWidth: true),
+      });
+      final spans = EmoteText.build(
+        text: 'Kappa EZ HYPERS',
+        twitchPositions: null,
+        channelEmotes: emotes,
+      );
+      // Kappa + EZ + HYPERS → single WidgetSpan with 2 overlays
+      expect(spans, hasLength(1));
+      expect(spans[0], isA<WidgetSpan>());
+    });
+
+    test('zero-width between two base emotes attaches to first', () {
+      final emotes = _makeEmotes({
+        'Kappa': makeTestEmote(id: '1', code: 'Kappa'),
+        'EZ': makeTestEmote(id: '2', code: 'EZ', isZeroWidth: true),
+        'PogChamp': makeTestEmote(id: '3', code: 'PogChamp'),
+      });
+      final spans = EmoteText.build(
+        text: 'Kappa EZ PogChamp',
+        twitchPositions: null,
+        channelEmotes: emotes,
+      );
+      // Kappa + EZ (overlay) = WidgetSpan, ' ', PogChamp = WidgetSpan
+      expect(spans.length, greaterThanOrEqualTo(2));
+      expect(spans[0], isA<WidgetSpan>());
+      expect(spans.last, isA<WidgetSpan>());
+    });
+
+    test('unknown token renders as plain text', () {
+      final emotes = _makeEmotes({
+        'Kappa': makeTestEmote(id: '1', code: 'Kappa'),
+      });
+      final spans = EmoteText.build(
+        text: 'unknownToken',
+        twitchPositions: null,
+        channelEmotes: emotes,
+      );
+      expect(spans, hasLength(1));
+      expect(spans[0], isA<TextSpan>());
+      expect((spans[0] as TextSpan).text, 'unknownToken');
+    });
+
+    test('sub emote from IRC tag renders via CDN even if not in API map', () {
+      final emotes = _makeEmotes({});
+      final spans = EmoteText.build(
+        text: 'forsenPls',
+        twitchPositions: [
+          EmotePosition(
+            emoteId: '12345',
+            startIndex: 0,
+            endIndex: 9,
+            emoteCode: 'forsenPls',
+          ),
+        ],
+        channelEmotes: emotes,
+      );
+      expect(spans, hasLength(1));
+      expect(spans[0], isA<WidgetSpan>());
+    });
+
+    test('small-scale emote renders at scaled size', () {
+      final emotes = _makeEmotes({
+        'SmallEmote': makeTestEmote(
+          id: '1',
+          code: 'SmallEmote',
+          relativeScale: 0.625,
+        ),
+      });
+      final spans = EmoteText.build(
+        text: 'SmallEmote',
+        twitchPositions: null,
+        channelEmotes: emotes,
+      );
+      expect(spans, hasLength(1));
+      expect(spans[0], isA<WidgetSpan>());
+      final widget = (spans[0] as WidgetSpan).child;
+      expect(widget, isA<Semantics>());
+      final box = (widget as Semantics).child as SizedBox;
+      expect(box.width, 28.0 * 0.625);
+      expect(box.height, 28.0 * 0.625);
+    });
+
+    test('zero-width overlay expands box to fit largest element', () {
+      final emotes = _makeEmotes({
+        'SmallBase': makeTestEmote(
+          id: '1',
+          code: 'SmallBase',
+          relativeScale: 0.5,
+        ),
+        'LargeOverlay': makeTestEmote(
+          id: '2',
+          code: 'LargeOverlay',
+          isZeroWidth: true,
+        ),
+      });
+      final spans = EmoteText.build(
+        text: 'SmallBase LargeOverlay',
+        twitchPositions: null,
+        channelEmotes: emotes,
+      );
+      expect(spans, hasLength(1));
+      expect(spans[0], isA<WidgetSpan>());
+      final widget = (spans[0] as WidgetSpan).child;
+      expect(widget, isA<Semantics>());
+      final box = (widget as Semantics).child as SizedBox;
+      expect(box.width, 28.0);
+      expect(box.height, 28.0);
+    });
+  });
+
+  group('SevenTvEmoteProvider', () {
+    test('parses a plain emote without baseName', () {
+      final emote = SevenTvEmoteProvider.parseSingleEmote({
+        'id': 'emote-1',
+        'name': 'PogChamp',
+        'data': {'name': 'PogChamp', 'host': _host('1x.webp')},
+      });
+      expect(emote, isNotNull);
+      expect(emote!.id, 'emote-1');
+      expect(emote.code, 'PogChamp');
+      expect(emote.baseName, isNull);
+      expect(emote.type, EmoteType.sevenTv);
+    });
+
+    test('records baseName for alias emotes (name != data.name)', () {
+      final emote = SevenTvEmoteProvider.parseSingleEmote({
+        'id': 'emote-2',
+        'name': 'ALIAS',
+        'data': {'name': 'BaseEmote', 'host': _host('1x.webp')},
+      });
+      expect(emote, isNotNull);
+      expect(emote!.code, 'ALIAS');
+      expect(emote.baseName, 'BaseEmote');
+    });
+
+    test('parses owner display_name into ownerChannel', () {
+      final emote = SevenTvEmoteProvider.parseSingleEmote({
+        'id': 'emote-3',
+        'name': 'Cope',
+        'data': {
+          'name': 'Cope',
+          'owner': {'display_name': 'CopeQueen'},
+          'host': _host('1x.webp'),
+        },
+      });
+      expect(emote, isNotNull);
+      expect(emote!.ownerChannel, 'CopeQueen');
+    });
+
+    test('marks channel emotes with channel scope', () {
+      final emote = SevenTvEmoteProvider.parseSingleEmote({
+        'id': 'emote-4',
+        'name': 'xqcL',
+        'data': {'name': 'xqcL', 'host': _host('1x.webp')},
+      }, channel: true);
+      expect(emote, isNotNull);
+      expect(emote!.scope, EmoteScope.channel);
+    });
+
+    test('parses zero-width flag', () {
+      final emote = SevenTvEmoteProvider.parseSingleEmote({
+        'id': 'emote-5',
+        'name': 'EZ',
+        'data': {'name': 'EZ', 'flags': 1 << 8, 'host': _host('1x.webp')},
+      });
+      expect(emote, isNotNull);
+      expect(emote!.isZeroWidth, isTrue);
+    });
+
+    test('picks 2x for chat and largest for large surfaces', () {
+      final emote = SevenTvEmoteProvider.parseSingleEmote({
+        'id': 'emote-6',
+        'name': 'Size',
+        'data': {
+          'name': 'Size',
+          'host': {
+            'url': '//cdn.7tv.app/emote/size',
+            'files': [
+              {'name': '1x.webp', 'format': 'WEBP', 'width': 32, 'height': 32},
+              {'name': '2x.webp', 'format': 'WEBP', 'width': 64, 'height': 64},
+              {'name': '3x.webp', 'format': 'WEBP', 'width': 96, 'height': 96},
+            ],
+          },
+        },
+      });
+      expect(emote, isNotNull);
+      expect(emote!.url, 'https://cdn.7tv.app/emote/size/2x.webp');
+      expect(emote.url1x, 'https://cdn.7tv.app/emote/size/1x.webp');
+      expect(emote.url3x, 'https://cdn.7tv.app/emote/size/3x.webp');
+      expect(emote.relativeScale, 1.0);
+    });
+
+    test('falls back to smallest file when no 2x tier exists', () {
+      final emote = SevenTvEmoteProvider.parseSingleEmote({
+        'id': 'emote-7',
+        'name': 'Small',
+        'data': {'name': 'Small', 'host': _host('1x.webp')},
+      });
+      expect(emote, isNotNull);
+      expect(emote!.url, 'https://cdn.7tv.app/emote/1/1x/1x.webp');
+      expect(emote.url1x, isNull);
+      expect(emote.url3x, 'https://cdn.7tv.app/emote/1/1x/1x.webp');
+    });
+
+    group('resolution tiers', () {
+      Map<String, dynamic> emote(List<String> names) => {
+        'id': 'res-1',
+        'name': 'Res',
+        'data': {
+          'name': 'Res',
+          'host': {
+            'url': '//cdn.7tv.app/emote/res',
+            'files': [
+              for (final n in names)
+                {'name': n, 'format': 'WEBP', 'width': 32, 'height': 32},
+            ],
+          },
+        },
+      };
+
+      const base = 'https://cdn.7tv.app/emote/res';
+
+      test('low picks the smallest file and drops url1x/url3x', () {
+        final e = SevenTvEmoteProvider.parseSingleEmote(
+          emote(['1x.webp', '2x.webp', '3x.webp', '4x.webp']),
+          resolution: EmoteResolution.low,
+        );
+        expect(e, isNotNull);
+        expect(e!.url, '$base/1x.webp');
+        expect(e.url1x, isNull);
+        expect(e.url3x, isNull);
+      });
+
+      test('medium picks the 2x file with 1x alternate and drops url3x', () {
+        final e = SevenTvEmoteProvider.parseSingleEmote(
+          emote(['1x.webp', '2x.webp', '3x.webp', '4x.webp']),
+          resolution: EmoteResolution.medium,
+        );
+        expect(e, isNotNull);
+        expect(e!.url, '$base/2x.webp');
+        expect(e.url1x, '$base/1x.webp');
+        expect(e.url3x, isNull);
+      });
+
+      test(
+        'high picks 2x, 1x alternate and url3x even when a 4x file exists',
+        () {
+          final e = SevenTvEmoteProvider.parseSingleEmote(
+            emote(['1x.webp', '2x.webp', '3x.webp', '4x.webp']),
+          );
+          expect(e, isNotNull);
+          expect(e!.url, '$base/2x.webp');
+          expect(e.url1x, '$base/1x.webp');
+          expect(e.url3x, '$base/3x.webp');
+          expect(e.url3x, isNot(contains('4x')));
+          expect(e.url3x, isNot(contains('4x.webp')));
+        },
+      );
+
+      test('high falls back to the 2x file when no 3x tier exists', () {
+        final e = SevenTvEmoteProvider.parseSingleEmote(
+          emote(['1x.webp', '2x.webp', '4x.webp']),
+        );
+        expect(e, isNotNull);
+        expect(e!.url1x, '$base/1x.webp');
+        expect(e.url3x, '$base/2x.webp');
+      });
+    });
+  });
+
+  group('filterSuggestions', () {
+    test('returns empty when no emote or user matches', () {
+      final result = filterSuggestions(
+        word: 'xyz',
+        emotes: [_e('1', 'Kappa'), _e('2', 'PogChamp')],
+        users: {'user1', 'user2'},
+      );
+      expect(result, isEmpty);
+    });
+
+    test('returns empty for empty word', () {
+      final result = filterSuggestions(
+        word: '',
+        emotes: [_e('1', 'Kappa')],
+        users: {'user1'},
+      );
+      expect(result, isEmpty);
+    });
+
+    group('emote scoring', () {
+      test('shorter matches rank before longer ones', () {
+        final result = filterSuggestions(
+          word: 'Pog',
+          emotes: [_e('1', 'PogChamp'), _e('2', 'PogU'), _e('3', 'Pog')],
+          users: {},
+        );
+        expect(_codes(result), ['Pog', 'PogU', 'PogChamp']);
+      });
+
+      test('exact case beats case mismatch at the same length', () {
+        final result = filterSuggestions(
+          word: 'Pog',
+          emotes: [_e('1', 'POGX'), _e('2', 'PogX')],
+          users: {},
+        );
+        // PogX: 1 case diff + 1*100 = 101, POGX: 2 case diffs + 1*100 = 102.
+        expect(_codes(result), ['PogX', 'POGX']);
+      });
+
+      test('shorter match beats case-mismatched longer match', () {
+        final result = filterSuggestions(
+          word: 'wi',
+          emotes: [_e('1', 'wikked'), _e('2', 'Wink')],
+          users: {},
+        );
+        // Wink: 1 case diff + 2*100 = 201, wikked: -10 + 4*100 = 390.
+        expect(_codes(result), ['Wink', 'wikked']);
+      });
+
+      test('recently used emote gets a boost', () {
+        final result = filterSuggestions(
+          word: 'Pog',
+          emotes: [_e('1', 'PogChamp'), _e('2', 'PogU')],
+          users: {},
+          recentEmoteIds: {'1'},
+        );
+        // PogChamp: -10 + 5*100 - 50 = 440, PogU: -10 + 1*100 = 90.
+        expect(_codes(result), ['PogU', 'PogChamp']);
+      });
+
+      test('non-matching emotes are excluded', () {
+        final result = filterSuggestions(
+          word: 'Pog',
+          emotes: [_e('1', 'Kappa'), _e('2', 'PogChamp'), _e('3', 'LUL')],
+          users: {},
+        );
+        expect(_codes(result), ['PogChamp']);
+      });
+
+      test('matches mid-code case-insensitively', () {
+        final result = filterSuggestions(
+          word: 'pog',
+          emotes: [_e('1', 'PogChamp')],
+          users: {},
+        );
+        expect(_codes(result), ['PogChamp']);
+      });
+
+      test('deduplicates by emote id', () {
+        final result = filterSuggestions(
+          word: 'Pog',
+          emotes: [_e('1', 'PogChamp'), _e('1', 'PogChamp')],
+          users: {},
+        );
+        expect(result.length, 1);
+      });
+    });
+
+    group('users', () {
+      test('users carry a penalty so emotes win near-ties', () {
+        final result = filterSuggestions(
+          word: 'Pog',
+          emotes: [_e('1', 'PogU')],
+          users: {'Pog'},
+        );
+        // Emote PogU: -10 + 100 = 90. User Pog: -10 + 25 = 15.
+        expect(_codes(result), ['Pog', 'PogU']);
+      });
+
+      test('users match anywhere (contains) and sort by score', () {
+        final result = filterSuggestions(
+          word: 'xq',
+          emotes: [],
+          users: {'xqcL', 'xqc'},
+        );
+        // xqc: -10 + 100 + 25 = 115, xqcL: -10 + 200 + 25 = 215.
+        expect(_codes(result), ['xqc', 'xqcL']);
+      });
+
+      test('preferEmotesFirst keeps the type split: all emotes first', () {
+        final defaultResult = filterSuggestions(
+          word: 'test',
+          emotes: [_e('1', 'testEmote')],
+          users: {'testUser'},
+        );
+        // testUser: -10 + 400 + 25 = 415, testEmote: -10 + 500 = 490.
+        expect(defaultResult[0], isA<UserSuggestion>());
+
+        final flipped = filterSuggestions(
+          word: 'test',
+          emotes: [_e('1', 'testEmote')],
+          users: {'testUser'},
+          preferEmotesFirst: true,
+        );
+        expect(flipped[0], isA<EmoteSuggestion>());
+        expect(flipped[1], isA<UserSuggestion>());
+      });
+
+      test('numeric queries surface the short exact emote first', () {
+        final result = filterSuggestions(
+          word: '7',
+          emotes: [_e('1', 'pog7'), _e('2', '777'), _e('3', '17tv')],
+          users: {'7up'},
+        );
+        // 777: -10 + 200 = 190, 7up: -10 + 200 + 25 = 215,
+        // 17tv/pog7: -10 + 300 = 290 (alphabetical tie-break).
+        expect(_codes(result), ['777', '7up', '17tv', 'pog7']);
+      });
+
+      test('non-matching users are excluded', () {
+        final result = filterSuggestions(
+          word: 'alice',
+          emotes: [],
+          users: {'bob', 'carol'},
+        );
+        expect(result, isEmpty);
+      });
+    });
+
+    group('commands', () {
+      test('bare slash returns every available command', () {
+        final result = filterSuggestions(
+          word: '/',
+          emotes: [],
+          users: {},
+          commands: _commands,
+        );
+        expect(_codes(result), ['/me', '/color', '/ban']);
+      });
+
+      test('slash word matches command prefixes', () {
+        final result = filterSuggestions(
+          word: '/b',
+          emotes: [],
+          users: {},
+          commands: _commands,
+        );
+        expect(result.length, 1);
+        expect(result[0], isA<CommandSuggestion>());
+        expect(result[0].displayText, '/ban');
+      });
+
+      test('slash word matches case-insensitive', () {
+        final result = filterSuggestions(
+          word: '/ME',
+          emotes: [],
+          users: {},
+          commands: _commands,
+        );
+        expect(result.length, 1);
+        expect(result[0].displayText, '/me');
+      });
+
+      test('slash word never matches users or emotes', () {
+        final result = filterSuggestions(
+          word: '/me',
+          emotes: [_e('1', 'me')],
+          users: {'me', 'meUser'},
+          commands: _commands,
+        );
+        expect(result.length, 1);
+        expect(result[0], isA<CommandSuggestion>());
+      });
+    });
+  });
+
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+  });
+
+  group('UploaderConfig', () {
+    test('parses semicolon-separated headers', () {
+      const config = UploaderConfig(
+        uploadUrl: 'https://example.com/upload',
+        formField: 'file',
+        headers: 'X-A: 1; X-B:two; garbage; X-C: three ',
+      );
+      expect(config.parsedHeaders, [
+        (name: 'X-A', value: '1'),
+        (name: 'X-B', value: 'two'),
+        (name: 'X-C', value: 'three'),
+      ]);
+    });
+
+    test('round-trips through json', () {
+      const config = UploaderConfig(
+        uploadUrl: 'https://example.com/upload',
+        formField: 'file',
+        headers: 'X-A: 1',
+        imageLinkPattern: '{link}',
+        deletionLinkPattern: '{delete}',
+      );
+      expect(
+        UploaderConfig.fromJson(config.toJson()).uploadUrl,
+        config.uploadUrl,
+      );
+      expect(
+        UploaderConfig.fromJson(config.toJson()).deletionLinkPattern,
+        '{delete}',
+      );
+    });
+
+    test('missing fields fall back to defaults', () {
+      final config = UploaderConfig.fromJson(const {});
+      expect(config.uploadUrl, UploaderConfig.defaultConfig.uploadUrl);
+      expect(config.formField, UploaderConfig.defaultConfig.formField);
+    });
+  });
+
+  group('MediaUploader.uploadMedia', () {
+    test('parses {link} pattern from kappa.lol response', () async {
+      final uploader = MediaUploader(
+        client: MockClient((request) async {
+          expect(request.url.toString(), 'https://kappa.lol/api/upload');
+          expect(request.headers['User-Agent'], 'ermchat');
+          return http.Response(
+            '{"id":"abc","link":"https://kappa.lol/abc","delete":"https://kappa.lol/delete?key"}',
+            200,
+          );
+        }),
+      );
+      final file = await _tempFile();
+
+      final result = await uploader.uploadMedia(file);
+
+      expect(result.imageLink, 'https://kappa.lol/abc');
+      expect(result.deleteLink, 'https://kappa.lol/delete?key');
+    });
+
+    test('substitutes nested pattern tokens', () async {
+      final uploader = MediaUploader(
+        client: MockClient(
+          (_) async => http.Response('{"id":"abc","ext":".png"}', 200),
+        ),
+      );
+      await uploader.saveConfig(
+        const UploaderConfig(
+          uploadUrl: 'https://example.com/upload',
+          formField: 'file',
+          imageLinkPattern: 'https://example.com/{id}{ext}',
+          deletionLinkPattern: '{delete}',
+        ),
+      );
+      final file = await _tempFile();
+
+      final result = await uploader.uploadMedia(file);
+
+      expect(result.imageLink, 'https://example.com/abc.png');
+      expect(result.deleteLink, isNull);
+    });
+
+    test('uses raw body when no image link pattern is set', () async {
+      final uploader = MediaUploader(
+        client: MockClient(
+          (_) async => http.Response('https://kappa.lol/raw', 200),
+        ),
+      );
+      await uploader.saveConfig(
+        const UploaderConfig(
+          uploadUrl: 'https://example.com/upload',
+          formField: 'file',
+          imageLinkPattern: null,
+        ),
+      );
+      final file = await _tempFile();
+
+      final result = await uploader.uploadMedia(file);
+
+      expect(result.imageLink, 'https://kappa.lol/raw');
+      expect(result.deleteLink, isNull);
+    });
+
+    test('throws on non-2xx responses', () async {
+      final uploader = MediaUploader(
+        client: MockClient((_) async => http.Response('oops', 500)),
+      );
+      final file = await _tempFile();
+
+      expect(uploader.uploadMedia(file), throwsA(isA<HttpException>()));
+    });
+  });
+
+  group('MediaUploader config persistence', () {
+    test('loads default config when nothing is stored', () async {
+      final uploader = MediaUploader(
+        client: MockClient((_) async => http.Response('', 200)),
+      );
+      final config = await uploader.loadConfig();
+      expect(config.uploadUrl, 'https://kappa.lol/api/upload');
+    });
+
+    test('save then load round-trips', () async {
+      final uploader = MediaUploader(
+        client: MockClient((_) async => http.Response('', 200)),
+      );
+      const config = UploaderConfig(
+        uploadUrl: 'https://example.com/upload',
+        formField: 'file',
+        headers: 'X-A: 1',
+        imageLinkPattern: '{link}',
+        deletionLinkPattern: '{delete}',
+      );
+      await uploader.saveConfig(config);
+
+      final loaded = await uploader.loadConfig();
+      expect(loaded.uploadUrl, 'https://example.com/upload');
+      expect(loaded.headers, 'X-A: 1');
+    });
+
+    test('reset restores kappa.lol defaults', () async {
+      final uploader = MediaUploader(
+        client: MockClient((_) async => http.Response('', 200)),
+      );
+      await uploader.saveConfig(
+        const UploaderConfig(uploadUrl: 'https://example.com', formField: 'x'),
+      );
+      await uploader.resetConfig();
+
+      final loaded = await uploader.loadConfig();
+      expect(loaded.uploadUrl, 'https://kappa.lol/api/upload');
+      expect(loaded.formField, 'file');
+    });
+  });
+
+  group('MediaUploader recent uploads', () {
+    test('addRecent inserts at the front and caps the list', () async {
+      final uploader = MediaUploader(
+        client: MockClient((_) async => http.Response('', 200)),
+      );
+      for (var i = 0; i < 60; i++) {
+        await uploader.addRecent(
+          UploadResult(imageLink: 'https://kappa.lol/$i', deleteLink: null),
+        );
+      }
+
+      final uploads = await uploader.recentUploads();
+      expect(uploads.length, 50);
+      expect(uploads.first.imageLink, 'https://kappa.lol/59');
+      expect(uploads.last.imageLink, 'https://kappa.lol/10');
+    });
+
+    test('removeRecent deletes the entry at the index', () async {
+      final uploader = MediaUploader(
+        client: MockClient((_) async => http.Response('', 200)),
+      );
+      await uploader.addRecent(const UploadResult(imageLink: 'a'));
+      await uploader.addRecent(const UploadResult(imageLink: 'b'));
+
+      await uploader.removeRecent(0);
+
+      final uploads = await uploader.recentUploads();
+      expect(uploads.length, 1);
+      expect(uploads.first.imageLink, 'a');
+    });
+
+    test('clearRecents empties the list', () async {
+      final uploader = MediaUploader(
+        client: MockClient((_) async => http.Response('', 200)),
+      );
+      await uploader.addRecent(const UploadResult(imageLink: 'a'));
+
+      await uploader.clearRecents();
+
+      expect(await uploader.recentUploads(), isEmpty);
     });
   });
 }
