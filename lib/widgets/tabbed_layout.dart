@@ -96,7 +96,15 @@ class TabbedLayoutState extends State<TabbedLayout>
     with TickerProviderStateMixin {
   TabController? _tabController;
   int _tabLength = 0;
-  int? _lastFocusIndex;
+  // The last index TabbedLayout reported upward (via onSelectedIndexChanged /
+  // onFocusChanged) or was initialized/created with. Used to distinguish a
+  // selection change that originated from a user gesture (already reflected by
+  // the controller/page) from one that originated outside TabbedLayout (e.g.
+  // programmatic navigation), which is the only case that should reposition the
+  // controller. This keeps the view pager as the source of truth for the
+  // visible channel so that unrelated rebuilds (a message send, a status
+  // update, etc.) can never yank the page back.
+  int? _lastReportedIndex;
 
   @override
   void initState() {
@@ -109,7 +117,7 @@ class TabbedLayoutState extends State<TabbedLayout>
     _tabLength = len;
     if (len == 0) return;
     final idx = widget.selectedIndex.clamp(0, len - 1);
-    _lastFocusIndex = idx;
+    _lastReportedIndex = idx;
     _tabController = TabController(length: len, vsync: this, initialIndex: idx);
     _tabController!.addListener(_onTabChanged);
     if (widget.focusOnHalfDrag) {
@@ -119,6 +127,7 @@ class TabbedLayoutState extends State<TabbedLayout>
 
   void _onTabChanged() {
     if (_tabController!.indexIsChanging) return;
+    _lastReportedIndex = _tabController!.index;
     if (_tabController!.index != widget.selectedIndex) {
       widget.onSelectedIndexChanged(_tabController!.index);
     }
@@ -130,8 +139,8 @@ class TabbedLayoutState extends State<TabbedLayout>
     final v = ctrl.animation!.value;
     if (v.isNaN) return;
     final nearest = v.round().clamp(0, _tabLength - 1);
-    if (nearest != _lastFocusIndex) {
-      _lastFocusIndex = nearest;
+    if (nearest != _lastReportedIndex) {
+      _lastReportedIndex = nearest;
       widget.onFocusChanged?.call(nearest);
     }
   }
@@ -140,9 +149,6 @@ class TabbedLayoutState extends State<TabbedLayout>
   void didUpdateWidget(TabbedLayout oldWidget) {
     super.didUpdateWidget(oldWidget);
     final len = widget.tabs.length;
-    if (widget.selectedIndex != oldWidget.selectedIndex) {
-      _lastFocusIndex = widget.selectedIndex;
-    }
     if (len != _tabLength) {
       _tabController?.removeListener(_onTabChanged);
       if (oldWidget.focusOnHalfDrag &&
@@ -161,18 +167,19 @@ class TabbedLayoutState extends State<TabbedLayout>
           _tabController!.animation!.addListener(_onAnimationTick);
         }
         _tabController!.index = idx;
+        _lastReportedIndex = idx;
       }
     } else if (len > 0) {
+      // The view pager is the source of truth for the visible channel. A rebuild
+      // must never reposition the controller, otherwise an unrelated rebuild
+      // (a message send, a status update, a click) landing mid-gesture can yank
+      // the page back. Only drive the controller when the selection change
+      // originated outside a gesture, i.e. widget.selectedIndex differs from the
+      // last index this widget itself reported or was created with.
       final idx = widget.selectedIndex.clamp(0, len - 1);
-      final ctrl = _tabController!;
-      if (ctrl.index != idx && !ctrl.indexIsChanging) {
-        if (widget.focusOnHalfDrag) {
-          final v = ctrl.animation!.value;
-          final dragInFlight = !v.isNaN && v.round() != ctrl.index;
-          if (!dragInFlight) ctrl.index = idx;
-        } else {
-          ctrl.index = idx;
-        }
+      if (idx != _lastReportedIndex) {
+        _tabController!.animateTo(idx);
+        _lastReportedIndex = idx;
       }
     }
   }
