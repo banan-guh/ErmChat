@@ -295,17 +295,25 @@ class TabbedLayoutState extends State<TabbedLayout>
   }
 }
 
+// Covers the OS-reserved edge-gesture strip (systemGestureInsets) so a swipe
+// that starts there is claimed here instead of by the TabBarView's PageView.
+// The OS back gesture then wins and the channel does not switch.
+//
+// It must NOT be opaque: an opaque box would swallow every pointer event in the
+// strip, including taps/long-press on edge messages and emotes. Using a
+// translucent GestureDetector that registers only a horizontal-drag recognizer
+// means taps, long-press, and vertical scrolling fall through to the content
+// beneath, while a horizontal drag is still captured so the page never moves.
 class _EdgeExclusionZone extends StatelessWidget {
   const _EdgeExclusionZone();
 
   @override
   Widget build(BuildContext context) {
-    return Listener(
-      behavior: HitTestBehavior.opaque,
-      onPointerDown: (_) {},
-      onPointerMove: (_) {},
-      onPointerUp: (_) {},
-      onPointerCancel: (_) {},
+    return GestureDetector(
+      behavior: HitTestBehavior.translucent,
+      onHorizontalDragStart: (_) {},
+      onHorizontalDragUpdate: (_) {},
+      onHorizontalDragEnd: (_) {},
     );
   }
 }
