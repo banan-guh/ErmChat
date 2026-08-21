@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../services/emote_cache_manager.dart';
 import 'emote_image.dart';
@@ -184,7 +185,10 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
       final format = sniffEmoteFormat(bytes);
       final isWebpAnim = format == EmoteFormat.webp && webpIsAnimated(bytes);
       final seeded = _seedFromUrl != null;
-      if (isWebpAnim || (format == EmoteFormat.gif && seeded)) {
+      final prefs = await SharedPreferences.getInstance();
+      final animateGifs = prefs.getBool('animate_gifs') ?? true;
+      final gifAnimated = format == EmoteFormat.gif && animateGifs;
+      if (isWebpAnim || (gifAnimated && seeded)) {
         // Animated WebP: our decoder (native libwebp, pure-Dart fallback).
         // Animated GIF: the engine codec decodes (interlace, transparency and
         // disposal are all solid), but seeding requires our own playback
@@ -201,6 +205,25 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
           _emitFrame(_frameIndex);
           _scheduleNext();
         }
+      } else if (format == EmoteFormat.gif && !animateGifs) {
+        // Frozen GIF: decode only the first frame so it shows as a still image.
+        final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
+        if (_disposed) {
+          buffer.dispose();
+          return;
+        }
+        final codec = await _engineDecode(buffer);
+        if (_disposed) {
+          codec.dispose();
+          return;
+        }
+        final frame = await codec.getNextFrame();
+        codec.dispose();
+        _frames = EmoteFrameData(
+          frames: [frame.image],
+          durations: [frame.duration],
+        );
+        _emitFrame(0);
       } else {
         // Everything else goes through the stock engine codec.
         final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);

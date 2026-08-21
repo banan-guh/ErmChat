@@ -8,6 +8,7 @@ class CustomizationScreen extends StatefulWidget {
   final ValueChanged<bool>? onTrueDarkChanged;
   final ValueChanged<String>? onAccentColorChanged;
   final ValueChanged<double>? onChatFontScaleChanged;
+  final ValueChanged<bool>? onAnimateGifsChanged;
 
   const CustomizationScreen({
     super.key,
@@ -16,6 +17,7 @@ class CustomizationScreen extends StatefulWidget {
     this.onTrueDarkChanged,
     this.onAccentColorChanged,
     this.onChatFontScaleChanged,
+    this.onAnimateGifsChanged,
   });
 
   @override
@@ -27,6 +29,7 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
   bool _trueDark = false;
   String _accentKey = kDefaultAccent;
   double _chatFontSize = 14.0;
+  bool _animateGifs = true;
 
   @override
   void initState() {
@@ -42,6 +45,7 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
         _trueDark = prefs.getBool('true_dark') ?? false;
         _accentKey = prefs.getString('accent_color') ?? kDefaultAccent;
         _chatFontSize = prefs.getDouble('chat_font_size') ?? 14.0;
+        _animateGifs = prefs.getBool('animate_gifs') ?? true;
       });
     }
   }
@@ -143,6 +147,17 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
                 },
               ),
             ],
+          ),
+          SwitchListTile(
+            secondary: const Icon(Icons.gif_box),
+            title: const Text('Animate gifs'),
+            value: _animateGifs,
+            onChanged: (value) async {
+              final prefs = await SharedPreferences.getInstance();
+              await prefs.setBool('animate_gifs', value);
+              if (mounted) setState(() => _animateGifs = value);
+              widget.onAnimateGifsChanged?.call(value);
+            },
           ),
           SwitchListTile(
             title: const Text('Keep screen on'),
