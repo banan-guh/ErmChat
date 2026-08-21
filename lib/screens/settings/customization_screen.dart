@@ -9,6 +9,8 @@ class CustomizationScreen extends StatefulWidget {
   final ValueChanged<String>? onAccentColorChanged;
   final ValueChanged<double>? onChatFontScaleChanged;
   final ValueChanged<bool>? onAnimateGifsChanged;
+  final ValueChanged<bool>? onCheckeredMessagesChanged;
+  final ValueChanged<bool>? onLineSeparatorChanged;
 
   const CustomizationScreen({
     super.key,
@@ -18,6 +20,8 @@ class CustomizationScreen extends StatefulWidget {
     this.onAccentColorChanged,
     this.onChatFontScaleChanged,
     this.onAnimateGifsChanged,
+    this.onCheckeredMessagesChanged,
+    this.onLineSeparatorChanged,
   });
 
   @override
@@ -30,6 +34,8 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
   String _accentKey = kDefaultAccent;
   double _chatFontSize = 14.0;
   bool _animateGifs = true;
+  bool _checkeredMessages = false;
+  bool _lineSeparator = false;
 
   @override
   void initState() {
@@ -46,6 +52,8 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
         _accentKey = prefs.getString('accent_color') ?? kDefaultAccent;
         _chatFontSize = prefs.getDouble('chat_font_size') ?? 14.0;
         _animateGifs = prefs.getBool('animate_gifs') ?? true;
+        _checkeredMessages = prefs.getBool('checkered_messages') ?? false;
+        _lineSeparator = prefs.getBool('line_separator') ?? false;
       });
     }
   }
@@ -72,6 +80,22 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
       prefs.setString('accent_color', key);
     });
     widget.onAccentColorChanged?.call(key);
+  }
+
+  void _setCheckeredMessages(bool value) {
+    setState(() => _checkeredMessages = value);
+    SharedPreferences.getInstance().then((prefs) {
+      prefs.setBool('checkered_messages', value);
+    });
+    widget.onCheckeredMessagesChanged?.call(value);
+  }
+
+  void _setLineSeparator(bool value) {
+    setState(() => _lineSeparator = value);
+    SharedPreferences.getInstance().then((prefs) {
+      prefs.setBool('line_separator', value);
+    });
+    widget.onLineSeparatorChanged?.call(value);
   }
 
   @override
@@ -158,6 +182,19 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
               if (mounted) setState(() => _animateGifs = value);
               widget.onAnimateGifsChanged?.call(value);
             },
+          ),
+          SwitchListTile(
+            title: const Text('Checkered messages'),
+            subtitle: const Text(
+              'Separate each line with a different background brightness',
+            ),
+            value: _checkeredMessages,
+            onChanged: _setCheckeredMessages,
+          ),
+          SwitchListTile(
+            title: const Text('Separate messages with lines'),
+            value: _lineSeparator,
+            onChanged: _setLineSeparator,
           ),
           SwitchListTile(
             title: const Text('Keep screen on'),

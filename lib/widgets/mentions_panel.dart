@@ -21,6 +21,8 @@ class MentionsPanelWidget extends StatefulWidget {
   final String emptyText;
   final bool showTimestamp;
   final String timestampFormat;
+  final bool checkeredMessages;
+  final bool lineSeparator;
 
   const MentionsPanelWidget({
     required this.scrollController,
@@ -31,6 +33,8 @@ class MentionsPanelWidget extends StatefulWidget {
     this.emptyText = 'No mentions or whispers',
     this.showTimestamp = true,
     this.timestampFormat = kDefaultTimestampFormat,
+    this.checkeredMessages = false,
+    this.lineSeparator = false,
     super.key,
   });
 
@@ -85,6 +89,9 @@ class MentionsPanelWidgetState extends State<MentionsPanelWidget> {
                 timestampFormat: widget.timestampFormat,
                 buildBadgeSpans: widget.buildBadgeSpans,
                 buildMessageSpans: widget.buildMessageSpans,
+                checkeredMessages: widget.checkeredMessages,
+                lineSeparator: widget.lineSeparator,
+                isAlternateBackground: i.isEven,
               );
             }
 
@@ -97,6 +104,9 @@ class MentionsPanelWidgetState extends State<MentionsPanelWidget> {
               timestampFormat: widget.timestampFormat,
               buildBadgeSpans: widget.buildBadgeSpans,
               buildMessageSpans: widget.buildMessageSpans,
+              checkeredMessages: widget.checkeredMessages,
+              lineSeparator: widget.lineSeparator,
+              isAlternateBackground: i.isEven,
             );
           },
         );

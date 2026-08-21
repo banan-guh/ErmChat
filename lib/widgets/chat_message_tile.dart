@@ -30,6 +30,9 @@ class ChatMessageTile extends StatefulWidget {
   final Widget? replyIndicator;
   final bool showTimestamp;
   final String timestampFormat;
+  final bool checkeredMessages;
+  final bool lineSeparator;
+  final bool isAlternateBackground;
 
   const ChatMessageTile({
     super.key,
@@ -45,6 +48,9 @@ class ChatMessageTile extends StatefulWidget {
     this.replyIndicator,
     this.showTimestamp = true,
     this.timestampFormat = kDefaultTimestampFormat,
+    this.checkeredMessages = false,
+    this.lineSeparator = false,
+    this.isAlternateBackground = false,
   });
 
   @override
@@ -245,6 +251,32 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [widget.replyIndicator!, child],
+      );
+    }
+
+    if (widget.checkeredMessages && widget.isAlternateBackground) {
+      // Alternating row background: inverseSurface over the chat surface at
+      // ~12% alpha, matching dankchat's checkered-lines effect.
+      child = ColoredBox(
+        color: Color.alphaBlend(
+          theme.colorScheme.inverseSurface.withValues(alpha: 0.12),
+          widget.surface,
+        ),
+        child: child,
+      );
+    }
+
+    if (widget.lineSeparator) {
+      child = Container(
+        decoration: BoxDecoration(
+          border: Border(
+            bottom: BorderSide(
+              color: theme.colorScheme.outlineVariant,
+              width: 1,
+            ),
+          ),
+        ),
+        child: child,
       );
     }
 

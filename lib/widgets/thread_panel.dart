@@ -27,6 +27,8 @@ class ThreadPanelWidget extends StatefulWidget {
   buildMessageSpans;
   final bool showTimestamp;
   final String timestampFormat;
+  final bool checkeredMessages;
+  final bool lineSeparator;
 
   const ThreadPanelWidget({
     required this.scrollController,
@@ -37,6 +39,8 @@ class ThreadPanelWidget extends StatefulWidget {
     required this.buildMessageSpans,
     this.showTimestamp = true,
     this.timestampFormat = kDefaultTimestampFormat,
+    this.checkeredMessages = false,
+    this.lineSeparator = false,
     super.key,
   });
 
@@ -84,6 +88,10 @@ class ThreadPanelWidgetState extends State<ThreadPanelWidget> {
                 timestampFormat: widget.timestampFormat,
                 buildBadgeSpans: widget.buildBadgeSpans,
                 buildMessageSpans: widget.buildMessageSpans,
+                checkeredMessages: widget.checkeredMessages,
+                lineSeparator: widget.lineSeparator,
+                isAlternateBackground:
+                    (threadMsgs.length - 1 - i).isEven,
               );
             }
 
@@ -97,6 +105,10 @@ class ThreadPanelWidgetState extends State<ThreadPanelWidget> {
               buildBadgeSpans: widget.buildBadgeSpans,
               buildMessageSpans: widget.buildMessageSpans,
               onLongPress: () => widget.onLongPress(msg),
+              checkeredMessages: widget.checkeredMessages,
+              lineSeparator: widget.lineSeparator,
+              isAlternateBackground:
+                  (threadMsgs.length - 1 - i).isEven,
             );
           },
         );

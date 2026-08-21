@@ -292,6 +292,8 @@ class _HomeScreenState extends State<HomeScreen>
   bool _showTimestamps = true;
   String _timestampFormat = kDefaultTimestampFormat;
   double _chatFontSize = 14.0;
+  bool _checkeredMessages = false;
+  bool _lineSeparator = false;
 
   final _suggestionsNotifier = ValueNotifier<List<Suggestion>>([]);
   final _selectedTabIndex = ValueNotifier<int>(0);
@@ -511,6 +513,22 @@ class _HomeScreenState extends State<HomeScreen>
   void _setChatFontScale(double value) {
     if (_chatFontSize == value) return;
     setState(() => _chatFontSize = value);
+    for (final channel in List.of(_channels)) {
+      _bumpChannel(channel);
+    }
+  }
+
+  void _setCheckeredMessages(bool value) {
+    if (_checkeredMessages == value) return;
+    setState(() => _checkeredMessages = value);
+    for (final channel in List.of(_channels)) {
+      _bumpChannel(channel);
+    }
+  }
+
+  void _setLineSeparator(bool value) {
+    if (_lineSeparator == value) return;
+    setState(() => _lineSeparator = value);
     for (final channel in List.of(_channels)) {
       _bumpChannel(channel);
     }
@@ -1318,6 +1336,8 @@ class _HomeScreenState extends State<HomeScreen>
       _timestampFormat =
           prefs.getString(kTimestampFormatPrefKey) ?? kDefaultTimestampFormat;
       _chatFontSize = prefs.getDouble('chat_font_size') ?? 14.0;
+      _checkeredMessages = prefs.getBool('checkered_messages') ?? false;
+      _lineSeparator = prefs.getBool('line_separator') ?? false;
     });
   }
 
@@ -2037,6 +2057,8 @@ class _HomeScreenState extends State<HomeScreen>
           onShowTimestampsChanged: _setShowTimestamps,
           onTimestampFormatChanged: _setTimestampFormat,
           onChatFontScaleChanged: _setChatFontScale,
+          onCheckeredMessagesChanged: _setCheckeredMessages,
+          onLineSeparatorChanged: _setLineSeparator,
           onEmoteTierChanged: _applyEmoteTier,
           onEmoteCacheMaxChanged: _applyCacheCap,
           onEmoteAutoModeChanged: _applyEmoteAutoMode,
@@ -2916,6 +2938,9 @@ class _HomeScreenState extends State<HomeScreen>
                                                     _timestampFormat,
                                                 chatFontScale:
                                                     _chatFontSize / 14.0,
+                                                checkeredMessages:
+                                                    _checkeredMessages,
+                                                lineSeparator: _lineSeparator,
                                                 onShowUserProfile:
                                                     (
                                                       login,
@@ -3074,6 +3099,8 @@ class _HomeScreenState extends State<HomeScreen>
                           key: const ValueKey('thread_panel'),
                           data: _threadPanelData,
                           chatFontScale: _chatFontSize / 14.0,
+                          checkeredMessages: _checkeredMessages,
+                          lineSeparator: _lineSeparator,
                           onLongPress: _showThreadMessageMenu,
                           buildBadgeSpans: _messageBuilder.buildBadgeSpans,
                           buildMessageSpans: _messageBuilder.buildMessageSpans,
@@ -3141,6 +3168,8 @@ class _HomeScreenState extends State<HomeScreen>
                               key: const ValueKey('mentions_panel'),
                               messages: _mentionsPanelData,
                               chatFontScale: _chatFontSize / 14.0,
+                              checkeredMessages: _checkeredMessages,
+                              lineSeparator: _lineSeparator,
                               buildBadgeSpans: _messageBuilder.buildBadgeSpans,
                               buildMessageSpans:
                                   _messageBuilder.buildMessageSpans,
@@ -3152,6 +3181,8 @@ class _HomeScreenState extends State<HomeScreen>
                               key: const ValueKey('whispers_panel'),
                               messages: _whispersPanelData,
                               chatFontScale: _chatFontSize / 14.0,
+                              checkeredMessages: _checkeredMessages,
+                              lineSeparator: _lineSeparator,
                               buildBadgeSpans: _messageBuilder.buildBadgeSpans,
                               buildMessageSpans:
                                   _messageBuilder.buildMessageSpans,

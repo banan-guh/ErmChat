@@ -27,6 +27,8 @@ class ChatView extends StatelessWidget {
   final bool showTimestamp;
   final String timestampFormat;
   final double chatFontScale;
+  final bool checkeredMessages;
+  final bool lineSeparator;
 
   const ChatView({
     super.key,
@@ -46,6 +48,8 @@ class ChatView extends StatelessWidget {
     this.showTimestamp = true,
     this.timestampFormat = kDefaultTimestampFormat,
     this.chatFontScale = 1.0,
+    this.checkeredMessages = false,
+    this.lineSeparator = false,
   });
 
   @override
@@ -143,6 +147,9 @@ class ChatView extends StatelessWidget {
                         buildMessageSpans: messageBuilder.buildMessageSpans,
                         systemBodyBuilder: (msg, scale) =>
                             parseTextWithLinks(msg.text),
+                        checkeredMessages: checkeredMessages,
+                        lineSeparator: lineSeparator,
+                        isAlternateBackground: i.isEven,
                       );
                     } else {
                       body = ChatMessageTile(
@@ -163,6 +170,9 @@ class ChatView extends StatelessWidget {
                         replyIndicator: msg.replyToUser != null
                             ? _buildReplyIndicator(context, msg)
                             : null,
+                        checkeredMessages: checkeredMessages,
+                        lineSeparator: lineSeparator,
+                        isAlternateBackground: i.isEven,
                       );
                     }
 
