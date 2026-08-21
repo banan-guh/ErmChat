@@ -16,6 +16,7 @@ class ChatSettingsScreen extends StatefulWidget {
   final ValueChanged<bool>? onPreferEmotesFirstChanged;
   final ValueChanged<bool>? onShowTimestampsChanged;
   final ValueChanged<String>? onTimestampFormatChanged;
+  final ValueChanged<bool>? onAnimateGifsChanged;
 
   const ChatSettingsScreen({
     super.key,
@@ -27,6 +28,7 @@ class ChatSettingsScreen extends StatefulWidget {
     this.onPreferEmotesFirstChanged,
     this.onShowTimestampsChanged,
     this.onTimestampFormatChanged,
+    this.onAnimateGifsChanged,
   });
 
   @override
@@ -42,6 +44,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
   bool _preferEmotesFirst = false;
   bool _showTimestamps = true;
   String _timestampFormat = kDefaultTimestampFormat;
+  bool _animateGifs = true;
 
   @override
   void initState() {
@@ -64,6 +67,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
         _showTimestamps = prefs.getBool(kShowTimestampsPrefKey) ?? true;
         _timestampFormat =
             prefs.getString(kTimestampFormatPrefKey) ?? kDefaultTimestampFormat;
+        _animateGifs = prefs.getBool('animate_gifs') ?? true;
       });
     }
   }
@@ -233,6 +237,18 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
               await prefs.setBool(kShowTimestampsPrefKey, value);
               if (mounted) setState(() => _showTimestamps = value);
               widget.onShowTimestampsChanged?.call(value);
+            },
+          ),
+          SwitchListTile(
+            secondary: const Icon(Icons.gif_box),
+            title: const Text('Animate gifs'),
+            subtitle: const Text('Play animated emotes'),
+            value: _animateGifs,
+            onChanged: (value) async {
+              final prefs = await SharedPreferences.getInstance();
+              await prefs.setBool('animate_gifs', value);
+              if (mounted) setState(() => _animateGifs = value);
+              widget.onAnimateGifsChanged?.call(value);
             },
           ),
           ListTile(
