@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:io' show Platform;
+import 'dart:ui' show FramePhase;
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/emote_fetch_tier.dart';
@@ -355,6 +357,8 @@ class _HomeScreenState extends State<HomeScreen>
   void initState() {
     super.initState();
     unawaited(_ttsController.init());
+    unawaited(PerfLog.I.init());
+    SchedulerBinding.instance.addTimingsCallback(_onFrameTimings);
     _currentUserLogin = widget.initialCurrentUserLogin;
     _loadEmotePrefs();
     _emoteSheetCtrl = DraggableScrollableController();
@@ -541,6 +545,7 @@ class _HomeScreenState extends State<HomeScreen>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    PerfLog.I.record('LIFECYCLE', state.name);
     _isBackgrounded =
         state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive;
@@ -560,6 +565,37 @@ class _HomeScreenState extends State<HomeScreen>
     }
     if (state == AppLifecycleState.resumed) {
       _chatConn.reconnectIfNecessary();
+    }
+  }
+
+  static const _slowFrameThreshold = Duration(milliseconds: 100);
+  static const _stallThreshold = Duration(milliseconds: 2000);
+  int? _lastFrameBuildStartUs;
+
+  /// Records slow builds and, more importantly, multi-second gaps between
+  /// consecutive frame build starts: a hang shows up as a stall record
+  /// followed by a burst of slow frames when the thread unblocks.
+  void _onFrameTimings(List<FrameTiming> timings) {
+    for (final t in timings) {
+      final startUs = t.timestampInMicroseconds(FramePhase.buildStart);
+      final last = _lastFrameBuildStartUs;
+      if (last != null) {
+        final gapMs = (startUs - last) ~/ 1000;
+        if (gapMs > _stallThreshold.inMilliseconds) {
+          PerfLog.I.record(
+            'FRAME',
+            'main-thread stall ${gapMs}ms before build',
+          );
+        }
+      }
+      _lastFrameBuildStartUs = startUs;
+      if (t.buildDuration > _slowFrameThreshold) {
+        PerfLog.I.record(
+          'FRAME',
+          'slow build ${t.buildDuration.inMilliseconds}ms '
+          'raster ${t.rasterDuration.inMilliseconds}ms',
+        );
+      }
     }
   }
 
@@ -679,7 +715,9 @@ class _HomeScreenState extends State<HomeScreen>
   // history slots below messages that arrived after it — live messages are
   // never pushed under older history.
   void _mergeHistoryIntoChannel(String channel, List<TwitchMessage> history) {
+    final sw = Stopwatch()..start();
     final existing = _channelMessages[channel]!;
+    final existingSize = existing.length;
     final existingIds = existing.map((m) => m.messageId).toSet();
     var hasExistingNonSystem = false;
     for (final m in existing) {
@@ -757,6 +795,12 @@ class _HomeScreenState extends State<HomeScreen>
     _truncateChannelMessages(channel);
     _bumpChannel(channel);
     _moveConnectedMessageToTop(channel);
+    sw.stop();
+    PerfLog.I.record(
+      'MERGE',
+      '$channel history=${history.length} existing=$existingSize '
+      'inserted=$insertedCount ${sw.elapsedMilliseconds}ms',
+    );
   }
 
   void _onReconnected() {
@@ -771,14 +815,21 @@ class _HomeScreenState extends State<HomeScreen>
       return;
     }
     _refetchingChannels.add(channel);
+    final sw = Stopwatch()..start();
     try {
       final history = await _recentMessages.fetchRecent(
         channel,
         limit: _recentMessagesLimit,
       );
+      final fetchMs = sw.elapsedMilliseconds;
       if (!mounted || !_channels.contains(channel)) return;
       final existing = _channelMessages[channel];
       if (existing == null || history.isEmpty) return;
+      PerfLog.I.record(
+        'REFETCH',
+        '$channel fetched=${history.length} existing=${existing.length} '
+        'in ${fetchMs}ms',
+      );
       // Messages recovered from history after a reconnect gap are marked as
       // backfill so they render greyed out, distinct from live chat.
       for (final msg in history) {

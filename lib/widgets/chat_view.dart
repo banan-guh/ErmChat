@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../models/twitch_message.dart';
+import '../util/log.dart';
 import '../util/timestamp_formatter.dart';
 import '../widgets/chat_message_tile.dart';
 import '../widgets/emote_text.dart';
@@ -101,11 +102,20 @@ class ChatView extends StatelessWidget {
                 // than the tile cache bound, keeping this bounded per message.
                 final pending = cache.keys.whereType<String>().toSet();
                 final idToIndex = <String, int>{};
+                final sw = Stopwatch()..start();
                 for (var i = 0; i < msgs.length && pending.isNotEmpty; i++) {
                   final id = msgs[i].messageId;
                   if (id != null && pending.remove(id)) {
                     idToIndex[id] = i;
                   }
+                }
+                sw.stop();
+                if (sw.elapsedMilliseconds >= 8) {
+                  PerfLog.I.record(
+                    'SCAN',
+                    '$channel ${msgs.length} msgs in '
+                    '${sw.elapsedMilliseconds}ms',
+                  );
                 }
 
                 return ListView.builder(

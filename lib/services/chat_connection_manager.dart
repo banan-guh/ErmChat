@@ -299,6 +299,10 @@ class ChatConnectionManager {
   DateTime? _lastTruncateAt;
   static const _truncateHardCapFactor = 2;
 
+  /// Periodic buffer-size sampler for [onMessage]; watches backlog growth
+  /// over long sessions without logging every message.
+  int _messageSampleCounter = 0;
+
   ChatConnectionManager(ChatConnectionConfig config)
     : twitchApi = config.twitchApi,
       eventSub = config.eventSub,
@@ -611,6 +615,8 @@ class ChatConnectionManager {
     final msgs = channelMessages[channel];
     if (msgs == null || msgs.length <= maxMessages) return;
     _lastTruncateAt = _now();
+    final sw = Stopwatch()..start();
+    final sizeBefore = msgs.length;
 
     // Phase 1: group messages by thread identity.
     // For messages with replyThreadRootId, the key is that value.
@@ -694,6 +700,14 @@ class ChatConnectionManager {
     msgs
       ..clear()
       ..addAll(retained);
+    sw.stop();
+    if (sw.elapsedMilliseconds >= 8) {
+      PerfLog.I.record(
+        'TRUNCATE',
+        '$channel $sizeBefore -> ${msgs.length} in '
+        '${sw.elapsedMilliseconds}ms',
+      );
+    }
   }
 
   /// Coalesced variant of [truncateChannelMessages] for the per-message hot
@@ -1639,6 +1653,13 @@ class ChatConnectionManager {
     final channel = msg.channel;
     if (channel == null) return;
 
+    if (++_messageSampleCounter % 250 == 0) {
+      PerfLog.I.record(
+        'MSG',
+        '$channel buffer=${channelMessages[channel]?.length ?? 0}',
+      );
+    }
+
     if (msg.messageId != null &&
         messageKeys.contains('$channel:${msg.messageId}')) {
       return;
@@ -1788,6 +1809,7 @@ class ChatConnectionManager {
     if (irc.isConnected) {
       unawaited(
         irc.checkAlive().then((alive) {
+          PerfLog.I.record('RESUME', 'irc alive=$alive');
           if (!alive) {
             logDebug('[ChatConn] IRC zombie detected - forcing reconnect');
             irc.forceReconnect();
@@ -1795,11 +1817,13 @@ class ChatConnectionManager {
         }),
       );
     } else {
+      PerfLog.I.record('RESUME', 'irc offline, connecting');
       unawaited(irc.connect(username: username, accessToken: accessToken));
     }
     if (ircRead.isConnected) {
       unawaited(
         ircRead.checkAlive().then((alive) {
+          PerfLog.I.record('RESUME', 'ircRead alive=$alive');
           if (!alive) {
             logDebug('[ChatConn] IRC read zombie detected - forcing reconnect');
             ircRead.forceReconnect();
@@ -1807,6 +1831,7 @@ class ChatConnectionManager {
         }),
       );
     } else {
+      PerfLog.I.record('RESUME', 'ircRead offline, connecting');
       unawaited(
         ircRead.connect(
           username: anonymous ? _anonymousNick(2) : username,
@@ -1817,10 +1842,19 @@ class ChatConnectionManager {
     // EventSub/7TV have no PING/PONG equivalent, so `isConnected` alone can't
     // spot a zombie socket; a stale session is torn down and re-established.
     if (!eventSub.isConnected || eventSub.isStale) {
+      PerfLog.I.record(
+        'RESUME',
+        'eventSub connected=${eventSub.isConnected} stale=${eventSub.isStale}',
+      );
       unawaited(eventSub.forceReconnect());
     }
     if (sevenTvClient != null &&
         (!sevenTvClient!.isConnected || sevenTvClient!.isStale)) {
+      PerfLog.I.record(
+        'RESUME',
+        '7tv connected=${sevenTvClient!.isConnected} '
+        'stale=${sevenTvClient!.isStale}',
+      );
       unawaited(sevenTvClient!.forceReconnect());
     }
   }

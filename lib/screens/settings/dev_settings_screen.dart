@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
@@ -196,6 +197,132 @@ class _DevSettingsScreenState extends State<DevSettingsScreen> {
               'Compares pure-Dart vs engine codec on real emotes',
             ),
             onTap: () => _runDecodeBenchmark(context),
+          ),
+          const Divider(),
+          ListTile(
+            leading: const Icon(Icons.receipt_long),
+            title: const Text('Performance log'),
+            subtitle: const Text(
+              'Freeze diagnostics: lifecycle, truncation, merges, slow frames',
+            ),
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const _PerfLogScreen()),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PerfLogScreen extends StatefulWidget {
+  const _PerfLogScreen();
+
+  @override
+  State<_PerfLogScreen> createState() => _PerfLogScreenState();
+}
+
+class _PerfLogScreenState extends State<_PerfLogScreen> {
+  List<String>? _previousSession;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_loadPreviousSession());
+  }
+
+  Future<void> _loadPreviousSession() async {
+    final text = await PerfLog.I.readPreviousSession();
+    if (!mounted) return;
+    setState(() {
+      _previousSession = text
+          ?.split('\n')
+          .where((l) => l.isNotEmpty)
+          .toList();
+    });
+  }
+
+  void _copyAll() {
+    final buffer = StringBuffer();
+    if (_previousSession != null) {
+      buffer
+        ..writeln('=== previous session ===')
+        ..writeAll(_previousSession!, '\n')
+        ..writeln();
+    }
+    buffer
+      ..writeln('=== current session ===')
+      ..writeAll(PerfLog.I.entries(), '\n')
+      ..writeln();
+    Clipboard.setData(ClipboardData(text: buffer.toString()));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Copied ${PerfLog.I.entries().length} entries')),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final current = PerfLog.I.entries().reversed.toList();
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Performance log'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.copy),
+            tooltip: 'Copy all',
+            onPressed: _copyAll,
+          ),
+        ],
+      ),
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Current session: ${current.length} entries',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ),
+                if (_previousSession != null)
+                  Text(
+                    'Previous: ${_previousSession!.length} entries',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: ListView.builder(
+              itemCount: current.length + (_previousSession?.length ?? 0),
+              itemBuilder: (context, i) {
+                final isPrev = i >= current.length;
+                final line = isPrev
+                    ? _previousSession![i - current.length]
+                    : current[i];
+                return Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 1,
+                  ),
+                  child: SelectableText(
+                    line,
+                    style: TextStyle(
+                      fontFamily: 'monospace',
+                      fontSize: 11,
+                      color: isPrev
+                          ? Theme.of(context).colorScheme.onSurfaceVariant
+                          : null,
+                    ),
+                  ),
+                );
+              },
+            ),
           ),
         ],
       ),

@@ -7,6 +7,7 @@ import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../services/emote_cache_manager.dart';
+import '../util/log.dart';
 import 'emote_image.dart';
 
 const _emoteDownloadTimeout = Duration(seconds: 10);
@@ -431,12 +432,20 @@ class _DecodeSemaphore {
   final List<Completer<void>> _waiters = [];
 
   Future<T> withPermit<T>(Future<T> Function() action) async {
+    final sw = Stopwatch()..start();
     if (_permits > 0) {
       _permits--;
     } else {
       final completer = Completer<void>();
       _waiters.add(completer);
       await completer.future;
+    }
+    final waitedMs = sw.elapsedMilliseconds;
+    if (waitedMs >= 16) {
+      PerfLog.I.record(
+        'DECODE',
+        'gate wait ${waitedMs}ms queue=${_waiters.length}',
+      );
     }
     try {
       return await action();
