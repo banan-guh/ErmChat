@@ -86,7 +86,7 @@
 - [x] **Parallelize startup loading** - Increase overall loading speed by running independent startup fetches (emotes, badges, history, chat status) concurrently.
 - [x] **Add blocked menu** - `/block` `/unblock` commands implemented; blocked users removed from suggestions/profile. A dedicated un-block UI menu is future work.
 - [x] **Fix bug with padding change on keyboard change** - padding changes when keyboard is extended / retracted for some reason
-- [ ] **Make select UI more friendly** - reference dankchat when selecting text.
+- [-] **Make select UI more friendly** - reference dankchat when selecting text. investigate far future.
 - [-] **Inkwell on top** - move inkwell of half-under msgs to fully under (currently overlaps). - somewhere it got fixed I think
 - [ ] **Translations** - how?
 - [ ] **Accessibility** - make wishlist
@@ -99,7 +99,7 @@
 - size emote menu better
 - fix no scope experience X
 - fix links parsing X
-- fix chat bypass
+- fix chat bypass X
 - add tab bar in analytics X
 - ping recent messages to see max msgs - not deterministic, do later X it's just disabled during connect
 - add reload emotes / reload chat button X

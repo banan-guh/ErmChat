@@ -339,15 +339,22 @@ class _HomeScreenState extends State<HomeScreen>
   String? _previousTextForUndo;
   String? _undoExpectedAfter;
 
+  /// Physical sheet openness according to the controller. 0 when detached,
+  /// which happens whenever the panel content stops hosting the sheet's
+  /// scrollable (tab switches, cell-cache rebuilds).
+  double get _emoteSheetPhysicalSize =>
+      _emoteSheetCtrl.isAttached ? _emoteSheetCtrl.size : 0.0;
+
   void _onSheetSizeChanged() {
     // When the user drags the emote sheet down to size 0, close only the
     // emote overlay; an open thread/mentions panel stays underneath.
     if (_emoteSheetOpen &&
         _emoteSheetCtrl.isAttached &&
         _emoteSheetCtrl.size <= 0.001) {
-      logDebug(
-        '[EmoteSheet] size collapsed to ${_emoteSheetCtrl.size.toStringAsFixed(3)} '
-        'while open; closing',
+      PerfLog.I.record(
+        'EmoteSheet',
+        'size collapsed to ${_emoteSheetCtrl.size.toStringAsFixed(3)} '
+            'while open; closing',
       );
       setState(() {
         _emoteSheetOpen = false;
@@ -360,6 +367,7 @@ class _HomeScreenState extends State<HomeScreen>
   void initState() {
     super.initState();
     unawaited(_ttsController.init());
+    unawaited(PerfLog.I.init());
     _currentUserLogin = widget.initialCurrentUserLogin;
     _loadEmotePrefs();
     _emoteSheetCtrl = DraggableScrollableController();
@@ -2204,15 +2212,19 @@ class _HomeScreenState extends State<HomeScreen>
     setState(() => _emoteSheetOpen = true);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) {
-        logDebug('[EmoteSheet] open aborted: unmounted');
+        PerfLog.I.record('EmoteSheet', 'open aborted: unmounted');
         return;
       }
       if (!_emoteSheetCtrl.isAttached) {
-        logDebug('[EmoteSheet] open skipped: controller has no clients');
+        PerfLog.I.record(
+          'EmoteSheet',
+          'open skipped: controller has no clients',
+        );
         return;
       }
-      logDebug(
-        '[EmoteSheet] animating open from ${_emoteSheetCtrl.size.toStringAsFixed(3)}',
+      PerfLog.I.record(
+        'EmoteSheet',
+        'animating open from ${_emoteSheetCtrl.size.toStringAsFixed(3)}',
       );
       unawaited(
         _emoteSheetCtrl
@@ -2222,12 +2234,13 @@ class _HomeScreenState extends State<HomeScreen>
               curve: Curves.easeInOutCubicEmphasized,
             )
             .then((_) {
-              if (mounted && _emoteSheetCtrl.isAttached) {
-                logDebug(
-                  '[EmoteSheet] open animation ended at '
-                  '${_emoteSheetCtrl.size.toStringAsFixed(3)}',
-                );
-              }
+              if (!mounted) return;
+              PerfLog.I.record(
+                'EmoteSheet',
+                'open animation ended at '
+                    '${_emoteSheetPhysicalSize.toStringAsFixed(3)}'
+                    '${_emoteSheetCtrl.isAttached ? '' : ' (detached)'}',
+              );
             }),
       );
     });
@@ -2235,10 +2248,21 @@ class _HomeScreenState extends State<HomeScreen>
 
   Future<void> _closeEmoteSheet() async {
     if (!_emoteSheetOpen) {
-      logDebug('[EmoteSheet] close ignored: already closed');
+      PerfLog.I.record('EmoteSheet', 'close ignored: already closed');
       return;
     }
     if (_emoteSheetCtrl.isAttached) {
+      if (_emoteSheetCtrl.size <= 0.001) {
+        // Already collapsed (no further size notifications will fire).
+        PerfLog.I.record('EmoteSheet', 'closing skipped: sheet already at 0');
+        if (mounted) {
+          setState(() {
+            _emoteSheetOpen = false;
+            _panelScaleCtrl.value = 1.0;
+          });
+        }
+        return;
+      }
       // Scale the close duration by how open the sheet is, so a near-closed
       // sheet dismisses quickly while a fully-open one eases down.
       final fraction = (_emoteSheetCtrl.size / _emoteMaxFraction).clamp(
@@ -2246,6 +2270,13 @@ class _HomeScreenState extends State<HomeScreen>
         1.0,
       );
       final duration = Duration(milliseconds: (80 + 180 * fraction).round());
+      PerfLog.I.record(
+        'EmoteSheet',
+        'closing from ${_emoteSheetCtrl.size.toStringAsFixed(3)}',
+      );
+      // The flag flip is left to _onSheetSizeChanged, which fires when the
+      // size reaches 0. Flipping early would rebuild the panel inactive,
+      // unmounting its scrollable and killing this very animation.
       unawaited(
         _emoteSheetCtrl
             .animateTo(
@@ -2254,22 +2285,21 @@ class _HomeScreenState extends State<HomeScreen>
               curve: Curves.easeInOutCubicEmphasized,
             )
             .then((_) {
-              if (mounted && _emoteSheetCtrl.isAttached) {
-                logDebug(
-                  '[EmoteSheet] close animation ended at '
-                  '${_emoteSheetCtrl.size.toStringAsFixed(3)}',
-                );
-              }
+              PerfLog.I.record(
+                'EmoteSheet',
+                'close animation finished at '
+                    '${_emoteSheetPhysicalSize.toStringAsFixed(3)}',
+              );
             }),
       );
     } else {
-      logDebug('[EmoteSheet] close without animation: no clients');
-    }
-    if (mounted) {
-      setState(() {
-        _emoteSheetOpen = false;
-        _panelScaleCtrl.value = 1.0;
-      });
+      PerfLog.I.record('EmoteSheet', 'close without animation: no clients');
+      if (mounted) {
+        setState(() {
+          _emoteSheetOpen = false;
+          _panelScaleCtrl.value = 1.0;
+        });
+      }
     }
   }
 
@@ -3340,6 +3370,10 @@ class _HomeScreenState extends State<HomeScreen>
                           onSendLongPress: _onSendLongPress,
                           onTap: () => _suggestionsNotifier.value = [],
                           onEmoteToggle: () {
+                            PerfLog.I.record(
+                              'EmoteSheet',
+                              'toggle: open=$_emoteSheetOpen',
+                            );
                             if (_emoteSheetOpen) {
                               unawaited(_closeEmoteSheet());
                             } else {

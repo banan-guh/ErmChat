@@ -381,22 +381,32 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
     ScrollController? scrollController,
   ) {
     final sidePadding = _panelWidth * 0.08;
-    return GridView.builder(
+    // CustomScrollView (not GridView) so every tab state shares one top-level
+    // scrollable type: swapping scrollable classes mid-open detaches the
+    // sheet's scroll position, which disposes the running open animation.
+    return CustomScrollView(
       controller: scrollController,
-      padding: EdgeInsets.symmetric(horizontal: sidePadding, vertical: 4),
-      physics: const AlwaysScrollableScrollPhysics(),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 5,
-        mainAxisSpacing: 8,
-        crossAxisSpacing: 8,
-        childAspectRatio: 1,
-      ),
-      itemCount: emotes.length,
-      itemBuilder: (_, i) {
-        final cellPadding = _computeCellPadding();
-        return _buildEmoteGridItem(emotes[i], cellPadding);
-      },
-      findChildIndexCallback: _idToIndexClosure(emotes),
+      slivers: [
+        SliverPadding(
+          padding: EdgeInsets.symmetric(horizontal: sidePadding, vertical: 4),
+          sliver: SliverGrid(
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 5,
+              mainAxisSpacing: 8,
+              crossAxisSpacing: 8,
+              childAspectRatio: 1,
+            ),
+            delegate: SliverChildBuilderDelegate(
+              (_, i) {
+                final cellPadding = _computeCellPadding();
+                return _buildEmoteGridItem(emotes[i], cellPadding);
+              },
+              childCount: emotes.length,
+              findChildIndexCallback: _idToIndexClosure(emotes),
+            ),
+          ),
+        ),
+      ],
     );
   }
 

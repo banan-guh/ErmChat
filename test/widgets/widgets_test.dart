@@ -4358,6 +4358,59 @@ void main() {
     );
   });
 
+  group('emote sheet geometry', () {
+    double sheetFraction(WidgetTester t) => t
+        .widget<FractionallySizedBox>(
+          find
+              .descendant(
+                of: find.byType(DraggableScrollableSheet),
+                matching: find.byType(FractionallySizedBox),
+              )
+              .first,
+        )
+        .heightFactor!;
+
+    Future<void> tapEmoteToggle(WidgetTester t) async {
+      await t.tap(find.byIcon(Icons.emoji_emotions_outlined));
+      await t.pumpAndSettle();
+    }
+
+    testWidgets('sheet keeps its height across close and reopen', (
+      tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({'access_token': 'test_token'});
+      FlutterSecureStorage.setMockInitialValues({'access_token': 'test_token'});
+      final irc = _FakeIrcService();
+      await tester.pumpWidget(
+        TwitchChatApp(
+          eventSubService: _FakeEventSubService(),
+          recentMessagesService: _ConfigurableRecentMessagesService(const []),
+          ircService: irc,
+        ),
+      );
+      await tester.pump();
+      await tester.tap(find.byIcon(Icons.add));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).last, 'testchannel');
+      await tester.tap(find.text('Join').last);
+      await tester.pump();
+      await tester.pump();
+      irc.triggerConnect();
+      await tester.pump();
+
+      expect(sheetFraction(tester), moreOrLessEquals(0));
+      await tapEmoteToggle(tester);
+      final openFraction = sheetFraction(tester);
+      expect(openFraction, greaterThan(0.5));
+
+      await tapEmoteToggle(tester);
+      expect(sheetFraction(tester), lessThan(0.001));
+
+      await tapEmoteToggle(tester);
+      expect(sheetFraction(tester), moreOrLessEquals(openFraction));
+    });
+  });
+
   group('emote sheet', () {
     late _FakeUrlLauncher emoteSheetLauncher;
 
