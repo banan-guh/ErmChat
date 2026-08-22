@@ -5,7 +5,7 @@
 - [ ] **Check for wasteful rebuilds** - MUCH-NEEDED optimization.
 - [ ] **Check for wasteful / unreadable code** - for other people who want to read the codebase.
 - [ ] **Token expiry handling** - expired tokens fail silently right now. Validate on startup, catch the login-failed NOTICE, prompt re-auth. Drop unused scopes while at it (%20 -> + too).
-- [ ] **Third-party badges** - BTTV donor, FFZ mod/VIP/user, 7TV badges. Fetch + render next to twitch badges.
+- [+] **Third-party badges** - BTTV donor, FFZ mod/VIP/user, 7TV badges. Fetch + render next to twitch badges.
 - [+] **Emote visibility toggles** - per-provider switches in emotes settings; gates fetching + all rendering (chat, autocomplete, sheet).
 - [ ] **Phrase muting + regex pings** - hide/block messages matching keywords or regex, word boundary + case options. Lives in tools settings.
 - [ ] **Bits / cheermote parsing** - parse cheermote tokens (e.g. `Cheer100`) from the body, fetch cheermote metadata via Helix (`/helix/bits/cheermotes`), render tiered animated cheermotes + bit count. Cheer messages already highlight via the `bits` tag (purple banner, live + history).

@@ -70,6 +70,32 @@ class SevenTvUserUpdate {
   });
 }
 
+class SevenTvCosmeticCreateEvent {
+  final String cosmeticId;
+  final String name;
+  final String imageUrl;
+  final String? tooltip;
+
+  const SevenTvCosmeticCreateEvent({
+    required this.cosmeticId,
+    required this.name,
+    required this.imageUrl,
+    this.tooltip,
+  });
+}
+
+class SevenTvEntitlementEvent {
+  final String cosmeticId;
+  final String kind;
+  final List<String> twitchUserIds;
+
+  const SevenTvEntitlementEvent({
+    required this.cosmeticId,
+    required this.kind,
+    required this.twitchUserIds,
+  });
+}
+
 enum SevenTvEventStatus { connected, disconnected }
 
 class SevenTvEventClient {
@@ -98,10 +124,16 @@ class SevenTvEventClient {
 
   final _pendingEmoteSets = <String>{};
   final _pendingUsers = <String>{};
+  final _pendingChannels = <String>{};
 
   final _emoteSetUpdateCtrl =
       StreamController<SevenTvEmoteUpdateEvent>.broadcast(sync: true);
   final _userUpdateCtrl = StreamController<SevenTvUserUpdate>.broadcast(
+    sync: true,
+  );
+  final _cosmeticCreateCtrl =
+      StreamController<SevenTvCosmeticCreateEvent>.broadcast(sync: true);
+  final _entitlementCtrl = StreamController<SevenTvEntitlementEvent>.broadcast(
     sync: true,
   );
   final _statusCtrl = StreamController<SevenTvEventStatus>.broadcast(
@@ -111,6 +143,9 @@ class SevenTvEventClient {
   Stream<SevenTvEmoteUpdateEvent> get onEmoteSetUpdate =>
       _emoteSetUpdateCtrl.stream;
   Stream<SevenTvUserUpdate> get onUserUpdate => _userUpdateCtrl.stream;
+  Stream<SevenTvCosmeticCreateEvent> get onCosmeticCreate =>
+      _cosmeticCreateCtrl.stream;
+  Stream<SevenTvEntitlementEvent> get onEntitlement => _entitlementCtrl.stream;
   Stream<SevenTvEventStatus> get onStatus => _statusCtrl.stream;
 
   SevenTvEventClient({this._connectivityService});
@@ -209,6 +244,18 @@ class SevenTvEventClient {
     _sendSubscription('user.update', userId, subscribe: false);
   }
 
+  void subscribeTwitchChannel(String channelId) {
+    _pendingChannels.add(channelId);
+    if (_handshakeComplete) {
+      _sendChannelSubscription(channelId, subscribe: true);
+    }
+  }
+
+  void unsubscribeTwitchChannel(String channelId) {
+    _pendingChannels.remove(channelId);
+    _sendChannelSubscription(channelId, subscribe: false);
+  }
+
   void _sendSubscription(
     String type,
     String objectId, {
@@ -232,12 +279,38 @@ class SevenTvEventClient {
     );
   }
 
+  void _sendChannelSubscription(String channelId, {required bool subscribe}) {
+    if (channelId.isEmpty) return;
+    for (final type in [
+      'cosmetic.create',
+      'entitlement.create',
+      'entitlement.delete',
+    ]) {
+      _send(
+        jsonEncode({
+          'op': subscribe ? 35 : 36,
+          'd': {
+            'type': type,
+            'condition': {
+              'ctx': 'channel',
+              'platform': 'TWITCH',
+              'id': channelId,
+            },
+          },
+        }),
+      );
+    }
+  }
+
   void _flushPendingSubscriptions() {
     for (final id in _pendingEmoteSets) {
       _sendSubscription('emote_set.update', id, subscribe: true);
     }
     for (final id in _pendingUsers) {
       _sendSubscription('user.update', id, subscribe: true);
+    }
+    for (final id in _pendingChannels) {
+      _sendChannelSubscription(id, subscribe: true);
     }
   }
 
@@ -374,6 +447,69 @@ class SevenTvEventClient {
               );
             }
           }
+        }
+
+      case 'cosmetic.create':
+        final obj = body['object'] as Map<String, dynamic>? ?? {};
+        final kind = obj['kind'] as String?;
+        if (kind != 'BADGE') break;
+        final data = obj['data'] as Map<String, dynamic>? ?? {};
+        final cosmeticId = data['id'] as String? ?? '';
+        if (cosmeticId.isEmpty) break;
+        final name = data['name'] as String? ?? '';
+        final tooltip = data['tooltip'] as String?;
+        final host = data['host'] as Map<String, dynamic>? ?? {};
+        final hostUrl = host['url'] as String? ?? '';
+        final files = host['files'] as List<dynamic>? ?? [];
+        String imageUrl = '';
+        for (final f in files) {
+          final file = f as Map<String, dynamic>;
+          final fileName = file['name'] as String?;
+          if (fileName != null && fileName.startsWith('2x.')) {
+            imageUrl = 'https:$hostUrl/$fileName';
+            break;
+          }
+        }
+        if (imageUrl.isEmpty && files.isNotEmpty) {
+          final first = files.first as Map<String, dynamic>;
+          final fileName = first['name'] as String? ?? '';
+          imageUrl = 'https:$hostUrl/$fileName';
+        }
+        if (imageUrl.isNotEmpty) {
+          _cosmeticCreateCtrl.add(
+            SevenTvCosmeticCreateEvent(
+              cosmeticId: cosmeticId,
+              name: name,
+              imageUrl: imageUrl,
+              tooltip: tooltip,
+            ),
+          );
+        }
+
+      case 'entitlement.create':
+      case 'entitlement.delete':
+        final obj = body['object'] as Map<String, dynamic>? ?? {};
+        final cosmeticId = obj['ref_id'] as String? ?? '';
+        final kind = obj['kind'] as String? ?? '';
+        if (cosmeticId.isEmpty || kind != 'BADGE') break;
+        final userObj = obj['user'] as Map<String, dynamic>? ?? {};
+        final connections = userObj['connections'] as List<dynamic>? ?? [];
+        final twitchIds = <String>[];
+        for (final conn in connections) {
+          final c = conn as Map<String, dynamic>;
+          if (c['platform'] == 'TWITCH') {
+            final id = c['id'] as String? ?? '';
+            if (id.isNotEmpty) twitchIds.add(id);
+          }
+        }
+        if (twitchIds.isNotEmpty) {
+          _entitlementCtrl.add(
+            SevenTvEntitlementEvent(
+              cosmeticId: cosmeticId,
+              kind: type!,
+              twitchUserIds: twitchIds,
+            ),
+          );
         }
     }
   }
@@ -530,6 +666,8 @@ class SevenTvEventClient {
     _disconnect();
     _emoteSetUpdateCtrl.close();
     _userUpdateCtrl.close();
+    _cosmeticCreateCtrl.close();
+    _entitlementCtrl.close();
     _statusCtrl.close();
   }
 }

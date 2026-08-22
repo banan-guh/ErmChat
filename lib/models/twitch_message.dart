@@ -57,6 +57,7 @@ class TwitchMessage {
   // notifies a higher version, the spans are rebuilt lazily on next render.
   int? cachedSpansVersion;
   List<WidgetSpan>? cachedBadgeSpans;
+  int? cachedBadgeSpansVersion;
   late final String formattedTimestamp =
       '${timestamp.toLocal().hour.toString().padLeft(2, '0')}:${timestamp.toLocal().minute.toString().padLeft(2, '0')}';
   late final String formattedUsername =

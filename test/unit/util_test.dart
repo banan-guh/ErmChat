@@ -12,6 +12,7 @@ import 'package:ermchat/widgets/predictive_back_handler.dart';
 import 'package:ermchat/models/generic_emote.dart';
 import 'package:ermchat/services/emote_manager.dart';
 import 'package:ermchat/services/twitch_badge_service.dart';
+import 'package:ermchat/services/third_party_badge_service.dart';
 import 'package:ermchat/widgets/message_builder.dart';
 
 TwitchMessage _msg(String text, {String login = 'otheruser', String? replyTo}) {
@@ -508,6 +509,7 @@ void main() {
   MessageBuilder makeBuilder(EmoteManager em) => MessageBuilder(
     emoteManager: em,
     badgeService: TwitchBadgeService(),
+    thirdPartyBadgeService: ThirdPartyBadgeService(),
     onShowEmoteSheet: (_) {},
   );
 

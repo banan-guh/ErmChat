@@ -1049,6 +1049,7 @@ class ChatConnectionManager {
 
     sevenTvClient!.subscribeEmoteSet(finalEmoteSetId);
     sevenTvClient!.subscribeUser(finalUserId);
+    sevenTvClient!.subscribeTwitchChannel(twitchChannelId);
     logDebug(
       '[7TV] subscribed channel=$channelName emoteSetId=$finalEmoteSetId userId=$finalUserId',
     );
