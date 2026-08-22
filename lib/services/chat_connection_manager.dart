@@ -1398,21 +1398,43 @@ class ChatConnectionManager {
       if (isDisposed) return;
       final isAnnouncement = event.msgId == 'announcement';
       if (!isAnnouncement) {
-        // Subscriptions / gift subs highlight like a default (PRIMARY) purple
-        // announcement: the notice stays a system message but carries the
-        // accent (DankChat-style). Other notices keep no accent.
+        // Subscriptions / gift subs / watch streaks highlight like a default
+        // (PRIMARY) purple announcement: the notice stays a system message
+        // but carries the accent (DankChat-style). Other notices keep no
+        // accent.
+        final accent = subNoticeMsgIds.contains(event.msgId)
+            ? announcementColors['PRIMARY']
+            : null;
         onSystemMessage(
           event.channel,
           buildUserNoticeText(
             msgId: event.msgId,
             displayName: event.displayName,
             systemMsg: event.systemMsg,
-            text: event.text,
           ),
-          accent: subNoticeMsgIds.contains(event.msgId)
-              ? announcementColors['PRIMARY']
-              : null,
+          accent: accent,
         );
+        // Sub/resub with a user message render like announcements: the notice
+        // stays the label and the user's text becomes a child chat message so
+        // emotes and badges render. The IRC `emotes` tag positions are
+        // relative to that body text, so they pass through as-is.
+        if ((event.msgId == 'sub' || event.msgId == 'resub') &&
+            (event.text?.trim().isNotEmpty ?? false)) {
+          onMessage(
+            TwitchMessage(
+              login: event.login,
+              displayName: event.displayName,
+              text: event.text!.trim(),
+              color: event.color,
+              userId: event.userId,
+              badges: event.badges,
+              emotePositions: event.emotePositions,
+              messageId: event.messageId,
+              channel: event.channel,
+              systemAccent: accent,
+            ),
+          );
+        }
         onChatMessage?.call(
           event.channel,
           TwitchMessage(
@@ -1422,7 +1444,6 @@ class ChatConnectionManager {
               msgId: event.msgId,
               displayName: event.displayName,
               systemMsg: event.systemMsg,
-              text: event.text,
             ),
             channel: event.channel,
             isSystem: true,

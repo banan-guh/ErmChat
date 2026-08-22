@@ -90,8 +90,7 @@ class ThreadPanelWidgetState extends State<ThreadPanelWidget> {
                 buildMessageSpans: widget.buildMessageSpans,
                 checkeredMessages: widget.checkeredMessages,
                 lineSeparator: widget.lineSeparator,
-                isAlternateBackground:
-                    (threadMsgs.length - 1 - i).isEven,
+                isAlternateBackground: (threadMsgs.length - 1 - i).isEven,
               );
             }
 
@@ -107,8 +106,7 @@ class ThreadPanelWidgetState extends State<ThreadPanelWidget> {
               onLongPress: () => widget.onLongPress(msg),
               checkeredMessages: widget.checkeredMessages,
               lineSeparator: widget.lineSeparator,
-              isAlternateBackground:
-                  (threadMsgs.length - 1 - i).isEven,
+              isAlternateBackground: (threadMsgs.length - 1 - i).isEven,
             );
           },
         );

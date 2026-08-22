@@ -202,7 +202,7 @@ void main() {
       final msg = RecentMessagesService.parseIrcLine(raw);
       expect(msg, isNotNull);
       expect(msg!.isSystem, isTrue);
-      expect(msg.text, 'ronni has subscribed for 6 months! "Great stream!"');
+      expect(msg.text, 'ronni has subscribed for 6 months!');
       expect(msg.login, isEmpty, reason: 'non-announcement notices drop login');
       expect(
         msg.systemAccent,
@@ -359,6 +359,83 @@ void main() {
       expect(child.messageId, '1151c190-4c78-4f31-b436-d75b3003e68c');
       expect(child.systemAccent, const Color(0xFF9146FF));
       expect(child.badges, hasLength(1));
+    });
+  });
+
+  group('parseSubChild', () {
+    test('parses resub user message as a normal chat message', () {
+      const raw =
+          '@msg-id=resub;system-msg=ronni\\shas\\ssubscribed\\sfor\\s6\\smonths!;login=ronni;display-name=ronni;color=#0000FF;badges=subscriber/6;id=abc-123;user-id=456;rm-received-ts=1700000000000 :tmi.twitch.tv USERNOTICE #xqc :Great stream!';
+      final child = RecentMessagesService.parseSubChild(raw);
+      expect(child, isNotNull);
+      expect(child!.isSystem, isFalse);
+      expect(child.text, 'Great stream!');
+      expect(child.login, 'ronni');
+      expect(child.displayName, 'ronni');
+      expect(child.color, '#0000FF');
+      expect(child.userId, '456');
+      expect(child.messageId, 'abc-123');
+      expect(child.badges, hasLength(1));
+      expect(child.badges!.single.setId, 'subscriber');
+      expect(child.systemAccent, const Color(0xFF9146FF));
+      expect(child.isHistory, isTrue);
+      expect(
+        child.timestamp,
+        DateTime.fromMillisecondsSinceEpoch(1700000000000),
+      );
+    });
+
+    test('parses sub user message emotes into emote positions', () {
+      const raw =
+          '@msg-id=sub;system-msg=ronni\\shas\\ssubscribed!;login=ronni;display-name=ronni;emotes=emotesv2_123:0-7;rm-received-ts=1700000000000 :tmi.twitch.tv USERNOTICE #xqc :PogChamp test';
+      final child = RecentMessagesService.parseSubChild(raw);
+      expect(child, isNotNull);
+      expect(child!.text, 'PogChamp test');
+      expect(child.emotePositions, isNotNull);
+      expect(child.emotePositions!.single.emoteCode, 'PogChamp');
+      expect(child.emotePositions!.single.startIndex, 0);
+      expect(child.emotePositions!.single.endIndex, 8);
+      expect(child.systemAccent, const Color(0xFF9146FF));
+    });
+
+    test('returns null for non-sub/resub USERNOTICE', () {
+      const raw =
+          '@msg-id=announcement;msg-param-color=BLUE;login=mm2pl;rm-received-ts=1700000000000 :tmi.twitch.tv USERNOTICE #xqc :hello';
+      expect(RecentMessagesService.parseSubChild(raw), isNull);
+    });
+
+    test('returns null when resub has no user message', () {
+      const raw =
+          '@msg-id=resub;system-msg=ronni\\shas\\ssubscribed!;login=ronni;rm-received-ts=1700000000000 :tmi.twitch.tv USERNOTICE #xqc';
+      expect(RecentMessagesService.parseSubChild(raw), isNull);
+    });
+
+    test('returns null for non-USERNOTICE lines', () {
+      const raw =
+          '@display-name=forsen :forsen!forsen@forsen.tmi.twitch.tv PRIVMSG #xqc :hi';
+      expect(RecentMessagesService.parseSubChild(raw), isNull);
+    });
+
+    test('robotty resub line parses both label and child', () {
+      // Real robotty line shape: single-word message, no colon before text.
+      const raw =
+          '@color=#0000FF;id=abc;mod=0;rm-received-ts=1785668914195;'
+          'historical=1;system-msg=ronni\\shas\\ssubscribed!;'
+          'msg-id=resub;msg-param-cumulative-months=6;room-id=1;user-id=2;'
+          'badge-info;login=ronni;tmi-sent-ts=1785668914100;flags;'
+          'badges=subscriber/6;vip=0;subscriber=0;emotes;display-name=ronni '
+          ':tmi.twitch.tv USERNOTICE #xqc hello';
+
+      final label = RecentMessagesService.parseIrcLine(raw);
+      expect(label, isNotNull);
+      expect(label!.text, 'ronni has subscribed!');
+      expect(label.systemAccent, const Color(0xFF9146FF));
+
+      final child = RecentMessagesService.parseSubChild(raw);
+      expect(child, isNotNull);
+      expect(child!.text, 'hello');
+      expect(child.login, 'ronni');
+      expect(child.systemAccent, const Color(0xFF9146FF));
     });
   });
 
@@ -1787,6 +1864,10 @@ void main() {
     test('excludes non-sub notices like announcements and raids', () {
       expect(subNoticeMsgIds, isNot(contains('announcement')));
       expect(subNoticeMsgIds, isNot(contains('raid')));
+    });
+
+    test('includes watch streak milestones', () {
+      expect(subNoticeMsgIds, contains('viewermilestone'));
     });
   });
 }

@@ -61,9 +61,12 @@ class RecentMessagesService {
       }
       // Announcement USERNOTICEs render as two entries, like the live view:
       // the child message (announcement text as a normal message) followed
-      // by the "Announcement" label.
+      // by the "Announcement" label. Sub/resub notices with a user message
+      // do the same so emotes render in the child.
       final child = parseAnnouncementChild(rawLine, channel: channel);
       if (child != null) messages.add(child);
+      final subChild = parseSubChild(rawLine, channel: channel);
+      if (subChild != null) messages.add(subChild);
       final parsed = parseIrcLine(rawLine, channel: channel);
       if (parsed != null) messages.add(parsed);
     }
@@ -230,6 +233,9 @@ class RecentMessagesService {
         : DateTime.now();
     // Robotty strips the trailing colon for single-word payloads.
     final text = msg.trailing ?? (msg.params.length > 1 ? msg.params[1] : null);
+    final isSubWithText =
+        (msgId == 'sub' || msgId == 'resub') &&
+        (text?.trim().isNotEmpty ?? false);
 
     return TwitchMessage(
       login: login,
@@ -237,11 +243,11 @@ class RecentMessagesService {
         msgId: msgId,
         displayName: displayName,
         systemMsg: systemMsg,
-        text: text,
       ),
       isSystem: true,
-      // Announcements carry their banner accent; subscriptions / gift subs
-      // highlight like a default (PRIMARY) purple announcement (DankChat-style).
+      // Announcements carry their banner accent; subscriptions / gift subs /
+      // watch streaks highlight like a default (PRIMARY) purple announcement
+      // (DankChat-style).
       systemAccent: isAnnouncement
           ? announcementColorFor(msg.tags['msg-param-color']) ??
                 announcementColors['PRIMARY']
@@ -250,8 +256,53 @@ class RecentMessagesService {
           : null,
       channel: channel,
       // 1ms after the child message so the sorted history keeps the child
-      // above the "Announcement" label (List.sort is not stable).
-      timestamp: isAnnouncement ? ts.add(const Duration(milliseconds: 1)) : ts,
+      // above the label (List.sort is not stable).
+      timestamp: isAnnouncement || isSubWithText
+          ? ts.add(const Duration(milliseconds: 1))
+          : ts,
+      isHistory: true,
+    );
+  }
+
+  /// The child chat message for a sub/resub USERNOTICE line that carries a
+  /// user message (the message rendered as a normal chat message so emotes
+  /// render), or null when the line is not a sub/resub with text.
+  @visibleForTesting
+  static TwitchMessage? parseSubChild(String raw, {String? channel}) {
+    final msg = parseIrcMessage(raw);
+    if (msg == null || msg.command != 'USERNOTICE') return null;
+    final msgId = msg.tags['msg-id'];
+    if (msgId != 'sub' && msgId != 'resub') return null;
+    // Robotty strips the trailing colon for single-word payloads.
+    final text =
+        (msg.trailing ?? (msg.params.length > 1 ? msg.params[1] : null))
+            ?.trim();
+    if (text == null || text.isEmpty) return null;
+
+    final login = (msg.tags['login'] ?? '').toLowerCase();
+    final displayName = msg.tags['display-name'] ?? login;
+
+    final tsMs = msg.tags['rm-received-ts'];
+    final ts = tsMs != null
+        ? DateTime.fromMillisecondsSinceEpoch(int.tryParse(tsMs) ?? 0)
+        : DateTime.now();
+
+    return TwitchMessage(
+      login: login,
+      displayName: displayName,
+      text: text,
+      color: msg.tags['color'],
+      userId: msg.tags['user-id'],
+      messageId: msg.tags['id'],
+      badges: parseIrcBadges(msg.tags['badges']),
+      emotePositions: parseIrcEmotePositions(
+        msg.tags['emotes'],
+        originalText: text,
+        strippedText: text,
+      ),
+      systemAccent: announcementColors['PRIMARY'],
+      channel: channel,
+      timestamp: ts,
       isHistory: true,
     );
   }

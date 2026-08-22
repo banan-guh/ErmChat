@@ -342,8 +342,10 @@ void main() {
     });
 
     test('strips suffix when text already ends with the invisible char', () {
-      final wire =
-          bypassTextDuplicate('hello$_invisibleChar', 'hello$_invisibleChar');
+      final wire = bypassTextDuplicate(
+        'hello$_invisibleChar',
+        'hello$_invisibleChar',
+      );
       expect(wire, 'hello');
     });
 

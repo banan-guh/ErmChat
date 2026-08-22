@@ -2296,43 +2296,119 @@ void main() {
       conn.dispose();
     });
 
-    test(
-      'resub notice stays a single system message with the purple accent',
-      () async {
-        final irc = _TestIrc();
-        final systemMessages = <(String, String, Color?)>[];
-        final channelMessages = <String, List<TwitchMessage>>{};
-        final conn = _makeReconnectConn(
-          eventSub: _NoopEventSub(),
-          irc: irc,
-          onReconnected: () {},
-          channelMessages: channelMessages,
-          onSystemMessage: (c, t, {Color? accent}) {
-            systemMessages.add((c, t, accent));
-          },
-        );
-        await conn.connect();
-        irc.emitConnected();
+    test('resub with text renders label plus child message', () async {
+      final irc = _TestIrc();
+      final systemMessages = <(String, String, Color?)>[];
+      final channelMessages = <String, List<TwitchMessage>>{};
+      final conn = _makeReconnectConn(
+        eventSub: _NoopEventSub(),
+        irc: irc,
+        onReconnected: () {},
+        channelMessages: channelMessages,
+        onSystemMessage: (c, t, {Color? accent}) {
+          systemMessages.add((c, t, accent));
+        },
+      );
+      await conn.connect();
+      irc.emitConnected();
 
-        irc.handleLine(
-          '@msg-id=resub;system-msg=ronni\\shas\\ssubscribed!;login=ronni;'
-          'display-name=ronni;'
-          ':tmi.twitch.tv USERNOTICE #test :Great stream!',
-        );
+      irc.handleLine(
+        '@msg-id=resub;system-msg=ronni\\shas\\ssubscribed!;login=ronni;'
+        'display-name=ronni;color=#0000FF;badges=subscriber/6;id=abc;'
+        'emotes=emotesv2_123:0-4;user-id=456;'
+        ':tmi.twitch.tv USERNOTICE #test :Great Kappa!',
+      );
 
-        expect(systemMessages, hasLength(1));
-        expect(systemMessages[0].$1, 'test');
-        expect(systemMessages[0].$2, 'ronni has subscribed! "Great stream!"');
-        expect(systemMessages[0].$3, const Color(0xFF9146FF));
-        expect(
-          channelMessages['test'],
-          isNull,
-          reason: 'non-announcements never produce a child message',
-        );
+      expect(systemMessages, hasLength(1));
+      expect(systemMessages[0].$1, 'test');
+      expect(systemMessages[0].$2, 'ronni has subscribed!');
+      expect(systemMessages[0].$3, const Color(0xFF9146FF));
 
-        conn.dispose();
-      },
-    );
+      // Child message renders as a normal chat message on the same accent,
+      // carrying the emotes parsed from the USERNOTICE line.
+      final child = channelMessages['test']!.first;
+      expect(child.isSystem, isFalse);
+      expect(child.text, 'Great Kappa!');
+      expect(child.login, 'ronni');
+      expect(child.displayName, 'ronni');
+      expect(child.color, '#0000FF');
+      expect(child.userId, '456');
+      expect(child.messageId, 'abc');
+      expect(child.systemAccent, const Color(0xFF9146FF));
+      expect(child.badges, hasLength(1));
+      expect(child.emotePositions, isNotNull);
+      expect(child.emotePositions!.single.emoteCode, 'Great');
+
+      conn.dispose();
+    });
+
+    test('resub without text stays a single system message', () async {
+      final irc = _TestIrc();
+      final systemMessages = <(String, String, Color?)>[];
+      final channelMessages = <String, List<TwitchMessage>>{};
+      final conn = _makeReconnectConn(
+        eventSub: _NoopEventSub(),
+        irc: irc,
+        onReconnected: () {},
+        channelMessages: channelMessages,
+        onSystemMessage: (c, t, {Color? accent}) {
+          systemMessages.add((c, t, accent));
+        },
+      );
+      await conn.connect();
+      irc.emitConnected();
+
+      irc.handleLine(
+        '@msg-id=subgift;system-msg=TWW2\\sgifted\\sa\\sTier\\s1\\ssub\\sto\\sMr_Woodchuck!;'
+        'login=tww2;display-name=TWW2;'
+        ':tmi.twitch.tv USERNOTICE #test',
+      );
+
+      expect(systemMessages, hasLength(1));
+      expect(systemMessages[0].$2, 'TWW2 gifted a Tier 1 sub to Mr_Woodchuck!');
+      expect(systemMessages[0].$3, const Color(0xFF9146FF));
+      expect(
+        channelMessages['test'],
+        isNull,
+        reason: 'notices without a user message never produce a child',
+      );
+
+      conn.dispose();
+    });
+
+    test('watch streak notice highlights with the purple accent', () async {
+      final irc = _TestIrc();
+      final systemMessages = <(String, String, Color?)>[];
+      final channelMessages = <String, List<TwitchMessage>>{};
+      final conn = _makeReconnectConn(
+        eventSub: _NoopEventSub(),
+        irc: irc,
+        onReconnected: () {},
+        channelMessages: channelMessages,
+        onSystemMessage: (c, t, {Color? accent}) {
+          systemMessages.add((c, t, accent));
+        },
+      );
+      await conn.connect();
+      irc.emitConnected();
+
+      irc.handleLine(
+        '@msg-id=viewermilestone;system-msg=ronni\\shas\\sreached\\sa\\swatch\\sstreak\\sof\\s3!;'
+        'login=ronni;display-name=ronni;'
+        ':tmi.twitch.tv USERNOTICE #test',
+      );
+
+      expect(systemMessages, hasLength(1));
+      expect(systemMessages[0].$2, 'ronni has reached a watch streak of 3!');
+      expect(systemMessages[0].$3, const Color(0xFF9146FF));
+      expect(
+        channelMessages['test'],
+        isNull,
+        reason: 'watch streaks carry no user message',
+      );
+
+      conn.dispose();
+    });
 
     test(
       'non-sub notices stay a single system message without accent',

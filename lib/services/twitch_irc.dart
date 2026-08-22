@@ -109,9 +109,10 @@ class UserNoticeEvent {
   });
 }
 
-/// USERNOTICE `msg-id` values that represent subscriptions / gift subs.
-/// These render like default (PRIMARY purple) announcements: the notice
-/// stays a system message but carries the announcement accent.
+/// USERNOTICE `msg-id` values that render like a default (PRIMARY purple)
+/// announcement: the notice stays a system message but carries the
+/// announcement accent. Covers subscriptions / gift subs plus watch-streak
+/// milestones (`viewermilestone`).
 const subNoticeMsgIds = <String>{
   'sub',
   'resub',
@@ -122,24 +123,21 @@ const subNoticeMsgIds = <String>{
   'giftpaidupgrade',
   'anongiftpaidupgrade',
   'primepaidupgrade',
+  'viewermilestone',
 };
 
 /// Builds the system-message text for a USERNOTICE event. Announcements are
 /// the bare "Announcement" label (DankChat-style; the announcement text is
 /// rendered as a separate child chat message); everything else uses Twitch's
-/// `system-msg` (with the user's own message appended for sub/resub).
+/// `system-msg`.
 String buildUserNoticeText({
   required String msgId,
   required String displayName,
   String? systemMsg,
-  String? text,
 }) {
   if (msgId == 'announcement') return 'Announcement';
   final base = systemMsg;
   if (base == null || base.isEmpty) return '$displayName $msgId.';
-  if ((msgId == 'sub' || msgId == 'resub') && (text?.isNotEmpty ?? false)) {
-    return '$base "${text!.trim()}"';
-  }
   return base;
 }
 

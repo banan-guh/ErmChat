@@ -146,9 +146,7 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
                   horizontal: 16,
                   vertical: 8,
                 ),
-                child: Text(
-                  'Chat font size: ${_chatFontSize.round()}',
-                ),
+                child: Text('Chat font size: ${_chatFontSize.round()}'),
               ),
               Slider(
                 value: _chatFontSize,
