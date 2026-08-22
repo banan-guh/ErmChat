@@ -18,6 +18,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ermchat/models/emote_fetch_tier.dart';
 import 'package:ermchat/models/generic_emote.dart';
 import 'package:ermchat/services/emote_manager.dart';
+import 'package:ermchat/services/emote_providers/bttv_emotes.dart';
+import 'package:ermchat/services/emote_providers/ffz_emotes.dart';
 import 'package:ermchat/services/emote_providers/seven_tv_emotes.dart';
 import '../helpers.dart';
 import 'package:ermchat/models/twitch_message.dart';
@@ -3183,6 +3185,82 @@ void main() {
         expect(e!.url1x, '$base/1x.webp');
         expect(e.url3x, '$base/2x.webp');
       });
+    });
+  });
+
+  group('BttvEmoteProvider.parseEmotes', () {
+    Map<String, dynamic> item(String code) => {
+      'id': 'bttv-$code',
+      'code': code,
+      'imageType': 'png',
+    };
+
+    test('known overlay codes are zero-width', () {
+      for (final code in [
+        'SoSnowy',
+        'IceCold',
+        'SantaHat',
+        'TopHat',
+        'ReinDeer',
+        'CandyCane',
+        'cvMask',
+        'cvHazmat',
+        'cvCompost',
+      ]) {
+        final emotes = BttvEmoteProvider.parseEmotes([item(code)]);
+        expect(emotes, hasLength(1), reason: code);
+        expect(emotes.single.isZeroWidth, isTrue, reason: code);
+      }
+    });
+
+    test('regular emotes stay non-overlay', () {
+      final emotes = BttvEmoteProvider.parseEmotes([
+        item('Kappa'),
+        item('gachiBASS'),
+      ]);
+      expect(emotes, hasLength(2));
+      expect(emotes.every((e) => !e.isZeroWidth), isTrue);
+    });
+
+    test('an explicit API zeroWidth field still wins when false', () {
+      // Field is currently never sent by BTTV, but if it appears it must
+      // compose with the hardcoded list.
+      final overlay = BttvEmoteProvider.parseEmotes([
+        {...item('SoSnowy'), 'zeroWidth': true},
+      ]);
+      expect(overlay.single.isZeroWidth, isTrue);
+
+      final forcedNormal = BttvEmoteProvider.parseEmotes([
+        {'id': 'x', 'code': 'NotOnList', 'zeroWidth': true},
+      ]);
+      expect(forcedNormal.single.isZeroWidth, isTrue);
+    });
+  });
+
+  group('FfzEmoteProvider.parseEmote', () {
+    Map<String, dynamic> ffzItem({bool modifier = false}) => {
+      'id': 42,
+      'name': modifier ? 'HatOverlay' : 'RegularEmote',
+      'urls': {'1': '//cdn.frankerfacez.com/emote/42/1'},
+      if (modifier) 'modifier': true,
+    };
+
+    test('modifier entries are zero-width', () {
+      final emote = FfzEmoteProvider.parseEmote(
+        ffzItem(modifier: true),
+        EmoteResolution.high,
+      );
+      expect(emote, isNotNull);
+      expect(emote!.isZeroWidth, isTrue);
+    });
+
+    test('regular entries are not zero-width', () {
+      final emote = FfzEmoteProvider.parseEmote(
+        ffzItem(),
+        EmoteResolution.high,
+      );
+      expect(emote, isNotNull);
+      expect(emote!.isZeroWidth, isFalse);
     });
   });
 

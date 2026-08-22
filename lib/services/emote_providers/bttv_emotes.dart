@@ -1,11 +1,40 @@
 import 'dart:convert';
 import 'dart:isolate';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:http/http.dart' as http;
 import '../../models/generic_emote.dart';
 import '../../util/constants.dart';
 import '../../util/log.dart';
 
 class BttvEmoteProvider {
+  // BTTV's API does not mark overlay emotes in any way, so every client
+  // hardcodes the seasonal/covid overlay codes (chatterino/TwitchDownloader
+  // list). Anything else renders as a normal emote.
+  static const _zeroWidthCodes = {
+    'SoSnowy',
+    'IceCold',
+    'SantaHat',
+    'TopHat',
+    'ReinDeer',
+    'CandyCane',
+    'cvMask',
+    'cvHazmat',
+    'cvCompost',
+  };
+
+  @visibleForTesting
+  static List<GenericEmote> parseEmotes(
+    List<dynamic> items, {
+    bool global = false,
+    bool channel = false,
+    EmoteResolution resolution = EmoteResolution.high,
+  }) => _parseEmotes(
+    items,
+    global: global,
+    channel: channel,
+    resolution: resolution,
+  );
+
   static Future<List<GenericEmote>> fetchGlobal({
     EmoteResolution resolution = EmoteResolution.high,
   }) async {
@@ -76,6 +105,9 @@ class BttvEmoteProvider {
           'BTTV: unexpected zeroWidth field type: ${zwField.runtimeType}',
         );
       }
+      // The API never sends the field today; the hardcoded list is what
+      // actually drives overlay rendering.
+      isZeroWidth = isZeroWidth || _zeroWidthCodes.contains(code);
 
       emotes.add(
         GenericEmote(
