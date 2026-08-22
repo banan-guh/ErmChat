@@ -10,6 +10,7 @@ import '../services/twitch_api.dart';
 import '../services/twitch_auth.dart';
 import '../services/twitch_eventsub.dart';
 import '../services/twitch_irc.dart';
+import '../services/command_macros.dart';
 import '../services/connectivity_service.dart';
 import '../services/recent_messages.dart';
 import '../services/seven_tv_event_client.dart';
@@ -167,6 +168,8 @@ class _HomeScreenState extends State<HomeScreen>
         _currentUserLogin = v;
         _scanHistoryForMentions();
         unawaited(_ensureBlockedUsersLoaded());
+        // Warm the macro cache so sends can read it synchronously.
+        if (v != null) unawaited(loadMacros(v));
       },
       getCurrentUserId: () => _currentUserId,
       setCurrentUserId: (v) => _currentUserId = v,
@@ -177,6 +180,11 @@ class _HomeScreenState extends State<HomeScreen>
       isBlocked: (login) => _blockedLogins.contains(login.toLowerCase()),
       onRequestFocus: () => _focusNode.requestFocus(),
       getAltPings: () => _altPings,
+      getMacros: () {
+        final login = _currentUserLogin;
+        if (login == null) return const {};
+        return cachedMacroLookup(login) ?? const {};
+      },
       onShowSnackBar: (msg) {
         if (mounted) {
           final messenger = ScaffoldMessenger.of(context);

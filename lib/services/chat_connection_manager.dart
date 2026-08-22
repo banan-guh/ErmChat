@@ -16,6 +16,7 @@ import '../services/emote_providers/seven_tv_emotes.dart';
 import '../services/seven_tv_event_client.dart';
 import '../services/twitch_badge_service.dart';
 import '../services/user_store.dart';
+import '../services/command_macros.dart';
 import '../util/text_bypass.dart';
 import '../color_utils.dart';
 import '../util/constants.dart';
@@ -77,6 +78,7 @@ class ChatConnectionConfig {
     required this.onRequestFocus,
     required this.onShowSnackBar,
     this.getAltPings,
+    this.getMacros,
     this.isChatReady,
     this.isBlocked,
     this.onAnalyticsMessage,
@@ -131,6 +133,7 @@ class ChatConnectionConfig {
   final VoidCallback onRequestFocus;
   final void Function(String) onShowSnackBar;
   final List<String> Function()? getAltPings;
+  final Map<String, String> Function()? getMacros;
   final bool Function()? isChatReady;
   final bool Function(String login)? isBlocked;
   final void Function(String channel, TwitchMessage msg)? onAnalyticsMessage;
@@ -188,6 +191,7 @@ class ChatConnectionManager {
   final VoidCallback onRequestFocus;
   final void Function(String) onShowSnackBar;
   final List<String> Function()? getAltPings;
+  final Map<String, String> Function()? getMacros;
   final bool Function()? isChatReady;
   final bool Function(String login)? isBlocked;
   final void Function(String channel, TwitchMessage msg)? onAnalyticsMessage;
@@ -354,6 +358,7 @@ class ChatConnectionManager {
       onRequestFocus = config.onRequestFocus,
       onShowSnackBar = config.onShowSnackBar,
       getAltPings = config.getAltPings,
+      getMacros = config.getMacros,
       isChatReady = config.isChatReady,
       isBlocked = config.isBlocked,
       onAnalyticsMessage = config.onAnalyticsMessage,
@@ -1145,6 +1150,17 @@ class ChatConnectionManager {
   }) async {
     final auth = twitchAuth;
     final reply = replyTo ?? getReplyToMsg();
+
+    // Local macro triggers expand before anything else: a macro may resolve
+    // to a slash command or plain chat text alike.
+    final macros = getMacros?.call();
+    if (macros != null && macros.isNotEmpty) {
+      final expanded = expandMacro(text, macros);
+      if (expanded != null) {
+        text = expanded;
+        onRequestFocus();
+      }
+    }
 
     if (text.startsWith('/')) {
       onCommand(text, channel, auth);
