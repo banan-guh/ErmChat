@@ -10,6 +10,8 @@ export 'base_irc_connection.dart'
         IrcConnection,
         IrcReadService,
         IrcConnectionStatus,
+        IrcJoinFailureEvent,
+        JoinFailureReason,
         IrcMessage,
         parseIrcMessage;
 
