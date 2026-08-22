@@ -19,6 +19,7 @@ import 'package:ermchat/services/twitch_api.dart';
 import 'package:ermchat/services/twitch_auth.dart';
 import 'package:ermchat/services/twitch_badge_service.dart';
 import 'package:ermchat/services/user_store.dart';
+import 'package:http/testing.dart' as http_testing;
 
 class _TestService extends IrcService {
   _TestService(this.channels, {this.onOpen, super.connectivityService});
@@ -3245,6 +3246,44 @@ void main() {
 
       expect(emoteManager.viewedIds, isEmpty);
       conn.dispose();
+    });
+  });
+
+  group('TwitchBadgeService shared-chat identity', () {
+    late TwitchBadgeService badgeService;
+
+    setUp(() {
+      badgeService = TwitchBadgeService(
+        client: http_testing.MockClient((request) async {
+          final url = request.url.toString();
+          if (url.contains('/helix/users')) {
+            return http.Response(
+              '{"data":[{"id":"1234","login":"forsen",'
+              '"display_name":"Forsen",'
+              '"profile_image_url":"https://example.com/avatar.png"}]}',
+              200,
+            );
+          }
+          return http.Response('Not found', 404);
+        }),
+      );
+    });
+
+    tearDown(() {
+      badgeService.dispose();
+    });
+
+    test('resolves login and display name after avatar fetch', () async {
+      final auth = TwitchAuth()..accessToken = 'fake-token';
+      await badgeService.fetchChannelAvatar(auth, '1234');
+      expect(badgeService.resolveChannelLogin('1234'), 'forsen');
+      expect(badgeService.resolveChannelDisplayName('1234'), 'Forsen');
+      expect(badgeService.version, greaterThan(0));
+    });
+
+    test('returns null before fetch completes', () {
+      expect(badgeService.resolveChannelLogin('1234'), isNull);
+      expect(badgeService.resolveChannelDisplayName('1234'), isNull);
     });
   });
 }

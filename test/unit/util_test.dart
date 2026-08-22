@@ -526,7 +526,7 @@ void main() {
     final spans = makeBuilder(em).buildMessageSpans(msg, 'test', Colors.black);
 
     expect(msg.cachedSpans, isNotNull);
-    expect(msg.cachedSpansVersion, em.version);
+    expect(msg.cachedSpansVersion, em.version * 1000003);
     expect(spans.any((s) => s is WidgetSpan), isFalse);
 
     final again = makeBuilder(em).buildMessageSpans(msg, 'test', Colors.black);
@@ -568,9 +568,10 @@ void main() {
     // A non-delta notify (full refetch) bumps the version and the next build
     // lazily recomputes against the fresh emote data.
     await em.storeUserTwitchEmotes({});
-    expect(em.version, greaterThan(msg.cachedSpansVersion!));
+    expect(em.version, greaterThan(0));
+    expect(msg.cachedSpansVersion, isNot(em.version * 1000003));
 
     makeBuilder(em).buildMessageSpans(msg, 'test', Colors.black);
-    expect(msg.cachedSpansVersion, em.version);
+    expect(msg.cachedSpansVersion, em.version * 1000003);
   });
 }

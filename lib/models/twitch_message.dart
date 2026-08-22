@@ -52,6 +52,11 @@ class TwitchMessage {
   final List<MessageBadge>? badges;
   final String? sourceBroadcasterId;
   final String? sourceBroadcasterName;
+
+  /// The original message id from the shared-chat source channel
+  /// (PRIVMSG/USERNOTICE `source-id` tag). Stable across every mirrored copy,
+  /// unlike [messageId] which is unique per receiving room.
+  final String? sourceMessageId;
   List<InlineSpan>? cachedSpans;
   // EmoteManager.version at which cachedSpans was computed; when the manager
   // notifies a higher version, the spans are rebuilt lazily on next render.
@@ -103,6 +108,7 @@ class TwitchMessage {
     this.badges,
     this.sourceBroadcasterId,
     this.sourceBroadcasterName,
+    this.sourceMessageId,
   }) : timestamp = timestamp ?? DateTime.now(),
        displayName = displayName ?? login;
 }

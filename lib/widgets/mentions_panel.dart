@@ -23,6 +23,7 @@ class MentionsPanelWidget extends StatefulWidget {
   final String timestampFormat;
   final bool checkeredMessages;
   final bool lineSeparator;
+  final String sharedChatMode;
 
   const MentionsPanelWidget({
     required this.scrollController,
@@ -35,6 +36,7 @@ class MentionsPanelWidget extends StatefulWidget {
     this.timestampFormat = kDefaultTimestampFormat,
     this.checkeredMessages = false,
     this.lineSeparator = false,
+    this.sharedChatMode = 'spotlight',
     super.key,
   });
 
@@ -92,6 +94,7 @@ class MentionsPanelWidgetState extends State<MentionsPanelWidget> {
                 checkeredMessages: widget.checkeredMessages,
                 lineSeparator: widget.lineSeparator,
                 isAlternateBackground: i.isEven,
+                sharedChatMode: widget.sharedChatMode,
               );
             }
 
@@ -107,6 +110,7 @@ class MentionsPanelWidgetState extends State<MentionsPanelWidget> {
               checkeredMessages: widget.checkeredMessages,
               lineSeparator: widget.lineSeparator,
               isAlternateBackground: i.isEven,
+              sharedChatMode: widget.sharedChatMode,
             );
           },
         );

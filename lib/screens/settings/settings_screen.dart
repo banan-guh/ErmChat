@@ -36,6 +36,7 @@ class SettingsScreen extends StatelessWidget {
   final ValueChanged<int>? onEmoteTierChanged;
   final ValueChanged<int>? onEmoteCacheMaxChanged;
   final ValueChanged<EmoteFetchAutoMode>? onEmoteAutoModeChanged;
+  final ValueChanged<String>? onSharedChatModeChanged;
   final ValueNotifier<bool>? mobileNotifier;
   final ValueNotifier<List<String>>? channelNotifier;
   final ValueChanged<String>? onLeaveChannel;
@@ -71,6 +72,7 @@ class SettingsScreen extends StatelessWidget {
     this.onEmoteTierChanged,
     this.onEmoteCacheMaxChanged,
     this.onEmoteAutoModeChanged,
+    this.onSharedChatModeChanged,
     this.mobileNotifier,
     this.channelNotifier,
     this.onLeaveChannel,
@@ -145,6 +147,7 @@ class SettingsScreen extends StatelessWidget {
                   onAnimateGifsChanged: onAnimateGifsChanged,
                   onEmoteFpsCapChanged: onEmoteFpsCapChanged,
                   onAlwaysAnimatePanelChanged: onAlwaysAnimatePanelChanged,
+                  onSharedChatModeChanged: onSharedChatModeChanged,
                 ),
               ),
             ),

@@ -483,6 +483,17 @@ class IrcService extends IrcConnection {
         : null;
     if (channelName == null) return;
 
+    // Shared chat mirrors foreign USERNOTICEs with the generic
+    // `sharedchatnotice` type and the real event in `source-msg-id`. Mirrored
+    // notices are dropped except announcements (DankChat-style) so the other
+    // community's sub/resub/streak events stay out of this channel's view.
+    var msgId = msg.tags['msg-id'] ?? '';
+    if (msgId == 'sharedchatnotice') {
+      final sourceMsgId = msg.tags['source-msg-id'];
+      if (sourceMsgId != 'announcement') return;
+      msgId = 'announcement';
+    }
+
     final ircPrefLogin = msg.prefix != null && msg.prefix!.contains('!')
         ? msg.prefix!.substring(0, msg.prefix!.indexOf('!'))
         : null;
@@ -494,7 +505,7 @@ class IrcService extends IrcConnection {
     _userNoticeController.add(
       UserNoticeEvent(
         channel: channelName,
-        msgId: msg.tags['msg-id'] ?? '',
+        msgId: msgId,
         login: login,
         displayName: displayName,
         systemMsg: systemMsg,
@@ -639,11 +650,20 @@ TwitchMessage parseIrcChatMessage(
       ? ircMsg.tags['color']!
       : pickColor(user.login);
 
-  // Shared chat: source-room-id carries the channel the message originated in.
+  // Shared chat: Twitch stamps every message with source-* tags during an
+  // active session. Only mirrored messages (source-room-id differs from this
+  // room's room-id) are foreign; native messages carry their own room id and
+  // must not show the attribution chip.
   final sourceRoomId = ircMsg.tags['source-room-id'];
-  final sourceBroadcasterId = (sourceRoomId != null && sourceRoomId.isNotEmpty)
+  final sourceBroadcasterId =
+      (sourceRoomId != null &&
+          sourceRoomId.isNotEmpty &&
+          sourceRoomId != ircMsg.tags['room-id'])
       ? sourceRoomId
       : null;
+  // The original message id from the source channel; stable across every
+  // mirrored copy, unlike `id` which is unique per receiving room.
+  final sourceMessageId = ircMsg.tags['source-id'];
 
   // Cheer messages carry a `bits` tag with the amount; highlight them like
   // sub notices (PRIMARY purple banner).
@@ -671,6 +691,12 @@ TwitchMessage parseIrcChatMessage(
     ),
     badges: parseIrcBadges(ircMsg.tags['badges']),
     sourceBroadcasterId: sourceBroadcasterId,
+    sourceMessageId:
+        (sourceBroadcasterId != null &&
+            sourceMessageId != null &&
+            sourceMessageId.isNotEmpty)
+        ? sourceMessageId
+        : null,
     isFirstMessage: ircMsg.tags['first-msg'] == '1',
     bitsAmount: bitsAmount,
     systemAccent: bitsAmount != null ? announcementColors['PRIMARY'] : null,

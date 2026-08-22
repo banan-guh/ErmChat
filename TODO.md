@@ -14,11 +14,12 @@
 
 - [ ] **Documentation** - architecture, data flow, key design decisions, non-obvious logic.
 - [*] **Update AGENTS.md periodically** - not a checklist, just a chore, reminder.
-- [ ] **/warn** - missing manage:warnings scope. Add slash command + long-press menu row.
-- [ ] **Poll/prediction broadcaster commands** - /poll /cancelpoll /endpoll /prediction etc. Needs channel:manage:polls + predictions scopes.
-- [ ] **Command macros** - local custom commands, {1} {2} {n+} placeholder expansion before send, stored per account.
-- [ ] **Join robustness** - unlisted 7TV emote filter; surface suspended / nonexistent channel join failures.
+- [x] **/warn** - missing manage:warnings scope. Add slash command + long-press menu row.
+- [x] **Poll/prediction broadcaster commands** - /poll /cancelpoll /endpoll /prediction etc. Needs channel:manage:polls + predictions scopes.
+- [x] **Command macros** - local custom commands, {1} {2} {n+} placeholder expansion before send, stored per account.
+- [x] **Join robustness** - unlisted 7TV emote filter; surface suspended / nonexistent channel join failures.
 - [ ] **7TV name paints** - animated personal name colors, repaint rows when a paint arrives late.
+- [ ] **un-overlap notifs** - keepalive / push notifs are same panel, split them
 
 ## Bugs
 
@@ -38,8 +39,8 @@
 
 - [+] **OS notifications + background** - background finished, notifs finished for android only, not apple.
 - [ ] **Mod View** - official twitch website style. AutoMod queue (hold / approve / deny) as first tab.
-- [ ] **Shared Chat** - flesh out feature
-- [ ] **Spotlight** - spotlight / hide / fade controls. from limerino
+- [+] **Shared Chat** - mirror-only marking, sharedchatnotice unwrap/drop, source-channel emote scoping, lazy participant fetch, ping dedup
+- [+] **Spotlight** - global 3-way setting (spotlight/fade/hide) for shared-chat foreign messages; fade dims at 55% opacity, hide drops at ingestion
 - [ ] **VOD / clip chat replay** - past broadcasts + clips with synced read-only chat.
 - [ ] **iOS mention push** - android works, apple server doesn't exist yet.
 - [ ] **Notification tuning** - quiet hours, per-channel mutes, sender cooldowns, collapse sub train bursts.
@@ -54,10 +55,10 @@
 - [ ] **Announcement highlight for remaining USERNOTICE types** - `standardpayforward`, `communitypayforward`, `charitydonation`, `modiversary`, etc. render as plain system text with no accent. (`bitsbadgetier` now highlights with the subs.) Deferred until the sub/watch-streak highlight work is pushed.
 - [+] **Injectable TwitchBadgeService** - injected like EventSubService/IrcService (TwitchChatApp/HomeScreen params).
 - [ ] **AVIF support** - Decode AVIF emotes via libavif + dav1d through the existing FFI shim (`emote_decode_avif`; the shim API is already format-agnostic, see PLAN.md). 7tv uses AVIF so if we can get this to work we can save lots.
-- [ ] **Token refresh instead of re-auth every 60 days** - Access tokens expire roughly every 60 days; implement a refresh path instead of forcing full re-auth. Note: implicit-grant tokens (`response_type=token`) can't be refreshed - requires an auth flow change (e.g. device code grant).
+- [-] **Token refresh instead of re-auth every 60 days** - Access tokens expire roughly every 60 days; implement a refresh path instead of forcing full re-auth. Note: implicit-grant tokens (`response_type=token`) can't be refreshed - requires an auth flow change (e.g. device code grant).
 - [-] **Make select UI more friendly** - reference dankchat when selecting text. investigate far future.
 - [-] **Inkwell on top** - move inkwell of half-under msgs to fully under (currently overlaps). - somewhere it got fixed I think.
-- [ ] **Translations** - how?
+- [ ] **Translations** - how? - l110 or whatever it's called i dont remember
 - [ ] **Accessibility** - make wishlist
 
 ## SMALL bugs

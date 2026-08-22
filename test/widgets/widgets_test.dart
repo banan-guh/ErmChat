@@ -2631,7 +2631,13 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('HH:mm'), findsOneWidget);
 
-      await tester.tap(find.widgetWithText(SwitchListTile, 'Show timestamps'));
+      final showTimestampsToggle = find.widgetWithText(
+        SwitchListTile,
+        'Show timestamps',
+      );
+      await tester.ensureVisible(showTimestampsToggle);
+      await tester.pumpAndSettle();
+      await tester.tap(showTimestampsToggle);
       await tester.pumpAndSettle();
       var prefs = await SharedPreferences.getInstance();
       expect(prefs.getBool('show_timestamps'), isFalse);
