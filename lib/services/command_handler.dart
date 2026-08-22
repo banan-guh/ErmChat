@@ -62,6 +62,13 @@ class CommandHandler {
     TwitchCommand(name: '/shieldoff'),
     TwitchCommand(name: '/commercial'),
     TwitchCommand(name: '/marker'),
+    TwitchCommand(name: '/poll'),
+    TwitchCommand(name: '/cancelpoll'),
+    TwitchCommand(name: '/endpoll'),
+    TwitchCommand(name: '/prediction'),
+    TwitchCommand(name: '/lockprediction'),
+    TwitchCommand(name: '/cancelprediction'),
+    TwitchCommand(name: '/resolveprediction'),
     TwitchCommand(name: '/w'),
     TwitchCommand(name: '/block'),
     TwitchCommand(name: '/unblock'),
@@ -217,6 +224,30 @@ class CommandHandler {
     }
     if (acc != 0 || !lastWasUnit) return null;
     return seconds;
+  }
+
+  /// Splits the Chatterino-style poll/prediction syntax
+  /// "[duration] <title> | <option> | <option>" into its parts. The optional
+  /// leading duration token ("60", "2m", "1h30m") is consumed only when it
+  /// parses as a duration and more tokens remain. Returns null when the line
+  /// has no title or fewer than two options.
+  static ({int duration, String title, List<String> options})?
+  _parsePipeCommand(String joined, {required int defaultDuration}) {
+    final segments = joined.split('|').map((s) => s.trim()).toList();
+    if (segments.length < 3 || segments.any((s) => s.isEmpty)) return null;
+
+    var title = segments[0];
+    var duration = defaultDuration;
+    final tokens = title.split(_whitespaceRe);
+    if (tokens.length > 1) {
+      final parsed = _parseDurationSeconds(tokens.first);
+      if (parsed != null && parsed > 0) {
+        duration = parsed;
+        title = tokens.sublist(1).join(' ');
+      }
+    }
+    if (title.isEmpty) return null;
+    return (duration: duration, title: title, options: segments.sublist(1));
   }
 
   Future<void> handle(String text, String channel, TwitchAuth auth) async {
@@ -914,6 +945,217 @@ class CommandHandler {
           );
           if (ok) {
             addSystemMessage(channel, 'Stream marker added.');
+          }
+
+        case '/poll':
+          const pollUsage =
+              'Usage: /poll [duration] <title> | <choice 1> | <choice 2> [| more] - '
+              'Duration (default: 60s) must be 15-1800 seconds; 2-5 choices.';
+          if (args.isEmpty) {
+            addSystemMessage(channel, pollUsage);
+            return;
+          }
+          final parsedPoll = _parsePipeCommand(
+            args.join(' '),
+            defaultDuration: 60,
+          );
+          if (parsedPoll == null ||
+              parsedPoll.duration < 15 ||
+              parsedPoll.duration > 1800 ||
+              parsedPoll.options.length < 2 ||
+              parsedPoll.options.length > 5) {
+            addSystemMessage(channel, pollUsage);
+            return;
+          }
+          final ok = await _moderate(
+            'create poll',
+            channel,
+            () => twitchApi.createPoll(
+              auth,
+              broadcasterId: broadcasterId,
+              title: parsedPoll.title,
+              choices: parsedPoll.options,
+              durationSeconds: parsedPoll.duration,
+            ),
+          );
+          if (ok) {
+            addSystemMessage(
+              channel,
+              'Poll started (${parsedPoll.duration}s).',
+            );
+          }
+
+        case '/cancelpoll':
+        case '/endpoll':
+          final archivePoll = cmd == '/cancelpoll';
+          final polls = await twitchApi.getPolls(auth, broadcasterId);
+          if (twitchApi.lastErrorStatus != null) {
+            addSystemMessage(
+              channel,
+              'Failed to fetch polls - ${_failureReason()}',
+            );
+            return;
+          }
+          Map<String, dynamic>? activePoll;
+          for (final p in polls) {
+            if (p['status'] == 'ACTIVE') {
+              activePoll = p;
+              break;
+            }
+          }
+          if (activePoll == null) {
+            addSystemMessage(channel, 'No poll is currently running.');
+            return;
+          }
+          final ok = await _moderate(
+            archivePoll ? 'cancel the poll' : 'end the poll',
+            channel,
+            () => twitchApi.endPoll(
+              auth,
+              broadcasterId: broadcasterId,
+              pollId: activePoll!['id'] as String,
+              archive: archivePoll,
+            ),
+          );
+          if (ok) {
+            addSystemMessage(
+              channel,
+              archivePoll ? 'The poll was cancelled.' : 'The poll has ended.',
+            );
+          }
+
+        case '/prediction':
+          const predictionUsage =
+              'Usage: /prediction [window] <title> | <outcome 1> | <outcome 2> [| more] - '
+              'Window (default: 60s) must be 10-2592000 seconds; 2-11 outcomes.';
+          if (args.isEmpty) {
+            addSystemMessage(channel, predictionUsage);
+            return;
+          }
+          final parsedPrediction = _parsePipeCommand(
+            args.join(' '),
+            defaultDuration: 60,
+          );
+          if (parsedPrediction == null ||
+              parsedPrediction.duration < 10 ||
+              parsedPrediction.duration > 2592000 ||
+              parsedPrediction.options.length < 2 ||
+              parsedPrediction.options.length > 11) {
+            addSystemMessage(channel, predictionUsage);
+            return;
+          }
+          final ok = await _moderate(
+            'create prediction',
+            channel,
+            () => twitchApi.createPrediction(
+              auth,
+              broadcasterId: broadcasterId,
+              title: parsedPrediction.title,
+              outcomes: parsedPrediction.options,
+              windowSeconds: parsedPrediction.duration,
+            ),
+          );
+          if (ok) {
+            addSystemMessage(
+              channel,
+              'Prediction started (${parsedPrediction.duration}s).',
+            );
+          }
+
+        case '/lockprediction':
+        case '/cancelprediction':
+        case '/resolveprediction':
+          final predictions = await twitchApi.getPredictions(
+            auth,
+            broadcasterId,
+          );
+          if (twitchApi.lastErrorStatus != null) {
+            addSystemMessage(
+              channel,
+              'Failed to fetch predictions - ${_failureReason()}',
+            );
+            return;
+          }
+          Map<String, dynamic>? open;
+          for (final p in predictions) {
+            if (p['status'] == 'OPEN') {
+              open = p;
+              break;
+            }
+          }
+          if (open == null) {
+            addSystemMessage(channel, 'No prediction is currently running.');
+            return;
+          }
+
+          String status;
+          String successMsg;
+          String? winningOutcomeId;
+          if (cmd == '/lockprediction') {
+            status = 'LOCKED';
+            successMsg = 'Predictions are now locked.';
+          } else if (cmd == '/cancelprediction') {
+            status = 'CANCELED';
+            successMsg =
+                'The prediction was cancelled and channel points were refunded.';
+          } else {
+            // /resolveprediction <1-based index | exact outcome title>.
+            if (args.isEmpty) {
+              addSystemMessage(
+                channel,
+                'Usage: /resolveprediction <outcome number or exact title>',
+              );
+              return;
+            }
+            final outcomes = (open['outcomes'] as List<dynamic>? ?? [])
+                .cast<Map>();
+            String? matchTitle;
+            final selector = args.join(' ').trim();
+            final index = int.tryParse(selector);
+            if (index != null && index >= 1 && index <= outcomes.length) {
+              matchTitle = outcomes[index - 1]['title'] as String?;
+            } else {
+              for (final o in outcomes) {
+                if ((o['title'] as String?)?.toLowerCase() ==
+                    selector.toLowerCase()) {
+                  matchTitle = o['title'] as String?;
+                  break;
+                }
+              }
+            }
+            final outcomeId =
+                index != null && index >= 1 && index <= outcomes.length
+                ? outcomes[index - 1]['id'] as String?
+                : outcomes
+                      .where(
+                        (o) =>
+                            (o['title'] as String?)?.toLowerCase() ==
+                            selector.toLowerCase(),
+                      )
+                      .map((o) => o['id'] as String?)
+                      .firstOrNull;
+            if (outcomeId == null) {
+              addSystemMessage(channel, 'No outcome matching "$selector".');
+              return;
+            }
+            status = 'RESOLVED';
+            winningOutcomeId = outcomeId;
+            successMsg =
+                'The prediction was resolved${matchTitle != null ? ': $matchTitle' : ''}.';
+          }
+          final ok = await _moderate(
+            'end the prediction',
+            channel,
+            () => twitchApi.endPrediction(
+              auth,
+              broadcasterId: broadcasterId,
+              predictionId: open!['id'] as String,
+              status: status,
+              winningOutcomeId: winningOutcomeId,
+            ),
+          );
+          if (ok) {
+            addSystemMessage(channel, successMsg);
           }
 
         case '/block':

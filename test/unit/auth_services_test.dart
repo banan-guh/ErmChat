@@ -996,6 +996,258 @@ void main() {
     });
   });
 
+  group('polls and predictions', () {
+    test('/poll posts title, choices and duration', () async {
+      final requests = <http.Request>[];
+      final handler = createHandler(
+        MockClient((req) async {
+          requests.add(req);
+          return http.Response('{"data":[{"id":"p1"}]}', 200);
+        }),
+      );
+
+      await handler.handle('/poll best emote | Kappa | PogChamp', 'a', auth);
+
+      expect(systemMessages, ['Poll started (60s).']);
+      final req = requests.single;
+      expect(req.method, 'POST');
+      expect(req.url.path, '/helix/polls');
+      final body = jsonDecode(req.body) as Map;
+      expect(body['broadcaster_id'], '111');
+      expect(body['title'], 'best emote');
+      expect((body['choices'] as List).map((c) => c['title']), [
+        'Kappa',
+        'PogChamp',
+      ]);
+      expect(body['duration'], 60);
+    });
+
+    test('/poll leading duration token is consumed', () async {
+      http.Request? captured;
+      final handler = createHandler(
+        MockClient((req) async {
+          captured = req;
+          return http.Response('{"data":[]}', 200);
+        }),
+      );
+
+      await handler.handle('/poll 2m pick one | x | y | z', 'a', auth);
+
+      expect(systemMessages, ['Poll started (120s).']);
+      final body = jsonDecode(captured!.body) as Map;
+      expect(body['duration'], 120);
+      expect(body['title'], 'pick one');
+      expect(body['choices'], hasLength(3));
+    });
+
+    test('/poll rejects out-of-range duration and single choice', () async {
+      final handler = createHandler(
+        MockClient((req) async => http.Response('{"data":[]}', 200)),
+      );
+
+      await handler.handle('/poll 5s too fast | a | b', 'a', auth);
+      expect(systemMessages.single, contains('Duration'));
+
+      systemMessages.clear();
+      await handler.handle('/poll only one | a', 'a', auth);
+      expect(systemMessages.single, contains('2-5 choices'));
+    });
+
+    test('/endpoll terminates the active poll', () async {
+      final requests = <http.Request>[];
+      final handler = createHandler(
+        MockClient((req) async {
+          requests.add(req);
+          if (req.url.path == '/helix/polls' && req.method == 'GET') {
+            return http.Response(
+              '{"data":[{"id":"old","status":"TERMINATED"},{"id":"live","status":"ACTIVE"}]}',
+              200,
+            );
+          }
+          return http.Response('{"data":[]}', 200);
+        }),
+      );
+
+      await handler.handle('/endpoll', 'a', auth);
+
+      expect(systemMessages, ['The poll has ended.']);
+      final patch = requests.where((r) => r.method == 'PATCH').single;
+      final body = jsonDecode(patch.body) as Map;
+      expect(body['id'], 'live');
+      expect(body['status'], 'TERMINATED');
+    });
+
+    test('/cancelpoll archives and reports cancellation', () async {
+      final requests = <http.Request>[];
+      final handler = createHandler(
+        MockClient((req) async {
+          requests.add(req);
+          if (req.url.path == '/helix/polls' && req.method == 'GET') {
+            return http.Response(
+              '{"data":[{"id":"live","status":"ACTIVE"}]}',
+              200,
+            );
+          }
+          return http.Response('{"data":[]}', 200);
+        }),
+      );
+
+      await handler.handle('/cancelpoll', 'a', auth);
+
+      expect(systemMessages, ['The poll was cancelled.']);
+      final patch = requests.where((r) => r.method == 'PATCH').single;
+      expect(jsonDecode(patch.body)['status'], 'ARCHIVED');
+    });
+
+    test('/endpoll without an active poll says so', () async {
+      final handler = createHandler(
+        MockClient(
+          (req) async => http.Response(
+            '{"data":[{"id":"done","status":"COMPLETED"}]}',
+            200,
+          ),
+        ),
+      );
+
+      await handler.handle('/endpoll', 'a', auth);
+
+      expect(systemMessages, ['No poll is currently running.']);
+    });
+
+    test('/prediction posts outcomes and window', () async {
+      final requests = <http.Request>[];
+      final handler = createHandler(
+        MockClient((req) async {
+          requests.add(req);
+          return http.Response('{"data":[{"id":"pr1"}]}', 200);
+        }),
+      );
+
+      await handler.handle('/prediction wins the game? | yes | no', 'a', auth);
+
+      expect(systemMessages, ['Prediction started (60s).']);
+      final req = requests.single;
+      expect(req.url.path, '/helix/predictions');
+      final body = jsonDecode(req.body) as Map;
+      expect(body['title'], 'wins the game?');
+      expect((body['outcomes'] as List).map((o) => o['title']), ['yes', 'no']);
+      expect(body['prediction_window'], 60);
+    });
+
+    test('/resolveprediction by index sends winning_outcome_id', () async {
+      final requests = <http.Request>[];
+      final handler = createHandler(
+        MockClient((req) async {
+          requests.add(req);
+          if (req.url.path == '/helix/predictions' && req.method == 'GET') {
+            return http.Response(
+              '{"data":[{"id":"pr1","status":"OPEN","outcomes":['
+              '{"id":"o1","title":"Blue"},{"id":"o2","title":"Red"}]}]}',
+              200,
+            );
+          }
+          return http.Response('{"data":[]}', 200);
+        }),
+      );
+
+      await handler.handle('/resolveprediction 2', 'a', auth);
+
+      expect(systemMessages, ['The prediction was resolved: Red.']);
+      final patch = requests.where((r) => r.method == 'PATCH').single;
+      final body = jsonDecode(patch.body) as Map;
+      expect(body['status'], 'RESOLVED');
+      expect(body['winning_outcome_id'], 'o2');
+    });
+
+    test('/resolveprediction by exact title', () async {
+      final requests = <http.Request>[];
+      final handler = createHandler(
+        MockClient((req) async {
+          requests.add(req);
+          if (req.url.path == '/helix/predictions' && req.method == 'GET') {
+            return http.Response(
+              '{"data":[{"id":"pr1","status":"OPEN","outcomes":['
+              '{"id":"o1","title":"Blue"},{"id":"o2","title":"Red"}]}]}',
+              200,
+            );
+          }
+          return http.Response('{"data":[]}', 200);
+        }),
+      );
+
+      await handler.handle('/resolveprediction blue', 'a', auth);
+
+      expect(systemMessages, ['The prediction was resolved: Blue.']);
+      final patch = requests.where((r) => r.method == 'PATCH').single;
+      expect(jsonDecode(patch.body)['winning_outcome_id'], 'o1');
+    });
+
+    test('/lockprediction locks the open prediction', () async {
+      final requests = <http.Request>[];
+      final handler = createHandler(
+        MockClient((req) async {
+          requests.add(req);
+          if (req.url.path == '/helix/predictions' && req.method == 'GET') {
+            return http.Response(
+              '{"data":[{"id":"pr1","status":"OPEN","outcomes":[]}]}',
+              200,
+            );
+          }
+          return http.Response('{"data":[]}', 200);
+        }),
+      );
+
+      await handler.handle('/lockprediction', 'a', auth);
+
+      expect(systemMessages, ['Predictions are now locked.']);
+      final patch = requests.where((r) => r.method == 'PATCH').single;
+      final body = jsonDecode(patch.body) as Map;
+      expect(body['status'], 'LOCKED');
+      expect(body.containsKey('winning_outcome_id'), isFalse);
+    });
+
+    test('/cancelprediction cancels the open prediction', () async {
+      final requests = <http.Request>[];
+      final handler = createHandler(
+        MockClient((req) async {
+          requests.add(req);
+          if (req.url.path == '/helix/predictions' && req.method == 'GET') {
+            return http.Response(
+              '{"data":[{"id":"pr1","status":"OPEN","outcomes":[]}]}',
+              200,
+            );
+          }
+          return http.Response('{"data":[]}', 200);
+        }),
+      );
+
+      await handler.handle('/cancelprediction', 'a', auth);
+
+      expect(systemMessages.single, contains('refunded'));
+      final patch = requests.where((r) => r.method == 'PATCH').single;
+      expect(jsonDecode(patch.body)['status'], 'CANCELED');
+    });
+
+    test('/resolveprediction unknown outcome reports it', () async {
+      final handler = createHandler(
+        MockClient((req) async {
+          if (req.url.path == '/helix/predictions' && req.method == 'GET') {
+            return http.Response(
+              '{"data":[{"id":"pr1","status":"OPEN","outcomes":['
+              '{"id":"o1","title":"Blue"}]}]}',
+              200,
+            );
+          }
+          return http.Response('{"data":[]}', 200);
+        }),
+      );
+
+      await handler.handle('/resolveprediction purple', 'a', auth);
+
+      expect(systemMessages, ['No outcome matching "purple".']);
+    });
+  });
+
   group('delete / clear', () {
     test('/delete success targets the message id', () async {
       final requests = <http.Request>[];

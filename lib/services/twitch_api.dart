@@ -664,6 +664,152 @@ class TwitchApi {
     return false;
   }
 
+  // Polls / predictions are broadcaster-only Helix resources. The commands
+  // surface 403s through the shared failure-notice path.
+
+  /// Creates a poll (2-5 choices, 15-1800s duration enforced by the caller).
+  Future<bool> createPoll(
+    TwitchAuth auth, {
+    required String broadcasterId,
+    required String title,
+    required List<String> choices,
+    required int durationSeconds,
+  }) async {
+    _clearError();
+    final uri = Uri.parse('$_base/polls');
+    final body = jsonEncode({
+      'broadcaster_id': broadcasterId,
+      'title': title,
+      'choices': [
+        for (final c in choices) {'title': c},
+      ],
+      'duration': durationSeconds,
+    });
+    final res = await _client.post(uri, headers: _headers(auth), body: body);
+    if (res.statusCode == 200) return true;
+    _setError('createPoll', res);
+    return false;
+  }
+
+  /// Ends the given poll: TERMINATED closes it showing results, ARCHIVED
+  /// closes and archives it without showing results.
+  Future<bool> endPoll(
+    TwitchAuth auth, {
+    required String broadcasterId,
+    required String pollId,
+    required bool archive,
+  }) async {
+    _clearError();
+    final uri = Uri.parse('$_base/polls');
+    final res = await _client.patch(
+      uri,
+      headers: _headers(auth),
+      body: jsonEncode({
+        'broadcaster_id': broadcasterId,
+        'id': pollId,
+        'status': archive ? 'ARCHIVED' : 'TERMINATED',
+      }),
+    );
+    if (res.statusCode == 200) return true;
+    _setError('endPoll', res);
+    return false;
+  }
+
+  /// The channel's polls, newest first. Empty on HTTP failure; callers
+  /// distinguish via lastErrorStatus (getModerators pattern).
+  Future<List<Map<String, dynamic>>> getPolls(
+    TwitchAuth auth,
+    String broadcasterId,
+  ) async {
+    _clearError();
+    final uri = Uri.parse('$_base/polls?broadcaster_id=$broadcasterId');
+    final res = await _client.get(uri, headers: _headers(auth));
+    if (res.statusCode != 200) {
+      _setError('getPolls', res);
+      return const [];
+    }
+    try {
+      final data = jsonDecode(res.body)['data'] as List<dynamic>;
+      return data.cast<Map<String, dynamic>>();
+    } catch (_) {
+      _setError('getPolls: bad response');
+      return const [];
+    }
+  }
+
+  /// Creates a prediction (2-11 outcomes; window in seconds).
+  Future<bool> createPrediction(
+    TwitchAuth auth, {
+    required String broadcasterId,
+    required String title,
+    required List<String> outcomes,
+    required int windowSeconds,
+  }) async {
+    _clearError();
+    final uri = Uri.parse('$_base/predictions');
+    final body = jsonEncode({
+      'broadcaster_id': broadcasterId,
+      'title': title,
+      'outcomes': [
+        for (final o in outcomes) {'title': o},
+      ],
+      'prediction_window': windowSeconds,
+    });
+    final res = await _client.post(uri, headers: _headers(auth), body: body);
+    if (res.statusCode == 200) return true;
+    _setError('createPrediction', res);
+    return false;
+  }
+
+  /// Ends a prediction: LOCKED stops new votes, CANCELED refunds votes,
+  /// RESOLVED awards winners ([winningOutcomeId] required).
+  Future<bool> endPrediction(
+    TwitchAuth auth, {
+    required String broadcasterId,
+    required String predictionId,
+    required String status,
+    String? winningOutcomeId,
+  }) async {
+    _clearError();
+    final uri = Uri.parse('$_base/predictions');
+    final body = <String, dynamic>{
+      'broadcaster_id': broadcasterId,
+      'id': predictionId,
+      'status': status,
+      'winning_outcome_id': ?winningOutcomeId,
+    };
+    final res = await _client.patch(
+      uri,
+      headers: _headers(auth),
+      body: jsonEncode(body),
+    );
+    if (res.statusCode == 200) return true;
+    _setError('endPrediction', res);
+    return false;
+  }
+
+  /// The channel's predictions, newest first. Same error semantics as
+  /// [getPolls].
+  Future<List<Map<String, dynamic>>> getPredictions(
+    TwitchAuth auth,
+    String broadcasterId,
+  ) async {
+    _clearError();
+    final uri = Uri.parse('$_base/predictions?broadcaster_id=$broadcasterId');
+    final res = await _client.get(uri, headers: _headers(auth));
+    if (res.statusCode != 200) {
+      _setError('getPredictions', res);
+      return const [];
+    }
+    try {
+      final data = jsonDecode(res.body)['data'] as List<dynamic>;
+      return data.cast<Map<String, dynamic>>();
+    } catch (_) {
+      _setError('getPredictions: bad response');
+      return const [];
+    }
+  }
+
   Future<bool> sendWhisper(
     TwitchAuth auth, {
     required String fromUserId,
