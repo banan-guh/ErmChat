@@ -927,6 +927,75 @@ void main() {
     });
   });
 
+  group('warn', () {
+    test('/warn success via Helix posts user_id and reason', () async {
+      final requests = <http.Request>[];
+      final handler = createHandler(
+        MockClient((req) async {
+          requests.add(req);
+          if (req.url.path == '/helix/users') return userFound();
+          return http.Response('{"data":[{"id":"w1"}]}', 200);
+        }),
+      );
+
+      await handler.handle('/warn foo spamming', 'a', auth);
+
+      expect(systemMessages, ['foo has been warned.']);
+      expect(irc.sent, isEmpty);
+      final req = requests.firstWhere(
+        (r) => r.url.path == '/helix/moderation/warnings',
+      );
+      expect(req.method, 'POST');
+      expect(req.url.queryParameters['broadcaster_id'], '111');
+      expect(req.url.queryParameters['moderator_id'], '222');
+      final body = jsonDecode(req.body) as Map;
+      expect((body['data'] as Map)['user_id'], '999');
+      expect((body['data'] as Map)['reason'], 'spamming');
+    });
+
+    test('/warn without reason omits it from the body', () async {
+      http.Request? captured;
+      final handler = createHandler(
+        MockClient((req) async {
+          if (req.url.path == '/helix/users') return userFound();
+          captured = req;
+          return http.Response('{"data":[]}', 200);
+        }),
+      );
+
+      await handler.handle('/warn foo', 'a', auth);
+
+      expect(systemMessages, ['foo has been warned.']);
+      final body = jsonDecode(captured!.body) as Map;
+      expect(body['data'].containsKey('reason'), isFalse);
+    });
+
+    test('/warn with no args shows usage', () async {
+      final handler = createHandler(
+        MockClient((req) async => http.Response('', 200)),
+      );
+      await handler.handle('/warn', 'a', auth);
+      expect(systemMessages, ['Usage: /warn <username> [reason]']);
+    });
+
+    test('/warn reports failure on 401 (missing scopes)', () async {
+      final handler = createHandler(
+        MockClient((req) async {
+          if (req.url.path == '/helix/users') return userFound();
+          return http.Response('{"message":"Missing scope"}', 401);
+        }),
+      );
+
+      await handler.handle('/warn foo', 'a', auth);
+
+      expect(irc.sent, isEmpty);
+      expect(
+        systemMessages.single,
+        'Failed to warn user - Missing required scope. Re-login with your account and try again.',
+      );
+    });
+  });
+
   group('delete / clear', () {
     test('/delete success targets the message id', () async {
       final requests = <http.Request>[];

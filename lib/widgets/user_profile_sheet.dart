@@ -15,6 +15,7 @@ class UserProfileSheet extends StatefulWidget {
   final VoidCallback onClose;
   final void Function(String login)? onUserBlocked;
   final VoidCallback? onWhisperUser;
+  final VoidCallback? onWarnUser;
 
   const UserProfileSheet({
     super.key,
@@ -28,6 +29,7 @@ class UserProfileSheet extends StatefulWidget {
     required this.onClose,
     this.onUserBlocked,
     this.onWhisperUser,
+    this.onWarnUser,
   });
 
   @override
@@ -258,6 +260,15 @@ class UserProfileSheetState extends State<UserProfileSheet> {
         onTap: () {
           widget.onClose();
           widget.onWhisperUser?.call();
+        },
+      ),
+      ListTile(
+        dense: true,
+        leading: const Icon(Icons.warning_amber_outlined),
+        title: const Text('Warn user'),
+        onTap: () {
+          widget.onClose();
+          widget.onWarnUser?.call();
         },
       ),
       ListTile(

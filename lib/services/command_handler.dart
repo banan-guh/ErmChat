@@ -29,6 +29,7 @@ class CommandHandler {
     TwitchCommand(name: '/timeout'),
     TwitchCommand(name: '/unban'),
     TwitchCommand(name: '/untimeout'),
+    TwitchCommand(name: '/warn'),
     TwitchCommand(name: '/delete'),
     TwitchCommand(name: '/clear'),
     TwitchCommand(name: '/announce'),
@@ -344,6 +345,47 @@ class CommandHandler {
           );
           if (ok) {
             addSystemMessage(channel, '${args[0]} has been unbanned.');
+          }
+
+        case '/warn':
+          if (args.isEmpty) {
+            addSystemMessage(channel, 'Usage: /warn <username> [reason]');
+            return;
+          }
+          final targetLogin = args[0];
+          final warnReason = args.length > 1 ? args.sublist(1).join(' ') : null;
+          final targetId = await _resolveUserId(auth, targetLogin);
+          if (targetId == null) {
+            addSystemMessage(channel, 'No user matching that username.');
+            return;
+          }
+          if (targetId == currentUserId) {
+            addSystemMessage(
+              channel,
+              'Failed to warn user - You cannot warn yourself.',
+            );
+            return;
+          }
+          if (targetId == broadcasterId) {
+            addSystemMessage(
+              channel,
+              'Failed to warn user - You cannot warn the broadcaster.',
+            );
+            return;
+          }
+          final ok = await _moderate(
+            'warn user',
+            channel,
+            () => twitchApi.warnUser(
+              auth,
+              broadcasterId: broadcasterId,
+              moderatorId: currentUserId,
+              userId: targetId,
+              reason: warnReason,
+            ),
+          );
+          if (ok) {
+            addSystemMessage(channel, '$targetLogin has been warned.');
           }
 
         case '/timeout':
