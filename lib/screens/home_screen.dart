@@ -19,6 +19,7 @@ import '../services/emote_manager.dart';
 import '../services/emote_cache_manager.dart';
 import '../services/analytics_service.dart';
 import '../services/twitch_badge_service.dart';
+import '../services/third_party_badge_service.dart';
 import '../services/emote_providers/twitch_emotes.dart';
 import '../util/log.dart';
 import '../util/mention.dart';
@@ -190,6 +191,7 @@ class _HomeScreenState extends State<HomeScreen>
   late final _messageBuilder = MessageBuilder(
     emoteManager: _emoteManager,
     badgeService: _badgeService,
+    thirdPartyBadgeService: _thirdPartyBadgeService,
     onShowEmoteSheet: _showEmoteSheet,
   );
   late final _commandHandler = CommandHandler(
@@ -226,6 +228,7 @@ class _HomeScreenState extends State<HomeScreen>
     probe: _connectivityService.checkConnectivity,
   );
   late final _badgeService = widget.badgeService ?? TwitchBadgeService();
+  late final _thirdPartyBadgeService = ThirdPartyBadgeService();
   final _userStore = UserStore();
   final _channels = <String>[];
   final _channelNotifier = ValueNotifier<List<String>>([]);
@@ -404,6 +407,9 @@ class _HomeScreenState extends State<HomeScreen>
     };
     _connectivityService.addListener(_connectivityListener!);
     _badgeService.fetchGlobalBadges(widget.twitchAuth);
+    _thirdPartyBadgeService.bindSevenTvEvents(_sevenTvClient);
+    unawaited(_thirdPartyBadgeService.fetchFfzBadges());
+    unawaited(_thirdPartyBadgeService.fetchBttvBadges());
     widget.twitchAuth.addListener(_onAuthChanged);
     _focusNode.addListener(_onInputFocusChanged);
     _messageController.addListener(_onInputChanged);
@@ -1391,6 +1397,7 @@ class _HomeScreenState extends State<HomeScreen>
     _irc.dispose();
     _ircRead.dispose();
     _sevenTvClient.dispose();
+    _thirdPartyBadgeService.dispose();
     _emoteManager.removeListener(_onEmotesChanged);
     _emoteManager.dispose();
     widget.twitchAuth.removeListener(_onAuthChanged);

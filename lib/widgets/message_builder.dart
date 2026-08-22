@@ -4,6 +4,7 @@ import '../color_utils.dart';
 import '../models/generic_emote.dart';
 import '../models/twitch_message.dart';
 import '../services/emote_manager.dart';
+import '../services/third_party_badge_service.dart';
 import '../services/twitch_badge_service.dart';
 import '../util/log.dart';
 import 'emote_text.dart';
@@ -11,11 +12,13 @@ import 'emote_text.dart';
 class MessageBuilder {
   final EmoteManager emoteManager;
   final TwitchBadgeService badgeService;
+  final ThirdPartyBadgeService thirdPartyBadgeService;
   final void Function(List<GenericEmote>) onShowEmoteSheet;
 
   MessageBuilder({
     required this.emoteManager,
     required this.badgeService,
+    required this.thirdPartyBadgeService,
     required this.onShowEmoteSheet,
   });
 
@@ -72,7 +75,11 @@ class MessageBuilder {
     TwitchMessage msg, {
     double badgeScale = 1.0,
   }) {
-    if (msg.cachedBadgeSpans != null) return msg.cachedBadgeSpans!;
+    final tpVersion = thirdPartyBadgeService.version;
+    if (msg.cachedBadgeSpans != null &&
+        msg.cachedBadgeSpansVersion == tpVersion) {
+      return msg.cachedBadgeSpans!;
+    }
     final badgeSize = 18.0 * badgeScale;
     final spans = <WidgetSpan>[];
 
@@ -145,6 +152,41 @@ class MessageBuilder {
         );
       }
     }
+
+    if (msg.userId != null) {
+      final tpBadgeUrl =
+          thirdPartyBadgeService.resolveFfzBadgeUrl(msg.userId!) ??
+          thirdPartyBadgeService.resolveBttvBadgeUrl(msg.userId!) ??
+          thirdPartyBadgeService.resolveSevenTvBadgeUrl(msg.userId!);
+      if (tpBadgeUrl != null) {
+        spans.add(
+          WidgetSpan(
+            alignment: PlaceholderAlignment.middle,
+            child: Semantics(
+              label: 'third-party badge',
+              child: Padding(
+                padding: const EdgeInsets.only(right: 2),
+                child: CachedNetworkImage(
+                  imageUrl: tpBadgeUrl,
+                  width: badgeSize,
+                  height: badgeSize,
+                  fit: BoxFit.contain,
+                  fadeInDuration: Duration.zero,
+                  placeholder: (_, _) =>
+                      SizedBox(width: badgeSize, height: badgeSize),
+                  errorWidget: (_, url, error) {
+                    logDebug('Third-party badge load failed: $url - $error');
+                    return SizedBox(width: badgeSize, height: badgeSize);
+                  },
+                ),
+              ),
+            ),
+          ),
+        );
+      }
+    }
+
+    msg.cachedBadgeSpansVersion = tpVersion;
     return msg.cachedBadgeSpans = spans;
   }
 }
