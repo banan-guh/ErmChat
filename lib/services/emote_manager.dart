@@ -659,6 +659,29 @@ class EmoteManager extends ChangeNotifier {
     return result;
   }
 
+  /// Re-resolves [recents] against [suggestions] so an emote shared between
+  /// channels under different names carries the code valid in the given
+  /// channel. Recents store ids only, and the global id index resolves a
+  /// shared id to whichever cache was scanned first, so without this the
+  /// recents grid would insert another channel's alias. Entries with no
+  /// match in [suggestions] are dropped; duplicate ids within [suggestions]
+  /// keep their first occurrence.
+  List<GenericEmote> resolveRecentsForChannel(
+    List<GenericEmote> recents,
+    List<GenericEmote> suggestions,
+  ) {
+    final byId = <String, GenericEmote>{};
+    for (final e in suggestions) {
+      byId.putIfAbsent(e.id, () => e);
+    }
+    final result = <GenericEmote>[];
+    for (final recent in recents) {
+      final resolved = byId[recent.id];
+      if (resolved != null) result.add(resolved);
+    }
+    return result;
+  }
+
   Future<void> preloadGlobalEmotes() async {
     await _ensureProvidersLoaded();
     if (_globalCache != null) return;
