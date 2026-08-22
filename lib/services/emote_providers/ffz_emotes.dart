@@ -1,10 +1,15 @@
 import 'dart:convert';
 import 'dart:isolate';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:http/http.dart' as http;
 import '../../models/generic_emote.dart';
 import '../../util/constants.dart';
 
 class FfzEmoteProvider {
+  @visibleForTesting
+  static GenericEmote? parseEmote(dynamic item, EmoteResolution resolution) =>
+      _parseEmote(item, resolution);
+
   static Future<List<GenericEmote>> fetchGlobal({
     EmoteResolution resolution = EmoteResolution.high,
   }) async {
@@ -57,6 +62,7 @@ class FfzEmoteProvider {
                 isAnimated: parsed.isAnimated,
                 scope: EmoteScope.channel,
                 ownerChannel: channelId,
+                isZeroWidth: parsed.isZeroWidth,
               ),
             );
           }
@@ -90,6 +96,10 @@ class FfzEmoteProvider {
     if (urlPart == null) return null;
     String abs(String url) => url.startsWith('http') ? url : 'https:$url';
     final isAnimated = item['animated'] == true;
+    // FFZ marks overlay ("modifier") emotes with a boolean on the set entry.
+    // modifier_flags carry positional offsets, which we ignore: modifiers
+    // simply stack centered like every other provider's zero-width emotes.
+    final isZeroWidth = item['modifier'] == true;
     return GenericEmote(
       id: id,
       code: name,
@@ -98,6 +108,7 @@ class FfzEmoteProvider {
       url1x: url1 == null ? null : abs(url1),
       url3x: url4 == null ? null : abs(url4),
       isAnimated: isAnimated,
+      isZeroWidth: isZeroWidth,
     );
   }
 }
