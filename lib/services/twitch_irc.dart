@@ -269,6 +269,11 @@ class IrcService extends IrcConnection {
   final _emoteSetsController =
       StreamController<(String?, List<String>)>.broadcast(sync: true);
 
+  // Own badge set-ids per channel from USERSTATE, account-wide ones under
+  // the null channel from GLOBALUSERSTATE. Feeds slow-mode bypass checks
+  // (broadcaster/mods/VIPs/subs are not gated by slow mode).
+  final selfBadges = <String?, Set<String>>{};
+
   Stream<IrcBanEvent> get onBan => _banController.stream;
   Stream<IrcNoticeEvent> get onNotice => _noticeController.stream;
   Stream<IrcNoticeEvent> get onJtvMessage => _jtvController.stream;
@@ -424,18 +429,25 @@ class IrcService extends IrcConnection {
 
   void _handleUserState(IrcMessage msg) {
     final emoteSets = msg.tags['emote-sets'];
-    if (emoteSets == null || emoteSets.isEmpty) return;
-    final ids = emoteSets
-        .split(',')
-        .where((id) => id.trim().isNotEmpty)
-        .toList();
-    if (ids.isEmpty) return;
+    final badges = parseIrcBadges(msg.tags['badges']);
+    if ((emoteSets == null || emoteSets.isEmpty) && badges == null) return;
     // USERSTATE is sent per joined channel and its emote-sets are scoped to
     // that channel; GLOBALUSERSTATE is the account-wide union (null channel).
     final channel = msg.command == 'USERSTATE' && msg.params.isNotEmpty
         ? msg.params[0].substring(1)
         : null;
-    _emoteSetsController.add((channel, ids));
+    if (emoteSets != null && emoteSets.isNotEmpty) {
+      final ids = emoteSets
+          .split(',')
+          .where((id) => id.trim().isNotEmpty)
+          .toList();
+      if (ids.isNotEmpty) {
+        _emoteSetsController.add((channel, ids));
+      }
+    }
+    if (badges != null) {
+      selfBadges[channel] = badges.map((b) => b.setId).toSet();
+    }
   }
 
   void _handleRoomState(IrcMessage msg) {
@@ -519,6 +531,10 @@ class IrcService extends IrcConnection {
   @visibleForTesting
   void emitUserNotice(UserNoticeEvent event) =>
       _userNoticeController.add(event);
+
+  @visibleForTesting
+  void emitRoomState(String channel, Map<String, String> tags) =>
+      _roomStateController.add(IrcRoomStateEvent(channel: channel, tags: tags));
 
   @override
   void dispose() {

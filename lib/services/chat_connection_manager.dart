@@ -400,6 +400,7 @@ class ChatConnectionManager {
     _chatStatusTimers.remove(channel)?.cancel();
     _roomStateTags.remove(channel);
     _streamStatusParts.remove(channel);
+    irc.selfBadges.remove(channel);
   }
 
   void _markUserMessagesDeleted(String channel, String username) {
@@ -467,6 +468,17 @@ class ChatConnectionManager {
     if (isDisposed) return;
     onAnalyticsModeration?.call(channel, isTimeout);
     _markUserMessagesDeleted(channel, user);
+    // Track own timeouts for the input-box countdown. Runs before the
+    // moderation-channel early return so the IRC and EventSub sources can't
+    // double-count: both just re-arm the same expiry.
+    final selfLogin = getCurrentUserLogin()?.toLowerCase();
+    if (selfLogin != null && user.toLowerCase() == selfLogin) {
+      if (isTimeout && duration != null) {
+        _selfTimeoutUntil[channel] = DateTime.now().add(
+          Duration(seconds: duration),
+        );
+      }
+    }
     // While the channel.moderate v2 subscription is active, moderation
     // messages come from EventSub (with reason/duration) — skip the IRC copy.
     if (_moderationChannels.contains(channel)) return;
@@ -545,6 +557,59 @@ class ChatConnectionManager {
   // Helix fetch is kept separately so ROOMSTATE recomposes don't lose it.
   final _roomStateTags = <String, Map<String, String>>{};
   final _streamStatusParts = <String, List<String>>{};
+
+  // Self send-gates per channel: when your latest timeout there expires and
+  // when you last sent a message (the slow-mode cooldown anchor).
+  final _selfTimeoutUntil = <String, DateTime>{};
+  final _lastOwnMessageAt = <String, DateTime>{};
+
+  // Badge set-ids that bypass slow mode on Twitch.
+  static const _slowExemptBadges = {
+    'broadcaster',
+    'moderator',
+    'vip',
+    'subscriber',
+    'founder',
+    'staff',
+    'admin',
+    'global_mod',
+  };
+
+  bool _bypassesSlowMode(String channel) {
+    final badges =
+        irc.selfBadges[channel] ?? irc.selfBadges[null] ?? const <String>{};
+    return badges.intersection(_slowExemptBadges).isNotEmpty;
+  }
+
+  /// Seconds of the channel's current slow mode from the merged ROOMSTATE
+  /// tags; 0 when off (missing/empty/0 all mean off).
+  int slowModeSeconds(String channel) =>
+      int.tryParse(_roomStateTags[channel]?['slow'] ?? '') ?? 0;
+
+  /// Seconds left on your timeout in [channel], null when none is active.
+  int? remainingSelfTimeout(String channel) {
+    final until = _selfTimeoutUntil[channel];
+    if (until == null) return null;
+    final left = until.difference(DateTime.now()).inSeconds;
+    if (left <= 0) {
+      _selfTimeoutUntil.remove(channel);
+      return null;
+    }
+    return left;
+  }
+
+  /// Seconds left before you may send again in [channel] under slow mode,
+  /// measured from your own last message. Null when slow mode is off, your
+  /// badges bypass it, or the window has elapsed.
+  int? remainingSlowCooldown(String channel) {
+    final slow = slowModeSeconds(channel);
+    if (slow <= 0 || _bypassesSlowMode(channel)) return null;
+    final sentAt = _lastOwnMessageAt[channel];
+    if (sentAt == null) return null;
+    final elapsed = DateTime.now().difference(sentAt).inSeconds;
+    final left = slow - elapsed;
+    return left > 0 ? left : null;
+  }
 
   Future<void> fetchChatStatus(String channel) async {
     final auth = twitchAuth;
@@ -1101,6 +1166,7 @@ class ChatConnectionManager {
     // after a (re)connect Twitch may not have processed the JOIN yet, and a
     // PRIVMSG sent in that window can be dropped with no error and no local
     // echo. Fall back to Helix until the channel is confirmed joined.
+    _lastOwnMessageAt[channel] = DateTime.now();
     final canHelix = getCurrentUserId() != null && auth.isConfigured;
     if (irc.isConnected && (_joinedChannels.contains(channel) || !canHelix)) {
       irc.sendMessage(
@@ -1645,6 +1711,13 @@ class ChatConnectionManager {
         final duration = event.durationSeconds != null
             ? ' for ${event.durationSeconds}s'
             : '';
+        if (isSelfTarget &&
+            event.action == 'timeout' &&
+            event.durationSeconds != null) {
+          _selfTimeoutUntil[event.channel] = DateTime.now().add(
+            Duration(seconds: event.durationSeconds!),
+          );
+        }
         final reason = (event.reason != null && event.reason!.isNotEmpty)
             ? ': "${event.reason}"'
             : '';
@@ -1657,6 +1730,7 @@ class ChatConnectionManager {
         break;
       case 'unban':
       case 'untimeout':
+        if (isSelfTarget) _selfTimeoutUntil.remove(event.channel);
         onSystemMessage(
           event.channel,
           isSelfTarget

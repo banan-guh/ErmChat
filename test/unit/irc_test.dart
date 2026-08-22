@@ -2733,6 +2733,77 @@ void main() {
     });
   });
 
+  group('send cooldowns', () {
+    Future<(ChatConnectionManager, _TestIrc)> makeConn() async {
+      final irc = _TestIrc();
+      final conn = _makeReconnectConn(
+        eventSub: _NoopEventSub(),
+        irc: irc,
+        onReconnected: () {},
+        channels: ['test'],
+        currentUserLogin: 'viewer',
+      );
+      await conn.connect();
+      irc.emitConnected();
+      return (conn, irc);
+    }
+
+    test('slow mode arms a countdown after your own message', () async {
+      final (conn, irc) = await makeConn();
+      irc.handleLine('@room-id=1;slow=30 :tmi.twitch.tv ROOMSTATE #test');
+      expect(
+        conn.remainingSlowCooldown('test'),
+        isNull,
+        reason: 'no countdown before you send anything',
+      );
+
+      await conn.doSendMessage('hi', 'test');
+
+      expect(conn.remainingSlowCooldown('test'), inInclusiveRange(25, 30));
+      conn.dispose();
+    });
+
+    test('slow-exempt badges skip the slow-mode countdown', () async {
+      final (conn, irc) = await makeConn();
+      irc.handleLine('@room-id=1;slow=30 :tmi.twitch.tv ROOMSTATE #test');
+      irc.selfBadges['test'] = {'moderator'};
+
+      await conn.doSendMessage('hi', 'test');
+
+      expect(conn.remainingSlowCooldown('test'), isNull);
+      conn.dispose();
+    });
+
+    test('own timeout arms the countdown, other timeouts do not', () async {
+      final (conn, irc) = await makeConn();
+
+      irc.handleLine('@ban-duration=60 :tmi.twitch.tv CLEARCHAT #test :forsen');
+      await Future<void>.delayed(Duration.zero);
+      expect(conn.remainingSelfTimeout('test'), isNull);
+
+      irc.handleLine(
+        '@ban-duration=600 :tmi.twitch.tv CLEARCHAT #test :viewer',
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(conn.remainingSelfTimeout('test'), inInclusiveRange(595, 600));
+      conn.dispose();
+    });
+
+    test(
+      'an already-elapsed timeout clears instead of counting down',
+      () async {
+        final (conn, irc) = await makeConn();
+
+        irc.handleLine(
+          '@ban-duration=0 :tmi.twitch.tv CLEARCHAT #test :viewer',
+        );
+        await Future<void>.delayed(Duration.zero);
+        expect(conn.remainingSelfTimeout('test'), isNull);
+        conn.dispose();
+      },
+    );
+  });
+
   group('reconnectIfNecessary', () {
     test('does not reconnect a healthy connection', () {
       fakeAsync((async) {
