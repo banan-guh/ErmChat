@@ -172,9 +172,6 @@ class EmoteManager extends ChangeNotifier {
   // Refresh TTLs: emote caches are only refetched once they're older than
   // the TTL. Unmetered connections refresh every 12h; cellular gets 24h so
   // the rake uses less data.
-  // TODO(expand): connectivity-based refresh policy - e.g. a "refresh only on
-  // wifi" settings toggle, skip channel rakes entirely on cellular,
-  // per-connection image precache policy, data-usage stats.
   static const _wifiTtl = Duration(hours: 12);
   static const _mobileTtl = Duration(hours: 24);
   static const _connectivityProbeTtl = Duration(seconds: 60);

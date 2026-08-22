@@ -91,6 +91,7 @@ abstract class IrcConnection {
   bool _disposed = false;
   int _reconnectAttempt = 0;
   bool _awaitingPong = false;
+  bool _fatalAuth = false;
   // In-flight liveness probes (checkAlive), keyed by the PING token each one
   // sends; a PONG is only accepted for the exact token it echoes.
   final _pingAwaiters = <String, Completer<bool>>{};
@@ -179,6 +180,7 @@ abstract class IrcConnection {
       logDebug('[$debugPrefix] already connected, skipping reconnect');
       return Future.value();
     }
+    _fatalAuth = false;
     _runGeneration++;
     final firstSettled = Completer<void>();
     unawaited(_run(_runGeneration, firstSettled));
@@ -202,6 +204,8 @@ abstract class IrcConnection {
       // A server-requested reconnect is honored immediately (no backoff).
       if (outcome == _AttemptOutcome.reconnect) continue;
       if (outcome == _AttemptOutcome.stopped) break;
+      // Fatal auth failure: the token is dead and retrying can't help.
+      if (outcome == _AttemptOutcome.fatalAuth) break;
       _reconnectAttempt++;
       final wake = await _sleep(_backoffDelay(_reconnectAttempt), gen);
       if (_disposed || gen != _runGeneration) break;
@@ -270,11 +274,14 @@ abstract class IrcConnection {
 
         // Serve until the socket dies (error, close, server RECONNECT, PONG
         // timeout or an explicit disconnect).
-        await death.future;
+        final deathReason = await death.future;
         // Clear the socket before the status event so listeners that rebuild
         // on it (e.g. the type bar hint) don't briefly show "connected".
         _disconnect();
         _emitStatus(IrcConnectionStatus.disconnected);
+        if (deathReason == _DeathReason.authFailed) {
+          return _AttemptOutcome.fatalAuth;
+        }
         return _AttemptOutcome.failure;
       } catch (e) {
         logDebug('$debugPrefix connect error: $e');
@@ -575,11 +582,26 @@ abstract class IrcConnection {
       }
 
       dispatchLine(line);
+
+      // If the subclass flagged a fatal auth error during dispatch, stop
+      // processing any remaining lines in this batch.
+      if (_fatalAuth) return;
     }
   }
 
   @visibleForTesting
   void handleLine(String raw) => _handleLine(raw);
+
+  /// Called by subclass [dispatchLine] when a fatal auth failure is detected
+  /// (e.g. Twitch NOTICE * :Login authentication failed). Signals the death
+  /// of this socket and prevents any further reconnect attempts.
+  @protected
+  void signalFatalAuthFailure() {
+    if (_fatalAuth || _socketDeath == null) return;
+    _fatalAuth = true;
+    _disconnect();
+    _signalDeath(_DeathReason.authFailed);
+  }
 
   @visibleForTesting
   bool get awaitingPong => _awaitingPong;
@@ -886,8 +908,8 @@ class IrcMessage {
   });
 }
 
-enum _DeathReason { error, closed, reconnect }
+enum _DeathReason { error, closed, reconnect, authFailed }
 
 enum _WakeReason { timer, connectivity, stopped }
 
-enum _AttemptOutcome { failure, reconnect, stopped }
+enum _AttemptOutcome { failure, reconnect, stopped, fatalAuth }

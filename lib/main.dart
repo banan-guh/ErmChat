@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use
+
 import 'dart:io';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
@@ -29,7 +31,7 @@ ThemeData buildLightTheme({Color seedColor = Colors.blue}) => ThemeData(
   useMaterial3: true,
   sliderTheme: const SliderThemeData(
     year2023: false,
-  ), // ignore: deprecated_member_use
+  ),
 );
 
 ThemeData buildDarkTheme({
@@ -47,7 +49,7 @@ ThemeData buildDarkTheme({
     useMaterial3: true,
     sliderTheme: const SliderThemeData(
       year2023: false,
-    ), // ignore: deprecated_member_use
+    ),
   );
 }
 

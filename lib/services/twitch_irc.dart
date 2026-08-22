@@ -270,6 +270,7 @@ class IrcService extends IrcConnection {
   // belong to; GLOBALUSERSTATE emits null (account-wide union).
   final _emoteSetsController =
       StreamController<(String?, List<String>)>.broadcast(sync: true);
+  final _authFailedController = StreamController<void>.broadcast();
 
   // Own badge set-ids per channel from USERSTATE, account-wide ones under
   // the null channel from GLOBALUSERSTATE. Feeds slow-mode bypass checks
@@ -288,6 +289,7 @@ class IrcService extends IrcConnection {
   Stream<TwitchMessage> get onWhisper => _whisperController.stream;
   Stream<(String?, List<String>)> get onUserEmoteSets =>
       _emoteSetsController.stream;
+  Stream<void> get onAuthFailed => _authFailedController.stream;
 
   @override
   String get debugPrefix => 'IRC';
@@ -403,10 +405,22 @@ class IrcService extends IrcConnection {
   }
 
   void _handleNotice(IrcMessage msg) {
-    final channelName = msg.params.isNotEmpty
-        ? msg.params[0].substring(1)
-        : null;
-    if (channelName == null || msg.trailing == null) return;
+    final channelParam = msg.params.isNotEmpty ? msg.params[0] : null;
+    // NOTICE * is a connection-level notice (e.g. login failure), not
+    // scoped to any channel.
+    if (channelParam == null || channelParam == '*') {
+      final trailing = msg.trailing;
+      if (trailing != null &&
+          trailing.contains('Login authentication failed')) {
+        _authFailedController.add(null);
+        signalFatalAuthFailure();
+      }
+      return;
+    }
+    final channelName = channelParam.startsWith('#')
+        ? channelParam.substring(1)
+        : channelParam;
+    if (msg.trailing == null) return;
 
     _noticeController.add(
       IrcNoticeEvent(
@@ -550,6 +564,7 @@ class IrcService extends IrcConnection {
     _roomStateController.close();
     _whisperController.close();
     _emoteSetsController.close();
+    _authFailedController.close();
     super.dispose();
   }
 }

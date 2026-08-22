@@ -213,21 +213,30 @@ class _AccountScreenState extends State<AccountScreen> {
                 ),
               ),
             ),
-            for (final account in accounts)
-              ListTile(
-                leading: _AccountAvatar(account: account),
-                title: Text(account.login),
-                subtitle:
-                    account.login.toLowerCase() == auth.login?.toLowerCase()
-                    ? const Text('Active')
-                    : null,
-                trailing:
-                    account.login.toLowerCase() == auth.login?.toLowerCase()
-                    ? Icon(Icons.check, color: theme.colorScheme.primary)
-                    : null,
-                onTap: () => auth.switchTo(account.login),
-                onLongPress: () => _confirmRemove(account),
+            for (final account in accounts) ...[
+              Builder(
+                builder: (context) {
+                  final isActive =
+                      account.login.toLowerCase() == auth.login?.toLowerCase();
+                  final isExpired = account.expired;
+                  final tile = ListTile(
+                    leading: _AccountAvatar(account: account),
+                    title: Text(account.login),
+                    subtitle: isExpired
+                        ? const Text('Expired - log in again')
+                        : isActive
+                        ? const Text('Active')
+                        : null,
+                    trailing: isActive && !isExpired
+                        ? Icon(Icons.check, color: theme.colorScheme.primary)
+                        : null,
+                    onTap: () => auth.switchTo(account.login),
+                    onLongPress: () => _confirmRemove(account),
+                  );
+                  return isExpired ? Opacity(opacity: 0.5, child: tile) : tile;
+                },
               ),
+            ],
           ],
         );
       },

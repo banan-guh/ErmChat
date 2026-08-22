@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../twitch_config.dart';
+import '../util/constants.dart';
 import 'twitch_auth.dart';
 
 class TwitchApi {
@@ -662,6 +663,40 @@ class TwitchApi {
     'Authorization': 'Bearer ${auth.accessToken ?? ''}',
     'Content-Type': 'application/json',
   };
+
+  /// Validates the access token against Twitch. Returns the login/userId
+  /// and remaining lifetime on success, null on any failure.
+  ///
+  /// Caller should check [lastErrorStatus] after a null return: only
+  /// HTTP 401 means the token is definitively dead; network errors are not
+  /// a reason to treat the token as expired.
+  Future<({String login, String userId, int expiresIn})?> validateToken(
+    TwitchAuth auth,
+  ) async {
+    _clearError();
+    final uri = Uri.parse('https://id.twitch.tv/oauth2/validate');
+    try {
+      final res = await _client
+          .get(
+            uri,
+            headers: {'Authorization': 'Bearer ${auth.accessToken ?? ''}'},
+          )
+          .timeout(httpTimeout);
+      if (res.statusCode != 200) {
+        _setError('validateToken', res);
+        return null;
+      }
+      final data = jsonDecode(res.body) as Map<String, dynamic>;
+      return (
+        login: data['login'] as String? ?? '',
+        userId: data['user_id'] as String? ?? '',
+        expiresIn: data['expires_in'] as int? ?? 0,
+      );
+    } catch (e) {
+      _lastError = 'validateToken: $e';
+      return null;
+    }
+  }
 
   void _setError(String label, [http.Response? res]) {
     _lastErrorStatus = res?.statusCode;
