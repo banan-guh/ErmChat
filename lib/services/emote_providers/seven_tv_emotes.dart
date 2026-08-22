@@ -16,6 +16,11 @@ class SevenTvChannelResponse {
 class SevenTvEmoteProvider {
   static const int _zeroWidthFlag = 1 << 8;
 
+  // 7TV v3 emote flags: bit 0 marks the emote private/unlisted, meaning only
+  // the owner, editors and channel mods can access it. Regular viewers get a
+  // broken image, so these are dropped at parse time.
+  static const int _unlistedFlag = 1 << 0;
+
   static Future<List<GenericEmote>> fetchGlobal({
     EmoteResolution resolution = EmoteResolution.high,
   }) async {
@@ -89,6 +94,12 @@ class SevenTvEmoteProvider {
       if (id == null || name == null) continue;
 
       final data = item['data'] as Map<String, dynamic>? ?? item;
+
+      // Unlisted/private emotes render as a broken image for anyone but the
+      // owner's inner circle; skip them before doing any URL work.
+      final rawFlags = data['flags'];
+      if (rawFlags is int && (rawFlags & _unlistedFlag) != 0) continue;
+
       final host = data['host'] as Map<String, dynamic>?;
       if (host == null) continue;
       final baseUrl = host['files'] as List<dynamic>?;
