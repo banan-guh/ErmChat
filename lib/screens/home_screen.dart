@@ -287,6 +287,11 @@ class _HomeScreenState extends State<HomeScreen>
   bool _preferEmotesFirst = false;
   OverlayPanel _activePanel = OverlayPanel.closed;
   bool _emoteSheetOpen = false;
+
+  // Input-box send-gate countdown ("Slow mode: 12s" / "Timed out: 5s"),
+  // ticking once per second while a gate is active on the visible channel.
+  Timer? _cooldownTickTimer;
+  String? _shownCooldownLabel;
   int _maxMessagesPerChannel = 200;
   int _recentMessagesLimit = 100;
   int _nextSystemMessageId = 0;
@@ -380,6 +385,9 @@ class _HomeScreenState extends State<HomeScreen>
     _loadNotificationSettings();
     _loadTestWidgets();
     _chatConn.connect();
+    _cooldownTickTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      _tickCooldownLabel();
+    });
     _chatConn.onWhisper = _onWhisper;
     _emoteManager.accessToken = widget.twitchAuth.accessToken;
     _emoteManager.preloadGlobalEmotes();
@@ -1376,6 +1384,7 @@ class _HomeScreenState extends State<HomeScreen>
     _panelScaleCtrl.dispose();
     _widgetPageCtrl.dispose();
     _testWidgetsTimer?.cancel();
+    _cooldownTickTimer?.cancel();
     _eventSub.dispose();
     _irc.dispose();
     _ircRead.dispose();
@@ -2753,6 +2762,7 @@ class _HomeScreenState extends State<HomeScreen>
     unawaited(_closePanel());
     setState(() {
       _selectedChannel = channel;
+      _shownCooldownLabel = _cooldownLabel();
       _channelsWithUnread.remove(channel);
       _channelsWithUnreadMentions.remove(channel);
       final cleared = _unreadMentionsPerChannel.remove(channel) ?? 0;
@@ -2767,6 +2777,25 @@ class _HomeScreenState extends State<HomeScreen>
     });
     _resetWidgetPage();
     _selectedTabIndex.value = index;
+  }
+
+  // The input-box override text while you cannot send in the visible
+  // channel: your remaining timeout wins over the slow-mode window.
+  String? _cooldownLabel() {
+    final channel = _selectedChannel;
+    if (channel == null || !_channels.contains(channel)) return null;
+    final timeout = _chatConn.remainingSelfTimeout(channel);
+    if (timeout != null) return 'Timed out: ${timeout}s';
+    final slow = _chatConn.remainingSlowCooldown(channel);
+    if (slow != null) return 'Slow mode: ${slow}s';
+    return null;
+  }
+
+  void _tickCooldownLabel() {
+    if (!mounted) return;
+    final label = _cooldownLabel();
+    if (label == _shownCooldownLabel) return;
+    setState(() => _shownCooldownLabel = label);
   }
 
   // Retroactive mention scan: runs once on login. Messages inserted at front
@@ -3388,19 +3417,21 @@ class _HomeScreenState extends State<HomeScreen>
                                   _isWhispersTabActive) &&
                               widget.twitchAuth.isConfigured &&
                               _chatConn.irc.isConnected,
-                          hintText: !widget.twitchAuth.isConfigured
-                              ? 'Connect an account to chat'
-                              : !_chatConn.irc.isConnected
-                              ? 'Reconnecting...'
-                              : _activePanel == OverlayPanel.thread
-                              ? 'Reply to thread...'
-                              : _isWhispersTabActive
-                              ? _whisperTarget != null
-                                    ? 'Whisper to $_whisperTarget...'
-                                    : 'Type /w <username> <message>'
-                              : _activePanel == OverlayPanel.mentions
-                              ? 'Type a message...'
-                              : null,
+                          hintText:
+                              _shownCooldownLabel ??
+                              (!widget.twitchAuth.isConfigured
+                                  ? 'Connect an account to chat'
+                                  : !_chatConn.irc.isConnected
+                                  ? 'Reconnecting...'
+                                  : _activePanel == OverlayPanel.thread
+                                  ? 'Reply to thread...'
+                                  : _isWhispersTabActive
+                                  ? _whisperTarget != null
+                                        ? 'Whisper to $_whisperTarget...'
+                                        : 'Type /w <username> <message>'
+                                  : _activePanel == OverlayPanel.mentions
+                                  ? 'Type a message...'
+                                  : null),
                         ),
                         ListenableBuilder(
                           listenable: Listenable.merge([
