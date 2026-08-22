@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../models/emote_fetch_tier.dart';
 import '../../services/analytics_service.dart';
+import '../../services/emote_manager.dart';
 import '../../services/twitch_auth.dart';
 import '../../services/twitch_oauth.dart';
 import '../../services/tts_controller.dart';
@@ -44,6 +45,7 @@ class SettingsScreen extends StatelessWidget {
   final List<String>? channels;
   final OAuthStarter? oAuthStarter;
   final TtsController? ttsController;
+  final EmoteManager? emoteManager;
 
   const SettingsScreen({
     super.key,
@@ -78,6 +80,7 @@ class SettingsScreen extends StatelessWidget {
     this.channels,
     this.oAuthStarter,
     this.ttsController,
+    this.emoteManager,
   });
 
   @override
@@ -157,6 +160,7 @@ class SettingsScreen extends StatelessWidget {
                   onEmoteCacheMaxChanged: onEmoteCacheMaxChanged,
                   onEmoteAutoModeChanged: onEmoteAutoModeChanged,
                   mobileNotifier: mobileNotifier,
+                  emoteManager: emoteManager,
                 ),
               ),
             ),

@@ -3558,4 +3558,91 @@ void main() {
       expect(await uploader.recentUploads(), isEmpty);
     });
   });
+
+  group('provider visibility toggles', () {
+    Future<EmoteManager> seededManager() async {
+      final persisted = jsonEncode({
+        'ts': DateTime.now().toIso8601String(),
+        'tier': EmoteFetchTier.nothing.index,
+        'emotes': [
+          makeTestEmote(id: 'b1', code: 'BttvE', type: EmoteType.bttv).toJson(),
+          makeTestEmote(id: 'f1', code: 'FfzE', type: EmoteType.ffz).toJson(),
+        ],
+      });
+      SharedPreferences.setMockInitialValues({'emotes3_global': persisted});
+      final manager = EmoteManager(
+        fetchStagger: Duration.zero,
+        tier: EmoteFetchTier.nothing,
+      );
+      await manager.preloadGlobalEmotes();
+      return manager;
+    }
+
+    test('disabling a provider drops it from the merged caches', () async {
+      final manager = await seededManager();
+      expect(manager.byCode('ch')!.byCode.keys, containsAll(['BttvE', 'FfzE']));
+      expect(manager.isProviderEnabled(EmoteType.bttv), isTrue);
+
+      await manager.setProviderEnabled(EmoteType.bttv, false);
+
+      expect(manager.isProviderEnabled(EmoteType.bttv), isFalse);
+      expect(manager.byCode('ch')!.byCode, isNot(contains('BttvE')));
+      expect(manager.byCode('ch')!.byCode, contains('FfzE'));
+      expect(
+        manager.globalEmotesByProvider().keys,
+        isNot(contains('BetterTTV')),
+      );
+    });
+
+    test('re-enabling restores the provider from the retained stash', () async {
+      final manager = await seededManager();
+      await manager.setProviderEnabled(EmoteType.bttv, false);
+      expect(manager.byCode('ch')!.byCode, isNot(contains('BttvE')));
+
+      await manager.setProviderEnabled(EmoteType.bttv, true);
+
+      // No network in the nothing tier: restoration proves the stash path.
+      expect(manager.byCode('ch')!.byCode, contains('BttvE'));
+    });
+
+    test('the disabled set persists across manager instances', () async {
+      final manager = await seededManager();
+      await manager.setProviderEnabled(EmoteType.ffz, false);
+
+      final next = EmoteManager(tier: EmoteFetchTier.nothing);
+      expect(await next.enabledProviders(), {
+        EmoteType.twitch,
+        EmoteType.bttv,
+        EmoteType.sevenTv,
+      });
+      expect(next.isProviderEnabled(EmoteType.ffz), isFalse);
+    });
+
+    test('twitch toggle hides subscriber emotes too', () async {
+      SharedPreferences.setMockInitialValues({});
+      // Low (not nothing): nothing skips storeUserTwitchEmotes entirely.
+      final manager = EmoteManager(
+        fetchStagger: Duration.zero,
+        tier: EmoteFetchTier.low,
+      );
+      await manager.storeUserTwitchEmotes({
+        'ch': [
+          GenericEmote(
+            id: 's1',
+            code: 'SubE',
+            type: EmoteType.twitch,
+            url: 'https://example.com/s1.png',
+            tier: '1',
+            emoteType: 'subscriptions',
+            scope: EmoteScope.channel,
+          ),
+        ],
+      });
+      expect(manager.subscriberEmotesByChannel()['ch'], isNotEmpty);
+
+      await manager.setProviderEnabled(EmoteType.twitch, false);
+
+      expect(manager.subscriberEmotesByChannel(), isEmpty);
+    });
+  });
 }
