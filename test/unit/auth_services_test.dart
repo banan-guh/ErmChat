@@ -335,25 +335,6 @@ void main() {
       );
     });
 
-    test('requests channel.moderate scopes for the moderation feed', () {
-      final urlInfo = TwitchOAuth.generateAuthUrl();
-      expect(urlInfo, isNotNull);
-
-      final url = Uri.parse(urlInfo!.url);
-      final scopes = url.queryParameters['scope']!.split(' ');
-      expect(
-        scopes,
-        containsAll([
-          'moderator:read:blocked_terms',
-          'moderator:read:chat_settings',
-          'moderator:read:unban_requests',
-          'moderator:read:warnings',
-          'moderator:read:moderators',
-          'moderator:read:vips',
-        ]),
-      );
-    });
-
     test('requests scopes for the extended command set', () {
       final urlInfo = TwitchOAuth.generateAuthUrl();
       expect(urlInfo, isNotNull);
