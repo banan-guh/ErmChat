@@ -345,11 +345,19 @@ void main() {
     EmoteUrlProvider.debugDecodeOverride = null;
     NativeEmoteCodec.debugLibPath = '/nonexistent/libemote_codec.so';
     NativeEmoteCodec.reset();
+    // Uncapped baseline: the production default (30) grid-aligns wake times,
+    // which would stretch frame deltas across short pumps and skew the
+    // timing-sensitive playback tests below. Cap behavior gets explicit
+    // coverage in the 'emote fps cap' group.
+    EmoteUrlProvider.fpsCap = 60;
+    EmoteUrlProvider.alwaysAnimatePanel = true;
   });
 
   tearDown(() async {
     EmoteUrlProvider.debugFetchOverride = null;
     EmoteUrlProvider.debugDecodeOverride = null;
+    EmoteUrlProvider.fpsCap = 60;
+    EmoteUrlProvider.alwaysAnimatePanel = true;
     NativeEmoteCodec.debugLibPath = null;
     NativeEmoteCodec.reset();
     PaintingBinding.instance.imageCache.clearLiveImages();
@@ -1163,6 +1171,105 @@ void main() {
         await tester.pump();
         expect(tester.widget<RawImage>(find.byType(RawImage)).image, isNotNull);
         expect(find.byType(Shimmer), findsNothing);
+      });
+    });
+
+    group('emote fps cap', () {
+      test('wake alignment rounds up to the grid; zero disables it', () {
+        expect(EmoteUrlProvider.alignWakeUsToGrid(70000, 33333), 99999);
+        expect(EmoteUrlProvider.alignWakeUsToGrid(99999, 33333), 99999);
+        expect(EmoteUrlProvider.alignWakeUsToGrid(100000, 33333), 133332);
+        expect(EmoteUrlProvider.alignWakeUsToGrid(70000, 0), 70000);
+        expect(EmoteUrlProvider.alignWakeUsToGrid(70000, -5), 70000);
+      });
+
+      Future<void> pumpCappedEmote(
+        WidgetTester tester, {
+        required bool uncapped,
+      }) async {
+        final frameColors = [
+          [255, 0, 0],
+          [0, 255, 0],
+          [0, 0, 255],
+          [255, 255, 0],
+        ];
+        final frames = [
+          for (final c in frameColors)
+            (await tester.runAsync(() => _makeImage(c[0], c[1], c[2])))!,
+        ];
+        EmoteUrlProvider.debugFetchOverride = (url) async =>
+            animatedWebpBytes();
+        EmoteUrlProvider.debugDecodeOverride = (bytes) async => EmoteFrameData(
+          frames: frames,
+          durations: const [
+            Duration(milliseconds: 70),
+            Duration(milliseconds: 70),
+            Duration(milliseconds: 70),
+            Duration(milliseconds: 70),
+          ],
+        );
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: EmoteImage(
+                url: 'https://example.com/capped.webp',
+                uncapped: uncapped,
+              ),
+            ),
+          ),
+        );
+        await tester.runAsync(() async {});
+        await tester.pump();
+      }
+
+      testWidgets('a cap of zero pauses playback on the current frame', (
+        tester,
+      ) async {
+        EmoteUrlProvider.fpsCap = 0;
+        await pumpCappedEmote(tester, uncapped: false);
+        expect(
+          EmoteUrlProvider.currentFrame('https://example.com/capped.webp'),
+          0,
+        );
+        await tester.pump(const Duration(milliseconds: 500));
+        await tester.pump(const Duration(milliseconds: 500));
+        expect(
+          EmoteUrlProvider.currentFrame('https://example.com/capped.webp'),
+          0,
+        );
+      });
+
+      testWidgets('raising the cap from zero resumes playback live', (
+        tester,
+      ) async {
+        EmoteUrlProvider.fpsCap = 0;
+        await pumpCappedEmote(tester, uncapped: false);
+        await tester.pump(const Duration(milliseconds: 500));
+        expect(
+          EmoteUrlProvider.currentFrame('https://example.com/capped.webp'),
+          0,
+        );
+
+        EmoteUrlProvider.applyFpsCap(30);
+        // First tick re-anchors after the pause; the second advances.
+        await tester.pump(const Duration(milliseconds: 10));
+        await tester.pump(const Duration(milliseconds: 500));
+        expect(
+          EmoteUrlProvider.currentFrame('https://example.com/capped.webp'),
+          greaterThan(0),
+        );
+      });
+
+      testWidgets('an uncapped widget animates even at a cap of zero', (
+        tester,
+      ) async {
+        EmoteUrlProvider.fpsCap = 0;
+        await pumpCappedEmote(tester, uncapped: true);
+        await tester.pump(const Duration(milliseconds: 500));
+        expect(
+          EmoteUrlProvider.currentFrame('https://example.com/capped.webp'),
+          greaterThan(0),
+        );
       });
     });
   });

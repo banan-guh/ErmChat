@@ -499,6 +499,7 @@ class EmoteImage extends StatefulWidget {
     this.placeholder,
     this.errorWidget,
     this.alternateUrls,
+    this.uncapped = false,
   });
 
   final String url;
@@ -513,6 +514,11 @@ class EmoteImage extends StatefulWidget {
   /// memory or on disk it renders under a faint shimmer instead of an empty
   /// box.
   final List<String>? alternateUrls;
+
+  /// Plays at the emote's native rate regardless of the global FPS cap
+  /// (including a cap of 0). Used by the emote panel so previews stay
+  /// smooth while chat is throttled.
+  final bool uncapped;
 
   @override
   State<EmoteImage> createState() => _EmoteImageState();
@@ -549,10 +555,33 @@ class _EmoteImageState extends State<EmoteImage> {
   String? _placeholderUrl;
   Object? _loadToken;
 
+  /// URLs currently registered as uncapped on their completers ([url] plus
+  /// an active [_placeholderUrl]). Kept in sync with [EmoteImage.uncapped].
+  final Set<String> _uncappedUrls = {};
+
   @override
   void initState() {
     super.initState();
+    _syncUncappedRegistrations();
     _probePlaceholder();
+  }
+
+  /// Aligns completer-level uncapped registrations with the desired set
+  /// (main URL plus active placeholder when [EmoteImage.uncapped] is set).
+  void _syncUncappedRegistrations() {
+    final desired = <String>{
+      if (widget.uncapped) widget.url,
+      if (widget.uncapped && _placeholderUrl != null) _placeholderUrl!,
+    };
+    for (final url in _uncappedUrls.difference(desired)) {
+      EmoteUrlProvider.removeUncapped(url);
+    }
+    for (final url in desired.difference(_uncappedUrls)) {
+      EmoteUrlProvider.addUncapped(url);
+    }
+    _uncappedUrls
+      ..clear()
+      ..addAll(desired);
   }
 
   /// Probes the smaller alternate scales for a cached copy to use as the
@@ -598,6 +627,7 @@ class _EmoteImageState extends State<EmoteImage> {
       if (!mounted || _loadToken != token) return;
       if (_placeholderUrl == altUrl) return;
       setState(() => _placeholderUrl = altUrl);
+      _syncUncappedRegistrations();
     });
   }
 
@@ -605,6 +635,10 @@ class _EmoteImageState extends State<EmoteImage> {
   void dispose() {
     // Invalidate any in-flight probe; the completer/cache own the rest.
     _loadToken = Object();
+    for (final url in _uncappedUrls) {
+      EmoteUrlProvider.removeUncapped(url);
+    }
+    _uncappedUrls.clear();
     super.dispose();
   }
 
@@ -615,6 +649,9 @@ class _EmoteImageState extends State<EmoteImage> {
       _loadToken = Object();
       _placeholderUrl = null;
       _probePlaceholder();
+    }
+    if (widget.uncapped != oldWidget.uncapped || widget.url != oldWidget.url) {
+      _syncUncappedRegistrations();
     }
   }
 

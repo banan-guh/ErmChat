@@ -17,6 +17,8 @@ class ChatSettingsScreen extends StatefulWidget {
   final ValueChanged<bool>? onShowTimestampsChanged;
   final ValueChanged<String>? onTimestampFormatChanged;
   final ValueChanged<bool>? onAnimateGifsChanged;
+  final ValueChanged<int>? onEmoteFpsCapChanged;
+  final ValueChanged<bool>? onAlwaysAnimatePanelChanged;
 
   const ChatSettingsScreen({
     super.key,
@@ -29,6 +31,8 @@ class ChatSettingsScreen extends StatefulWidget {
     this.onShowTimestampsChanged,
     this.onTimestampFormatChanged,
     this.onAnimateGifsChanged,
+    this.onEmoteFpsCapChanged,
+    this.onAlwaysAnimatePanelChanged,
   });
 
   @override
@@ -45,6 +49,8 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
   bool _showTimestamps = true;
   String _timestampFormat = kDefaultTimestampFormat;
   bool _animateGifs = true;
+  int _emoteFpsCap = 30;
+  bool _alwaysAnimatePanel = true;
 
   @override
   void initState() {
@@ -68,6 +74,9 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
         _timestampFormat =
             prefs.getString(kTimestampFormatPrefKey) ?? kDefaultTimestampFormat;
         _animateGifs = prefs.getBool('animate_gifs') ?? true;
+        _emoteFpsCap = prefs.getInt('emote_fps_cap') ?? 30;
+        _alwaysAnimatePanel =
+            prefs.getBool('always_animate_emote_panel') ?? true;
       });
     }
   }
@@ -249,6 +258,63 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
               await prefs.setBool('animate_gifs', value);
               if (mounted) setState(() => _animateGifs = value);
               widget.onAnimateGifsChanged?.call(value);
+            },
+          ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
+                child: Text(
+                  'Emote frame rate cap: ${_emoteFpsCap == 0 ? 'paused' : '$_emoteFpsCap fps'}',
+                ),
+              ),
+              Slider(
+                value: _emoteFpsCap.toDouble(),
+                min: 0,
+                max: 60,
+                divisions: 12,
+                label: _emoteFpsCap == 0 ? 'Paused' : '$_emoteFpsCap fps',
+                onChanged: (value) {
+                  final v = value.toInt();
+                  final gifsOn = v > 0;
+                  final gifsChanged = gifsOn != _animateGifs;
+                  setState(() {
+                    _emoteFpsCap = v;
+                    _animateGifs = gifsOn;
+                  });
+                  widget.onEmoteFpsCapChanged?.call(v);
+                  if (gifsChanged) {
+                    widget.onAnimateGifsChanged?.call(gifsOn);
+                    SharedPreferences.getInstance().then(
+                      (prefs) => prefs.setBool('animate_gifs', gifsOn),
+                    );
+                  }
+                },
+                onChangeEnd: (value) {
+                  final v = value.toInt();
+                  SharedPreferences.getInstance().then(
+                    (prefs) => prefs.setInt('emote_fps_cap', v),
+                  );
+                },
+              ),
+            ],
+          ),
+          SwitchListTile(
+            secondary: const Icon(Icons.grid_view),
+            title: const Text('Always animate emote panel'),
+            subtitle: const Text(
+              'Keep emote panel previews smooth regardless of the frame rate cap',
+            ),
+            value: _alwaysAnimatePanel,
+            onChanged: (value) async {
+              final prefs = await SharedPreferences.getInstance();
+              await prefs.setBool('always_animate_emote_panel', value);
+              if (mounted) setState(() => _alwaysAnimatePanel = value);
+              widget.onAlwaysAnimatePanelChanged?.call(value);
             },
           ),
           ListTile(

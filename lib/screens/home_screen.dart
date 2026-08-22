@@ -35,6 +35,7 @@ import '../services/tts_controller.dart';
 import '../widgets/autocomplete_dropdown.dart';
 import '../widgets/user_profile_sheet.dart';
 import '../widgets/emote_sheet.dart';
+import '../widgets/emote_image_provider.dart';
 import '../widgets/message_input.dart';
 import '../widgets/media_upload_controller.dart';
 import '../widgets/thread_panel.dart';
@@ -1091,6 +1092,9 @@ class _HomeScreenState extends State<HomeScreen>
       final loadedCacheCap =
           prefs.getInt(emoteCacheMaxPrefsKey) ?? defaultEmoteCacheMax;
       _applyCacheCap(loadedCacheCap);
+      EmoteUrlProvider.applyFpsCap(prefs.getInt('emote_fps_cap') ?? 30);
+      EmoteUrlProvider.alwaysAnimatePanel =
+          prefs.getBool('always_animate_emote_panel') ?? true;
       await _refreshConnectivity();
       _reconcileEmoteTier();
     } catch (e) {
@@ -2057,6 +2061,9 @@ class _HomeScreenState extends State<HomeScreen>
           onShowTimestampsChanged: _setShowTimestamps,
           onTimestampFormatChanged: _setTimestampFormat,
           onChatFontScaleChanged: _setChatFontScale,
+          onEmoteFpsCapChanged: EmoteUrlProvider.applyFpsCap,
+          onAlwaysAnimatePanelChanged: (value) =>
+              EmoteUrlProvider.alwaysAnimatePanel = value,
           onCheckeredMessagesChanged: _setCheckeredMessages,
           onLineSeparatorChanged: _setLineSeparator,
           onEmoteTierChanged: _applyEmoteTier,

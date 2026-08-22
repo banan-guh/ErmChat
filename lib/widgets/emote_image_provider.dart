@@ -94,6 +94,49 @@ class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
   /// by target URL, consumed by the next completer created for it.
   static final Map<String, String> _pendingSeeds = {};
 
+  /// Playback frame-rate cap for completers driven by our decoder (animated
+  /// WebP and seeded GIFs), in frames per second. Wakes align to this grid so
+  /// N visible emotes request at most [fpsCap] app frames per second total.
+  /// 60 is effectively uncapped on 60 Hz displays; 0 pauses playback entirely
+  /// (the current frame stays shown). Synced from the 'emote_fps_cap' pref.
+  static int fpsCap = 30;
+
+  /// When true, emotes rendered inside the emote panel play at their native
+  /// rate regardless of [fpsCap] (panel previews stay smooth while chat is
+  /// throttled). Synced from the 'always_animate_emote_panel' pref.
+  static bool alwaysAnimatePanel = true;
+
+  /// Applies a new frame-rate cap (clamped to 0..60) and immediately updates
+  /// every live completer: pausing loops at 0, restarting paused ones above
+  /// 0. Called on startup load and whenever the settings slider moves.
+  static void applyFpsCap(int cap) {
+    fpsCap = cap.clamp(0, 60);
+    for (final completer in List.of(_liveByUrl.values)) {
+      completer._refreshForFpsCap();
+    }
+  }
+
+  /// Registers [url]'s completer as uncapped (creating it on demand, which
+  /// starts the fetch like a resolve would). No-op when it cannot load.
+  static void addUncapped(String url) {
+    _completerFor(url)?.addUncappedListener();
+  }
+
+  /// Drops an uncapped registration made by [addUncapped]. Never creates a
+  /// completer: only already-live instances are consulted.
+  static void removeUncapped(String url) {
+    _liveByUrl[url]?.removeUncappedListener();
+  }
+
+  /// Rounds an absolute wake target (in microseconds) up to the next grid
+  /// multiple so concurrent completers share wake instants. A non-positive
+  /// grid disables alignment. Exposed for tests.
+  @visibleForTesting
+  static int alignWakeUsToGrid(int targetUs, int gridUs) {
+    if (gridUs <= 0) return targetUs;
+    return ((targetUs + gridUs - 1) ~/ gridUs) * gridUs;
+  }
+
   /// Live completers by URL. The stock [ImageCache] can drop a still-unlistened
   /// pending completer between frames (its pending hold is released when no
   /// listener attaches within the creating frame), which would silently fork
@@ -183,6 +226,12 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
   /// Position within the animation cycle at the last processed tick. Kept
   /// across pause/resume so playback resumes from the current frame.
   Duration _cyclePosition = Duration.zero;
+
+  /// Number of attached listeners that requested uncapped playback (emote
+  /// panel cells when [EmoteUrlProvider.alwaysAnimatePanel] is set). While
+  /// any exist, this completer plays at its native rate regardless of the
+  /// global [EmoteUrlProvider.fpsCap], including at a cap of 0.
+  int _uncappedCount = 0;
 
   /// Frame timestamp when [_cyclePosition] was last advanced. Null after a
   /// stop, so the first tick back only re-anchors (no catch-up for time
@@ -420,7 +469,44 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
     final frames = _frames;
     if (frames == null || frames.frames.isEmpty) return;
     if (frames.totalDuration <= Duration.zero) return;
+    if (_effectiveFpsCap == 0) return; // Paused by the FPS-cap setting.
     _scheduleAppFrame();
+  }
+
+  /// Effective cap for this completer: panel-bypassed cells always run at
+  /// full rate (represented as grid size 0 = no alignment, never paused).
+  int get _effectiveFpsCap => _uncappedCount > 0 ? 60 : EmoteUrlProvider.fpsCap;
+
+  /// Grid size in microseconds for wake alignment; 0 disables alignment.
+  /// Uncapped playback (panel bypass) also skips alignment.
+  int get _wakeGridUs {
+    final cap = _effectiveFpsCap;
+    if (cap <= 0 || cap >= 60) return 0;
+    return 1000000 ~/ cap;
+  }
+
+  /// Re-evaluates loop state after [EmoteUrlProvider.fpsCap] or a panel
+  /// bypass change: stops at an effective pause, restarts when unpaused.
+  void _refreshForFpsCap() {
+    if (_disposed || !hasListeners) return;
+    if (_frames == null) return;
+    if (_effectiveFpsCap == 0) {
+      if (_isPlaying) _stopPlayback();
+    } else if (!_isPlaying) {
+      _startPlayback();
+    }
+  }
+
+  /// Registers/unregisters an uncapped listener (emote panel cell), keeping
+  /// the loop state in sync with the resulting effective cap.
+  void addUncappedListener() {
+    _uncappedCount++;
+    _refreshForFpsCap();
+  }
+
+  void removeUncappedListener() {
+    if (_uncappedCount > 0) _uncappedCount--;
+    _refreshForFpsCap();
   }
 
   /// Pauses playback: cancels any pending timer/frame callback and clears
@@ -468,11 +554,22 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
     }
     _shownTimestamp = timeStamp;
 
-    // Schedule the next tick at the end of the current frame's window.
+    // Schedule the next tick at the end of the current frame's window,
+    // aligned up to the FPS-cap grid so concurrent emotes share wake times
+    // and the app requests at most cap frames per second in total.
     if (_frameTimer != null) return;
+    final gridUs = _wakeGridUs;
+    if (_effectiveFpsCap == 0) return; // Paused: stop the loop.
     var remainingUs = _frameEndUs(frames, _frameIndex) - posUs;
     if (remainingUs <= 0) {
       remainingUs = 16000; // Zero-duration guard: next vsync.
+    }
+    if (gridUs > 0) {
+      final wakeTargetUs = timeStamp.inMicroseconds + remainingUs;
+      remainingUs =
+          EmoteUrlProvider.alignWakeUsToGrid(wakeTargetUs, gridUs) -
+          timeStamp.inMicroseconds;
+      if (remainingUs <= 0) remainingUs = gridUs;
     }
     _frameTimer = Timer(Duration(microseconds: remainingUs), () {
       _frameTimer = null;

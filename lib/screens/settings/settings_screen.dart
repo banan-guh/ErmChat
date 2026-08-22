@@ -28,6 +28,8 @@ class SettingsScreen extends StatelessWidget {
   final ValueChanged<String>? onTimestampFormatChanged;
   final ValueChanged<double>? onChatFontScaleChanged;
   final ValueChanged<bool>? onAnimateGifsChanged;
+  final ValueChanged<int>? onEmoteFpsCapChanged;
+  final ValueChanged<bool>? onAlwaysAnimatePanelChanged;
   final ValueChanged<bool>? onCheckeredMessagesChanged;
   final ValueChanged<bool>? onLineSeparatorChanged;
   final ValueChanged<int>? onEmoteTierChanged;
@@ -60,6 +62,8 @@ class SettingsScreen extends StatelessWidget {
     this.onTimestampFormatChanged,
     this.onChatFontScaleChanged,
     this.onAnimateGifsChanged,
+    this.onEmoteFpsCapChanged,
+    this.onAlwaysAnimatePanelChanged,
     this.onCheckeredMessagesChanged,
     this.onLineSeparatorChanged,
     this.onEmoteTierChanged,
@@ -135,6 +139,8 @@ class SettingsScreen extends StatelessWidget {
                   onShowTimestampsChanged: onShowTimestampsChanged,
                   onTimestampFormatChanged: onTimestampFormatChanged,
                   onAnimateGifsChanged: onAnimateGifsChanged,
+                  onEmoteFpsCapChanged: onEmoteFpsCapChanged,
+                  onAlwaysAnimatePanelChanged: onAlwaysAnimatePanelChanged,
                 ),
               ),
             ),

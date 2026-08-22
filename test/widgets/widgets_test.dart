@@ -2622,6 +2622,13 @@ void main() {
         find.widgetWithText(SwitchListTile, 'Show timestamps'),
       );
       expect(toggle.value, isTrue);
+      // The new FPS-cap rows sit between the gifs toggle and the timestamp
+      // tile, pushing the format subtitle below the fold of the lazy list.
+      await tester.scrollUntilVisible(
+        find.widgetWithText(ListTile, 'Timestamp format'),
+        120,
+      );
+      await tester.pumpAndSettle();
       expect(find.text('HH:mm'), findsOneWidget);
 
       await tester.tap(find.widgetWithText(SwitchListTile, 'Show timestamps'));

@@ -4,6 +4,7 @@ import '../services/emote_manager.dart';
 import '../util/sheet_drag.dart';
 import '../widgets/tabbed_layout.dart';
 import 'emote_image.dart';
+import 'emote_image_provider.dart';
 
 class EmoteMenuPanelWidget extends StatefulWidget {
   final ScrollController scrollController;
@@ -49,8 +50,11 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
   // emotes return the identical cached widget instance, so Flutter
   // short-circuits rebuilds above the event. Validated against the emote's
   // URL + the cell padding, so refetches and width changes rebuild cleanly.
-  final Map<String, ({String url, double padding, Widget widget})> _cellCache =
-      {};
+  final Map<
+    String,
+    ({String url, double padding, Widget widget, bool uncapped})
+  >
+  _cellCache = {};
   double? _lastPanelWidth;
 
   @override
@@ -437,7 +441,11 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
     // once per URL, shared, and disposed with the last visible widget.
     final url = emote.url;
     final cached = _cellCache[emote.id];
-    if (cached != null && cached.url == url && cached.padding == cellPadding) {
+    final uncapped = EmoteUrlProvider.alwaysAnimatePanel;
+    if (cached != null &&
+        cached.url == url &&
+        cached.padding == cellPadding &&
+        cached.uncapped == uncapped) {
       return cached.widget;
     }
     // Usage marks are a side effect, so they must not run during build (the
@@ -461,12 +469,18 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
             fit: BoxFit.contain,
             alternateUrls: [if (emote.url1x != null) emote.url1x!],
             errorWidget: const Icon(Icons.broken_image, size: 20),
+            uncapped: uncapped,
           ),
         ),
       ),
     );
     if (emote.id.isNotEmpty) {
-      _cellCache[emote.id] = (url: url, padding: cellPadding, widget: cell);
+      _cellCache[emote.id] = (
+        url: url,
+        padding: cellPadding,
+        widget: cell,
+        uncapped: uncapped,
+      );
     }
     return cell;
   }
