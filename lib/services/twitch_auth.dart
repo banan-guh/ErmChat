@@ -13,6 +13,7 @@ class TwitchAccount {
   final String accessToken;
   final String? refreshToken;
   final String? profileImageUrl;
+  final bool expired;
 
   const TwitchAccount({
     required this.login,
@@ -20,6 +21,7 @@ class TwitchAccount {
     required this.accessToken,
     this.refreshToken,
     this.profileImageUrl,
+    this.expired = false,
   });
 
   Map<String, dynamic> toJson() => {
@@ -28,6 +30,7 @@ class TwitchAccount {
     'access_token': accessToken,
     if (refreshToken != null) 'refresh_token': refreshToken,
     if (profileImageUrl != null) 'profile_image_url': profileImageUrl,
+    if (expired) 'expired': true,
   };
 
   factory TwitchAccount.fromJson(Map<String, dynamic> json) => TwitchAccount(
@@ -36,6 +39,7 @@ class TwitchAccount {
     accessToken: json['access_token'] as String? ?? '',
     refreshToken: json['refresh_token'] as String?,
     profileImageUrl: json['profile_image_url'] as String?,
+    expired: json['expired'] == true,
   );
 }
 
@@ -57,6 +61,12 @@ class TwitchAuth extends ChangeNotifier {
   String? login;
   String? userId;
   String? profileImageUrl;
+  bool _activeExpired = false;
+
+  /// Whether the active account's token has been confirmed dead (401 from
+  /// validate or IRC login-failure NOTICE). True until [setCredentials] or
+  /// [setUser] replaces the credentials.
+  bool get isActiveExpired => _activeExpired;
 
   /// All saved accounts. The active one is what [accessToken]/[login] expose.
   List<TwitchAccount> accounts = [];
@@ -127,6 +137,7 @@ class TwitchAuth extends ChangeNotifier {
     login = account.login;
     userId = account.userId;
     profileImageUrl = account.profileImageUrl;
+    _activeExpired = account.expired;
   }
 
   Future<void> load() async {
@@ -206,6 +217,7 @@ class TwitchAuth extends ChangeNotifier {
     login = null;
     userId = null;
     profileImageUrl = null;
+    _activeExpired = false;
     // Persist as pending until setUser resolves the account identity.
     _writeKey(_kPendingToken, accessToken);
     _writeKey(_kPendingRefresh, refreshToken ?? '');
@@ -228,13 +240,15 @@ class TwitchAuth extends ChangeNotifier {
       accessToken: token,
       refreshToken: refreshToken,
       profileImageUrl: profileImageUrl,
+      expired: _activeExpired,
     );
     final changed =
         existing == null ||
         existing.userId != userId ||
         existing.accessToken != token ||
         existing.refreshToken != refreshToken ||
-        existing.profileImageUrl != profileImageUrl;
+        existing.profileImageUrl != profileImageUrl ||
+        existing.expired != _activeExpired;
     if (existing != null) {
       accounts[accounts.indexOf(existing)] = account;
     } else {
@@ -247,6 +261,34 @@ class TwitchAuth extends ChangeNotifier {
       _writeKey(_kActiveLogin, login);
       notifyListeners();
     }
+  }
+
+  /// Marks the active account's token as expired (401 from validate or
+  /// IRC login-failure NOTICE). The flag persists across the active account
+  /// in the registry so the settings UI can display it, and is cleared by
+  /// [setCredentials] / [setUser] when fresh credentials arrive.
+  void markActiveExpired() {
+    if (_activeExpired) return;
+    _activeExpired = true;
+    final current = login;
+    if (current != null) {
+      final idx = accounts.indexWhere(
+        (a) => a.login.toLowerCase() == current.toLowerCase(),
+      );
+      if (idx >= 0) {
+        final old = accounts[idx];
+        accounts[idx] = TwitchAccount(
+          login: old.login,
+          userId: old.userId,
+          accessToken: old.accessToken,
+          refreshToken: old.refreshToken,
+          profileImageUrl: old.profileImageUrl,
+          expired: true,
+        );
+        _saveAccounts();
+      }
+    }
+    notifyListeners();
   }
 
   Future<void> switchTo(String login) async {

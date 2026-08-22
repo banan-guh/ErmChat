@@ -255,6 +255,12 @@ class ChatConnectionManager {
   bool _connectRetryRequested = false;
   final _recentBanMeta = <String, List<_BanMeta>>{};
   static const _banDedupWindowSeconds = 10;
+  // Expired-token handling: deduplicates the global expiry message and tracks
+  // the last anonymous-vs-authed state so the sockets actually tear down when
+  // expiry flips us from authed to anonymous mid-session.
+  bool _expiryHandled = false;
+  bool _lastIrcAnonymous = true;
+  String? _lastValidatedToken;
   static final _spaceRe = RegExp(r'\s+');
   // Memoized lowercase alt pings: the ping list is stable between settings
   // loads, so per-message toLowerCase churn is avoidable.
@@ -291,6 +297,7 @@ class ChatConnectionManager {
   StreamSubscription<SevenTvUserUpdate>? sevenTvUserSub;
   StreamSubscription<IrcConnectionStatus>? ircStatusSub;
   StreamSubscription<IrcConnectionStatus>? ircReadStatusSub;
+  StreamSubscription<void>? ircAuthFailedSub;
   final _httpClient = http.Client();
 
   // Truncation coalescing: the thread-aware pass is O(n) over the channel
@@ -380,6 +387,7 @@ class ChatConnectionManager {
     sevenTvUserSub?.cancel();
     ircStatusSub?.cancel();
     ircReadStatusSub?.cancel();
+    ircAuthFailedSub?.cancel();
     whisperSub?.cancel();
     _httpClient.close();
     for (final t in _chatStatusTimers.values) {
@@ -1302,6 +1310,12 @@ class ChatConnectionManager {
         }
       });
 
+      ircAuthFailedSub?.cancel();
+      ircAuthFailedSub = irc.onAuthFailed.listen((_) {
+        if (isDisposed) return;
+        _handleExpiredToken();
+      });
+
       // Use the cached account if available so cold start skips the Helix
       // user lookup entirely.
       if (getCurrentUserLogin() == null &&
@@ -1314,7 +1328,28 @@ class ChatConnectionManager {
       // EventSub needs no credentials — connect it in parallel with the
       // current-user lookup. Only IRC needs the login, so the sockets wait
       // for the lookup but not for each other.
-      final hasToken = auth.accessToken != null;
+      var hasToken = auth.accessToken != null;
+
+      // Validate the token on startup / credential change. Only HTTP 401
+      // counts as definitively dead; network errors leave the token alone
+      // so offline users aren't punished.
+      if (hasToken && _lastValidatedToken != auth.accessToken) {
+        try {
+          final result = await twitchApi.validateToken(auth);
+          if (result == null && twitchApi.lastErrorStatus == 401) {
+            _handleExpiredToken();
+            hasToken = false;
+          }
+          // Only update _lastValidatedToken on definitive outcomes (success
+          // or 401). Network errors re-trigger validation next time.
+          if (result != null || twitchApi.lastErrorStatus == 401) {
+            _lastValidatedToken = auth.accessToken;
+          }
+        } catch (_) {
+          // Network error - proceed normally.
+        }
+      }
+
       final eventSubFuture = hasToken
           ? eventSub.connect()
           : Future<void>.value();
@@ -1341,11 +1376,16 @@ class ChatConnectionManager {
       // desired account differs from what they were last told to use. Login
       // alone distinguishes accounts (the token always follows it); anonymous
       // mode is a distinct, stable state (null) so it doesn't flap.
-      final desiredUsername = (getCurrentUserLogin() ?? auth.login)
-          ?.toLowerCase();
-      final desiredToken = auth.accessToken ?? 'anonymous';
+      final desiredAnonymous = getCurrentUserLogin() == null || !hasToken;
+      final desiredUsername = desiredAnonymous
+          ? null
+          : (getCurrentUserLogin() ?? auth.login)?.toLowerCase();
+      final desiredToken = hasToken
+          ? (auth.accessToken ?? 'anonymous')
+          : 'anonymous';
       if (_lastIrcUsername != desiredUsername ||
-          _lastIrcToken != desiredToken) {
+          _lastIrcToken != desiredToken ||
+          _lastIrcAnonymous != desiredAnonymous) {
         irc.disconnect(emitStatus: false);
         ircRead.disconnect(emitStatus: false);
         // 403 skip sets are account-scoped: a non-mod account's rejection
@@ -1372,6 +1412,7 @@ class ChatConnectionManager {
         }
         _lastIrcUsername = getCurrentUserLogin()?.toLowerCase();
         _lastIrcToken = auth.accessToken;
+        _lastIrcAnonymous = false;
       } else {
         // Read-only anonymous mode: Twitch accepts a justinfan NICK without
         // credentials, which still delivers chat (with the emotes tag) but
@@ -1389,6 +1430,7 @@ class ChatConnectionManager {
         }
         _lastIrcUsername = null;
         _lastIrcToken = 'anonymous';
+        _lastIrcAnonymous = true;
       }
 
       await eventSubFuture;
@@ -1404,6 +1446,25 @@ class ChatConnectionManager {
         unawaited(connect());
       }
     }
+  }
+
+  /// Central handler for an expired/dead access token. Marks the active
+  /// account expired, broadcasts a message to every open channel, and
+  /// signals the snackbar. Subsequent calls are no-ops until the
+  /// credentials change (which resets [_expiryHandled]).
+  void _handleExpiredToken() {
+    if (_expiryHandled) return;
+    _expiryHandled = true;
+    twitchAuth.markActiveExpired();
+    setCurrentUserLogin(null);
+    setCurrentUserId(null);
+    for (final channel in channels) {
+      onSystemMessage(
+        channel,
+        'Login expired - reconnect your account in Settings',
+      );
+    }
+    onShowSnackBar('Login expired');
   }
 
   String _anonymousNick(int seed) {

@@ -4,11 +4,11 @@
 
 - [ ] **Check for wasteful rebuilds** - MUCH-NEEDED optimization.
 - [ ] **Check for wasteful / unreadable code** - for other people who want to read the codebase.
-- [ ] **Token expiry handling** - expired tokens fail silently right now. Validate on startup, catch the login-failed NOTICE, prompt re-auth. Drop unused scopes while at it (%20 -> + too).
+- [x] **Token expiry handling** - expired tokens fail silently right now. Validate on startup, catch the login-failed NOTICE, prompt re-auth. Drop unused scopes while at it (%20 -> + too).
 - [+] **Third-party badges** - BTTV donor, FFZ mod/VIP/user, 7TV badges. Fetch + render next to twitch badges.
 - [+] **Emote visibility toggles** - per-provider switches in emotes settings; gates fetching + all rendering (chat, autocomplete, sheet).
 - [ ] **Phrase muting + regex pings** - hide/block messages matching keywords or regex, word boundary + case options. Lives in tools settings.
-- [ ] **Bits / cheermote parsing** - parse cheermote tokens (e.g. `Cheer100`) from the body, fetch cheermote metadata via Helix (`/helix/bits/cheermotes`), render tiered animated cheermotes + bit count. Cheer messages already highlight via the `bits` tag (purple banner, live + history).
+- [-] **Bits / cheermote parsing** - parse cheermote tokens (e.g. `Cheer100`) from the body, fetch cheermote metadata via Helix (`/helix/bits/cheermotes`), render tiered animated cheermotes + bit count. Cheer messages already highlight via the `bits` tag (purple banner, live + history).
 
 ## Medium Priority
 
@@ -38,7 +38,8 @@
 
 - [+] **OS notifications + background** - background finished, notifs finished for android only, not apple.
 - [ ] **Mod View** - official twitch website style. AutoMod queue (hold / approve / deny) as first tab.
-- [ ] **Shared Chat depth** - merge participant emotes/badges, spotlight / hide / fade controls. Currently attribution only.
+- [ ] **Shared Chat** - flesh out feature
+- [ ] **Spotlight** - spotlight / hide / fade controls. from limerino
 - [ ] **VOD / clip chat replay** - past broadcasts + clips with synced read-only chat.
 - [ ] **iOS mention push** - android works, apple server doesn't exist yet.
 - [ ] **Notification tuning** - quiet hours, per-channel mutes, sender cooldowns, collapse sub train bursts.
@@ -61,5 +62,5 @@
 
 ## SMALL bugs
 
-- borders flicker white when tabbing in +
+- borders flicker white when tabbing in
 - size emote menu better
