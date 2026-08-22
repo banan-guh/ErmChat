@@ -61,6 +61,24 @@ void main() {
       expect(msg.color!.startsWith('#'), isTrue);
     });
 
+    test('parses cheer PRIVMSG with purple accent', () {
+      const raw =
+          '@badges=bits/1000;bits=100;display-name=ronni;id=cheer-1;rm-received-ts=1700000000000 :ronni!ronni@ronni.tmi.twitch.tv PRIVMSG #xqc :Cheer100 take my bits';
+      final msg = RecentMessagesService.parseIrcLine(raw);
+      expect(msg, isNotNull);
+      expect(msg!.bitsAmount, 100);
+      expect(msg.systemAccent, const Color(0xFF9146FF));
+    });
+
+    test('non-cheer PRIVMSG has no bits amount or accent', () {
+      const raw =
+          '@display-name=forsen;id=abc-123;rm-received-ts=1700000000000 :forsen!forsen@forsen.tmi.twitch.tv PRIVMSG #xqc :Hello chat';
+      final msg = RecentMessagesService.parseIrcLine(raw);
+      expect(msg, isNotNull);
+      expect(msg!.bitsAmount, isNull);
+      expect(msg.systemAccent, isNull);
+    });
+
     test('parses reply IRC tags', () {
       const raw =
           '@display-name=forsen;id=ghi-789;rm-received-ts=1700000000000;reply-parent-msg-id=parent-123;reply-parent-display-name=previousUser;reply-parent-msg-body=original\\smessage :forsen!forsen@forsen.tmi.twitch.tv PRIVMSG #xqc :@previousUser reply text';
@@ -1868,6 +1886,10 @@ void main() {
 
     test('includes watch streak milestones', () {
       expect(subNoticeMsgIds, contains('viewermilestone'));
+    });
+
+    test('includes bits badge tier unlocks', () {
+      expect(subNoticeMsgIds, contains('bitsbadgetier'));
     });
   });
 }

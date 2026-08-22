@@ -2257,6 +2257,58 @@ void main() {
     });
   });
 
+  group('cheer highlighting', () {
+    test('cheer PRIVMSG carries bits amount and purple accent', () {
+      final msgs = <String, List<TwitchMessage>>{'test': []};
+      final conn = _makeConn(channelMessages: msgs, maxMessages: 100);
+
+      conn.onOwnIrcMessage(
+        IrcMessage(
+          tags: {
+            'badges': 'bits/1000',
+            'bits': '100',
+            'display-name': 'ronni',
+            'user-id': '12345',
+            'id': 'msg-cheer',
+          },
+          prefix: 'ronni!ronni@ronni.tmi.twitch.tv',
+          command: 'PRIVMSG',
+          params: ['#test'],
+          trailing: 'Cheer100 take my bits',
+        ),
+      );
+
+      expect(msgs['test']!.length, 1);
+      final msg = msgs['test']!.first;
+      expect(msg.bitsAmount, 100);
+      expect(msg.systemAccent, const Color(0xFF9146FF));
+      expect(msg.text, 'Cheer100 take my bits');
+    });
+
+    test('non-cheer PRIVMSG stays unaccented', () {
+      final msgs = <String, List<TwitchMessage>>{'test': []};
+      final conn = _makeConn(channelMessages: msgs, maxMessages: 100);
+
+      conn.onOwnIrcMessage(
+        IrcMessage(
+          tags: {
+            'display-name': 'ronni',
+            'user-id': '12345',
+            'id': 'msg-plain',
+          },
+          prefix: 'ronni!ronni@ronni.tmi.twitch.tv',
+          command: 'PRIVMSG',
+          params: ['#test'],
+          trailing: 'hello',
+        ),
+      );
+
+      final msg = msgs['test']!.first;
+      expect(msg.bitsAmount, isNull);
+      expect(msg.systemAccent, isNull);
+    });
+  });
+
   group('reconnect callback', () {
     test('fires on IRC reconnect but not on first connect', () async {
       final irc = _TestIrc();
@@ -2576,6 +2628,39 @@ void main() {
         channelMessages['test'],
         isNull,
         reason: 'watch streaks carry no user message',
+      );
+
+      conn.dispose();
+    });
+
+    test('bits badge tier notice highlights with the purple accent', () async {
+      final irc = _TestIrc();
+      final systemMessages = <(String, String, Color?)>[];
+      final channelMessages = <String, List<TwitchMessage>>{};
+      final conn = _makeReconnectConn(
+        eventSub: _NoopEventSub(),
+        irc: irc,
+        onReconnected: () {},
+        channelMessages: channelMessages,
+        onSystemMessage: (c, t, {Color? accent}) {
+          systemMessages.add((c, t, accent));
+        },
+      );
+      await conn.connect();
+      irc.emitConnected();
+
+      irc.handleLine(
+        '@msg-id=bitsbadgetier;system-msg=ronni\\ssent\\s100\\sbits!;'
+        'login=ronni;display-name=ronni;'
+        ':tmi.twitch.tv USERNOTICE #test',
+      );
+
+      expect(systemMessages, hasLength(1));
+      expect(systemMessages[0].$3, const Color(0xFF9146FF));
+      expect(
+        channelMessages['test'],
+        isNull,
+        reason: 'bits badge tier notices carry no user message',
       );
 
       conn.dispose();

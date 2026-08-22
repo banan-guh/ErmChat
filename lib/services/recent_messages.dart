@@ -246,8 +246,8 @@ class RecentMessagesService {
       ),
       isSystem: true,
       // Announcements carry their banner accent; subscriptions / gift subs /
-      // watch streaks highlight like a default (PRIMARY) purple announcement
-      // (DankChat-style).
+      // watch streaks / bits badge tier unlocks highlight like a default
+      // (PRIMARY) purple announcement (DankChat-style).
       systemAccent: isAnnouncement
           ? announcementColorFor(msg.tags['msg-param-color']) ??
                 announcementColors['PRIMARY']
