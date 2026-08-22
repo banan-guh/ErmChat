@@ -246,20 +246,18 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
       );
     }
 
-    // Only show recents available in the current channel. Falls through to
-    // all recents if channel emotes are not yet loaded.
+    // Only show recents available in the current channel, re-resolved against
+    // the channel's own instances so a shared emote inserts the alias valid
+    // here rather than whichever channel the id index hit first. Falls
+    // through to all recents if channel emotes are not yet loaded.
     final channelEmotes = widget.emoteManager.byCode(
       widget.selectedChannel ?? '',
     );
     final filtered = channelEmotes != null
-        ? () {
-            final channelIds = channelEmotes.suggestions
-                .map((e) => e.id)
-                .toSet();
-            return _cachedRecentEmotes
-                .where((e) => channelIds.contains(e.id))
-                .toList();
-          }()
+        ? widget.emoteManager.resolveRecentsForChannel(
+            _cachedRecentEmotes,
+            channelEmotes.suggestions,
+          )
         : _cachedRecentEmotes;
 
     if (filtered.isEmpty) {

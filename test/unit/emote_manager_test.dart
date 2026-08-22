@@ -3669,4 +3669,53 @@ void main() {
       expect(manager.subscriberEmotesByChannel(), isEmpty);
     });
   });
+
+  group('resolveRecentsForChannel', () {
+    GenericEmote emote(String id, String code) => GenericEmote(
+      id: id,
+      code: code,
+      type: EmoteType.sevenTv,
+      url: 'https://example.com/$id.png',
+    );
+
+    test('shared id picks up the current channel alias', () {
+      final manager = EmoteManager(fetchStagger: Duration.zero);
+      final recents = [emote('x', 'Emote')];
+      final channelB = [emote('x', 'ThisEmote')];
+
+      final resolved = manager.resolveRecentsForChannel(recents, channelB);
+
+      expect(resolved.single.code, 'ThisEmote');
+    });
+
+    test('recents absent from the channel are dropped', () {
+      final manager = EmoteManager(fetchStagger: Duration.zero);
+      final recents = [emote('a', 'A'), emote('gone', 'Gone')];
+      final channel = [emote('a', 'A2')];
+
+      final resolved = manager.resolveRecentsForChannel(recents, channel);
+
+      expect(resolved.map((e) => e.code), ['A2']);
+    });
+
+    test('duplicate ids in suggestions keep the first occurrence', () {
+      final manager = EmoteManager(fetchStagger: Duration.zero);
+      final recents = [emote('x', 'whatever')];
+      final channel = [emote('x', 'Alpha'), emote('x', 'Beta')];
+
+      final resolved = manager.resolveRecentsForChannel(recents, channel);
+
+      expect(resolved.single.code, 'Alpha');
+    });
+
+    test('recent order is preserved', () {
+      final manager = EmoteManager(fetchStagger: Duration.zero);
+      final recents = [emote('b', 'B'), emote('a', 'A')];
+      final channel = [emote('a', 'A'), emote('b', 'B')];
+
+      final resolved = manager.resolveRecentsForChannel(recents, channel);
+
+      expect(resolved.map((e) => e.id), ['b', 'a']);
+    });
+  });
 }
