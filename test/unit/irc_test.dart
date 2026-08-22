@@ -890,6 +890,130 @@ void main() {
     });
   });
 
+  group('JOIN failures', () {
+    test('suspended notice emits once and stops all re-JOINs', () {
+      fakeAsync((async) {
+        final channel = FakeWebSocketChannel(autoPong: true);
+        final service = _TestService([channel]);
+        final failures = <IrcJoinFailureEvent>[];
+        service.onJoinFailed.listen(failures.add);
+        service.connect(username: 'user', accessToken: 'token');
+        async.flushMicrotasks();
+
+        service.join('dead');
+        async.flushMicrotasks();
+        List<String> joins() =>
+            channel.sent.where((l) => l == 'JOIN #dead').toList();
+        expect(joins(), hasLength(1));
+
+        channel.push(
+          '@msg-id=msg_channel_suspended :tmi.twitch.tv NOTICE #dead '
+          ':This channel has been suspended or closed.',
+        );
+        async.flushMicrotasks();
+        expect(failures, hasLength(1));
+        expect(failures.single.channel, 'dead');
+        expect(failures.single.reason, JoinFailureReason.suspended);
+
+        // A repeated refusal must not re-emit...
+        channel.push(
+          '@msg-id=msg_channel_suspended :tmi.twitch.tv NOTICE #dead '
+          ':This channel has been suspended or closed.',
+        );
+        async.flushMicrotasks();
+        expect(
+          failures,
+          hasLength(1),
+          reason: 'one refusal per channel per socket',
+        );
+
+        // ...and neither the sweep nor the slow retry re-sends a refused
+        // JOIN: every retry would only repeat the notice.
+        async.elapse(const Duration(seconds: 200));
+        expect(joins(), hasLength(1));
+
+        service.dispose();
+        channel.dispose();
+      });
+    });
+
+    test('unconfirmed JOINs surface after the sweep gives up, then retry', () {
+      fakeAsync((async) {
+        final channel = FakeWebSocketChannel(autoPong: true);
+        final service = _TestService([channel]);
+        final failures = <IrcJoinFailureEvent>[];
+        service.onJoinFailed.listen(failures.add);
+        service.connect(username: 'user', accessToken: 'token');
+        async.flushMicrotasks();
+
+        service.join('ghost');
+        async.flushMicrotasks();
+        List<String> joins() =>
+            channel.sent.where((l) => l == 'JOIN #ghost').toList();
+
+        // Fast sweep: 4 re-JOIN rounds (t=10s..40s), no failure yet.
+        async.elapse(const Duration(seconds: 45));
+        expect(joins(), hasLength(5));
+        expect(failures, isEmpty, reason: 'still inside the fast sweep');
+
+        // Round 5 (t=50s) gives up and reports instead of going silent.
+        async.elapse(const Duration(seconds: 6));
+        expect(failures, hasLength(1));
+        expect(failures.single.channel, 'ghost');
+        expect(failures.single.reason, JoinFailureReason.noResponse);
+
+        // The slow retry probes through the rate-limited JOIN queue (first
+        // tick t=110s), five attempts in total.
+        async.elapse(const Duration(seconds: 60)); // t=111
+        expect(joins(), hasLength(6));
+
+        async.elapse(const Duration(seconds: 299)); // t=410: cap tick
+        expect(joins(), hasLength(10));
+        expect(failures, hasLength(1), reason: 'the failure is reported once');
+
+        // Capped out: goes silent until a fresh socket restarts the cycle.
+        async.elapse(const Duration(minutes: 10));
+        expect(joins(), hasLength(10));
+
+        service.dispose();
+        channel.dispose();
+      });
+    });
+
+    test('slow retry stops early once ROOMSTATE confirms', () {
+      fakeAsync((async) {
+        final channel = FakeWebSocketChannel(autoPong: true);
+        final service = _TestService([channel]);
+        service.onJoinFailed.listen((_) {});
+        service.connect(username: 'user', accessToken: 'token');
+        async.flushMicrotasks();
+
+        service.join('ghost');
+        async.flushMicrotasks();
+        List<String> joins() =>
+            channel.sent.where((l) => l == 'JOIN #ghost').toList();
+
+        // Exhaust the fast sweep (failure at t=50s), first slow retry at
+        // t=110s.
+        async.elapse(const Duration(seconds: 111));
+        expect(joins(), hasLength(6));
+
+        // Confirmation ends the probing early.
+        channel.push('@room-id=1 :tmi.twitch.tv ROOMSTATE #ghost');
+        async.flushMicrotasks();
+        async.elapse(const Duration(minutes: 20));
+        expect(
+          joins(),
+          hasLength(6),
+          reason: 'a confirmed channel is never retried',
+        );
+
+        service.dispose();
+        channel.dispose();
+      });
+    });
+  });
+
   group('connectivity accelerator', () {
     test('coming back online wakes the backoff sleep early', () {
       fakeAsync((async) {
@@ -2177,6 +2301,53 @@ void main() {
         expect(calls, 0);
 
         conn.dispose();
+      },
+    );
+  });
+
+  group('JOIN failure surfacing', () {
+    test(
+      'suspended channel shows one clear message; late success announces',
+      () async {
+        final irc = _TestIrc();
+        final texts = <String>[];
+        final conn = _makeReconnectConn(
+          eventSub: _NoopEventSub(),
+          irc: irc,
+          onReconnected: () {},
+          onSystemMessage: (c, t, {Color? accent}) => texts.add(t),
+        );
+        await conn.connect();
+        irc.emitConnected();
+
+        // Queue the channel, then deliver the refusal notice.
+        irc.join('test');
+        irc.handleLine(
+          '@msg-id=msg_channel_suspended :tmi.twitch.tv NOTICE #test '
+          ':This channel has been suspended or closed.',
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        expect(
+          texts,
+          contains(
+            'Could not join #test: '
+            'the channel is suspended or deleted.',
+          ),
+        );
+        expect(
+          texts.any((t) => t.contains('suspended or closed')),
+          isFalse,
+          reason: "Twitch's raw refusal notice must not duplicate ours",
+        );
+
+        // A later ROOMSTATE means the channel joined after all.
+        irc.handleLine('@room-id=123 :tmi.twitch.tv ROOMSTATE #test');
+        await Future<void>.delayed(Duration.zero);
+        expect(texts.last, 'Joined #test.');
+
+        conn.dispose();
+        irc.dispose();
       },
     );
   });

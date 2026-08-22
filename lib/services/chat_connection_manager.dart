@@ -214,6 +214,9 @@ class ChatConnectionManager {
   // channel). isConnected only reflects the socket; a fresh/reconnected socket
   // hasn't necessarily processed the JOINs yet, so sends gate on this.
   final _joinedChannels = <String>{};
+  // Channels a join-failure notice was displayed for. A later ROOMSTATE
+  // confirmation clears the entry and announces the (late) success.
+  final _joinFailureNotified = <String>{};
   final _chatStatusTimers = <String, Timer>{};
   // Channels with an active channel.moderate v2 subscription. While present,
   // moderation system messages come from EventSub (richer data) instead of
@@ -273,6 +276,7 @@ class ChatConnectionManager {
   StreamSubscription<IrcMessageDeletedEvent>? ircDeleteSub;
   StreamSubscription<IrcNoticeEvent>? ircNoticeSub;
   StreamSubscription<IrcNoticeEvent>? ircJtvSub;
+  StreamSubscription<IrcJoinFailureEvent>? ircJoinFailedSub;
   StreamSubscription<IrcMessage>? ircOwnMsgSub;
   StreamSubscription<TwitchMessage>? whisperSub;
   StreamSubscription<UserNoticeEvent>? userNoticeSub;
@@ -362,6 +366,7 @@ class ChatConnectionManager {
     ircDeleteSub?.cancel();
     ircNoticeSub?.cancel();
     ircJtvSub?.cancel();
+    ircJoinFailedSub?.cancel();
     ircOwnMsgSub?.cancel();
     userNoticeSub?.cancel();
     ircClearSub?.cancel();
@@ -1199,6 +1204,10 @@ class ChatConnectionManager {
           _connectedAcked.clear();
           _lastSubscribeAll = null;
           _joinedChannels.clear();
+          // Failure state is per socket lifetime: the fresh socket runs its
+          // own fast sweep, so it may legitimately fail (and re-announce)
+          // again.
+          _joinFailureNotified.clear();
           for (final channel in channels) {
             onSystemMessage(channel, 'Disconnected');
           }
@@ -1378,6 +1387,14 @@ class ChatConnectionManager {
           _roomStateNoticeIds.contains(event.msgId)) {
         return;
       }
+      // A join-refusal notice for a channel we tried to join is already
+      // surfaced by the onJoinFailed listener with clearer wording; showing
+      // Twitch's raw copy too would duplicate the message. Refusals for
+      // channels we are not joining still display normally.
+      if (event.msgId == 'msg_channel_suspended' &&
+          _joinFailureNotified.contains(event.channel)) {
+        return;
+      }
       onSystemMessage(event.channel, event.message);
     });
 
@@ -1385,6 +1402,28 @@ class ChatConnectionManager {
     ircJtvSub = irc.onJtvMessage.listen((event) {
       if (isDisposed) return;
       onSystemMessage(event.channel, event.message);
+    });
+
+    // JOIN failures from the write socket (the one ROOMSTATE gates sends on):
+    // suspended/deleted channels get an explicit refusal notice; everything
+    // else surfaces after the fast rejoin sweep gave up. The base connection
+    // keeps retrying either way, so the message says what happened and that
+    // it keeps trying.
+    ircJoinFailedSub?.cancel();
+    ircJoinFailedSub = irc.onJoinFailed.listen((event) {
+      if (isDisposed) return;
+      final detail = switch (event.reason) {
+        JoinFailureReason.suspended => 'the channel is suspended or deleted',
+        JoinFailureReason.noResponse => 'the server never confirmed the join',
+      };
+      final suffix = event.reason == JoinFailureReason.noResponse
+          ? ' Retrying.'
+          : '';
+      _joinFailureNotified.add(event.channel);
+      onSystemMessage(
+        event.channel,
+        'Could not join #${event.channel}: $detail.$suffix',
+      );
     });
 
     ircOwnMsgSub?.cancel();
@@ -1497,6 +1536,11 @@ class ChatConnectionManager {
       // ROOMSTATE arrives after a successful JOIN, confirming this channel is
       // ready for PRIVMSG.
       _joinedChannels.add(event.channel);
+      // A channel whose join previously failed (and announced "Retrying.")
+      // just got in: announce the late success and clear the failure state.
+      if (_joinFailureNotified.remove(event.channel)) {
+        onSystemMessage(event.channel, 'Joined #${event.channel}.');
+      }
       // ROOMSTATE updates are partial (only the changed tags): merge with
       // the previous state before recomposing the status splash.
       _roomStateTags[event.channel] = {

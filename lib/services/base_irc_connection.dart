@@ -9,6 +9,25 @@ import '../util/log.dart';
 
 enum IrcConnectionStatus { disconnected, connecting, connected }
 
+/// Why a channel JOIN never completed.
+enum JoinFailureReason {
+  /// The server sent NOTICE msg-id=msg_channel_suspended: the channel is
+  /// suspended or deleted. Permanent for this socket; no point re-JOINing.
+  suspended,
+
+  /// The server never confirmed the JOIN (no ROOMSTATE) and the fast rejoin
+  /// sweep gave up: usually a nonexistent channel, whose JOINs Twitch silently
+  /// drops, or persistent burst loss.
+  noResponse,
+}
+
+class IrcJoinFailureEvent {
+  final String channel;
+  final JoinFailureReason reason;
+
+  IrcJoinFailureEvent({required this.channel, required this.reason});
+}
+
 /// Which socket this connection is: the chat write socket or the read-only
 /// socket. Mirrors DankChat's ChatConnectionType: the connection loop,
 /// keepalive, JOIN handling and backoff are identical for both; only the
@@ -90,6 +109,18 @@ abstract class IrcConnection {
   Timer? _joinFlushTimer;
   Timer? _joinSweepTimer;
   int _joinSweepRound = 0;
+  // Channels the server explicitly refused (msg_channel_suspended). Excluded
+  // from every sweep/retry for this socket's lifetime: re-JOINing would only
+  // repeat the failure notice.
+  final _joinFailed = <String>{};
+  // Slow retry loop after the fast sweep gave up: keeps trying the unconfirmed
+  // JOINs at a low rate for a bounded window, then goes silent. A nonexistent
+  // channel never confirms, so this only bounds the probing; the socket dying
+  // tears it down anyway and the fresh socket restarts the fast sweep.
+  Timer? _joinRetryTimer;
+  static const _joinRetryInterval = Duration(seconds: 60);
+  static const _joinRetryMaxAttempts = 5;
+  int _joinRetryAttempt = 0;
 
   StreamSubscription<dynamic>? _streamSub;
   Timer? _pingTimer;
@@ -111,6 +142,16 @@ abstract class IrcConnection {
 
   Stream<IrcConnectionStatus> get onStatus => _statusController.stream;
   bool get isConnected => channel != null;
+
+  final _joinFailedController = StreamController<IrcJoinFailureEvent>.broadcast(
+    sync: true,
+  );
+
+  /// Emits channels whose JOIN permanently failed for this socket: an explicit
+  /// [JoinFailureReason.suspended] notice, or [JoinFailureReason.noResponse]
+  /// after the fast sweep exhausted its rounds. Emitted once per channel per
+  /// socket lifetime; a later ROOMSTATE confirmation supersedes it.
+  Stream<IrcJoinFailureEvent> get onJoinFailed => _joinFailedController.stream;
 
   String get debugPrefix;
 
@@ -387,9 +428,11 @@ abstract class IrcConnection {
     _awaitingPong = false;
     _stopJoinFlush();
     _stopJoinSweep();
+    _stopJoinRetry();
     _joinQueue.clear();
     _joinPending.clear();
     _joinConfirmed.clear();
+    _joinFailed.clear();
     _joinSweepRound = 0;
   }
 
@@ -512,6 +555,25 @@ abstract class IrcConnection {
         }
       }
 
+      // A JOIN aimed at a suspended/deleted channel is answered with an
+      // explicit NOTICE (msg-id=msg_channel_suspended) and never a ROOMSTATE.
+      // Remember the refusal so sweeps and retries stop re-JOINing (each
+      // retry would only repeat the notice) and surface it exactly once.
+      if (cmd == 'NOTICE') {
+        final msg = parseIrcMessage(line);
+        if (msg?.tags['msg-id'] == 'msg_channel_suspended' &&
+            msg!.params.isNotEmpty &&
+            msg.params[0].startsWith('#')) {
+          final channel = msg.params[0].substring(1);
+          if (_channels.contains(channel) && !_joinFailed.contains(channel)) {
+            _joinFailed.add(channel);
+            _joinPending.remove(channel);
+            logDebug('[$debugPrefix] join refused: $channel is suspended');
+            _emitJoinFailed(channel, JoinFailureReason.suspended);
+          }
+        }
+      }
+
       dispatchLine(line);
     }
   }
@@ -539,6 +601,7 @@ abstract class IrcConnection {
     _joinConfirmed.remove(channel);
     _joinPending.remove(channel);
     _joinQueue.remove(channel);
+    _joinFailed.remove(channel);
     if (this.channel != null) {
       sendLine('PART #$channel');
     }
@@ -597,9 +660,21 @@ abstract class IrcConnection {
   void _runJoinSweep() {
     _joinSweepRound++;
     final unconfirmed = _channels
-        .where((c) => !_joinConfirmed.contains(c))
+        .where((c) => !_joinConfirmed.contains(c) && !_joinFailed.contains(c))
         .toList();
-    if (unconfirmed.isEmpty || _joinSweepRound > _joinSweepMaxRounds) {
+    if (_joinSweepRound > _joinSweepMaxRounds) {
+      // Fast sweep gave up: surface every channel that still never confirmed,
+      // then keep trying them on the slow retry loop (still routed through
+      // the rate-limited queue) for a bounded window before going silent.
+      _stopJoinSweep();
+      for (final ch in unconfirmed) {
+        logDebug('[$debugPrefix] join never confirmed: $ch');
+        _emitJoinFailed(ch, JoinFailureReason.noResponse);
+      }
+      _startJoinRetry(unconfirmed);
+      return;
+    }
+    if (unconfirmed.isEmpty) {
       _stopJoinSweep();
       return;
     }
@@ -610,6 +685,60 @@ abstract class IrcConnection {
     for (final ch in unconfirmed) {
       if (!_joinQueue.contains(ch)) _queueJoin(ch);
     }
+  }
+
+  /// Probes channels the fast sweep gave up on, once per [_joinRetryInterval],
+  /// up to [_joinRetryMaxAttempts] attempts before going silent. Sends via
+  /// [_queueJoin], so retries share the same rate limiter as every other
+  /// JOIN. Stops early once each channel confirms, fails explicitly, or is
+  /// parted; the socket going down tears the loop down with everything else
+  /// and the fresh socket restarts the fast sweep.
+  void _startJoinRetry(List<String> channels) {
+    if (channels.isEmpty) return;
+    final pending = Set<String>.of(channels);
+    _joinRetryAttempt = 0;
+    _joinRetryTimer?.cancel();
+    _joinRetryTimer = Timer.periodic(_joinRetryInterval, (_) {
+      pending.removeWhere(
+        (c) =>
+            _joinConfirmed.contains(c) ||
+            _joinFailed.contains(c) ||
+            !_channels.contains(c),
+      );
+      if (pending.isEmpty) {
+        _stopJoinRetry();
+        return;
+      }
+      // Socket down: the connect path re-queues every channel itself.
+      if (channel == null) return;
+      _joinRetryAttempt++;
+      if (_joinRetryAttempt > _joinRetryMaxAttempts) {
+        // Capped out: stop probing a channel that never answers. A fresh
+        // socket (reconnect) restarts the whole cycle anyway.
+        logDebug(
+          '[$debugPrefix] join retry gave up after '
+          '$_joinRetryMaxAttempts attempts: $pending',
+        );
+        _stopJoinRetry();
+        return;
+      }
+      logDebug('[$debugPrefix] slow join retry: $pending');
+      for (final ch in pending) {
+        if (!_joinQueue.contains(ch)) _queueJoin(ch);
+      }
+    });
+  }
+
+  void _stopJoinRetry() {
+    _joinRetryTimer?.cancel();
+    _joinRetryTimer = null;
+  }
+
+  void _emitJoinFailed(String channel, JoinFailureReason reason) {
+    if (_disposed) return;
+    _joinFailedController.add(
+      IrcJoinFailureEvent(channel: channel, reason: reason),
+    );
   }
 
   void _stopJoinFlush() {
@@ -632,6 +761,7 @@ abstract class IrcConnection {
     if (listener != null) connectivityService?.removeListener(listener);
     _connectivityListener = null;
     _statusController.close();
+    _joinFailedController.close();
   }
 }
 
