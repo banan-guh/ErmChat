@@ -90,7 +90,14 @@ class TwitchOAuth {
         '?client_id=${TwitchConfig.clientId}'
         '&redirect_uri=${Uri.encodeQueryComponent(TwitchConfig.redirectUri)}'
         '&response_type=token'
-        '&scope=chat:read%20chat:edit%20user:write:chat%20user:manage:chat_color%20moderator:manage:banned_users%20moderator:manage:chat_messages%20moderator:manage:announcements%20moderator:manage:shoutouts%20moderator:read:blocked_terms%20moderator:read:chat_settings%20moderator:read:unban_requests%20moderator:read:warnings%20moderator:read:moderators%20moderator:read:vips%20user:manage:blocked_users%20user:read:blocked_users%20moderator:manage:chat_settings%20channel:manage:moderators%20channel:manage:vips%20channel:edit:commercial%20channel:manage:raids%20moderator:manage:shield_mode%20channel:manage:broadcast%20user:manage:whispers%20channel:read:hype_train%20channel:read:polls%20channel:read:predictions'
+        '&scope=chat:read+chat:edit+user:write:chat+user:manage:chat_color+'
+        'moderator:manage:banned_users+moderator:manage:chat_messages+moderator:manage:announcements+'
+        'moderator:manage:shoutouts+moderator:read:blocked_terms+moderator:read:chat_settings+'
+        'moderator:read:unban_requests+moderator:read:warnings+moderator:read:moderators+'
+        'moderator:read:vips+user:manage:blocked_users+user:read:blocked_users+moderator:manage:chat_settings+'
+        'channel:manage:moderators+channel:manage:vips+channel:edit:commercial+channel:manage:raids+'
+        'moderator:manage:shield_mode+channel:manage:broadcast+user:manage:whispers+'
+        'channel:read:hype_train+channel:read:polls+channel:read:predictions'
         '&state=$state'
         '&force_verify=true';
     return (url: url, state: state);
