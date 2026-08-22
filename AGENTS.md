@@ -30,6 +30,10 @@ dart format .      # format all Dart files
 - Unit tests in `test/unit/<file>_test.dart`, data/IRC-parsing tests in `test/data/`, widget/integration tests in `test/widgets/`.
 - Injectable for tests: `TwitchApi.client`, `TwitchChatApp`/`HomeScreen` service params, `EventSubService.handleRawMessage`/`emitConnected`/`waitForSession`, `IrcService.emitChatMessage`/`emitUserNotice`, `OAuthStarter`, `AccountScreen.twitchApi`.
 
+## Commits
+
+- `<type>: <lowercase summary>` (fix/refactor/feat/chore/style/perf/ci), comma-separate multiple changes; body only if the why isn't obvious. Full guide: [COMMIT_STYLE.md](COMMIT_STYLE.md).
+
 ## Consistency
 
 - Use `InkWell` (not `GestureDetector`) for `onLongPress` in scrollable contexts.
