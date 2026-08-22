@@ -3746,6 +3746,19 @@ void main() {
 
       expect(manager.subscriberEmotesByChannel(), isEmpty);
     });
+
+    test('a legacy-disabled twitch provider is re-enabled on load', () async {
+      SharedPreferences.setMockInitialValues({
+        'emote_providers_disabled': ['twitch'],
+      });
+      final manager = EmoteManager(tier: EmoteFetchTier.nothing);
+
+      expect(await manager.enabledProviders(), contains(EmoteType.twitch));
+
+      // The persisted set is cleaned up too, so the migration sticks.
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getStringList('emote_providers_disabled'), isEmpty);
+    });
   });
 
   group('resolveRecentsForChannel', () {

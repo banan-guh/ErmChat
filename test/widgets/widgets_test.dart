@@ -2728,13 +2728,25 @@ void main() {
       await tester.pump();
       await tester.pump();
 
-      for (final type in EmoteType.values) {
-        expect(find.byKey(Key('provider_toggle_${type.name}')), findsOneWidget);
-      }
+      // Twitch is always on and not offered as an option.
+      expect(find.byKey(const Key('provider_toggle_twitch')), findsNothing);
       expect(find.text('Providers'), findsOneWidget);
 
+      // The picker lives in a bottom sheet at the bottom of the page.
+      expect(find.byKey(const Key('provider_toggle_bttv')), findsNothing);
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('providers_tile')),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('providers_tile')));
+      await tester.pumpAndSettle();
+      expect(find.text('BetterTTV'), findsOneWidget);
+      expect(find.text('FrankerFaceZ'), findsOneWidget);
+      expect(find.text('7TV'), findsOneWidget);
+
       await tester.tap(find.byKey(const Key('provider_toggle_bttv')));
-      await tester.pump();
       await tester.pump();
 
       expect(manager.isProviderEnabled(EmoteType.bttv), isFalse);

@@ -254,27 +254,6 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
             style: Theme.of(context).textTheme.bodyMedium,
           ),
         ),
-        if (widget.emoteManager != null) ...[
-          _sectionHeader('Providers'),
-          for (final type in EmoteType.values)
-            if (_providerEnabled.containsKey(type))
-              SwitchListTile(
-                key: Key('provider_toggle_${type.name}'),
-                title: Text(_providerLabels[type] ?? type.name),
-                value: _providerEnabled[type]!,
-                onChanged: (v) => _onProviderChanged(type, v),
-              ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-            child: Text(
-              'Disabled providers are not fetched and their emotes stop '
-              'rendering until re-enabled.',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ),
-        ],
         _sectionHeader('Emote image cache'),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -309,9 +288,86 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
             child: const Text('Apply'),
           ),
         ),
+        if (widget.emoteManager != null) ...[
+          ListTile(
+            key: const Key('providers_tile'),
+            leading: const Icon(Icons.extension),
+            title: const Text('Providers'),
+            subtitle: Text(_providersSummary()),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: _showProviderSheet,
+          ),
+        ],
         SizedBox(height: 16),
         _buildCacheFooter(context),
       ],
+    );
+  }
+
+  static const _thirdPartyProviders = [
+    EmoteType.bttv,
+    EmoteType.ffz,
+    EmoteType.sevenTv,
+  ];
+
+  String _providersSummary() {
+    final enabled = [
+      for (final type in _thirdPartyProviders)
+        if (_providerEnabled[type] ?? true) _providerLabels[type]!,
+    ];
+    return enabled.isEmpty ? 'All disabled' : '${enabled.join(', ')} enabled';
+  }
+
+  /// Bottom-sheet picker for third-party providers. Twitch is intentionally
+  /// absent: its emotes are always fetched and rendered.
+  Future<void> _showProviderSheet() {
+    return showModalBottomSheet<void>(
+      context: context,
+      builder: (sheetContext) {
+        var enabled = Map.of(_providerEnabled);
+        return SafeArea(
+          child: StatefulBuilder(
+            builder: (context, setSheetState) => Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      'Providers',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+                  child: Text(
+                    'Disabled providers are not fetched and their emotes stop '
+                    'rendering until re-enabled.',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+                for (final type in _thirdPartyProviders)
+                  CheckboxListTile(
+                    key: Key('provider_toggle_${type.name}'),
+                    title: Text(_providerLabels[type] ?? type.name),
+                    value: enabled[type] ?? true,
+                    onChanged: (v) {
+                      setSheetState(() => enabled[type] = v ?? true);
+                      _onProviderChanged(type, v ?? true);
+                    },
+                  ),
+                const SizedBox(height: 8),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 

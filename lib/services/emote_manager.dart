@@ -486,10 +486,21 @@ class EmoteManager extends ChangeNotifier {
     _providersLoaded = true;
     final prefs = await _getPrefs();
     final raw = prefs.getStringList(_disabledProvidersKey);
-    if (raw == null) return;
-    for (final t in EmoteType.values) {
-      if (raw.contains(t.name)) _disabledProviders.add(t);
+    var migrated = false;
+    if (raw != null) {
+      for (final t in EmoteType.values) {
+        if (raw.contains(t.name)) _disabledProviders.add(t);
+      }
+      // Twitch is no longer toggleable in the UI; an old build could have
+      // persisted it into the disabled set, which would leave Twitch emotes
+      // off with no way back.
+      if (_disabledProviders.remove(EmoteType.twitch)) migrated = true;
     }
+    if (!migrated) return;
+    await prefs.setStringList(
+      _disabledProvidersKey,
+      _disabledProviders.map((t) => t.name).toList(),
+    );
   }
 
   /// Whether [type]'s emotes are fetched and rendered. Best-effort sync view;
