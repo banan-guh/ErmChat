@@ -17,10 +17,10 @@ import '../services/seven_tv_event_client.dart';
 import '../services/twitch_badge_service.dart';
 import '../services/user_store.dart';
 import '../services/command_macros.dart';
+import '../services/ping_manager.dart';
 import '../util/text_bypass.dart';
 import '../color_utils.dart';
 import '../util/constants.dart';
-import '../util/mention.dart';
 import '../util/thread_utils.dart';
 
 class _BanMeta {
@@ -77,7 +77,7 @@ class ChatConnectionConfig {
     required this.setReplyToMsg,
     required this.onRequestFocus,
     required this.onShowSnackBar,
-    this.getAltPings,
+    this.pingManager,
     this.getMacros,
     this.isChatReady,
     this.isBlocked,
@@ -133,7 +133,7 @@ class ChatConnectionConfig {
   final void Function(TwitchMessage?) setReplyToMsg;
   final VoidCallback onRequestFocus;
   final void Function(String) onShowSnackBar;
-  final List<String> Function()? getAltPings;
+  final PingManager? pingManager;
   final Map<String, String> Function()? getMacros;
   final bool Function()? isChatReady;
   final bool Function(String login)? isBlocked;
@@ -192,7 +192,7 @@ class ChatConnectionManager {
   final void Function(TwitchMessage?) setReplyToMsg;
   final VoidCallback onRequestFocus;
   final void Function(String) onShowSnackBar;
-  final List<String> Function()? getAltPings;
+  final PingManager? pingManager;
   final Map<String, String> Function()? getMacros;
   final bool Function()? isChatReady;
   final bool Function(String login)? isBlocked;
@@ -269,19 +269,6 @@ class ChatConnectionManager {
   bool _lastIrcAnonymous = true;
   String? _lastValidatedToken;
   static final _spaceRe = RegExp(r'\s+');
-  // Memoized lowercase alt pings: the ping list is stable between settings
-  // loads, so per-message toLowerCase churn is avoidable.
-  List<String>? _lastAltPings;
-  List<String> _lastLoweredAltPings = const [];
-
-  List<String> _loweredAltPings() {
-    final raw = getAltPings?.call() ?? const [];
-    if (!identical(raw, _lastAltPings)) {
-      _lastAltPings = raw;
-      _lastLoweredAltPings = raw.map((p) => p.toLowerCase()).toList();
-    }
-    return _lastLoweredAltPings;
-  }
 
   StreamSubscription<TwitchMessage>? messageSub;
   StreamSubscription<EventSubStatus>? statusSub;
@@ -360,7 +347,7 @@ class ChatConnectionManager {
       setReplyToMsg = config.setReplyToMsg,
       onRequestFocus = config.onRequestFocus,
       onShowSnackBar = config.onShowSnackBar,
-      getAltPings = config.getAltPings,
+      pingManager = config.pingManager,
       getMacros = config.getMacros,
       isChatReady = config.isChatReady,
       isBlocked = config.isBlocked,
@@ -1854,6 +1841,16 @@ class ChatConnectionManager {
     if (isChatReady?.call() == false) return;
     if (!msg.isSystem && isBlocked?.call(msg.login) == true) return;
 
+    final channel = msg.channel;
+    if (channel == null) return;
+
+    // Ping evaluation runs before the shared-chat 'hide' check so a fresh
+    // mirrored mention survives hide mode (the native copy dedups later).
+    final highlightState = pingManager?.evaluate(msg);
+    if (highlightState != null) {
+      msg.highlight = highlightState;
+    }
+
     // Shared-chat 'hide' mode: drop foreign messages entirely. Mentions and
     // system messages still flow through so the user doesn't miss pings.
     final sharedMode = getSharedChatMode?.call() ?? 'spotlight';
@@ -1864,16 +1861,13 @@ class ChatConnectionManager {
       return;
     }
 
-    if (!msg.isSystem && msg.login.isNotEmpty && msg.channel != null) {
+    if (!msg.isSystem && msg.login.isNotEmpty) {
       final preferredName =
           msg.displayName.toLowerCase() == msg.login.toLowerCase()
           ? msg.displayName
           : msg.login;
-      userStore.addUser(msg.channel!, preferredName);
+      userStore.addUser(channel, preferredName);
     }
-
-    final channel = msg.channel;
-    if (channel == null) return;
 
     if (msg.messageId != null &&
         messageKeys.contains('$channel:${msg.messageId}')) {
@@ -1901,24 +1895,14 @@ class ChatConnectionManager {
     }
 
     final login = getCurrentUserLogin()?.toLowerCase();
-
-    final loweredAltPings = _loweredAltPings();
-    final loweredText = msg.text.toLowerCase();
-    final hasAltPing =
-        !msg.isSystem && loweredAltPings.any(loweredText.contains);
-    final isMentioned =
-        (login != null && isMentionOf(msg, login)) || hasAltPing;
-
-    if (isMentioned && msg.login != login) {
-      if (!msg.isHighlighted &&
-          !msg.isHistory &&
-          channel != getSelectedChannel()) {
+    final state = msg.highlight;
+    if (state != null && state.hasMention && msg.login != login) {
+      if (!msg.isHistory && channel != getSelectedChannel()) {
         setUnreadMentions(getUnreadMentions() + 1);
         channelsWithUnreadMentions.add(channel);
         unreadMentionsPerChannel[channel] =
             (unreadMentionsPerChannel[channel] ?? 0) + 1;
       }
-      msg.isHighlighted = true;
       onMention?.call(channel, msg);
     }
 
@@ -1930,7 +1914,9 @@ class ChatConnectionManager {
       messageKeys.add('$channel:${msg.messageId}');
     }
 
-    if (msg.isHighlighted) {
+    // Only mention-tier highlights land in the mentions tab; event tints
+    // (redemptions, first messages, ...) stay in the channel only.
+    if (state != null && state.hasMention) {
       channelMessages.putIfAbsent(mentionsChannel, () => []);
       channelMessages[mentionsChannel]!.insert(0, msg);
       final mentionMsgs = channelMessages[mentionsChannel]!;
@@ -1982,6 +1968,18 @@ class ChatConnectionManager {
       defaultLogin: getCurrentUserLogin(),
       defaultUserId: getCurrentUserId(),
     );
+
+    // Track our own message ids so replies chained onto them ping via
+    // participation (DankChat-style reply highlights), and learn the
+    // account's display name from the echo.
+    if (msg.messageId != null) {
+      pingManager?.registerOwnMessage(
+        channel,
+        msg.messageId!,
+        threadRootId: msg.replyThreadRootId ?? msg.messageId,
+      );
+    }
+    pingManager?.setOwnDisplayName(msg.displayName);
 
     final preferredName =
         msg.displayName.toLowerCase() == msg.login.toLowerCase()

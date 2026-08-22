@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'highlight_state.dart';
 import 'twitch_badge.dart';
 
 class EmotePosition {
@@ -41,9 +42,26 @@ class TwitchMessage {
   final String? replyToUser;
   final String? replyToText;
   String? replyThreadRootId;
-  bool isHighlighted;
+
+  /// Set by the ping engine when one or more highlight rules matched.
+  /// Null means unhighlighted.
+  HighlightState? highlight;
+
+  /// Convenience for call sites that only care whether the message is
+  /// highlighted at all.
+  bool get isHighlighted => highlight != null;
+
   String? userId;
   final bool isFirstMessage;
+
+  /// PRIVMSG `msg-id` tag (e.g. `highlighted-message`); null on most messages.
+  final String? msgId;
+
+  /// Channel point redemption id (`custom-reward-id`), if any.
+  final String? customRewardId;
+
+  /// `pinned-chat-paid-amount` value on elevated (Hype Chat) messages.
+  final String? pinnedPaidAmount;
 
   /// Amount of bits cheered with this message (PRIVMSG `bits` tag), or null
   /// for non-cheer messages.
@@ -100,8 +118,11 @@ class TwitchMessage {
     this.replyToUser,
     this.replyToText,
     this.replyThreadRootId,
-    this.isHighlighted = false,
+    this.highlight,
     this.isFirstMessage = false,
+    this.msgId,
+    this.customRewardId,
+    this.pinnedPaidAmount,
     this.bitsAmount,
     this.userId,
     this.emotePositions,

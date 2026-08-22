@@ -90,6 +90,26 @@ void main() {
       expect(msg.text, 'reply text');
     });
 
+    test('parses highlight-related tags', () {
+      const raw =
+          '@msg-id=highlighted-message;custom-reward-id=reward-9;pinned-chat-paid-amount=100;display-name=forsen;id=elev-1 :forsen!forsen@forsen.tmi.twitch.tv PRIVMSG #xqc :yo';
+      final msg = RecentMessagesService.parseIrcLine(raw);
+      expect(msg, isNotNull);
+      expect(msg!.msgId, 'highlighted-message');
+      expect(msg.customRewardId, 'reward-9');
+      expect(msg.pinnedPaidAmount, '100');
+    });
+
+    test('plain PRIVMSG has no highlight tags', () {
+      const raw =
+          '@display-name=forsen;id=abc-123 :forsen!forsen@forsen.tmi.twitch.tv PRIVMSG #xqc :Hello chat';
+      final msg = RecentMessagesService.parseIrcLine(raw);
+      expect(msg, isNotNull);
+      expect(msg!.msgId, isNull);
+      expect(msg.customRewardId, isNull);
+      expect(msg.pinnedPaidAmount, isNull);
+    });
+
     test('handles malformed escape in reply tag', () {
       const raw =
           '@display-name=forsen;id=yyy-222;rm-received-ts=1700000000000;reply-parent-msg-id=parent-456;reply-parent-display-name=User;reply-parent-msg-body=unknown\\qescape :forsen!forsen@forsen.tmi.twitch.tv PRIVMSG #xqc :@User hi';

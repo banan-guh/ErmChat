@@ -105,7 +105,6 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
     final List<InlineSpan> children;
     final String semanticsLabel;
     final bool deleted;
-    final bool highlighted;
 
     if (msg.isSystem) {
       children = widget.systemBodyBuilder != null
@@ -122,7 +121,6 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
             ];
       semanticsLabel = msg.text;
       deleted = false;
-      highlighted = false;
     } else {
       final badges = widget.buildBadgeSpans(widget.channel, msg, badgeScale: s);
       final usernameText = msg.isAction
@@ -165,7 +163,6 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
           ? 'Mention: $ts ${msg.formattedUsername}: ${msg.text}'
           : '$ts ${msg.formattedUsername}: ${msg.text}';
       deleted = msg.deleted;
-      highlighted = msg.isHighlighted;
     }
 
     final tsStyle = TextStyle(
@@ -248,10 +245,10 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
       );
     }
 
-    if (highlighted) {
-      final isDark = theme.brightness == Brightness.dark;
+    final highlight = msg.highlight;
+    if (highlight != null) {
       child = ColoredBox(
-        color: isDark ? const Color(0xFF773031) : const Color(0xFFEF9A9A),
+        color: highlight.rowColor(theme.colorScheme.surface),
         child: child,
       );
     }

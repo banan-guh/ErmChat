@@ -669,6 +669,14 @@ TwitchMessage parseIrcChatMessage(
   // sub notices (PRIMARY purple banner).
   final bitsAmount = int.tryParse(ircMsg.tags['bits'] ?? '');
 
+  // Highlight-relevant tags the ping engine evaluates on. `msg-id` covers
+  // Twitch-side flags (notably `highlighted-message`); `custom-reward-id`
+  // marks channel point redemptions; `pinned-chat-paid-amount` marks Hype
+  // Chats.
+  final msgId = ircMsg.tags['msg-id'];
+  final customRewardId = ircMsg.tags['custom-reward-id'];
+  final pinnedPaidAmount = ircMsg.tags['pinned-chat-paid-amount'];
+
   return TwitchMessage(
     login: user.login,
     displayName: user.displayName,
@@ -698,6 +706,9 @@ TwitchMessage parseIrcChatMessage(
         ? sourceMessageId
         : null,
     isFirstMessage: ircMsg.tags['first-msg'] == '1',
+    msgId: msgId,
+    customRewardId: customRewardId,
+    pinnedPaidAmount: pinnedPaidAmount,
     bitsAmount: bitsAmount,
     systemAccent: bitsAmount != null ? announcementColors['PRIMARY'] : null,
     isHistory: isHistory,

@@ -16,6 +16,7 @@ import '../services/recent_messages.dart';
 import '../services/seven_tv_event_client.dart';
 import '../services/command_handler.dart';
 import '../services/chat_connection_manager.dart';
+import '../services/ping_manager.dart';
 import '../services/emote_manager.dart';
 import '../services/emote_cache_manager.dart';
 import '../services/analytics_service.dart';
@@ -23,7 +24,6 @@ import '../services/twitch_badge_service.dart';
 import '../services/third_party_badge_service.dart';
 import '../services/emote_providers/twitch_emotes.dart';
 import '../util/log.dart';
-import '../util/mention.dart';
 import '../util/sheet_drag.dart';
 import '../util/thread_utils.dart';
 import '../util/timestamp_formatter.dart';
@@ -89,9 +89,8 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen>
     with WidgetsBindingObserver, TickerProviderStateMixin {
   static const _mentionsChannel = '@mentions';
-  static const _defaultAltPings = <String>[];
 
-  List<String> _altPings = _defaultAltPings;
+  late final _pingManager = PingManager.instance;
 
   late final _connectivityService =
       widget.connectivityService ?? ConnectivityService();
@@ -166,6 +165,7 @@ class _HomeScreenState extends State<HomeScreen>
       getCurrentUserLogin: () => _currentUserLogin,
       setCurrentUserLogin: (v) {
         _currentUserLogin = v;
+        _pingManager.setAccount(v);
         _scanHistoryForMentions();
         unawaited(_ensureBlockedUsersLoaded());
         // Warm the macro cache so sends can read it synchronously.
@@ -180,7 +180,7 @@ class _HomeScreenState extends State<HomeScreen>
       isBlocked: (login) => _blockedLogins.contains(login.toLowerCase()),
       getSharedChatMode: () => _sharedChatMode,
       onRequestFocus: () => _focusNode.requestFocus(),
-      getAltPings: () => _altPings,
+      pingManager: _pingManager,
       getMacros: () {
         final login = _currentUserLogin;
         if (login == null) return const {};
@@ -389,6 +389,7 @@ class _HomeScreenState extends State<HomeScreen>
     unawaited(_ttsController.init());
     unawaited(PerfLog.I.init());
     _currentUserLogin = widget.initialCurrentUserLogin;
+    _pingManager.setAccount(widget.initialCurrentUserLogin);
     _loadEmotePrefs();
     _emoteSheetCtrl = DraggableScrollableController();
     _mentionsTabCtrl = TabController(length: 2, vsync: this);
@@ -396,7 +397,7 @@ class _HomeScreenState extends State<HomeScreen>
     _emoteSheetCtrl.addListener(_onSheetSizeChanged);
     _loadMaxMessages();
     _ensureBlockedUsersLoaded();
-    _loadAltPings();
+    unawaited(_pingManager.load());
     _loadNotificationSettings();
     _loadTestWidgets();
     _chatConn.connect();
@@ -768,14 +769,19 @@ class _HomeScreenState extends State<HomeScreen>
         _messageKeys.add('$channel:${msg.messageId}');
       }
       final login = _currentUserLogin?.toLowerCase();
-      if (login != null && !msg.isHighlighted && isMentionOf(msg, login)) {
-        msg.isHighlighted = true;
-        _channelMessages.putIfAbsent(_mentionsChannel, () => []);
-        final mentionList = _channelMessages[_mentionsChannel]!;
-        final existingMentionIds = mentionList.map((m) => m.messageId).toSet();
-        if (msg.messageId == null ||
-            !existingMentionIds.contains(msg.messageId)) {
-          mentionList.insert(0, msg);
+      if (login != null && msg.highlight == null) {
+        final state = _pingManager.evaluate(msg);
+        if (state != null && state.hasMention) {
+          msg.highlight = state;
+          _channelMessages.putIfAbsent(_mentionsChannel, () => []);
+          final mentionList = _channelMessages[_mentionsChannel]!;
+          final existingMentionIds = mentionList
+              .map((m) => m.messageId)
+              .toSet();
+          if (msg.messageId == null ||
+              !existingMentionIds.contains(msg.messageId)) {
+            mentionList.insert(0, msg);
+          }
         }
       }
     }
@@ -1095,6 +1101,7 @@ class _HomeScreenState extends State<HomeScreen>
       // re-resolves the active account and reconnects with its credentials.
       _currentUserLogin = null;
       _currentUserId = null;
+      _pingManager.setAccount(null);
       // The emote-set / block / mention caches are per-account: reset them so
       // the new account's USERSTATE re-fetches its sub emotes (instead of the
       // old account's set IDs being deduped out), blocks are re-fetched, the
@@ -1390,12 +1397,6 @@ class _HomeScreenState extends State<HomeScreen>
       _lineSeparator = prefs.getBool('line_separator') ?? false;
       _sharedChatMode = prefs.getString('shared_chat_mode') ?? 'spotlight';
     });
-  }
-
-  void _loadAltPings() async {
-    final prefs = await SharedPreferences.getInstance();
-    if (!mounted) return;
-    _altPings = prefs.getStringList('alt_pings') ?? _defaultAltPings;
   }
 
   @override
@@ -2131,7 +2132,6 @@ class _HomeScreenState extends State<HomeScreen>
         ),
       ),
     ).then((_) {
-      _loadAltPings();
       _loadMaxMessages();
       _loadTestWidgets();
       _tileCache.clear();
@@ -2712,6 +2712,8 @@ class _HomeScreenState extends State<HomeScreen>
     if (!_mentionPush) return;
     if (!_isBackgrounded) return;
     if (msg.isHistory) return;
+    // Per-rule opt-in: only rules with "notify" enabled may buzz.
+    if (!(msg.highlight?.notify ?? false)) return;
     final pingKey = msg.sourceMessageId ?? msg.messageId;
     if (pingKey != null) {
       if (!_recentMentionPings.add(pingKey)) return;
@@ -2884,12 +2886,13 @@ class _HomeScreenState extends State<HomeScreen>
   void _scanHistoryForMentions() {
     if (_mentionScanDone || _currentUserLogin == null) return;
     _mentionScanDone = true;
-    final login = _currentUserLogin!.toLowerCase();
     for (final entry in _channelMessages.entries) {
       if (entry.key == _mentionsChannel) continue;
       for (final msg in entry.value) {
-        if (msg.isHighlighted || !isMentionOf(msg, login)) continue;
-        msg.isHighlighted = true;
+        if (msg.highlight != null) continue;
+        final state = _pingManager.evaluate(msg);
+        if (state == null || !state.hasMention) continue;
+        msg.highlight = state;
         _channelMessages.putIfAbsent(_mentionsChannel, () => []);
         _channelMessages[_mentionsChannel]!.insert(0, msg);
       }
