@@ -3061,6 +3061,30 @@ void main() {
       expect(emote!.isZeroWidth, isTrue);
     });
 
+    test('skips unlisted (private) emotes, keeps listed ones', () {
+      final unlisted = SevenTvEmoteProvider.parseSingleEmote({
+        'id': 'emote-8',
+        'name': 'Secret',
+        'data': {
+          'name': 'Secret',
+          'flags': 1 | (1 << 8),
+          'host': _host('1x.webp'),
+        },
+      });
+      expect(
+        unlisted,
+        isNull,
+        reason: 'private emotes render broken for regular viewers',
+      );
+
+      final listed = SevenTvEmoteProvider.parseSingleEmote({
+        'id': 'emote-9',
+        'name': 'Public',
+        'data': {'name': 'Public', 'flags': 0, 'host': _host('1x.webp')},
+      });
+      expect(listed, isNotNull);
+    });
+
     test('picks 2x for chat and largest for large surfaces', () {
       final emote = SevenTvEmoteProvider.parseSingleEmote({
         'id': 'emote-6',
