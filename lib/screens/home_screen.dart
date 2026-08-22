@@ -345,6 +345,10 @@ class _HomeScreenState extends State<HomeScreen>
     if (_emoteSheetOpen &&
         _emoteSheetCtrl.isAttached &&
         _emoteSheetCtrl.size <= 0.001) {
+      logDebug(
+        '[EmoteSheet] size collapsed to ${_emoteSheetCtrl.size.toStringAsFixed(3)} '
+        'while open; closing',
+      );
       setState(() {
         _emoteSheetOpen = false;
         _panelScaleCtrl.value = 1.0;
@@ -2199,18 +2203,41 @@ class _HomeScreenState extends State<HomeScreen>
     }
     setState(() => _emoteSheetOpen = true);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && _emoteSheetCtrl.isAttached) {
-        _emoteSheetCtrl.animateTo(
-          _emoteMaxFraction,
-          duration: _sheetAnimDuration,
-          curve: Curves.easeInOutCubicEmphasized,
-        );
+      if (!mounted) {
+        logDebug('[EmoteSheet] open aborted: unmounted');
+        return;
       }
+      if (!_emoteSheetCtrl.isAttached) {
+        logDebug('[EmoteSheet] open skipped: controller has no clients');
+        return;
+      }
+      logDebug(
+        '[EmoteSheet] animating open from ${_emoteSheetCtrl.size.toStringAsFixed(3)}',
+      );
+      unawaited(
+        _emoteSheetCtrl
+            .animateTo(
+              _emoteMaxFraction,
+              duration: _sheetAnimDuration,
+              curve: Curves.easeInOutCubicEmphasized,
+            )
+            .then((_) {
+              if (mounted && _emoteSheetCtrl.isAttached) {
+                logDebug(
+                  '[EmoteSheet] open animation ended at '
+                  '${_emoteSheetCtrl.size.toStringAsFixed(3)}',
+                );
+              }
+            }),
+      );
     });
   }
 
   Future<void> _closeEmoteSheet() async {
-    if (!_emoteSheetOpen) return;
+    if (!_emoteSheetOpen) {
+      logDebug('[EmoteSheet] close ignored: already closed');
+      return;
+    }
     if (_emoteSheetCtrl.isAttached) {
       // Scale the close duration by how open the sheet is, so a near-closed
       // sheet dismisses quickly while a fully-open one eases down.
@@ -2219,11 +2246,24 @@ class _HomeScreenState extends State<HomeScreen>
         1.0,
       );
       final duration = Duration(milliseconds: (80 + 180 * fraction).round());
-      await _emoteSheetCtrl.animateTo(
-        0.0,
-        duration: duration,
-        curve: Curves.easeInOutCubicEmphasized,
+      unawaited(
+        _emoteSheetCtrl
+            .animateTo(
+              0.0,
+              duration: duration,
+              curve: Curves.easeInOutCubicEmphasized,
+            )
+            .then((_) {
+              if (mounted && _emoteSheetCtrl.isAttached) {
+                logDebug(
+                  '[EmoteSheet] close animation ended at '
+                  '${_emoteSheetCtrl.size.toStringAsFixed(3)}',
+                );
+              }
+            }),
       );
+    } else {
+      logDebug('[EmoteSheet] close without animation: no clients');
     }
     if (mounted) {
       setState(() {
