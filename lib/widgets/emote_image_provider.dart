@@ -3,6 +3,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -88,12 +89,26 @@ class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
     return _EmoteImageCompleter(url: key.url, engineDecode: decode);
   }
 
+  /// Seeds queued for URLs whose completer does not exist yet (or was just
+  /// dropped by the cache because nothing listened within its frame): keyed
+  /// by target URL, consumed by the next completer created for it.
+  static final Map<String, String> _pendingSeeds = {};
+
+  /// Live completers by URL. The stock [ImageCache] can drop a still-unlistened
+  /// pending completer between frames (its pending hold is released when no
+  /// listener attaches within the creating frame), which would silently fork
+  /// playback and lose the seed; this map keeps the authoritative instance
+  /// discoverable for [seedPlayback]/[currentFrame]. Entries are removed in
+  /// [onDisposed], mirroring cache lifetime.
+  static final Map<String, _EmoteImageCompleter> _liveByUrl = {};
+
   /// Seeds the shared completer for [url] so its animation starts from the
   /// frame [sourceUrl]'s completer is currently showing instead of frame 0
   /// (used when a higher-res copy replaces a cached smaller scale, so the
   /// swap continues the animation in phase). Ignored once [url] is already
   /// playing or when [sourceUrl] has no frames yet.
   static void seedPlayback(String url, String sourceUrl) {
+    _pendingSeeds[url] = sourceUrl;
     _completerFor(url)?.seedFrom(sourceUrl);
   }
 
@@ -106,6 +121,8 @@ class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
   /// The shared completer for [url], created on demand when missing (which
   /// starts the fetch, matching what the stock [Image] widget would do).
   static _EmoteImageCompleter? _completerFor(String url) {
+    final live = _liveByUrl[url];
+    if (live != null && !live._disposed) return live;
     final stream = EmoteUrlProvider(url).resolve(ImageConfiguration.empty);
     final completer = stream.completer;
     if (completer is _EmoteImageCompleter && !completer._disposed) {
@@ -129,9 +146,13 @@ class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
 /// URL, shared via the stock [ImageCache], so every widget showing the same
 /// emote renders the same frame at the same time).
 ///
-/// Animated WebP frames come from our decoder and are played back here with a
-/// [Timer] (looping forever). The playback pauses when the last listener
-/// detaches and resumes from the current frame when one returns; the frames
+/// Animated WebP frames come from our decoder and are played back here with
+/// the same scheduling scheme the engine's own [MultiFrameImageStreamCompleter]
+/// uses: frame emission only happens inside app-frame callbacks, and the
+/// callback loop halts when the last listener detaches. Because a freeze
+/// (Android battery optimization suspending the VM) collapses into one late
+/// tick whose frame timestamp jumps forward, playback lands on the correct
+/// frame instead of stalling or replaying every intermediate one. The frames
 /// stay alive while the completer is cached. Disposal (cache eviction)
 /// releases every frame.
 ///
@@ -140,6 +161,12 @@ class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
 /// one the cache and widgets ever see.
 class _EmoteImageCompleter extends ImageStreamCompleter {
   _EmoteImageCompleter({required this.url, required this._engineDecode}) {
+    // Pick up a seed queued by [EmoteUrlProvider.seedPlayback] before this
+    // instance existed (the cache can drop an unlistened completer, so the
+    // probe's target may not be the instance that survives).
+    final queued = EmoteUrlProvider._pendingSeeds[url];
+    if (queued != null && queued != url) _seedFromUrl = queued;
+    EmoteUrlProvider._liveByUrl[url] = this;
     _load();
   }
 
@@ -147,8 +174,21 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
   final ImageDecoderCallback _engineDecode;
   EmoteFrameData? _frames;
   int _frameIndex = 0;
-  Timer? _timer;
+
+  /// Fires only to request the next app frame; never emits frames itself.
+  Timer? _frameTimer;
+  int? _frameCallbackId;
   bool _disposed = false;
+
+  /// Position within the animation cycle at the last processed tick. Kept
+  /// across pause/resume so playback resumes from the current frame.
+  Duration _cyclePosition = Duration.zero;
+
+  /// Frame timestamp when [_cyclePosition] was last advanced. Null after a
+  /// stop, so the first tick back only re-anchors (no catch-up for time
+  /// spent paused); a freeze while playing keeps this set and the gap is
+  /// applied in one step.
+  Duration? _shownTimestamp;
   ImageStreamCompleter? _engineCompleter;
   ImageStreamListener? _engineListener;
 
@@ -203,7 +243,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
         if (frames.frames.isNotEmpty) {
           _applySeed();
           _emitFrame(_frameIndex);
-          _scheduleNext();
+          _startPlayback();
         }
       } else if (format == EmoteFormat.gif && !animateGifs) {
         // Frozen GIF: decode only the first frame so it shows as a still image.
@@ -301,7 +341,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
 
   void _applySeed() {
     if (_disposed) return;
-    if (_timer?.isActive ?? false) return;
+    if (_isPlaying) return;
     final frames = _frames;
     if (frames == null || frames.frames.isEmpty) return;
     final sourceUrl = _seedFromUrl;
@@ -309,8 +349,38 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
     final source = EmoteUrlProvider._completerFor(sourceUrl);
     if (source == null) return;
     _seedFromUrl = null;
-    _frameIndex = source.currentFrameIndex.clamp(0, frames.frames.length - 1);
+    EmoteUrlProvider._pendingSeeds.remove(url);
+    // Copy the source's position inside its cycle so the swap happens in
+    // phase (the modulo also maps it correctly when frame durations differ).
+    final totalUs = frames.totalDuration.inMicroseconds;
+    if (totalUs <= 0) return;
+    if (source._frames != null) {
+      _cyclePosition = Duration(
+        microseconds: source._cyclePosition.inMicroseconds % totalUs,
+      );
+      _frameIndex = _frameForOffset(frames, _cyclePosition.inMicroseconds);
+    } else {
+      // Source plays on the engine-codec path (no self-managed frames);
+      // mirror its frame index into this completer's duration table. Seed
+      // at the END of that frame's window: the engine source is already part
+      // way through showing it and advances on its very next tick, and this
+      // keeps the swap in phase with it.
+      final sourceIndex = source.currentFrameIndex;
+      if (sourceIndex <= 0) return;
+      var accumulated = 0;
+      for (var i = 0; i <= sourceIndex && i < frames.durations.length; i++) {
+        accumulated += _safeFrameDurationUs(frames, i);
+      }
+      final posUs = accumulated % totalUs;
+      _cyclePosition = Duration(microseconds: posUs);
+      _frameIndex = _frameForOffset(frames, posUs);
+    }
   }
+
+  /// Whether the frame-callback loop is currently running (or a pending
+  /// timer will start it again).
+  bool get _isPlaying =>
+      _frameCallbackId != null || (_frameTimer?.isActive ?? false);
 
   /// Current frame index: [_frameIndex] on the self-driven playback path, or
   /// the mirrored engine counter on the engine path (0 when not loaded).
@@ -340,23 +410,99 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
     );
   }
 
-  void _scheduleNext() {
+  /// Starts (or restarts) the frame-callback playback loop. Mirrors the
+  /// engine's [MultiFrameImageStreamCompleter]: app frames drive emission,
+  /// and a one-shot timer for the remaining frame duration only requests the
+  /// next app frame, so backgrounded/frozen apps never queue up work.
+  void _startPlayback() {
     if (_disposed || !hasListeners) return;
-    _timer?.cancel();
+    if (_isPlaying) return;
     final frames = _frames;
     if (frames == null || frames.frames.isEmpty) return;
-    final next = (_frameIndex + 1) % frames.frames.length;
-    final delay = frames.durations[_frameIndex];
-    // Guard against zero-duration frames (a whole loop of zeros would spin
-    // the timer as fast as the event loop allows).
-    final safeDelay = delay > Duration.zero
-        ? delay
-        : const Duration(milliseconds: 16);
-    _timer = Timer(safeDelay, () {
-      if (_disposed || !hasListeners) return;
-      _emitFrame(next);
-      _scheduleNext();
+    if (frames.totalDuration <= Duration.zero) return;
+    _scheduleAppFrame();
+  }
+
+  /// Pauses playback: cancels any pending timer/frame callback and clears
+  /// [_shownTimestamp] so resuming re-anchors instead of applying the pause
+  /// gap. [_cyclePosition] is kept, so the same frame shows on resume.
+  void _stopPlayback() {
+    _frameTimer?.cancel();
+    _frameTimer = null;
+    final id = _frameCallbackId;
+    if (id != null) {
+      SchedulerBinding.instance.cancelFrameCallbackWithId(id);
+      _frameCallbackId = null;
+    }
+    _shownTimestamp = null;
+  }
+
+  void _scheduleAppFrame() {
+    if (_disposed || !hasListeners || _isPlaying) return;
+    final frames = _frames;
+    if (frames == null || frames.frames.isEmpty) return;
+    _frameCallbackId = SchedulerBinding.instance.scheduleFrameCallback(
+      _onAppFrame,
+    );
+  }
+
+  void _onAppFrame(Duration timeStamp) {
+    _frameCallbackId = null;
+    if (_disposed || !hasListeners) return;
+    final frames = _frames;
+    if (frames == null || frames.frames.isEmpty) return;
+    final totalUs = frames.totalDuration.inMicroseconds;
+    if (totalUs <= 0) return;
+
+    final shown = _shownTimestamp;
+    var posUs = _cyclePosition.inMicroseconds;
+    if (shown != null) {
+      // Apply the full elapsed gap in one step: after a VM freeze the frame
+      // timestamp jumps forward and this lands directly on the right frame.
+      posUs = (posUs + (timeStamp - shown).inMicroseconds) % totalUs;
+      _cyclePosition = Duration(microseconds: posUs);
+      final index = _frameForOffset(frames, posUs);
+      if (index != _frameIndex) {
+        _emitFrame(index);
+      }
+    }
+    _shownTimestamp = timeStamp;
+
+    // Schedule the next tick at the end of the current frame's window.
+    if (_frameTimer != null) return;
+    var remainingUs = _frameEndUs(frames, _frameIndex) - posUs;
+    if (remainingUs <= 0) {
+      remainingUs = 16000; // Zero-duration guard: next vsync.
+    }
+    _frameTimer = Timer(Duration(microseconds: remainingUs), () {
+      _frameTimer = null;
+      _scheduleAppFrame();
     });
+  }
+
+  /// Returns the frame index whose duration window covers [offsetUs] inside
+  /// the cycle.
+  static int _frameForOffset(EmoteFrameData frames, int offsetUs) {
+    var accumulated = 0;
+    for (var i = 0; i < frames.durations.length; i++) {
+      accumulated += _safeFrameDurationUs(frames, i);
+      if (offsetUs < accumulated) return i;
+    }
+    return frames.durations.length - 1;
+  }
+
+  /// End offset (inside the cycle) of frame [index]'s duration window.
+  static int _frameEndUs(EmoteFrameData frames, int index) {
+    var accumulated = 0;
+    for (var i = 0; i <= index; i++) {
+      accumulated += _safeFrameDurationUs(frames, i);
+    }
+    return accumulated;
+  }
+
+  static int _safeFrameDurationUs(EmoteFrameData frames, int index) {
+    final us = frames.durations[index].inMicroseconds;
+    return us > 0 ? us : 16000;
   }
 
   @override
@@ -365,7 +511,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
     if (_disposed || !hasListeners) return;
     if (_frames != null) {
       // Resume animated playback when a listener returns.
-      _scheduleNext();
+      _startPlayback();
     }
     final inner = _engineCompleter;
     final innerListener = _engineListener;
@@ -381,8 +527,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
     // Pause playback and stop forwarding the engine completer so a cached
     // GIF doesn't keep decoding frames nobody is watching (the engine
     // completer disposes itself once its last listener detaches).
-    _timer?.cancel();
-    _timer = null;
+    _stopPlayback();
     final inner = _engineCompleter;
     final innerListener = _engineListener;
     if (inner != null && innerListener != null) {
@@ -394,8 +539,10 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
   @mustCallSuper
   void onDisposed() {
     _disposed = true;
-    _timer?.cancel();
-    _timer = null;
+    if (EmoteUrlProvider._liveByUrl[url] == this) {
+      EmoteUrlProvider._liveByUrl.remove(url);
+    }
+    _stopPlayback();
     final inner = _engineCompleter;
     final innerListener = _engineListener;
     if (inner != null && innerListener != null) {
