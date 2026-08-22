@@ -226,6 +226,7 @@ class _HomeScreenState extends State<HomeScreen>
   StreamSubscription<String>? _notificationTapSub;
   bool _backgroundService = false;
   bool _mentionPush = false;
+  bool _whisperNotify = true;
   var _isBackgrounded = false;
 
   int _manualEmoteTierIndex = EmoteFetchTier.high.index;
@@ -454,10 +455,12 @@ class _HomeScreenState extends State<HomeScreen>
     final prefs = await SharedPreferences.getInstance();
     final backgroundService = prefs.getBool('background_service') ?? false;
     final mentionPush = prefs.getBool('mention_push') ?? false;
+    final whisperNotify = prefs.getBool('whisper_notifications') ?? true;
     if (!mounted) return;
     setState(() {
       _backgroundService = backgroundService;
       _mentionPush = mentionPush;
+      _whisperNotify = whisperNotify;
     });
     if (!Platform.isAndroid) return;
     if (backgroundService) {
@@ -505,6 +508,24 @@ class _HomeScreenState extends State<HomeScreen>
     } else {
       _notificationService.clearMentionNotifications();
     }
+  }
+
+  void _setWhisperNotify(bool value) {
+    if (_whisperNotify == value) return;
+    setState(() => _whisperNotify = value);
+  }
+
+  void _maybeNotifyWhisper(TwitchMessage msg) {
+    // Same gates as mention pushes; requires the notification infra that
+    // only initializes when mention push is on (Android).
+    if (!_mentionPush || !_whisperNotify || !_isBackgrounded) return;
+    if (_notificationTapSub == null || _isWhispersTabActive) return;
+    unawaited(
+      _notificationService.showWhisperNotification(
+        userName: msg.displayName,
+        message: msg.text,
+      ),
+    );
   }
 
   void _setMaxMessagesPerChannel(int value) {
@@ -2104,6 +2125,7 @@ class _HomeScreenState extends State<HomeScreen>
           },
           onBackgroundServiceChanged: _setBackgroundService,
           onMentionPushChanged: _setMentionPush,
+          onWhisperNotifyChanged: _setWhisperNotify,
           onMaxMessagesPerChannelChanged: _setMaxMessagesPerChannel,
           onRecentMessagesChanged: _setRecentMessagesLimit,
           onReplyToRootChanged: _setReplyToRoot,
@@ -2733,6 +2755,7 @@ class _HomeScreenState extends State<HomeScreen>
 
   void _onWhisper(TwitchMessage msg) {
     if (!mounted) return;
+    _maybeNotifyWhisper(msg);
     _whispers.insert(0, msg);
     if (_whispers.length > _maxMessagesPerChannel) {
       _whispers.removeRange(_maxMessagesPerChannel, _whispers.length);
@@ -2830,6 +2853,9 @@ class _HomeScreenState extends State<HomeScreen>
       // bump the bell's notifier to refresh the badge color.
       _mentionsBump.value++;
     }
+    if (_mentionPush) {
+      unawaited(_notificationService.clearMentionNotifications(channel));
+    }
     _openThreadRoot = null;
     if (_suggestionsNotifier.value.isNotEmpty) {
       _suggestionsNotifier.value = [];
@@ -2851,6 +2877,9 @@ class _HomeScreenState extends State<HomeScreen>
       if (cleared > 0) {
         _unreadMentions -= cleared;
         if (_unreadMentions < 0) _unreadMentions = 0;
+      }
+      if (_mentionPush) {
+        unawaited(_notificationService.clearMentionNotifications(channel));
       }
       _openThreadRoot = null;
       if (_suggestionsNotifier.value.isNotEmpty) {

@@ -13,6 +13,7 @@ class ChatSettingsScreen extends StatefulWidget {
   final TwitchAuth? twitchAuth;
   final ValueChanged<bool>? onBackgroundServiceChanged;
   final ValueChanged<bool>? onMentionPushChanged;
+  final ValueChanged<bool>? onWhisperNotifyChanged;
   final ValueChanged<int>? onMaxMessagesPerChannelChanged;
   final ValueChanged<int>? onRecentMessagesChanged;
   final ValueChanged<bool>? onReplyToRootChanged;
@@ -29,6 +30,7 @@ class ChatSettingsScreen extends StatefulWidget {
     this.twitchAuth,
     this.onBackgroundServiceChanged,
     this.onMentionPushChanged,
+    this.onWhisperNotifyChanged,
     this.onMaxMessagesPerChannelChanged,
     this.onRecentMessagesChanged,
     this.onReplyToRootChanged,
@@ -51,6 +53,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
   bool _replyToRoot = false;
   bool _backgroundService = false;
   bool _mentionPush = false;
+  bool _whisperNotify = true;
   bool _preferEmotesFirst = false;
   bool _showTimestamps = true;
   String _timestampFormat = kDefaultTimestampFormat;
@@ -76,6 +79,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
         _replyToRoot = prefs.getBool('reply_to_thread_root') ?? false;
         _backgroundService = prefs.getBool('background_service') ?? false;
         _mentionPush = prefs.getBool('mention_push') ?? false;
+        _whisperNotify = prefs.getBool('whisper_notifications') ?? true;
         _preferEmotesFirst = prefs.getBool('prefer_emotes_first') ?? false;
         _showTimestamps = prefs.getBool(kShowTimestampsPrefKey) ?? true;
         _timestampFormat =
@@ -419,7 +423,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
           ),
           // Mention push is Android-only (the foreground service path); the
           // iOS toggle would silently do nothing, so hide it there.
-          if (!kIsWeb && !Platform.isIOS)
+          if (!kIsWeb && !Platform.isIOS) ...[
             SwitchListTile(
               secondary: const Icon(Icons.notifications_active),
               title: const Text('Mention notifications'),
@@ -434,6 +438,19 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
                 widget.onMentionPushChanged?.call(value);
               },
             ),
+            SwitchListTile(
+              secondary: const Icon(Icons.chat_bubble),
+              title: const Text('Whisper notifications'),
+              subtitle: const Text('Also notify when someone whispers you'),
+              value: _whisperNotify,
+              onChanged: (value) async {
+                final prefs = await SharedPreferences.getInstance();
+                await prefs.setBool('whisper_notifications', value);
+                if (mounted) setState(() => _whisperNotify = value);
+                widget.onWhisperNotifyChanged?.call(value);
+              },
+            ),
+          ],
         ],
       ),
     );

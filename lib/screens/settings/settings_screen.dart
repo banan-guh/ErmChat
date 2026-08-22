@@ -21,6 +21,7 @@ class SettingsScreen extends StatelessWidget {
   final ValueChanged<String>? onAccentColorChanged;
   final ValueChanged<bool>? onBackgroundServiceChanged;
   final ValueChanged<bool>? onMentionPushChanged;
+  final ValueChanged<bool>? onWhisperNotifyChanged;
   final ValueChanged<int>? onMaxMessagesPerChannelChanged;
   final ValueChanged<int>? onRecentMessagesChanged;
   final ValueChanged<bool>? onReplyToRootChanged;
@@ -57,6 +58,7 @@ class SettingsScreen extends StatelessWidget {
     this.onAccentColorChanged,
     this.onBackgroundServiceChanged,
     this.onMentionPushChanged,
+    this.onWhisperNotifyChanged,
     this.onMaxMessagesPerChannelChanged,
     this.onRecentMessagesChanged,
     this.onReplyToRootChanged,
@@ -137,6 +139,7 @@ class SettingsScreen extends StatelessWidget {
                   twitchAuth: twitchAuth,
                   onBackgroundServiceChanged: onBackgroundServiceChanged,
                   onMentionPushChanged: onMentionPushChanged,
+                  onWhisperNotifyChanged: onWhisperNotifyChanged,
                   onMaxMessagesPerChannelChanged:
                       onMaxMessagesPerChannelChanged,
                   onRecentMessagesChanged: onRecentMessagesChanged,

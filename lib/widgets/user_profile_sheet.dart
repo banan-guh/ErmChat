@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../services/twitch_api.dart';
 import '../services/twitch_auth.dart';
@@ -242,10 +243,19 @@ class UserProfileSheetState extends State<UserProfileSheet> {
         dense: true,
         leading: const Icon(Icons.alternate_email),
         title: const Text('Mention user'),
-        onTap: () {
+        onTap: () async {
           widget.onClose();
+          final prefs = await SharedPreferences.getInstance();
+          final username = widget.username;
+          // Mention format preference: how the name is inserted into the
+          // compose box (dankchat-style name / name, / @name / @name,).
+          final prefix = switch (prefs.getString('mention_format') ?? '@name') {
+            'name' => '$username ',
+            'name,' => '$username, ',
+            '@name,' => '@$username, ',
+            _ => '@$username ',
+          };
           final text = widget.messageController.text;
-          final prefix = '@${widget.username} ';
           widget.messageController.text = '$prefix$text';
           widget.messageController.selection = TextSelection.fromPosition(
             TextPosition(offset: widget.messageController.text.length),

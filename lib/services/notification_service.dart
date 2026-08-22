@@ -5,7 +5,6 @@ class NotificationService {
   final FlutterLocalNotificationsPlugin _plugin =
       FlutterLocalNotificationsPlugin();
   final _tapController = StreamController<String>.broadcast();
-  final _postedIds = <int>{};
   String? _pendingLaunchChannel;
   // Monotonic suffix so two mentions in the same second get distinct IDs
   // (a bare epoch-second ID would replace the first notification).
@@ -60,12 +59,55 @@ class NotificationService {
     }
   }
 
+  static const _groupKey = 'chat_mentions_group';
+  // Fixed ID for the group summary; individual IDs are epoch seconds so a
+  // collision is impossible.
+  static const _summaryId = 1;
+
+  // Posted notifications grouped for per-channel cancellation, plus the
+  // ordered one-line summaries shown in the Android group summary.
+  final _idsByChannel = <String, List<int>>{};
+  final _postedIds = <int>{};
+  final _summaryOrder = <int>[];
+  final _summaryLineById = <int, String>{};
+
   Future<void> showMentionNotification({
     required String channel,
     required String userName,
     required String message,
   }) async {
-    const androidDetails = AndroidNotificationDetails(
+    final body = _truncate(message);
+    await _post(
+      channel: channel,
+      title: '$userName pinged you in #$channel',
+      body: body,
+      payload: channel,
+      summaryLine: '$userName: $body',
+    );
+  }
+
+  Future<void> showWhisperNotification({
+    required String userName,
+    required String message,
+  }) async {
+    final body = _truncate(message);
+    await _post(
+      channel: null,
+      title: '$userName sent you a whisper',
+      body: body,
+      payload: null,
+      summaryLine: '$userName (whisper): $body',
+    );
+  }
+
+  Future<void> _post({
+    required String? channel,
+    required String title,
+    required String body,
+    required String? payload,
+    required String summaryLine,
+  }) async {
+    final androidDetails = AndroidNotificationDetails(
       'chat_mentions',
       'Mentions',
       channelDescription: 'Notifications when someone mentions you in chat',
@@ -74,41 +116,89 @@ class NotificationService {
       showWhen: true,
       enableVibration: true,
       playSound: true,
+      groupKey: _groupKey,
     );
     const iosDetails = DarwinNotificationDetails(
       presentAlert: false,
       presentBadge: false,
       presentSound: false,
     );
-    const details = NotificationDetails(
+    final details = NotificationDetails(
       android: androidDetails,
       iOS: iosDetails,
     );
 
-    final body = message.length > 200
-        ? '${message.substring(0, 200)}...'
-        : message;
-
     final id = DateTime.now().millisecondsSinceEpoch ~/ 1000 + _idSeq++;
     _postedIds.add(id);
+    if (channel != null) {
+      _idsByChannel.putIfAbsent(channel, () => []).add(id);
+    }
+    _summaryOrder.add(id);
+    _summaryLineById[id] = summaryLine;
 
+    await _plugin.show(id, title, body, details, payload: payload);
+    await _updateSummary();
+  }
+
+  Future<void> _updateSummary() async {
+    if (_summaryOrder.isEmpty) {
+      await _plugin.cancel(_summaryId);
+      return;
+    }
+    final lines = [for (final id in _summaryOrder) _summaryLineById[id]!];
+    final androidDetails = AndroidNotificationDetails(
+      'chat_mentions',
+      'Mentions',
+      channelDescription: 'Notifications when someone mentions you in chat',
+      importance: Importance.high,
+      priority: Priority.high,
+      groupKey: _groupKey,
+      setAsGroupSummary: true,
+      styleInformation: InboxStyleInformation(
+        lines.length > 5 ? lines.sublist(lines.length - 5) : lines,
+        contentTitle: 'You have new mentions',
+        summaryText: '${_summaryOrder.length} mentions',
+      ),
+      // Only the summary should alert; the children stay silent.
+      playSound: false,
+      enableVibration: false,
+    );
     await _plugin.show(
-      id,
-      '$userName pinged you in #$channel',
-      body,
-      details,
-      payload: channel,
+      _summaryId,
+      null,
+      null,
+      NotificationDetails(android: androidDetails),
     );
   }
 
-  /// Cancels all mention notifications posted by this service, e.g. when the
-  /// app returns to the foreground. Only tracks IDs this service posted, so
-  /// the foreground service notification is never affected.
-  Future<void> clearMentionNotifications() async {
-    for (final id in _postedIds) {
-      await _plugin.cancel(id);
+  static String _truncate(String message) =>
+      message.length > 200 ? '${message.substring(0, 200)}...' : message;
+
+  /// Cancels posted mention notifications. Without [channel] everything is
+  /// cleared (app resumed, toggle switched off); with it only that channel's
+  /// notifications go (user opened the channel).
+  Future<void> clearMentionNotifications([String? channel]) async {
+    Iterable<int> ids;
+    if (channel == null) {
+      ids = List.of(_postedIds);
+    } else {
+      ids = List.of(_idsByChannel[channel] ?? const <int>[]);
+      _idsByChannel.remove(channel);
     }
-    _postedIds.clear();
+    var summaryDirty = false;
+    for (final id in ids) {
+      await _plugin.cancel(id);
+      _postedIds.remove(id);
+      if (_summaryLineById.remove(id) != null) {
+        _summaryOrder.remove(id);
+        summaryDirty = true;
+      }
+    }
+    if (_summaryOrder.isEmpty) {
+      await _plugin.cancel(_summaryId);
+    } else if (summaryDirty) {
+      await _updateSummary();
+    }
   }
 
   void dispose() {

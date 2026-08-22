@@ -2622,6 +2622,12 @@ void main() {
         find.widgetWithText(SwitchListTile, 'Show timestamps'),
       );
       expect(toggle.value, isTrue);
+      // Interact with the top-of-list toggle before scrolling down: the
+      // lazy ListView disposes items that scroll out of the cache extent.
+      await tester.tap(find.widgetWithText(SwitchListTile, 'Show timestamps'));
+      await tester.pumpAndSettle();
+      var prefs = await SharedPreferences.getInstance();
+      expect(prefs.getBool('show_timestamps'), isFalse);
       // The new FPS-cap rows sit between the gifs toggle and the timestamp
       // tile, pushing the format subtitle below the fold of the lazy list.
       await tester.scrollUntilVisible(
@@ -2630,17 +2636,6 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.text('HH:mm'), findsOneWidget);
-
-      final showTimestampsToggle = find.widgetWithText(
-        SwitchListTile,
-        'Show timestamps',
-      );
-      await tester.ensureVisible(showTimestampsToggle);
-      await tester.pumpAndSettle();
-      await tester.tap(showTimestampsToggle);
-      await tester.pumpAndSettle();
-      var prefs = await SharedPreferences.getInstance();
-      expect(prefs.getBool('show_timestamps'), isFalse);
 
       final formatTile = find.widgetWithText(ListTile, 'Timestamp format');
       await tester.ensureVisible(formatTile);
