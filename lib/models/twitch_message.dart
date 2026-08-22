@@ -44,6 +44,10 @@ class TwitchMessage {
   bool isHighlighted;
   String? userId;
   final bool isFirstMessage;
+
+  /// Amount of bits cheered with this message (PRIVMSG `bits` tag), or null
+  /// for non-cheer messages.
+  final int? bitsAmount;
   final List<EmotePosition>? emotePositions;
   final List<MessageBadge>? badges;
   final String? sourceBroadcasterId;
@@ -92,6 +96,7 @@ class TwitchMessage {
     this.replyThreadRootId,
     this.isHighlighted = false,
     this.isFirstMessage = false,
+    this.bitsAmount,
     this.userId,
     this.emotePositions,
     this.badges,

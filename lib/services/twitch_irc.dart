@@ -113,8 +113,9 @@ class UserNoticeEvent {
 
 /// USERNOTICE `msg-id` values that render like a default (PRIMARY purple)
 /// announcement: the notice stays a system message but carries the
-/// announcement accent. Covers subscriptions / gift subs plus watch-streak
-/// milestones (`viewermilestone`).
+/// announcement accent. Covers subscriptions / gift subs, watch-streak
+/// milestones (`viewermilestone`) and bits badge tier unlocks
+/// (`bitsbadgetier`).
 const subNoticeMsgIds = <String>{
   'sub',
   'resub',
@@ -126,6 +127,7 @@ const subNoticeMsgIds = <String>{
   'anongiftpaidupgrade',
   'primepaidupgrade',
   'viewermilestone',
+  'bitsbadgetier',
 };
 
 /// Builds the system-message text for a USERNOTICE event. Announcements are
@@ -628,6 +630,10 @@ TwitchMessage parseIrcChatMessage(
       ? sourceRoomId
       : null;
 
+  // Cheer messages carry a `bits` tag with the amount; highlight them like
+  // sub notices (PRIMARY purple banner).
+  final bitsAmount = int.tryParse(ircMsg.tags['bits'] ?? '');
+
   return TwitchMessage(
     login: user.login,
     displayName: user.displayName,
@@ -651,6 +657,8 @@ TwitchMessage parseIrcChatMessage(
     badges: parseIrcBadges(ircMsg.tags['badges']),
     sourceBroadcasterId: sourceBroadcasterId,
     isFirstMessage: ircMsg.tags['first-msg'] == '1',
+    bitsAmount: bitsAmount,
+    systemAccent: bitsAmount != null ? announcementColors['PRIMARY'] : null,
     isHistory: isHistory,
   );
 }
