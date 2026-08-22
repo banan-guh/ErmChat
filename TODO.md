@@ -43,9 +43,9 @@
 - [ ] **iOS mention push** - android works, apple server doesn't exist yet.
 - [ ] **Notification tuning** - quiet hours, per-channel mutes, sender cooldowns, collapse sub train bursts.
 - [ ] **Chat search** - search/filter messages while scrolled up.
-- [ ] **Slow mode countdown** - timer on the input box.
+- [+] **Slow mode countdown** - countdown on the input box hint, ticks in place; timeouts too (CLEARCHAT ban-duration), mod/vip/sub badges bypass slow.
 - [ ] **Emote favorites** - recents exist, favs don't.
-- [ ] **EXIF strip before upload** - location/camera data leaves the phone today.
+- [+] **EXIF strip before upload** - JPEGs re-encoded without metadata before upload, orientation baked in; other formats untouched.
 - [ ] **Inline image embeds** - render image links posted in chat, off by default.
 - [ ] **Dual-pane view** - read two channels side by side.
 - [ ] **Home screen widget / Live Activity** - track last watched channel.

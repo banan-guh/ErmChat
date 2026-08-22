@@ -1,6 +1,9 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
+import 'dart:typed_data';
 import 'package:http/http.dart' as http;
+import 'package:image/image.dart' as img;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../util/constants.dart';
 import '../util/log.dart';
@@ -68,6 +71,25 @@ class UploadResult {
   const UploadResult({required this.imageLink, this.deleteLink});
 }
 
+/// Re-encodes a JPEG without its metadata so location/camera EXIF never
+/// leaves the device, baking the EXIF orientation into the pixels first so
+/// the stripped image still displays upright. Non-JPEG input (PNG/GIF/video)
+/// is returned untouched: their metadata is not sensitive in practice and
+/// re-encoding would drop GIF animation. A decode failure fails open and
+/// returns the original bytes rather than breaking the upload.
+Future<Uint8List> stripExif(Uint8List bytes) {
+  return Isolate.run(() {
+    try {
+      final decoded = img.decodeJpg(bytes);
+      if (decoded == null) return bytes;
+      return Uint8List.fromList(img.encodeJpg(img.bakeOrientation(decoded)));
+    } catch (_) {
+      // Undecodable input: fail open and upload it as-is.
+      return bytes;
+    }
+  });
+}
+
 class RecentUpload {
   final String imageLink;
   final String? deleteLink;
@@ -128,6 +150,10 @@ class MediaUploader {
   Future<UploadResult> uploadMedia(File file) async {
     final config = await loadConfig();
     final mimeType = _mimeTypeFor(file);
+    var bytes = await file.readAsBytes();
+    if (mimeType == 'image/jpeg') {
+      bytes = await stripExif(bytes);
+    }
     final uri = Uri.parse(config.uploadUrl);
     final request = http.MultipartRequest('POST', uri)
       ..headers['User-Agent'] = 'ermchat'
@@ -140,7 +166,7 @@ class MediaUploader {
     request.files.add(
       http.MultipartFile.fromBytes(
         config.formField,
-        await file.readAsBytes(),
+        bytes,
         filename: file.uri.pathSegments.isNotEmpty
             ? file.uri.pathSegments.last
             : 'upload',
