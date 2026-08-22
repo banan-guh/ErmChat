@@ -2100,6 +2100,7 @@ class _HomeScreenState extends State<HomeScreen>
           analyticsService: _analytics,
           channels: _channels,
           ttsController: _ttsController,
+          emoteManager: _emoteManager,
         ),
       ),
     ).then((_) {

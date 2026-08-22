@@ -371,6 +371,7 @@ class EmoteManager extends ChangeNotifier {
         ..sort((a, b) => a.code.compareTo(b.code));
       result = ChannelEmotes(byCode: merged, suggestions: suggestions);
     }
+    result = _filterVisible(result);
     _mergedCache[channel] = result;
     return result;
   }
@@ -394,7 +395,7 @@ class EmoteManager extends ChangeNotifier {
   // Global emotes grouped by provider for the emote sheet, in display order
   // (7TV, Twitch, BTTV, FFZ); each group sorted by code.
   Map<String, List<GenericEmote>> globalEmotesByProvider() {
-    final cached = _globalCache;
+    final cached = _filterVisible(_globalCache);
     if (cached == null) return {};
     final grouped = <EmoteType, List<GenericEmote>>{};
     for (final e in cached.suggestions) {
@@ -415,7 +416,7 @@ class EmoteManager extends ChangeNotifier {
   }
 
   List<GenericEmote> channelNonTwitchEmotes(String channel) {
-    final cached = _channelCaches[channel];
+    final cached = _filterVisible(_channelCaches[channel]);
     if (cached == null) return [];
     return cached.suggestions.where((e) => e.type != EmoteType.twitch).toList()
       ..sort((a, b) => a.code.compareTo(b.code));
@@ -431,6 +432,7 @@ class EmoteManager extends ChangeNotifier {
   Map<String, List<GenericEmote>>? _subsByChannelCache;
 
   Map<String, List<GenericEmote>> subscriberEmotesByChannel() {
+    if (!_isProviderOn(EmoteType.twitch)) return {};
     final cached = _subsByChannelCache;
     if (cached != null) return cached;
     // The account's sub emotes are fanned into every open channel's store, so
@@ -473,6 +475,93 @@ class EmoteManager extends ChangeNotifier {
   List<String> _recentIds = [];
   bool _recentLoaded = false;
   SharedPreferences? _prefs;
+
+  // ── Provider visibility toggles ─────────────────────────────────────
+  // Disabling a provider gates its fetches AND drops it from every merged
+  // cache (chat rendering, autocomplete, sheet/menu grids), so hidden
+  // providers never surface anywhere.
+  static const _disabledProvidersKey = 'emote_providers_disabled';
+  final Set<EmoteType> _disabledProviders = {};
+  bool _providersLoaded = false;
+
+  Future<void> _ensureProvidersLoaded() async {
+    if (_providersLoaded) return;
+    _providersLoaded = true;
+    final prefs = await _getPrefs();
+    final raw = prefs.getStringList(_disabledProvidersKey);
+    if (raw == null) return;
+    for (final t in EmoteType.values) {
+      if (raw.contains(t.name)) _disabledProviders.add(t);
+    }
+  }
+
+  /// Whether [type]'s emotes are fetched and rendered. Best-effort sync view;
+  /// fetch entry points await [_ensureProvidersLoaded] themselves.
+  bool isProviderEnabled(EmoteType type) {
+    if (!_providersLoaded) unawaited(_ensureProvidersLoaded());
+    return !_disabledProviders.contains(type);
+  }
+
+  /// Current enabled providers, awaiting the persisted load first.
+  Future<Set<EmoteType>> enabledProviders() async {
+    await _ensureProvidersLoaded();
+    return {
+      for (final t in EmoteType.values)
+        if (!_disabledProviders.contains(t)) t,
+    };
+  }
+
+  Future<void> setProviderEnabled(EmoteType type, bool enabled) async {
+    await _ensureProvidersLoaded();
+    final changed = enabled
+        ? _disabledProviders.remove(type)
+        : _disabledProviders.add(type);
+    if (!changed) return;
+    final prefs = await _getPrefs();
+    await prefs.setStringList(
+      _disabledProvidersKey,
+      _disabledProviders.map((t) => t.name).toList(),
+    );
+    _rebuildCachesForProviderToggles();
+  }
+
+  // Read-time visibility filter for caches loaded from prefs, which have no
+  // per-provider stash to rebuild from on a toggle. Same instance when
+  // nothing is disabled (the common case).
+  ChannelEmotes? _filterVisible(ChannelEmotes? cache) {
+    if (cache == null || _disabledProviders.isEmpty) return cache;
+    final visible = cache.suggestions
+        .where((e) => !_disabledProviders.contains(e.type))
+        .toList();
+    return ChannelEmotes(
+      byCode: {for (final e in visible) e.code: e},
+      suggestions: visible,
+    );
+  }
+
+  // Applies a provider toggle: rebuilds merged caches from the retained
+  // per-provider stashes when they exist, so toggling back on restores the
+  // previous fetch without a refetch. Sessions whose caches came from prefs
+  // have no stashes; read-time filtering covers those until the next fetch.
+  void _rebuildCachesForProviderToggles() {
+    if (_globalProviderEmotes.isNotEmpty) {
+      _globalCache = _buildChannelMap([
+        for (final list in _globalProviderEmotes.values) ...list,
+      ]);
+    }
+    for (final entry in _channelProviderEmotes.entries) {
+      final subs = _channelTwitchEmotes[entry.key];
+      if (entry.value.isEmpty && subs == null) continue;
+      _channelCaches[entry.key] = _buildChannelMap([
+        for (final list in entry.value.values) ...list,
+        ...?subs,
+      ]);
+      _reapplyLiveSevenTv(entry.key);
+    }
+    _subsByChannelCache = null;
+    _mergedCache.clear();
+    _notify();
+  }
 
   Future<SharedPreferences> _getPrefs() async {
     _prefs ??= await SharedPreferences.getInstance();
@@ -574,6 +663,7 @@ class EmoteManager extends ChangeNotifier {
   }
 
   Future<void> preloadGlobalEmotes() async {
+    await _ensureProvidersLoaded();
     if (_globalCache != null) return;
     final ttl = await _effectiveTtl();
     final loaded = await _loadFromPrefs('emotes3_global', ttl);
@@ -642,6 +732,7 @@ class EmoteManager extends ChangeNotifier {
   }
 
   Future<void> resolveEmotes(String channel, String? broadcasterId) async {
+    await _ensureProvidersLoaded();
     final ttl = await _effectiveTtl();
     final loaded = await _loadFromPrefs(
       'emotes3_$channel',
@@ -766,6 +857,8 @@ class EmoteManager extends ChangeNotifier {
     String? broadcasterId,
   ) async {
     if (broadcasterId == null) return;
+    await _ensureProvidersLoaded();
+    if (!_isProviderOn(EmoteType.twitch)) return;
     try {
       final emotes = await TwitchEmoteProvider.fetchChannel(
         broadcasterId,
@@ -800,6 +893,8 @@ class EmoteManager extends ChangeNotifier {
   }
 
   Future<void> _refreshTwitchGlobalEmotes() async {
+    await _ensureProvidersLoaded();
+    if (!_isProviderOn(EmoteType.twitch)) return;
     try {
       final emotes = await TwitchEmoteProvider.fetchGlobal(
         accessToken: _accessToken,
@@ -828,6 +923,8 @@ class EmoteManager extends ChangeNotifier {
   // Nothing/low are fully cache-driven and never reach this.
   Future<void> _reconcileSevenTv(String channel, String broadcasterId) async {
     if (_tier.index < EmoteFetchTier.medium.index) return;
+    await _ensureProvidersLoaded();
+    if (!_isProviderOn(EmoteType.sevenTv)) return;
     try {
       final resp = await _sevenTvChannelFetcher(
         broadcasterId,
@@ -929,6 +1026,7 @@ class EmoteManager extends ChangeNotifier {
     Map<String, ({String newName, String oldName})> renamed = const {},
   }) {
     if (_tier == EmoteFetchTier.nothing) return;
+    if (!_isProviderOn(EmoteType.sevenTv)) return;
     var cache = _channelCaches[channel];
     if (cache == null && added.isEmpty) return;
 
@@ -1164,12 +1262,21 @@ class EmoteManager extends ChangeNotifier {
   Future<void> enqueueFetchForTesting(Future<void> Function() action) =>
       _enqueueFetch(action);
 
+  /// Sync gate for fetch lambdas; callers must have awaited
+  /// [_ensureProvidersLoaded] first.
+  bool _isProviderOn(EmoteType type) => !_disabledProviders.contains(type);
+
   ChannelEmotes _buildChannelMap(List<GenericEmote> emotes) {
+    // Disabled providers never enter any cache: chat, autocomplete and the
+    // sheet all read through these maps.
+    final visible = _disabledProviders.isEmpty
+        ? emotes
+        : emotes.where((e) => !_disabledProviders.contains(e.type)).toList();
     // Scope precedence (channel > global) applied before provider precedence.
     // Provider precedence (tiebreaker within same scope): 7TV > BTTV > FFZ > Twitch
     final best = <String, GenericEmote>{};
     final seenScope = <String, int>{};
-    for (final emote in emotes) {
+    for (final emote in visible) {
       final existing = best[emote.code];
       if (existing == null) {
         best[emote.code] = emote;
@@ -1197,8 +1304,10 @@ class EmoteManager extends ChangeNotifier {
   }
 
   Future<List<GenericEmote>> _fetchAllGlobal() async {
+    await _ensureProvidersLoaded();
     final providers = <String, Future<List<GenericEmote>> Function()>{
       'Twitch': () async {
+        if (!_isProviderOn(EmoteType.twitch)) return [];
         final emotes = await TwitchEmoteProvider.fetchGlobal(
           accessToken: _accessToken,
           resolution: _tier.resolution!,
@@ -1207,6 +1316,7 @@ class EmoteManager extends ChangeNotifier {
         return emotes;
       },
       'BTTV': () async {
+        if (!_isProviderOn(EmoteType.bttv)) return [];
         final emotes = await BttvEmoteProvider.fetchGlobal(
           resolution: _tier.resolution!,
         );
@@ -1214,6 +1324,7 @@ class EmoteManager extends ChangeNotifier {
         return emotes;
       },
       'FFZ': () async {
+        if (!_isProviderOn(EmoteType.ffz)) return [];
         final emotes = await FfzEmoteProvider.fetchGlobal(
           resolution: _tier.resolution!,
         );
@@ -1221,6 +1332,7 @@ class EmoteManager extends ChangeNotifier {
         return emotes;
       },
       '7TV': () async {
+        if (!_isProviderOn(EmoteType.sevenTv)) return [];
         final emotes = await SevenTvEmoteProvider.fetchGlobal(
           resolution: _tier.resolution!,
         );
@@ -1238,6 +1350,7 @@ class EmoteManager extends ChangeNotifier {
     String? broadcasterId, {
     String? channelName,
   }) async {
+    await _ensureProvidersLoaded();
     if (broadcasterId == null) {
       // Nothing to fetch (e.g. unknown user id): fall back to whatever this
       // channel already retained so a transient miss never wipes the cache.
@@ -1250,6 +1363,7 @@ class EmoteManager extends ChangeNotifier {
         <String, List<GenericEmote>>{};
     final providers = <String, Future<List<GenericEmote>> Function()>{
       'Twitch': () async {
+        if (!_isProviderOn(EmoteType.twitch)) return [];
         final fetched = await TwitchEmoteProvider.fetchChannel(
           broadcasterId,
           accessToken: _accessToken,
@@ -1267,6 +1381,7 @@ class EmoteManager extends ChangeNotifier {
         return nonSub;
       },
       'BTTV': () async {
+        if (!_isProviderOn(EmoteType.bttv)) return [];
         final emotes = await BttvEmoteProvider.fetchChannel(
           broadcasterId,
           resolution: _tier.resolution!,
@@ -1275,6 +1390,7 @@ class EmoteManager extends ChangeNotifier {
         return emotes;
       },
       'FFZ': () async {
+        if (!_isProviderOn(EmoteType.ffz)) return [];
         final emotes = await FfzEmoteProvider.fetchChannel(
           broadcasterId,
           resolution: _tier.resolution!,
@@ -1283,6 +1399,7 @@ class EmoteManager extends ChangeNotifier {
         return emotes;
       },
       '7TV': () async {
+        if (!_isProviderOn(EmoteType.sevenTv)) return [];
         final resp = await SevenTvEmoteProvider.fetchChannelResponse(
           broadcasterId,
           resolution: _tier.resolution!,

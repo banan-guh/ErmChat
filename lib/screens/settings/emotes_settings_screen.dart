@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../models/emote_fetch_tier.dart';
+import '../../models/generic_emote.dart';
 import '../../services/emote_cache_manager.dart';
+import '../../services/emote_manager.dart';
 
 class EmotesSettingsScreen extends StatefulWidget {
   final ValueChanged<int>? onEmoteTierChanged;
@@ -16,6 +18,10 @@ class EmotesSettingsScreen extends StatefulWidget {
   /// shared [EmoteCacheManager] singleton.
   final EmoteCacheManager? cacheManager;
 
+  /// The live manager backing the per-provider visibility toggles. The
+  /// section is hidden when null (tests, standalone previews).
+  final EmoteManager? emoteManager;
+
   const EmotesSettingsScreen({
     super.key,
     this.onEmoteTierChanged,
@@ -23,6 +29,7 @@ class EmotesSettingsScreen extends StatefulWidget {
     this.onEmoteAutoModeChanged,
     this.mobileNotifier,
     this.cacheManager,
+    this.emoteManager,
   });
 
   @override
@@ -35,12 +42,38 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
   int _appliedCacheMax = defaultEmoteCacheMax;
   int _draftCacheMax = defaultEmoteCacheMax;
   EmoteCacheStats? _stats;
+  final _providerEnabled = <EmoteType, bool>{};
+
+  static const _providerLabels = {
+    EmoteType.twitch: 'Twitch',
+    EmoteType.bttv: 'BetterTTV',
+    EmoteType.ffz: 'FrankerFaceZ',
+    EmoteType.sevenTv: '7TV',
+  };
 
   @override
   void initState() {
     super.initState();
     _loadPrefs();
     _loadStats();
+    _loadProviders();
+  }
+
+  Future<void> _loadProviders() async {
+    final manager = widget.emoteManager;
+    if (manager == null) return;
+    final enabled = await manager.enabledProviders();
+    if (!mounted) return;
+    setState(() {
+      for (final type in EmoteType.values) {
+        _providerEnabled[type] = enabled.contains(type);
+      }
+    });
+  }
+
+  Future<void> _onProviderChanged(EmoteType type, bool enabled) async {
+    setState(() => _providerEnabled[type] = enabled);
+    await widget.emoteManager?.setProviderEnabled(type, enabled);
   }
 
   Future<void> _loadStats() async {
@@ -221,6 +254,27 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
             style: Theme.of(context).textTheme.bodyMedium,
           ),
         ),
+        if (widget.emoteManager != null) ...[
+          _sectionHeader('Providers'),
+          for (final type in EmoteType.values)
+            if (_providerEnabled.containsKey(type))
+              SwitchListTile(
+                key: Key('provider_toggle_${type.name}'),
+                title: Text(_providerLabels[type] ?? type.name),
+                value: _providerEnabled[type]!,
+                onChanged: (v) => _onProviderChanged(type, v),
+              ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            child: Text(
+              'Disabled providers are not fetched and their emotes stop '
+              'rendering until re-enabled.',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+        ],
         _sectionHeader('Emote image cache'),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),

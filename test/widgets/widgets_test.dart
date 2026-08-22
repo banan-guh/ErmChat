@@ -2707,6 +2707,35 @@ void main() {
       expect(prefs.getInt('emote_fetch_tier'), EmoteFetchTier.low.index);
     });
 
+    testWidgets('provider toggles flip the manager and persist', (
+      WidgetTester tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({});
+      final manager = EmoteManager(
+        fetchStagger: Duration.zero,
+        tier: EmoteFetchTier.nothing,
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(home: EmotesSettingsScreen(emoteManager: manager)),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      for (final type in EmoteType.values) {
+        expect(find.byKey(Key('provider_toggle_${type.name}')), findsOneWidget);
+      }
+      expect(find.text('Providers'), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('provider_toggle_bttv')));
+      await tester.pump();
+      await tester.pump();
+
+      expect(manager.isProviderEnabled(EmoteType.bttv), isFalse);
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getStringList('emote_providers_disabled'), ['bttv']);
+    });
+
     testWidgets('auto-mode switch persists emote_fetch_auto, fires callback, '
         'and disables the tier slider', (WidgetTester tester) async {
       SharedPreferences.setMockInitialValues({});
