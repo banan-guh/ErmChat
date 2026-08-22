@@ -132,6 +132,7 @@ class SettingsScreen extends StatelessWidget {
               context,
               MaterialPageRoute(
                 builder: (_) => ChatSettingsScreen(
+                  twitchAuth: twitchAuth,
                   onBackgroundServiceChanged: onBackgroundServiceChanged,
                   onMentionPushChanged: onMentionPushChanged,
                   onMaxMessagesPerChannelChanged:

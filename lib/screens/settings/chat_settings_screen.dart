@@ -3,11 +3,14 @@ import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../services/twitch_auth.dart';
 import '../../util/constants.dart';
 import '../../util/timestamp_formatter.dart';
+import 'macros_screen.dart';
 import 'pings_screen.dart';
 
 class ChatSettingsScreen extends StatefulWidget {
+  final TwitchAuth? twitchAuth;
   final ValueChanged<bool>? onBackgroundServiceChanged;
   final ValueChanged<bool>? onMentionPushChanged;
   final ValueChanged<int>? onMaxMessagesPerChannelChanged;
@@ -22,6 +25,7 @@ class ChatSettingsScreen extends StatefulWidget {
 
   const ChatSettingsScreen({
     super.key,
+    this.twitchAuth,
     this.onBackgroundServiceChanged,
     this.onMentionPushChanged,
     this.onMaxMessagesPerChannelChanged,
@@ -210,6 +214,24 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
               );
             },
           ),
+          if (widget.twitchAuth != null)
+            ListTile(
+              leading: const Icon(Icons.bolt),
+              title: const Text('Command macros'),
+              subtitle: const Text(
+                'Custom triggers like "!so" that expand on send',
+              ),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) =>
+                        MacrosScreen(twitchAuth: widget.twitchAuth!),
+                  ),
+                );
+              },
+            ),
           SwitchListTile(
             secondary: const Icon(Icons.reply),
             title: const Text('Reply to thread root'),
