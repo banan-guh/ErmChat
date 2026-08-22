@@ -2133,6 +2133,43 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
+  /// Warn flow from the profile sheet: optional reason prompt, then the same
+  /// /warn command path so success/failure notices match typed usage.
+  Future<void> _warnUserFromSheet(String login) async {
+    final channel = _selectedChannel;
+    if (channel == null) return;
+    final controller = TextEditingController();
+    final reason = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Warn $login'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(labelText: 'Reason (optional)'),
+          onSubmitted: (v) => Navigator.pop(ctx, v),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, controller.text),
+            child: const Text('Warn'),
+          ),
+        ],
+      ),
+    );
+    if (reason == null || !mounted) return;
+    final trimmed = reason.trim();
+    await _handleCommand(
+      trimmed.isEmpty ? '/warn $login' : '/warn $login $trimmed',
+      channel,
+      widget.twitchAuth,
+    );
+  }
+
   ScrollController _scrollCtrl(String channel) {
     return _scrollControllers.putIfAbsent(channel, () => ScrollController());
   }
@@ -2628,6 +2665,7 @@ class _HomeScreenState extends State<HomeScreen>
         onClose: () => Navigator.pop(ctx),
         onUserBlocked: _onUserBlocked,
         onWhisperUser: () => _showWhispersForUser(username),
+        onWarnUser: () => _warnUserFromSheet(username),
       ),
     );
   }

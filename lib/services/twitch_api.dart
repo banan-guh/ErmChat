@@ -341,6 +341,29 @@ class TwitchApi {
     return false;
   }
 
+  /// Warns a user in the broadcaster's channel. The warning arrives as an
+  /// EventSub/IRC moderation event; no local echo is needed beyond the
+  /// command's own success notice.
+  Future<bool> warnUser(
+    TwitchAuth auth, {
+    required String broadcasterId,
+    required String moderatorId,
+    required String userId,
+    String? reason,
+  }) async {
+    _clearError();
+    final uri = Uri.parse(
+      '$_base/moderation/warnings?broadcaster_id=$broadcasterId&moderator_id=$moderatorId',
+    );
+    final data = <String, String>{'user_id': userId};
+    if (reason != null && reason.isNotEmpty) data['reason'] = reason;
+    final body = jsonEncode({'data': data});
+    final res = await _client.post(uri, headers: _headers(auth), body: body);
+    if (res.statusCode == 200) return true;
+    _setError('warnUser', res);
+    return false;
+  }
+
   Future<bool> deleteChatMessage(
     TwitchAuth auth, {
     required String broadcasterId,

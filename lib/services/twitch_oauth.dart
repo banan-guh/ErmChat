@@ -92,11 +92,12 @@ class TwitchOAuth {
         '&response_type=token'
         '&scope=chat:read+chat:edit+user:write:chat+user:manage:chat_color+'
         'moderator:manage:banned_users+moderator:manage:chat_messages+moderator:manage:announcements+'
-        'moderator:manage:shoutouts+moderator:read:moderators+'
+        'moderator:manage:shoutouts+moderator:manage:warnings+moderator:read:moderators+'
         'moderator:read:vips+user:manage:blocked_users+user:read:blocked_users+moderator:manage:chat_settings+'
         'channel:manage:moderators+channel:manage:vips+channel:edit:commercial+channel:manage:raids+'
         'moderator:manage:shield_mode+channel:manage:broadcast+user:manage:whispers+'
-        'channel:read:hype_train+channel:read:polls+channel:read:predictions'
+        'channel:read:hype_train+channel:read:polls+channel:read:predictions+'
+        'channel:manage:polls+channel:manage:predictions'
         '&state=$state'
         '&force_verify=true';
     return (url: url, state: state);
