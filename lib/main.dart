@@ -10,6 +10,7 @@ import 'services/twitch_auth.dart';
 import 'services/twitch_eventsub.dart';
 import 'services/twitch_irc.dart';
 import 'services/recent_messages.dart';
+import 'services/twitch_badge_service.dart';
 import 'theme_colors.dart';
 import 'util/log.dart';
 import 'widgets/tabbed_layout.dart';
@@ -82,6 +83,7 @@ class TwitchChatApp extends StatefulWidget {
   final IrcService? ircService;
   final IrcReadService? ircReadService;
   final RecentMessagesService? recentMessagesService;
+  final TwitchBadgeService? badgeService;
   final String? initialCurrentUserLogin;
 
   const TwitchChatApp({
@@ -90,6 +92,7 @@ class TwitchChatApp extends StatefulWidget {
     this.ircService,
     this.ircReadService,
     this.recentMessagesService,
+    this.badgeService,
     this.initialCurrentUserLogin,
   });
 
@@ -197,6 +200,7 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
         ircService: widget.ircService,
         ircReadService: widget.ircReadService,
         recentMessagesService: widget.recentMessagesService,
+        badgeService: widget.badgeService,
         initialCurrentUserLogin: widget.initialCurrentUserLogin,
       ),
     );

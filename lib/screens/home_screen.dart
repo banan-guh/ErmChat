@@ -61,6 +61,7 @@ class HomeScreen extends StatefulWidget {
   final IrcReadService? ircReadService;
   final RecentMessagesService? recentMessagesService;
   final ConnectivityService? connectivityService;
+  final TwitchBadgeService? badgeService;
   final String? initialCurrentUserLogin;
 
   const HomeScreen({
@@ -75,6 +76,7 @@ class HomeScreen extends StatefulWidget {
     this.ircReadService,
     this.recentMessagesService,
     this.connectivityService,
+    this.badgeService,
     this.initialCurrentUserLogin,
   });
 
@@ -223,7 +225,7 @@ class _HomeScreenState extends State<HomeScreen>
   late final _emoteManager = EmoteManager(
     probe: _connectivityService.checkConnectivity,
   );
-  final _badgeService = TwitchBadgeService();
+  late final _badgeService = widget.badgeService ?? TwitchBadgeService();
   final _userStore = UserStore();
   final _channels = <String>[];
   final _channelNotifier = ValueNotifier<List<String>>([]);

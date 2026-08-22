@@ -51,7 +51,7 @@
 - [ ] **Home screen widget / Live Activity** - track last watched channel.
 - [ ] **Different mode** - Toggleable type box visibility and fullscreen.
 - [ ] **Announcement highlight for remaining USERNOTICE types** - `bitsbadgetier`, `standardpayforward`, `communitypayforward`, `charitydonation`, `modiversary`, etc. render as plain system text with no accent. Deferred until the sub/watch-streak highlight work is pushed.
-- [ ] **Injectable TwitchBadgeService** - Currently standalone; consider making it injectable (like EventSubService/IrcService) for testability. Low priority.
+- [+] **Injectable TwitchBadgeService** - injected like EventSubService/IrcService (TwitchChatApp/HomeScreen params).
 - [ ] **AVIF support** - Decode AVIF emotes via libavif + dav1d through the existing FFI shim (`emote_decode_avif`; the shim API is already format-agnostic, see PLAN.md). 7tv uses AVIF so if we can get this to work we can save lots.
 - [ ] **Token refresh instead of re-auth every 60 days** - Access tokens expire roughly every 60 days; implement a refresh path instead of forcing full re-auth. Note: implicit-grant tokens (`response_type=token`) can't be refreshed - requires an auth flow change (e.g. device code grant).
 - [-] **Make select UI more friendly** - reference dankchat when selecting text. investigate far future.
