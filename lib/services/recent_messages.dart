@@ -213,8 +213,16 @@ class RecentMessagesService {
   }
 
   static TwitchMessage? _parseUserNotice(IrcMessage msg, String? channel) {
-    final msgId = msg.tags['msg-id'] ?? '';
+    var msgId = msg.tags['msg-id'] ?? '';
     if (msgId.isEmpty) return null;
+    // Shared chat mirrors foreign USERNOTICEs as `sharedchatnotice`; drop
+    // them except announcements (DankChat-style clutter reduction), matching
+    // the live IRC path.
+    if (msgId == 'sharedchatnotice') {
+      final sourceMsgId = msg.tags['source-msg-id'];
+      if (sourceMsgId != 'announcement') return null;
+      msgId = 'announcement';
+    }
     // Only announcements carry a meaningful login; other notices keep it
     // empty so the ban deletion sweep in fetchRecent never treats them as
     // ban targets (the sweep also keys on isBanNotice, so this is belt and
@@ -314,7 +322,14 @@ class RecentMessagesService {
   static TwitchMessage? parseAnnouncementChild(String raw, {String? channel}) {
     final msg = parseIrcMessage(raw);
     if (msg == null || msg.command != 'USERNOTICE') return null;
-    if (msg.tags['msg-id'] != 'announcement') return null;
+    // Mirrored shared-chat announcements arrive as `sharedchatnotice` with
+    // the real type in `source-msg-id`; they render like native ones.
+    final rawMsgId = msg.tags['msg-id'];
+    if (rawMsgId != 'announcement' &&
+        !(rawMsgId == 'sharedchatnotice' &&
+            msg.tags['source-msg-id'] == 'announcement')) {
+      return null;
+    }
     // Robotty strips the trailing colon for single-word payloads.
     final text =
         (msg.trailing ?? (msg.params.length > 1 ? msg.params[1] : null))

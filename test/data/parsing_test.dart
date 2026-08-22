@@ -1892,4 +1892,91 @@ void main() {
       expect(subNoticeMsgIds, contains('bitsbadgetier'));
     });
   });
+
+  group('shared chat PRIVMSG marking', () {
+    test('mirrored message has sourceBroadcasterId and sourceMessageId', () {
+      const raw =
+          '@badges=subscriber/1;display-name=Forsen;id=copy-1;'
+          'room-id=9999;source-id=orig-1;source-room-id=1234;'
+          'user-id=42;color=#FF0000 '
+          ':forsen!forsen@forsen.tmi.twitch.tv PRIVMSG #xqc :Hello';
+      final msg = RecentMessagesService.parseIrcLine(raw);
+      expect(msg, isNotNull);
+      expect(msg!.sourceBroadcasterId, '1234');
+      expect(msg.sourceMessageId, 'orig-1');
+      expect(msg.messageId, 'copy-1');
+    });
+
+    test('native message during session has no chip', () {
+      const raw =
+          '@badges=subscriber/1;display-name=XQC;id=native-1;'
+          'room-id=9999;source-room-id=9999;'
+          'user-id=99;color=#00FF00 '
+          ':xqc!xqc@xqc.tmi.twitch.tv PRIVMSG #xqc :My own';
+      final msg = RecentMessagesService.parseIrcLine(raw);
+      expect(msg, isNotNull);
+      expect(msg!.sourceBroadcasterId, isNull);
+      expect(msg.sourceMessageId, isNull);
+    });
+
+    test('plain message with no shared tags has no chip', () {
+      const raw =
+          '@badges=subscriber/1;display-name=Forsen;id=abc-123;'
+          'user-id=42;color=#FF0000 '
+          ':forsen!forsen@forsen.tmi.twitch.tv PRIVMSG #xqc :Plain';
+      final msg = RecentMessagesService.parseIrcLine(raw);
+      expect(msg, isNotNull);
+      expect(msg!.sourceBroadcasterId, isNull);
+      expect(msg.sourceMessageId, isNull);
+    });
+  });
+
+  group('shared chat USERNOTICE (history)', () {
+    test('drops mirrored resub', () {
+      const raw =
+          '@msg-id=sharedchatnotice;source-msg-id=resub;'
+          'login=forsen;system-msg=Resub\\s5\\smonths; '
+          ':tmi.twitch.tv USERNOTICE #xqc';
+      expect(RecentMessagesService.parseIrcLine(raw), isNull);
+    });
+
+    test('drops mirrored bitsbadgetier', () {
+      const raw =
+          '@msg-id=sharedchatnotice;source-msg-id=bitsbadgetier;'
+          'login=forsen;system-msg=New\\sbits\\sbadge; '
+          ':tmi.twitch.tv USERNOTICE #xqc';
+      expect(RecentMessagesService.parseIrcLine(raw), isNull);
+    });
+
+    test('renders mirrored announcement as system message', () {
+      const raw =
+          '@msg-id=sharedchatnotice;source-msg-id=announcement;'
+          'login=forsen;display-name=Forsen;'
+          'msg-param-color=PURPLE; '
+          ':tmi.twitch.tv USERNOTICE #xqc :The text';
+      final msg = RecentMessagesService.parseIrcLine(raw);
+      expect(msg, isNotNull);
+      expect(msg!.text, 'Announcement');
+      expect(msg.systemAccent, isNotNull);
+    });
+
+    test('parseAnnouncementChild accepts mirrored announcements', () {
+      const raw =
+          '@msg-id=sharedchatnotice;source-msg-id=announcement;'
+          'login=forsen;display-name=Forsen;user-id=42;id=c1; '
+          ':tmi.twitch.tv USERNOTICE #xqc :Hello';
+      final child = RecentMessagesService.parseAnnouncementChild(raw);
+      expect(child, isNotNull);
+      expect(child!.login, 'forsen');
+      expect(child.text, 'Hello');
+    });
+
+    test('parseAnnouncementChild rejects non-announcement mirrored', () {
+      const raw =
+          '@msg-id=sharedchatnotice;source-msg-id=resub;'
+          'login=forsen; '
+          ':tmi.twitch.tv USERNOTICE #xqc :Some text';
+      expect(RecentMessagesService.parseAnnouncementChild(raw), isNull);
+    });
+  });
 }

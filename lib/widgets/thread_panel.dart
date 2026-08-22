@@ -29,6 +29,7 @@ class ThreadPanelWidget extends StatefulWidget {
   final String timestampFormat;
   final bool checkeredMessages;
   final bool lineSeparator;
+  final String sharedChatMode;
 
   const ThreadPanelWidget({
     required this.scrollController,
@@ -41,6 +42,7 @@ class ThreadPanelWidget extends StatefulWidget {
     this.timestampFormat = kDefaultTimestampFormat,
     this.checkeredMessages = false,
     this.lineSeparator = false,
+    this.sharedChatMode = 'spotlight',
     super.key,
   });
 
@@ -91,6 +93,7 @@ class ThreadPanelWidgetState extends State<ThreadPanelWidget> {
                 checkeredMessages: widget.checkeredMessages,
                 lineSeparator: widget.lineSeparator,
                 isAlternateBackground: (threadMsgs.length - 1 - i).isEven,
+                sharedChatMode: widget.sharedChatMode,
               );
             }
 
@@ -107,6 +110,7 @@ class ThreadPanelWidgetState extends State<ThreadPanelWidget> {
               checkeredMessages: widget.checkeredMessages,
               lineSeparator: widget.lineSeparator,
               isAlternateBackground: (threadMsgs.length - 1 - i).isEven,
+              sharedChatMode: widget.sharedChatMode,
             );
           },
         );

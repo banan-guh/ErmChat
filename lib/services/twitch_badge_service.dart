@@ -7,9 +7,23 @@ import '../util/log.dart';
 import 'twitch_auth.dart';
 
 class TwitchBadgeService {
+  TwitchBadgeService({http.Client? client}) : _client = client ?? http.Client();
+
+  final http.Client _client;
+
   final _globalBadges = <String, BadgeSet>{};
   final _channelBadges = <String, Map<String, BadgeSet>>{};
   final _channelAvatars = <String, String>{};
+  // Identity for shared-chat source channels (and anything else resolved via
+  // the users lookup): broadcasterId -> login / display name.
+  final _channelLogins = <String, String>{};
+  final _channelDisplayNames = <String, String>{};
+
+  int _version = 0;
+
+  /// Increments whenever resolved identity data (avatar / login / display
+  /// name) changes, so consumers can invalidate caches keyed on it.
+  int get version => _version;
 
   bool _globalFetched = false;
   // In-flight dedup: callers (subscribeChannel, _refreshEmotesAfterAuth, and
@@ -100,6 +114,17 @@ class TwitchBadgeService {
     return _channelAvatars[broadcasterId];
   }
 
+  /// IRC login for [broadcasterId] once resolved via the users lookup, used
+  /// to key shared-chat source channels in the emote manager.
+  String? resolveChannelLogin(String broadcasterId) {
+    return _channelLogins[broadcasterId];
+  }
+
+  /// Display name for [broadcasterId], for the shared-chat attribution label.
+  String? resolveChannelDisplayName(String broadcasterId) {
+    return _channelDisplayNames[broadcasterId];
+  }
+
   Future<void> fetchChannelAvatar(TwitchAuth auth, String broadcasterId) async {
     if (_channelAvatars.containsKey(broadcasterId)) return;
     final existing = _inflightAvatars[broadcasterId];
@@ -125,14 +150,23 @@ class TwitchBadgeService {
         'Client-ID': TwitchConfig.clientId,
         'Authorization': 'Bearer ${auth.accessToken ?? ''}',
       };
-      final res = await http.get(uri, headers: headers).timeout(httpTimeout);
+      final res = await _client.get(uri, headers: headers).timeout(httpTimeout);
       if (res.statusCode != 200) return;
       final data = jsonDecode(res.body) as Map<String, dynamic>;
       final list = data['data'] as List<dynamic>?;
       if (list == null || list.isEmpty) return;
       final user = list[0] as Map<String, dynamic>;
       final avatarUrl = user['profile_image_url'] as String?;
+      final login = user['login'] as String?;
+      final displayName = user['display_name'] as String?;
       if (avatarUrl != null) _channelAvatars[broadcasterId] = avatarUrl;
+      if (login != null && login.isNotEmpty) {
+        _channelLogins[broadcasterId] = login.toLowerCase();
+      }
+      if (displayName != null && displayName.isNotEmpty) {
+        _channelDisplayNames[broadcasterId] = displayName;
+      }
+      _version++;
     } catch (e) {
       logDebug('Channel avatar fetch error: $e');
     }
@@ -142,6 +176,8 @@ class TwitchBadgeService {
     _globalBadges.clear();
     _channelBadges.clear();
     _channelAvatars.clear();
+    _channelLogins.clear();
+    _channelDisplayNames.clear();
     _globalFetched = false;
   }
 
@@ -154,7 +190,7 @@ class TwitchBadgeService {
         'Client-ID': TwitchConfig.clientId,
         'Authorization': 'Bearer ${auth.accessToken ?? ''}',
       };
-      final res = await http.get(uri, headers: headers).timeout(httpTimeout);
+      final res = await _client.get(uri, headers: headers).timeout(httpTimeout);
       if (res.statusCode != 200) {
         logDebug('Badge fetch failed (${res.statusCode}): ${res.body}');
         return {};

@@ -22,6 +22,13 @@ class MessageBuilder {
     required this.onShowEmoteSheet,
   });
 
+  /// Composite cache key for message spans: emote data changes recompute
+  /// spans, and so do late-arriving shared-chat identity lookups (the source
+  /// channel login decides which emote map a mirrored message resolves
+  /// against). Prime multiplier keeps the components collision-free.
+  int get _spanCacheVersion =>
+      emoteManager.version * 1000003 + badgeService.version;
+
   List<InlineSpan> buildMessageSpans(
     TwitchMessage msg,
     String channel,
@@ -29,10 +36,10 @@ class MessageBuilder {
     bool colored = false,
     double textScale = 1.0,
   }) {
-    final emoteVersion = emoteManager.version;
-    if (msg.cachedSpans == null || msg.cachedSpansVersion != emoteVersion) {
+    final spanVersion = _spanCacheVersion;
+    if (msg.cachedSpans == null || msg.cachedSpansVersion != spanVersion) {
       msg.cachedSpans = _computeMessageSpans(msg, channel, scale: textScale);
-      msg.cachedSpansVersion = emoteVersion;
+      msg.cachedSpansVersion = spanVersion;
     }
     if (colored) {
       return [
@@ -60,7 +67,13 @@ class MessageBuilder {
     String channel, {
     double scale = 1.0,
   }) {
-    final channelEmotes = emoteManager.byCode(channel);
+    // Shared-chat messages resolve third-party emotes against the source
+    // channel's set (DankChat-style); until its login is known the host map
+    // is the best available and a later identity bump rebuilds these spans.
+    final lookupChannel = msg.sourceBroadcasterId != null
+        ? badgeService.resolveChannelLogin(msg.sourceBroadcasterId!) ?? channel
+        : channel;
+    final channelEmotes = emoteManager.byCode(lookupChannel);
     return EmoteText.build(
       text: msg.text,
       twitchPositions: msg.emotePositions,
@@ -75,9 +88,12 @@ class MessageBuilder {
     TwitchMessage msg, {
     double badgeScale = 1.0,
   }) {
-    final tpVersion = thirdPartyBadgeService.version;
+    // Badge spans depend on third-party badge data and on the shared-chat
+    // avatar/name lookup, so key the cache on both versions.
+    final cacheVersion =
+        thirdPartyBadgeService.version * 1000003 + badgeService.version;
     if (msg.cachedBadgeSpans != null &&
-        msg.cachedBadgeSpansVersion == tpVersion) {
+        msg.cachedBadgeSpansVersion == cacheVersion) {
       return msg.cachedBadgeSpans!;
     }
     final badgeSize = 18.0 * badgeScale;
@@ -92,7 +108,12 @@ class MessageBuilder {
           WidgetSpan(
             alignment: PlaceholderAlignment.middle,
             child: Semantics(
-              label: msg.sourceBroadcasterName ?? 'shared chat',
+              label:
+                  badgeService.resolveChannelDisplayName(
+                    msg.sourceBroadcasterId!,
+                  ) ??
+                  msg.sourceBroadcasterName ??
+                  'shared chat',
               child: Padding(
                 padding: const EdgeInsets.only(right: 2),
                 child: ClipOval(
@@ -186,7 +207,7 @@ class MessageBuilder {
       }
     }
 
-    msg.cachedBadgeSpansVersion = tpVersion;
+    msg.cachedBadgeSpansVersion = cacheVersion;
     return msg.cachedBadgeSpans = spans;
   }
 }

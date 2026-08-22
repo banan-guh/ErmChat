@@ -33,6 +33,7 @@ class ChatMessageTile extends StatefulWidget {
   final bool checkeredMessages;
   final bool lineSeparator;
   final bool isAlternateBackground;
+  final String sharedChatMode;
 
   const ChatMessageTile({
     super.key,
@@ -51,6 +52,7 @@ class ChatMessageTile extends StatefulWidget {
     this.checkeredMessages = false,
     this.lineSeparator = false,
     this.isAlternateBackground = false,
+    this.sharedChatMode = 'spotlight',
   });
 
   @override
@@ -216,6 +218,14 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
       // Reconnect history backfill: greyed out but less faded than a
       // hard deletion so catch-up messages stay distinguishable.
       child = Opacity(opacity: 0.5, child: child);
+    }
+
+    // Shared-chat 'fade' mode: dim foreign messages while keeping them
+    // readable.
+    if (widget.sharedChatMode == 'fade' &&
+        msg.sourceBroadcasterId != null &&
+        !msg.isSystem) {
+      child = Opacity(opacity: 0.55, child: child);
     }
 
     if (msg.systemAccent != null) {

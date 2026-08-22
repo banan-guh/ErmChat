@@ -178,6 +178,7 @@ class _HomeScreenState extends State<HomeScreen>
       setReplyToMsg: (v) => _replyToMsg = v,
       isChatReady: () => _blocksReady,
       isBlocked: (login) => _blockedLogins.contains(login.toLowerCase()),
+      getSharedChatMode: () => _sharedChatMode,
       onRequestFocus: () => _focusNode.requestFocus(),
       getAltPings: () => _altPings,
       getMacros: () {
@@ -310,6 +311,7 @@ class _HomeScreenState extends State<HomeScreen>
   int _nextSystemMessageId = 0;
   bool _showTimestamps = true;
   String _timestampFormat = kDefaultTimestampFormat;
+  String _sharedChatMode = 'spotlight';
   double _chatFontSize = 14.0;
   bool _checkeredMessages = false;
   bool _lineSeparator = false;
@@ -542,6 +544,14 @@ class _HomeScreenState extends State<HomeScreen>
   void _setTimestampFormat(String value) {
     if (_timestampFormat == value) return;
     setState(() => _timestampFormat = value);
+    for (final channel in List.of(_channels)) {
+      _bumpChannel(channel);
+    }
+  }
+
+  void _setSharedChatMode(String value) {
+    if (_sharedChatMode == value) return;
+    setState(() => _sharedChatMode = value);
     for (final channel in List.of(_channels)) {
       _bumpChannel(channel);
     }
@@ -1378,6 +1388,7 @@ class _HomeScreenState extends State<HomeScreen>
       _chatFontSize = prefs.getDouble('chat_font_size') ?? 14.0;
       _checkeredMessages = prefs.getBool('checkered_messages') ?? false;
       _lineSeparator = prefs.getBool('line_separator') ?? false;
+      _sharedChatMode = prefs.getString('shared_chat_mode') ?? 'spotlight';
     });
   }
 
@@ -2106,6 +2117,7 @@ class _HomeScreenState extends State<HomeScreen>
           onLineSeparatorChanged: _setLineSeparator,
           onEmoteTierChanged: _applyEmoteTier,
           onEmoteCacheMaxChanged: _applyCacheCap,
+          onSharedChatModeChanged: _setSharedChatMode,
           onEmoteAutoModeChanged: _applyEmoteAutoMode,
           mobileNotifier: _isMobile,
           channelNotifier: _channelNotifier,
@@ -2691,10 +2703,22 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
+  // Push-dedup for shared chat: a message you're joined to both sides of
+  // arrives once natively and once mirrored, with different room-local `id`s
+  // but the same stable `source-id`. Key on that to notify exactly once.
+  final _recentMentionPings = <String>{};
+
   void _onMentionNotification(String channel, TwitchMessage msg) {
     if (!_mentionPush) return;
     if (!_isBackgrounded) return;
     if (msg.isHistory) return;
+    final pingKey = msg.sourceMessageId ?? msg.messageId;
+    if (pingKey != null) {
+      if (!_recentMentionPings.add(pingKey)) return;
+      while (_recentMentionPings.length > 64) {
+        _recentMentionPings.remove(_recentMentionPings.first);
+      }
+    }
     _notificationService.showMentionNotification(
       channel: channel,
       userName: msg.displayName,
@@ -3103,6 +3127,7 @@ class _HomeScreenState extends State<HomeScreen>
                                                 checkeredMessages:
                                                     _checkeredMessages,
                                                 lineSeparator: _lineSeparator,
+                                                sharedChatMode: _sharedChatMode,
                                                 onShowUserProfile:
                                                     (
                                                       login,
@@ -3263,6 +3288,7 @@ class _HomeScreenState extends State<HomeScreen>
                           chatFontScale: _chatFontSize / 14.0,
                           checkeredMessages: _checkeredMessages,
                           lineSeparator: _lineSeparator,
+                          sharedChatMode: _sharedChatMode,
                           onLongPress: _showThreadMessageMenu,
                           buildBadgeSpans: _messageBuilder.buildBadgeSpans,
                           buildMessageSpans: _messageBuilder.buildMessageSpans,
@@ -3332,6 +3358,7 @@ class _HomeScreenState extends State<HomeScreen>
                               chatFontScale: _chatFontSize / 14.0,
                               checkeredMessages: _checkeredMessages,
                               lineSeparator: _lineSeparator,
+                              sharedChatMode: _sharedChatMode,
                               buildBadgeSpans: _messageBuilder.buildBadgeSpans,
                               buildMessageSpans:
                                   _messageBuilder.buildMessageSpans,
@@ -3345,6 +3372,7 @@ class _HomeScreenState extends State<HomeScreen>
                               chatFontScale: _chatFontSize / 14.0,
                               checkeredMessages: _checkeredMessages,
                               lineSeparator: _lineSeparator,
+                              sharedChatMode: _sharedChatMode,
                               buildBadgeSpans: _messageBuilder.buildBadgeSpans,
                               buildMessageSpans:
                                   _messageBuilder.buildMessageSpans,

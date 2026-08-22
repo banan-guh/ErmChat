@@ -29,9 +29,7 @@ void main() async {
 ThemeData buildLightTheme({Color seedColor = Colors.blue}) => ThemeData(
   colorScheme: ColorScheme.fromSeed(seedColor: seedColor),
   useMaterial3: true,
-  sliderTheme: const SliderThemeData(
-    year2023: false,
-  ),
+  sliderTheme: const SliderThemeData(year2023: false),
 );
 
 ThemeData buildDarkTheme({
@@ -47,9 +45,7 @@ ThemeData buildDarkTheme({
         ? base.copyWith(surface: Colors.black, onSurface: Colors.white)
         : base,
     useMaterial3: true,
-    sliderTheme: const SliderThemeData(
-      year2023: false,
-    ),
+    sliderTheme: const SliderThemeData(year2023: false),
   );
 }
 

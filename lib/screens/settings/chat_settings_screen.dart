@@ -22,6 +22,7 @@ class ChatSettingsScreen extends StatefulWidget {
   final ValueChanged<bool>? onAnimateGifsChanged;
   final ValueChanged<int>? onEmoteFpsCapChanged;
   final ValueChanged<bool>? onAlwaysAnimatePanelChanged;
+  final ValueChanged<String>? onSharedChatModeChanged;
 
   const ChatSettingsScreen({
     super.key,
@@ -37,6 +38,7 @@ class ChatSettingsScreen extends StatefulWidget {
     this.onAnimateGifsChanged,
     this.onEmoteFpsCapChanged,
     this.onAlwaysAnimatePanelChanged,
+    this.onSharedChatModeChanged,
   });
 
   @override
@@ -55,6 +57,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
   bool _animateGifs = true;
   int _emoteFpsCap = 30;
   bool _alwaysAnimatePanel = true;
+  String _sharedChatMode = 'spotlight';
 
   @override
   void initState() {
@@ -81,6 +84,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
         _emoteFpsCap = prefs.getInt('emote_fps_cap') ?? 30;
         _alwaysAnimatePanel =
             prefs.getBool('always_animate_emote_panel') ?? true;
+        _sharedChatMode = prefs.getString('shared_chat_mode') ?? 'spotlight';
       });
     }
   }
@@ -133,6 +137,52 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
     await prefs.setString(kTimestampFormatPrefKey, selected);
     if (mounted) setState(() => _timestampFormat = selected);
     widget.onTimestampFormatChanged?.call(selected);
+  }
+
+  String get _sharedChatModeLabel => switch (_sharedChatMode) {
+    'fade' => 'Fade (dim foreign messages)',
+    'hide' => 'Hide (drop foreign messages)',
+    _ => 'Spotlight (show all)',
+  };
+
+  Future<void> _pickSharedChatMode() async {
+    final selected = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Shared chat messages'),
+        content: RadioGroup<String>(
+          groupValue: _sharedChatMode,
+          onChanged: (v) {
+            if (v != null) Navigator.pop(ctx, v);
+          },
+          child: const Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              RadioListTile<String>(
+                value: 'spotlight',
+                title: Text('Spotlight'),
+                subtitle: Text('Show all messages with attribution'),
+              ),
+              RadioListTile<String>(
+                value: 'fade',
+                title: Text('Fade'),
+                subtitle: Text('Dim foreign messages'),
+              ),
+              RadioListTile<String>(
+                value: 'hide',
+                title: Text('Hide'),
+                subtitle: Text('Drop foreign messages entirely'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (selected == null || selected == _sharedChatMode) return;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('shared_chat_mode', selected);
+    if (mounted) setState(() => _sharedChatMode = selected);
+    widget.onSharedChatModeChanged?.call(selected);
   }
 
   @override
@@ -345,6 +395,13 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
             subtitle: Text(_timestampFormat),
             trailing: const Icon(Icons.chevron_right),
             onTap: _pickTimestampFormat,
+          ),
+          ListTile(
+            leading: const Icon(Icons.merge_type),
+            title: const Text('Shared chat messages'),
+            subtitle: Text(_sharedChatModeLabel),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: _pickSharedChatMode,
           ),
           SwitchListTile(
             secondary: const Icon(Icons.wifi_tethering),

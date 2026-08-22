@@ -29,6 +29,7 @@ class ChatView extends StatelessWidget {
   final double chatFontScale;
   final bool checkeredMessages;
   final bool lineSeparator;
+  final String sharedChatMode;
 
   const ChatView({
     super.key,
@@ -50,6 +51,7 @@ class ChatView extends StatelessWidget {
     this.chatFontScale = 1.0,
     this.checkeredMessages = false,
     this.lineSeparator = false,
+    this.sharedChatMode = 'spotlight',
   });
 
   @override
@@ -150,6 +152,7 @@ class ChatView extends StatelessWidget {
                         checkeredMessages: checkeredMessages,
                         lineSeparator: lineSeparator,
                         isAlternateBackground: i.isEven,
+                        sharedChatMode: sharedChatMode,
                       );
                     } else {
                       body = ChatMessageTile(
@@ -173,6 +176,7 @@ class ChatView extends StatelessWidget {
                         checkeredMessages: checkeredMessages,
                         lineSeparator: lineSeparator,
                         isAlternateBackground: i.isEven,
+                        sharedChatMode: sharedChatMode,
                       );
                     }
 

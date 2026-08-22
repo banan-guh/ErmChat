@@ -81,6 +81,7 @@ class ChatConnectionConfig {
     this.getMacros,
     this.isChatReady,
     this.isBlocked,
+    this.getSharedChatMode,
     this.onAnalyticsMessage,
     this.onAnalyticsModeration,
     this.onHypeTrain,
@@ -136,6 +137,7 @@ class ChatConnectionConfig {
   final Map<String, String> Function()? getMacros;
   final bool Function()? isChatReady;
   final bool Function(String login)? isBlocked;
+  final String Function()? getSharedChatMode;
   final void Function(String channel, TwitchMessage msg)? onAnalyticsMessage;
   final void Function(String channel, bool isTimeout)? onAnalyticsModeration;
   final void Function(HypeTrainEvent event)? onHypeTrain;
@@ -194,6 +196,7 @@ class ChatConnectionManager {
   final Map<String, String> Function()? getMacros;
   final bool Function()? isChatReady;
   final bool Function(String login)? isBlocked;
+  final String Function()? getSharedChatMode;
   final void Function(String channel, TwitchMessage msg)? onAnalyticsMessage;
   final void Function(String channel, bool isTimeout)? onAnalyticsModeration;
   final void Function(HypeTrainEvent event)? onHypeTrain;
@@ -361,6 +364,7 @@ class ChatConnectionManager {
       getMacros = config.getMacros,
       isChatReady = config.isChatReady,
       isBlocked = config.isBlocked,
+      getSharedChatMode = config.getSharedChatMode,
       onAnalyticsMessage = config.onAnalyticsMessage,
       onAnalyticsModeration = config.onAnalyticsModeration,
       onHypeTrain = config.onHypeTrain,
@@ -548,7 +552,12 @@ class ChatConnectionManager {
   void precacheMessageEmotes(TwitchMessage msg, String channel) {
     if (emoteManager.tier == EmoteFetchTier.nothing) return;
     if (msg.isSystem || msg.isHistory) return;
-    final channelEmotes = emoteManager.byCode(channel);
+    // Shared-chat messages resolve against their source channel's set,
+    // mirroring the message builder lookup.
+    final lookupChannel = msg.sourceBroadcasterId != null
+        ? badgeService.resolveChannelLogin(msg.sourceBroadcasterId!) ?? channel
+        : channel;
+    final channelEmotes = emoteManager.byCode(lookupChannel);
     if (channelEmotes == null) return;
     final found = <GenericEmote>[];
     final seen = <String>{};
@@ -1845,6 +1854,16 @@ class ChatConnectionManager {
     if (isChatReady?.call() == false) return;
     if (!msg.isSystem && isBlocked?.call(msg.login) == true) return;
 
+    // Shared-chat 'hide' mode: drop foreign messages entirely. Mentions and
+    // system messages still flow through so the user doesn't miss pings.
+    final sharedMode = getSharedChatMode?.call() ?? 'spotlight';
+    if (sharedMode == 'hide' &&
+        !msg.isSystem &&
+        !msg.isHighlighted &&
+        msg.sourceBroadcasterId != null) {
+      return;
+    }
+
     if (!msg.isSystem && msg.login.isNotEmpty && msg.channel != null) {
       final preferredName =
           msg.displayName.toLowerCase() == msg.login.toLowerCase()
@@ -1877,9 +1896,8 @@ class ChatConnectionManager {
 
     onAnalyticsMessage?.call(channel, msg);
 
-    if (msg.sourceBroadcasterId != null &&
-        badgeService.resolveChannelAvatar(msg.sourceBroadcasterId!) == null) {
-      badgeService.fetchChannelAvatar(twitchAuth, msg.sourceBroadcasterId!);
+    if (msg.sourceBroadcasterId != null && !msg.isHistory) {
+      unawaited(_ensureSourceChannelData(msg.sourceBroadcasterId!));
     }
 
     final login = getCurrentUserLogin()?.toLowerCase();
@@ -1928,6 +1946,21 @@ class ChatConnectionManager {
     bumpChannel(channel);
     precacheMessageEmotes(msg, channel);
     onChatMessage?.call(channel, msg);
+  }
+
+  /// Resolves a shared-chat source channel's identity and lazily loads its
+  /// emote set on the first mirrored message (DankChat resolves emotes
+  /// against the source channel but never fetches unjoined sets; loading
+  /// here lets foreign third-party emotes render). The avatar fetch is
+  /// in-flight deduplicated and cheap once cached.
+  Future<void> _ensureSourceChannelData(String broadcasterId) async {
+    await badgeService.fetchChannelAvatar(twitchAuth, broadcasterId);
+    if (isDisposed) return;
+    final login = badgeService.resolveChannelLogin(broadcasterId);
+    if (login == null || login.isEmpty) return;
+    if (!emoteManager.hasChannelCache(login)) {
+      await emoteManager.resolveEmotes(login, broadcasterId);
+    }
   }
 
   void onWhisperEvent(TwitchMessage msg) {
