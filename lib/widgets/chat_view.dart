@@ -64,7 +64,7 @@ class ChatView extends StatelessWidget {
         NotificationListener<ScrollNotification>(
           onNotification: (notification) {
             if (notification is ScrollUpdateNotification) {
-              final scrolledUp = notification.metrics.pixels > 50.0;
+              final scrolledUp = notification.metrics.pixels > 0.5;
               final atBottom = atBottomNotifier.value;
               if (scrolledUp && atBottom) {
                 atBottomNotifier.value = false;
