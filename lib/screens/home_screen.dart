@@ -17,6 +17,7 @@ import '../services/seven_tv_event_client.dart';
 import '../services/command_handler.dart';
 import '../services/chat_connection_manager.dart';
 import '../services/ping_manager.dart';
+import '../services/ignore_manager.dart';
 import '../services/emote_manager.dart';
 import '../services/emote_cache_manager.dart';
 import '../services/analytics_service.dart';
@@ -91,6 +92,7 @@ class _HomeScreenState extends State<HomeScreen>
   static const _mentionsChannel = '@mentions';
 
   late final _pingManager = PingManager.instance;
+  late final _ignoreManager = IgnoreManager.instance;
 
   late final _connectivityService =
       widget.connectivityService ?? ConnectivityService();
@@ -181,6 +183,7 @@ class _HomeScreenState extends State<HomeScreen>
       getSharedChatMode: () => _sharedChatMode,
       onRequestFocus: () => _focusNode.requestFocus(),
       pingManager: _pingManager,
+      ignoreManager: _ignoreManager,
       getMacros: () {
         final login = _currentUserLogin;
         if (login == null) return const {};
@@ -399,6 +402,7 @@ class _HomeScreenState extends State<HomeScreen>
     _loadMaxMessages();
     _ensureBlockedUsersLoaded();
     unawaited(_pingManager.load());
+    unawaited(_ignoreManager.load());
     _loadNotificationSettings();
     _loadTestWidgets();
     _chatConn.connect();
@@ -760,6 +764,8 @@ class _HomeScreenState extends State<HomeScreen>
     final insertedIds = <String?>{};
     var insertedCount = 0;
     for (final msg in history) {
+      // Locally ignored users' history never renders (matches the live gate).
+      if (!msg.isSystem && _ignoreManager.isIgnored(msg.login)) continue;
       if (!msg.isSystem && msg.login.isNotEmpty) {
         final preferred =
             msg.displayName.toLowerCase() == msg.login.toLowerCase()

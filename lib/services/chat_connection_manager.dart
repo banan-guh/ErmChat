@@ -18,6 +18,7 @@ import '../services/twitch_badge_service.dart';
 import '../services/user_store.dart';
 import '../services/command_macros.dart';
 import '../services/ping_manager.dart';
+import '../services/ignore_manager.dart';
 import '../util/text_bypass.dart';
 import '../color_utils.dart';
 import '../util/constants.dart';
@@ -78,6 +79,7 @@ class ChatConnectionConfig {
     required this.onRequestFocus,
     required this.onShowSnackBar,
     this.pingManager,
+    this.ignoreManager,
     this.getMacros,
     this.isChatReady,
     this.isBlocked,
@@ -134,6 +136,7 @@ class ChatConnectionConfig {
   final VoidCallback onRequestFocus;
   final void Function(String) onShowSnackBar;
   final PingManager? pingManager;
+  final IgnoreManager? ignoreManager;
   final Map<String, String> Function()? getMacros;
   final bool Function()? isChatReady;
   final bool Function(String login)? isBlocked;
@@ -193,6 +196,7 @@ class ChatConnectionManager {
   final VoidCallback onRequestFocus;
   final void Function(String) onShowSnackBar;
   final PingManager? pingManager;
+  final IgnoreManager? ignoreManager;
   final Map<String, String> Function()? getMacros;
   final bool Function()? isChatReady;
   final bool Function(String login)? isBlocked;
@@ -348,6 +352,7 @@ class ChatConnectionManager {
       onRequestFocus = config.onRequestFocus,
       onShowSnackBar = config.onShowSnackBar,
       pingManager = config.pingManager,
+      ignoreManager = config.ignoreManager,
       getMacros = config.getMacros,
       isChatReady = config.isChatReady,
       isBlocked = config.isBlocked,
@@ -1844,6 +1849,15 @@ class ChatConnectionManager {
     final channel = msg.channel;
     if (channel == null) return;
 
+    // Local ignores: ignored users' messages are dropped outright; keyword
+    // replacements rewrite the text (with emote position realignment) before
+    // ping evaluation so rewritten messages can still highlight.
+    final ignores = ignoreManager;
+    if (!msg.isSystem && ignores != null) {
+      if (ignores.isIgnored(msg.login)) return;
+      rewriteMessageKeywords(msg, ignores);
+    }
+
     // Ping evaluation runs before the shared-chat 'hide' check so a fresh
     // mirrored mention survives hide mode (the native copy dedups later).
     final highlightState = pingManager?.evaluate(msg);
@@ -1952,6 +1966,8 @@ class ChatConnectionManager {
   void onWhisperEvent(TwitchMessage msg) {
     if (isDisposed) return;
     if (!msg.isSystem && isBlocked?.call(msg.login) == true) return;
+    // Ignored users' whispers are dropped like their channel messages.
+    if (!msg.isSystem && ignoreManager?.isIgnored(msg.login) == true) return;
     onWhisper?.call(msg);
   }
 

@@ -8,6 +8,7 @@ import '../../util/constants.dart';
 import '../../util/timestamp_formatter.dart';
 import 'macros_screen.dart';
 import 'pings_screen.dart';
+import 'ignores_screen.dart';
 
 class ChatSettingsScreen extends StatefulWidget {
   final TwitchAuth? twitchAuth;
@@ -265,6 +266,18 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
               Navigator.push(
                 context,
                 MaterialPageRoute(builder: (_) => const PingsScreen()),
+              );
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.visibility_off),
+            title: const Text('Ignores'),
+            subtitle: const Text('Hide users or rewrite keywords locally'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const IgnoresScreen()),
               );
             },
           ),
