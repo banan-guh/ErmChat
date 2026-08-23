@@ -2461,7 +2461,7 @@ void main() {
       expect(find.text('Login'), findsOneWidget);
     });
 
-    testWidgets('Customization dark mode toggle calls onThemeChanged', (
+    testWidgets('Customization theme picker calls onThemeChanged', (
       WidgetTester tester,
     ) async {
       SharedPreferences.setMockInitialValues({});
@@ -2474,7 +2474,10 @@ void main() {
       );
       await tester.pump();
 
-      await tester.tap(find.widgetWithText(SwitchListTile, 'Dark mode'));
+      await tester.tap(find.text('Theme'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Dark'));
       await tester.pumpAndSettle();
 
       expect(changed, ThemeMode.dark);
@@ -2713,6 +2716,68 @@ void main() {
       expect(find.text('h:mm a'), findsOneWidget);
     });
 
+    testWidgets('animate gifs switch greys out while the fps cap is 0', (
+      WidgetTester tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({
+        'animate_gifs': false,
+        'emote_fps_cap': 0,
+      });
+
+      await tester.pumpWidget(const MaterialApp(home: ChatSettingsScreen()));
+      await tester.pump();
+      await tester.scrollUntilVisible(
+        find.widgetWithText(SwitchListTile, 'Animate gifs'),
+        120,
+      );
+      await tester.pumpAndSettle();
+
+      final gifs = tester.widget<SwitchListTile>(
+        find.widgetWithText(SwitchListTile, 'Animate gifs'),
+      );
+      expect(gifs.onChanged, isNull, reason: 'fps 0 pauses all playback');
+      expect(gifs.value, isFalse);
+    });
+
+    testWidgets('animate gifs switch is editable above the fps cap floor', (
+      WidgetTester tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({'emote_fps_cap': 30});
+
+      await tester.pumpWidget(const MaterialApp(home: ChatSettingsScreen()));
+      await tester.pump();
+      await tester.scrollUntilVisible(
+        find.widgetWithText(SwitchListTile, 'Animate gifs'),
+        120,
+      );
+      await tester.pumpAndSettle();
+
+      final gifs = tester.widget<SwitchListTile>(
+        find.widgetWithText(SwitchListTile, 'Animate gifs'),
+      );
+      expect(gifs.onChanged, isNotNull);
+      expect(gifs.value, isTrue);
+    });
+
+    testWidgets('whisper notifications default to off', (
+      WidgetTester tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({});
+
+      await tester.pumpWidget(const MaterialApp(home: ChatSettingsScreen()));
+      await tester.pump();
+      await tester.scrollUntilVisible(
+        find.widgetWithText(SwitchListTile, 'Whisper notifications'),
+        200,
+      );
+      await tester.pumpAndSettle();
+
+      final whisper = tester.widget<SwitchListTile>(
+        find.widgetWithText(SwitchListTile, 'Whisper notifications'),
+      );
+      expect(whisper.value, isFalse);
+    });
+
     testWidgets('max messages slider is log-scaled and snaps to steps', (
       WidgetTester tester,
     ) async {
@@ -2761,7 +2826,9 @@ void main() {
       final slider = tester.widget<Slider>(
         find.byKey(const Key('emote_tier_slider')),
       );
-      slider.onChanged!(EmoteFetchTier.low.index.toDouble());
+      // The tier change (persist + callback + refetch cascade) fires on
+      // release, not per drag tick.
+      slider.onChangeEnd!(EmoteFetchTier.low.index.toDouble());
       await tester.pump();
       await tester.pump();
 

@@ -27,6 +27,7 @@ class CustomizationScreen extends StatefulWidget {
 }
 
 class _CustomizationScreenState extends State<CustomizationScreen> {
+  ThemeMode _themeMode = ThemeMode.system;
   bool _keepScreenOn = true;
   bool _trueDark = false;
   String _accentKey = kDefaultAccent;
@@ -44,6 +45,13 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
     final prefs = await SharedPreferences.getInstance();
     if (mounted) {
       setState(() {
+        final saved = prefs.getString('themeMode');
+        if (saved != null) {
+          _themeMode = ThemeMode.values.firstWhere(
+            (e) => e.name == saved,
+            orElse: () => ThemeMode.system,
+          );
+        }
         _keepScreenOn = prefs.getBool('keep_screen_on') ?? true;
         _trueDark = prefs.getBool('true_dark') ?? false;
         _accentKey = prefs.getString('accent_color') ?? kDefaultAccent;
@@ -52,6 +60,20 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
         _lineSeparator = prefs.getBool('line_separator') ?? false;
       });
     }
+  }
+
+  Future<void> _pickTheme(BuildContext context) async {
+    final mode = await showModalBottomSheet<ThemeMode>(
+      context: context,
+      showDragHandle: false,
+      builder: (_) => _ThemePickerSheet(current: _themeMode),
+    );
+    if (mode == null || !mounted || mode == _themeMode) return;
+    setState(() => _themeMode = mode);
+    SharedPreferences.getInstance().then((prefs) {
+      prefs.setString('themeMode', mode.name);
+    });
+    widget.onThemeChanged(mode);
   }
 
   void _setKeepScreenOn(bool value) {
@@ -102,12 +124,15 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
       appBar: AppBar(title: const Text('Customization')),
       body: ListView(
         children: [
-          SwitchListTile(
-            title: const Text('Dark mode'),
-            value: isDark,
-            onChanged: (dark) {
-              widget.onThemeChanged(dark ? ThemeMode.dark : ThemeMode.light);
-            },
+          ListTile(
+            title: const Text('Theme'),
+            subtitle: Text(switch (_themeMode) {
+              ThemeMode.system => 'System',
+              ThemeMode.light => 'Light',
+              ThemeMode.dark => 'Dark',
+            }),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => _pickTheme(context),
           ),
           SwitchListTile(
             title: const Text('True dark mode'),
@@ -223,6 +248,54 @@ class _AccentSwatch extends StatelessWidget {
               : Border.all(color: Theme.of(context).dividerColor, width: 1),
         ),
         child: selected ? Icon(Icons.check, size: 20, color: onColor) : null,
+      ),
+    );
+  }
+}
+
+class _ThemePickerSheet extends StatelessWidget {
+  final ThemeMode current;
+
+  const _ThemePickerSheet({required this.current});
+
+  static const _options = <ThemeMode, (IconData, String)>{
+    ThemeMode.system: (Icons.brightness_auto, 'System'),
+    ThemeMode.light: (Icons.light_mode_outlined, 'Light'),
+    ThemeMode.dark: (Icons.dark_mode_outlined, 'Dark'),
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Center(
+            child: Container(
+              width: 32,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey[400],
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          for (final entry in _options.entries)
+            ListTile(
+              leading: Icon(entry.value.$1),
+              title: Text(entry.value.$2),
+              trailing: entry.key == current
+                  ? Icon(
+                      Icons.check,
+                      color: Theme.of(context).colorScheme.primary,
+                    )
+                  : null,
+              onTap: () => Navigator.pop(context, entry.key),
+            ),
+        ],
       ),
     );
   }
