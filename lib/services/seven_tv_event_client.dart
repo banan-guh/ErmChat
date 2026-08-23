@@ -86,12 +86,18 @@ class SevenTvCosmeticCreateEvent {
 
 class SevenTvEntitlementEvent {
   final String cosmeticId;
+
+  /// Dispatch type: entitlement.create or entitlement.delete.
   final String kind;
+
+  /// Cosmetic kind string from the API object: PAINT, BADGE or EMOTE_SET.
+  final String cosmeticKind;
   final List<String> twitchUserIds;
 
   const SevenTvEntitlementEvent({
     required this.cosmeticId,
     required this.kind,
+    required this.cosmeticKind,
     required this.twitchUserIds,
   });
 }
@@ -490,8 +496,11 @@ class SevenTvEventClient {
       case 'entitlement.delete':
         final obj = body['object'] as Map<String, dynamic>? ?? {};
         final cosmeticId = obj['ref_id'] as String? ?? '';
-        final kind = obj['kind'] as String? ?? '';
-        if (cosmeticId.isEmpty || kind != 'BADGE') break;
+        final cosmeticKind = obj['kind'] as String? ?? '';
+        if (cosmeticId.isEmpty ||
+            (cosmeticKind != 'BADGE' && cosmeticKind != 'PAINT')) {
+          break;
+        }
         final userObj = obj['user'] as Map<String, dynamic>? ?? {};
         final connections = userObj['connections'] as List<dynamic>? ?? [];
         final twitchIds = <String>[];
@@ -507,6 +516,7 @@ class SevenTvEventClient {
             SevenTvEntitlementEvent(
               cosmeticId: cosmeticId,
               kind: type!,
+              cosmeticKind: cosmeticKind,
               twitchUserIds: twitchIds,
             ),
           );

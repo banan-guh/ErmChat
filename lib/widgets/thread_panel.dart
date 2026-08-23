@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../models/twitch_message.dart';
+import '../services/seven_tv_paint_service.dart';
 import '../util/timestamp_formatter.dart';
 import '../widgets/chat_message_tile.dart';
 
@@ -30,6 +31,7 @@ class ThreadPanelWidget extends StatefulWidget {
   final bool checkeredMessages;
   final bool lineSeparator;
   final String sharedChatMode;
+  final SevenTvPaintService? paintService;
 
   const ThreadPanelWidget({
     required this.scrollController,
@@ -43,6 +45,7 @@ class ThreadPanelWidget extends StatefulWidget {
     this.checkeredMessages = false,
     this.lineSeparator = false,
     this.sharedChatMode = 'spotlight',
+    this.paintService,
     super.key,
   });
 
@@ -111,6 +114,7 @@ class ThreadPanelWidgetState extends State<ThreadPanelWidget> {
               lineSeparator: widget.lineSeparator,
               isAlternateBackground: (threadMsgs.length - 1 - i).isEven,
               sharedChatMode: widget.sharedChatMode,
+              paintService: widget.paintService,
             );
           },
         );

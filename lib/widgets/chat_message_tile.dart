@@ -2,7 +2,9 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import '../color_utils.dart';
 import '../models/twitch_message.dart';
+import '../services/seven_tv_paint_service.dart';
 import '../util/timestamp_formatter.dart';
+import 'painted_username_text.dart';
 
 class ChatMessageTile extends StatefulWidget {
   final TwitchMessage message;
@@ -35,6 +37,10 @@ class ChatMessageTile extends StatefulWidget {
   final bool isAlternateBackground;
   final String sharedChatMode;
 
+  /// When non-null (and the feature toggle is on), usernames render with 7TV
+  /// name paints where available.
+  final SevenTvPaintService? paintService;
+
   const ChatMessageTile({
     super.key,
     required this.message,
@@ -53,6 +59,7 @@ class ChatMessageTile extends StatefulWidget {
     this.lineSeparator = false,
     this.isAlternateBackground = false,
     this.sharedChatMode = 'spotlight',
+    this.paintService,
   });
 
   @override
@@ -132,8 +139,19 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
         color: parseColor(msg.color, background: widget.surface),
         decoration: TextDecoration.none,
       );
-      final TextSpan usernameSpan;
-      if (widget.onTapUser != null) {
+      final InlineSpan usernameSpan;
+      if (widget.paintService != null && msg.userId != null) {
+        usernameSpan = WidgetSpan(
+          alignment: PlaceholderAlignment.middle,
+          child: PaintedUsernameText(
+            service: widget.paintService!,
+            userId: msg.userId,
+            text: usernameText,
+            baseStyle: usernameStyle,
+            recognizer: _usernameRecognizer,
+          ),
+        );
+      } else if (widget.onTapUser != null) {
         usernameSpan = TextSpan(
           text: usernameText,
           style: usernameStyle,

@@ -15,6 +15,7 @@ Derived from the actual log (350+ commits). Match the recent norm, not the messy
 - Multiple unrelated-ish changes in one commit: comma-separate them instead of writing "and various fixes".
   - `fix event highlighting, update todo`
   - `feat: add media upload, reload, reorganize settings`
+- NEVER write a subject so long it gets cut off mid-word in log views (`git log --oneline`, PR lists, terminal width, whatever). A title that renders like `this message cu` / `ts off` is a bad commit message, do not do this. The comma-list convention above is for SHORT lists only: the moment the subject pushes past ~60 chars or would truncate anywhere, stop cramming detail into it and drop the rest into body bullets instead. Short title + body beats one long title every time.
 
 ## Parenthetical asides
 

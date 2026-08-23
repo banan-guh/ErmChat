@@ -25,6 +25,7 @@ class ChatSettingsScreen extends StatefulWidget {
   final ValueChanged<int>? onEmoteFpsCapChanged;
   final ValueChanged<bool>? onAlwaysAnimatePanelChanged;
   final ValueChanged<String>? onSharedChatModeChanged;
+  final ValueChanged<bool>? onNamePaintsChanged;
 
   const ChatSettingsScreen({
     super.key,
@@ -42,6 +43,7 @@ class ChatSettingsScreen extends StatefulWidget {
     this.onEmoteFpsCapChanged,
     this.onAlwaysAnimatePanelChanged,
     this.onSharedChatModeChanged,
+    this.onNamePaintsChanged,
   });
 
   @override
@@ -62,6 +64,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
   int _emoteFpsCap = 30;
   bool _alwaysAnimatePanel = true;
   String _sharedChatMode = 'spotlight';
+  bool _namePaints = false;
 
   @override
   void initState() {
@@ -90,6 +93,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
         _alwaysAnimatePanel =
             prefs.getBool('always_animate_emote_panel') ?? true;
         _sharedChatMode = prefs.getString('shared_chat_mode') ?? 'spotlight';
+        _namePaints = prefs.getBool('seventv_name_paints') ?? false;
       });
     }
   }
@@ -404,6 +408,20 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
               await prefs.setBool('always_animate_emote_panel', value);
               if (mounted) setState(() => _alwaysAnimatePanel = value);
               widget.onAlwaysAnimatePanelChanged?.call(value);
+            },
+          ),
+          SwitchListTile(
+            secondary: const Icon(Icons.format_paint),
+            title: const Text('7TV name paints'),
+            subtitle: const Text(
+              'Gradient username colors for 7TV subscribers',
+            ),
+            value: _namePaints,
+            onChanged: (value) async {
+              final prefs = await SharedPreferences.getInstance();
+              await prefs.setBool('seventv_name_paints', value);
+              if (mounted) setState(() => _namePaints = value);
+              widget.onNamePaintsChanged?.call(value);
             },
           ),
           ListTile(

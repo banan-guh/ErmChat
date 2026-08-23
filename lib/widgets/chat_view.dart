@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../models/twitch_message.dart';
+import '../services/seven_tv_paint_service.dart';
 import '../util/timestamp_formatter.dart';
 import '../widgets/chat_message_tile.dart';
 import '../widgets/emote_text.dart';
@@ -30,6 +31,7 @@ class ChatView extends StatelessWidget {
   final bool checkeredMessages;
   final bool lineSeparator;
   final String sharedChatMode;
+  final SevenTvPaintService? paintService;
 
   const ChatView({
     super.key,
@@ -52,6 +54,7 @@ class ChatView extends StatelessWidget {
     this.checkeredMessages = false,
     this.lineSeparator = false,
     this.sharedChatMode = 'spotlight',
+    this.paintService,
   });
 
   @override
@@ -177,6 +180,7 @@ class ChatView extends StatelessWidget {
                         lineSeparator: lineSeparator,
                         isAlternateBackground: i.isEven,
                         sharedChatMode: sharedChatMode,
+                        paintService: paintService,
                       );
                     }
 

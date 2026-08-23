@@ -37,6 +37,7 @@ class ThirdPartyBadgeService {
       _version++;
     });
     _entitlementSub = client.onEntitlement.listen((event) {
+      if (event.cosmeticKind != 'BADGE') return;
       final isCreate = event.kind == 'entitlement.create';
       for (final userId in event.twitchUserIds) {
         if (isCreate) {

@@ -23,6 +23,7 @@ import '../services/emote_cache_manager.dart';
 import '../services/analytics_service.dart';
 import '../services/twitch_badge_service.dart';
 import '../services/third_party_badge_service.dart';
+import '../services/seven_tv_paint_service.dart';
 import '../services/emote_providers/twitch_emotes.dart';
 import '../util/log.dart';
 import '../util/sheet_drag.dart';
@@ -242,6 +243,7 @@ class _HomeScreenState extends State<HomeScreen>
   );
   late final _badgeService = widget.badgeService ?? TwitchBadgeService();
   late final _thirdPartyBadgeService = ThirdPartyBadgeService();
+  late final _sevenTvPaintService = SevenTvPaintService();
   final _userStore = UserStore();
   final _channels = <String>[];
   final _channelNotifier = ValueNotifier<List<String>>([]);
@@ -319,6 +321,9 @@ class _HomeScreenState extends State<HomeScreen>
   double _chatFontSize = 14.0;
   bool _checkeredMessages = false;
   bool _lineSeparator = false;
+
+  /// 7TV name paints (default off; toggled in Chat settings).
+  bool _showNamePaints = false;
 
   final _suggestionsNotifier = ValueNotifier<List<Suggestion>>([]);
   final _selectedTabIndex = ValueNotifier<int>(0);
@@ -424,6 +429,7 @@ class _HomeScreenState extends State<HomeScreen>
     _connectivityService.addListener(_connectivityListener!);
     _badgeService.fetchGlobalBadges(widget.twitchAuth);
     _thirdPartyBadgeService.bindSevenTvEvents(_sevenTvClient);
+    _sevenTvPaintService.bindSevenTvEvents(_sevenTvClient);
     unawaited(_thirdPartyBadgeService.fetchFfzBadges());
     unawaited(_thirdPartyBadgeService.fetchBttvBadges());
     widget.twitchAuth.addListener(_onAuthChanged);
@@ -602,6 +608,17 @@ class _HomeScreenState extends State<HomeScreen>
   void _setLineSeparator(bool value) {
     if (_lineSeparator == value) return;
     setState(() => _lineSeparator = value);
+    for (final channel in List.of(_channels)) {
+      _bumpChannel(channel);
+    }
+  }
+
+  void _setNamePaints(bool value) {
+    if (_showNamePaints == value) return;
+    setState(() => _showNamePaints = value);
+    _sevenTvPaintService.enabled = value;
+    // Tiles bake the paint decision in at build time; re-render all channels.
+    _tileCache.clear();
     for (final channel in List.of(_channels)) {
       _bumpChannel(channel);
     }
@@ -1423,7 +1440,14 @@ class _HomeScreenState extends State<HomeScreen>
       _checkeredMessages = prefs.getBool('checkered_messages') ?? false;
       _lineSeparator = prefs.getBool('line_separator') ?? false;
       _sharedChatMode = prefs.getString('shared_chat_mode') ?? 'spotlight';
+      _showNamePaints = prefs.getBool('seventv_name_paints') ?? false;
     });
+    if (_showNamePaints) {
+      _sevenTvPaintService.enabled = true;
+      for (final channel in List.of(_channels)) {
+        _bumpChannel(channel);
+      }
+    }
   }
 
   @override
@@ -2144,6 +2168,7 @@ class _HomeScreenState extends State<HomeScreen>
               EmoteUrlProvider.alwaysAnimatePanel = value,
           onCheckeredMessagesChanged: _setCheckeredMessages,
           onLineSeparatorChanged: _setLineSeparator,
+          onNamePaintsChanged: _setNamePaints,
           onEmoteTierChanged: _applyEmoteTier,
           onEmoteCacheMaxChanged: _applyCacheCap,
           onSharedChatModeChanged: _setSharedChatMode,
@@ -3166,6 +3191,9 @@ class _HomeScreenState extends State<HomeScreen>
                                                     _checkeredMessages,
                                                 lineSeparator: _lineSeparator,
                                                 sharedChatMode: _sharedChatMode,
+                                                paintService: _showNamePaints
+                                                    ? _sevenTvPaintService
+                                                    : null,
                                                 onShowUserProfile:
                                                     (
                                                       login,
@@ -3327,6 +3355,9 @@ class _HomeScreenState extends State<HomeScreen>
                           checkeredMessages: _checkeredMessages,
                           lineSeparator: _lineSeparator,
                           sharedChatMode: _sharedChatMode,
+                          paintService: _showNamePaints
+                              ? _sevenTvPaintService
+                              : null,
                           onLongPress: _showThreadMessageMenu,
                           buildBadgeSpans: _messageBuilder.buildBadgeSpans,
                           buildMessageSpans: _messageBuilder.buildMessageSpans,

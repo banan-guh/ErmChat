@@ -46,7 +46,7 @@
 - [ ] **Notification tuning** - quiet hours, per-channel mutes, sender cooldowns, collapse sub train bursts.
 - [ ] **Chat search** - search/filter messages while scrolled up.
 - [+] **Slow mode countdown** - countdown on the input box hint, ticks in place; timeouts too (CLEARCHAT ban-duration), mod/vip/sub badges bypass slow.
-- [ ] **Emote favorites** - recents exist, favs don't.
+- [-] **Emote favorites** - recents exist, favs don't.
 - [+] **EXIF strip before upload** - JPEGs re-encoded without metadata before upload, orientation baked in; other formats untouched.
 - [ ] **Inline image embeds** - render image links posted in chat, off by default.
 - [ ] **Dual-pane view** - read two channels side by side.
@@ -55,7 +55,7 @@
 - [ ] **Announcement highlight for remaining USERNOTICE types** - `standardpayforward`, `communitypayforward`, `charitydonation`, `modiversary`, etc. render as plain system text with no accent. (`bitsbadgetier` now highlights with the subs.) Deferred until the sub/watch-streak highlight work is pushed.
 - [+] **Injectable TwitchBadgeService** - injected like EventSubService/IrcService (TwitchChatApp/HomeScreen params).
 - [ ] **AVIF support** - Decode AVIF emotes via libavif + dav1d through the existing FFI shim (`emote_decode_avif`; the shim API is already format-agnostic, see PLAN.md). 7tv uses AVIF so if we can get this to work we can save lots.
-- [-] **Token refresh instead of re-auth every 60 days** - Access tokens expire roughly every 60 days; implement a refresh path instead of forcing full re-auth. Note: implicit-grant tokens (`response_type=token`) can't be refreshed - requires an auth flow change (e.g. device code grant).
+- [-] **Token refresh instead of re-auth every 60 days** - Access tokens expire roughly every 60 days; implement a refresh path instead of forcing full re-auth. Note: implicit-grant tokens (`response_type=token`) can't be refreshed - requires an auth flow change (e.g. device code grant). - too much of a security risk, discard.
 - [-] **Make select UI more friendly** - reference dankchat when selecting text. investigate far future.
 - [-] **Inkwell on top** - move inkwell of half-under msgs to fully under (currently overlaps). - somewhere it got fixed I think.
 - [ ] **Translations** - how? - l110 or whatever it's called i dont remember
