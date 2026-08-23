@@ -120,13 +120,13 @@ void main() {
         );
         expect(m.applyKeywordReplacements('a cat!').text, 'a ***!');
         expect(m.applyKeywordReplacements('category cat').text, 'category ***');
-      // Punctuation-edged pattern still anchors via lookaround.
-      m.upsertKeyword(
-        const IgnoreEntry(id: 'w2', pattern: ':)', wordBoundary: true),
-      );
-      expect(m.applyKeywordReplacements('hi :)').text, 'hi ***');
-      // ':' before the smiley is not a word char, so the second one matches.
-      expect(m.applyKeywordReplacements('::)').text, ':***');
+        // Punctuation-edged pattern still anchors via lookaround.
+        m.upsertKeyword(
+          const IgnoreEntry(id: 'w2', pattern: ':)', wordBoundary: true),
+        );
+        expect(m.applyKeywordReplacements('hi :)').text, 'hi ***');
+        // ':' before the smiley is not a word char, so the second one matches.
+        expect(m.applyKeywordReplacements('::)').text, ':***');
       },
     );
   });

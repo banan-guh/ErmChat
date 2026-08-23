@@ -34,4 +34,3 @@ String unescapeIrcTag(String raw) {
   }
   return buf.toString();
 }
-
