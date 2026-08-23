@@ -172,7 +172,9 @@ class TwitchBadgeService {
     }
   }
 
-  void dispose() {
+  /// Runtime cache reset (account switch), not teardown; the service keeps
+  /// being used afterwards and the http client intentionally stays open.
+  void resetCaches() {
     _globalBadges.clear();
     _channelBadges.clear();
     _channelAvatars.clear();

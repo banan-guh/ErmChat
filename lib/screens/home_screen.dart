@@ -1286,7 +1286,7 @@ class _HomeScreenState extends State<HomeScreen>
       }
       _emoteManager.evictGlobal();
       _emoteManager.preloadGlobalEmotes(force: force);
-      _badgeService.dispose();
+      _badgeService.resetCaches();
       _badgeService.fetchGlobalBadges(widget.twitchAuth);
       for (final channel in _chatStore.channels) {
         _emoteManager.evictChannel(channel);
@@ -1527,13 +1527,8 @@ class _HomeScreenState extends State<HomeScreen>
     super.dispose();
   }
 
-  // Connection status lines are chronological entries, but a transient
-  // "Disconnected" that is followed by a reconnect is folded into the
-  // "Reconnected" line (one per reconnect), so a reconnection storm shows:
-  // Connected, Reconnected, ..., Disconnected. Only a persistent outage (no
-  // reconnect) renders as "Disconnected", and it never removes a prior
-  // "Connected". Duplicate emissions are prevented upstream by the manager's
-  // edge triggering, so each status event lands exactly once here.
+  // Broadcaster-only hype train widget state: one entry per channel, removed
+  // on the train's end event.
   void _onHypeTrain(HypeTrainEvent event) {
     if (!mounted) return;
     setState(() {

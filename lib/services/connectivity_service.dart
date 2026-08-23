@@ -25,7 +25,6 @@ class ConnectivityService extends ChangeNotifier {
   List<ConnectivityResult> get results => _results;
   bool get isOnline => !_results.contains(ConnectivityResult.none);
   bool get isMobile => _results.contains(ConnectivityResult.mobile);
-  bool get isWifi => _results.contains(ConnectivityResult.wifi);
 
   /// Seeds the initial state from the plugin and starts listening. Safe to
   /// call repeatedly; errors keep the optimistic default and are corrected by

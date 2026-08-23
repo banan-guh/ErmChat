@@ -174,12 +174,15 @@ abstract class IrcConnection {
     required String accessToken,
   }) {
     if (_disposed) return Future.value();
-    this.username = username.toLowerCase();
-    token = accessToken;
     if (isConnected) {
+      // Credentials only apply to a socket we are about to authenticate;
+      // adopting new ones on a live socket (authenticated as the previous
+      // account) would make the stored state lie about the connection.
       logDebug('[$debugPrefix] already connected, skipping reconnect');
       return Future.value();
     }
+    this.username = username.toLowerCase();
+    token = accessToken;
     _fatalAuth = false;
     _runGeneration++;
     final firstSettled = Completer<void>();

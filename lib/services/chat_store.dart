@@ -40,16 +40,6 @@ class ChatStoreEvent {
   const ChatStoreEvent(this.signal, this.channel, {this.messageId});
 }
 
-/// Owns the shared chat state: the per-channel buffers the connection
-
-/// Owns the shared chat state: the per-channel buffers the connection
-/// pipeline writes and the UI renders. One instance is created by
-/// HomeScreen and handed to [ChatConnectionManager]; both sides hold the
-/// same collection instances, so mutations are visible everywhere.
-///
-/// This is the seam between "what chat state exists" (here) and who
-/// changes it (the manager) or displays it (the screen). Persistence and
-/// derived view state (tile caches, panel data) stay out on purpose.
 /// One tracked reply thread: the pinned root (null when the root was never
 /// seen on screen) plus replies still present in the channel buffer.
 class ThreadEntry {
@@ -62,6 +52,14 @@ class ThreadEntry {
       replies.any((r) => r.messageId == messageId);
 }
 
+/// Owns the shared chat state: the per-channel buffers the connection
+/// pipeline writes and the UI renders. One instance is created by
+/// HomeScreen and handed to [ChatConnectionManager]; both sides hold the
+/// same collection instances, so mutations are visible everywhere.
+///
+/// This is the seam between "what chat state exists" (here) and who
+/// changes it (the manager) or displays it (the screen). Persistence and
+/// derived view state (tile caches, panel data) stay out on purpose.
 class ChatStore {
   ChatStore({
     required this.channels,
@@ -477,7 +475,7 @@ class ChatStore {
   }
 
   /// Marks every non-system message in the buffer deleted (/clear, EventSub
-  /// clear). Signals each mutation.
+  /// clear). Emits no signal; callers repaint via touchChannel.
   void markAllMessagesDeleted(String channel) {
     final msgs = channelMessages[channel];
     if (msgs == null) return;

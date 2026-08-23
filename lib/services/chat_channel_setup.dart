@@ -307,6 +307,9 @@ class ChatChannelSetup {
       // Already known to be rejected with 403 (not a moderator); skip so we
       // don't re-attempt and re-log on every reconnect.
       if (_moderationSkippedChannels.contains(channelName)) return;
+      // Not a retry loop: the subscription is attempted at most once. The
+      // loop only bounds the wait (~3s) for the EventSub websocket session
+      // to appear; a session that never shows up just skips this channel.
       for (int attempt = 0; attempt < 3; attempt++) {
         final sessionId = eventSub.sessionId;
         if (sessionId == null) {
@@ -357,6 +360,8 @@ class ChatChannelSetup {
       if (!auth.isConfigured || store.session.userId == null) return;
       if (store.session.userId != channelUserId) return;
       if (_widgetSkippedChannels.contains(channelName)) return;
+      // Same shape as _subscribeModeration: one attempt max, the loop only
+      // bounds the wait for the EventSub session.
       for (int attempt = 0; attempt < 3; attempt++) {
         final sessionId = eventSub.sessionId;
         if (sessionId == null) {

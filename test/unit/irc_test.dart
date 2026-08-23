@@ -3426,7 +3426,7 @@ void main() {
     });
 
     tearDown(() {
-      badgeService.dispose();
+      badgeService.resetCaches();
     });
 
     test('resolves login and display name after avatar fetch', () async {

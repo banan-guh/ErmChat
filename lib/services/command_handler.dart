@@ -276,7 +276,12 @@ class CommandHandler {
     final currentUserId = getCurrentUserId();
     if (cmd == '/w') {
       if (currentUserId == null) {
-        addSystemMessage(channel, 'Channel not joined.');
+        // Whispers are account-scoped, not channel-scoped: this failure means
+        // our own user id is unresolved, not that a channel is missing.
+        addSystemMessage(
+          channel,
+          "Couldn't resolve your account; try logging in again.",
+        );
         return;
       }
       await _handleWhisper(text, channel, auth, currentUserId);
