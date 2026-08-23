@@ -1124,6 +1124,10 @@ class _HomeScreenState extends State<HomeScreen>
         if (event.messageId != null) {
           _tileCache[event.channel]?.remove(event.messageId);
         }
+        // Deletes and ban-stack text edits emit only this signal (no trailing
+        // system line in every path), so an open panel would keep rendering
+        // the stale row.
+        _onPanelDataChanged(event.channel);
     }
   }
 
@@ -1974,11 +1978,8 @@ class _HomeScreenState extends State<HomeScreen>
     // Per-channel notifiers and tile state must die with the channel: a
     // re-joined channel would otherwise reuse stale notifiers and an old
     // frozen snapshot, and the maps would grow for the session.
-    _chatStore.forgetChannel(channel);
-    _atBottomNotifiers.remove(channel)?.dispose();
     _tileCache.remove(channel);
     _frozenSnapshot.remove(channel);
-    _chatStore.clearThreads(channel);
     setState(() {
       _chatStore.channels.remove(channel);
       _channelNotifier.value = List.of(_chatStore.channels);
@@ -2002,6 +2003,15 @@ class _HomeScreenState extends State<HomeScreen>
           _selectedTabIndex.value = _chatStore.channels.length - 1;
         }
       }
+    });
+    // Notifier disposal must land after the widgets listening to them have
+    // actually unmounted (the frame the setState above schedules); disposing
+    // earlier makes their removeListener hit a disposed notifier in debug
+    // builds when leaving a channel.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _atBottomNotifiers.remove(channel)?.dispose();
+      _chatStore.forgetChannel(channel);
     });
     _saveChannels();
   }
@@ -2885,6 +2895,10 @@ class _HomeScreenState extends State<HomeScreen>
   void _scanHistoryForMentions() {
     if (_mentionScanDone || _chatStore.session.login == null) return;
     _mentionScanDone = true;
+    // Create the mentions buffer before iterating: inserting its key mid-loop
+    // would throw ConcurrentModificationError on the entries iterator.
+    _chatStore.channelMessages.putIfAbsent(_mentionsChannel, () => []);
+    final mentionList = _chatStore.channelMessages[_mentionsChannel]!;
     for (final entry in _chatStore.channelMessages.entries) {
       if (entry.key == _mentionsChannel) continue;
       for (final msg in entry.value) {
@@ -2892,8 +2906,7 @@ class _HomeScreenState extends State<HomeScreen>
         final state = _pingManager.evaluate(msg);
         if (state == null || !state.hasMention) continue;
         msg.highlight = state;
-        _chatStore.channelMessages.putIfAbsent(_mentionsChannel, () => []);
-        _chatStore.channelMessages[_mentionsChannel]!.insert(0, msg);
+        mentionList.insert(0, msg);
       }
     }
   }
