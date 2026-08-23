@@ -42,7 +42,7 @@ class IrcNoticeEvent {
 }
 
 /// A full channel clear (`/clear`): CLEARCHAT with no target user. Unlike
-/// bans/timeouts, there is no target — every chat message is removed.
+/// bans/timeouts, there is no target - every chat message is removed.
 class IrcChannelClearEvent {
   final String channel;
 
@@ -360,7 +360,7 @@ class IrcService extends IrcConnection {
     if (channelName == null) return;
 
     final targetUser = msg.trailing;
-    // CLEARCHAT without a target is a full channel clear (/clear) — every
+    // CLEARCHAT without a target is a full channel clear (/clear) - every
     // message is removed, there is no user to ban.
     if (targetUser == null || targetUser.isEmpty) {
       _clearController.add(IrcChannelClearEvent(channel: channelName));

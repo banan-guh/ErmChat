@@ -18,7 +18,7 @@ class CommandHandler {
   final void Function(String login)? onUserUnblocked;
   final _userIdCache = <String, String>{};
 
-  /// Every command the app can run. Used for / autocomplete — all commands
+  /// Every command the app can run. Used for / autocomplete - all commands
   /// are suggested regardless of permissions; the API rejects what the
   /// account cannot run with a clean error notice. Keep in sync with
   /// `handle()` below.
@@ -114,7 +114,7 @@ class CommandHandler {
 
   /// Runs a Helix moderation call. Returns true on success; on failure
   /// reports a clean notice. IRC slash commands were deprecated by Twitch
-  /// (Feb 2023), so there is no IRC fallback — Helix is the only way to
+  /// (Feb 2023), so there is no IRC fallback - Helix is the only way to
   /// send moderation actions.
   Future<bool> _moderate(
     String action,

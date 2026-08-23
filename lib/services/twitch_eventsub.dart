@@ -364,7 +364,7 @@ class EventSubService {
     }
   }
 
-  // Reset on any message, not just keepalives — Twitch may skip explicit
+  // Reset on any message, not just keepalives - Twitch may skip explicit
   // keepalive frames during active chat. 1.5x multiplier gives grace period.
   void _resetKeepalive() {
     _lastActivity = DateTime.now();

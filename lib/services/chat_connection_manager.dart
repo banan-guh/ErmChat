@@ -519,7 +519,7 @@ class ChatConnectionManager {
       }
     }
     // While the channel.moderate v2 subscription is active, moderation
-    // messages come from EventSub (with reason/duration) — skip the IRC copy.
+    // messages come from EventSub (with reason/duration) - skip the IRC copy.
     if (_moderationChannels.contains(channel)) return;
     final result = _processBanInChannel(channel, user, isTimeout);
     final isSelf = user.toLowerCase() == getCurrentUserLogin()?.toLowerCase();
@@ -1369,7 +1369,7 @@ class ChatConnectionManager {
       // EventSub session lifecycle: subscriptions are session-scoped, so drop
       // moderation-channel state when the session dies (IRC fallback resumes)
       // and re-subscribe when a new session comes up (session_reconnect or
-      // keepalive reconnect) — otherwise moderation and the broadcaster
+      // keepalive reconnect) - otherwise moderation and the broadcaster
       // widgets stay dead until the next IRC reconnect.
       statusSub?.cancel();
       statusSub = eventSub.onStatus.listen((status) {
@@ -1388,7 +1388,7 @@ class ChatConnectionManager {
         onRebuild();
         if (status == IrcConnectionStatus.connected && irc.isConnected) {
           // Edge-triggered: subscribeAll once per connect with 30s throttle.
-          // The 500ms settle delay only applies on reconnect — the sockets
+          // The 500ms settle delay only applies on reconnect - the sockets
           // rejoin channels themselves on reconnect.
           if (!_wasConnected) {
             final isReconnect = _wasDisconnected;
@@ -1473,7 +1473,7 @@ class ChatConnectionManager {
         setCurrentUserId(auth.userId);
       }
 
-      // EventSub needs no credentials — connect it in parallel with the
+      // EventSub needs no credentials - connect it in parallel with the
       // current-user lookup. Only IRC needs the login, so the sockets wait
       // for the lookup but not for each other.
       var hasToken = auth.accessToken != null;
@@ -1635,7 +1635,7 @@ class ChatConnectionManager {
         }
       }
       // While the channel.moderate v2 subscription is active, deletions come
-      // from EventSub (with moderator + message body) — skip the IRC copy.
+      // from EventSub (with moderator + message body) - skip the IRC copy.
       if (found && !_moderationChannels.contains(event.channel)) {
         onSystemMessage(
           event.channel,
@@ -1658,7 +1658,7 @@ class ChatConnectionManager {
     ircNoticeSub = irc.onNotice.listen((event) {
       if (isDisposed) return;
       // With channel.moderate active, room-state changes come from EventSub
-      // with structured data — suppress the redundant IRC NOTICE.
+      // with structured data - suppress the redundant IRC NOTICE.
       if (_moderationChannels.contains(event.channel) &&
           _roomStateNoticeIds.contains(event.msgId)) {
         return;

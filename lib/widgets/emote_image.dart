@@ -259,7 +259,7 @@ Future<EmoteFrameData> _decodeWebp(Uint8List bytes) async {
           blend: img.BlendMode.direct,
         );
       } else {
-        // Normal alpha blend — use WebP's exact straight-alpha formula
+        // Normal alpha blend - use WebP's exact straight-alpha formula
         _compositeWebpBlend(canvas, converted, frameInfo.x, frameInfo.y);
       }
 

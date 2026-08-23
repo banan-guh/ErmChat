@@ -744,7 +744,7 @@ class EmoteManager extends ChangeNotifier {
         _notify();
         if (loaded.fresh) {
           // Twitch global emotes aren't persisted on medium/high (see
-          // _saveToPrefs), so they refresh in the background on every launch —
+          // _saveToPrefs), so they refresh in the background on every launch -
           // mirrors the channel behavior. On low/nothing they're already
           // persisted and the cache is effectively infinite, so skip the
           // network entirely. Non-blocking.

@@ -672,7 +672,7 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   // Fetch the account's Twitch block list before anything is shown so blocked
-  // users never appear — not even briefly. Fail-open: chat shows normally if
+  // users never appear - not even briefly. Fail-open: chat shows normally if
   // the fetch fails, and a later login triggers a (guarded) retry.
   Future<void> _ensureBlockedUsersLoaded() async {
     if (_blocksFetched) return;
@@ -775,7 +775,7 @@ class _HomeScreenState extends State<HomeScreen>
   // messages already displayed (only possible on reconnect re-fetches).
   //
   // The merged list is sorted by timestamp (DankChat-style) so re-fetched
-  // history slots below messages that arrived after it — live messages are
+  // history slots below messages that arrived after it - live messages are
   // never pushed under older history.
   void _mergeHistoryIntoChannel(String channel, List<TwitchMessage> history) {
     final existing = _channelMessages[channel]!;
@@ -957,7 +957,7 @@ class _HomeScreenState extends State<HomeScreen>
           ? <GenericEmote>[]
           : [
               ...?_emoteManager.byCode(channel)?.suggestions,
-              // Subscriber emotes are global — usable in every channel, not
+              // Subscriber emotes are global - usable in every channel, not
               // just the one they belong to.
               ..._emoteManager.subscriberEmotesByChannel().values.expand(
                 (e) => e,
@@ -2669,7 +2669,7 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   /// Wraps [child] so it renders at its full expanded height and translates
-  /// vertically as the sheet opens/closes — true slide-up/down motion.
+  /// vertically as the sheet opens/closes - true slide-up/down motion.
   ///
   /// At size = 0 the content is shifted down by its full height (invisible
   /// below the viewport). As the sheet grows to [maxSize] the content rises
@@ -3334,7 +3334,7 @@ class _HomeScreenState extends State<HomeScreen>
                           ),
                         ],
                       ),
-                      // Thread sheet — offstage when closed to avoid layout cost.
+                      // Thread sheet - offstage when closed to avoid layout cost.
                       _buildOverlaySheet(
                         offstage: _activePanel != OverlayPanel.thread,
                         ratio: _threadSheetRatio,
@@ -3391,7 +3391,7 @@ class _HomeScreenState extends State<HomeScreen>
                           scrollController: _threadPanelScrollCtrl,
                         ),
                       ),
-                      // Mentions sheet — offstage when closed to avoid layout cost.
+                      // Mentions sheet - offstage when closed to avoid layout cost.
                       _buildOverlaySheet(
                         offstage: _activePanel != OverlayPanel.mentions,
                         ratio: _mentionsSheetRatio,
@@ -3528,7 +3528,7 @@ class _HomeScreenState extends State<HomeScreen>
                           ),
                         ),
                       ),
-                      // Autocomplete dropdown — floats above chat, anchored just
+                      // Autocomplete dropdown - floats above chat, anchored just
                       // above the message input, 60% width like DankChat's popup.
                       Positioned(
                         bottom: 0,

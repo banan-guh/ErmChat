@@ -3318,7 +3318,7 @@ void main() {
         addTearDown(() => tester.binding.setSurfaceSize(null));
         await tester.pumpAndSettle();
 
-        // Thread is initially preserved — child is within the limit.
+        // Thread is initially preserved - child is within the limit.
         expect(find.textContaining('thread root'), findsWidgets);
         expect(find.textContaining('thread reply'), findsOneWidget);
 
@@ -3353,7 +3353,7 @@ void main() {
         await tester.pump();
         await tester.pump();
 
-        // Thread should now be removed — pushed past maxMessages=10.
+        // Thread should now be removed - pushed past maxMessages=10.
         expect(find.textContaining('thread root'), findsNothing);
         expect(find.textContaining('thread reply'), findsNothing);
       },
@@ -3395,7 +3395,7 @@ void main() {
         await tester.pump();
         await tester.pump();
 
-        // Initially at bottom — FAB should not be visible
+        // Initially at bottom - FAB should not be visible
         expect(find.byIcon(Icons.keyboard_arrow_down), findsNothing);
 
         // Scroll up to trigger pause (with reverse:true, drag DOWN = scroll UP)
@@ -3450,7 +3450,7 @@ void main() {
         await tester.pump();
         await tester.pump();
 
-        // Scroll up — FAB appears (with reverse:true, drag DOWN = scroll UP)
+        // Scroll up - FAB appears (with reverse:true, drag DOWN = scroll UP)
         await tester.drag(find.byType(ListView).first, const Offset(0, 500));
         await tester.pump();
         await tester.pump();
@@ -3468,10 +3468,10 @@ void main() {
         );
         await tester.pump();
 
-        // FAB still visible — did not auto-scroll
+        // FAB still visible - did not auto-scroll
         expect(find.byIcon(Icons.keyboard_arrow_down), findsOneWidget);
 
-        // New message text NOT visible — frozen snapshot hides it
+        // New message text NOT visible - frozen snapshot hides it
         expect(find.textContaining('new message while paused'), findsNothing);
 
         // Tap FAB to resume (clears snapshot, scrolls to bottom)
@@ -3725,7 +3725,7 @@ void main() {
       // Ensure the text ends with a trailing space.
       expect(controller.text, endsWith(' '));
 
-      // Simulate backspace — remove trailing space.
+      // Simulate backspace - remove trailing space.
       final textWithoutSpace = controller.text.trimRight();
       controller.value = TextEditingValue(
         text: textWithoutSpace,
@@ -4213,7 +4213,7 @@ void main() {
       await tester.pump();
       await gesture.moveBy(Offset(-size.width * 0.55, 0));
       await tester.pump();
-      // Don't release — verify focus switched mid-drag
+      // Don't release - verify focus switched mid-drag
       expect(
         tester
             .widget<Text>(
