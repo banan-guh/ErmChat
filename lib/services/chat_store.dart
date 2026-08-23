@@ -338,12 +338,7 @@ class ChatStore {
     // Only mention-tier highlights land in the mentions tab; event tints
     // (redemptions, first messages, ...) stay in the channel only.
     if (state != null && state.hasMention && mentionsChannel != null) {
-      channelMessages.putIfAbsent(mentionsChannel, () => []);
-      channelMessages[mentionsChannel]!.insert(0, msg);
-      final mentionMsgs = channelMessages[mentionsChannel]!;
-      if (mentionMsgs.length > maxMessages) {
-        mentionMsgs.removeRange(maxMessages, mentionMsgs.length);
-      }
+      mirrorMentions(mentionsChannel, [msg], maxMessages: maxMessages);
     }
 
     if (channel != selectedChannel && !msg.isHistory && !msg.isSystem) {
@@ -351,6 +346,38 @@ class ChatStore {
     }
     noteNewMessage(channel);
     return true;
+  }
+
+  /// Kernel verb mirroring mention-tier messages into the @mentions buffer:
+  /// dedupes against the buffer by message id (null-id messages always add),
+  /// keeps the buffer sorted newest-first regardless of caller iteration
+  /// order, and caps it at [maxMessages].
+  void mirrorMentions(
+    String mentionsChannel,
+    List<TwitchMessage> msgs, {
+    required int maxMessages,
+  }) {
+    if (msgs.isEmpty) return;
+    channelMessages.putIfAbsent(mentionsChannel, () => []);
+    final list = channelMessages[mentionsChannel]!;
+    final seen = {
+      for (final m in list)
+        if (m.messageId != null) m.messageId!,
+    };
+    final added = <TwitchMessage>[];
+    for (final msg in msgs) {
+      final id = msg.messageId;
+      if (id != null && !seen.add(id)) continue;
+      added.add(msg);
+    }
+    if (added.isEmpty) return;
+    list.addAll(added);
+    // Callers iterate buffers and history batches in arbitrary directions;
+    // sorting once here keeps every writer to a single ordering contract.
+    list.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    if (list.length > maxMessages) {
+      list.removeRange(maxMessages, list.length);
+    }
   }
 
   // ---- Threads ------------------------------------------------------------

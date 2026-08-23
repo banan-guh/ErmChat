@@ -155,4 +155,98 @@ void main() {
       },
     );
   });
+
+  group('ChatStore.mirrorMentions', () {
+    TwitchMessage mention(String id, DateTime ts, {String channel = 'test'}) =>
+        TwitchMessage(
+          login: 'alice',
+          text: 'hi',
+          messageId: id,
+          channel: channel,
+          timestamp: ts,
+        );
+
+    test('sorts a mixed batch newest-first across midnight', () {
+      final store = _store();
+      // History spanning midnight arrives with wall-clock-looking order
+      // flips; the buffer must stay ordered by real timestamps.
+      final beforeMidnight = mention('m1', DateTime(2026, 8, 22, 23, 59, 59));
+      final afterMidnight = mention('m2', DateTime(2026, 8, 23, 0, 0, 1));
+
+      store.mirrorMentions('@mentions', [
+        beforeMidnight,
+        afterMidnight,
+      ], maxMessages: 10);
+
+      expect(store.channelMessages['@mentions']!.map((m) => m.messageId), [
+        'm2',
+        'm1',
+      ]);
+    });
+
+    test('caller iteration order never leaks into the buffer', () {
+      final store = _store();
+      final msgs = [
+        for (var i = 0; i < 5; i++)
+          mention('m$i', DateTime(2026, 8, 20, 12, 0, i)),
+      ];
+
+      // Newest-first input (as channel buffers are stored) must yield the
+      // same result as oldest-first input.
+      store.mirrorMentions('@mentions', msgs, maxMessages: 10);
+      expect(store.channelMessages['@mentions']!.map((m) => m.messageId), [
+        'm4',
+        'm3',
+        'm2',
+        'm1',
+        'm0',
+      ]);
+
+      final other = _store();
+      other.mirrorMentions(
+        '@mentions',
+        msgs.reversed.toList(),
+        maxMessages: 10,
+      );
+      expect(other.channelMessages['@mentions']!.map((m) => m.messageId), [
+        'm4',
+        'm3',
+        'm2',
+        'm1',
+        'm0',
+      ]);
+    });
+
+    test('dedupes against the buffer and within the batch', () {
+      final store = _store();
+      final t = DateTime(2026, 8, 21, 10);
+      store.mirrorMentions('@mentions', [mention('m1', t)], maxMessages: 10);
+      store.mirrorMentions('@mentions', [
+        mention('m2', t.add(const Duration(minutes: 1))),
+        mention('m1', t),
+      ], maxMessages: 10);
+
+      expect(store.channelMessages['@mentions']!.map((m) => m.messageId), [
+        'm2',
+        'm1',
+      ]);
+    });
+
+    test('caps the buffer keeping the newest messages', () {
+      final store = _store();
+      final msgs = [
+        for (var i = 0; i < 6; i++)
+          mention('m$i', DateTime(2026, 8, 20, 12, i)),
+      ];
+
+      store.mirrorMentions('@mentions', msgs, maxMessages: 4);
+
+      expect(store.channelMessages['@mentions']!.map((m) => m.messageId), [
+        'm5',
+        'm4',
+        'm3',
+        'm2',
+      ]);
+    });
+  });
 }

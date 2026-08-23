@@ -769,6 +769,7 @@ class _HomeScreenState extends State<HomeScreen>
     }
     final insertedIds = <String?>{};
     final insertedMsgs = <TwitchMessage>[];
+    final mentionHits = <TwitchMessage>[];
     var insertedCount = 0;
     for (final msg in history) {
       // Locally ignored users' history never renders (matches the live gate).
@@ -809,17 +810,16 @@ class _HomeScreenState extends State<HomeScreen>
         final state = _pingManager.evaluate(msg);
         if (state != null && state.hasMention) {
           msg.highlight = state;
-          _chatStore.channelMessages.putIfAbsent(_mentionsChannel, () => []);
-          final mentionList = _chatStore.channelMessages[_mentionsChannel]!;
-          final existingMentionIds = mentionList
-              .map((m) => m.messageId)
-              .toSet();
-          if (msg.messageId == null ||
-              !existingMentionIds.contains(msg.messageId)) {
-            mentionList.insert(0, msg);
-          }
+          mentionHits.add(msg);
         }
       }
+    }
+    if (mentionHits.isNotEmpty) {
+      _chatStore.mirrorMentions(
+        _mentionsChannel,
+        mentionHits,
+        maxMessages: _maxMessagesPerChannel,
+      );
     }
     if (hasExistingNonSystem &&
         insertedCount > 0 &&
@@ -2884,16 +2884,13 @@ class _HomeScreenState extends State<HomeScreen>
     setState(() => _shownCooldownLabel = label);
   }
 
-  // Retroactive mention scan: runs once on login. Messages inserted at front
-  // of mentions channel in scan order (reverse-chronological within each
-  // channel), so they appear newest-first but may not be perfectly sorted.
+  // Retroactive mention scan: runs once on login. Hits are batched and
+  // mirrored through ChatStore, which sorts the mentions buffer newest-first
+  // regardless of the (newest-first) channel-buffer iteration order.
   void _scanHistoryForMentions() {
     if (_mentionScanDone || _chatStore.session.login == null) return;
     _mentionScanDone = true;
-    // Create the mentions buffer before iterating: inserting its key mid-loop
-    // would throw ConcurrentModificationError on the entries iterator.
-    _chatStore.channelMessages.putIfAbsent(_mentionsChannel, () => []);
-    final mentionList = _chatStore.channelMessages[_mentionsChannel]!;
+    final hits = <TwitchMessage>[];
     for (final entry in _chatStore.channelMessages.entries) {
       if (entry.key == _mentionsChannel) continue;
       for (final msg in entry.value) {
@@ -2901,8 +2898,15 @@ class _HomeScreenState extends State<HomeScreen>
         final state = _pingManager.evaluate(msg);
         if (state == null || !state.hasMention) continue;
         msg.highlight = state;
-        mentionList.insert(0, msg);
+        hits.add(msg);
       }
+    }
+    if (hits.isNotEmpty) {
+      _chatStore.mirrorMentions(
+        _mentionsChannel,
+        hits,
+        maxMessages: _maxMessagesPerChannel,
+      );
     }
   }
 
