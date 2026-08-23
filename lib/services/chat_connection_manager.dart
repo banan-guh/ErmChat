@@ -35,6 +35,29 @@ class _BanMeta {
     : lastEvent = lastEvent ?? DateTime.now();
 }
 
+/// One tracked reply thread: the pinned root (null for orphan entries whose
+/// root was never seen) plus the replies still in the channel buffer.
+/// Entries hold references to the same [TwitchMessage] objects stored in
+/// [ChatConnectionConfig.channelMessages], so deletions, edits, and highlight
+/// flags stay consistent everywhere.
+///
+/// Lifetime: scrollback trimming decays reply membership, but the entry (and
+/// its pinned root) persists so the thread stays viewable after every member
+/// left chat - reopening must not show an empty panel. Records are bounded
+/// per channel by [_maxTrackedThreadsPerChannel] (LRU) and die with the
+/// channel ([clearChannelThreads]).
+class _ThreadEntry {
+  TwitchMessage? root;
+  DateTime lastActivity;
+  final List<TwitchMessage> replies = [];
+
+  _ThreadEntry() : lastActivity = DateTime.now();
+
+  bool hasMessage(String messageId) =>
+      root?.messageId == messageId ||
+      replies.any((r) => r.messageId == messageId);
+}
+
 class ChatConnectionConfig {
   ChatConnectionConfig({
     required this.twitchApi,
@@ -266,6 +289,13 @@ class ChatConnectionManager {
   bool _connectRetryRequested = false;
   final _recentBanMeta = <String, List<_BanMeta>>{};
   static const _banDedupWindowSeconds = 10;
+  // Incremental thread index: channel -> rootId -> thread. Populated as
+  // tagged messages are ingested (live, own echo, history merges) so a thread
+  // view survives scrollback trimming: eviction decays reply membership while
+  // the pinned root keeps the thread openable. Entries persist for the
+  // session, bounded per channel by an LRU cap, and die with the channel.
+  final _channelThreads = <String, Map<String, _ThreadEntry>>{};
+  static const _maxTrackedThreadsPerChannel = 64;
   // Expired-token handling: deduplicates the global expiry message and tracks
   // the last anonymous-vs-authed state so the sockets actually tear down when
   // expiry flips us from authed to anonymous mid-session.
@@ -765,6 +795,7 @@ class ChatConnectionManager {
 
     // Phase 5: build retained list in O(n) (was O(n^2) removeAt loop).
     final retained = <TwitchMessage>[];
+    final evicted = <TwitchMessage>[];
     for (int i = 0; i < msgs.length; i++) {
       if (keepIndices.contains(i)) {
         retained.add(msgs[i]);
@@ -773,7 +804,13 @@ class ChatConnectionManager {
         // exists to catch live/history double delivery while a message is on
         // screen, not to accumulate for the whole session.
         messageKeys.remove('$channel:${msgs[i].messageId}');
+        evicted.add(msgs[i]);
       }
+    }
+    // Keep the thread store in sync with the trimmed buffer: replies that
+    // fell off decay out of their entry, pinned roots note their eviction.
+    if (evicted.isNotEmpty) {
+      decayThreadMembers(channel, evicted);
     }
     msgs
       ..clear()
@@ -804,6 +841,100 @@ class ChatConnectionManager {
     }
     _lastTruncateAt = now;
     truncateChannelMessages(channel);
+  }
+
+  /// Indexes messages into the thread store (idempotent). History merges call
+  /// this with the freshly inserted rows; live ingestion indexes through
+  /// [_indexThreadMember] directly.
+  void indexThreadMembers(String channel, Iterable<TwitchMessage> msgs) {
+    if (isDisposed) return;
+    for (final msg in msgs) {
+      _indexThreadMember(channel, msg);
+    }
+  }
+
+  void _indexThreadMember(String channel, TwitchMessage msg) {
+    final id = msg.messageId;
+    if (id == null) return;
+    final threads = _channelThreads.putIfAbsent(channel, () => {});
+    final rootId = msg.replyThreadRootId;
+
+    if (rootId == null || rootId == id) {
+      // A potential root: adopt it into an orphan entry created earlier by a
+      // reply whose root was not on screen yet.
+      final entry = threads[id];
+      if (entry != null && entry.root == null && !msg.isSystem) {
+        entry.root = msg;
+        entry.lastActivity = _now();
+      }
+      return;
+    }
+
+    final isNewEntry = !threads.containsKey(rootId);
+    final entry = threads.putIfAbsent(rootId, _ThreadEntry.new);
+    if (entry.hasMessage(id)) return;
+    entry.lastActivity = _now();
+    entry.root ??= _lookupBufferRoot(channel, rootId);
+    entry.replies.add(msg);
+    if (isNewEntry) _enforceThreadCap(threads);
+  }
+
+  // Keeps the per-channel thread map bounded: oldest-touched entries fall off
+  // first. Only runs when a new entry pushes past the cap.
+  void _enforceThreadCap(Map<String, _ThreadEntry> threads) {
+    while (threads.length > _maxTrackedThreadsPerChannel) {
+      String? oldestKey;
+      DateTime? oldestAt;
+      for (final e in threads.entries) {
+        if (oldestAt == null || e.value.lastActivity.isBefore(oldestAt)) {
+          oldestAt = e.value.lastActivity;
+          oldestKey = e.key;
+        }
+      }
+      if (oldestKey == null) break;
+      threads.remove(oldestKey);
+    }
+  }
+
+  TwitchMessage? _lookupBufferRoot(String channel, String rootId) {
+    final msgs = channelMessages[channel];
+    if (msgs == null) return null;
+    for (final m in msgs) {
+      if (!m.isSystem && m.messageId == rootId) return m;
+    }
+    return null;
+  }
+
+  /// The indexed thread for [rootId], or null when none of its messages were
+  /// ever ingested. A pinned root is included even though it may no longer be
+  /// in the channel buffer; callers sort by timestamp themselves.
+  List<TwitchMessage>? threadFor(String channel, String rootId) {
+    final entry = _channelThreads[channel]?[rootId];
+    if (entry == null) return null;
+    return [if (entry.root != null) entry.root!, ...entry.replies];
+  }
+
+  /// Decays evicted messages out of the thread store: replies that left the
+  /// channel buffer drop from their entry, while the pinned root survives so
+  /// the thread stays viewable after every member has scrolled away.
+  void decayThreadMembers(String channel, Iterable<TwitchMessage> evicted) {
+    final threads = _channelThreads[channel];
+    if (threads == null || threads.isEmpty) return;
+    for (final msg in evicted) {
+      final id = msg.messageId;
+      if (id == null) continue;
+      final rootId = msg.replyThreadRootId;
+      // Roots stay pinned; only reply membership decays.
+      if (rootId == null || rootId == id) continue;
+      final entry = threads[rootId];
+      if (entry == null) continue;
+      entry.replies.removeWhere((r) => identical(r, msg) || r.messageId == id);
+    }
+  }
+
+  /// Drops a channel's thread entries (channel removed from the app).
+  void clearChannelThreads(String channel) {
+    _channelThreads.remove(channel);
   }
 
   Future<void> subscribeChannel(String channelName) async {
@@ -1927,6 +2058,7 @@ class ChatConnectionManager {
     if (msg.messageId != null) {
       messageKeys.add('$channel:${msg.messageId}');
     }
+    _indexThreadMember(channel, msg);
 
     // Only mention-tier highlights land in the mentions tab; event tints
     // (redemptions, first messages, ...) stay in the channel only.
@@ -2019,6 +2151,7 @@ class ChatConnectionManager {
     if (msg.messageId != null) {
       messageKeys.add('$channel:${msg.messageId}');
     }
+    _indexThreadMember(channel, msg);
 
     bumpChannel(channel);
     precacheMessageEmotes(msg, channel);

@@ -109,6 +109,23 @@ TwitchMessage _msg(String id, String text, {String? replyToParentId}) =>
       replyToText: replyToParentId != null ? 'parent text' : null,
     );
 
+/// Modern Twitch-style reply: carries the explicit thread-root tag the store
+/// indexes on, in addition to the direct-parent reference.
+TwitchMessage _taggedMsg(
+  String id,
+  String text, {
+  required String rootId,
+  String? parentId,
+}) => TwitchMessage(
+  login: 'user',
+  text: text,
+  messageId: id,
+  channel: 'test',
+  replyToParentId: parentId ?? rootId,
+  replyToUser: 'parent',
+  replyThreadRootId: rootId,
+);
+
 class _NoopEventSub extends EventSubService {
   @override
   Future<void> connect({String? url}) async {}
@@ -2055,6 +2072,146 @@ void main() {
       expect(remaining.any((m) => m.messageId == 'root'), true);
       expect(remaining.any((m) => m.messageId == 'mid'), true);
       expect(remaining.any((m) => m.messageId == 'leaf'), true);
+    });
+  });
+
+  group('thread store', () {
+    test('ingested reply indexes entry and links root from buffer', () {
+      final root = _msg('r1', 'root');
+      final child = _taggedMsg('c1', 'child', rootId: 'r1');
+      final msgs = <String, List<TwitchMessage>>{
+        'test': [root, child],
+      };
+      final conn = _makeConn(channelMessages: msgs, maxMessages: 10);
+      conn.indexThreadMembers('test', [root, child]);
+
+      final thread = conn.threadFor('test', 'r1');
+      expect(thread, isNotNull);
+      expect(thread!.map((m) => m.messageId), ['r1', 'c1']);
+    });
+
+    test('orphan reply indexes without root and adopts a late root', () {
+      final child = _taggedMsg('c1', 'child', rootId: 'r1');
+      final msgs = <String, List<TwitchMessage>>{
+        'test': [child],
+      };
+      final conn = _makeConn(channelMessages: msgs, maxMessages: 10);
+      conn.indexThreadMembers('test', [child]);
+
+      var thread = conn.threadFor('test', 'r1')!;
+      expect(thread.map((m) => m.messageId), ['c1']);
+
+      // The root shows up later (late history batch, slow fetch) and must
+      // link into the waiting entry.
+      final root = _msg('r1', 'root');
+      conn.indexThreadMembers('test', [root]);
+      thread = conn.threadFor('test', 'r1')!;
+      expect(thread.map((m) => m.messageId), ['r1', 'c1']);
+    });
+
+    test('indexing is idempotent across live/history double delivery', () {
+      final root = _msg('r1', 'root');
+      final child = _taggedMsg('c1', 'child', rootId: 'r1');
+      final msgs = <String, List<TwitchMessage>>{
+        'test': [root, child],
+      };
+      final conn = _makeConn(channelMessages: msgs, maxMessages: 10);
+      conn.indexThreadMembers('test', [root, child]);
+      conn.indexThreadMembers('test', [root, child]);
+
+      final thread = conn.threadFor('test', 'r1')!;
+      expect(thread.map((m) => m.messageId), ['r1', 'c1']);
+    });
+
+    test('live ingestion indexes threads through the message pipeline', () {
+      final msgs = <String, List<TwitchMessage>>{'test': <TwitchMessage>[]};
+      final conn = _makeConn(channelMessages: msgs, maxMessages: 100);
+      conn.onMessage(_msg('r1', 'root'));
+      conn.onMessage(_taggedMsg('c1', 'child', rootId: 'r1'));
+
+      expect(conn.threadFor('test', 'r1')!.map((m) => m.messageId), [
+        'r1',
+        'c1',
+      ]);
+    });
+
+    test('decay drops evicted replies but keeps the pinned root openable', () {
+      final root = _msg('r1', 'root');
+      final c1 = _taggedMsg('c1', 'child 1', rootId: 'r1');
+      final c2 = _taggedMsg('c2', 'child 2', rootId: 'r1');
+      final msgs = <String, List<TwitchMessage>>{
+        'test': [root, c1, c2],
+      };
+      final conn = _makeConn(channelMessages: msgs, maxMessages: 10);
+      conn.indexThreadMembers('test', [root, c1, c2]);
+
+      // Everything (root included) gets evicted from the chat buffer.
+      conn.decayThreadMembers('test', [c1, c2, root]);
+
+      final thread = conn.threadFor('test', 'r1')!;
+      expect(
+        thread.map((m) => m.messageId),
+        ['r1'],
+        reason: 'replies decay out; pinned root keeps the thread viewable',
+      );
+    });
+
+    test('truncation keeps the store in sync with the trimmed buffer', () {
+      const limit = 5;
+      final root = _msg('r1', 'root');
+      final child = _taggedMsg('c1', 'child', rootId: 'r1');
+      // Newest-first: five fillers push both thread messages past the window.
+      final msgs = <String, List<TwitchMessage>>{
+        'test': [
+          for (var i = 4; i >= 0; i--) _msg('f$i', 'filler $i'),
+          child,
+          root,
+        ],
+      };
+      final conn = _makeConn(channelMessages: msgs, maxMessages: limit);
+      conn.indexThreadMembers('test', [root, child]);
+      conn.truncateChannelMessages('test');
+
+      final remaining = msgs['test']!;
+      expect(remaining.any((m) => m.messageId == 'c1'), false);
+      expect(remaining.any((m) => m.messageId == 'r1'), false);
+
+      // Buffer is empty of the thread, yet reopening still serves the root.
+      expect(conn.threadFor('test', 'r1')!.map((m) => m.messageId), ['r1']);
+    });
+
+    test('clearChannelThreads drops entries for the channel', () {
+      final root = _msg('r1', 'root');
+      final child = _taggedMsg('c1', 'child', rootId: 'r1');
+      final msgs = <String, List<TwitchMessage>>{
+        'test': [root, child],
+      };
+      final conn = _makeConn(channelMessages: msgs, maxMessages: 10);
+      conn.indexThreadMembers('test', [root, child]);
+      conn.clearChannelThreads('test');
+
+      expect(conn.threadFor('test', 'r1'), isNull);
+    });
+
+    test('per-channel entry count stays under the LRU cap', () {
+      final msgs = <String, List<TwitchMessage>>{'test': <TwitchMessage>[]};
+      final conn = _makeConn(channelMessages: msgs, maxMessages: 10);
+      for (var t = 0; t < 80; t++) {
+        conn.indexThreadMembers('test', [
+          _msg('r$t', 'root $t'),
+          _taggedMsg('c$t', 'child $t', rootId: 'r$t'),
+        ]);
+      }
+
+      // 80 threads were created; only the newest 64 remain touchable. The
+      // exact cap is an implementation detail - assert the bound holds.
+      var remainingThreads = 0;
+      for (var t = 0; t < 80; t++) {
+        if (conn.threadFor('test', 'r$t') != null) remainingThreads++;
+      }
+      expect(remainingThreads, lessThanOrEqualTo(64));
+      expect(conn.threadFor('test', 'r79'), isNotNull);
+      expect(conn.threadFor('test', 'r0'), isNull);
     });
   });
 

@@ -1591,6 +1591,69 @@ void main() {
       },
     );
 
+    testWidgets(
+      'open thread panel survives scrollback trimming without going empty',
+      (WidgetTester tester) async {
+        const channel = 'testchannel';
+        // Small window so flooding live chat pushes the thread out quickly.
+        SharedPreferences.setMockInitialValues({'max_messages_per_channel': 5});
+        final parent = TwitchMessage(
+          login: 'alice',
+          text: 'thread root',
+          messageId: 'p1',
+          timestamp: now.subtract(const Duration(minutes: 5)),
+          channel: channel,
+        );
+        final child = TwitchMessage(
+          login: 'bob',
+          text: 'child msg',
+          messageId: 'c1',
+          replyToParentId: 'p1',
+          replyThreadRootId: 'p1',
+          replyToUser: 'alice',
+          replyToText: 'parent msg',
+          timestamp: now.subtract(const Duration(minutes: 4)),
+          channel: channel,
+        );
+        final irc = _FakeIrcService();
+        await joinChannel(
+          tester,
+          channelName: channel,
+          history: [parent, child],
+          irc: irc,
+        );
+
+        await tester.pump();
+        await tester.pump();
+
+        await tester.tap(find.textContaining('replying to alice'));
+        await tester.pumpAndSettle();
+        expect(find.text('Reply Thread'), findsOneWidget);
+        expect(find.textContaining('thread root'), findsAtLeast(1));
+
+        // Flood the channel so truncation evicts every thread member from
+        // the main chat buffer while the panel is open.
+        for (var i = 0; i < 12; i++) {
+          irc.emitMessage(
+            TwitchMessage(
+              login: 'user$i',
+              text: 'flood $i',
+              messageId: 'fl$i',
+              timestamp: now.add(Duration(seconds: i)),
+              channel: channel,
+            ),
+          );
+          await tester.pump();
+        }
+        await tester.pumpAndSettle();
+
+        // The panel must not collapse to an empty state: the pinned root
+        // keeps the thread viewable even though the buffer forgot it.
+        expect(find.text('No messages found'), findsNothing);
+        expect(find.textContaining('thread root'), findsAtLeast(1));
+      },
+    );
+
     testWidgets('emote menu overlays the reply thread instead of closing it', (
       WidgetTester tester,
     ) async {
