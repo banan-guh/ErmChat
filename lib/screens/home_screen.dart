@@ -1259,7 +1259,7 @@ class _HomeScreenState extends State<HomeScreen>
     _emoteManager.cacheCap = cap;
   }
 
-  Future<void> _refreshEmotesAfterAuth() async {
+  Future<void> _refreshEmotesAfterAuth({bool force = false}) async {
     try {
       for (final channel in _channels) {
         final userId = await _twitchApi.getUserId(widget.twitchAuth, channel);
@@ -1268,7 +1268,7 @@ class _HomeScreenState extends State<HomeScreen>
         }
       }
       _emoteManager.evictGlobal();
-      _emoteManager.preloadGlobalEmotes();
+      _emoteManager.preloadGlobalEmotes(force: force);
       _badgeService.dispose();
       _badgeService.fetchGlobalBadges(widget.twitchAuth);
       for (final channel in _channels) {
@@ -1280,7 +1280,8 @@ class _HomeScreenState extends State<HomeScreen>
       }
       await Future.wait(
         _channels.map(
-          (c) => _emoteManager.resolveEmotes(c, _channelUserIds[c]),
+          (c) =>
+              _emoteManager.resolveEmotes(c, _channelUserIds[c], force: force),
         ),
       );
     } catch (e) {
@@ -1291,14 +1292,15 @@ class _HomeScreenState extends State<HomeScreen>
 
   // Manual "Reload emotes": clears the emote image cache on disk plus all
   // cached emote metadata, then re-fetches everything (list + images) for all
-  // channels.
+  // channels. Force bypasses the fresh-cache short-circuits so third-party
+  // catalogues (7TV/BTTV/FFZ) are pulled again, not just Twitch.
   Future<void> _reloadEmotes() async {
     try {
       await EmoteCacheManager().emptyCache();
     } catch (e) {
       logDebug('_reloadEmotes: cache clear failed: $e');
     }
-    await _refreshEmotesAfterAuth();
+    await _refreshEmotesAfterAuth(force: true);
     if (!mounted) return;
     ScaffoldMessenger.of(
       context,

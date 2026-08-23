@@ -15,7 +15,16 @@ Derived from the actual log (350+ commits). Match the recent norm, not the messy
 - Multiple unrelated-ish changes in one commit: comma-separate them instead of writing "and various fixes".
   - `fix event highlighting, update todo`
   - `feat: add media upload, reload, reorganize settings`
-- NEVER write a subject so long it gets cut off mid-word in log views (`git log --oneline`, PR lists, terminal width, whatever). A title that renders like `this message cu` / `ts off` is a bad commit message, do not do this. The comma-list convention above is for SHORT lists only: the moment the subject pushes past ~60 chars or would truncate anywhere, stop cramming detail into it and drop the rest into body bullets instead. Short title + body beats one long title every time.
+- Length: under 50 characters if possible, hard cap below 65. Short forms win (`notifs`, `prefs`, `ui`, `3rd party`). No filler (`various`, `some`, `support for`, `cleanup of`).
+- Top-down language: say what the change is FOR (the outcome), not what you mechanically did. No line numbers, no raw identifiers, no file-by-file narration in the title.
+- NEVER write a subject so long it gets cut off mid-word in log views (`git log --oneline`, PR lists, terminal width, whatever). A title that renders like `this message cu` / `ts off` is a bad commit message, do not do this. The comma-list convention above is for SHORT lists only; past the length cap, drop detail into body bullets instead.
+
+### Good vs bad
+
+- `feat: ping rules` NOT `feat: ping rule engine - regex keywords, user/badge highlights, blacklist, per-rule notifications`
+- `refactor: emote picker into sheet` NOT `refactor: providers move to bottom sheet, twitch always on - picker tile sits at the bottom of the emotes settings page - checkboxes in a modal...`
+- `fix: token refresh races oauth callback` NOT `fix: serialize storage queue via async semaphore in twitch_auth.dart`
+- `fix: recents filled bad aliases` NOT `fix: correct stale alias resolution order in EmoteManager.recentCodes rebuild path`
 
 ## Parenthetical asides
 
@@ -30,6 +39,7 @@ Pointers to docs are fair game: `(look at PLAN.md)`, `check PLAN.md`.
 
 ## Body (optional, use for anything non-obvious)
 
+- Default is NO body. Only add one for a genuinely big/risky commit whose why isn't guessable from the title+diff, then 2-4 terse bullets max. If the title says enough, stop typing. KISS.
 - `-` bullets, one terse line each, for itemized changes:
   ```
   fix: optimize load times
@@ -63,10 +73,12 @@ If the why isn't guessable from the diff, put it in the body. Otherwise skip the
 - Reverts: plain `git revert` output (`Revert "<original subject>"` + `This reverts commit <sha>.`). Don't hand-roll revert messages.
 - Merges: default git format, optionally append a summary after the branch name:
   `Merge refactor/webp-emote-renderer: native webp renderer, disk-cache prioritizer, autocomplete stale-frame fix`
-- try to not exceed 50-60 characters on commit, HARD limit is 100 but do not unless absolutely necessary. just put big stuff in the body, and use compacted language where possible (no rambling in commits!)
+- try to stay under 50 characters on a subject, hard cap below 65 (see Subject line). Just put big stuff in the body, and use compacted language where possible (no rambling in commits!)
 
 ## Voice
 
 Honest and human beats formal. Casual asides are fine (`sorry for the spam, this is for F-droid stuff`). WIP state should be declared, not hidden: `IN PROGRESS`, `INCOMPLETE`, `(untested)`, `BUGGY ASS COMMIT, DO NOT TOUCH`.
+
+Write for someone skimming `git log`: intent first, mechanics second (or never). Play-by-play diffspeak ("changed X at line N of random_file") is noise; if the why needs a line number to explain, the commit is too big anyway.
 
 Never: emoji, em-dashes, AI attribution footers, scopes, issue numbers.

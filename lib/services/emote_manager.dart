@@ -204,6 +204,8 @@ class EmoteManager extends ChangeNotifier {
     EmoteResolution resolution,
   )
   _sevenTvChannelFetcher;
+  final Future<List<GenericEmote>> Function(EmoteResolution resolution)
+  _sevenTvGlobalFetcher;
   final EmoteCacheManager? _injectedCacheManager;
   EmoteCacheManager? _cacheManagerInstance;
   final Map<String, EmoteUsageRecord> _emoteUsage = {};
@@ -246,6 +248,8 @@ class EmoteManager extends ChangeNotifier {
       EmoteResolution resolution,
     )?
     sevenTvChannelFetcher,
+    Future<List<GenericEmote>> Function(EmoteResolution resolution)?
+    sevenTvGlobalFetcher,
     EmoteCacheManager? cacheManager,
   }) : _connectivityProbe = probe,
        _injectedCacheManager = cacheManager,
@@ -256,6 +260,10 @@ class EmoteManager extends ChangeNotifier {
                  channelId,
                  resolution: resolution,
                )),
+       _sevenTvGlobalFetcher =
+           sevenTvGlobalFetcher ??
+           ((EmoteResolution resolution) =>
+               SevenTvEmoteProvider.fetchGlobal(resolution: resolution)),
        _now = now ?? DateTime.now {
     _removeCachedFile =
         removeCachedFile ?? ((String url) => _cacheManager.removeFile(url));
@@ -721,30 +729,35 @@ class EmoteManager extends ChangeNotifier {
     return result;
   }
 
-  Future<void> preloadGlobalEmotes() async {
+  /// Resolves the global emote cache. [force] skips the persisted-cache
+  /// short-circuits so every enabled provider is fetched from the network
+  /// ("Reload emotes"); the default keeps the TTL-driven startup behavior.
+  Future<void> preloadGlobalEmotes({bool force = false}) async {
     await _ensureProvidersLoaded();
-    if (_globalCache != null) return;
+    if (_globalCache != null && !force) return;
     final ttl = await _effectiveTtl();
-    final loaded = await _loadFromPrefs('emotes3_global', ttl);
-    final cached = loaded.cached;
-    if (cached != null) {
-      _globalCache = cached;
-      _notify();
-      if (loaded.fresh) {
-        // Twitch global emotes aren't persisted on medium/high (see
-        // _saveToPrefs), so they refresh in the background on every launch —
-        // mirrors the channel behavior. On low/nothing they're already
-        // persisted and the cache is effectively infinite, so skip the
-        // network entirely. Non-blocking.
-        if (!_skipTwitchBackgroundRefresh) {
-          unawaited(_enqueueFetch(_refreshTwitchGlobalEmotes));
+    if (!force) {
+      final loaded = await _loadFromPrefs('emotes3_global', ttl);
+      final cached = loaded.cached;
+      if (cached != null) {
+        _globalCache = cached;
+        _notify();
+        if (loaded.fresh) {
+          // Twitch global emotes aren't persisted on medium/high (see
+          // _saveToPrefs), so they refresh in the background on every launch —
+          // mirrors the channel behavior. On low/nothing they're already
+          // persisted and the cache is effectively infinite, so skip the
+          // network entirely. Non-blocking.
+          if (!_skipTwitchBackgroundRefresh) {
+            unawaited(_enqueueFetch(_refreshTwitchGlobalEmotes));
+          }
+          return;
         }
-        return;
       }
+      // Stale or missing: keep showing stale data while revalidating below.
     }
-    // The nothing tier never fetches: render only what's already cached.
+    // Forced reload, stale, or missing: fetch every enabled provider.
     if (_tier == EmoteFetchTier.nothing) return;
-    // Stale or missing: keep showing stale data while revalidating.
     final emotes = await _enqueueFetch(_fetchAllGlobal);
     _globalCache = _buildChannelMap(emotes);
     await _saveToPrefs('emotes3_global', _globalCache!, ttl);
@@ -790,9 +803,26 @@ class EmoteManager extends ChangeNotifier {
     _notify();
   }
 
-  Future<void> resolveEmotes(String channel, String? broadcasterId) async {
+  /// Resolves the channel's emote cache. [force] skips the persisted-cache
+  /// branch so every enabled provider is fetched from the network
+  /// ("Reload emotes"); the default keeps the TTL-driven startup behavior.
+  Future<void> resolveEmotes(
+    String channel,
+    String? broadcasterId, {
+    bool force = false,
+  }) async {
     await _ensureProvidersLoaded();
     final ttl = await _effectiveTtl();
+    if (force) {
+      // The nothing tier never fetches: render only what's already cached.
+      if (_tier == EmoteFetchTier.nothing) return;
+      final emotes = await _enqueueFetch(
+        () => _fetchAllChannel(broadcasterId, channelName: channel),
+      );
+      _applyChannelEmotes(channel, emotes);
+      await _saveToPrefs('emotes3_$channel', _channelCaches[channel]!, ttl);
+      return;
+    }
     final loaded = await _loadFromPrefs(
       'emotes3_$channel',
       ttl,
@@ -1392,9 +1422,7 @@ class EmoteManager extends ChangeNotifier {
       },
       '7TV': () async {
         if (!_isProviderOn(EmoteType.sevenTv)) return [];
-        final emotes = await SevenTvEmoteProvider.fetchGlobal(
-          resolution: _tier.resolution!,
-        );
+        final emotes = await _sevenTvGlobalFetcher(_tier.resolution!);
         _globalProviderEmotes['7TV'] = emotes;
         return emotes;
       },
@@ -1459,9 +1487,9 @@ class EmoteManager extends ChangeNotifier {
       },
       '7TV': () async {
         if (!_isProviderOn(EmoteType.sevenTv)) return [];
-        final resp = await SevenTvEmoteProvider.fetchChannelResponse(
+        final resp = await _sevenTvChannelFetcher(
           broadcasterId,
-          resolution: _tier.resolution!,
+          _tier.resolution!,
         );
         if (channelName != null) {
           if (resp.emoteSetId != null) {

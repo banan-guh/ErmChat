@@ -1746,6 +1746,94 @@ void main() {
     });
   });
 
+  group('manual reload force fetch', () {
+    GenericEmote sevenTv(String id, String code) => GenericEmote(
+      id: id,
+      code: code,
+      type: EmoteType.sevenTv,
+      url: 'https://example.com/$id.png',
+      scope: EmoteScope.channel,
+    );
+
+    Map<String, Object> cache(List<GenericEmote> emotes) => {
+      'emotes3_ch': jsonEncode({
+        'ts': DateTime.now().toIso8601String(),
+        'tier': EmoteFetchTier.medium.index,
+        'emotes': emotes.map((e) => e.toJson()).toList(),
+      }),
+    };
+
+    test('resolveEmotes force bypasses a fresh cache and refetches', () async {
+      SharedPreferences.setMockInitialValues(cache([sevenTv('a', 'Alpha')]));
+      var fetches = 0;
+      final manager = EmoteManager(
+        fetchStagger: Duration.zero,
+        tier: EmoteFetchTier.medium,
+        removeCachedFile: (url) async {},
+        sevenTvChannelFetcher: (id, resolution) async {
+          fetches++;
+          return SevenTvChannelResponse(
+            emotes: [
+              sevenTv('b', fetches == 1 ? 'Bravo' : 'Charlie'),
+            ],
+          );
+        },
+      );
+
+      await manager.resolveEmotes('ch', 'b1');
+      await pumpEventQueue();
+      expect(fetches, 1);
+      // The startup reconcile diffed the catalogue against the cache.
+      expect(manager.byCode('ch')!.suggestions.map((e) => e.code), ['Bravo']);
+
+      manager.evictChannel('ch');
+      await manager.resolveEmotes('ch', 'b1', force: true);
+      await pumpEventQueue();
+      expect(fetches, 2, reason: 'force must refetch the fresh channel');
+      expect(manager.byCode('ch')!.suggestions.map((e) => e.code), ['Charlie']);
+    });
+
+    test('preloadGlobalEmotes force refetches the 7tv catalogue', () async {
+      SharedPreferences.setMockInitialValues({
+        'emotes3_global': jsonEncode({
+          'ts': DateTime.now().toIso8601String(),
+          'tier': EmoteFetchTier.medium.index,
+          'emotes': [
+            makeTestEmote(
+              id: 'g1',
+              code: 'Stale7tv',
+              type: EmoteType.sevenTv,
+            ).toJson(),
+          ],
+        }),
+      });
+      var fetches = 0;
+      final manager = EmoteManager(
+        fetchStagger: Duration.zero,
+        tier: EmoteFetchTier.medium,
+        removeCachedFile: (url) async {},
+        sevenTvGlobalFetcher: (resolution) async {
+          fetches++;
+          return [
+            makeTestEmote(id: 'g2', code: 'Fresh7tv', type: EmoteType.sevenTv),
+          ];
+        },
+      );
+
+      // Startup path on a fresh persisted cache never pulls the catalogue.
+      await manager.preloadGlobalEmotes();
+      expect(fetches, 0);
+
+      // Reload path: force pulls it again.
+      manager.evictGlobal();
+      await manager.preloadGlobalEmotes(force: true);
+      expect(fetches, 1, reason: 'force must refetch the 7tv catalogue');
+      expect(manager.globalEmotesByProvider()['SevenTV']!.map((e) => e.code), [
+        'Fresh7tv',
+      ]);
+    });
+  });
+
   group('EmoteManager refresh policy', () {
     test('probe failure falls back to the 12h wifi TTL', () async {
       final manager = EmoteManager(
