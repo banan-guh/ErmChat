@@ -8,7 +8,7 @@
 - [x] **Token expiry handling** - expired tokens fail silently right now. Validate on startup, catch the login-failed NOTICE, prompt re-auth. Drop unused scopes while at it (%20 -> + too).
 - [+] **Third-party badges** - BTTV donor, FFZ mod/VIP/user, 7TV badges. Fetch + render next to twitch badges.
 - [+] **Emote visibility toggles** - per-provider switches in emotes settings; gates fetching + all rendering (chat, autocomplete, sheet).
-- [ ] **Phrase muting + regex pings** - hide/block messages matching keywords or regex, word boundary + case options. Lives in tools settings.
+- [x] **Phrase muting + regex pings** - hide/block messages matching keywords or regex, word boundary + case options. Lives in tools settings.
 - [-] **Bits / cheermote parsing** - parse cheermote tokens (e.g. `Cheer100`) from the body, fetch cheermote metadata via Helix (`/helix/bits/cheermotes`), render tiered animated cheermotes + bit count. Cheer messages already highlight via the `bits` tag (purple banner, live + history).
 
 ## Medium Priority
@@ -20,7 +20,7 @@
 - [x] **Command macros** - local custom commands, {1} {2} {n+} placeholder expansion before send, stored per account.
 - [x] **Join robustness** - unlisted 7TV emote filter; surface suspended / nonexistent channel join failures.
 - [x] **7TV name paints** - animated personal name colors, repaint rows when a paint arrives late.
-- [ ] **un-overlap notifs** - keepalive / push notifs are same panel, split them
+- [x] **un-overlap notifs** - keepalive / push notifs are same panel, split them
 
 ## Bugs
 
@@ -53,7 +53,7 @@
 - [ ] **Dual-pane view** - read two channels side by side.
 - [ ] **Home screen widget / Live Activity** - track last watched channel.
 - [ ] **Different mode** - Toggleable type box visibility and fullscreen.
-- [ ] **Announcement highlight for remaining USERNOTICE types** - `standardpayforward`, `communitypayforward`, `charitydonation`, `modiversary`, etc. render as plain system text with no accent. (`bitsbadgetier` now highlights with the subs.) Deferred until the sub/watch-streak highlight work is pushed.
+- [+] **Announcement highlight for remaining USERNOTICE types** - `standardpayforward`, `communitypayforward`, `charitydonation`, `modiversary`, etc. render as plain system text with no accent. (`bitsbadgetier` now highlights with the subs.) Deferred until the sub/watch-streak highlight work is pushed.
 - [+] **Injectable TwitchBadgeService** - injected like EventSubService/IrcService (TwitchChatApp/HomeScreen params).
 - [ ] **AVIF support** - Decode AVIF emotes via libavif + dav1d through the existing FFI shim (`emote_decode_avif`; the shim API is already format-agnostic, see PLAN.md). 7tv uses AVIF so if we can get this to work we can save lots.
 - [-] **Token refresh instead of re-auth every 60 days** - Access tokens expire roughly every 60 days; implement a refresh path instead of forcing full re-auth. Note: implicit-grant tokens (`response_type=token`) can't be refreshed - requires an auth flow change (e.g. device code grant). - too much of a security risk, discard.

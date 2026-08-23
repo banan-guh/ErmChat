@@ -79,6 +79,8 @@ class _IgnoresScreenState extends State<IgnoresScreen> {
               [
                 if (entry.isRegex) 'regex',
                 if (entry.caseSensitive) 'case sensitive',
+                if (entry.wordBoundary) 'whole word',
+                if (entry.block) 'blocks message',
                 if (keywords && (entry.replacement ?? '').isNotEmpty)
                   'replaced with "${entry.replacement}"',
               ].join(', '),
@@ -120,11 +122,8 @@ class _IgnoresScreenState extends State<IgnoresScreen> {
   }) async {
     final result = await showDialog<_IgnoreEditResult>(
       context: context,
-      builder: (ctx) => _IgnoreEditDialog(
-        entry: entry,
-        keyword: keyword,
-        isNew: isNew,
-      ),
+      builder: (ctx) =>
+          _IgnoreEditDialog(entry: entry, keyword: keyword, isNew: isNew),
     );
     if (result == null) return;
 
@@ -133,6 +132,8 @@ class _IgnoresScreenState extends State<IgnoresScreen> {
       pattern: result.pattern,
       isRegex: result.isRegex,
       caseSensitive: result.caseSensitive,
+      wordBoundary: result.wordBoundary,
+      block: result.block,
       replacement: result.replacement,
     );
     if (keyword) {
@@ -149,12 +150,16 @@ class _IgnoreEditResult {
     required this.pattern,
     required this.isRegex,
     required this.caseSensitive,
+    required this.wordBoundary,
+    required this.block,
     this.replacement,
   });
 
   final String pattern;
   final bool isRegex;
   final bool caseSensitive;
+  final bool wordBoundary;
+  final bool block;
   final String? replacement;
 }
 
@@ -183,6 +188,8 @@ class _IgnoreEditDialogState extends State<_IgnoreEditDialog> {
   );
   late bool _isRegex = widget.entry.isRegex;
   late bool _caseSensitive = widget.entry.caseSensitive;
+  late bool _wholeWord = widget.entry.wordBoundary;
+  late bool _block = widget.entry.block;
 
   @override
   void dispose() {
@@ -202,8 +209,9 @@ class _IgnoreEditDialogState extends State<_IgnoreEditDialog> {
             controller: _patternCtrl,
             autofocus: widget.isNew,
             decoration: InputDecoration(
-              labelText:
-                  widget.keyword ? 'Keyword or regex' : 'Username or regex',
+              labelText: widget.keyword
+                  ? 'Keyword or regex'
+                  : 'Username or regex',
             ),
           ),
           SwitchListTile(
@@ -221,6 +229,25 @@ class _IgnoreEditDialogState extends State<_IgnoreEditDialog> {
             onChanged: (v) => setState(() => _caseSensitive = v),
           ),
           if (widget.keyword)
+            SwitchListTile(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Whole word'),
+              value: _wholeWord,
+              onChanged: (v) => setState(() => _wholeWord = v),
+            ),
+          if (widget.keyword)
+            SwitchListTile(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Block message'),
+              subtitle: const Text(
+                'Hide the whole message, not just the match',
+              ),
+              value: _block,
+              onChanged: (v) => setState(() => _block = v),
+            ),
+          if (widget.keyword && !_block)
             TextField(
               controller: _replacementCtrl,
               decoration: const InputDecoration(
@@ -245,7 +272,10 @@ class _IgnoreEditDialogState extends State<_IgnoreEditDialog> {
                 pattern: pattern,
                 isRegex: _isRegex,
                 caseSensitive: _caseSensitive,
-                replacement: widget.keyword
+                wordBoundary: widget.keyword && _wholeWord,
+                block: widget.keyword && _block,
+                // Block mode drops the message outright; no replacement.
+                replacement: widget.keyword && !_block
                     ? _replacementCtrl.text.trim()
                     : null,
               ),

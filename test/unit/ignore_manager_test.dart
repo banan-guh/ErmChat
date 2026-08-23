@@ -97,6 +97,40 @@ void main() {
     });
   });
 
+  group('block mode + whole word', () {
+    test('block entries drop instead of rewrite', () async {
+      final m = await makeManager();
+      m.upsertKeyword(
+        const IgnoreEntry(id: 'b1', pattern: 'spoilers', block: true),
+      );
+      m.upsertKeyword(const IgnoreEntry(id: 'b2', pattern: 'mild'));
+      expect(m.isBlockedPhrase('major spoilers ahead'), isTrue);
+      expect(m.isBlockedPhrase('a mild take'), isFalse);
+      // Blocked rules never rewrite; non-blocked ones still do.
+      final r = m.applyKeywordReplacements('mild spoilers');
+      expect(r.text, '*** spoilers');
+    });
+
+    test(
+      'whole word anchors literals without breaking punctuation edges',
+      () async {
+        final m = await makeManager();
+        m.upsertKeyword(
+          const IgnoreEntry(id: 'w1', pattern: 'cat', wordBoundary: true),
+        );
+        expect(m.applyKeywordReplacements('a cat!').text, 'a ***!');
+        expect(m.applyKeywordReplacements('category cat').text, 'category ***');
+      // Punctuation-edged pattern still anchors via lookaround.
+      m.upsertKeyword(
+        const IgnoreEntry(id: 'w2', pattern: ':)', wordBoundary: true),
+      );
+      expect(m.applyKeywordReplacements('hi :)').text, 'hi ***');
+      // ':' before the smiley is not a word char, so the second one matches.
+      expect(m.applyKeywordReplacements('::)').text, ':***');
+      },
+    );
+  });
+
   group('rewriteMessageKeywords emote realignment', () {
     EmotePosition pos(int s, int e) => EmotePosition(
       emoteId: 'E1',

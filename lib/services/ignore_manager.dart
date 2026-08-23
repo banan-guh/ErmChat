@@ -7,12 +7,18 @@ import '../models/twitch_message.dart';
 
 /// One local ignore entry. With [replacement] null it deletes every message
 /// from a matching login outright (user ignores); with a replacement it
-/// rewrites matched keyword occurrences in message text instead.
+/// rewrites matched keyword occurrences in message text instead. A keyword
+/// entry with [block] drops the whole message rather than rewriting it.
 class IgnoreEntry {
   final String id;
   final String pattern;
   final bool isRegex;
   final bool caseSensitive;
+
+  /// Literal patterns must match on word boundaries. Regexes ignore this
+  /// flag (hand-written lookarounds cover that case).
+  final bool wordBoundary;
+  final bool block;
   final String? replacement;
 
   const IgnoreEntry({
@@ -20,6 +26,8 @@ class IgnoreEntry {
     required this.pattern,
     this.isRegex = false,
     this.caseSensitive = false,
+    this.wordBoundary = false,
+    this.block = false,
     this.replacement,
   });
 
@@ -28,6 +36,8 @@ class IgnoreEntry {
     'pattern': pattern,
     'isRegex': isRegex,
     'caseSensitive': caseSensitive,
+    'wordBoundary': wordBoundary,
+    'block': block,
     if (replacement != null) 'replacement': replacement,
   };
 
@@ -36,6 +46,8 @@ class IgnoreEntry {
     pattern: json['pattern'] as String? ?? '',
     isRegex: json['isRegex'] == true,
     caseSensitive: json['caseSensitive'] == true,
+    wordBoundary: json['wordBoundary'] == true,
+    block: json['block'] == true,
     replacement: json['replacement'] as String?,
   );
 }
@@ -146,9 +158,19 @@ class IgnoreManager extends ChangeNotifier {
   }
 
   RegExp? _regexFor(IgnoreEntry entry) {
-    final key = '${entry.id}\u0000${entry.pattern}\u0000${entry.caseSensitive}';
+    final key =
+        '${entry.id}\u0000${entry.pattern}\u0000${entry.caseSensitive}'
+        '\u0000${entry.wordBoundary}';
     return _regexCache.putIfAbsent(key, () {
       try {
+        // Whole-word literals anchor via lookaround (not \b) so patterns
+        // starting or ending with non-word characters still bind correctly.
+        if (!entry.isRegex && entry.wordBoundary) {
+          return RegExp(
+            '(?<!\\w)${RegExp.escape(entry.pattern)}(?!\\w)',
+            caseSensitive: entry.caseSensitive,
+          );
+        }
         return RegExp(entry.pattern, caseSensitive: entry.caseSensitive);
       } on FormatException {
         return null;
@@ -158,7 +180,7 @@ class IgnoreManager extends ChangeNotifier {
 
   bool matchesPattern(IgnoreEntry entry, String value) {
     if (entry.pattern.isEmpty) return false;
-    if (entry.isRegex) {
+    if (entry.isRegex || entry.wordBoundary) {
       final re = _regexFor(entry);
       if (re != null) return re.hasMatch(value);
       // Invalid regex falls back to a literal comparison.
@@ -171,14 +193,19 @@ class IgnoreManager extends ChangeNotifier {
   bool isIgnored(String login) =>
       _users.any((e) => e.pattern.isNotEmpty && matchesPattern(e, login));
 
+  /// True when any block-mode keyword rule matches [text]: the whole message
+  /// is dropped at ingestion instead of rewritten.
+  bool isBlockedPhrase(String text) =>
+      _keywords.any((e) => e.block && matchesPattern(e, text));
+
   /// Finds every non-overlapping keyword occurrence in [text]. Earliest
   /// start wins; at equal starts the longest match replaces.
   RewriteResult applyKeywordReplacements(String text) {
     if (!_loaded || text.isEmpty) return RewriteResult(text, const []);
     final candidates = <(int, int, String)>[];
     for (final rule in _keywords) {
-      if (rule.pattern.isEmpty) continue;
-      if (rule.isRegex) {
+      if (rule.pattern.isEmpty || rule.block) continue;
+      if (rule.isRegex || rule.wordBoundary) {
         final re = _regexFor(rule);
         if (re != null) {
           for (final m in re.allMatches(text)) {

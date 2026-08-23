@@ -273,7 +273,7 @@ class PingManager extends ChangeNotifier {
   /// to literal substring matching so a typo'd pattern never silently dies.
   bool matchesText(PingRule rule, String text) {
     if (rule.pattern.isEmpty) return false;
-    if (rule.isRegex) {
+    if (rule.isRegex || rule.wordBoundary) {
       final re = _regexFor(rule);
       if (re != null) return re.hasMatch(text);
     }
@@ -283,9 +283,19 @@ class PingManager extends ChangeNotifier {
   }
 
   RegExp? _regexFor(PingRule rule) {
-    final key = '${rule.id}\u0000${rule.pattern}\u0000${rule.caseSensitive}';
+    final key =
+        '${rule.id}\u0000${rule.pattern}\u0000${rule.caseSensitive}'
+        '\u0000${rule.wordBoundary}';
     return _regexCache.putIfAbsent(key, () {
       try {
+        // Whole-word literals anchor via lookaround (not \b) so patterns
+        // starting or ending with non-word characters still bind correctly.
+        if (!rule.isRegex && rule.wordBoundary) {
+          return RegExp(
+            '(?<!\\w)${RegExp.escape(rule.pattern)}(?!\\w)',
+            caseSensitive: rule.caseSensitive,
+          );
+        }
         return RegExp(rule.pattern, caseSensitive: rule.caseSensitive);
       } on FormatException {
         return null;

@@ -218,6 +218,20 @@ void main() {
       );
       expect(m.evaluate(msg('ping')), isNull);
     });
+
+    test('whole word flag anchors literal patterns', () async {
+      final m = await managerWith(
+        const PingRule(
+          id: 'c6',
+          kind: PingRuleKind.message,
+          type: 'custom',
+          pattern: 'cat',
+          wordBoundary: true,
+        ),
+      );
+      expect(m.evaluate(msg('petting the cat')), isNotNull);
+      expect(m.evaluate(msg('concatenate category')), isNull);
+    });
   });
 
   group('user / badge / event rules', () {

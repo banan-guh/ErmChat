@@ -20,6 +20,10 @@ class PingRule {
   final String pattern;
   final bool isRegex;
   final bool caseSensitive;
+
+  /// Literal patterns must match on word boundaries. Regexes ignore this
+  /// flag (hand-written lookarounds cover that case).
+  final bool wordBoundary;
   final bool enabled;
   final bool notify;
   final int? colorArgb;
@@ -31,6 +35,7 @@ class PingRule {
     this.pattern = '',
     this.isRegex = false,
     this.caseSensitive = false,
+    this.wordBoundary = false,
     this.enabled = true,
     this.notify = false,
     this.colorArgb,
@@ -40,6 +45,7 @@ class PingRule {
     String? pattern,
     bool? isRegex,
     bool? caseSensitive,
+    bool? wordBoundary,
     bool? enabled,
     bool? notify,
     int? colorArgb,
@@ -52,6 +58,7 @@ class PingRule {
       pattern: pattern ?? this.pattern,
       isRegex: isRegex ?? this.isRegex,
       caseSensitive: caseSensitive ?? this.caseSensitive,
+      wordBoundary: wordBoundary ?? this.wordBoundary,
       enabled: enabled ?? this.enabled,
       notify: notify ?? this.notify,
       colorArgb: clearColor ? null : (colorArgb ?? this.colorArgb),
@@ -65,6 +72,7 @@ class PingRule {
     'pattern': pattern,
     'isRegex': isRegex,
     'caseSensitive': caseSensitive,
+    'wordBoundary': wordBoundary,
     'enabled': enabled,
     'notify': notify,
     if (colorArgb != null) 'color': colorArgb,
@@ -83,6 +91,7 @@ class PingRule {
       pattern: json['pattern'] as String? ?? '',
       isRegex: json['isRegex'] == true,
       caseSensitive: json['caseSensitive'] == true,
+      wordBoundary: json['wordBoundary'] == true,
       enabled: json['enabled'] != false,
       notify: json['notify'] == true,
       colorArgb: json['color'] is int ? json['color'] as int : null,

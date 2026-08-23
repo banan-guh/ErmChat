@@ -137,6 +137,7 @@ class _PingsScreenState extends State<PingsScreen> {
       ?subtitle,
       if (rule.isRegex) 'regex',
       if (rule.caseSensitive) 'case sensitive',
+      if (rule.wordBoundary) 'whole word',
       if (rule.notify) 'notifies',
     ];
     final isPreset =
@@ -218,6 +219,7 @@ class _PingsScreenState extends State<PingsScreen> {
       pattern: editablePattern ? result.pattern : null,
       isRegex: canRegex ? result.isRegex : null,
       caseSensitive: editablePattern ? result.caseSensitive : null,
+      wordBoundary: editablePattern ? result.wordBoundary : null,
       notify: canNotify ? result.notify : null,
       colorArgb: result.colorArgb,
       clearColor: result.colorArgb == null,
@@ -231,6 +233,7 @@ class _PingsScreenState extends State<PingsScreen> {
           pattern: updated.pattern,
           isRegex: updated.isRegex,
           caseSensitive: updated.caseSensitive,
+          wordBoundary: updated.wordBoundary,
           enabled: true,
           notify: updated.notify,
           colorArgb: updated.colorArgb,
@@ -264,6 +267,7 @@ class _PingRuleSheetResult {
     required this.pattern,
     required this.isRegex,
     required this.caseSensitive,
+    required this.wordBoundary,
     required this.notify,
     required this.colorArgb,
   });
@@ -271,6 +275,7 @@ class _PingRuleSheetResult {
   final String pattern;
   final bool isRegex;
   final bool caseSensitive;
+  final bool wordBoundary;
   final bool notify;
   final int? colorArgb;
 }
@@ -318,6 +323,8 @@ class _PingRuleSheetState extends State<_PingRuleSheet> {
   late final _patternCtrl = TextEditingController(text: widget.rule.pattern);
   late bool _isRegex = widget.rule.isRegex;
   late bool _caseSensitive = widget.rule.caseSensitive;
+  // Only custom keyword rules match free text, so whole word applies there.
+  late bool _wholeWord = widget.rule.wordBoundary;
   late bool _notify = widget.rule.notify;
   late int? _color = widget.rule.colorArgb;
 
@@ -372,6 +379,14 @@ class _PingRuleSheetState extends State<_PingRuleSheet> {
               value: _caseSensitive,
               onChanged: (v) => setState(() => _caseSensitive = v),
             ),
+            if (widget.canRegex && widget.editablePattern)
+              SwitchListTile(
+                dense: true,
+                title: const Text('Whole word'),
+                subtitle: const Text('Plain text patterns only'),
+                value: _wholeWord,
+                onChanged: (v) => setState(() => _wholeWord = v),
+              ),
           ] else ...[
             const SizedBox(height: 8),
             Text(builtinLabels[widget.rule.type] ?? widget.rule.type),
@@ -409,15 +424,16 @@ class _PingRuleSheetState extends State<_PingRuleSheet> {
                         ),
                       ),
                     ),
-                    child: c == null
-                        ? const Icon(Icons.block, size: 16)
-                        : null,
+                    child: c == null ? const Icon(Icons.block, size: 16) : null,
                   ),
                 ),
             ],
           ),
           const SizedBox(height: 16),
-          FilledButton(onPressed: _save, child: Text(widget.isNew ? 'Add' : 'Save')),
+          FilledButton(
+            onPressed: _save,
+            child: Text(widget.isNew ? 'Add' : 'Save'),
+          ),
         ],
       ),
     );
@@ -435,6 +451,7 @@ class _PingRuleSheetState extends State<_PingRuleSheet> {
         pattern: pattern,
         isRegex: _isRegex,
         caseSensitive: _caseSensitive,
+        wordBoundary: _wholeWord,
         notify: _notify,
         colorArgb: _color,
       ),

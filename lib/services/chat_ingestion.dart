@@ -144,11 +144,13 @@ class ChatIngestion {
     if (channel == null) return;
 
     // Local ignores: ignored users' messages are dropped outright; keyword
-    // replacements rewrite the text (with emote position realignment) before
-    // ping evaluation so rewritten messages can still highlight.
+    // rules in block mode drop the whole message, other keyword rules
+    // rewrite the text (with emote position realignment) before ping
+    // evaluation so rewritten messages can still highlight.
     final ignores = ignoreManager;
     if (!msg.isSystem && ignores != null) {
       if (ignores.isIgnored(msg.login)) return;
+      if (ignores.isBlockedPhrase(msg.text)) return;
       rewriteMessageKeywords(msg, ignores);
     }
 
