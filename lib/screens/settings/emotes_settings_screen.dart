@@ -43,6 +43,7 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
   int _draftCacheMax = defaultEmoteCacheMax;
   EmoteCacheStats? _stats;
   final _providerEnabled = <EmoteType, bool>{};
+  bool _allowUnlisted = false;
 
   static const _providerLabels = {
     EmoteType.twitch: 'Twitch',
@@ -68,12 +69,18 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
       for (final type in EmoteType.values) {
         _providerEnabled[type] = enabled.contains(type);
       }
+      _allowUnlisted = manager.allowUnlisted7tv;
     });
   }
 
   Future<void> _onProviderChanged(EmoteType type, bool enabled) async {
     setState(() => _providerEnabled[type] = enabled);
     await widget.emoteManager?.setProviderEnabled(type, enabled);
+  }
+
+  Future<void> _onAllowUnlistedChanged(bool allowed) async {
+    setState(() => _allowUnlisted = allowed);
+    await widget.emoteManager?.setAllowUnlisted7tv(allowed);
   }
 
   Future<void> _loadStats() async {
@@ -296,6 +303,16 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
             subtitle: Text(_providersSummary()),
             trailing: const Icon(Icons.chevron_right),
             onTap: _showProviderSheet,
+          ),
+          SwitchListTile(
+            key: const Key('allow_unlisted_tile'),
+            secondary: const Icon(Icons.visibility_off_outlined),
+            title: const Text('Allow unlisted emotes'),
+            subtitle: const Text(
+              'Shows 7TV emotes their owners marked unlisted.',
+            ),
+            value: _allowUnlisted,
+            onChanged: _onAllowUnlistedChanged,
           ),
         ],
         SizedBox(height: 16),

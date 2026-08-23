@@ -2749,6 +2749,37 @@ void main() {
       expect(prefs.getStringList('emote_providers_disabled'), ['bttv']);
     });
 
+    testWidgets('allow-unlisted switch flips the manager and persists', (
+      WidgetTester tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({});
+      final manager = EmoteManager(
+        fetchStagger: Duration.zero,
+        tier: EmoteFetchTier.nothing,
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(home: EmotesSettingsScreen(emoteManager: manager)),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('allow_unlisted_tile')),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.pumpAndSettle();
+
+      expect(manager.allowUnlisted7tv, isFalse);
+      await tester.tap(find.byKey(const Key('allow_unlisted_tile')));
+      await tester.pump();
+
+      expect(manager.allowUnlisted7tv, isTrue);
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getBool('emote_7tv_allow_unlisted'), isTrue);
+    });
+
     testWidgets('auto-mode switch persists emote_fetch_auto, fires callback, '
         'and disables the tier slider', (WidgetTester tester) async {
       SharedPreferences.setMockInitialValues({});

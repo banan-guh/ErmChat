@@ -481,6 +481,12 @@ class EmoteManager extends ChangeNotifier {
   final Set<EmoteType> _disabledProviders = {};
   bool _providersLoaded = false;
 
+  // Whether 7TV emotes flagged unlisted render. They are always fetched and
+  // cached; this only gates read-time visibility (see [_filterVisible]), so
+  // flipping it rebuilds the merged caches without any network work.
+  static const _allowUnlisted7tvKey = 'emote_7tv_allow_unlisted';
+  bool _allowUnlisted7tv = false;
+
   Future<void> _ensureProvidersLoaded() async {
     if (_providersLoaded) return;
     _providersLoaded = true;
@@ -496,6 +502,7 @@ class EmoteManager extends ChangeNotifier {
       // off with no way back.
       if (_disabledProviders.remove(EmoteType.twitch)) migrated = true;
     }
+    _allowUnlisted7tv = prefs.getBool(_allowUnlisted7tvKey) ?? false;
     if (!migrated) return;
     await prefs.setStringList(
       _disabledProvidersKey,
@@ -533,14 +540,35 @@ class EmoteManager extends ChangeNotifier {
     _rebuildCachesForProviderToggles();
   }
 
+  /// Best-effort sync view of the unlisted-emotes setting; fetch entry points
+  /// await [_ensureProvidersLoaded] themselves.
+  bool get allowUnlisted7tv {
+    if (!_providersLoaded) unawaited(_ensureProvidersLoaded());
+    return _allowUnlisted7tv;
+  }
+
+  Future<void> setAllowUnlisted7tv(bool allowed) async {
+    await _ensureProvidersLoaded();
+    if (allowed == _allowUnlisted7tv) return;
+    _allowUnlisted7tv = allowed;
+    final prefs = await _getPrefs();
+    await prefs.setBool(_allowUnlisted7tvKey, allowed);
+    _rebuildCachesForProviderToggles();
+  }
+
   // Read-time visibility filter for caches loaded from prefs, which have no
   // per-provider stash to rebuild from on a toggle. Same instance when
-  // nothing is disabled (the common case).
+  // nothing is filtered (the common case). Hides disabled providers and,
+  // unless the unlisted setting is on, 7TV emotes flagged unlisted.
   ChannelEmotes? _filterVisible(ChannelEmotes? cache) {
-    if (cache == null || _disabledProviders.isEmpty) return cache;
-    final visible = cache.suggestions
-        .where((e) => !_disabledProviders.contains(e.type))
-        .toList();
+    if (cache == null) return null;
+    final hideUnlisted = !_allowUnlisted7tv;
+    if (_disabledProviders.isEmpty && !hideUnlisted) return cache;
+    final visible = cache.suggestions.where((e) {
+      if (_disabledProviders.contains(e.type)) return false;
+      if (hideUnlisted && e.isUnlisted) return false;
+      return true;
+    }).toList();
     return ChannelEmotes(
       byCode: {for (final e in visible) e.code: e},
       suggestions: visible,

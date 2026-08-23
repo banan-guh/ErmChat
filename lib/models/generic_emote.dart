@@ -43,6 +43,11 @@ class GenericEmote {
   final String? emoteType;
   final bool isZeroWidth;
 
+  /// 7TV emotes whose owner marked them unlisted. They are always parsed and
+  /// kept in the caches; [EmoteManager] filters their visibility at read time
+  /// so the "allow unlisted" setting flips instantly without a refetch.
+  final bool isUnlisted;
+
   /// For 7TV alias emotes: the name of the emote this one aliases
   /// (`data.name` when it differs from the top-level `name`).
   final String? baseName;
@@ -62,6 +67,7 @@ class GenericEmote {
     this.tier,
     this.emoteType,
     this.isZeroWidth = false,
+    this.isUnlisted = false,
     this.baseName,
     this.relativeScale = 1.0,
     this.aspectRatio = 1.0,
@@ -80,6 +86,7 @@ class GenericEmote {
     'tier': tier,
     'emoteType': emoteType,
     'isZeroWidth': isZeroWidth,
+    'isUnlisted': isUnlisted,
     'baseName': baseName,
     'relativeScale': relativeScale,
     'aspectRatio': aspectRatio,
@@ -108,6 +115,7 @@ class GenericEmote {
       tier: json['tier'] as String?,
       emoteType: json['emoteType'] as String?,
       isZeroWidth: json['isZeroWidth'] as bool? ?? false,
+      isUnlisted: json['isUnlisted'] as bool? ?? false,
       baseName: json['baseName'] as String?,
       relativeScale: (json['relativeScale'] as num?)?.toDouble() ?? 1.0,
       aspectRatio: (json['aspectRatio'] as num?)?.toDouble() ?? 1.0,

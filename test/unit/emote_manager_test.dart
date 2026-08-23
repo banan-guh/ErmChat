@@ -1285,6 +1285,7 @@ void main() {
         code: 'TestEmote',
         type: EmoteType.sevenTv,
         isZeroWidth: true,
+        isUnlisted: true,
         scope: EmoteScope.channel,
         ownerChannel: 'testuser',
         relativeScale: 0.625,
@@ -1296,6 +1297,7 @@ void main() {
       expect(restored.code, original.code);
       expect(restored.type, original.type);
       expect(restored.isZeroWidth, original.isZeroWidth);
+      expect(restored.isUnlisted, isTrue);
       expect(restored.scope, original.scope);
       expect(restored.ownerChannel, original.ownerChannel);
       expect(restored.url, original.url);
@@ -3063,28 +3065,42 @@ void main() {
       expect(emote!.isZeroWidth, isTrue);
     });
 
-    test('skips unlisted (private) emotes, keeps listed ones', () {
+    test('flags unlisted emotes, keeps private-but-listed ones normal', () {
       final unlisted = SevenTvEmoteProvider.parseSingleEmote({
         'id': 'emote-8',
         'name': 'Secret',
         'data': {
           'name': 'Secret',
           'flags': 1 | (1 << 8),
+          'listed': false,
           'host': _host('1x.webp'),
         },
       });
-      expect(
-        unlisted,
-        isNull,
-        reason: 'private emotes render broken for regular viewers',
-      );
+      expect(unlisted, isNotNull);
+      expect(unlisted!.isUnlisted, isTrue);
 
-      final listed = SevenTvEmoteProvider.parseSingleEmote({
+      // The private flags bit is independent of listing: private-but-listed
+      // emotes sit in channel sets and render fine.
+      final privateListed = SevenTvEmoteProvider.parseSingleEmote({
         'id': 'emote-9',
-        'name': 'Public',
-        'data': {'name': 'Public', 'flags': 0, 'host': _host('1x.webp')},
+        'name': '!fish',
+        'data': {
+          'name': '!fish',
+          'flags': 1 | (1 << 8),
+          'listed': true,
+          'host': _host('1x.webp'),
+        },
       });
-      expect(listed, isNotNull);
+      expect(privateListed, isNotNull);
+      expect(privateListed!.isUnlisted, isFalse);
+      expect(privateListed.isZeroWidth, isTrue);
+
+      final missingListed = SevenTvEmoteProvider.parseSingleEmote({
+        'id': 'emote-10',
+        'name': 'Legacy',
+        'data': {'name': 'Legacy', 'flags': 0, 'host': _host('1x.webp')},
+      });
+      expect(missingListed!.isUnlisted, isFalse);
     });
 
     test('picks 2x for chat and largest for large surfaces', () {
@@ -3759,6 +3775,58 @@ void main() {
       final prefs = await SharedPreferences.getInstance();
       expect(prefs.getStringList('emote_providers_disabled'), isEmpty);
     });
+
+    test('unlisted 7TV emotes stay hidden until allowed', () async {
+      SharedPreferences.setMockInitialValues({});
+      final manager = EmoteManager(fetchStagger: Duration.zero);
+      await manager.enabledProviders();
+      manager.updateSevenTvEmotes(
+        'ch',
+        added: [
+          makeTestEmote(id: 'v1', code: 'Visible', type: EmoteType.sevenTv),
+          makeTestEmote(
+            id: 'u1',
+            code: 'Secret',
+            type: EmoteType.sevenTv,
+            isUnlisted: true,
+          ),
+        ],
+      );
+      expect(manager.byCode('ch')!.byCode.keys, ['Visible']);
+
+      await manager.setAllowUnlisted7tv(true);
+      expect(
+        manager.byCode('ch')!.byCode.keys,
+        containsAll(['Visible', 'Secret']),
+      );
+      expect(manager.allowUnlisted7tv, isTrue);
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getBool('emote_7tv_allow_unlisted'), isTrue);
+    });
+
+    test(
+      'the allow-unlisted setting persists across manager instances',
+      () async {
+        SharedPreferences.setMockInitialValues({
+          'emote_7tv_allow_unlisted': true,
+        });
+        final manager = EmoteManager(fetchStagger: Duration.zero);
+        await manager.enabledProviders();
+        manager.updateSevenTvEmotes(
+          'ch',
+          added: [
+            makeTestEmote(
+              id: 'u1',
+              code: 'Secret',
+              type: EmoteType.sevenTv,
+              isUnlisted: true,
+            ),
+          ],
+        );
+
+        expect(manager.byCode('ch')!.byCode.keys, ['Secret']);
+      },
+    );
   });
 
   group('resolveRecentsForChannel', () {
