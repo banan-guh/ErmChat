@@ -93,14 +93,26 @@ class MessageBuilder {
     TwitchMessage msg, {
     double badgeScale = 1.0,
   }) {
-    // Badge spans depend on third-party badge data and on the shared-chat
-    // avatar/name lookup, so key the cache on both versions.
+    // Badge spans depend on third-party badge data, on the shared-chat
+    // avatar/name lookup, and on the scale baked into their pixel sizes.
     final cacheVersion =
         thirdPartyBadgeService.version * 1000003 + badgeService.version;
-    if (msg.cachedBadgeSpans != null &&
-        msg.cachedBadgeSpansVersion == cacheVersion) {
-      return msg.cachedBadgeSpans!;
+    final stale =
+        msg.cachedBadgeSpans == null ||
+        msg.cachedBadgeSpansVersion != cacheVersion ||
+        msg.cachedBadgeSpansScale != badgeScale;
+    if (stale) {
+      return _computeBadgeSpans(channel, msg, cacheVersion, badgeScale);
     }
+    return msg.cachedBadgeSpans!;
+  }
+
+  List<WidgetSpan> _computeBadgeSpans(
+    String channel,
+    TwitchMessage msg,
+    int cacheVersion,
+    double badgeScale,
+  ) {
     final badgeSize = 18.0 * badgeScale;
     final spans = <WidgetSpan>[];
 
@@ -213,6 +225,7 @@ class MessageBuilder {
     }
 
     msg.cachedBadgeSpansVersion = cacheVersion;
+    msg.cachedBadgeSpansScale = badgeScale;
     return msg.cachedBadgeSpans = spans;
   }
 }

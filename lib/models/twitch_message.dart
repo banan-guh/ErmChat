@@ -85,6 +85,10 @@ class TwitchMessage {
   double? cachedSpansScale;
   List<WidgetSpan>? cachedBadgeSpans;
   int? cachedBadgeSpansVersion;
+
+  /// The badge scale the cached badge spans were built for; cached spans
+  /// embed absolute pixel sizes, so a scale change must rebuild them.
+  double? cachedBadgeSpansScale;
   late final String formattedTimestamp =
       '${timestamp.toLocal().hour.toString().padLeft(2, '0')}:${timestamp.toLocal().minute.toString().padLeft(2, '0')}';
   late final String formattedUsername =
