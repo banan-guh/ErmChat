@@ -1,3 +1,5 @@
+import 'dart:ui' show Color;
+
 import '../models/twitch_message.dart';
 
 /// Owns the shared chat state: the per-channel buffers the connection
@@ -56,4 +58,76 @@ class ChatStore {
 
   /// Last wire text sent per channel, for duplicate-send bypassing.
   final Map<String, String> lastSentWireText;
+
+  int _nextSystemMessageId = 0;
+
+  /// Inserts a system message at the top of [channel]'s buffer, applying the
+  /// status-marker folding rules: Connected/Disconnected/Reconnected lines
+  /// replace or dedup each other instead of stacking on socket flaps. Returns
+  /// false when folding dropped the message entirely (no insert happened);
+  /// callers skip their truncate/notify signals in that case.
+  bool addSystemMessage(String channel, String text, {Color? accent}) {
+    final msgs = channelMessages.putIfAbsent(channel, () => []);
+
+    const statusTexts = {
+      'Connected',
+      'Connected to IRC',
+      'Disconnected',
+      'Reconnected',
+      'Chat reconnecting...',
+    };
+    if (statusTexts.contains(text)) {
+      if (text == 'Connected' || text == 'Connected to IRC') {
+        final hasPriorStatus = msgs.any(
+          (m) => m.isSystem && statusTexts.contains(m.text),
+        );
+        text = hasPriorStatus ? 'Reconnected' : 'Connected';
+      }
+      final top = msgs.isEmpty ? null : msgs.first;
+      if (text == 'Reconnected') {
+        // The outage ended: fold the transient markers into this line rather
+        // than leaving a bogus outage entry behind.
+        msgs.removeWhere(
+          (m) =>
+              m.isSystem &&
+              (m.text == 'Disconnected' || m.text == 'Chat reconnecting...'),
+        );
+        // The write and read sockets both report the recovery; keep a single
+        // line instead of stacking duplicates.
+        final newTop = msgs.isEmpty ? null : msgs.first;
+        if (newTop != null && newTop.isSystem && newTop.text == 'Reconnected') {
+          return false;
+        }
+      } else if (text == 'Disconnected' || text == 'Chat reconnecting...') {
+        // "Disconnected" is the dominant outage marker: it describes the whole
+        // app being down, so "Chat reconnecting..." never replaces it.
+        if (text == 'Chat reconnecting...') {
+          final hasDisconnected = msgs.any(
+            (m) => m.isSystem && m.text == 'Disconnected',
+          );
+          if (hasDisconnected) return false;
+          if (top != null && top.isSystem && top.text == text) return false;
+        } else {
+          // A flapping socket must not pile up markers.
+          if (top != null && top.isSystem && top.text == text) return false;
+          msgs.removeWhere(
+            (m) => m.isSystem && m.text == 'Chat reconnecting...',
+          );
+        }
+      }
+    }
+
+    msgs.insert(
+      0,
+      TwitchMessage(
+        login: '',
+        text: text,
+        messageId: 'sys_${_nextSystemMessageId++}',
+        isSystem: true,
+        systemAccent: accent,
+        channel: channel,
+      ),
+    );
+    return true;
+  }
 }

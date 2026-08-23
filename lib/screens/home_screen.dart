@@ -319,7 +319,6 @@ class _HomeScreenState extends State<HomeScreen>
   String? _shownCooldownLabel;
   int _maxMessagesPerChannel = 200;
   int _recentMessagesLimit = 100;
-  int _nextSystemMessageId = 0;
   bool _showTimestamps = true;
   String _timestampFormat = kDefaultTimestampFormat;
   String _sharedChatMode = 'spotlight';
@@ -1732,68 +1731,7 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   void _addSystemMessage(String channel, String text, {Color? accent}) {
-    _channelMessages.putIfAbsent(channel, () => []);
-    final msgs = _channelMessages[channel]!;
-
-    const statusTexts = {
-      'Connected',
-      'Connected to IRC',
-      'Disconnected',
-      'Reconnected',
-      'Chat reconnecting...',
-    };
-    if (statusTexts.contains(text)) {
-      if (text == 'Connected' || text == 'Connected to IRC') {
-        final hasPriorStatus = msgs.any(
-          (m) => m.isSystem && statusTexts.contains(m.text),
-        );
-        text = hasPriorStatus ? 'Reconnected' : 'Connected';
-      }
-      final top = msgs.isEmpty ? null : msgs.first;
-      if (text == 'Reconnected') {
-        // The outage ended: fold the transient markers into this line rather
-        // than leaving a bogus outage entry behind.
-        msgs.removeWhere(
-          (m) =>
-              m.isSystem &&
-              (m.text == 'Disconnected' || m.text == 'Chat reconnecting...'),
-        );
-        // The write and read sockets both report the recovery; keep a single
-        // line instead of stacking duplicates.
-        final newTop = msgs.isEmpty ? null : msgs.first;
-        if (newTop != null && newTop.isSystem && newTop.text == 'Reconnected') {
-          return;
-        }
-      } else if (text == 'Disconnected' || text == 'Chat reconnecting...') {
-        // "Disconnected" is the dominant outage marker: it describes the whole
-        // app being down, so "Chat reconnecting..." never replaces it.
-        if (text == 'Chat reconnecting...') {
-          final hasDisconnected = msgs.any(
-            (m) => m.isSystem && m.text == 'Disconnected',
-          );
-          if (hasDisconnected) return;
-          if (top != null && top.isSystem && top.text == text) return;
-        } else {
-          // A flapping socket must not pile up markers.
-          if (top != null && top.isSystem && top.text == text) return;
-          msgs.removeWhere(
-            (m) => m.isSystem && m.text == 'Chat reconnecting...',
-          );
-        }
-      }
-    }
-
-    msgs.insert(
-      0,
-      TwitchMessage(
-        login: '',
-        text: text,
-        messageId: 'sys_${_nextSystemMessageId++}',
-        isSystem: true,
-        systemAccent: accent,
-        channel: channel,
-      ),
-    );
+    if (!_chatStore.addSystemMessage(channel, text, accent: accent)) return;
     _truncateChannelMessages(channel);
     _notifyNewMessage(channel);
   }
