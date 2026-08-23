@@ -224,7 +224,20 @@ class TwitchAuth extends ChangeNotifier {
     notifyListeners();
   }
 
-  void setUser(String? login, String? userId, {String? profileImageUrl}) {
+  /// Attributes a Helix identity resolution to the active account.
+  ///
+  /// Pass [resolvedWithToken] as the access token the lookup was made with:
+  /// if active credentials changed while the lookup was in flight (account
+  /// switch), the result is stale for the new account and is ignored entirely.
+  /// Without that guard, writing back would pair the old account's login with
+  /// whichever token is active at resolution time and corrupt the registry.
+  void setUser(
+    String? login,
+    String? userId, {
+    String? profileImageUrl,
+    String? resolvedWithToken,
+  }) {
+    if (resolvedWithToken != null && resolvedWithToken != accessToken) return;
     this.login = login;
     this.userId = userId;
     this.profileImageUrl = profileImageUrl;

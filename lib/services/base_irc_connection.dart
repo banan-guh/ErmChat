@@ -804,8 +804,19 @@ class IrcReadService extends IrcConnection {
 
   @override
   void dispatchLine(String line) {
-    if (username == null) return;
+    // Fatal auth detection mirrors the write socket: without it, a dead
+    // token makes this socket back off and retry forever while the write
+    // socket has already given up.
     final msg = parseIrcMessage(line);
+    if (msg != null && msg.command == 'NOTICE') {
+      final target = msg.params.isNotEmpty ? msg.params[0] : null;
+      if ((target == null || target == '*') &&
+          msg.trailing?.contains('Login authentication failed') == true) {
+        signalFatalAuthFailure();
+        return;
+      }
+    }
+    if (username == null) return;
     if (msg == null || msg.command != 'PRIVMSG' || msg.prefix == null) {
       return;
     }

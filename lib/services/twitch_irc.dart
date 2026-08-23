@@ -277,6 +277,11 @@ class IrcService extends IrcConnection {
   // (broadcaster/mods/VIPs/subs are not gated by slow mode).
   final selfBadges = <String?, Set<String>>{};
 
+  /// Self badges are per-account grants; dropped on account switch so
+  /// slow-mode bypass never consults the previous account's badges before
+  /// the new account's first USERSTATE arrives.
+  void clearSelfBadges() => selfBadges.clear();
+
   Stream<IrcBanEvent> get onBan => _banController.stream;
   Stream<IrcNoticeEvent> get onNotice => _noticeController.stream;
   Stream<IrcNoticeEvent> get onJtvMessage => _jtvController.stream;

@@ -412,19 +412,25 @@ class ChatConnectionManager {
   Future<Map<String, dynamic>?>? _currentUserFetch;
 
   Future<Map<String, dynamic>?> _ensureCurrentUser(TwitchAuth auth) {
-    return _currentUserFetch ??= twitchApi
-        .getCurrentUser(auth)
-        .then((user) {
-          if (user != null) {
-            auth.setUser(
-              user['login'],
-              user['id'],
-              profileImageUrl: user['profile_image_url'],
-            );
-          }
-          return user;
-        })
-        .whenComplete(() => _currentUserFetch = null);
+    return _currentUserFetch ??= () {
+      // Attribute the resolution to the credential it was made with so a
+      // late result landing after an account switch is discarded (setUser).
+      final tokenAtStart = auth.accessToken;
+      return twitchApi
+          .getCurrentUser(auth)
+          .then((user) {
+            if (user != null) {
+              auth.setUser(
+                user['login'],
+                user['id'],
+                profileImageUrl: user['profile_image_url'],
+                resolvedWithToken: tokenAtStart,
+              );
+            }
+            return user;
+          })
+          .whenComplete(() => _currentUserFetch = null);
+    }();
   }
 
   void _onSevenTvEmoteSetUpdate(SevenTvEmoteUpdateEvent event) {
@@ -685,6 +691,20 @@ class ChatConnectionManager {
         session.userId = auth.userId;
       }
 
+      // Account-switch fast path (runs before any await): a different account
+      // was requested while the previous session's socket may still be up.
+      // Drop its JOIN confirmations immediately so sends fall back to Helix
+      // under the new credentials instead of riding the old account's socket
+      // while this connect() is still validating.
+      final pendingUsername = (session.login ?? auth.login)?.toLowerCase();
+      final hadPreviousSession =
+          _lastIrcUsername != null || _lastIrcToken != null;
+      if (hadPreviousSession &&
+          pendingUsername != null &&
+          pendingUsername != _lastIrcUsername) {
+        _joinedChannels.clear();
+      }
+
       // EventSub needs no credentials - connect it in parallel with the
       // current-user lookup. Only IRC needs the login, so the sockets wait
       // for the lookup but not for each other.
@@ -710,9 +730,26 @@ class ChatConnectionManager {
         }
       }
 
-      final eventSubFuture = hasToken
-          ? eventSub.connect()
-          : Future<void>.value();
+      final Future<void> eventSubFuture;
+      if (hasToken) {
+        // Replacing an existing EventSub session (account switch / re-auth):
+        // its subscriptions are session-scoped and die with the socket, but
+        // connect() suppresses the disconnected status that normally drops
+        // this state. Clear it here so the new session's connected edge
+        // resubscribes every channel instead of skipping "already
+        // subscribed" ones.
+        _channelSetup.clearSessionState();
+        eventSubFuture = eventSub.connect();
+      } else {
+        // Leaving authenticated mode: any live EventSub session belongs to
+        // the departed account and would keep delivering moderation/widget
+        // events. disconnect() emits status, which clears session-scoped
+        // state via the listener below.
+        if (eventSub.sessionId != null || eventSub.isConnected) {
+          eventSub.disconnect();
+        }
+        eventSubFuture = Future<void>.value();
+      }
       Future<Map<String, dynamic>?>? userFuture;
       if (session.login == null && hasToken) {
         userFuture = _ensureCurrentUser(auth);
@@ -752,9 +789,31 @@ class ChatConnectionManager {
         // must not permanently disable moderation/widgets for a mod account
         // on the same channel after a switch.
         _channelSetup.resetAccountScope();
+        _channelSetup.resetJoinFailureState();
         // New credentials re-arm expiry handling; without this a second dead
         // token after a mid-session re-auth would fail silently forever.
         _expiryHandled = false;
+        // The suppressed disconnect skips the status-listener cleanup, so the
+        // switch drops per-session/per-account state here explicitly: old
+        // JOIN confirmations must not gate sends, self badges and slow-mode/
+        // timeout anchors belong to the old account, and duplicate-bypass
+        // wire text must not carry across accounts.
+        _joinedChannels.clear();
+        _connectedAcked.clear();
+        _lastSubscribeAll = null;
+        irc.clearSelfBadges();
+        _selfTimeoutUntil.clear();
+        _lastOwnMessageAt.clear();
+        store.lastSentWireText.clear();
+        // Make the new socket take the full connect edge (history backfill,
+        // Helix re-subscriptions, Connected lines) even though no user-facing
+        // disconnected status was emitted for this deliberate swap. Only for
+        // an established prior session: a virgin cold start must keep its
+        // ordinary first-connect semantics (no backfill, no reconnect).
+        if (_lastIrcToken != null) {
+          _wasConnected = false;
+          _wasDisconnected = true;
+        }
       }
 
       if (session.login != null && hasToken) {

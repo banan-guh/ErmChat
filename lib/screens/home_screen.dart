@@ -1178,11 +1178,19 @@ class _HomeScreenState extends State<HomeScreen>
       _emoteOwnerLogins.clear();
       _emoteOwnerLookupDone = false;
       _blocksFetched = false;
+      // Fail closed until the new account's block list arrives; without this
+      // chat unhides immediately and the old account's list briefly filters.
+      _blocksReady = false;
       // The previous account's block list must not keep filtering the new
       // account's chat; the re-fetch below repopulates it.
       _blockedLogins.clear();
       _mentionScanDone = false;
       _chatStore.channelsEmotesResolved.clear();
+      // Whispers and the mentions feed belong to the previous account.
+      _whispers.clear();
+      _unreadWhispers = 0;
+      _whispersPanelData.value = const [];
+      _chatStore.truncateChannel(_mentionsChannel, maxMessages: 0);
       _scanHistoryForMentions();
       unawaited(_ensureBlockedUsersLoaded());
     }

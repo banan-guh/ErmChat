@@ -120,9 +120,17 @@ class PingManager extends ChangeNotifier {
       ),
   ];
 
-  /// Updates the active account used for username/reply matching.
+  /// Updates the active account used for username/reply matching. A null
+  /// login (account switch / logout) also drops state learned for the
+  /// departed account: its display name and reply-participation registries
+  /// must not ping the new account.
   void setAccount(String? login) {
     _login = login?.toLowerCase();
+    if (login == null) {
+      _displayName = null;
+      _ownMessageIds.clear();
+      _ownThreadRoots.clear();
+    }
   }
 
   /// Learns the display name from our own message echoes so pings on it

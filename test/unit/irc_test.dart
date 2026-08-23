@@ -18,6 +18,7 @@ import 'package:ermchat/services/chat_store.dart';
 import 'package:ermchat/services/emote_manager.dart';
 import 'package:ermchat/services/twitch_api.dart';
 import 'package:ermchat/services/twitch_auth.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:ermchat/services/twitch_badge_service.dart';
 import 'package:ermchat/services/user_store.dart';
 import 'package:http/testing.dart' as http_testing;
@@ -130,6 +131,54 @@ TwitchMessage _taggedMsg(
 class _NoopEventSub extends EventSubService {
   @override
   Future<void> connect({String? url}) async {}
+}
+
+class _LiveEventSub extends EventSubService {
+  int connectCalls = 0;
+  int disconnectCalls = 0;
+
+  @override
+  Future<void> connect({String? url}) async {
+    connectCalls++;
+  }
+
+  @override
+  String? get sessionId => connectCalls > 0 ? 'live-session' : null;
+
+  @override
+  bool get isConnected => true;
+
+  @override
+  void disconnect({bool emitStatus = true}) {
+    disconnectCalls++;
+  }
+}
+
+class _RecordingIrc extends _TestIrc {
+  /// (username at send time, text) - exposes which account a PRIVMSG rode.
+  final sent = <(String?, String)>[];
+
+  @override
+  void sendMessage(
+    String channelName,
+    String text, {
+    String? replyParentMessageId,
+  }) {
+    sent.add((username, text));
+  }
+}
+
+class _LoopIrcRead extends IrcReadService {
+  _LoopIrcRead(this.socket);
+
+  final FakeWebSocketChannel socket;
+  int openAttempts = 0;
+
+  @override
+  Future<WebSocketChannel> openChannel() async {
+    openAttempts++;
+    return socket;
+  }
 }
 
 class _StaleEventSub extends _NoopEventSub {
@@ -341,24 +390,31 @@ ChatConnectionManager _makeReconnectConn({
   String? currentUserLogin,
   void Function(HypeTrainEvent event)? onHypeTrain,
   Future<void> Function(String?, List<String>)? onUserEmoteSets,
+  TwitchAuth? auth,
+  ChatStore? store,
+  http.Client? client,
 }) {
-  final api = TwitchApi(client: http.Client());
-  final auth = TwitchAuth();
-  auth.accessToken = 'test-token';
-  final store = ChatStore(
-    channels: channels ?? [],
-    channelMessages: channelMessages ?? {},
-    messageKeys: {},
-    chatStatus: chatStatus ?? {},
-    channelsWithUnread: {},
-    channelsWithUnreadMentions: {},
-    unreadMentionsPerChannel: {},
-    historyLoaded: {},
-    channelsEmotesResolved: {},
-    channelUserIds: {},
-    lastSentWireText: {},
-  );
-  store.session.login = currentUserLogin;
+  final api = TwitchApi(client: client ?? http.Client());
+  final effectiveAuth = auth ?? TwitchAuth();
+  if (auth == null) {
+    effectiveAuth.accessToken = 'test-token';
+  }
+  final effectiveStore =
+      store ??
+      ChatStore(
+        channels: channels ?? [],
+        channelMessages: channelMessages ?? {},
+        messageKeys: {},
+        chatStatus: chatStatus ?? {},
+        channelsWithUnread: {},
+        channelsWithUnreadMentions: {},
+        unreadMentionsPerChannel: {},
+        historyLoaded: {},
+        channelsEmotesResolved: {},
+        channelUserIds: {},
+        lastSentWireText: {},
+      );
+  effectiveStore.session.login = currentUserLogin;
   return ChatConnectionManager(
     ChatConnectionConfig(
       services: ChatServices(
@@ -369,9 +425,9 @@ ChatConnectionManager _makeReconnectConn({
         emoteManager: EmoteManager(),
         badgeService: TwitchBadgeService(),
         userStore: UserStore(),
-        twitchAuth: auth,
+        twitchAuth: effectiveAuth,
       ),
-      store: store,
+      store: effectiveStore,
       bridge: ChatViewBridge(
         mentionsChannel: '@mentions',
         onRebuild: () {},
@@ -2463,6 +2519,197 @@ void main() {
       final msg = msgs['test']!.first;
       expect(msg.bitsAmount, isNull);
       expect(msg.systemAccent, isNull);
+    });
+  });
+
+  group('account switch', () {
+    setUp(() {
+      FlutterSecureStorage.setMockInitialValues({});
+    });
+
+    // Hermetic Helix stubs: /validate echoes the token's owner, chat sends
+    // succeed, user lookups resolve.
+    http.Response stub(http.Request request) {
+      final url = request.url.toString();
+      if (url.contains('oauth2/validate')) {
+        final isBob = request.headers['Authorization'] == 'Bearer token_b';
+        return http.Response(
+          isBob
+              ? '{"login":"bob","user_id":"222","expires_in":60}'
+              : '{"login":"alice","user_id":"111","expires_in":60}',
+          200,
+        );
+      }
+      if (url.contains('/helix/chat/messages')) {
+        return http.Response(
+          '{"data":[{"is_sent":true,"message_id":"mid-1"}]}',
+          200,
+        );
+      }
+      if (url.contains('/helix/users')) {
+        return http.Response(
+          '{"data":[{"id":"999","login":"test","display_name":"Test"}]}',
+          200,
+        );
+      }
+      return http.Response('{}', 200);
+    }
+
+    test('switch drops old joins and per-account state, and takes the full '
+        'connect edge under the new identity', () async {
+      final irc = _RecordingIrc();
+      final auth = TwitchAuth();
+      auth.setCredentials(accessToken: 'token_a');
+      auth.setUser('alice', '111');
+      auth.setCredentials(accessToken: 'token_b');
+      auth.setUser('bob', '222');
+      await auth.switchTo('alice');
+
+      var reconnects = 0;
+      final system = <String>[];
+      final store = ChatStore(
+        channels: ['test'],
+        channelMessages: {},
+        messageKeys: {},
+        chatStatus: {},
+        channelsWithUnread: {},
+        channelsWithUnreadMentions: {},
+        unreadMentionsPerChannel: {},
+        historyLoaded: {},
+        channelsEmotesResolved: {},
+        channelUserIds: {'test': '999'},
+        lastSentWireText: {},
+      );
+      final conn = _makeReconnectConn(
+        eventSub: _NoopEventSub(),
+        irc: irc,
+        onReconnected: () => reconnects++,
+        onSystemMessage: (c, t, {Color? accent}) => system.add(t),
+        currentUserLogin: 'alice',
+        auth: auth,
+        store: store,
+        client: http_testing.MockClient((request) async => stub(request)),
+      );
+      await conn.connect();
+
+      // First connect edge: no backfill, one Connected line.
+      irc.emitConnected();
+      await Future<void>.delayed(Duration.zero);
+      expect(reconnects, 0);
+      expect(system.where((t) => t == 'Connected'), hasLength(1));
+
+      // Alice's session state accrues.
+      irc.handleLine('@room-id=1 :tmi.twitch.tv ROOMSTATE #test');
+      await Future<void>.delayed(Duration.zero);
+      irc.selfBadges['test'] = {'moderator'};
+      store.lastSentWireText['test'] = 'seed';
+      await conn.doSendMessage('hi', 'test');
+      expect(irc.sent.single.$1, 'alice', reason: 'baseline send as alice');
+
+      // Switch to bob the way HomeScreen drives it.
+      conn.session.login = null;
+      conn.session.userId = null;
+      await auth.switchTo('bob');
+      await conn.connect();
+
+      expect(irc.username, 'bob');
+      expect(
+        irc.selfBadges,
+        isEmpty,
+        reason: "alice's badges must not bypass bob's slow mode",
+      );
+      expect(store.lastSentWireText, isEmpty);
+
+      // The new socket is up but #test is not re-joined yet: a send must
+      // fall back to Helix (as bob) instead of riding any IRC socket.
+      irc.emitConnected();
+      await Future<void>.delayed(Duration.zero);
+      await conn.doSendMessage('hello', 'test');
+      expect(irc.sent, hasLength(1), reason: 'no PRIVMSG before JOIN lands');
+
+      // The deliberate swap still takes the full connect edge: backfill +
+      // a fresh Connected line.
+      expect(reconnects, 1);
+      expect(system.where((t) => t == 'Connected'), hasLength(2));
+
+      conn.dispose();
+    });
+
+    test('logging out tears down the live EventSub session', () async {
+      final eventSub = _LiveEventSub();
+      final auth = TwitchAuth();
+      auth.accessToken = 'token_a';
+      final conn = _makeReconnectConn(
+        eventSub: eventSub,
+        irc: _TestIrc(),
+        onReconnected: () {},
+        currentUserLogin: 'alice',
+        auth: auth,
+      );
+      await conn.connect();
+      expect(eventSub.connectCalls, 1);
+      expect(eventSub.disconnectCalls, 0);
+
+      await auth.clear();
+      await conn.connect();
+
+      expect(
+        eventSub.disconnectCalls,
+        1,
+        reason: 'the departed account must not keep receiving events',
+      );
+
+      conn.dispose();
+    });
+  });
+
+  group('read socket fatal auth', () {
+    test('NOTICE * :Login authentication failed stops the retry loop', () {
+      fakeAsync((async) {
+        final socket = FakeWebSocketChannel();
+        final service = _LoopIrcRead(socket);
+        final statuses = <IrcConnectionStatus>[];
+        service.onStatus.listen(statuses.add);
+        service.connect(username: 'alice', accessToken: 'dead-token');
+        async.flushMicrotasks();
+        expect(statuses, contains(IrcConnectionStatus.connected));
+        final attemptsBefore = service.openAttempts;
+
+        socket.push(':tmi.twitch.tv NOTICE * :Login authentication failed');
+        async.flushMicrotasks();
+        async.elapse(const Duration(seconds: 5));
+
+        expect(
+          service.openAttempts,
+          attemptsBefore,
+          reason: 'a dead token cannot be fixed by retrying',
+        );
+        expect(statuses.last, IrcConnectionStatus.disconnected);
+        expect(service.isConnected, isFalse);
+
+        service.dispose();
+        socket.dispose();
+      });
+    });
+
+    test('other NOTICE * messages do not stop the read loop', () {
+      fakeAsync((async) {
+        final socket = FakeWebSocketChannel();
+        final service = _LoopIrcRead(socket);
+        service.connect(username: 'alice', accessToken: 'token');
+        async.flushMicrotasks();
+
+        socket.push(':tmi.twitch.tv NOTICE * :Some other notice');
+        async.flushMicrotasks();
+        async.elapse(const Duration(seconds: 5));
+
+        // Without a fatal notice the socket stays healthy (no retry churn).
+        expect(service.openAttempts, 1);
+        expect(service.isConnected, isTrue);
+
+        service.dispose();
+        socket.dispose();
+      });
     });
   });
 

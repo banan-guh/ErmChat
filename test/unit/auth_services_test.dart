@@ -164,6 +164,41 @@ void main() {
       expect(auth.accessToken, 'token_b');
     });
 
+    test('setUser ignores a result attributed to a superseded token', () async {
+      final auth = TwitchAuth();
+      auth.setCredentials(accessToken: 'token_a');
+      auth.setUser('alice', '111');
+      // A Helix lookup for alice's identity is now in flight...
+      final tokenAtStart = auth.accessToken;
+
+      auth.setCredentials(accessToken: 'token_b');
+      auth.setUser('bob', '222');
+      await auth.switchTo('bob');
+
+      // ...but resolves after the user switched to bob.
+      auth.setUser('alice', '111', resolvedWithToken: tokenAtStart);
+      expect(auth.login, 'bob');
+      expect(auth.userId, '222');
+      expect(auth.accessToken, 'token_b');
+      // alice's registry entry must not have been corrupted either.
+      expect(
+        auth.accounts.firstWhere((a) => a.login == 'alice').accessToken,
+        'token_a',
+      );
+    });
+
+    test(
+      'setUser applies a result attributed to the still-active token',
+      () async {
+        final auth = TwitchAuth();
+        auth.setCredentials(accessToken: 'token_a');
+        auth.setUser('alice', '111', resolvedWithToken: 'token_a');
+        expect(auth.login, 'alice');
+        expect(auth.userId, '111');
+        expect(auth.accounts.single.accessToken, 'token_a');
+      },
+    );
+
     test('accounts persist across load with active login', () async {
       final auth = TwitchAuth();
       auth.setCredentials(accessToken: 'token_a');

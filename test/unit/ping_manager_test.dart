@@ -330,6 +330,29 @@ void main() {
         isNull,
       );
     });
+
+    test(
+      'switching accounts drops the departed account learned state',
+      () async {
+        final m = await makeManager();
+        m.setAccount('forsen');
+        m.setOwnDisplayName('ForsenFan');
+        m.registerOwnMessage('forsen', 'own-1', threadRootId: 'root-1');
+
+        // Account switch passes through null before the new login lands.
+        m.setAccount(null);
+        m.setAccount('xseb');
+
+        // The old display name no longer pings...
+        expect(m.evaluate(msg('hi ForsenFan')), isNull);
+        // ...and the old reply-participation registries are gone too.
+        expect(m.evaluate(msg('chained', replyToParentId: 'own-1')), isNull);
+        expect(
+          m.evaluate(msg('threaded', replyThreadRootId: 'root-1')),
+          isNull,
+        );
+      },
+    );
   });
 
   group('state merging', () {

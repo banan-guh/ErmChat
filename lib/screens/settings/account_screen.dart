@@ -49,6 +49,9 @@ class _AccountScreenState extends State<AccountScreen> {
   Future<void> _loadConnectedLogin() async {
     final auth = widget.twitchAuth;
     if (!auth.isConfigured) return;
+    // Attribute the resolution to the credential it was made with so a slow
+    // result landing after an account switch is discarded (setUser).
+    final tokenAtStart = auth.accessToken;
     String? login;
     try {
       final user = await _twitchApi.getCurrentUser(auth);
@@ -59,6 +62,7 @@ class _AccountScreenState extends State<AccountScreen> {
           login,
           user?['id'],
           profileImageUrl: user?['profile_image_url'],
+          resolvedWithToken: tokenAtStart,
         );
       }
     } catch (_) {
@@ -421,10 +425,17 @@ class _AccountScreenState extends State<AccountScreen> {
               children: [
                 Icon(Icons.check_circle, size: 40, color: Colors.green),
                 const SizedBox(height: 8),
-                Text(
-                  _connectedLogin != null
-                      ? 'Connected as $_connectedLogin'
-                      : 'Connected',
+                // Follows auth changes so switching accounts updates the
+                // header immediately; _connectedLogin is only a fallback
+                // until the active account's identity is resolved.
+                ListenableBuilder(
+                  listenable: widget.twitchAuth,
+                  builder: (context, _) {
+                    final login = widget.twitchAuth.login ?? _connectedLogin;
+                    return Text(
+                      login != null ? 'Connected as $login' : 'Connected',
+                    );
+                  },
                 ),
                 const SizedBox(height: 16),
                 Row(
