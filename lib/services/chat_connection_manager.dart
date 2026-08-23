@@ -551,9 +551,16 @@ class ChatConnectionManager {
         replyParentMessageId: reply?.messageId,
       );
     } else if (canHelix) {
-      final broadcasterId =
-          channelUserIds[channel] ?? await twitchApi.getUserId(auth, channel);
-      if (broadcasterId != null) {
+      try {
+        final broadcasterId =
+            channelUserIds[channel] ?? await twitchApi.getUserId(auth, channel);
+        if (broadcasterId == null) {
+          onSystemMessage(
+            channel,
+            twitchApi.lastError ?? "Couldn't resolve the channel; try again",
+          );
+          return;
+        }
         final result = await twitchApi.sendChatMessage(
           auth,
           broadcasterId: broadcasterId,
@@ -567,6 +574,11 @@ class ChatConnectionManager {
             twitchApi.lastError ?? 'Message failed to send',
           );
         }
+      } catch (e) {
+        // Network-level failures escape TwitchApi's HTTP-to-null conversion;
+        // without this the message vanishes with an unhandled zone error.
+        logDebug('Helix send fallback failed: $e');
+        onSystemMessage(channel, 'Message failed to send');
       }
     }
   }
@@ -756,6 +768,9 @@ class ChatConnectionManager {
         // must not permanently disable moderation/widgets for a mod account
         // on the same channel after a switch.
         _channelSetup.resetAccountScope();
+        // New credentials re-arm expiry handling; without this a second dead
+        // token after a mid-session re-auth would fail silently forever.
+        _expiryHandled = false;
       }
 
       if (session.login != null && hasToken) {
@@ -835,6 +850,11 @@ class ChatConnectionManager {
   }
 
   void _setupSubscriptions() {
+    // connect() re-runs on every auth change; dropping the old subscriptions
+    // without cancelling them would leave every IRC event handled N times.
+    for (final sub in _ingestionSubs) {
+      sub.cancel();
+    }
     _ingestionSubs
       ..clear()
       ..addAll(_ingestion.attach());
