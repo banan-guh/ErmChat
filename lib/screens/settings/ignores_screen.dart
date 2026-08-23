@@ -26,13 +26,18 @@ class _IgnoresScreenState extends State<IgnoresScreen> {
             ],
           ),
         ),
-        floatingActionButton: FloatingActionButton(
-          onPressed: () => _edit(
-            IgnoreEntry(id: '', pattern: ''),
-            keyword: _currentTabIsKeywords,
-            isNew: true,
+        // The FAB needs the selected tab; look it up from a context INSIDE
+        // the DefaultTabController. The state's own context sits above it,
+        // where the scope is invisible (it would always read as Users).
+        floatingActionButton: Builder(
+          builder: (fabContext) => FloatingActionButton(
+            onPressed: () => _edit(
+              IgnoreEntry(id: '', pattern: ''),
+              keyword: DefaultTabController.maybeOf(fabContext)?.index == 1,
+              isNew: true,
+            ),
+            child: const Icon(Icons.add),
           ),
-          child: const Icon(Icons.add),
         ),
         body: ListenableBuilder(
           listenable: _manager,
@@ -50,11 +55,6 @@ class _IgnoresScreenState extends State<IgnoresScreen> {
         ),
       ),
     );
-  }
-
-  bool get _currentTabIsKeywords {
-    final controller = DefaultTabController.maybeOf(context);
-    return controller?.index == 1;
   }
 
   Widget _list(List<IgnoreEntry> entries, {required bool keywords}) {

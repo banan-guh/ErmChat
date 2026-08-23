@@ -14,8 +14,6 @@ class PingsScreen extends StatefulWidget {
 class _PingsScreenState extends State<PingsScreen> {
   PingManager get _manager => PingManager.instance;
 
-  PingTab _tab = PingTab.messages;
-
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
@@ -25,30 +23,39 @@ class _PingsScreenState extends State<PingsScreen> {
           title: const Text('Pings'),
           bottom: TabBar(
             tabs: [for (final t in PingTab.values) Tab(text: t.label)],
-            onTap: (i) => setState(() => _tab = PingTab.values[i]),
           ),
         ),
-        floatingActionButton: FloatingActionButton(
-          onPressed: () {
-            final rule = switch (_tab) {
-              PingTab.messages => const PingRule(
-                id: '',
-                kind: PingRuleKind.message,
-                type: 'custom',
-              ),
-              PingTab.users => const PingRule(id: '', kind: PingRuleKind.user),
-              PingTab.badges => const PingRule(
-                id: '',
-                kind: PingRuleKind.badge,
-              ),
-              PingTab.blacklist => const PingRule(
-                id: '',
-                kind: PingRuleKind.blacklist,
-              ),
-            };
-            _editRule(rule, isNew: true);
-          },
-          child: const Icon(Icons.add),
+        // The FAB needs the selected tab; look it up from a context INSIDE
+        // the DefaultTabController at press time so swipes count too (an
+        // onTap-tracked field goes stale after a swipe without a tap).
+        floatingActionButton: Builder(
+          builder: (fabContext) => FloatingActionButton(
+            onPressed: () {
+              final tab = PingTab
+                  .values[DefaultTabController.maybeOf(fabContext)?.index ?? 0];
+              final rule = switch (tab) {
+                PingTab.messages => const PingRule(
+                  id: '',
+                  kind: PingRuleKind.message,
+                  type: 'custom',
+                ),
+                PingTab.users => const PingRule(
+                  id: '',
+                  kind: PingRuleKind.user,
+                ),
+                PingTab.badges => const PingRule(
+                  id: '',
+                  kind: PingRuleKind.badge,
+                ),
+                PingTab.blacklist => const PingRule(
+                  id: '',
+                  kind: PingRuleKind.blacklist,
+                ),
+              };
+              _editRule(rule, isNew: true);
+            },
+            child: const Icon(Icons.add),
+          ),
         ),
         body: ListenableBuilder(
           listenable: _manager,
