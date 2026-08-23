@@ -1,6 +1,24 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 
+// TEMP: M3 Expressive fastSpatial stiffness (800), no-bouncy.
+class _SnapPhysics extends PageScrollPhysics {
+  const _SnapPhysics({super.parent});
+
+  static final SpringDescription _spring = SpringDescription.withDampingRatio(
+    mass: 1.0,
+    stiffness: 800.0,
+    ratio: 1.0,
+  );
+
+  @override
+  _SnapPhysics applyTo(ScrollPhysics? ancestor) =>
+      _SnapPhysics(parent: buildParent(ancestor));
+
+  @override
+  SpringDescription get spring => _spring;
+}
+
 class _AxisAwareFlingVelocityTracker extends VelocityTracker {
   _AxisAwareFlingVelocityTracker(super.kind)
     : _ios = IOSScrollViewFlingVelocityTracker(kind),
@@ -73,6 +91,10 @@ class TabbedLayout extends StatefulWidget {
   final bool focusOnHalfDrag;
   final Color? tabBarColor;
 
+  /// Snappier page-settle spring (M3 Expressive fastSpatial, no-bouncy).
+  /// When false, stock PageScrollPhysics is used.
+  final bool fastSnap;
+
   static const double minEdgeExclusion = 20.0;
 
   const TabbedLayout({
@@ -86,6 +108,7 @@ class TabbedLayout extends StatefulWidget {
     this.tabAlignment = Alignment.centerLeft,
     this.focusOnHalfDrag = false,
     this.tabBarColor,
+    this.fastSnap = true,
   });
 
   @override
@@ -266,7 +289,9 @@ class TabbedLayoutState extends State<TabbedLayout>
                 ),
                 child: TabBarView(
                   controller: _tabController,
-                  physics: const PageScrollPhysics(),
+                  physics: widget.fastSnap
+                      ? const _SnapPhysics()
+                      : const PageScrollPhysics(),
                   children: List.generate(
                     tabs.length,
                     (i) => widget.pageBuilder(context, i),

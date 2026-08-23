@@ -10,6 +10,7 @@ class CustomizationScreen extends StatefulWidget {
   final ValueChanged<double>? onChatFontScaleChanged;
   final ValueChanged<bool>? onCheckeredMessagesChanged;
   final ValueChanged<bool>? onLineSeparatorChanged;
+  final ValueChanged<bool>? onFastSnapChanged;
 
   const CustomizationScreen({
     super.key,
@@ -20,6 +21,7 @@ class CustomizationScreen extends StatefulWidget {
     this.onChatFontScaleChanged,
     this.onCheckeredMessagesChanged,
     this.onLineSeparatorChanged,
+    this.onFastSnapChanged,
   });
 
   @override
@@ -34,6 +36,7 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
   double _chatFontSize = 14.0;
   bool _checkeredMessages = false;
   bool _lineSeparator = false;
+  bool _fastSnap = true;
 
   @override
   void initState() {
@@ -58,6 +61,7 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
         _chatFontSize = prefs.getDouble('chat_font_size') ?? 14.0;
         _checkeredMessages = prefs.getBool('checkered_messages') ?? false;
         _lineSeparator = prefs.getBool('line_separator') ?? false;
+        _fastSnap = prefs.getBool('fast_channel_snap') ?? true;
       });
     }
   }
@@ -114,6 +118,14 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
       prefs.setBool('line_separator', value);
     });
     widget.onLineSeparatorChanged?.call(value);
+  }
+
+  void _setFastSnap(bool value) {
+    setState(() => _fastSnap = value);
+    SharedPreferences.getInstance().then((prefs) {
+      prefs.setBool('fast_channel_snap', value);
+    });
+    widget.onFastSnapChanged?.call(value);
   }
 
   @override
@@ -203,6 +215,12 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
             title: const Text('Separate messages with lines'),
             value: _lineSeparator,
             onChanged: _setLineSeparator,
+          ),
+          SwitchListTile(
+            title: const Text('Fast channel swipe'),
+            subtitle: const Text('Snap to the next channel more quickly'),
+            value: _fastSnap,
+            onChanged: _setFastSnap,
           ),
           SwitchListTile(
             title: const Text('Keep screen on'),

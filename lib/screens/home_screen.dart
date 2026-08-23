@@ -297,6 +297,7 @@ class _HomeScreenState extends State<HomeScreen>
   double _chatFontSize = 14.0;
   bool _checkeredMessages = false;
   bool _lineSeparator = false;
+  bool _fastSnap = true;
 
   /// 7TV name paints (default off; toggled in Chat settings).
   bool _showNamePaints = false;
@@ -591,6 +592,11 @@ class _HomeScreenState extends State<HomeScreen>
     for (final channel in List.of(_chatStore.channels)) {
       _chatStore.touchChannel(channel);
     }
+  }
+
+  void _setFastSnap(bool value) {
+    if (_fastSnap == value) return;
+    setState(() => _fastSnap = value);
   }
 
   void _setNamePaints(bool value) {
@@ -1465,6 +1471,7 @@ class _HomeScreenState extends State<HomeScreen>
       _chatFontSize = prefs.getDouble('chat_font_size') ?? 14.0;
       _checkeredMessages = prefs.getBool('checkered_messages') ?? false;
       _lineSeparator = prefs.getBool('line_separator') ?? false;
+      _fastSnap = prefs.getBool('fast_channel_snap') ?? true;
       _sharedChatMode = prefs.getString('shared_chat_mode') ?? 'spotlight';
       _showNamePaints = prefs.getBool('seventv_name_paints') ?? false;
     });
@@ -2143,6 +2150,7 @@ class _HomeScreenState extends State<HomeScreen>
               EmoteUrlProvider.alwaysAnimatePanel = value,
           onCheckeredMessagesChanged: _setCheckeredMessages,
           onLineSeparatorChanged: _setLineSeparator,
+          onFastSnapChanged: _setFastSnap,
           onNamePaintsChanged: _setNamePaints,
           onEmoteTierChanged: _applyEmoteTier,
           onEmoteCacheMaxChanged: _applyCacheCap,
@@ -3172,6 +3180,7 @@ class _HomeScreenState extends State<HomeScreen>
                                             );
                                           },
                                           focusOnHalfDrag: true,
+                                          fastSnap: _fastSnap,
                                           tabBuilder: (_, i) {
                                             final channel =
                                                 _chatStore.channels[i];

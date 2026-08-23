@@ -15,6 +15,7 @@ Widget _harness(
   required ValueChanged<int> onFocusChanged,
   required ValueChanged<int> onSelectedIndexChanged,
   bool focusOnHalfDrag = true,
+  bool fastSnap = true,
 }) {
   return MaterialApp(
     home: Scaffold(
@@ -26,6 +27,7 @@ Widget _harness(
             tabs: const ['a', 'b', 'c'],
             selectedIndex: selected.value,
             focusOnHalfDrag: focusOnHalfDrag,
+            fastSnap: fastSnap,
             onFocusChanged: onFocusChanged,
             onSelectedIndexChanged: onSelectedIndexChanged,
             pageBuilder: (_, i) => Container(
@@ -245,5 +247,38 @@ void main() {
         expect(_pageDx(tester, 0).abs(), lessThan(2.0));
       },
     );
+  });
+
+  group('TabbedLayout fastSnap', () {
+    // Swipes to the next channel with both physics modes; the toggle must not
+    // change the switching behaviour, only the settle spring.
+    for (final fastSnap in [true, false]) {
+      testWidgets('swipe switches channels with fastSnap: $fastSnap', (
+        WidgetTester tester,
+      ) async {
+        final selected = ValueNotifier<int>(0);
+
+        await tester.pumpWidget(
+          _harness(
+            selected,
+            captureSetState: (_) {},
+            onFocusChanged: (i) => selected.value = i,
+            onSelectedIndexChanged: (i) => selected.value = i,
+            fastSnap: fastSnap,
+          ),
+        );
+
+        final size = tester.getSize(find.byType(TabBarView));
+        final center = tester.getCenter(find.byType(TabBarView));
+        final gesture = await tester.startGesture(center);
+        await gesture.moveBy(Offset(-size.width * 0.6, 0));
+        await tester.pump();
+        await gesture.up();
+        await tester.pumpAndSettle();
+
+        expect(selected.value, 1);
+        expect(_pageDx(tester, 1).abs(), lessThan(2.0));
+      });
+    }
   });
 }

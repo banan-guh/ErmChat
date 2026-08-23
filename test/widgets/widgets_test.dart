@@ -2503,6 +2503,12 @@ void main() {
       );
       expect(tile.value, isTrue);
 
+      await tester.scrollUntilVisible(
+        find.widgetWithText(SwitchListTile, 'Keep screen on'),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(SwitchListTile, 'Keep screen on'));
       await tester.pumpAndSettle();
 
