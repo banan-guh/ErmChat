@@ -135,15 +135,8 @@ class ChatConnectionManager {
   final EmoteManager emoteManager;
   final ActiveSession session;
   final ChatStore store;
-  final Map<String, List<TwitchMessage>> channelMessages;
-  final Set<String> messageKeys;
-  final Map<String, String> chatStatus;
-  final Set<String> channelsWithUnread;
-  final Set<String> channelsWithUnreadMentions;
-  final Map<String, int> unreadMentionsPerChannel;
   final List<String> channels;
   final Set<String> historyLoaded;
-  final Set<String> channelsEmotesResolved;
   final Map<String, String> channelUserIds;
   final Map<String, String> lastSentWireText;
   final String mentionsChannel;
@@ -280,8 +273,6 @@ class ChatConnectionManager {
   StreamSubscription<IrcConnectionStatus>? ircReadStatusSub;
   StreamSubscription<void>? ircAuthFailedSub;
 
-  // Truncation coalescing: the thread-aware pass is O(n) over the channel
-
   ChatConnectionManager(ChatConnectionConfig config)
     : twitchApi = config.services.twitchApi,
       eventSub = config.services.eventSub,
@@ -294,15 +285,8 @@ class ChatConnectionManager {
       twitchAuth = config.services.twitchAuth,
       session = config.store.session,
       store = config.store,
-      channelMessages = config.store.channelMessages,
-      messageKeys = config.store.messageKeys,
-      chatStatus = config.store.chatStatus,
-      channelsWithUnread = config.store.channelsWithUnread,
-      channelsWithUnreadMentions = config.store.channelsWithUnreadMentions,
-      unreadMentionsPerChannel = config.store.unreadMentionsPerChannel,
       channels = config.store.channels,
       historyLoaded = config.store.historyLoaded,
-      channelsEmotesResolved = config.store.channelsEmotesResolved,
       channelUserIds = config.store.channelUserIds,
       lastSentWireText = config.store.lastSentWireText,
       mentionsChannel = config.bridge.mentionsChannel,

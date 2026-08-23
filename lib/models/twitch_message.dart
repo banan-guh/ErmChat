@@ -69,7 +69,6 @@ class TwitchMessage {
   final List<EmotePosition>? emotePositions;
   final List<MessageBadge>? badges;
   final String? sourceBroadcasterId;
-  final String? sourceBroadcasterName;
 
   /// The original message id from the shared-chat source channel
   /// (PRIVMSG/USERNOTICE `source-id` tag). Stable across every mirrored copy,
@@ -89,8 +88,6 @@ class TwitchMessage {
   /// The badge scale the cached badge spans were built for; cached spans
   /// embed absolute pixel sizes, so a scale change must rebuild them.
   double? cachedBadgeSpansScale;
-  late final String formattedTimestamp =
-      '${timestamp.toLocal().hour.toString().padLeft(2, '0')}:${timestamp.toLocal().minute.toString().padLeft(2, '0')}';
   late final String formattedUsername =
       displayName.toLowerCase() == login.toLowerCase()
       ? displayName
@@ -136,7 +133,6 @@ class TwitchMessage {
     this.emotePositions,
     this.badges,
     this.sourceBroadcasterId,
-    this.sourceBroadcasterName,
     this.sourceMessageId,
   }) : timestamp = timestamp ?? DateTime.now(),
        displayName = displayName ?? login;

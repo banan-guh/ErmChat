@@ -35,7 +35,3 @@ String unescapeIrcTag(String raw) {
   return buf.toString();
 }
 
-String? unescapeIrcTagNullable(String? raw) {
-  if (raw == null) return null;
-  return unescapeIrcTag(raw);
-}

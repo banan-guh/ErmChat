@@ -129,7 +129,6 @@ class MessageBuilder {
                   badgeService.resolveChannelDisplayName(
                     msg.sourceBroadcasterId!,
                   ) ??
-                  msg.sourceBroadcasterName ??
                   'shared chat',
               child: Padding(
                 padding: const EdgeInsets.only(right: 2),

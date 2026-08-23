@@ -69,10 +69,6 @@ class ChatChannelSetup {
   bool _disposed = false;
   final _httpClient = http.Client();
 
-  // Channels whose JOIN has been observed (ROOMSTATE seen for that channel).
-  // Informational only; the send gate itself runs off the manager's copy.
-  final _joinedChannels = <String>{};
-
   // Channels with an active channel.moderate v2 subscription. While present,
   // moderation system messages come from EventSub (richer data) instead of
   // IRC CLEARCHAT/CLEARMSG.
@@ -99,11 +95,6 @@ class ChatChannelSetup {
   // confirmation clears the entry and announces the (late) success.
   final _joinFailureNotified = <String>{};
 
-  /// Kept for symmetry with [ChatIngestion]: this domain subscribes to no
-  /// streams itself, so attaching wires nothing. The manager listens to the
-  /// IRC/EventSub streams and routes events into the handlers below.
-  void attach() {}
-
   void dispose() {
     _disposed = true;
     for (final t in _chatStatusTimers.values) {
@@ -122,9 +113,6 @@ class ChatChannelSetup {
   }
 
   // ---- State queries -------------------------------------------------------
-
-  /// Whether the channel's JOIN has been confirmed by a ROOMSTATE event.
-  bool isJoined(String channel) => _joinedChannels.contains(channel);
 
   /// Whether the EventSub channel.moderate v2 subscription is active for a
   /// channel; while it is, IRC moderation echoes and room-mode NOTICEs are
@@ -514,9 +502,6 @@ class ChatChannelSetup {
   /// the caller records it to gate sends on joins.
   bool handleRoomState(IrcRoomStateEvent event) {
     if (_disposed) return false;
-    // ROOMSTATE arrives after a successful JOIN, confirming this channel is
-    // ready for PRIVMSG.
-    _joinedChannels.add(event.channel);
     // A channel whose join previously failed (and announced "Retrying.")
     // just got in: announce the late success and clear the failure state.
     if (_joinFailureNotified.remove(event.channel)) {
