@@ -10,7 +10,9 @@ import '../../widgets/emote_image.dart';
 import '../../widgets/welcome_dialog.dart';
 
 class DevSettingsScreen extends StatefulWidget {
-  const DevSettingsScreen({super.key});
+  final ValueChanged<bool>? onTestWidgetsChanged;
+
+  const DevSettingsScreen({super.key, this.onTestWidgetsChanged});
 
   @override
   State<DevSettingsScreen> createState() => _DevSettingsScreenState();
@@ -37,6 +39,7 @@ class _DevSettingsScreenState extends State<DevSettingsScreen> {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('test_chat_widgets', value);
     if (mounted) setState(() => _testWidgets = value);
+    widget.onTestWidgetsChanged?.call(value);
   }
 
   Future<void> _loadOAuthMode() async {

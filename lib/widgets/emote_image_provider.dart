@@ -5,7 +5,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../services/emote_cache_manager.dart';
 import 'emote_image.dart';
@@ -106,6 +105,12 @@ class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
   /// throttled). Synced from the 'always_animate_emote_panel' pref.
   static bool alwaysAnimatePanel = true;
 
+  /// Whether animated GIFs play. False freezes them at their current frame
+  /// (new ones decode as stills); animated WebP is unaffected. Synced from
+  /// the 'animate_gifs' pref, which is meaningless while [fpsCap] is 0 since
+  /// that pauses all playback anyway.
+  static bool gifsEnabled = true;
+
   /// Applies a new frame-rate cap (clamped to 0..60) and immediately updates
   /// every live completer: pausing loops at 0, restarting paused ones above
   /// 0. Called on startup load and whenever the settings slider moves.
@@ -113,6 +118,16 @@ class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
     fpsCap = cap.clamp(0, 60);
     for (final completer in List.of(_liveByUrl.values)) {
       completer._refreshForFpsCap();
+    }
+  }
+
+  /// Toggles GIF animation and immediately freezes or resumes every live
+  /// animated-GIF completer. Called on startup load and when the setting
+  /// flips.
+  static void applyGifsEnabled(bool enabled) {
+    gifsEnabled = enabled;
+    for (final completer in List.of(_liveByUrl.values)) {
+      completer._refreshForGifs();
     }
   }
 
@@ -233,6 +248,10 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
   /// global [EmoteUrlProvider.fpsCap], including at a cap of 0.
   int _uncappedCount = 0;
 
+  /// Set when the decoded bytes are an animated GIF, so a gifs-disabled
+  /// toggle can freeze/resume this completer specifically.
+  bool _isAnimatedGif = false;
+
   /// Frame timestamp when [_cyclePosition] was last advanced. Null after a
   /// stop, so the first tick back only re-anchors (no catch-up for time
   /// spent paused); a freeze while playing keeps this set and the gap is
@@ -274,9 +293,9 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
       final format = sniffEmoteFormat(bytes);
       final isWebpAnim = format == EmoteFormat.webp && webpIsAnimated(bytes);
       final seeded = _seedFromUrl != null;
-      final prefs = await SharedPreferences.getInstance();
-      final animateGifs = prefs.getBool('animate_gifs') ?? true;
-      final gifAnimated = format == EmoteFormat.gif && animateGifs;
+      final gifAnimated =
+          format == EmoteFormat.gif && EmoteUrlProvider.gifsEnabled;
+      _isAnimatedGif = format == EmoteFormat.gif;
       if (isWebpAnim || (gifAnimated && seeded)) {
         // Animated WebP: our decoder (native libwebp, pure-Dart fallback).
         // Animated GIF: the engine codec decodes (interlace, transparency and
@@ -294,7 +313,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
           _emitFrame(_frameIndex);
           _startPlayback();
         }
-      } else if (format == EmoteFormat.gif && !animateGifs) {
+      } else if (format == EmoteFormat.gif && !EmoteUrlProvider.gifsEnabled) {
         // Frozen GIF: decode only the first frame so it shows as a still image.
         final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
         if (_disposed) {
@@ -470,6 +489,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
     if (frames == null || frames.frames.isEmpty) return;
     if (frames.totalDuration <= Duration.zero) return;
     if (_effectiveFpsCap == 0) return; // Paused by the FPS-cap setting.
+    if (_isAnimatedGif && !EmoteUrlProvider.gifsEnabled) return; // Frozen GIF.
     _scheduleAppFrame();
   }
 
@@ -491,6 +511,34 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
     if (_disposed || !hasListeners) return;
     if (_frames == null) return;
     if (_effectiveFpsCap == 0) {
+      if (_isPlaying) _stopPlayback();
+    } else if (!_isPlaying) {
+      _startPlayback();
+    }
+  }
+
+  /// Re-evaluates playback state after [EmoteUrlProvider.gifsEnabled] flips:
+  /// freezes animated GIFs only (engine path stops forwarding, self-driven
+  /// path stops its loop), resumes them when re-enabled. Other formats are
+  /// untouched.
+  void _refreshForGifs() {
+    if (_disposed || !_isAnimatedGif) return;
+    final inner = _engineCompleter;
+    final listener = _engineListener;
+    if (inner != null && listener != null) {
+      // Engine-codec GIF: detaching forwarding freezes it at the current
+      // frame (the engine pauses itself once its last listener detaches);
+      // re-attaching resumes. Its synchronous current-frame delivery on
+      // attach is dropped by our forwarder, so no spurious rebuild.
+      if (!EmoteUrlProvider.gifsEnabled) {
+        inner.removeListener(listener);
+      } else if (hasListeners) {
+        inner.addListener(listener);
+      }
+      return;
+    }
+    if (_frames == null || !hasListeners) return;
+    if (!EmoteUrlProvider.gifsEnabled || _effectiveFpsCap == 0) {
       if (_isPlaying) _stopPlayback();
     } else if (!_isPlaying) {
       _startPlayback();
@@ -613,7 +661,10 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
     final inner = _engineCompleter;
     final innerListener = _engineListener;
     if (inner != null && innerListener != null) {
-      inner.addListener(innerListener);
+      // A frozen GIF (animate-gifs off) must not restart via re-attach.
+      if (!_isAnimatedGif || EmoteUrlProvider.gifsEnabled) {
+        inner.addListener(innerListener);
+      }
     }
   }
 

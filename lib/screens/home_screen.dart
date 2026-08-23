@@ -26,6 +26,7 @@ import '../services/third_party_badge_service.dart';
 import '../services/seven_tv_paint_service.dart';
 import '../services/emote_providers/twitch_emotes.dart';
 import '../util/log.dart';
+import '../util/constants.dart';
 import '../util/sheet_drag.dart';
 import '../util/thread_utils.dart';
 import '../util/timestamp_formatter.dart';
@@ -288,7 +289,7 @@ class _HomeScreenState extends State<HomeScreen>
   // ticking once per second while a gate is active on the visible channel.
   Timer? _cooldownTickTimer;
   String? _shownCooldownLabel;
-  int _maxMessagesPerChannel = 200;
+  int _maxMessagesPerChannel = kMaxMessagesPerChannelDefault;
   int _recentMessagesLimit = 100;
   bool _showTimestamps = true;
   String _timestampFormat = kDefaultTimestampFormat;
@@ -439,7 +440,7 @@ class _HomeScreenState extends State<HomeScreen>
     final prefs = await SharedPreferences.getInstance();
     final backgroundService = prefs.getBool('background_service') ?? false;
     final mentionPush = prefs.getBool('mention_push') ?? false;
-    final whisperNotify = prefs.getBool('whisper_notifications') ?? true;
+    final whisperNotify = prefs.getBool('whisper_notifications') ?? false;
     if (!mounted) return;
     setState(() {
       _backgroundService = backgroundService;
@@ -450,7 +451,7 @@ class _HomeScreenState extends State<HomeScreen>
     if (backgroundService) {
       initForegroundService();
     }
-    if (mentionPush) {
+    if (mentionPush || whisperNotify) {
       _initNotificationInfra();
     }
   }
@@ -497,12 +498,17 @@ class _HomeScreenState extends State<HomeScreen>
   void _setWhisperNotify(bool value) {
     if (_whisperNotify == value) return;
     setState(() => _whisperNotify = value);
+    if (!Platform.isAndroid) return;
+    // Whispers are independent of mention push (DankChat parity): they only
+    // need the same notification infrastructure to exist.
+    if (value) {
+      requestForegroundPermissions();
+      _initNotificationInfra();
+    }
   }
 
   void _maybeNotifyWhisper(TwitchMessage msg) {
-    // Same gates as mention pushes; requires the notification infra that
-    // only initializes when mention push is on (Android).
-    if (!_mentionPush || !_whisperNotify || !_isBackgrounded) return;
+    if (!_whisperNotify || !_isBackgrounded) return;
     if (_notificationTapSub == null || _isWhispersTabActive) return;
     unawaited(
       _notificationService.showWhisperNotification(
@@ -1196,6 +1202,7 @@ class _HomeScreenState extends State<HomeScreen>
           prefs.getInt(emoteCacheMaxPrefsKey) ?? defaultEmoteCacheMax;
       _applyCacheCap(loadedCacheCap);
       EmoteUrlProvider.applyFpsCap(prefs.getInt('emote_fps_cap') ?? 30);
+      EmoteUrlProvider.applyGifsEnabled(prefs.getBool('animate_gifs') ?? true);
       EmoteUrlProvider.alwaysAnimatePanel =
           prefs.getBool('always_animate_emote_panel') ?? true;
       await _refreshConnectivity();
@@ -1442,7 +1449,9 @@ class _HomeScreenState extends State<HomeScreen>
     final prefs = await SharedPreferences.getInstance();
     if (!mounted) return;
     setState(() {
-      _maxMessagesPerChannel = prefs.getInt('max_messages_per_channel') ?? 200;
+      _maxMessagesPerChannel =
+          prefs.getInt('max_messages_per_channel') ??
+          kMaxMessagesPerChannelDefault;
       _recentMessagesLimit = prefs.getInt('recent_messages_limit') ?? 100;
       _replyToRoot = prefs.getBool('reply_to_thread_root') ?? false;
       _preferEmotesFirst = prefs.getBool('prefer_emotes_first') ?? false;
@@ -1563,7 +1572,16 @@ class _HomeScreenState extends State<HomeScreen>
   Future<void> _loadTestWidgets() async {
     final prefs = await SharedPreferences.getInstance();
     if (!mounted) return;
-    if (prefs.getBool('test_chat_widgets') ?? false) {
+    _applyTestWidgets(prefs.getBool('test_chat_widgets') ?? false);
+  }
+
+  void _setTestWidgets(bool value) {
+    if (!mounted) return;
+    _applyTestWidgets(value);
+  }
+
+  void _applyTestWidgets(bool value) {
+    if (value) {
       _startTestWidgets();
     } else {
       _stopTestWidgets();
@@ -2115,6 +2133,7 @@ class _HomeScreenState extends State<HomeScreen>
           onTimestampFormatChanged: _setTimestampFormat,
           onChatFontScaleChanged: _setChatFontScale,
           onEmoteFpsCapChanged: EmoteUrlProvider.applyFpsCap,
+          onAnimateGifsChanged: EmoteUrlProvider.applyGifsEnabled,
           onAlwaysAnimatePanelChanged: (value) =>
               EmoteUrlProvider.alwaysAnimatePanel = value,
           onCheckeredMessagesChanged: _setCheckeredMessages,
@@ -2133,14 +2152,10 @@ class _HomeScreenState extends State<HomeScreen>
           channels: _chatStore.channels,
           ttsController: _ttsController,
           emoteManager: _emoteManager,
+          onTestWidgetsChanged: _setTestWidgets,
         ),
       ),
-    ).then((_) {
-      _loadMaxMessages();
-      _loadTestWidgets();
-      _tileCache.clear();
-      if (mounted) setState(() {});
-    });
+    );
   }
 
   /// Handles slash commands by routing to the appropriate Twitch API endpoint.

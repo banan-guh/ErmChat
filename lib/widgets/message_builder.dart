@@ -37,9 +37,14 @@ class MessageBuilder {
     double textScale = 1.0,
   }) {
     final spanVersion = _spanCacheVersion;
-    if (msg.cachedSpans == null || msg.cachedSpansVersion != spanVersion) {
+    final stale =
+        msg.cachedSpans == null ||
+        msg.cachedSpansVersion != spanVersion ||
+        msg.cachedSpansScale != textScale;
+    if (stale) {
       msg.cachedSpans = _computeMessageSpans(msg, channel, scale: textScale);
       msg.cachedSpansVersion = spanVersion;
+      msg.cachedSpansScale = textScale;
     }
     if (colored) {
       return [

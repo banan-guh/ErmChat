@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../models/emote_fetch_tier.dart';
@@ -45,6 +47,10 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
   final _providerEnabled = <EmoteType, bool>{};
   bool _allowUnlisted = false;
 
+  /// Enabled-provider snapshot from when the screen opened, so closing it
+  /// can diff which providers were newly enabled.
+  Set<EmoteType>? _enabledAtOpen;
+
   static const _providerLabels = {
     EmoteType.twitch: 'Twitch',
     EmoteType.bttv: 'BetterTTV',
@@ -65,12 +71,32 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
     if (manager == null) return;
     final enabled = await manager.enabledProviders();
     if (!mounted) return;
+    _enabledAtOpen ??= enabled;
     setState(() {
       for (final type in EmoteType.values) {
         _providerEnabled[type] = enabled.contains(type);
       }
       _allowUnlisted = manager.allowUnlisted7tv;
     });
+  }
+
+  @override
+  void dispose() {
+    // Providers newly enabled during this visit may have no retained stash
+    // (persisted caches stripped them after an earlier disable); refetch
+    // just those. Off-on fiddling or no-change visits do nothing.
+    final manager = widget.emoteManager;
+    final atOpen = _enabledAtOpen;
+    if (manager != null && atOpen != null) {
+      final newlyEnabled = {
+        for (final entry in _providerEnabled.entries)
+          if (entry.value && !atOpen.contains(entry.key)) entry.key,
+      };
+      if (newlyEnabled.isNotEmpty) {
+        unawaited(manager.ensureStashed(newlyEnabled));
+      }
+    }
+    super.dispose();
   }
 
   Future<void> _onProviderChanged(EmoteType type, bool enabled) async {
@@ -106,6 +132,12 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
         _draftCacheMax = _appliedCacheMax;
       });
     }
+  }
+
+  /// Drag feedback only: moves the label/thumb without persisting or
+  /// refetching (the tier change itself fires on release).
+  void _onTierDragging(double value) {
+    if (mounted) setState(() => _tier = value.toInt());
   }
 
   Future<void> _onTierChanged(double value) async {
@@ -198,7 +230,8 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
                   max: (EmoteFetchTier.values.length - 1).toDouble(),
                   divisions: EmoteFetchTier.values.length - 1,
                   label: displayTier.label,
-                  onChanged: autoOn ? null : _onTierChanged,
+                  onChanged: autoOn ? null : _onTierDragging,
+                  onChangeEnd: autoOn ? null : _onTierChanged,
                 ),
               ],
             );

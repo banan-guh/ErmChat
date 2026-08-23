@@ -299,6 +299,9 @@ class EmoteManager extends ChangeNotifier {
   final _channelTwitchEmotes = <String, List<GenericEmote>>{};
   final _sevenTvEmoteSetIds = <String, String>{};
   final _sevenTvUserIds = <String, String>{};
+  // Last seen broadcaster id per channel, so targeted provider refetches can
+  // run without the caller re-supplying it.
+  final _channelBroadcasterIds = <String, String>{};
   // Per-provider retention: each provider's fetch result is kept separately so
   // a single flaky provider (429/5xx, timeout) never clobbers that provider's
   // previous good data or the other providers' entries in the merged cache.
@@ -564,10 +567,11 @@ class EmoteManager extends ChangeNotifier {
     _rebuildCachesForProviderToggles();
   }
 
-  // Read-time visibility filter for caches loaded from prefs, which have no
-  // per-provider stash to rebuild from on a toggle. Same instance when
-  // nothing is filtered (the common case). Hides disabled providers and,
-  // unless the unlisted setting is on, 7TV emotes flagged unlisted.
+  // Read-time visibility gate applied on every merged-cache access: hides
+  // disabled providers and, unless the unlisted setting is on, 7TV emotes
+  // flagged unlisted. Complements the toggle-rebuild path (stashes now also
+  // exist for prefs-restored sessions via _hydrateStashesFromCache).
+  // Same instance when nothing is filtered (the common case).
   ChannelEmotes? _filterVisible(ChannelEmotes? cache) {
     if (cache == null) return null;
     final hideUnlisted = !_allowUnlisted7tv;
@@ -605,6 +609,158 @@ class EmoteManager extends ChangeNotifier {
     _subsByChannelCache = null;
     _mergedCache.clear();
     _notify();
+  }
+
+  // Splits a merged cache back into per-provider stashes (appending to any
+  // already retained), giving prefs-restored sessions toggle-rebuild data.
+  void _hydrateStashesFromCache(ChannelEmotes cache, {String? channel}) {
+    final grouped = <String, List<GenericEmote>>{};
+    for (final e in cache.suggestions) {
+      (grouped[e.type.name] ??= []).add(e);
+    }
+    if (channel == null) {
+      for (final entry in grouped.entries) {
+        final existing = _globalProviderEmotes[entry.key];
+        _globalProviderEmotes[entry.key] = [...?existing, ...entry.value];
+      }
+    } else {
+      final map = _channelProviderEmotes[channel] ??=
+          <String, List<GenericEmote>>{};
+      for (final entry in grouped.entries) {
+        final existing = map[entry.key];
+        map[entry.key] = [...?existing, ...entry.value];
+      }
+    }
+  }
+
+  bool _hasGlobalStash(EmoteType type) =>
+      _globalProviderEmotes[type.name]?.isNotEmpty ?? false;
+
+  bool _hasChannelStash(String channel, EmoteType type) =>
+      _channelProviderEmotes[channel]?[type.name]?.isNotEmpty ?? false;
+
+  /// Refetches the current sets of [types] that have no retained stash data:
+  /// globals plus every resolved channel's set. Covers re-enabling providers
+  /// whose persisted caches no longer contain their emotes (a post-disable
+  /// save stripped them), where a toggle has nothing to rebuild from. No-op
+  /// when stashes already cover everything, e.g. mere off-on flips.
+  Future<void> ensureStashed(Set<EmoteType> types) async {
+    await _ensureProvidersLoaded();
+    if (_tier == EmoteFetchTier.nothing || types.isEmpty) return;
+    final resolution = _tier.resolution;
+    if (resolution == null) return;
+    final targets = [
+      for (final t in types)
+        if (_isProviderOn(t)) t,
+    ];
+    if (targets.isEmpty) return;
+    var fetched = false;
+    await _enqueueFetch(() async {
+      for (final type in targets.where((t) => !_hasGlobalStash(t))) {
+        try {
+          final emotes = await _fetchGlobalForProvider(type, resolution);
+          _globalProviderEmotes[type.name] = emotes;
+          if (emotes.isNotEmpty) fetched = true;
+        } catch (e) {
+          logDebug('[EmoteManager] stash refetch failed for ${type.name}: $e');
+        }
+      }
+      for (final channel in _channelCaches.keys.toList()) {
+        final broadcasterId = _channelBroadcasterIds[channel];
+        if (broadcasterId == null) continue;
+        final missing = [
+          for (final t in targets)
+            if (!_hasChannelStash(channel, t)) t,
+        ];
+        if (missing.isEmpty) continue;
+        final map = _channelProviderEmotes[channel] ??=
+            <String, List<GenericEmote>>{};
+        for (final type in missing) {
+          try {
+            final emotes = await _fetchChannelForProvider(
+              type,
+              broadcasterId,
+              channelName: channel,
+              resolution: resolution,
+            );
+            map[type.name] = emotes;
+            if (emotes.isNotEmpty) fetched = true;
+          } catch (e) {
+            logDebug(
+              '[EmoteManager] stash refetch failed for '
+              '${type.name}@$channel: $e',
+            );
+          }
+        }
+      }
+    });
+    if (fetched) _rebuildCachesForProviderToggles();
+  }
+
+  Future<List<GenericEmote>> _fetchGlobalForProvider(
+    EmoteType type,
+    EmoteResolution resolution,
+  ) async {
+    switch (type) {
+      case EmoteType.twitch:
+        return TwitchEmoteProvider.fetchGlobal(
+          accessToken: _accessToken,
+          resolution: resolution,
+        );
+      case EmoteType.bttv:
+        return BttvEmoteProvider.fetchGlobal(resolution: resolution);
+      case EmoteType.ffz:
+        return FfzEmoteProvider.fetchGlobal(resolution: resolution);
+      case EmoteType.sevenTv:
+        return _sevenTvGlobalFetcher(resolution);
+    }
+  }
+
+  Future<List<GenericEmote>> _fetchChannelForProvider(
+    EmoteType type,
+    String broadcasterId, {
+    String? channelName,
+    required EmoteResolution resolution,
+  }) async {
+    switch (type) {
+      case EmoteType.twitch:
+        final fetched = await TwitchEmoteProvider.fetchChannel(
+          broadcasterId,
+          accessToken: _accessToken,
+          channelName: channelName,
+          resolution: resolution,
+        );
+        // Keep stash semantics aligned with the full fetch path: subscriber
+        // emotes live in _channelTwitchEmotes, not the provider stash.
+        return fetched
+            .where(
+              (e) =>
+                  !(e.type == EmoteType.twitch &&
+                      (e.tier != null || e.emoteType == 'subscriptions')),
+            )
+            .toList();
+      case EmoteType.bttv:
+        return BttvEmoteProvider.fetchChannel(
+          broadcasterId,
+          resolution: resolution,
+        );
+      case EmoteType.ffz:
+        return FfzEmoteProvider.fetchChannel(
+          broadcasterId,
+          resolution: resolution,
+        );
+      case EmoteType.sevenTv:
+        final resp = await _sevenTvChannelFetcher(broadcasterId, resolution);
+        if (channelName != null) {
+          if (resp.emoteSetId != null) {
+            setSevenTvEmoteSetId(channelName, resp.emoteSetId!);
+          }
+          if (resp.userId != null) {
+            _sevenTvUserIds[channelName] = resp.userId!;
+          }
+        }
+        return resp.emotes;
+    }
   }
 
   Future<SharedPreferences> _getPrefs() async {
@@ -741,6 +897,9 @@ class EmoteManager extends ChangeNotifier {
       final cached = loaded.cached;
       if (cached != null) {
         _globalCache = cached;
+        // Split the persisted merge back into per-provider stashes so a
+        // visibility toggle can rebuild offline (prefs hold no stashes).
+        _hydrateStashesFromCache(cached);
         _notify();
         if (loaded.fresh) {
           // Twitch global emotes aren't persisted on medium/high (see
@@ -812,6 +971,7 @@ class EmoteManager extends ChangeNotifier {
     bool force = false,
   }) async {
     await _ensureProvidersLoaded();
+    if (broadcasterId != null) _channelBroadcasterIds[channel] = broadcasterId;
     final ttl = await _effectiveTtl();
     if (force) {
       // The nothing tier never fetches: render only what's already cached.
@@ -838,6 +998,9 @@ class EmoteManager extends ChangeNotifier {
       _channelCaches[channel] = subs.isEmpty
           ? cached
           : _buildChannelMap([...cached.suggestions, ...subs]);
+      // Split the persisted merge back into per-provider stashes so a
+      // visibility toggle can rebuild offline (prefs hold no stashes).
+      _hydrateStashesFromCache(cached, channel: channel);
       _reapplyLiveSevenTv(channel);
       _channelFetchTimes[channel] = DateTime.now();
       _notify(channel: channel);
@@ -1073,6 +1236,7 @@ class EmoteManager extends ChangeNotifier {
     _sevenTvEmoteSetIds.remove(channel);
     _sevenTvUserIds.remove(channel);
     _channelProviderEmotes.remove(channel);
+    _channelBroadcasterIds.remove(channel);
     _mergedCache.remove(channel);
     _sevenTvLive.remove(channel);
     _emoteIndexDirty = true;

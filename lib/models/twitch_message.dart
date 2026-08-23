@@ -79,6 +79,10 @@ class TwitchMessage {
   // EmoteManager.version at which cachedSpans was computed; when the manager
   // notifies a higher version, the spans are rebuilt lazily on next render.
   int? cachedSpansVersion;
+  // The text scale that cachedSpans were built for. Cached spans embed
+  // absolute emote pixel sizes, so a scale change must rebuild them (text
+  // resizes and emotes follow).
+  double? cachedSpansScale;
   List<WidgetSpan>? cachedBadgeSpans;
   int? cachedBadgeSpansVersion;
   late final String formattedTimestamp =

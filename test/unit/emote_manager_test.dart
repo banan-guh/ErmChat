@@ -1773,9 +1773,7 @@ void main() {
         sevenTvChannelFetcher: (id, resolution) async {
           fetches++;
           return SevenTvChannelResponse(
-            emotes: [
-              sevenTv('b', fetches == 1 ? 'Bravo' : 'Charlie'),
-            ],
+            emotes: [sevenTv('b', fetches == 1 ? 'Bravo' : 'Charlie')],
           );
         },
       );
@@ -1832,6 +1830,108 @@ void main() {
         'Fresh7tv',
       ]);
     });
+  });
+
+  group('provider stash restore', () {
+    Map<String, Object> globalCacheJson(List<GenericEmote> emotes) => {
+      'emotes3_global': jsonEncode({
+        'ts': DateTime.now().toIso8601String(),
+        'tier': EmoteFetchTier.medium.index,
+        'emotes': emotes.map((e) => e.toJson()).toList(),
+      }),
+    };
+
+    test(
+      'prefs-restored caches toggle a provider offline via hydration',
+      () async {
+        SharedPreferences.setMockInitialValues(
+          globalCacheJson([
+            makeTestEmote(id: 'a', code: 'Hydra', type: EmoteType.sevenTv),
+          ]),
+        );
+        var fetches = 0;
+        final manager = EmoteManager(
+          fetchStagger: Duration.zero,
+          tier: EmoteFetchTier.medium,
+          removeCachedFile: (url) async {},
+          sevenTvGlobalFetcher: (resolution) async {
+            fetches++;
+            return [
+              makeTestEmote(id: 'b', code: 'Fresh', type: EmoteType.sevenTv),
+            ];
+          },
+        );
+
+        await manager.preloadGlobalEmotes();
+        expect(
+          manager.globalEmotesByProvider()['SevenTV']!.map((e) => e.code),
+          ['Hydra'],
+        );
+
+        await manager.setProviderEnabled(EmoteType.sevenTv, false);
+        expect(manager.globalEmotesByProvider()['SevenTV'], isNull);
+
+        await manager.setProviderEnabled(EmoteType.sevenTv, true);
+        expect(
+          manager.globalEmotesByProvider()['SevenTV']!.map((e) => e.code),
+          ['Hydra'],
+        );
+        expect(fetches, 0, reason: 'restored stashes must rebuild offline');
+      },
+    );
+
+    test(
+      'ensureStashed refetches only providers with no retained data',
+      () async {
+        SharedPreferences.setMockInitialValues({
+          ...globalCacheJson([
+            makeTestEmote(id: 't1', code: 'KeptTwitch', type: EmoteType.twitch),
+          ]),
+          'emote_providers_disabled': ['sevenTv'],
+        });
+        var fetches = 0;
+        final manager = EmoteManager(
+          fetchStagger: Duration.zero,
+          tier: EmoteFetchTier.medium,
+          removeCachedFile: (url) async {},
+          sevenTvGlobalFetcher: (resolution) async {
+            fetches++;
+            return [
+              makeTestEmote(
+                id: 'g2',
+                code: 'Fresh7tv',
+                type: EmoteType.sevenTv,
+              ),
+            ];
+          },
+        );
+
+        await manager.preloadGlobalEmotes();
+        // Enabling 7TV has nothing to restore from: the persisted cache was
+        // stripped of it, so the rebuild keeps only the twitch emote.
+        await manager.setProviderEnabled(EmoteType.sevenTv, true);
+        expect(manager.globalEmotesByProvider()['SevenTV'], isNull);
+        expect(manager.globalEmotesByProvider()['Twitch']!.map((e) => e.code), [
+          'KeptTwitch',
+        ]);
+
+        await manager.ensureStashed({EmoteType.sevenTv});
+        expect(fetches, 1);
+        expect(
+          manager.globalEmotesByProvider()['SevenTV']!.map((e) => e.code),
+          ['Fresh7tv'],
+        );
+        expect(
+          manager.globalEmotesByProvider()['Twitch']!.map((e) => e.code),
+          ['KeptTwitch'],
+          reason: 'targeted refetch must not wipe other providers',
+        );
+
+        // A second pass no-ops: the stash now covers 7TV.
+        await manager.ensureStashed({EmoteType.sevenTv});
+        expect(fetches, 1);
+      },
+    );
   });
 
   group('EmoteManager refresh policy', () {

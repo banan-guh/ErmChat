@@ -20,6 +20,10 @@ const kMaxMessagesPerChannelValues = <int>[
   5000,
 ];
 
+/// Default max-messages-per-channel when nothing is persisted. Must be a
+/// member of [kMaxMessagesPerChannelValues].
+const kMaxMessagesPerChannelDefault = 500;
+
 /// Snaps a raw (possibly legacy) value to the nearest log-scale step.
 int snapToMaxMessagesStep(int value) {
   var best = kMaxMessagesPerChannelValues.first;

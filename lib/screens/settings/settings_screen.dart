@@ -50,6 +50,9 @@ class SettingsScreen extends StatelessWidget {
   final TtsController? ttsController;
   final EmoteManager? emoteManager;
 
+  /// Live hook for the dev-only test-widgets toggle (About > 7 taps).
+  final ValueChanged<bool>? onTestWidgetsChanged;
+
   const SettingsScreen({
     super.key,
     required this.twitchAuth,
@@ -87,6 +90,7 @@ class SettingsScreen extends StatelessWidget {
     this.oAuthStarter,
     this.ttsController,
     this.emoteManager,
+    this.onTestWidgetsChanged,
   });
 
   @override
@@ -211,7 +215,10 @@ class SettingsScreen extends StatelessWidget {
             title: 'About',
             onTap: () => Navigator.push(
               context,
-              MaterialPageRoute(builder: (_) => const AboutScreen()),
+              MaterialPageRoute(
+                builder: (_) =>
+                    AboutScreen(onTestWidgetsChanged: onTestWidgetsChanged),
+              ),
             ),
           ),
         ],

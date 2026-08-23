@@ -5,7 +5,9 @@ import '../../util/log.dart';
 import 'dev_settings_screen.dart';
 
 class AboutScreen extends StatefulWidget {
-  const AboutScreen({super.key});
+  final ValueChanged<bool>? onTestWidgetsChanged;
+
+  const AboutScreen({super.key, this.onTestWidgetsChanged});
 
   @override
   State<AboutScreen> createState() => _AboutScreenState();
@@ -39,7 +41,11 @@ class _AboutScreenState extends State<AboutScreen> {
       _tapCount = 0;
       Navigator.push(
         context,
-        MaterialPageRoute(builder: (_) => const DevSettingsScreen()),
+        MaterialPageRoute(
+          builder: (_) => DevSettingsScreen(
+            onTestWidgetsChanged: widget.onTestWidgetsChanged,
+          ),
+        ),
       );
     }
   }

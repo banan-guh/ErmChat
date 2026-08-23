@@ -574,4 +574,36 @@ void main() {
     makeBuilder(em).buildMessageSpans(msg, 'test', Colors.black);
     expect(msg.cachedSpansVersion, em.version * 1000003);
   });
+
+  test('cached spans recompute when the text scale changes', () {
+    final em = EmoteManager();
+    final msg = makeMsg();
+    final builder = makeBuilder(em);
+
+    final small = builder.buildMessageSpans(
+      msg,
+      'test',
+      Colors.black,
+      textScale: 1.0,
+    );
+    // Spans embed absolute emote pixel sizes, so a different scale must
+    // rebuild them instead of serving the cache (emotes follow the font).
+    final cachedSameScale = builder.buildMessageSpans(
+      msg,
+      'test',
+      Colors.black,
+      textScale: 1.0,
+    );
+    expect(identical(cachedSameScale, small), isTrue);
+    expect(msg.cachedSpansScale, 1.0);
+
+    final big = builder.buildMessageSpans(
+      msg,
+      'test',
+      Colors.black,
+      textScale: 2.0,
+    );
+    expect(identical(big, small), isFalse);
+    expect(msg.cachedSpansScale, 2.0);
+  });
 }

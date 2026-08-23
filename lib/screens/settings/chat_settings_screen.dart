@@ -51,7 +51,7 @@ class ChatSettingsScreen extends StatefulWidget {
 }
 
 class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
-  int _maxMessagesPerChannel = 1000;
+  int _maxMessagesPerChannel = kMaxMessagesPerChannelDefault;
   int _recentMessagesCount = 200;
   bool _replyToRoot = false;
   bool _backgroundService = false;
@@ -77,13 +77,14 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
     if (mounted) {
       setState(() {
         _maxMessagesPerChannel = snapToMaxMessagesStep(
-          prefs.getInt('max_messages_per_channel') ?? 1000,
+          prefs.getInt('max_messages_per_channel') ??
+              kMaxMessagesPerChannelDefault,
         );
         _recentMessagesCount = prefs.getInt('recent_messages_limit') ?? 200;
         _replyToRoot = prefs.getBool('reply_to_thread_root') ?? false;
         _backgroundService = prefs.getBool('background_service') ?? false;
         _mentionPush = prefs.getBool('mention_push') ?? false;
-        _whisperNotify = prefs.getBool('whisper_notifications') ?? true;
+        _whisperNotify = prefs.getBool('whisper_notifications') ?? false;
         _preferEmotesFirst = prefs.getBool('prefer_emotes_first') ?? false;
         _showTimestamps = prefs.getBool(kShowTimestampsPrefKey) ?? true;
         _timestampFormat =
@@ -344,14 +345,20 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
           SwitchListTile(
             secondary: const Icon(Icons.gif_box),
             title: const Text('Animate gifs'),
-            subtitle: const Text('Play animated emotes'),
-            value: _animateGifs,
-            onChanged: (value) async {
-              final prefs = await SharedPreferences.getInstance();
-              await prefs.setBool('animate_gifs', value);
-              if (mounted) setState(() => _animateGifs = value);
-              widget.onAnimateGifsChanged?.call(value);
-            },
+            subtitle: Text(
+              _emoteFpsCap == 0
+                  ? 'Paused by the frame rate cap'
+                  : 'Play animated emotes',
+            ),
+            value: _animateGifs && _emoteFpsCap > 0,
+            onChanged: _emoteFpsCap == 0
+                ? null
+                : (value) async {
+                    final prefs = await SharedPreferences.getInstance();
+                    await prefs.setBool('animate_gifs', value);
+                    if (mounted) setState(() => _animateGifs = value);
+                    widget.onAnimateGifsChanged?.call(value);
+                  },
           ),
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -472,7 +479,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
             SwitchListTile(
               secondary: const Icon(Icons.chat_bubble),
               title: const Text('Whisper notifications'),
-              subtitle: const Text('Also notify when someone whispers you'),
+              subtitle: const Text('Notify when someone whispers you'),
               value: _whisperNotify,
               onChanged: (value) async {
                 final prefs = await SharedPreferences.getInstance();
