@@ -1,6 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ermchat/services/chat_store.dart';
-import 'package:ermchat/models/twitch_message.dart';
 
 ChatStore _store() => ChatStore(
   channels: ['test'],

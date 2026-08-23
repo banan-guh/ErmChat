@@ -118,19 +118,27 @@ class _HomeScreenState extends State<HomeScreen>
   );
   final _ttsController = TtsController();
 
-  late final _chatStore = ChatStore(
-    channels: _channels,
-    channelMessages: _channelMessages,
-    messageKeys: _messageKeys,
-    chatStatus: _chatStatus,
-    channelsWithUnread: _channelsWithUnread,
-    channelsWithUnreadMentions: _channelsWithUnreadMentions,
-    unreadMentionsPerChannel: _unreadMentionsPerChannel,
-    historyLoaded: _historyLoaded,
-    channelsEmotesResolved: _channelsEmotesResolved,
-    channelUserIds: _channelUserIds,
-    lastSentWireText: _lastSentWireText,
-  );
+  late final _chatStore =
+      ChatStore(
+          channels: _channels,
+          channelMessages: _channelMessages,
+          messageKeys: _messageKeys,
+          chatStatus: _chatStatus,
+          channelsWithUnread: _channelsWithUnread,
+          channelsWithUnreadMentions: _channelsWithUnreadMentions,
+          unreadMentionsPerChannel: _unreadMentionsPerChannel,
+          historyLoaded: _historyLoaded,
+          channelsEmotesResolved: _channelsEmotesResolved,
+          channelUserIds: _channelUserIds,
+          lastSentWireText: _lastSentWireText,
+        )
+        ..onLoginApplied = (v) {
+          _pingManager.setAccount(v);
+          _scanHistoryForMentions();
+          unawaited(_ensureBlockedUsersLoaded());
+          // Warm the macro cache so sends can read it synchronously.
+          if (v != null) unawaited(loadMacros(v));
+        };
 
   late final _chatConn = ChatConnectionManager(
     ChatConnectionConfig(
@@ -170,17 +178,6 @@ class _HomeScreenState extends State<HomeScreen>
         _unreadMentions = v;
         _mentionsBump.value++;
       },
-      getCurrentUserLogin: () => _currentUserLogin,
-      setCurrentUserLogin: (v) {
-        _currentUserLogin = v;
-        _pingManager.setAccount(v);
-        _scanHistoryForMentions();
-        unawaited(_ensureBlockedUsersLoaded());
-        // Warm the macro cache so sends can read it synchronously.
-        if (v != null) unawaited(loadMacros(v));
-      },
-      getCurrentUserId: () => _currentUserId,
-      setCurrentUserId: (v) => _currentUserId = v,
       onCommand: _handleCommand,
       getReplyToMsg: () => _replyToMsg,
       setReplyToMsg: (v) => _replyToMsg = v,
@@ -191,7 +188,7 @@ class _HomeScreenState extends State<HomeScreen>
       pingManager: _pingManager,
       ignoreManager: _ignoreManager,
       getMacros: () {
-        final login = _currentUserLogin;
+        final login = _chatStore.session.login;
         if (login == null) return const {};
         return cachedMacroLookup(login) ?? const {};
       },
@@ -216,8 +213,8 @@ class _HomeScreenState extends State<HomeScreen>
     twitchApi: _twitchApi,
     irc: _irc,
     getChannelUserIds: () => _channelUserIds,
-    getCurrentUserId: () => _currentUserId,
-    getCurrentUserLogin: () => _currentUserLogin,
+    getCurrentUserId: () => _chatStore.session.userId,
+    getCurrentUserLogin: () => _chatStore.session.login,
     addSystemMessage: _addSystemMessage,
     whisperAddSystemMessage: _addWhisperSystemMessage,
     onWhisperSent: _onWhisperSent,
@@ -362,9 +359,7 @@ class _HomeScreenState extends State<HomeScreen>
   int _unreadWhispers = 0;
   String? _whisperTarget;
 
-  String? _currentUserLogin;
   bool _mentionScanDone = false;
-  String? _currentUserId;
   String? _lastSentText;
   final Map<String, String> _lastSentWireText = {};
 
@@ -401,7 +396,7 @@ class _HomeScreenState extends State<HomeScreen>
     super.initState();
     unawaited(_ttsController.init());
     unawaited(PerfLog.I.init());
-    _currentUserLogin = widget.initialCurrentUserLogin;
+    _chatStore.session.login = widget.initialCurrentUserLogin;
     _pingManager.setAccount(widget.initialCurrentUserLogin);
     _loadEmotePrefs();
     _emoteSheetCtrl = DraggableScrollableController();
@@ -809,8 +804,8 @@ class _HomeScreenState extends State<HomeScreen>
           id == null ||
           (!existingIds.contains(id) && !insertedIds.contains(id));
       if (isNew) {
-        if (msg.isSystem && _currentUserLogin != null) {
-          final selfLogin = _currentUserLogin!.toLowerCase();
+        if (msg.isSystem && _chatStore.session.login != null) {
+          final selfLogin = _chatStore.session.login!.toLowerCase();
           if (msg.login.toLowerCase() == selfLogin) {
             msg.text = msg.text.replaceFirst(
               RegExp(RegExp.escape(msg.login), caseSensitive: false),
@@ -827,7 +822,7 @@ class _HomeScreenState extends State<HomeScreen>
       if (msg.messageId != null) {
         _messageKeys.add('$channel:${msg.messageId}');
       }
-      final login = _currentUserLogin?.toLowerCase();
+      final login = _chatStore.session.login?.toLowerCase();
       if (login != null && msg.highlight == null) {
         final state = _pingManager.evaluate(msg);
         if (state != null && state.hasMention) {
@@ -1160,12 +1155,12 @@ class _HomeScreenState extends State<HomeScreen>
   void _onAuthChanged() {
     _emoteManager.accessToken = widget.twitchAuth.accessToken;
     _refreshEmotesAfterAuth();
-    if (_currentUserLogin?.toLowerCase() !=
+    if (_chatStore.session.login?.toLowerCase() !=
         widget.twitchAuth.login?.toLowerCase()) {
       // Account switched (or signed out): drop the cached user so the manager
       // re-resolves the active account and reconnects with its credentials.
-      _currentUserLogin = null;
-      _currentUserId = null;
+      _chatStore.session.login = null;
+      _chatStore.session.userId = null;
       _pingManager.setAccount(null);
       // The emote-set / block / mention caches are per-account: reset them so
       // the new account's USERSTATE re-fetches its sub emotes (instead of the
@@ -2781,7 +2776,7 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   void _onWhisperSent(String target, String message) {
-    final login = _currentUserLogin;
+    final login = _chatStore.session.login;
     if (login == null) return;
     _whisperTarget = target;
     _whispers.insert(
@@ -2912,7 +2907,7 @@ class _HomeScreenState extends State<HomeScreen>
   // of mentions channel in scan order (reverse-chronological within each
   // channel), so they appear newest-first but may not be perfectly sorted.
   void _scanHistoryForMentions() {
-    if (_mentionScanDone || _currentUserLogin == null) return;
+    if (_mentionScanDone || _chatStore.session.login == null) return;
     _mentionScanDone = true;
     for (final entry in _channelMessages.entries) {
       if (entry.key == _mentionsChannel) continue;

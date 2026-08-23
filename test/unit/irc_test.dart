@@ -318,10 +318,6 @@ ChatConnectionManager _makeConn({
       getSelectedChannel: () => null,
       getUnreadMentions: () => 0,
       setUnreadMentions: (v) {},
-      getCurrentUserLogin: () => null,
-      setCurrentUserLogin: (v) {},
-      getCurrentUserId: () => null,
-      setCurrentUserId: (v) {},
       onCommand: (t, c, a) {},
       getReplyToMsg: () => null,
       setReplyToMsg: (v) {},
@@ -350,6 +346,20 @@ ChatConnectionManager _makeReconnectConn({
   final api = TwitchApi(client: http.Client());
   final auth = TwitchAuth();
   auth.accessToken = 'test-token';
+  final store = ChatStore(
+    channels: channels ?? [],
+    channelMessages: channelMessages ?? {},
+    messageKeys: {},
+    chatStatus: chatStatus ?? {},
+    channelsWithUnread: {},
+    channelsWithUnreadMentions: {},
+    unreadMentionsPerChannel: {},
+    historyLoaded: {},
+    channelsEmotesResolved: {},
+    channelUserIds: {},
+    lastSentWireText: {},
+  );
+  store.session.login = currentUserLogin;
   return ChatConnectionManager(
     ChatConnectionConfig(
       twitchApi: api,
@@ -360,19 +370,7 @@ ChatConnectionManager _makeReconnectConn({
       badgeService: TwitchBadgeService(),
       userStore: UserStore(),
       twitchAuth: auth,
-      store: ChatStore(
-        channels: channels ?? [],
-        channelMessages: channelMessages ?? {},
-        messageKeys: {},
-        chatStatus: chatStatus ?? {},
-        channelsWithUnread: {},
-        channelsWithUnreadMentions: {},
-        unreadMentionsPerChannel: {},
-        historyLoaded: {},
-        channelsEmotesResolved: {},
-        channelUserIds: {},
-        lastSentWireText: {},
-      ),
+      store: store,
       bumpChannel: (channel) {},
       invalidateChannel: (channel) {},
       invalidateMessage: (channel, messageId) {},
@@ -384,10 +382,6 @@ ChatConnectionManager _makeReconnectConn({
       getSelectedChannel: () => null,
       getUnreadMentions: () => 0,
       setUnreadMentions: (v) {},
-      getCurrentUserLogin: () => currentUserLogin,
-      setCurrentUserLogin: (v) {},
-      getCurrentUserId: () => null,
-      setCurrentUserId: (v) {},
       onCommand: (t, c, a) {},
       getReplyToMsg: () => null,
       setReplyToMsg: (v) {},

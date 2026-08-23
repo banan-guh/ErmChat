@@ -83,10 +83,6 @@ class ChatConnectionConfig {
     required this.getSelectedChannel,
     required this.getUnreadMentions,
     required this.setUnreadMentions,
-    required this.getCurrentUserLogin,
-    required this.setCurrentUserLogin,
-    required this.getCurrentUserId,
-    required this.setCurrentUserId,
     required this.onCommand,
     required this.getReplyToMsg,
     required this.setReplyToMsg,
@@ -130,10 +126,6 @@ class ChatConnectionConfig {
   final String? Function() getSelectedChannel;
   final int Function() getUnreadMentions;
   final void Function(int) setUnreadMentions;
-  final String? Function() getCurrentUserLogin;
-  final void Function(String?) setCurrentUserLogin;
-  final String? Function() getCurrentUserId;
-  final void Function(String?) setCurrentUserId;
   final void Function(String, String, TwitchAuth) onCommand;
   final TwitchMessage? Function() getReplyToMsg;
   final void Function(TwitchMessage?) setReplyToMsg;
@@ -165,6 +157,8 @@ class ChatConnectionManager {
   final UserStore userStore;
   final TwitchAuth twitchAuth;
   final EmoteManager emoteManager;
+  final ActiveSession session;
+  final ChatStore store;
   final Map<String, List<TwitchMessage>> channelMessages;
   final Set<String> messageKeys;
   final Map<String, String> chatStatus;
@@ -190,10 +184,6 @@ class ChatConnectionManager {
   final String? Function() getSelectedChannel;
   final int Function() getUnreadMentions;
   final void Function(int) setUnreadMentions;
-  final String? Function() getCurrentUserLogin;
-  final void Function(String?) setCurrentUserLogin;
-  final String? Function() getCurrentUserId;
-  final void Function(String?) setCurrentUserId;
   final void Function(String, String, TwitchAuth) onCommand;
   final TwitchMessage? Function() getReplyToMsg;
   final void Function(TwitchMessage?) setReplyToMsg;
@@ -329,6 +319,8 @@ class ChatConnectionManager {
       badgeService = config.badgeService,
       userStore = config.userStore,
       twitchAuth = config.twitchAuth,
+      session = config.store.session,
+      store = config.store,
       channelMessages = config.store.channelMessages,
       messageKeys = config.store.messageKeys,
       chatStatus = config.store.chatStatus,
@@ -352,10 +344,6 @@ class ChatConnectionManager {
       getSelectedChannel = config.getSelectedChannel,
       getUnreadMentions = config.getUnreadMentions,
       setUnreadMentions = config.setUnreadMentions,
-      getCurrentUserLogin = config.getCurrentUserLogin,
-      setCurrentUserLogin = config.setCurrentUserLogin,
-      getCurrentUserId = config.getCurrentUserId,
-      setCurrentUserId = config.setCurrentUserId,
       onCommand = config.onCommand,
       getReplyToMsg = config.getReplyToMsg,
       setReplyToMsg = config.setReplyToMsg,
@@ -490,7 +478,7 @@ class ChatConnectionManager {
     // Track own timeouts for the input-box countdown. Runs before the
     // moderation-channel early return so the IRC and EventSub sources can't
     // double-count: both just re-arm the same expiry.
-    final selfLogin = getCurrentUserLogin()?.toLowerCase();
+    final selfLogin = session.login?.toLowerCase();
     if (selfLogin != null && user.toLowerCase() == selfLogin) {
       if (isTimeout && duration != null) {
         _selfTimeoutUntil[channel] = DateTime.now().add(
@@ -502,7 +490,7 @@ class ChatConnectionManager {
     // messages come from EventSub (with reason/duration) - skip the IRC copy.
     if (_moderationChannels.contains(channel)) return;
     final result = _processBanInChannel(channel, user, isTimeout);
-    final isSelf = user.toLowerCase() == getCurrentUserLogin()?.toLowerCase();
+    final isSelf = user.toLowerCase() == session.login?.toLowerCase();
     final base = isSelf
         ? (isTimeout
               ? 'You are timed out${duration != null ? ' for ${duration}s' : ''}'
@@ -640,7 +628,7 @@ class ChatConnectionManager {
     if (!auth.isConfigured) return;
 
     final userId = channelUserIds[channel];
-    if (userId == null || getCurrentUserId() == null) return;
+    if (userId == null || session.userId == null) return;
 
     // Timer-driven: a network blip (or the client being closed in dispose)
     // must not surface as an unhandled async exception every 60s per channel.
@@ -954,15 +942,15 @@ class ChatConnectionManager {
 
       unawaited(_resolveSevenTvAndSubscribe(channelName, channelUserId));
 
-      if (getCurrentUserLogin() == null && auth.accessToken != null) {
+      if (session.login == null && auth.accessToken != null) {
         final currentUser = await _ensureCurrentUser(auth);
         if (currentUser != null) {
-          setCurrentUserLogin(currentUser['login']);
-          setCurrentUserId(currentUser['id']);
+          store.applyLogin(currentUser['login']);
+          session.userId = currentUser['id'];
         }
       }
 
-      if (getCurrentUserLogin() != null && getCurrentUserId() != null) {
+      if (session.login != null && session.userId != null) {
         eventSub.setChannelMapping(channelUserId, channelName);
         unawaited(_subscribeModeration(channelName, channelUserId));
         unawaited(_subscribeWidgets(channelName, channelUserId));
@@ -1030,7 +1018,7 @@ class ChatConnectionManager {
   ) async {
     try {
       final auth = twitchAuth;
-      if (!auth.isConfigured || getCurrentUserId() == null) return;
+      if (!auth.isConfigured || session.userId == null) return;
       // Already known to be rejected with 403 (not a moderator); skip so we
       // don't re-attempt and re-log on every reconnect.
       if (_moderationSkippedChannels.contains(channelName)) return;
@@ -1048,7 +1036,7 @@ class ChatConnectionManager {
           version: '2',
           condition: {
             'broadcaster_user_id': channelUserId,
-            'moderator_user_id': getCurrentUserId()!,
+            'moderator_user_id': session.userId!,
           },
         );
         if (ok) {
@@ -1081,8 +1069,8 @@ class ChatConnectionManager {
   ) async {
     try {
       final auth = twitchAuth;
-      if (!auth.isConfigured || getCurrentUserId() == null) return;
-      if (getCurrentUserId() != channelUserId) return;
+      if (!auth.isConfigured || session.userId == null) return;
+      if (session.userId != channelUserId) return;
       if (_widgetSkippedChannels.contains(channelName)) return;
       for (int attempt = 0; attempt < 3; attempt++) {
         final sessionId = eventSub.sessionId;
@@ -1241,7 +1229,7 @@ class ChatConnectionManager {
   /// comes up (session_reconnect / keepalive reconnect). Skip sets and the
   /// already-subscribed sets are respected by the per-channel methods.
   void _resubscribeEventSubChannels() {
-    final uid = getCurrentUserId();
+    final uid = session.userId;
     if (uid == null) return;
     for (final channel in channels) {
       final channelUserId = channelUserIds[channel];
@@ -1285,7 +1273,7 @@ class ChatConnectionManager {
     onRebuild();
     onRequestFocus();
 
-    final userLogin = getCurrentUserLogin();
+    final userLogin = session.login;
     if (userLogin == null) {
       onShowSnackBar('Connect an account to chat');
       return;
@@ -1304,7 +1292,7 @@ class ChatConnectionManager {
     // PRIVMSG sent in that window can be dropped with no error and no local
     // echo. Fall back to Helix until the channel is confirmed joined.
     _lastOwnMessageAt[channel] = DateTime.now();
-    final canHelix = getCurrentUserId() != null && auth.isConfigured;
+    final canHelix = session.userId != null && auth.isConfigured;
     if (irc.isConnected && (_joinedChannels.contains(channel) || !canHelix)) {
       irc.sendMessage(
         channel,
@@ -1318,7 +1306,7 @@ class ChatConnectionManager {
         final result = await twitchApi.sendChatMessage(
           auth,
           broadcasterId: broadcasterId,
-          senderId: getCurrentUserId()!,
+          senderId: session.userId!,
           message: wireText,
           replyParentMessageId: reply?.messageId,
         );
@@ -1446,11 +1434,9 @@ class ChatConnectionManager {
 
       // Use the cached account if available so cold start skips the Helix
       // user lookup entirely.
-      if (getCurrentUserLogin() == null &&
-          auth.login != null &&
-          auth.userId != null) {
-        setCurrentUserLogin(auth.login);
-        setCurrentUserId(auth.userId);
+      if (session.login == null && auth.login != null && auth.userId != null) {
+        store.applyLogin(auth.login);
+        session.userId = auth.userId;
       }
 
       // EventSub needs no credentials - connect it in parallel with the
@@ -1482,7 +1468,7 @@ class ChatConnectionManager {
           ? eventSub.connect()
           : Future<void>.value();
       Future<Map<String, dynamic>?>? userFuture;
-      if (getCurrentUserLogin() == null && hasToken) {
+      if (session.login == null && hasToken) {
         userFuture = _ensureCurrentUser(auth);
       }
 
@@ -1495,8 +1481,8 @@ class ChatConnectionManager {
         }
       }
       if (currentUser != null) {
-        setCurrentUserLogin(currentUser['login']);
-        setCurrentUserId(currentUser['id']);
+        store.applyLogin(currentUser['login']);
+        session.userId = currentUser['id'];
       }
 
       // Account switch: an already-connected socket would skip the reconnect
@@ -1504,10 +1490,10 @@ class ChatConnectionManager {
       // desired account differs from what they were last told to use. Login
       // alone distinguishes accounts (the token always follows it); anonymous
       // mode is a distinct, stable state (null) so it doesn't flap.
-      final desiredAnonymous = getCurrentUserLogin() == null || !hasToken;
+      final desiredAnonymous = session.login == null || !hasToken;
       final desiredUsername = desiredAnonymous
           ? null
-          : (getCurrentUserLogin() ?? auth.login)?.toLowerCase();
+          : (session.login ?? auth.login)?.toLowerCase();
       final desiredToken = hasToken
           ? (auth.accessToken ?? 'anonymous')
           : 'anonymous';
@@ -1523,22 +1509,22 @@ class ChatConnectionManager {
         _widgetSkippedChannels.clear();
       }
 
-      if (getCurrentUserLogin() != null && hasToken) {
+      if (session.login != null && hasToken) {
         try {
           await Future.wait([
             irc.connect(
-              username: getCurrentUserLogin()!,
+              username: session.login!,
               accessToken: auth.accessToken!,
             ),
             ircRead.connect(
-              username: getCurrentUserLogin()!,
+              username: session.login!,
               accessToken: auth.accessToken!,
             ),
           ]);
         } catch (e) {
           logDebug('IRC connect failed: $e');
         }
-        _lastIrcUsername = getCurrentUserLogin()?.toLowerCase();
+        _lastIrcUsername = session.login?.toLowerCase();
         _lastIrcToken = auth.accessToken;
         _lastIrcAnonymous = false;
       } else {
@@ -1584,8 +1570,8 @@ class ChatConnectionManager {
     if (_expiryHandled) return;
     _expiryHandled = true;
     twitchAuth.markActiveExpired();
-    setCurrentUserLogin(null);
-    setCurrentUserId(null);
+    store.applyLogin(null);
+    session.userId = null;
     for (final channel in channels) {
       onSystemMessage(
         channel,
@@ -1858,7 +1844,7 @@ class ChatConnectionManager {
 
     final mod = event.moderatorName;
     final target = event.targetName;
-    final selfLogin = getCurrentUserLogin()?.toLowerCase();
+    final selfLogin = session.login?.toLowerCase();
     final isSelfTarget =
         target != null &&
         selfLogin != null &&
@@ -2019,7 +2005,7 @@ class ChatConnectionManager {
       unawaited(_ensureSourceChannelData(msg.sourceBroadcasterId!));
     }
 
-    final login = getCurrentUserLogin()?.toLowerCase();
+    final login = session.login?.toLowerCase();
     final state = msg.highlight;
     if (state != null && state.hasMention && msg.login != login) {
       if (!msg.isHistory && channel != getSelectedChannel()) {
@@ -2093,8 +2079,8 @@ class ChatConnectionManager {
     final msg = parseIrcChatMessage(
       ircMsg,
       channel: channel,
-      defaultLogin: getCurrentUserLogin(),
-      defaultUserId: getCurrentUserId(),
+      defaultLogin: session.login,
+      defaultUserId: session.userId,
     );
 
     // Track our own message ids so replies chained onto them ping via
@@ -2152,7 +2138,7 @@ class ChatConnectionManager {
   }
 
   void reconnectIfNecessary() {
-    final login = getCurrentUserLogin();
+    final login = session.login;
     final token = twitchAuth.accessToken;
     final anonymous = login == null || token == null;
     final username = login ?? _anonymousNick(1);

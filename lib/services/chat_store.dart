@@ -2,6 +2,14 @@ import 'dart:ui' show Color;
 
 import '../models/twitch_message.dart';
 
+/// The account the chat pipeline currently acts as.
+class ActiveSession {
+  String? login;
+  String? userId;
+}
+
+/// Owns the shared chat state: the per-channel buffers the connection
+
 /// Owns the shared chat state: the per-channel buffers the connection
 /// pipeline writes and the UI renders. One instance is created by
 /// HomeScreen and handed to [ChatConnectionManager]; both sides hold the
@@ -58,6 +66,22 @@ class ChatStore {
 
   /// Last wire text sent per channel, for duplicate-send bypassing.
   final Map<String, String> lastSentWireText;
+
+  /// The active account. Writes go through [applyLogin] when they represent
+  /// the pipeline resolving or switching identity; direct field writes are
+  /// reserved for HomeScreen's special paths (init seeding, auth-switch
+  /// drop) which manage their own side effects.
+  final ActiveSession session = ActiveSession();
+
+  /// Fires after [applyLogin]; HomeScreen hooks account-scoped refreshes
+  /// (ping account, mention rescan, blocks, macro warm).
+  void Function(String? login)? onLoginApplied;
+
+  /// Pipeline-path login write: assigns and fires [onLoginApplied].
+  void applyLogin(String? login) {
+    session.login = login;
+    onLoginApplied?.call(login);
+  }
 
   int _nextSystemMessageId = 0;
 
