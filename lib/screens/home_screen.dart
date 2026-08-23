@@ -157,9 +157,6 @@ class _HomeScreenState extends State<HomeScreen>
       ),
       store: _chatStore,
       bridge: ChatViewBridge(
-        bumpChannel: _notifyNewMessage,
-        invalidateChannel: _bumpChannel,
-        invalidateMessage: _invalidateMessage,
         mentionsChannel: _mentionsChannel,
         onRebuild: () {
           if (mounted) setState(() {});
@@ -249,8 +246,6 @@ class _HomeScreenState extends State<HomeScreen>
   late final _sevenTvPaintService = SevenTvPaintService();
   final _userStore = UserStore();
   final _channelNotifier = ValueNotifier<List<String>>([]);
-  final _chatVersions = <String, ValueNotifier<int>>{};
-  final _messageNotifiers = <String, ValueNotifier<int>>{};
   final _tileCache = <String, Map<String?, Widget>>{};
   String? _selectedChannel;
   final _blockedLogins = <String>{};
@@ -397,6 +392,7 @@ class _HomeScreenState extends State<HomeScreen>
     unawaited(_ignoreManager.load());
     _loadNotificationSettings();
     _loadTestWidgets();
+    _storeEventsSub = _chatStore.events.listen(_onStoreEvent);
     _chatConn.connect();
     _cooldownTickTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       _tickCooldownLabel();
@@ -532,7 +528,7 @@ class _HomeScreenState extends State<HomeScreen>
     // message to hit the truncation path.
     for (final channel in List.of(_chatStore.channels)) {
       _chatStore.truncateChannel(channel, maxMessages: _maxMessagesPerChannel);
-      _bumpChannel(channel);
+      _chatStore.touchChannel(channel);
     }
   }
 
@@ -556,7 +552,7 @@ class _HomeScreenState extends State<HomeScreen>
     setState(() => _showTimestamps = value);
     // Rendered tiles bake the timestamp setting in; re-render all channels.
     for (final channel in List.of(_chatStore.channels)) {
-      _bumpChannel(channel);
+      _chatStore.touchChannel(channel);
     }
   }
 
@@ -564,7 +560,7 @@ class _HomeScreenState extends State<HomeScreen>
     if (_timestampFormat == value) return;
     setState(() => _timestampFormat = value);
     for (final channel in List.of(_chatStore.channels)) {
-      _bumpChannel(channel);
+      _chatStore.touchChannel(channel);
     }
   }
 
@@ -572,7 +568,7 @@ class _HomeScreenState extends State<HomeScreen>
     if (_sharedChatMode == value) return;
     setState(() => _sharedChatMode = value);
     for (final channel in List.of(_chatStore.channels)) {
-      _bumpChannel(channel);
+      _chatStore.touchChannel(channel);
     }
   }
 
@@ -580,7 +576,7 @@ class _HomeScreenState extends State<HomeScreen>
     if (_chatFontSize == value) return;
     setState(() => _chatFontSize = value);
     for (final channel in List.of(_chatStore.channels)) {
-      _bumpChannel(channel);
+      _chatStore.touchChannel(channel);
     }
   }
 
@@ -588,7 +584,7 @@ class _HomeScreenState extends State<HomeScreen>
     if (_checkeredMessages == value) return;
     setState(() => _checkeredMessages = value);
     for (final channel in List.of(_chatStore.channels)) {
-      _bumpChannel(channel);
+      _chatStore.touchChannel(channel);
     }
   }
 
@@ -596,7 +592,7 @@ class _HomeScreenState extends State<HomeScreen>
     if (_lineSeparator == value) return;
     setState(() => _lineSeparator = value);
     for (final channel in List.of(_chatStore.channels)) {
-      _bumpChannel(channel);
+      _chatStore.touchChannel(channel);
     }
   }
 
@@ -607,7 +603,7 @@ class _HomeScreenState extends State<HomeScreen>
     // Tiles bake the paint decision in at build time; re-render all channels.
     _tileCache.clear();
     for (final channel in List.of(_chatStore.channels)) {
-      _bumpChannel(channel);
+      _chatStore.touchChannel(channel);
     }
   }
 
@@ -700,7 +696,7 @@ class _HomeScreenState extends State<HomeScreen>
         // Keep the thread store in sync with the buffer: blocked users'
         // messages bypass truncation, so decay them explicitly.
         _chatStore.decayEvicted(entry.key, removed);
-        _bumpChannel(entry.key);
+        _chatStore.touchChannel(entry.key);
       }
     }
   }
@@ -856,7 +852,7 @@ class _HomeScreenState extends State<HomeScreen>
     if (insertedMsgs.isNotEmpty) {
       _chatStore.indexMessages(channel, insertedMsgs);
     }
-    _bumpChannel(channel);
+    _chatStore.touchChannel(channel);
     _moveConnectedMessageToTop(channel);
   }
 
@@ -1080,7 +1076,7 @@ class _HomeScreenState extends State<HomeScreen>
       _onPanelDataChanged(channel);
     } else {
       for (final c in List.of(_chatStore.channels)) {
-        _bumpChannel(c);
+        _chatStore.touchChannel(c);
       }
       _chatStore.mentionsBump.value++;
       _onPanelDataChanged();
@@ -1088,36 +1084,34 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   ValueNotifier<int> _versionNotifier(String channel) {
-    return _chatVersions.putIfAbsent(channel, () => ValueNotifier(0));
+    return _chatStore.versionNotifier(channel);
   }
 
   ValueNotifier<int> _messageNotifier(String channel) {
-    return _messageNotifiers.putIfAbsent(channel, () => ValueNotifier(0));
+    return _chatStore.messageCountNotifier(channel);
   }
 
   ValueNotifier<bool> _atBottomNotifier(String channel) {
     return _atBottomNotifiers.putIfAbsent(channel, () => ValueNotifier(true));
   }
 
-  void _notifyNewMessage(String channel) {
-    _messageNotifier(channel).value++;
-    _onPanelDataChanged(channel);
-  }
+  StreamSubscription<ChatStoreEvent>? _storeEventsSub;
 
-  void _bumpChannel(String channel) {
-    _tileCache.remove(channel);
-    _versionNotifier(channel).value++;
-    _onPanelDataChanged(channel);
-  }
-
-  // Targeted tile invalidation: evict a single message (deletions, edits)
-  // instead of clearing the whole channel cache. A null messageId is never
-  // cached, so only the notify is needed to re-read the mutated message.
-  void _invalidateMessage(String channel, String? messageId) {
-    if (messageId != null) {
-      _tileCache[channel]?.remove(messageId);
+  // The store announces every mutation; this is the view bookkeeping that
+  // reacts: tile-cache eviction and overlay-panel data refresh. Rendering
+  // itself happens through the per-channel notifiers the tiles listen to.
+  void _onStoreEvent(ChatStoreEvent event) {
+    switch (event.signal) {
+      case ChatStoreSignal.newContent:
+        _onPanelDataChanged(event.channel);
+      case ChatStoreSignal.channelTouched:
+        _tileCache.remove(event.channel);
+        _onPanelDataChanged(event.channel);
+      case ChatStoreSignal.messageMutated:
+        if (event.messageId != null) {
+          _tileCache[event.channel]?.remove(event.messageId);
+        }
     }
-    _messageNotifier(channel).value++;
   }
 
   void _onPanelDataChanged([String? changedChannel]) {
@@ -1457,7 +1451,7 @@ class _HomeScreenState extends State<HomeScreen>
     if (_showNamePaints) {
       _sevenTvPaintService.enabled = true;
       for (final channel in List.of(_chatStore.channels)) {
-        _bumpChannel(channel);
+        _chatStore.touchChannel(channel);
       }
     }
   }
@@ -1501,17 +1495,12 @@ class _HomeScreenState extends State<HomeScreen>
     for (final c in _scrollControllers.values) {
       c.dispose();
     }
-    for (final n in _chatVersions.values) {
-      n.dispose();
-    }
-    for (final n in _messageNotifiers.values) {
-      n.dispose();
-    }
     for (final n in _atBottomNotifiers.values) {
       n.dispose();
     }
     _tileCache.clear();
-    _chatStore.mentionsBump.dispose();
+    _storeEventsSub?.cancel();
+    _chatStore.dispose();
     _notificationTapSub?.cancel();
     _notificationService.dispose();
     super.dispose();
@@ -1722,7 +1711,7 @@ class _HomeScreenState extends State<HomeScreen>
   void _addSystemMessage(String channel, String text, {Color? accent}) {
     if (!_chatStore.addSystemMessage(channel, text, accent: accent)) return;
     _truncateChannelMessages(channel);
-    _notifyNewMessage(channel);
+    _chatStore.noteNewMessage(channel);
   }
 
   void _showMessageMenu(TwitchMessage msg) {
@@ -1875,7 +1864,7 @@ class _HomeScreenState extends State<HomeScreen>
     if (idx <= 0) return;
     final msg = msgs.removeAt(idx);
     msgs.insert(0, msg);
-    _bumpChannel(channel);
+    _chatStore.touchChannel(channel);
   }
 
   Future<void> _addChannel(String channelName) async {
@@ -1959,8 +1948,7 @@ class _HomeScreenState extends State<HomeScreen>
     // Per-channel notifiers and tile state must die with the channel: a
     // re-joined channel would otherwise reuse stale notifiers and an old
     // frozen snapshot, and the maps would grow for the session.
-    _chatVersions.remove(channel)?.dispose();
-    _messageNotifiers.remove(channel)?.dispose();
+    _chatStore.forgetChannel(channel);
     _atBottomNotifiers.remove(channel)?.dispose();
     _tileCache.remove(channel);
     _frozenSnapshot.remove(channel);
@@ -3177,7 +3165,8 @@ class _HomeScreenState extends State<HomeScreen>
                                                     ),
                                                 onShowMessageMenu:
                                                     _showMessageMenu,
-                                                onNewMessage: _notifyNewMessage,
+                                                onNewMessage:
+                                                    _chatStore.noteNewMessage,
                                                 onFindThreadRoot:
                                                     _findThreadRoot,
                                                 onShowThreadView:

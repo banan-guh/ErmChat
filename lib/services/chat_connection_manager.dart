@@ -69,9 +69,6 @@ class ChatServices {
 /// of view-owned state the pipeline needs (selected channel, message cap).
 class ChatViewBridge {
   ChatViewBridge({
-    required this.bumpChannel,
-    required this.invalidateChannel,
-    required this.invalidateMessage,
     required this.mentionsChannel,
     required this.onRebuild,
     required this.onSystemMessage,
@@ -81,9 +78,6 @@ class ChatViewBridge {
     required this.getMaxMessagesPerChannel,
   });
 
-  final void Function(String channel) bumpChannel;
-  final void Function(String channel) invalidateChannel;
-  final void Function(String channel, String? messageId) invalidateMessage;
   final String mentionsChannel;
   final VoidCallback onRebuild;
   final void Function(String, String, {Color? accent}) onSystemMessage;
@@ -169,9 +163,6 @@ class ChatConnectionManager {
   final Set<String> channelsEmotesResolved;
   final Map<String, String> channelUserIds;
   final Map<String, String> lastSentWireText;
-  final void Function(String channel) bumpChannel;
-  final void Function(String channel) invalidateChannel;
-  final void Function(String channel, String? messageId) invalidateMessage;
   final String mentionsChannel;
   final VoidCallback onRebuild;
   final void Function(String, String, {Color? accent}) onSystemMessage;
@@ -319,9 +310,6 @@ class ChatConnectionManager {
       channelsEmotesResolved = config.store.channelsEmotesResolved,
       channelUserIds = config.store.channelUserIds,
       lastSentWireText = config.store.lastSentWireText,
-      bumpChannel = config.bridge.bumpChannel,
-      invalidateChannel = config.bridge.invalidateChannel,
-      invalidateMessage = config.bridge.invalidateMessage,
       mentionsChannel = config.bridge.mentionsChannel,
       onRebuild = config.bridge.onRebuild,
       onSystemMessage = config.bridge.onSystemMessage,
@@ -407,7 +395,7 @@ class ChatConnectionManager {
           !msg.isSystem &&
           !msg.deleted) {
         msg.deleted = true;
-        invalidateMessage(channel, msg.messageId);
+        store.messageMutated(channel, msg.messageId);
         count++;
       }
     }
@@ -508,7 +496,7 @@ class ChatConnectionManager {
     for (final m in msgs) {
       if (m.messageId == messageId) {
         m.text = newText;
-        invalidateMessage(channel, messageId);
+        store.messageMutated(channel, messageId);
         return;
       }
     }
@@ -664,7 +652,7 @@ class ChatConnectionManager {
     final newStatus = parts.isNotEmpty ? parts.join(' · ') : '';
     if (chatStatus[channel] == newStatus) return;
     chatStatus[channel] = newStatus;
-    invalidateChannel(channel);
+    store.touchChannel(channel);
   }
 
   Future<void> subscribeChannel(String channelName) async {
@@ -1357,7 +1345,7 @@ class ChatConnectionManager {
       for (final msg in msgs) {
         if (msg.messageId == event.messageId && !msg.isSystem) {
           msg.deleted = true;
-          invalidateMessage(event.channel, msg.messageId);
+          store.messageMutated(event.channel, msg.messageId);
           found = true;
           break;
         }
@@ -1530,7 +1518,7 @@ class ChatConnectionManager {
           if (!m.isSystem) m.deleted = true;
         }
       }
-      invalidateChannel(event.channel);
+      store.touchChannel(event.channel);
       onSystemMessage(event.channel, 'Chat was cleared.');
     });
 
@@ -1619,7 +1607,7 @@ class ChatConnectionManager {
           for (final m in msgs) {
             if (m.messageId == event.messageId && !m.isSystem) {
               m.deleted = true;
-              invalidateMessage(event.channel, m.messageId);
+              store.messageMutated(event.channel, m.messageId);
               break;
             }
           }
@@ -1639,7 +1627,7 @@ class ChatConnectionManager {
             if (!m.isSystem) m.deleted = true;
           }
         }
-        invalidateChannel(event.channel);
+        store.touchChannel(event.channel);
         onSystemMessage(event.channel, '$mod cleared the chat.');
         break;
       case 'ban':
@@ -1807,7 +1795,7 @@ class ChatConnectionManager {
     if (channel != getSelectedChannel() && !msg.isHistory && !msg.isSystem) {
       channelsWithUnread.add(channel);
     }
-    bumpChannel(channel);
+    store.noteNewMessage(channel);
     precacheMessageEmotes(msg, channel);
     onChatMessage?.call(channel, msg);
   }
@@ -1888,7 +1876,7 @@ class ChatConnectionManager {
     }
     store.indexMessages(channel, [msg]);
 
-    bumpChannel(channel);
+    store.noteNewMessage(channel);
     precacheMessageEmotes(msg, channel);
     // Own messages arrive on the read socket (not the channel echo), so they
     // would otherwise never be read aloud; surface them like any other chat

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart' show ValueNotifier;
 import 'package:clock/clock.dart';
 
@@ -10,6 +12,18 @@ import '../util/thread_utils.dart';
 class ActiveSession {
   String? login;
   String? userId;
+}
+
+/// What changed inside the store; the UI subscribes once and routes each
+/// signal to its view bookkeeping (tile-cache eviction, panel refresh).
+enum ChatStoreSignal { newContent, channelTouched, messageMutated }
+
+class ChatStoreEvent {
+  final ChatStoreSignal signal;
+  final String channel;
+  final String? messageId;
+
+  const ChatStoreEvent(this.signal, this.channel, {this.messageId});
 }
 
 /// Owns the shared chat state: the per-channel buffers the connection
@@ -112,6 +126,68 @@ class ChatStore {
   void applyLogin(String? login) {
     session.login = login;
     onLoginApplied?.call(login);
+  }
+
+  // ---- Change signals -----------------------------------------------------
+
+  final _versions = <String, ValueNotifier<int>>{};
+  final _messageCounters = <String, ValueNotifier<int>>{};
+  final _events = StreamController<ChatStoreEvent>.broadcast(sync: true);
+
+  /// Fired on every mutation; synchronous so a listener's view bookkeeping
+  /// (cache eviction) lands before anything reads it in the same turn.
+  Stream<ChatStoreEvent> get events => _events.stream;
+
+  /// Per-channel render epoch: bumped when the whole channel re-renders.
+  ValueNotifier<int> versionNotifier(String channel) =>
+      _versions.putIfAbsent(channel, () => ValueNotifier(0));
+
+  /// Per-channel content counter: bumped whenever buffer content changes
+  /// (new rows or in-place edits).
+  ValueNotifier<int> messageCountNotifier(String channel) =>
+      _messageCounters.putIfAbsent(channel, () => ValueNotifier(0));
+
+  /// New content landed in [channel] (scroll-position bookkeeping).
+  void noteNewMessage(String channel) {
+    messageCountNotifier(channel).value++;
+    _events.add(ChatStoreEvent(ChatStoreSignal.newContent, channel));
+  }
+
+  /// Channel-level state changed (status line, metadata): full re-render.
+  void touchChannel(String channel) {
+    versionNotifier(channel).value++;
+    _events.add(ChatStoreEvent(ChatStoreSignal.channelTouched, channel));
+  }
+
+  /// A single message was edited in place ([messageId] null means an uncached
+  /// row; nothing to evict).
+  void messageMutated(String channel, String? messageId) {
+    messageCountNotifier(channel).value++;
+    _events.add(
+      ChatStoreEvent(
+        ChatStoreSignal.messageMutated,
+        channel,
+        messageId: messageId,
+      ),
+    );
+  }
+
+  /// Drops per-channel notifiers (channel removed from the app).
+  void forgetChannel(String channel) {
+    _versions.remove(channel)?.dispose();
+    _messageCounters.remove(channel)?.dispose();
+    _channelThreads.remove(channel);
+  }
+
+  void dispose() {
+    for (final n in _versions.values) {
+      n.dispose();
+    }
+    for (final n in _messageCounters.values) {
+      n.dispose();
+    }
+    mentionsBump.dispose();
+    _events.close();
   }
 
   // ---- Threads (derived state) -------------------------------------------

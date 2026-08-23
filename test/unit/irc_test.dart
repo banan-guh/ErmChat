@@ -314,9 +314,6 @@ ChatConnectionManager _makeConn({
         lastSentWireText: {},
       ),
       bridge: ChatViewBridge(
-        bumpChannel: (channel) {},
-        invalidateChannel: (channel) {},
-        invalidateMessage: (channel, messageId) {},
         mentionsChannel: '@mentions',
         onRebuild: () {},
         onSystemMessage: (c, t, {Color? accent}) {},
@@ -378,9 +375,6 @@ ChatConnectionManager _makeReconnectConn({
       ),
       store: store,
       bridge: ChatViewBridge(
-        bumpChannel: (channel) {},
-        invalidateChannel: (channel) {},
-        invalidateMessage: (channel, messageId) {},
         mentionsChannel: '@mentions',
         onRebuild: () {},
         onSystemMessage: onSystemMessage ?? (c, t, {Color? accent}) {},
