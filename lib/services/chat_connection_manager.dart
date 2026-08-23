@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/widgets.dart';
 import 'package:http/http.dart' as http;
-import '../models/emote_fetch_tier.dart';
 import '../models/generic_emote.dart';
 import '../util/log.dart';
 import '../models/twitch_message.dart';
@@ -18,21 +17,11 @@ import '../services/user_store.dart';
 import '../services/command_macros.dart';
 import '../services/ping_manager.dart';
 import '../services/ignore_manager.dart';
+import '../services/chat_ingestion.dart';
 import '../services/chat_store.dart';
 import '../util/text_bypass.dart';
 import '../color_utils.dart';
 import '../util/constants.dart';
-
-class _BanMeta {
-  final String user;
-  final bool isTimeout;
-  int stackCount = 1;
-  DateTime lastEvent;
-  String? firstMessageId;
-
-  _BanMeta({required this.user, required this.isTimeout, DateTime? lastEvent})
-    : lastEvent = lastEvent ?? DateTime.now();
-}
 
 /// Services the chat pipeline depends on. Constructed once per screen and
 /// injectable for tests.
@@ -240,32 +229,48 @@ class ChatConnectionManager {
   // a login landing while a startup connect is still in-flight). Drained at
   // the end of the in-flight connect so the dropped credentials are honored.
   bool _connectRetryRequested = false;
-  final _recentBanMeta = <String, List<_BanMeta>>{};
-  static const _banDedupWindowSeconds = 10;
-  // Incremental thread index: channel -> rootId -> thread. Populated as
-  // tagged messages are ingested (live, own echo, history merges) so a thread
-  // view survives scrollback trimming: eviction decays reply membership while
-  // the pinned root keeps the thread openable. Entries persist for the
-  // session, bounded per channel by an LRU cap, and die with the channel.
   // Expired-token handling: deduplicates the global expiry message and tracks
   // the last anonymous-vs-authed state so the sockets actually tear down when
   // expiry flips us from authed to anonymous mid-session.
   bool _expiryHandled = false;
   bool _lastIrcAnonymous = true;
   String? _lastValidatedToken;
-  static final _spaceRe = RegExp(r'\s+');
 
-  StreamSubscription<TwitchMessage>? messageSub;
+  // Chat-content routing (PRIVMSG/CLEARMSG/CLEARCHAT/clears/own echo).
+  late final ChatIngestion _ingestion = ChatIngestion(
+    irc: irc,
+    ircRead: ircRead,
+    store: store,
+    userStore: userStore,
+    emoteManager: emoteManager,
+    badgeService: badgeService,
+    twitchAuth: twitchAuth,
+    ignoreManager: ignoreManager,
+    pingManager: pingManager,
+    mentionsChannel: mentionsChannel,
+    getMaxMessagesPerChannel: getMaxMessagesPerChannel,
+    getSelectedChannel: getSelectedChannel,
+    isChatReady: isChatReady,
+    isBlocked: isBlocked,
+    getSharedChatMode: getSharedChatMode,
+    isModerationActive: (channel) => _moderationChannels.contains(channel),
+    onSelfTimeoutArmed: (channel, until) {
+      _selfTimeoutUntil[channel] = until;
+    },
+    onSystemMessage: onSystemMessage,
+    onAnalyticsMessage: onAnalyticsMessage,
+    onAnalyticsModeration: onAnalyticsModeration,
+    onChatMessage: onChatMessage,
+    onMention: (channel, msg) => onMention?.call(channel, msg),
+  );
+  final _ingestionSubs = <StreamSubscription<void>>[];
+
   StreamSubscription<EventSubStatus>? statusSub;
-  StreamSubscription<IrcBanEvent>? ircBanSub;
-  StreamSubscription<IrcMessageDeletedEvent>? ircDeleteSub;
   StreamSubscription<IrcNoticeEvent>? ircNoticeSub;
   StreamSubscription<IrcNoticeEvent>? ircJtvSub;
   StreamSubscription<IrcJoinFailureEvent>? ircJoinFailedSub;
-  StreamSubscription<IrcMessage>? ircOwnMsgSub;
   StreamSubscription<TwitchMessage>? whisperSub;
   StreamSubscription<UserNoticeEvent>? userNoticeSub;
-  StreamSubscription<IrcChannelClearEvent>? ircClearSub;
   StreamSubscription<IrcRoomStateEvent>? ircRoomStateSub;
   StreamSubscription<(String?, List<String>)>? emoteSetsSub;
   StreamSubscription<ModerationEvent>? moderationSub;
@@ -329,16 +334,16 @@ class ChatConnectionManager {
 
   void dispose() {
     isDisposed = true;
-    messageSub?.cancel();
+    for (final sub in _ingestionSubs) {
+      sub.cancel();
+    }
+    _ingestionSubs.clear();
+    _ingestion.dispose();
     statusSub?.cancel();
-    ircBanSub?.cancel();
-    ircDeleteSub?.cancel();
     ircNoticeSub?.cancel();
     ircJtvSub?.cancel();
     ircJoinFailedSub?.cancel();
-    ircOwnMsgSub?.cancel();
     userNoticeSub?.cancel();
-    ircClearSub?.cancel();
     ircRoomStateSub?.cancel();
     emoteSetsSub?.cancel();
     moderationSub?.cancel();
@@ -373,157 +378,11 @@ class ChatConnectionManager {
     irc.selfBadges.remove(channel);
   }
 
-  void _markUserMessagesDeleted(String channel, String username) {
-    final msgs = channelMessages[channel];
-    if (msgs == null) {
-      logDebug(
-        '[ChatConn] _markUserMessagesDeleted: no messages for channel=$channel',
-      );
-      return;
-    }
-    var count = 0;
-    for (final msg in msgs) {
-      if (msg.login == username.toLowerCase() &&
-          !msg.isSystem &&
-          !msg.deleted) {
-        msg.deleted = true;
-        store.messageMutated(channel, msg.messageId);
-        count++;
-      }
-    }
-    logDebug(
-      '[ChatConn] _markUserMessagesDeleted: marked $count messages deleted for user=$username in channel=$channel (total msgs in channel=${msgs.length})',
-    );
-  }
-
-  // IRC-only ban/stack tracking within a 10s window (IRC is the single ban
-  // source since EventSub channel.ban subscriptions were dropped).
-  ({int stackCount, _BanMeta meta}) _processBanInChannel(
-    String channel,
-    String user,
-    bool isTimeout,
-  ) {
-    final now = DateTime.now();
-    final metas = _recentBanMeta.putIfAbsent(channel, () => []);
-
-    metas.removeWhere(
-      (m) => now.difference(m.lastEvent).inSeconds >= _banDedupWindowSeconds,
-    );
-
-    final existing = metas.cast<_BanMeta?>().firstWhere(
-      (m) => m!.user == user && m.isTimeout == isTimeout,
-      orElse: () => null,
-    );
-
-    if (existing != null) {
-      existing.stackCount++;
-      existing.lastEvent = now;
-      return (stackCount: existing.stackCount, meta: existing);
-    }
-
-    final meta = _BanMeta(user: user, isTimeout: isTimeout);
-    metas.add(meta);
-    return (stackCount: 1, meta: meta);
-  }
-
-  void _handleBanEvent({
-    required String channel,
-    required String user,
-    required bool isTimeout,
-    required int? duration,
-  }) {
-    logDebug(
-      '[ChatConn] IRC ban received: user=$user channel=$channel isTimeout=$isTimeout',
-    );
-    if (isDisposed) return;
-    onAnalyticsModeration?.call(channel, isTimeout);
-    _markUserMessagesDeleted(channel, user);
-    // Track own timeouts for the input-box countdown. Runs before the
-    // moderation-channel early return so the IRC and EventSub sources can't
-    // double-count: both just re-arm the same expiry.
-    final selfLogin = session.login?.toLowerCase();
-    if (selfLogin != null && user.toLowerCase() == selfLogin) {
-      if (isTimeout && duration != null) {
-        _selfTimeoutUntil[channel] = DateTime.now().add(
-          Duration(seconds: duration),
-        );
-      }
-    }
-    // While the channel.moderate v2 subscription is active, moderation
-    // messages come from EventSub (with reason/duration) - skip the IRC copy.
-    if (_moderationChannels.contains(channel)) return;
-    final result = _processBanInChannel(channel, user, isTimeout);
-    final isSelf = user.toLowerCase() == session.login?.toLowerCase();
-    final base = isSelf
-        ? (isTimeout
-              ? 'You are timed out${duration != null ? ' for ${duration}s' : ''}'
-              : 'You were banned')
-        : buildBanText(user: user, isTimeout: isTimeout, durationSec: duration);
-    final stacked = result.stackCount > 1
-        ? ' (${result.stackCount} times)'
-        : '';
-    // buildBanText already ends with a period.
-    final trimmed = base.endsWith('.')
-        ? base.substring(0, base.length - 1)
-        : base;
-    final text = '$trimmed$stacked.';
-    logDebug('[ChatConn] IRC ban system message: $text');
-
-    if (result.stackCount > 1) {
-      if (result.meta.firstMessageId != null) {
-        _updateMessageText(channel, result.meta.firstMessageId!, text);
-        return;
-      }
-    }
-    onSystemMessage(channel, text);
-    final msgs = channelMessages[channel];
-    result.meta.firstMessageId = msgs != null && msgs.isNotEmpty
-        ? msgs.first.messageId
-        : null;
-  }
-
-  void _updateMessageText(String channel, String messageId, String newText) {
-    final msgs = channelMessages[channel];
-    if (msgs == null) return;
-    for (final m in msgs) {
-      if (m.messageId == messageId) {
-        m.text = newText;
-        store.messageMutated(channel, messageId);
-        return;
-      }
-    }
-  }
-
   void maybeAddConnected(String channel) {
     if (irc.isConnected &&
         historyLoaded.contains(channel) &&
         _connectedAcked.add(channel)) {
       onSystemMessage(channel, 'Connected');
-    }
-  }
-
-  void precacheMessageEmotes(TwitchMessage msg, String channel) {
-    if (emoteManager.tier == EmoteFetchTier.nothing) return;
-    if (msg.isSystem || msg.isHistory) return;
-    // Shared-chat messages resolve against their source channel's set,
-    // mirroring the message builder lookup.
-    final lookupChannel = msg.sourceBroadcasterId != null
-        ? badgeService.resolveChannelLogin(msg.sourceBroadcasterId!) ?? channel
-        : channel;
-    final channelEmotes = emoteManager.byCode(lookupChannel);
-    if (channelEmotes == null) return;
-    final found = <GenericEmote>[];
-    final seen = <String>{};
-    for (final word in msg.text.split(_spaceRe)) {
-      if (seen.contains(word)) continue;
-      final emote = channelEmotes.byCode[word];
-      if (emote != null) {
-        found.add(emote);
-        seen.add(word);
-      }
-    }
-    if (found.isNotEmpty) {
-      emoteManager.enqueueSeenEmotes(found);
     }
   }
 
@@ -1328,39 +1187,9 @@ class ChatConnectionManager {
   }
 
   void _setupSubscriptions() {
-    messageSub ??= irc.onMessage.listen(onMessage);
-    ircDeleteSub ??= irc.onMessageDeleted.listen((event) {
-      if (isDisposed) return;
-      final msgs = channelMessages[event.channel];
-      if (msgs == null) return;
-      var found = false;
-      for (final msg in msgs) {
-        if (msg.messageId == event.messageId && !msg.isSystem) {
-          msg.deleted = true;
-          store.messageMutated(event.channel, msg.messageId);
-          found = true;
-          break;
-        }
-      }
-      // While the channel.moderate v2 subscription is active, deletions come
-      // from EventSub (with moderator + message body) - skip the IRC copy.
-      if (found && !_moderationChannels.contains(event.channel)) {
-        onSystemMessage(
-          event.channel,
-          'A message from ${event.user} was deleted saying: "${event.deletedMessageText}".',
-        );
-      }
-    });
-
-    ircBanSub?.cancel();
-    ircBanSub = irc.onBan.listen((event) {
-      _handleBanEvent(
-        channel: event.channel,
-        user: event.user,
-        isTimeout: event.isTimeout,
-        duration: event.duration,
-      );
-    });
+    _ingestionSubs
+      ..clear()
+      ..addAll(_ingestion.attach());
 
     ircNoticeSub?.cancel();
     ircNoticeSub = irc.onNotice.listen((event) {
@@ -1409,9 +1238,6 @@ class ChatConnectionManager {
         'Could not join #${event.channel}: $detail.$suffix',
       );
     });
-
-    ircOwnMsgSub?.cancel();
-    ircOwnMsgSub = ircRead.onOwnMessage.listen(onOwnIrcMessage);
 
     whisperSub?.cancel();
     whisperSub = irc.onWhisper.listen(onWhisperEvent);
@@ -1496,22 +1322,6 @@ class ChatConnectionManager {
           systemAccent: accent,
         ),
       );
-    });
-
-    ircClearSub?.cancel();
-    ircClearSub = irc.onChannelClear.listen((event) {
-      if (isDisposed) return;
-      // With channel.moderate active, clears come from EventSub with the
-      // moderator's name - skip the IRC copy.
-      if (_moderationChannels.contains(event.channel)) return;
-      final msgs = channelMessages[event.channel];
-      if (msgs != null) {
-        for (final m in msgs) {
-          if (!m.isSystem) m.deleted = true;
-        }
-      }
-      store.touchChannel(event.channel);
-      onSystemMessage(event.channel, 'Chat was cleared.');
     });
 
     ircRoomStateSub?.cancel();
@@ -1625,7 +1435,9 @@ class ChatConnectionManager {
       case 'ban':
       case 'timeout':
         onAnalyticsModeration?.call(event.channel, event.action == 'timeout');
-        if (target != null) _markUserMessagesDeleted(event.channel, target);
+        if (target != null) {
+          store.markUserMessagesDeleted(event.channel, target);
+        }
         final duration = event.durationSeconds != null
             ? ' for ${event.durationSeconds}s'
             : '';
@@ -1677,104 +1489,15 @@ class ChatConnectionManager {
     }
   }
 
-  void onMessage(TwitchMessage msg) {
-    if (isDisposed) return;
+  // Chat-content routing lives in [ChatIngestion]; kept as delegators so
+  // the USERNOTICE path and tests can feed synthetic messages through the
+  // same policy gates.
+  void onMessage(TwitchMessage msg) => _ingestion.onMessage(msg);
 
-    // Chat content is hidden until the blocked-users list has been applied,
-    // and blocked users' messages never appear at all.
-    if (isChatReady?.call() == false) return;
-    if (!msg.isSystem && isBlocked?.call(msg.login) == true) return;
+  void onOwnIrcMessage(IrcMessage ircMsg) => _ingestion.onOwnIrcMessage(ircMsg);
 
-    final channel = msg.channel;
-    if (channel == null) return;
-
-    // Local ignores: ignored users' messages are dropped outright; keyword
-    // replacements rewrite the text (with emote position realignment) before
-    // ping evaluation so rewritten messages can still highlight.
-    final ignores = ignoreManager;
-    if (!msg.isSystem && ignores != null) {
-      if (ignores.isIgnored(msg.login)) return;
-      rewriteMessageKeywords(msg, ignores);
-    }
-
-    // Ping evaluation runs before the shared-chat 'hide' check so a fresh
-    // mirrored mention survives hide mode (the native copy dedups later).
-    final highlightState = pingManager?.evaluate(msg);
-    if (highlightState != null) {
-      msg.highlight = highlightState;
-    }
-
-    // Shared-chat 'hide' mode: drop foreign messages entirely. Mentions and
-    // system messages still flow through so the user doesn't miss pings.
-    final sharedMode = getSharedChatMode?.call() ?? 'spotlight';
-    if (sharedMode == 'hide' &&
-        !msg.isSystem &&
-        !msg.isHighlighted &&
-        msg.sourceBroadcasterId != null) {
-      return;
-    }
-
-    if (!msg.isSystem && msg.login.isNotEmpty) {
-      final preferredName =
-          msg.displayName.toLowerCase() == msg.login.toLowerCase()
-          ? msg.displayName
-          : msg.login;
-      userStore.addUser(channel, preferredName);
-    }
-
-    if (!store.ingestMessage(
-      msg,
-      maxMessages: getMaxMessagesPerChannel(),
-      selectedChannel: getSelectedChannel(),
-      mentionsChannel: mentionsChannel,
-    )) {
-      return;
-    }
-
-    // Feed the emote usage registry from live chat: the emotes people are
-    // actually staring at get cache priority. History/backfill are skipped
-    // (they would re-touch old messages on every reconnect and skew the
-    // 24-hour histograms).
-    if (!msg.isHistory && msg.isSystem == false) {
-      final positions = msg.emotePositions;
-      if (positions != null && positions.isNotEmpty) {
-        for (final position in positions) {
-          final emote = emoteManager.emoteById(position.emoteId);
-          if (emote != null) emoteManager.markEmoteViewed(emote);
-        }
-      }
-    }
-
-    onAnalyticsMessage?.call(channel, msg);
-
-    if (msg.sourceBroadcasterId != null && !msg.isHistory) {
-      unawaited(_ensureSourceChannelData(msg.sourceBroadcasterId!));
-    }
-
-    final login = session.login?.toLowerCase();
-    final state = msg.highlight;
-    if (state != null && state.hasMention && msg.login != login) {
-      onMention?.call(channel, msg);
-    }
-
-    precacheMessageEmotes(msg, channel);
-    onChatMessage?.call(channel, msg);
-  }
-
-  /// Resolves a shared-chat source channel's identity and lazily loads its
-  /// emote set on the first mirrored message (DankChat resolves emotes
-  /// against the source channel but never fetches unjoined sets; loading
-  /// here lets foreign third-party emotes render). The avatar fetch is
-  /// in-flight deduplicated and cheap once cached.
-  Future<void> _ensureSourceChannelData(String broadcasterId) async {
-    await badgeService.fetchChannelAvatar(twitchAuth, broadcasterId);
-    if (isDisposed) return;
-    final login = badgeService.resolveChannelLogin(broadcasterId);
-    if (login == null || login.isEmpty) return;
-    if (!emoteManager.hasChannelCache(login)) {
-      await emoteManager.resolveEmotes(login, broadcasterId);
-    }
-  }
+  void precacheMessageEmotes(TwitchMessage msg, String channel) =>
+      _ingestion.precacheMessageEmotes(msg, channel);
 
   void onWhisperEvent(TwitchMessage msg) {
     if (isDisposed) return;
@@ -1782,67 +1505,6 @@ class ChatConnectionManager {
     // Ignored users' whispers are dropped like their channel messages.
     if (!msg.isSystem && ignoreManager?.isIgnored(msg.login) == true) return;
     onWhisper?.call(msg);
-  }
-
-  void onOwnIrcMessage(IrcMessage ircMsg) {
-    if (isDisposed) return;
-    final channel = ircMsg.params.isNotEmpty
-        ? ircMsg.params[0].substring(1)
-        : null;
-    if (channel == null || ircMsg.trailing == null) return;
-
-    final msg = parseIrcChatMessage(
-      ircMsg,
-      channel: channel,
-      defaultLogin: session.login,
-      defaultUserId: session.userId,
-    );
-
-    // Track our own message ids so replies chained onto them ping via
-    // participation (DankChat-style reply highlights), and learn the
-    // account's display name from the echo.
-    if (msg.messageId != null) {
-      pingManager?.registerOwnMessage(
-        channel,
-        msg.messageId!,
-        threadRootId: msg.replyThreadRootId ?? msg.messageId,
-      );
-    }
-    pingManager?.setOwnDisplayName(msg.displayName);
-
-    final preferredName =
-        msg.displayName.toLowerCase() == msg.login.toLowerCase()
-        ? msg.displayName
-        : msg.login;
-    if (preferredName.isNotEmpty) {
-      userStore.addUser(channel, preferredName);
-    }
-
-    if (msg.messageId != null &&
-        messageKeys.contains('$channel:${msg.messageId}')) {
-      return;
-    }
-
-    onAnalyticsMessage?.call(channel, msg);
-
-    channelMessages.putIfAbsent(channel, () => []);
-    channelMessages[channel]!.insert(0, msg);
-    store.truncateWithCoalesce(
-      channel,
-      maxMessages: getMaxMessagesPerChannel(),
-    );
-
-    if (msg.messageId != null) {
-      messageKeys.add('$channel:${msg.messageId}');
-    }
-    store.indexMessages(channel, [msg]);
-
-    store.noteNewMessage(channel);
-    precacheMessageEmotes(msg, channel);
-    // Own messages arrive on the read socket (not the channel echo), so they
-    // would otherwise never be read aloud; surface them like any other chat
-    // message so TTS can speak them too.
-    onChatMessage?.call(channel, msg);
   }
 
   /// Brute-force teardown + reconnect of every socket (manual "Reconnect"

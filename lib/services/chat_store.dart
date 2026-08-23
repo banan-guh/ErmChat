@@ -448,6 +448,32 @@ class ChatStore {
     _channelThreads.remove(channel);
   }
 
+  /// Marks every non-system message from [login] in [channel] as deleted
+  /// (bans, timeouts) and signals each mutation.
+  void markUserMessagesDeleted(String channel, String login) {
+    final msgs = channelMessages[channel];
+    if (msgs == null) return;
+    for (final msg in msgs) {
+      if (msg.login == login.toLowerCase() && !msg.isSystem && !msg.deleted) {
+        msg.deleted = true;
+        messageMutated(channel, msg.messageId);
+      }
+    }
+  }
+
+  /// Edits a message body in place (ban-stack text folding) and signals it.
+  void updateMessageText(String channel, String messageId, String newText) {
+    final msgs = channelMessages[channel];
+    if (msgs == null) return;
+    for (final m in msgs) {
+      if (m.messageId == messageId) {
+        m.text = newText;
+        messageMutated(channel, messageId);
+        return;
+      }
+    }
+  }
+
   // ---- Truncation ---------------------------------------------------------
 
   DateTime? _lastTruncateAt;
