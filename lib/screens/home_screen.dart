@@ -531,7 +531,7 @@ class _HomeScreenState extends State<HomeScreen>
     // Apply a lower cap immediately instead of waiting for the next incoming
     // message to hit the truncation path.
     for (final channel in List.of(_chatStore.channels)) {
-      _chatConn.truncateChannelMessages(channel);
+      _chatStore.truncateChannel(channel, maxMessages: _maxMessagesPerChannel);
       _bumpChannel(channel);
     }
   }
@@ -699,7 +699,7 @@ class _HomeScreenState extends State<HomeScreen>
       if (msgs.length != before) {
         // Keep the thread store in sync with the buffer: blocked users'
         // messages bypass truncation, so decay them explicitly.
-        _chatConn.decayThreadMembers(entry.key, removed);
+        _chatStore.decayEvicted(entry.key, removed);
         _bumpChannel(entry.key);
       }
     }
@@ -854,7 +854,7 @@ class _HomeScreenState extends State<HomeScreen>
     // by backfill (cold start, reconnect) stay viewable past buffer trimming.
     // Runs after the merge so roots inserted in the same batch link up.
     if (insertedMsgs.isNotEmpty) {
-      _chatConn.indexThreadMembers(channel, insertedMsgs);
+      _chatStore.indexMessages(channel, insertedMsgs);
     }
     _bumpChannel(channel);
     _moveConnectedMessageToTop(channel);
@@ -1964,7 +1964,7 @@ class _HomeScreenState extends State<HomeScreen>
     _atBottomNotifiers.remove(channel)?.dispose();
     _tileCache.remove(channel);
     _frozenSnapshot.remove(channel);
-    _chatConn.clearChannelThreads(channel);
+    _chatStore.clearThreads(channel);
     setState(() {
       _chatStore.channels.remove(channel);
       _channelNotifier.value = List.of(_chatStore.channels);
@@ -2678,7 +2678,7 @@ class _HomeScreenState extends State<HomeScreen>
     // Old-style parent-chain threads that were never tagged fall back to the
     // scan below.
     final threadMsgs =
-        _chatConn.threadFor(channel, resolvedKey) ??
+        _chatStore.threadFor(channel, resolvedKey) ??
         allMsgs.where((m) => threadKeyFor(m, parentOf) == resolvedKey).toList();
 
     threadMsgs.sort((a, b) => a.timestamp.compareTo(b.timestamp));
@@ -2926,7 +2926,7 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   void _truncateChannelMessages(String channel) {
-    _chatConn.truncateChannelMessages(channel);
+    _chatStore.truncateChannel(channel, maxMessages: _maxMessagesPerChannel);
   }
 
   @override

@@ -298,6 +298,9 @@ ChatConnectionManager _makeConn({
         twitchAuth: TwitchAuth(),
       ),
       store: ChatStore(
+        now: truncateNow,
+        truncateCoalesceWindow:
+            truncateCoalesceWindow ?? const Duration(milliseconds: 250),
         channels: ['test'],
         channelMessages: channelMessages,
         messageKeys: {},
@@ -327,9 +330,6 @@ ChatConnectionManager _makeConn({
         getReplyToMsg: () => null,
         setReplyToMsg: (v) {},
       ),
-      truncateNow: truncateNow,
-      truncateCoalesceWindow:
-          truncateCoalesceWindow ?? const Duration(milliseconds: 250),
     ),
   );
 }
@@ -1841,7 +1841,7 @@ void main() {
       'test': List.generate(25, (i) => _msg('m${24 - i}', 'msg ${24 - i}')),
     };
     final conn = _makeConn(channelMessages: msgs, maxMessages: 10);
-    conn.truncateChannelMessages('test');
+    conn.store.truncateChannel('test', maxMessages: 10);
     expect(msgs['test']!.length, 10);
     expect(msgs['test']!.first.messageId, 'm24');
     expect(msgs['test']!.last.messageId, 'm15');
@@ -1859,7 +1859,7 @@ void main() {
       ],
     };
     final conn = _makeConn(channelMessages: msgs, maxMessages: 10);
-    conn.truncateChannelMessages('test');
+    conn.store.truncateChannel('test', maxMessages: 10);
     expect(msgs['test']!.length, 11);
     final ids = msgs['test']!.map((m) => m.messageId).toSet();
     expect(ids.contains('parent'), true);
@@ -1878,7 +1878,7 @@ void main() {
       ],
     };
     final conn = _makeConn(channelMessages: msgs, maxMessages: 10);
-    conn.truncateChannelMessages('test');
+    conn.store.truncateChannel('test', maxMessages: 10);
     expect(msgs['test']!.length, 10);
     final ids = msgs['test']!.map((m) => m.messageId).toSet();
     expect(ids.contains('parent'), false);
@@ -1899,7 +1899,7 @@ void main() {
       ],
     };
     final conn = _makeConn(channelMessages: msgs, maxMessages: 10);
-    conn.truncateChannelMessages('test');
+    conn.store.truncateChannel('test', maxMessages: 10);
     final ids = msgs['test']!.map((m) => m.messageId).toSet();
     expect(ids.contains('aParent'), true);
     expect(ids.contains('aChild'), true);
@@ -1922,7 +1922,7 @@ void main() {
         ],
       };
       final conn = _makeConn(channelMessages: msgs, maxMessages: 10);
-      conn.truncateChannelMessages('test');
+      conn.store.truncateChannel('test', maxMessages: 10);
       final ids = msgs['test']!.map((m) => m.messageId).toSet();
       expect(ids.contains('aParent'), true);
       expect(ids.contains('aChild'), true);
@@ -1936,7 +1936,7 @@ void main() {
       'test': List.generate(5, (i) => _msg('m$i', 'msg $i')),
     };
     final conn = _makeConn(channelMessages: msgs, maxMessages: 10);
-    conn.truncateChannelMessages('test');
+    conn.store.truncateChannel('test', maxMessages: 10);
     expect(msgs['test']!.length, 5);
   });
 
@@ -1961,7 +1961,7 @@ void main() {
         ],
       };
       final conn = _makeConn(channelMessages: msgs, maxMessages: limit);
-      conn.truncateChannelMessages('test');
+      conn.store.truncateChannel('test', maxMessages: limit);
 
       final remaining = msgs['test']!;
       expect(remaining.length, chainLen + fillerCount);
@@ -2000,7 +2000,7 @@ void main() {
         ],
       };
       final conn = _makeConn(channelMessages: msgs, maxMessages: limit);
-      conn.truncateChannelMessages('test');
+      conn.store.truncateChannel('test', maxMessages: limit);
 
       final remaining = msgs['test']!;
       // Should NOT balloon to 10000.
@@ -2031,7 +2031,7 @@ void main() {
         ],
       };
       final conn = _makeConn(channelMessages: msgs, maxMessages: limit);
-      conn.truncateChannelMessages('test');
+      conn.store.truncateChannel('test', maxMessages: limit);
 
       final remaining = msgs['test']!;
       expect(
@@ -2069,7 +2069,7 @@ void main() {
         ],
       };
       final conn = _makeConn(channelMessages: msgs, maxMessages: limit);
-      conn.truncateChannelMessages('test');
+      conn.store.truncateChannel('test', maxMessages: limit);
 
       final remaining = msgs['test']!;
       // Thread (3) + non-thread+system (limit)
@@ -2090,9 +2090,9 @@ void main() {
         'test': [root, child],
       };
       final conn = _makeConn(channelMessages: msgs, maxMessages: 10);
-      conn.indexThreadMembers('test', [root, child]);
+      conn.store.indexMessages('test', [root, child]);
 
-      final thread = conn.threadFor('test', 'r1');
+      final thread = conn.store.threadFor('test', 'r1');
       expect(thread, isNotNull);
       expect(thread!.map((m) => m.messageId), ['r1', 'c1']);
     });
@@ -2103,16 +2103,16 @@ void main() {
         'test': [child],
       };
       final conn = _makeConn(channelMessages: msgs, maxMessages: 10);
-      conn.indexThreadMembers('test', [child]);
+      conn.store.indexMessages('test', [child]);
 
-      var thread = conn.threadFor('test', 'r1')!;
+      var thread = conn.store.threadFor('test', 'r1')!;
       expect(thread.map((m) => m.messageId), ['c1']);
 
       // The root shows up later (late history batch, slow fetch) and must
       // link into the waiting entry.
       final root = _msg('r1', 'root');
-      conn.indexThreadMembers('test', [root]);
-      thread = conn.threadFor('test', 'r1')!;
+      conn.store.indexMessages('test', [root]);
+      thread = conn.store.threadFor('test', 'r1')!;
       expect(thread.map((m) => m.messageId), ['r1', 'c1']);
     });
 
@@ -2123,10 +2123,10 @@ void main() {
         'test': [root, child],
       };
       final conn = _makeConn(channelMessages: msgs, maxMessages: 10);
-      conn.indexThreadMembers('test', [root, child]);
-      conn.indexThreadMembers('test', [root, child]);
+      conn.store.indexMessages('test', [root, child]);
+      conn.store.indexMessages('test', [root, child]);
 
-      final thread = conn.threadFor('test', 'r1')!;
+      final thread = conn.store.threadFor('test', 'r1')!;
       expect(thread.map((m) => m.messageId), ['r1', 'c1']);
     });
 
@@ -2136,7 +2136,7 @@ void main() {
       conn.onMessage(_msg('r1', 'root'));
       conn.onMessage(_taggedMsg('c1', 'child', rootId: 'r1'));
 
-      expect(conn.threadFor('test', 'r1')!.map((m) => m.messageId), [
+      expect(conn.store.threadFor('test', 'r1')!.map((m) => m.messageId), [
         'r1',
         'c1',
       ]);
@@ -2150,12 +2150,12 @@ void main() {
         'test': [root, c1, c2],
       };
       final conn = _makeConn(channelMessages: msgs, maxMessages: 10);
-      conn.indexThreadMembers('test', [root, c1, c2]);
+      conn.store.indexMessages('test', [root, c1, c2]);
 
       // Everything (root included) gets evicted from the chat buffer.
-      conn.decayThreadMembers('test', [c1, c2, root]);
+      conn.store.decayEvicted('test', [c1, c2, root]);
 
-      final thread = conn.threadFor('test', 'r1')!;
+      final thread = conn.store.threadFor('test', 'r1')!;
       expect(
         thread.map((m) => m.messageId),
         ['r1'],
@@ -2176,15 +2176,17 @@ void main() {
         ],
       };
       final conn = _makeConn(channelMessages: msgs, maxMessages: limit);
-      conn.indexThreadMembers('test', [root, child]);
-      conn.truncateChannelMessages('test');
+      conn.store.indexMessages('test', [root, child]);
+      conn.store.truncateChannel('test', maxMessages: limit);
 
       final remaining = msgs['test']!;
       expect(remaining.any((m) => m.messageId == 'c1'), false);
       expect(remaining.any((m) => m.messageId == 'r1'), false);
 
       // Buffer is empty of the thread, yet reopening still serves the root.
-      expect(conn.threadFor('test', 'r1')!.map((m) => m.messageId), ['r1']);
+      expect(conn.store.threadFor('test', 'r1')!.map((m) => m.messageId), [
+        'r1',
+      ]);
     });
 
     test('clearChannelThreads drops entries for the channel', () {
@@ -2194,17 +2196,17 @@ void main() {
         'test': [root, child],
       };
       final conn = _makeConn(channelMessages: msgs, maxMessages: 10);
-      conn.indexThreadMembers('test', [root, child]);
-      conn.clearChannelThreads('test');
+      conn.store.indexMessages('test', [root, child]);
+      conn.store.clearThreads('test');
 
-      expect(conn.threadFor('test', 'r1'), isNull);
+      expect(conn.store.threadFor('test', 'r1'), isNull);
     });
 
     test('per-channel entry count stays under the LRU cap', () {
       final msgs = <String, List<TwitchMessage>>{'test': <TwitchMessage>[]};
       final conn = _makeConn(channelMessages: msgs, maxMessages: 10);
       for (var t = 0; t < 80; t++) {
-        conn.indexThreadMembers('test', [
+        conn.store.indexMessages('test', [
           _msg('r$t', 'root $t'),
           _taggedMsg('c$t', 'child $t', rootId: 'r$t'),
         ]);
@@ -2214,11 +2216,11 @@ void main() {
       // exact cap is an implementation detail - assert the bound holds.
       var remainingThreads = 0;
       for (var t = 0; t < 80; t++) {
-        if (conn.threadFor('test', 'r$t') != null) remainingThreads++;
+        if (conn.store.threadFor('test', 'r$t') != null) remainingThreads++;
       }
       expect(remainingThreads, lessThanOrEqualTo(64));
-      expect(conn.threadFor('test', 'r79'), isNotNull);
-      expect(conn.threadFor('test', 'r0'), isNull);
+      expect(conn.store.threadFor('test', 'r79'), isNotNull);
+      expect(conn.store.threadFor('test', 'r0'), isNull);
     });
   });
 
@@ -2234,7 +2236,7 @@ void main() {
         truncateNow: () => t,
       );
       // Direct truncate seeds the last-full-pass timestamp.
-      conn.truncateChannelMessages('test');
+      conn.store.truncateChannel('test', maxMessages: 10);
       expect(msgs['test']!.length, 10);
 
       // Within the window: message inserts but truncation is deferred.
@@ -2253,7 +2255,7 @@ void main() {
         maxMessages: 10,
         truncateNow: () => t,
       );
-      conn.truncateChannelMessages('test');
+      conn.store.truncateChannel('test', maxMessages: 10);
       expect(msgs['test']!.length, 10);
 
       // Past the window: the message triggers the full pass.
@@ -2272,7 +2274,7 @@ void main() {
         maxMessages: 10,
         truncateNow: () => t,
       );
-      conn.truncateChannelMessages('test');
+      conn.store.truncateChannel('test', maxMessages: 10);
       expect(msgs['test']!.length, 10);
 
       // 11 messages within the window push past 2x the cap (20): the full
@@ -2294,7 +2296,7 @@ void main() {
         maxMessages: 10,
         truncateNow: () => t,
       );
-      conn.truncateChannelMessages('test');
+      conn.store.truncateChannel('test', maxMessages: 10);
       expect(msgs['test']!.length, 10);
 
       // 4 deferred messages stay in the buffer (hard cap not reached).
