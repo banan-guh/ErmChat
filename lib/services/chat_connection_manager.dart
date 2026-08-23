@@ -19,6 +19,7 @@ import '../services/user_store.dart';
 import '../services/command_macros.dart';
 import '../services/ping_manager.dart';
 import '../services/ignore_manager.dart';
+import '../services/chat_store.dart';
 import '../util/text_bypass.dart';
 import '../color_utils.dart';
 import '../util/constants.dart';
@@ -69,17 +70,7 @@ class ChatConnectionConfig {
     required this.badgeService,
     required this.userStore,
     required this.twitchAuth,
-    required this.channelMessages,
-    required this.messageKeys,
-    required this.chatStatus,
-    required this.channelsWithUnread,
-    required this.channelsWithUnreadMentions,
-    required this.unreadMentionsPerChannel,
-    required this.channels,
-    required this.historyLoaded,
-    required this.channelsEmotesResolved,
-    required this.channelUserIds,
-    required this.lastSentWireText,
+    required this.store,
     required this.bumpChannel,
     required this.invalidateChannel,
     required this.invalidateMessage,
@@ -126,17 +117,7 @@ class ChatConnectionConfig {
   final UserStore userStore;
   final TwitchAuth twitchAuth;
   final EmoteManager emoteManager;
-  final Map<String, List<TwitchMessage>> channelMessages;
-  final Set<String> messageKeys;
-  final Map<String, String> chatStatus;
-  final Set<String> channelsWithUnread;
-  final Set<String> channelsWithUnreadMentions;
-  final Map<String, int> unreadMentionsPerChannel;
-  final List<String> channels;
-  final Set<String> historyLoaded;
-  final Set<String> channelsEmotesResolved;
-  final Map<String, String> channelUserIds;
-  final Map<String, String> lastSentWireText;
+  final ChatStore store;
   final void Function(String channel) bumpChannel;
   final void Function(String channel) invalidateChannel;
   final void Function(String channel, String? messageId) invalidateMessage;
@@ -348,18 +329,17 @@ class ChatConnectionManager {
       badgeService = config.badgeService,
       userStore = config.userStore,
       twitchAuth = config.twitchAuth,
-      channelMessages = config.channelMessages,
-      messageKeys = config.messageKeys,
-      chatStatus = config.chatStatus,
-      channelsWithUnread = config.channelsWithUnread,
-      channelsWithUnreadMentions = config.channelsWithUnreadMentions,
-      unreadMentionsPerChannel = config.unreadMentionsPerChannel,
-      channels = config.channels,
-      historyLoaded = config.historyLoaded,
-      channelsEmotesResolved = config.channelsEmotesResolved,
-      channelUserIds = config.channelUserIds,
-
-      lastSentWireText = config.lastSentWireText,
+      channelMessages = config.store.channelMessages,
+      messageKeys = config.store.messageKeys,
+      chatStatus = config.store.chatStatus,
+      channelsWithUnread = config.store.channelsWithUnread,
+      channelsWithUnreadMentions = config.store.channelsWithUnreadMentions,
+      unreadMentionsPerChannel = config.store.unreadMentionsPerChannel,
+      channels = config.store.channels,
+      historyLoaded = config.store.historyLoaded,
+      channelsEmotesResolved = config.store.channelsEmotesResolved,
+      channelUserIds = config.store.channelUserIds,
+      lastSentWireText = config.store.lastSentWireText,
       bumpChannel = config.bumpChannel,
       invalidateChannel = config.invalidateChannel,
       invalidateMessage = config.invalidateMessage,

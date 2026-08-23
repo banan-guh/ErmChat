@@ -33,6 +33,7 @@ import '../screens/settings/settings_screen.dart';
 import '../widgets/tabbed_layout.dart';
 import '../widgets/welcome_dialog.dart';
 import '../services/user_store.dart';
+import '../services/chat_store.dart';
 import '../services/suggestion.dart';
 import '../services/notification_service.dart';
 import '../services/tts_controller.dart';
@@ -117,6 +118,20 @@ class _HomeScreenState extends State<HomeScreen>
   );
   final _ttsController = TtsController();
 
+  late final _chatStore = ChatStore(
+    channels: _channels,
+    channelMessages: _channelMessages,
+    messageKeys: _messageKeys,
+    chatStatus: _chatStatus,
+    channelsWithUnread: _channelsWithUnread,
+    channelsWithUnreadMentions: _channelsWithUnreadMentions,
+    unreadMentionsPerChannel: _unreadMentionsPerChannel,
+    historyLoaded: _historyLoaded,
+    channelsEmotesResolved: _channelsEmotesResolved,
+    channelUserIds: _channelUserIds,
+    lastSentWireText: _lastSentWireText,
+  );
+
   late final _chatConn = ChatConnectionManager(
     ChatConnectionConfig(
       twitchApi: _twitchApi,
@@ -128,17 +143,7 @@ class _HomeScreenState extends State<HomeScreen>
       badgeService: _badgeService,
       userStore: _userStore,
       twitchAuth: widget.twitchAuth,
-      channelMessages: _channelMessages,
-      messageKeys: _messageKeys,
-      chatStatus: _chatStatus,
-      channelsWithUnread: _channelsWithUnread,
-      channelsWithUnreadMentions: _channelsWithUnreadMentions,
-      unreadMentionsPerChannel: _unreadMentionsPerChannel,
-      channels: _channels,
-      historyLoaded: _historyLoaded,
-      channelsEmotesResolved: _channelsEmotesResolved,
-      channelUserIds: _channelUserIds,
-      lastSentWireText: _lastSentWireText,
+      store: _chatStore,
       bumpChannel: _notifyNewMessage,
       invalidateChannel: _bumpChannel,
       invalidateMessage: _invalidateMessage,
