@@ -173,11 +173,6 @@ class _HomeScreenState extends State<HomeScreen>
       getSelectedChannel: () => _selectedChannel,
       onChatMessage: (channel, msg) =>
           _ttsController.handleMessage(channel, msg, _selectedChannel),
-      getUnreadMentions: () => _unreadMentions,
-      setUnreadMentions: (v) {
-        _unreadMentions = v;
-        _mentionsBump.value++;
-      },
       onCommand: _handleCommand,
       getReplyToMsg: () => _replyToMsg,
       setReplyToMsg: (v) => _replyToMsg = v,
@@ -252,7 +247,6 @@ class _HomeScreenState extends State<HomeScreen>
   final _chatVersions = <String, ValueNotifier<int>>{};
   final _messageNotifiers = <String, ValueNotifier<int>>{};
   final _tileCache = <String, Map<String?, Widget>>{};
-  final _mentionsBump = ValueNotifier(0);
   String? _selectedChannel;
   final _channelMessages = <String, List<TwitchMessage>>{};
   final _blockedLogins = <String>{};
@@ -279,7 +273,6 @@ class _HomeScreenState extends State<HomeScreen>
   // channels are derived from _channelUserIds; the rest via Helix /users).
   final _emoteOwnerLogins = <String, String>{};
   bool _emoteOwnerLookupDone = false;
-  int _unreadMentions = 0;
   final _channelsWithUnread = <String>{};
   final _channelsWithUnreadMentions = <String>{};
   final _unreadMentionsPerChannel = <String, int>{};
@@ -1094,7 +1087,7 @@ class _HomeScreenState extends State<HomeScreen>
       for (final c in List.of(_channels)) {
         _bumpChannel(c);
       }
-      _mentionsBump.value++;
+      _chatStore.mentionsBump.value++;
       _onPanelDataChanged();
     }
   }
@@ -1517,7 +1510,7 @@ class _HomeScreenState extends State<HomeScreen>
       n.dispose();
     }
     _tileCache.clear();
-    _mentionsBump.dispose();
+    _chatStore.mentionsBump.dispose();
     _notificationTapSub?.cancel();
     _notificationService.dispose();
     super.dispose();
@@ -1981,8 +1974,8 @@ class _HomeScreenState extends State<HomeScreen>
       _channelsWithUnreadMentions.remove(channel);
       final removedUnread = _unreadMentionsPerChannel.remove(channel) ?? 0;
       if (removedUnread > 0) {
-        _unreadMentions -= removedUnread;
-        if (_unreadMentions < 0) _unreadMentions = 0;
+        _chatStore.unreadMentions -= removedUnread;
+        if (_chatStore.unreadMentions < 0) _chatStore.unreadMentions = 0;
       }
       _messageKeys.removeWhere((k) => k.startsWith('$channel:'));
       if (_selectedChannel == channel) {
@@ -2758,9 +2751,9 @@ class _HomeScreenState extends State<HomeScreen>
     _whispersPanelData.value = List.of(_whispers);
     if (!_isWhispersTabActive) {
       _unreadWhispers++;
-      _unreadMentions++;
+      _chatStore.unreadMentions++;
     }
-    _mentionsBump.value++;
+    _chatStore.mentionsBump.value++;
   }
 
   void _addWhisperSystemMessage(String channel, String text) {
@@ -2772,7 +2765,7 @@ class _HomeScreenState extends State<HomeScreen>
       _whispers.removeRange(_maxMessagesPerChannel, _whispers.length);
     }
     _whispersPanelData.value = List.of(_whispers);
-    _mentionsBump.value++;
+    _chatStore.mentionsBump.value++;
   }
 
   void _onWhisperSent(String target, String message) {
@@ -2792,7 +2785,7 @@ class _HomeScreenState extends State<HomeScreen>
       _whispers.removeRange(_maxMessagesPerChannel, _whispers.length);
     }
     _whispersPanelData.value = List.of(_whispers);
-    _mentionsBump.value++;
+    _chatStore.mentionsBump.value++;
   }
 
   void _onMentionsTabChanged() {
@@ -2800,10 +2793,10 @@ class _HomeScreenState extends State<HomeScreen>
     // progress; rebuilding the whole screen per frame is wasted work.
     if (_mentionsTabCtrl.indexIsChanging) return;
     if (_mentionsTabCtrl.index == 1 && _unreadWhispers > 0) {
-      _unreadMentions -= _unreadWhispers;
-      if (_unreadMentions < 0) _unreadMentions = 0;
+      _chatStore.unreadMentions -= _unreadWhispers;
+      if (_chatStore.unreadMentions < 0) _chatStore.unreadMentions = 0;
       _unreadWhispers = 0;
-      _mentionsBump.value++;
+      _chatStore.mentionsBump.value++;
     }
     setState(() {});
   }
@@ -2814,10 +2807,10 @@ class _HomeScreenState extends State<HomeScreen>
       _showMentionsView();
     }
     _mentionsTabCtrl.animateTo(1);
-    _unreadMentions -= _unreadWhispers;
-    if (_unreadMentions < 0) _unreadMentions = 0;
+    _chatStore.unreadMentions -= _unreadWhispers;
+    if (_chatStore.unreadMentions < 0) _chatStore.unreadMentions = 0;
     _unreadWhispers = 0;
-    _mentionsBump.value++;
+    _chatStore.mentionsBump.value++;
     _focusNode.requestFocus();
   }
 
@@ -2841,11 +2834,11 @@ class _HomeScreenState extends State<HomeScreen>
     _channelsWithUnreadMentions.remove(channel);
     final cleared = _unreadMentionsPerChannel.remove(channel) ?? 0;
     if (cleared > 0) {
-      _unreadMentions -= cleared;
-      if (_unreadMentions < 0) _unreadMentions = 0;
+      _chatStore.unreadMentions -= cleared;
+      if (_chatStore.unreadMentions < 0) _chatStore.unreadMentions = 0;
       // Focus changes (swipes) skip the _onChannelChanged setState path, so
       // bump the bell's notifier to refresh the badge color.
-      _mentionsBump.value++;
+      _chatStore.mentionsBump.value++;
     }
     if (_mentionPush) {
       unawaited(_notificationService.clearMentionNotifications(channel));
@@ -2869,8 +2862,8 @@ class _HomeScreenState extends State<HomeScreen>
       _channelsWithUnreadMentions.remove(channel);
       final cleared = _unreadMentionsPerChannel.remove(channel) ?? 0;
       if (cleared > 0) {
-        _unreadMentions -= cleared;
-        if (_unreadMentions < 0) _unreadMentions = 0;
+        _chatStore.unreadMentions -= cleared;
+        if (_chatStore.unreadMentions < 0) _chatStore.unreadMentions = 0;
       }
       if (_mentionPush) {
         unawaited(_notificationService.clearMentionNotifications(channel));
@@ -3005,17 +2998,18 @@ class _HomeScreenState extends State<HomeScreen>
                                           onPressed: _addChannelDialog,
                                         ),
                                         ListenableBuilder(
-                                          listenable: _mentionsBump,
+                                          listenable: _chatStore.mentionsBump,
                                           builder: (context, _) => IconButton(
                                             icon: Icon(
                                               Icons.notifications_active,
-                                              color: _unreadMentions > 0
+                                              color:
+                                                  _chatStore.unreadMentions > 0
                                                   ? theme.colorScheme.error
                                                   : null,
                                             ),
                                             tooltip: 'Mentions',
                                             onPressed: () {
-                                              _unreadMentions = 0;
+                                              _chatStore.unreadMentions = 0;
                                               _unreadWhispers = 0;
                                               _channelsWithUnreadMentions
                                                   .clear();

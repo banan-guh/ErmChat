@@ -81,8 +81,6 @@ class ChatConnectionConfig {
     this.onReconnected,
     required this.getMaxMessagesPerChannel,
     required this.getSelectedChannel,
-    required this.getUnreadMentions,
-    required this.setUnreadMentions,
     required this.onCommand,
     required this.getReplyToMsg,
     required this.setReplyToMsg,
@@ -124,8 +122,6 @@ class ChatConnectionConfig {
   final VoidCallback? onReconnected;
   final int Function() getMaxMessagesPerChannel;
   final String? Function() getSelectedChannel;
-  final int Function() getUnreadMentions;
-  final void Function(int) setUnreadMentions;
   final void Function(String, String, TwitchAuth) onCommand;
   final TwitchMessage? Function() getReplyToMsg;
   final void Function(TwitchMessage?) setReplyToMsg;
@@ -182,8 +178,6 @@ class ChatConnectionManager {
   final VoidCallback? onReconnected;
   final int Function() getMaxMessagesPerChannel;
   final String? Function() getSelectedChannel;
-  final int Function() getUnreadMentions;
-  final void Function(int) setUnreadMentions;
   final void Function(String, String, TwitchAuth) onCommand;
   final TwitchMessage? Function() getReplyToMsg;
   final void Function(TwitchMessage?) setReplyToMsg;
@@ -342,8 +336,6 @@ class ChatConnectionManager {
       onReconnected = config.onReconnected,
       getMaxMessagesPerChannel = config.getMaxMessagesPerChannel,
       getSelectedChannel = config.getSelectedChannel,
-      getUnreadMentions = config.getUnreadMentions,
-      setUnreadMentions = config.setUnreadMentions,
       onCommand = config.onCommand,
       getReplyToMsg = config.getReplyToMsg,
       setReplyToMsg = config.setReplyToMsg,
@@ -2009,7 +2001,8 @@ class ChatConnectionManager {
     final state = msg.highlight;
     if (state != null && state.hasMention && msg.login != login) {
       if (!msg.isHistory && channel != getSelectedChannel()) {
-        setUnreadMentions(getUnreadMentions() + 1);
+        store.unreadMentions++;
+        store.mentionsBump.value++;
         channelsWithUnreadMentions.add(channel);
         unreadMentionsPerChannel[channel] =
             (unreadMentionsPerChannel[channel] ?? 0) + 1;

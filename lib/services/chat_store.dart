@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart' show ValueNotifier;
+
 import 'dart:ui' show Color;
 
 import '../models/twitch_message.dart';
@@ -76,6 +78,13 @@ class ChatStore {
   /// Fires after [applyLogin]; HomeScreen hooks account-scoped refreshes
   /// (ping account, mention rescan, blocks, macro warm).
   void Function(String? login)? onLoginApplied;
+
+  /// Unread mention total across all channels.
+  int unreadMentions = 0;
+
+  /// Change signal for [unreadMentions]; the app-bar badge listens to this,
+  /// so writers must bump it after mutating the counter.
+  final ValueNotifier<int> mentionsBump = ValueNotifier(0);
 
   /// Pipeline-path login write: assigns and fires [onLoginApplied].
   void applyLogin(String? login) {
