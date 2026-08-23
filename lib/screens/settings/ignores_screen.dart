@@ -118,81 +118,22 @@ class _IgnoresScreenState extends State<IgnoresScreen> {
     required bool keyword,
     required bool isNew,
   }) async {
-    var pattern = entry.pattern;
-    var isRegex = entry.isRegex;
-    var caseSensitive = entry.caseSensitive;
-    final replacementCtrl = TextEditingController(
-      text: entry.replacement ?? '***',
-    );
-    final controller = TextEditingController(text: pattern);
-
-    final saved = await showDialog<bool>(
+    final result = await showDialog<_IgnoreEditResult>(
       context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => AlertDialog(
-          title: Text(isNew ? 'Add ignore' : 'Edit ignore'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: controller,
-                autofocus: isNew,
-                decoration: InputDecoration(
-                  labelText: keyword ? 'Keyword or regex' : 'Username or regex',
-                ),
-                onChanged: (v) => pattern = v.trim(),
-              ),
-              SwitchListTile(
-                dense: true,
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Regular expression'),
-                value: isRegex,
-                onChanged: (v) => setDialogState(() => isRegex = v),
-              ),
-              SwitchListTile(
-                dense: true,
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Case sensitive'),
-                value: caseSensitive,
-                onChanged: (v) => setDialogState(() => caseSensitive = v),
-              ),
-              if (keyword)
-                TextField(
-                  controller: replacementCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Replace with',
-                    helperText: 'What matched text becomes (default ***)',
-                  ),
-                ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancel'),
-            ),
-            TextButton(
-              onPressed: () {
-                if (pattern.isEmpty) return;
-                Navigator.pop(ctx, true);
-              },
-              child: Text(isNew ? 'Add' : 'Save'),
-            ),
-          ],
-        ),
+      builder: (ctx) => _IgnoreEditDialog(
+        entry: entry,
+        keyword: keyword,
+        isNew: isNew,
       ),
     );
-
-    controller.dispose();
-    replacementCtrl.dispose();
-    if (saved != true) return;
+    if (result == null) return;
 
     final updated = IgnoreEntry(
       id: isNew ? DateTime.now().microsecondsSinceEpoch.toString() : entry.id,
-      pattern: pattern,
-      isRegex: isRegex,
-      caseSensitive: caseSensitive,
-      replacement: keyword ? replacementCtrl.text.trim() : null,
+      pattern: result.pattern,
+      isRegex: result.isRegex,
+      caseSensitive: result.caseSensitive,
+      replacement: result.replacement,
     );
     if (keyword) {
       _manager.upsertKeyword(updated);
@@ -200,5 +141,119 @@ class _IgnoresScreenState extends State<IgnoresScreen> {
       _manager.upsertUser(updated);
     }
     _manager.save();
+  }
+}
+
+class _IgnoreEditResult {
+  const _IgnoreEditResult({
+    required this.pattern,
+    required this.isRegex,
+    required this.caseSensitive,
+    this.replacement,
+  });
+
+  final String pattern;
+  final bool isRegex;
+  final bool caseSensitive;
+  final String? replacement;
+}
+
+/// Owns its TextEditingControllers and disposes them in [dispose], which only
+/// runs after the dialog route has fully exited; disposing right after
+/// showDialog resolves would race the exit transition rebuilding the fields.
+class _IgnoreEditDialog extends StatefulWidget {
+  const _IgnoreEditDialog({
+    required this.entry,
+    required this.keyword,
+    required this.isNew,
+  });
+
+  final IgnoreEntry entry;
+  final bool keyword;
+  final bool isNew;
+
+  @override
+  State<_IgnoreEditDialog> createState() => _IgnoreEditDialogState();
+}
+
+class _IgnoreEditDialogState extends State<_IgnoreEditDialog> {
+  late final _patternCtrl = TextEditingController(text: widget.entry.pattern);
+  late final _replacementCtrl = TextEditingController(
+    text: widget.entry.replacement ?? '***',
+  );
+  late bool _isRegex = widget.entry.isRegex;
+  late bool _caseSensitive = widget.entry.caseSensitive;
+
+  @override
+  void dispose() {
+    _patternCtrl.dispose();
+    _replacementCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.isNew ? 'Add ignore' : 'Edit ignore'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TextField(
+            controller: _patternCtrl,
+            autofocus: widget.isNew,
+            decoration: InputDecoration(
+              labelText:
+                  widget.keyword ? 'Keyword or regex' : 'Username or regex',
+            ),
+          ),
+          SwitchListTile(
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Regular expression'),
+            value: _isRegex,
+            onChanged: (v) => setState(() => _isRegex = v),
+          ),
+          SwitchListTile(
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Case sensitive'),
+            value: _caseSensitive,
+            onChanged: (v) => setState(() => _caseSensitive = v),
+          ),
+          if (widget.keyword)
+            TextField(
+              controller: _replacementCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Replace with',
+                helperText: 'What matched text becomes (default ***)',
+              ),
+            ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        TextButton(
+          onPressed: () {
+            final pattern = _patternCtrl.text.trim();
+            if (pattern.isEmpty) return;
+            Navigator.pop(
+              context,
+              _IgnoreEditResult(
+                pattern: pattern,
+                isRegex: _isRegex,
+                caseSensitive: _caseSensitive,
+                replacement: widget.keyword
+                    ? _replacementCtrl.text.trim()
+                    : null,
+              ),
+            );
+          },
+          child: Text(widget.isNew ? 'Add' : 'Save'),
+        ),
+      ],
+    );
   }
 }

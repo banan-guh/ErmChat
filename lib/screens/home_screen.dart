@@ -797,8 +797,9 @@ class _HomeScreenState extends State<HomeScreen>
       if (msg.messageId != null) {
         _chatStore.messageKeys.add('$channel:${msg.messageId}');
       }
-      final login = _chatStore.session.login?.toLowerCase();
-      if (login != null && msg.highlight == null) {
+      // Evaluate rules even while logged out: custom/user/badge/event rules
+      // need no account, and live ingestion already evaluates anonymously.
+      if (msg.highlight == null) {
         final state = _pingManager.evaluate(msg);
         if (state != null && state.hasMention) {
           msg.highlight = state;

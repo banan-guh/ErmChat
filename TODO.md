@@ -1,4 +1,5 @@
 # TODO
+(x: finished, +: finished, didn't test, -: skip, *: pay attention)
 
 ## High Priority
 
@@ -18,7 +19,7 @@
 - [x] **Poll/prediction broadcaster commands** - /poll /cancelpoll /endpoll /prediction etc. Needs channel:manage:polls + predictions scopes.
 - [x] **Command macros** - local custom commands, {1} {2} {n+} placeholder expansion before send, stored per account.
 - [x] **Join robustness** - unlisted 7TV emote filter; surface suspended / nonexistent channel join failures.
-- [ ] **7TV name paints** - animated personal name colors, repaint rows when a paint arrives late.
+- [x] **7TV name paints** - animated personal name colors, repaint rows when a paint arrives late.
 - [ ] **un-overlap notifs** - keepalive / push notifs are same panel, split them
 
 ## Bugs

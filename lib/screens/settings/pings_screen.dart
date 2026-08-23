@@ -14,37 +14,6 @@ class PingsScreen extends StatefulWidget {
 class _PingsScreenState extends State<PingsScreen> {
   PingManager get _manager => PingManager.instance;
 
-  static const builtinLabels = {
-    'username': 'My username',
-    'reply': 'Replies to me',
-    'redemption': 'Channel point redemptions',
-    'firstMsg': 'First messages',
-    'elevated': 'Hype Chat messages',
-  };
-
-  static const builtinOrder = [
-    'username',
-    'reply',
-    'redemption',
-    'firstMsg',
-    'elevated',
-  ];
-
-  static const colorChoices = <int?>[
-    null,
-    0xFFE57373,
-    0xFFF06292,
-    0xFFBA68C8,
-    0xFF9575CD,
-    0xFF7986CB,
-    0xFF64B5F6,
-    0xFF4DB6AC,
-    0xFF81C784,
-    0xFFFFD54F,
-    0xFFFF8A65,
-    0xFF90A4AE,
-  ];
-
   PingTab _tab = PingTab.messages;
 
   @override
@@ -232,132 +201,26 @@ class _PingsScreenState extends State<PingsScreen> {
         rule.type == 'custom' ||
         rule.kind == PingRuleKind.user;
 
-    var pattern = rule.pattern;
-    var isRegex = rule.isRegex;
-    var caseSensitive = rule.caseSensitive;
-    var notify = rule.notify;
-    int? color = rule.colorArgb;
-    final controller = TextEditingController(text: pattern);
-
-    final saved = await showModalBottomSheet<bool>(
+    final result = await showModalBottomSheet<_PingRuleSheetResult>(
       context: context,
       isScrollControlled: true,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setSheetState) => Padding(
-          padding: EdgeInsets.only(
-            left: 16,
-            right: 16,
-            top: 16,
-            bottom: MediaQuery.viewInsetsOf(ctx).bottom + 16,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                isNew ? 'Add rule' : 'Edit rule',
-                style: Theme.of(ctx).textTheme.titleMedium,
-              ),
-              if (editablePattern) ...[
-                const SizedBox(height: 12),
-                TextField(
-                  controller: controller,
-                  autofocus: isNew,
-                  decoration: InputDecoration(
-                    labelText: switch (rule.kind) {
-                      PingRuleKind.user => 'Username',
-                      PingRuleKind.badge => 'Badge set id (e.g. moderator)',
-                      PingRuleKind.blacklist => 'Username or regex',
-                      _ => 'Keyword',
-                    },
-                    hintText: canRegex ? 'Plain text or regex' : null,
-                  ),
-                  onChanged: (v) => pattern = v.trim(),
-                ),
-                if (canRegex)
-                  SwitchListTile(
-                    dense: true,
-                    title: const Text('Regular expression'),
-                    value: isRegex,
-                    onChanged: (v) => setSheetState(() => isRegex = v),
-                  ),
-                SwitchListTile(
-                  dense: true,
-                  title: const Text('Case sensitive'),
-                  value: caseSensitive,
-                  onChanged: (v) => setSheetState(() => caseSensitive = v),
-                ),
-              ] else ...[
-                const SizedBox(height: 8),
-                Text(builtinLabels[rule.type] ?? rule.type),
-              ],
-              if (canNotify)
-                SwitchListTile(
-                  dense: true,
-                  title: const Text('System notifications'),
-                  subtitle: const Text(
-                    'Push a notification when the app is in the background',
-                  ),
-                  value: notify,
-                  onChanged: (v) => setSheetState(() => notify = v),
-                ),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 10,
-                runSpacing: 10,
-                children: [
-                  for (final c in colorChoices)
-                    GestureDetector(
-                      onTap: () => setSheetState(() => color = c),
-                      child: Container(
-                        width: 32,
-                        height: 32,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: c == null ? null : Color(c),
-                          border: Border.fromBorderSide(
-                            BorderSide(
-                              color: color == c
-                                  ? Theme.of(ctx).colorScheme.primary
-                                  : Theme.of(ctx).colorScheme.outline,
-                              width: color == c ? 3 : 1,
-                            ),
-                          ),
-                        ),
-                        child: c == null
-                            ? const Icon(Icons.block, size: 16)
-                            : null,
-                      ),
-                    ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              FilledButton(
-                onPressed: () {
-                  if (isNew && editablePattern && pattern.isEmpty) {
-                    Navigator.pop(ctx);
-                    return;
-                  }
-                  Navigator.pop(ctx, true);
-                },
-                child: Text(isNew ? 'Add' : 'Save'),
-              ),
-            ],
-          ),
-        ),
+      builder: (ctx) => _PingRuleSheet(
+        rule: rule,
+        isNew: isNew,
+        editablePattern: editablePattern,
+        canRegex: canRegex,
+        canNotify: canNotify,
       ),
     );
-
-    controller.dispose();
-    if (saved != true) return;
+    if (result == null) return;
 
     final updated = rule.copyWith(
-      pattern: editablePattern ? pattern : null,
-      isRegex: canRegex ? isRegex : null,
-      caseSensitive: editablePattern ? caseSensitive : null,
-      notify: canNotify ? notify : null,
-      colorArgb: color,
-      clearColor: color == null,
+      pattern: editablePattern ? result.pattern : null,
+      isRegex: canRegex ? result.isRegex : null,
+      caseSensitive: editablePattern ? result.caseSensitive : null,
+      notify: canNotify ? result.notify : null,
+      colorArgb: result.colorArgb,
+      clearColor: result.colorArgb == null,
     );
     if (isNew) {
       _update(
@@ -376,6 +239,206 @@ class _PingsScreenState extends State<PingsScreen> {
     } else {
       _update(updated);
     }
+  }
+}
+
+/// Builtin message-rule labels, in fixed UI order.
+const builtinLabels = {
+  'username': 'My username',
+  'reply': 'Replies to me',
+  'redemption': 'Channel point redemptions',
+  'firstMsg': 'First messages',
+  'elevated': 'Hype Chat messages',
+};
+
+const builtinOrder = [
+  'username',
+  'reply',
+  'redemption',
+  'firstMsg',
+  'elevated',
+];
+
+class _PingRuleSheetResult {
+  const _PingRuleSheetResult({
+    required this.pattern,
+    required this.isRegex,
+    required this.caseSensitive,
+    required this.notify,
+    required this.colorArgb,
+  });
+
+  final String pattern;
+  final bool isRegex;
+  final bool caseSensitive;
+  final bool notify;
+  final int? colorArgb;
+}
+
+/// Rule editor bottom sheet. Owns its TextEditingController and disposes it in
+/// [dispose], which only runs after the sheet route has fully exited;
+/// disposing right after showModalBottomSheet resolves would race the exit
+/// transition (and the collapsing keyboard's inset animation) rebuilding the
+/// field against a dead controller.
+class _PingRuleSheet extends StatefulWidget {
+  const _PingRuleSheet({
+    required this.rule,
+    required this.isNew,
+    required this.editablePattern,
+    required this.canRegex,
+    required this.canNotify,
+  });
+
+  final PingRule rule;
+  final bool isNew;
+  final bool editablePattern;
+  final bool canRegex;
+  final bool canNotify;
+
+  @override
+  State<_PingRuleSheet> createState() => _PingRuleSheetState();
+}
+
+class _PingRuleSheetState extends State<_PingRuleSheet> {
+  static const colorChoices = <int?>[
+    null,
+    0xFFE57373,
+    0xFFF06292,
+    0xFFBA68C8,
+    0xFF9575CD,
+    0xFF7986CB,
+    0xFF64B5F6,
+    0xFF4DB6AC,
+    0xFF81C784,
+    0xFFFFD54F,
+    0xFFFF8A65,
+    0xFF90A4AE,
+  ];
+
+  late final _patternCtrl = TextEditingController(text: widget.rule.pattern);
+  late bool _isRegex = widget.rule.isRegex;
+  late bool _caseSensitive = widget.rule.caseSensitive;
+  late bool _notify = widget.rule.notify;
+  late int? _color = widget.rule.colorArgb;
+
+  @override
+  void dispose() {
+    _patternCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(
+        left: 16,
+        right: 16,
+        top: 16,
+        bottom: MediaQuery.viewInsetsOf(context).bottom + 16,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            widget.isNew ? 'Add rule' : 'Edit rule',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          if (widget.editablePattern) ...[
+            const SizedBox(height: 12),
+            TextField(
+              controller: _patternCtrl,
+              autofocus: widget.isNew,
+              decoration: InputDecoration(
+                labelText: switch (widget.rule.kind) {
+                  PingRuleKind.user => 'Username',
+                  PingRuleKind.badge => 'Badge set id (e.g. moderator)',
+                  PingRuleKind.blacklist => 'Username or regex',
+                  _ => 'Keyword',
+                },
+                hintText: widget.canRegex ? 'Plain text or regex' : null,
+              ),
+            ),
+            if (widget.canRegex)
+              SwitchListTile(
+                dense: true,
+                title: const Text('Regular expression'),
+                value: _isRegex,
+                onChanged: (v) => setState(() => _isRegex = v),
+              ),
+            SwitchListTile(
+              dense: true,
+              title: const Text('Case sensitive'),
+              value: _caseSensitive,
+              onChanged: (v) => setState(() => _caseSensitive = v),
+            ),
+          ] else ...[
+            const SizedBox(height: 8),
+            Text(builtinLabels[widget.rule.type] ?? widget.rule.type),
+          ],
+          if (widget.canNotify)
+            SwitchListTile(
+              dense: true,
+              title: const Text('System notifications'),
+              subtitle: const Text(
+                'Push a notification when the app is in the background',
+              ),
+              value: _notify,
+              onChanged: (v) => setState(() => _notify = v),
+            ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              for (final c in colorChoices)
+                GestureDetector(
+                  onTap: () => setState(() => _color = c),
+                  child: Container(
+                    width: 32,
+                    height: 32,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: c == null ? null : Color(c),
+                      border: Border.fromBorderSide(
+                        BorderSide(
+                          color: _color == c
+                              ? Theme.of(context).colorScheme.primary
+                              : Theme.of(context).colorScheme.outline,
+                          width: _color == c ? 3 : 1,
+                        ),
+                      ),
+                    ),
+                    child: c == null
+                        ? const Icon(Icons.block, size: 16)
+                        : null,
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          FilledButton(onPressed: _save, child: Text(widget.isNew ? 'Add' : 'Save')),
+        ],
+      ),
+    );
+  }
+
+  void _save() {
+    final pattern = _patternCtrl.text.trim();
+    if (widget.isNew && widget.editablePattern && pattern.isEmpty) {
+      Navigator.pop(context);
+      return;
+    }
+    Navigator.pop(
+      context,
+      _PingRuleSheetResult(
+        pattern: pattern,
+        isRegex: _isRegex,
+        caseSensitive: _caseSensitive,
+        notify: _notify,
+        colorArgb: _color,
+      ),
+    );
   }
 }
 
