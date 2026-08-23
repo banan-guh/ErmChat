@@ -296,6 +296,65 @@ class ChatStore {
     return true;
   }
 
+  /// Kernel ingestion verb for one already-gated live message. Dedups against
+  /// [messageKeys] (returns false and mutates nothing on a duplicate),
+  /// applies unread/mention bookkeeping, inserts into the channel buffer,
+  /// mirrors mention-tier highlights into [mentionsChannel], indexes threads,
+  /// schedules coalesced truncation at [maxMessages], and fires
+  /// [noteNewMessage]. Returns true when the message was inserted.
+  bool ingestMessage(
+    TwitchMessage msg, {
+    required int maxMessages,
+    String? selectedChannel,
+    String? mentionsChannel,
+  }) {
+    final channel = msg.channel;
+    if (channel == null) return false;
+
+    if (msg.messageId != null &&
+        messageKeys.contains('$channel:${msg.messageId}')) {
+      return false;
+    }
+
+    final login = session.login?.toLowerCase();
+    final state = msg.highlight;
+    if (state != null && state.hasMention && msg.login != login) {
+      if (!msg.isHistory && channel != selectedChannel) {
+        unreadMentions++;
+        mentionsBump.value++;
+        channelsWithUnreadMentions.add(channel);
+        unreadMentionsPerChannel[channel] =
+            (unreadMentionsPerChannel[channel] ?? 0) + 1;
+      }
+    }
+
+    channelMessages.putIfAbsent(channel, () => []);
+    channelMessages[channel]!.insert(0, msg);
+    truncateWithCoalesce(channel, maxMessages: maxMessages);
+
+    if (msg.messageId != null) {
+      messageKeys.add('$channel:${msg.messageId}');
+    }
+    indexMessages(channel, [msg]);
+
+    // Only mention-tier highlights land in the mentions tab; event tints
+    // (redemptions, first messages, ...) stay in the channel only.
+    if (state != null && state.hasMention && mentionsChannel != null) {
+      channelMessages.putIfAbsent(mentionsChannel, () => []);
+      channelMessages[mentionsChannel]!.insert(0, msg);
+      final mentionMsgs = channelMessages[mentionsChannel]!;
+      if (mentionMsgs.length > maxMessages) {
+        mentionMsgs.removeRange(maxMessages, mentionMsgs.length);
+      }
+    }
+
+    if (channel != selectedChannel && !msg.isHistory && !msg.isSystem) {
+      channelsWithUnread.add(channel);
+    }
+    noteNewMessage(channel);
+    return true;
+  }
+
   // ---- Threads ------------------------------------------------------------
 
   /// Indexes messages into the thread map (idempotent).

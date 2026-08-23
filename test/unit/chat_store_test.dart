@@ -1,4 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:ermchat/models/highlight_state.dart';
+import 'package:ermchat/models/twitch_message.dart';
 import 'package:ermchat/services/chat_store.dart';
 
 ChatStore _store() => ChatStore(
@@ -69,5 +71,88 @@ void main() {
       expect(msg.isSystem, isTrue);
       expect(msg.systemAccent, isNull);
     });
+  });
+
+  group('ChatStore.ingestMessage', () {
+    TwitchMessage live(String id, {String login = 'alice'}) => TwitchMessage(
+      login: login,
+      text: 'hello',
+      messageId: id,
+      channel: 'test',
+    );
+    test('duplicate returns false and skips signals', () {
+      final store = _store();
+      expect(store.ingestMessage(live('m1'), maxMessages: 10), isTrue);
+
+      final events = <ChatStoreEvent>[];
+      final sub = store.events.listen(events.add);
+      expect(store.ingestMessage(live('m1'), maxMessages: 10), isFalse);
+      sub.cancel();
+
+      expect(store.channelMessages['test'], hasLength(1));
+      expect(store.messageCountNotifier('test').value, 1);
+      expect(events, isEmpty);
+    });
+
+    test('insert bumps messageCountNotifier and emits newContent', () {
+      final store = _store();
+      final events = <ChatStoreEvent>[];
+      final sub = store.events.listen(events.add);
+
+      expect(store.ingestMessage(live('m1'), maxMessages: 10), isTrue);
+      sub.cancel();
+
+      expect(store.channelMessages['test']!.first.messageId, 'm1');
+      expect(store.messageCountNotifier('test').value, 1);
+      expect(events.single.signal, ChatStoreSignal.newContent);
+      expect(events.single.channel, 'test');
+    });
+
+    test(
+      'mention highlight bumps unread bookkeeping and mirrors into mentions',
+      () {
+        final store = _store();
+        final msg = live('m1')
+          ..highlight = const HighlightState(types: {HighlightType.username});
+
+        expect(
+          store.ingestMessage(
+            msg,
+            maxMessages: 10,
+            selectedChannel: 'other',
+            mentionsChannel: '@mentions',
+          ),
+          isTrue,
+        );
+        expect(store.unreadMentions, 1);
+        expect(store.mentionsBump.value, 1);
+        expect(store.channelsWithUnreadMentions, contains('test'));
+        expect(store.unreadMentionsPerChannel['test'], 1);
+        expect(store.channelMessages['@mentions']!.single.messageId, 'm1');
+      },
+    );
+
+    test(
+      'mention in the selected channel skips counters but still mirrors',
+      () {
+        final store = _store();
+        final msg = live('m1')
+          ..highlight = const HighlightState(types: {HighlightType.reply});
+
+        expect(
+          store.ingestMessage(
+            msg,
+            maxMessages: 10,
+            selectedChannel: 'test',
+            mentionsChannel: '@mentions',
+          ),
+          isTrue,
+        );
+        expect(store.unreadMentions, 0);
+        expect(store.mentionsBump.value, 0);
+        expect(store.unreadMentionsPerChannel, isEmpty);
+        expect(store.channelMessages['@mentions'], hasLength(1));
+      },
+    );
   });
 }

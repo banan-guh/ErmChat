@@ -1722,8 +1722,12 @@ class ChatConnectionManager {
       userStore.addUser(channel, preferredName);
     }
 
-    if (msg.messageId != null &&
-        messageKeys.contains('$channel:${msg.messageId}')) {
+    if (!store.ingestMessage(
+      msg,
+      maxMessages: getMaxMessagesPerChannel(),
+      selectedChannel: getSelectedChannel(),
+      mentionsChannel: mentionsChannel,
+    )) {
       return;
     }
 
@@ -1750,44 +1754,9 @@ class ChatConnectionManager {
     final login = session.login?.toLowerCase();
     final state = msg.highlight;
     if (state != null && state.hasMention && msg.login != login) {
-      if (!msg.isHistory && channel != getSelectedChannel()) {
-        store.unreadMentions++;
-        store.mentionsBump.value++;
-        channelsWithUnreadMentions.add(channel);
-        unreadMentionsPerChannel[channel] =
-            (unreadMentionsPerChannel[channel] ?? 0) + 1;
-      }
       onMention?.call(channel, msg);
     }
 
-    channelMessages.putIfAbsent(channel, () => []);
-    channelMessages[channel]!.insert(0, msg);
-    store.truncateWithCoalesce(
-      channel,
-      maxMessages: getMaxMessagesPerChannel(),
-    );
-
-    if (msg.messageId != null) {
-      messageKeys.add('$channel:${msg.messageId}');
-    }
-    store.indexMessages(channel, [msg]);
-
-    // Only mention-tier highlights land in the mentions tab; event tints
-    // (redemptions, first messages, ...) stay in the channel only.
-    if (state != null && state.hasMention) {
-      channelMessages.putIfAbsent(mentionsChannel, () => []);
-      channelMessages[mentionsChannel]!.insert(0, msg);
-      final mentionMsgs = channelMessages[mentionsChannel]!;
-      final max = getMaxMessagesPerChannel();
-      if (mentionMsgs.length > max) {
-        mentionMsgs.removeRange(max, mentionMsgs.length);
-      }
-    }
-
-    if (channel != getSelectedChannel() && !msg.isHistory && !msg.isSystem) {
-      channelsWithUnread.add(channel);
-    }
-    store.noteNewMessage(channel);
     precacheMessageEmotes(msg, channel);
     onChatMessage?.call(channel, msg);
   }
