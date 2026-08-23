@@ -162,16 +162,6 @@ class _HomeScreenState extends State<HomeScreen>
           if (mounted) setState(() {});
         },
         onSystemMessage: _addSystemMessage,
-        onRequestFocus: () => _focusNode.requestFocus(),
-        onShowSnackBar: (msg) {
-          if (mounted) {
-            final messenger = ScaffoldMessenger.of(context);
-            // Replace any current snackbar so identical/rapid info popups
-            // don't queue up one after another.
-            messenger.removeCurrentSnackBar();
-            messenger.showSnackBar(SnackBar(content: Text(msg)));
-          }
-        },
         getSelectedChannel: () => _selectedChannel,
         getMaxMessagesPerChannel: () => _maxMessagesPerChannel,
       ),
@@ -393,6 +383,7 @@ class _HomeScreenState extends State<HomeScreen>
     _loadNotificationSettings();
     _loadTestWidgets();
     _storeEventsSub = _chatStore.events.listen(_onStoreEvent);
+    _noticesSub = _chatStore.notices.listen(_onStoreNotice);
     _chatConn.connect();
     _cooldownTickTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       _tickCooldownLabel();
@@ -1096,10 +1087,25 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   StreamSubscription<ChatStoreEvent>? _storeEventsSub;
+  StreamSubscription<ChatNotice>? _noticesSub;
 
   // The store announces every mutation; this is the view bookkeeping that
   // reacts: tile-cache eviction and overlay-panel data refresh. Rendering
   // itself happens through the per-channel notifiers the tiles listen to.
+  void _onStoreNotice(ChatNotice notice) {
+    switch (notice.kind) {
+      case ChatNoticeKind.info:
+        if (!mounted) return;
+        final messenger = ScaffoldMessenger.of(context);
+        // Replace any current snackbar so identical/rapid info popups don't
+        // queue up one after another.
+        messenger.removeCurrentSnackBar();
+        messenger.showSnackBar(SnackBar(content: Text(notice.message ?? '')));
+      case ChatNoticeKind.focusInput:
+        _focusNode.requestFocus();
+    }
+  }
+
   void _onStoreEvent(ChatStoreEvent event) {
     switch (event.signal) {
       case ChatStoreSignal.newContent:
@@ -1500,6 +1506,7 @@ class _HomeScreenState extends State<HomeScreen>
     }
     _tileCache.clear();
     _storeEventsSub?.cancel();
+    _noticesSub?.cancel();
     _chatStore.dispose();
     _notificationTapSub?.cancel();
     _notificationService.dispose();

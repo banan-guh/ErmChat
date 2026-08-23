@@ -72,8 +72,6 @@ class ChatViewBridge {
     required this.mentionsChannel,
     required this.onRebuild,
     required this.onSystemMessage,
-    required this.onRequestFocus,
-    required this.onShowSnackBar,
     required this.getSelectedChannel,
     required this.getMaxMessagesPerChannel,
   });
@@ -81,8 +79,6 @@ class ChatViewBridge {
   final String mentionsChannel;
   final VoidCallback onRebuild;
   final void Function(String, String, {Color? accent}) onSystemMessage;
-  final VoidCallback onRequestFocus;
-  final void Function(String) onShowSnackBar;
   final String? Function() getSelectedChannel;
   final int Function() getMaxMessagesPerChannel;
 }
@@ -175,8 +171,6 @@ class ChatConnectionManager {
   final void Function(String, String, TwitchAuth) onCommand;
   final TwitchMessage? Function() getReplyToMsg;
   final void Function(TwitchMessage?) setReplyToMsg;
-  final VoidCallback onRequestFocus;
-  final void Function(String) onShowSnackBar;
   final PingManager? pingManager;
   final IgnoreManager? ignoreManager;
   final Map<String, String> Function()? getMacros;
@@ -320,8 +314,6 @@ class ChatConnectionManager {
       onCommand = config.sinks.onCommand,
       getReplyToMsg = config.sinks.getReplyToMsg,
       setReplyToMsg = config.sinks.setReplyToMsg,
-      onRequestFocus = config.bridge.onRequestFocus,
-      onShowSnackBar = config.bridge.onShowSnackBar,
       pingManager = config.services.pingManager,
       ignoreManager = config.services.ignoreManager,
       getMacros = config.sinks.getMacros,
@@ -1008,24 +1000,24 @@ class ChatConnectionManager {
       final expanded = expandMacro(text, macros);
       if (expanded != null) {
         text = expanded;
-        onRequestFocus();
+        store.requestComposerFocus();
       }
     }
 
     if (text.startsWith('/')) {
       onCommand(text, channel, auth);
-      onRequestFocus();
+      store.requestComposerFocus();
       return;
     }
 
     if (isDisposed) return;
     setReplyToMsg(null);
     onRebuild();
-    onRequestFocus();
+    store.requestComposerFocus();
 
     final userLogin = session.login;
     if (userLogin == null) {
-      onShowSnackBar('Connect an account to chat');
+      store.notifyInfo('Connect an account to chat');
       return;
     }
 
@@ -1328,7 +1320,7 @@ class ChatConnectionManager {
         'Login expired - reconnect your account in Settings',
       );
     }
-    onShowSnackBar('Login expired');
+    store.notifyInfo('Login expired');
   }
 
   String _anonymousNick(int seed) {

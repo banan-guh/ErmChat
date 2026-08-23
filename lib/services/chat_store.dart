@@ -14,6 +14,20 @@ class ActiveSession {
   String? userId;
 }
 
+/// Requests that are pure UI effects rather than state changes (a toast,
+/// keyboard focus). The pipeline emits them; the view layer translates.
+enum ChatNoticeKind { info, focusInput }
+
+class ChatNotice {
+  final ChatNoticeKind kind;
+  final String? message;
+
+  const ChatNotice.info(this.message) : kind = ChatNoticeKind.info;
+  const ChatNotice.focusInput()
+    : kind = ChatNoticeKind.focusInput,
+      message = null;
+}
+
 /// What changed inside the store; the UI subscribes once and routes each
 /// signal to its view bookkeeping (tile-cache eviction, panel refresh).
 enum ChatStoreSignal { newContent, channelTouched, messageMutated }
@@ -133,10 +147,25 @@ class ChatStore {
   final _versions = <String, ValueNotifier<int>>{};
   final _messageCounters = <String, ValueNotifier<int>>{};
   final _events = StreamController<ChatStoreEvent>.broadcast(sync: true);
+  final _notices = StreamController<ChatNotice>.broadcast(sync: true);
 
   /// Fired on every mutation; synchronous so a listener's view bookkeeping
   /// (cache eviction) lands before anything reads it in the same turn.
   Stream<ChatStoreEvent> get events => _events.stream;
+
+  /// UI-effect requests emitted by the pipeline; the view translates them.
+  Stream<ChatNotice> get notices => _notices.stream;
+
+  /// Pipeline asks for a toast. The store does not decide copy beyond what
+  /// the caller passes.
+  void notifyInfo(String message) {
+    _notices.add(ChatNotice.info(message));
+  }
+
+  /// Pipeline asks for the composer to take keyboard focus.
+  void requestComposerFocus() {
+    _notices.add(const ChatNotice.focusInput());
+  }
 
   /// Per-channel render epoch: bumped when the whole channel re-renders.
   ValueNotifier<int> versionNotifier(String channel) =>
@@ -188,6 +217,7 @@ class ChatStore {
     }
     mentionsBump.dispose();
     _events.close();
+    _notices.close();
   }
 
   // ---- Threads (derived state) -------------------------------------------
