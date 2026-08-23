@@ -142,60 +142,66 @@ class _HomeScreenState extends State<HomeScreen>
 
   late final _chatConn = ChatConnectionManager(
     ChatConnectionConfig(
-      twitchApi: _twitchApi,
-      eventSub: _eventSub,
-      irc: _irc,
-      ircRead: _ircRead,
-      sevenTvClient: _sevenTvClient,
-      emoteManager: _emoteManager,
-      badgeService: _badgeService,
-      userStore: _userStore,
-      twitchAuth: widget.twitchAuth,
+      services: ChatServices(
+        twitchApi: _twitchApi,
+        eventSub: _eventSub,
+        irc: _irc,
+        ircRead: _ircRead,
+        sevenTvClient: _sevenTvClient,
+        emoteManager: _emoteManager,
+        badgeService: _badgeService,
+        userStore: _userStore,
+        twitchAuth: widget.twitchAuth,
+        pingManager: _pingManager,
+        ignoreManager: _ignoreManager,
+      ),
       store: _chatStore,
-      bumpChannel: _notifyNewMessage,
-      invalidateChannel: _bumpChannel,
-      invalidateMessage: _invalidateMessage,
-      mentionsChannel: _mentionsChannel,
-      onRebuild: () {
-        if (mounted) setState(() {});
-      },
-      onSystemMessage: _addSystemMessage,
-      onAnalyticsMessage: (channel, msg) =>
-          _analytics.recordMessage(channel, msg),
-      onAnalyticsModeration: (channel, isTimeout) =>
-          _analytics.recordModeration(channel, isTimeout),
-      onHypeTrain: _onHypeTrain,
-      onPoll: _onPoll,
-      onPrediction: _onPrediction,
-      onUserEmoteSets: _loadUserEmoteSets,
-      onReconnected: _onReconnected,
-      getMaxMessagesPerChannel: () => _maxMessagesPerChannel,
-      getSelectedChannel: () => _selectedChannel,
-      onChatMessage: (channel, msg) =>
-          _ttsController.handleMessage(channel, msg, _selectedChannel),
-      onCommand: _handleCommand,
-      getReplyToMsg: () => _replyToMsg,
-      setReplyToMsg: (v) => _replyToMsg = v,
-      isChatReady: () => _blocksReady,
-      isBlocked: (login) => _blockedLogins.contains(login.toLowerCase()),
-      getSharedChatMode: () => _sharedChatMode,
-      onRequestFocus: () => _focusNode.requestFocus(),
-      pingManager: _pingManager,
-      ignoreManager: _ignoreManager,
-      getMacros: () {
-        final login = _chatStore.session.login;
-        if (login == null) return const {};
-        return cachedMacroLookup(login) ?? const {};
-      },
-      onShowSnackBar: (msg) {
-        if (mounted) {
-          final messenger = ScaffoldMessenger.of(context);
-          // Replace any current snackbar so identical/rapid info popups don't
-          // queue up one after another.
-          messenger.removeCurrentSnackBar();
-          messenger.showSnackBar(SnackBar(content: Text(msg)));
-        }
-      },
+      bridge: ChatViewBridge(
+        bumpChannel: _notifyNewMessage,
+        invalidateChannel: _bumpChannel,
+        invalidateMessage: _invalidateMessage,
+        mentionsChannel: _mentionsChannel,
+        onRebuild: () {
+          if (mounted) setState(() {});
+        },
+        onSystemMessage: _addSystemMessage,
+        onRequestFocus: () => _focusNode.requestFocus(),
+        onShowSnackBar: (msg) {
+          if (mounted) {
+            final messenger = ScaffoldMessenger.of(context);
+            // Replace any current snackbar so identical/rapid info popups
+            // don't queue up one after another.
+            messenger.removeCurrentSnackBar();
+            messenger.showSnackBar(SnackBar(content: Text(msg)));
+          }
+        },
+        getSelectedChannel: () => _selectedChannel,
+        getMaxMessagesPerChannel: () => _maxMessagesPerChannel,
+      ),
+      sinks: ChatSinks(
+        onCommand: _handleCommand,
+        getReplyToMsg: () => _replyToMsg,
+        setReplyToMsg: (v) => _replyToMsg = v,
+        onUserEmoteSets: _loadUserEmoteSets,
+        onReconnected: _onReconnected,
+        getMacros: () {
+          final login = _chatStore.session.login;
+          if (login == null) return const {};
+          return cachedMacroLookup(login) ?? const {};
+        },
+        isChatReady: () => _blocksReady,
+        isBlocked: (login) => _blockedLogins.contains(login.toLowerCase()),
+        getSharedChatMode: () => _sharedChatMode,
+        onAnalyticsMessage: (channel, msg) =>
+            _analytics.recordMessage(channel, msg),
+        onAnalyticsModeration: (channel, isTimeout) =>
+            _analytics.recordModeration(channel, isTimeout),
+        onHypeTrain: _onHypeTrain,
+        onPoll: _onPoll,
+        onPrediction: _onPrediction,
+        onChatMessage: (channel, msg) =>
+            _ttsController.handleMessage(channel, msg, _selectedChannel),
+      ),
     ),
   );
   late final _messageBuilder = MessageBuilder(

@@ -59,8 +59,10 @@ class _ThreadEntry {
       replies.any((r) => r.messageId == messageId);
 }
 
-class ChatConnectionConfig {
-  ChatConnectionConfig({
+/// Services the chat pipeline depends on. Constructed once per screen and
+/// injectable for tests.
+class ChatServices {
+  ChatServices({
     required this.twitchApi,
     required this.eventSub,
     required this.irc,
@@ -70,36 +72,8 @@ class ChatConnectionConfig {
     required this.badgeService,
     required this.userStore,
     required this.twitchAuth,
-    required this.store,
-    required this.bumpChannel,
-    required this.invalidateChannel,
-    required this.invalidateMessage,
-    required this.mentionsChannel,
-    required this.onRebuild,
-    required this.onSystemMessage,
-    this.onUserEmoteSets,
-    this.onReconnected,
-    required this.getMaxMessagesPerChannel,
-    required this.getSelectedChannel,
-    required this.onCommand,
-    required this.getReplyToMsg,
-    required this.setReplyToMsg,
-    required this.onRequestFocus,
-    required this.onShowSnackBar,
     this.pingManager,
     this.ignoreManager,
-    this.getMacros,
-    this.isChatReady,
-    this.isBlocked,
-    this.getSharedChatMode,
-    this.onAnalyticsMessage,
-    this.onAnalyticsModeration,
-    this.onHypeTrain,
-    this.onPoll,
-    this.onPrediction,
-    this.onChatMessage,
-    this.truncateNow,
-    this.truncateCoalesceWindow = const Duration(milliseconds: 250),
   });
 
   final TwitchApi twitchApi;
@@ -111,24 +85,66 @@ class ChatConnectionConfig {
   final UserStore userStore;
   final TwitchAuth twitchAuth;
   final EmoteManager emoteManager;
-  final ChatStore store;
+  final PingManager? pingManager;
+  final IgnoreManager? ignoreManager;
+}
+
+/// Rendering and interaction signals flowing manager -> UI: buffer change
+/// notifications, system messages, focus and snackbar requests, plus reads
+/// of view-owned state the pipeline needs (selected channel, message cap).
+class ChatViewBridge {
+  ChatViewBridge({
+    required this.bumpChannel,
+    required this.invalidateChannel,
+    required this.invalidateMessage,
+    required this.mentionsChannel,
+    required this.onRebuild,
+    required this.onSystemMessage,
+    required this.onRequestFocus,
+    required this.onShowSnackBar,
+    required this.getSelectedChannel,
+    required this.getMaxMessagesPerChannel,
+  });
+
   final void Function(String channel) bumpChannel;
   final void Function(String channel) invalidateChannel;
   final void Function(String channel, String? messageId) invalidateMessage;
   final String mentionsChannel;
   final VoidCallback onRebuild;
   final void Function(String, String, {Color? accent}) onSystemMessage;
-  final Future<void> Function(String?, List<String>)? onUserEmoteSets;
-  final VoidCallback? onReconnected;
-  final int Function() getMaxMessagesPerChannel;
+  final VoidCallback onRequestFocus;
+  final void Function(String) onShowSnackBar;
   final String? Function() getSelectedChannel;
+  final int Function() getMaxMessagesPerChannel;
+}
+
+/// Feature integrations: commands, reply state, analytics, TTS, EventSub
+/// widget events and account-scoped queries. Mostly optional; a missing
+/// sink disables that integration.
+class ChatSinks {
+  ChatSinks({
+    required this.onCommand,
+    required this.getReplyToMsg,
+    required this.setReplyToMsg,
+    this.onUserEmoteSets,
+    this.onReconnected,
+    this.getMacros,
+    this.isChatReady,
+    this.isBlocked,
+    this.getSharedChatMode,
+    this.onAnalyticsMessage,
+    this.onAnalyticsModeration,
+    this.onHypeTrain,
+    this.onPoll,
+    this.onPrediction,
+    this.onChatMessage,
+  });
+
   final void Function(String, String, TwitchAuth) onCommand;
   final TwitchMessage? Function() getReplyToMsg;
   final void Function(TwitchMessage?) setReplyToMsg;
-  final VoidCallback onRequestFocus;
-  final void Function(String) onShowSnackBar;
-  final PingManager? pingManager;
-  final IgnoreManager? ignoreManager;
+  final Future<void> Function(String?, List<String>)? onUserEmoteSets;
+  final VoidCallback? onReconnected;
   final Map<String, String> Function()? getMacros;
   final bool Function()? isChatReady;
   final bool Function(String login)? isBlocked;
@@ -139,6 +155,22 @@ class ChatConnectionConfig {
   final void Function(PollEvent event)? onPoll;
   final void Function(PredictionEvent event)? onPrediction;
   final void Function(String channel, TwitchMessage msg)? onChatMessage;
+}
+
+class ChatConnectionConfig {
+  ChatConnectionConfig({
+    required this.services,
+    required this.store,
+    required this.bridge,
+    required this.sinks,
+    this.truncateNow,
+    this.truncateCoalesceWindow = const Duration(milliseconds: 250),
+  });
+
+  final ChatServices services;
+  final ChatStore store;
+  final ChatViewBridge bridge;
+  final ChatSinks sinks;
   final DateTime Function()? truncateNow;
   final Duration truncateCoalesceWindow;
 }
@@ -304,15 +336,15 @@ class ChatConnectionManager {
   static const _truncateHardCapFactor = 2;
 
   ChatConnectionManager(ChatConnectionConfig config)
-    : twitchApi = config.twitchApi,
-      eventSub = config.eventSub,
-      irc = config.irc,
-      ircRead = config.ircRead,
-      sevenTvClient = config.sevenTvClient,
-      emoteManager = config.emoteManager,
-      badgeService = config.badgeService,
-      userStore = config.userStore,
-      twitchAuth = config.twitchAuth,
+    : twitchApi = config.services.twitchApi,
+      eventSub = config.services.eventSub,
+      irc = config.services.irc,
+      ircRead = config.services.ircRead,
+      sevenTvClient = config.services.sevenTvClient,
+      emoteManager = config.services.emoteManager,
+      badgeService = config.services.badgeService,
+      userStore = config.services.userStore,
+      twitchAuth = config.services.twitchAuth,
       session = config.store.session,
       store = config.store,
       channelMessages = config.store.channelMessages,
@@ -326,33 +358,33 @@ class ChatConnectionManager {
       channelsEmotesResolved = config.store.channelsEmotesResolved,
       channelUserIds = config.store.channelUserIds,
       lastSentWireText = config.store.lastSentWireText,
-      bumpChannel = config.bumpChannel,
-      invalidateChannel = config.invalidateChannel,
-      invalidateMessage = config.invalidateMessage,
-      mentionsChannel = config.mentionsChannel,
-      onRebuild = config.onRebuild,
-      onSystemMessage = config.onSystemMessage,
-      onUserEmoteSets = config.onUserEmoteSets,
-      onReconnected = config.onReconnected,
-      getMaxMessagesPerChannel = config.getMaxMessagesPerChannel,
-      getSelectedChannel = config.getSelectedChannel,
-      onCommand = config.onCommand,
-      getReplyToMsg = config.getReplyToMsg,
-      setReplyToMsg = config.setReplyToMsg,
-      onRequestFocus = config.onRequestFocus,
-      onShowSnackBar = config.onShowSnackBar,
-      pingManager = config.pingManager,
-      ignoreManager = config.ignoreManager,
-      getMacros = config.getMacros,
-      isChatReady = config.isChatReady,
-      isBlocked = config.isBlocked,
-      getSharedChatMode = config.getSharedChatMode,
-      onAnalyticsMessage = config.onAnalyticsMessage,
-      onAnalyticsModeration = config.onAnalyticsModeration,
-      onHypeTrain = config.onHypeTrain,
-      onPoll = config.onPoll,
-      onPrediction = config.onPrediction,
-      onChatMessage = config.onChatMessage,
+      bumpChannel = config.bridge.bumpChannel,
+      invalidateChannel = config.bridge.invalidateChannel,
+      invalidateMessage = config.bridge.invalidateMessage,
+      mentionsChannel = config.bridge.mentionsChannel,
+      onRebuild = config.bridge.onRebuild,
+      onSystemMessage = config.bridge.onSystemMessage,
+      onUserEmoteSets = config.sinks.onUserEmoteSets,
+      onReconnected = config.sinks.onReconnected,
+      getMaxMessagesPerChannel = config.bridge.getMaxMessagesPerChannel,
+      getSelectedChannel = config.bridge.getSelectedChannel,
+      onCommand = config.sinks.onCommand,
+      getReplyToMsg = config.sinks.getReplyToMsg,
+      setReplyToMsg = config.sinks.setReplyToMsg,
+      onRequestFocus = config.bridge.onRequestFocus,
+      onShowSnackBar = config.bridge.onShowSnackBar,
+      pingManager = config.services.pingManager,
+      ignoreManager = config.services.ignoreManager,
+      getMacros = config.sinks.getMacros,
+      isChatReady = config.sinks.isChatReady,
+      isBlocked = config.sinks.isBlocked,
+      getSharedChatMode = config.sinks.getSharedChatMode,
+      onAnalyticsMessage = config.sinks.onAnalyticsMessage,
+      onAnalyticsModeration = config.sinks.onAnalyticsModeration,
+      onHypeTrain = config.sinks.onHypeTrain,
+      onPoll = config.sinks.onPoll,
+      onPrediction = config.sinks.onPrediction,
+      onChatMessage = config.sinks.onChatMessage,
       _now = config.truncateNow ?? clock.now,
       _truncateCoalesceWindow = config.truncateCoalesceWindow;
 
