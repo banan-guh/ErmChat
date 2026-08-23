@@ -120,17 +120,17 @@ class _HomeScreenState extends State<HomeScreen>
 
   late final _chatStore =
       ChatStore(
-          channels: _channels,
-          channelMessages: _channelMessages,
-          messageKeys: _messageKeys,
-          chatStatus: _chatStatus,
-          channelsWithUnread: _channelsWithUnread,
-          channelsWithUnreadMentions: _channelsWithUnreadMentions,
-          unreadMentionsPerChannel: _unreadMentionsPerChannel,
-          historyLoaded: _historyLoaded,
-          channelsEmotesResolved: _channelsEmotesResolved,
-          channelUserIds: _channelUserIds,
-          lastSentWireText: _lastSentWireText,
+          channels: [],
+          channelMessages: {},
+          messageKeys: {},
+          chatStatus: {},
+          channelsWithUnread: {},
+          channelsWithUnreadMentions: {},
+          unreadMentionsPerChannel: {},
+          historyLoaded: {},
+          channelsEmotesResolved: {},
+          channelUserIds: {},
+          lastSentWireText: {},
         )
         ..onLoginApplied = (v) {
           _pingManager.setAccount(v);
@@ -207,7 +207,7 @@ class _HomeScreenState extends State<HomeScreen>
   late final _commandHandler = CommandHandler(
     twitchApi: _twitchApi,
     irc: _irc,
-    getChannelUserIds: () => _channelUserIds,
+    getChannelUserIds: () => _chatStore.channelUserIds,
     getCurrentUserId: () => _chatStore.session.userId,
     getCurrentUserLogin: () => _chatStore.session.login,
     addSystemMessage: _addSystemMessage,
@@ -242,13 +242,11 @@ class _HomeScreenState extends State<HomeScreen>
   late final _thirdPartyBadgeService = ThirdPartyBadgeService();
   late final _sevenTvPaintService = SevenTvPaintService();
   final _userStore = UserStore();
-  final _channels = <String>[];
   final _channelNotifier = ValueNotifier<List<String>>([]);
   final _chatVersions = <String, ValueNotifier<int>>{};
   final _messageNotifiers = <String, ValueNotifier<int>>{};
   final _tileCache = <String, Map<String?, Widget>>{};
   String? _selectedChannel;
-  final _channelMessages = <String, List<TwitchMessage>>{};
   final _blockedLogins = <String>{};
   bool _blocksReady = false;
   bool _blocksFetched = false;
@@ -256,12 +254,7 @@ class _HomeScreenState extends State<HomeScreen>
   final _scrollControllers = <String, ScrollController>{};
   final _atBottomNotifiers = <String, ValueNotifier<bool>>{};
   final _frozenSnapshot = <String, List<TwitchMessage>>{};
-  final _historyLoaded = <String>{};
   final _refetchingChannels = <String>{};
-  final _messageKeys = <String>{};
-  final _chatStatus = <String, String>{};
-  final _channelUserIds = <String, String>{};
-  final _channelsEmotesResolved = <String>{};
   // Emote set IDs already fetched via the IRC emote-sets path, so repeated
   // USERSTATE (per channel join / message send) doesn't refetch them.
   final _fetchedEmoteSetIds = <String>{};
@@ -270,12 +263,9 @@ class _HomeScreenState extends State<HomeScreen>
   // sets; removed on failure so a failed fetch is retried by the next event.
   final _inflightEmoteSetIds = <String>{};
   // Owner id -> login for sub-emote owners, resolved once per session (open
-  // channels are derived from _channelUserIds; the rest via Helix /users).
+  // channels are derived from _chatStore.channelUserIds; the rest via Helix /users).
   final _emoteOwnerLogins = <String, String>{};
   bool _emoteOwnerLookupDone = false;
-  final _channelsWithUnread = <String>{};
-  final _channelsWithUnreadMentions = <String>{};
-  final _unreadMentionsPerChannel = <String, int>{};
 
   // Broadcaster-only chat widgets (hype train / poll / prediction).
   final _hypeTrains = <String, HypeTrainEvent>{};
@@ -354,7 +344,6 @@ class _HomeScreenState extends State<HomeScreen>
 
   bool _mentionScanDone = false;
   String? _lastSentText;
-  final Map<String, String> _lastSentWireText = {};
 
   ({int start, String originalText, String replacementText})? _lastAutoUndo;
   String? _previousTextForUndo;
@@ -492,8 +481,8 @@ class _HomeScreenState extends State<HomeScreen>
     if (!Platform.isAndroid) return;
     if (value) {
       _initForegroundService();
-      if (_channels.isNotEmpty) {
-        startForegroundService(List.of(_channels));
+      if (_chatStore.channels.isNotEmpty) {
+        startForegroundService(List.of(_chatStore.channels));
       }
     } else {
       stopForegroundService();
@@ -535,7 +524,7 @@ class _HomeScreenState extends State<HomeScreen>
     setState(() => _maxMessagesPerChannel = value);
     // Apply a lower cap immediately instead of waiting for the next incoming
     // message to hit the truncation path.
-    for (final channel in List.of(_channels)) {
+    for (final channel in List.of(_chatStore.channels)) {
       _chatConn.truncateChannelMessages(channel);
       _bumpChannel(channel);
     }
@@ -560,7 +549,7 @@ class _HomeScreenState extends State<HomeScreen>
     if (_showTimestamps == value) return;
     setState(() => _showTimestamps = value);
     // Rendered tiles bake the timestamp setting in; re-render all channels.
-    for (final channel in List.of(_channels)) {
+    for (final channel in List.of(_chatStore.channels)) {
       _bumpChannel(channel);
     }
   }
@@ -568,7 +557,7 @@ class _HomeScreenState extends State<HomeScreen>
   void _setTimestampFormat(String value) {
     if (_timestampFormat == value) return;
     setState(() => _timestampFormat = value);
-    for (final channel in List.of(_channels)) {
+    for (final channel in List.of(_chatStore.channels)) {
       _bumpChannel(channel);
     }
   }
@@ -576,7 +565,7 @@ class _HomeScreenState extends State<HomeScreen>
   void _setSharedChatMode(String value) {
     if (_sharedChatMode == value) return;
     setState(() => _sharedChatMode = value);
-    for (final channel in List.of(_channels)) {
+    for (final channel in List.of(_chatStore.channels)) {
       _bumpChannel(channel);
     }
   }
@@ -584,7 +573,7 @@ class _HomeScreenState extends State<HomeScreen>
   void _setChatFontScale(double value) {
     if (_chatFontSize == value) return;
     setState(() => _chatFontSize = value);
-    for (final channel in List.of(_channels)) {
+    for (final channel in List.of(_chatStore.channels)) {
       _bumpChannel(channel);
     }
   }
@@ -592,7 +581,7 @@ class _HomeScreenState extends State<HomeScreen>
   void _setCheckeredMessages(bool value) {
     if (_checkeredMessages == value) return;
     setState(() => _checkeredMessages = value);
-    for (final channel in List.of(_channels)) {
+    for (final channel in List.of(_chatStore.channels)) {
       _bumpChannel(channel);
     }
   }
@@ -600,7 +589,7 @@ class _HomeScreenState extends State<HomeScreen>
   void _setLineSeparator(bool value) {
     if (_lineSeparator == value) return;
     setState(() => _lineSeparator = value);
-    for (final channel in List.of(_channels)) {
+    for (final channel in List.of(_chatStore.channels)) {
       _bumpChannel(channel);
     }
   }
@@ -611,7 +600,7 @@ class _HomeScreenState extends State<HomeScreen>
     _sevenTvPaintService.enabled = value;
     // Tiles bake the paint decision in at build time; re-render all channels.
     _tileCache.clear();
-    for (final channel in List.of(_channels)) {
+    for (final channel in List.of(_chatStore.channels)) {
       _bumpChannel(channel);
     }
   }
@@ -629,7 +618,7 @@ class _HomeScreenState extends State<HomeScreen>
     if (Platform.isAndroid) {
       if (state == AppLifecycleState.paused) {
         if (_backgroundService) {
-          startForegroundService(List.of(_channels));
+          startForegroundService(List.of(_chatStore.channels));
         }
       } else if (state == AppLifecycleState.resumed) {
         if (_backgroundService) {
@@ -647,16 +636,16 @@ class _HomeScreenState extends State<HomeScreen>
 
   Future<void> _saveChannels() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setStringList('channels', List.of(_channels));
+    await prefs.setStringList('channels', List.of(_chatStore.channels));
   }
 
   void _reorderChannels(List<String> reordered) {
-    _channels
+    _chatStore.channels
       ..clear()
       ..addAll(reordered);
-    _channelNotifier.value = List.of(_channels);
+    _channelNotifier.value = List.of(_chatStore.channels);
     if (_selectedChannel != null) {
-      final newIdx = _channels.indexOf(_selectedChannel!);
+      final newIdx = _chatStore.channels.indexOf(_selectedChannel!);
       if (newIdx >= 0) _selectedTabIndex.value = newIdx;
     }
     if (mounted) setState(() {});
@@ -691,7 +680,7 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   void _sweepBlockedMessages() {
-    for (final entry in _channelMessages.entries) {
+    for (final entry in _chatStore.channelMessages.entries) {
       final msgs = entry.value;
       final before = msgs.length;
       final removed = <TwitchMessage>[];
@@ -726,13 +715,13 @@ class _HomeScreenState extends State<HomeScreen>
     final saved = prefs.getStringList('channels');
     if (saved == null || saved.isEmpty) return;
     for (final name in saved) {
-      if (_channels.contains(name)) continue;
-      _channels.add(name);
-      _channelMessages.putIfAbsent(name, () => []);
+      if (_chatStore.channels.contains(name)) continue;
+      _chatStore.channels.add(name);
+      _chatStore.channelMessages.putIfAbsent(name, () => []);
       _atBottomNotifier(name).value = true;
     }
-    _channelNotifier.value = List.of(_channels);
-    _selectedChannel = _channels.first;
+    _channelNotifier.value = List.of(_chatStore.channels);
+    _selectedChannel = _chatStore.channels.first;
     _selectedTabIndex.value = 0;
     if (mounted) setState(() {});
     for (final name in saved) {
@@ -741,7 +730,7 @@ class _HomeScreenState extends State<HomeScreen>
           .fetchRecent(name, limit: _recentMessagesLimit)
           .then((history) {
             if (!mounted) return;
-            _historyLoaded.add(name);
+            _chatStore.historyLoaded.add(name);
             setState(() {
               if (history.isEmpty) {
                 _addSystemMessage(name, 'No chat history available');
@@ -753,7 +742,7 @@ class _HomeScreenState extends State<HomeScreen>
           })
           .catchError((e) {
             if (!mounted) return;
-            _historyLoaded.add(name);
+            _chatStore.historyLoaded.add(name);
             _addSystemMessage(name, 'Failed to load chat history ($e)');
             _maybeAddConnected(name);
           });
@@ -770,7 +759,7 @@ class _HomeScreenState extends State<HomeScreen>
   // history slots below messages that arrived after it - live messages are
   // never pushed under older history.
   void _mergeHistoryIntoChannel(String channel, List<TwitchMessage> history) {
-    final existing = _channelMessages[channel]!;
+    final existing = _chatStore.channelMessages[channel]!;
     final existingIds = existing.map((m) => m.messageId).toSet();
     var hasExistingNonSystem = false;
     for (final m in existing) {
@@ -813,15 +802,15 @@ class _HomeScreenState extends State<HomeScreen>
         insertedCount++;
       }
       if (msg.messageId != null) {
-        _messageKeys.add('$channel:${msg.messageId}');
+        _chatStore.messageKeys.add('$channel:${msg.messageId}');
       }
       final login = _chatStore.session.login?.toLowerCase();
       if (login != null && msg.highlight == null) {
         final state = _pingManager.evaluate(msg);
         if (state != null && state.hasMention) {
           msg.highlight = state;
-          _channelMessages.putIfAbsent(_mentionsChannel, () => []);
-          final mentionList = _channelMessages[_mentionsChannel]!;
+          _chatStore.channelMessages.putIfAbsent(_mentionsChannel, () => []);
+          final mentionList = _chatStore.channelMessages[_mentionsChannel]!;
           final existingMentionIds = mentionList
               .map((m) => m.messageId)
               .toSet();
@@ -866,13 +855,13 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   void _onReconnected() {
-    for (final channel in List.of(_channels)) {
+    for (final channel in List.of(_chatStore.channels)) {
       unawaited(_refetchHistory(channel));
     }
   }
 
   Future<void> _refetchHistory(String channel) async {
-    if (!_historyLoaded.contains(channel) ||
+    if (!_chatStore.historyLoaded.contains(channel) ||
         _refetchingChannels.contains(channel)) {
       return;
     }
@@ -882,8 +871,8 @@ class _HomeScreenState extends State<HomeScreen>
         channel,
         limit: _recentMessagesLimit,
       );
-      if (!mounted || !_channels.contains(channel)) return;
-      final existing = _channelMessages[channel];
+      if (!mounted || !_chatStore.channels.contains(channel)) return;
+      final existing = _chatStore.channelMessages[channel];
       if (existing == null || history.isEmpty) return;
       // Messages recovered from history after a reconnect gap are marked as
       // backfill so they render greyed out, distinct from live chat.
@@ -1084,7 +1073,7 @@ class _HomeScreenState extends State<HomeScreen>
       _versionNotifier(channel).value++;
       _onPanelDataChanged(channel);
     } else {
-      for (final c in List.of(_channels)) {
+      for (final c in List.of(_chatStore.channels)) {
         _bumpChannel(c);
       }
       _chatStore.mentionsBump.value++;
@@ -1140,7 +1129,8 @@ class _HomeScreenState extends State<HomeScreen>
         channel: channel,
       );
     } else if (_activePanel == OverlayPanel.mentions) {
-      _mentionsPanelData.value = _channelMessages[_mentionsChannel] ?? [];
+      _mentionsPanelData.value =
+          _chatStore.channelMessages[_mentionsChannel] ?? [];
       _whispersPanelData.value = List.of(_whispers);
     }
   }
@@ -1169,7 +1159,7 @@ class _HomeScreenState extends State<HomeScreen>
       // account's chat; the re-fetch below repopulates it.
       _blockedLogins.clear();
       _mentionScanDone = false;
-      _channelsEmotesResolved.clear();
+      _chatStore.channelsEmotesResolved.clear();
       _scanHistoryForMentions();
       unawaited(_ensureBlockedUsersLoaded());
     }
@@ -1244,7 +1234,7 @@ class _HomeScreenState extends State<HomeScreen>
         // Rendering tier: wipe in-memory caches and render only whatever
         // survives on disk, never fetch.
         _emoteManager.evictGlobal();
-        for (final c in _channels) {
+        for (final c in _chatStore.channels) {
           _emoteManager.evictChannel(c);
         }
         if (mounted) setState(() {});
@@ -1253,9 +1243,9 @@ class _HomeScreenState extends State<HomeScreen>
         // persisted caches makes stale-resolution entries refetch.
         _emoteManager.evictGlobal();
         _emoteManager.preloadGlobalEmotes();
-        for (final c in _channels) {
+        for (final c in _chatStore.channels) {
           _emoteManager.evictChannel(c);
-          _emoteManager.resolveEmotes(c, _channelUserIds[c]);
+          _emoteManager.resolveEmotes(c, _chatStore.channelUserIds[c]);
         }
         if (mounted) setState(() {});
       }
@@ -1270,27 +1260,30 @@ class _HomeScreenState extends State<HomeScreen>
 
   Future<void> _refreshEmotesAfterAuth({bool force = false}) async {
     try {
-      for (final channel in _channels) {
+      for (final channel in _chatStore.channels) {
         final userId = await _twitchApi.getUserId(widget.twitchAuth, channel);
         if (userId != null) {
-          _channelUserIds[channel] = userId;
+          _chatStore.channelUserIds[channel] = userId;
         }
       }
       _emoteManager.evictGlobal();
       _emoteManager.preloadGlobalEmotes(force: force);
       _badgeService.dispose();
       _badgeService.fetchGlobalBadges(widget.twitchAuth);
-      for (final channel in _channels) {
+      for (final channel in _chatStore.channels) {
         _emoteManager.evictChannel(channel);
-        final userId = _channelUserIds[channel];
+        final userId = _chatStore.channelUserIds[channel];
         if (userId != null) {
           _badgeService.fetchChannelBadges(widget.twitchAuth, userId, channel);
         }
       }
       await Future.wait(
-        _channels.map(
-          (c) =>
-              _emoteManager.resolveEmotes(c, _channelUserIds[c], force: force),
+        _chatStore.channels.map(
+          (c) => _emoteManager.resolveEmotes(
+            c,
+            _chatStore.channelUserIds[c],
+            force: force,
+          ),
         ),
       );
     } catch (e) {
@@ -1374,7 +1367,9 @@ class _HomeScreenState extends State<HomeScreen>
         return;
       }
       await _ensureEmoteOwnerLogins(perOwner.keys.toList());
-      final targets = channel != null ? [channel] : List.of(_channels);
+      final targets = channel != null
+          ? [channel]
+          : List.of(_chatStore.channels);
       if (targets.isEmpty) {
         logDebug('_loadUserEmoteSets: no channel targets (channel=$channel)');
         return;
@@ -1417,7 +1412,7 @@ class _HomeScreenState extends State<HomeScreen>
     if (_emoteOwnerLookupDone) return;
     _emoteOwnerLookupDone = true;
     // Seed from the open channels (login -> id), so they need no API call.
-    for (final entry in _channelUserIds.entries) {
+    for (final entry in _chatStore.channelUserIds.entries) {
       _emoteOwnerLogins[entry.value] = entry.key;
     }
     final unknown = ownerIds
@@ -1455,7 +1450,7 @@ class _HomeScreenState extends State<HomeScreen>
     });
     if (_showNamePaints) {
       _sevenTvPaintService.enabled = true;
-      for (final channel in List.of(_channels)) {
+      for (final channel in List.of(_chatStore.channels)) {
         _bumpChannel(channel);
       }
     }
@@ -1850,7 +1845,7 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   void _removeLoadingHistoryMessage(String channel) {
-    _channelMessages[channel]?.removeWhere(
+    _chatStore.channelMessages[channel]?.removeWhere(
       (m) => m.isSystem && m.text == 'Loading chat history...',
     );
   }
@@ -1861,7 +1856,7 @@ class _HomeScreenState extends State<HomeScreen>
   // reconnect, otherwise "Connected") back to the most recent position to
   // stay visible.
   void _moveConnectedMessageToTop(String channel) {
-    final msgs = _channelMessages[channel];
+    final msgs = _chatStore.channelMessages[channel];
     if (msgs == null || msgs.length < 2) return;
     int idx = msgs.indexWhere((m) => m.isSystem && m.text == 'Reconnected');
     if (idx < 0) {
@@ -1879,15 +1874,15 @@ class _HomeScreenState extends State<HomeScreen>
 
   Future<void> _addChannel(String channelName) async {
     final name = channelName.trim().toLowerCase();
-    if (name.isEmpty || _channels.contains(name)) return;
+    if (name.isEmpty || _chatStore.channels.contains(name)) return;
 
     setState(() {
-      _channels.add(name);
-      _channelNotifier.value = List.of(_channels);
-      _channelMessages.putIfAbsent(name, () => []);
+      _chatStore.channels.add(name);
+      _channelNotifier.value = List.of(_chatStore.channels);
+      _chatStore.channelMessages.putIfAbsent(name, () => []);
       _atBottomNotifier(name).value = true;
       _selectedChannel = name;
-      _selectedTabIndex.value = _channels.length - 1;
+      _selectedTabIndex.value = _chatStore.channels.length - 1;
     });
     _saveChannels();
     _focusNode.requestFocus();
@@ -1898,13 +1893,13 @@ class _HomeScreenState extends State<HomeScreen>
       isSystem: true,
       channel: name,
     );
-    _channelMessages[name]!.insert(0, loadingMsg);
+    _chatStore.channelMessages[name]!.insert(0, loadingMsg);
 
     _recentMessages
         .fetchRecent(name, limit: _recentMessagesLimit)
         .then((history) {
           if (!mounted) return;
-          _historyLoaded.add(name);
+          _chatStore.historyLoaded.add(name);
           setState(() {
             _removeLoadingHistoryMessage(name);
             if (history.isEmpty) {
@@ -1917,7 +1912,7 @@ class _HomeScreenState extends State<HomeScreen>
         })
         .catchError((e) {
           if (!mounted) return;
-          _historyLoaded.add(name);
+          _chatStore.historyLoaded.add(name);
           setState(() {
             _removeLoadingHistoryMessage(name);
             _addSystemMessage(name, 'Failed to load chat history ($e)');
@@ -1946,11 +1941,11 @@ class _HomeScreenState extends State<HomeScreen>
     _ircRead.part(channel);
     _emoteManager.evictChannel(channel);
     _badgeService.clearChannel(channel);
-    _channelsEmotesResolved.remove(channel);
-    _historyLoaded.remove(channel);
-    _channelUserIds.remove(channel);
-    _lastSentWireText.remove(channel);
-    _chatStatus.remove(channel);
+    _chatStore.channelsEmotesResolved.remove(channel);
+    _chatStore.historyLoaded.remove(channel);
+    _chatStore.channelUserIds.remove(channel);
+    _chatStore.lastSentWireText.remove(channel);
+    _chatStore.chatStatus.remove(channel);
     _hypeTrains.remove(channel);
     _polls.remove(channel);
     _predictions.remove(channel);
@@ -1965,23 +1960,26 @@ class _HomeScreenState extends State<HomeScreen>
     _frozenSnapshot.remove(channel);
     _chatConn.clearChannelThreads(channel);
     setState(() {
-      _channels.remove(channel);
-      _channelNotifier.value = List.of(_channels);
-      _channelMessages.remove(channel);
+      _chatStore.channels.remove(channel);
+      _channelNotifier.value = List.of(_chatStore.channels);
+      _chatStore.channelMessages.remove(channel);
       _userStore.removeChannel(channel);
       _scrollControllers.remove(channel)?.dispose();
-      _channelsWithUnread.remove(channel);
-      _channelsWithUnreadMentions.remove(channel);
-      final removedUnread = _unreadMentionsPerChannel.remove(channel) ?? 0;
+      _chatStore.channelsWithUnread.remove(channel);
+      _chatStore.channelsWithUnreadMentions.remove(channel);
+      final removedUnread =
+          _chatStore.unreadMentionsPerChannel.remove(channel) ?? 0;
       if (removedUnread > 0) {
         _chatStore.unreadMentions -= removedUnread;
         if (_chatStore.unreadMentions < 0) _chatStore.unreadMentions = 0;
       }
-      _messageKeys.removeWhere((k) => k.startsWith('$channel:'));
+      _chatStore.messageKeys.removeWhere((k) => k.startsWith('$channel:'));
       if (_selectedChannel == channel) {
-        _selectedChannel = _channels.isNotEmpty ? _channels.last : null;
-        if (_channels.isNotEmpty) {
-          _selectedTabIndex.value = _channels.length - 1;
+        _selectedChannel = _chatStore.channels.isNotEmpty
+            ? _chatStore.channels.last
+            : null;
+        if (_chatStore.channels.isNotEmpty) {
+          _selectedTabIndex.value = _chatStore.channels.length - 1;
         }
       }
     });
@@ -2130,7 +2128,7 @@ class _HomeScreenState extends State<HomeScreen>
           onAddChannel: _addChannel,
           onReorderChannels: _reorderChannels,
           analyticsService: _analytics,
-          channels: _channels,
+          channels: _chatStore.channels,
           ttsController: _ttsController,
           emoteManager: _emoteManager,
         ),
@@ -2206,7 +2204,7 @@ class _HomeScreenState extends State<HomeScreen>
 
     final channel = msg.channel;
     if (channel == null) return null;
-    final msgs = _channelMessages[channel];
+    final msgs = _chatStore.channelMessages[channel];
     if (msgs == null) return null;
 
     if (msg.messageId != null &&
@@ -2234,7 +2232,7 @@ class _HomeScreenState extends State<HomeScreen>
     if (channel == null) return;
     await _closePanel();
     if (_selectedChannel != channel) {
-      final idx = _channels.indexOf(channel);
+      final idx = _chatStore.channels.indexOf(channel);
       if (idx >= 0) _onChannelChanged(idx);
     }
     setState(() {
@@ -2264,7 +2262,8 @@ class _HomeScreenState extends State<HomeScreen>
       _activePanel = OverlayPanel.mentions;
       _openThreadRoot = null;
     });
-    _mentionsPanelData.value = _channelMessages[_mentionsChannel] ?? [];
+    _mentionsPanelData.value =
+        _chatStore.channelMessages[_mentionsChannel] ?? [];
     _whispersPanelData.value = List.of(_whispers);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
@@ -2284,7 +2283,12 @@ class _HomeScreenState extends State<HomeScreen>
     // aren't stuck on empty states until the next manager notify.
     final channel = _selectedChannel;
     if (channel != null && !_emoteManager.hasChannelCache(channel)) {
-      unawaited(_emoteManager.resolveEmotes(channel, _channelUserIds[channel]));
+      unawaited(
+        _emoteManager.resolveEmotes(
+          channel,
+          _chatStore.channelUserIds[channel],
+        ),
+      );
     }
     if (!_emoteManager.hasGlobalCache) {
       unawaited(_emoteManager.preloadGlobalEmotes());
@@ -2648,7 +2652,7 @@ class _HomeScreenState extends State<HomeScreen>
     if (entry == null) return const [];
     final channel = entry.channel;
     if (channel == null) return const [];
-    final allMsgs = _channelMessages[channel] ?? [];
+    final allMsgs = _chatStore.channelMessages[channel] ?? [];
 
     final entryKey = entry.replyThreadRootId ?? entry.messageId;
     if (entryKey == null) return const [];
@@ -2819,20 +2823,20 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   void _navigateToChannel(String channel) {
-    final index = _channels.indexOf(channel);
+    final index = _chatStore.channels.indexOf(channel);
     if (index >= 0) {
       _onChannelChanged(index);
     }
   }
 
   void _onChannelFocusChanged(int index) {
-    final channel = _channels[index];
+    final channel = _chatStore.channels[index];
     if (_selectedChannel == channel) return;
     unawaited(_closePanel());
     _selectedChannel = channel;
-    _channelsWithUnread.remove(channel);
-    _channelsWithUnreadMentions.remove(channel);
-    final cleared = _unreadMentionsPerChannel.remove(channel) ?? 0;
+    _chatStore.channelsWithUnread.remove(channel);
+    _chatStore.channelsWithUnreadMentions.remove(channel);
+    final cleared = _chatStore.unreadMentionsPerChannel.remove(channel) ?? 0;
     if (cleared > 0) {
       _chatStore.unreadMentions -= cleared;
       if (_chatStore.unreadMentions < 0) _chatStore.unreadMentions = 0;
@@ -2852,15 +2856,15 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   void _onChannelChanged(int index) {
-    final channel = _channels[index];
+    final channel = _chatStore.channels[index];
     if (_selectedChannel == channel) return;
     unawaited(_closePanel());
     setState(() {
       _selectedChannel = channel;
       _shownCooldownLabel = _cooldownLabel();
-      _channelsWithUnread.remove(channel);
-      _channelsWithUnreadMentions.remove(channel);
-      final cleared = _unreadMentionsPerChannel.remove(channel) ?? 0;
+      _chatStore.channelsWithUnread.remove(channel);
+      _chatStore.channelsWithUnreadMentions.remove(channel);
+      final cleared = _chatStore.unreadMentionsPerChannel.remove(channel) ?? 0;
       if (cleared > 0) {
         _chatStore.unreadMentions -= cleared;
         if (_chatStore.unreadMentions < 0) _chatStore.unreadMentions = 0;
@@ -2881,7 +2885,7 @@ class _HomeScreenState extends State<HomeScreen>
   // channel: your remaining timeout wins over the slow-mode window.
   String? _cooldownLabel() {
     final channel = _selectedChannel;
-    if (channel == null || !_channels.contains(channel)) return null;
+    if (channel == null || !_chatStore.channels.contains(channel)) return null;
     final timeout = _chatConn.remainingSelfTimeout(channel);
     if (timeout != null) return 'Timed out: ${timeout}s';
     final slow = _chatConn.remainingSlowCooldown(channel);
@@ -2902,15 +2906,15 @@ class _HomeScreenState extends State<HomeScreen>
   void _scanHistoryForMentions() {
     if (_mentionScanDone || _chatStore.session.login == null) return;
     _mentionScanDone = true;
-    for (final entry in _channelMessages.entries) {
+    for (final entry in _chatStore.channelMessages.entries) {
       if (entry.key == _mentionsChannel) continue;
       for (final msg in entry.value) {
         if (msg.highlight != null) continue;
         final state = _pingManager.evaluate(msg);
         if (state == null || !state.hasMention) continue;
         msg.highlight = state;
-        _channelMessages.putIfAbsent(_mentionsChannel, () => []);
-        _channelMessages[_mentionsChannel]!.insert(0, msg);
+        _chatStore.channelMessages.putIfAbsent(_mentionsChannel, () => []);
+        _chatStore.channelMessages[_mentionsChannel]!.insert(0, msg);
       }
     }
   }
@@ -3011,9 +3015,12 @@ class _HomeScreenState extends State<HomeScreen>
                                             onPressed: () {
                                               _chatStore.unreadMentions = 0;
                                               _unreadWhispers = 0;
-                                              _channelsWithUnreadMentions
+                                              _chatStore
+                                                  .channelsWithUnreadMentions
                                                   .clear();
-                                              _unreadMentionsPerChannel.clear();
+                                              _chatStore
+                                                  .unreadMentionsPerChannel
+                                                  .clear();
                                               if (mounted) setState(() {});
                                               if (_activePanel ==
                                                   OverlayPanel.mentions) {
@@ -3108,18 +3115,18 @@ class _HomeScreenState extends State<HomeScreen>
                                   onPointerDown: (_) {
                                     _suggestionsNotifier.value = [];
                                   },
-                                  child: _channels.isNotEmpty
+                                  child: _chatStore.channels.isNotEmpty
                                       ? TabbedLayout(
-                                          tabs: _channels,
-                                          selectedIndex: _channels.indexOf(
-                                            _selectedChannel ?? '',
-                                          ),
+                                          tabs: _chatStore.channels,
+                                          selectedIndex: _chatStore.channels
+                                              .indexOf(_selectedChannel ?? ''),
                                           onSelectedIndexChanged:
                                               _onChannelChanged,
                                           onFocusChanged:
                                               _onChannelFocusChanged,
                                           pageBuilder: (_, i) {
-                                            final channel = _channels[i];
+                                            final channel =
+                                                _chatStore.channels[i];
                                             return ListenableBuilder(
                                               listenable: _versionNotifier(
                                                 channel,
@@ -3127,7 +3134,8 @@ class _HomeScreenState extends State<HomeScreen>
                                               builder: (_, _) => ChatView(
                                                 channel: channel,
                                                 messages:
-                                                    _channelMessages[channel] ??
+                                                    _chatStore
+                                                        .channelMessages[channel] ??
                                                     [],
                                                 frozenSnapshot: _frozenSnapshot,
                                                 tileCache: _tileCache,
@@ -3173,7 +3181,8 @@ class _HomeScreenState extends State<HomeScreen>
                                           },
                                           focusOnHalfDrag: true,
                                           tabBuilder: (_, i) {
-                                            final channel = _channels[i];
+                                            final channel =
+                                                _chatStore.channels[i];
                                             return ListenableBuilder(
                                               listenable: Listenable.merge([
                                                 _selectedTabIndex,
@@ -3186,9 +3195,9 @@ class _HomeScreenState extends State<HomeScreen>
                                                 final selected =
                                                     focused ||
                                                     channel == _selectedChannel;
-                                                final hasUnreadMention =
-                                                    _channelsWithUnreadMentions
-                                                        .contains(channel);
+                                                final hasUnreadMention = _chatStore
+                                                    .channelsWithUnreadMentions
+                                                    .contains(channel);
                                                 return Stack(
                                                   clipBehavior: Clip.none,
                                                   children: [
@@ -3198,7 +3207,8 @@ class _HomeScreenState extends State<HomeScreen>
                                                         fontSize: 14,
                                                         fontWeight:
                                                             selected ||
-                                                                _channelsWithUnread
+                                                                _chatStore
+                                                                    .channelsWithUnread
                                                                     .contains(
                                                                       channel,
                                                                     )
@@ -3208,7 +3218,8 @@ class _HomeScreenState extends State<HomeScreen>
                                                             ? theme
                                                                   .colorScheme
                                                                   .primary
-                                                            : _channelsWithUnread
+                                                            : _chatStore
+                                                                  .channelsWithUnread
                                                                   .contains(
                                                                     channel,
                                                                   )
@@ -3549,7 +3560,8 @@ class _HomeScreenState extends State<HomeScreen>
                             _selectedTabIndex,
                           ]),
                           builder: (context, _) {
-                            final status = _chatStatus[_selectedChannel];
+                            final status =
+                                _chatStore.chatStatus[_selectedChannel];
                             final hasStatus =
                                 status != null && status.isNotEmpty;
                             return AnimatedSize(
