@@ -461,6 +461,31 @@ class ChatStore {
     }
   }
 
+  /// Marks the non-system message with [messageId] as deleted (CLEARMSG,
+  /// mod deletes). Returns false when no such live row exists.
+  bool markMessageDeleted(String channel, String messageId) {
+    final msgs = channelMessages[channel];
+    if (msgs == null) return false;
+    for (final msg in msgs) {
+      if (msg.messageId == messageId && !msg.isSystem && !msg.deleted) {
+        msg.deleted = true;
+        messageMutated(channel, msg.messageId);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /// Marks every non-system message in the buffer deleted (/clear, EventSub
+  /// clear). Signals each mutation.
+  void markAllMessagesDeleted(String channel) {
+    final msgs = channelMessages[channel];
+    if (msgs == null) return;
+    for (final m in msgs) {
+      if (!m.isSystem) m.deleted = true;
+    }
+  }
+
   /// Edits a message body in place (ban-stack text folding) and signals it.
   void updateMessageText(String channel, String messageId, String newText) {
     final msgs = channelMessages[channel];

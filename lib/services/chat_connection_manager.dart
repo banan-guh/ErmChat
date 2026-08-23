@@ -1013,18 +1013,11 @@ class ChatConnectionManager {
         target != null &&
         selfLogin != null &&
         target.toLowerCase() == selfLogin;
-    final msgs = channelMessages[event.channel];
 
     switch (event.action) {
       case 'delete':
-        if (event.messageId != null && msgs != null) {
-          for (final m in msgs) {
-            if (m.messageId == event.messageId && !m.isSystem) {
-              m.deleted = true;
-              store.messageMutated(event.channel, m.messageId);
-              break;
-            }
-          }
+        if (event.messageId != null) {
+          store.markMessageDeleted(event.channel, event.messageId!);
         }
         final body =
             (event.messageBody != null && event.messageBody!.isNotEmpty)
@@ -1036,11 +1029,7 @@ class ChatConnectionManager {
         );
         break;
       case 'clear':
-        if (msgs != null) {
-          for (final m in msgs) {
-            if (!m.isSystem) m.deleted = true;
-          }
-        }
+        store.markAllMessagesDeleted(event.channel);
         store.touchChannel(event.channel);
         onSystemMessage(event.channel, '$mod cleared the chat.');
         break;

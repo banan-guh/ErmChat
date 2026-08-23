@@ -261,17 +261,7 @@ class ChatIngestion {
 
   void _onMessageDeleted(IrcMessageDeletedEvent event) {
     if (_disposed) return;
-    final msgs = store.channelMessages[event.channel];
-    if (msgs == null) return;
-    var found = false;
-    for (final msg in msgs) {
-      if (msg.messageId == event.messageId && !msg.isSystem) {
-        msg.deleted = true;
-        store.messageMutated(event.channel, msg.messageId);
-        found = true;
-        break;
-      }
-    }
+    final found = store.markMessageDeleted(event.channel, event.messageId);
     // While the channel.moderate v2 subscription is active, deletions come
     // from EventSub (with moderator + message body) - skip the IRC copy.
     if (found && !isModerationActive(event.channel)) {
@@ -374,12 +364,7 @@ class ChatIngestion {
     // With channel.moderate active, clears come from EventSub with the
     // moderator's name - skip the IRC copy.
     if (isModerationActive(event.channel)) return;
-    final msgs = store.channelMessages[event.channel];
-    if (msgs != null) {
-      for (final m in msgs) {
-        if (!m.isSystem) m.deleted = true;
-      }
-    }
+    store.markAllMessagesDeleted(event.channel);
     store.touchChannel(event.channel);
     onSystemMessage(event.channel, 'Chat was cleared.');
   }
