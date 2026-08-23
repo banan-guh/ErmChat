@@ -25,6 +25,15 @@ dart format .      # format all Dart files
 - Emote caching: `EmoteManager` (ChangeNotifier, metadata TTL, usage registry) + `EmoteCacheManager` (disk cap, evicts by registry priority). 7TV live updates via `SevenTvEventClient`.
 - Message spans are cached per message in `MessageBuilder` and invalidated against `EmoteManager.version`, so emote changes recompute lazily.
 
+## Chat kernel conventions
+
+- `ChatStore` is the kernel: it owns the chat state collections and the laws for mutating them.
+- Mutate only through store verbs (`addSystemMessage`, ingest-style operations, `truncateChannel`, `indexMessages`); never reach into the exposed collections directly.
+- Pipeline components (`ChatConnectionManager`) may gate/filter messages but must not re-implement state rules.
+- Kernels emit downward only: change events on `store.events` (per-channel notifiers) and UI-effect notices on `store.notices`; they never import Material widgets or call upward into screens. `HomeScreen` subscribes once and translates both.
+- New chat-state features: put the rule in `ChatStore`, add unit tests in `test/unit/chat_store_test.dart`, then consume from pipeline/UI.
+- View-only caches (tile caches, panel data) stay in `HomeScreen`, driven by `store.events`.
+
 ## Test conventions
 
 - Unit tests in `test/unit/<file>_test.dart`, data/IRC-parsing tests in `test/data/`, widget/integration tests in `test/widgets/`.
