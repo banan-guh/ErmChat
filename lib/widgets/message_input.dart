@@ -27,6 +27,11 @@ class MessageInput extends StatelessWidget {
     this.hintText,
   });
 
+  Color _inputAccent(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return focusNode.hasFocus ? scheme.primary : scheme.onSurfaceVariant;
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -103,7 +108,13 @@ class MessageInput extends StatelessWidget {
                   child: InkWell(
                     borderRadius: BorderRadius.circular(24),
                     onTap: onEmoteToggle,
-                    child: const Icon(Icons.emoji_emotions_outlined),
+                    child: ListenableBuilder(
+                      listenable: focusNode,
+                      builder: (_, _) => Icon(
+                        Icons.emoji_emotions_outlined,
+                        color: _inputAccent(context),
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -116,13 +127,19 @@ class MessageInput extends StatelessWidget {
                     borderRadius: BorderRadius.circular(24),
                     onTap: enabled ? onSend : null,
                     onLongPress: enabled ? onSendLongPress : null,
-                    child: Icon(
-                      Icons.send,
-                      color: enabled
-                          ? Theme.of(context).colorScheme.primary
-                          : Theme.of(
-                              context,
-                            ).colorScheme.onSurface.withValues(alpha: 0.38),
+                    child: ListenableBuilder(
+                      listenable: focusNode,
+                      builder: (_, _) {
+                        final theme = Theme.of(context);
+                        return Icon(
+                          Icons.send,
+                          color: !enabled
+                              ? theme.colorScheme.onSurface.withValues(
+                                  alpha: 0.38,
+                                )
+                              : _inputAccent(context),
+                        );
+                      },
                     ),
                   ),
                 ),
