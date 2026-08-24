@@ -5,7 +5,7 @@ import 'package:flutter/gestures.dart';
 import 'package:linkify/linkify.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../util/log.dart';
-import 'emote_image.dart';
+import 'inline_emote_view.dart';
 import '../models/generic_emote.dart';
 import '../models/twitch_message.dart';
 import '../services/emote_manager.dart';
@@ -242,13 +242,14 @@ class EmoteText {
     double height, {
     List<String>? alternateUrls,
   }) {
-    return EmoteImage(
+    // The lean span renderer: one render box fed by the shared completer.
+    // Chat can hold hundreds of copies of one emote, so the per-copy cost
+    // floor matters more than EmoteImage's richer loading affordances.
+    return InlineEmoteView(
       url: url,
       width: width,
       height: height,
-      fit: BoxFit.contain,
       alternateUrls: alternateUrls,
-      errorWidget: SizedBox(width: width, height: height),
     );
   }
 
@@ -297,13 +298,12 @@ class EmoteText {
         ),
       );
     }
-    Widget emoteWidget = Semantics(
-      label: data.base.code,
-      child: SizedBox(
-        width: maxW,
-        height: maxH,
-        child: Stack(clipBehavior: Clip.none, children: children),
-      ),
+    // No per-emote Semantics: chat tiles wrap everything in a Semantics with
+    // excludeSemantics, so these labels were discarded anyway.
+    Widget emoteWidget = SizedBox(
+      width: maxW,
+      height: maxH,
+      child: Stack(clipBehavior: Clip.none, children: children),
     );
     if (onEmoteTap != null) {
       emoteWidget = GestureDetector(

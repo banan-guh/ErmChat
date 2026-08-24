@@ -1,5 +1,5 @@
-import 'package:ermchat/widgets/emote_image.dart';
 import 'package:ermchat/widgets/emote_loading_band.dart';
+import 'package:ermchat/widgets/emote_probe_memo.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
