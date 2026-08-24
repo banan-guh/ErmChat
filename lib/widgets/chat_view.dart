@@ -110,42 +110,48 @@ class ChatView extends StatelessWidget {
                   }
                 }
 
-                return FlutterListView(
-                  key: ValueKey(channel),
-                  controller: scrollController,
-                  reverse: true,
-                  delegate: FlutterListViewDelegate(
-                    (_, i) => _buildTile(
-                      msgs,
-                      cache,
-                      idToIndex,
-                      i,
-                      surface,
-                      s,
-                      context,
+                // Constant gap between the newest message and the type bar
+                // (FlutterListView has no padding parameter, unlike the
+                // ListView this replaced).
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: FlutterListView(
+                    key: ValueKey(channel),
+                    controller: scrollController,
+                    reverse: true,
+                    delegate: FlutterListViewDelegate(
+                      (_, i) => _buildTile(
+                        msgs,
+                        cache,
+                        idToIndex,
+                        i,
+                        surface,
+                        s,
+                        context,
+                      ),
+                      childCount: msgs.length,
+                      onItemKey: (i) {
+                        final id = msgs[i].messageId;
+                        if (id != null) return 'msg-$id';
+                        final m = msgs[i];
+                        return 'anon-${m.timestamp.microsecondsSinceEpoch}-${m.login}-${m.text.hashCode}';
+                      },
+                      // Within keepPositionOffset of the trailing edge,
+                      // arrivals are NOT compensated: the reader glues to
+                      // the newest message automatically. Beyond it,
+                      // keepPosition holds the reading position steady.
+                      // reverse:true already hugs short lists to the bottom
+                      // edge; no FirstItemAlign needed (it pins content to
+                      // the top instead).
+                      keepPosition: true,
+                      keepPositionOffset: 120,
+                      // Tiles own their RepaintBoundary; dropping the
+                      // automatic KeepAlive wrapper keeps every built tile an
+                      // active child of the sliver instead of parking them in
+                      // the keep-alive bucket.
+                      addAutomaticKeepAlives: false,
+                      addRepaintBoundaries: false,
                     ),
-                    childCount: msgs.length,
-                    onItemKey: (i) {
-                      final id = msgs[i].messageId;
-                      if (id != null) return 'msg-$id';
-                      final m = msgs[i];
-                      return 'anon-${m.timestamp.microsecondsSinceEpoch}-${m.login}-${m.text.hashCode}';
-                    },
-                    // Within keepPositionOffset of the trailing edge,
-                    // arrivals are NOT compensated: the reader glues to
-                    // the newest message automatically. Beyond it,
-                    // keepPosition holds the reading position steady.
-                    // reverse:true already hugs short lists to the bottom
-                    // edge; no FirstItemAlign needed (it pins content to
-                    // the top instead).
-                    keepPosition: true,
-                    keepPositionOffset: 120,
-                    // Tiles own their RepaintBoundary; dropping the
-                    // automatic KeepAlive wrapper keeps every built tile an
-                    // active child of the sliver instead of parking them in
-                    // the keep-alive bucket.
-                    addAutomaticKeepAlives: false,
-                    addRepaintBoundaries: false,
                   ),
                 );
               },
