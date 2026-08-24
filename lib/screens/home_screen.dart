@@ -2882,56 +2882,52 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
-  void _onChannelFocusChanged(int index) {
+  // Single selection commit for BOTH entry points (swipe-tick focus and
+  // settle/tab-tap). Whichever lands first owns the side effects; the shared
+  // guard makes the second one a no-op, so bookkeeping runs exactly once per
+  // real switch regardless of gesture timing.
+  void _commitChannelSelection(int index, {required bool rebuild}) {
     final channel = _chatStore.channels[index];
     if (_selectedChannel == channel) return;
     unawaited(_closePanel());
-    _selectedChannel = channel;
-    _chatStore.channelsWithUnread.remove(channel);
-    _chatStore.channelsWithUnreadMentions.remove(channel);
-    final cleared = _chatStore.unreadMentionsPerChannel.remove(channel) ?? 0;
-    if (cleared > 0) {
-      _chatStore.unreadMentions -= cleared;
-      if (_chatStore.unreadMentions < 0) _chatStore.unreadMentions = 0;
-      // Focus changes (swipes) skip the _onChannelChanged setState path, so
-      // bump the bell's notifier to refresh the badge color.
-      _chatStore.mentionsBump.value++;
-    }
-    if (_mentionPush) {
-      unawaited(_notificationService.clearMentionNotifications(channel));
-    }
-    _openThreadRoot = null;
-    if (_suggestionsNotifier.value.isNotEmpty) {
-      _suggestionsNotifier.value = [];
-    }
-    _resetWidgetPage();
-    _selectedTabIndex.value = index;
-  }
-
-  void _onChannelChanged(int index) {
-    final channel = _chatStore.channels[index];
-    if (_selectedChannel == channel) return;
-    unawaited(_closePanel());
-    setState(() {
+    var clearedUnread = 0;
+    void mutate() {
       _selectedChannel = channel;
       _shownCooldownLabel = _cooldownLabel();
       _chatStore.channelsWithUnread.remove(channel);
       _chatStore.channelsWithUnreadMentions.remove(channel);
-      final cleared = _chatStore.unreadMentionsPerChannel.remove(channel) ?? 0;
-      if (cleared > 0) {
-        _chatStore.unreadMentions -= cleared;
+      clearedUnread = _chatStore.unreadMentionsPerChannel.remove(channel) ?? 0;
+      if (clearedUnread > 0) {
+        _chatStore.unreadMentions -= clearedUnread;
         if (_chatStore.unreadMentions < 0) _chatStore.unreadMentions = 0;
-      }
-      if (_mentionPush) {
-        unawaited(_notificationService.clearMentionNotifications(channel));
       }
       _openThreadRoot = null;
       if (_suggestionsNotifier.value.isNotEmpty) {
         _suggestionsNotifier.value = [];
       }
-    });
+    }
+
+    if (rebuild) {
+      setState(mutate);
+    } else {
+      mutate();
+      // Focus changes (swipes) skip the setState path, so bump the bell's
+      // notifier directly to refresh the badge color.
+      if (clearedUnread > 0) _chatStore.mentionsBump.value++;
+    }
+    if (clearedUnread > 0 && _mentionPush) {
+      unawaited(_notificationService.clearMentionNotifications(channel));
+    }
     _resetWidgetPage();
     _selectedTabIndex.value = index;
+  }
+
+  void _onChannelFocusChanged(int index) {
+    _commitChannelSelection(index, rebuild: false);
+  }
+
+  void _onChannelChanged(int index) {
+    _commitChannelSelection(index, rebuild: true);
   }
 
   // The input-box override text while you cannot send in the visible
