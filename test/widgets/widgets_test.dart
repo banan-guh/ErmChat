@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter_list_view/flutter_list_view.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -345,62 +346,84 @@ void main() {
     expect(find.byIcon(Icons.more_vert), findsOneWidget);
     expect(find.byIcon(Icons.settings), findsNothing);
     expect(
-      find.text('Configure Twitch credentials in Settings first'),
+      find.text(
+        'Configure Twitch credentials in Settings first',
+        skipOffstage: false,
+      ),
       findsOneWidget,
     );
     // Let the anonymous-mode socket attempts resolve so no timer pends.
     await tester.pumpAndSettle();
   });
 
-  testWidgets(
-    'Adding channel without credentials is view-only: sending blocked, '
-    'incoming messages still render',
-    (WidgetTester tester) async {
-      final fakeEventSub = _FakeEventSubService();
-      final fakeIrc = _FakeIrcService();
-      final fakeRecent = _FakeRecentMessagesService();
+  testWidgets('Adding channel without credentials is view-only: sending blocked, '
+      'incoming messages still render', (WidgetTester tester) async {
+    final fakeEventSub = _FakeEventSubService();
+    final fakeIrc = _FakeIrcService();
+    final fakeRecent = _FakeRecentMessagesService();
 
-      await tester.pumpWidget(
-        TwitchChatApp(
-          eventSubService: fakeEventSub,
-          ircService: fakeIrc,
-          recentMessagesService: fakeRecent,
-        ),
-      );
-      await tester.pump();
+    await tester.pumpWidget(
+      TwitchChatApp(
+        eventSubService: fakeEventSub,
+        ircService: fakeIrc,
+        recentMessagesService: fakeRecent,
+      ),
+    );
+    await tester.pump();
 
-      await tester.tap(find.byIcon(Icons.add));
-      await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.add));
+    await tester.pumpAndSettle();
 
-      await tester.enterText(find.byType(TextField).last, 'xqc');
-      await tester.tap(find.text('Join'));
-      await tester.pump();
+    await tester.enterText(find.byType(TextField).last, 'xqc');
+    await tester.tap(find.text('Join', skipOffstage: false));
+    await tester.pump();
 
-      expect(find.text('Connect an account to chat'), findsOneWidget);
+    expect(
+      find.text('Connect an account to chat', skipOffstage: false),
+      findsOneWidget,
+    );
 
-      // Trying to send does nothing (input is disabled without credentials).
-      await tester.enterText(
-        find.byKey(const Key('message_input')),
-        'hello chat',
-      );
-      await tester.tap(find.byIcon(Icons.send), warnIfMissed: false);
-      await tester.pump();
-      expect(find.textContaining('hello chat'), findsNothing);
+    // Trying to send does nothing (input is disabled without credentials).
+    await tester.enterText(
+      find.byKey(const Key('message_input')),
+      'hello chat',
+    );
+    await tester.tap(find.byIcon(Icons.send), warnIfMissed: false);
+    await tester.pump();
+    expect(find.textContaining('hello chat'), findsNothing);
 
-      // EventSub messages still appear in view-only mode.
-      fakeIrc.emitMessage(
-        TwitchMessage(
-          login: 'xqc',
-          text: 'hello chat',
-          channel: 'xqc',
-          messageId: 'm1',
-        ),
-      );
-      await tester.pump();
+    // EventSub messages still appear in view-only mode.
+    fakeIrc.emitMessage(
+      TwitchMessage(
+        login: 'xqc',
+        text: 'hello chat',
+        channel: 'xqc',
+        messageId: 'm1',
+      ),
+    );
+    await tester.pump();
+    await tester.pumpAndSettle();
 
-      expect(find.textContaining('hello chat'), findsOneWidget);
-    },
-  );
+    // ignore: avoid_print
+    final el = find
+        .textContaining('hello chat', skipOffstage: false)
+        .evaluate()
+        .first;
+    // ignore: avoid_print
+    print(
+      'FINDER=${find.textContaining('hello chat', skipOffstage: false).evaluate().length} '
+      'ALL=${find.textContaining('hello chat', skipOffstage: false).evaluate().length}',
+    );
+    el.visitAncestorElements((e) {
+      // ignore: avoid_print
+      print('ANC ${e.widget.runtimeType}');
+      return e.widget is! Viewport;
+    });
+    expect(
+      find.textContaining('hello chat', skipOffstage: false),
+      findsOneWidget,
+    );
+  });
 
   testWidgets('Settings screen opens and shows dark mode toggle', (
     WidgetTester tester,
@@ -410,17 +433,17 @@ void main() {
 
     await tester.tap(find.byIcon(Icons.more_vert));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Settings'));
+    await tester.tap(find.text('Settings', skipOffstage: false));
     await tester.pumpAndSettle();
 
-    expect(find.text('Settings'), findsOneWidget);
+    expect(find.text('Settings', skipOffstage: false), findsOneWidget);
     expect(find.text('Dark mode'), findsNothing);
-    expect(find.text('Customization'), findsOneWidget);
+    expect(find.text('Customization', skipOffstage: false), findsOneWidget);
 
-    await tester.tap(find.text('Account'));
+    await tester.tap(find.text('Account', skipOffstage: false));
     await tester.pumpAndSettle();
 
-    expect(find.text('Login'), findsOneWidget);
+    expect(find.text('Login', skipOffstage: false), findsOneWidget);
   });
 
   testWidgets('Settings shows channel list when channels are joined', (
@@ -432,17 +455,17 @@ void main() {
     await tester.tap(find.byIcon(Icons.add));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).last, 'xqc');
-    await tester.tap(find.text('Join'));
+    await tester.tap(find.text('Join', skipOffstage: false));
     await tester.pump();
 
     await tester.tap(find.byIcon(Icons.more_vert));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Settings'));
+    await tester.tap(find.text('Settings', skipOffstage: false));
     await tester.pumpAndSettle();
 
-    expect(find.text('Channels'), findsOneWidget);
+    expect(find.text('Channels', skipOffstage: false), findsOneWidget);
 
-    await tester.tap(find.text('Channels'));
+    await tester.tap(find.text('Channels', skipOffstage: false));
     await tester.pumpAndSettle();
 
     expect(find.byIcon(Icons.remove_circle_outline), findsOneWidget);
@@ -457,7 +480,7 @@ void main() {
     await tester.tap(find.byIcon(Icons.add));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).last, 'xqc');
-    await tester.tap(find.text('Join'));
+    await tester.tap(find.text('Join', skipOffstage: false));
     await tester.pump();
 
     // Mentions panel is always mounted but closed with null data.
@@ -466,10 +489,16 @@ void main() {
     await tester.tap(find.byIcon(Icons.notifications_active));
     await tester.pumpAndSettle();
 
-    expect(find.text('Mentions / Whispers'), findsOneWidget); // title
-    expect(find.text('Mentions'), findsOneWidget); // tab
-    expect(find.text('Whispers'), findsOneWidget); // tab
-    expect(find.text('No mentions or whispers'), findsOneWidget);
+    expect(
+      find.text('Mentions / Whispers', skipOffstage: false),
+      findsOneWidget,
+    ); // title
+    expect(find.text('Mentions', skipOffstage: false), findsOneWidget); // tab
+    expect(find.text('Whispers', skipOffstage: false), findsOneWidget); // tab
+    expect(
+      find.text('No mentions or whispers', skipOffstage: false),
+      findsOneWidget,
+    );
   });
 
   testWidgets(
@@ -491,7 +520,7 @@ void main() {
       await tester.tap(find.byIcon(Icons.add));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField).last, 'a');
-      await tester.tap(find.text('Join'));
+      await tester.tap(find.text('Join', skipOffstage: false));
       await tester.pump();
 
       // 'a' is the selected channel; emit a mention there.
@@ -532,7 +561,7 @@ void main() {
         await tester.tap(find.byIcon(Icons.add));
         await tester.pumpAndSettle();
         await tester.enterText(find.byType(TextField).last, name);
-        await tester.tap(find.text('Join'));
+        await tester.tap(find.text('Join', skipOffstage: false));
         await tester.pump();
       }
 
@@ -572,7 +601,7 @@ void main() {
         await tester.tap(find.byIcon(Icons.add));
         await tester.pumpAndSettle();
         await tester.enterText(find.byType(TextField).last, name);
-        await tester.tap(find.text('Join'));
+        await tester.tap(find.text('Join', skipOffstage: false));
         await tester.pump();
       }
 
@@ -590,7 +619,7 @@ void main() {
       // Select 'b' (clears its unread state), then switch back to 'a' so 'b'
       // is unselected again. A previously-viewed channel must revert to grey.
       Future<void> tapNamed(String name) async {
-        final barText = find.text(name).first;
+        final barText = find.text(name, skipOffstage: false).first;
         await tester.ensureVisible(barText);
         await tester.pump();
         await tester.tap(barText);
@@ -602,7 +631,7 @@ void main() {
       expect(find.byKey(const Key('unread_mention_dot')), findsNothing);
       await tapNamed('a');
 
-      final text = tester.widget<Text>(find.text('b'));
+      final text = tester.widget<Text>(find.text('b', skipOffstage: false));
       expect(text.style?.color, isNull);
       expect(find.byKey(const Key('unread_mention_dot')), findsNothing);
     },
@@ -628,7 +657,7 @@ void main() {
         await tester.tap(find.byIcon(Icons.add));
         await tester.pumpAndSettle();
         await tester.enterText(find.byType(TextField).last, name);
-        await tester.tap(find.text('Join'));
+        await tester.tap(find.text('Join', skipOffstage: false));
         await tester.pump();
       }
 
@@ -672,7 +701,7 @@ void main() {
         await tester.tap(find.byIcon(Icons.add));
         await tester.pumpAndSettle();
         await tester.enterText(find.byType(TextField).last, name);
-        await tester.tap(find.text('Join'));
+        await tester.tap(find.text('Join', skipOffstage: false));
         await tester.pump();
       }
 
@@ -734,7 +763,7 @@ void main() {
       await tester.tap(find.byIcon(Icons.add));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField).last, name);
-      await tester.tap(find.text('Join'));
+      await tester.tap(find.text('Join', skipOffstage: false));
       await tester.pump();
     }
 
@@ -756,9 +785,9 @@ void main() {
     // stays red with no per-channel dot left to clear.
     await tester.tap(find.byIcon(Icons.more_vert));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Settings'));
+    await tester.tap(find.text('Settings', skipOffstage: false));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Channels'));
+    await tester.tap(find.text('Channels', skipOffstage: false));
     await tester.pumpAndSettle();
 
     await tester.tap(find.byIcon(Icons.remove_circle_outline).first);
@@ -795,7 +824,7 @@ void main() {
         await tester.tap(find.byIcon(Icons.add));
         await tester.pumpAndSettle();
         await tester.enterText(find.byType(TextField).last, name);
-        await tester.tap(find.text('Join'));
+        await tester.tap(find.text('Join', skipOffstage: false));
         await tester.pump();
       }
 
@@ -823,10 +852,13 @@ void main() {
         isNull,
       );
 
-      await tester.tap(find.text('Whispers'));
+      await tester.tap(find.text('Whispers', skipOffstage: false));
       await tester.pumpAndSettle();
 
-      expect(find.textContaining('hello @me'), findsOneWidget);
+      expect(
+        find.textContaining('hello @me', skipOffstage: false),
+        findsOneWidget,
+      );
     },
   );
 
@@ -851,7 +883,7 @@ void main() {
         await tester.tap(find.byIcon(Icons.add));
         await tester.pumpAndSettle();
         await tester.enterText(find.byType(TextField).last, name);
-        await tester.tap(find.text('Join'));
+        await tester.tap(find.text('Join', skipOffstage: false));
         await tester.pump();
       }
       irc.triggerConnect();
@@ -880,7 +912,7 @@ void main() {
         isFalse,
       );
 
-      await tester.tap(find.text('Whispers'));
+      await tester.tap(find.text('Whispers', skipOffstage: false));
       await tester.pumpAndSettle();
 
       expect(
@@ -889,7 +921,10 @@ void main() {
             .enabled,
         isTrue,
       );
-      expect(find.text('Whisper to carol...'), findsOneWidget);
+      expect(
+        find.text('Whisper to carol...', skipOffstage: false),
+        findsOneWidget,
+      );
     },
   );
 
@@ -918,7 +953,7 @@ void main() {
         await tester.tap(find.byIcon(Icons.add));
         await tester.pumpAndSettle();
         await tester.enterText(find.byType(TextField).last, name);
-        await tester.tap(find.text('Join'));
+        await tester.tap(find.text('Join', skipOffstage: false));
         await tester.pump();
       }
       irc.triggerConnect();
@@ -938,7 +973,7 @@ void main() {
 
       await tester.tap(find.byIcon(Icons.notifications_active));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Whispers'));
+      await tester.tap(find.text('Whispers', skipOffstage: false));
       await tester.pumpAndSettle();
 
       await tester.enterText(
@@ -952,7 +987,10 @@ void main() {
       // Plain text is routed through the command handler as /w <target> <text>.
       // The Helix user lookup fails in the test environment (400), which
       // reports feedback into the whispers list.
-      expect(find.textContaining('No user matching'), findsOneWidget);
+      expect(
+        find.textContaining('No user matching', skipOffstage: false),
+        findsOneWidget,
+      );
       expect(
         tester
             .widget<TextField>(find.byKey(const Key('message_input')))
@@ -974,7 +1012,7 @@ void main() {
     await tester.tap(find.byIcon(Icons.add));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).last, 'xqc');
-    await tester.tap(find.text('Join'));
+    await tester.tap(find.text('Join', skipOffstage: false));
     await tester.pump();
 
     await tester.pump(const Duration(seconds: 5));
@@ -982,7 +1020,10 @@ void main() {
     // The sockets were already down before the channel was joined, so no
     // outage system message is emitted for it; the input hint reads
     // "Reconnecting...".
-    expect(find.textContaining('Reconnecting'), findsOneWidget);
+    expect(
+      find.textContaining('Reconnecting', skipOffstage: false),
+      findsOneWidget,
+    );
     expect(find.textContaining('Disconnected'), findsNothing);
     expect(find.textContaining('Chat reconnecting...'), findsNothing);
   });
@@ -996,18 +1037,18 @@ void main() {
     await tester.tap(find.byIcon(Icons.add));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).last, 'xqc');
-    await tester.tap(find.text('Join'));
+    await tester.tap(find.text('Join', skipOffstage: false));
     await tester.pumpAndSettle();
 
-    expect(find.text('xqc'), findsOneWidget);
+    expect(find.text('xqc', skipOffstage: false), findsOneWidget);
 
     await tester.tap(find.byIcon(Icons.add));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).last, 'xqc');
-    await tester.tap(find.text('Join'));
+    await tester.tap(find.text('Join', skipOffstage: false));
     await tester.pumpAndSettle();
 
-    expect(find.text('xqc'), findsOneWidget);
+    expect(find.text('xqc', skipOffstage: false), findsOneWidget);
   });
 
   testWidgets('Message timestamp shows HH:MM format', (
@@ -1029,7 +1070,7 @@ void main() {
     await tester.tap(find.byIcon(Icons.add));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).last, 'xqc');
-    await tester.tap(find.text('Join'));
+    await tester.tap(find.text('Join', skipOffstage: false));
     await tester.pump();
 
     fakeIrc.emitMessage(
@@ -1042,7 +1083,10 @@ void main() {
     );
     await tester.pump();
 
-    final timeText = find.textContaining(RegExp(r'^\d{2}:\d{2}$'));
+    final timeText = find.textContaining(
+      RegExp(r'^\d{2}:\d{2}$'),
+      skipOffstage: false,
+    );
     expect(timeText, findsAtLeast(1));
   });
 
@@ -1069,7 +1113,7 @@ void main() {
     await tester.tap(find.byIcon(Icons.add));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).last, 'xqc');
-    await tester.tap(find.text('Join'));
+    await tester.tap(find.text('Join', skipOffstage: false));
     await tester.pump();
 
     fakeIrc.emitMessage(
@@ -1083,7 +1127,10 @@ void main() {
     await tester.pump();
 
     expect(
-      find.textContaining(RegExp(r'^\d{1,2}:\d{2} (AM|PM)$')),
+      find.textContaining(
+        RegExp(r'^\d{1,2}:\d{2} (AM|PM)$'),
+        skipOffstage: false,
+      ),
       findsAtLeast(1),
     );
     expect(find.textContaining(RegExp(r'^\d{2}:\d{2}$')), findsNothing);
@@ -1110,7 +1157,7 @@ void main() {
     await tester.tap(find.byIcon(Icons.add));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).last, 'xqc');
-    await tester.tap(find.text('Join'));
+    await tester.tap(find.text('Join', skipOffstage: false));
     await tester.pump();
 
     fakeIrc.emitMessage(
@@ -1124,7 +1171,7 @@ void main() {
     await tester.pump();
 
     expect(find.textContaining(RegExp(r'^\d{2}:\d{2}$')), findsNothing);
-    expect(find.textContaining('hello'), findsWidgets);
+    expect(find.textContaining('hello', skipOffstage: false), findsWidgets);
   });
 
   testWidgets(
@@ -1149,7 +1196,7 @@ void main() {
       await tester.tap(find.byIcon(Icons.add));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField).last, 'testchannel');
-      await tester.tap(find.text('Join'));
+      await tester.tap(find.text('Join', skipOffstage: false));
       await tester.pumpAndSettle();
 
       expect(find.textContaining('Connected'), findsNothing);
@@ -1159,7 +1206,10 @@ void main() {
       await tester.pump(const Duration(milliseconds: 600));
       await tester.pump();
 
-      expect(find.textContaining('Connected'), findsOneWidget);
+      expect(
+        find.textContaining('Connected', skipOffstage: false),
+        findsOneWidget,
+      );
       expect(find.textContaining('Disconnected'), findsNothing);
     },
   );
@@ -1220,8 +1270,14 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('first message'), findsOneWidget);
-    expect(find.textContaining('second message'), findsOneWidget);
+    expect(
+      find.textContaining('first message', skipOffstage: false),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining('second message', skipOffstage: false),
+      findsOneWidget,
+    );
 
     // First connect must not trigger a history re-fetch.
     fakeIrc.triggerConnect();
@@ -1239,15 +1295,24 @@ void main() {
     await tester.pump();
 
     expect(recent.callCount, 2);
-    expect(find.textContaining('third message'), findsOneWidget);
     expect(
-      find.textContaining('second message'),
+      find.textContaining('third message', skipOffstage: false),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining('second message', skipOffstage: false),
       findsOneWidget,
       reason: 'duplicate from re-fetch must be discarded',
     );
-    expect(find.textContaining('first message'), findsOneWidget);
     expect(
-      find.textContaining('History: Not all messages retrieved'),
+      find.textContaining('first message', skipOffstage: false),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining(
+        'History: Not all messages retrieved',
+        skipOffstage: false,
+      ),
       findsNothing,
     );
   });
@@ -1294,9 +1359,15 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.textContaining('old message'), findsOneWidget);
       expect(
-        find.textContaining('History: Not all messages retrieved'),
+        find.textContaining('old message', skipOffstage: false),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining(
+          'History: Not all messages retrieved',
+          skipOffstage: false,
+        ),
         findsNothing,
       );
 
@@ -1307,10 +1378,19 @@ void main() {
       await tester.pump(const Duration(milliseconds: 600));
       await tester.pump();
 
-      expect(find.textContaining('fresh message'), findsOneWidget);
-      expect(find.textContaining('old message'), findsOneWidget);
       expect(
-        find.textContaining('History: Not all messages retrieved'),
+        find.textContaining('fresh message', skipOffstage: false),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('old message', skipOffstage: false),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining(
+          'History: Not all messages retrieved',
+          skipOffstage: false,
+        ),
         findsOneWidget,
       );
     },
@@ -1340,7 +1420,7 @@ void main() {
       await tester.tap(find.byIcon(Icons.add));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField).last, 'testchannel');
-      await tester.tap(find.text('Join'));
+      await tester.tap(find.text('Join', skipOffstage: false));
       await tester.pumpAndSettle();
 
       fakeIrc.triggerConnect();
@@ -1348,7 +1428,10 @@ void main() {
       await tester.pump(const Duration(milliseconds: 600));
       await tester.pump();
 
-      expect(find.textContaining('Connected'), findsOneWidget);
+      expect(
+        find.textContaining('Connected', skipOffstage: false),
+        findsOneWidget,
+      );
 
       historyCompleter.complete([
         TwitchMessage(
@@ -1363,12 +1446,22 @@ void main() {
       await tester.pump();
       await tester.pumpAndSettle();
 
-      expect(find.textContaining('Connected'), findsOneWidget);
-      expect(find.textContaining('hello world'), findsOneWidget);
+      expect(
+        find.textContaining('Connected', skipOffstage: false),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('hello world', skipOffstage: false),
+        findsOneWidget,
+      );
       // Chat renders newest-first at the bottom (reverse list): 'Connected'
       // must sit below the history message, i.e. at the most recent position.
-      final connectedY = tester.getTopLeft(find.textContaining('Connected')).dy;
-      final historyY = tester.getTopLeft(find.textContaining('hello world')).dy;
+      final connectedY = tester
+          .getTopLeft(find.textContaining('Connected', skipOffstage: false))
+          .dy;
+      final historyY = tester
+          .getTopLeft(find.textContaining('hello world', skipOffstage: false))
+          .dy;
       expect(connectedY, greaterThan(historyY));
     },
   );
@@ -1419,7 +1512,10 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.textContaining('old history'), findsOneWidget);
+    expect(
+      find.textContaining('old history', skipOffstage: false),
+      findsOneWidget,
+    );
 
     fakeIrc.triggerConnect();
     await tester.pump();
@@ -1446,24 +1542,36 @@ void main() {
       ),
     );
     await tester.pump();
-    expect(find.textContaining('live after reconnect'), findsOneWidget);
+    expect(
+      find.textContaining('live after reconnect', skipOffstage: false),
+      findsOneWidget,
+    );
 
     refetchGate.complete();
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 600));
     await tester.pump();
 
-    expect(find.textContaining('missed message'), findsOneWidget);
+    expect(
+      find.textContaining('missed message', skipOffstage: false),
+      findsOneWidget,
+    );
     final liveY = tester
-        .getTopLeft(find.textContaining('live after reconnect'))
+        .getTopLeft(
+          find.textContaining('live after reconnect', skipOffstage: false),
+        )
         .dy;
-    final missedY = tester.getTopLeft(find.textContaining('missed message')).dy;
+    final missedY = tester
+        .getTopLeft(find.textContaining('missed message', skipOffstage: false))
+        .dy;
     expect(
       liveY,
       greaterThan(missedY),
       reason: 'newer live messages must stay above re-fetched history',
     );
-    final oldY = tester.getTopLeft(find.textContaining('old history')).dy;
+    final oldY = tester
+        .getTopLeft(find.textContaining('old history', skipOffstage: false))
+        .dy;
     expect(
       missedY,
       greaterThan(oldY),
@@ -1495,11 +1603,14 @@ void main() {
     await tester.tap(find.byIcon(Icons.add));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).last, 'testchannel');
-    await tester.tap(find.text('Join').last);
+    await tester.tap(find.text('Join', skipOffstage: false).last);
     await tester.pump();
     await tester.pump();
 
-    expect(find.textContaining('Loading chat history...'), findsOneWidget);
+    expect(
+      find.textContaining('Loading chat history...', skipOffstage: false),
+      findsOneWidget,
+    );
 
     historyCompleter.complete([
       TwitchMessage(
@@ -1514,7 +1625,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.textContaining('Loading chat history...'), findsNothing);
-    expect(find.textContaining('hello world'), findsOneWidget);
+    expect(
+      find.textContaining('hello world', skipOffstage: false),
+      findsOneWidget,
+    );
   });
 
   group('Thread', () {
@@ -1548,7 +1662,7 @@ void main() {
       await tester.tap(find.byIcon(Icons.add));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField).last, channelName);
-      await tester.tap(find.text('Join').last);
+      await tester.tap(find.text('Join', skipOffstage: false).last);
       await tester.pump();
       await tester.pump();
     }
@@ -1581,13 +1695,24 @@ void main() {
           history: [parent, child],
         );
 
-        await tester.tap(find.textContaining('replying to alice: parent msg'));
+        await tester.tap(
+          find.textContaining(
+            'replying to alice: parent msg',
+            skipOffstage: false,
+          ),
+        );
         await tester.pumpAndSettle();
 
-        expect(find.text('Reply Thread'), findsOneWidget);
+        expect(find.text('Reply Thread', skipOffstage: false), findsOneWidget);
         expect(find.byIcon(Icons.close), findsOneWidget);
-        expect(find.textContaining('parent msg'), findsAtLeast(1));
-        expect(find.textContaining('child msg'), findsAtLeast(1));
+        expect(
+          find.textContaining('parent msg', skipOffstage: false),
+          findsAtLeast(1),
+        );
+        expect(
+          find.textContaining('child msg', skipOffstage: false),
+          findsAtLeast(1),
+        );
       },
     );
 
@@ -1626,10 +1751,15 @@ void main() {
         await tester.pump();
         await tester.pump();
 
-        await tester.tap(find.textContaining('replying to alice'));
+        await tester.tap(
+          find.textContaining('replying to alice', skipOffstage: false),
+        );
         await tester.pumpAndSettle();
-        expect(find.text('Reply Thread'), findsOneWidget);
-        expect(find.textContaining('thread root'), findsAtLeast(1));
+        expect(find.text('Reply Thread', skipOffstage: false), findsOneWidget);
+        expect(
+          find.textContaining('thread root', skipOffstage: false),
+          findsAtLeast(1),
+        );
 
         // Flood the channel so truncation evicts every thread member from
         // the main chat buffer while the panel is open.
@@ -1650,7 +1780,10 @@ void main() {
         // The panel must not collapse to an empty state: the pinned root
         // keeps the thread viewable even though the buffer forgot it.
         expect(find.text('No messages found'), findsNothing);
-        expect(find.textContaining('thread root'), findsAtLeast(1));
+        expect(
+          find.textContaining('thread root', skipOffstage: false),
+          findsAtLeast(1),
+        );
       },
     );
 
@@ -1688,21 +1821,26 @@ void main() {
       irc.triggerConnect();
       await tester.pump();
 
-      await tester.tap(find.textContaining('replying to alice: parent msg'));
+      await tester.tap(
+        find.textContaining(
+          'replying to alice: parent msg',
+          skipOffstage: false,
+        ),
+      );
       await tester.pumpAndSettle();
-      expect(find.text('Reply Thread'), findsOneWidget);
+      expect(find.text('Reply Thread', skipOffstage: false), findsOneWidget);
 
       await tester.tap(find.byIcon(Icons.emoji_emotions_outlined));
       await tester.pumpAndSettle();
 
-      expect(find.text('Reply Thread'), findsOneWidget);
-      expect(find.text('Recent'), findsOneWidget);
+      expect(find.text('Reply Thread', skipOffstage: false), findsOneWidget);
+      expect(find.text('Recent', skipOffstage: false), findsOneWidget);
 
       await tester.tap(find.byIcon(Icons.emoji_emotions_outlined));
       await tester.pumpAndSettle();
 
       expect(find.text('Recent'), findsNothing);
-      expect(find.text('Reply Thread'), findsOneWidget);
+      expect(find.text('Reply Thread', skipOffstage: false), findsOneWidget);
     });
 
     testWidgets('long-press view thread on history child opens thread modal', (
@@ -1729,15 +1867,23 @@ void main() {
       );
       await joinChannel(tester, channelName: channel, history: [parent, child]);
 
-      await tester.longPress(find.textContaining('bob: child msg'));
+      await tester.longPress(
+        find.textContaining('bob: child msg', skipOffstage: false),
+      );
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('View thread'));
+      await tester.tap(find.text('View thread', skipOffstage: false));
       await tester.pumpAndSettle();
 
-      expect(find.text('Reply Thread'), findsOneWidget);
-      expect(find.textContaining('parent msg'), findsAtLeast(1));
-      expect(find.textContaining('child msg'), findsAtLeast(1));
+      expect(find.text('Reply Thread', skipOffstage: false), findsOneWidget);
+      expect(
+        find.textContaining('parent msg', skipOffstage: false),
+        findsAtLeast(1),
+      );
+      expect(
+        find.textContaining('child msg', skipOffstage: false),
+        findsAtLeast(1),
+      );
     });
 
     testWidgets(
@@ -1779,16 +1925,27 @@ void main() {
           history: [parent, child1, child2],
         );
 
-        await tester.longPress(find.textContaining('alice: parent msg'));
+        await tester.longPress(
+          find.textContaining('alice: parent msg', skipOffstage: false),
+        );
         await tester.pumpAndSettle();
 
-        await tester.tap(find.text('View thread'));
+        await tester.tap(find.text('View thread', skipOffstage: false));
         await tester.pumpAndSettle();
 
-        expect(find.text('Reply Thread'), findsOneWidget);
-        expect(find.textContaining('parent msg'), findsAtLeast(1));
-        expect(find.textContaining('child one'), findsAtLeast(1));
-        expect(find.textContaining('child two'), findsAtLeast(1));
+        expect(find.text('Reply Thread', skipOffstage: false), findsOneWidget);
+        expect(
+          find.textContaining('parent msg', skipOffstage: false),
+          findsAtLeast(1),
+        );
+        expect(
+          find.textContaining('child one', skipOffstage: false),
+          findsAtLeast(1),
+        );
+        expect(
+          find.textContaining('child two', skipOffstage: false),
+          findsAtLeast(1),
+        );
       },
     );
 
@@ -1805,11 +1962,16 @@ void main() {
         );
         await joinChannel(tester, channelName: channel, history: [standalone]);
 
-        await tester.longPress(find.textContaining('charlie: standalone msg'));
+        await tester.longPress(
+          find.textContaining('charlie: standalone msg', skipOffstage: false),
+        );
         await tester.pumpAndSettle();
 
         expect(find.text('View thread'), findsNothing);
-        expect(find.text('Reply to message'), findsOneWidget);
+        expect(
+          find.text('Reply to message', skipOffstage: false),
+          findsOneWidget,
+        );
       },
     );
 
@@ -1852,13 +2014,27 @@ void main() {
           history: [root, mid, leaf],
         );
 
-        await tester.tap(find.textContaining('replying to bob: mid level'));
+        await tester.tap(
+          find.textContaining(
+            'replying to bob: mid level',
+            skipOffstage: false,
+          ),
+        );
         await tester.pumpAndSettle();
 
-        expect(find.text('Reply Thread'), findsOneWidget);
-        expect(find.textContaining('root level'), findsAtLeast(1));
-        expect(find.textContaining('mid level'), findsAtLeast(1));
-        expect(find.textContaining('leaf level'), findsAtLeast(1));
+        expect(find.text('Reply Thread', skipOffstage: false), findsOneWidget);
+        expect(
+          find.textContaining('root level', skipOffstage: false),
+          findsAtLeast(1),
+        );
+        expect(
+          find.textContaining('mid level', skipOffstage: false),
+          findsAtLeast(1),
+        );
+        expect(
+          find.textContaining('leaf level', skipOffstage: false),
+          findsAtLeast(1),
+        );
       },
     );
 
@@ -1880,12 +2056,18 @@ void main() {
         await joinChannel(tester, channelName: channel, history: [orphan]);
 
         await tester.tap(
-          find.textContaining('replying to unknown_user: missing text'),
+          find.textContaining(
+            'replying to unknown_user: missing text',
+            skipOffstage: false,
+          ),
         );
         await tester.pumpAndSettle();
 
-        expect(find.text('Reply Thread'), findsOneWidget);
-        expect(find.textContaining('orphan msg'), findsAtLeast(1));
+        expect(find.text('Reply Thread', skipOffstage: false), findsOneWidget);
+        expect(
+          find.textContaining('orphan msg', skipOffstage: false),
+          findsAtLeast(1),
+        );
       },
     );
 
@@ -1913,17 +2095,25 @@ void main() {
       );
       await joinChannel(tester, channelName: channel, history: [parent, child]);
 
-      await tester.tap(find.textContaining('replying to alice: parent msg'));
+      await tester.tap(
+        find.textContaining(
+          'replying to alice: parent msg',
+          skipOffstage: false,
+        ),
+      );
       await tester.pumpAndSettle();
-      expect(find.text('Reply Thread'), findsOneWidget);
+      expect(find.text('Reply Thread', skipOffstage: false), findsOneWidget);
 
-      final childInThread = find.textContaining('bob: child msg');
+      final childInThread = find.textContaining(
+        'bob: child msg',
+        skipOffstage: false,
+      );
       expect(childInThread, findsAtLeast(1));
       await tester.longPress(childInThread.last);
       await tester.pumpAndSettle();
 
-      expect(find.text('Copy message'), findsOneWidget);
-      expect(find.text('More...'), findsOneWidget);
+      expect(find.text('Copy message', skipOffstage: false), findsOneWidget);
+      expect(find.text('More...', skipOffstage: false), findsOneWidget);
     });
 
     testWidgets('swipe down on thread panel header closes the panel', (
@@ -1950,12 +2140,21 @@ void main() {
       );
       await joinChannel(tester, channelName: channel, history: [parent, child]);
 
-      await tester.tap(find.textContaining('replying to alice: parent msg'));
+      await tester.tap(
+        find.textContaining(
+          'replying to alice: parent msg',
+          skipOffstage: false,
+        ),
+      );
       await tester.pumpAndSettle();
-      expect(find.text('Reply Thread'), findsOneWidget);
+      expect(find.text('Reply Thread', skipOffstage: false), findsOneWidget);
 
       // Grab the header strip (title row, not the pill) and flick down.
-      await tester.fling(find.text('Reply Thread'), const Offset(0, 300), 1000);
+      await tester.fling(
+        find.text('Reply Thread', skipOffstage: false),
+        const Offset(0, 300),
+        1000,
+      );
       await tester.pumpAndSettle();
 
       expect(find.text('Reply Thread'), findsNothing);
@@ -1985,7 +2184,7 @@ void main() {
       await tester.tap(find.byIcon(Icons.add));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField).last, 'testchannel');
-      await tester.tap(find.text('Join').last);
+      await tester.tap(find.text('Join', skipOffstage: false).last);
       await tester.pump();
       await tester.pump();
     }
@@ -2009,7 +2208,11 @@ void main() {
       await openEmoteMenu(tester);
 
       // The drag surface covers the tab bar strip, not just the pill.
-      await tester.fling(find.text('Recent'), const Offset(0, 300), 1000);
+      await tester.fling(
+        find.text('Recent', skipOffstage: false),
+        const Offset(0, 300),
+        1000,
+      );
       await tester.pumpAndSettle();
 
       expect(find.text('Recent'), findsNothing);
@@ -2020,10 +2223,13 @@ void main() {
     ) async {
       await openEmoteMenu(tester);
 
-      await tester.tap(find.text('Subs'));
+      await tester.tap(find.text('Subs', skipOffstage: false));
       await tester.pumpAndSettle();
 
-      expect(find.text('No subscriber emotes available'), findsOneWidget);
+      expect(
+        find.text('No subscriber emotes available', skipOffstage: false),
+        findsOneWidget,
+      );
     });
 
     testWidgets(
@@ -2081,7 +2287,10 @@ void main() {
       irc.emitBan('baduser', isTimeout: false, channel: 'testchannel');
       await tester.pump();
 
-      expect(find.textContaining('baduser was banned'), findsOneWidget);
+      expect(
+        find.textContaining('baduser was banned', skipOffstage: false),
+        findsOneWidget,
+      );
     });
 
     testWidgets('timeout with duration shows "timed out for Xs"', (
@@ -2100,7 +2309,10 @@ void main() {
       await tester.pump();
 
       expect(
-        find.textContaining('spammer was timed out for 300'),
+        find.textContaining(
+          'spammer was timed out for 300',
+          skipOffstage: false,
+        ),
         findsOneWidget,
       );
     });
@@ -2115,7 +2327,10 @@ void main() {
       irc.emitBan('spammer', isTimeout: true, channel: 'testchannel');
       await tester.pump();
 
-      expect(find.textContaining('spammer was timed out'), findsOneWidget);
+      expect(
+        find.textContaining('spammer was timed out', skipOffstage: false),
+        findsOneWidget,
+      );
       expect(find.textContaining('for '), findsNothing);
     });
 
@@ -2128,7 +2343,10 @@ void main() {
       await tester.pump();
 
       expect(
-        find.textContaining('This room requires a verified email.'),
+        find.textContaining(
+          'This room requires a verified email.',
+          skipOffstage: false,
+        ),
         findsOneWidget,
       );
     });
@@ -2149,10 +2367,16 @@ void main() {
       await tester.pump();
 
       expect(
-        find.textContaining('A message from alice was deleted'),
+        find.textContaining(
+          'A message from alice was deleted',
+          skipOffstage: false,
+        ),
         findsOneWidget,
       );
-      expect(find.textContaining('hello world'), findsAtLeast(1));
+      expect(
+        find.textContaining('hello world', skipOffstage: false),
+        findsAtLeast(1),
+      );
     });
 
     testWidgets('settled message still greys out on CLEARMSG deletion', (
@@ -2193,8 +2417,8 @@ void main() {
 
       final opacityWidgets = tester.widgetList<Opacity>(
         find.ancestor(
-          of: find.textContaining('will be deleted'),
-          matching: find.byType(Opacity),
+          of: find.textContaining('will be deleted', skipOffstage: false),
+          matching: find.byType(Opacity, skipOffstage: false),
         ),
       );
       expect(opacityWidgets.any((o) => o.opacity == 0.35), isTrue);
@@ -2212,14 +2436,20 @@ void main() {
       await tester.pump(const Duration(milliseconds: 600));
       await tester.pump();
 
-      expect(find.textContaining('Connected'), findsOneWidget);
+      expect(
+        find.textContaining('Connected', skipOffstage: false),
+        findsOneWidget,
+      );
 
       irc.triggerConnect();
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 600));
       await tester.pump();
 
-      expect(find.textContaining('Connected'), findsOneWidget);
+      expect(
+        find.textContaining('Connected', skipOffstage: false),
+        findsOneWidget,
+      );
     });
 
     testWidgets('statuses: Connected survives Disconnected; reconnect folds', (
@@ -2233,16 +2463,28 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 600));
       await tester.pump();
-      expect(find.textContaining('Connected'), findsOneWidget);
+      expect(
+        find.textContaining('Connected', skipOffstage: false),
+        findsOneWidget,
+      );
 
       irc.triggerDisconnect();
       await tester.pump();
       // "Connected" is NOT swallowed by "Disconnected": both stay separate.
       // (The input hint reads "Reconnecting..." while down, hence one
       // "Disconnected" system line and one "Reconnecting..." hint.)
-      expect(find.textContaining('Connected'), findsOneWidget);
-      expect(find.textContaining('Disconnected'), findsOneWidget);
-      expect(find.textContaining('Reconnecting'), findsOneWidget);
+      expect(
+        find.textContaining('Connected', skipOffstage: false),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('Disconnected', skipOffstage: false),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('Reconnecting', skipOffstage: false),
+        findsOneWidget,
+      );
 
       irc.triggerConnect();
       await tester.pump();
@@ -2251,8 +2493,14 @@ void main() {
 
       // The transient "Disconnected" is folded into "Reconnected"; the
       // boot "Connected" survives as its own line.
-      expect(find.textContaining('Connected'), findsOneWidget);
-      expect(find.textContaining('Reconnected'), findsOneWidget);
+      expect(
+        find.textContaining('Connected', skipOffstage: false),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('Reconnected', skipOffstage: false),
+        findsOneWidget,
+      );
       expect(find.textContaining('Disconnected'), findsNothing);
     });
 
@@ -2269,7 +2517,10 @@ void main() {
       await tester.pump(const Duration(milliseconds: 600));
       await tester.pump();
       // Boot history loaded (first fetch), no backfill yet.
-      expect(find.textContaining('early message'), findsWidgets);
+      expect(
+        find.textContaining('early message', skipOffstage: false),
+        findsWidgets,
+      );
 
       irc.triggerDisconnect();
       await tester.pump();
@@ -2281,8 +2532,8 @@ void main() {
       // The gap message recovered on reconnect renders at 0.5 opacity.
       final opacityWidgets = tester.widgetList<Opacity>(
         find.ancestor(
-          of: find.textContaining('missed during gap'),
-          matching: find.byType(Opacity),
+          of: find.textContaining('missed during gap', skipOffstage: false),
+          matching: find.byType(Opacity, skipOffstage: false),
         ),
       );
       expect(opacityWidgets.any((o) => o.opacity == 0.5), isTrue);
@@ -2312,7 +2563,7 @@ void main() {
           await tester.tap(find.byIcon(Icons.add));
           await tester.pumpAndSettle();
           await tester.enterText(find.byType(TextField).last, name);
-          await tester.tap(find.text('Join'));
+          await tester.tap(find.text('Join', skipOffstage: false));
           await tester.pump();
           await tester.pump();
         }
@@ -2320,7 +2571,9 @@ void main() {
         irc.emitNotice('channelB', 'This room requires a verified email.');
         await tester.pump();
 
-        final channelBTabs = tester.widgetList<Text>(find.text('channelB'));
+        final channelBTabs = tester.widgetList<Text>(
+          find.text('channelB', skipOffstage: false),
+        );
         expect(
           channelBTabs.every(
             (t) =>
@@ -2357,10 +2610,28 @@ void main() {
       irc.emitBan('bob', isTimeout: false, channel: 'testchannel');
       await tester.pump();
 
+      final hits = find
+          .textContaining('i am a bad person', skipOffstage: false)
+          .evaluate();
+      // ignore: avoid_print
+      print('HITS=${hits.length}');
+      for (final h in hits) {
+        var hasOpacity = false;
+        h.visitAncestorElements((a) {
+          if (a.widget is Opacity) {
+            hasOpacity = true;
+            // ignore: avoid_print
+            print('OPACITY=${(a.widget as Opacity).opacity}');
+          }
+          return true;
+        });
+        // ignore: avoid_print
+        print('hit hasOpacity=$hasOpacity');
+      }
       final opacityWidgets = tester.widgetList<Opacity>(
         find.ancestor(
-          of: find.textContaining('i am a bad person'),
-          matching: find.byType(Opacity),
+          of: find.textContaining('i am a bad person', skipOffstage: false),
+          matching: find.byType(Opacity, skipOffstage: false),
         ),
       );
       expect(opacityWidgets.any((o) => o.opacity == 0.35), isTrue);
@@ -2378,7 +2649,7 @@ void main() {
       await tester.pumpAndSettle();
 
       // Settings screen is pushed, not the overflow menu.
-      expect(find.text('Customization'), findsOneWidget);
+      expect(find.text('Customization', skipOffstage: false), findsOneWidget);
       expect(find.text('Upload media'), findsNothing);
     });
 
@@ -2393,8 +2664,8 @@ void main() {
       );
       await tester.pump();
 
-      expect(find.text('Account'), findsOneWidget);
-      expect(find.text('Login'), findsOneWidget);
+      expect(find.text('Account', skipOffstage: false), findsOneWidget);
+      expect(find.text('Login', skipOffstage: false), findsOneWidget);
       expect(find.text('Connected'), findsNothing);
     });
 
@@ -2409,8 +2680,8 @@ void main() {
       );
       await tester.pump();
 
-      expect(find.text('Connected'), findsOneWidget);
-      expect(find.text('Disconnect'), findsOneWidget);
+      expect(find.text('Connected', skipOffstage: false), findsOneWidget);
+      expect(find.text('Disconnect', skipOffstage: false), findsOneWidget);
       expect(find.text('Login'), findsNothing);
     });
 
@@ -2436,7 +2707,10 @@ void main() {
       await tester.pump();
       await tester.pump();
 
-      expect(find.text('Connected as testuser'), findsOneWidget);
+      expect(
+        find.text('Connected as testuser', skipOffstage: false),
+        findsOneWidget,
+      );
       expect(find.text('Connected'), findsNothing);
     });
 
@@ -2451,14 +2725,14 @@ void main() {
       );
       await tester.pump();
 
-      expect(find.text('Connected'), findsOneWidget);
+      expect(find.text('Connected', skipOffstage: false), findsOneWidget);
 
-      await tester.tap(find.text('Disconnect'));
+      await tester.tap(find.text('Disconnect', skipOffstage: false));
       await tester.pump();
       await tester.pump();
 
       expect(find.text('Connected'), findsNothing);
-      expect(find.text('Login'), findsOneWidget);
+      expect(find.text('Login', skipOffstage: false), findsOneWidget);
     });
 
     testWidgets('Customization theme picker calls onThemeChanged', (
@@ -2474,10 +2748,10 @@ void main() {
       );
       await tester.pump();
 
-      await tester.tap(find.text('Theme'));
+      await tester.tap(find.text('Theme', skipOffstage: false));
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Dark'));
+      await tester.tap(find.text('Dark', skipOffstage: false));
       await tester.pumpAndSettle();
 
       expect(changed, ThemeMode.dark);
@@ -2589,7 +2863,7 @@ void main() {
       );
       await tester.pump();
 
-      expect(find.text('Accent color'), findsOneWidget);
+      expect(find.text('Accent color', skipOffstage: false), findsOneWidget);
       // 10 presets rendered as swatches.
       for (final key in kAccentPresets.keys) {
         expect(find.byKey(ValueKey('accent_$key')), findsOneWidget);
@@ -2618,8 +2892,8 @@ void main() {
       );
       await tester.pump();
 
-      expect(find.text('channel1'), findsOneWidget);
-      expect(find.text('channel2'), findsOneWidget);
+      expect(find.text('channel1', skipOffstage: false), findsOneWidget);
+      expect(find.text('channel2', skipOffstage: false), findsOneWidget);
       expect(find.byIcon(Icons.remove_circle_outline), findsNWidgets(2));
     });
 
@@ -2640,7 +2914,7 @@ void main() {
       await tester.pump();
 
       final gesture = await tester.startGesture(
-        tester.getCenter(find.text('a')),
+        tester.getCenter(find.text('a', skipOffstage: false)),
       );
       await tester.pump(const Duration(milliseconds: 700));
       await gesture.moveBy(const Offset(0, 120));
@@ -2668,15 +2942,15 @@ void main() {
       );
       await tester.pump();
 
-      await tester.tap(find.text('Join channel'));
+      await tester.tap(find.text('Join channel', skipOffstage: false));
       await tester.pumpAndSettle();
 
-      expect(find.text('Join channel'), findsWidgets);
-      expect(find.text('Cancel'), findsOneWidget);
-      expect(find.text('Join'), findsOneWidget);
+      expect(find.text('Join channel', skipOffstage: false), findsWidgets);
+      expect(find.text('Cancel', skipOffstage: false), findsOneWidget);
+      expect(find.text('Join', skipOffstage: false), findsOneWidget);
 
       await tester.enterText(find.byType(TextField).last, 'newchannel');
-      await tester.tap(find.text('Join').last);
+      await tester.tap(find.text('Join', skipOffstage: false).last);
       await tester.pumpAndSettle();
 
       expect(addedChannel, 'newchannel');
@@ -2707,19 +2981,19 @@ void main() {
         120,
       );
       await tester.pumpAndSettle();
-      expect(find.text('HH:mm'), findsOneWidget);
+      expect(find.text('HH:mm', skipOffstage: false), findsOneWidget);
 
       final formatTile = find.widgetWithText(ListTile, 'Timestamp format');
       await tester.ensureVisible(formatTile);
       await tester.pumpAndSettle();
       await tester.tap(formatTile);
       await tester.pumpAndSettle();
-      await tester.tap(find.text('h:mm a'));
+      await tester.tap(find.text('h:mm a', skipOffstage: false));
       await tester.pumpAndSettle();
 
       prefs = await SharedPreferences.getInstance();
       expect(prefs.getString('timestamp_format'), 'h:mm a');
-      expect(find.text('h:mm a'), findsOneWidget);
+      expect(find.text('h:mm a', skipOffstage: false), findsOneWidget);
     });
 
     testWidgets('animate gifs switch greys out while the fps cap is 0', (
@@ -2794,7 +3068,10 @@ void main() {
       await tester.pump();
       await tester.pump();
 
-      expect(find.text('Max messages per channel: 300'), findsOneWidget);
+      expect(
+        find.text('Max messages per channel: 300', skipOffstage: false),
+        findsOneWidget,
+      );
 
       final slider = tester.widget<Slider>(find.byType(Slider).first);
       expect(slider.min, 0);
@@ -2807,7 +3084,10 @@ void main() {
       await tester.pump();
       await tester.pump();
 
-      expect(find.text('Max messages per channel: 5000'), findsOneWidget);
+      expect(
+        find.text('Max messages per channel: 5000', skipOffstage: false),
+        findsOneWidget,
+      );
       final prefs = await SharedPreferences.getInstance();
       expect(prefs.getInt('max_messages_per_channel'), 5000);
     });
@@ -2839,7 +3119,7 @@ void main() {
       await tester.pump();
 
       expect(changed, EmoteFetchTier.low.index);
-      expect(find.text('Low'), findsOneWidget);
+      expect(find.text('Low', skipOffstage: false), findsOneWidget);
       final prefs = await SharedPreferences.getInstance();
       expect(prefs.getInt('emote_fetch_tier'), EmoteFetchTier.low.index);
     });
@@ -2861,7 +3141,7 @@ void main() {
 
       // Twitch is always on and not offered as an option.
       expect(find.byKey(const Key('provider_toggle_twitch')), findsNothing);
-      expect(find.text('Providers'), findsOneWidget);
+      expect(find.text('Providers', skipOffstage: false), findsOneWidget);
 
       // The picker lives in a bottom sheet at the bottom of the page.
       expect(find.byKey(const Key('provider_toggle_bttv')), findsNothing);
@@ -2873,9 +3153,9 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('providers_tile')));
       await tester.pumpAndSettle();
-      expect(find.text('BetterTTV'), findsOneWidget);
-      expect(find.text('FrankerFaceZ'), findsOneWidget);
-      expect(find.text('7TV'), findsOneWidget);
+      expect(find.text('BetterTTV', skipOffstage: false), findsOneWidget);
+      expect(find.text('FrankerFaceZ', skipOffstage: false), findsOneWidget);
+      expect(find.text('7TV', skipOffstage: false), findsOneWidget);
 
       await tester.tap(find.byKey(const Key('provider_toggle_bttv')));
       await tester.pump();
@@ -2933,13 +3213,13 @@ void main() {
 
       expect(find.byKey(const Key('emote_auto_mode')), findsOneWidget);
       // Auto mode defaults to Balanced, so the manual tier slider is locked.
-      expect(find.text('Balanced'), findsOneWidget);
+      expect(find.text('Balanced', skipOffstage: false), findsOneWidget);
       var slider = tester.widget<Slider>(
         find.byKey(const Key('emote_tier_slider')),
       );
       expect(slider.onChanged, isNull);
 
-      await tester.tap(find.text('Aggressive'));
+      await tester.tap(find.text('Aggressive', skipOffstage: false));
       await tester.pump();
       await tester.pump();
 
@@ -2954,7 +3234,7 @@ void main() {
       );
       expect(slider.onChanged, isNull);
 
-      await tester.tap(find.text('Off'));
+      await tester.tap(find.text('Off', skipOffstage: false));
       await tester.pump();
       await tester.pump();
 
@@ -2980,7 +3260,7 @@ void main() {
           .getTopLeft(find.byKey(const Key('emote_auto_mode')))
           .dy;
 
-      await tester.tap(find.text('Balanced'));
+      await tester.tap(find.text('Balanced', skipOffstage: false));
       await tester.pumpAndSettle();
 
       final after = tester
@@ -3003,7 +3283,7 @@ void main() {
       await tester.pump();
 
       // Balanced + cellular => Low is being picked and shown on the slider.
-      expect(find.text('Low'), findsOneWidget);
+      expect(find.text('Low', skipOffstage: false), findsOneWidget);
       var slider = tester.widget<Slider>(
         find.byKey(const Key('emote_tier_slider')),
       );
@@ -3014,7 +3294,7 @@ void main() {
       // High; wait for the animation to settle before asserting the value.
       mobile.value = false;
       await tester.pumpAndSettle();
-      expect(find.text('High'), findsOneWidget);
+      expect(find.text('High', skipOffstage: false), findsOneWidget);
       expect(find.text('Low'), findsNothing);
       slider = tester.widget<Slider>(
         find.byKey(const Key('emote_tier_slider')),
@@ -3131,15 +3411,15 @@ void main() {
       );
       await tester.pump();
 
-      expect(find.text('Tools'), findsOneWidget);
-      expect(find.text('Image uploader'), findsOneWidget);
-      expect(find.text('Recent uploads'), findsOneWidget);
-      expect(find.text('Analytics'), findsOneWidget);
+      expect(find.text('Tools', skipOffstage: false), findsOneWidget);
+      expect(find.text('Image uploader', skipOffstage: false), findsOneWidget);
+      expect(find.text('Recent uploads', skipOffstage: false), findsOneWidget);
+      expect(find.text('Analytics', skipOffstage: false), findsOneWidget);
 
-      await tester.tap(find.text('Image uploader'));
+      await tester.tap(find.text('Image uploader', skipOffstage: false));
       await tester.pumpAndSettle();
-      expect(find.text('Image uploader'), findsWidgets);
-      expect(find.text('Save'), findsOneWidget);
+      expect(find.text('Image uploader', skipOffstage: false), findsWidgets);
+      expect(find.text('Save', skipOffstage: false), findsOneWidget);
     });
 
     testWidgets('Tools screen hides analytics when no service is provided', (
@@ -3149,8 +3429,8 @@ void main() {
       await tester.pumpWidget(const MaterialApp(home: ToolsSettingsScreen()));
       await tester.pump();
 
-      expect(find.text('Image uploader'), findsOneWidget);
-      expect(find.text('Recent uploads'), findsOneWidget);
+      expect(find.text('Image uploader', skipOffstage: false), findsOneWidget);
+      expect(find.text('Recent uploads', skipOffstage: false), findsOneWidget);
       expect(find.text('Analytics'), findsNothing);
     });
 
@@ -3166,11 +3446,17 @@ void main() {
         await tester.pump();
         await tester.pump();
 
-        expect(find.text('https://kappa.lol/abc'), findsOneWidget);
+        expect(
+          find.text('https://kappa.lol/abc', skipOffstage: false),
+          findsOneWidget,
+        );
 
         await tester.tap(find.byType(ListTile).first);
         await tester.pumpAndSettle();
-        expect(find.text('Copied https://kappa.lol/abc'), findsOneWidget);
+        expect(
+          find.text('Copied https://kappa.lol/abc', skipOffstage: false),
+          findsOneWidget,
+        );
       },
     );
   });
@@ -3202,7 +3488,7 @@ void main() {
       await tester.tap(find.byIcon(Icons.add));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField).last, channelName);
-      await tester.tap(find.text('Join').last);
+      await tester.tap(find.text('Join', skipOffstage: false).last);
       await tester.pump();
       await tester.pump();
     }
@@ -3233,7 +3519,10 @@ void main() {
       await tester.pump();
       await tester.pump();
 
-      expect(find.textContaining('msg 14'), findsOneWidget);
+      expect(
+        find.textContaining('msg 14', skipOffstage: false),
+        findsOneWidget,
+      );
     });
 
     testWidgets('keeps entire thread when reply is within the limit', (
@@ -3289,8 +3578,14 @@ void main() {
       final taken = tester.takeException();
       if (taken != null) debugPrint('TAKEN EXCEPTION: $taken');
 
-      expect(find.textContaining('thread root'), findsWidgets);
-      expect(find.textContaining('thread reply'), findsOneWidget);
+      expect(
+        find.textContaining('thread root', skipOffstage: false),
+        findsWidgets,
+      );
+      expect(
+        find.textContaining('thread reply', skipOffstage: false),
+        findsOneWidget,
+      );
     });
 
     testWidgets('removes entire thread when all messages are past the limit', (
@@ -3392,8 +3687,14 @@ void main() {
         await tester.pumpAndSettle();
 
         // Thread is initially preserved - child is within the limit.
-        expect(find.textContaining('thread root'), findsWidgets);
-        expect(find.textContaining('thread reply'), findsOneWidget);
+        expect(
+          find.textContaining('thread root', skipOffstage: false),
+          findsWidgets,
+        );
+        expect(
+          find.textContaining('thread reply', skipOffstage: false),
+          findsOneWidget,
+        );
 
         // Emit new messages that push the thread past the limit.
         for (int i = 1; i <= 3; i++) {
@@ -3464,7 +3765,7 @@ void main() {
         await tester.tap(find.byIcon(Icons.add));
         await tester.pumpAndSettle();
         await tester.enterText(find.byType(TextField).last, 'testchannel');
-        await tester.tap(find.text('Join').last);
+        await tester.tap(find.text('Join', skipOffstage: false).last);
         await tester.pump();
         await tester.pump();
 
@@ -3472,7 +3773,10 @@ void main() {
         expect(find.byIcon(Icons.keyboard_arrow_down), findsNothing);
 
         // Scroll up to trigger pause (with reverse:true, drag DOWN = scroll UP)
-        await tester.drag(find.byType(ListView).first, const Offset(0, 500));
+        await tester.drag(
+          find.byType(FlutterListView).first,
+          const Offset(0, 500),
+        );
         await tester.pump();
         await tester.pump();
 
@@ -3490,7 +3794,7 @@ void main() {
     );
 
     testWidgets(
-      'frozen snapshot prevents new messages from showing while scrolled up',
+      'keepPosition holds reading position while scrolled up on arrival',
       (WidgetTester tester) async {
         final now = DateTime.now();
         final manyMessages = List.generate(
@@ -3519,17 +3823,25 @@ void main() {
         await tester.tap(find.byIcon(Icons.add));
         await tester.pumpAndSettle();
         await tester.enterText(find.byType(TextField).last, 'testchannel');
-        await tester.tap(find.text('Join').last);
+        await tester.tap(find.text('Join', skipOffstage: false).last);
         await tester.pump();
         await tester.pump();
 
         // Scroll up - FAB appears (with reverse:true, drag DOWN = scroll UP)
-        await tester.drag(find.byType(ListView).first, const Offset(0, 500));
+        await tester.drag(
+          find.byType(FlutterListView).first,
+          const Offset(0, 500),
+        );
         await tester.pump();
         await tester.pump();
         expect(find.byIcon(Icons.keyboard_arrow_down), findsOneWidget);
 
-        // Emit a new message while paused
+        final position = tester
+            .state<ScrollableState>(find.byType(Scrollable).first)
+            .position;
+        final offsetBeforeArrival = position.pixels;
+
+        // Emit a new message while scrolled up
         fakeIrc.emitMessage(
           TwitchMessage(
             login: 'newuser',
@@ -3540,23 +3852,31 @@ void main() {
           ),
         );
         await tester.pump();
+        await tester.pump();
 
         // FAB still visible - did not auto-scroll
         expect(find.byIcon(Icons.keyboard_arrow_down), findsOneWidget);
 
-        // New message text NOT visible - frozen snapshot hides it
-        expect(find.textContaining('new message while paused'), findsNothing);
+        // Reading position held steady by keepPosition
+        expect(
+          position.pixels,
+          moreOrLessEquals(offsetBeforeArrival, epsilon: 2),
+        );
 
-        // Tap FAB to resume (clears snapshot, scrolls to bottom)
+        // Tap FAB to resume (jump to newest)
+        // ignore: avoid_print
+        print(
+          'FABCOUNT=${find.byIcon(Icons.keyboard_arrow_down).evaluate().length}',
+        );
         await tester.tap(find.byIcon(Icons.keyboard_arrow_down));
-        await tester.pump();
-        await tester.pump();
-
-        // FAB gone
+        await tester.pumpAndSettle();
         expect(find.byIcon(Icons.keyboard_arrow_down), findsNothing);
 
-        // New message IS now visible after snapshot is removed
-        expect(find.textContaining('new message while paused'), findsOneWidget);
+        // New message IS now visible after jumping back to the bottom
+        expect(
+          find.textContaining('new message while paused', skipOffstage: false),
+          findsOneWidget,
+        );
       },
     );
 
@@ -3572,7 +3892,7 @@ void main() {
       await tester.tap(find.byIcon(Icons.add));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField).last, 'testchannel');
-      await tester.tap(find.text('Join').last);
+      await tester.tap(find.text('Join', skipOffstage: false).last);
       await tester.pump();
       await tester.pump();
 
@@ -3587,15 +3907,23 @@ void main() {
       fakeIrc.emitMessage(announcement);
       await tester.pump();
 
-      expect(find.textContaining('Test announcement text'), findsOneWidget);
+      expect(
+        find.textContaining('Test announcement text', skipOffstage: false),
+        findsOneWidget,
+      );
       final surface = Theme.of(
-        tester.element(find.textContaining('Test announcement text')),
+        tester.element(
+          find.textContaining('Test announcement text', skipOffstage: false),
+        ),
       ).colorScheme.surface;
       final blended = Color.alphaBlend(accent.withValues(alpha: 0.4), surface);
       final rows = find
           .ancestor(
-            of: find.textContaining('Test announcement text'),
-            matching: find.byType(ColoredBox),
+            of: find.textContaining(
+              'Test announcement text',
+              skipOffstage: false,
+            ),
+            matching: find.byType(ColoredBox, skipOffstage: false),
           )
           .evaluate()
           .where((el) => (el.widget as ColoredBox).color == blended);
@@ -3618,7 +3946,7 @@ void main() {
       await tester.tap(find.byIcon(Icons.add));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField).last, 'testchannel');
-      await tester.tap(find.text('Join').last);
+      await tester.tap(find.text('Join', skipOffstage: false).last);
       await tester.pump();
       await tester.pump();
 
@@ -3631,9 +3959,14 @@ void main() {
       fakeIrc.emitMessage(systemMsg);
       await tester.pump();
 
-      expect(find.textContaining('Plain system notice'), findsOneWidget);
+      expect(
+        find.textContaining('Plain system notice', skipOffstage: false),
+        findsOneWidget,
+      );
       final surface = Theme.of(
-        tester.element(find.textContaining('Plain system notice')),
+        tester.element(
+          find.textContaining('Plain system notice', skipOffstage: false),
+        ),
       ).colorScheme.surface;
       final blended = Color.alphaBlend(
         const Color(0xFF1F69FF).withValues(alpha: 0.25),
@@ -3641,7 +3974,7 @@ void main() {
       );
       final rows = find
           .ancestor(
-            of: find.textContaining('Plain system notice'),
+            of: find.textContaining('Plain system notice', skipOffstage: false),
             matching: find.byType(ColoredBox),
           )
           .evaluate()
@@ -3661,7 +3994,7 @@ void main() {
       await tester.tap(find.byIcon(Icons.add));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField).last, 'testchannel');
-      await tester.tap(find.text('Join').last);
+      await tester.tap(find.text('Join', skipOffstage: false).last);
       await tester.pump();
       await tester.pump();
 
@@ -3682,8 +4015,14 @@ void main() {
       await tester.pump();
 
       // DankChat-style: the child message plus the "Announcement" label.
-      expect(find.textContaining('Announcement'), findsOneWidget);
-      expect(find.textContaining('ermugo2: uuh'), findsOneWidget);
+      expect(
+        find.textContaining('Announcement', skipOffstage: false),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('ermugo2: uuh', skipOffstage: false),
+        findsOneWidget,
+      );
     });
   });
 
@@ -3709,7 +4048,7 @@ void main() {
       await tester.tap(find.byIcon(Icons.add));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField).last, 'xqc');
-      await tester.tap(find.text('Join'));
+      await tester.tap(find.text('Join', skipOffstage: false));
       await tester.pump();
 
       irc.emitMessage(
@@ -3722,7 +4061,10 @@ void main() {
       );
       await tester.pump();
 
-      expect(find.textContaining('UserOne'), findsOneWidget);
+      expect(
+        find.textContaining('UserOne', skipOffstage: false),
+        findsOneWidget,
+      );
 
       irc.triggerConnect();
       await tester.pump();
@@ -3734,7 +4076,7 @@ void main() {
       expect(
         find.descendant(
           of: find.byKey(const Key('autocomplete_dropdown')),
-          matching: find.text('UserOne'),
+          matching: find.text('UserOne', skipOffstage: false),
         ),
         findsOneWidget,
       );
@@ -3762,7 +4104,7 @@ void main() {
       await tester.tap(find.byIcon(Icons.add));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField).last, 'xqc');
-      await tester.tap(find.text('Join'));
+      await tester.tap(find.text('Join', skipOffstage: false));
       await tester.pump();
 
       // Populate user store so UserOne appears as a suggestion.
@@ -3831,7 +4173,7 @@ void main() {
       await tester.tap(find.byIcon(Icons.add));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField).last, 'xqc');
-      await tester.tap(find.text('Join'));
+      await tester.tap(find.text('Join', skipOffstage: false));
       await tester.pump();
 
       irc.emitMessage(
@@ -3871,7 +4213,7 @@ void main() {
       await tester.tap(find.byIcon(Icons.add));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField).last, 'xqc');
-      await tester.tap(find.text('Join'));
+      await tester.tap(find.text('Join', skipOffstage: false));
       await tester.pump();
 
       irc.triggerConnect();
@@ -3919,7 +4261,7 @@ void main() {
       await tester.tap(find.byIcon(Icons.add));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField).last, 'xqc');
-      await tester.tap(find.text('Join'));
+      await tester.tap(find.text('Join', skipOffstage: false));
       await tester.pump();
 
       final inputFinder = find.byKey(const Key('message_input'));
@@ -3962,10 +4304,10 @@ void main() {
     await tester.pumpWidget(wrapAccountScreen(auth));
     await tester.pump();
 
-    expect(find.text('Accounts'), findsOneWidget);
-    expect(find.text('alice'), findsOneWidget);
-    expect(find.text('bob'), findsOneWidget);
-    expect(find.text('Active'), findsOneWidget);
+    expect(find.text('Accounts', skipOffstage: false), findsOneWidget);
+    expect(find.text('alice', skipOffstage: false), findsOneWidget);
+    expect(find.text('bob', skipOffstage: false), findsOneWidget);
+    expect(find.text('Active', skipOffstage: false), findsOneWidget);
     expect(find.byIcon(Icons.check), findsOneWidget);
   });
 
@@ -3975,7 +4317,7 @@ void main() {
     await tester.pump();
     expect(auth.login, 'bob');
 
-    await tester.tap(find.text('alice'));
+    await tester.tap(find.text('alice', skipOffstage: false));
     await tester.pumpAndSettle();
     expect(auth.login, 'alice');
     expect(auth.accessToken, 'token_a');
@@ -4002,15 +4344,15 @@ void main() {
     await tester.pumpWidget(wrapAccountScreen(auth));
     await tester.pump();
 
-    await tester.longPress(find.text('alice'));
+    await tester.longPress(find.text('alice', skipOffstage: false));
     await tester.pumpAndSettle();
-    expect(find.text('Remove account?'), findsOneWidget);
+    expect(find.text('Remove account?', skipOffstage: false), findsOneWidget);
     expect(
-      find.text('Are you sure you want to remove @alice?'),
+      find.text('Are you sure you want to remove @alice?', skipOffstage: false),
       findsOneWidget,
     );
 
-    await tester.tap(find.text('Remove'));
+    await tester.tap(find.text('Remove', skipOffstage: false));
     await tester.pumpAndSettle();
     expect(auth.accounts.length, 1);
     expect(auth.accounts.single.login, 'bob');
@@ -4022,13 +4364,13 @@ void main() {
     await tester.pumpWidget(wrapAccountScreen(auth));
     await tester.pump();
 
-    await tester.longPress(find.text('alice'));
+    await tester.longPress(find.text('alice', skipOffstage: false));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Cancel'));
+    await tester.tap(find.text('Cancel', skipOffstage: false));
     await tester.pumpAndSettle();
 
     expect(auth.accounts.length, 2);
-    expect(find.text('alice'), findsOneWidget);
+    expect(find.text('alice', skipOffstage: false), findsOneWidget);
   });
 
   testWidgets('success state offers Add account and Disconnect', (
@@ -4038,8 +4380,8 @@ void main() {
     await tester.pumpWidget(wrapAccountScreen(auth));
     await tester.pump();
 
-    expect(find.text('Add account'), findsOneWidget);
-    expect(find.text('Disconnect'), findsOneWidget);
+    expect(find.text('Add account', skipOffstage: false), findsOneWidget);
+    expect(find.text('Disconnect', skipOffstage: false), findsOneWidget);
   });
 
   testWidgets('removing the last account falls back to the login button', (
@@ -4051,13 +4393,13 @@ void main() {
     await tester.pumpWidget(wrapAccountScreen(auth));
     await tester.pump();
 
-    await tester.longPress(find.text('alice'));
+    await tester.longPress(find.text('alice', skipOffstage: false));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Remove'));
+    await tester.tap(find.text('Remove', skipOffstage: false));
     await tester.pumpAndSettle();
 
     expect(auth.accounts, isEmpty);
-    expect(find.text('Login'), findsOneWidget);
+    expect(find.text('Login', skipOffstage: false), findsOneWidget);
   });
 
   setUp(() {
@@ -4090,7 +4432,10 @@ void main() {
   testWidgets('shows empty state when no channels', (tester) async {
     await tester.pumpWidget(wrapAnalytics(AnalyticsService(), []));
     await tester.pump();
-    expect(find.text('Join a channel to start tracking stats'), findsOneWidget);
+    expect(
+      find.text('Join a channel to start tracking stats', skipOffstage: false),
+      findsOneWidget,
+    );
   });
 
   testWidgets('renders summary and top lists for the first channel', (
@@ -4099,15 +4444,18 @@ void main() {
     await tester.pumpWidget(wrapAnalytics(seededService(), ['chan1', 'chan2']));
     await tester.pump();
 
-    expect(find.text('Total messages'), findsOneWidget);
-    expect(find.text('Unique chatters'), findsOneWidget);
-    expect(find.text('Messages per minute'), findsOneWidget);
-    expect(find.text('Tracking for'), findsOneWidget);
-    expect(find.text('Top chatters'), findsOneWidget);
-    expect(find.text('Top emotes'), findsOneWidget);
-    expect(find.text('Top words'), findsOneWidget);
-    expect(find.text('alice'), findsOneWidget);
-    expect(find.text('bob'), findsOneWidget);
+    expect(find.text('Total messages', skipOffstage: false), findsOneWidget);
+    expect(find.text('Unique chatters', skipOffstage: false), findsOneWidget);
+    expect(
+      find.text('Messages per minute', skipOffstage: false),
+      findsOneWidget,
+    );
+    expect(find.text('Tracking for', skipOffstage: false), findsOneWidget);
+    expect(find.text('Top chatters', skipOffstage: false), findsOneWidget);
+    expect(find.text('Top emotes', skipOffstage: false), findsOneWidget);
+    expect(find.text('Top words', skipOffstage: false), findsOneWidget);
+    expect(find.text('alice', skipOffstage: false), findsOneWidget);
+    expect(find.text('bob', skipOffstage: false), findsOneWidget);
   });
 
   testWidgets('channel selector switches the displayed stats', (tester) async {
@@ -4119,7 +4467,7 @@ void main() {
     await tester.tap(find.widgetWithText(Tab, 'chan2'));
     await tester.pumpAndSettle();
 
-    expect(find.text('carol'), findsOneWidget);
+    expect(find.text('carol', skipOffstage: false), findsOneWidget);
     expect(find.text('alice'), findsNothing);
   });
 
@@ -4132,13 +4480,13 @@ void main() {
     await tester.pumpWidget(wrapAnalytics(service, ['chan']));
     await tester.pump();
 
-    expect(find.text('the'), findsOneWidget);
+    expect(find.text('the', skipOffstage: false), findsOneWidget);
 
-    await tester.tap(find.text('Filter common words'));
+    await tester.tap(find.text('Filter common words', skipOffstage: false));
     await tester.pump();
 
     expect(find.text('the'), findsNothing);
-    expect(find.text('hello'), findsOneWidget);
+    expect(find.text('hello', skipOffstage: false), findsOneWidget);
   });
 
   testWidgets('reset this channel clears the stats', (tester) async {
@@ -4150,11 +4498,11 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
 
-    await tester.tap(find.text('Reset this channel'));
+    await tester.tap(find.text('Reset this channel', skipOffstage: false));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
 
-    expect(find.text('No messages yet'), findsOneWidget);
+    expect(find.text('No messages yet', skipOffstage: false), findsOneWidget);
     expect(find.text('alice'), findsNothing);
     expect(service.trackingStartedAt('chan1'), isNull);
   });
@@ -4166,9 +4514,9 @@ void main() {
     await tester.pumpWidget(wrapAnalytics(service, ['chan']));
     await tester.pump();
 
-    expect(find.text('Moderation'), findsOneWidget);
-    expect(find.text('Bans'), findsOneWidget);
-    expect(find.text('Timeouts'), findsOneWidget);
+    expect(find.text('Moderation', skipOffstage: false), findsOneWidget);
+    expect(find.text('Bans', skipOffstage: false), findsOneWidget);
+    expect(find.text('Timeouts', skipOffstage: false), findsOneWidget);
   });
 
   setUp(() {
@@ -4184,13 +4532,13 @@ void main() {
       matching: find.byType(TextField),
     );
     await tester.enterText(dialogField, name);
-    await tester.tap(find.text('Join').last);
+    await tester.tap(find.text('Join', skipOffstage: false).last);
     await tester.pumpAndSettle();
     await tester.pump();
   }
 
   Future<void> tapChannel(WidgetTester tester, String channel) async {
-    final barText = find.text(channel).first;
+    final barText = find.text(channel, skipOffstage: false).first;
     await tester.ensureVisible(barText);
     await tester.pump();
     await tester.tap(barText);
@@ -4218,7 +4566,7 @@ void main() {
 
       await joinChannel(tester, 'xqc');
 
-      expect(find.text('xqc'), findsOneWidget);
+      expect(find.text('xqc', skipOffstage: false), findsOneWidget);
     });
 
     testWidgets('channel bar disappears when last channel is removed', (
@@ -4231,10 +4579,10 @@ void main() {
 
       await tester.tap(find.byIcon(Icons.more_vert));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Settings'));
+      await tester.tap(find.text('Settings', skipOffstage: false));
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Channels'));
+      await tester.tap(find.text('Channels', skipOffstage: false));
       await tester.pumpAndSettle();
 
       await tester.tap(find.byIcon(Icons.remove_circle_outline));
@@ -4259,11 +4607,17 @@ void main() {
       await joinChannel(tester, 'b');
 
       expect(
-        tester.widget<Text>(find.text('b')).style?.fontWeight,
+        tester
+            .widget<Text>(find.text('b', skipOffstage: false))
+            .style
+            ?.fontWeight,
         FontWeight.w600,
       );
       expect(
-        tester.widget<Text>(find.text('a')).style?.fontWeight,
+        tester
+            .widget<Text>(find.text('a', skipOffstage: false))
+            .style
+            ?.fontWeight,
         FontWeight.normal,
       );
     });
@@ -4292,7 +4646,7 @@ void main() {
             .widget<Text>(
               find.descendant(
                 of: find.byType(TabBar),
-                matching: find.text('b'),
+                matching: find.text('b', skipOffstage: false),
               ),
             )
             .style
@@ -4304,7 +4658,7 @@ void main() {
             .widget<Text>(
               find.descendant(
                 of: find.byType(TabBar),
-                matching: find.text('a'),
+                matching: find.text('a', skipOffstage: false),
               ),
             )
             .style
@@ -4340,7 +4694,7 @@ void main() {
             .widget<Text>(
               find.descendant(
                 of: find.byType(TabBar),
-                matching: find.text('a'),
+                matching: find.text('a', skipOffstage: false),
               ),
             )
             .style
@@ -4352,7 +4706,7 @@ void main() {
             .widget<Text>(
               find.descendant(
                 of: find.byType(TabBar),
-                matching: find.text('b'),
+                matching: find.text('b', skipOffstage: false),
               ),
             )
             .style
@@ -4389,7 +4743,7 @@ void main() {
             .widget<Text>(
               find.descendant(
                 of: find.byType(TabBar),
-                matching: find.text('a'),
+                matching: find.text('a', skipOffstage: false),
               ),
             )
             .style
@@ -4419,12 +4773,12 @@ void main() {
       ),
     );
 
-    expect(find.text('A or B?'), findsOneWidget);
+    expect(find.text('A or B?', skipOffstage: false), findsOneWidget);
     expect(find.byIcon(Icons.keyboard_arrow_down), findsOneWidget);
 
     await tester.drag(find.byType(PageView), const Offset(-500, 0));
     await tester.pumpAndSettle();
-    expect(find.text('Hype Train'), findsOneWidget);
+    expect(find.text('Hype Train', skipOffstage: false), findsOneWidget);
     expect(find.text('A or B?'), findsNothing);
 
     await tester.tap(find.byIcon(Icons.keyboard_arrow_down));
@@ -4478,7 +4832,7 @@ void main() {
     );
 
     await tester.pumpWidget(wrapEmoteMenu(manager));
-    await tester.tap(find.text('Channel'));
+    await tester.tap(find.text('Channel', skipOffstage: false));
     // The loading shimmer animates indefinitely, so pump fixed durations
     // instead of pumpAndSettle (which would never settle).
     await tester.pump();
@@ -4517,7 +4871,7 @@ void main() {
     );
 
     await tester.pumpWidget(wrapEmoteMenu(manager));
-    await tester.tap(find.text('Channel'));
+    await tester.tap(find.text('Channel', skipOffstage: false));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 500));
 
@@ -4557,13 +4911,13 @@ void main() {
     });
 
     await tester.pumpWidget(wrapEmoteMenu(manager));
-    await tester.tap(find.text('Subs'));
+    await tester.tap(find.text('Subs', skipOffstage: false));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 500));
 
     expect(
-      tester.getTopLeft(find.text('ch')).dy,
-      lessThan(tester.getTopLeft(find.text('alpha')).dy),
+      tester.getTopLeft(find.text('ch', skipOffstage: false)).dy,
+      lessThan(tester.getTopLeft(find.text('alpha', skipOffstage: false)).dy),
     );
   });
 
@@ -4601,7 +4955,7 @@ void main() {
       await tester.tap(find.byIcon(Icons.add));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField).last, 'testchannel');
-      await tester.tap(find.text('Join').last);
+      await tester.tap(find.text('Join', skipOffstage: false).last);
       await tester.pump();
       await tester.pump();
       irc.triggerConnect();
@@ -4660,9 +5014,15 @@ void main() {
       await tester.pump();
       await tester.pump();
 
-      expect(find.text('Cope'), findsOneWidget);
-      expect(find.text('7TV Global Emote'), findsOneWidget);
-      expect(find.text('Created by CopeQueen'), findsOneWidget);
+      expect(find.text('Cope', skipOffstage: false), findsOneWidget);
+      expect(
+        find.text('7TV Global Emote', skipOffstage: false),
+        findsOneWidget,
+      );
+      expect(
+        find.text('Created by CopeQueen', skipOffstage: false),
+        findsOneWidget,
+      );
       expect(find.textContaining('Alias of'), findsNothing);
     });
 
@@ -4673,7 +5033,10 @@ void main() {
       await tester.pump();
       await tester.pump();
 
-      expect(find.text('Alias of BaseEmote'), findsOneWidget);
+      expect(
+        find.text('Alias of BaseEmote', skipOffstage: false),
+        findsOneWidget,
+      );
     });
 
     testWidgets('type label appends Zero Width suffix', (tester) async {
@@ -4681,7 +5044,10 @@ void main() {
       await tester.pump();
       await tester.pump();
 
-      expect(find.text('7TV Global Emote (Zero Width)'), findsOneWidget);
+      expect(
+        find.text('7TV Global Emote (Zero Width)', skipOffstage: false),
+        findsOneWidget,
+      );
     });
 
     testWidgets('Open emote link opens the provider URL', (tester) async {
@@ -4689,7 +5055,7 @@ void main() {
       await tester.pump();
       await tester.pump();
 
-      await tester.tap(find.text('Open emote link'));
+      await tester.tap(find.text('Open emote link', skipOffstage: false));
       await tester.pump();
       await tester.pump();
 
@@ -4708,11 +5074,14 @@ void main() {
       await tester.pump();
       await tester.pump();
 
-      await tester.tap(find.text('Open emote link'));
+      await tester.tap(find.text('Open emote link', skipOffstage: false));
       await tester.pump();
       await tester.pump();
 
-      expect(find.textContaining('Could not open'), findsOneWidget);
+      expect(
+        find.textContaining('Could not open', skipOffstage: false),
+        findsOneWidget,
+      );
     });
 
     testWidgets(
@@ -4759,7 +5128,7 @@ void main() {
       await tester.pump();
       await tester.pump();
 
-      expect(find.text('Emote0'), findsWidgets);
+      expect(find.text('Emote0', skipOffstage: false), findsWidgets);
       expect(find.text('Alias of BaseEmote'), findsNothing);
 
       await tester.drag(find.byType(TabBarView), const Offset(-300, 0));
@@ -4767,7 +5136,10 @@ void main() {
       await tester.pump(const Duration(milliseconds: 400));
       await tester.pump();
 
-      expect(find.text('Alias of BaseEmote'), findsOneWidget);
+      expect(
+        find.text('Alias of BaseEmote', skipOffstage: false),
+        findsOneWidget,
+      );
     });
   });
 
@@ -4811,7 +5183,7 @@ void main() {
       await tester.pumpWidget(wrapUserProfile(createApi()));
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Report'));
+      await tester.tap(find.text('Report', skipOffstage: false));
       await tester.pumpAndSettle();
 
       expect(profileLauncher.lastUrl, 'https://twitch.tv/testuser/report');
@@ -4825,10 +5197,13 @@ void main() {
       await tester.pumpWidget(wrapUserProfile(createApi()));
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Report'));
+      await tester.tap(find.text('Report', skipOffstage: false));
       await tester.pumpAndSettle();
 
-      expect(find.text('Could not open the report page'), findsOneWidget);
+      expect(
+        find.text('Could not open the report page', skipOffstage: false),
+        findsOneWidget,
+      );
     });
   });
 }

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_list_view/flutter_list_view.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/emote_fetch_tier.dart';
 import '../models/generic_emote.dart';
@@ -243,9 +244,8 @@ class _HomeScreenState extends State<HomeScreen>
   bool _blocksReady = false;
   bool _blocksFetched = false;
   bool _channelsLoaded = false;
-  final _scrollControllers = <String, ScrollController>{};
+  final _scrollControllers = <String, FlutterListViewController>{};
   final _atBottomNotifiers = <String, ValueNotifier<bool>>{};
-  final _frozenSnapshot = <String, List<TwitchMessage>>{};
   final _refetchingChannels = <String>{};
   // Emote set IDs already fetched via the IRC emote-sets path, so repeated
   // USERSTATE (per channel join / message send) doesn't refetch them.
@@ -1989,7 +1989,6 @@ class _HomeScreenState extends State<HomeScreen>
     // re-joined channel would otherwise reuse stale notifiers and an old
     // frozen snapshot, and the maps would grow for the session.
     _tileCache.remove(channel);
-    _frozenSnapshot.remove(channel);
     setState(() {
       _chatStore.channels.remove(channel);
       _channelNotifier.value = List.of(_chatStore.channels);
@@ -2193,8 +2192,11 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
-  ScrollController _scrollCtrl(String channel) {
-    return _scrollControllers.putIfAbsent(channel, () => ScrollController());
+  FlutterListViewController _scrollCtrl(String channel) {
+    return _scrollControllers.putIfAbsent(
+      channel,
+      () => FlutterListViewController(),
+    );
   }
 
   // Walk the reply-parent chain to the root with cycle detection (visited set).
@@ -3144,7 +3146,6 @@ class _HomeScreenState extends State<HomeScreen>
                                                     _chatStore
                                                         .channelMessages[channel] ??
                                                     [],
-                                                frozenSnapshot: _frozenSnapshot,
                                                 tileCache: _tileCache,
                                                 atBottomNotifier:
                                                     _atBottomNotifier(channel),
