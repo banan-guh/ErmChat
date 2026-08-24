@@ -1221,6 +1221,9 @@ class _HomeScreenState extends State<HomeScreen>
       _applyCacheCap(loadedCacheCap);
       EmoteUrlProvider.applyFpsCap(prefs.getInt('emote_fps_cap') ?? 30);
       EmoteUrlProvider.applyGifsEnabled(prefs.getBool('animate_gifs') ?? true);
+      EmoteUrlProvider.applyAdaptiveThrottle(
+        prefs.getBool('emote_auto_throttle') ?? true,
+      );
       EmoteUrlProvider.alwaysAnimatePanel =
           prefs.getBool('always_animate_emote_panel') ?? true;
       await _refreshConnectivity();
@@ -2153,6 +2156,7 @@ class _HomeScreenState extends State<HomeScreen>
           onChatFontScaleChanged: _setChatFontScale,
           onEmoteFpsCapChanged: EmoteUrlProvider.applyFpsCap,
           onAnimateGifsChanged: EmoteUrlProvider.applyGifsEnabled,
+          onAdaptiveThrottleChanged: EmoteUrlProvider.applyAdaptiveThrottle,
           onAlwaysAnimatePanelChanged: (value) =>
               EmoteUrlProvider.alwaysAnimatePanel = value,
           onCheckeredMessagesChanged: _setCheckeredMessages,

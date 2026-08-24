@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
@@ -111,6 +112,60 @@ class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
   /// that pauses all playback anyway.
   static bool gifsEnabled = true;
 
+  /// Adaptive throttling: when true, the effective cap is lowered below
+  /// [fpsCap] once many animated emotes are visible at once (see
+  /// [autoCapFor]), so a screenful of spam degrades smoothly instead of
+  /// stalling the pipeline. Synced from the 'emote_auto_throttle' pref.
+  static bool adaptiveThrottle = true;
+
+  /// Adaptive tier thresholds over total live listeners on playback-capable
+  /// completers: above [adaptiveSoftLimit] the cap halves, above
+  /// [adaptiveHardLimit] it quarters, above [adaptiveStopLimit] playback
+  /// pauses entirely.
+  static const int adaptiveSoftLimit = 60;
+  static const int adaptiveHardLimit = 150;
+  static const int adaptiveStopLimit = 300;
+
+  /// Effective cap for a given visible-animated-emote load and user cap.
+  ///
+  /// Never raises the user's choice; floors at 1 fps so motion stays visible
+  /// until the stop tier pauses outright. A user cap of 0 stays 0 at every
+  /// tier.
+  @visibleForTesting
+  static int autoCapFor(int animatedListeners, int baseCap) {
+    if (animatedListeners <= adaptiveSoftLimit) return baseCap;
+    if (animatedListeners <= adaptiveHardLimit) {
+      return math.max(1, baseCap ~/ 2);
+    }
+    if (animatedListeners <= adaptiveStopLimit) {
+      return math.max(1, baseCap ~/ 4);
+    }
+    return 0;
+  }
+
+  /// Applies the adaptive-throttle toggle and re-evaluates every live
+  /// completer. Called on startup load and when the settings switch flips.
+  static void applyAdaptiveThrottle(bool enabled) {
+    adaptiveThrottle = enabled;
+    refreshAdaptiveThrottle();
+  }
+
+  /// Re-evaluates loop state across all live completers after any input to
+  /// the effective cap changed ([fpsCap], gifs toggle, listener counts).
+  static void refreshAdaptiveThrottle() {
+    for (final completer in List.of(_liveByUrl.values)) {
+      completer._refreshForFpsCap();
+    }
+  }
+
+  /// Total listeners currently attached to playback-capable completers: a
+  /// good proxy for how many animated copies are on screen right now.
+  static int get animatedListenerCount => _liveByUrl.values.fold(
+    0,
+    (total, completer) =>
+        total + (completer._playbackCapable ? completer._listenerCount : 0),
+  );
+
   /// Applies a new frame-rate cap (clamped to 0..60) and immediately updates
   /// every live completer: pausing loops at 0, restarting paused ones above
   /// 0. Called on startup load and whenever the settings slider moves.
@@ -175,6 +230,11 @@ class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
   @visibleForTesting
   static int currentFrame(String url) =>
       _completerFor(url)?.currentFrameIndex ?? 0;
+
+  /// Effective fps cap of the shared completer for [url] (-1 when absent).
+  @visibleForTesting
+  static int debugEffectiveCap(String url) =>
+      _liveByUrl[url]?._effectiveFpsCap ?? -1;
 
   /// The shared completer for [url], created on demand when missing (which
   /// starts the fetch, matching what the stock [Image] widget would do).
@@ -248,6 +308,15 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
   /// global [EmoteUrlProvider.fpsCap], including at a cap of 0.
   int _uncappedCount = 0;
 
+  /// Mirror of the framework's private listener count, feeding the adaptive
+  /// throttle's visible-load estimate ([EmoteUrlProvider.animatedListenerCount]).
+  int _listenerCount = 0;
+
+  /// Whether this completer carries an animation worth throttling (multi
+  /// frame with a real cycle). Static images and frozen single-frame decodes
+  /// stay false so they never inflate the adaptive load.
+  bool _playbackCapable = false;
+
   /// Set when the decoded bytes are an animated GIF, so a gifs-disabled
   /// toggle can freeze/resume this completer specifically.
   bool _isAnimatedGif = false;
@@ -313,6 +382,13 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
           _emitFrame(_frameIndex);
           _startPlayback();
         }
+        // Multi-frame with a real cycle: this completer now counts toward
+        // the adaptive throttle's visible-load estimate. Evaluated after the
+        // seeded start above: refreshing earlier would flip _isPlaying and
+        // make _applySeed abort.
+        _playbackCapable =
+            frames.frames.length > 1 && frames.totalDuration > Duration.zero;
+        EmoteUrlProvider.refreshAdaptiveThrottle();
       } else if (format == EmoteFormat.gif && !EmoteUrlProvider.gifsEnabled) {
         // Frozen GIF: decode only the first frame so it shows as a still image.
         final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
@@ -342,7 +418,14 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
         final codecFuture = _engineDecode(buffer);
         codecFuture.then(
           (codec) {
-            if (!_disposed) _engineCodec = codec;
+            if (!_disposed) {
+              _engineCodec = codec;
+              // Engine-path animations are GIFs only (static WebP and PNG
+              // decode to a single frame); user freezes via gifsEnabled or
+              // the fps cap still count toward the adaptive load.
+              _playbackCapable = codec.frameCount > 1;
+              EmoteUrlProvider.refreshAdaptiveThrottle();
+            }
           },
           onError: (_) {
             // The engine completer reports the error itself.
@@ -494,8 +577,17 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
   }
 
   /// Effective cap for this completer: panel-bypassed cells always run at
-  /// full rate (represented as grid size 0 = no alignment, never paused).
-  int get _effectiveFpsCap => _uncappedCount > 0 ? 60 : EmoteUrlProvider.fpsCap;
+  /// full rate (represented as grid size 0 = no alignment, never paused);
+  /// otherwise the user's cap, lowered through the adaptive tiers when many
+  /// animated emotes are visible at once.
+  int get _effectiveFpsCap {
+    if (_uncappedCount > 0) return 60;
+    if (!EmoteUrlProvider.adaptiveThrottle) return EmoteUrlProvider.fpsCap;
+    return EmoteUrlProvider.autoCapFor(
+      EmoteUrlProvider.animatedListenerCount,
+      EmoteUrlProvider.fpsCap,
+    );
+  }
 
   /// Grid size in microseconds for wake alignment; 0 disables alignment.
   /// Uncapped playback (panel bypass) also skips alignment.
@@ -653,6 +745,8 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
   @override
   void addListener(ImageStreamListener listener) {
     super.addListener(listener);
+    _listenerCount++;
+    _noteAdaptiveInput();
     if (_disposed || !hasListeners) return;
     if (_frames != null) {
       // Resume animated playback when a listener returns.
@@ -671,6 +765,8 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
   @override
   void removeListener(ImageStreamListener listener) {
     super.removeListener(listener);
+    if (_listenerCount > 0) _listenerCount--;
+    _noteAdaptiveInput();
     if (hasListeners) return;
     // Pause playback and stop forwarding the engine completer so a cached
     // GIF doesn't keep decoding frames nobody is watching (the engine
@@ -683,12 +779,23 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
     }
   }
 
+  /// A change to this completer's listener count shifts the global adaptive
+  /// load; re-evaluate every live loop against the new tier.
+  void _noteAdaptiveInput() {
+    if (_playbackCapable) EmoteUrlProvider.refreshAdaptiveThrottle();
+  }
+
   @override
   @mustCallSuper
   void onDisposed() {
     _disposed = true;
     if (EmoteUrlProvider._liveByUrl[url] == this) {
       EmoteUrlProvider._liveByUrl.remove(url);
+    }
+    if (_playbackCapable) {
+      // Free the capacity this completer contributed to the adaptive load.
+      _playbackCapable = false;
+      EmoteUrlProvider.refreshAdaptiveThrottle();
     }
     _stopPlayback();
     final inner = _engineCompleter;

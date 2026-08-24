@@ -23,6 +23,7 @@ class ChatSettingsScreen extends StatefulWidget {
   final ValueChanged<String>? onTimestampFormatChanged;
   final ValueChanged<bool>? onAnimateGifsChanged;
   final ValueChanged<int>? onEmoteFpsCapChanged;
+  final ValueChanged<bool>? onAdaptiveThrottleChanged;
   final ValueChanged<bool>? onAlwaysAnimatePanelChanged;
   final ValueChanged<String>? onSharedChatModeChanged;
   final ValueChanged<bool>? onNamePaintsChanged;
@@ -41,6 +42,7 @@ class ChatSettingsScreen extends StatefulWidget {
     this.onTimestampFormatChanged,
     this.onAnimateGifsChanged,
     this.onEmoteFpsCapChanged,
+    this.onAdaptiveThrottleChanged,
     this.onAlwaysAnimatePanelChanged,
     this.onSharedChatModeChanged,
     this.onNamePaintsChanged,
@@ -62,6 +64,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
   String _timestampFormat = kDefaultTimestampFormat;
   bool _animateGifs = true;
   int _emoteFpsCap = 30;
+  bool _adaptiveThrottle = true;
   bool _alwaysAnimatePanel = true;
   String _sharedChatMode = 'spotlight';
   bool _namePaints = false;
@@ -91,6 +94,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
             prefs.getString(kTimestampFormatPrefKey) ?? kDefaultTimestampFormat;
         _animateGifs = prefs.getBool('animate_gifs') ?? true;
         _emoteFpsCap = prefs.getInt('emote_fps_cap') ?? 30;
+        _adaptiveThrottle = prefs.getBool('emote_auto_throttle') ?? true;
         _alwaysAnimatePanel =
             prefs.getBool('always_animate_emote_panel') ?? true;
         _sharedChatMode = prefs.getString('shared_chat_mode') ?? 'spotlight';
@@ -402,6 +406,22 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
                 },
               ),
             ],
+          ),
+          SwitchListTile(
+            secondary: const Icon(Icons.speed),
+            title: const Text('Adaptive throttling'),
+            subtitle: const Text(
+              'Slow animations further while many animated emotes are visible',
+            ),
+            value: _adaptiveThrottle && _emoteFpsCap > 0,
+            onChanged: _emoteFpsCap == 0
+                ? null
+                : (value) async {
+                    final prefs = await SharedPreferences.getInstance();
+                    await prefs.setBool('emote_auto_throttle', value);
+                    if (mounted) setState(() => _adaptiveThrottle = value);
+                    widget.onAdaptiveThrottleChanged?.call(value);
+                  },
           ),
           SwitchListTile(
             secondary: const Icon(Icons.grid_view),

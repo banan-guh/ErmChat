@@ -31,6 +31,7 @@ class SettingsScreen extends StatelessWidget {
   final ValueChanged<double>? onChatFontScaleChanged;
   final ValueChanged<bool>? onAnimateGifsChanged;
   final ValueChanged<int>? onEmoteFpsCapChanged;
+  final ValueChanged<bool>? onAdaptiveThrottleChanged;
   final ValueChanged<bool>? onAlwaysAnimatePanelChanged;
   final ValueChanged<bool>? onCheckeredMessagesChanged;
   final ValueChanged<bool>? onLineSeparatorChanged;
@@ -73,6 +74,7 @@ class SettingsScreen extends StatelessWidget {
     this.onChatFontScaleChanged,
     this.onAnimateGifsChanged,
     this.onEmoteFpsCapChanged,
+    this.onAdaptiveThrottleChanged,
     this.onAlwaysAnimatePanelChanged,
     this.onCheckeredMessagesChanged,
     this.onLineSeparatorChanged,
@@ -158,6 +160,7 @@ class SettingsScreen extends StatelessWidget {
                   onTimestampFormatChanged: onTimestampFormatChanged,
                   onAnimateGifsChanged: onAnimateGifsChanged,
                   onEmoteFpsCapChanged: onEmoteFpsCapChanged,
+                  onAdaptiveThrottleChanged: onAdaptiveThrottleChanged,
                   onAlwaysAnimatePanelChanged: onAlwaysAnimatePanelChanged,
                   onSharedChatModeChanged: onSharedChatModeChanged,
                   onNamePaintsChanged: onNamePaintsChanged,
