@@ -7,11 +7,11 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:image/image.dart' as img;
-import 'package:shimmer/shimmer.dart';
 
 import '../services/emote_cache_manager.dart';
 import '../services/emote_codec/native_emote_codec.dart';
 import 'emote_image_provider.dart';
+import 'emote_loading_band.dart';
 
 /// Decoded emote frames with their per-frame durations.
 ///
@@ -480,6 +480,64 @@ Future<ui.Image> _imageFromRgba(ByteBuffer rgba, int width, int height) {
   return completer.future;
 }
 
+/// Memoizes "is this URL cached" probe results shared by every emote widget
+/// rendering the same asset.
+///
+/// Under emote spam one message can hold hundreds of copies of the same
+/// emote; without memoization each copy independently checks the image cache
+/// and hits the disk cache for its placeholder probe. Results of either kind
+/// expire after [ttl] (cache contents change under eviction and lazy
+/// downloads, so answers must stay fresh), which still covers a burst: all
+/// copies of an emote probe within milliseconds of each other. Concurrent
+/// probes of one URL share a single in-flight check.
+@visibleForTesting
+class EmoteProbeMemo {
+  EmoteProbeMemo({
+    this.ttl = const Duration(seconds: 60),
+    DateTime Function()? now,
+  }) : _now = now ?? DateTime.now;
+
+  static final EmoteProbeMemo instance = EmoteProbeMemo();
+
+  final Duration ttl;
+  final DateTime Function() _now;
+
+  final Map<String, Future<bool>> _inflight = {};
+  final Map<String, (bool, DateTime)> _entries = {};
+
+  /// Resolves whether [url] is cached via [check], deduplicating concurrent
+  /// probes and replaying fresh memoized results. Errors from [check]
+  /// propagate to every waiter and clear the in-flight slot.
+  Future<bool> probe(String url, Future<bool> Function(String) check) {
+    final entry = _entries[url];
+    if (entry != null && _now().difference(entry.$2) < ttl) {
+      return SynchronousFuture<bool>(entry.$1);
+    }
+    return _inflight.putIfAbsent(url, () => _run(url, check));
+  }
+
+  Future<bool> _run(String url, Future<bool> Function(String) check) async {
+    try {
+      final cached = await check(url);
+      _entries[url] = (cached, _now());
+      return cached;
+    } on Object {
+      // Leave no decision recorded; a retry may succeed.
+      _entries.remove(url);
+      rethrow;
+    } finally {
+      _inflight.remove(url);
+    }
+  }
+
+  /// Drops every memoized result. Exposed for tests.
+  @visibleForTesting
+  void reset() {
+    _inflight.clear();
+    _entries.clear();
+  }
+}
+
 /// Emote renderer that never relies on the engine's animated-WebP codec.
 ///
 /// Bytes are fetched through [EmoteUrlProvider] -> [fetchEmoteBytes]
@@ -524,28 +582,22 @@ class EmoteImage extends StatefulWidget {
   State<EmoteImage> createState() => _EmoteImageState();
 }
 
-/// Shimmer placeholder shown while an emote's frames are still loading.
+/// Loading placeholder for emotes: a faint band sweeping in phase across an
+/// otherwise fully transparent box.
 ///
-/// [Shimmer] sweeps a moving gradient over the child, which acts as an alpha
-/// mask (the shimmer composites with `srcIn`, so the child's color is
-/// ignored). The base color is transparent so the placeholder never hides
-/// content underneath it (e.g. a zero-width overlay must not obscure the base
-/// emote it sits on); only the moving highlight band paints.
-class ShimmerEmotePlaceholder extends StatelessWidget {
-  const ShimmerEmotePlaceholder({super.key, this.width, this.height});
+/// Transparency is load-bearing (zero-width overlays must not occlude the
+/// base emote they sit on), and the band is driven by the shared loading
+/// clock, so hundreds of simultaneous placeholders cost one ticker and one
+/// paint each instead of per-instance shader-mask layers.
+class EmoteLoadingPlaceholder extends StatelessWidget {
+  const EmoteLoadingPlaceholder({super.key, this.width, this.height});
 
   final double? width;
   final double? height;
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final highlight = scheme.surfaceContainerHighest;
-    return Shimmer.fromColors(
-      baseColor: Colors.transparent,
-      highlightColor: highlight,
-      child: Container(width: width, height: height, color: Colors.white),
-    );
+    return LoadingBand(width: width, height: height);
   }
 }
 
@@ -589,6 +641,10 @@ class _EmoteImageState extends State<EmoteImage> {
   /// smallest scale is listed first by convention). Memory-cached copies
   /// render from the shared completer (animated in sync with the rest of the
   /// app); disk-cached copies fetch through the same provider path.
+  ///
+  /// Disk probe results are memoized per URL ([EmoteProbeMemo]): under emote
+  /// spam hundreds of copies of the same emote would otherwise each issue
+  /// the same disk lookup simultaneously.
   Future<void> _probePlaceholder() async {
     final alternates = widget.alternateUrls;
     if (alternates == null || alternates.isEmpty) return;
@@ -597,6 +653,9 @@ class _EmoteImageState extends State<EmoteImage> {
     for (final altUrl in alternates) {
       if (!mounted || _loadToken != token) return;
       if (altUrl == widget.url) continue;
+      // Memory-cached copies resolve synchronously so the placeholder shows
+      // on the very first frame; disk lookups go through the memoized probe
+      // (hundreds of copies of one emote must not each hit the disk).
       if (PaintingBinding.instance.imageCache.containsKey(
         EmoteUrlProvider(altUrl),
       )) {
@@ -607,18 +666,26 @@ class _EmoteImageState extends State<EmoteImage> {
         EmoteUrlProvider.seedPlayback(widget.url, altUrl);
         return;
       }
+      final bool cached;
       try {
-        final file = await EmoteCacheManager().getFileFromCache(altUrl);
-        if (!mounted || _loadToken != token) return;
-        if (file != null) {
-          _setPlaceholder(altUrl, token);
-          return;
-        }
+        cached = await EmoteProbeMemo.instance.probe(altUrl, _isAltOnDisk);
       } on Object {
         // Try the next alternate; any error just means no cached placeholder.
+        continue;
+      }
+      if (!mounted || _loadToken != token) return;
+      if (cached) {
+        _setPlaceholder(altUrl, token);
+        EmoteUrlProvider.seedPlayback(widget.url, altUrl);
+        return;
       }
     }
   }
+
+  /// Whether the emote disk cache still holds [url] (the memory-cache case
+  /// is handled synchronously before probing).
+  static Future<bool> _isAltOnDisk(String url) async =>
+      await EmoteCacheManager().getFileFromCache(url) != null;
 
   void _setPlaceholder(String altUrl, Object token) {
     // The probe can resolve mid-build (async disk I/O completes between
@@ -703,19 +770,12 @@ class _EmoteImageState extends State<EmoteImage> {
         if (frame != null) return child;
         final Widget overlay;
         if (altUrl != null) {
-          // A smaller cached scale is showing under a faint shimmer while
-          // the required resolution loads. The placeholder follows the
+          // A smaller cached scale is showing under a faint loading band
+          // while the required resolution loads. The placeholder follows the
           // alternate's own completer (animated in sync with chat; its
-          // playback seeds the required URL when it lands); the shimmer
-          // sweep stays subtle so the emote reads clearly, only hinting
-          // that a higher-res copy is coming.
-          final scheme = Theme.of(context).colorScheme;
-          final base = scheme.surface;
-          final highlight = Color.lerp(
-            base,
-            scheme.surfaceContainerHighest,
-            0.7,
-          )!;
+          // playback seeds the required URL when it lands); the band sweep
+          // stays subtle so the emote reads clearly, only hinting that a
+          // higher-res copy is coming.
           // _loadingStack expands the alternate to fill the box (like the
           // required image) so a small cached scale scales up instead of
           // rendering at its intrinsic size.
@@ -729,18 +789,13 @@ class _EmoteImageState extends State<EmoteImage> {
             SizedBox(
               width: widget.width,
               height: widget.height,
-              child: Shimmer.fromColors(
-                baseColor: base.withValues(alpha: 0.25),
-                highlightColor: highlight.withValues(alpha: 0.25),
-                period: const Duration(milliseconds: 1200),
-                child: const ColoredBox(color: Colors.white),
-              ),
+              child: LoadingBand(opacity: 0.25),
             ),
           );
         } else {
           overlay =
               widget.placeholder ??
-              ShimmerEmotePlaceholder(
+              EmoteLoadingPlaceholder(
                 width: widget.width,
                 height: widget.height,
               );

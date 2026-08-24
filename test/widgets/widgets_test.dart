@@ -4833,7 +4833,7 @@ void main() {
 
     await tester.pumpWidget(wrapEmoteMenu(manager));
     await tester.tap(find.text('Channel', skipOffstage: false));
-    // The loading shimmer animates indefinitely, so pump fixed durations
+    // The loading band animates indefinitely, so pump fixed durations
     // instead of pumpAndSettle (which would never settle).
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 500));

@@ -7,7 +7,7 @@ import 'dart:io';
 import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:shimmer/shimmer.dart';
+import 'package:ermchat/widgets/emote_loading_band.dart';
 import 'package:ermchat/services/emote_codec/native_emote_codec.dart';
 import 'package:ermchat/widgets/emote_image.dart';
 import 'package:ermchat/widgets/emote_image_provider.dart';
@@ -168,6 +168,7 @@ void main() {
   late EmoteCacheManager manager;
 
   setUp(() {
+    EmoteProbeMemo.instance.reset();
     repo = FakeCacheRepo();
     manager = EmoteCacheManager.forTesting(
       Config('test', repo: repo, fileSystem: MemoryCacheSystem()),
@@ -575,7 +576,7 @@ void main() {
         // The stale frame is gone: the loading state shows instead of A's
         // pixels (gaplessPlayback would otherwise keep painting A).
         expect(raw().image, isNull);
-        expect(find.byType(Shimmer), findsWidgets);
+        expect(find.byType(LoadingBand), findsWidgets);
 
         // B lands and renders.
         gateB.complete(bBytes);
@@ -929,85 +930,91 @@ void main() {
     });
 
     group('cached smaller-scale placeholder', () {
-      testWidgets('renders a cached alternate under a faint shimmer while the '
-          'required URL is delayed, then swaps', (tester) async {
-        final requiredFrame = await tester.runAsync(
-          () => _makeImage(0, 0, 255),
-        );
-        final altFrame = await tester.runAsync(() => _makeImage(255, 0, 0));
-        final requiredGate = Completer<Uint8List>();
-        final altBytes = animatedWebpBytes();
-        final requiredBytes = Uint8List.fromList([
-          ...animatedWebpBytes(),
-          0xAA,
-        ]);
+      testWidgets(
+        'renders a cached alternate under a faint loading band while the '
+        'required URL is delayed, then swaps',
+        (tester) async {
+          final requiredFrame = await tester.runAsync(
+            () => _makeImage(0, 0, 255),
+          );
+          final altFrame = await tester.runAsync(() => _makeImage(255, 0, 0));
+          final requiredGate = Completer<Uint8List>();
+          final altBytes = animatedWebpBytes();
+          final requiredBytes = Uint8List.fromList([
+            ...animatedWebpBytes(),
+            0xAA,
+          ]);
 
-        // The required URL is slow; the alternate is already decoded in the
-        // image cache (simulating a 1x that was rendered before).
-        final altUrl = 'https://example.com/emote_1x.gif';
-        EmoteUrlProvider.debugFetchOverride = (url) {
-          if (url == altUrl) {
-            return Future.value(altBytes);
-          }
-          return requiredGate.future;
-        };
-        EmoteUrlProvider.debugDecodeOverride = (bytes) async => EmoteFrameData(
-          frames: [listEquals(bytes, altBytes) ? altFrame! : requiredFrame!],
-          durations: const [Duration.zero],
-        );
-        // Pre-seed the alternate in the image cache.
-        await tester.pumpWidget(
-          MaterialApp(home: EmoteImage(url: altUrl, width: 28, height: 28)),
-        );
-        await tester.pump();
-        await tester.pump();
-        await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
-        await tester.pump();
+          // The required URL is slow; the alternate is already decoded in the
+          // image cache (simulating a 1x that was rendered before).
+          final altUrl = 'https://example.com/emote_1x.gif';
+          EmoteUrlProvider.debugFetchOverride = (url) {
+            if (url == altUrl) {
+              return Future.value(altBytes);
+            }
+            return requiredGate.future;
+          };
+          EmoteUrlProvider.debugDecodeOverride = (bytes) async =>
+              EmoteFrameData(
+                frames: [
+                  listEquals(bytes, altBytes) ? altFrame! : requiredFrame!,
+                ],
+                durations: const [Duration.zero],
+              );
+          // Pre-seed the alternate in the image cache.
+          await tester.pumpWidget(
+            MaterialApp(home: EmoteImage(url: altUrl, width: 28, height: 28)),
+          );
+          await tester.pump();
+          await tester.pump();
+          await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
+          await tester.pump();
 
-        await tester.pumpWidget(
-          MaterialApp(
-            home: Scaffold(
-              body: EmoteImage(
-                url: 'https://example.com/emote.gif',
-                width: 28,
-                height: 28,
-                alternateUrls: [altUrl],
+          await tester.pumpWidget(
+            MaterialApp(
+              home: Scaffold(
+                body: EmoteImage(
+                  url: 'https://example.com/emote.gif',
+                  width: 28,
+                  height: 28,
+                  alternateUrls: [altUrl],
+                ),
               ),
             ),
-          ),
-        );
-        await tester.pump();
+          );
+          await tester.pump();
 
-        // The placeholder renders the cached alternate under a Shimmer (the
-        // main image's RawImage is present but frameless).
-        final placeholderRaws = tester
-            .widgetList<RawImage>(find.byType(RawImage))
-            .toList();
-        final placeholderRaw = placeholderRaws.singleWhere(
-          (r) => r.image != null,
-        );
-        expect(
-          await tester.runAsync(() => _firstPixel(placeholderRaw.image!)),
-          '255,0,0,255',
-        );
-        expect(find.byType(Shimmer), findsWidgets);
+          // The placeholder renders the cached alternate under a LoadingBand
+          // (the main image's RawImage is present but frameless).
+          final placeholderRaws = tester
+              .widgetList<RawImage>(find.byType(RawImage))
+              .toList();
+          final placeholderRaw = placeholderRaws.singleWhere(
+            (r) => r.image != null,
+          );
+          expect(
+            await tester.runAsync(() => _firstPixel(placeholderRaw.image!)),
+            '255,0,0,255',
+          );
+          expect(find.byType(LoadingBand), findsWidgets);
 
-        // Required URL lands; the placeholder is replaced.
-        requiredGate.complete(requiredBytes);
-        await tester.pump();
-        await tester.pump();
-        await tester.pump();
-        await tester.pump();
-        final raws = tester
-            .widgetList<RawImage>(find.byType(RawImage))
-            .toList();
-        expect(raws, hasLength(1));
-        expect(
-          await tester.runAsync(() => _firstPixel(raws.single.image!)),
-          '0,0,255,255',
-        );
-        expect(find.byType(Shimmer), findsNothing);
-      });
+          // Required URL lands; the placeholder is replaced.
+          requiredGate.complete(requiredBytes);
+          await tester.pump();
+          await tester.pump();
+          await tester.pump();
+          await tester.pump();
+          final raws = tester
+              .widgetList<RawImage>(find.byType(RawImage))
+              .toList();
+          expect(raws, hasLength(1));
+          expect(
+            await tester.runAsync(() => _firstPixel(raws.single.image!)),
+            '0,0,255,255',
+          );
+          expect(find.byType(LoadingBand), findsNothing);
+        },
+      );
 
       testWidgets('a cached alternate placeholder expands to fill the box', (
         tester,
@@ -1142,9 +1149,8 @@ void main() {
         },
       );
 
-      testWidgets('falls back to bare shimmer when no alternate is cached', (
-        tester,
-      ) async {
+      testWidgets('falls back to a bare loading band when no alternate is '
+          'cached', (tester) async {
         final frame = await tester.runAsync(() => _makeImage(0, 0, 255));
         final gate = Completer<Uint8List>();
         EmoteUrlProvider.debugFetchOverride = (url) => gate.future;
@@ -1166,13 +1172,13 @@ void main() {
         await tester.pump();
 
         expect(tester.widget<RawImage>(find.byType(RawImage)).image, isNull);
-        expect(find.byType(Shimmer), findsOneWidget);
+        expect(find.byType(LoadingBand), findsOneWidget);
 
         gate.complete(animatedWebpBytes());
         await tester.pump();
         await tester.pump();
         expect(tester.widget<RawImage>(find.byType(RawImage)).image, isNotNull);
-        expect(find.byType(Shimmer), findsNothing);
+        expect(find.byType(LoadingBand), findsNothing);
       });
     });
 
