@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:ermchat/models/generic_emote.dart';
 import 'package:ermchat/services/emote_manager.dart';
@@ -8,11 +9,22 @@ import 'package:ermchat/widgets/emote_loading_band.dart';
 import 'package:ermchat/widgets/emote_text.dart';
 import 'package:ermchat/widgets/inline_emote_view.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 
-Uint8List _pngBytes() =>
-    Uint8List.fromList(img.encodePng(img.Image(width: 2, height: 2)));
+Uint8List _pngBytes([int width = 2, int height = 2]) {
+  final image = img.Image(width: width, height: height);
+  img.fillRect(
+    image,
+    x1: 0,
+    y1: 0,
+    x2: width,
+    y2: height,
+    color: img.ColorRgba8(255, 0, 0, 255),
+  );
+  return Uint8List.fromList(img.encodePng(image));
+}
 
 Future<void> _pumpUntilLoaded(WidgetTester tester) async {
   await tester.runAsync(
@@ -184,5 +196,57 @@ void main() {
     await tester.tap(find.byType(InlineEmoteView));
     expect(tapped, hasLength(1));
     expect(tapped.single.map((e) => e.code), [code]);
+  });
+
+  testWidgets('an oversized frame is contain-fit into the slot', (
+    tester,
+  ) async {
+    // 64x32 red source in a 28x28 box: correct contain-fit draws a 28x14
+    // band centered vertically; the old inscribe-only bug drew it at
+    // intrinsic pixel size, spilling over the whole slot and beyond.
+    EmoteUrlProvider.debugFetchOverride = (_) async => _pngBytes(64, 32);
+    const url = 'https://inline.test/wide.png';
+    final boundaryKey = GlobalKey();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Center(
+          child: SizedBox(
+            width: 28,
+            height: 28,
+            child: RepaintBoundary(
+              key: boundaryKey,
+              child: const ColoredBox(
+                color: Colors.white,
+                child: InlineEmoteView(url: url, width: 28, height: 28),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await _pumpUntilLoaded(tester);
+
+    final boundary = tester.renderObject<RenderRepaintBoundary>(
+      find.byKey(boundaryKey),
+    );
+    final image = await tester.runAsync(() => boundary.toImage());
+    final data = (await tester.runAsync(
+      () => image!.toByteData(format: ui.ImageByteFormat.rawRgba),
+    ))!;
+    final px = data.buffer.asUint8List();
+    int at(int x, int y) => (((y * image!.width) + x) * 4).toInt();
+
+    bool isRed(int i) =>
+        px[i] > 200 && px[i + 1] < 60 && px[i + 2] < 60 && px[i + 3] == 255;
+    bool isBackground(int i) =>
+        px[i + 3] == 0 || (px[i] > 240 && px[i + 1] > 240 && px[i + 2] > 240);
+
+    // Inside the fitted band: red. Above/below it: background.
+    expect(isRed(at(14, 14)), isTrue);
+    expect(isRed(at(4, 14)), isTrue);
+    expect(isRed(at(26, 14)), isTrue);
+    expect(isBackground(at(14, 3)), isTrue);
+    expect(isBackground(at(14, 25)), isTrue);
+    expect(isBackground(at(1, 1)), isTrue);
   });
 }

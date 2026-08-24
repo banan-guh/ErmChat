@@ -375,16 +375,19 @@ class RenderInlineEmote extends RenderBox {
     final alt = _altImage;
     final info = main ?? alt;
     if (info != null) {
+      // Contain-fit the frame inside the slot exactly like the stock Image
+      // pipeline: emote textures arrive at 1x/2x/3x pixel sizes that rarely
+      // match the layout box, and inscribe alone would place them at their
+      // intrinsic pixel size, overflowing the text line.
       final img = info.image;
-      final src = Rect.fromLTWH(
-        0,
-        0,
-        img.width.toDouble(),
-        img.height.toDouble(),
+      paintImage(
+        canvas: canvas,
+        rect: offset & size,
+        image: img,
+        scale: info.scale,
+        alignment: Alignment.center,
+        fit: BoxFit.contain,
       );
-      final srcSize = Size(img.width / info.scale, img.height / info.scale);
-      final dst = Alignment.center.inscribe(srcSize, offset & size);
-      canvas.drawImageRect(img, src, dst, Paint());
       if (main != null) return;
       // A cached smaller scale is showing: keep the faint hint that a
       // higher-res copy is coming, matching the EmoteImage overlay look.
