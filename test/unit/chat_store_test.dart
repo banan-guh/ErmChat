@@ -71,6 +71,65 @@ void main() {
       expect(msg.isSystem, isTrue);
       expect(msg.systemAccent, isNull);
     });
+
+    test('messageId dedup skips a repeat insert and returns false', () {
+      final store = _store();
+      expect(
+        store.addSystemMessage(
+          'test',
+          'ronni subscribed!',
+          messageId: 'n1:label',
+        ),
+        isTrue,
+      );
+      expect(store.channelMessages['test']!.first.messageId, 'n1:label');
+
+      expect(
+        store.addSystemMessage(
+          'test',
+          'ronni subscribed!',
+          messageId: 'n1:label',
+        ),
+        isFalse,
+        reason: 'the same notice event must not stack a second label',
+      );
+      expect(store.channelMessages['test'], hasLength(1));
+    });
+
+    test('label id never collides with the child message id', () {
+      final store = _store();
+      expect(
+        store.addSystemMessage('test', 'Announcement', messageId: 'n1:label'),
+        isTrue,
+      );
+      expect(
+        store.ingestMessage(
+          TwitchMessage(
+            login: 'mm2pl',
+            text: 'hello',
+            messageId: 'n1',
+            channel: 'test',
+          ),
+          maxMessages: 10,
+        ),
+        isTrue,
+        reason: 'the child chat message owns the raw id and must coexist',
+      );
+      expect(store.channelMessages['test'], hasLength(2));
+    });
+
+    test('distinct ids with identical text both insert', () {
+      final store = _store();
+      expect(
+        store.addSystemMessage('test', 'Announcement', messageId: 'n1:label'),
+        isTrue,
+      );
+      expect(
+        store.addSystemMessage('test', 'Announcement', messageId: 'n2:label'),
+        isTrue,
+      );
+      expect(store.channelMessages['test'], hasLength(2));
+    });
   });
 
   group('ChatStore.ingestMessage', () {

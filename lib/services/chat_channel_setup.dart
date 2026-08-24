@@ -56,7 +56,12 @@ class ChatChannelSetup {
   final UserStore userStore;
   final ChatStore store;
 
-  final void Function(String channel, String text, {Color? accent})
+  final void Function(
+    String channel,
+    String text, {
+    Color? accent,
+    String? messageId,
+  })
   onSystemMessage;
   final void Function() onRebuild;
   final Future<void> Function(String?, List<String>)? onUserEmoteSets;

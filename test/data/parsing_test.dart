@@ -130,7 +130,7 @@ void main() {
       final msg = RecentMessagesService.parseIrcLine(raw);
       expect(msg, isNotNull);
       expect(msg!.isSystem, isTrue);
-      expect(msg.text, 'ermugo1 was timed out for 300s.');
+      expect(msg.text, 'ermugo1 was timed out for 5m.');
       expect(msg.isHistory, isTrue);
       expect(msg.channel, isNull);
       expect(msg.timestamp.millisecondsSinceEpoch, 1700000000000);
@@ -151,7 +151,7 @@ void main() {
           '@ban-duration=300;target-user-id=974273622;rm-received-ts=1700000000000;historical=1 :tmi.twitch.tv CLEARCHAT #ermugo2 ermugo1';
       final msg = RecentMessagesService.parseIrcLine(raw);
       expect(msg, isNotNull);
-      expect(msg!.text, 'ermugo1 was timed out for 300s.');
+      expect(msg!.text, 'ermugo1 was timed out for 5m.');
       expect(msg.isBanNotice, isTrue);
     });
 
@@ -236,7 +236,7 @@ void main() {
 
     test('parses resub USERNOTICE into a system message', () {
       const raw =
-          '@msg-id=resub;system-msg=ronni\\shas\\ssubscribed\\sfor\\s6\\smonths!;login=ronni;display-name=ronni;rm-received-ts=1700000000000 :tmi.twitch.tv USERNOTICE #xqc :Great stream!';
+          '@msg-id=resub;system-msg=ronni\\shas\\ssubscribed\\sfor\\s6\\smonths!;login=ronni;display-name=ronni;id=notice-1;rm-received-ts=1700000000000 :tmi.twitch.tv USERNOTICE #xqc :Great stream!';
       final msg = RecentMessagesService.parseIrcLine(raw);
       expect(msg, isNotNull);
       expect(msg!.isSystem, isTrue);
@@ -247,6 +247,19 @@ void main() {
         const Color(0xFF9146FF),
         reason: 'sub notices highlight like a default purple announcement',
       );
+      expect(
+        msg.messageId,
+        'notice-1:label',
+        reason: 'labels carry a namespaced id so live/history dedup works',
+      );
+    });
+
+    test('USERNOTICE label without an id keeps no messageId', () {
+      const raw =
+          '@msg-id=resub;system-msg=ronni\\shas\\ssubscribed!;login=ronni;display-name=ronni;rm-received-ts=1700000000000 :tmi.twitch.tv USERNOTICE #xqc';
+      final msg = RecentMessagesService.parseIrcLine(raw);
+      expect(msg, isNotNull);
+      expect(msg!.messageId, isNull);
     });
 
     test('parses subgift USERNOTICE without user message', () {

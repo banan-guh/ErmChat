@@ -759,7 +759,6 @@ class _HomeScreenState extends State<HomeScreen>
   // mentions are surfaced in the mentions panel, and a gap note is inserted at
   // the history boundary when the fetched window doesn't reach back to the
   // messages already displayed (only possible on reconnect re-fetches).
-  //
   // The merged list is sorted by timestamp (DankChat-style) so re-fetched
   // history slots below messages that arrived after it - live messages are
   // never pushed under older history.
@@ -788,6 +787,14 @@ class _HomeScreenState extends State<HomeScreen>
         _userStore.addUser(channel, preferred);
       }
       final id = msg.messageId;
+      // Ban lines and NOTICEs carry no message id, so a backfill that
+      // overlaps what already arrived live would double them up. Fold an
+      // id-less system row into an identical row near the same time.
+      if (id == null &&
+          msg.isSystem &&
+          _isDuplicateIdlessSystemRow(existing, insertedMsgs, msg)) {
+        continue;
+      }
       final isNew =
           id == null ||
           (!existingIds.contains(id) && !insertedIds.contains(id));
@@ -858,6 +865,34 @@ class _HomeScreenState extends State<HomeScreen>
     }
     _chatStore.touchChannel(channel);
     _moveConnectedMessageToTop(channel);
+  }
+
+  /// True when an id-less system row from history duplicates a system row
+  /// already on screen or just inserted from this batch: identical text and
+  /// a timestamp inside [_systemDedupWindow]. Robotty's receive timestamp
+  /// and the live arrival clock differ by at most a couple of seconds, so
+  /// true copies land well inside the window while distinct repeats of the
+  /// same line stay out.
+  static const _systemDedupWindow = Duration(seconds: 10);
+
+  bool _isDuplicateIdlessSystemRow(
+    List<TwitchMessage> existing,
+    List<TwitchMessage> inserted,
+    TwitchMessage candidate,
+  ) {
+    for (final row in existing) {
+      if (_isSameSystemEvent(row, candidate)) return true;
+    }
+    for (final row in inserted) {
+      if (_isSameSystemEvent(row, candidate)) return true;
+    }
+    return false;
+  }
+
+  bool _isSameSystemEvent(TwitchMessage a, TwitchMessage b) {
+    return a.isSystem &&
+        a.text == b.text &&
+        a.timestamp.difference(b.timestamp).abs() <= _systemDedupWindow;
   }
 
   void _onReconnected() {
@@ -1751,8 +1786,20 @@ class _HomeScreenState extends State<HomeScreen>
     if (_widgetPageCtrl.hasClients) _widgetPageCtrl.jumpToPage(0);
   }
 
-  void _addSystemMessage(String channel, String text, {Color? accent}) {
-    if (!_chatStore.addSystemMessage(channel, text, accent: accent)) return;
+  void _addSystemMessage(
+    String channel,
+    String text, {
+    Color? accent,
+    String? messageId,
+  }) {
+    if (!_chatStore.addSystemMessage(
+      channel,
+      text,
+      accent: accent,
+      messageId: messageId,
+    )) {
+      return;
+    }
     _truncateChannelMessages(channel);
     _chatStore.noteNewMessage(channel);
   }

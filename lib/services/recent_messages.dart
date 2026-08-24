@@ -253,6 +253,10 @@ class RecentMessagesService {
         systemMsg: systemMsg,
       ),
       isSystem: true,
+      // Namespaced notice id so the label dedups against its live twin
+      // without colliding with the child chat message that shares the raw
+      // USERNOTICE id.
+      messageId: userNoticeLabelId(msg.tags['id']),
       // Announcements carry their banner accent; subscriptions / gift subs /
       // watch streaks / bits badge tier unlocks highlight like a default
       // (PRIMARY) purple announcement (DankChat-style).

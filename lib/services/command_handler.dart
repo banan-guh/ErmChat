@@ -2,6 +2,7 @@ import '../models/twitch_command.dart';
 import '../services/twitch_api.dart';
 import '../services/twitch_auth.dart';
 import '../services/twitch_irc.dart';
+import '../util/duration_format.dart';
 import '../util/log.dart';
 
 class CommandHandler {
@@ -478,7 +479,7 @@ class CommandHandler {
           if (ok) {
             addSystemMessage(
               channel,
-              '$targetLogin timed out for ${duration}s.',
+              '$targetLogin timed out for ${formatSeconds(duration)}.',
             );
           }
 

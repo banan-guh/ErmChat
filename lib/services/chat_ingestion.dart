@@ -5,6 +5,7 @@ import 'dart:ui' show Color;
 import '../models/emote_fetch_tier.dart';
 import '../models/generic_emote.dart';
 import '../models/twitch_message.dart';
+import '../util/duration_format.dart';
 import '../util/log.dart';
 import 'base_irc_connection.dart' show IrcReadService;
 import 'chat_store.dart';
@@ -93,7 +94,12 @@ class ChatIngestion {
   /// Own timeouts arm the input-box cooldown.
   final void Function(String channel, DateTime until) onSelfTimeoutArmed;
 
-  final void Function(String channel, String text, {Color? accent})
+  final void Function(
+    String channel,
+    String text, {
+    Color? accent,
+    String? messageId,
+  })
   onSystemMessage;
 
   final void Function(String channel, TwitchMessage msg)? onAnalyticsMessage;
@@ -305,7 +311,7 @@ class ChatIngestion {
     final isSelf = user.toLowerCase() == store.session.login?.toLowerCase();
     final base = isSelf
         ? (isTimeout
-              ? 'You are timed out${duration != null ? ' for ${duration}s' : ''}'
+              ? 'You are timed out${duration != null ? ' for ${formatSeconds(duration)}' : ''}'
               : 'You were banned')
         : buildBanText(user: user, isTimeout: isTimeout, durationSec: duration);
     final stacked = result.stackCount > 1

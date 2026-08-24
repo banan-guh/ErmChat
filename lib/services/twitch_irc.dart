@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import '../color_utils.dart';
 import '../models/twitch_badge.dart';
 import '../models/twitch_message.dart';
+import '../util/duration_format.dart';
 import 'base_irc_connection.dart';
 
 export 'base_irc_connection.dart'
@@ -130,6 +131,15 @@ const subNoticeMsgIds = <String>{
   'bitsbadgetier',
 };
 
+/// Composite message id for a USERNOTICE system label. The raw Twitch id
+/// belongs to the notice's child chat message (sub/resub/announcement
+/// bodies); namespacing keeps the two rows distinct while still letting
+/// live and history copies of the same label dedup against each other.
+String? userNoticeLabelId(String? rawId) {
+  if (rawId == null || rawId.isEmpty) return null;
+  return '$rawId:label';
+}
+
 /// Builds the system-message text for a USERNOTICE event. Announcements are
 /// the bare "Announcement" label (DankChat-style; the announcement text is
 /// rendered as a separate child chat message); everything else uses Twitch's
@@ -152,7 +162,7 @@ String buildBanText({
   int? durationSec,
 }) {
   if (isTimeout) {
-    return '$user was timed out${durationSec != null ? ' for ${durationSec}s' : ''}.';
+    return '$user was timed out${durationSec != null ? ' for ${formatSeconds(durationSec)}' : ''}.';
   }
   return '$user was banned.';
 }

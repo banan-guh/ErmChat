@@ -868,7 +868,7 @@ void main() {
 
       await handler.handle('/timeout foo', 'a', auth);
 
-      expect(systemMessages, ['foo timed out for 600s.']);
+      expect(systemMessages, ['foo timed out for 10m.']);
       final body =
           jsonDecode(
                 requests

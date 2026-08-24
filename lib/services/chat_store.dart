@@ -226,11 +226,24 @@ class ChatStore {
 
   /// Inserts a system message at the top of [channel]'s buffer, applying the
   /// status-marker folding rules: Connected/Disconnected/Reconnected lines
-  /// replace or dedup each other instead of stacking on socket flaps. Returns
-  /// false when folding dropped the message entirely (no insert happened);
-  /// callers skip their truncate/notify signals in that case.
-  bool addSystemMessage(String channel, String text, {Color? accent}) {
+  /// replace or dedup each other instead of stacking on socket flaps.
+  /// [messageId] carries a stable event identity (USERNOTICE labels); when
+  /// provided and already present on a buffered row the insert is skipped so
+  /// backfill cannot double an event that arrived live. Returns false when
+  /// folding dropped the message entirely (no insert happened); callers skip
+  /// their truncate/notify signals in that case.
+  bool addSystemMessage(
+    String channel,
+    String text, {
+    Color? accent,
+    String? messageId,
+  }) {
     final msgs = channelMessages.putIfAbsent(channel, () => []);
+
+    if (messageId != null) {
+      final exists = msgs.any((m) => m.isSystem && m.messageId == messageId);
+      if (exists) return false;
+    }
 
     const statusTexts = {
       'Connected',
@@ -285,7 +298,7 @@ class ChatStore {
       TwitchMessage(
         login: '',
         text: text,
-        messageId: 'sys_${_nextSystemMessageId++}',
+        messageId: messageId ?? 'sys_${_nextSystemMessageId++}',
         isSystem: true,
         systemAccent: accent,
         channel: channel,

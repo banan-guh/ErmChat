@@ -1579,6 +1579,107 @@ void main() {
     );
   });
 
+  testWidgets('reconnect refetch folds duplicated id-less system rows', (
+    WidgetTester tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({
+      'access_token': 'test_token',
+      'channels': ['xqc'],
+    });
+    FlutterSecureStorage.setMockInitialValues({'access_token': 'test_token'});
+
+    final now = DateTime.now();
+    final refetchGate = Completer<void>();
+    const dupBanText = 'spammer was timed out for 5m.';
+    final recent = _GatedRecentMessagesService(
+      [
+        [
+          TwitchMessage(
+            login: 'alice',
+            text: 'old history',
+            channel: 'xqc',
+            messageId: 'a1',
+            timestamp: now.subtract(const Duration(minutes: 5)),
+          ),
+        ],
+        [
+          // Same event the live socket already delivered while the app was
+          // connected: identical text, near-identical timestamp, no id.
+          TwitchMessage(
+            login: 'spammer',
+            text: dupBanText,
+            channel: 'xqc',
+            isSystem: true,
+            isBanNotice: true,
+            timestamp: now,
+          ),
+          // A distinct event must still come through.
+          TwitchMessage(
+            login: 'otheruser',
+            text: 'otheruser was banned.',
+            channel: 'xqc',
+            isSystem: true,
+            isBanNotice: true,
+            timestamp: now.subtract(const Duration(seconds: 30)),
+          ),
+        ],
+      ],
+      gateOnCall: 2,
+      gate: refetchGate,
+    );
+    final fakeEventSub = _FakeEventSubService();
+    final fakeIrc = _FakeIrcService();
+
+    await tester.pumpWidget(
+      TwitchChatApp(
+        eventSubService: fakeEventSub,
+        ircService: fakeIrc,
+        recentMessagesService: recent,
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.textContaining('old history', skipOffstage: false),
+      findsOneWidget,
+    );
+
+    fakeIrc.emitBan(
+      'spammer',
+      isTimeout: true,
+      durationSeconds: 300,
+      channel: 'xqc',
+    );
+    await tester.pump();
+    expect(
+      find.textContaining(dupBanText, skipOffstage: false),
+      findsOneWidget,
+    );
+
+    fakeIrc.triggerDisconnect();
+    await tester.pump();
+    fakeIrc.triggerConnect();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 600));
+    await tester.pump();
+    expect(recent.callCount, 2, reason: 'reconnect must trigger a re-fetch');
+
+    refetchGate.complete();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 600));
+    await tester.pump();
+
+    expect(
+      find.textContaining(dupBanText, skipOffstage: false),
+      findsOneWidget,
+      reason: 'the backfilled copy of the ban line must fold away',
+    );
+    expect(
+      find.textContaining('otheruser was banned.', skipOffstage: false),
+      findsOneWidget,
+      reason: 'a distinct id-less system row must still be inserted',
+    );
+  });
+
   testWidgets('join dialog removes the loading history message', (
     WidgetTester tester,
   ) async {
@@ -2293,7 +2394,7 @@ void main() {
       );
     });
 
-    testWidgets('timeout with duration shows "timed out for Xs"', (
+    testWidgets('timeout with duration shows "timed out for Xm"', (
       WidgetTester tester,
     ) async {
       final eventSub = _FakeEventSubService();
@@ -2310,7 +2411,7 @@ void main() {
 
       expect(
         find.textContaining(
-          'spammer was timed out for 300',
+          'spammer was timed out for 5m.',
           skipOffstage: false,
         ),
         findsOneWidget,

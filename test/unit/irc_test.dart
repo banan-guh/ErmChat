@@ -365,7 +365,7 @@ ChatConnectionManager _makeConn({
       bridge: ChatViewBridge(
         mentionsChannel: '@mentions',
         onRebuild: () {},
-        onSystemMessage: (c, t, {Color? accent}) {},
+        onSystemMessage: (c, t, {Color? accent, String? messageId}) {},
         getSelectedChannel: () => null,
         getMaxMessagesPerChannel: () => maxMessages,
       ),
@@ -386,7 +386,8 @@ ChatConnectionManager _makeReconnectConn({
   List<String>? channels,
   Map<String, List<TwitchMessage>>? channelMessages,
   Map<String, String>? chatStatus,
-  void Function(String, String, {Color? accent})? onSystemMessage,
+  void Function(String, String, {Color? accent, String? messageId})?
+  onSystemMessage,
   String? currentUserLogin,
   void Function(HypeTrainEvent event)? onHypeTrain,
   Future<void> Function(String?, List<String>)? onUserEmoteSets,
@@ -431,7 +432,8 @@ ChatConnectionManager _makeReconnectConn({
       bridge: ChatViewBridge(
         mentionsChannel: '@mentions',
         onRebuild: () {},
-        onSystemMessage: onSystemMessage ?? (c, t, {Color? accent}) {},
+        onSystemMessage:
+            onSystemMessage ?? (c, t, {Color? accent, String? messageId}) {},
         getSelectedChannel: () => null,
         getMaxMessagesPerChannel: () => 100,
       ),
@@ -2584,7 +2586,8 @@ void main() {
         eventSub: _NoopEventSub(),
         irc: irc,
         onReconnected: () => reconnects++,
-        onSystemMessage: (c, t, {Color? accent}) => system.add(t),
+        onSystemMessage: (c, t, {Color? accent, String? messageId}) =>
+            system.add(t),
         currentUserLogin: 'alice',
         auth: auth,
         store: store,
@@ -2771,7 +2774,8 @@ void main() {
           eventSub: _NoopEventSub(),
           irc: irc,
           onReconnected: () {},
-          onSystemMessage: (c, t, {Color? accent}) => texts.add(t),
+          onSystemMessage: (c, t, {Color? accent, String? messageId}) =>
+              texts.add(t),
         );
         await conn.connect();
         irc.emitConnected();
@@ -2818,7 +2822,7 @@ void main() {
         irc: irc,
         onReconnected: () {},
         channelMessages: channelMessages,
-        onSystemMessage: (c, t, {Color? accent}) {
+        onSystemMessage: (c, t, {Color? accent, String? messageId}) {
           systemMessages.add((c, t, accent));
         },
       );
@@ -2868,7 +2872,7 @@ void main() {
         irc: irc,
         onReconnected: () {},
         channelMessages: channelMessages,
-        onSystemMessage: (c, t, {Color? accent}) {
+        onSystemMessage: (c, t, {Color? accent, String? messageId}) {
           systemMessages.add((c, t, accent));
         },
       );
@@ -2899,7 +2903,7 @@ void main() {
         irc: irc,
         onReconnected: () {},
         channelMessages: channelMessages,
-        onSystemMessage: (c, t, {Color? accent}) {
+        onSystemMessage: (c, t, {Color? accent, String? messageId}) {
           systemMessages.add((c, t, accent));
         },
       );
@@ -2932,7 +2936,7 @@ void main() {
         irc: irc,
         onReconnected: () {},
         channelMessages: channelMessages,
-        onSystemMessage: (c, t, {Color? accent}) {
+        onSystemMessage: (c, t, {Color? accent, String? messageId}) {
           systemMessages.add((c, t, accent));
         },
       );
@@ -2978,7 +2982,7 @@ void main() {
         irc: irc,
         onReconnected: () {},
         channelMessages: channelMessages,
-        onSystemMessage: (c, t, {Color? accent}) {
+        onSystemMessage: (c, t, {Color? accent, String? messageId}) {
           systemMessages.add((c, t, accent));
         },
       );
@@ -3012,7 +3016,7 @@ void main() {
         irc: irc,
         onReconnected: () {},
         channelMessages: channelMessages,
-        onSystemMessage: (c, t, {Color? accent}) {
+        onSystemMessage: (c, t, {Color? accent, String? messageId}) {
           systemMessages.add((c, t, accent));
         },
       );
@@ -3046,7 +3050,7 @@ void main() {
         irc: irc,
         onReconnected: () {},
         channelMessages: channelMessages,
-        onSystemMessage: (c, t, {Color? accent}) {
+        onSystemMessage: (c, t, {Color? accent, String? messageId}) {
           systemMessages.add((c, t, accent));
         },
       );
@@ -3081,7 +3085,7 @@ void main() {
           irc: irc,
           onReconnected: () {},
           channelMessages: channelMessages,
-          onSystemMessage: (c, t, {Color? accent}) {
+          onSystemMessage: (c, t, {Color? accent, String? messageId}) {
             systemMessages.add((c, t, accent));
           },
         );
@@ -3133,7 +3137,7 @@ void main() {
         irc: irc,
         onReconnected: () {},
         channelMessages: channelMessages,
-        onSystemMessage: (c, t, {Color? accent}) {
+        onSystemMessage: (c, t, {Color? accent, String? messageId}) {
           systemMessages.add((c, t, accent));
         },
       );
@@ -3168,7 +3172,7 @@ void main() {
         irc: irc,
         onReconnected: () {},
         channelMessages: channelMessages,
-        onSystemMessage: (c, t, {Color? accent}) {
+        onSystemMessage: (c, t, {Color? accent, String? messageId}) {
           systemMessages.add((c, t, accent));
         },
       );
@@ -3426,7 +3430,8 @@ void main() {
           onReconnected: () {},
           channels: const ['test'],
           currentUserLogin: 'testuser',
-          onSystemMessage: (c, t, {Color? accent}) => messages.add((c, t)),
+          onSystemMessage: (c, t, {Color? accent, String? messageId}) =>
+              messages.add((c, t)),
         );
 
         conn.connect();
@@ -3468,7 +3473,8 @@ void main() {
           onReconnected: () {},
           channels: const [],
           currentUserLogin: 'testuser',
-          onSystemMessage: (c, t, {Color? accent}) => messages.add((c, t)),
+          onSystemMessage: (c, t, {Color? accent, String? messageId}) =>
+              messages.add((c, t)),
         );
 
         conn.connect();

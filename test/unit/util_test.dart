@@ -4,6 +4,7 @@ import 'package:ermchat/color_utils.dart';
 import 'package:ermchat/services/suggestion.dart';
 import 'package:ermchat/models/twitch_message.dart';
 import 'package:ermchat/util/mention.dart';
+import 'package:ermchat/util/duration_format.dart';
 import 'package:ermchat/util/text_bypass.dart';
 import 'package:ermchat/main.dart';
 import 'package:ermchat/util/timestamp_formatter.dart';
@@ -437,6 +438,35 @@ void main() {
   test('presets cover 24h and 12h with and without seconds', () {
     expect(kTimestampFormats, containsAll(['HH:mm', 'hh:mm a', 'HH:mm:ss']));
     expect(kTimestampFormats.length, 8);
+  });
+
+  group('formatSeconds', () {
+    test('zero and negative formats as 0s', () {
+      expect(formatSeconds(0), '0s');
+      expect(formatSeconds(-5), '0s');
+    });
+
+    test('bare seconds stay plain', () {
+      expect(formatSeconds(45), '45s');
+    });
+
+    test('skips zero units', () {
+      expect(formatSeconds(60), '1m');
+      expect(formatSeconds(300), '5m');
+      expect(formatSeconds(3600), '1h');
+      expect(formatSeconds(86400), '1d');
+    });
+
+    test('combines tiers without zero padding', () {
+      expect(formatSeconds(302), '5m 2s');
+      expect(formatSeconds(5400), '1h 30m');
+      expect(formatSeconds(3661), '1h 1m 1s');
+    });
+
+    test('caps at days for long timeouts', () {
+      expect(formatSeconds(1209600), '14d');
+      expect(formatSeconds(90061), '1d 1h 1m 1s');
+    });
   });
 
   group('PanelPredictiveBackHandler', () {

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/widgets.dart';
 import '../models/generic_emote.dart';
+import '../util/duration_format.dart';
 import '../util/log.dart';
 import '../models/twitch_message.dart';
 import '../services/twitch_api.dart';
@@ -65,7 +66,8 @@ class ChatViewBridge {
 
   final String mentionsChannel;
   final VoidCallback onRebuild;
-  final void Function(String, String, {Color? accent}) onSystemMessage;
+  final void Function(String, String, {Color? accent, String? messageId})
+  onSystemMessage;
   final String? Function() getSelectedChannel;
   final int Function() getMaxMessagesPerChannel;
 }
@@ -141,7 +143,8 @@ class ChatConnectionManager {
   final Map<String, String> lastSentWireText;
   final String mentionsChannel;
   final VoidCallback onRebuild;
-  final void Function(String, String, {Color? accent}) onSystemMessage;
+  final void Function(String, String, {Color? accent, String? messageId})
+  onSystemMessage;
   void Function(String channel, TwitchMessage msg)? onMention;
   void Function(TwitchMessage msg)? onWhisper;
   final Future<void> Function(String?, List<String>)? onUserEmoteSets;
@@ -956,6 +959,7 @@ class ChatConnectionManager {
             systemMsg: event.systemMsg,
           ),
           accent: accent,
+          messageId: userNoticeLabelId(event.messageId),
         );
         // Sub/resub with a user message render like announcements: the notice
         // stays the label and the user's text becomes a child chat message so
@@ -999,7 +1003,12 @@ class ChatConnectionManager {
       final accent =
           announcementColorFor(event.announcementColor) ??
           announcementColors['PRIMARY']!;
-      onSystemMessage(event.channel, 'Announcement', accent: accent);
+      onSystemMessage(
+        event.channel,
+        'Announcement',
+        accent: accent,
+        messageId: userNoticeLabelId(event.messageId),
+      );
       final text = event.text?.trim();
       if (text == null || text.isEmpty) return;
       onMessage(
@@ -1103,7 +1112,7 @@ class ChatConnectionManager {
           store.markUserMessagesDeleted(event.channel, target);
         }
         final duration = event.durationSeconds != null
-            ? ' for ${event.durationSeconds}s'
+            ? ' for ${formatSeconds(event.durationSeconds!)}'
             : '';
         if (isSelfTarget &&
             event.action == 'timeout' &&
