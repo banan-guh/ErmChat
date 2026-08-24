@@ -135,9 +135,11 @@ class ChatView extends StatelessWidget {
                     // arrivals are NOT compensated: the reader glues to
                     // the newest message automatically. Beyond it,
                     // keepPosition holds the reading position steady.
+                    // reverse:true already hugs short lists to the bottom
+                    // edge; no FirstItemAlign needed (it pins content to
+                    // the top instead).
                     keepPosition: true,
                     keepPositionOffset: 120,
-                    firstItemAlign: FirstItemAlign.end,
                     // Tiles own their RepaintBoundary; dropping the
                     // automatic KeepAlive wrapper keeps every built tile an
                     // active child of the sliver instead of parking them in

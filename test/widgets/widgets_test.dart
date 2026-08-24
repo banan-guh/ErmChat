@@ -5206,4 +5206,40 @@ void main() {
       );
     });
   });
+
+  // Regression: the chat list must hug the bottom edge when its content is
+  // shorter than the viewport. Plain reverse:true provides this naturally;
+  // FirstItemAlign.end actively BREAKS it (pins content to the top), so this
+  // test guards against reintroducing it.
+  testWidgets('short chat list hugs the bottom edge', (tester) async {
+    tester.view.physicalSize = const Size(400, 600);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: FlutterListView(
+            reverse: true,
+            delegate: FlutterListViewDelegate(
+              (_, i) => SizedBox(height: 50, child: Text('row $i')),
+              childCount: 3,
+              keepPosition: true,
+              keepPositionOffset: 120,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    Finder row(String s) => find.byWidgetPredicate(
+      (w) => w is Text && w.data == s,
+      skipOffstage: false,
+    );
+    // Newest row (index 0) sits flush against the bottom edge.
+    expect(tester.getRect(row('row 0')).bottom, 600.0);
+    // Oldest row starts 150px down, not pinned to the top edge.
+    expect(tester.getRect(row('row 2')).top, 450.0);
+  });
 }
