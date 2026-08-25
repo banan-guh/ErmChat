@@ -144,6 +144,17 @@ String _dump(_HomeLike home) =>
     'log=[${home.log.join(", ")}] commits=${home.commits} '
     'focused=${home.selectedChannel} tabIndex=${home.tabIndex.value}';
 
+/// Plain finger swipe from the current page toward the next channel.
+Future<void> _swipeToNext(WidgetTester tester) async {
+  final size = tester.getSize(find.byType(PageView));
+  final center = tester.getCenter(find.byType(PageView));
+  final gesture = await tester.startGesture(center);
+  await gesture.moveBy(Offset(-size.width * 0.6, 0));
+  await tester.pump();
+  await gesture.up();
+  await tester.pumpAndSettle();
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -391,6 +402,80 @@ void main() {
         home.commits['b'] ?? 0,
         1,
         reason: 'exactly one bookkeeping run for b: ${_dump(home)}',
+      );
+    });
+
+    testWidgets('R11: tapping the already-visible tab is a no-op', (
+      tester,
+    ) async {
+      final (home, _) = await pumpHome(tester);
+
+      await _tapTab(tester, 'a');
+      await tester.pumpAndSettle();
+
+      // A zero-distance jump must not strand a jump target: if it did, the
+      // flyover suppression would stay on and later swipes would stop
+      // committing entirely.
+      await _swipeToNext(tester);
+      await tester.pumpAndSettle();
+
+      // ignore: avoid_print
+      print('R11 rest=[${_restingDump(tester)}] ${_dump(home)}');
+      expect(
+        _restingPage(tester),
+        1,
+        reason: 'swipe after tap must still work',
+      );
+      expect(home.selectedChannel, 'b', reason: _dump(home));
+      expect(home.tabIndex.value, 1, reason: _dump(home));
+      expect(home.commits['a'] ?? 0, 0, reason: _dump(home));
+      expect(home.commits['b'] ?? 0, 1, reason: _dump(home));
+    });
+
+    testWidgets('R12: tap c then tap b without catching lands on b, '
+        'never commits c', (tester) async {
+      final (home, _) = await pumpHome(tester);
+
+      await _tapTab(tester, 'c');
+      await tester.pump(const Duration(milliseconds: 30));
+      await _tapTab(tester, 'b');
+      await tester.pumpAndSettle();
+
+      // ignore: avoid_print
+      print('R12 rest=[${_restingDump(tester)}] ${_dump(home)}');
+      expect(_restingPage(tester), 1, reason: 'retarget must land on b');
+      expect(home.selectedChannel, 'b', reason: _dump(home));
+      expect(
+        home.commits['c'] ?? 0,
+        0,
+        reason: 'flyover channel must not be committed: ${_dump(home)}',
+      );
+      expect(home.commits['b'] ?? 0, 1, reason: _dump(home));
+    });
+
+    testWidgets('R13: grabbing a targeted jump and dragging back commits '
+        'only where the finger lands', (tester) async {
+      final (home, _) = await pumpHome(tester);
+
+      await _tapTab(tester, 'c');
+      await tester.pump(const Duration(milliseconds: 60));
+      // Grab the a->c jump while it is flying and drag it back below half.
+      final gesture = await _catchAndHold(tester, fraction: 0.30);
+      await gesture.up();
+      await tester.pumpAndSettle();
+
+      // ignore: avoid_print
+      print('R13 rest=[${_restingDump(tester)}] ${_dump(home)}');
+      final resting = _restingPage(tester);
+      expect(
+        resting,
+        _tabs.indexOf(home.selectedChannel),
+        reason: 'focus must match the visible page',
+      );
+      expect(
+        home.commits['c'] ?? 0,
+        0,
+        reason: 'the grabbed jump target must not commit: ${_dump(home)}',
       );
     });
 
