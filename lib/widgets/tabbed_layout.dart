@@ -117,103 +117,169 @@ class TabbedLayout extends StatefulWidget {
 
 class TabbedLayoutState extends State<TabbedLayout>
     with TickerProviderStateMixin {
+  // The pager is the single writer. It is the only animated thing here, and
+  // everything else (tab indicator, focus, selection) is derived one-way from
+  // its physical position, committed through one funnel. Focus cannot
+  // disagree with the visible page because it IS round(visible page).
+  //
+  // This replaces the previous TabBarView + TabController pairing, where the
+  // framework wrote TabController.index behind our back at gesture boundaries
+  // (tap flights led the page, ScrollEnd wrote index back, interrupted
+  // animations notified with unreachable targets), which made focus-vs-page
+  // desync representable no matter how carefully listeners reconciled.
+  PageController? _pageController;
+
+  // Visual mirror for the tab strip. Never animated by us: index is set
+  // instantly on integer crossings and the fractional position rides on
+  // [TabController.offset], the same writes TabBarView used, so the
+  // indicator behaves pixel-identically.
   TabController? _tabController;
+
   int _tabLength = 0;
-  // The last index TabbedLayout reported upward (via onSelectedIndexChanged /
-  // onFocusChanged) or was initialized/created with. Used to distinguish a
-  // selection change that originated from a user gesture (already reflected by
-  // the controller/page) from one that originated outside TabbedLayout (e.g.
-  // programmatic navigation), which is the only case that should reposition the
-  // controller. This keeps the view pager as the source of truth for the
-  // visible channel so that unrelated rebuilds (a message send, a status
-  // update, etc.) can never yank the page back.
-  int? _lastReportedIndex;
-
-  // True while a user finger is dragging the pager (drag-details-carrying
-  // scroll notifications), as opposed to a programmatic page animation.
+  // Last index reported upward (focus or select) or initialized with.
+  // Dedups settle commits; derived, never a competing writer.
+  int _lastReportedIndex = 0;
+  // While set, an animated jump to this index is in flight (tab tap or
+  // programmatic navigation). Intermediate page crossings are flyover: they
+  // must not focus or commit channels swept past. Cleared when the page
+  // lands or a finger grabs the pager.
+  int? _programmaticTarget;
+  // True while a finger holds the pager.
   bool _pointerDragging = false;
-  // True when the current controller flight was grabbed by a pointer drag.
-  // Such a flight ends with a notification whose index is the TAPPED target
-  // even though the page never got there; committing it would select a
-  // channel the user cancelled.
-  bool _dragDuringFlight = false;
-  // A prop-driven selection change that arrived mid-drag; applied when the
-  // finger lifts instead of fighting the held page.
+  // A prop-driven selection change that arrived mid-drag; applied on lift.
   int? _deferredProgrammaticIndex;
-  // The pager's real visual position, captured from PageMetrics on every
-  // scroll notification. TabController.index leads the page on taps and
-  // animation.value always lands on the target, so neither can be trusted at
-  // gesture boundaries; this is the source of truth.
-  double? _lastKnownPage;
 
-  /// Nearest page index to the pager's actual visual position, falling back
-  /// to the controller animation when nothing has scrolled yet.
-  int _visiblePageIndex() {
-    final page = _lastKnownPage;
-    if (page != null && !page.isNaN) {
-      return page.round().clamp(0, _tabLength - 1);
+  static const _jumpDuration = Duration(milliseconds: 300);
+
+  void _initControllers() {
+    final len = widget.tabs.length;
+    _tabLength = len;
+    _pageController?.dispose();
+    _pageController = null;
+    _tabController?.dispose();
+    _tabController = null;
+    if (len == 0) return;
+    final idx = widget.selectedIndex.clamp(0, len - 1);
+    _lastReportedIndex = idx;
+    _programmaticTarget = null;
+    _deferredProgrammaticIndex = null;
+    _pointerDragging = false;
+    _pageController = PageController(initialPage: idx);
+    _tabController = TabController(length: len, vsync: this, initialIndex: idx);
+    // initialPage only applies when the controller first attaches; on a
+    // controller swap the surviving scroll position keeps its old pixels, so
+    // the page must be forced to the selection once mounted.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final pc = _pageController;
+      if (!mounted || pc == null || !pc.hasClients) return;
+      if (pc.page != null && pc.page != idx.toDouble()) {
+        pc.jumpToPage(idx);
+        _lastReportedIndex = idx;
+        _mirrorPageToStrip(idx.toDouble());
+      }
+    });
+  }
+
+  // ---- One-way mirror: physical page -> tab strip visuals ------------------
+
+  void _mirrorPageToStrip(double page) {
+    final ctrl = _tabController;
+    if (ctrl == null || ctrl.indexIsChanging) return;
+    final clamped = page.clamp(0.0, (_tabLength - 1).toDouble());
+    final nearest = clamped.round();
+    if (nearest != ctrl.index) {
+      ctrl.index = nearest;
     }
-    final v = _tabController?.animation?.value ?? 0.0;
-    return v.isNaN ? 0 : v.round().clamp(0, _tabLength - 1);
+    ctrl.offset = -(clamped - nearest);
+  }
+
+  // ---- The single funnel: physical page position ---------------------------
+
+  bool _onPageNotification(ScrollNotification notification) {
+    final metrics = notification.metrics;
+    if (metrics is! PageMetrics || metrics.page == null) return false;
+    // ignore: avoid_print
+    final page = metrics.page!.clamp(0.0, (_tabLength - 1).toDouble());
+
+    if (notification is ScrollStartNotification &&
+        notification.dragDetails != null) {
+      // A finger grabbed the pager: any animated jump we were driving loses
+      // ownership, the finger decides from here.
+      _pointerDragging = true;
+      _programmaticTarget = null;
+    } else if (notification is ScrollEndNotification &&
+        notification.dragDetails != null) {
+      _pointerDragging = false;
+      _applyDeferredProgrammatic();
+    }
+
+    _mirrorPageToStrip(page);
+
+    // Half-drag focus: follow the nearest page while scrolling under finger
+    // or momentum, but never for the flyover of a targeted jump.
+    if (notification is ScrollUpdateNotification &&
+        !_isProgrammaticJump &&
+        widget.focusOnHalfDrag) {
+      final nearest = page.round().clamp(0, _tabLength - 1);
+      if (nearest != _lastReportedIndex) {
+        _lastReportedIndex = nearest;
+        widget.onFocusChanged?.call(nearest);
+      }
+    }
+
+    if (notification is ScrollEndNotification &&
+        notification.dragDetails == null) {
+      // Final rest: finger settle, fling settle, or targeted-jump arrival.
+      if (_isProgrammaticJump && page.round() == _programmaticTarget) {
+        // Landed on the jump target; flyover immunity ends here.
+        _programmaticTarget = null;
+      }
+      if (!_isProgrammaticJump) {
+        final nearest = page.round().clamp(0, _tabLength - 1);
+        if (nearest != _lastReportedIndex) {
+          _lastReportedIndex = nearest;
+          if (nearest != widget.selectedIndex) {
+            widget.onSelectedIndexChanged(nearest);
+          }
+        }
+      }
+    }
+    return false;
+  }
+
+  bool get _isProgrammaticJump => _programmaticTarget != null;
+
+  // ---- Entry points that drive the pager -----------------------------------
+
+  void _goTo(int index) {
+    if (index < 0 || index >= _tabLength) return;
+    _programmaticTarget = index;
+    _pageController?.animateToPage(
+      index,
+      duration: _jumpDuration,
+      curve: Curves.ease,
+    );
+  }
+
+  void _onTabTap(int index) {
+    // ignore: avoid_print
+    // Commit on landing, not at tap: a tap whose flight is caught and
+    // dragged back commits nothing for the abandoned channel. Until then the
+    // jump target suppresses flyover commits.
+    _goTo(index);
+  }
+
+  void _applyDeferredProgrammatic() {
+    final pending = _deferredProgrammaticIndex;
+    if (pending == null) return;
+    _deferredProgrammaticIndex = null;
+    _goTo(pending);
   }
 
   @override
   void initState() {
     super.initState();
-    _initTabController();
-  }
-
-  void _initTabController() {
-    final len = widget.tabs.length;
-    _tabLength = len;
-    if (len == 0) return;
-    final idx = widget.selectedIndex.clamp(0, len - 1);
-    _lastReportedIndex = idx;
-    _tabController = TabController(length: len, vsync: this, initialIndex: idx);
-    _tabController!.addListener(_onTabChanged);
-    if (widget.focusOnHalfDrag) {
-      _tabController!.animation!.addListener(_onAnimationTick);
-    }
-  }
-
-  void _onTabChanged() {
-    final ctrl = _tabController!;
-    if (ctrl.indexIsChanging) {
-      // Rising edge: a fresh flight is armed, so an earlier grab no longer
-      // applies to it.
-      _dragDuringFlight = false;
-      return;
-    }
-    if (_dragDuringFlight) {
-      // This notification is a grabbed flight ending (cancelled or completed
-      // late); its index is where the TAP was headed, not where the page is.
-      // Commit from the page's real position instead: focus follows what is
-      // actually on screen, and the unified app-side commit makes that
-      // indistinguishable from a settle commit.
-      _dragDuringFlight = false;
-      final nearest = _visiblePageIndex();
-      if (nearest != _lastReportedIndex) {
-        _lastReportedIndex = nearest;
-        widget.onFocusChanged?.call(nearest);
-      }
-      return;
-    }
-    _lastReportedIndex = ctrl.index;
-    if (_tabController!.index != widget.selectedIndex) {
-      widget.onSelectedIndexChanged(_tabController!.index);
-    }
-  }
-
-  void _onAnimationTick() {
-    final ctrl = _tabController!;
-    if (ctrl.indexIsChanging) return;
-    final v = ctrl.animation!.value;
-    if (v.isNaN) return;
-    final nearest = v.round().clamp(0, _tabLength - 1);
-    if (nearest != _lastReportedIndex) {
-      _lastReportedIndex = nearest;
-      widget.onFocusChanged?.call(nearest);
-    }
+    _initControllers();
   }
 
   @override
@@ -221,57 +287,25 @@ class TabbedLayoutState extends State<TabbedLayout>
     super.didUpdateWidget(oldWidget);
     final len = widget.tabs.length;
     if (len != _tabLength) {
-      _tabController?.removeListener(_onTabChanged);
-      if (oldWidget.focusOnHalfDrag &&
-          _tabController != null &&
-          _tabController!.animation != null) {
-        _tabController!.animation!.removeListener(_onAnimationTick);
-      }
-      _tabController?.dispose();
-      _tabController = null;
-      _initTabController();
+      _initControllers();
     } else if (len > 0) {
-      // The view pager is the source of truth for the visible channel. A rebuild
-      // must never reposition the controller, otherwise an unrelated rebuild
-      // (a message send, a status update, a click) landing mid-gesture can yank
-      // the page back. Only drive the controller when the selection change
-      // originated outside a gesture, i.e. widget.selectedIndex differs from the
-      // last index this widget itself reported or was created with.
+      // A selection change that did not originate from this widget's pager
+      // (notification tap, channel list change). The pager follows it, but
+      // never while a finger holds the page: defer to lift.
       final idx = widget.selectedIndex.clamp(0, len - 1);
       if (idx != _lastReportedIndex) {
         if (_pointerDragging) {
-          // A finger holds the pager; animating now would fight it. Apply on
-          // lift instead (see _onPointerDragEnd).
           _deferredProgrammaticIndex = idx;
-        } else {
-          _tabController!.animateTo(idx);
-          _lastReportedIndex = idx;
+        } else if (!_isProgrammaticJump || _programmaticTarget != idx) {
+          _goTo(idx);
         }
       }
     }
   }
 
-  /// Called when the user lifts a pager drag. Applies any selection change
-  /// that arrived while the finger was down.
-  void _onPointerDragEnd() {
-    _pointerDragging = false;
-    final pending = _deferredProgrammaticIndex;
-    if (pending == null || _tabController == null) return;
-    _deferredProgrammaticIndex = null;
-    if (pending != _lastReportedIndex && pending >= 0 && pending < _tabLength) {
-      _lastReportedIndex = pending;
-      _tabController!.animateTo(pending);
-    }
-  }
-
   @override
   void dispose() {
-    _tabController?.removeListener(_onTabChanged);
-    if (widget.focusOnHalfDrag &&
-        _tabController != null &&
-        _tabController!.animation != null) {
-      _tabController!.animation!.removeListener(_onAnimationTick);
-    }
+    _pageController?.dispose();
     _tabController?.dispose();
     super.dispose();
   }
@@ -309,6 +343,7 @@ class TabbedLayoutState extends State<TabbedLayout>
             height: 40,
             child: TabBar(
               controller: _tabController,
+              onTap: _onTabTap,
               isScrollable: true,
               tabAlignment: _resolveTabAlignment(),
               labelPadding: const EdgeInsets.symmetric(
@@ -336,27 +371,7 @@ class TabbedLayoutState extends State<TabbedLayout>
           child: Stack(
             children: [
               NotificationListener<ScrollNotification>(
-                onNotification: (notification) {
-                  final metrics = notification.metrics;
-                  if (metrics is PageMetrics &&
-                      metrics.page != null &&
-                      !metrics.page!.isNaN) {
-                    _lastKnownPage = metrics.page;
-                  }
-                  // Distinguish finger drags from programmatic page
-                  // animations by dragDetails (null for driven scrolls).
-                  if (notification is ScrollStartNotification &&
-                      notification.dragDetails != null) {
-                    _pointerDragging = true;
-                    if (_tabController?.indexIsChanging ?? false) {
-                      _dragDuringFlight = true;
-                    }
-                  } else if (notification is ScrollEndNotification &&
-                      notification.dragDetails != null) {
-                    _onPointerDragEnd();
-                  }
-                  return false;
-                },
+                onNotification: _onPageNotification,
                 child: ScrollConfiguration(
                   behavior: _SwipeScrollBehavior().copyWith(
                     dragDevices: {
@@ -366,8 +381,8 @@ class TabbedLayoutState extends State<TabbedLayout>
                       PointerDeviceKind.unknown,
                     },
                   ),
-                  child: TabBarView(
-                    controller: _tabController,
+                  child: PageView(
+                    controller: _pageController,
                     physics: widget.fastSnap
                         ? const _SnapPhysics()
                         : const PageScrollPhysics(),
@@ -401,7 +416,7 @@ class TabbedLayoutState extends State<TabbedLayout>
 }
 
 // Covers the OS-reserved edge-gesture strip (systemGestureInsets) so a swipe
-// that starts there is claimed here instead of by the TabBarView's PageView.
+// that starts there is claimed here instead of by the pager's PageView.
 // The OS back gesture then wins and the channel does not switch.
 //
 // It must NOT be opaque: an opaque box would swallow every pointer event in the

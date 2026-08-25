@@ -68,8 +68,8 @@ void main() {
       );
 
       // Swipe past halfway so the page is heading to channel b (index 1).
-      final size = tester.getSize(find.byType(TabBarView));
-      final center = tester.getCenter(find.byType(TabBarView));
+      final size = tester.getSize(find.byType(PageView));
+      final center = tester.getCenter(find.byType(PageView));
       final gesture = await tester.startGesture(center);
       await gesture.moveBy(const Offset(-1, 0));
       await tester.pump();
@@ -207,7 +207,7 @@ void main() {
         ),
       );
 
-      final centerY = tester.getCenter(find.byType(TabBarView)).dy;
+      final centerY = tester.getCenter(find.byType(PageView)).dy;
       await tester.tapAt(Offset(2, centerY));
       await tester.pump();
 
@@ -229,8 +229,8 @@ void main() {
           ),
         );
 
-        final size = tester.getSize(find.byType(TabBarView));
-        final centerY = tester.getCenter(find.byType(TabBarView)).dy;
+        final size = tester.getSize(find.byType(PageView));
+        final centerY = tester.getCenter(find.byType(PageView)).dy;
         // Drag leftwards from the right edge: unblocked, this would switch to
         // the next channel (index 1). Blocked, the page stays put.
         final start = Offset(size.width - 2, centerY);
@@ -268,8 +268,8 @@ void main() {
           ),
         );
 
-        final size = tester.getSize(find.byType(TabBarView));
-        final center = tester.getCenter(find.byType(TabBarView));
+        final size = tester.getSize(find.byType(PageView));
+        final center = tester.getCenter(find.byType(PageView));
         final gesture = await tester.startGesture(center);
         await gesture.moveBy(Offset(-size.width * 0.6, 0));
         await tester.pump();

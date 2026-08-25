@@ -125,8 +125,8 @@ Future<TestGesture> _catchAndHold(
   required double fraction,
   int holds = 6,
 }) async {
-  final size = tester.getSize(find.byType(TabBarView));
-  final center = tester.getCenter(find.byType(TabBarView));
+  final size = tester.getSize(find.byType(PageView));
+  final center = tester.getCenter(find.byType(PageView));
   final gesture = await tester.startGesture(center);
   // Claim the position as a drag (stops the driven flight), then pull to the
   // target fraction. Negative dx = toward the next channel.
@@ -243,8 +243,8 @@ void main() {
     ) async {
       final (home, _) = await pumpHome(tester);
 
-      final size = tester.getSize(find.byType(TabBarView));
-      final center = tester.getCenter(find.byType(TabBarView));
+      final size = tester.getSize(find.byType(PageView));
+      final center = tester.getCenter(find.byType(PageView));
       final gesture = await tester.startGesture(center);
       await gesture.moveBy(Offset(-size.width * 0.7, 0));
       await tester.pump();
@@ -325,8 +325,8 @@ void main() {
         'run once', (tester) async {
       final (home, _) = await pumpHome(tester);
 
-      final size = tester.getSize(find.byType(TabBarView));
-      final center = tester.getCenter(find.byType(TabBarView));
+      final size = tester.getSize(find.byType(PageView));
+      final center = tester.getCenter(find.byType(PageView));
       final gesture = await tester.startGesture(center);
       await gesture.moveBy(Offset(-size.width * 0.6, 0));
       await tester.pump();
@@ -371,6 +371,26 @@ void main() {
         reason:
             'tab highlight must match the visible page '
             '${_dump(home)}',
+      );
+    });
+
+    testWidgets('R10: plain uninterrupted tap switches channel exactly once', (
+      tester,
+    ) async {
+      final (home, _) = await pumpHome(tester);
+
+      await _tapTab(tester, 'b');
+      await tester.pumpAndSettle();
+
+      // ignore: avoid_print
+      print('R10 rest=[${_restingDump(tester)}] ${_dump(home)}');
+      expect(_restingPage(tester), 1, reason: 'page must land on b');
+      expect(home.selectedChannel, 'b', reason: _dump(home));
+      expect(home.tabIndex.value, 1, reason: _dump(home));
+      expect(
+        home.commits['b'] ?? 0,
+        1,
+        reason: 'exactly one bookkeeping run for b: ${_dump(home)}',
       );
     });
 

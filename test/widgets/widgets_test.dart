@@ -724,8 +724,8 @@ void main() {
       // clears the unread state mid-drag; on settle the index already equals
       // the selection so onSelectedIndexChanged is skipped, which is exactly
       // the path that used to leave the bell stale.
-      final barSize = tester.getSize(find.byType(TabBarView));
-      final barCenter = tester.getCenter(find.byType(TabBarView));
+      final barSize = tester.getSize(find.byType(PageView));
+      final barCenter = tester.getCenter(find.byType(PageView));
       final gesture = await tester.startGesture(barCenter);
       await gesture.moveBy(const Offset(1, 0));
       await tester.pump();
@@ -4734,8 +4734,8 @@ void main() {
       await joinChannel(tester, 'b');
       await tapChannel(tester, 'a');
 
-      final size = tester.getSize(find.byType(TabBarView));
-      final center = tester.getCenter(find.byType(TabBarView));
+      final size = tester.getSize(find.byType(PageView));
+      final center = tester.getCenter(find.byType(PageView));
       final gesture = await tester.startGesture(center);
       await gesture.moveBy(const Offset(-1, 0));
       await tester.pump();
@@ -4780,8 +4780,8 @@ void main() {
       await joinChannel(tester, 'b');
       await tapChannel(tester, 'a');
 
-      final size = tester.getSize(find.byType(TabBarView));
-      final center = tester.getCenter(find.byType(TabBarView));
+      final size = tester.getSize(find.byType(PageView));
+      final center = tester.getCenter(find.byType(PageView));
       final gesture = await tester.startGesture(center);
       await gesture.moveBy(const Offset(-1, 0));
       await tester.pump();
@@ -4825,8 +4825,8 @@ void main() {
       await joinChannel(tester, 'b');
       await tapChannel(tester, 'a');
 
-      final size = tester.getSize(find.byType(TabBarView));
-      final center = tester.getCenter(find.byType(TabBarView));
+      final size = tester.getSize(find.byType(PageView));
+      final center = tester.getCenter(find.byType(PageView));
       final gesture = await tester.startGesture(center);
       await gesture.moveBy(const Offset(-1, 0));
       await tester.pump();
@@ -5232,7 +5232,7 @@ void main() {
       expect(find.text('Emote0', skipOffstage: false), findsWidgets);
       expect(find.text('Alias of BaseEmote'), findsNothing);
 
-      await tester.drag(find.byType(TabBarView), const Offset(-300, 0));
+      await tester.drag(find.byType(PageView), const Offset(-300, 0));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 400));
       await tester.pump();
