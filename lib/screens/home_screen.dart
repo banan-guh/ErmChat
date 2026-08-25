@@ -757,7 +757,12 @@ class _HomeScreenState extends State<HomeScreen>
           .catchError((e) {
             if (!mounted) return;
             _chatStore.historyLoaded.add(name);
-            _addSystemMessage(name, 'Failed to load chat history ($e)');
+            _addSystemMessage(
+              name,
+              e is RecentMessagesException
+                  ? e.message
+                  : 'Failed to load chat history',
+            );
             _maybeAddConnected(name);
           });
     }
@@ -2012,7 +2017,12 @@ class _HomeScreenState extends State<HomeScreen>
           _chatStore.historyLoaded.add(name);
           setState(() {
             _removeLoadingHistoryMessage(name);
-            _addSystemMessage(name, 'Failed to load chat history ($e)');
+            _addSystemMessage(
+              name,
+              e is RecentMessagesException
+                  ? e.message
+                  : 'Failed to load chat history',
+            );
           });
           _maybeAddConnected(name);
         });

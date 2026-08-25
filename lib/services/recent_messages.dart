@@ -8,6 +8,24 @@ import '../color_utils.dart';
 import '../util/log.dart';
 import 'twitch_irc.dart';
 
+/// History fetch failure with a user-presentable message. [definitive]
+/// marks per-channel answers (invalid login, excluded channel) where trying
+/// the mirror cannot succeed.
+class RecentMessagesException implements Exception {
+  RecentMessagesException(
+    this.message, {
+    this.errorCode,
+    this.definitive = false,
+  });
+
+  final String message;
+  final String? errorCode;
+  final bool definitive;
+
+  @override
+  String toString() => message;
+}
+
 class RecentMessagesService {
   static const _baseUrl =
       'https://recent-messages.robotty.de/api/v2/recent-messages';
@@ -15,6 +33,13 @@ class RecentMessagesService {
   // Falls back here when the primary is unavailable (5xx / network error).
   static const _mirrorBaseUrl =
       'https://recent-messages.zneix.eu/api/v2/recent-messages';
+
+  /// Injectable HTTP client for tests.
+  // Private named parameters cannot be initializing formals.
+  // ignore: prefer_initializing_formals
+  RecentMessagesService({http.Client? client}) : _client = client;
+
+  final http.Client? _client;
 
   Future<List<TwitchMessage>> fetchRecent(
     String channel, {
@@ -25,6 +50,15 @@ class RecentMessagesService {
         '?limit=${limit.clamp(1, 800)}';
     try {
       return await _fetchFrom('$_baseUrl$path', channel);
+    } on RecentMessagesException catch (e) {
+      // Definitive per-channel answers (invalid login, excluded channel):
+      // the mirror serves the same API and will fail identically.
+      if (e.definitive) {
+        logDebug('[RecentMessages] $channel: ${e.message} (skipping mirror)');
+        rethrow;
+      }
+      logDebug('[RecentMessages] primary failed ($e) - trying mirror');
+      return _fetchFrom('$_mirrorBaseUrl$path', channel);
     } catch (primaryError) {
       logDebug(
         '[RecentMessages] primary fetch failed ($primaryError) - '
@@ -36,15 +70,43 @@ class RecentMessagesService {
 
   Future<List<TwitchMessage>> _fetchFrom(String url, String channel) async {
     final uri = Uri.parse(url);
-    final res = await http.get(uri).timeout(httpTimeout);
+    final res = await (_client ?? http.Client()).get(uri).timeout(httpTimeout);
 
     if (res.statusCode != 200) {
-      throw Exception(
-        'error ${res.statusCode}: ${res.reasonPhrase ?? "unknown"}',
+      // Error bodies are JSON with machine-readable codes:
+      // 400 invalid_channel_login, 403 channel_ignored. Surface a clean
+      // message instead of the raw status line.
+      var code = '';
+      try {
+        final decoded = jsonDecode(res.body);
+        if (decoded is Map<String, dynamic>) {
+          code = decoded['error_code'] as String? ?? '';
+        }
+      } catch (_) {
+        // Non-JSON body: fall through to the generic message.
+      }
+      final message = switch (code) {
+        'invalid_channel_login' => 'Invalid channel name',
+        'channel_ignored' =>
+          'History unavailable: channel excluded from the history service',
+        _ => 'Failed to load chat history',
+      };
+      throw RecentMessagesException(
+        message,
+        errorCode: code.isEmpty ? null : code,
+        definitive: res.statusCode == 400 || res.statusCode == 403,
       );
     }
 
     final body = jsonDecode(res.body) as Map<String, dynamic>;
+    // Informational only per the API docs: e.g. channel_not_joined on a 200
+    // still carries whatever history exists. Never surfaced to users.
+    if (body['error_code'] is String) {
+      logDebug(
+        '[RecentMessages] $channel: ${body['error']} '
+        '(${body['error_code']})',
+      );
+    }
     final rawMessages = body['messages'] as List<dynamic>?;
     if (rawMessages == null || rawMessages.isEmpty) return [];
 
