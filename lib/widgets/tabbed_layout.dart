@@ -190,7 +190,8 @@ class TabbedLayoutState extends State<TabbedLayout>
     if (nearest != ctrl.index) {
       ctrl.index = nearest;
     }
-    ctrl.offset = -(clamped - nearest);
+    // Sign matches TabBarView's own sync: offset = page - index.
+    ctrl.offset = clamped - nearest;
   }
 
   // ---- The single funnel: physical page position ---------------------------
