@@ -186,12 +186,12 @@ class UserProfileSheetState extends State<UserProfileSheet> {
                   borderRadius: BorderRadius.circular(8),
                   child: Image.network(
                     _profile!['profile_image_url'] as String? ?? '',
-                    width: 64,
-                    height: 64,
+                    width: 96,
+                    height: 96,
                     fit: BoxFit.cover,
                     errorBuilder: (_, _, _) => Container(
-                      width: 64,
-                      height: 64,
+                      width: 96,
+                      height: 96,
                       color: theme.colorScheme.surfaceContainerHighest,
                       child: Icon(
                         Icons.person,
