@@ -713,24 +713,35 @@ class ChatConnectionManager {
       // for the lookup but not for each other.
       var hasToken = auth.accessToken != null;
 
-      // Validate the token on startup / credential change. Only HTTP 401
-      // counts as definitively dead; network errors leave the token alone
-      // so offline users aren't punished.
-      if (hasToken && _lastValidatedToken != auth.accessToken) {
-        try {
-          final result = await twitchApi.validateToken(auth);
-          if (result == null && twitchApi.lastErrorStatus == 401) {
-            _handleExpiredToken();
-            hasToken = false;
+      // Validate the token on startup / credential change, off the critical
+      // path: the IRC sockets below must not wait an HTTPS round trip for
+      // this answer before joining. Only HTTP 401 counts as definitively
+      // dead; network errors leave the token alone so offline users aren't
+      // punished. A dead token flips to anonymous via _handleExpiredToken's
+      // listener chain (notifyListeners -> connect rerun) or the IRC
+      // login-failure NOTICE.
+      final validatedToken = auth.accessToken;
+      if (hasToken && _lastValidatedToken != validatedToken) {
+        unawaited(() async {
+          try {
+            final result = await twitchApi.validateToken(auth);
+            if (result == null && twitchApi.lastErrorStatus == 401) {
+              // Attribute the verdict to the credential being validated: if
+              // the active account changed while the request was in flight,
+              // the 401 says nothing about the new token.
+              if (auth.accessToken == validatedToken) {
+                _handleExpiredToken();
+              }
+            }
+            // Only update _lastValidatedToken on definitive outcomes (success
+            // or 401). Network errors re-trigger validation next time.
+            if (result != null || twitchApi.lastErrorStatus == 401) {
+              _lastValidatedToken = validatedToken;
+            }
+          } catch (_) {
+            // Network error - proceed normally.
           }
-          // Only update _lastValidatedToken on definitive outcomes (success
-          // or 401). Network errors re-trigger validation next time.
-          if (result != null || twitchApi.lastErrorStatus == 401) {
-            _lastValidatedToken = auth.accessToken;
-          }
-        } catch (_) {
-          // Network error - proceed normally.
-        }
+        }());
       }
 
       final Future<void> eventSubFuture;
