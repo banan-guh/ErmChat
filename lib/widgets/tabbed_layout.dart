@@ -199,7 +199,6 @@ class TabbedLayoutState extends State<TabbedLayout>
   bool _onPageNotification(ScrollNotification notification) {
     final metrics = notification.metrics;
     if (metrics is! PageMetrics || metrics.page == null) return false;
-    // ignore: avoid_print
     final page = metrics.page!.clamp(0.0, (_tabLength - 1).toDouble());
 
     if (notification is ScrollStartNotification &&
@@ -231,18 +230,15 @@ class TabbedLayoutState extends State<TabbedLayout>
     if (notification is ScrollEndNotification &&
         notification.dragDetails == null) {
       // Final rest: finger settle, fling settle, or targeted-jump arrival.
-      if (_isProgrammaticJump && page.round() == _programmaticTarget) {
-        // Landed on the jump target; flyover immunity ends here.
-        _programmaticTarget = null;
-      }
-      if (!_isProgrammaticJump) {
-        final nearest = page.round().clamp(0, _tabLength - 1);
-        if (nearest != _lastReportedIndex) {
-          _lastReportedIndex = nearest;
-          if (nearest != widget.selectedIndex) {
-            widget.onSelectedIndexChanged(nearest);
-          }
-        }
+      // A jump that did not land on its target was superseded or lost; the
+      // page's actual position wins. HomeScreen's selection guard is the
+      // single dedup point: never skip a report against the selectedIndex
+      // prop, which lags behind focus commits that rebuild nothing.
+      _programmaticTarget = null;
+      final nearest = page.round().clamp(0, _tabLength - 1);
+      if (nearest != _lastReportedIndex) {
+        _lastReportedIndex = nearest;
+        widget.onSelectedIndexChanged(nearest);
       }
     }
     return false;
@@ -254,16 +250,23 @@ class TabbedLayoutState extends State<TabbedLayout>
 
   void _goTo(int index) {
     if (index < 0 || index >= _tabLength) return;
+    final pc = _pageController;
+    final page = (pc != null && pc.hasClients) ? pc.page : null;
+    if (page != null && page.round() == index) {
+      // Zero-distance jump: nothing will land, so settle the bookkeeping
+      // here. HomeScreen's guard dedupes when it already knows.
+      _programmaticTarget = null;
+      if (_lastReportedIndex != index) {
+        _lastReportedIndex = index;
+        widget.onSelectedIndexChanged(index);
+      }
+      return;
+    }
     _programmaticTarget = index;
-    _pageController?.animateToPage(
-      index,
-      duration: _jumpDuration,
-      curve: Curves.ease,
-    );
+    pc?.animateToPage(index, duration: _jumpDuration, curve: Curves.ease);
   }
 
   void _onTabTap(int index) {
-    // ignore: avoid_print
     // Commit on landing, not at tap: a tap whose flight is caught and
     // dragged back commits nothing for the abandoned channel. Until then the
     // jump target suppresses flyover commits.

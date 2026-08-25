@@ -117,8 +117,10 @@ void main() {
 
         expect(find.byKey(const Key('page-2')), findsOneWidget);
         expect(_pageDx(tester, 2).abs(), lessThan(2.0));
-        // The parent already knew the target, so no redundant report fired.
-        expect(selectedReports, isEmpty);
+        // The landing reports once and the parent's selection guard dedupes
+        // it (the parent already committed index 2), so the state is
+        // unchanged by the redundant report.
+        expect(selectedReports, [2]);
       },
     );
 

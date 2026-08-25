@@ -501,5 +501,47 @@ void main() {
       }
       expect(failures, isEmpty, reason: 'desync fractions: $failures');
     });
+
+    testWidgets('R14: half-drag round trip then tab tap must commit focus '
+        '(stale-prop landing)', (tester) async {
+      final (home, _) = await pumpHome(tester);
+
+      // Start on b.
+      await _tapTab(tester, 'b');
+      await tester.pumpAndSettle();
+      expect(home.selectedChannel, 'b');
+
+      // Half-drag toward a: the crossing commits focus to a WITHOUT any
+      // rebuild (the focus path never rebuilds), leaving the selectedIndex
+      // prop stale at b's index. Release on a's side: the page settles on a.
+      final size = tester.getSize(find.byType(PageView));
+      final center = tester.getCenter(find.byType(PageView));
+      final gesture = await tester.startGesture(center);
+      await gesture.moveBy(Offset(size.width * 0.6, 0));
+      await tester.pump();
+      await gesture.up();
+      await tester.pumpAndSettle();
+      expect(home.selectedChannel, 'a', reason: _dump(home));
+
+      // Tap b's tab: the flight lands on b and focus must follow the view.
+      // The landing report must not be skipped against the stale prop.
+      await _tapTab(tester, 'b');
+      await tester.pumpAndSettle();
+
+      // ignore: avoid_print
+      print('R14 rest=[${_restingDump(tester)}] ${_dump(home)}');
+      expect(_restingPage(tester), 1, reason: 'page must land on b');
+      expect(
+        home.selectedChannel,
+        'b',
+        reason: 'focus must catch up to the view: ${_dump(home)}',
+      );
+      expect(home.tabIndex.value, 1, reason: _dump(home));
+      expect(
+        home.commits['b'] ?? 0,
+        2,
+        reason: 'initial tap + landing bookkeeping: ${_dump(home)}',
+      );
+    });
   });
 }
