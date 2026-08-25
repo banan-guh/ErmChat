@@ -643,10 +643,15 @@ class EmoteManager extends ChangeNotifier {
   /// globals plus every resolved channel's set. Covers re-enabling providers
   /// whose persisted caches no longer contain their emotes (a post-disable
   /// save stripped them), where a toggle has nothing to rebuild from. No-op
-  /// when stashes already cover everything, e.g. mere off-on flips.
+  /// when stashes already cover everything, e.g. mere off-on flips. The low
+  /// tier is also a no-op: its registries are frozen (see [_registryFrozen]),
+  /// and a stash rebuild would punch through that freeze; re-enabled
+  /// providers stay empty until the next seed or force reload.
   Future<void> ensureStashed(Set<EmoteType> types) async {
     await _ensureProvidersLoaded();
-    if (_tier == EmoteFetchTier.nothing || types.isEmpty) return;
+    if (_registryFrozen || _tier == EmoteFetchTier.nothing || types.isEmpty) {
+      return;
+    }
     final resolution = _tier.resolution;
     if (resolution == null) return;
     final targets = [
@@ -901,12 +906,13 @@ class EmoteManager extends ChangeNotifier {
         // visibility toggle can rebuild offline (prefs hold no stashes).
         _hydrateStashesFromCache(cached);
         _notify();
-        if (loaded.fresh) {
-          // Twitch global emotes aren't persisted on medium/high (see
-          // _saveToPrefs), so they refresh in the background on every launch -
-          // mirrors the channel behavior. On low/nothing they're already
-          // persisted and the cache is effectively infinite, so skip the
-          // network entirely. Non-blocking.
+        if (loaded.fresh || _registryFrozen) {
+          // Fresh cache: render immediately, then refresh only the Twitch
+          // globals in the background on medium/high (they aren't persisted
+          // there, so sub-tier status changes between opens). On low the
+          // registry is frozen (see [_registryFrozen]); on nothing they're
+          // already persisted and the cache is effectively infinite, so skip
+          // the network entirely. Non-blocking.
           if (!_skipTwitchBackgroundRefresh) {
             unawaited(_enqueueFetch(_refreshTwitchGlobalEmotes));
           }
@@ -1004,12 +1010,13 @@ class EmoteManager extends ChangeNotifier {
       _reapplyLiveSevenTv(channel);
       _channelFetchTimes[channel] = DateTime.now();
       _notify(channel: channel);
-      if (loaded.fresh) {
+      if (loaded.fresh || _registryFrozen) {
         // Fresh cache: render immediately, then refresh only the Twitch
         // channel emotes in the background on medium/high (they aren't
-        // persisted there, so sub-tier status changes between opens). On
-        // low/nothing they're persisted and the cache is effectively
-        // infinite, so skip the network entirely. Non-blocking.
+        // persisted there, so sub-tier status changes between opens). On low
+        // the registry is frozen (see [_registryFrozen]); on nothing they're
+        // persisted and the cache is effectively infinite, so skip the
+        // network entirely. Non-blocking.
         if (!_skipTwitchBackgroundRefresh) {
           unawaited(
             _enqueueFetch(
@@ -1449,6 +1456,13 @@ class EmoteManager extends ChangeNotifier {
   /// background on launch.
   bool get _skipTwitchBackgroundRefresh =>
       _tier == EmoteFetchTier.low || _tier == EmoteFetchTier.nothing;
+
+  /// The low tier freezes each registry at its seed fetch: a persisted cache
+  /// is used regardless of age or tier stamp, and only a missing registry
+  /// triggers the one-time network fetch. Explicit force reloads bypass this,
+  /// so users keep a manual escape hatch. Higher tiers revalidate on their
+  /// normal TTLs and are unaffected.
+  bool get _registryFrozen => _tier == EmoteFetchTier.low;
 
   /// Connectivity-aware refresh TTL: refresh is cheaper on unmetered
   /// connections, so cellular gets a longer TTL to avoid data usage.

@@ -25,7 +25,8 @@ extension EmoteFetchTierX on EmoteFetchTier {
 
   String get subtitle => switch (this) {
     EmoteFetchTier.nothing => 'Show only already-cached emotes, never fetch',
-    EmoteFetchTier.low => 'Low-res 1x emotes, cached forever (data saver)',
+    EmoteFetchTier.low =>
+      'Low-res 1x emotes, fetched once then frozen (data saver)',
     EmoteFetchTier.medium => '2x emotes, normal updates',
     EmoteFetchTier.high => '2x emotes with 3x sheet detail, freshest',
   };

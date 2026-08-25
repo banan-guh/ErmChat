@@ -1839,6 +1839,156 @@ void main() {
     });
   });
 
+  group('low tier registry freeze', () {
+    GenericEmote sevenTv(String id, String code) => GenericEmote(
+      id: id,
+      code: code,
+      type: EmoteType.sevenTv,
+      url: 'https://example.com/$id.png',
+      scope: EmoteScope.channel,
+    );
+
+    // Old timestamp plus a foreign tier stamp: without the freeze this cache
+    // would count as stale on both counts and trigger a refetch.
+    Map<String, Object> frozenCache(List<GenericEmote> emotes) => {
+      'emotes3_ch': jsonEncode({
+        'ts': DateTime.now()
+            .subtract(const Duration(days: 400))
+            .toIso8601String(),
+        'tier': EmoteFetchTier.high.index,
+        'emotes': emotes.map((e) => e.toJson()).toList(),
+      }),
+    };
+
+    EmoteManager lowManager(
+      Future<SevenTvChannelResponse> Function(
+        String channelId,
+        EmoteResolution resolution,
+      )?
+      onChannelFetch,
+    ) => EmoteManager(
+      fetchStagger: Duration.zero,
+      tier: EmoteFetchTier.low,
+      removeCachedFile: (url) async {},
+      sevenTvChannelFetcher: onChannelFetch,
+    );
+
+    test('a persisted cache freezes at low without refetching', () async {
+      SharedPreferences.setMockInitialValues(
+        frozenCache([sevenTv('a', 'Alpha')]),
+      );
+      var fetches = 0;
+      final manager = lowManager((id, resolution) async {
+        fetches++;
+        return SevenTvChannelResponse(emotes: [sevenTv('b', 'Bravo')]);
+      });
+
+      await manager.resolveEmotes('ch', 'b1');
+      await pumpEventQueue();
+
+      expect(fetches, 0, reason: 'a seeded registry must never refetch');
+      expect(manager.byCode('ch')!.suggestions.map((e) => e.code), ['Alpha']);
+    });
+
+    test('a missing registry seeds exactly once at low', () async {
+      SharedPreferences.setMockInitialValues({});
+      var fetches = 0;
+      final manager = lowManager((id, resolution) async {
+        fetches++;
+        return SevenTvChannelResponse(emotes: [sevenTv('a', 'Alpha')]);
+      });
+
+      await manager.resolveEmotes('ch', 'b1');
+      await pumpEventQueue();
+      expect(fetches, 1);
+      expect(manager.byCode('ch')!.suggestions.map((e) => e.code), ['Alpha']);
+
+      // The seed was persisted; a later resolve must stay frozen.
+      manager.evictChannel('ch');
+      await manager.resolveEmotes('ch', 'b1');
+      await pumpEventQueue();
+      expect(fetches, 1, reason: 'the persisted seed must serve re-resolves');
+      expect(manager.byCode('ch')!.suggestions.map((e) => e.code), ['Alpha']);
+    });
+
+    test('force reload still fetches a frozen registry', () async {
+      SharedPreferences.setMockInitialValues(
+        frozenCache([sevenTv('a', 'Alpha')]),
+      );
+      var fetches = 0;
+      final manager = lowManager((id, resolution) async {
+        fetches++;
+        return SevenTvChannelResponse(emotes: [sevenTv('b', 'Bravo')]);
+      });
+
+      await manager.resolveEmotes('ch', 'b1');
+      await pumpEventQueue();
+      expect(fetches, 0);
+
+      // Mirror the manual reload flow: evict, then force.
+      manager.evictChannel('ch');
+      await manager.resolveEmotes('ch', 'b1', force: true);
+      await pumpEventQueue();
+      expect(fetches, 1, reason: 'force is the manual escape hatch');
+      expect(manager.byCode('ch')!.suggestions.map((e) => e.code), ['Bravo']);
+    });
+
+    test('a persisted global registry freezes at low', () async {
+      SharedPreferences.setMockInitialValues({
+        'emotes3_global': jsonEncode({
+          'ts': DateTime.now()
+              .subtract(const Duration(days: 400))
+              .toIso8601String(),
+          'tier': EmoteFetchTier.high.index,
+          'emotes': [
+            makeTestEmote(
+              id: 'g1',
+              code: 'OldGlobal',
+              type: EmoteType.sevenTv,
+            ).toJson(),
+          ],
+        }),
+      });
+      var fetches = 0;
+      final manager = EmoteManager(
+        fetchStagger: Duration.zero,
+        tier: EmoteFetchTier.low,
+        removeCachedFile: (url) async {},
+        sevenTvGlobalFetcher: (resolution) async {
+          fetches++;
+          return [];
+        },
+      );
+
+      await manager.preloadGlobalEmotes();
+      await pumpEventQueue();
+
+      expect(fetches, 0);
+      expect(manager.globalEmotesByProvider()['SevenTV']!.map((e) => e.code), [
+        'OldGlobal',
+      ]);
+    });
+
+    test('provider stash rebuild stays frozen at low', () async {
+      SharedPreferences.setMockInitialValues({});
+      var fetches = 0;
+      final manager = EmoteManager(
+        fetchStagger: Duration.zero,
+        tier: EmoteFetchTier.low,
+        removeCachedFile: (url) async {},
+        sevenTvGlobalFetcher: (resolution) async {
+          fetches++;
+          return [];
+        },
+      );
+
+      await manager.ensureStashed({EmoteType.sevenTv});
+      await pumpEventQueue();
+
+      expect(fetches, 0);
+    });
+  });
+
   group('provider stash restore', () {
     Map<String, Object> globalCacheJson(List<GenericEmote> emotes) => {
       'emotes3_global': jsonEncode({
