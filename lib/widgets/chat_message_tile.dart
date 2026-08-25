@@ -197,7 +197,9 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
     final bodyTextStyle = TextStyle(
       fontSize: 14 * s,
       color: msg.isSystem
-          ? theme.colorScheme.onSurfaceVariant
+          ? (msg.systemAccent != null
+                ? theme.colorScheme.onSurface
+                : theme.colorScheme.onSurfaceVariant)
           : theme.colorScheme.onSurface,
       decoration: TextDecoration.none,
     );
