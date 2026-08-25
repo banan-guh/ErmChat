@@ -12,6 +12,11 @@ class ChatView extends StatelessWidget {
   // stay cached across message insertions while truncated messages evict.
   static const int _maxCachedTiles = 300;
 
+  /// Global arrival counter for checkered mode: each newly built message
+  /// takes the next parity so stripes alternate per message and stay glued
+  /// to it instead of re-flowing with index shifts.
+  static int _checkerSeq = 0;
+
   final String channel;
   final List<TwitchMessage> messages;
 
@@ -160,6 +165,7 @@ class ChatView extends StatelessWidget {
                         surface,
                         s,
                         context,
+                        checkeredMessages,
                       ),
                       childCount: msgs.length,
                       onItemKey: (i) {
@@ -228,14 +234,20 @@ class ChatView extends StatelessWidget {
     Color surface,
     double s,
     BuildContext context,
+    bool doCheckered,
   ) {
     final msg = msgs[i];
     // Mentions/whisper rows can come from several channels; badges and
     // emotes resolve against the row's own channel when it has one.
     final tileChannel = msg.channel ?? channel;
 
+    // Checkered stripes are assigned once per message and stay glued to it
+    // (DankChat's approach): position-based parity re-flows on every
+    // arrival, which crawls the pattern with each message. The cache is the
+    // "already assigned" record; a global counter guarantees alternation.
     final cached = cache?[msg.messageId];
     if (cached != null) return cached;
+    final parity = doCheckered ? (++_checkerSeq).isEven : i.isEven;
 
     final Widget body;
     if (msg.isSystem) {
@@ -251,7 +263,7 @@ class ChatView extends StatelessWidget {
         systemBodyBuilder: (msg, scale) => parseTextWithLinks(msg.text),
         checkeredMessages: checkeredMessages,
         lineSeparator: lineSeparator,
-        isAlternateBackground: i.isEven,
+        isAlternateBackground: parity,
         fadeDeleted: fadeDeleted,
         sharedChatMode: sharedChatMode,
       );
@@ -279,7 +291,7 @@ class ChatView extends StatelessWidget {
             : null,
         checkeredMessages: checkeredMessages,
         lineSeparator: lineSeparator,
-        isAlternateBackground: i.isEven,
+        isAlternateBackground: parity,
         fadeDeleted: fadeDeleted,
         sharedChatMode: sharedChatMode,
         paintService: paintService,
