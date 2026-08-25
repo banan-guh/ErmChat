@@ -3495,6 +3495,7 @@ class _HomeScreenState extends State<HomeScreen>
                               onShowUserProfile: _showUserProfile,
                               onShowMessageMenu: _showPanelMessageMenu,
                               showReplyIndicators: false,
+                              fadeDeleted: false,
                               emptyText: 'No mentions or whispers',
                             ),
                             ChatView(

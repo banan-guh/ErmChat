@@ -42,6 +42,10 @@ class ChatView extends StatelessWidget {
   final String emptyText;
   final ScrollPhysics? physics;
 
+  /// Whether deleted messages render as faded tombstones. Off in the
+  /// mentions tab so removed rows stay readable there.
+  final bool fadeDeleted;
+
   /// Disambiguates the scroll-down FAB's hero tag when several views exist
   /// for overlapping channels. Defaults to a [channel]-keyed tag.
   final String? scrollFabHeroTag;
@@ -70,6 +74,7 @@ class ChatView extends StatelessWidget {
     this.showReplyIndicators = true,
     this.emptyText = 'No messages yet',
     this.physics,
+    this.fadeDeleted = true,
     this.scrollFabHeroTag,
     this.showTimestamp = true,
     this.timestampFormat = kDefaultTimestampFormat,
@@ -247,6 +252,7 @@ class ChatView extends StatelessWidget {
         checkeredMessages: checkeredMessages,
         lineSeparator: lineSeparator,
         isAlternateBackground: i.isEven,
+        fadeDeleted: fadeDeleted,
         sharedChatMode: sharedChatMode,
       );
     } else {
@@ -274,6 +280,7 @@ class ChatView extends StatelessWidget {
         checkeredMessages: checkeredMessages,
         lineSeparator: lineSeparator,
         isAlternateBackground: i.isEven,
+        fadeDeleted: fadeDeleted,
         sharedChatMode: sharedChatMode,
         paintService: paintService,
       );

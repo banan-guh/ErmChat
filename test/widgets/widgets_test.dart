@@ -26,6 +26,7 @@ import 'package:ermchat/services/twitch_auth.dart';
 import 'package:ermchat/models/twitch_message.dart';
 import 'package:ermchat/services/suggestion.dart';
 import 'package:ermchat/widgets/autocomplete_dropdown.dart';
+import 'package:ermchat/widgets/chat_message_tile.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:ermchat/services/emote_cache_manager.dart';
 import '../helpers/fake_cache_repo.dart';
@@ -469,6 +470,47 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byIcon(Icons.remove_circle_outline), findsOneWidget);
+  });
+
+  group('ChatMessageTile deleted rows', () {
+    TwitchMessage deletedMsg() => TwitchMessage(
+      login: 'alice',
+      text: 'gone',
+      channel: 'test',
+      messageId: 'm1',
+    )..deleted = true;
+
+    Widget buildTile({required bool fadeDeleted}) => MaterialApp(
+      home: Scaffold(
+        body: ChatMessageTile(
+          message: deletedMsg(),
+          channel: 'test',
+          surface: Colors.white,
+          textScale: 1.0,
+          buildBadgeSpans: (_, _, {double badgeScale = 1.0}) => const [],
+          buildMessageSpans: (_, _, _, {colored = false, textScale = 1.0}) =>
+              <InlineSpan>[TextSpan(text: 'gone')],
+          fadeDeleted: fadeDeleted,
+        ),
+      ),
+    );
+
+    testWidgets('fade by default', (tester) async {
+      await tester.pumpWidget(buildTile(fadeDeleted: true));
+      expect(find.byType(Opacity), findsOneWidget);
+    });
+
+    testWidgets('render unfaded when fading is disabled', (tester) async {
+      await tester.pumpWidget(buildTile(fadeDeleted: false));
+      expect(find.byType(Opacity), findsNothing);
+      // The body is a Text.rich, so match on the rendered rich text.
+      expect(
+        find.byWidgetPredicate(
+          (w) => w is RichText && w.text.toPlainText().contains('gone'),
+        ),
+        findsOneWidget,
+      );
+    });
   });
 
   testWidgets('Notification bell opens mentions modal', (

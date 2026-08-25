@@ -37,6 +37,11 @@ class ChatMessageTile extends StatefulWidget {
   final bool isAlternateBackground;
   final String sharedChatMode;
 
+  /// When false, deleted messages render at full opacity. The mentions tab
+  /// uses this so removed rows stay readable there while the main chat keeps
+  /// its faded tombstone.
+  final bool fadeDeleted;
+
   /// When non-null (and the feature toggle is on), usernames render with 7TV
   /// name paints where available.
   final SevenTvPaintService? paintService;
@@ -58,6 +63,7 @@ class ChatMessageTile extends StatefulWidget {
     this.checkeredMessages = false,
     this.lineSeparator = false,
     this.isAlternateBackground = false,
+    this.fadeDeleted = true,
     this.sharedChatMode = 'spotlight',
     this.paintService,
   });
@@ -228,7 +234,9 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
     );
 
     if (deleted) {
-      child = Opacity(opacity: 0.35, child: child);
+      if (widget.fadeDeleted) {
+        child = Opacity(opacity: 0.35, child: child);
+      }
     } else if (msg.isBackfill) {
       // Reconnect history backfill: greyed out but less faded than a
       // hard deletion so catch-up messages stay distinguishable.
