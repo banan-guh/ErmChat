@@ -30,3 +30,6 @@ doc/api/
 # Android signing - NEVER commit these
 *.jks
 android/key.properties
+
+# Flutter desktop auto-generated files
+linux/
