@@ -49,7 +49,9 @@ class MessageBuilder {
     if (colored) {
       return [
         ...msg.cachedSpans!.map((span) {
-          if (span is TextSpan) {
+          // Links keep their own blue style; repainting them in the action
+          // color hides that they are clickable.
+          if (span is TextSpan && span.recognizer == null) {
             return TextSpan(
               text: span.text,
               style: TextStyle(

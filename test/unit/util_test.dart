@@ -636,4 +636,30 @@ void main() {
     expect(identical(big, small), isFalse);
     expect(msg.cachedSpansScale, 2.0);
   });
+
+  test('colored /me spans keep link styling', () {
+    final em = EmoteManager();
+    final msg = TwitchMessage(
+      login: 'user',
+      text: 'see https://example.com now',
+      channel: 'test',
+      messageId: 'm2',
+      isAction: true,
+      color: '#FF0000',
+    );
+    final builder = makeBuilder(em);
+
+    final spans = builder
+        .buildMessageSpans(msg, 'test', Colors.white, colored: true)
+        .whereType<TextSpan>();
+
+    final link = spans.firstWhere((s) => s.recognizer != null);
+    expect(link.style?.color, Colors.blue, reason: 'links stay blue');
+
+    final plain = spans.where((s) => s.recognizer == null).toList();
+    expect(plain, isNotEmpty);
+    for (final s in plain) {
+      expect(s.style?.color, isNot(Colors.blue), reason: '/me tint applies');
+    }
+  });
 }
