@@ -10,6 +10,7 @@ import '../models/emote_fetch_tier.dart';
 import '../models/generic_emote.dart';
 import '../util/log.dart';
 import 'emote_cache_manager.dart';
+import 'emote_meta_store.dart';
 import 'emote_providers/twitch_emotes.dart';
 import 'emote_providers/bttv_emotes.dart';
 import 'emote_providers/ffz_emotes.dart';
@@ -208,6 +209,7 @@ class EmoteManager extends ChangeNotifier {
   _sevenTvGlobalFetcher;
   final EmoteCacheManager? _injectedCacheManager;
   EmoteCacheManager? _cacheManagerInstance;
+  final EmoteMetaStore _metaStore;
   final Map<String, EmoteUsageRecord> _emoteUsage = {};
 
   /// Resolved lazily so constructing an [EmoteManager] (e.g. in tests) never
@@ -251,8 +253,10 @@ class EmoteManager extends ChangeNotifier {
     Future<List<GenericEmote>> Function(EmoteResolution resolution)?
     sevenTvGlobalFetcher,
     EmoteCacheManager? cacheManager,
+    EmoteMetaStore? metaStore,
   }) : _connectivityProbe = probe,
        _injectedCacheManager = cacheManager,
+       _metaStore = metaStore ?? EmoteMetaStore.I,
        _sevenTvChannelFetcher =
            sevenTvChannelFetcher ??
            ((String channelId, EmoteResolution resolution) =>
@@ -898,7 +902,7 @@ class EmoteManager extends ChangeNotifier {
     if (_globalCache != null && !force) return;
     final ttl = await _effectiveTtl();
     if (!force) {
-      final loaded = await _loadFromPrefs('emotes3_global', ttl);
+      final loaded = await _loadPersistedCache('emotes3_global', ttl);
       final cached = loaded.cached;
       if (cached != null) {
         _globalCache = cached;
@@ -925,7 +929,7 @@ class EmoteManager extends ChangeNotifier {
     if (_tier == EmoteFetchTier.nothing) return;
     final emotes = await _enqueueFetch(_fetchAllGlobal);
     _globalCache = _buildChannelMap(emotes);
-    await _saveToPrefs('emotes3_global', _globalCache!, ttl);
+    await _savePersistedCache('emotes3_global', _globalCache!, ttl);
     _notify();
   }
 
@@ -986,10 +990,14 @@ class EmoteManager extends ChangeNotifier {
         () => _fetchAllChannel(broadcasterId, channelName: channel),
       );
       _applyChannelEmotes(channel, emotes);
-      await _saveToPrefs('emotes3_$channel', _channelCaches[channel]!, ttl);
+      await _savePersistedCache(
+        'emotes3_$channel',
+        _channelCaches[channel]!,
+        ttl,
+      );
       return;
     }
-    final loaded = await _loadFromPrefs(
+    final loaded = await _loadPersistedCache(
       'emotes3_$channel',
       ttl,
       fetchTime: _channelFetchTimes[channel],
@@ -1042,7 +1050,11 @@ class EmoteManager extends ChangeNotifier {
       () => _fetchAllChannel(broadcasterId, channelName: channel),
     );
     _applyChannelEmotes(channel, emotes);
-    await _saveToPrefs('emotes3_$channel', _channelCaches[channel]!, ttl);
+    await _savePersistedCache(
+      'emotes3_$channel',
+      _channelCaches[channel]!,
+      ttl,
+    );
   }
 
   void _applyChannelEmotes(String channel, List<GenericEmote> emotes) {
@@ -1451,7 +1463,7 @@ class EmoteManager extends ChangeNotifier {
     }
   }
 
-  /// Low/nothing tiers persist Twitch emotes (see [_saveToPrefs]) with an
+  /// Low/nothing tiers persist Twitch emotes (see [_savePersistedCache]) with an
   /// effectively infinite TTL, so there's nothing to refresh in the
   /// background on launch.
   bool get _skipTwitchBackgroundRefresh =>
@@ -1705,13 +1717,14 @@ class EmoteManager extends ChangeNotifier {
     await Future.wait(futures, eagerError: false);
   }
 
-  Future<({ChannelEmotes? cached, bool fresh})> _loadFromPrefs(
+  Future<({ChannelEmotes? cached, bool fresh})> _loadPersistedCache(
     String key,
     Duration ttl, {
     DateTime? fetchTime,
   }) async {
     final prefs = await _getPrefs();
-    final raw = prefs.getString(key);
+    await _metaStore.migrateFromPrefs(prefs);
+    final raw = await _metaStore.read(key);
     if (raw == null) return (cached: null, fresh: false);
     try {
       // Persisted caches can be large (the 7TV global set alone is thousands
@@ -1737,7 +1750,7 @@ class EmoteManager extends ChangeNotifier {
     }
   }
 
-  Future<void> _saveToPrefs(
+  Future<void> _savePersistedCache(
     String key,
     ChannelEmotes channelEmotes,
     Duration ttl,
@@ -1754,16 +1767,32 @@ class EmoteManager extends ChangeNotifier {
     }).toList();
     if (saved.isEmpty) return;
     try {
-      final prefs = await _getPrefs();
       final data = {
         'ts': DateTime.now().toIso8601String(),
         'tier': _tier.index,
         'emotes': saved.map((e) => e.toJson()).toList(),
       };
-      await prefs.setString(key, jsonEncode(data));
+      await _metaStore.write(key, jsonEncode(data));
     } catch (_) {
-      logDebug('[EmoteManager] failed to save emotes to prefs');
+      logDebug('[EmoteManager] failed to save emotes to disk');
     }
+  }
+
+  /// Deletes persisted registries for channels that are no longer joined.
+  /// The global registry ('emotes3_global') is never pruned. Blobs are
+  /// immortal by tier policy, so without this a renamed or left channel's
+  /// metadata would sit on disk forever.
+  Future<void> pruneStaleChannels(Set<String> activeChannels) async {
+    try {
+      for (final key in await _metaStore.keys()) {
+        if (!key.startsWith('emotes3_')) continue;
+        final channel = key.substring('emotes3_'.length);
+        if (channel.isEmpty || channel == 'global') continue;
+        if (!activeChannels.contains(channel)) {
+          await _metaStore.delete(key);
+        }
+      }
+    } catch (_) {}
   }
 
   // ── Disk-cache GC: usage tracking ───────────────────────────────────

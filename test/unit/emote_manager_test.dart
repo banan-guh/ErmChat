@@ -19,6 +19,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ermchat/models/emote_fetch_tier.dart';
 import 'package:ermchat/models/generic_emote.dart';
 import 'package:ermchat/services/emote_manager.dart';
+import 'package:ermchat/services/emote_meta_store.dart';
 import 'package:ermchat/services/emote_providers/bttv_emotes.dart';
 import 'package:ermchat/services/emote_providers/ffz_emotes.dart';
 import 'package:ermchat/services/emote_providers/seven_tv_emotes.dart';
@@ -164,6 +165,13 @@ Future<File> _tempFile() async {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  setUp(() {
+    // The meta store is a process-wide singleton with sticky state (resolved
+    // directory, migration flag, in-memory fallback); tests must not inherit
+    // each other's blobs.
+    EmoteMetaStore.I.reset();
+  });
 
   late FakeCacheRepo repo;
   late EmoteCacheManager manager;
@@ -1989,6 +1997,103 @@ void main() {
     });
   });
 
+  group('emote meta file store', () {
+    late Directory dir;
+
+    GenericEmote sevenTvOf(String id, String code) => GenericEmote(
+      id: id,
+      code: code,
+      type: EmoteType.sevenTv,
+      url: 'https://example.com/$id.png',
+      scope: EmoteScope.channel,
+    );
+
+    setUp(() async {
+      dir = await Directory.systemTemp.createTemp('ermchat_meta');
+      EmoteMetaStore.I.overrideDirectory(dir);
+      addTearDown(() => EmoteMetaStore.I.reset());
+      addTearDown(() => dir.delete(recursive: true));
+    });
+
+    test('migrates legacy prefs blobs to files and deletes the keys', () async {
+      SharedPreferences.setMockInitialValues({
+        'emotes3_ch': '{"ts":"2026-01-01T00:00:00.000","tier":1,"emotes":[]}',
+        'unrelated': 'stays',
+      });
+      final prefs = await SharedPreferences.getInstance();
+      final store = EmoteMetaStore.I;
+
+      await store.migrateFromPrefs(prefs);
+
+      expect(File('${dir.path}/emotes3_ch.json').existsSync(), isTrue);
+      expect(prefs.getString('emotes3_ch'), isNull);
+      expect(prefs.getString('unrelated'), 'stays');
+      // Idempotent: a second pass must not resurrect or fail.
+      await store.migrateFromPrefs(prefs);
+      expect(
+        await store.read('emotes3_ch'),
+        '{"ts":"2026-01-01T00:00:00.000","tier":1,"emotes":[]}',
+      );
+    });
+
+    test('manager saves registries to files, never back to prefs', () async {
+      SharedPreferences.setMockInitialValues({});
+      var fetches = 0;
+      final manager = EmoteManager(
+        fetchStagger: Duration.zero,
+        tier: EmoteFetchTier.low,
+        removeCachedFile: (url) async {},
+        sevenTvChannelFetcher: (id, resolution) async {
+          fetches++;
+          return SevenTvChannelResponse(emotes: [sevenTvOf('a', 'Alpha')]);
+        },
+      );
+
+      await manager.resolveEmotes('ch', 'b1');
+      await pumpEventQueue();
+
+      expect(fetches, 1);
+      expect(File('${dir.path}/emotes3_ch.json').existsSync(), isTrue);
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getKeys(), isEmpty, reason: 'prefs must stay blob-free');
+
+      // A fresh manager hydrates from the file without a fetch. Low tier
+      // keeps the background reconcile out of the picture entirely.
+      var refetches = 0;
+      final reloaded = EmoteManager(
+        fetchStagger: Duration.zero,
+        tier: EmoteFetchTier.low,
+        removeCachedFile: (url) async {},
+        sevenTvChannelFetcher: (id, resolution) async {
+          refetches++;
+          return SevenTvChannelResponse(emotes: []);
+        },
+      );
+      await reloaded.resolveEmotes('ch', 'b1');
+      await pumpEventQueue();
+      expect(refetches, 0);
+      expect(reloaded.byCode('ch')!.suggestions.map((e) => e.code), ['Alpha']);
+    });
+
+    test('pruneStaleChannels drops dead channels and keeps global', () async {
+      SharedPreferences.setMockInitialValues({});
+      final store = EmoteMetaStore.I;
+      await store.write('emotes3_global', '{}');
+      await store.write('emotes3_kept', '{}');
+      await store.write('emotes3_dead', '{}');
+
+      final manager = EmoteManager(
+        fetchStagger: Duration.zero,
+        removeCachedFile: (url) async {},
+      );
+      await manager.pruneStaleChannels({'kept'});
+
+      expect(await store.keys(), containsAll(['emotes3_global']));
+      expect(await store.keys(), isNot(contains('emotes3_dead')));
+      expect(await store.keys(), contains('emotes3_kept'));
+    });
+  });
+
   group('provider stash restore', () {
     Map<String, Object> globalCacheJson(List<GenericEmote> emotes) => {
       'emotes3_global': jsonEncode({
@@ -2823,10 +2928,10 @@ void main() {
 
       // The stale 1x cache still renders while revalidating...
       expect(manager.byCode('ch')!.byCode, contains('ChanE'));
-      // ...and the refetch rewrote the cache with the new tier tag.
-      final prefs = await SharedPreferences.getInstance();
+      // ...and the refetch rewrote the persisted cache with the new tier tag.
       final data =
-          jsonDecode(prefs.getString('emotes3_ch')!) as Map<String, dynamic>;
+          jsonDecode((await EmoteMetaStore.I.read('emotes3_ch'))!)
+              as Map<String, dynamic>;
       expect(data['tier'], EmoteFetchTier.medium.index);
     });
 
@@ -2842,9 +2947,9 @@ void main() {
       await manager.resolveEmotes('ch', 'b1');
 
       expect(manager.byCode('ch')!.byCode, contains('ChanE'));
-      final prefs = await SharedPreferences.getInstance();
       final data =
-          jsonDecode(prefs.getString('emotes3_ch')!) as Map<String, dynamic>;
+          jsonDecode((await EmoteMetaStore.I.read('emotes3_ch'))!)
+              as Map<String, dynamic>;
       // No refetch happened: the persisted tier tag is untouched.
       expect(data['tier'], EmoteFetchTier.medium.index);
     });
@@ -2871,9 +2976,9 @@ void main() {
         await manager.resolveEmotes('ch', 'b1');
 
         expect(manager.byCode('ch')!.byCode, contains('ChanE'));
-        final prefs = await SharedPreferences.getInstance();
         final data =
-            jsonDecode(prefs.getString('emotes3_ch')!) as Map<String, dynamic>;
+            jsonDecode((await EmoteMetaStore.I.read('emotes3_ch'))!)
+                as Map<String, dynamic>;
         expect(data.containsKey('tier'), isFalse);
       },
     );

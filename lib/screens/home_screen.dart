@@ -727,6 +727,8 @@ class _HomeScreenState extends State<HomeScreen>
     _channelsLoaded = true;
     final prefs = await SharedPreferences.getInstance();
     final saved = prefs.getStringList('channels');
+    // Registry files outlive joins; sweep ones whose channel is gone.
+    unawaited(_emoteManager.pruneStaleChannels(saved?.toSet() ?? const {}));
     if (saved == null || saved.isEmpty) return;
     for (final name in saved) {
       if (_chatStore.channels.contains(name)) continue;
