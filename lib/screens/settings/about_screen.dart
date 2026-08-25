@@ -54,23 +54,44 @@ class _AboutScreenState extends State<AboutScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('About')),
-      body: InkWell(
-        onTap: _handleTap,
-        child: SizedBox.expand(
-          child: Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text('ErmChat', style: Theme.of(context).textTheme.titleLarge),
-                const SizedBox(height: 4),
-                Text(
-                  'Version $_version',
-                  style: Theme.of(context).textTheme.bodyMedium,
+      body: Column(
+        children: [
+          Expanded(
+            child: InkWell(
+              onTap: _handleTap,
+              child: SizedBox.expand(
+                child: Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        'ErmChat',
+                        style: Theme.of(context).textTheme.titleLarge,
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Version $_version',
+                        style: Theme.of(context).textTheme.bodyMedium,
+                      ),
+                    ],
+                  ),
                 ),
-              ],
+              ),
             ),
           ),
-        ),
+          ListTile(
+            leading: const Icon(Icons.description_outlined),
+            title: const Text('Open source licenses'),
+            onTap: () => showLicensePage(
+              context: context,
+              applicationName: 'ErmChat',
+              applicationVersion:
+                  _version == 'Loading...' || _version == 'unknown'
+                  ? null
+                  : _version,
+            ),
+          ),
+        ],
       ),
     );
   }

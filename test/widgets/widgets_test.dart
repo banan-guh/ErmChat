@@ -9,6 +9,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:ermchat/main.dart';
 import 'package:ermchat/theme_colors.dart';
 import 'package:ermchat/screens/settings/account_screen.dart';
+import 'package:ermchat/screens/settings/about_screen.dart';
 import 'package:ermchat/screens/settings/channel_settings_screen.dart';
 import 'package:ermchat/screens/settings/chat_settings_screen.dart';
 import 'package:ermchat/screens/settings/customization_screen.dart';
@@ -470,6 +471,22 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byIcon(Icons.remove_circle_outline), findsOneWidget);
+  });
+
+  testWidgets('About screen opens the licenses page from the bottom', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(const MaterialApp(home: AboutScreen()));
+    await tester.pump();
+
+    // The centered identity block stays put; the entry sits below it.
+    expect(find.text('ErmChat'), findsOneWidget);
+    expect(find.text('Open source licenses'), findsOneWidget);
+
+    await tester.tap(find.text('Open source licenses'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(LicensePage, skipOffstage: false), findsOneWidget);
   });
 
   group('ChatMessageTile deleted rows', () {
