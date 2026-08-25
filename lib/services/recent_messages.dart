@@ -41,6 +41,57 @@ class RecentMessagesService {
 
   final http.Client? _client;
 
+  /// History fetches started at launch, keyed by lowercase channel name.
+  /// Consumed once by [fetchRecentPreferWarm].
+  static final Map<String, Future<List<TwitchMessage>>> _warmed = {};
+
+  /// Starts history fetches as early as possible (app launch) so results are
+  /// usually ready by the time the UI asks. Duplicate channels are ignored;
+  /// failures are rethrown at consume time.
+  static void warm(Iterable<String> channels, {int limit = 100}) {
+    final service = RecentMessagesService();
+    var armed = 0;
+    for (final channel in channels) {
+      final key = channel.toLowerCase();
+      if (_warmed.containsKey(key)) continue;
+      _warmed[key] = service.fetchRecent(channel, limit: limit);
+      armed++;
+    }
+    if (armed > 0) {
+      PerfLog.I.record('PERF', 'history warm fired: $armed');
+    }
+  }
+
+  /// Returns the warmed result for [channel] when available (consuming it),
+  /// falling back to a fresh [fetchRecent] on miss or warm failure: a launch
+  /// second spent offline must not surface as "Failed to load chat history"
+  /// when the network recovered two seconds later.
+  Future<List<TwitchMessage>> fetchRecentPreferWarm(
+    String channel, {
+    int limit = 100,
+  }) async {
+    final sw = Stopwatch()..start();
+    final warmed = _warmed.remove(channel.toLowerCase());
+    if (warmed != null) {
+      try {
+        final history = await warmed;
+        PerfLog.I.record(
+          'PERF',
+          'history warm hit $channel '
+              '(waited ${sw.elapsedMilliseconds}ms)',
+        );
+        return history;
+      } catch (_) {
+        PerfLog.I.record(
+          'PERF',
+          'history warm failed $channel '
+              '(after ${sw.elapsedMilliseconds}ms), refetching',
+        );
+      }
+    }
+    return fetchRecent(channel, limit: limit);
+  }
+
   Future<List<TwitchMessage>> fetchRecent(
     String channel, {
     int limit = 100,

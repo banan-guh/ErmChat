@@ -741,7 +741,7 @@ class _HomeScreenState extends State<HomeScreen>
     for (final name in saved) {
       _subscribeChannel(name);
       _recentMessages
-          .fetchRecent(name, limit: _recentMessagesLimit)
+          .fetchRecentPreferWarm(name, limit: _recentMessagesLimit)
           .then((history) {
             if (!mounted) return;
             _chatStore.historyLoaded.add(name);
@@ -1998,7 +1998,7 @@ class _HomeScreenState extends State<HomeScreen>
     _chatStore.channelMessages[name]!.insert(0, loadingMsg);
 
     _recentMessages
-        .fetchRecent(name, limit: _recentMessagesLimit)
+        .fetchRecentPreferWarm(name, limit: _recentMessagesLimit)
         .then((history) {
           if (!mounted) return;
           _chatStore.historyLoaded.add(name);

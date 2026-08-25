@@ -1,5 +1,6 @@
 // ignore_for_file: deprecated_member_use
 
+import 'dart:async';
 import 'dart:io';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/foundation.dart'
@@ -27,7 +28,25 @@ void main() async {
   if (Platform.isAndroid) {
     FlutterForegroundTask.initCommunicationPort();
   }
+  unawaited(_warmHistory());
   runApp(const TwitchChatApp());
+}
+
+/// Starts chat-history fetches during boot, concurrent with secure storage
+/// and the first frame, instead of only after both complete.
+Future<void> _warmHistory() async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    final channels = prefs.getStringList('channels') ?? const [];
+    if (channels.isNotEmpty) {
+      RecentMessagesService.warm(
+        channels,
+        limit: prefs.getInt('recent_messages_limit') ?? 100,
+      );
+    }
+  } catch (_) {
+    // Prefs unavailable: HomeScreen fetches normally later.
+  }
 }
 
 /// The vendored libwebp copy is not a pub package, so Flutter's automatic
