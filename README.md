@@ -6,17 +6,21 @@ ErmChat is a DankChat-inspired chat client with more features, built for multi-p
 
 Credit to NobleTrash38 / NobleTrash for inspiring this project!
 
-Check [TODO.md](TODO.md) for the roadmap. Found a bug or want a feature? Open an issue or submit a PR.
+Check [TODO.md](TODO.md) for the roadmap. Found a bug or want a feature? Open an issue or submit a PR (see [RULES.md](RULES.md) first for commit style and ground rules).
 
 ## Features
 
 **Chat**
 - Tabbed multi-channel chat with swipeable views and rearrangeable channel bar
+- Multi-account login with a switcher in settings
 - Messages over IRC
 - Reply threads with inline view (threads persist until last child goes over max msg threshold!! even when they disappear, you can see old threads)
 - Mentions / whispers panel
 - User profiles: tap a username for a bottom sheet with Mention / Whisper / Block / Report
-- System messages for subs, cheers, raids, bans, timeouts, announcements
+- System messages for subs, cheers, raids, bans, timeouts, announcements (subs/bits/raids highlight with the accent)
+- Shared chat support with spotlight / fade / hide modes for foreign messages
+- Phrase muting and regex ping rules (hide or highlight by keyword)
+- Slow-mode countdown on the input hint
 - Chat room state below the input (followers-only, emote-only, sub-only, live viewer #)
 - Clickable links, message timestamps with customizable formats
 - Configurable message cutoff and recent-history limit
@@ -24,7 +28,9 @@ Check [TODO.md](TODO.md) for the roadmap. Found a bug or want a feature? Open an
 
 **Emotes & badges**
 - Emotes from Twitch, BTTV, FFZ, and 7TV with zero-width overlay support
-- Badges for mods, VIPs, subscribers, and more
+- Per-provider emote visibility toggles
+- Badges for mods, VIPs, subscribers, plus 3rd party badges (BTTV donor, FFZ mod/VIP, 7TV)
+- 7TV animated username paints rendered in chat
 - Emote and username autocomplete
 - Emote menu with provider tabs and a detail sheet (copy / share)
 - 7TV live emote updates via WebSocket
@@ -32,6 +38,7 @@ Check [TODO.md](TODO.md) for the roadmap. Found a bug or want a feature? Open an
 **Commands**
 - 41 slash commands routed through the Twitch Helix API: `/ban`, `/timeout`, `/unban`, `/untimeout`, `/color`, `/delete`, `/clear`, `/announce` + color variants, `/mod`, `/vip`, chat modes (`/slow`, `/followers`, `/emoteonly`, `/subscribers`, `/r9kbeta`, `/uniquechat` + off variants), `/shoutout`, `/raid`, `/shield`, `/commercial`, `/marker`, `/w`, `/block`, `/unblock`, and more
 - `/` autocomplete for every command (permissions checked server-side)
+- Command macros with `{1} {2} {n+}` placeholder expansion, stored per account
 - DankChat-style error notices for failures
 
 **Broadcaster widgets**
@@ -42,6 +49,7 @@ Check [TODO.md](TODO.md) for the roadmap. Found a bug or want a feature? Open an
 - Timestamp format picker, keep-screen-on, custom ping highlights
 - Per-channel chat analytics (total messages, unique chatters, msgs/min, top chatters/emotes/words, bans/timeouts)
 - Background keepalive and mention push notifications (Android ONLY! iOS is still unpolished)
+- EXIF metadata stripped from image uploads before they go out
 - "Connected as {login}" account display, paste-token or browser OAuth login
 
 ## Getting started (for people who clone the repo for their own use)

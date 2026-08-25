@@ -13,7 +13,7 @@ dart format .      # format all Dart files
 
 ## Setup
 
-- Clone with submodules (`git clone --recursive`); `third_party/libwebp` (pinned v1.4.0) is required to build `libemote_codec`.
+- Clone with submodules (`git clone --recursive`); `third_party/libwebp` (pinned submodule) is required to build `libemote_codec`.
 - Set `clientId` in `lib/twitch_config.dart` and register the `redirectUri` (exact match) in the Twitch console.
 
 ## Architecture (know before editing)
@@ -39,17 +39,10 @@ dart format .      # format all Dart files
 - Unit tests in `test/unit/<file>_test.dart`, data/IRC-parsing tests in `test/data/`, widget/integration tests in `test/widgets/`.
 - Injectable for tests: `TwitchApi.client`, `TwitchChatApp`/`HomeScreen` service params, `EventSubService.handleRawMessage`/`emitConnected`/`waitForSession`, `IrcService.emitChatMessage`/`emitUserNotice`, `OAuthStarter`, `AccountScreen.twitchApi`.
 
-## Commits
+## Rules
 
-- `<type>: <lowercase summary>` (fix/refactor/feat/chore/style/perf/ci), comma-separate multiple changes; body only if the why isn't obvious. Full guide: [COMMIT_STYLE.md](COMMIT_STYLE.md).
-
-## Consistency
-
-- Use `InkWell` (not `GestureDetector`) for `onLongPress` in scrollable contexts.
-- Apply message features to both the main chat and the thread panel.
-- Emote providers: static `fetchGlobal()`/`fetchChannel(channelId)` (7TV exposes `fetchChannelResponse`); dedup priority 7TV > BTTV > FFZ > Twitch.
-- NO em-dashes in new code; avoid non-ASCII unless necessary.
+When you make a commit, ALWAYS read [RULES.md](RULES.md) first: short jab titles (4 words target, 8 hard max), body essentially never. RULES.md also holds code-consistency and subagent rules; follow those too.
 
 ## Notes
 
-- Dart SDK `^3.12.2`, Flutter stable, app version `0.5.1`; `flutter_lints` only, no codegen.
+- Versions live in pubspec.yaml (Dart SDK, Flutter channel, app version). `flutter_lints` only, no codegen.
