@@ -20,7 +20,6 @@ import '../services/chat_ingestion.dart';
 import '../services/chat_channel_setup.dart';
 import '../services/chat_store.dart';
 import '../util/text_bypass.dart';
-import '../color_utils.dart';
 
 /// Services the chat pipeline depends on. Constructed once per screen and
 /// injectable for tests.
@@ -955,13 +954,11 @@ class ChatConnectionManager {
       if (isDisposed) return;
       final isAnnouncement = event.msgId == 'announcement';
       if (!isAnnouncement) {
-        // Subscriptions / gift subs / watch streaks highlight like a default
-        // (PRIMARY) purple announcement: the notice stays a system message
-        // but carries the accent (DankChat-style). Other notices keep no
-        // accent.
-        final accent = subNoticeMsgIds.contains(event.msgId)
-            ? announcementColors['PRIMARY']
-            : null;
+        // Every non-announcement notice (subs, gift subs, watch streaks,
+        // bits badge tiers, raids, pay forwards, ...) highlights like a
+        // default (PRIMARY) purple announcement: the notice stays a system
+        // message but carries the accent.
+        final accent = userNoticeAccent(event.msgId);
         onSystemMessage(
           event.channel,
           buildUserNoticeText(
@@ -1011,9 +1008,10 @@ class ChatConnectionManager {
       }
       // DankChat-style: the "Announcement" label plus the announcement text
       // rendered as a normal chat message, both on the announcement color.
-      final accent =
-          announcementColorFor(event.announcementColor) ??
-          announcementColors['PRIMARY']!;
+      final accent = userNoticeAccent(
+        'announcement',
+        announcementColorParam: event.announcementColor,
+      );
       onSystemMessage(
         event.channel,
         'Announcement',

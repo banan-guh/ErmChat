@@ -301,13 +301,25 @@ void main() {
       expect(msg.systemAccent, const Color(0xFFFF6F00));
     });
 
-    test('non-sub, non-announcement notices never carry an accent', () {
+    test('non-announcement notices highlight with the purple accent', () {
       const raw =
           '@msg-id=raid;system-msg=ronni\\sis\\sraiding\\sxqc!;login=ronni;display-name=ronni;rm-received-ts=1700000000000 :tmi.twitch.tv USERNOTICE #xqc';
       final msg = RecentMessagesService.parseIrcLine(raw);
       expect(msg, isNotNull);
       expect(msg!.isSystem, isTrue);
-      expect(msg.systemAccent, isNull);
+      expect(
+        msg.systemAccent,
+        const Color(0xFF9146FF),
+        reason: 'raids highlight like a default purple announcement',
+      );
+    });
+
+    test('payforward notices highlight with the purple accent', () {
+      const raw =
+          '@msg-id=standardpayforward;system-msg=ronni\\spaid\\sforward\\sa\\ssub!;login=ronni;display-name=ronni;rm-received-ts=1700000000000 :tmi.twitch.tv USERNOTICE #xqc';
+      final msg = RecentMessagesService.parseIrcLine(raw);
+      expect(msg, isNotNull);
+      expect(msg!.systemAccent, const Color(0xFF9146FF));
     });
 
     test('returns null for USERNOTICE without msg-id', () {
@@ -1908,21 +1920,6 @@ void main() {
       expect(positions!.first.emoteCode, 'Kappa');
       expect(positions.first.startIndex, 3);
       expect(positions.first.endIndex, 8);
-    });
-  });
-
-  group('subNoticeMsgIds', () {
-    test('excludes non-sub notices like announcements and raids', () {
-      expect(subNoticeMsgIds, isNot(contains('announcement')));
-      expect(subNoticeMsgIds, isNot(contains('raid')));
-    });
-
-    test('includes watch streak milestones', () {
-      expect(subNoticeMsgIds, contains('viewermilestone'));
-    });
-
-    test('includes bits badge tier unlocks', () {
-      expect(subNoticeMsgIds, contains('bitsbadgetier'));
     });
   });
 

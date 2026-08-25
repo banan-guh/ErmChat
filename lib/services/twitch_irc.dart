@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' show Color;
 import 'package:flutter/foundation.dart';
 import '../color_utils.dart';
 import '../models/twitch_badge.dart';
@@ -112,24 +113,17 @@ class UserNoticeEvent {
   });
 }
 
-/// USERNOTICE `msg-id` values that render like a default (PRIMARY purple)
-/// announcement: the notice stays a system message but carries the
-/// announcement accent. Covers subscriptions / gift subs, watch-streak
-/// milestones (`viewermilestone`) and bits badge tier unlocks
-/// (`bitsbadgetier`).
-const subNoticeMsgIds = <String>{
-  'sub',
-  'resub',
-  'subgift',
-  'anonsubgift',
-  'communitygift',
-  'submysterygift',
-  'giftpaidupgrade',
-  'anongiftpaidupgrade',
-  'primepaidupgrade',
-  'viewermilestone',
-  'bitsbadgetier',
-};
+/// Row accent for a USERNOTICE system label. Announcements use their banner
+/// color; every other event (subs, gift subs, watch streaks, bits badge tier
+/// unlocks, raids, pay forwards, charity, modiversary, and any future
+/// msg-id) highlights like a default (PRIMARY) purple announcement.
+Color userNoticeAccent(String msgId, {String? announcementColorParam}) {
+  if (msgId == 'announcement') {
+    return announcementColorFor(announcementColorParam) ??
+        announcementColors['PRIMARY']!;
+  }
+  return announcementColors['PRIMARY']!;
+}
 
 /// Composite message id for a USERNOTICE system label. The raw Twitch id
 /// belongs to the notice's child chat message (sub/resub/announcement

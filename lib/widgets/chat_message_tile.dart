@@ -122,12 +122,15 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
     if (msg.isSystem) {
       children = widget.systemBodyBuilder != null
           ? widget.systemBodyBuilder!(msg, s)
+          // Safety net for callers without a builder: render the plain text
+          // at the same size/weight as the real path so a fallback hit is
+          // visually indistinguishable.
           : <InlineSpan>[
               TextSpan(
                 text: msg.text,
                 style: TextStyle(
-                  fontSize: 13 * s,
-                  fontStyle: FontStyle.italic,
+                  fontSize: 14 * s,
+                  fontStyle: FontStyle.normal,
                   decoration: TextDecoration.none,
                 ),
               ),

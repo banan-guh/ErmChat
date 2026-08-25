@@ -3074,42 +3074,39 @@ void main() {
       conn.dispose();
     });
 
-    test(
-      'non-sub notices stay a single system message without accent',
-      () async {
-        final irc = _TestIrc();
-        final systemMessages = <(String, String, Color?)>[];
-        final channelMessages = <String, List<TwitchMessage>>{};
-        final conn = _makeReconnectConn(
-          eventSub: _NoopEventSub(),
-          irc: irc,
-          onReconnected: () {},
-          channelMessages: channelMessages,
-          onSystemMessage: (c, t, {Color? accent, String? messageId}) {
-            systemMessages.add((c, t, accent));
-          },
-        );
-        await conn.connect();
-        irc.emitConnected();
+    test('non-announcement notices highlight with the purple accent', () async {
+      final irc = _TestIrc();
+      final systemMessages = <(String, String, Color?)>[];
+      final channelMessages = <String, List<TwitchMessage>>{};
+      final conn = _makeReconnectConn(
+        eventSub: _NoopEventSub(),
+        irc: irc,
+        onReconnected: () {},
+        channelMessages: channelMessages,
+        onSystemMessage: (c, t, {Color? accent, String? messageId}) {
+          systemMessages.add((c, t, accent));
+        },
+      );
+      await conn.connect();
+      irc.emitConnected();
 
-        irc.handleLine(
-          '@msg-id=raid;system-msg=ronni\\sis\\sraiding\\sxqc!;login=ronni;'
-          'display-name=ronni;'
-          ':tmi.twitch.tv USERNOTICE #test',
-        );
+      irc.handleLine(
+        '@msg-id=raid;system-msg=ronni\\sis\\sraiding\\sxqc!;login=ronni;'
+        'display-name=ronni;'
+        ':tmi.twitch.tv USERNOTICE #test',
+      );
 
-        expect(systemMessages, hasLength(1));
-        expect(systemMessages[0].$2, 'ronni is raiding xqc!');
-        expect(systemMessages[0].$3, isNull);
-        expect(
-          channelMessages['test'],
-          isNull,
-          reason: 'non-announcements never produce a child message',
-        );
+      expect(systemMessages, hasLength(1));
+      expect(systemMessages[0].$2, 'ronni is raiding xqc!');
+      expect(systemMessages[0].$3, const Color(0xFF9146FF));
+      expect(
+        channelMessages['test'],
+        isNull,
+        reason: 'non-announcements never produce a child message',
+      );
 
-        conn.dispose();
-      },
-    );
+      conn.dispose();
+    });
   });
 
   group('IRC channel clear', () {

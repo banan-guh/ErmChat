@@ -370,15 +370,16 @@ class RecentMessagesService {
       // without colliding with the child chat message that shares the raw
       // USERNOTICE id.
       messageId: userNoticeLabelId(msg.tags['id']),
-      // Announcements carry their banner accent; subscriptions / gift subs /
-      // watch streaks / bits badge tier unlocks highlight like a default
-      // (PRIMARY) purple announcement (DankChat-style).
+      // Announcements carry their banner accent; every other notice
+      // (subscriptions, gift subs, watch streaks, bits badge tiers, raids,
+      // pay forwards, ...) highlights like a default (PRIMARY) purple
+      // announcement.
       systemAccent: isAnnouncement
-          ? announcementColorFor(msg.tags['msg-param-color']) ??
-                announcementColors['PRIMARY']
-          : subNoticeMsgIds.contains(msgId)
-          ? announcementColors['PRIMARY']
-          : null,
+          ? userNoticeAccent(
+              'announcement',
+              announcementColorParam: msg.tags['msg-param-color'],
+            )
+          : userNoticeAccent(msgId),
       channel: channel,
       // 1ms after the child message so the sorted history keeps the child
       // above the label (List.sort is not stable).
