@@ -862,6 +862,100 @@ void main() {
     },
   );
 
+  testWidgets('Mentions rows long-press into the copy + more menu', (
+    WidgetTester tester,
+  ) async {
+    final eventSub = _FakeEventSubService();
+    final irc = _FakeIrcService();
+    final recent = _ConfigurableRecentMessagesService(const []);
+    await tester.pumpWidget(
+      TwitchChatApp(
+        eventSubService: eventSub,
+        ircService: irc,
+        recentMessagesService: recent,
+        initialCurrentUserLogin: 'me',
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.byIcon(Icons.add));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).last, 'b');
+    await tester.tap(find.text('Join', skipOffstage: false));
+    await tester.pump();
+
+    irc.emitMessage(
+      TwitchMessage(
+        login: 'carol',
+        text: 'hello @me',
+        channel: 'b',
+        messageId: 'm-panel-1',
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.byIcon(Icons.notifications_active));
+    await tester.pumpAndSettle();
+
+    final row = find.textContaining('hello @me', skipOffstage: false);
+    expect(row, findsAtLeast(1));
+    await tester.longPress(row.last);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Copy message', skipOffstage: false), findsOneWidget);
+    expect(find.text('More...', skipOffstage: false), findsOneWidget);
+    expect(find.text('Reply to message', skipOffstage: false), findsNothing);
+  });
+
+  testWidgets('Whisper rows long-press into the copy + more menu', (
+    WidgetTester tester,
+  ) async {
+    final eventSub = _FakeEventSubService();
+    final irc = _FakeIrcService();
+    final recent = _ConfigurableRecentMessagesService(const []);
+    await tester.pumpWidget(
+      TwitchChatApp(
+        eventSubService: eventSub,
+        ircService: irc,
+        recentMessagesService: recent,
+        initialCurrentUserLogin: 'me',
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.byIcon(Icons.add));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).last, 'b');
+    await tester.tap(find.text('Join', skipOffstage: false));
+    await tester.pump();
+
+    irc.emitWhisper(
+      TwitchMessage(
+        login: 'carol',
+        text: 'psst',
+        channel: null,
+        messageId: 'w-panel-1',
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.byIcon(Icons.notifications_active));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Whispers', skipOffstage: false));
+    await tester.pumpAndSettle();
+
+    // Panels share ChatView's gesture wiring; long-press opens the same
+    // copy + more menu as mentions and threads.
+    final row = find.textContaining('psst', skipOffstage: false);
+    expect(row, findsAtLeast(1));
+    await tester.longPress(row.last);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Copy message', skipOffstage: false), findsOneWidget);
+    expect(find.text('More...', skipOffstage: false), findsOneWidget);
+    expect(find.text('Reply to message', skipOffstage: false), findsNothing);
+  });
+
   testWidgets(
     'Type box unlocks only on the Whispers tab and hints the reply target',
     (WidgetTester tester) async {
@@ -2215,6 +2309,7 @@ void main() {
 
       expect(find.text('Copy message', skipOffstage: false), findsOneWidget);
       expect(find.text('More...', skipOffstage: false), findsOneWidget);
+      expect(find.text('Reply to message', skipOffstage: false), findsNothing);
     });
 
     testWidgets('swipe down on thread panel header closes the panel', (
@@ -4018,16 +4113,18 @@ void main() {
         ),
       ).colorScheme.surface;
       final blended = Color.alphaBlend(accent.withValues(alpha: 0.4), surface);
+      // The row tint is painted as the tile Material's color (so ink ripples
+      // stay visible above it) rather than a ColoredBox over the content.
       final rows = find
           .ancestor(
             of: find.textContaining(
               'Test announcement text',
               skipOffstage: false,
             ),
-            matching: find.byType(ColoredBox, skipOffstage: false),
+            matching: find.byType(Material, skipOffstage: false),
           )
           .evaluate()
-          .where((el) => (el.widget as ColoredBox).color == blended);
+          .where((el) => (el.widget as Material).color == blended);
       expect(
         rows,
         isNotEmpty,

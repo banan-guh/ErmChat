@@ -45,8 +45,6 @@ import '../widgets/emote_sheet.dart';
 import '../widgets/emote_image_provider.dart';
 import '../widgets/message_input.dart';
 import '../widgets/media_upload_controller.dart';
-import '../widgets/thread_panel.dart';
-import '../widgets/mentions_panel.dart';
 import '../widgets/emote_menu_panel.dart';
 import '../widgets/chat_view.dart';
 import '../widgets/message_builder.dart';
@@ -309,8 +307,8 @@ class _HomeScreenState extends State<HomeScreen>
   final _mentionsSheetRatio = ValueNotifier(0.0);
   late final DraggableScrollableController _emoteSheetCtrl;
   late final TabController _mentionsTabCtrl;
-  final _threadPanelScrollCtrl = ScrollController();
-  final _mentionsPanelScrollCtrl = ScrollController();
+  final _threadPanelScrollCtrl = FlutterListViewController();
+  final _mentionsPanelScrollCtrl = FlutterListViewController();
 
   // Predictive back gesture: scales the open panel down (1.0 -> 0.90)
   // following the Android back gesture, driven by PanelPredictiveBackHandler.
@@ -327,10 +325,21 @@ class _HomeScreenState extends State<HomeScreen>
   static const _emoteMaxFraction = 0.6;
   static const _fullHeightFraction = 1.0;
   double? _emoteSheetBoxHeight;
-  final _threadPanelData = ValueNotifier<ThreadPanelData?>(null);
-  final _mentionsPanelData = ValueNotifier<List<TwitchMessage>?>(null);
-  final _whispersPanelData = ValueNotifier<List<TwitchMessage>?>(null);
-  final _whispersPanelScrollCtrl = ScrollController();
+
+  // Panel rebuild plumbing mirrors main chat: the lists below are read
+  // directly by each ChatView and these notifiers just tick rebuilds.
+  final _threadAtBottom = ValueNotifier(true);
+  final _threadMsgCount = ValueNotifier(0);
+  final _mentionsAtBottom = ValueNotifier(true);
+  final _mentionsMsgCount = ValueNotifier(0);
+  final _whispersAtBottom = ValueNotifier(true);
+  final _whispersMsgCount = ValueNotifier(0);
+
+  /// Newest-first snapshot of the open thread, recomputed on open and on
+  /// store events touching its channel.
+  List<TwitchMessage> _threadMessages = const [];
+  String? _threadChannel;
+  final _whispersPanelScrollCtrl = FlutterListViewController();
   final _whispers = <TwitchMessage>[];
   int _unreadWhispers = 0;
   String? _whisperTarget;
@@ -1181,15 +1190,12 @@ class _HomeScreenState extends State<HomeScreen>
           changedChannel != _openThreadRoot!.channel) {
         return;
       }
-      final channel = _openThreadRoot!.channel!;
-      _threadPanelData.value = ThreadPanelData(
-        messages: _computeThreadMessages(),
-        channel: channel,
-      );
+      _threadChannel = _openThreadRoot!.channel;
+      _threadMessages = _computeThreadMessages();
+      _threadMsgCount.value++;
     } else if (_activePanel == OverlayPanel.mentions) {
-      _mentionsPanelData.value =
-          _chatStore.channelMessages[_mentionsChannel] ?? [];
-      _whispersPanelData.value = List.of(_whispers);
+      _mentionsMsgCount.value++;
+      _whispersMsgCount.value++;
     }
   }
 
@@ -1224,8 +1230,9 @@ class _HomeScreenState extends State<HomeScreen>
       // Whispers and the mentions feed belong to the previous account.
       _whispers.clear();
       _unreadWhispers = 0;
-      _whispersPanelData.value = const [];
+      _whispersMsgCount.value++;
       _chatStore.truncateChannel(_mentionsChannel, maxMessages: 0);
+      _mentionsMsgCount.value++;
       _scanHistoryForMentions();
       unawaited(_ensureBlockedUsersLoaded());
     }
@@ -1562,9 +1569,12 @@ class _HomeScreenState extends State<HomeScreen>
     _threadPanelScrollCtrl.dispose();
     _mentionsPanelScrollCtrl.dispose();
     _whispersPanelScrollCtrl.dispose();
-    _threadPanelData.dispose();
-    _mentionsPanelData.dispose();
-    _whispersPanelData.dispose();
+    _threadAtBottom.dispose();
+    _threadMsgCount.dispose();
+    _mentionsAtBottom.dispose();
+    _mentionsMsgCount.dispose();
+    _whispersAtBottom.dispose();
+    _whispersMsgCount.dispose();
     for (final c in _scrollControllers.values) {
       c.dispose();
     }
@@ -1857,7 +1867,9 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  void _showThreadMessageMenu(TwitchMessage msg) {
+  // Panels (thread, mentions, whispers): copy + more menu. No reply (the
+  // input bar belongs to the main chat) and no thread navigation.
+  void _showPanelMessageMenu(TwitchMessage msg) {
     showModalBottomSheet(
       context: context,
       builder: (ctx) => SafeArea(
@@ -2145,7 +2157,8 @@ class _HomeScreenState extends State<HomeScreen>
           ),
         );
       } else {
-        replyTo = threadMsgs.isNotEmpty ? threadMsgs.last : null;
+        // Newest-first thread order: the latest reply sits at index 0.
+        replyTo = threadMsgs.isNotEmpty ? threadMsgs.first : null;
       }
       _doSendMessage(text, channel, replyTo: replyTo);
     } else {
@@ -2293,10 +2306,9 @@ class _HomeScreenState extends State<HomeScreen>
       _activePanel = OverlayPanel.thread;
       _openThreadRoot = rootMsg;
     });
-    _threadPanelData.value = ThreadPanelData(
-      messages: _computeThreadMessages(),
-      channel: channel,
-    );
+    _threadChannel = channel;
+    _threadMessages = _computeThreadMessages();
+    _threadMsgCount.value++;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         _animateRatio(
@@ -2316,9 +2328,11 @@ class _HomeScreenState extends State<HomeScreen>
       _activePanel = OverlayPanel.mentions;
       _openThreadRoot = null;
     });
-    _mentionsPanelData.value =
-        _chatStore.channelMessages[_mentionsChannel] ?? [];
-    _whispersPanelData.value = List.of(_whispers);
+    // Pre-create the mentions buffer so the ChatView's list reference stays
+    // stable across the first mirrorMentions insertion.
+    _chatStore.channelMessages.putIfAbsent(_mentionsChannel, () => []);
+    _mentionsMsgCount.value++;
+    _whispersMsgCount.value++;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         _animateRatio(
@@ -2488,8 +2502,6 @@ class _HomeScreenState extends State<HomeScreen>
       setState(() {
         _activePanel = OverlayPanel.closed;
         _openThreadRoot = null;
-        _threadPanelData.value = null;
-        _mentionsPanelData.value = null;
         _panelScaleCtrl.value = 1.0;
       });
     }
@@ -2729,7 +2741,8 @@ class _HomeScreenState extends State<HomeScreen>
         _chatStore.threadFor(channel, resolvedKey) ??
         allMsgs.where((m) => threadKeyFor(m, parentOf) == resolvedKey).toList();
 
-    threadMsgs.sort((a, b) => a.timestamp.compareTo(b.timestamp));
+    // Newest-first (index 0 = newest), matching every other ChatView feed.
+    threadMsgs.sort((a, b) => b.timestamp.compareTo(a.timestamp));
     return threadMsgs;
   }
 
@@ -2805,7 +2818,7 @@ class _HomeScreenState extends State<HomeScreen>
       _whispers.removeRange(_maxMessagesPerChannel, _whispers.length);
     }
     _whisperTarget = msg.login;
-    _whispersPanelData.value = List.of(_whispers);
+    _whispersMsgCount.value++;
     if (!_isWhispersTabActive) {
       _unreadWhispers++;
       _chatStore.unreadMentions++;
@@ -2821,7 +2834,7 @@ class _HomeScreenState extends State<HomeScreen>
     if (_whispers.length > _maxMessagesPerChannel) {
       _whispers.removeRange(_maxMessagesPerChannel, _whispers.length);
     }
-    _whispersPanelData.value = List.of(_whispers);
+    _whispersMsgCount.value++;
     _chatStore.mentionsBump.value++;
   }
 
@@ -2841,7 +2854,7 @@ class _HomeScreenState extends State<HomeScreen>
     if (_whispers.length > _maxMessagesPerChannel) {
       _whispers.removeRange(_maxMessagesPerChannel, _whispers.length);
     }
-    _whispersPanelData.value = List.of(_whispers);
+    _whispersMsgCount.value++;
     _chatStore.mentionsBump.value++;
   }
 
@@ -3373,9 +3386,16 @@ class _HomeScreenState extends State<HomeScreen>
                             ),
                           ],
                         ),
-                        body: ThreadPanelWidget(
+                        body: ChatView(
                           key: const ValueKey('thread_panel'),
-                          data: _threadPanelData,
+                          channel: _threadChannel ?? '',
+                          messages: _threadMessages,
+                          atBottomNotifier: _threadAtBottom,
+                          messageNotifier: _threadMsgCount,
+                          scrollController: _threadPanelScrollCtrl,
+                          messageBuilder: _messageBuilder,
+                          showTimestamp: _showTimestamps,
+                          timestampFormat: _timestampFormat,
                           chatFontScale: _chatFontSize / 14.0,
                           checkeredMessages: _checkeredMessages,
                           lineSeparator: _lineSeparator,
@@ -3383,12 +3403,10 @@ class _HomeScreenState extends State<HomeScreen>
                           paintService: _showNamePaints
                               ? _sevenTvPaintService
                               : null,
-                          onLongPress: _showThreadMessageMenu,
-                          buildBadgeSpans: _messageBuilder.buildBadgeSpans,
-                          buildMessageSpans: _messageBuilder.buildMessageSpans,
-                          showTimestamp: _showTimestamps,
-                          timestampFormat: _timestampFormat,
-                          scrollController: _threadPanelScrollCtrl,
+                          onShowUserProfile: _showUserProfile,
+                          onShowMessageMenu: _showPanelMessageMenu,
+                          showReplyIndicators: false,
+                          emptyText: 'No messages found',
                         ),
                       ),
                       // Mentions sheet - offstage when closed to avoid layout cost.
@@ -3446,33 +3464,47 @@ class _HomeScreenState extends State<HomeScreen>
                         body: TabBarView(
                           controller: _mentionsTabCtrl,
                           children: [
-                            MentionsPanelWidget(
+                            ChatView(
                               key: const ValueKey('mentions_panel'),
-                              messages: _mentionsPanelData,
-                              chatFontScale: _chatFontSize / 14.0,
-                              checkeredMessages: _checkeredMessages,
-                              lineSeparator: _lineSeparator,
-                              sharedChatMode: _sharedChatMode,
-                              buildBadgeSpans: _messageBuilder.buildBadgeSpans,
-                              buildMessageSpans:
-                                  _messageBuilder.buildMessageSpans,
-                              showTimestamp: _showTimestamps,
-                              timestampFormat: _timestampFormat,
+                              channel: _mentionsChannel,
+                              messages:
+                                  _chatStore
+                                      .channelMessages[_mentionsChannel] ??
+                                  const [],
+                              atBottomNotifier: _mentionsAtBottom,
+                              messageNotifier: _mentionsMsgCount,
                               scrollController: _mentionsPanelScrollCtrl,
-                            ),
-                            MentionsPanelWidget(
-                              key: const ValueKey('whispers_panel'),
-                              messages: _whispersPanelData,
+                              messageBuilder: _messageBuilder,
+                              showTimestamp: _showTimestamps,
+                              timestampFormat: _timestampFormat,
                               chatFontScale: _chatFontSize / 14.0,
                               checkeredMessages: _checkeredMessages,
                               lineSeparator: _lineSeparator,
                               sharedChatMode: _sharedChatMode,
-                              buildBadgeSpans: _messageBuilder.buildBadgeSpans,
-                              buildMessageSpans:
-                                  _messageBuilder.buildMessageSpans,
+                              physics: const ClampingScrollPhysics(),
+                              onShowUserProfile: _showUserProfile,
+                              onShowMessageMenu: _showPanelMessageMenu,
+                              showReplyIndicators: false,
+                              emptyText: 'No mentions or whispers',
+                            ),
+                            ChatView(
+                              key: const ValueKey('whispers_panel'),
+                              channel: '@whispers',
+                              messages: _whispers,
+                              atBottomNotifier: _whispersAtBottom,
+                              messageNotifier: _whispersMsgCount,
+                              scrollController: _whispersPanelScrollCtrl,
+                              messageBuilder: _messageBuilder,
                               showTimestamp: _showTimestamps,
                               timestampFormat: _timestampFormat,
-                              scrollController: _whispersPanelScrollCtrl,
+                              chatFontScale: _chatFontSize / 14.0,
+                              checkeredMessages: _checkeredMessages,
+                              lineSeparator: _lineSeparator,
+                              sharedChatMode: _sharedChatMode,
+                              physics: const ClampingScrollPhysics(),
+                              onShowUserProfile: _showUserProfile,
+                              onShowMessageMenu: _showPanelMessageMenu,
+                              showReplyIndicators: false,
                               emptyText: 'No whispers',
                             ),
                           ],

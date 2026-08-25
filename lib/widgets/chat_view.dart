@@ -14,17 +14,37 @@ class ChatView extends StatelessWidget {
 
   final String channel;
   final List<TwitchMessage> messages;
-  final Map<String, Map<String?, Widget>> tileCache;
+
+  /// Per-channel tile cache driving rebuild short-circuits and key-based
+  /// reconciliation. Null (panels) builds tiles fresh per notification tick.
+  final Map<String, Map<String?, Widget>>? tileCache;
   final ValueNotifier<bool> atBottomNotifier;
   final ValueNotifier<int> messageNotifier;
   final FlutterListViewController scrollController;
   final MessageBuilder messageBuilder;
+
+  /// Opens the profile sheet from a user-name tap.
   final void Function(String login, String? userId, {String? displayName})
   onShowUserProfile;
-  final void Function(TwitchMessage) onShowMessageMenu;
-  final void Function(String) onNewMessage;
-  final TwitchMessage? Function(TwitchMessage) onFindThreadRoot;
-  final void Function(TwitchMessage) onShowThreadView;
+
+  /// Null disables the long-press message menu.
+  final void Function(TwitchMessage)? onShowMessageMenu;
+
+  /// Notified on scroll-state flips (main chat unread/jump bookkeeping).
+  final void Function(String)? onNewMessage;
+  final TwitchMessage? Function(TwitchMessage)? onFindThreadRoot;
+  final void Function(TwitchMessage)? onShowThreadView;
+
+  /// Reply indicators need both thread callbacks to be tappable; off for
+  /// surfaces where every row is a reply (thread panel) or parity demands
+  /// the old look.
+  final bool showReplyIndicators;
+  final String emptyText;
+  final ScrollPhysics? physics;
+
+  /// Disambiguates the scroll-down FAB's hero tag when several views exist
+  /// for overlapping channels. Defaults to a [channel]-keyed tag.
+  final String? scrollFabHeroTag;
   final bool showTimestamp;
   final String timestampFormat;
   final double chatFontScale;
@@ -37,16 +57,20 @@ class ChatView extends StatelessWidget {
     super.key,
     required this.channel,
     required this.messages,
-    required this.tileCache,
+    this.tileCache,
     required this.atBottomNotifier,
     required this.messageNotifier,
     required this.scrollController,
     required this.messageBuilder,
     required this.onShowUserProfile,
-    required this.onShowMessageMenu,
-    required this.onNewMessage,
-    required this.onFindThreadRoot,
-    required this.onShowThreadView,
+    this.onShowMessageMenu,
+    this.onNewMessage,
+    this.onFindThreadRoot,
+    this.onShowThreadView,
+    this.showReplyIndicators = true,
+    this.emptyText = 'No messages yet',
+    this.physics,
+    this.scrollFabHeroTag,
     this.showTimestamp = true,
     this.timestampFormat = kDefaultTimestampFormat,
     this.chatFontScale = 1.0,
@@ -72,10 +96,10 @@ class ChatView extends StatelessWidget {
               final atBottom = atBottomNotifier.value;
               if (scrolledUp && atBottom) {
                 atBottomNotifier.value = false;
-                onNewMessage(channel);
+                onNewMessage?.call(channel);
               } else if (!scrolledUp && !atBottom) {
                 atBottomNotifier.value = true;
-                onNewMessage(channel);
+                onNewMessage?.call(channel);
               }
             }
             return false;
@@ -89,10 +113,10 @@ class ChatView extends StatelessWidget {
               builder: (_, _, _) {
                 final msgs = messages;
                 if (msgs.isEmpty) {
-                  return const Center(child: Text('No messages yet'));
+                  return Center(child: Text(emptyText));
                 }
 
-                final cache = tileCache.putIfAbsent(
+                final cache = tileCache?.putIfAbsent(
                   channel,
                   () => <String?, Widget>{},
                 );
@@ -101,12 +125,14 @@ class ChatView extends StatelessWidget {
                 // children (the cached tiles), so scanning stops once every
                 // cached id is located - channel buffers can be far larger
                 // than the tile cache bound, keeping this bounded per message.
-                final pending = cache.keys.whereType<String>().toSet();
                 final idToIndex = <String, int>{};
-                for (var i = 0; i < msgs.length && pending.isNotEmpty; i++) {
-                  final id = msgs[i].messageId;
-                  if (id != null && pending.remove(id)) {
-                    idToIndex[id] = i;
+                if (cache != null) {
+                  final pending = cache.keys.whereType<String>().toSet();
+                  for (var i = 0; i < msgs.length && pending.isNotEmpty; i++) {
+                    final id = msgs[i].messageId;
+                    if (id != null && pending.remove(id)) {
+                      idToIndex[id] = i;
+                    }
                   }
                 }
 
@@ -119,6 +145,7 @@ class ChatView extends StatelessWidget {
                     key: ValueKey(channel),
                     controller: scrollController,
                     reverse: true,
+                    physics: physics,
                     delegate: FlutterListViewDelegate(
                       (_, i) => _buildTile(
                         msgs,
@@ -172,11 +199,11 @@ class ChatView extends StatelessWidget {
                     ? const SizedBox.shrink()
                     : FloatingActionButton(
                         key: const ValueKey('scroll_down'),
-                        heroTag: 'scroll_down_$channel',
+                        heroTag: scrollFabHeroTag ?? 'scroll_down_$channel',
                         onPressed: () {
                           atBottomNotifier.value = true;
                           scrollController.jumpTo(0);
-                          onNewMessage(channel);
+                          onNewMessage?.call(channel);
                         },
                         child: const Icon(Icons.keyboard_arrow_down),
                       ),
@@ -190,7 +217,7 @@ class ChatView extends StatelessWidget {
 
   Widget _buildTile(
     List<TwitchMessage> msgs,
-    Map<String?, Widget> cache,
+    Map<String?, Widget>? cache,
     Map<String, int> idToIndex,
     int i,
     Color surface,
@@ -198,15 +225,18 @@ class ChatView extends StatelessWidget {
     BuildContext context,
   ) {
     final msg = msgs[i];
+    // Mentions/whisper rows can come from several channels; badges and
+    // emotes resolve against the row's own channel when it has one.
+    final tileChannel = msg.channel ?? channel;
 
-    final cached = cache[msg.messageId];
+    final cached = cache?[msg.messageId];
     if (cached != null) return cached;
 
     final Widget body;
     if (msg.isSystem) {
       body = ChatMessageTile(
         message: msg,
-        channel: channel,
+        channel: tileChannel,
         surface: surface,
         textScale: s,
         showTimestamp: showTimestamp,
@@ -222,7 +252,7 @@ class ChatView extends StatelessWidget {
     } else {
       body = ChatMessageTile(
         message: msg,
-        channel: channel,
+        channel: tileChannel,
         surface: surface,
         textScale: s,
         showTimestamp: showTimestamp,
@@ -231,8 +261,14 @@ class ChatView extends StatelessWidget {
         buildMessageSpans: messageBuilder.buildMessageSpans,
         onTapUser: (login, userId) =>
             onShowUserProfile(login, userId, displayName: msg.displayName),
-        onLongPress: () => onShowMessageMenu(msg),
-        replyIndicator: msg.replyToUser != null
+        onLongPress: onShowMessageMenu == null
+            ? null
+            : () => onShowMessageMenu!(msg),
+        replyIndicator:
+            showReplyIndicators &&
+                onFindThreadRoot != null &&
+                onShowThreadView != null &&
+                msg.replyToUser != null
             ? _buildReplyIndicator(context, msg)
             : null,
         checkeredMessages: checkeredMessages,
@@ -247,7 +283,7 @@ class ChatView extends StatelessWidget {
     // rematched by messageId on index shifts; the cached identical tile
     // then short-circuits instead of recreating its state.
     final tile = RepaintBoundary(key: _messageKey(msg), child: body);
-    if (msg.messageId != null) {
+    if (cache != null && msg.messageId != null) {
       cache[msg.messageId!] = tile;
       if (cache.length > _maxCachedTiles) {
         // Prefer evicting entries for messages that are no longer in the
@@ -284,10 +320,10 @@ class ChatView extends StatelessWidget {
     final variant = Theme.of(context).colorScheme.onSurfaceVariant;
     return Padding(
       padding: const EdgeInsets.only(left: 12, top: 2),
-      child: GestureDetector(
+      child: InkWell(
         onTap: () {
-          final root = onFindThreadRoot(msg);
-          if (root != null) onShowThreadView(root);
+          final root = onFindThreadRoot?.call(msg);
+          if (root != null) onShowThreadView?.call(root);
         },
         child: Row(
           mainAxisSize: MainAxisSize.min,

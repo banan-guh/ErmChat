@@ -243,34 +243,6 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
       child = Opacity(opacity: 0.55, child: child);
     }
 
-    if (msg.systemAccent != null) {
-      child = ColoredBox(
-        color: Color.alphaBlend(
-          msg.systemAccent!.withValues(alpha: 0.4),
-          theme.colorScheme.surface,
-        ),
-        child: child,
-      );
-    }
-
-    if (msg.isFirstMessage) {
-      child = ColoredBox(
-        color: Color.alphaBlend(
-          Colors.green.withValues(alpha: 0.2),
-          theme.colorScheme.surface,
-        ),
-        child: child,
-      );
-    }
-
-    final highlight = msg.highlight;
-    if (highlight != null) {
-      child = ColoredBox(
-        color: highlight.rowColor(theme.colorScheme.surface),
-        child: child,
-      );
-    }
-
     if (widget.replyIndicator != null) {
       child = Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -279,15 +251,33 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
       );
     }
 
+    // Row background: compose every tint (system accent, first message,
+    // mention highlight, checker stripe) into one opaque color. Painting it
+    // as the Material's color keeps InkWell ripples above the background;
+    // stacked ColoredBoxes used to draw straight over the ink.
+    var rowColor = widget.surface;
+    if (msg.systemAccent != null) {
+      rowColor = Color.alphaBlend(
+        msg.systemAccent!.withValues(alpha: 0.4),
+        rowColor,
+      );
+    }
+    if (msg.isFirstMessage) {
+      rowColor = Color.alphaBlend(
+        Colors.green.withValues(alpha: 0.2),
+        rowColor,
+      );
+    }
+    final highlight = msg.highlight;
+    if (highlight != null) {
+      rowColor = highlight.rowColor(rowColor);
+    }
     if (widget.checkeredMessages && widget.isAlternateBackground) {
       // Alternating row background: inverseSurface over the chat surface at
       // ~12% alpha, matching dankchat's checkered-lines effect.
-      child = ColoredBox(
-        color: Color.alphaBlend(
-          theme.colorScheme.inverseSurface.withValues(alpha: 0.12),
-          widget.surface,
-        ),
-        child: child,
+      rowColor = Color.alphaBlend(
+        theme.colorScheme.inverseSurface.withValues(alpha: 0.12),
+        rowColor,
       );
     }
 
@@ -308,6 +298,8 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
     if (widget.onLongPress != null) {
       child = InkWell(onLongPress: widget.onLongPress, child: child);
     }
+
+    child = Material(color: rowColor, child: child);
 
     child = Semantics(
       label: semanticsLabel,
