@@ -3670,13 +3670,16 @@ class _HomeScreenState extends State<HomeScreen>
                               (_activePanel != OverlayPanel.mentions ||
                                   _isWhispersTabActive) &&
                               widget.twitchAuth.isConfigured &&
-                              _chatConn.irc.isConnected,
+                              _chatConn.irc.isConnected &&
+                              (_isWhispersTabActive || _channelChatReady),
                           hintText:
                               _shownCooldownLabel ??
                               (!widget.twitchAuth.isConfigured
                                   ? 'Connect an account to chat'
                                   : !_chatConn.irc.isConnected
                                   ? 'Reconnecting...'
+                                  : !_isWhispersTabActive && !_channelChatReady
+                                  ? 'Joining #${_selectedChannel ?? ''}...'
                                   : _activePanel == OverlayPanel.thread
                                   ? 'Reply to thread...'
                                   : _isWhispersTabActive
@@ -3734,6 +3737,13 @@ class _HomeScreenState extends State<HomeScreen>
       ),
     );
   }
+
+  /// Whether the selected channel's JOIN is confirmed on the write socket.
+  /// Between socket-connect and join-confirm, PRIVMSGs would vanish - the
+  /// input stays disabled for that window. Whispers are not channel-bound.
+  bool get _channelChatReady =>
+      _selectedChannel != null &&
+      _chatConn.isChannelChatReady(_selectedChannel!);
 
   Widget _buildEmpty() {
     if (!widget.twitchAuth.isConfigured) {

@@ -1562,6 +1562,54 @@ void main() {
     },
   );
 
+  testWidgets('chat input is disabled until the channel join confirms', (
+    WidgetTester tester,
+  ) async {
+    final fakeEventSub = _FakeEventSubService();
+    final fakeIrc = _FakeIrcService();
+
+    SharedPreferences.setMockInitialValues({'access_token': 'test_token'});
+    FlutterSecureStorage.setMockInitialValues({'access_token': 'test_token'});
+
+    await tester.pumpWidget(
+      TwitchChatApp(
+        eventSubService: fakeEventSub,
+        recentMessagesService: _FakeRecentMessagesService(),
+        ircService: fakeIrc,
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.byIcon(Icons.add));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).last, 'testchannel');
+    await tester.tap(find.text('Join', skipOffstage: false));
+    await tester.pumpAndSettle();
+
+    // Socket up but JOIN not confirmed yet: input locked with a hint.
+    fakeIrc.triggerConnect();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 600));
+    await tester.pump();
+
+    bool inputEnabled() =>
+        tester
+            .widget<TextField>(find.byKey(const Key('message_input')))
+            .enabled ??
+        false;
+    expect(inputEnabled(), isFalse);
+    expect(find.text('Joining #testchannel...'), findsOneWidget);
+
+    // JOIN confirms: input unlocks and the hint goes away.
+    fakeIrc.triggerJoin('testchannel');
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 600));
+    await tester.pump();
+
+    expect(inputEnabled(), isTrue);
+    expect(find.text('Joining #testchannel...'), findsNothing);
+  });
+
   testWidgets(
     'Connected appears before history and moves to top after history arrives',
     (WidgetTester tester) async {
@@ -2085,7 +2133,7 @@ void main() {
         history: [parent, child],
         irc: irc,
       );
-      irc.triggerConnect();
+      irc.triggerConnect(joinChannel: 'testchannel');
       await tester.pump();
 
       await tester.tap(
@@ -2461,7 +2509,7 @@ void main() {
       final eventSub = _FakeEventSubService();
       final irc = _FakeIrcService();
       await setupChannel(tester, eventSub: eventSub, irc: irc);
-      irc.triggerConnect();
+      irc.triggerConnect(joinChannel: 'testchannel');
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 600));
       await tester.pump();
@@ -4337,7 +4385,7 @@ void main() {
         findsOneWidget,
       );
 
-      irc.triggerConnect();
+      irc.triggerConnect(joinChannel: 'xqc');
       await tester.pump();
       await tester.enterText(find.byKey(const Key('message_input')), 'Us');
       await tester.pump();
@@ -4389,7 +4437,7 @@ void main() {
       );
       await tester.pump();
 
-      irc.triggerConnect();
+      irc.triggerConnect(joinChannel: 'xqc');
       await tester.pump();
 
       // Type @Us to trigger autocomplete for user UserOne.
@@ -4487,7 +4535,7 @@ void main() {
       await tester.tap(find.text('Join', skipOffstage: false));
       await tester.pump();
 
-      irc.triggerConnect();
+      irc.triggerConnect(joinChannel: 'xqc');
       await tester.pump();
 
       await tester.enterText(find.byKey(const Key('message_input')), '/');
@@ -5229,7 +5277,7 @@ void main() {
       await tester.tap(find.text('Join', skipOffstage: false).last);
       await tester.pump();
       await tester.pump();
-      irc.triggerConnect();
+      irc.triggerConnect(joinChannel: 'testchannel');
       await tester.pump();
 
       expect(sheetFraction(tester), moreOrLessEquals(0));

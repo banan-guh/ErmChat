@@ -610,6 +610,11 @@ class ChatConnectionManager {
     onJoinProgress?.call(channel, null);
   }
 
+  /// Whether [channel]'s JOIN is confirmed on the write socket - the point
+  /// at which a PRIVMSG actually lands there. Drives the chat input gate:
+  /// between socket-connect and join-confirm, sends would vanish.
+  bool isChannelChatReady(String channel) => _joinedChannels.contains(channel);
+
   /// Emits per-channel join-queue progress once per second while any write
   /// socket JOIN is still waiting in the shared budget: position plus an ETA
   /// derived from the bucket's refill rate. Channels that left the queue but
@@ -1117,12 +1122,16 @@ class ChatConnectionManager {
       // ROOMSTATE arrives after a successful JOIN, confirming this channel is
       // ready for PRIVMSG; record it so sends gate on the confirmed join.
       if (_channelSetup.handleRoomState(event)) {
-        _joinedChannels.add(event.channel);
+        final isNewlyConfirmed = _joinedChannels.add(event.channel);
         // The channel can actually receive messages now: retire any countdown
-        // and post the honest per-channel "Connected".
-        _clearJoinWait(event.channel);
-        if (_connectedAcked.add(event.channel)) {
-          onSystemMessage(event.channel, 'Connected');
+        // and post the honest per-channel "Connected". The input gate keys
+        // off this flip too, so rebuild the frame.
+        if (isNewlyConfirmed) {
+          _clearJoinWait(event.channel);
+          if (_connectedAcked.add(event.channel)) {
+            onSystemMessage(event.channel, 'Connected');
+          }
+          onRebuild();
         }
       }
     });
