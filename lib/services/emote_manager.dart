@@ -309,6 +309,9 @@ class EmoteManager extends ChangeNotifier {
   // Per-provider retention: each provider's fetch result is kept separately so
   // a single flaky provider (429/5xx, timeout) never clobbers that provider's
   // previous good data or the other providers' entries in the merged cache.
+  // Provider stash keys are ALWAYS EmoteType.name ('twitch', 'bttv', 'ffz',
+  // 'sevenTv') — the same scheme _hasGlobalStash/_hasChannelStash and
+  // _hydrateStashesFromCache read. Never write display labels here.
   final _globalProviderEmotes = <String, List<GenericEmote>>{};
   final _channelProviderEmotes = <String, Map<String, List<GenericEmote>>>{};
   String? _accessToken;
@@ -1146,7 +1149,7 @@ class EmoteManager extends ChangeNotifier {
           )
           .toList();
       (_channelProviderEmotes[channel] ??=
-              <String, List<GenericEmote>>{})['Twitch'] =
+              <String, List<GenericEmote>>{})[EmoteType.twitch.name] =
           nonSub;
       final merged = _mergeWithStoredSubs(channel, nonSub);
       final existing = _channelCaches[channel];
@@ -1172,7 +1175,7 @@ class EmoteManager extends ChangeNotifier {
         resolution: _tier.resolution!,
       );
       if (emotes.isEmpty) return;
-      _globalProviderEmotes['Twitch'] = emotes;
+      _globalProviderEmotes[EmoteType.twitch.name] = emotes;
       final current = _globalCache;
       final all = <GenericEmote>[
         if (current != null)
@@ -1389,8 +1392,9 @@ class EmoteManager extends ChangeNotifier {
     // resurrect the delta from stale retained data, and record the live 7TV
     // list so any concurrent fetch rebuild re-applies it.
     final providerStash = _channelProviderEmotes[channel];
-    if (providerStash != null && providerStash.containsKey('7TV')) {
-      providerStash['7TV'] = cache.suggestions
+    if (providerStash != null &&
+        providerStash.containsKey(EmoteType.sevenTv.name)) {
+      providerStash[EmoteType.sevenTv.name] = cache.suggestions
           .where((e) => e.type == EmoteType.sevenTv)
           .toList();
     }
@@ -1584,36 +1588,36 @@ class EmoteManager extends ChangeNotifier {
 
   Future<List<GenericEmote>> _fetchAllGlobal() async {
     await _ensureProvidersLoaded();
-    final providers = <String, Future<List<GenericEmote>> Function()>{
-      'Twitch': () async {
+    final providers = <EmoteType, Future<List<GenericEmote>> Function()>{
+      EmoteType.twitch: () async {
         if (!_isProviderOn(EmoteType.twitch)) return [];
         final emotes = await TwitchEmoteProvider.fetchGlobal(
           accessToken: _accessToken,
           resolution: _tier.resolution!,
         );
-        _globalProviderEmotes['Twitch'] = emotes;
+        _globalProviderEmotes[EmoteType.twitch.name] = emotes;
         return emotes;
       },
-      'BTTV': () async {
+      EmoteType.bttv: () async {
         if (!_isProviderOn(EmoteType.bttv)) return [];
         final emotes = await BttvEmoteProvider.fetchGlobal(
           resolution: _tier.resolution!,
         );
-        _globalProviderEmotes['BTTV'] = emotes;
+        _globalProviderEmotes[EmoteType.bttv.name] = emotes;
         return emotes;
       },
-      'FFZ': () async {
+      EmoteType.ffz: () async {
         if (!_isProviderOn(EmoteType.ffz)) return [];
         final emotes = await FfzEmoteProvider.fetchGlobal(
           resolution: _tier.resolution!,
         );
-        _globalProviderEmotes['FFZ'] = emotes;
+        _globalProviderEmotes[EmoteType.ffz.name] = emotes;
         return emotes;
       },
-      '7TV': () async {
+      EmoteType.sevenTv: () async {
         if (!_isProviderOn(EmoteType.sevenTv)) return [];
         final emotes = await _sevenTvGlobalFetcher(_tier.resolution!);
-        _globalProviderEmotes['7TV'] = emotes;
+        _globalProviderEmotes[EmoteType.sevenTv.name] = emotes;
         return emotes;
       },
     };
@@ -1638,8 +1642,8 @@ class EmoteManager extends ChangeNotifier {
     final channelKey = channelName ?? '';
     final map = _channelProviderEmotes[channelKey] ??=
         <String, List<GenericEmote>>{};
-    final providers = <String, Future<List<GenericEmote>> Function()>{
-      'Twitch': () async {
+    final providers = <EmoteType, Future<List<GenericEmote>> Function()>{
+      EmoteType.twitch: () async {
         if (!_isProviderOn(EmoteType.twitch)) return [];
         final fetched = await TwitchEmoteProvider.fetchChannel(
           broadcasterId,
@@ -1654,28 +1658,28 @@ class EmoteManager extends ChangeNotifier {
                       (e.tier != null || e.emoteType == 'subscriptions')),
             )
             .toList();
-        map['Twitch'] = nonSub;
+        map[EmoteType.twitch.name] = nonSub;
         return nonSub;
       },
-      'BTTV': () async {
+      EmoteType.bttv: () async {
         if (!_isProviderOn(EmoteType.bttv)) return [];
         final emotes = await BttvEmoteProvider.fetchChannel(
           broadcasterId,
           resolution: _tier.resolution!,
         );
-        map['BTTV'] = emotes;
+        map[EmoteType.bttv.name] = emotes;
         return emotes;
       },
-      'FFZ': () async {
+      EmoteType.ffz: () async {
         if (!_isProviderOn(EmoteType.ffz)) return [];
         final emotes = await FfzEmoteProvider.fetchChannel(
           broadcasterId,
           resolution: _tier.resolution!,
         );
-        map['FFZ'] = emotes;
+        map[EmoteType.ffz.name] = emotes;
         return emotes;
       },
-      '7TV': () async {
+      EmoteType.sevenTv: () async {
         if (!_isProviderOn(EmoteType.sevenTv)) return [];
         final resp = await _sevenTvChannelFetcher(
           broadcasterId,
@@ -1689,7 +1693,7 @@ class EmoteManager extends ChangeNotifier {
             _sevenTvUserIds[channelName] = resp.userId!;
           }
         }
-        map['7TV'] = resp.emotes;
+        map[EmoteType.sevenTv.name] = resp.emotes;
         return resp.emotes;
       },
     };
@@ -1698,7 +1702,7 @@ class EmoteManager extends ChangeNotifier {
   }
 
   Future<void> _fetchConcurrent(
-    Map<String, Future<List<GenericEmote>> Function()> providers, {
+    Map<EmoteType, Future<List<GenericEmote>> Function()> providers, {
     required int maxConcurrent,
   }) async {
     final sem = _Semaphore(maxConcurrent);
@@ -1709,7 +1713,7 @@ class EmoteManager extends ChangeNotifier {
           try {
             await entry.value();
           } catch (e) {
-            logDebug('EmoteManager: ${entry.key} failed: $e');
+            logDebug('EmoteManager: ${entry.key.name} failed: $e');
           }
         }),
       );

@@ -54,11 +54,11 @@ class ChatSettingsScreen extends StatefulWidget {
 
 class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
   int _maxMessagesPerChannel = kMaxMessagesPerChannelDefault;
-  int _recentMessagesCount = 200;
+  int _recentMessagesCount = kRecentMessagesLimitDefault;
   bool _replyToRoot = false;
   bool _backgroundService = false;
   bool _mentionPush = false;
-  bool _whisperNotify = true;
+  bool _whisperNotify = false;
   bool _preferEmotesFirst = false;
   bool _showTimestamps = true;
   String _timestampFormat = kDefaultTimestampFormat;
@@ -83,7 +83,9 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
           prefs.getInt('max_messages_per_channel') ??
               kMaxMessagesPerChannelDefault,
         );
-        _recentMessagesCount = prefs.getInt('recent_messages_limit') ?? 200;
+        _recentMessagesCount =
+            prefs.getInt('recent_messages_limit') ??
+            kRecentMessagesLimitDefault;
         _replyToRoot = prefs.getBool('reply_to_thread_root') ?? false;
         _backgroundService = prefs.getBool('background_service') ?? false;
         _mentionPush = prefs.getBool('mention_push') ?? false;

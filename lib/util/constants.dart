@@ -24,6 +24,11 @@ const kMaxMessagesPerChannelValues = <int>[
 /// member of [kMaxMessagesPerChannelValues].
 const kMaxMessagesPerChannelDefault = 500;
 
+/// Default recent-messages history fetch count when nothing is persisted.
+/// Shared by the boot warm-up, HomeScreen's limit loader, and the settings
+/// screen so all three agree.
+const kRecentMessagesLimitDefault = 100;
+
 /// Snaps a raw (possibly legacy) value to the nearest log-scale step.
 int snapToMaxMessagesStep(int value) {
   var best = kMaxMessagesPerChannelValues.first;

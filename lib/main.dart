@@ -18,6 +18,7 @@ import 'services/twitch_irc.dart';
 import 'services/recent_messages.dart';
 import 'services/twitch_badge_service.dart';
 import 'theme_colors.dart';
+import 'util/constants.dart';
 import 'util/log.dart';
 import 'widgets/tabbed_layout.dart';
 
@@ -41,7 +42,9 @@ Future<void> _warmHistory() async {
     if (channels.isNotEmpty) {
       RecentMessagesService.warm(
         channels,
-        limit: prefs.getInt('recent_messages_limit') ?? 100,
+        limit:
+            prefs.getInt('recent_messages_limit') ??
+            kRecentMessagesLimitDefault,
       );
     }
   } catch (_) {

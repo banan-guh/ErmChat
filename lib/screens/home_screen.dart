@@ -1535,7 +1535,8 @@ class _HomeScreenState extends State<HomeScreen>
       _maxMessagesPerChannel =
           prefs.getInt('max_messages_per_channel') ??
           kMaxMessagesPerChannelDefault;
-      _recentMessagesLimit = prefs.getInt('recent_messages_limit') ?? 100;
+      _recentMessagesLimit =
+          prefs.getInt('recent_messages_limit') ?? kRecentMessagesLimitDefault;
       _replyToRoot = prefs.getBool('reply_to_thread_root') ?? false;
       _preferEmotesFirst = prefs.getBool('prefer_emotes_first') ?? false;
       _showTimestamps = prefs.getBool(kShowTimestampsPrefKey) ?? true;
@@ -1835,7 +1836,7 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   /// Translates join-queue progress into a live countdown system line
-  /// ("Joining · position 12 · ~14s"); position 0 means numbers are over
+  /// ("Joining: position 12, ~14s"); position 0 means numbers are over
   /// (sent, awaiting echo) and the line degrades to a plain marker; a null
   /// [info] retires the line.
   void _onJoinProgress(String channel, JoinProgress? info) {
@@ -1847,8 +1848,8 @@ class _HomeScreenState extends State<HomeScreen>
       final text = info.position <= 0
           ? 'Joining #$channel...'
           : info.etaSeconds <= 0
-          ? 'Joining · position ${info.position}'
-          : 'Joining · position ${info.position} · ~${info.etaSeconds}s';
+          ? 'Joining: position ${info.position}'
+          : 'Joining: position ${info.position}, ~${info.etaSeconds}s';
       changed = _chatStore.upsertSystemMessage(channel, text, messageId: id);
     }
     if (!changed) return;
