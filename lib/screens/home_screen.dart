@@ -10,6 +10,7 @@ import '../models/twitch_message.dart';
 import '../services/twitch_api.dart';
 import '../services/twitch_auth.dart';
 import '../services/twitch_eventsub.dart';
+import '../services/join_rate_limiter.dart';
 import '../services/twitch_irc.dart';
 import '../services/command_macros.dart';
 import '../services/connectivity_service.dart';
@@ -101,12 +102,22 @@ class _HomeScreenState extends State<HomeScreen>
   late final _eventSub =
       widget.eventSubService ??
       EventSubService(connectivityService: _connectivityService);
+  // One JOIN budget shared by both IRC sockets: their combined rate stays
+  // inside Twitch's ~20-commands-per-10s limit instead of each socket
+  // bursting independently.
+  final _joinBudget = JoinRateLimiter();
   late final _irc =
       widget.ircService ??
-      IrcService(connectivityService: _connectivityService);
+      IrcService(
+        connectivityService: _connectivityService,
+        joinBudget: _joinBudget,
+      );
   late final _ircRead =
       widget.ircReadService ??
-      IrcReadService(connectivityService: _connectivityService);
+      IrcReadService(
+        connectivityService: _connectivityService,
+        joinBudget: _joinBudget,
+      );
   late final _recentMessages =
       widget.recentMessagesService ?? RecentMessagesService();
   late final _sevenTvClient = SevenTvEventClient(

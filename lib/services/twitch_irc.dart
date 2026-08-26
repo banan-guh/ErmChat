@@ -303,7 +303,7 @@ class IrcService extends IrcConnection {
   @override
   String get debugPrefix => 'IRC';
 
-  IrcService({super.connectivityService});
+  IrcService({super.connectivityService, super.joinBudget});
 
   void sendMessage(
     String channelName,

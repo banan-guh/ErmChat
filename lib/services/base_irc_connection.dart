@@ -1,10 +1,13 @@
 import 'dart:async';
 import 'dart:math';
+
 import 'package:flutter/foundation.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
-import 'connectivity_service.dart';
+
 import '../util/constants.dart';
 import '../util/irc_utils.dart';
+import 'connectivity_service.dart';
+import 'join_rate_limiter.dart';
 import '../util/log.dart';
 
 enum IrcConnectionStatus { disconnected, connecting, connected }
@@ -66,11 +69,11 @@ abstract class IrcConnection {
   // Upper bound on the connect handshake. Without it a reconnect over a dead
   // network can hang forever while the loop waits on an attempt.
   static const _connectTimeout = Duration(seconds: 10);
-  // JOIN rate limiting: Twitch throttles connections that fire JOINs too
-  // fast. Bursts are kept small and spaced out; the ROOMSTATE sweep re-sends
-  // any JOIN the server silently dropped.
-  static const _joinTickInterval = Duration(seconds: 2);
-  static const _joinMaxPerTick = 20;
+  // JOIN pacing: Twitch throttles connections that fire JOINs too fast, so
+  // every JOIN goes through a token bucket. The bucket is shared between the
+  // read and write sockets when the app wires them to one [JoinRateLimiter]
+  // (see HomeScreen); standalone instances fall back to a private bucket.
+  static const _joinPumpInterval = Duration(milliseconds: 500);
   // ROOMSTATE echoes a processed JOIN; a channel that hasn't confirmed within
   // this window is re-sent (up to a few rounds, then we stop nagging).
   static const _joinConfirmInterval = Duration(seconds: 10);
@@ -78,6 +81,18 @@ abstract class IrcConnection {
 
   final ConnectivityService? connectivityService;
   final IrcSocketRole role;
+
+  /// Shared JOIN pacing. When the app wires both sockets to one limiter,
+  /// their combined JOIN rate stays inside Twitch's command budget; a null
+  /// injection falls back to a private bucket with identical semantics.
+  final JoinRateLimiter? _injectedJoinBudget;
+  JoinRateLimiter? _joinBudgetInstance;
+
+  JoinRateLimiter get _joinBudget =>
+      _injectedJoinBudget ??
+      (_joinBudgetInstance ??= JoinRateLimiter(
+        pumpInterval: _joinPumpInterval,
+      ));
 
   WebSocketChannel? channel;
   String? username;
@@ -105,9 +120,6 @@ abstract class IrcConnection {
   final _joinPending = <String>{};
   // Channels the server confirmed via ROOMSTATE for this socket.
   final _joinConfirmed = <String>{};
-  // JOINs waiting behind the rate limiter.
-  final _joinQueue = <String>[];
-  Timer? _joinFlushTimer;
   Timer? _joinSweepTimer;
   int _joinSweepRound = 0;
   // Channels the server explicitly refused (msg_channel_suspended). Excluded
@@ -156,7 +168,11 @@ abstract class IrcConnection {
 
   String get debugPrefix;
 
-  IrcConnection({this.connectivityService, this.role = IrcSocketRole.write});
+  IrcConnection({
+    this.connectivityService,
+    this.role = IrcSocketRole.write,
+    JoinRateLimiter? joinBudget,
+  }) : _injectedJoinBudget = joinBudget;
 
   /// Emits a status event, no-oping after [dispose] so a racing connect or
   /// reconnect can never throw on the closed controller.
@@ -436,10 +452,11 @@ abstract class IrcConnection {
     channel?.sink.close();
     channel = null;
     _awaitingPong = false;
-    _stopJoinFlush();
+    // Drop this socket's queued JOINs; the reconnect path re-queues every
+    // channel after the handshake.
+    _joinBudget.dropRole(role);
     _stopJoinSweep();
     _stopJoinRetry();
-    _joinQueue.clear();
     _joinPending.clear();
     _joinConfirmed.clear();
     _joinFailed.clear();
@@ -625,51 +642,29 @@ abstract class IrcConnection {
     _channels.remove(channel);
     _joinConfirmed.remove(channel);
     _joinPending.remove(channel);
-    _joinQueue.remove(channel);
+    _joinBudget.removeEntry(role, channel);
     _joinFailed.remove(channel);
     if (this.channel != null) {
       sendLine('PART #$channel');
     }
   }
 
-  /// Queues a JOIN behind the rate limiter. No-ops while disconnected: the
-  /// connect path re-queues every [_channels] entry after the handshake.
+  /// Queues a JOIN behind the shared rate limiter. Safe while disconnected:
+  /// the limiter drops entries its socket cannot deliver, and the connect
+  /// path re-queues every [_channels] entry after the handshake.
   void _queueJoin(String channel) {
-    if (!_joinQueue.contains(channel)) {
-      _joinQueue.add(channel);
-    }
-    // Always kick the flush: if the channel was already queued pre-connect
-    // (socket down, so the first kick was a no-op), this is what finally sends
-    // it once the socket is up. Skipping here would strand it in the queue
-    // forever (the dedup guard would also block the rejoin sweep).
-    _kickJoinFlush();
+    _joinBudget.registerHandler(role, sendJoinNow);
+    _joinBudget.enqueue(role, channel);
   }
 
-  void _kickJoinFlush() {
-    if (channel == null) return;
-    if (_joinFlushTimer != null) return;
-    _joinFlushTimer = Timer.periodic(_joinTickInterval, (_) => _flushJoins());
-    // Coalesce a synchronous burst of joins: flush after the current microtask
-    // queue drains so back-to-back join() calls land in one rate-limited batch
-    // instead of each firing its own immediate JOIN.
-    Future.microtask(() {
-      if (_joinFlushTimer != null) _flushJoins();
-    });
-  }
-
-  void _flushJoins() {
-    if (channel == null) {
-      _stopJoinFlush();
-      return;
-    }
-    var sent = 0;
-    while (sent < _joinMaxPerTick && _joinQueue.isNotEmpty) {
-      final ch = _joinQueue.removeAt(0);
-      sendLine('JOIN #$ch');
-      _joinPending.add(ch);
-      sent++;
-    }
-    if (_joinQueue.isEmpty) _stopJoinFlush();
+  /// Sends one JOIN immediately. Called by the limiter's pump; returns false
+  /// when the socket is down so the entry is dropped instead of consumed.
+  @visibleForTesting
+  bool sendJoinNow(String channel) {
+    if (this.channel == null) return false;
+    sendLine('JOIN #$channel');
+    _joinPending.add(channel);
+    return true;
   }
 
   /// Watches for JOINs the server never confirmed (no ROOMSTATE echoed back).
@@ -708,7 +703,7 @@ abstract class IrcConnection {
       'unconfirmed: $unconfirmed',
     );
     for (final ch in unconfirmed) {
-      if (!_joinQueue.contains(ch)) _queueJoin(ch);
+      _queueJoin(ch);
     }
   }
 
@@ -749,7 +744,7 @@ abstract class IrcConnection {
       }
       logDebug('[$debugPrefix] slow join retry: $pending');
       for (final ch in pending) {
-        if (!_joinQueue.contains(ch)) _queueJoin(ch);
+        _queueJoin(ch);
       }
     });
   }
@@ -764,11 +759,6 @@ abstract class IrcConnection {
     _joinFailedController.add(
       IrcJoinFailureEvent(channel: channel, reason: reason),
     );
-  }
-
-  void _stopJoinFlush() {
-    _joinFlushTimer?.cancel();
-    _joinFlushTimer = null;
   }
 
   void _stopJoinSweep() {
@@ -797,7 +787,8 @@ class IrcReadService extends IrcConnection {
 
   Stream<IrcMessage> get onOwnMessage => _ownMessageController.stream;
 
-  IrcReadService({super.connectivityService}) : super(role: IrcSocketRole.read);
+  IrcReadService({super.connectivityService, super.joinBudget})
+    : super(role: IrcSocketRole.read);
 
   @override
   String get debugPrefix => 'IRC read';
