@@ -221,6 +221,12 @@ class ChatConnectionManager {
   // before the read JOIN lands hides the reply.
   final _readJoinedChannels = <String>{};
   StreamSubscription<IrcRoomStateEvent>? ircReadRoomStateSub;
+
+  /// Whether the read socket participates in readiness gating: yes for
+  /// authenticated sessions (both sockets are part of the deal from the
+  /// start, including their handshake windows), no for anonymous read-only
+  /// sessions where there is nothing to echo.
+  bool get _readExpected => !_lastIrcAnonymous;
   // Channels currently showing a join-countdown line; drives the clear emit
   // when the wait ends or the socket drops.
   final _joinWaitShown = <String>{};
@@ -654,17 +660,16 @@ class ChatConnectionManager {
     return ChatPhase.online;
   }
 
-  /// Whether [channel]'s JOIN is confirmed on every live socket - the point
-  /// at which a PRIVMSG lands AND echoes back locally. Drives the chat input
-  /// gate: between socket-connect and join-confirm, sends would vanish.
+  /// Whether [channel]'s JOIN is confirmed on every participating socket -
+  /// the point at which a PRIVMSG lands AND echoes back locally. Drives the
+  /// chat input gate: between socket-connect and join-confirm, sends would
+  /// vanish. The read side gates whenever it is expected (authenticated
+  /// session, including its handshake window) or currently live; sessions
+  /// that genuinely have no read socket never block on it.
   bool isChannelChatReady(String channel) {
     if (!_joinedChannels.contains(channel)) return false;
-    // The read socket only gates while it's actually up: a dead read socket
-    // must not wedge the input forever.
-    if (ircRead.isConnected && !_readJoinedChannels.contains(channel)) {
-      return false;
-    }
-    return true;
+    if (!_readExpected && !ircRead.isConnected) return true;
+    return _readJoinedChannels.contains(channel);
   }
 
   /// Posts the per-channel "Connected" once, when the channel becomes fully
@@ -705,28 +710,32 @@ class ChatConnectionManager {
           );
         }
         final eta = budget.etaSecondsForChannel(channel);
-        if (last == null && position == 1 && eta <= 0) {
-          // Head-of-queue with a token available: dispatches this instant,
-          // so a "position 1 · ~0s" line would just flash for one frame.
+        final numbersDone = position <= 1 && eta <= 0;
+        if (numbersDone) {
+          // Head-of-queue with banked tokens: dispatches this instant, and
+          // "position 1 · ~0s" would just repeat every tick. Degrade to the
+          // numberless marker until the echo lands.
+          _lastJoinProgress.remove(channel);
+          _emitPlainJoining(channel);
           continue;
         }
         final progress = JoinProgress(shown, eta);
         _lastJoinProgress[channel] = progress;
         _joinWaitShown.add(channel);
-        PerfLog.I.record(
-          'JOINQ',
-          'wait $channel pos=${progress.position} '
-              'eta=${progress.etaSeconds}s',
-        );
         onJoinProgress?.call(channel, progress);
-      } else if (_joinWaitShown.contains(channel)) {
-        // Sent but not confirmed yet: freeze at the last values instead of
-        // clearing, so the line survives until "Connected" replaces it.
-        PerfLog.I.record('JOINQ', 'wait $channel frozen (sent, unconfirmed)');
       } else {
-        _clearJoinWait(channel);
+        // Unit fully sent (or imminent): no honest numbers exist anymore.
+        // Keep a numberless marker so the channel still reads as joining
+        // until its "Connected" lands.
+        _emitPlainJoining(channel);
       }
     }
+  }
+
+  /// Emits the numberless "still joining" state for [channel].
+  void _emitPlainJoining(String channel) {
+    _joinWaitShown.add(channel);
+    onJoinProgress?.call(channel, const JoinProgress(0, 0));
   }
 
   /// Starts the one-second progress ticker for the manager's lifetime. It
@@ -1019,6 +1028,10 @@ class ChatConnectionManager {
       }
 
       if (session.login != null && hasToken) {
+        // An authenticated session gets BOTH sockets; arming happens via
+        // _lastIrcAnonymous below (_readExpected = !anonymous), so the
+        // handshake window counts as "read pending" instead of "read
+        // absent" - no premature Connected, no early input unlock.
         try {
           await Future.wait([
             irc.connect(

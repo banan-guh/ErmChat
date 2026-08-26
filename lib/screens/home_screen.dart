@@ -1835,14 +1835,18 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   /// Translates join-queue progress into a live countdown system line
-  /// ("Joining · position 12 · ~14s"); a null [info] retires the line.
+  /// ("Joining · position 12 · ~14s"); position 0 means numbers are over
+  /// (sent, awaiting echo) and the line degrades to a plain marker; a null
+  /// [info] retires the line.
   void _onJoinProgress(String channel, JoinProgress? info) {
     final id = 'join_wait_$channel';
     var changed = false;
     if (info == null) {
       changed = _chatStore.removeSystemMessage(channel, id);
     } else {
-      final text = info.etaSeconds <= 0
+      final text = info.position <= 0
+          ? 'Joining #$channel...'
+          : info.etaSeconds <= 0
           ? 'Joining · position ${info.position}'
           : 'Joining · position ${info.position} · ~${info.etaSeconds}s';
       changed = _chatStore.upsertSystemMessage(channel, text, messageId: id);

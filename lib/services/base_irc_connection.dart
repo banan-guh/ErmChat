@@ -73,7 +73,7 @@ abstract class IrcConnection {
   // every JOIN goes through a token bucket. The bucket is shared between the
   // read and write sockets when the app wires them to one [JoinRateLimiter]
   // (see HomeScreen); standalone instances fall back to a private bucket.
-  static const _joinPumpInterval = Duration(milliseconds: 500);
+  static const _joinPumpInterval = Duration(milliseconds: 1050);
   // ROOMSTATE echoes a processed JOIN; a channel that hasn't confirmed within
   // this window is re-sent (up to a few rounds, then we stop nagging).
   static const _joinConfirmInterval = Duration(seconds: 10);
@@ -176,7 +176,14 @@ abstract class IrcConnection {
     this.connectivityService,
     this.role = IrcSocketRole.write,
     JoinRateLimiter? joinBudget,
-  }) : _injectedJoinBudget = joinBudget;
+  }) : _injectedJoinBudget = joinBudget {
+    // Register eagerly: units must know about BOTH sockets from birth, so a
+    // write-side dispatch that wins the handshake race leaves the unit
+    // resident holding the read role in its original slot (instead of
+    // completing immediately and pushing the read join to the back of the
+    // queue when the read socket's handshake lands later).
+    _injectedJoinBudget?.registerHandler(role, sendJoinNow);
+  }
 
   /// Emits a status event, no-oping after [dispose] so a racing connect or
   /// reconnect can never throw on the closed controller.
@@ -286,8 +293,12 @@ abstract class IrcConnection {
         // Route the re-JOINs through the limiter: a burst of JOINs right
         // after connect is exactly what Twitch drops. The ROOMSTATE sweep
         // re-sends anything the server never confirmed.
+        // A fresh socket genuinely needs every channel re-joined (its confirm
+        // set was cleared on disconnect): force past completion-memory so a
+        // bounce cannot skip re-joins, while live-socket duplicate joins
+        // stay suppressed.
         for (final channelName in _channels) {
-          _queueJoin(channelName);
+          _queueJoin(channelName, force: true);
         }
         _startJoinSweep();
 
@@ -647,6 +658,7 @@ abstract class IrcConnection {
     _joinConfirmed.remove(channel);
     _joinPending.remove(channel);
     _joinBudget.removeEntry(channel);
+    _joinBudget.forget(channel);
     _joinFailed.remove(channel);
     if (this.channel != null) {
       sendLine('PART #$channel');
@@ -654,12 +666,14 @@ abstract class IrcConnection {
   }
 
   /// Queues this socket's JOIN for [channel] behind the shared rate limiter.
-  /// Safe while disconnected: units whose dispatch fails stay queued and
-  /// retry, and the connect path re-queues every [_channels] entry after the
-  /// handshake (merging into already-queued units).
-  void _queueJoin(String channel) {
+  /// No-ops while this socket is down (the connect path re-queues every
+  /// [_channels] entry after the handshake), so dead-socket dispatch attempts
+  /// don't spam the pump. The rejoin sweep/retry pass [force]: they run while
+  /// the socket is live and exist because a JOIN was lost.
+  void _queueJoin(String channel, {bool force = false}) {
+    if (!force && this.channel == null) return;
     _joinBudget.registerHandler(role, sendJoinNow);
-    _joinBudget.enqueue(channel, role);
+    _joinBudget.enqueue(channel, role, force: force);
   }
 
   /// Sends one JOIN immediately. Called by the limiter's pump; returns false
@@ -712,7 +726,7 @@ abstract class IrcConnection {
       'unconfirmed: $unconfirmed',
     );
     for (final ch in unconfirmed) {
-      _queueJoin(ch);
+      _queueJoin(ch, force: true);
     }
   }
 
@@ -753,7 +767,7 @@ abstract class IrcConnection {
       }
       logDebug('[$debugPrefix] slow join retry: $pending');
       for (final ch in pending) {
-        _queueJoin(ch);
+        _queueJoin(ch, force: true);
       }
     });
   }

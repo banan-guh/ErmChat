@@ -29,7 +29,7 @@ class JoinRateLimiter {
   JoinRateLimiter({
     this.capacity = 20,
     this.window = const Duration(milliseconds: 10500),
-    this.pumpInterval = const Duration(milliseconds: 500),
+    this.pumpInterval = const Duration(milliseconds: 1050),
     DateTime Function()? now,
   }) : _now = now ?? DateTime.now {
     _lastRefill = _now();
@@ -45,17 +45,30 @@ class JoinRateLimiter {
   /// boundary effects never push a rolling window over the limit.
   final Duration window;
 
-  /// How often the pump wakes while units are queued. Only affects drip
-  /// granularity, not throughput.
+  /// How often the pump wakes while units are queued. With the send cap
+  /// below this sets the steady-state pace: one pair per tick ~= your
+  /// "10 channels / 10.5s" spread smoothly instead of as a burst.
   final Duration pumpInterval;
+
+  /// Max JOIN commands sent per pump wake. Two per tick = one full pair,
+  /// which keeps even the initial full-bucket burst inside Twitch's
+  /// silent-drop territory.
+  static const _maxSendsPerPump = 2;
 
   final DateTime Function() _now;
 
   double _tokens = -1; // resolved to [capacity] on first use (see _refill)
   late DateTime _lastRefill;
   Timer? _pumpTimer;
+  bool _pumpScheduled = false;
   final _handlers = <IrcSocketRole, bool Function(String channel)>{};
   final _queue = <({String channel, Set<IrcSocketRole> remaining})>[];
+  // Recently COMPLETED units. Handshake re-queues arrive for channels that
+  // were already fully joined moments ago; without this memory they would
+  // spawn fresh units and re-send JOINs for joined channels on every socket
+  // bounce. Sweeps bypass the memory via [enqueue]'s force flag.
+  final _completed = <String, DateTime>{};
+  static const _completionMemory = Duration(seconds: 90);
 
   /// Tokens available right now (fractional), capped at [capacity].
   @visibleForTesting
@@ -75,7 +88,20 @@ class JoinRateLimiter {
   /// read role until the read socket catches up and merges - instead of
   /// completing immediately and forcing the read join into a fresh,
   /// back-of-queue unit later.
-  void enqueue(String channel, IrcSocketRole role) {
+  ///
+  /// Channels that completed recently are ignored unless [force] is set (the
+  /// rejoin sweep/retry use force: they exist precisely because a JOIN was
+  /// lost and must go out again). Set [force] whenever a NEW socket needs
+  /// the join; leave it off for handshake re-queues of live sockets.
+  void enqueue(String channel, IrcSocketRole role, {bool force = false}) {
+    if (!force) {
+      final completedAt = _completed[channel];
+      if (completedAt != null &&
+          _now().difference(completedAt) < _completionMemory) {
+        return;
+      }
+      _completed.remove(channel);
+    }
     final existing = _queue.indexWhere((unit) => unit.channel == channel);
     if (existing >= 0) {
       final added = _queue[existing].remaining.add(role);
@@ -98,7 +124,18 @@ class JoinRateLimiter {
     }
     // Always kick the pump: a burst needs the coalesced first pass, and a
     // merge can complete a resident unit whose other roles were waiting.
-    Future.microtask(_pump);
+    // Deduplicated, otherwise N enqueues schedule N pumps and the per-pump
+    // send cap never engages.
+    _schedulePump();
+  }
+
+  void _schedulePump() {
+    if (_pumpScheduled) return;
+    _pumpScheduled = true;
+    Future.microtask(() {
+      _pumpScheduled = false;
+      _pump();
+    });
   }
 
   /// Drops one pending unit entirely (e.g. the channel was parted on both
@@ -112,6 +149,12 @@ class JoinRateLimiter {
   void clear() {
     _queue.clear();
     _stop();
+  }
+
+  /// Drops completion memory for one channel (e.g. it was parted, so a
+  /// subsequent join must not be suppressed).
+  void forget(String channel) {
+    _completed.remove(channel);
   }
 
   /// Strips [role] from every pending unit, dropping units left with no
@@ -140,20 +183,31 @@ class JoinRateLimiter {
     ];
   }
 
-  /// Seconds until [channel]'s unit would START sending. Counts the actual
-  /// outstanding commands ahead of it (a pair-unit costs two), so the ETA is
-  /// honest even when every unit carries both roles.
+  /// Seconds until [channel]'s unit has fully sent both its JOINs. Counts
+  /// every outstanding command up to and including its own (a pair-unit is
+  /// two), and respects BOTH bottlenecks: banked tokens refill at
+  /// capacity/window, but the pump can also only push _maxSendsPerPump
+  /// commands per tick - ignoring the latter made ETAs collapse to ~0s
+  /// while the queue was still seconds away from reaching the channel.
   int etaSecondsForChannel(String channel) {
     final index = _queue.indexWhere((unit) => unit.channel == channel);
     if (index < 0) return 0;
+    // Head unit with its commands fully banked by tokens: goes out on this
+    // pump.
+    if (index == 0 && availableTokens >= _queue[0].remaining.length) return 0;
     var commands = 0;
-    for (var i = 0; i < index; i++) {
+    for (var i = 0; i <= index; i++) {
       commands += _queue[i].remaining.length;
     }
-    final deficit = commands - availableTokens;
-    if (deficit <= 0) return 0;
-    final ratePerSecond = capacity * 1000 / window.inMilliseconds;
-    return (deficit / ratePerSecond).ceil();
+    final tokenSeconds = math.max(
+      0,
+      (commands - availableTokens) * window.inMilliseconds / capacity / 1000,
+    );
+    final capSeconds =
+        (commands / _maxSendsPerPump).ceil() *
+        pumpInterval.inMilliseconds /
+        1000;
+    return math.max(tokenSeconds, capSeconds).ceil();
   }
 
   void _start() {
@@ -183,7 +237,11 @@ class JoinRateLimiter {
     _refill();
     var walk = _queue.length;
     var index = 0;
-    while (_tokens >= 1 && walk > 0 && index < _queue.length) {
+    var sendsThisPump = 0;
+    while (_tokens >= 1 &&
+        sendsThisPump < _maxSendsPerPump &&
+        walk > 0 &&
+        index < _queue.length) {
       final unit = _queue[index];
       walk--;
       // Dispatch to every still-pending role. Successes strip out of the
@@ -197,6 +255,7 @@ class JoinRateLimiter {
         if (sent) {
           unit.remaining.remove(role);
           _tokens -= 1;
+          sendsThisPump++;
           PerfLog.I.record(
             'JOINQ',
             'dispatch ${unit.channel} ${role.name}:ok '
@@ -209,12 +268,14 @@ class JoinRateLimiter {
           );
         }
       }
-      final completed = unit.remaining.isEmpty;
-      if (completed) _queue.removeAt(index);
+      if (unit.remaining.isEmpty) {
+        _queue.removeAt(index);
+        _completed[unit.channel] = _now();
+      }
       // Only step past the slot when the unit completed; a partially-sent
       // one keeps its slot (its remaining roles retry on later pumps) while
       // still not blocking the units behind it.
-      if (!completed) index++;
+      if (unit.remaining.isNotEmpty) index++;
       if (_tokens < 1) break;
     }
     if (_queue.isEmpty) _stop();

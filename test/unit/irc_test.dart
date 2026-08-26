@@ -274,6 +274,13 @@ class _NoopIrcRead extends IrcReadService {
     required String username,
     required String accessToken,
   }) async {}
+
+  /// Feeds a ROOMSTATE through the real dispatch path so readiness tracking
+  /// sees the read side confirm like production traffic.
+  void confirmJoin(String channel) {
+    username ??= 'testuser';
+    handleLine('@room-id=1 :tmi.twitch.tv ROOMSTATE #$channel');
+  }
 }
 
 class _TestIrcRead extends IrcReadService {
@@ -908,11 +915,11 @@ void main() {
         List<String> joins() =>
             channel.sent.where((l) => l.startsWith('JOIN')).toList();
 
-        // The full bucket sends 20 immediately (per-socket command budget).
-        expect(joins(), hasLength(20));
-        // ...and the rest drip out at ~10 units per 10.5s. ROOMSTATE echoes
+        // Send-cap: at most one pair per pump tick.
+        expect(joins(), hasLength(2));
+        // ...and the rest drip out at ~1 pair per 1.05s. ROOMSTATE echoes
         // are fed back so the rejoin sweep never pollutes the count.
-        for (var step = 0; step < 34; step++) {
+        for (var step = 0; step < 60; step++) {
           fakeNow = fakeNow.add(const Duration(milliseconds: 500));
           async.elapse(const Duration(milliseconds: 500));
           async.flushMicrotasks();
@@ -1001,7 +1008,12 @@ void main() {
         fakeNow = fakeNow.add(const Duration(seconds: 1));
         async.elapse(const Duration(milliseconds: 1100));
         final waits = events
-            .where((e) => e.$1 == 'test' && e.$2 != null)
+            .where(
+              (e) =>
+                  e.$1 == 'test' &&
+                  e.$2 != null &&
+                  e.$2!.position > 0, // numberless markers aren't countdowns
+            )
             .toList();
         expect(waits, isNotEmpty, reason: 'a queued channel shows a countdown');
         expect(waits.first.$2!.position, greaterThanOrEqualTo(1));
@@ -1082,15 +1094,15 @@ void main() {
             writeChannel.sent.where((l) => l.startsWith('JOIN')).length +
             readChannel.sent.where((l) => l.startsWith('JOIN')).length;
 
-        // The full bucket sends 10 units = 20 commands (10 per socket).
-        expect(totalJoins(), 20, reason: 'the shared bucket caps both sockets');
+        // Send-cap starts with a single pair (one command per socket).
+        expect(totalJoins(), 2, reason: 'the shared bucket caps both sockets');
         expect(
           writeChannel.sent.where((l) => l.startsWith('JOIN')),
-          hasLength(10),
+          hasLength(1),
         );
         expect(
           readChannel.sent.where((l) => l.startsWith('JOIN')),
-          hasLength(10),
+          hasLength(1),
         );
 
         // Echo ROOMSTATE like the real server so sweeps stay quiet.
@@ -1106,14 +1118,39 @@ void main() {
 
         confirmEchoes();
 
-        // The last 2 units drip out within ~2.2s at ~0.95 units/s.
-        for (var step = 0; step < 6; step++) {
+        // The remaining 11 pairs drip out at ~1 pair per 1.05s.
+        for (var step = 0; step < 30; step++) {
           fakeNow = fakeNow.add(const Duration(milliseconds: 500));
           async.elapse(const Duration(milliseconds: 500));
           async.flushMicrotasks();
           confirmEchoes();
         }
-        expect(totalJoins(), 24);
+        // A sweep firing mid-step can legitimately re-send a just-dispatched
+        // channel whose echo has not been fed back yet; stabilize with extra
+        // confirmed rounds before counting.
+        for (var step = 0; step < 8; step++) {
+          fakeNow = fakeNow.add(const Duration(milliseconds: 500));
+          async.elapse(const Duration(milliseconds: 500));
+          async.flushMicrotasks();
+          confirmEchoes();
+        }
+        // Sweeps may legitimately re-send a channel whose echo had not been
+        // fed back yet; every channel must be joined at least once.
+        expect(totalJoins(), greaterThanOrEqualTo(24));
+        final joinedWrite = {
+          for (final line in writeChannel.sent.where(
+            (l) => l.startsWith('JOIN #'),
+          ))
+            line.substring('JOIN #'.length),
+        };
+        final joinedRead = {
+          for (final line in readChannel.sent.where(
+            (l) => l.startsWith('JOIN #'),
+          ))
+            line.substring('JOIN #'.length),
+        };
+        expect(joinedWrite.length, 12);
+        expect(joinedRead.length, 12);
 
         write.dispose();
         read.dispose();
@@ -1154,8 +1191,8 @@ void main() {
             attempts++;
             return true;
           });
-          fakeNow = fakeNow.add(const Duration(milliseconds: 500));
-          async.elapse(const Duration(milliseconds: 500));
+          fakeNow = fakeNow.add(const Duration(milliseconds: 1100));
+          async.elapse(const Duration(milliseconds: 1100));
           async.flushMicrotasks();
 
           expect(attempts, 2);
@@ -1177,15 +1214,17 @@ void main() {
       }
       await pumpEventQueue();
 
-      // Same-channel enqueues merge into one unit per channel; the burst
-      // completed the first 10 units (20 commands), leaving 15 queued.
-      expect(budget.pending(), hasLength(15));
-      expect(budget.positionOf('c21'), 12);
+      // Same-channel enqueues merge into one unit per channel; the send cap
+      // let only c0's pair through the first pump.
+      expect(budget.pending(), hasLength(24));
+      expect(budget.positionOf('c0'), isNull);
+      expect(budget.positionOf('c1'), 1);
 
-      // 'c10' heads the queue: zero wait. 'c20' sits behind ten fully
-      // paired units = 20 outstanding commands at ~1.9/s -> ceil(10.5)=11s.
-      expect(budget.etaSecondsForChannel('c10'), 0);
-      expect(budget.etaSecondsForChannel('c20'), 11);
+      // 'c1' heads the queue: zero wait. 'c24' waits behind c1..c23's 46
+      // commands plus its own 2, bottlenecked by the pump cap:
+      // ceil((48-18)/1.905)=16 vs ceil(48/2)*1.05=26 -> 26s.
+      expect(budget.etaSecondsForChannel('c1'), 0);
+      expect(budget.etaSecondsForChannel('c24'), 26);
     });
 
     test('eta counts outstanding pair commands ahead of the channel', () {
@@ -1205,12 +1244,17 @@ void main() {
       budget.enqueue('last', IrcSocketRole.write);
       budget.enqueue('last', IrcSocketRole.read);
 
-      expect(budget.etaSecondsForChannel('b'), 0, reason: 'head starts now');
-      // 'c' waits for b's one outstanding read command at 3/10.5s per
-      // command -> ceil(3.5) = 4s. 'last' waits for 3 commands -> ceil(10.5)
-      // = 11s.
-      expect(budget.etaSecondsForChannel('c'), 4);
-      expect(budget.etaSecondsForChannel('last'), 11);
+      // ETAs are INCLUSIVE of the channel's own pair (time until both JOINs
+      // are sent). Tokens start at 3.
+      expect(
+        budget.etaSecondsForChannel('b'),
+        4,
+        reason: 'a(2)+b(2) commands vs 3 tokens',
+      );
+      // 'c': 6 commands -> token path 10.5s dominates cap 3.15s.
+      // 'last': 8 commands -> token path 17.5s dominates cap 4.2s.
+      expect(budget.etaSecondsForChannel('c'), 11);
+      expect(budget.etaSecondsForChannel('last'), 18);
     });
 
     test(
@@ -1258,6 +1302,47 @@ void main() {
         ]);
       },
     );
+
+    test('a unit born before the read socket is ready keeps its slot for the '
+        'read join', () {
+      fakeAsync((async) {
+        final budget = JoinRateLimiter(now: () => DateTime(2026, 1, 1));
+        final sentRoles = <String, List<IrcSocketRole>>{};
+        // Both sockets are KNOWN (eager registration), but the read side's
+        // handshake has not landed yet: its sends refuse.
+        budget.registerHandler(IrcSocketRole.write, (channel) {
+          (sentRoles[channel] ??= []).add(IrcSocketRole.write);
+          return true;
+        });
+        budget.registerHandler(IrcSocketRole.read, (channel) {
+          (sentRoles[channel] ??= []).add(IrcSocketRole.read);
+          return false;
+        });
+
+        budget.enqueue('first', IrcSocketRole.write);
+        async.flushMicrotasks();
+
+        // Write dispatched immediately; the refused read keeps the unit
+        // RESIDENT at its original slot instead of completing and pushing
+        // the read join to the back of the queue later.
+        expect(sentRoles['first'], [IrcSocketRole.write, IrcSocketRole.read]);
+        expect(budget.positionOf('first'), 1);
+
+        var readReady = false;
+        budget.registerHandler(IrcSocketRole.read, (channel) {
+          (sentRoles[channel] ??= []).add(IrcSocketRole.read);
+          return readReady;
+        });
+        readReady = true;
+        async.elapse(const Duration(milliseconds: 1100));
+        async.flushMicrotasks();
+
+        // The read join completed IN PLACE: no tail unit was ever created.
+        expect(sentRoles['first']!.last, IrcSocketRole.read);
+        expect(budget.positionOf('first'), isNull);
+        expect(budget.pending(), isEmpty);
+      });
+    });
 
     test('one live handler is enough to send and consume a unit', () async {
       final clock = DateTime(2026, 1, 1);
@@ -2937,9 +3022,11 @@ void main() {
         channelUserIds: {'test': '999'},
         lastSentWireText: {},
       );
+      final readConn = _NoopIrcRead();
       final conn = _makeReconnectConn(
         eventSub: _NoopEventSub(),
         irc: irc,
+        ircRead: readConn,
         onReconnected: () => reconnects++,
         onSystemMessage: (c, t, {Color? accent, String? messageId}) =>
             system.add(t),
@@ -2951,9 +3038,10 @@ void main() {
       await conn.connect();
 
       // First connect edge: no backfill, one Connected line. "Connected"
-      // waits for the channel's own JOIN confirmation now.
+      // waits for BOTH sockets' JOIN confirmations now.
       irc.emitConnected();
       irc.handleLine('@room-id=1 :tmi.twitch.tv ROOMSTATE #test');
+      readConn.confirmJoin('test');
       await Future<void>.delayed(Duration.zero);
       expect(reconnects, 0);
       expect(system.where((t) => t == 'Connected'), hasLength(1));
@@ -2988,8 +3076,9 @@ void main() {
       expect(irc.sent, hasLength(1), reason: 'no PRIVMSG before JOIN lands');
 
       // The deliberate swap still takes the full connect edge: backfill +
-      // a fresh Connected line once bob's JOIN confirms.
+      // a fresh Connected line once bob's JOIN confirms on both sockets.
       irc.handleLine('@room-id=1 :tmi.twitch.tv ROOMSTATE #test');
+      readConn.confirmJoin('test');
       await Future<void>.delayed(Duration.zero);
       expect(reconnects, 1);
       expect(system.where((t) => t == 'Connected'), hasLength(2));
@@ -3815,9 +3904,11 @@ void main() {
       },
     );
 
-    test('a dead read socket never gates readiness', () async {
+    test('a dead read socket never gates an anonymous session', () async {
       final ircRead = _TestIrcRead();
-      // fakeConnected stays false: no live read socket to wait for.
+      // fakeConnected stays false: no live read socket to wait for. The
+      // session is anonymous, so there is nothing to echo and the read side
+      // cannot gate readiness at all.
       final irc = _TestIrc();
       final conn = _makeReconnectConn(
         eventSub: _NoopEventSub(),
@@ -3825,7 +3916,6 @@ void main() {
         ircRead: ircRead,
         onReconnected: () {},
         channels: const ['test'],
-        currentUserLogin: 'testuser',
       );
 
       await conn.connect();
