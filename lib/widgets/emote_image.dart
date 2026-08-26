@@ -669,17 +669,42 @@ class _EmoteImageState extends State<EmoteImage> {
   /// [overlay] (a placeholder or a cached smaller scale under a faint
   /// shimmer) on top.
   ///
-  /// A Stack with positioned/filled children requires bounded constraints
-  /// (e.g. [EmoteImage] with `double.infinity` inside an unbounded parent
-  /// would crash), so the fill behavior only applies when the incoming
-  /// constraints are bounded; otherwise the children keep their own size,
-  /// matching the old raw-image behavior.
+  /// A finite [EmoteImage.width]/[EmoteImage.height] clamps the stack to
+  /// exactly that box. Expanding to the incoming constraints instead would
+  /// consume loose slots whole: a ListTile leading row throws "Leading widget
+  /// consumes the entire tile width" while the first frame decodes, because
+  /// frameBuilder's subtree replaces the sized raw image.
+  ///
+  /// Without a finite size, the fill behavior applies when the incoming
+  /// constraints are bounded-and-tight (expansion then is exact); an explicit
+  /// infinity dimension keeps the old fill-any-bounded-parent behavior.
+  /// Everything else keeps the children's own size (a Stack with filled
+  /// children requires bounded constraints).
   Widget _loadingStack(Widget main, Widget overlay) {
+    final width = widget.width;
+    final height = widget.height;
+    final finite =
+        (width != null && width.isFinite) ||
+        (height != null && height.isFinite);
+    if (finite) {
+      return SizedBox(
+        width: width,
+        height: height,
+        child: Stack(
+          fit: width != null && height != null
+              ? StackFit.expand
+              : StackFit.loose,
+          alignment: Alignment.center,
+          children: [main, overlay],
+        ),
+      );
+    }
     return LayoutBuilder(
       builder: (context, constraints) {
         final bounded =
             constraints.hasBoundedWidth && constraints.hasBoundedHeight;
-        if (bounded) {
+        final fill = bounded && (widget.width != null || constraints.isTight);
+        if (fill) {
           return Stack(
             fit: StackFit.expand,
             alignment: Alignment.center,
