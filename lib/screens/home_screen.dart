@@ -1848,6 +1848,9 @@ class _HomeScreenState extends State<HomeScreen>
       changed = _chatStore.upsertSystemMessage(channel, text, messageId: id);
     }
     if (!changed) return;
+    // Upsert mutates the row's text in place: drop the cached tile or the
+    // list keeps rendering the first countdown values forever.
+    _tileCache[channel]?.remove(id);
     _truncateChannelMessages(channel);
     _chatStore.noteNewMessage(channel);
   }
@@ -3676,19 +3679,29 @@ class _HomeScreenState extends State<HomeScreen>
                               _shownCooldownLabel ??
                               (!widget.twitchAuth.isConfigured
                                   ? 'Connect an account to chat'
-                                  : !_chatConn.isChatPipeConnected
-                                  ? 'Reconnecting...'
-                                  : !_isWhispersTabActive && !_channelChatReady
-                                  ? 'Joining #${_selectedChannel ?? ''}...'
-                                  : _activePanel == OverlayPanel.thread
-                                  ? 'Reply to thread...'
-                                  : _isWhispersTabActive
-                                  ? _whisperTarget != null
-                                        ? 'Whisper to $_whisperTarget...'
-                                        : 'Type /w <username> <message>'
-                                  : _activePanel == OverlayPanel.mentions
-                                  ? 'Type a message...'
-                                  : null),
+                                  : switch ((
+                                      _chatConn.connectPhase,
+                                      _activePanel,
+                                      _isWhispersTabActive,
+                                      _channelChatReady,
+                                    )) {
+                                      (ChatPhase.connecting, _, _, _) =>
+                                        'Connecting...',
+                                      (ChatPhase.reconnecting, _, _, _) =>
+                                        'Reconnecting...',
+                                      (ChatPhase.online, _, false, false)
+                                          when _selectedChannel != null =>
+                                        'Joining #${_selectedChannel!}...',
+                                      (_, OverlayPanel.thread, _, _) =>
+                                        'Reply to thread...',
+                                      (_, _, true, _) =>
+                                        _whisperTarget != null
+                                            ? 'Whisper to $_whisperTarget...'
+                                            : 'Type /w <username> <message>',
+                                      (_, OverlayPanel.mentions, _, _) =>
+                                        'Type a message...',
+                                      _ => null,
+                                    }),
                         ),
                         ListenableBuilder(
                           listenable: Listenable.merge([

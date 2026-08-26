@@ -5,6 +5,7 @@ import '../color_utils.dart';
 import '../models/twitch_badge.dart';
 import '../models/twitch_message.dart';
 import '../util/duration_format.dart';
+import '../util/log.dart';
 import 'base_irc_connection.dart';
 
 export 'base_irc_connection.dart'
@@ -471,6 +472,7 @@ class IrcService extends IrcConnection {
         ? msg.params[0].substring(1)
         : null;
     if (channelName == null) return;
+    PerfLog.I.record('JOINQ', '[IRC] confirm #$channelName');
 
     _roomStateController.add(
       IrcRoomStateEvent(channel: channelName, tags: msg.tags),

@@ -4,7 +4,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:ermchat/services/connectivity_service.dart';
-import 'package:ermchat/services/base_irc_connection.dart' show IrcSocketRole;
 import 'package:ermchat/services/join_rate_limiter.dart';
 import 'package:ermchat/services/twitch_irc.dart';
 import '../helpers/fake_web_socket.dart';
@@ -900,7 +899,7 @@ void main() {
         service.connect(username: 'user', accessToken: 'token');
         async.flushMicrotasks();
 
-        // 25 channels exceed the bucket's 20-token capacity.
+        // 25 channels exceed the bucket's 10-unit capacity.
         for (var i = 0; i < 25; i++) {
           service.join('c$i');
         }
@@ -909,12 +908,20 @@ void main() {
         List<String> joins() =>
             channel.sent.where((l) => l.startsWith('JOIN')).toList();
 
-        // The full bucket sends 20 immediately...
+        // The full bucket sends 20 immediately (per-socket command budget).
         expect(joins(), hasLength(20));
-        // ...and the rest drip out at ~20 per 10.5s.
-        fakeNow = fakeNow.add(const Duration(milliseconds: 3150));
-        async.elapse(const Duration(milliseconds: 3150));
-        async.flushMicrotasks();
+        // ...and the rest drip out at ~10 units per 10.5s. ROOMSTATE echoes
+        // are fed back so the rejoin sweep never pollutes the count.
+        for (var step = 0; step < 34; step++) {
+          fakeNow = fakeNow.add(const Duration(milliseconds: 500));
+          async.elapse(const Duration(milliseconds: 500));
+          async.flushMicrotasks();
+          for (final line in channel.sent.toList()) {
+            if (!line.startsWith('JOIN #')) continue;
+            final ch = line.substring('JOIN #'.length);
+            channel.push('@room-id=1 :tmi.twitch.tv ROOMSTATE #$ch');
+          }
+        }
         expect(joins(), hasLength(25));
 
         service.dispose();
@@ -1051,7 +1058,7 @@ void main() {
   });
 
   group('shared join rate limiter', () {
-    test('two sockets drawing one budget cap the combined burst', () {
+    test('a channel pair dispatches to both sockets as one unit', () {
       fakeAsync((async) {
         var fakeNow = DateTime(2026, 1, 1);
         final budget = JoinRateLimiter(now: () => fakeNow);
@@ -1063,10 +1070,11 @@ void main() {
         read.connect(username: 'ruser', accessToken: 'token');
         async.flushMicrotasks();
 
-        // 30 joins per socket: 60 total demand against a 20-token bucket.
-        for (var i = 0; i < 30; i++) {
-          write.join('w$i');
-          read.join('r$i');
+        // Both sockets join the same 12 channels: 12 units, each fanning
+        // out to the read/write pair together.
+        for (var i = 0; i < 12; i++) {
+          write.join('c$i');
+          read.join('c$i');
         }
         async.flushMicrotasks();
 
@@ -1074,39 +1082,38 @@ void main() {
             writeChannel.sent.where((l) => l.startsWith('JOIN')).length +
             readChannel.sent.where((l) => l.startsWith('JOIN')).length;
 
+        // The full bucket sends 10 units = 20 commands (10 per socket).
         expect(totalJoins(), 20, reason: 'the shared bucket caps both sockets');
+        expect(
+          writeChannel.sent.where((l) => l.startsWith('JOIN')),
+          hasLength(10),
+        );
+        expect(
+          readChannel.sent.where((l) => l.startsWith('JOIN')),
+          hasLength(10),
+        );
 
-        // Echo ROOMSTATE for every JOIN that hit the wire, like the real
-        // server does: otherwise the 10s sweep legitimately re-sends
-        // unconfirmed channels and pollutes the count.
-        final confirmedWrite = <String>{};
-        final confirmedRead = <String>{};
+        // Echo ROOMSTATE like the real server so sweeps stay quiet.
         void confirmEchoes() {
-          for (final line in writeChannel.sent) {
-            if (!line.startsWith('JOIN #')) continue;
-            final ch = line.substring('JOIN #'.length);
-            if (confirmedWrite.add(ch)) {
-              writeChannel.push('@room-id=1 :tmi.twitch.tv ROOMSTATE #$ch');
-            }
-          }
-          for (final line in readChannel.sent) {
-            if (!line.startsWith('JOIN #')) continue;
-            final ch = line.substring('JOIN #'.length);
-            if (confirmedRead.add(ch)) {
-              readChannel.push('@room-id=1 :tmi.twitch.tv ROOMSTATE #$ch');
-            }
+          for (final ch in [
+            for (final line in writeChannel.sent)
+              if (line.startsWith('JOIN #')) line.substring('JOIN #'.length),
+          ]) {
+            writeChannel.push('@room-id=1 :tmi.twitch.tv ROOMSTATE #$ch');
+            readChannel.push('@room-id=1 :tmi.twitch.tv ROOMSTATE #$ch');
           }
         }
 
-        // 40 remaining tokens at ~1.9/s need ~21s. Step the clock in pump
-        //-sized slices so refill accrues continuously like real time.
-        for (var step = 0; step < 44; step++) {
+        confirmEchoes();
+
+        // The last 2 units drip out within ~2.2s at ~0.95 units/s.
+        for (var step = 0; step < 6; step++) {
           fakeNow = fakeNow.add(const Duration(milliseconds: 500));
           async.elapse(const Duration(milliseconds: 500));
           async.flushMicrotasks();
           confirmEchoes();
         }
-        expect(totalJoins(), 60);
+        expect(totalJoins(), 24);
 
         write.dispose();
         read.dispose();
@@ -1116,54 +1123,162 @@ void main() {
     });
 
     test(
-      'a send that cannot go out drops its entry without consuming',
-      () async {
-        final clock = DateTime(2026, 1, 1);
-        final budget = JoinRateLimiter(now: () => clock);
-        var sends = 0;
-        budget.registerHandler(IrcSocketRole.write, (_) {
-          sends++;
-          return false; // socket down
+      'a unit whose sockets all fail stays queued without consuming tokens',
+      () {
+        fakeAsync((async) {
+          final clock = DateTime(2026, 1, 1);
+          var fakeNow = clock;
+          final budget = JoinRateLimiter(now: () => fakeNow);
+          var attempts = 0;
+          budget.registerHandler(IrcSocketRole.write, (_) {
+            attempts++;
+            return false; // socket down
+          });
+
+          budget.enqueue('chan', IrcSocketRole.write);
+          async.flushMicrotasks();
+          expect(attempts, 1, reason: 'the pump attempted the unit');
+          expect(
+            budget.positionOf('chan'),
+            1,
+            reason: 'failed units stay queued, not stranded',
+          );
+          expect(
+            budget.availableTokens,
+            20,
+            reason: 'a failed send must not consume a token',
+          );
+
+          // The socket comes back: the SAME unit completes on a later pump.
+          budget.registerHandler(IrcSocketRole.write, (_) {
+            attempts++;
+            return true;
+          });
+          fakeNow = fakeNow.add(const Duration(milliseconds: 500));
+          async.elapse(const Duration(milliseconds: 500));
+          async.flushMicrotasks();
+
+          expect(attempts, 2);
+          expect(budget.positionOf('chan'), isNull);
+          expect(budget.availableTokens, closeTo(19, 0.001));
         });
-
-        budget.enqueue(IrcSocketRole.write, 'chan');
-        budget.enqueue(IrcSocketRole.write, 'chan2');
-        await pumpEventQueue();
-
-        expect(sends, 2, reason: 'the pump attempted every head');
-        expect(
-          budget.positionOf(IrcSocketRole.write, 'chan'),
-          isNull,
-          reason: 'failed sends must drop, not strand',
-        );
-        expect(
-          budget.availableTokens,
-          20,
-          reason: 'a failed send must not consume a token',
-        );
       },
     );
 
-    test('position and eta track FIFO order and refill rate', () {
+    test('position and eta track FIFO order and refill rate', () async {
       final clock = DateTime(2026, 1, 1);
-      final budget = JoinRateLimiter(
-        capacity: 20,
-        window: const Duration(milliseconds: 10500),
-        now: () => clock,
-      );
+      final budget = JoinRateLimiter(now: () => clock);
       budget.registerHandler(IrcSocketRole.write, (_) => true);
+      budget.registerHandler(IrcSocketRole.read, (_) => true);
 
       for (var i = 0; i < 25; i++) {
-        budget.enqueue(IrcSocketRole.write, 'c$i');
+        budget.enqueue('c$i', IrcSocketRole.write);
+        budget.enqueue('c$i', IrcSocketRole.read);
       }
+      await pumpEventQueue();
 
-      expect(budget.positionOf(IrcSocketRole.write, 'c21'), 22);
-      expect(budget.positionOf(IrcSocketRole.read, 'c21'), isNull);
+      // Same-channel enqueues merge into one unit per channel; the burst
+      // completed the first 10 units (20 commands), leaving 15 queued.
+      expect(budget.pending(), hasLength(15));
+      expect(budget.positionOf('c21'), 12);
 
-      // Bucket starts full: the first 20 entries have zero wait.
-      expect(budget.etaSecondsForPosition(20), 0);
-      // Position 25 needs ~5 more tokens at ~1.9/s -> ceil(2.6) = 3s.
-      expect(budget.etaSecondsForPosition(25), 3);
+      // 'c10' heads the queue: zero wait. 'c20' sits behind ten fully
+      // paired units = 20 outstanding commands at ~1.9/s -> ceil(10.5)=11s.
+      expect(budget.etaSecondsForChannel('c10'), 0);
+      expect(budget.etaSecondsForChannel('c20'), 11);
+    });
+
+    test('eta counts outstanding pair commands ahead of the channel', () {
+      // Small bucket so a single pump drains it mid-queue.
+      final budget = JoinRateLimiter(
+        capacity: 3,
+        window: const Duration(milliseconds: 10500),
+        now: () => DateTime(2026, 1, 1),
+      );
+      budget.registerHandler(IrcSocketRole.write, (_) => true);
+      budget.registerHandler(IrcSocketRole.read, (_) => true);
+
+      for (final c in ['a', 'b', 'c']) {
+        budget.enqueue(c, IrcSocketRole.write);
+        budget.enqueue(c, IrcSocketRole.read);
+      }
+      budget.enqueue('last', IrcSocketRole.write);
+      budget.enqueue('last', IrcSocketRole.read);
+
+      expect(budget.etaSecondsForChannel('b'), 0, reason: 'head starts now');
+      // 'c' waits for b's one outstanding read command at 3/10.5s per
+      // command -> ceil(3.5) = 4s. 'last' waits for 3 commands -> ceil(10.5)
+      // = 11s.
+      expect(budget.etaSecondsForChannel('c'), 4);
+      expect(budget.etaSecondsForChannel('last'), 11);
+    });
+
+    test(
+      'a lagging socket merges into its channel unit instead of re-queuing',
+      () async {
+        final budget = JoinRateLimiter(now: () => DateTime(2026, 1, 1));
+        final sentRoles = <String, List<IrcSocketRole>>{};
+        void registerRole(IrcSocketRole role, bool success) {
+          budget.registerHandler(role, (channel) {
+            (sentRoles[channel] ??= []).add(role);
+            return success;
+          });
+        }
+
+        registerRole(IrcSocketRole.write, true);
+        registerRole(IrcSocketRole.read, false);
+
+        // Units start pending on BOTH registered sockets: even though the
+        // write side succeeds immediately, the read role keeps the unit
+        // resident in its slot.
+        budget.enqueue('chan', IrcSocketRole.write);
+        budget.enqueue('chan2', IrcSocketRole.write);
+        await pumpEventQueue();
+
+        // Write succeeded; read was attempted and refused (stays queued).
+        // Dead-socket retries make extra attempts legal, so only anchor the
+        // first and last attempts.
+        expect(sentRoles['chan'], isNotEmpty);
+        expect(sentRoles['chan']!.first, IrcSocketRole.write);
+        expect(sentRoles['chan']!.last, IrcSocketRole.read);
+        expect(budget.positionOf('chan'), 1);
+        expect(budget.positionOf('chan2'), 2);
+
+        // The read socket's handshake lands afterwards: its enqueue MERGES
+        // into the existing slots instead of appending duplicates behind
+        // newer units.
+        budget.enqueue('chan', IrcSocketRole.read);
+        budget.enqueue('chan2', IrcSocketRole.read);
+        await pumpEventQueue();
+        expect(sentRoles['chan']!.first, IrcSocketRole.write);
+        expect(sentRoles['chan']!.last, IrcSocketRole.read);
+        expect(budget.pending().map((u) => u.channel).toList(), [
+          'chan',
+          'chan2',
+        ]);
+      },
+    );
+
+    test('one live handler is enough to send and consume a unit', () async {
+      final clock = DateTime(2026, 1, 1);
+      final budget = JoinRateLimiter(now: () => clock);
+      var writeSends = 0;
+      budget.registerHandler(IrcSocketRole.write, (_) {
+        writeSends++;
+        return true;
+      });
+      // No read handler registered (read socket never came up).
+
+      budget.enqueue('solo', IrcSocketRole.write);
+      await pumpEventQueue();
+
+      expect(writeSends, 1);
+      expect(budget.positionOf('solo'), isNull);
+      expect(
+        budget.availableTokens,
+        closeTo(19, 0.001),
+        reason: 'the unit consumed exactly one token',
+      );
     });
   });
 

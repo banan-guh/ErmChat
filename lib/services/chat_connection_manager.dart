@@ -9,7 +9,6 @@ import '../services/twitch_auth.dart';
 import '../services/twitch_eventsub.dart';
 import '../services/twitch_irc.dart';
 import '../services/emote_manager.dart';
-import '../services/base_irc_connection.dart' show IrcSocketRole;
 import '../services/join_rate_limiter.dart';
 import '../services/emote_providers/seven_tv_emotes.dart';
 import '../services/seven_tv_event_client.dart';
@@ -66,6 +65,11 @@ class JoinProgress {
   final int position;
   final int etaSeconds;
 }
+
+/// Coarse connect phase for UI copy. Single source of truth for anything
+/// that needs to distinguish "never connected", "lost connection" and "up":
+/// the input hint consumes this instead of owning its own connect flags.
+enum ChatPhase { connecting, reconnecting, online }
 
 /// Rendering and interaction signals flowing manager -> UI: buffer change
 /// notifications, system messages, focus and snackbar requests, plus reads
@@ -187,6 +191,11 @@ class ChatConnectionManager {
   final void Function(String channel, JoinProgress? info)? onJoinProgress;
 
   bool _wasConnected = false;
+  // Session latch backing [connectPhase]: true once any connect succeeded,
+  // never reset. NOT the same question as [_wasConnected] (edge tracking for
+  // reconnect backfill) or the read-arm latch in [isChatPipeConnected]
+  // (whether the read socket participates at all).
+  bool _everConnected = false;
   bool _wasDisconnected = false;
   // Read-socket outage tracking: the read socket dying alone (e.g. a DNS
   // error) must still surface as a visible "Chat reconnecting..." instead of
@@ -215,6 +224,9 @@ class ChatConnectionManager {
   // Channels currently showing a join-countdown line; drives the clear emit
   // when the wait ends or the socket drops.
   final _joinWaitShown = <String>{};
+  // Last countdown values shown per channel, so the displayed position never
+  // regresses when the rejoin sweep re-queues an in-flight channel.
+  final _lastJoinProgress = <String, JoinProgress>{};
   Timer? _joinProgressTimer;
   static const _roomStateNoticeIds = {
     'followers_on_zero',
@@ -353,6 +365,10 @@ class ChatConnectionManager {
     isDisposed = true;
     _joinProgressTimer?.cancel();
     _joinProgressTimer = null;
+    // This manager owned the session's join demand; drop its queued units so
+    // the shared bucket's pump timer can wind down instead of ticking on
+    // dead sockets forever.
+    joinBudget?.clear();
     for (final sub in _ingestionSubs) {
       sub.cancel();
     }
@@ -616,6 +632,7 @@ class ChatConnectionManager {
   /// Retires the channel's countdown line (if shown) via a null progress
   /// emit, so the UI removes the row.
   void _clearJoinWait(String channel) {
+    _lastJoinProgress.remove(channel);
     if (!_joinWaitShown.remove(channel)) return;
     onJoinProgress?.call(channel, null);
   }
@@ -626,6 +643,16 @@ class ChatConnectionManager {
   /// so environments without a read socket keep working.
   bool get isChatPipeConnected =>
       irc.isConnected && (!_readEverConnected || ircRead.isConnected);
+
+  /// [ChatPhase] for the current session: connecting on a first boot,
+  /// reconnecting after any successful connect dropped, online otherwise.
+  /// Per-channel readiness ([isChannelChatReady]) layers on top in the view.
+  ChatPhase get connectPhase {
+    if (!isChatPipeConnected) {
+      return _everConnected ? ChatPhase.reconnecting : ChatPhase.connecting;
+    }
+    return ChatPhase.online;
+  }
 
   /// Whether [channel]'s JOIN is confirmed on every live socket - the point
   /// at which a PRIVMSG lands AND echoes back locally. Drives the chat input
@@ -658,18 +685,44 @@ class ChatConnectionManager {
     final budget = joinBudget;
     if (budget == null || isDisposed) return;
     for (final channel in channels) {
-      // The lagging socket dictates the wait.
-      var position = 0;
-      for (final role in IrcSocketRole.values) {
-        final p = budget.positionOf(role, channel);
-        if (p != null && p > position) position = p;
+      if (isChannelChatReady(channel)) {
+        _clearJoinWait(channel);
+        continue;
       }
-      if (position > 0 && !isChannelChatReady(channel)) {
+      final position = budget.positionOf(channel);
+      if (position != null && position > 0) {
+        // Monotonic clamp: a rejoin sweep can re-queue an in-flight channel
+        // behind newer joins, which would make the countdown jump back up.
+        // Once shown, the numbers only move down until the channel is ready.
+        final last = _lastJoinProgress[channel];
+        final shown = (last != null && last.position < position)
+            ? last.position
+            : position;
+        if (last != null && shown < position) {
+          PerfLog.I.record(
+            'JOINQ',
+            'wait $channel clamped pos=$position -> $shown',
+          );
+        }
+        final eta = budget.etaSecondsForChannel(channel);
+        if (last == null && position == 1 && eta <= 0) {
+          // Head-of-queue with a token available: dispatches this instant,
+          // so a "position 1 · ~0s" line would just flash for one frame.
+          continue;
+        }
+        final progress = JoinProgress(shown, eta);
+        _lastJoinProgress[channel] = progress;
         _joinWaitShown.add(channel);
-        onJoinProgress?.call(
-          channel,
-          JoinProgress(position, budget.etaSecondsForPosition(position)),
+        PerfLog.I.record(
+          'JOINQ',
+          'wait $channel pos=${progress.position} '
+              'eta=${progress.etaSeconds}s',
         );
+        onJoinProgress?.call(channel, progress);
+      } else if (_joinWaitShown.contains(channel)) {
+        // Sent but not confirmed yet: freeze at the last values instead of
+        // clearing, so the line survives until "Connected" replaces it.
+        PerfLog.I.record('JOINQ', 'wait $channel frozen (sent, unconfirmed)');
       } else {
         _clearJoinWait(channel);
       }
@@ -725,6 +778,7 @@ class ChatConnectionManager {
         if (isDisposed) return;
         onRebuild();
         if (status == IrcConnectionStatus.connected && irc.isConnected) {
+          _everConnected = true;
           // Edge-triggered: subscribeAll once per connect with 30s throttle.
           // The 500ms settle delay only applies on reconnect - the sockets
           // rejoin channels themselves on reconnect.
@@ -1179,6 +1233,12 @@ class ChatConnectionManager {
       if (_channelSetup.handleRoomState(event)) {
         final isNewlyConfirmed = _joinedChannels.add(event.channel);
         if (isNewlyConfirmed) {
+          PerfLog.I.record(
+            'JOINQ',
+            'write-confirm ${event.channel} '
+                '(readJoined=${_readJoinedChannels.contains(event.channel)}, '
+                'readLive=${ircRead.isConnected})',
+          );
           _clearJoinWait(event.channel);
           // "Connected" waits for FULL readiness (both sockets joined): the
           // write confirmation alone says nothing about the local echo, so
@@ -1197,6 +1257,13 @@ class ChatConnectionManager {
     ircReadRoomStateSub = ircRead.onRoomState.listen((event) {
       if (isDisposed) return;
       final isNew = _readJoinedChannels.add(event.channel);
+      if (isNew) {
+        PerfLog.I.record(
+          'JOINQ',
+          'read-confirm ${event.channel} '
+              '(writeJoined=${_joinedChannels.contains(event.channel)})',
+        );
+      }
       if (isNew && isChannelChatReady(event.channel)) {
         // The read side was the last missing piece: the channel is fully
         // usable now - retire the countdown and announce.

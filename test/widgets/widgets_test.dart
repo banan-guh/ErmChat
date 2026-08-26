@@ -1184,10 +1184,10 @@ void main() {
     await tester.pump(const Duration(seconds: 5));
 
     // The sockets were already down before the channel was joined, so no
-    // outage system message is emitted for it; the input hint reads
-    // "Reconnecting...".
+    // outage system message is emitted for it; nothing has ever connected,
+    // so the input hint reads "Connecting..." rather than "Reconnecting...".
     expect(
-      find.textContaining('Reconnecting', skipOffstage: false),
+      find.textContaining('Connecting', skipOffstage: false),
       findsOneWidget,
     );
     expect(find.textContaining('Disconnected'), findsNothing);

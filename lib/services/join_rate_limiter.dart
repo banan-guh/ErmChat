@@ -3,22 +3,28 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 
+import '../util/log.dart';
 import 'base_irc_connection.dart' show IrcSocketRole;
+
+export 'base_irc_connection.dart' show IrcSocketRole;
 
 /// Account-wide pacing for IRC JOIN commands.
 ///
-/// Twitch throttles connections that fire JOINs faster than roughly 20
-/// message commands per 10 seconds, silently dropping the excess. Both IRC
-/// sockets (read + write) share one [JoinRateLimiter] so their combined
-/// demand stays inside that budget instead of each socket racing its own
-/// burst limiter.
+/// A channel occupies exactly ONE queue unit until every participating socket
+/// has sent its JOIN: the unit carries a set of roles still pending, each
+/// dispatch attempt strips the roles whose send succeeded, and a later
+/// [enqueue] for a role merges into the existing unit instead of duplicating
+/// it. This makes the read/write pair move together even when the sockets
+/// finish their handshakes at different moments - the lagging side completes
+/// the units in place rather than re-queuing channels behind newer ones.
 ///
-/// Entries sit in a single FIFO across roles; a pump drains heads whenever
-/// at least one token is available. Tokens refill continuously at
-/// [capacity]/[window] (starting full), computed lazily on access so no
-/// dedicated ticker runs while idle. A failed send (socket down) drops the
-/// entry: the connection re-queues every channel itself after the handshake,
-/// mirroring the old per-socket queue behavior.
+/// Twitch budgets roughly 20 message commands per 10 seconds per connection;
+/// a completed pair costs one command per socket, so [capacity] counts
+/// completed units (default 10) over [window] (10.5s). Tokens are consumed
+/// per successful send and refill continuously at capacity/window starting
+/// from a full bucket, computed lazily on access. Units whose sends all fail
+/// (sockets down) stay queued and retry on every pump; the owning
+/// connections also re-queue their channels after each handshake.
 class JoinRateLimiter {
   JoinRateLimiter({
     this.capacity = 20,
@@ -29,14 +35,17 @@ class JoinRateLimiter {
     _lastRefill = _now();
   }
 
-  /// JOINs allowed per [window]; the bucket starts full.
+  /// Completed channel-units per [window]; the bucket starts full. Every
+  /// successful JOIN send consumes one token regardless of socket, so a
+  /// read/write pair costs two - a full bucket covers 10 pairs = the
+  /// documented 20 commands per socket per window.
   final int capacity;
 
   /// Refill window. Slightly longer than Twitch's documented 10s budget so
   /// boundary effects never push a rolling window over the limit.
   final Duration window;
 
-  /// How often the pump wakes while entries are queued. Only affects drip
+  /// How often the pump wakes while units are queued. Only affects drip
   /// granularity, not throughput.
   final Duration pumpInterval;
 
@@ -46,7 +55,7 @@ class JoinRateLimiter {
   late DateTime _lastRefill;
   Timer? _pumpTimer;
   final _handlers = <IrcSocketRole, bool Function(String channel)>{};
-  final _queue = <({IrcSocketRole role, String channel})>[];
+  final _queue = <({String channel, Set<IrcSocketRole> remaining})>[];
 
   /// Tokens available right now (fractional), capped at [capacity].
   @visibleForTesting
@@ -59,51 +68,89 @@ class JoinRateLimiter {
     _handlers[role] = send;
   }
 
-  /// Queues a JOIN unless an identical entry is already waiting.
-  void enqueue(IrcSocketRole role, String channel) {
-    if (_queue.any((e) => e.role == role && e.channel == channel)) return;
-    _queue.add((role: role, channel: channel));
-    _start();
-    // Coalesce a synchronous burst of join() calls into one pump instead of
-    // letting the first entry pay nothing but the rest wait a full interval.
+  /// Adds [role]'s JOIN for [channel] to the queue, merging into an existing
+  /// unit when one is already waiting so the pair shares a slot. New units
+  /// start pending on EVERY registered socket: when the write side wins the
+  /// handshake race and dispatches early, the unit stays alive holding the
+  /// read role until the read socket catches up and merges - instead of
+  /// completing immediately and forcing the read join into a fresh,
+  /// back-of-queue unit later.
+  void enqueue(String channel, IrcSocketRole role) {
+    final existing = _queue.indexWhere((unit) => unit.channel == channel);
+    if (existing >= 0) {
+      final added = _queue[existing].remaining.add(role);
+      if (added) {
+        PerfLog.I.record(
+          'JOINQ',
+          'merge $channel $role '
+              '(depth=${existing + 1}, left=${_queue[existing].remaining.length})',
+        );
+      }
+    } else {
+      final remaining = {..._handlers.keys, role};
+      _queue.add((channel: channel, remaining: remaining));
+      PerfLog.I.record(
+        'JOINQ',
+        'enqueue $channel $role '
+            '(depth=${_queue.length}, roles=${remaining.map((r) => r.name).join("+")})',
+      );
+      _start();
+    }
+    // Always kick the pump: a burst needs the coalesced first pass, and a
+    // merge can complete a resident unit whose other roles were waiting.
     Future.microtask(_pump);
   }
 
-  /// Drops one pending entry (e.g. the channel was parted).
-  void removeEntry(IrcSocketRole role, String channel) {
-    _queue.removeWhere((e) => e.role == role && e.channel == channel);
+  /// Drops one pending unit entirely (e.g. the channel was parted on both
+  /// sockets; the second call is a no-op).
+  void removeEntry(String channel) {
+    _queue.removeWhere((unit) => unit.channel == channel);
     if (_queue.isEmpty) _stop();
   }
 
-  /// Drops every pending entry for [role]: used when its socket dies; the
-  /// reconnect path re-queues the channels itself.
+  /// Empties the queue entirely; used when the whole session tears down.
+  void clear() {
+    _queue.clear();
+    _stop();
+  }
+
+  /// Strips [role] from every pending unit, dropping units left with no
+  /// remaining roles. Used when one socket of a shared bucket goes away for
+  /// good; its live counterpart's roles keep their slots.
   void dropRole(IrcSocketRole role) {
-    _queue.removeWhere((e) => e.role == role);
+    _queue.removeWhere((unit) {
+      unit.remaining.remove(role);
+      return unit.remaining.isEmpty;
+    });
     if (_queue.isEmpty) _stop();
   }
 
-  /// 1-based FIFO position of the pending entry, or null when not queued.
-  int? positionOf(IrcSocketRole role, String channel) {
-    final index = _queue.indexWhere(
-      (e) => e.role == role && e.channel == channel,
-    );
+  /// 1-based FIFO position of the pending unit, or null when not queued.
+  int? positionOf(String channel) {
+    final index = _queue.indexWhere((unit) => unit.channel == channel);
     return index < 0 ? null : index + 1;
   }
 
-  /// Every pending entry for [role] with its global FIFO position, ordered by
-  /// send order. Drives join-progress surfacing (queue countdowns).
-  List<({String channel, int position})> pendingFor(IrcSocketRole role) {
+  /// Every pending unit with its FIFO position, ordered by send order.
+  /// Drives join-progress surfacing (queue countdowns).
+  List<({String channel, int position})> pending() {
     return [
       for (var i = 0; i < _queue.length; i++)
-        if (_queue[i].role == role)
-          (channel: _queue[i].channel, position: i + 1),
+        (channel: _queue[i].channel, position: i + 1),
     ];
   }
 
-  /// Seconds until the entry at 1-based [position] would go out, assuming
-  /// nothing ahead of it is removed first.
-  int etaSecondsForPosition(int position) {
-    final deficit = position - availableTokens;
+  /// Seconds until [channel]'s unit would START sending. Counts the actual
+  /// outstanding commands ahead of it (a pair-unit costs two), so the ETA is
+  /// honest even when every unit carries both roles.
+  int etaSecondsForChannel(String channel) {
+    final index = _queue.indexWhere((unit) => unit.channel == channel);
+    if (index < 0) return 0;
+    var commands = 0;
+    for (var i = 0; i < index; i++) {
+      commands += _queue[i].remaining.length;
+    }
+    final deficit = commands - availableTokens;
     if (deficit <= 0) return 0;
     final ratePerSecond = capacity * 1000 / window.inMilliseconds;
     return (deficit / ratePerSecond).ceil();
@@ -135,15 +182,40 @@ class JoinRateLimiter {
   void _pump() {
     _refill();
     var walk = _queue.length;
-    while (_tokens >= 1 && walk > 0 && _queue.isNotEmpty) {
-      final head = _queue.first;
-      final handler = _handlers[head.role];
+    var index = 0;
+    while (_tokens >= 1 && walk > 0 && index < _queue.length) {
+      final unit = _queue[index];
       walk--;
-      // No handler or a dead socket drops the entry; the connection's own
-      // reconnect path re-queues it once the handshake completes.
-      final sent = handler?.call(head.channel) ?? false;
-      _queue.removeAt(0);
-      if (sent) _tokens -= 1;
+      // Dispatch to every still-pending role. Successes strip out of the
+      // unit's remaining set (consuming a token each); failures stay queued
+      // and retry on the next pump, so a lagging socket never forces the
+      // channel back behind newer units.
+      for (final role in unit.remaining.toList()) {
+        final handler = _handlers[role];
+        if (handler == null) continue;
+        final sent = handler.call(unit.channel);
+        if (sent) {
+          unit.remaining.remove(role);
+          _tokens -= 1;
+          PerfLog.I.record(
+            'JOINQ',
+            'dispatch ${unit.channel} ${role.name}:ok '
+                'left=${unit.remaining.length} tokens=${_tokens.toStringAsFixed(2)}',
+          );
+        } else {
+          PerfLog.I.record(
+            'JOINQ',
+            'dispatch ${unit.channel} ${role.name}:dead (stays queued)',
+          );
+        }
+      }
+      final completed = unit.remaining.isEmpty;
+      if (completed) _queue.removeAt(index);
+      // Only step past the slot when the unit completed; a partially-sent
+      // one keeps its slot (its remaining roles retry on later pumps) while
+      // still not blocking the units behind it.
+      if (!completed) index++;
+      if (_tokens < 1) break;
     }
     if (_queue.isEmpty) _stop();
   }

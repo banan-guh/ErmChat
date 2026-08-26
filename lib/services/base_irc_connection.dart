@@ -88,6 +88,10 @@ abstract class IrcConnection {
   final JoinRateLimiter? _injectedJoinBudget;
   JoinRateLimiter? _joinBudgetInstance;
 
+  /// True while the lazily-created private bucket exists: it must be torn
+  /// down with this connection so its pump timer cannot leak.
+  bool get _joinBudgetIsPrivate => _injectedJoinBudget == null;
+
   JoinRateLimiter get _joinBudget =>
       _injectedJoinBudget ??
       (_joinBudgetInstance ??= JoinRateLimiter(
@@ -452,9 +456,9 @@ abstract class IrcConnection {
     channel?.sink.close();
     channel = null;
     _awaitingPong = false;
-    // Drop this socket's queued JOINs; the reconnect path re-queues every
-    // channel after the handshake.
-    _joinBudget.dropRole(role);
+    // Queued JOIN units stay put: their dispatch will fail while this socket
+    // is down (and drop), and the reconnect path re-queues every channel
+    // after the handshake.
     _stopJoinSweep();
     _stopJoinRetry();
     _joinPending.clear();
@@ -642,26 +646,31 @@ abstract class IrcConnection {
     _channels.remove(channel);
     _joinConfirmed.remove(channel);
     _joinPending.remove(channel);
-    _joinBudget.removeEntry(role, channel);
+    _joinBudget.removeEntry(channel);
     _joinFailed.remove(channel);
     if (this.channel != null) {
       sendLine('PART #$channel');
     }
   }
 
-  /// Queues a JOIN behind the shared rate limiter. Safe while disconnected:
-  /// the limiter drops entries its socket cannot deliver, and the connect
-  /// path re-queues every [_channels] entry after the handshake.
+  /// Queues this socket's JOIN for [channel] behind the shared rate limiter.
+  /// Safe while disconnected: units whose dispatch fails stay queued and
+  /// retry, and the connect path re-queues every [_channels] entry after the
+  /// handshake (merging into already-queued units).
   void _queueJoin(String channel) {
     _joinBudget.registerHandler(role, sendJoinNow);
-    _joinBudget.enqueue(role, channel);
+    _joinBudget.enqueue(channel, role);
   }
 
   /// Sends one JOIN immediately. Called by the limiter's pump; returns false
   /// when the socket is down so the entry is dropped instead of consumed.
   @visibleForTesting
   bool sendJoinNow(String channel) {
-    if (this.channel == null) return false;
+    if (this.channel == null) {
+      PerfLog.I.record('JOINQ', '[$debugPrefix] send $channel REFUSED (down)');
+      return false;
+    }
+    PerfLog.I.record('JOINQ', '[$debugPrefix] send JOIN #$channel');
     sendLine('JOIN #$channel');
     _joinPending.add(channel);
     return true;
@@ -770,6 +779,13 @@ abstract class IrcConnection {
   void dispose() {
     _disposed = true;
     _runGeneration++;
+    // A privately-owned bucket dies with the connection; a shared one stays
+    // (its owner clears this socket's role via dropRole below).
+    if (_joinBudgetIsPrivate) {
+      _joinBudgetInstance?.clear();
+    } else {
+      _injectedJoinBudget?.dropRole(role);
+    }
     _disconnect();
     _signalDeath(_DeathReason.closed);
     final listener = _connectivityListener;
@@ -818,6 +834,7 @@ class IrcReadService extends IrcConnection {
       if (msg.params.isNotEmpty) {
         final channel = msg.params.first.replaceFirst('#', '');
         if (channel.isNotEmpty) {
+          PerfLog.I.record('JOINQ', '[$debugPrefix] confirm #$channel');
           _roomStateController.add(
             IrcRoomStateEvent(channel: channel, tags: msg.tags),
           );
