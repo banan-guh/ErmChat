@@ -155,6 +155,35 @@ Future<void> _swipeToNext(WidgetTester tester) async {
   await tester.pumpAndSettle();
 }
 
+/// Drags [fraction] of the way toward the next channel, then has the pointer
+/// stolen by the OS (ACTION_CANCEL): back gesture, notification shade, app
+/// switcher. The funnel sees a drag start and scroll updates, then a
+/// cancellation instead of a lift.
+///
+/// This is the foregrounding-shaped input: steals overwhelmingly happen
+/// during OS transitions around backgrounding.
+Future<void> _stealMidSwipe(
+  WidgetTester tester, {
+  required double fraction,
+}) async {
+  final size = tester.getSize(find.byType(PageView));
+  final center = tester.getCenter(find.byType(PageView));
+  final gesture = await tester.startGesture(center);
+  await gesture.moveBy(const Offset(-8, 0));
+  await tester.pump();
+  await gesture.moveBy(Offset(-size.width * fraction, 0));
+  await tester.pump();
+  await gesture.cancel();
+}
+
+/// Stands in for HomeScreen._navigateToChannel -> _commitChannelSelection
+/// (rebuild: true): mutate the selection fields first, then rebuild.
+void _externalNavigate(_HomeLike home, StateSetter set, int index) {
+  home.selectedChannel = _tabs[index];
+  home.tabIndex.value = index;
+  set(() {});
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -542,6 +571,120 @@ void main() {
         2,
         reason: 'initial tap + landing bookkeeping: ${_dump(home)}',
       );
+    });
+
+    testWidgets('R15: pointer steal above half (drag cancel) strands later '
+        'navigation - highlight moves, page does not', (tester) async {
+      final (home, set) = await pumpHome(tester);
+
+      // Drag past half toward b: focus commits b without any rebuild. Then
+      // the OS steals the pointer instead of the finger lifting.
+      await _stealMidSwipe(tester, fraction: 0.70);
+      await tester.pumpAndSettle();
+
+      // The steal itself leaves everything agreeing: the page rests on b's
+      // side and focus/highlight followed it.
+      expect(_restingPage(tester), 1, reason: _restingDump(tester));
+      expect(home.selectedChannel, 'b', reason: _dump(home));
+      expect(home.tabIndex.value, 1, reason: _dump(home));
+
+      // Notification-tap style navigation to c: selection fields mutate and
+      // the screen rebuilds. The pager must follow the prop.
+      _externalNavigate(home, set, 2);
+      await tester.pumpAndSettle();
+
+      // ignore: avoid_print
+      print('R15 rest=[${_restingDump(tester)}] ${_dump(home)}');
+      expect(
+        _restingPage(tester),
+        2,
+        reason:
+            'pager must follow an external selection commit after a stolen '
+            'pointer',
+      );
+      expect(home.selectedChannel, 'c', reason: _dump(home));
+      expect(home.tabIndex.value, 2, reason: _dump(home));
+    });
+
+    testWidgets('R16: pointer steal below half (no focus crossing) also '
+        'strands later navigation', (tester) async {
+      final (home, set) = await pumpHome(tester);
+
+      await _stealMidSwipe(tester, fraction: 0.30);
+      await tester.pumpAndSettle();
+
+      // Never crossed half: focus stayed on a and must agree with the view.
+      expect(_restingPage(tester), 0, reason: _restingDump(tester));
+      expect(home.selectedChannel, 'a', reason: _dump(home));
+      expect(home.tabIndex.value, 0, reason: _dump(home));
+
+      _externalNavigate(home, set, 2);
+      await tester.pumpAndSettle();
+
+      // ignore: avoid_print
+      print('R16 rest=[${_restingDump(tester)}] ${_dump(home)}');
+      expect(
+        _restingPage(tester),
+        2,
+        reason:
+            'pager must follow an external selection commit after a stolen '
+            'pointer',
+      );
+      expect(home.selectedChannel, 'c', reason: _dump(home));
+      expect(home.tabIndex.value, 2, reason: _dump(home));
+    });
+
+    testWidgets('R17: a normal swipe after a pointer steal still works '
+        '(gestures self-heal; navigation does not)', (tester) async {
+      final (home, _) = await pumpHome(tester);
+
+      await _stealMidSwipe(tester, fraction: 0.30);
+      await tester.pumpAndSettle();
+      await _swipeToNext(tester);
+
+      // ignore: avoid_print
+      print('R17 rest=[${_restingDump(tester)}] ${_dump(home)}');
+      expect(_restingPage(tester), 1, reason: _restingDump(tester));
+      expect(home.selectedChannel, 'b', reason: _dump(home));
+      expect(home.tabIndex.value, 1, reason: _dump(home));
+      expect(
+        home.commits['b'] ?? 0,
+        1,
+        reason: 'exactly one full commit for b: ${_dump(home)}',
+      );
+    });
+
+    testWidgets('R18: pointer steal snaps the page instead of resting '
+        'mid-way', (tester) async {
+      final (home, set) = await pumpHome(tester);
+
+      // Steal below half: without a snap the pixels would rest 30% between
+      // pages forever, since the OS cancellation carries no ballistic.
+      await _stealMidSwipe(tester, fraction: 0.30);
+      await tester.pumpAndSettle();
+
+      // ignore: avoid_print
+      print('R18a rest=[${_restingDump(tester)}] ${_dump(home)}');
+      expect(
+        tester.getTopLeft(find.byKey(const Key('page-0'))).dx,
+        0.0,
+        reason: 'stolen drag must settle on the nearest page',
+      );
+      expect(home.selectedChannel, 'a', reason: _dump(home));
+
+      // Same above half: snap forward and commit the page under the pixels.
+      await _stealMidSwipe(tester, fraction: 0.70);
+      await tester.pumpAndSettle();
+
+      // ignore: avoid_print
+      print('R18b rest=[${_restingDump(tester)}] ${_dump(home)}');
+      expect(
+        tester.getTopLeft(find.byKey(const Key('page-1'))).dx,
+        0.0,
+        reason: 'stolen drag must settle on the nearest page',
+      );
+      expect(_tabs.indexOf(home.selectedChannel), 1, reason: _dump(home));
+      expect(home.tabIndex.value, 1, reason: _dump(home));
     });
   });
 }

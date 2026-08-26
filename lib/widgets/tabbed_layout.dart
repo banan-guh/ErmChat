@@ -207,10 +207,6 @@ class TabbedLayoutState extends State<TabbedLayout>
       // ownership, the finger decides from here.
       _pointerDragging = true;
       _programmaticTarget = null;
-    } else if (notification is ScrollEndNotification &&
-        notification.dragDetails != null) {
-      _pointerDragging = false;
-      _applyDeferredProgrammatic();
     }
 
     _mirrorPageToStrip(page);
@@ -227,18 +223,45 @@ class TabbedLayoutState extends State<TabbedLayout>
       }
     }
 
-    if (notification is ScrollEndNotification &&
-        notification.dragDetails == null) {
-      // Final rest: finger settle, fling settle, or targeted-jump arrival.
-      // A jump that did not land on its target was superseded or lost; the
-      // page's actual position wins. HomeScreen's selection guard is the
-      // single dedup point: never skip a report against the selectedIndex
-      // prop, which lags behind focus commits that rebuild nothing.
-      _programmaticTarget = null;
+    if (notification is ScrollEndNotification) {
+      final wasDragging = _pointerDragging;
+      // Any scroll end means no finger is left on the pager. Lifts carry
+      // dragDetails, but a stolen pointer (back gesture, notification shade,
+      // app switcher) cancels the drag and its ScrollEnd has none. Treating
+      // only lifts as finger-up stranded this flag, and every later
+      // prop-driven selection parked in _deferredProgrammaticIndex forever:
+      // highlight moved, page did not.
+      _pointerDragging = false;
       final nearest = page.round().clamp(0, _tabLength - 1);
-      if (nearest != _lastReportedIndex) {
-        _lastReportedIndex = nearest;
-        widget.onSelectedIndexChanged(nearest);
+      if (!wasDragging) {
+        // Final rest: fling settle or targeted-jump arrival. A jump that
+        // did not land on its target was superseded or lost; the page's
+        // actual position wins. HomeScreen's selection guard is the single
+        // dedup point: never skip a report against the selectedIndex prop,
+        // which lags behind focus commits that rebuild nothing.
+        _programmaticTarget = null;
+        if (nearest != _lastReportedIndex) {
+          _lastReportedIndex = nearest;
+          widget.onSelectedIndexChanged(nearest);
+        }
+      } else if (notification.dragDetails != null) {
+        // Finger lift: the ballistic snap follows; its landing commits.
+        _applyDeferredProgrammatic();
+      } else {
+        // Pointer steal: the OS cancelled the drag, so no ballistic is
+        // coming and the pixels would rest mid-page forever. Commit the
+        // honest position, then settle through the normal jump path - or
+        // fly straight to a selection that arrived mid-drag.
+        _programmaticTarget = null;
+        if (nearest != _lastReportedIndex) {
+          _lastReportedIndex = nearest;
+          widget.onSelectedIndexChanged(nearest);
+        }
+        if (_deferredProgrammaticIndex != null) {
+          _applyDeferredProgrammatic();
+        } else {
+          _goTo(nearest);
+        }
       }
     }
     return false;
