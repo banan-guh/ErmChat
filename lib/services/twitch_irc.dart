@@ -15,6 +15,7 @@ export 'base_irc_connection.dart'
         IrcJoinFailureEvent,
         JoinFailureReason,
         IrcMessage,
+        IrcRoomStateEvent,
         parseIrcMessage;
 
 final _replyPrefixRe = RegExp(r'^\s*@\S+\s+');
@@ -54,16 +55,6 @@ class IrcChannelClearEvent {
 /// Room-mode state (slow mode, followers-only, emote-only, subs-only, r9k).
 /// Sent on join and again whenever a mode changes. `followersOnly` is "-1"
 /// when off, "0" when always on, otherwise the minutes.
-class IrcRoomStateEvent {
-  final String channel;
-
-  /// Raw tag map; updates are partial (only changed tags), so callers that
-  /// need the full state must merge with the previous event.
-  final Map<String, String> tags;
-
-  IrcRoomStateEvent({required this.channel, required this.tags});
-}
-
 class IrcMessageDeletedEvent {
   final String channel;
   final String messageId;

@@ -282,6 +282,18 @@ class _TestIrcRead extends IrcReadService {
     sync: true,
   );
 
+  bool fakeConnected = false;
+
+  @override
+  bool get isConnected => fakeConnected;
+
+  /// Feeds a ROOMSTATE line through the real dispatch path so the manager's
+  /// read-side tracking sees it exactly like production traffic.
+  void confirmJoin(String channel) {
+    username ??= 'testuser';
+    handleLine('@room-id=1 :tmi.twitch.tv ROOMSTATE #$channel');
+  }
+
   @override
   Future<void> connect({
     required String username,
@@ -3652,6 +3664,64 @@ void main() {
   });
 
   group('read socket status', () {
+    test(
+      'read-side JOIN lag gates readiness until its ROOMSTATE lands',
+      () async {
+        final ircRead = _TestIrcRead();
+        // A live read socket makes its per-channel JOIN required for readiness.
+        ircRead.fakeConnected = true;
+        ircRead.username = 'testuser';
+        final irc = _TestIrc();
+        final conn = _makeReconnectConn(
+          eventSub: _NoopEventSub(),
+          irc: irc,
+          ircRead: ircRead,
+          onReconnected: () {},
+          channels: const ['test'],
+          currentUserLogin: 'testuser',
+        );
+
+        await conn.connect();
+
+        expect(conn.isChannelChatReady('test'), isFalse);
+
+        // Write side confirms first: still not ready, the echo rides the read
+        // socket and its JOIN has not landed yet.
+        irc.emitRoomState('test', {'room-id': '1'});
+        await pumpEventQueue();
+        expect(conn.isChannelChatReady('test'), isFalse);
+
+        // The read socket's JOIN confirms: now the channel is fully usable.
+        ircRead.confirmJoin('test');
+        await pumpEventQueue();
+        expect(conn.isChannelChatReady('test'), isTrue);
+
+        conn.dispose();
+      },
+    );
+
+    test('a dead read socket never gates readiness', () async {
+      final ircRead = _TestIrcRead();
+      // fakeConnected stays false: no live read socket to wait for.
+      final irc = _TestIrc();
+      final conn = _makeReconnectConn(
+        eventSub: _NoopEventSub(),
+        irc: irc,
+        ircRead: ircRead,
+        onReconnected: () {},
+        channels: const ['test'],
+        currentUserLogin: 'testuser',
+      );
+
+      await conn.connect();
+
+      irc.emitRoomState('test', {'room-id': '1'});
+      await pumpEventQueue();
+      expect(conn.isChannelChatReady('test'), isTrue);
+
+      conn.dispose();
+    });
+
     test('read outage surfaces as Chat reconnecting... then Reconnected', () {
       fakeAsync((async) {
         final messages = <(String, String)>[];

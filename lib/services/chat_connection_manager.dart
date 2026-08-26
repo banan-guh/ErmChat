@@ -192,6 +192,10 @@ class ChatConnectionManager {
   // error) must still surface as a visible "Chat reconnecting..." instead of
   // silently freezing chat.
   bool _wasReadDisconnected = false;
+  // Arms the first time the read socket connects: from then on the pipe
+  // (and the input gate) requires it to stay up. Sessions where the read
+  // socket never comes up are not blocked by it.
+  bool _readEverConnected = false;
   DateTime? _lastSubscribeAll;
   // Credentials the IRC sockets were last told to use. Compared against the
   // desired account on connect() so an account switch tears the sockets down
@@ -203,6 +207,11 @@ class ChatConnectionManager {
   // channel). isConnected only reflects the socket; a fresh/reconnected socket
   // hasn't necessarily processed the JOINs yet, so sends gate on this.
   final _joinedChannels = <String>{};
+  // Same, for the read socket: its JOINs lag the write side under the shared
+  // rate budget, and the local echo of your own messages rides it - sending
+  // before the read JOIN lands hides the reply.
+  final _readJoinedChannels = <String>{};
+  StreamSubscription<IrcRoomStateEvent>? ircReadRoomStateSub;
   // Channels currently showing a join-countdown line; drives the clear emit
   // when the wait ends or the socket drops.
   final _joinWaitShown = <String>{};
@@ -365,6 +374,7 @@ class ChatConnectionManager {
     sevenTvUserSub?.cancel();
     ircStatusSub?.cancel();
     ircReadStatusSub?.cancel();
+    ircReadRoomStateSub?.cancel();
     ircAuthFailedSub?.cancel();
     whisperSub?.cancel();
   }
@@ -610,26 +620,42 @@ class ChatConnectionManager {
     onJoinProgress?.call(channel, null);
   }
 
-  /// Whether [channel]'s JOIN is confirmed on the write socket - the point
-  /// at which a PRIVMSG actually lands there. Drives the chat input gate:
-  /// between socket-connect and join-confirm, sends would vanish.
-  bool isChannelChatReady(String channel) => _joinedChannels.contains(channel);
+  /// Whether both IRC sockets are up. The write socket alone can deliver a
+  /// PRIVMSG, but without the read socket the local echo has no ride. The
+  /// read side only counts once it has connected at least once this session,
+  /// so environments without a read socket keep working.
+  bool get isChatPipeConnected =>
+      irc.isConnected && (!_readEverConnected || ircRead.isConnected);
 
-  /// Emits per-channel join-queue progress once per second while any write
-  /// socket JOIN is still waiting in the shared budget: position plus an ETA
+  /// Whether [channel]'s JOIN is confirmed on every live socket - the point
+  /// at which a PRIVMSG lands AND echoes back locally. Drives the chat input
+  /// gate: between socket-connect and join-confirm, sends would vanish.
+  bool isChannelChatReady(String channel) {
+    if (!_joinedChannels.contains(channel)) return false;
+    // The read socket only gates while it's actually up: a dead read socket
+    // must not wedge the input forever.
+    if (ircRead.isConnected && !_readJoinedChannels.contains(channel)) {
+      return false;
+    }
+    return true;
+  }
+
+  /// Emits per-channel join-queue progress once per second while any JOIN is
+  /// still waiting in the shared budget (either socket): position plus an ETA
   /// derived from the bucket's refill rate. Channels that left the queue but
-  /// have not confirmed yet get their countdown cleared (the ROOMSTATE
-  /// "Connected" lands moments later).
+  /// have not confirmed on every live socket yet keep or drop their countdown
+  /// accordingly (the "Connected" line lands when the write side confirms).
   void _tickJoinProgress() {
     final budget = joinBudget;
     if (budget == null || isDisposed) return;
-    final pending = budget.pendingFor(IrcSocketRole.write);
-    final pendingByChannel = <String, int>{
-      for (final entry in pending) entry.channel: entry.position,
-    };
     for (final channel in channels) {
-      final position = pendingByChannel[channel];
-      if (position != null && !_joinedChannels.contains(channel)) {
+      // The lagging socket dictates the wait.
+      var position = 0;
+      for (final role in IrcSocketRole.values) {
+        final p = budget.positionOf(role, channel);
+        if (p != null && p > position) position = p;
+      }
+      if (position > 0 && !isChannelChatReady(channel)) {
         _joinWaitShown.add(channel);
         onJoinProgress?.call(
           channel,
@@ -743,6 +769,8 @@ class ChatConnectionManager {
       // read-socket outage alone (DNS failure, server move) would otherwise be
       // invisible: chat freezes with no "Disconnected" (the write socket is
       // still fine) and no recovery notice. Surface it as an explicit status.
+      // Its JOIN confirmations die with the socket, so the input gate must
+      // re-lock and the frame must rebuild.
       ircReadStatusSub?.cancel();
       ircReadStatusSub = ircRead.onStatus.listen((status) {
         if (isDisposed) return;
@@ -751,14 +779,32 @@ class ChatConnectionManager {
           for (final channel in channels) {
             onSystemMessage(channel, 'Reconnected');
           }
+          onRebuild();
         } else if (status == IrcConnectionStatus.disconnected &&
             !_wasReadDisconnected) {
           _wasReadDisconnected = true;
+          _readJoinedChannels.clear();
+          onRebuild();
           for (final channel in channels) {
             onSystemMessage(channel, 'Chat reconnecting...');
           }
         }
       });
+
+      // Arm the read requirement on its very first connect (not just
+      // recoveries), so the pipe gate covers this session from the start.
+      // The controller closing on dispose completes with an error; ignore.
+      unawaited(
+        ircRead.onStatus
+            .firstWhere((s) => s == IrcConnectionStatus.connected)
+            .then((_) {
+              if (!isDisposed && !_readEverConnected) {
+                _readEverConnected = true;
+                onRebuild();
+              }
+            })
+            .catchError((_) {}),
+      );
 
       ircAuthFailedSub?.cancel();
       ircAuthFailedSub = irc.onAuthFailed.listen((_) {
@@ -1133,6 +1179,18 @@ class ChatConnectionManager {
           }
           onRebuild();
         }
+      }
+    });
+
+    // The read socket's JOIN confirmations: the local echo of your own
+    // messages rides this socket, so its lagging JOINs gate readiness too.
+    ircReadRoomStateSub?.cancel();
+    ircReadRoomStateSub = ircRead.onRoomState.listen((event) {
+      if (isDisposed) return;
+      final isNew = _readJoinedChannels.add(event.channel);
+      if (isNew && isChannelChatReady(event.channel)) {
+        _clearJoinWait(event.channel);
+        onRebuild();
       }
     });
 

@@ -3670,13 +3670,13 @@ class _HomeScreenState extends State<HomeScreen>
                               (_activePanel != OverlayPanel.mentions ||
                                   _isWhispersTabActive) &&
                               widget.twitchAuth.isConfigured &&
-                              _chatConn.irc.isConnected &&
+                              _chatConn.isChatPipeConnected &&
                               (_isWhispersTabActive || _channelChatReady),
                           hintText:
                               _shownCooldownLabel ??
                               (!widget.twitchAuth.isConfigured
                                   ? 'Connect an account to chat'
-                                  : !_chatConn.irc.isConnected
+                                  : !_chatConn.isChatPipeConnected
                                   ? 'Reconnecting...'
                                   : !_isWhispersTabActive && !_channelChatReady
                                   ? 'Joining #${_selectedChannel ?? ''}...'

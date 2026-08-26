@@ -784,8 +784,14 @@ abstract class IrcConnection {
 /// PRIVMSG echoes so sends can be confirmed without trusting the write socket.
 class IrcReadService extends IrcConnection {
   final _ownMessageController = StreamController<IrcMessage>.broadcast();
+  final _roomStateController = StreamController<IrcRoomStateEvent>.broadcast();
 
   Stream<IrcMessage> get onOwnMessage => _ownMessageController.stream;
+
+  /// ROOMSTATE echoes for this socket, so consumers can track which channels
+  /// the read side has actually joined (its JOINs lag the write socket's
+  /// under the shared rate budget).
+  Stream<IrcRoomStateEvent> get onRoomState => _roomStateController.stream;
 
   IrcReadService({super.connectivityService, super.joinBudget})
     : super(role: IrcSocketRole.read);
@@ -807,6 +813,18 @@ class IrcReadService extends IrcConnection {
         return;
       }
     }
+    if (msg != null && msg.command == 'ROOMSTATE') {
+      // Channel param arrives as '#name'.
+      if (msg.params.isNotEmpty) {
+        final channel = msg.params.first.replaceFirst('#', '');
+        if (channel.isNotEmpty) {
+          _roomStateController.add(
+            IrcRoomStateEvent(channel: channel, tags: msg.tags),
+          );
+        }
+      }
+      return;
+    }
     if (username == null) return;
     if (msg == null || msg.command != 'PRIVMSG' || msg.prefix == null) {
       return;
@@ -822,6 +840,7 @@ class IrcReadService extends IrcConnection {
   @override
   void dispose() {
     _ownMessageController.close();
+    _roomStateController.close();
     super.dispose();
   }
 
@@ -911,6 +930,16 @@ class IrcMessage {
     required this.params,
     this.trailing,
   });
+}
+
+class IrcRoomStateEvent {
+  final String channel;
+
+  /// Raw tag map; updates are partial (only changed tags), so callers that
+  /// need the full state must merge with the previous event.
+  final Map<String, String> tags;
+
+  IrcRoomStateEvent({required this.channel, required this.tags});
 }
 
 enum _DeathReason { error, closed, reconnect, authFailed }
