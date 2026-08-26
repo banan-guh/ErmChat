@@ -174,15 +174,17 @@ class ChatView extends StatelessWidget {
                         final m = msgs[i];
                         return 'anon-${m.timestamp.microsecondsSinceEpoch}-${m.login}-${m.text.hashCode}';
                       },
-                      // Within keepPositionOffset of the trailing edge,
-                      // arrivals are NOT compensated: the reader glues to
-                      // the newest message automatically. Beyond it,
-                      // keepPosition holds the reading position steady.
+                      // Arrivals are compensated (the reader glues to the
+                      // newest message automatically) only while glued at
+                      // pixel 0; any real scroll-up past the shared 0.5px
+                      // threshold holds the reading position steady.
                       // reverse:true already hugs short lists to the bottom
                       // edge; no FirstItemAlign needed (it pins content to
                       // the top instead).
+                      // TODO: merge this with the FAB flip's 0.5px
+                      // threshold above into one named constant.
                       keepPosition: true,
-                      keepPositionOffset: 120,
+                      keepPositionOffset: 0.5,
                       // Tiles own their RepaintBoundary; dropping the
                       // automatic KeepAlive wrapper keeps every built tile an
                       // active child of the sliver instead of parking them in
