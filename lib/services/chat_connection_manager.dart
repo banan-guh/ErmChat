@@ -640,6 +640,15 @@ class ChatConnectionManager {
     return true;
   }
 
+  /// Posts the per-channel "Connected" once, when the channel becomes fully
+  /// usable. Called from whichever JOIN confirmation completes readiness.
+  void _announceConnected(String channel) {
+    if (!isChannelChatReady(channel)) return;
+    if (_connectedAcked.add(channel)) {
+      onSystemMessage(channel, 'Connected');
+    }
+  }
+
   /// Emits per-channel join-queue progress once per second while any JOIN is
   /// still waiting in the shared budget (either socket): position plus an ETA
   /// derived from the bucket's refill rate. Channels that left the queue but
@@ -1169,15 +1178,15 @@ class ChatConnectionManager {
       // ready for PRIVMSG; record it so sends gate on the confirmed join.
       if (_channelSetup.handleRoomState(event)) {
         final isNewlyConfirmed = _joinedChannels.add(event.channel);
-        // The channel can actually receive messages now: retire any countdown
-        // and post the honest per-channel "Connected". The input gate keys
-        // off this flip too, so rebuild the frame.
         if (isNewlyConfirmed) {
           _clearJoinWait(event.channel);
-          if (_connectedAcked.add(event.channel)) {
-            onSystemMessage(event.channel, 'Connected');
+          // "Connected" waits for FULL readiness (both sockets joined): the
+          // write confirmation alone says nothing about the local echo, so
+          // announcing here would lie while the read side still lags.
+          if (isChannelChatReady(event.channel)) {
+            _announceConnected(event.channel);
+            onRebuild();
           }
-          onRebuild();
         }
       }
     });
@@ -1189,7 +1198,10 @@ class ChatConnectionManager {
       if (isDisposed) return;
       final isNew = _readJoinedChannels.add(event.channel);
       if (isNew && isChannelChatReady(event.channel)) {
+        // The read side was the last missing piece: the channel is fully
+        // usable now - retire the countdown and announce.
         _clearJoinWait(event.channel);
+        _announceConnected(event.channel);
         onRebuild();
       }
     });
