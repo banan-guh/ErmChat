@@ -33,3 +33,8 @@ android/key.properties
 
 # Flutter desktop auto-generated files
 linux/
+private.key
+CertificateSigningRequest.certSigningRequest
+distribution.cer
+distribution.pem
+/apple-certs

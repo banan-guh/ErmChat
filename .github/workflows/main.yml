@@ -75,6 +75,10 @@ jobs:
   # --- JOB 2: IOS BUILD ---
   build-ios:
     runs-on: macos-latest
+    env:
+      BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
+      BUILD_PROVISION_PROFILE_BASE64: ${{ secrets.BUILD_PROVISION_PROFILE_BASE64 }}
+      P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -90,15 +94,155 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Build unsigned iOS IPA
+      # All three secrets required; otherwise fall back to an unsigned build.
+      - name: Set up iOS code signing
+        if: env.BUILD_CERTIFICATE_BASE64 != '' && env.BUILD_PROVISION_PROFILE_BASE64 != '' && env.P12_PASSWORD != ''
+        run: |
+          echo ""
+          echo "======================================================"
+          echo "===== SIGNED IOS BUILD — SIGNING SECRETS FOUND ======="
+          echo "======================================================"
+          echo ""
+
+          CERT_PATH="$RUNNER_TEMP/certificate.p12"
+          PP_PATH="$RUNNER_TEMP/build.mobileprovision"
+          KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
+
+          printf '%s' "$BUILD_CERTIFICATE_BASE64" | base64 --decode > "$CERT_PATH" 2>/dev/null \
+            || { echo "::error::BUILD_CERTIFICATE_BASE64 is not valid Base64."; exit 1; }
+
+          CERT_BYTES="$(wc -c < "$CERT_PATH" | tr -d ' ')"
+          CERT_HEAD="$(LC_ALL=C head -c 16 "$CERT_PATH" | od -An -tx1 | tr -d ' \n')"
+          CERT_TAIL="$(LC_ALL=C tail -c 16 "$CERT_PATH" | od -An -tx1 | tr -d ' \n')"
+          echo "::notice::decoded certificate: ${CERT_BYTES} bytes, head=${CERT_HEAD}, tail=${CERT_TAIL}"
+          echo "::notice::compare locally: wc -c certificate.p12 must equal ${CERT_BYTES}"
+
+          # Fail fast with actionable messages instead of a bare
+          # "SecKeychainItemImport: Unable to decode the provided data."
+          if ! openssl asn1parse -inform DER -in "$CERT_PATH" > /dev/null 2>&1; then
+            echo "::error::Decoded file (${CERT_BYTES} bytes) is incomplete DER — the Base64 in"
+            echo "::error::BUILD_CERTIFICATE_BASE64 was almost certainly TRUNCATED while pasting."
+            echo "::error::Fix: base64 -i certificate.p12 | pbcopy, then paste the WHOLE output into the secret."
+            exit 1
+          fi
+
+          if ! openssl pkcs12 -in "$CERT_PATH" -passin "pass:$P12_PASSWORD" -nocerts -nokeys < /dev/null > /dev/null 2>&1; then
+            echo "::error::.p12 is structurally valid but will not open: P12_PASSWORD does not match the"
+            echo "::error::password used when exporting, or the export needs re-doing from Keychain Access."
+            exit 1
+          fi
+
+          printf '%s' "$BUILD_PROVISION_PROFILE_BASE64" | base64 --decode > "$PP_PATH" 2>/dev/null \
+            || { echo "::error::BUILD_PROVISION_PROFILE_BASE64 is not valid Base64."; exit 1; }
+          echo "::notice::decoded profile: $(wc -c < "$PP_PATH" | tr -d ' ') bytes"
+          if ! security cms -D -i "$PP_PATH" > /dev/null 2>&1; then
+            echo "::error::BUILD_PROVISION_PROFILE_BASE64 did not decode to a valid .mobileprovision profile."
+            exit 1
+          fi
+
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 24)"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERT_PATH" -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH" login.keychain-db
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          UUID=$(security cms -D -i "$PP_PATH" | plutil -extract UUID raw -o - -)
+          TEAM_ID=$(security cms -D -i "$PP_PATH" | plutil -extract TeamIdentifier.0 raw -o - -)
+          APP_ID=$(security cms -D -i "$PP_PATH" | plutil -extract Entitlements.application-identifier raw -o - -)
+          BUNDLE_ID="${APP_ID#"$TEAM_ID."}"
+
+          mkdir -p ~/Library/MobileDevice/"Provisioning Profiles"
+          cp "$PP_PATH" ~/Library/MobileDevice/"Provisioning Profiles/$UUID.mobileprovision"
+
+          cat >> ios/Flutter/Release.xcconfig <<EOF
+
+          DEVELOPMENT_TEAM = $TEAM_ID
+          CODE_SIGN_STYLE = Manual
+          PROVISIONING_PROFILE_SPECIFIER = $UUID
+          CODE_SIGN_IDENTITY = Apple Distribution
+          EOF
+
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>app-store-connect</string>
+            <key>teamID</key>
+            <string>$TEAM_ID</string>
+            <key>signingStyle</key>
+            <string>manual</string>
+            <key>signingCertificate</key>
+            <string>Apple Distribution</string>
+            <key>stripSwiftSymbols</key>
+            <true/>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>$BUNDLE_ID</key>
+              <string>$UUID</string>
+            </dict>
+          </dict>
+          </plist>
+          EOF
+
+          echo "Signing ready: team=$TEAM_ID profile=$UUID bundle=$BUNDLE_ID"
+
+      - name: Build signed iOS IPA
+        if: env.BUILD_CERTIFICATE_BASE64 != '' && env.BUILD_PROVISION_PROFILE_BASE64 != '' && env.P12_PASSWORD != ''
         run: |
           VERSION="${{ github.ref_name }}"
           VERSION="${VERSION#v}"
-          flutter build ipa --no-codesign \
+          flutter build ipa --release \
+            --export-options-plist="$RUNNER_TEMP/ExportOptions.plist" \
             --build-name="$VERSION" \
             --build-number="${{ github.run_number }}"
 
+      - name: Prepare signed IPA asset
+        if: env.BUILD_CERTIFICATE_BASE64 != '' && env.BUILD_PROVISION_PROFILE_BASE64 != '' && env.P12_PASSWORD != ''
+        run: |
+          mkdir -p build/release-assets
+          TAG_NAME="${{ github.ref_name }}"
+          REPO_NAME="${{ github.event.repository.name }}"
+          cp build/ios/ipa/*.ipa "build/release-assets/${REPO_NAME}-${TAG_NAME}.ipa"
+
+      - name: Build unsigned iOS IPA
+        if: env.BUILD_CERTIFICATE_BASE64 == '' || env.BUILD_PROVISION_PROFILE_BASE64 == '' || env.P12_PASSWORD == ''
+        run: |
+          TAG_NAME="${{ github.ref_name }}"
+          REPO_NAME="${{ github.event.repository.name }}"
+          echo ""
+          echo "=========================================================="
+          echo "=========================================================="
+          echo "                                                          "
+          echo "   █████  ██    ██ ████████ ██     ██                     "
+          echo "  ██   ██ ██    ██    ██    ██     ██                     "
+          echo "  ███████ ██    ██    ██    ██  █  ██                     "
+          echo "  ██   ██  ██  ██     ██    ██ ███ ██                     "
+          echo "  ██   ██   ████      ██     ███ ███                      "
+          echo "                                                          "
+          echo "   UNSIGNED IOS BUILD — SIGNING SECRETS MISSING           "
+          echo "   (needs BUILD_CERTIFICATE_BASE64 +                      "
+          echo "        BUILD_PROVISION_PROFILE_BASE64 + P12_PASSWORD)    "
+          echo "   THE IPA WILL NOT RUN ON DEVICES WITHOUT RE-SIGNING!    "
+          echo "                                                          "
+          echo "=========================================================="
+          echo "=========================================================="
+          echo ""
+          VERSION="${TAG_NAME#v}"
+          flutter build ipa --no-codesign \
+            --build-name="$VERSION" \
+            --build-number="${{ github.run_number }}"
+          echo ""
+          echo "=========================================================="
+          echo "  ⚠️  OUTPUT: ${REPO_NAME}-${TAG_NAME}-UNSIGNED.ipa (UNSIGNED!) ⚠️ "
+          echo "=========================================================="
+          echo ""
+
       - name: Package payload into downloadable .ipa
+        if: env.BUILD_CERTIFICATE_BASE64 == '' || env.BUILD_PROVISION_PROFILE_BASE64 == '' || env.P12_PASSWORD == ''
         run: |
           mkdir -p build/release-assets
           TAG_NAME="${{ github.ref_name }}"
@@ -106,7 +250,7 @@ jobs:
           cd build/ios/archive/Runner.xcarchive/Products/Applications
           mkdir Payload
           cp -r Runner.app Payload/
-          zip -r "$GITHUB_WORKSPACE/build/release-assets/${REPO_NAME}-${TAG_NAME}.ipa" Payload
+          zip -r "$GITHUB_WORKSPACE/build/release-assets/${REPO_NAME}-${TAG_NAME}-UNSIGNED.ipa" Payload
 
       - name: Upload IPA Artifact
         uses: actions/upload-artifact@v4

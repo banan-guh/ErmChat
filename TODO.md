@@ -3,6 +3,7 @@
 
 ## High Priority
 
+- [ ] **Check if timeout gate disappears when cancelled** - VERY important, I guess it can be circumvented with a restart
 - [ ] **Check for wasteful rebuilds** - MUCH-NEEDED optimization.
 - [ ] **Check for wasteful / unreadable code** - for other people who want to read the codebase.
 - [x] **Token expiry handling** - expired tokens fail silently right now. Validate on startup, catch the login-failed NOTICE, prompt re-auth. Drop unused scopes while at it (%20 -> + too).
