@@ -419,6 +419,11 @@ class ChatConnectionManager {
   final _selfTimeoutUntil = <String, DateTime>{};
   final _lastOwnMessageAt = <String, DateTime>{};
 
+  // Extra window padded onto both send-gates so a send never slips out while
+  // Twitch still considers you blocked: second-granularity countdowns plus
+  // local/server clock drift can otherwise expire the gate early.
+  static const _sendGrace = Duration(milliseconds: 500);
+
   // Badge set-ids that bypass slow mode on Twitch.
   static const _slowExemptBadges = {
     'broadcaster',
@@ -442,28 +447,34 @@ class ChatConnectionManager {
   int slowModeSeconds(String channel) => _channelSetup.slowModeSeconds(channel);
 
   /// Seconds left on your timeout in [channel], null when none is active.
+  /// Ceil-rounded over the padded window, so the display starts one second
+  /// high and the gate outlives the raw expiry by the send grace.
   int? remainingSelfTimeout(String channel) {
     final until = _selfTimeoutUntil[channel];
     if (until == null) return null;
-    final left = until.difference(DateTime.now()).inSeconds;
-    if (left <= 0) {
+    final left = until.add(_sendGrace).difference(DateTime.now());
+    if (left <= Duration.zero) {
       _selfTimeoutUntil.remove(channel);
       return null;
     }
-    return left;
+    return (left.inMilliseconds / 1000).ceil();
   }
 
   /// Seconds left before you may send again in [channel] under slow mode,
   /// measured from your own last message. Null when slow mode is off, your
-  /// badges bypass it, or the window has elapsed.
+  /// badges bypass it, or the window has elapsed. Ceil-rounded like
+  /// [remainingSelfTimeout].
   int? remainingSlowCooldown(String channel) {
     final slow = slowModeSeconds(channel);
     if (slow <= 0 || _bypassesSlowMode(channel)) return null;
     final sentAt = _lastOwnMessageAt[channel];
     if (sentAt == null) return null;
-    final elapsed = DateTime.now().difference(sentAt).inSeconds;
-    final left = slow - elapsed;
-    return left > 0 ? left : null;
+    final left = sentAt
+        .add(Duration(seconds: slow))
+        .add(_sendGrace)
+        .difference(DateTime.now());
+    if (left <= Duration.zero) return null;
+    return (left.inMilliseconds / 1000).ceil();
   }
 
   Future<void> subscribeChannel(String channelName) =>
@@ -1365,7 +1376,9 @@ class ChatConnectionManager {
             : '';
         if (isSelfTarget &&
             event.action == 'timeout' &&
-            event.durationSeconds != null) {
+            event.durationSeconds != null &&
+            // Zero-length timeouts are already spent - no gate to arm.
+            event.durationSeconds! > 0) {
           _selfTimeoutUntil[event.channel] = DateTime.now().add(
             Duration(seconds: event.durationSeconds!),
           );

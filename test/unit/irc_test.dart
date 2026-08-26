@@ -3702,7 +3702,7 @@ void main() {
 
       await conn.doSendMessage('hi', 'test');
 
-      expect(conn.remainingSlowCooldown('test'), inInclusiveRange(25, 30));
+      expect(conn.remainingSlowCooldown('test'), inInclusiveRange(25, 31));
       conn.dispose();
     });
 
@@ -3728,7 +3728,24 @@ void main() {
         '@ban-duration=600 :tmi.twitch.tv CLEARCHAT #test :viewer',
       );
       await Future<void>.delayed(Duration.zero);
-      expect(conn.remainingSelfTimeout('test'), inInclusiveRange(595, 600));
+      expect(conn.remainingSelfTimeout('test'), inInclusiveRange(595, 601));
+      conn.dispose();
+    });
+
+    test('the send grace outlives the raw timeout expiry', () async {
+      final (conn, irc) = await makeConn();
+
+      irc.handleLine('@ban-duration=1 :tmi.twitch.tv CLEARCHAT #test :viewer');
+      await Future<void>.delayed(Duration.zero);
+      // Ceil over the 0.5s-padded window: a fresh 1s timeout reads high.
+      expect(conn.remainingSelfTimeout('test'), inInclusiveRange(1, 2));
+
+      // Past raw expiry (1s) but inside the grace: still gated.
+      await Future<void>.delayed(const Duration(milliseconds: 1100));
+      expect(conn.remainingSelfTimeout('test'), isNotNull);
+
+      await Future<void>.delayed(const Duration(milliseconds: 600));
+      expect(conn.remainingSelfTimeout('test'), isNull);
       conn.dispose();
     });
 

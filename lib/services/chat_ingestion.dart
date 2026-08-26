@@ -297,7 +297,8 @@ class ChatIngestion {
     // double-count: both just re-arm the same expiry.
     final selfLogin = store.session.login?.toLowerCase();
     if (selfLogin != null && user.toLowerCase() == selfLogin) {
-      if (isTimeout && duration != null) {
+      // Zero-length timeouts are already spent - don't arm a gate for them.
+      if (isTimeout && duration != null && duration > 0) {
         onSelfTimeoutArmed(
           channel,
           DateTime.now().add(Duration(seconds: duration)),

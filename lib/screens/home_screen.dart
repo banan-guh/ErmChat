@@ -299,7 +299,9 @@ class _HomeScreenState extends State<HomeScreen>
   // Input-box send-gate countdown ("Slow mode: 12s" / "Timed out: 5s"),
   // ticking once per second while a gate is active on the visible channel.
   Timer? _cooldownTickTimer;
-  String? _shownCooldownLabel;
+  // Drives the composer's hint directly so the countdown repaints without a
+  // full-screen setState — mid-swipe selection commits skip that path.
+  final ValueNotifier<String?> _cooldownLabelNotifier = ValueNotifier(null);
   int _maxMessagesPerChannel = kMaxMessagesPerChannelDefault;
   int _recentMessagesLimit = 100;
   bool _showTimestamps = true;
@@ -410,7 +412,7 @@ class _HomeScreenState extends State<HomeScreen>
     _noticesSub = _chatStore.notices.listen(_onStoreNotice);
     _chatConn.connect();
     _cooldownTickTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      _tickCooldownLabel();
+      _updateCooldownLabel();
     });
     _chatConn.onWhisper = _onWhisper;
     _emoteManager.accessToken = widget.twitchAuth.accessToken;
@@ -1184,6 +1186,10 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   void _onStoreEvent(ChatStoreEvent event) {
+    // The composer's send-gate countdown arms off moderation events (self
+    // timeouts land here as system lines); refresh it eagerly so the label
+    // appears without waiting for the next tick.
+    _updateCooldownLabel();
     switch (event.signal) {
       case ChatStoreSignal.newContent:
         _onPanelDataChanged(event.channel);
@@ -1571,6 +1577,7 @@ class _HomeScreenState extends State<HomeScreen>
     _widgetPageCtrl.dispose();
     _testWidgetsTimer?.cancel();
     _cooldownTickTimer?.cancel();
+    _cooldownLabelNotifier.dispose();
     _eventSub.dispose();
     _irc.dispose();
     _ircRead.dispose();
@@ -2186,6 +2193,14 @@ class _HomeScreenState extends State<HomeScreen>
 
     // The Mentions tab of the panel stays read-only.
     if (_activePanel == OverlayPanel.mentions) {
+      return;
+    }
+
+    // Local send-gates: Twitch would reject these anyway, so just hold the
+    // message back (before clearing the box). The grace-padded countdowns
+    // keep this open slightly longer than the raw windows on purpose.
+    if (_chatConn.remainingSelfTimeout(channel) != null ||
+        _chatConn.remainingSlowCooldown(channel) != null) {
       return;
     }
 
@@ -2957,7 +2972,7 @@ class _HomeScreenState extends State<HomeScreen>
     var clearedUnread = 0;
     void mutate() {
       _selectedChannel = channel;
-      _shownCooldownLabel = _cooldownLabel();
+      _updateCooldownLabel();
       _chatStore.channelsWithUnread.remove(channel);
       _chatStore.channelsWithUnreadMentions.remove(channel);
       clearedUnread = _chatStore.unreadMentionsPerChannel.remove(channel) ?? 0;
@@ -3006,12 +3021,8 @@ class _HomeScreenState extends State<HomeScreen>
     return null;
   }
 
-  void _tickCooldownLabel() {
-    if (!mounted) return;
-    final label = _cooldownLabel();
-    if (label == _shownCooldownLabel) return;
-    setState(() => _shownCooldownLabel = label);
-  }
+  void _updateCooldownLabel() =>
+      _cooldownLabelNotifier.value = _cooldownLabel();
 
   // Retroactive mention scan: runs once on login. Hits are batched and
   // mirrored through ChatStore, which sorts the mentions buffer newest-first
@@ -3654,59 +3665,67 @@ class _HomeScreenState extends State<HomeScreen>
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        MessageInput(
-                          controller: _messageController,
-                          focusNode: _focusNode,
-                          onSend: _sendMessage,
-                          onSendLongPress: _onSendLongPress,
-                          onTap: () => _suggestionsNotifier.value = [],
-                          onEmoteToggle: () {
-                            PerfLog.I.record(
-                              'EmoteSheet',
-                              'toggle: open=$_emoteSheetOpen',
+                        // The countdown hint repaints through its own
+                        // notifier: swipe commits skip full-screen setState,
+                        // so without this the box would freeze mid-count.
+                        ListenableBuilder(
+                          listenable: _cooldownLabelNotifier,
+                          builder: (context, _) {
+                            return MessageInput(
+                              controller: _messageController,
+                              focusNode: _focusNode,
+                              onSend: _sendMessage,
+                              onSendLongPress: _onSendLongPress,
+                              onTap: () => _suggestionsNotifier.value = [],
+                              onEmoteToggle: () {
+                                PerfLog.I.record(
+                                  'EmoteSheet',
+                                  'toggle: open=$_emoteSheetOpen',
+                                );
+                                if (_emoteSheetOpen) {
+                                  unawaited(_closeEmoteSheet());
+                                } else {
+                                  _showEmoteMenu();
+                                }
+                              },
+                              replyToMsg: _replyToMsg,
+                              onCancelReply: () =>
+                                  setState(() => _replyToMsg = null),
+                              enabled:
+                                  (_activePanel != OverlayPanel.mentions ||
+                                      _isWhispersTabActive) &&
+                                  widget.twitchAuth.isConfigured &&
+                                  _chatConn.isChatPipeConnected &&
+                                  (_isWhispersTabActive || _channelChatReady),
+                              hintText:
+                                  _cooldownLabelNotifier.value ??
+                                  (!widget.twitchAuth.isConfigured
+                                      ? 'Connect an account to chat'
+                                      : switch ((
+                                          _chatConn.connectPhase,
+                                          _activePanel,
+                                          _isWhispersTabActive,
+                                          _channelChatReady,
+                                        )) {
+                                          (ChatPhase.connecting, _, _, _) =>
+                                            'Connecting...',
+                                          (ChatPhase.reconnecting, _, _, _) =>
+                                            'Reconnecting...',
+                                          (ChatPhase.online, _, false, false)
+                                              when _selectedChannel != null =>
+                                            'Joining #${_selectedChannel!}...',
+                                          (_, OverlayPanel.thread, _, _) =>
+                                            'Reply to thread...',
+                                          (_, _, true, _) =>
+                                            _whisperTarget != null
+                                                ? 'Whisper to $_whisperTarget...'
+                                                : 'Type /w <username> <message>',
+                                          (_, OverlayPanel.mentions, _, _) =>
+                                            'Type a message...',
+                                          _ => null,
+                                        }),
                             );
-                            if (_emoteSheetOpen) {
-                              unawaited(_closeEmoteSheet());
-                            } else {
-                              _showEmoteMenu();
-                            }
                           },
-                          replyToMsg: _replyToMsg,
-                          onCancelReply: () =>
-                              setState(() => _replyToMsg = null),
-                          enabled:
-                              (_activePanel != OverlayPanel.mentions ||
-                                  _isWhispersTabActive) &&
-                              widget.twitchAuth.isConfigured &&
-                              _chatConn.isChatPipeConnected &&
-                              (_isWhispersTabActive || _channelChatReady),
-                          hintText:
-                              _shownCooldownLabel ??
-                              (!widget.twitchAuth.isConfigured
-                                  ? 'Connect an account to chat'
-                                  : switch ((
-                                      _chatConn.connectPhase,
-                                      _activePanel,
-                                      _isWhispersTabActive,
-                                      _channelChatReady,
-                                    )) {
-                                      (ChatPhase.connecting, _, _, _) =>
-                                        'Connecting...',
-                                      (ChatPhase.reconnecting, _, _, _) =>
-                                        'Reconnecting...',
-                                      (ChatPhase.online, _, false, false)
-                                          when _selectedChannel != null =>
-                                        'Joining #${_selectedChannel!}...',
-                                      (_, OverlayPanel.thread, _, _) =>
-                                        'Reply to thread...',
-                                      (_, _, true, _) =>
-                                        _whisperTarget != null
-                                            ? 'Whisper to $_whisperTarget...'
-                                            : 'Type /w <username> <message>',
-                                      (_, OverlayPanel.mentions, _, _) =>
-                                        'Type a message...',
-                                      _ => null,
-                                    }),
                         ),
                         ListenableBuilder(
                           listenable: Listenable.merge([
