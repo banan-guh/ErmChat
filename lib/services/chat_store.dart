@@ -307,6 +307,49 @@ class ChatStore {
     return true;
   }
 
+  /// Updates the system row carrying [messageId] in place, inserting it at
+  /// the top of [channel]'s buffer when absent. Built for live progress
+  /// markers (join-queue countdowns) whose text changes every tick; no
+  /// status folding applies. Returns true when the buffer changed.
+  bool upsertSystemMessage(
+    String channel,
+    String text, {
+    required String messageId,
+    Color? accent,
+  }) {
+    final msgs = channelMessages.putIfAbsent(channel, () => []);
+    for (final m in msgs) {
+      if (m.isSystem && m.messageId == messageId) {
+        if (m.text == text) return false;
+        m.text = text;
+        return true;
+      }
+    }
+    msgs.insert(
+      0,
+      TwitchMessage(
+        login: '',
+        text: text,
+        messageId: messageId,
+        isSystem: true,
+        systemAccent: accent,
+        channel: channel,
+      ),
+    );
+    return true;
+  }
+
+  /// Removes the system row carrying [messageId]; returns true when a row
+  /// went away. Retires transient markers (e.g. a join countdown once the
+  /// channel confirms).
+  bool removeSystemMessage(String channel, String messageId) {
+    final msgs = channelMessages[channel];
+    if (msgs == null || msgs.isEmpty) return false;
+    final before = msgs.length;
+    msgs.removeWhere((m) => m.isSystem && m.messageId == messageId);
+    return msgs.length != before;
+  }
+
   /// Kernel ingestion verb for one already-gated live message. Dedups against
   /// [messageKeys] (returns false and mutates nothing on a duplicate),
   /// applies unread/mention bookkeeping, inserts into the channel buffer,

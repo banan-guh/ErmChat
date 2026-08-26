@@ -90,6 +90,16 @@ class JoinRateLimiter {
     return index < 0 ? null : index + 1;
   }
 
+  /// Every pending entry for [role] with its global FIFO position, ordered by
+  /// send order. Drives join-progress surfacing (queue countdowns).
+  List<({String channel, int position})> pendingFor(IrcSocketRole role) {
+    return [
+      for (var i = 0; i < _queue.length; i++)
+        if (_queue[i].role == role)
+          (channel: _queue[i].channel, position: i + 1),
+    ];
+  }
+
   /// Seconds until the entry at 1-based [position] would go out, assuming
   /// nothing ahead of it is removed first.
   int etaSecondsForPosition(int position) {

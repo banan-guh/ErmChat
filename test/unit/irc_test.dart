@@ -348,6 +348,9 @@ ChatConnectionManager _makeConn({
   EmoteManager? emoteManager,
   DateTime Function()? truncateNow,
   Duration? truncateCoalesceWindow,
+  IrcService? irc,
+  JoinRateLimiter? joinBudget,
+  void Function(String channel, JoinProgress? info)? onJoinProgress,
 }) {
   final api = TwitchApi(client: http.Client());
   return ChatConnectionManager(
@@ -355,12 +358,13 @@ ChatConnectionManager _makeConn({
       services: ChatServices(
         twitchApi: api,
         eventSub: EventSubService(),
-        irc: IrcService(),
+        irc: irc ?? IrcService(),
         ircRead: IrcReadService(),
         emoteManager: emoteManager ?? EmoteManager(),
         badgeService: TwitchBadgeService(),
         userStore: UserStore(),
         twitchAuth: TwitchAuth(),
+        joinBudget: joinBudget,
       ),
       store: ChatStore(
         now: truncateNow,
@@ -384,6 +388,7 @@ ChatConnectionManager _makeConn({
         onSystemMessage: (c, t, {Color? accent, String? messageId}) {},
         getSelectedChannel: () => null,
         getMaxMessagesPerChannel: () => maxMessages,
+        onJoinProgress: onJoinProgress,
       ),
       sinks: ChatSinks(
         onCommand: (t, c, a) {},
@@ -945,6 +950,90 @@ void main() {
 
         service.dispose();
         channel.dispose();
+      });
+    });
+  });
+
+  group('join progress surfacing', () {
+    test('queued channel shows a countdown that retires on ROOMSTATE', () {
+      fakeAsync((async) {
+        var fakeNow = DateTime(2026, 1, 1);
+        final budget = JoinRateLimiter(now: () => fakeNow);
+        final channel = FakeWebSocketChannel();
+        final irc = _TestService([channel], joinBudget: budget);
+        final events = <(String, JoinProgress?)>[];
+        final conn = _makeConn(
+          channelMessages: {},
+          maxMessages: 10,
+          irc: irc,
+          joinBudget: budget,
+          onJoinProgress: (c, i) => events.add((c, i)),
+        );
+
+        // Fill the FIFO so 'test' lands past the initial 20-token burst.
+        for (var i = 0; i < 22; i++) {
+          irc.join('filler$i');
+        }
+        irc.join('test');
+        conn.connect();
+        async.flushMicrotasks();
+
+        // Ticker started on connect: 'test' is waiting behind the fillers.
+        fakeNow = fakeNow.add(const Duration(seconds: 1));
+        async.elapse(const Duration(milliseconds: 1100));
+        final waits = events
+            .where((e) => e.$1 == 'test' && e.$2 != null)
+            .toList();
+        expect(waits, isNotEmpty, reason: 'a queued channel shows a countdown');
+        expect(waits.first.$2!.position, greaterThanOrEqualTo(1));
+
+        // ROOMSTATE confirms the join: the countdown line is retired.
+        channel.push('@room-id=1 :tmi.twitch.tv ROOMSTATE #test');
+        fakeNow = fakeNow.add(const Duration(seconds: 1));
+        async.elapse(const Duration(milliseconds: 1100));
+        expect(events.last.$1, 'test');
+        expect(events.last.$2, isNull);
+
+        conn.dispose();
+      });
+    });
+
+    test('disconnect clears every shown countdown', () {
+      fakeAsync((async) {
+        var fakeNow = DateTime(2026, 1, 1);
+        final budget = JoinRateLimiter(now: () => fakeNow);
+        final channel = FakeWebSocketChannel();
+        final irc = _TestService([channel], joinBudget: budget);
+        final events = <(String, JoinProgress?)>[];
+        final conn = _makeConn(
+          channelMessages: {},
+          maxMessages: 10,
+          irc: irc,
+          joinBudget: budget,
+          onJoinProgress: (c, i) => events.add((c, i)),
+        );
+
+        for (var i = 0; i < 22; i++) {
+          irc.join('filler$i');
+        }
+        irc.join('test');
+        conn.connect();
+        async.flushMicrotasks();
+        fakeNow = fakeNow.add(const Duration(seconds: 1));
+        async.elapse(const Duration(milliseconds: 1100));
+        expect(events.where((e) => e.$1 == 'test' && e.$2 != null), isNotEmpty);
+
+        // Socket death drops the queued JOINs and emits a disconnected
+        // status: every shown countdown must be retired.
+        irc.forceReconnect();
+        async.flushMicrotasks();
+        fakeNow = fakeNow.add(const Duration(seconds: 1));
+        async.elapse(const Duration(milliseconds: 1100));
+        expect(
+          events.where((e) => e.$1 == 'test' && e.$2 == null),
+          isNotEmpty,
+          reason: 'the countdown must not outlive its socket',
+        );
       });
     });
   });
@@ -2734,8 +2823,10 @@ void main() {
       );
       await conn.connect();
 
-      // First connect edge: no backfill, one Connected line.
+      // First connect edge: no backfill, one Connected line. "Connected"
+      // waits for the channel's own JOIN confirmation now.
       irc.emitConnected();
+      irc.handleLine('@room-id=1 :tmi.twitch.tv ROOMSTATE #test');
       await Future<void>.delayed(Duration.zero);
       expect(reconnects, 0);
       expect(system.where((t) => t == 'Connected'), hasLength(1));
@@ -2770,7 +2861,9 @@ void main() {
       expect(irc.sent, hasLength(1), reason: 'no PRIVMSG before JOIN lands');
 
       // The deliberate swap still takes the full connect edge: backfill +
-      // a fresh Connected line.
+      // a fresh Connected line once bob's JOIN confirms.
+      irc.handleLine('@room-id=1 :tmi.twitch.tv ROOMSTATE #test');
+      await Future<void>.delayed(Duration.zero);
       expect(reconnects, 1);
       expect(system.where((t) => t == 'Connected'), hasLength(2));
 
@@ -2940,10 +3033,15 @@ void main() {
           reason: "Twitch's raw refusal notice must not duplicate ours",
         );
 
-        // A later ROOMSTATE means the channel joined after all.
+        // A later ROOMSTATE means the channel joined after all: the late
+        // success announces, and the honest per-channel Connected lands.
         irc.handleLine('@room-id=123 :tmi.twitch.tv ROOMSTATE #test');
         await Future<void>.delayed(Duration.zero);
-        expect(texts.last, 'Joined #test.');
+        expect(texts, contains('Joined #test.'));
+        expect(
+          texts.lastIndexOf('Joined #test.'),
+          greaterThan(texts.indexOf('Could not join #test: ')),
+        );
 
         conn.dispose();
         irc.dispose();

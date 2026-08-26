@@ -161,9 +161,22 @@ class _FakeIrcService extends IrcService {
   @override
   bool get isConnected => _fakeConnected;
 
-  void triggerConnect() {
+  final _roomStateCtrl = StreamController<IrcRoomStateEvent>.broadcast(
+    sync: true,
+  );
+
+  @override
+  Stream<IrcRoomStateEvent> get onRoomState => _roomStateCtrl.stream;
+
+  void triggerJoin(String channel) {
+    _roomStateCtrl.add(IrcRoomStateEvent(channel: channel, tags: const {}));
+  }
+
+  void triggerConnect({String? joinChannel}) {
     _fakeConnected = true;
     _statusCtrl.add(IrcConnectionStatus.connected);
+    // "Connected" surfaces per channel once its JOIN confirms.
+    if (joinChannel != null) triggerJoin(joinChannel);
   }
 
   void triggerDisconnect() {
@@ -1354,7 +1367,7 @@ void main() {
 
       expect(find.textContaining('Connected'), findsNothing);
 
-      fakeIrc.triggerConnect();
+      fakeIrc.triggerConnect(joinChannel: 'testchannel');
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 600));
       await tester.pump();
@@ -1576,7 +1589,7 @@ void main() {
       await tester.tap(find.text('Join', skipOffstage: false));
       await tester.pumpAndSettle();
 
-      fakeIrc.triggerConnect();
+      fakeIrc.triggerConnect(joinChannel: 'testchannel');
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 600));
       await tester.pump();
@@ -2686,7 +2699,7 @@ void main() {
       final irc = _FakeIrcService();
       await setupChannel(tester, eventSub: eventSub, irc: irc);
 
-      irc.triggerConnect();
+      irc.triggerConnect(joinChannel: 'testchannel');
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 600));
       await tester.pump();
@@ -2696,7 +2709,8 @@ void main() {
         findsOneWidget,
       );
 
-      irc.triggerConnect();
+      // A duplicate connect edge without a disconnect must not stack.
+      irc.triggerConnect(joinChannel: 'testchannel');
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 600));
       await tester.pump();
@@ -2714,7 +2728,7 @@ void main() {
       final irc = _FakeIrcService();
       await setupChannel(tester, eventSub: eventSub, irc: irc);
 
-      irc.triggerConnect();
+      irc.triggerConnect(joinChannel: 'testchannel');
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 600));
       await tester.pump();
@@ -2741,7 +2755,7 @@ void main() {
         findsOneWidget,
       );
 
-      irc.triggerConnect();
+      irc.triggerConnect(joinChannel: 'testchannel');
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 600));
       await tester.pump();

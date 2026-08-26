@@ -165,6 +165,7 @@ class _HomeScreenState extends State<HomeScreen>
         twitchAuth: widget.twitchAuth,
         pingManager: _pingManager,
         ignoreManager: _ignoreManager,
+        joinBudget: _joinBudget,
       ),
       store: _chatStore,
       bridge: ChatViewBridge(
@@ -173,6 +174,7 @@ class _HomeScreenState extends State<HomeScreen>
           if (mounted) setState(() {});
         },
         onSystemMessage: _addSystemMessage,
+        onJoinProgress: _onJoinProgress,
         getSelectedChannel: () => _selectedChannel,
         getMaxMessagesPerChannel: () => _maxMessagesPerChannel,
       ),
@@ -1828,6 +1830,24 @@ class _HomeScreenState extends State<HomeScreen>
     )) {
       return;
     }
+    _truncateChannelMessages(channel);
+    _chatStore.noteNewMessage(channel);
+  }
+
+  /// Translates join-queue progress into a live countdown system line
+  /// ("Joining · position 12 · ~14s"); a null [info] retires the line.
+  void _onJoinProgress(String channel, JoinProgress? info) {
+    final id = 'join_wait_$channel';
+    var changed = false;
+    if (info == null) {
+      changed = _chatStore.removeSystemMessage(channel, id);
+    } else {
+      final text = info.etaSeconds <= 0
+          ? 'Joining · position ${info.position}'
+          : 'Joining · position ${info.position} · ~${info.etaSeconds}s';
+      changed = _chatStore.upsertSystemMessage(channel, text, messageId: id);
+    }
+    if (!changed) return;
     _truncateChannelMessages(channel);
     _chatStore.noteNewMessage(channel);
   }

@@ -9,6 +9,8 @@ import '../services/twitch_auth.dart';
 import '../services/twitch_eventsub.dart';
 import '../services/twitch_irc.dart';
 import '../services/emote_manager.dart';
+import '../services/base_irc_connection.dart' show IrcSocketRole;
+import '../services/join_rate_limiter.dart';
 import '../services/emote_providers/seven_tv_emotes.dart';
 import '../services/seven_tv_event_client.dart';
 import '../services/twitch_badge_service.dart';
@@ -36,6 +38,7 @@ class ChatServices {
     required this.twitchAuth,
     this.pingManager,
     this.ignoreManager,
+    this.joinBudget,
   });
 
   final TwitchApi twitchApi;
@@ -49,6 +52,19 @@ class ChatServices {
   final EmoteManager emoteManager;
   final PingManager? pingManager;
   final IgnoreManager? ignoreManager;
+
+  /// The shared JOIN budget both sockets were wired with; null disables
+  /// join-progress surfacing.
+  final JoinRateLimiter? joinBudget;
+}
+
+/// Per-channel join-queue progress: the channel's position in the shared
+/// JOIN FIFO and an estimated seconds-to-send. Null info means the wait is
+/// over (confirmed, sent, or dropped) and any countdown line should go.
+class JoinProgress {
+  const JoinProgress(this.position, this.etaSeconds);
+  final int position;
+  final int etaSeconds;
 }
 
 /// Rendering and interaction signals flowing manager -> UI: buffer change
@@ -61,6 +77,7 @@ class ChatViewBridge {
     required this.onSystemMessage,
     required this.getSelectedChannel,
     required this.getMaxMessagesPerChannel,
+    this.onJoinProgress,
   });
 
   final String mentionsChannel;
@@ -69,6 +86,7 @@ class ChatViewBridge {
   onSystemMessage;
   final String? Function() getSelectedChannel;
   final int Function() getMaxMessagesPerChannel;
+  final void Function(String channel, JoinProgress? info)? onJoinProgress;
 }
 
 /// Feature integrations: commands, reply state, analytics, TTS, EventSub
@@ -165,6 +183,8 @@ class ChatConnectionManager {
   final void Function(PollEvent event)? onPoll;
   final void Function(PredictionEvent event)? onPrediction;
   final void Function(String channel, TwitchMessage msg)? onChatMessage;
+  final JoinRateLimiter? joinBudget;
+  final void Function(String channel, JoinProgress? info)? onJoinProgress;
 
   bool _wasConnected = false;
   bool _wasDisconnected = false;
@@ -183,6 +203,10 @@ class ChatConnectionManager {
   // channel). isConnected only reflects the socket; a fresh/reconnected socket
   // hasn't necessarily processed the JOINs yet, so sends gate on this.
   final _joinedChannels = <String>{};
+  // Channels currently showing a join-countdown line; drives the clear emit
+  // when the wait ends or the socket drops.
+  final _joinWaitShown = <String>{};
+  Timer? _joinProgressTimer;
   static const _roomStateNoticeIds = {
     'followers_on_zero',
     'followers_on',
@@ -312,10 +336,14 @@ class ChatConnectionManager {
       onHypeTrain = config.sinks.onHypeTrain,
       onPoll = config.sinks.onPoll,
       onPrediction = config.sinks.onPrediction,
-      onChatMessage = config.sinks.onChatMessage;
+      onChatMessage = config.sinks.onChatMessage,
+      joinBudget = config.services.joinBudget,
+      onJoinProgress = config.bridge.onJoinProgress;
 
   void dispose() {
     isDisposed = true;
+    _joinProgressTimer?.cancel();
+    _joinProgressTimer = null;
     for (final sub in _ingestionSubs) {
       sub.cancel();
     }
@@ -575,6 +603,53 @@ class ChatConnectionManager {
     }
   }
 
+  /// Retires the channel's countdown line (if shown) via a null progress
+  /// emit, so the UI removes the row.
+  void _clearJoinWait(String channel) {
+    if (!_joinWaitShown.remove(channel)) return;
+    onJoinProgress?.call(channel, null);
+  }
+
+  /// Emits per-channel join-queue progress once per second while any write
+  /// socket JOIN is still waiting in the shared budget: position plus an ETA
+  /// derived from the bucket's refill rate. Channels that left the queue but
+  /// have not confirmed yet get their countdown cleared (the ROOMSTATE
+  /// "Connected" lands moments later).
+  void _tickJoinProgress() {
+    final budget = joinBudget;
+    if (budget == null || isDisposed) return;
+    final pending = budget.pendingFor(IrcSocketRole.write);
+    final pendingByChannel = <String, int>{
+      for (final entry in pending) entry.channel: entry.position,
+    };
+    for (final channel in channels) {
+      final position = pendingByChannel[channel];
+      if (position != null && !_joinedChannels.contains(channel)) {
+        _joinWaitShown.add(channel);
+        onJoinProgress?.call(
+          channel,
+          JoinProgress(position, budget.etaSecondsForPosition(position)),
+        );
+      } else {
+        _clearJoinWait(channel);
+      }
+    }
+  }
+
+  /// Starts the one-second progress ticker for the manager's lifetime. It
+  /// idles cheaply when nothing is queued; mid-session channel joins must
+  /// surface too, so it never stops until [dispose].
+  void _ensureJoinProgressTicker() {
+    if (_joinProgressTimer != null || joinBudget == null || isDisposed) {
+      return;
+    }
+    _joinProgressTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      _tickJoinProgress();
+    });
+    // First snapshot immediately so a cold start shows positions at once.
+    _tickJoinProgress();
+  }
+
   Future<void> connect() async {
     if (isDisposed) return;
     if (_isConnecting) {
@@ -586,6 +661,7 @@ class ChatConnectionManager {
       final auth = twitchAuth;
 
       _setupSubscriptions();
+      _ensureJoinProgressTicker();
 
       sevenTvClient?.connect();
 
@@ -633,13 +709,9 @@ class ChatConnectionManager {
             if (!firstConnect) {
               await Future.delayed(const Duration(milliseconds: 500));
             }
-            // "Connected" is emitted before subscriptions are created - the
-            // user sees it as soon as the socket is up, not after Helix calls.
-            for (final channel in channels) {
-              if (_connectedAcked.add(channel)) {
-                onSystemMessage(channel, 'Connected');
-              }
-            }
+            // Per-channel "Connected" now waits for that channel's own JOIN
+            // confirmation (see the ROOMSTATE listener) - a socket being up
+            // says nothing about whether the channel can receive PRIVMSG.
             subscribeAll();
           }
         }
@@ -649,6 +721,9 @@ class ChatConnectionManager {
           _connectedAcked.clear();
           _lastSubscribeAll = null;
           _joinedChannels.clear();
+          for (final channel in List.of(_joinWaitShown)) {
+            _clearJoinWait(channel);
+          }
           // Failure state is per socket lifetime: the fresh socket runs its
           // own fast sweep, so it may legitimately fail (and re-announce)
           // again.
@@ -1043,6 +1118,12 @@ class ChatConnectionManager {
       // ready for PRIVMSG; record it so sends gate on the confirmed join.
       if (_channelSetup.handleRoomState(event)) {
         _joinedChannels.add(event.channel);
+        // The channel can actually receive messages now: retire any countdown
+        // and post the honest per-channel "Connected".
+        _clearJoinWait(event.channel);
+        if (_connectedAcked.add(event.channel)) {
+          onSystemMessage(event.channel, 'Connected');
+        }
       }
     });
 

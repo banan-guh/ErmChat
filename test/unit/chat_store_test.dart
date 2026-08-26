@@ -18,6 +18,54 @@ ChatStore _store() => ChatStore(
 );
 
 void main() {
+  group('ChatStore.upsertSystemMessage', () {
+    test('inserts when the id is new, updates in place afterwards', () {
+      final store = _store();
+      expect(
+        store.upsertSystemMessage(
+          'test',
+          'Joining · position 12 · ~14s',
+          messageId: 'join_wait_test',
+        ),
+        isTrue,
+      );
+      expect(
+        store.upsertSystemMessage(
+          'test',
+          'Joining · position 12 · ~13s',
+          messageId: 'join_wait_test',
+        ),
+        isTrue,
+      );
+
+      final msgs = store.channelMessages['test']!;
+      expect(msgs, hasLength(1), reason: 'ticks update, never stack');
+      expect(msgs.first.text, 'Joining · position 12 · ~13s');
+      expect(msgs.first.messageId, 'join_wait_test');
+    });
+
+    test('identical text is a no-op', () {
+      final store = _store();
+      store.upsertSystemMessage('test', 'same', messageId: 'id1');
+      expect(
+        store.upsertSystemMessage('test', 'same', messageId: 'id1'),
+        isFalse,
+      );
+    });
+
+    test('removeSystemMessage drops only the matching row', () {
+      final store = _store();
+      store.addSystemMessage('test', 'Connected');
+      store.upsertSystemMessage('test', 'Joining', messageId: 'wait');
+
+      expect(store.removeSystemMessage('test', 'wait'), isTrue);
+      final texts = store.channelMessages['test']!.map((m) => m.text).toList();
+      expect(texts, ['Connected']);
+      expect(store.removeSystemMessage('test', 'wait'), isFalse);
+      expect(store.removeSystemMessage('missing-channel', 'wait'), isFalse);
+    });
+  });
+
   group('ChatStore.addSystemMessage', () {
     test('inserts at the top of the buffer', () {
       final store = _store();
