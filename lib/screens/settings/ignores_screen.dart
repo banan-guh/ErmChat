@@ -202,60 +202,65 @@ class _IgnoreEditDialogState extends State<_IgnoreEditDialog> {
   Widget build(BuildContext context) {
     return AlertDialog(
       title: Text(widget.isNew ? 'Add ignore' : 'Edit ignore'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          TextField(
-            controller: _patternCtrl,
-            autofocus: widget.isNew,
-            decoration: InputDecoration(
-              labelText: widget.keyword
-                  ? 'Keyword or regex'
-                  : 'Username or regex',
-            ),
-          ),
-          SwitchListTile(
-            dense: true,
-            contentPadding: EdgeInsets.zero,
-            title: const Text('Regular expression'),
-            value: _isRegex,
-            onChanged: (v) => setState(() => _isRegex = v),
-          ),
-          SwitchListTile(
-            dense: true,
-            contentPadding: EdgeInsets.zero,
-            title: const Text('Case sensitive'),
-            value: _caseSensitive,
-            onChanged: (v) => setState(() => _caseSensitive = v),
-          ),
-          if (widget.keyword)
-            SwitchListTile(
-              dense: true,
-              contentPadding: EdgeInsets.zero,
-              title: const Text('Whole word'),
-              value: _wholeWord,
-              onChanged: (v) => setState(() => _wholeWord = v),
-            ),
-          if (widget.keyword)
-            SwitchListTile(
-              dense: true,
-              contentPadding: EdgeInsets.zero,
-              title: const Text('Block message'),
-              subtitle: const Text(
-                'Hide the whole message, not just the match',
-              ),
-              value: _block,
-              onChanged: (v) => setState(() => _block = v),
-            ),
-          if (widget.keyword && !_block)
+      // Keyword rules stack six rows; on small screens (or with the keyboard
+      // open) that exceeds the dialog bounds, so let the content scroll
+      // instead of overflowing.
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
             TextField(
-              controller: _replacementCtrl,
-              decoration: const InputDecoration(
-                labelText: 'Replace with',
-                helperText: 'What matched text becomes (default ***)',
+              controller: _patternCtrl,
+              autofocus: widget.isNew,
+              decoration: InputDecoration(
+                labelText: widget.keyword
+                    ? 'Keyword or regex'
+                    : 'Username or regex',
               ),
             ),
-        ],
+            SwitchListTile(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Regular expression'),
+              value: _isRegex,
+              onChanged: (v) => setState(() => _isRegex = v),
+            ),
+            SwitchListTile(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Case sensitive'),
+              value: _caseSensitive,
+              onChanged: (v) => setState(() => _caseSensitive = v),
+            ),
+            if (widget.keyword)
+              SwitchListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Whole word'),
+                value: _wholeWord,
+                onChanged: (v) => setState(() => _wholeWord = v),
+              ),
+            if (widget.keyword)
+              SwitchListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Block message'),
+                subtitle: const Text(
+                  'Hide the whole message, not just the match',
+                ),
+                value: _block,
+                onChanged: (v) => setState(() => _block = v),
+              ),
+            if (widget.keyword && !_block)
+              TextField(
+                controller: _replacementCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Replace with',
+                  helperText: 'What matched text becomes (default ***)',
+                ),
+              ),
+          ],
+        ),
       ),
       actions: [
         TextButton(
