@@ -3291,8 +3291,6 @@ void main() {
       await tester.pumpAndSettle();
       var prefs = await SharedPreferences.getInstance();
       expect(prefs.getBool('show_timestamps'), isFalse);
-      // The new FPS-cap rows sit between the gifs toggle and the timestamp
-      // tile, pushing the format subtitle below the fold of the lazy list.
       await tester.scrollUntilVisible(
         find.widgetWithText(ListTile, 'Timestamp format'),
         120,
@@ -3321,11 +3319,12 @@ void main() {
         'emote_fps_cap': 0,
       });
 
-      await tester.pumpWidget(const MaterialApp(home: ChatSettingsScreen()));
+      await tester.pumpWidget(const MaterialApp(home: EmotesSettingsScreen()));
       await tester.pump();
       await tester.scrollUntilVisible(
         find.widgetWithText(SwitchListTile, 'Animate gifs'),
         120,
+        scrollable: find.byType(Scrollable).first,
       );
       await tester.pumpAndSettle();
 
@@ -3341,11 +3340,12 @@ void main() {
     ) async {
       SharedPreferences.setMockInitialValues({'emote_fps_cap': 30});
 
-      await tester.pumpWidget(const MaterialApp(home: ChatSettingsScreen()));
+      await tester.pumpWidget(const MaterialApp(home: EmotesSettingsScreen()));
       await tester.pump();
       await tester.scrollUntilVisible(
         find.widgetWithText(SwitchListTile, 'Animate gifs'),
         120,
+        scrollable: find.byType(Scrollable).first,
       );
       await tester.pumpAndSettle();
 
@@ -3456,18 +3456,21 @@ void main() {
       await tester.pump();
       await tester.pump();
 
-      // Twitch is always on and not offered as an option.
-      expect(find.byKey(const Key('provider_toggle_twitch')), findsNothing);
-      expect(find.text('Providers', skipOffstage: false), findsOneWidget);
-
-      // The picker lives in a bottom sheet at the bottom of the page.
-      expect(find.byKey(const Key('provider_toggle_bttv')), findsNothing);
+      // The Animation section pushes the provider rows below the fold of
+      // the lazy list; bring them on stage first.
       await tester.scrollUntilVisible(
         find.byKey(const Key('providers_tile')),
         200,
         scrollable: find.byType(Scrollable).first,
       );
       await tester.pumpAndSettle();
+
+      // Twitch is always on and not offered as an option.
+      expect(find.byKey(const Key('provider_toggle_twitch')), findsNothing);
+      expect(find.text('Providers', skipOffstage: false), findsOneWidget);
+
+      // The picker lives in a bottom sheet at the bottom of the page.
+      expect(find.byKey(const Key('provider_toggle_bttv')), findsNothing);
       await tester.tap(find.byKey(const Key('providers_tile')));
       await tester.pumpAndSettle();
       expect(find.text('BetterTTV', skipOffstage: false), findsOneWidget);
@@ -3634,6 +3637,13 @@ void main() {
       );
       await tester.pump();
       await tester.pump();
+      // The Animation section pushes the cache rows below the fold.
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('emote_cache_slider')),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.pumpAndSettle();
 
       final slider = tester.widget<Slider>(
         find.byKey(const Key('emote_cache_slider')),
@@ -3694,6 +3704,13 @@ void main() {
       );
       await tester.pump();
       await tester.pump();
+      // The Animation section pushes the cache rows below the fold.
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('emote_cache_slider')),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.pumpAndSettle();
 
       final slider = tester.widget<Slider>(
         find.byKey(const Key('emote_cache_slider')),

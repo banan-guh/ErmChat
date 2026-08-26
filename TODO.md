@@ -38,6 +38,7 @@
 
 ## Low Priority / Future
 
+- [ ] **Add unlimited fps option to emotes** - currently you can only choose a fixed setting, just let it run wild with unlimited
 - [+] **OS notifications + background** - background finished, notifs finished for android only, not apple.
 - [ ] **Mod View** - official twitch website style. AutoMod queue (hold / approve / deny) as first tab.
 - [+] **Shared Chat** - mirror-only marking, sharedchatnotice unwrap/drop, source-channel emote scoping, lazy participant fetch, ping dedup

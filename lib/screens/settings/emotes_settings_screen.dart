@@ -11,6 +11,10 @@ class EmotesSettingsScreen extends StatefulWidget {
   final ValueChanged<int>? onEmoteTierChanged;
   final ValueChanged<int>? onEmoteCacheMaxChanged;
   final ValueChanged<EmoteFetchAutoMode>? onEmoteAutoModeChanged;
+  final ValueChanged<bool>? onAnimateGifsChanged;
+  final ValueChanged<int>? onEmoteFpsCapChanged;
+  final ValueChanged<bool>? onAdaptiveThrottleChanged;
+  final ValueChanged<bool>? onAlwaysAnimatePanelChanged;
 
   /// Live connectivity (true = cellular data) so the tier slider reflects the
   /// effective tier while auto mode is picking. Null falls back to Wi-Fi.
@@ -29,6 +33,10 @@ class EmotesSettingsScreen extends StatefulWidget {
     this.onEmoteTierChanged,
     this.onEmoteCacheMaxChanged,
     this.onEmoteAutoModeChanged,
+    this.onAnimateGifsChanged,
+    this.onEmoteFpsCapChanged,
+    this.onAdaptiveThrottleChanged,
+    this.onAlwaysAnimatePanelChanged,
     this.mobileNotifier,
     this.cacheManager,
     this.emoteManager,
@@ -46,6 +54,10 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
   EmoteCacheStats? _stats;
   final _providerEnabled = <EmoteType, bool>{};
   bool _allowUnlisted = false;
+  bool _animateGifs = true;
+  int _emoteFpsCap = 30;
+  bool _adaptiveThrottle = true;
+  bool _alwaysAnimatePanel = true;
 
   /// Enabled-provider snapshot from when the screen opened, so closing it
   /// can diff which providers were newly enabled.
@@ -130,6 +142,11 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
         _appliedCacheMax =
             prefs.getInt(emoteCacheMaxPrefsKey) ?? defaultEmoteCacheMax;
         _draftCacheMax = _appliedCacheMax;
+        _animateGifs = prefs.getBool('animate_gifs') ?? true;
+        _emoteFpsCap = prefs.getInt('emote_fps_cap') ?? 30;
+        _adaptiveThrottle = prefs.getBool('emote_auto_throttle') ?? true;
+        _alwaysAnimatePanel =
+            prefs.getBool('always_animate_emote_panel') ?? true;
       });
     }
   }
@@ -293,6 +310,95 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
             _autoMode.subtitle,
             style: Theme.of(context).textTheme.bodyMedium,
           ),
+        ),
+        _sectionHeader('Animation'),
+        SwitchListTile(
+          secondary: const Icon(Icons.gif_box),
+          title: const Text('Animate gifs'),
+          subtitle: Text(
+            _emoteFpsCap == 0
+                ? 'Paused by the frame rate cap'
+                : 'Play animated emotes',
+          ),
+          value: _animateGifs && _emoteFpsCap > 0,
+          onChanged: _emoteFpsCap == 0
+              ? null
+              : (value) async {
+                  final prefs = await SharedPreferences.getInstance();
+                  await prefs.setBool('animate_gifs', value);
+                  if (mounted) setState(() => _animateGifs = value);
+                  widget.onAnimateGifsChanged?.call(value);
+                },
+        ),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Text(
+                'Emote frame rate cap: ${_emoteFpsCap == 0 ? 'paused' : '$_emoteFpsCap fps'}',
+              ),
+            ),
+            Slider(
+              value: _emoteFpsCap.toDouble(),
+              min: 0,
+              max: 60,
+              divisions: 12,
+              label: _emoteFpsCap == 0 ? 'Paused' : '$_emoteFpsCap fps',
+              onChanged: (value) {
+                final v = value.toInt();
+                final gifsOn = v > 0;
+                final gifsChanged = gifsOn != _animateGifs;
+                setState(() {
+                  _emoteFpsCap = v;
+                  _animateGifs = gifsOn;
+                });
+                widget.onEmoteFpsCapChanged?.call(v);
+                if (gifsChanged) {
+                  widget.onAnimateGifsChanged?.call(gifsOn);
+                  SharedPreferences.getInstance().then(
+                    (prefs) => prefs.setBool('animate_gifs', gifsOn),
+                  );
+                }
+              },
+              onChangeEnd: (value) {
+                final v = value.toInt();
+                SharedPreferences.getInstance().then(
+                  (prefs) => prefs.setInt('emote_fps_cap', v),
+                );
+              },
+            ),
+          ],
+        ),
+        SwitchListTile(
+          secondary: const Icon(Icons.speed),
+          title: const Text('Adaptive throttling'),
+          subtitle: const Text(
+            'Slow animations further while many animated emotes are visible',
+          ),
+          value: _adaptiveThrottle && _emoteFpsCap > 0,
+          onChanged: _emoteFpsCap == 0
+              ? null
+              : (value) async {
+                  final prefs = await SharedPreferences.getInstance();
+                  await prefs.setBool('emote_auto_throttle', value);
+                  if (mounted) setState(() => _adaptiveThrottle = value);
+                  widget.onAdaptiveThrottleChanged?.call(value);
+                },
+        ),
+        SwitchListTile(
+          secondary: const Icon(Icons.grid_view),
+          title: const Text('Always animate emote panel'),
+          subtitle: const Text(
+            'Keep emote panel previews smooth regardless of the frame rate cap',
+          ),
+          value: _alwaysAnimatePanel,
+          onChanged: (value) async {
+            final prefs = await SharedPreferences.getInstance();
+            await prefs.setBool('always_animate_emote_panel', value);
+            if (mounted) setState(() => _alwaysAnimatePanel = value);
+            widget.onAlwaysAnimatePanelChanged?.call(value);
+          },
         ),
         _sectionHeader('Emote image cache'),
         Padding(
