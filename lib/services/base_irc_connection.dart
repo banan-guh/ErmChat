@@ -552,11 +552,9 @@ abstract class IrcConnection {
 
       _reconnectAttempt = 0;
 
-      final parts = line.split(' ');
-      int cmdIdx = 0;
-      if (parts.length > 1 && parts[0].startsWith(':')) cmdIdx = 1;
-      if (parts.length > 2 && parts[0].startsWith('@')) cmdIdx = 2;
-      final cmd = parts[cmdIdx];
+      final msg = parseIrcMessage(line);
+      if (msg == null) continue;
+      final cmd = msg.command;
 
       if (cmd == 'PING') {
         sendLine(line.replaceFirst('PING', 'PONG'));
@@ -589,8 +587,8 @@ abstract class IrcConnection {
 
       // ROOMSTATE is the server's acknowledgement that a JOIN was processed;
       // the sweep uses it to tell dropped JOINs from confirmed memberships.
-      if (cmd == 'ROOMSTATE' && parts.length > 2) {
-        final channel = parts.last.replaceFirst('#', '');
+      if (cmd == 'ROOMSTATE' && msg.params.isNotEmpty) {
+        final channel = msg.params.last.replaceFirst('#', '');
         if (_channels.contains(channel)) {
           _joinPending.remove(channel);
           _joinConfirmed.add(channel);
@@ -602,9 +600,8 @@ abstract class IrcConnection {
       // Remember the refusal so sweeps and retries stop re-JOINing (each
       // retry would only repeat the notice) and surface it exactly once.
       if (cmd == 'NOTICE') {
-        final msg = parseIrcMessage(line);
-        if (msg?.tags['msg-id'] == 'msg_channel_suspended' &&
-            msg!.params.isNotEmpty &&
+        if (msg.tags['msg-id'] == 'msg_channel_suspended' &&
+            msg.params.isNotEmpty &&
             msg.params[0].startsWith('#')) {
           final channel = msg.params[0].substring(1);
           if (_channels.contains(channel) && !_joinFailed.contains(channel)) {
@@ -616,7 +613,7 @@ abstract class IrcConnection {
         }
       }
 
-      dispatchLine(line);
+      dispatchLine(msg);
 
       // If the subclass flagged a fatal auth error during dispatch, stop
       // processing any remaining lines in this batch.
@@ -644,7 +641,7 @@ abstract class IrcConnection {
   @visibleForTesting
   set awaitingPong(bool value) => _awaitingPong = value;
 
-  void dispatchLine(String line);
+  void dispatchLine(IrcMessage msg);
 
   void join(String channel) {
     logDebug('[$debugPrefix] join channel=$channel');
@@ -830,12 +827,11 @@ class IrcReadService extends IrcConnection {
   String get debugPrefix => 'IRC read';
 
   @override
-  void dispatchLine(String line) {
+  void dispatchLine(IrcMessage msg) {
     // Fatal auth detection mirrors the write socket: without it, a dead
     // token makes this socket back off and retry forever while the write
     // socket has already given up.
-    final msg = parseIrcMessage(line);
-    if (msg != null && msg.command == 'NOTICE') {
+    if (msg.command == 'NOTICE') {
       final target = msg.params.isNotEmpty ? msg.params[0] : null;
       if ((target == null || target == '*') &&
           msg.trailing?.contains('Login authentication failed') == true) {
@@ -843,7 +839,7 @@ class IrcReadService extends IrcConnection {
         return;
       }
     }
-    if (msg != null && msg.command == 'ROOMSTATE') {
+    if (msg.command == 'ROOMSTATE') {
       // Channel param arrives as '#name'.
       if (msg.params.isNotEmpty) {
         final channel = msg.params.first.replaceFirst('#', '');
@@ -857,7 +853,7 @@ class IrcReadService extends IrcConnection {
       return;
     }
     if (username == null) return;
-    if (msg == null || msg.command != 'PRIVMSG' || msg.prefix == null) {
+    if (msg.command != 'PRIVMSG' || msg.prefix == null) {
       return;
     }
     final sender = msg.prefix!.contains('!')

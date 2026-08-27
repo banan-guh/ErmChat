@@ -312,12 +312,7 @@ class IrcService extends IrcConnection {
   }
 
   @override
-  void dispatchLine(String line) {
-    // Parse each line exactly once and dispatch on the parsed command; the
-    // old contains()-based routing matched trailing chat text and silently
-    // dropped or misrouted messages whose text contained command words.
-    final msg = parseIrcMessage(line);
-    if (msg == null) return;
+  void dispatchLine(IrcMessage msg) {
     switch (msg.command) {
       case 'CLEARCHAT':
         _handleClearChat(msg);

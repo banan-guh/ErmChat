@@ -248,22 +248,26 @@ class RecentMessagesService {
     final clearMsgTargets = <String>{};
     for (final raw in rawMessages) {
       final rawLine = raw as String;
+      final msg = parseIrcMessage(rawLine);
+      if (msg == null) continue;
       // CLEARMSG lines don't render themselves; they mark the target
       // message as deleted (applied after the batch is parsed).
-      final target = clearMsgTargetId(rawLine);
-      if (target != null) {
-        clearMsgTargets.add(target);
+      if (msg.command == 'CLEARMSG') {
+        final target = msg.tags['target-msg-id'];
+        if (target != null && target.isNotEmpty) {
+          clearMsgTargets.add(target);
+        }
         continue;
       }
       // Announcement USERNOTICEs render as two entries, like the live view:
       // the child message (announcement text as a normal message) followed
       // by the "Announcement" label. Sub/resub notices with a user message
       // do the same so emotes render in the child.
-      final child = parseAnnouncementChild(rawLine, channel: channel);
+      final child = parseAnnouncementChildFromMsg(msg, channel: channel);
       if (child != null) messages.add(child);
-      final subChild = parseSubChild(rawLine, channel: channel);
+      final subChild = parseSubChildFromMsg(msg, channel: channel);
       if (subChild != null) messages.add(subChild);
-      final parsed = parseIrcLine(rawLine, channel: channel);
+      final parsed = parseIrcLineFromMsg(msg, channel: channel);
       if (parsed != null) messages.add(parsed);
     }
 
@@ -281,6 +285,11 @@ class RecentMessagesService {
   @visibleForTesting
   static String? clearMsgTargetId(String raw) {
     final msg = parseIrcMessage(raw);
+    return clearMsgTargetIdFromMsg(msg);
+  }
+
+  /// Extracts the deleted message id from a pre-parsed CLEARMSG, or null.
+  static String? clearMsgTargetIdFromMsg(IrcMessage? msg) {
     if (msg == null || msg.command != 'CLEARMSG') return null;
     final target = msg.tags['target-msg-id'];
     return (target == null || target.isEmpty) ? null : target;
@@ -325,6 +334,13 @@ class RecentMessagesService {
 
   static TwitchMessage? parseIrcLine(String raw, {String? channel}) {
     final msg = parseIrcMessage(raw);
+    return parseIrcLineFromMsg(msg, channel: channel);
+  }
+
+  static TwitchMessage? parseIrcLineFromMsg(
+    IrcMessage? msg, {
+    String? channel,
+  }) {
     if (msg == null) return null;
     switch (msg.command) {
       case 'PRIVMSG':
@@ -479,6 +495,13 @@ class RecentMessagesService {
   @visibleForTesting
   static TwitchMessage? parseSubChild(String raw, {String? channel}) {
     final msg = parseIrcMessage(raw);
+    return parseSubChildFromMsg(msg, channel: channel);
+  }
+
+  static TwitchMessage? parseSubChildFromMsg(
+    IrcMessage? msg, {
+    String? channel,
+  }) {
     if (msg == null || msg.command != 'USERNOTICE') return null;
     final msgId = msg.tags['msg-id'];
     if (msgId != 'sub' && msgId != 'resub') return null;
@@ -522,6 +545,13 @@ class RecentMessagesService {
   @visibleForTesting
   static TwitchMessage? parseAnnouncementChild(String raw, {String? channel}) {
     final msg = parseIrcMessage(raw);
+    return parseAnnouncementChildFromMsg(msg, channel: channel);
+  }
+
+  static TwitchMessage? parseAnnouncementChildFromMsg(
+    IrcMessage? msg, {
+    String? channel,
+  }) {
     if (msg == null || msg.command != 'USERNOTICE') return null;
     // Mirrored shared-chat announcements arrive as `sharedchatnotice` with
     // the real type in `source-msg-id`; they render like native ones.
