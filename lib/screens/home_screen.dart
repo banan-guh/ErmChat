@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/emote_fetch_tier.dart';
 import '../models/generic_emote.dart';
 import '../models/twitch_message.dart';
+import '../util/haptics.dart';
 import '../services/twitch_api.dart';
 import '../services/twitch_auth.dart';
 import '../services/twitch_eventsub.dart';
@@ -1657,6 +1658,7 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   void _showMessageMenu(TwitchMessage msg) {
+    iosHaptic(HapticFeedback.mediumImpact);
     final threadRoot = _findThreadRoot(msg);
     final hasThread = threadRoot != null;
     showModalBottomSheet(
@@ -1937,6 +1939,7 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   void _sendMessage() {
+    iosHaptic(HapticFeedback.lightImpact);
     if (_suggestionsNotifier.value.isNotEmpty) {
       _suggestionsNotifier.value = [];
     }
@@ -2194,7 +2197,10 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  Future<void> _closeEmoteSheet() => _panelManager.closeEmoteSheet();
+  Future<void> _closeEmoteSheet() {
+    iosHaptic(HapticFeedback.lightImpact);
+    return _panelManager.closeEmoteSheet();
+  }
 
   void _handlePanelBack() => _panelManager.handlePanelBack();
 
@@ -2361,6 +2367,7 @@ class _HomeScreenState extends State<HomeScreen>
     // TabController notifies on every animation tick while a swipe is in
     // progress; rebuilding the whole screen per frame is wasted work.
     if (_mentionsTabCtrl.indexIsChanging) return;
+    iosHaptic(HapticFeedback.selectionClick);
     if (_mentionsTabCtrl.index == 1 && _unreadWhispers > 0) {
       _chatStore.unreadMentions -= _unreadWhispers;
       if (_chatStore.unreadMentions < 0) _chatStore.unreadMentions = 0;
@@ -2404,6 +2411,7 @@ class _HomeScreenState extends State<HomeScreen>
     unawaited(_closePanel());
     var clearedUnread = 0;
     void mutate() {
+      iosHaptic(HapticFeedback.selectionClick);
       _selectedChannel = channel;
       _updateCooldownLabel();
       _chatStore.channelsWithUnread.remove(channel);
@@ -3727,6 +3735,7 @@ class _PanelManager {
     required EmoteManager emoteManager,
     required Map<String, String> channelUserIds,
   }) {
+    iosHaptic(HapticFeedback.lightImpact);
     if (selectedChannel != null &&
         !emoteManager.hasChannelCache(selectedChannel)) {
       unawaited(

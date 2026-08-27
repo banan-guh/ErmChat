@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show HapticFeedback;
 import '../third_party/flutter_list_view/flutter_list_view.dart';
 import '../models/twitch_message.dart';
 import '../services/seven_tv_paint_service.dart';
 import '../util/timestamp_formatter.dart';
+import '../util/haptics.dart';
 import '../widgets/chat_message_tile.dart';
 import '../widgets/emote_text.dart';
 import '../widgets/message_builder.dart';
@@ -230,6 +232,7 @@ class _ChatViewState extends State<ChatView> {
                             widget.scrollFabHeroTag ??
                             'scroll_down_${widget.channel}',
                         onPressed: () {
+                          iosHaptic(HapticFeedback.lightImpact);
                           widget.atBottomNotifier.value = true;
                           widget.scrollController.jumpTo(0);
                           widget.onNewMessage?.call(widget.channel);
