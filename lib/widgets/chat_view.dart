@@ -342,7 +342,7 @@ class _ChatViewState extends State<ChatView> {
   }
 
   Widget _buildReplyIndicator(BuildContext context, TwitchMessage msg) {
-    final replyPreview = msg.replyToText ?? '';
+    final replyPreview = (msg.replyToText ?? '').trimLeft();
     final preview = replyPreview.length > 60
         ? '${replyPreview.substring(0, 60)}...'
         : replyPreview;

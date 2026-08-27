@@ -69,7 +69,7 @@ class MessageInput extends StatelessWidget {
                           ),
                           TextSpan(
                             text:
-                                ': ${replyToMsg!.text.length > 60 ? '${replyToMsg!.text.substring(0, 60)}...' : replyToMsg!.text}',
+                                ': ${replyToMsg!.text.trimLeft().length > 60 ? '${replyToMsg!.text.trimLeft().substring(0, 60)}...' : replyToMsg!.text.trimLeft()}',
                             style: TextStyle(
                               fontSize: 12,
                               color: theme.colorScheme.onSurfaceVariant,
