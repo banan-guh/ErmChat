@@ -1271,7 +1271,13 @@ class _HomeScreenState extends State<HomeScreen>
       _scanHistoryForMentions();
       unawaited(_ensureBlockedUsersLoaded());
     }
-    _chatConn.connect();
+    // Evict the old account's emotes (and re-resolve channel emotes) BEFORE
+    // reconnecting: _refreshEmotesAfterAuth is async, and its evictChannel()
+    // call would otherwise run *after* connect()'s fresh GLOBALUSERSTATE has
+    // already repopulated the new account's sub emotes -- wiping them and
+    // leaving the list empty (the set IDs are already marked fetched, so no
+    // retry fires).
+    unawaited(_refreshEmotesAfterAuth().then((_) => _chatConn.connect()));
   }
 
   // Reads the persisted manual tier, auto mode, and disk-cache cap, then
@@ -1461,7 +1467,6 @@ class _HomeScreenState extends State<HomeScreen>
         accessToken: auth.accessToken,
         resolution: _emoteManager.tier.resolution!,
       );
-      _fetchedEmoteSetIds.addAll(newSetIds);
       // Only the account's channel-owned sets are stored per channel. The
       // owner label is resolved from each set's owner_id to an open channel;
       // a set owned by a channel that isn't open must not be labeled with
@@ -1507,6 +1512,10 @@ class _HomeScreenState extends State<HomeScreen>
         ];
       }
       await _emoteManager.storeUserTwitchEmotes(perChannel);
+      // Mark as fetched only after a successful store, so a transiently empty
+      // or failed fetch stays retryable via the next USERSTATE/GLOBALUSERSTATE
+      // (the finally block only drops IDs that were never marked fetched).
+      _fetchedEmoteSetIds.addAll(newSetIds);
     } catch (e) {
       logDebug('_loadUserEmoteSets failed: $e');
     } finally {
