@@ -197,9 +197,9 @@ class _HomeScreenState extends State<HomeScreen>
             _analytics.recordMessage(channel, msg),
         onAnalyticsModeration: (channel, isTimeout) =>
             _analytics.recordModeration(channel, isTimeout),
-        onHypeTrain: _onHypeTrain,
-        onPoll: _onPoll,
-        onPrediction: _onPrediction,
+        onHypeTrain: _broadcastWidgets.onHypeTrain,
+        onPoll: _broadcastWidgets.onPoll,
+        onPrediction: _broadcastWidgets.onPrediction,
         onChatMessage: (channel, msg) =>
             _ttsController.handleMessage(channel, msg, _selectedChannel),
       ),
@@ -273,31 +273,16 @@ class _HomeScreenState extends State<HomeScreen>
   // Cached flattened emote list for autocomplete, rebuilt on emote set changes.
   List<GenericEmote>? _cachedAutocompleteEmotes;
 
-  // Broadcaster-only chat widgets (hype train / poll / prediction).
-  final _hypeTrains = <String, HypeTrainEvent>{};
-  final _polls = <String, PollEvent>{};
-  final _predictions = <String, PredictionEvent>{};
-  final _widgetsMinimized = <String, bool>{};
-  final _widgetPageCtrl = PageController();
-
-  // Dev-only fake chat widgets (see DevSettingsScreen "Test chat widgets").
-  Timer? _testWidgetsTimer;
-  int _fakeLevel = 1;
-  int _fakeProgress = 0;
-  int _fakeGoal = 100;
-  int _fakePollA = 120;
-  int _fakePollB = 80;
-  int _fakePollC = 40;
-  int _fakePredYes = 900;
-  int _fakePredNo = 450;
-  DateTime? _fakeTrainEndsAt;
+  late final _broadcastWidgets = _BroadcastWidgets(
+    markDirty: () {
+      if (mounted) setState(() {});
+    },
+    selectedChannel: () => _selectedChannel,
+  );
 
   TwitchMessage? _replyToMsg;
-  TwitchMessage? _openThreadRoot;
   bool _replyToRoot = false;
   bool _preferEmotesFirst = false;
-  OverlayPanel _activePanel = OverlayPanel.closed;
-  bool _emoteSheetOpen = false;
 
   // Input-box send-gate countdown ("Slow mode: 12s" / "Timed out: 5s"),
   // ticking once per second while a gate is active on the visible channel.
@@ -323,28 +308,39 @@ class _HomeScreenState extends State<HomeScreen>
   final _suggestionsNotifier = ValueNotifier<List<Suggestion>>([]);
   final _selectedTabIndex = ValueNotifier<int>(0);
 
-  final _threadSheetRatio = ValueNotifier(0.0);
-  final _mentionsSheetRatio = ValueNotifier(0.0);
-  late final DraggableScrollableController _emoteSheetCtrl;
+  late final _panelManager = _PanelManager(
+    vsync: this,
+    markDirty: () {
+      if (mounted) setState(() {});
+    },
+    isMounted: () => mounted,
+  );
+
+  // Delegating accessors for state that moved to _PanelManager.
+  OverlayPanel get _activePanel => _panelManager.activePanel;
+  set _activePanel(OverlayPanel v) => _panelManager.activePanel = v;
+  bool get _emoteSheetOpen => _panelManager.emoteSheetOpen;
+  TwitchMessage? get _openThreadRoot => _panelManager.openThreadRoot;
+  set _openThreadRoot(TwitchMessage? v) => _panelManager.openThreadRoot = v;
+  List<TwitchMessage> get _threadMessages => _panelManager.threadMessages;
+  set _threadMessages(List<TwitchMessage> v) => _panelManager.threadMessages = v;
+  String? get _threadChannel => _panelManager.threadChannel;
+  set _threadChannel(String? v) => _panelManager.threadChannel = v;
+
+  // Aliases for panel-manager constants/state accessed inline in build.
+  AnimationController get _panelScaleCtrl => _panelManager.panelScaleCtrl;
+  DraggableScrollableController get _emoteSheetCtrl => _panelManager.emoteSheetCtrl;
+  double? get _emoteSheetBoxHeight => _panelManager.emoteSheetBoxHeight;
+  set _emoteSheetBoxHeight(double? v) => _panelManager.emoteSheetBoxHeight = v;
+  static const _emoteMaxFraction = _PanelManager.emoteMaxFraction;
+  ValueNotifier<double> get _threadSheetRatio => _panelManager.threadSheetRatio;
+  ValueNotifier<double> get _mentionsSheetRatio => _panelManager.mentionsSheetRatio;
+
   late final TabController _mentionsTabCtrl;
   final _threadPanelScrollCtrl = FlutterListViewController();
   final _mentionsPanelScrollCtrl = FlutterListViewController();
 
-  // Predictive back gesture: scales the open panel down (1.0 -> 0.90)
-  // following the Android back gesture, driven by PanelPredictiveBackHandler.
-  late final AnimationController _panelScaleCtrl = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 200),
-    value: 1.0,
-  );
   late final PanelPredictiveBackHandler _predictiveBackHandler;
-  double _panelDragStartRatio = 0.0;
-  double _panelDragStartY = 0.0;
-  static const _sheetAnimDuration = Duration(milliseconds: 250);
-  static const _sheetCloseDuration = Duration(milliseconds: 180);
-  static const _emoteMaxFraction = 0.6;
-  static const _fullHeightFraction = 1.0;
-  double? _emoteSheetBoxHeight;
 
   // Panel rebuild plumbing mirrors main chat: the lists below are read
   // directly by each ChatView and these notifiers just tick rebuilds.
@@ -355,10 +351,6 @@ class _HomeScreenState extends State<HomeScreen>
   final _whispersAtBottom = ValueNotifier(true);
   final _whispersMsgCount = ValueNotifier(0);
 
-  /// Newest-first snapshot of the open thread, recomputed on open and on
-  /// store events touching its channel.
-  List<TwitchMessage> _threadMessages = const [];
-  String? _threadChannel;
   final _whispersPanelScrollCtrl = FlutterListViewController();
   final _whispers = <TwitchMessage>[];
   int _unreadWhispers = 0;
@@ -371,30 +363,6 @@ class _HomeScreenState extends State<HomeScreen>
   String? _previousTextForUndo;
   String? _undoExpectedAfter;
 
-  /// Physical sheet openness according to the controller. 0 when detached,
-  /// which happens whenever the panel content stops hosting the sheet's
-  /// scrollable (tab switches, cell-cache rebuilds).
-  double get _emoteSheetPhysicalSize =>
-      _emoteSheetCtrl.isAttached ? _emoteSheetCtrl.size : 0.0;
-
-  void _onSheetSizeChanged() {
-    // When the user drags the emote sheet down to size 0, close only the
-    // emote overlay; an open thread/mentions panel stays underneath.
-    if (_emoteSheetOpen &&
-        _emoteSheetCtrl.isAttached &&
-        _emoteSheetCtrl.size <= 0.001) {
-      PerfLog.I.record(
-        'EmoteSheet',
-        'size collapsed to ${_emoteSheetCtrl.size.toStringAsFixed(3)} '
-            'while open; closing',
-      );
-      setState(() {
-        _emoteSheetOpen = false;
-        _panelScaleCtrl.value = 1.0;
-      });
-    }
-  }
-
   @override
   void initState() {
     super.initState();
@@ -403,10 +371,9 @@ class _HomeScreenState extends State<HomeScreen>
     _chatStore.session.login = widget.initialCurrentUserLogin;
     _pingManager.setAccount(widget.initialCurrentUserLogin);
     _loadEmotePrefs();
-    _emoteSheetCtrl = DraggableScrollableController();
     _mentionsTabCtrl = TabController(length: 2, vsync: this);
     _mentionsTabCtrl.addListener(_onMentionsTabChanged);
-    _emoteSheetCtrl.addListener(_onSheetSizeChanged);
+    _panelManager.emoteSheetCtrl.addListener(_panelManager.onSheetSizeChanged);
     _loadMaxMessages();
     unawaited(
       _loadRecentMessagesConfig().then((_) {
@@ -416,7 +383,7 @@ class _HomeScreenState extends State<HomeScreen>
     unawaited(_pingManager.load());
     unawaited(_ignoreManager.load());
     _loadNotificationSettings();
-    _loadTestWidgets();
+    _broadcastWidgets.loadTestWidgets();
     _storeEventsSub = _chatStore.events.listen(_onStoreEvent);
     _noticesSub = _chatStore.notices.listen(_onStoreNotice);
     _chatConn.connect();
@@ -573,95 +540,60 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
-  void _setRecentMessagesLimit(int value) {
-    if (_recentMessagesLimit == value) return;
-    setState(() => _recentMessagesLimit = value);
-  }
-
-  void _setReplyToRoot(bool value) {
-    if (_replyToRoot == value) return;
-    setState(() => _replyToRoot = value);
-  }
-
-  void _setPreferEmotesFirst(bool value) {
-    if (_preferEmotesFirst == value) return;
-    setState(() => _preferEmotesFirst = value);
-  }
-
-  void _setShowTimestamps(bool value) {
-    if (_showTimestamps == value) return;
-    setState(() => _showTimestamps = value);
-    // Rendered tiles bake the timestamp setting in; re-render all channels.
-    _tileCache.clear();
-    for (final channel in List.of(_chatStore.channels)) {
-      _chatStore.touchChannel(channel);
+  /// Generic preference setter: guard, setState, optionally rerender channels.
+  void _setPref<T>(
+    T Function() get,
+    void Function(T) set,
+    T value, {
+    bool rerenderChannels = false,
+  }) {
+    if (get() == value) return;
+    setState(() => set(value));
+    if (rerenderChannels) {
+      _tileCache.clear();
+      for (final channel in List.of(_chatStore.channels)) {
+        _chatStore.touchChannel(channel);
+      }
     }
   }
 
-  void _setTimestampFormat(String value) {
-    if (_timestampFormat == value) return;
-    setState(() => _timestampFormat = value);
-    _tileCache.clear();
-    for (final channel in List.of(_chatStore.channels)) {
-      _chatStore.touchChannel(channel);
-    }
-  }
+  void _setRecentMessagesLimit(int value) =>
+      _setPref(() => _recentMessagesLimit, (v) => _recentMessagesLimit = v, value);
 
-  void _setSharedChatMode(String value) {
-    if (_sharedChatMode == value) return;
-    setState(() => _sharedChatMode = value);
-    _tileCache.clear();
-    for (final channel in List.of(_chatStore.channels)) {
-      _chatStore.touchChannel(channel);
-    }
-  }
+  void _setReplyToRoot(bool value) =>
+      _setPref(() => _replyToRoot, (v) => _replyToRoot = v, value);
 
-  void _setChatFontScale(double value) {
-    if (_chatFontSize == value) return;
-    setState(() => _chatFontSize = value);
-    _tileCache.clear();
-    for (final channel in List.of(_chatStore.channels)) {
-      _chatStore.touchChannel(channel);
-    }
-  }
+  void _setPreferEmotesFirst(bool value) =>
+      _setPref(() => _preferEmotesFirst, (v) => _preferEmotesFirst = v, value);
 
-  void _setCheckeredMessages(bool value) {
-    if (_checkeredMessages == value) return;
-    setState(() => _checkeredMessages = value);
-    _tileCache.clear();
-    for (final channel in List.of(_chatStore.channels)) {
-      _chatStore.touchChannel(channel);
-    }
-  }
+  void _setShowTimestamps(bool value) =>
+      _setPref(() => _showTimestamps, (v) => _showTimestamps = v, value, rerenderChannels: true);
 
-  void _setHighlightOpacity(double value) {
-    if (_highlightOpacity == value) return;
-    setState(() => _highlightOpacity = value);
-    _tileCache.clear();
-    for (final channel in List.of(_chatStore.channels)) {
-      _chatStore.touchChannel(channel);
-    }
-  }
+  void _setTimestampFormat(String value) =>
+      _setPref(() => _timestampFormat, (v) => _timestampFormat = v, value, rerenderChannels: true);
 
-  void _setLineSeparator(bool value) {
-    if (_lineSeparator == value) return;
-    setState(() => _lineSeparator = value);
-    _tileCache.clear();
-    for (final channel in List.of(_chatStore.channels)) {
-      _chatStore.touchChannel(channel);
-    }
-  }
+  void _setSharedChatMode(String value) =>
+      _setPref(() => _sharedChatMode, (v) => _sharedChatMode = v, value, rerenderChannels: true);
 
-  void _setFastSnap(bool value) {
-    if (_fastSnap == value) return;
-    setState(() => _fastSnap = value);
-  }
+  void _setChatFontScale(double value) =>
+      _setPref(() => _chatFontSize, (v) => _chatFontSize = v, value, rerenderChannels: true);
+
+  void _setCheckeredMessages(bool value) =>
+      _setPref(() => _checkeredMessages, (v) => _checkeredMessages = v, value, rerenderChannels: true);
+
+  void _setHighlightOpacity(double value) =>
+      _setPref(() => _highlightOpacity, (v) => _highlightOpacity = v, value, rerenderChannels: true);
+
+  void _setLineSeparator(bool value) =>
+      _setPref(() => _lineSeparator, (v) => _lineSeparator = v, value, rerenderChannels: true);
+
+  void _setFastSnap(bool value) =>
+      _setPref(() => _fastSnap, (v) => _fastSnap = v, value);
 
   void _setNamePaints(bool value) {
     if (_showNamePaints == value) return;
     setState(() => _showNamePaints = value);
     _sevenTvPaintService.enabled = value;
-    // Tiles bake the paint decision in at build time; re-render all channels.
     _tileCache.clear();
     for (final channel in List.of(_chatStore.channels)) {
       _chatStore.touchChannel(channel);
@@ -1669,9 +1601,8 @@ class _HomeScreenState extends State<HomeScreen>
     unawaited(_ttsController.shutdown());
     WidgetsBinding.instance.removeObserver(this);
     WidgetsBinding.instance.removeObserver(_predictiveBackHandler);
-    _panelScaleCtrl.dispose();
-    _widgetPageCtrl.dispose();
-    _testWidgetsTimer?.cancel();
+    _panelManager.dispose();
+    _broadcastWidgets.dispose();
     _cooldownTickTimer?.cancel();
     _cooldownLabelNotifier.dispose();
     _eventSub.dispose();
@@ -1685,9 +1616,6 @@ class _HomeScreenState extends State<HomeScreen>
     _messageController.dispose();
     _focusNode.removeListener(_onInputFocusChanged);
     _focusNode.dispose();
-    _threadSheetRatio.dispose();
-    _mentionsSheetRatio.dispose();
-    _emoteSheetCtrl.dispose();
     _mentionsTabCtrl.removeListener(_onMentionsTabChanged);
     _mentionsTabCtrl.dispose();
     _threadPanelScrollCtrl.dispose();
@@ -1712,212 +1640,6 @@ class _HomeScreenState extends State<HomeScreen>
     _notificationTapSub?.cancel();
     _notificationService.dispose();
     super.dispose();
-  }
-
-  // Broadcaster-only hype train widget state: one entry per channel, removed
-  // on the train's end event.
-  void _onHypeTrain(HypeTrainEvent event) {
-    if (!mounted) return;
-    setState(() {
-      if (event.kind == 'end') {
-        _hypeTrains.remove(event.channel);
-      } else {
-        _hypeTrains[event.channel] = event;
-      }
-    });
-    _clampWidgetPage();
-  }
-
-  void _onPoll(PollEvent event) {
-    if (!mounted) return;
-    setState(() {
-      if (event.kind == 'end') {
-        _polls.remove(event.channel);
-      } else {
-        _polls[event.channel] = event;
-      }
-    });
-    _clampWidgetPage();
-  }
-
-  void _onPrediction(PredictionEvent event) {
-    if (!mounted) return;
-    setState(() {
-      if (event.kind == 'end') {
-        _predictions.remove(event.channel);
-      } else {
-        _predictions[event.channel] = event;
-      }
-    });
-    _clampWidgetPage();
-  }
-
-  // Dev toggle: feeds fake poll / prediction / hype train events into the
-  // same state as the real EventSub pipeline so the cutout shows all three
-  // cards with updating data. Stops and clears when the toggle is off.
-  Future<void> _loadTestWidgets() async {
-    final prefs = await SharedPreferences.getInstance();
-    if (!mounted) return;
-    _applyTestWidgets(prefs.getBool('test_chat_widgets') ?? false);
-  }
-
-  void _setTestWidgets(bool value) {
-    if (!mounted) return;
-    _applyTestWidgets(value);
-  }
-
-  void _applyTestWidgets(bool value) {
-    if (value) {
-      _startTestWidgets();
-    } else {
-      _stopTestWidgets();
-    }
-  }
-
-  void _startTestWidgets() {
-    _fakeTrainEndsAt = DateTime.now().add(const Duration(minutes: 5));
-    _testWidgetsTimer?.cancel();
-    _testWidgetsTimer = Timer.periodic(
-      const Duration(seconds: 1),
-      (_) => _tickTestWidgets(),
-    );
-    _tickTestWidgets();
-  }
-
-  void _stopTestWidgets() {
-    _testWidgetsTimer?.cancel();
-    _testWidgetsTimer = null;
-    if (!mounted) return;
-    setState(() {
-      _hypeTrains.clear();
-      _polls.clear();
-      _predictions.clear();
-      _widgetsMinimized.clear();
-    });
-  }
-
-  void _tickTestWidgets() {
-    if (!mounted) return;
-    final channel = _selectedChannel;
-    if (channel == null) return;
-    setState(() {
-      _hypeTrains.clear();
-      _polls.clear();
-      _predictions.clear();
-
-      _fakeProgress += 9;
-      if (_fakeProgress >= _fakeGoal) {
-        _fakeLevel++;
-        _fakeGoal += 100;
-        _fakeProgress = 0;
-      }
-      _hypeTrains[channel] = HypeTrainEvent(
-        channel: channel,
-        kind: 'progress',
-        level: _fakeLevel,
-        progress: _fakeProgress,
-        total: _fakeGoal,
-        expiresAt: _fakeTrainEndsAt,
-        topContributions: [
-          HypeTrainContribution(
-            userName: 'fakebits',
-            type: 'BITS',
-            total: 5000,
-          ),
-          HypeTrainContribution(userName: 'fakesub', type: 'SUBS', total: 12),
-        ],
-      );
-
-      _fakePollA += 3;
-      _fakePollB += 2;
-      _fakePollC += 1;
-      _polls[channel] = PollEvent(
-        channel: channel,
-        kind: 'progress',
-        title: 'Fake poll: what should we play?',
-        choices: [
-          PollChoice(title: 'Minecraft', votes: _fakePollA),
-          PollChoice(title: 'Terraria', votes: _fakePollB),
-          PollChoice(title: 'Stardew', votes: _fakePollC),
-        ],
-        status: 'ACTIVE',
-      );
-
-      _fakePredYes += 12;
-      _fakePredNo += 5;
-      _predictions[channel] = PredictionEvent(
-        channel: channel,
-        kind: 'progress',
-        title: 'Fake prediction: will we win?',
-        outcomes: [
-          PredictionOutcome(
-            title: 'Yes',
-            users: _fakePredYes,
-            channelPoints: 9000,
-          ),
-          PredictionOutcome(
-            title: 'No',
-            users: _fakePredNo,
-            channelPoints: 4500,
-          ),
-        ],
-        status: 'ACTIVE',
-      );
-    });
-    _clampWidgetPage();
-  }
-
-  List<Widget> _widgetPagesFor(String channel) {
-    final pages = <Widget>[];
-    final poll = _polls[channel];
-    if (poll != null) pages.add(PollCard(event: poll));
-    final prediction = _predictions[channel];
-    if (prediction != null) pages.add(PredictionCard(event: prediction));
-    final hypeTrain = _hypeTrains[channel];
-    if (hypeTrain != null) pages.add(HypeTrainCard(event: hypeTrain));
-    return pages;
-  }
-
-  String _widgetLabelsFor(String channel) {
-    final labels = <String>[];
-    if (_polls.containsKey(channel)) labels.add('Poll');
-    if (_predictions.containsKey(channel)) labels.add('Prediction');
-    if (_hypeTrains.containsKey(channel)) labels.add('Hype Train');
-    return labels.join(' / ');
-  }
-
-  Widget? _buildWidgetOverlay(String channel) {
-    final pages = _widgetPagesFor(channel);
-    if (pages.isEmpty) return null;
-    if (_widgetsMinimized[channel] ?? false) {
-      return ChatWidgetMinimizedBar(
-        labels: _widgetLabelsFor(channel),
-        onRestore: () => setState(() => _widgetsMinimized[channel] = false),
-      );
-    }
-    return ChatWidgetCutout(
-      pages: pages,
-      controller: _widgetPageCtrl,
-      onMinimize: () => setState(() => _widgetsMinimized[channel] = true),
-    );
-  }
-
-  void _clampWidgetPage() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || !_widgetPageCtrl.hasClients) return;
-      final channel = _selectedChannel;
-      if (channel == null) return;
-      final pages = _widgetPagesFor(channel).length;
-      if (pages == 0) return;
-      final idx = _widgetPageCtrl.page?.round() ?? 0;
-      if (idx >= pages) {
-        _widgetPageCtrl.jumpToPage(pages - 1);
-      }
-    });
-  }
-
-  void _resetWidgetPage() {
-    if (_widgetPageCtrl.hasClients) _widgetPageCtrl.jumpToPage(0);
   }
 
   void _addSystemMessage(
@@ -2198,10 +1920,10 @@ class _HomeScreenState extends State<HomeScreen>
     _chatStore.channelUserIds.remove(channel);
     _chatStore.lastSentWireText.remove(channel);
     _chatStore.chatStatus.remove(channel);
-    _hypeTrains.remove(channel);
-    _polls.remove(channel);
-    _predictions.remove(channel);
-    _widgetsMinimized.remove(channel);
+    _broadcastWidgets.hypeTrains.remove(channel);
+    _broadcastWidgets.polls.remove(channel);
+    _broadcastWidgets.predictions.remove(channel);
+    _broadcastWidgets.widgetsMinimized.remove(channel);
     // Per-channel notifiers and tile state must die with the channel: a
     // re-joined channel would otherwise reuse stale notifiers and an old
     // frozen snapshot, and the maps would grow for the session.
@@ -2400,7 +2122,7 @@ class _HomeScreenState extends State<HomeScreen>
           channels: _chatStore.channels,
           ttsController: _ttsController,
           emoteManager: _emoteManager,
-          onTestWidgetsChanged: _setTestWidgets,
+          onTestWidgetsChanged: _broadcastWidgets.setTestWidgets,
         ),
       ),
     );
@@ -2431,37 +2153,16 @@ class _HomeScreenState extends State<HomeScreen>
   // A message that has children is treated as root even if it has a parent
   // (handles nested reply scenarios).
   TwitchMessage? _findThreadRoot(TwitchMessage msg) {
-    if (msg.replyThreadRootId != null) return msg;
-
-    final channel = msg.channel;
-    if (channel == null) return null;
-    final msgs = _chatStore.channelMessages[channel];
-    if (msgs == null) return null;
-
-    if (msg.messageId != null &&
-        msgs.any((m) => m.replyToParentId == msg.messageId)) {
-      return msg;
-    }
-
-    if (msg.replyToParentId == null) return null;
-
-    final visited = <String>{};
-    TwitchMessage current = msg;
-    while (current.replyToParentId != null &&
-        visited.add(current.replyToParentId!)) {
-      final parent = msgs
-          .where((m) => m.messageId == current.replyToParentId)
-          .firstOrNull;
-      if (parent == null) break;
-      current = parent;
-    }
-    return current;
+    return _panelManager.findThreadRoot(
+      msg,
+      channelMessages: _chatStore.channelMessages,
+    );
   }
 
   Future<void> _showThreadView(TwitchMessage rootMsg) async {
     final channel = rootMsg.channel;
     if (channel == null) return;
-    await _closePanel();
+    await _panelManager.closePanel();
     if (_selectedChannel != channel) {
       final idx = _chatStore.channels.indexOf(channel);
       if (idx >= 0) _onChannelChanged(idx);
@@ -2471,22 +2172,26 @@ class _HomeScreenState extends State<HomeScreen>
       _openThreadRoot = rootMsg;
     });
     _threadChannel = channel;
-    _threadMessages = _computeThreadMessages();
+    _threadMessages = _panelManager.computeThreadMessages(
+      openThreadRoot: _openThreadRoot,
+      channelMessages: _chatStore.channelMessages,
+      threadFor: (ch, rootId) => _chatStore.threadFor(ch, rootId),
+    );
     _threadMsgCount.value++;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
-        _animateRatio(
-          _threadSheetRatio,
+        _panelManager.animateRatio(
+          _panelManager.threadSheetRatio,
           0.0,
-          _fullHeightFraction,
-          _sheetAnimDuration,
+          _PanelManager.fullHeightFraction,
+          _PanelManager.sheetAnimDuration,
         );
       }
     });
   }
 
   Future<void> _showMentionsView() async {
-    await _closePanel();
+    await _panelManager.closePanel();
     _focusNode.unfocus();
     setState(() {
       _activePanel = OverlayPanel.mentions;
@@ -2499,133 +2204,27 @@ class _HomeScreenState extends State<HomeScreen>
     _whispersMsgCount.value++;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
-        _animateRatio(
-          _mentionsSheetRatio,
+        _panelManager.animateRatio(
+          _panelManager.mentionsSheetRatio,
           0.0,
-          _fullHeightFraction,
-          _sheetAnimDuration,
+          _PanelManager.fullHeightFraction,
+          _PanelManager.sheetAnimDuration,
         );
       }
     });
   }
 
   void _showEmoteMenu() {
-    // Kick emote resolution for the current channel + globals if the menu is
-    // opened before the join-time rake finished (cold start), so the grids
-    // aren't stuck on empty states until the next manager notify.
-    final channel = _selectedChannel;
-    if (channel != null && !_emoteManager.hasChannelCache(channel)) {
-      unawaited(
-        _emoteManager.resolveEmotes(
-          channel,
-          _chatStore.channelUserIds[channel],
-        ),
-      );
-    }
-    if (!_emoteManager.hasGlobalCache) {
-      unawaited(_emoteManager.preloadGlobalEmotes());
-    }
-    setState(() => _emoteSheetOpen = true);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) {
-        PerfLog.I.record('EmoteSheet', 'open aborted: unmounted');
-        return;
-      }
-      if (!_emoteSheetCtrl.isAttached) {
-        PerfLog.I.record(
-          'EmoteSheet',
-          'open skipped: controller has no clients',
-        );
-        return;
-      }
-      PerfLog.I.record(
-        'EmoteSheet',
-        'animating open from ${_emoteSheetCtrl.size.toStringAsFixed(3)}',
-      );
-      unawaited(
-        _emoteSheetCtrl
-            .animateTo(
-              _emoteMaxFraction,
-              duration: _sheetAnimDuration,
-              curve: Curves.easeInOutCubicEmphasized,
-            )
-            .then((_) {
-              if (!mounted) return;
-              PerfLog.I.record(
-                'EmoteSheet',
-                'open animation ended at '
-                    '${_emoteSheetPhysicalSize.toStringAsFixed(3)}'
-                    '${_emoteSheetCtrl.isAttached ? '' : ' (detached)'}',
-              );
-            }),
-      );
-    });
+    _panelManager.showEmoteMenu(
+      selectedChannel: _selectedChannel,
+      emoteManager: _emoteManager,
+      channelUserIds: _chatStore.channelUserIds,
+    );
   }
 
-  Future<void> _closeEmoteSheet() async {
-    if (!_emoteSheetOpen) {
-      PerfLog.I.record('EmoteSheet', 'close ignored: already closed');
-      return;
-    }
-    if (_emoteSheetCtrl.isAttached) {
-      if (_emoteSheetCtrl.size <= 0.001) {
-        // Already collapsed (no further size notifications will fire).
-        PerfLog.I.record('EmoteSheet', 'closing skipped: sheet already at 0');
-        if (mounted) {
-          setState(() {
-            _emoteSheetOpen = false;
-            _panelScaleCtrl.value = 1.0;
-          });
-        }
-        return;
-      }
-      // Scale the close duration by how open the sheet is, so a near-closed
-      // sheet dismisses quickly while a fully-open one eases down.
-      final fraction = (_emoteSheetCtrl.size / _emoteMaxFraction).clamp(
-        0.0,
-        1.0,
-      );
-      final duration = Duration(milliseconds: (80 + 180 * fraction).round());
-      PerfLog.I.record(
-        'EmoteSheet',
-        'closing from ${_emoteSheetCtrl.size.toStringAsFixed(3)}',
-      );
-      // The flag flip is left to _onSheetSizeChanged, which fires when the
-      // size reaches 0. Flipping early would rebuild the panel inactive,
-      // unmounting its scrollable and killing this very animation.
-      unawaited(
-        _emoteSheetCtrl
-            .animateTo(
-              0.0,
-              duration: duration,
-              curve: Curves.easeInOutCubicEmphasized,
-            )
-            .then((_) {
-              PerfLog.I.record(
-                'EmoteSheet',
-                'close animation finished at '
-                    '${_emoteSheetPhysicalSize.toStringAsFixed(3)}',
-              );
-            }),
-      );
-    } else {
-      PerfLog.I.record('EmoteSheet', 'close without animation: no clients');
-      if (mounted) {
-        setState(() {
-          _emoteSheetOpen = false;
-          _panelScaleCtrl.value = 1.0;
-        });
-      }
-    }
-  }
+  Future<void> _closeEmoteSheet() => _panelManager.closeEmoteSheet();
 
-  void _handlePanelBack() {
-    if (_emoteSheetOpen) {
-      unawaited(_closeEmoteSheet());
-    } else {
-      unawaited(_closePanel());
-    }
-  }
+  void _handlePanelBack() => _panelManager.handlePanelBack();
 
   void _onEmoteSelected(GenericEmote emote) {
     final text = _messageController.text;
@@ -2639,278 +2238,39 @@ class _HomeScreenState extends State<HomeScreen>
     _emoteManager.markEmoteUsed(emote);
   }
 
-  Future<void> _closePanel() async {
-    final panelToClose = _activePanel;
-    if (panelToClose == OverlayPanel.closed && !_emoteSheetOpen) return;
-    await _closeEmoteSheet();
-    if (panelToClose == OverlayPanel.closed) {
-      if (mounted) setState(() {});
-      return;
-    }
-    if (panelToClose == OverlayPanel.thread) {
-      await _animateRatio(
-        _threadSheetRatio,
-        _threadSheetRatio.value,
-        0.0,
-        _sheetCloseDuration,
-      );
-    } else if (panelToClose == OverlayPanel.mentions) {
-      await _animateRatio(
-        _mentionsSheetRatio,
-        _mentionsSheetRatio.value,
-        0.0,
-        _sheetCloseDuration,
-      );
-    }
-    if (mounted) {
-      setState(() {
-        _activePanel = OverlayPanel.closed;
-        _openThreadRoot = null;
-        _panelScaleCtrl.value = 1.0;
-      });
-    }
-  }
-
-  Future<void> _animateRatio(
-    ValueNotifier<double> ratio,
-    double from,
-    double to,
-    Duration duration,
-  ) async {
-    if (from == to) return;
-    final controller = AnimationController(vsync: this, duration: duration);
-    final animation = Tween(
-      begin: from,
-      end: to,
-    ).animate(CurvedAnimation(parent: controller, curve: Curves.easeOutCubic));
-    void listener() {
-      ratio.value = animation.value;
-    }
-
-    animation.addListener(listener);
-    await controller.forward();
-    animation.removeListener(listener);
-    controller.dispose();
-  }
-
-  Widget _buildPanelDragHandle({
-    required ValueNotifier<double> ratio,
-    required double maxSize,
-    required VoidCallback onClose,
-    required VoidCallback onSnap,
-    Widget? header,
-  }) {
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onVerticalDragStart: (details) {
-        _panelDragStartRatio = ratio.value;
-        _panelDragStartY = details.globalPosition.dy;
-      },
-      onVerticalDragUpdate: (details) {
-        final cumulativeDelta = details.globalPosition.dy - _panelDragStartY;
-        final height =
-            maxSize *
-            (MediaQuery.of(context).size.height -
-                MediaQuery.of(context).padding.top -
-                MediaQuery.viewInsetsOf(context).bottom);
-        ratio.value = (_panelDragStartRatio - cumulativeDelta / height).clamp(
-          0.0,
-          maxSize,
-        );
-      },
-      onVerticalDragEnd: (details) {
-        if (shouldCloseSheet(
-          fraction: ratio.value / maxSize,
-          velocity: details.primaryVelocity ?? 0,
-        )) {
-          onClose();
-        } else {
-          onSnap();
-        }
-      },
-      // The whole header strip (handle + title row + divider) is the drag
-      // surface, so a swipe-down starting anywhere above the list moves the
-      // sheet. The detector only registers vertical drags, so taps on the
-      // close button keep working.
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: double.infinity,
-            color: Colors.transparent,
-            padding: const EdgeInsets.only(top: 10, bottom: 28),
-            child: Align(
-              alignment: Alignment.topCenter,
-              child: Container(
-                width: 36,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade400,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
-          ),
-          ?header,
-        ],
-      ),
-    );
-  }
+  Future<void> _closePanel() => _panelManager.closePanel();
 
   Widget _buildOverlaySheet({
     required bool offstage,
     required ValueNotifier<double> ratio,
     required Widget header,
     required Widget body,
-  }) {
-    return Positioned(
-      top: MediaQuery.of(context).padding.top,
-      bottom: 0,
-      left: 0,
-      right: 0,
-      child: Offstage(
+  }) => _panelManager.buildOverlaySheet(
         offstage: offstage,
-        child: ScaleTransition(
-          scale: _panelScaleCtrl,
-          alignment: Alignment.bottomCenter,
-          child: _buildSheetPanel(
-            ratio: ratio,
-            child: RepaintBoundary(
-              child: Material(
-                color: Theme.of(context).scaffoldBackgroundColor,
-                clipBehavior: Clip.hardEdge,
-                child: Column(
-                  children: [
-                    ColoredBox(
-                      color: Theme.of(context).colorScheme.surfaceContainer,
-                      child: _buildPanelDragHandle(
-                        ratio: ratio,
-                        maxSize: _fullHeightFraction,
-                        onClose: _closePanel,
-                        onSnap: () => _animateRatio(
-                          ratio,
-                          ratio.value,
-                          _fullHeightFraction,
-                          _sheetAnimDuration,
-                        ),
-                        header: header,
-                      ),
-                    ),
-                    Expanded(child: body),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
+        ratio: ratio,
+        header: header,
+        body: body,
+        context: context,
+      );
 
-  Widget _buildSheetPanel({
-    required ValueNotifier<double> ratio,
-    required Widget child,
-  }) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final height = constraints.maxHeight;
-        return ClipRect(
-          child: OverflowBox(
-            alignment: Alignment.bottomCenter,
-            minHeight: height,
-            maxHeight: height,
-            child: AnimatedBuilder(
-              animation: ratio,
-              builder: (context, child) {
-                final closedFraction = (1.0 - ratio.value).clamp(0.0, 1.0);
-                return FractionalTranslation(
-                  translation: Offset(0, closedFraction),
-                  child: child!,
-                );
-              },
-              child: child,
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  /// Wraps [child] so it renders at its full expanded height and translates
-  /// vertically as the sheet opens/closes - true slide-up/down motion.
-  ///
-  /// At size = 0 the content is shifted down by its full height (invisible
-  /// below the viewport). As the sheet grows to [maxSize] the content rises
-  /// into view, bottom-anchored.
-  ///
-  /// [totalAvailH] is the pixel height of the Positioned area that the sheet
-  /// occupies. Captured once per layout from a LayoutBuilder wrapping the sheet.
-  ///
-  /// Uses [OverflowBox] so the child always lays out at full height regardless
-  /// of sheet box size, preventing Column overflow during animation. [ClipRect]
-  /// clips to the sheet box boundary. [AnimatedBuilder] and [FractionalTranslation]
-  /// drive the per-frame offset.
   Widget _buildSlideUpContent({
     required DraggableScrollableController controller,
     required double totalAvailH,
     required double maxSize,
     required Widget child,
-  }) {
-    final contentH = maxSize * totalAvailH;
-    return ClipRect(
-      child: OverflowBox(
-        alignment: Alignment.bottomCenter,
-        minHeight: contentH,
-        maxHeight: contentH,
-        child: AnimatedBuilder(
-          animation: controller,
-          builder: (context, child) {
-            final size = controller.isAttached ? controller.size : 0.0;
-            final closedFraction = maxSize <= 0
-                ? 0.0
-                : (1 - (size / maxSize)).clamp(0.0, 1.0);
-            return FractionalTranslation(
-              translation: Offset(0, closedFraction),
-              child: child!,
-            );
-          },
-          child: child,
-        ),
-      ),
-    );
-  }
+  }) => _panelManager.buildSlideUpContent(
+        controller: controller,
+        totalAvailH: totalAvailH,
+        maxSize: maxSize,
+        child: child,
+      );
 
   List<TwitchMessage> _computeThreadMessages() {
-    final entry = _openThreadRoot;
-    if (entry == null) return const [];
-    final channel = entry.channel;
-    if (channel == null) return const [];
-    final allMsgs = _chatStore.channelMessages[channel] ?? [];
-
-    final entryKey = entry.replyThreadRootId ?? entry.messageId;
-    if (entryKey == null) return const [];
-
-    final parentOf = <String, String>{};
-    for (final m in allMsgs) {
-      if (m.replyToParentId != null && m.messageId != null) {
-        parentOf[m.messageId!] = m.replyToParentId!;
-      }
-    }
-
-    final resolvedKey = threadKeyFor(entry, parentOf);
-    if (resolvedKey == null) return const [];
-
-    // Prefer the incremental thread store: it survives scrollback trimming
-    // (pinned root, decayed replies) where a pure buffer scan comes up empty.
-    // Old-style parent-chain threads that were never tagged fall back to the
-    // scan below.
-    final threadMsgs =
-        _chatStore.threadFor(channel, resolvedKey) ??
-        allMsgs.where((m) => threadKeyFor(m, parentOf) == resolvedKey).toList();
-
-    // Newest-first (index 0 = newest), matching every other ChatView feed.
-    threadMsgs.sort((a, b) => b.timestamp.compareTo(a.timestamp));
-    return threadMsgs;
+    return _panelManager.computeThreadMessages(
+      openThreadRoot: _openThreadRoot,
+      channelMessages: _chatStore.channelMessages,
+      threadFor: (ch, rootId) => _chatStore.threadFor(ch, rootId),
+    );
   }
 
   void _showUserProfile(
@@ -3098,7 +2458,7 @@ class _HomeScreenState extends State<HomeScreen>
     if (clearedUnread > 0 && _mentionPush) {
       unawaited(_notificationService.clearMentionNotifications(channel));
     }
-    _resetWidgetPage();
+    _broadcastWidgets.resetPage();
     _selectedTabIndex.value = index;
   }
 
@@ -3197,542 +2557,18 @@ class _HomeScreenState extends State<HomeScreen>
                   final sheetBoxHeight = fullBoxH < maxFitBoxH
                       ? fullBoxH
                       : maxFitBoxH;
-                  return Stack(
+                   return Stack(
                     clipBehavior: Clip.hardEdge,
                     children: [
                       Column(
                         children: [
-                          ColoredBox(
-                            color: theme.colorScheme.surfaceContainer,
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                SafeArea(
-                                  bottom: false,
-                                  child: Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 4,
-                                    ),
-                                    child: Row(
-                                      children: [
-                                        Padding(
-                                          padding: const EdgeInsets.only(
-                                            left: 8,
-                                          ),
-                                          child: Text(
-                                            'ErmChat',
-                                            style: TextStyle(
-                                              fontSize: 22,
-                                              fontWeight: FontWeight.w400,
-                                            ),
-                                          ),
-                                        ),
-                                        const Spacer(),
-                                        IconButton(
-                                          icon: const Icon(Icons.add),
-                                          tooltip: 'Join channel',
-                                          onPressed:
-                                              _chatStore.channels.length >=
-                                                  kMaxChannels
-                                              ? null
-                                              : _addChannelDialog,
-                                        ),
-                                        ListenableBuilder(
-                                          listenable: _chatStore.mentionsBump,
-                                          builder: (context, _) => IconButton(
-                                            icon: Icon(
-                                              Icons.notifications_active,
-                                              color:
-                                                  _chatStore.unreadMentions > 0
-                                                  ? theme.colorScheme.error
-                                                  : null,
-                                            ),
-                                            tooltip: 'Mentions',
-                                            onPressed: () {
-                                              _chatStore.unreadMentions = 0;
-                                              _unreadWhispers = 0;
-                                              _chatStore
-                                                  .channelsWithUnreadMentions
-                                                  .clear();
-                                              _chatStore
-                                                  .unreadMentionsPerChannel
-                                                  .clear();
-                                              if (mounted) setState(() {});
-                                              if (_activePanel ==
-                                                  OverlayPanel.mentions) {
-                                                unawaited(_closePanel());
-                                              } else {
-                                                _showMentionsView();
-                                              }
-                                            },
-                                          ),
-                                        ),
-                                        PopupMenuButton<String>(
-                                          popUpAnimationStyle:
-                                              const AnimationStyle(
-                                                duration: Duration(
-                                                  milliseconds: 175,
-                                                ),
-                                              ),
-                                          onSelected: (value) {
-                                            switch (value) {
-                                              case 'upload':
-                                                _uploadController.pickAndUpload(
-                                                  context,
-                                                );
-                                                break;
-                                              case 'reload_emotes':
-                                                _reloadEmotes();
-                                                break;
-                                              case 'reconnect':
-                                                _reconnect();
-                                                break;
-                                              case 'settings':
-                                                _openSettings();
-                                                break;
-                                            }
-                                          },
-                                          itemBuilder: (_) => const [
-                                            PopupMenuItem(
-                                              value: 'settings',
-                                              child: Row(
-                                                children: [
-                                                  Icon(
-                                                    Icons.settings,
-                                                    size: 20,
-                                                  ),
-                                                  SizedBox(width: 12),
-                                                  Text('Settings'),
-                                                ],
-                                              ),
-                                            ),
-                                            PopupMenuDivider(),
-                                            PopupMenuItem(
-                                              value: 'upload',
-                                              child: Text('Upload media'),
-                                            ),
-                                            PopupMenuItem(
-                                              value: 'reload_emotes',
-                                              child: Text('Reload emotes'),
-                                            ),
-                                            PopupMenuItem(
-                                              value: 'reconnect',
-                                              child: Text('Reconnect'),
-                                            ),
-                                          ],
-                                          // Long-press on the 3-dot button
-                                          // fast-tracks straight to Settings;
-                                          // a quick tap opens the overflow
-                                          // menu. The long-press sits on the
-                                          // button's child (innermost in the
-                                          // hit-test path) so it wins the
-                                          // gesture arena over the Tooltip
-                                          // PopupMenuButton always adds.
-                                          child: GestureDetector(
-                                            onLongPress: _openSettings,
-                                            child: const Padding(
-                                              padding: EdgeInsets.all(12),
-                                              child: Icon(Icons.more_vert),
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          Expanded(
-                            child: Stack(
-                              children: [
-                                Listener(
-                                  behavior: HitTestBehavior.translucent,
-                                  onPointerDown: (_) {
-                                    _suggestionsNotifier.value = [];
-                                  },
-                                  child: _chatStore.channels.isNotEmpty
-                                      ? TabbedLayout(
-                                          tabs: _chatStore.channels,
-                                          selectedIndex: _chatStore.channels
-                                              .indexOf(_selectedChannel ?? ''),
-                                          onSelectedIndexChanged:
-                                              _onChannelChanged,
-                                          onFocusChanged:
-                                              _onChannelFocusChanged,
-                                          pageBuilder: (_, i) {
-                                            final channel =
-                                                _chatStore.channels[i];
-                                            return ListenableBuilder(
-                                              listenable: _versionNotifier(
-                                                channel,
-                                              ),
-                                              builder: (_, _) => ChatView(
-                                                channel: channel,
-                                                messages:
-                                                    _chatStore
-                                                        .channelMessages[channel] ??
-                                                    [],
-                                                tileCache: _tileCache,
-                                                atBottomNotifier:
-                                                    _atBottomNotifier(channel),
-                                                messageNotifier:
-                                                    _messageNotifier(channel),
-                                                scrollController: _scrollCtrl(
-                                                  channel,
-                                                ),
-                                                messageBuilder: _messageBuilder,
-                                                showTimestamp: _showTimestamps,
-                                                timestampFormat:
-                                                    _timestampFormat,
-                                                chatFontScale:
-                                                    _chatFontSize / 14.0,
-                                                checkeredMessages:
-                                                    _checkeredMessages,
-                                                highlightOpacity:
-                                                    _highlightOpacity,
-                                                lineSeparator: _lineSeparator,
-                                                sharedChatMode: _sharedChatMode,
-                                                paintService: _showNamePaints
-                                                    ? _sevenTvPaintService
-                                                    : null,
-                                                onShowUserProfile:
-                                                    (
-                                                      login,
-                                                      userId, {
-                                                      displayName,
-                                                    }) => _showUserProfile(
-                                                      login,
-                                                      userId,
-                                                      displayName: displayName,
-                                                    ),
-                                                onShowMessageMenu:
-                                                    _showMessageMenu,
-                                                onNewMessage:
-                                                    _chatStore.noteNewMessage,
-                                                onFindThreadRoot:
-                                                    _findThreadRoot,
-                                                onShowThreadView:
-                                                    _showThreadView,
-                                              ),
-                                            );
-                                          },
-                                          focusOnHalfDrag: true,
-                                          fastSnap: _fastSnap,
-                                          tabBuilder: (_, i) {
-                                            final channel =
-                                                _chatStore.channels[i];
-                                            return ListenableBuilder(
-                                              listenable: Listenable.merge([
-                                                _selectedTabIndex,
-                                                _messageNotifier(channel),
-                                              ]),
-                                              builder: (ctx, _) {
-                                                final focused =
-                                                    i ==
-                                                    _selectedTabIndex.value;
-                                                final selected =
-                                                    focused ||
-                                                    channel == _selectedChannel;
-                                                final hasUnreadMention = _chatStore
-                                                    .channelsWithUnreadMentions
-                                                    .contains(channel);
-                                                return Stack(
-                                                  clipBehavior: Clip.none,
-                                                  children: [
-                                                    Text(
-                                                      channel,
-                                                      style: TextStyle(
-                                                        fontSize: 14,
-                                                        fontWeight:
-                                                            selected ||
-                                                                _chatStore
-                                                                    .channelsWithUnread
-                                                                    .contains(
-                                                                      channel,
-                                                                    )
-                                                            ? FontWeight.w600
-                                                            : FontWeight.normal,
-                                                        color: selected
-                                                            ? theme
-                                                                  .colorScheme
-                                                                  .primary
-                                                            : _chatStore
-                                                                  .channelsWithUnread
-                                                                  .contains(
-                                                                    channel,
-                                                                  )
-                                                            ? theme
-                                                                  .colorScheme
-                                                                  .onSurface
-                                                            : null,
-                                                      ),
-                                                    ),
-                                                    if (hasUnreadMention &&
-                                                        !selected)
-                                                      Positioned(
-                                                        top: -2,
-                                                        right: -4,
-                                                        child: Container(
-                                                          key: const Key(
-                                                            'unread_mention_dot',
-                                                          ),
-                                                          width: 6,
-                                                          height: 6,
-                                                          decoration:
-                                                              BoxDecoration(
-                                                                color: theme
-                                                                    .colorScheme
-                                                                    .error,
-                                                                shape: BoxShape
-                                                                    .circle,
-                                                              ),
-                                                        ),
-                                                      ),
-                                                  ],
-                                                );
-                                              },
-                                            );
-                                          },
-                                        )
-                                      : _buildEmpty(),
-                                ),
-                                if (_selectedChannel != null)
-                                  // Sits just below the channel tab bar
-                                  // (TabbedLayout's fixed 40px tab row) and
-                                  // floats over the chat messages.
-                                  Positioned(
-                                    top: 50,
-                                    left: 0,
-                                    right: 0,
-                                    child:
-                                        _buildWidgetOverlay(
-                                          _selectedChannel!,
-                                        ) ??
-                                        const SizedBox.shrink(),
-                                  ),
-                              ],
-                            ),
-                          ),
+                          _buildAppBar(),
+                          _buildChannelTabs(),
                         ],
                       ),
-                      // Thread sheet - offstage when closed to avoid layout cost.
-                      _buildOverlaySheet(
-                        offstage: _activePanel != OverlayPanel.thread,
-                        ratio: _threadSheetRatio,
-                        header: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                              ),
-                              child: Row(
-                                children: [
-                                  IconButton(
-                                    icon: const Icon(Icons.close),
-                                    tooltip: 'Close reply thread',
-                                    onPressed: _closePanel,
-                                  ),
-                                  const SizedBox(width: 4),
-                                  Expanded(
-                                    child: Text(
-                                      'Reply Thread',
-                                      style: TextStyle(
-                                        fontSize: 20,
-                                        color: Theme.of(
-                                          context,
-                                        ).colorScheme.onSurface,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            Divider(
-                              height: 1,
-                              color: Theme.of(context).dividerColor,
-                            ),
-                          ],
-                        ),
-                        body: ChatView(
-                          key: const ValueKey('thread_panel'),
-                          channel: _threadChannel ?? '',
-                          messages: _threadMessages,
-                          atBottomNotifier: _threadAtBottom,
-                          messageNotifier: _threadMsgCount,
-                          scrollController: _threadPanelScrollCtrl,
-                          messageBuilder: _messageBuilder,
-                          showTimestamp: _showTimestamps,
-                          timestampFormat: _timestampFormat,
-                          chatFontScale: _chatFontSize / 14.0,
-                          checkeredMessages: _checkeredMessages,
-                          highlightOpacity: _highlightOpacity,
-                          lineSeparator: _lineSeparator,
-                          sharedChatMode: _sharedChatMode,
-                          paintService: _showNamePaints
-                              ? _sevenTvPaintService
-                              : null,
-                          onShowUserProfile: _showUserProfile,
-                          onShowMessageMenu: _showPanelMessageMenu,
-                          showReplyIndicators: false,
-                          emptyText: 'No messages found',
-                        ),
-                      ),
-                      // Mentions sheet - offstage when closed to avoid layout cost.
-                      _buildOverlaySheet(
-                        offstage: _activePanel != OverlayPanel.mentions,
-                        ratio: _mentionsSheetRatio,
-                        header: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                              ),
-                              child: Row(
-                                children: [
-                                  IconButton(
-                                    icon: const Icon(Icons.arrow_back),
-                                    tooltip: 'Back',
-                                    onPressed: _closePanel,
-                                  ),
-                                  const SizedBox(width: 4),
-                                  Expanded(
-                                    child: Text(
-                                      'Mentions / Whispers',
-                                      style: TextStyle(
-                                        fontSize: 20,
-                                        color: Theme.of(
-                                          context,
-                                        ).colorScheme.onSurface,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            TabBar(
-                              controller: _mentionsTabCtrl,
-                              padding: EdgeInsets.fromLTRB(
-                                100.0,
-                                0.0,
-                                100.0,
-                                0.0,
-                              ),
-                              tabs: const [
-                                Tab(text: 'Mentions'),
-                                Tab(text: 'Whispers'),
-                              ],
-                            ),
-                            Divider(
-                              height: 1,
-                              color: Theme.of(context).dividerColor,
-                            ),
-                          ],
-                        ),
-                        body: TabBarView(
-                          controller: _mentionsTabCtrl,
-                          children: [
-                            ChatView(
-                              key: const ValueKey('mentions_panel'),
-                              channel: _mentionsChannel,
-                              messages:
-                                  _chatStore
-                                      .channelMessages[_mentionsChannel] ??
-                                  const [],
-                              atBottomNotifier: _mentionsAtBottom,
-                              messageNotifier: _mentionsMsgCount,
-                              scrollController: _mentionsPanelScrollCtrl,
-                              messageBuilder: _messageBuilder,
-                              showTimestamp: _showTimestamps,
-                              timestampFormat: _timestampFormat,
-                              chatFontScale: _chatFontSize / 14.0,
-                              checkeredMessages: _checkeredMessages,
-                              highlightOpacity: _highlightOpacity,
-                              lineSeparator: _lineSeparator,
-                              sharedChatMode: _sharedChatMode,
-                              physics: const ClampingScrollPhysics(),
-                              onShowUserProfile: _showUserProfile,
-                              onShowMessageMenu: _showPanelMessageMenu,
-                              showReplyIndicators: false,
-                              fadeDeleted: false,
-                              emptyText: 'No mentions or whispers',
-                            ),
-                            ChatView(
-                              key: const ValueKey('whispers_panel'),
-                              channel: '@whispers',
-                              messages: _whispers,
-                              atBottomNotifier: _whispersAtBottom,
-                              messageNotifier: _whispersMsgCount,
-                              scrollController: _whispersPanelScrollCtrl,
-                              messageBuilder: _messageBuilder,
-                              showTimestamp: _showTimestamps,
-                              timestampFormat: _timestampFormat,
-                              chatFontScale: _chatFontSize / 14.0,
-                              checkeredMessages: _checkeredMessages,
-                              highlightOpacity: _highlightOpacity,
-                              lineSeparator: _lineSeparator,
-                              sharedChatMode: _sharedChatMode,
-                              physics: const ClampingScrollPhysics(),
-                              onShowUserProfile: _showUserProfile,
-                              onShowMessageMenu: _showPanelMessageMenu,
-                              showReplyIndicators: false,
-                              emptyText: 'No whispers',
-                            ),
-                          ],
-                        ),
-                      ),
-                      // Emote sheet - always mounted, always 60%.
-                      // Box height is captured with the keyboard closed and
-                      // squashed only when the keyboard shrinks the Stack
-                      // below the sheet's anticipated height, so the tabs
-                      // never flow past the top of the screen.
-                      Positioned(
-                        bottom: 0,
-                        left: 0,
-                        right: 0,
-                        height: sheetBoxHeight,
-                        child: ScaleTransition(
-                          scale: _panelScaleCtrl,
-                          alignment: Alignment.bottomCenter,
-                          child: LayoutBuilder(
-                            builder: (context, constraints) {
-                              final totalAvailH = constraints.maxHeight;
-                              return IgnorePointer(
-                                ignoring: !_emoteSheetOpen,
-                                child: DraggableScrollableSheet(
-                                  controller: _emoteSheetCtrl,
-                                  initialChildSize: 0,
-                                  minChildSize: 0,
-                                  maxChildSize: _emoteMaxFraction,
-                                  snap: true,
-                                  builder: (context, scrollController) {
-                                    return _buildSlideUpContent(
-                                      controller: _emoteSheetCtrl,
-                                      totalAvailH: totalAvailH,
-                                      maxSize: _emoteMaxFraction,
-                                      child: RepaintBoundary(
-                                        child: EmoteMenuPanelWidget(
-                                          key: const ValueKey('emote_panel'),
-                                          isActive: _emoteSheetOpen,
-                                          selectedChannel: _selectedChannel,
-                                          onEmoteSelected: _onEmoteSelected,
-                                          onClose: _closeEmoteSheet,
-                                          emoteManager: _emoteManager,
-                                          scrollController: scrollController,
-                                          sheetCtrl: _emoteSheetCtrl,
-                                          emoteMaxFraction: _emoteMaxFraction,
-                                        ),
-                                      ),
-                                    );
-                                  },
-                                ),
-                              );
-                            },
-                          ),
-                        ),
-                      ),
+                      _buildThreadPanel(),
+                      _buildMentionsPanel(),
+                      _buildEmotePicker(sheetBoxHeight: sheetBoxHeight),
                       // Autocomplete dropdown - floats above chat, anchored just
                       // above the message input, 60% width like DankChat's popup.
                       Positioned(
@@ -3764,121 +2600,7 @@ class _HomeScreenState extends State<HomeScreen>
                 },
               ),
             ),
-            Builder(
-              builder: (ctx) {
-                final inset = MediaQuery.viewInsetsOf(ctx).bottom;
-                final pad = MediaQuery.paddingOf(ctx).bottom;
-                return Padding(
-                  padding: EdgeInsets.only(bottom: inset + pad),
-                  child: ColoredBox(
-                    color: theme.scaffoldBackgroundColor,
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        // The countdown hint repaints through its own
-                        // notifier: swipe commits skip full-screen setState,
-                        // so without this the box would freeze mid-count.
-                        ListenableBuilder(
-                          listenable: _cooldownLabelNotifier,
-                          builder: (context, _) {
-                            return MessageInput(
-                              controller: _messageController,
-                              focusNode: _focusNode,
-                              onSend: _sendMessage,
-                              onSendLongPress: _onSendLongPress,
-                              onTap: () => _suggestionsNotifier.value = [],
-                              onEmoteToggle: () {
-                                PerfLog.I.record(
-                                  'EmoteSheet',
-                                  'toggle: open=$_emoteSheetOpen',
-                                );
-                                if (_emoteSheetOpen) {
-                                  unawaited(_closeEmoteSheet());
-                                } else {
-                                  _showEmoteMenu();
-                                }
-                              },
-                              replyToMsg: _replyToMsg,
-                              onCancelReply: () =>
-                                  setState(() => _replyToMsg = null),
-                              enabled:
-                                  (_activePanel != OverlayPanel.mentions ||
-                                      _isWhispersTabActive) &&
-                                  widget.twitchAuth.isConfigured &&
-                                  _chatConn.isChatPipeConnected &&
-                                  (_isWhispersTabActive || _channelChatReady),
-                              hintText:
-                                  _cooldownLabelNotifier.value ??
-                                  (!widget.twitchAuth.isConfigured
-                                      ? 'Connect an account to chat'
-                                      : switch ((
-                                          _chatConn.connectPhase,
-                                          _activePanel,
-                                          _isWhispersTabActive,
-                                          _channelChatReady,
-                                        )) {
-                                          (ChatPhase.connecting, _, _, _) =>
-                                            'Connecting...',
-                                          (ChatPhase.reconnecting, _, _, _) =>
-                                            'Reconnecting...',
-                                          (ChatPhase.online, _, false, false)
-                                              when _selectedChannel != null =>
-                                            'Joining #${_selectedChannel!}...',
-                                          (_, OverlayPanel.thread, _, _) =>
-                                            'Reply to thread...',
-                                          (_, _, true, _) =>
-                                            _whisperTarget != null
-                                                ? 'Whisper to $_whisperTarget...'
-                                                : 'Type /w <username> <message>',
-                                          (_, OverlayPanel.mentions, _, _) =>
-                                            'Type a message...',
-                                          _ => null,
-                                        }),
-                            );
-                          },
-                        ),
-                        ListenableBuilder(
-                          listenable: Listenable.merge([
-                            _versionNotifier(_selectedChannel ?? ''),
-                            _selectedTabIndex,
-                          ]),
-                          builder: (context, _) {
-                            final status =
-                                _chatStore.chatStatus[_selectedChannel];
-                            final hasStatus =
-                                status != null && status.isNotEmpty;
-                            return AnimatedSize(
-                              duration: const Duration(milliseconds: 300),
-                              curve: Curves.easeInOut,
-                              alignment: Alignment.topCenter,
-                              child: hasStatus
-                                  ? Padding(
-                                      padding: const EdgeInsets.only(
-                                        left: 12,
-                                        right: 12,
-                                        bottom: 4,
-                                      ),
-                                      child: Text(
-                                        status,
-                                        style: TextStyle(
-                                          fontSize: 12,
-                                          color: Theme.of(
-                                            context,
-                                          ).colorScheme.onSurfaceVariant,
-                                        ),
-                                        textAlign: TextAlign.center,
-                                      ),
-                                    )
-                                  : const SizedBox.shrink(),
-                            );
-                          },
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              },
-            ),
+            _buildInputBar(theme: theme),
           ],
         ),
       ),
@@ -3891,6 +2613,572 @@ class _HomeScreenState extends State<HomeScreen>
   bool get _channelChatReady =>
       _selectedChannel != null &&
       _chatConn.isChannelChatReady(_selectedChannel!);
+
+  Widget _buildAppBar() {
+    final theme = Theme.of(context);
+    return ColoredBox(
+      color: theme.colorScheme.surfaceContainer,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SafeArea(
+            bottom: false,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              child: Row(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.only(left: 8),
+                    child: Text(
+                      'ErmChat',
+                      style: TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.w400,
+                      ),
+                    ),
+                  ),
+                  const Spacer(),
+                  IconButton(
+                    icon: const Icon(Icons.add),
+                    tooltip: 'Join channel',
+                    onPressed: _chatStore.channels.length >= kMaxChannels
+                        ? null
+                        : _addChannelDialog,
+                  ),
+                  ListenableBuilder(
+                    listenable: _chatStore.mentionsBump,
+                    builder: (context, _) => IconButton(
+                      icon: Icon(
+                        Icons.notifications_active,
+                        color: _chatStore.unreadMentions > 0
+                            ? theme.colorScheme.error
+                            : null,
+                      ),
+                      tooltip: 'Mentions',
+                      onPressed: () {
+                        _chatStore.unreadMentions = 0;
+                        _unreadWhispers = 0;
+                        _chatStore.channelsWithUnreadMentions.clear();
+                        _chatStore.unreadMentionsPerChannel.clear();
+                        if (mounted) setState(() {});
+                        if (_activePanel == OverlayPanel.mentions) {
+                          unawaited(_closePanel());
+                        } else {
+                          _showMentionsView();
+                        }
+                      },
+                    ),
+                  ),
+                  PopupMenuButton<String>(
+                    popUpAnimationStyle: const AnimationStyle(
+                      duration: Duration(milliseconds: 175),
+                    ),
+                    onSelected: (value) {
+                      switch (value) {
+                        case 'upload':
+                          _uploadController.pickAndUpload(context);
+                          break;
+                        case 'reload_emotes':
+                          _reloadEmotes();
+                          break;
+                        case 'reconnect':
+                          _reconnect();
+                          break;
+                        case 'settings':
+                          _openSettings();
+                          break;
+                      }
+                    },
+                    itemBuilder: (_) => const [
+                      PopupMenuItem(
+                        value: 'settings',
+                        child: Row(
+                          children: [
+                            Icon(Icons.settings, size: 20),
+                            SizedBox(width: 12),
+                            Text('Settings'),
+                          ],
+                        ),
+                      ),
+                      PopupMenuDivider(),
+                      PopupMenuItem(
+                        value: 'upload',
+                        child: Text('Upload media'),
+                      ),
+                      PopupMenuItem(
+                        value: 'reload_emotes',
+                        child: Text('Reload emotes'),
+                      ),
+                      PopupMenuItem(
+                        value: 'reconnect',
+                        child: Text('Reconnect'),
+                      ),
+                    ],
+                    child: GestureDetector(
+                      onLongPress: _openSettings,
+                      child: const Padding(
+                        padding: EdgeInsets.all(12),
+                        child: Icon(Icons.more_vert),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildChannelTabs() {
+    final theme = Theme.of(context);
+    return Expanded(
+      child: Stack(
+        children: [
+          Listener(
+            behavior: HitTestBehavior.translucent,
+            onPointerDown: (_) {
+              _suggestionsNotifier.value = [];
+            },
+            child: _chatStore.channels.isNotEmpty
+                ? TabbedLayout(
+                    tabs: _chatStore.channels,
+                    selectedIndex:
+                        _chatStore.channels.indexOf(_selectedChannel ?? ''),
+                    onSelectedIndexChanged: _onChannelChanged,
+                    onFocusChanged: _onChannelFocusChanged,
+                    pageBuilder: (_, i) {
+                      final channel = _chatStore.channels[i];
+                      return ListenableBuilder(
+                        listenable: _versionNotifier(channel),
+                        builder: (_, _) => ChatView(
+                          channel: channel,
+                          messages:
+                              _chatStore.channelMessages[channel] ?? [],
+                          tileCache: _tileCache,
+                          atBottomNotifier: _atBottomNotifier(channel),
+                          messageNotifier: _messageNotifier(channel),
+                          scrollController: _scrollCtrl(channel),
+                          messageBuilder: _messageBuilder,
+                          showTimestamp: _showTimestamps,
+                          timestampFormat: _timestampFormat,
+                          chatFontScale: _chatFontSize / 14.0,
+                          checkeredMessages: _checkeredMessages,
+                          highlightOpacity: _highlightOpacity,
+                          lineSeparator: _lineSeparator,
+                          sharedChatMode: _sharedChatMode,
+                          paintService: _showNamePaints
+                              ? _sevenTvPaintService
+                              : null,
+                          onShowUserProfile: (
+                            login,
+                            userId, {
+                            displayName,
+                          }) =>
+                              _showUserProfile(
+                                login,
+                                userId,
+                                displayName: displayName,
+                              ),
+                          onShowMessageMenu: _showMessageMenu,
+                          onNewMessage: _chatStore.noteNewMessage,
+                          onFindThreadRoot: _findThreadRoot,
+                          onShowThreadView: _showThreadView,
+                        ),
+                      );
+                    },
+                    focusOnHalfDrag: true,
+                    fastSnap: _fastSnap,
+                    tabBuilder: (_, i) {
+                      final channel = _chatStore.channels[i];
+                      return ListenableBuilder(
+                        listenable: Listenable.merge([
+                          _selectedTabIndex,
+                          _messageNotifier(channel),
+                        ]),
+                        builder: (ctx, _) {
+                          final focused = i == _selectedTabIndex.value;
+                          final selected =
+                              focused || channel == _selectedChannel;
+                          final hasUnreadMention = _chatStore
+                              .channelsWithUnreadMentions
+                              .contains(channel);
+                          return Stack(
+                            clipBehavior: Clip.none,
+                            children: [
+                              Text(
+                                channel,
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight:
+                                      selected ||
+                                              _chatStore.channelsWithUnread
+                                                  .contains(channel)
+                                          ? FontWeight.w600
+                                          : FontWeight.normal,
+                                  color: selected
+                                      ? theme.colorScheme.primary
+                                      : _chatStore.channelsWithUnread
+                                                .contains(channel)
+                                          ? theme.colorScheme.onSurface
+                                          : null,
+                                ),
+                              ),
+                              if (hasUnreadMention && !selected)
+                                Positioned(
+                                  top: -2,
+                                  right: -4,
+                                  child: Container(
+                                    key: const Key('unread_mention_dot'),
+                                    width: 6,
+                                    height: 6,
+                                    decoration: BoxDecoration(
+                                      color: theme.colorScheme.error,
+                                      shape: BoxShape.circle,
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          );
+                        },
+                      );
+                    },
+                  )
+                : _buildEmpty(),
+          ),
+          if (_selectedChannel != null)
+            Positioned(
+              top: 50,
+              left: 0,
+              right: 0,
+              child: _broadcastWidgets.buildOverlay(
+                    _selectedChannel!,
+                    onMinimizeChanged: (ch, minimized) {
+                      setState(() => _broadcastWidgets.widgetsMinimized[ch] = minimized);
+                    },
+                  ) ??
+                  const SizedBox.shrink(),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildThreadPanel() {
+    return _buildOverlaySheet(
+      offstage: _activePanel != OverlayPanel.thread,
+      ratio: _threadSheetRatio,
+      header: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: Row(
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.close),
+                  tooltip: 'Close reply thread',
+                  onPressed: _closePanel,
+                ),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    'Reply Thread',
+                    style: TextStyle(
+                      fontSize: 20,
+                      color: Theme.of(context).colorScheme.onSurface,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Divider(
+            height: 1,
+            color: Theme.of(context).dividerColor,
+          ),
+        ],
+      ),
+      body: ChatView(
+        key: const ValueKey('thread_panel'),
+        channel: _threadChannel ?? '',
+        messages: _threadMessages,
+        atBottomNotifier: _threadAtBottom,
+        messageNotifier: _threadMsgCount,
+        scrollController: _threadPanelScrollCtrl,
+        messageBuilder: _messageBuilder,
+        showTimestamp: _showTimestamps,
+        timestampFormat: _timestampFormat,
+        chatFontScale: _chatFontSize / 14.0,
+        checkeredMessages: _checkeredMessages,
+        highlightOpacity: _highlightOpacity,
+        lineSeparator: _lineSeparator,
+        sharedChatMode: _sharedChatMode,
+        paintService:
+            _showNamePaints ? _sevenTvPaintService : null,
+        onShowUserProfile: _showUserProfile,
+        onShowMessageMenu: _showPanelMessageMenu,
+        showReplyIndicators: false,
+        emptyText: 'No messages found',
+      ),
+    );
+  }
+
+  Widget _buildMentionsPanel() {
+    return _buildOverlaySheet(
+      offstage: _activePanel != OverlayPanel.mentions,
+      ratio: _mentionsSheetRatio,
+      header: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: Row(
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.arrow_back),
+                  tooltip: 'Back',
+                  onPressed: _closePanel,
+                ),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    'Mentions / Whispers',
+                    style: TextStyle(
+                      fontSize: 20,
+                      color: Theme.of(context).colorScheme.onSurface,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          TabBar(
+            controller: _mentionsTabCtrl,
+            padding: EdgeInsets.fromLTRB(100.0, 0.0, 100.0, 0.0),
+            tabs: const [
+              Tab(text: 'Mentions'),
+              Tab(text: 'Whispers'),
+            ],
+          ),
+          Divider(
+            height: 1,
+            color: Theme.of(context).dividerColor,
+          ),
+        ],
+      ),
+      body: TabBarView(
+        controller: _mentionsTabCtrl,
+        children: [
+          ChatView(
+            key: const ValueKey('mentions_panel'),
+            channel: _mentionsChannel,
+            messages:
+                _chatStore.channelMessages[_mentionsChannel] ?? const [],
+            atBottomNotifier: _mentionsAtBottom,
+            messageNotifier: _mentionsMsgCount,
+            scrollController: _mentionsPanelScrollCtrl,
+            messageBuilder: _messageBuilder,
+            showTimestamp: _showTimestamps,
+            timestampFormat: _timestampFormat,
+            chatFontScale: _chatFontSize / 14.0,
+            checkeredMessages: _checkeredMessages,
+            highlightOpacity: _highlightOpacity,
+            lineSeparator: _lineSeparator,
+            sharedChatMode: _sharedChatMode,
+            physics: const ClampingScrollPhysics(),
+            onShowUserProfile: _showUserProfile,
+            onShowMessageMenu: _showPanelMessageMenu,
+            showReplyIndicators: false,
+            fadeDeleted: false,
+            emptyText: 'No mentions or whispers',
+          ),
+          ChatView(
+            key: const ValueKey('whispers_panel'),
+            channel: '@whispers',
+            messages: _whispers,
+            atBottomNotifier: _whispersAtBottom,
+            messageNotifier: _whispersMsgCount,
+            scrollController: _whispersPanelScrollCtrl,
+            messageBuilder: _messageBuilder,
+            showTimestamp: _showTimestamps,
+            timestampFormat: _timestampFormat,
+            chatFontScale: _chatFontSize / 14.0,
+            checkeredMessages: _checkeredMessages,
+            highlightOpacity: _highlightOpacity,
+            lineSeparator: _lineSeparator,
+            sharedChatMode: _sharedChatMode,
+            physics: const ClampingScrollPhysics(),
+            onShowUserProfile: _showUserProfile,
+            onShowMessageMenu: _showPanelMessageMenu,
+            showReplyIndicators: false,
+            emptyText: 'No whispers',
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEmotePicker({required double sheetBoxHeight}) {
+    return Positioned(
+      bottom: 0,
+      left: 0,
+      right: 0,
+      height: sheetBoxHeight,
+      child: ScaleTransition(
+        scale: _panelScaleCtrl,
+        alignment: Alignment.bottomCenter,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final totalAvailH = constraints.maxHeight;
+            return IgnorePointer(
+              ignoring: !_emoteSheetOpen,
+              child: DraggableScrollableSheet(
+                controller: _emoteSheetCtrl,
+                initialChildSize: 0,
+                minChildSize: 0,
+                maxChildSize: _emoteMaxFraction,
+                snap: true,
+                builder: (context, scrollController) {
+                  return _buildSlideUpContent(
+                    controller: _emoteSheetCtrl,
+                    totalAvailH: totalAvailH,
+                    maxSize: _emoteMaxFraction,
+                    child: RepaintBoundary(
+                      child: EmoteMenuPanelWidget(
+                        key: const ValueKey('emote_panel'),
+                        isActive: _emoteSheetOpen,
+                        selectedChannel: _selectedChannel,
+                        onEmoteSelected: _onEmoteSelected,
+                        onClose: _closeEmoteSheet,
+                        emoteManager: _emoteManager,
+                        scrollController: scrollController,
+                        sheetCtrl: _emoteSheetCtrl,
+                        emoteMaxFraction: _emoteMaxFraction,
+                      ),
+                    ),
+                  );
+                },
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInputBar({required ThemeData theme}) {
+    return Builder(
+      builder: (ctx) {
+        final inset = MediaQuery.viewInsetsOf(ctx).bottom;
+        final pad = MediaQuery.paddingOf(ctx).bottom;
+        return Padding(
+          padding: EdgeInsets.only(bottom: inset + pad),
+          child: ColoredBox(
+            color: theme.scaffoldBackgroundColor,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListenableBuilder(
+                  listenable: _cooldownLabelNotifier,
+                  builder: (context, _) {
+                    return MessageInput(
+                      controller: _messageController,
+                      focusNode: _focusNode,
+                      onSend: _sendMessage,
+                      onSendLongPress: _onSendLongPress,
+                      onTap: () => _suggestionsNotifier.value = [],
+                      onEmoteToggle: () {
+                        PerfLog.I.record(
+                          'EmoteSheet',
+                          'toggle: open=$_emoteSheetOpen',
+                        );
+                        if (_emoteSheetOpen) {
+                          unawaited(_closeEmoteSheet());
+                        } else {
+                          _showEmoteMenu();
+                        }
+                      },
+                      replyToMsg: _replyToMsg,
+                      onCancelReply: () =>
+                          setState(() => _replyToMsg = null),
+                      enabled: (_activePanel != OverlayPanel.mentions ||
+                              _isWhispersTabActive) &&
+                          widget.twitchAuth.isConfigured &&
+                          _chatConn.isChatPipeConnected &&
+                          (_isWhispersTabActive || _channelChatReady),
+                      hintText: _cooldownLabelNotifier.value ??
+                          (!widget.twitchAuth.isConfigured
+                              ? 'Connect an account to chat'
+                              : switch ((
+                                  _chatConn.connectPhase,
+                                  _activePanel,
+                                  _isWhispersTabActive,
+                                  _channelChatReady,
+                                )) {
+                                  (ChatPhase.connecting, _, _, _) =>
+                                    'Connecting...',
+                                  (ChatPhase.reconnecting, _, _, _) =>
+                                    'Reconnecting...',
+                                  (ChatPhase.online, _, false, false)
+                                      when _selectedChannel != null =>
+                                    'Joining #${_selectedChannel!}...',
+                                  (_, OverlayPanel.thread, _, _) =>
+                                    'Reply to thread...',
+                                  (_, _, true, _) =>
+                                    _whisperTarget != null
+                                        ? 'Whisper to $_whisperTarget...'
+                                        : 'Type /w <username> <message>',
+                                  (_, OverlayPanel.mentions, _, _) =>
+                                    'Type a message...',
+                                  _ => null,
+                                }),
+                    );
+                  },
+                ),
+                ListenableBuilder(
+                  listenable: Listenable.merge([
+                    _versionNotifier(_selectedChannel ?? ''),
+                    _selectedTabIndex,
+                  ]),
+                  builder: (context, _) {
+                    final status =
+                        _chatStore.chatStatus[_selectedChannel];
+                    final hasStatus = status != null && status.isNotEmpty;
+                    return AnimatedSize(
+                      duration: const Duration(milliseconds: 300),
+                      curve: Curves.easeInOut,
+                      alignment: Alignment.topCenter,
+                      child: hasStatus
+                          ? Padding(
+                              padding: const EdgeInsets.only(
+                                left: 12,
+                                right: 12,
+                                bottom: 4,
+                              ),
+                              child: Text(
+                                status,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .onSurfaceVariant,
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
+                            )
+                          : const SizedBox.shrink(),
+                    );
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
 
   Widget _buildEmpty() {
     if (!widget.twitchAuth.isConfigured) {
@@ -3912,5 +3200,707 @@ class _HomeScreenState extends State<HomeScreen>
         ],
       ),
     );
+  }
+}
+
+class _BroadcastWidgets {
+  _BroadcastWidgets({
+    required this.markDirty,
+    required this.selectedChannel,
+  });
+
+  final VoidCallback markDirty;
+  final String? Function() selectedChannel;
+
+  final hypeTrains = <String, HypeTrainEvent>{};
+  final polls = <String, PollEvent>{};
+  final predictions = <String, PredictionEvent>{};
+  final widgetsMinimized = <String, bool>{};
+  final pageCtrl = PageController();
+
+  Timer? _testWidgetsTimer;
+  int _fakeLevel = 1;
+  int _fakeProgress = 0;
+  int _fakeGoal = 100;
+  int _fakePollA = 120;
+  int _fakePollB = 80;
+  int _fakePollC = 40;
+  int _fakePredYes = 900;
+  int _fakePredNo = 450;
+  DateTime? _fakeTrainEndsAt;
+
+  bool mounted = true;
+
+  void dispose() {
+    mounted = false;
+    _testWidgetsTimer?.cancel();
+    pageCtrl.dispose();
+  }
+
+  void onHypeTrain(HypeTrainEvent event) {
+    if (!mounted) return;
+    if (event.kind == 'end') {
+      hypeTrains.remove(event.channel);
+    } else {
+      hypeTrains[event.channel] = event;
+    }
+    markDirty();
+    clampPage();
+  }
+
+  void onPoll(PollEvent event) {
+    if (!mounted) return;
+    if (event.kind == 'end') {
+      polls.remove(event.channel);
+    } else {
+      polls[event.channel] = event;
+    }
+    markDirty();
+    clampPage();
+  }
+
+  void onPrediction(PredictionEvent event) {
+    if (!mounted) return;
+    if (event.kind == 'end') {
+      predictions.remove(event.channel);
+    } else {
+      predictions[event.channel] = event;
+    }
+    markDirty();
+    clampPage();
+  }
+
+  Future<void> loadTestWidgets() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (!mounted) return;
+    applyTestWidgets(prefs.getBool('test_chat_widgets') ?? false);
+  }
+
+  void setTestWidgets(bool value) {
+    if (!mounted) return;
+    applyTestWidgets(value);
+  }
+
+  void applyTestWidgets(bool value) {
+    if (value) {
+      _startTestWidgets();
+    } else {
+      _stopTestWidgets();
+    }
+  }
+
+  void _startTestWidgets() {
+    _fakeTrainEndsAt = DateTime.now().add(const Duration(minutes: 5));
+    _testWidgetsTimer?.cancel();
+    _testWidgetsTimer = Timer.periodic(
+      const Duration(seconds: 1),
+      (_) => _tickTestWidgets(),
+    );
+    _tickTestWidgets();
+  }
+
+  void _stopTestWidgets() {
+    _testWidgetsTimer?.cancel();
+    _testWidgetsTimer = null;
+    if (!mounted) return;
+    hypeTrains.clear();
+    polls.clear();
+    predictions.clear();
+    widgetsMinimized.clear();
+    markDirty();
+  }
+
+  void _tickTestWidgets() {
+    if (!mounted) return;
+    final channel = selectedChannel();
+    if (channel == null) return;
+    hypeTrains.clear();
+    polls.clear();
+    predictions.clear();
+
+    _fakeProgress += 9;
+    if (_fakeProgress >= _fakeGoal) {
+      _fakeLevel++;
+      _fakeGoal += 100;
+      _fakeProgress = 0;
+    }
+    hypeTrains[channel] = HypeTrainEvent(
+      channel: channel,
+      kind: 'progress',
+      level: _fakeLevel,
+      progress: _fakeProgress,
+      total: _fakeGoal,
+      expiresAt: _fakeTrainEndsAt,
+      topContributions: [
+        HypeTrainContribution(
+          userName: 'fakebits',
+          type: 'BITS',
+          total: 5000,
+        ),
+        HypeTrainContribution(userName: 'fakesub', type: 'SUBS', total: 12),
+      ],
+    );
+
+    _fakePollA += 3;
+    _fakePollB += 2;
+    _fakePollC += 1;
+    polls[channel] = PollEvent(
+      channel: channel,
+      kind: 'progress',
+      title: 'Fake poll: what should we play?',
+      choices: [
+        PollChoice(title: 'Minecraft', votes: _fakePollA),
+        PollChoice(title: 'Terraria', votes: _fakePollB),
+        PollChoice(title: 'Stardew', votes: _fakePollC),
+      ],
+      status: 'ACTIVE',
+    );
+
+    _fakePredYes += 12;
+    _fakePredNo += 5;
+    predictions[channel] = PredictionEvent(
+      channel: channel,
+      kind: 'progress',
+      title: 'Fake prediction: will we win?',
+      outcomes: [
+        PredictionOutcome(
+          title: 'Yes',
+          users: _fakePredYes,
+          channelPoints: 9000,
+        ),
+        PredictionOutcome(
+          title: 'No',
+          users: _fakePredNo,
+          channelPoints: 4500,
+        ),
+      ],
+      status: 'ACTIVE',
+    );
+    markDirty();
+    clampPage();
+  }
+
+  List<Widget> pagesFor(String channel) {
+    final result = <Widget>[];
+    final poll = polls[channel];
+    if (poll != null) result.add(PollCard(event: poll));
+    final prediction = predictions[channel];
+    if (prediction != null) result.add(PredictionCard(event: prediction));
+    final hypeTrain = hypeTrains[channel];
+    if (hypeTrain != null) result.add(HypeTrainCard(event: hypeTrain));
+    return result;
+  }
+
+  String labelsFor(String channel) {
+    final labels = <String>[];
+    if (polls.containsKey(channel)) labels.add('Poll');
+    if (predictions.containsKey(channel)) labels.add('Prediction');
+    if (hypeTrains.containsKey(channel)) labels.add('Hype Train');
+    return labels.join(' / ');
+  }
+
+  Widget? buildOverlay(
+    String channel, {
+    required void Function(String, bool) onMinimizeChanged,
+  }) {
+    final pages = pagesFor(channel);
+    if (pages.isEmpty) return null;
+    if (widgetsMinimized[channel] ?? false) {
+      return ChatWidgetMinimizedBar(
+        labels: labelsFor(channel),
+        onRestore: () => onMinimizeChanged(channel, false),
+      );
+    }
+    return ChatWidgetCutout(
+      pages: pages,
+      controller: pageCtrl,
+      onMinimize: () => onMinimizeChanged(channel, true),
+    );
+  }
+
+  void clampPage() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !pageCtrl.hasClients) return;
+      final channel = selectedChannel();
+      if (channel == null) return;
+      final pages = pagesFor(channel).length;
+      if (pages == 0) return;
+      final idx = pageCtrl.page?.round() ?? 0;
+      if (idx >= pages) {
+        pageCtrl.jumpToPage(pages - 1);
+      }
+    });
+  }
+
+  void resetPage() {
+    if (pageCtrl.hasClients) pageCtrl.jumpToPage(0);
+  }
+}
+
+class _PanelManager {
+  _PanelManager({
+    required this.vsync,
+    required this.markDirty,
+    required this.isMounted,
+  });
+
+  final TickerProvider vsync;
+  final VoidCallback markDirty;
+  final bool Function() isMounted;
+
+  OverlayPanel activePanel = OverlayPanel.closed;
+  bool emoteSheetOpen = false;
+  TwitchMessage? openThreadRoot;
+  List<TwitchMessage> threadMessages = const [];
+  String? threadChannel;
+
+  final threadSheetRatio = ValueNotifier(0.0);
+  final mentionsSheetRatio = ValueNotifier(0.0);
+  late final AnimationController panelScaleCtrl = AnimationController(
+    vsync: vsync,
+    duration: const Duration(milliseconds: 200),
+    value: 1.0,
+  );
+  late final DraggableScrollableController emoteSheetCtrl =
+      DraggableScrollableController();
+
+  double panelDragStartRatio = 0.0;
+  double panelDragStartY = 0.0;
+  double? emoteSheetBoxHeight;
+
+  static const sheetAnimDuration = Duration(milliseconds: 250);
+  static const sheetCloseDuration = Duration(milliseconds: 180);
+  static const emoteMaxFraction = 0.6;
+  static const fullHeightFraction = 1.0;
+
+  double get emoteSheetPhysicalSize =>
+      emoteSheetCtrl.isAttached ? emoteSheetCtrl.size : 0.0;
+
+  void dispose() {
+    panelScaleCtrl.dispose();
+    emoteSheetCtrl.dispose();
+    threadSheetRatio.dispose();
+    mentionsSheetRatio.dispose();
+  }
+
+  void onSheetSizeChanged() {
+    if (emoteSheetOpen &&
+        emoteSheetCtrl.isAttached &&
+        emoteSheetCtrl.size <= 0.001) {
+      PerfLog.I.record(
+        'EmoteSheet',
+        'size collapsed to ${emoteSheetCtrl.size.toStringAsFixed(3)} '
+            'while open; closing',
+      );
+      emoteSheetOpen = false;
+      panelScaleCtrl.value = 1.0;
+      markDirty();
+    }
+  }
+
+  Future<void> closePanel() async {
+    final panelToClose = activePanel;
+    if (panelToClose == OverlayPanel.closed && !emoteSheetOpen) return;
+    await closeEmoteSheet();
+    if (panelToClose == OverlayPanel.closed) {
+      if (isMounted()) markDirty();
+      return;
+    }
+    if (panelToClose == OverlayPanel.thread) {
+      await animateRatio(
+        threadSheetRatio,
+        threadSheetRatio.value,
+        0.0,
+        sheetCloseDuration,
+      );
+    } else if (panelToClose == OverlayPanel.mentions) {
+      await animateRatio(
+        mentionsSheetRatio,
+        mentionsSheetRatio.value,
+        0.0,
+        sheetCloseDuration,
+      );
+    }
+    if (isMounted()) {
+      activePanel = OverlayPanel.closed;
+      openThreadRoot = null;
+      panelScaleCtrl.value = 1.0;
+      markDirty();
+    }
+  }
+
+  Future<void> animateRatio(
+    ValueNotifier<double> ratio,
+    double from,
+    double to,
+    Duration duration,
+  ) async {
+    if (from == to) return;
+    final controller = AnimationController(vsync: vsync, duration: duration);
+    final animation = Tween(
+      begin: from,
+      end: to,
+    ).animate(CurvedAnimation(parent: controller, curve: Curves.easeOutCubic));
+    void listener() {
+      ratio.value = animation.value;
+    }
+
+    animation.addListener(listener);
+    await controller.forward();
+    animation.removeListener(listener);
+    controller.dispose();
+  }
+
+  Widget buildPanelDragHandle({
+    required ValueNotifier<double> ratio,
+    required double maxSize,
+    required VoidCallback onClose,
+    required VoidCallback onSnap,
+    required BuildContext context,
+    Widget? header,
+  }) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onVerticalDragStart: (details) {
+        panelDragStartRatio = ratio.value;
+        panelDragStartY = details.globalPosition.dy;
+      },
+      onVerticalDragUpdate: (details) {
+        final cumulativeDelta = details.globalPosition.dy - panelDragStartY;
+        final height =
+            maxSize *
+            (MediaQuery.of(context).size.height -
+                MediaQuery.of(context).padding.top -
+                MediaQuery.viewInsetsOf(context).bottom);
+        ratio.value = (panelDragStartRatio - cumulativeDelta / height).clamp(
+          0.0,
+          maxSize,
+        );
+      },
+      onVerticalDragEnd: (details) {
+        if (shouldCloseSheet(
+          fraction: ratio.value / maxSize,
+          velocity: details.primaryVelocity ?? 0,
+        )) {
+          onClose();
+        } else {
+          onSnap();
+        }
+      },
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: double.infinity,
+            color: Colors.transparent,
+            padding: const EdgeInsets.only(top: 10, bottom: 28),
+            child: Align(
+              alignment: Alignment.topCenter,
+              child: Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade400,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+          ),
+          ?header,
+        ],
+      ),
+    );
+  }
+
+  Widget buildOverlaySheet({
+    required bool offstage,
+    required ValueNotifier<double> ratio,
+    required Widget header,
+    required Widget body,
+    required BuildContext context,
+  }) {
+    return Positioned(
+      top: MediaQuery.of(context).padding.top,
+      bottom: 0,
+      left: 0,
+      right: 0,
+      child: Offstage(
+        offstage: offstage,
+        child: ScaleTransition(
+          scale: panelScaleCtrl,
+          alignment: Alignment.bottomCenter,
+          child: buildSheetPanel(
+            ratio: ratio,
+            child: RepaintBoundary(
+              child: Material(
+                color: Theme.of(context).scaffoldBackgroundColor,
+                clipBehavior: Clip.hardEdge,
+                child: Column(
+                  children: [
+                    ColoredBox(
+                      color: Theme.of(context).colorScheme.surfaceContainer,
+                      child: buildPanelDragHandle(
+                        ratio: ratio,
+                        maxSize: fullHeightFraction,
+                        onClose: closePanel,
+                        onSnap: () => animateRatio(
+                          ratio,
+                          ratio.value,
+                          fullHeightFraction,
+                          sheetAnimDuration,
+                        ),
+                        context: context,
+                        header: header,
+                      ),
+                    ),
+                    Expanded(child: body),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget buildSheetPanel({
+    required ValueNotifier<double> ratio,
+    required Widget child,
+  }) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final height = constraints.maxHeight;
+        return ClipRect(
+          child: OverflowBox(
+            alignment: Alignment.bottomCenter,
+            minHeight: height,
+            maxHeight: height,
+            child: AnimatedBuilder(
+              animation: ratio,
+              builder: (context, child) {
+                final closedFraction = (1.0 - ratio.value).clamp(0.0, 1.0);
+                return FractionalTranslation(
+                  translation: Offset(0, closedFraction),
+                  child: child!,
+                );
+              },
+              child: child,
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget buildSlideUpContent({
+    required DraggableScrollableController controller,
+    required double totalAvailH,
+    required double maxSize,
+    required Widget child,
+  }) {
+    final contentH = maxSize * totalAvailH;
+    return ClipRect(
+      child: OverflowBox(
+        alignment: Alignment.bottomCenter,
+        minHeight: contentH,
+        maxHeight: contentH,
+        child: AnimatedBuilder(
+          animation: controller,
+          builder: (context, child) {
+            final size = controller.isAttached ? controller.size : 0.0;
+            final closedFraction = maxSize <= 0
+                ? 0.0
+                : (1 - (size / maxSize)).clamp(0.0, 1.0);
+            return FractionalTranslation(
+              translation: Offset(0, closedFraction),
+              child: child!,
+            );
+          },
+          child: child,
+        ),
+      ),
+    );
+  }
+
+  void showEmoteMenu({
+    required String? selectedChannel,
+    required EmoteManager emoteManager,
+    required Map<String, String> channelUserIds,
+  }) {
+    if (selectedChannel != null && !emoteManager.hasChannelCache(selectedChannel)) {
+      unawaited(
+        emoteManager.resolveEmotes(
+          selectedChannel,
+          channelUserIds[selectedChannel],
+        ),
+      );
+    }
+    if (!emoteManager.hasGlobalCache) {
+      unawaited(emoteManager.preloadGlobalEmotes());
+    }
+    emoteSheetOpen = true;
+    markDirty();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!isMounted()) {
+        PerfLog.I.record('EmoteSheet', 'open aborted: unmounted');
+        return;
+      }
+      if (!emoteSheetCtrl.isAttached) {
+        PerfLog.I.record(
+          'EmoteSheet',
+          'open skipped: controller has no clients',
+        );
+        return;
+      }
+      PerfLog.I.record(
+        'EmoteSheet',
+        'animating open from ${emoteSheetCtrl.size.toStringAsFixed(3)}',
+      );
+      unawaited(
+        emoteSheetCtrl
+            .animateTo(
+              emoteMaxFraction,
+              duration: sheetAnimDuration,
+              curve: Curves.easeInOutCubicEmphasized,
+            )
+            .then((_) {
+              if (!isMounted()) return;
+              PerfLog.I.record(
+                'EmoteSheet',
+                'open animation ended at '
+                    '${emoteSheetPhysicalSize.toStringAsFixed(3)}'
+                    '${emoteSheetCtrl.isAttached ? '' : ' (detached)'}',
+              );
+            }),
+      );
+    });
+  }
+
+  Future<void> closeEmoteSheet() async {
+    if (!emoteSheetOpen) {
+      PerfLog.I.record('EmoteSheet', 'close ignored: already closed');
+      return;
+    }
+    if (emoteSheetCtrl.isAttached) {
+      if (emoteSheetCtrl.size <= 0.001) {
+        PerfLog.I.record('EmoteSheet', 'closing skipped: sheet already at 0');
+        if (isMounted()) {
+          emoteSheetOpen = false;
+          panelScaleCtrl.value = 1.0;
+          markDirty();
+        }
+        return;
+      }
+      final fraction = (emoteSheetCtrl.size / emoteMaxFraction).clamp(0.0, 1.0);
+      final duration = Duration(milliseconds: (80 + 180 * fraction).round());
+      PerfLog.I.record(
+        'EmoteSheet',
+        'closing from ${emoteSheetCtrl.size.toStringAsFixed(3)} '
+            '(${(fraction * 100).round()}%) over ${duration.inMilliseconds}ms',
+      );
+      unawaited(
+        emoteSheetCtrl
+            .animateTo(
+              0,
+              duration: duration,
+              curve: Curves.easeInOutCubicEmphasized,
+            )
+            .then((_) {
+              if (!isMounted()) return;
+              PerfLog.I.record(
+                'EmoteSheet',
+                'close animation ended at '
+                    '${emoteSheetPhysicalSize.toStringAsFixed(3)}'
+                    '${emoteSheetCtrl.isAttached ? '' : ' (detached)'}',
+              );
+              emoteSheetOpen = false;
+              panelScaleCtrl.value = 1.0;
+              markDirty();
+            }),
+      );
+    } else {
+      PerfLog.I.record('EmoteSheet', 'close without animation: no clients');
+      if (isMounted()) {
+        emoteSheetOpen = false;
+        panelScaleCtrl.value = 1.0;
+        markDirty();
+      }
+    }
+  }
+
+  void handlePanelBack() {
+    if (emoteSheetOpen) {
+      unawaited(closeEmoteSheet());
+    } else {
+      unawaited(closePanel());
+    }
+  }
+
+  List<TwitchMessage> computeThreadMessages({
+    required TwitchMessage? openThreadRoot,
+    required Map<String, List<TwitchMessage>> channelMessages,
+    required List<TwitchMessage>? Function(String channel, String rootId)
+        threadFor,
+  }) {
+    final entry = openThreadRoot;
+    if (entry == null) return const [];
+    final channel = entry.channel;
+    if (channel == null) return const [];
+    final allMsgs = channelMessages[channel] ?? [];
+
+    final entryKey = entry.replyThreadRootId ?? entry.messageId;
+    if (entryKey == null) return const [];
+
+    final parentOf = <String, String>{};
+    for (final m in allMsgs) {
+      if (m.replyToParentId != null && m.messageId != null) {
+        parentOf[m.messageId!] = m.replyToParentId!;
+      }
+    }
+
+    final resolvedKey = threadKeyFor(entry, parentOf);
+    if (resolvedKey == null) return const [];
+
+    // Prefer the incremental thread store: it survives scrollback trimming
+    // (pinned root, decayed replies) where a pure buffer scan comes up empty.
+    // Old-style parent-chain threads that were never tagged fall back to the
+    // scan below.
+    final threadMsgs =
+        threadFor(channel, resolvedKey) ??
+        allMsgs.where((m) => threadKeyFor(m, parentOf) == resolvedKey).toList();
+
+    threadMsgs.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    return threadMsgs;
+  }
+
+  TwitchMessage? findThreadRoot(
+    TwitchMessage msg, {
+    required Map<String, List<TwitchMessage>> channelMessages,
+  }) {
+    if (msg.replyThreadRootId != null) return msg;
+
+    final channel = msg.channel;
+    if (channel == null) return null;
+    final msgs = channelMessages[channel];
+    if (msgs == null) return null;
+
+    if (msg.messageId != null &&
+        msgs.any((m) => m.replyToParentId == msg.messageId)) {
+      return msg;
+    }
+
+    if (msg.replyToParentId == null) return null;
+
+    final visited = <String>{};
+    TwitchMessage current = msg;
+    while (current.replyToParentId != null &&
+        visited.add(current.replyToParentId!)) {
+      final parent =
+          msgs.where((m) => m.messageId == current.replyToParentId).firstOrNull;
+      if (parent == null) break;
+      current = parent;
+    }
+    return current;
   }
 }
