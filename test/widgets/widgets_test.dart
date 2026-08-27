@@ -3089,17 +3089,21 @@ void main() {
       );
       await tester.pump();
 
-      final tile = tester.widget<SwitchListTile>(
-        find.widgetWithText(SwitchListTile, 'Keep screen on'),
-      );
-      expect(tile.value, isTrue);
-
+      // The "Keep screen on" tile is the last item in the settings ListView and
+      // sits below the default test viewport, so it's offstage until scrolled
+      // into view. Bring it onstage before the first finder/tap.
       await tester.scrollUntilVisible(
         find.widgetWithText(SwitchListTile, 'Keep screen on'),
         200,
         scrollable: find.byType(Scrollable).first,
       );
       await tester.pumpAndSettle();
+
+      final tile = tester.widget<SwitchListTile>(
+        find.widgetWithText(SwitchListTile, 'Keep screen on'),
+      );
+      expect(tile.value, isTrue);
+
       await tester.tap(find.widgetWithText(SwitchListTile, 'Keep screen on'));
       await tester.pumpAndSettle();
 
