@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io' show Platform;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../third_party/flutter_list_view/flutter_list_view.dart';
@@ -1058,9 +1059,7 @@ class _HomeScreenState extends State<HomeScreen>
 
     final trailingSpace = wordBefore.end >= textBefore.length
         ? ' '
-        : (textBefore[wordBefore.end] == ' '
-            ? ''
-            : '');
+        : (textBefore[wordBefore.end] == ' ' ? '' : '');
 
     _lastAutoUndo = (
       start: wordBefore.start,
@@ -1068,11 +1067,7 @@ class _HomeScreenState extends State<HomeScreen>
       replacementText: replacement + trailingSpace,
     );
 
-    replaceCurrentWord(
-      _messageController,
-      replacement,
-      extendRight: false,
-    );
+    replaceCurrentWord(_messageController, replacement, extendRight: false);
 
     final replEnd =
         wordBefore.start + replacement.length + trailingSpace.length;
@@ -1234,7 +1229,9 @@ class _HomeScreenState extends State<HomeScreen>
         return;
       }
       _threadChannel = _openThreadRoot!.channel;
-      _threadMessages..clear()..addAll(_computeThreadMessages());
+      _threadMessages
+        ..clear()
+        ..addAll(_computeThreadMessages());
       _threadMsgCount.value++;
     } else if (_activePanel == OverlayPanel.mentions) {
       _mentionsMsgCount.value++;
@@ -2545,7 +2542,8 @@ class _HomeScreenState extends State<HomeScreen>
                   final keyboardH = MediaQuery.viewInsetsOf(context).bottom;
                   final hideChromeForKeyboard =
                       keyboardH > 0 &&
-                      constraints.maxHeight < _kKeyboardChromeCollapseBelowHeight;
+                      constraints.maxHeight <
+                          _kKeyboardChromeCollapseBelowHeight;
                   return Stack(
                     clipBehavior: Clip.hardEdge,
                     children: [
@@ -2794,6 +2792,9 @@ class _HomeScreenState extends State<HomeScreen>
                           onNewMessage: _chatStore.noteNewMessage,
                           onFindThreadRoot: _findThreadRoot,
                           onShowThreadView: _showThreadView,
+                          keyboardDismissBehavior: (!kIsWeb && Platform.isIOS)
+                              ? ScrollViewKeyboardDismissBehavior.onDrag
+                              : ScrollViewKeyboardDismissBehavior.manual,
                         ),
                       );
                     },

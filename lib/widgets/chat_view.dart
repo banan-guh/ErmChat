@@ -62,6 +62,7 @@ class ChatView extends StatefulWidget {
   final bool lineSeparator;
   final String sharedChatMode;
   final SevenTvPaintService? paintService;
+  final ScrollViewKeyboardDismissBehavior keyboardDismissBehavior;
 
   const ChatView({
     super.key,
@@ -90,6 +91,7 @@ class ChatView extends StatefulWidget {
     this.lineSeparator = false,
     this.sharedChatMode = 'spotlight',
     this.paintService,
+    this.keyboardDismissBehavior = ScrollViewKeyboardDismissBehavior.manual,
   });
 
   @override
@@ -180,6 +182,7 @@ class _ChatViewState extends State<ChatView> {
                     controller: widget.scrollController,
                     reverse: true,
                     physics: widget.physics,
+                    keyboardDismissBehavior: widget.keyboardDismissBehavior,
                     delegate: FlutterListViewDelegate(
                       (_, i) => _buildTile(
                         msgs,
@@ -223,7 +226,8 @@ class _ChatViewState extends State<ChatView> {
                     ? const SizedBox.shrink()
                     : FloatingActionButton(
                         key: const ValueKey('scroll_down'),
-                        heroTag: widget.scrollFabHeroTag ??
+                        heroTag:
+                            widget.scrollFabHeroTag ??
                             'scroll_down_${widget.channel}',
                         onPressed: () {
                           widget.atBottomNotifier.value = true;
@@ -292,8 +296,11 @@ class _ChatViewState extends State<ChatView> {
         timestampFormat: widget.timestampFormat,
         buildBadgeSpans: widget.messageBuilder.buildBadgeSpans,
         buildMessageSpans: widget.messageBuilder.buildMessageSpans,
-        onTapUser: (login, userId) =>
-            widget.onShowUserProfile(login, userId, displayName: msg.displayName),
+        onTapUser: (login, userId) => widget.onShowUserProfile(
+          login,
+          userId,
+          displayName: msg.displayName,
+        ),
         onLongPress: widget.onShowMessageMenu == null
             ? null
             : () => widget.onShowMessageMenu!(msg),
