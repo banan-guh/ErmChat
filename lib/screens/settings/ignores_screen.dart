@@ -62,10 +62,10 @@ class _IgnoresScreenState extends State<IgnoresScreen> {
       return Center(
         child: Text(
           keywords
-              ? 'Keyword rules rewrite matched text instead of deleting the '
-                    'message. Tap + to add one.'
-              : "Ignored users' messages are deleted outright, whispers "
-                    'included. Tap + to add one.',
+              ? 'Keyword rules rewrite specific text.'
+                    'Tap + to add one.'
+              : "Ignored users' messages / whispers are not shown."
+                    'Tap + to add one.',
           textAlign: TextAlign.center,
         ),
       );

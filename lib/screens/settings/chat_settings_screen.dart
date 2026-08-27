@@ -263,6 +263,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
               );
             },
           ),
+          const _MentionFormatTile(),
           ListTile(
             leading: const Icon(Icons.visibility_off),
             title: const Text('Ignores'),
@@ -405,6 +406,76 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
           ],
         ],
       ),
+    );
+  }
+}
+
+class _MentionFormatTile extends StatefulWidget {
+  const _MentionFormatTile();
+
+  @override
+  State<_MentionFormatTile> createState() => _MentionFormatTileState();
+}
+
+class _MentionFormatTileState extends State<_MentionFormatTile> {
+  static const formats = <String, String>{
+    '@name': '@name',
+    '@name,': '@name,',
+    'name': 'name',
+    'name,': 'name,',
+  };
+  String _format = '@name';
+
+  @override
+  void initState() {
+    super.initState();
+    SharedPreferences.getInstance().then((prefs) {
+      if (mounted) {
+        setState(() => _format = prefs.getString('mention_format') ?? '@name');
+      }
+    });
+  }
+
+  Future<void> _pick() async {
+    final selected = await showDialog<String>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: const Text('Mention format'),
+        children: [
+          RadioGroup<String>(
+            groupValue: _format,
+            onChanged: (v) {
+              if (v != null) Navigator.pop(ctx, v);
+            },
+            child: Column(
+              children: [
+                for (final entry in formats.entries)
+                  RadioListTile<String>(
+                    value: entry.key,
+                    title: Text(entry.value),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+    if (selected == null || selected == _format) return;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('mention_format', selected);
+    if (mounted) setState(() => _format = selected);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      leading: const Icon(Icons.text_format),
+      title: const Text('Mention format'),
+      subtitle: Text(
+        'How tapping "Mention user" inserts the name: ${formats[_format]}',
+      ),
+      trailing: const Icon(Icons.chevron_right),
+      onTap: _pick,
     );
   }
 }

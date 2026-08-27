@@ -13,16 +13,58 @@ class PingsScreen extends StatefulWidget {
 
 class _PingsScreenState extends State<PingsScreen> {
   PingManager get _manager => PingManager.instance;
+  bool _simpleMode = true;
+
+  @override
+  void initState() {
+    super.initState();
+    SharedPreferences.getInstance().then((prefs) {
+      if (mounted) {
+        setState(() => _simpleMode = prefs.getBool('ping_simple_mode') ?? true);
+      }
+    });
+  }
+
+  List<PingTab> get _visibleTabs =>
+      _simpleMode ? [PingTab.messages, PingTab.users] : PingTab.values.toList();
+
+  void _toggleMode() async {
+    final next = !_simpleMode;
+    setState(() => _simpleMode = next);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('ping_simple_mode', next);
+  }
 
   @override
   Widget build(BuildContext context) {
+    final visibleTabs = _visibleTabs;
     return DefaultTabController(
-      length: PingTab.values.length,
+      length: visibleTabs.length,
       child: Scaffold(
         appBar: AppBar(
           title: const Text('Pings'),
+          actions: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(_simpleMode ? 'Simple' : 'Advanced'),
+                  const SizedBox(width: 8),
+                  Switch(value: !_simpleMode, onChanged: (_) => _toggleMode()),
+                ],
+              ),
+            ),
+          ],
           bottom: TabBar(
-            tabs: [for (final t in PingTab.values) Tab(text: t.label)],
+            labelColor: Theme.of(context).colorScheme.primary,
+            unselectedLabelColor: Theme.of(
+              context,
+            ).colorScheme.onSurface.withValues(alpha: 0.55),
+            indicatorColor: Theme.of(context).colorScheme.primary,
+            labelStyle: const TextStyle(fontSize: 13),
+            labelPadding: const EdgeInsets.symmetric(horizontal: 8),
+            tabs: [for (final t in visibleTabs) Tab(text: t.label)],
           ),
         ),
         // The FAB needs the selected tab; look it up from a context INSIDE
@@ -31,8 +73,8 @@ class _PingsScreenState extends State<PingsScreen> {
         floatingActionButton: Builder(
           builder: (fabContext) => FloatingActionButton(
             onPressed: () {
-              final tab = PingTab
-                  .values[DefaultTabController.maybeOf(fabContext)?.index ?? 0];
+              final idx = DefaultTabController.maybeOf(fabContext)?.index ?? 0;
+              final tab = _visibleTabs[idx.clamp(0, _visibleTabs.length - 1)];
               final rule = switch (tab) {
                 PingTab.messages => const PingRule(
                   id: '',
@@ -64,23 +106,31 @@ class _PingsScreenState extends State<PingsScreen> {
               return const Center(child: CircularProgressIndicator());
             }
             return TabBarView(
-              children: [
-                _messagesList(),
-                _ruleList(PingRuleKind.user, emptyHint: 'No user highlights'),
-                _ruleList(PingRuleKind.badge, emptyHint: 'No badge highlights'),
-                _ruleList(
-                  PingRuleKind.blacklist,
-                  emptyHint:
-                      'Blacklisted users render normally but never ping. '
-                      'Tap + to add one.',
-                ),
-              ],
+              children: [for (final t in visibleTabs) _bodyFor(t)],
             );
           },
         ),
       ),
     );
   }
+
+  Widget _bodyFor(PingTab tab) => switch (tab) {
+    PingTab.messages => _messagesList(),
+    PingTab.users => _ruleList(
+      PingRuleKind.user,
+      emptyHint: 'No user highlights',
+    ),
+    PingTab.badges => _ruleList(
+      PingRuleKind.badge,
+      emptyHint: 'No badge highlights',
+    ),
+    PingTab.blacklist => _ruleList(
+      PingRuleKind.blacklist,
+      emptyHint:
+          'Blacklisted users render normally but never ping. '
+          'Tap + to add one.',
+    ),
+  };
 
   Widget _messagesList() {
     final rules = _manager.rules;
@@ -97,8 +147,6 @@ class _PingsScreenState extends State<PingsScreen> {
 
     return ListView(
       children: [
-        const _MentionFormatTile(),
-        const Divider(height: 24),
         for (final rule in builtins)
           _tile(
             rule,
@@ -149,18 +197,7 @@ class _PingsScreenState extends State<PingsScreen> {
     ];
     final isPreset =
         rule.id.startsWith('builtin_') || rule.id.startsWith('preset_badge_');
-    return ListTile(
-      leading: Container(
-        width: 20,
-        height: 20,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: rule.colorArgb == null ? null : Color(rule.colorArgb!),
-          border: Border.fromBorderSide(
-            BorderSide(color: Theme.of(context).colorScheme.outline),
-          ),
-        ),
-      ),
+    final tile = ListTile(
       title: Text(title),
       subtitle: subtitles.isEmpty
           ? null
@@ -171,11 +208,6 @@ class _PingsScreenState extends State<PingsScreen> {
           Switch(
             value: rule.enabled,
             onChanged: (v) => _update(rule.copyWith(enabled: v)),
-          ),
-          IconButton(
-            icon: const Icon(Icons.edit_outlined),
-            tooltip: 'Edit',
-            onPressed: () => _editRule(rule),
           ),
           if (!isPreset)
             IconButton(
@@ -190,6 +222,22 @@ class _PingsScreenState extends State<PingsScreen> {
       ),
       onTap: () => _editRule(rule),
     );
+    // Square accent bar flush to the left edge. Always 4px wide (transparent
+    // when no color) so the tile's content padding never shifts between
+    // colored and uncolored rows.
+    return Container(
+      decoration: BoxDecoration(
+        border: Border(
+          left: BorderSide(
+            color: rule.colorArgb == null
+                ? Colors.transparent
+                : Color(rule.colorArgb!),
+            width: 4,
+          ),
+        ),
+      ),
+      child: tile,
+    );
   }
 
   void _update(PingRule updated) {
@@ -203,6 +251,7 @@ class _PingsScreenState extends State<PingsScreen> {
     final canRegex =
         (rule.type == 'custom' && rule.kind == PingRuleKind.message) ||
         rule.kind == PingRuleKind.blacklist;
+    final effectiveCanRegex = canRegex && !_simpleMode;
     final canNotify =
         rule.type == 'username' ||
         rule.type == 'reply' ||
@@ -216,7 +265,8 @@ class _PingsScreenState extends State<PingsScreen> {
         rule: rule,
         isNew: isNew,
         editablePattern: editablePattern,
-        canRegex: canRegex,
+        canRegex: effectiveCanRegex,
+        simple: _simpleMode,
         canNotify: canNotify,
       ),
     );
@@ -224,9 +274,11 @@ class _PingsScreenState extends State<PingsScreen> {
 
     final updated = rule.copyWith(
       pattern: editablePattern ? result.pattern : null,
-      isRegex: canRegex ? result.isRegex : null,
-      caseSensitive: editablePattern ? result.caseSensitive : null,
-      wordBoundary: editablePattern ? result.wordBoundary : null,
+      isRegex: effectiveCanRegex ? result.isRegex : null,
+      caseSensitive: (!_simpleMode && editablePattern)
+          ? result.caseSensitive
+          : null,
+      wordBoundary: effectiveCanRegex ? result.wordBoundary : null,
       notify: canNotify ? result.notify : null,
       colorArgb: result.colorArgb,
       clearColor: result.colorArgb == null,
@@ -298,6 +350,7 @@ class _PingRuleSheet extends StatefulWidget {
     required this.isNew,
     required this.editablePattern,
     required this.canRegex,
+    required this.simple,
     required this.canNotify,
   });
 
@@ -305,6 +358,7 @@ class _PingRuleSheet extends StatefulWidget {
   final bool isNew;
   final bool editablePattern;
   final bool canRegex;
+  final bool simple;
   final bool canNotify;
 
   @override
@@ -334,6 +388,20 @@ class _PingRuleSheetState extends State<_PingRuleSheet> {
   late bool _wholeWord = widget.rule.wordBoundary;
   late bool _notify = widget.rule.notify;
   late int? _color = widget.rule.colorArgb;
+  late String _badgeId = widget.rule.pattern.isNotEmpty
+      ? widget.rule.pattern
+      : _badgeOptions.first;
+
+  static const _badgeOptions = <String>[
+    'broadcaster',
+    'moderator',
+    'vip',
+    'subscriber',
+    'staff',
+    'partner',
+    'founder',
+    'turbo',
+  ];
 
   @override
   void dispose() {
@@ -360,19 +428,34 @@ class _PingRuleSheetState extends State<_PingRuleSheet> {
           ),
           if (widget.editablePattern) ...[
             const SizedBox(height: 12),
-            TextField(
-              controller: _patternCtrl,
-              autofocus: widget.isNew,
-              decoration: InputDecoration(
-                labelText: switch (widget.rule.kind) {
-                  PingRuleKind.user => 'Username',
-                  PingRuleKind.badge => 'Badge set id (e.g. moderator)',
-                  PingRuleKind.blacklist => 'Username or regex',
-                  _ => 'Keyword',
-                },
-                hintText: widget.canRegex ? 'Plain text or regex' : null,
+            if (widget.rule.kind == PingRuleKind.badge)
+              DropdownButtonFormField<String>(
+                initialValue: _badgeId,
+                decoration: const InputDecoration(
+                  labelText: 'Badge',
+                  helperText: "Highlights messages carrying this badge",
+                ),
+                items: [
+                  if (!_badgeOptions.contains(_badgeId))
+                    DropdownMenuItem(value: _badgeId, child: Text(_badgeId)),
+                  for (final id in _badgeOptions)
+                    DropdownMenuItem(value: id, child: Text(id)),
+                ],
+                onChanged: (v) => setState(() => _badgeId = v ?? _badgeId),
+              )
+            else
+              TextField(
+                controller: _patternCtrl,
+                autofocus: widget.isNew,
+                decoration: InputDecoration(
+                  labelText: switch (widget.rule.kind) {
+                    PingRuleKind.user => 'Username',
+                    PingRuleKind.blacklist => 'Username or regex',
+                    _ => 'Keyword',
+                  },
+                  hintText: widget.canRegex ? 'Plain text or regex' : null,
+                ),
               ),
-            ),
             if (widget.canRegex)
               SwitchListTile(
                 dense: true,
@@ -380,12 +463,13 @@ class _PingRuleSheetState extends State<_PingRuleSheet> {
                 value: _isRegex,
                 onChanged: (v) => setState(() => _isRegex = v),
               ),
-            SwitchListTile(
-              dense: true,
-              title: const Text('Case sensitive'),
-              value: _caseSensitive,
-              onChanged: (v) => setState(() => _caseSensitive = v),
-            ),
+            if (!widget.simple)
+              SwitchListTile(
+                dense: true,
+                title: const Text('Case sensitive'),
+                value: _caseSensitive,
+                onChanged: (v) => setState(() => _caseSensitive = v),
+              ),
             if (widget.canRegex && widget.editablePattern)
               SwitchListTile(
                 dense: true,
@@ -447,7 +531,9 @@ class _PingRuleSheetState extends State<_PingRuleSheet> {
   }
 
   void _save() {
-    final pattern = _patternCtrl.text.trim();
+    final pattern = widget.rule.kind == PingRuleKind.badge
+        ? _badgeId
+        : _patternCtrl.text.trim();
     if (widget.isNew && widget.editablePattern && pattern.isEmpty) {
       Navigator.pop(context);
       return;
@@ -474,74 +560,4 @@ enum PingTab {
 
   final String label;
   const PingTab(this.label);
-}
-
-class _MentionFormatTile extends StatefulWidget {
-  const _MentionFormatTile();
-
-  @override
-  State<_MentionFormatTile> createState() => _MentionFormatTileState();
-}
-
-class _MentionFormatTileState extends State<_MentionFormatTile> {
-  static const formats = <String, String>{
-    '@name': '@name',
-    '@name,': '@name,',
-    'name': 'name',
-    'name,': 'name,',
-  };
-  String _format = '@name';
-
-  @override
-  void initState() {
-    super.initState();
-    SharedPreferences.getInstance().then((prefs) {
-      if (mounted) {
-        setState(() => _format = prefs.getString('mention_format') ?? '@name');
-      }
-    });
-  }
-
-  Future<void> _pick() async {
-    final selected = await showDialog<String>(
-      context: context,
-      builder: (ctx) => SimpleDialog(
-        title: const Text('Mention format'),
-        children: [
-          RadioGroup<String>(
-            groupValue: _format,
-            onChanged: (v) {
-              if (v != null) Navigator.pop(ctx, v);
-            },
-            child: Column(
-              children: [
-                for (final entry in formats.entries)
-                  RadioListTile<String>(
-                    value: entry.key,
-                    title: Text(entry.value),
-                  ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-    if (selected == null || selected == _format) return;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('mention_format', selected);
-    if (mounted) setState(() => _format = selected);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return ListTile(
-      leading: const Icon(Icons.text_format),
-      title: const Text('Mention format'),
-      subtitle: Text(
-        'How tapping "Mention user" inserts the name: ${formats[_format]}',
-      ),
-      trailing: const Icon(Icons.chevron_right),
-      onTap: _pick,
-    );
-  }
 }
