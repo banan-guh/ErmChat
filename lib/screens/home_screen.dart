@@ -270,6 +270,8 @@ class _HomeScreenState extends State<HomeScreen>
   // channels are derived from _chatStore.channelUserIds; the rest via Helix /users).
   final _emoteOwnerLogins = <String, String>{};
   bool _emoteOwnerLookupDone = false;
+  // Cached flattened emote list for autocomplete, rebuilt on emote set changes.
+  List<GenericEmote>? _cachedAutocompleteEmotes;
 
   // Broadcaster-only chat widgets (hype train / poll / prediction).
   final _hypeTrains = <String, HypeTrainEvent>{};
@@ -1040,7 +1042,7 @@ class _HomeScreenState extends State<HomeScreen>
       final isMention = word.text.startsWith('@');
       final emotes = isMention
           ? <GenericEmote>[]
-          : [
+          : _cachedAutocompleteEmotes ??= [
               ...?_emoteManager.byCode(channel)?.suggestions,
               // Subscriber emotes are global - usable in every channel, not
               // just the one they belong to.
@@ -1163,6 +1165,7 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   void _onEmotesChanged() {
+    _cachedAutocompleteEmotes = null;
     // Emote data changed: cached message spans are validated against
     // EmoteManager.version, so no O(total messages) clear is needed here.
     // Just bump the affected channels so visible tiles lazily recompute.
