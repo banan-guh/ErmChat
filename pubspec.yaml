@@ -55,7 +55,6 @@ dependencies:
   linkify: ^5.0.0
   image_picker: ^1.2.3
   flutter_tts: ^4.2.5
-  flutter_list_view: ^1.1.29
 dev_dependencies:
   flutter_test:
     sdk: flutter

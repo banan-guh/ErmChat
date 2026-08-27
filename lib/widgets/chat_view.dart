@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_list_view/flutter_list_view.dart';
+import '../third_party/flutter_list_view/flutter_list_view.dart';
 import '../models/twitch_message.dart';
 import '../services/seven_tv_paint_service.dart';
 import '../util/timestamp_formatter.dart';
