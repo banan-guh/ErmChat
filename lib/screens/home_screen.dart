@@ -2513,6 +2513,7 @@ class _HomeScreenState extends State<HomeScreen>
       if (_suggestionsNotifier.value.isNotEmpty) {
         _suggestionsNotifier.value = [];
       }
+      _cachedAutocompleteEmotes = null;
     }
 
     if (rebuild) {
