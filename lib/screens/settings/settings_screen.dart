@@ -29,6 +29,7 @@ class SettingsScreen extends StatelessWidget {
   final ValueChanged<bool>? onShowTimestampsChanged;
   final ValueChanged<String>? onTimestampFormatChanged;
   final ValueChanged<double>? onChatFontScaleChanged;
+  final ValueChanged<double>? onHighlightOpacityChanged;
   final ValueChanged<bool>? onAnimateGifsChanged;
   final ValueChanged<int>? onEmoteFpsCapChanged;
   final ValueChanged<bool>? onAdaptiveThrottleChanged;
@@ -72,6 +73,7 @@ class SettingsScreen extends StatelessWidget {
     this.onShowTimestampsChanged,
     this.onTimestampFormatChanged,
     this.onChatFontScaleChanged,
+    this.onHighlightOpacityChanged,
     this.onAnimateGifsChanged,
     this.onEmoteFpsCapChanged,
     this.onAdaptiveThrottleChanged,
@@ -132,6 +134,7 @@ class SettingsScreen extends StatelessWidget {
                   onTrueDarkChanged: onTrueDarkChanged,
                   onAccentColorChanged: onAccentColorChanged,
                   onChatFontScaleChanged: onChatFontScaleChanged,
+                  onHighlightOpacityChanged: onHighlightOpacityChanged,
                   onCheckeredMessagesChanged: onCheckeredMessagesChanged,
                   onLineSeparatorChanged: onLineSeparatorChanged,
                   onFastSnapChanged: onFastSnapChanged,

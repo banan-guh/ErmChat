@@ -415,13 +415,7 @@ void main() {
       );
       expect(state.rowColor(const Color(0xFF000000)), const Color(0xFFABCDEF));
       const plain = HighlightState(types: {HighlightType.firstMsg});
-      expect(
-        plain.rowColor(const Color(0xFFFFFFFF)),
-        Color.alphaBlend(
-          Colors.green.withValues(alpha: 0.2),
-          const Color(0xFFFFFFFF),
-        ),
-      );
+      expect(plain.rowColor(const Color(0xFFFFFFFF)), const Color(0xFF558B2F));
     });
   });
 }

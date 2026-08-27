@@ -58,6 +58,7 @@ class ChatView extends StatelessWidget {
   final String timestampFormat;
   final double chatFontScale;
   final bool checkeredMessages;
+  final double highlightOpacity;
   final bool lineSeparator;
   final String sharedChatMode;
   final SevenTvPaintService? paintService;
@@ -85,6 +86,7 @@ class ChatView extends StatelessWidget {
     this.timestampFormat = kDefaultTimestampFormat,
     this.chatFontScale = 1.0,
     this.checkeredMessages = false,
+    this.highlightOpacity = 1.0,
     this.lineSeparator = false,
     this.sharedChatMode = 'spotlight',
     this.paintService,
@@ -264,6 +266,7 @@ class ChatView extends StatelessWidget {
         buildMessageSpans: messageBuilder.buildMessageSpans,
         systemBodyBuilder: (msg, scale) => parseTextWithLinks(msg.text),
         checkeredMessages: checkeredMessages,
+        highlightOpacity: highlightOpacity,
         lineSeparator: lineSeparator,
         isAlternateBackground: parity,
         fadeDeleted: fadeDeleted,
@@ -292,6 +295,7 @@ class ChatView extends StatelessWidget {
             ? _buildReplyIndicator(context, msg)
             : null,
         checkeredMessages: checkeredMessages,
+        highlightOpacity: highlightOpacity,
         lineSeparator: lineSeparator,
         isAlternateBackground: parity,
         fadeDeleted: fadeDeleted,

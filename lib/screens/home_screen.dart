@@ -308,6 +308,7 @@ class _HomeScreenState extends State<HomeScreen>
   String _timestampFormat = kDefaultTimestampFormat;
   String _sharedChatMode = 'spotlight';
   double _chatFontSize = 14.0;
+  double _highlightOpacity = 1.0;
   bool _checkeredMessages = false;
   bool _lineSeparator = false;
   bool _fastSnap = true;
@@ -605,6 +606,14 @@ class _HomeScreenState extends State<HomeScreen>
   void _setCheckeredMessages(bool value) {
     if (_checkeredMessages == value) return;
     setState(() => _checkeredMessages = value);
+    for (final channel in List.of(_chatStore.channels)) {
+      _chatStore.touchChannel(channel);
+    }
+  }
+
+  void _setHighlightOpacity(double value) {
+    if (_highlightOpacity == value) return;
+    setState(() => _highlightOpacity = value);
     for (final channel in List.of(_chatStore.channels)) {
       _chatStore.touchChannel(channel);
     }
@@ -1549,6 +1558,7 @@ class _HomeScreenState extends State<HomeScreen>
       _timestampFormat =
           prefs.getString(kTimestampFormatPrefKey) ?? kDefaultTimestampFormat;
       _chatFontSize = prefs.getDouble('chat_font_size') ?? 14.0;
+      _highlightOpacity = prefs.getDouble('highlight_opacity') ?? 1.0;
       _checkeredMessages = prefs.getBool('checkered_messages') ?? false;
       _lineSeparator = prefs.getBool('line_separator') ?? false;
       _fastSnap = prefs.getBool('fast_channel_snap') ?? true;
@@ -2286,6 +2296,7 @@ class _HomeScreenState extends State<HomeScreen>
           onAlwaysAnimatePanelChanged: (value) =>
               EmoteUrlProvider.alwaysAnimatePanel = value,
           onCheckeredMessagesChanged: _setCheckeredMessages,
+          onHighlightOpacityChanged: _setHighlightOpacity,
           onLineSeparatorChanged: _setLineSeparator,
           onFastSnapChanged: _setFastSnap,
           onNamePaintsChanged: _setNamePaints,
@@ -3284,6 +3295,8 @@ class _HomeScreenState extends State<HomeScreen>
                                                     _chatFontSize / 14.0,
                                                 checkeredMessages:
                                                     _checkeredMessages,
+                                                highlightOpacity:
+                                                    _highlightOpacity,
                                                 lineSeparator: _lineSeparator,
                                                 sharedChatMode: _sharedChatMode,
                                                 paintService: _showNamePaints
@@ -3460,6 +3473,7 @@ class _HomeScreenState extends State<HomeScreen>
                           timestampFormat: _timestampFormat,
                           chatFontScale: _chatFontSize / 14.0,
                           checkeredMessages: _checkeredMessages,
+                          highlightOpacity: _highlightOpacity,
                           lineSeparator: _lineSeparator,
                           sharedChatMode: _sharedChatMode,
                           paintService: _showNamePaints
@@ -3541,6 +3555,7 @@ class _HomeScreenState extends State<HomeScreen>
                               timestampFormat: _timestampFormat,
                               chatFontScale: _chatFontSize / 14.0,
                               checkeredMessages: _checkeredMessages,
+                              highlightOpacity: _highlightOpacity,
                               lineSeparator: _lineSeparator,
                               sharedChatMode: _sharedChatMode,
                               physics: const ClampingScrollPhysics(),
@@ -3562,6 +3577,7 @@ class _HomeScreenState extends State<HomeScreen>
                               timestampFormat: _timestampFormat,
                               chatFontScale: _chatFontSize / 14.0,
                               checkeredMessages: _checkeredMessages,
+                              highlightOpacity: _highlightOpacity,
                               lineSeparator: _lineSeparator,
                               sharedChatMode: _sharedChatMode,
                               physics: const ClampingScrollPhysics(),

@@ -62,30 +62,29 @@ class HighlightState {
   }
 
   /// Row background for this highlight: the rule's custom color wins, else
-  /// the per-type default. Blends against [surface] so light/dark themes
-  /// both land on readable tints.
-  Color rowColor(Color surface) {
-    if (customColor != null) return customColor!;
+  /// the per-type default (dankchat's palette). Blends against [surface] so
+  /// light/dark themes both land on readable tints. [opacity] scales the
+  /// highlight's alpha (0 = invisible, 1 = fully opaque), driven by the
+  /// settings slider so it is no longer hard-coded.
+  Color rowColor(Color surface, {double opacity = 1.0}) {
+    opacity = opacity.clamp(0.0, 1.0);
     final isDark = surface.computeLuminance() < 0.5;
-    return switch (primary) {
-      HighlightType.username ||
-      HighlightType.reply ||
-      HighlightType.user ||
-      HighlightType.badge ||
-      HighlightType.custom =>
-        isDark ? const Color(0xFF773031) : const Color(0xFFEF9A9A),
-      HighlightType.redemption => Color.alphaBlend(
-        Colors.teal.withValues(alpha: 0.25),
-        surface,
-      ),
-      HighlightType.elevated => Color.alphaBlend(
-        Colors.amber.withValues(alpha: 0.30),
-        surface,
-      ),
-      HighlightType.firstMsg => Color.alphaBlend(
-        Colors.green.withValues(alpha: 0.2),
-        surface,
-      ),
-    };
+    final base =
+        customColor ??
+        switch (primary) {
+          HighlightType.username ||
+          HighlightType.reply ||
+          HighlightType.user ||
+          HighlightType.badge ||
+          HighlightType.custom =>
+            isDark ? const Color(0xFF8C3A3B) : const Color(0xFFCF5050),
+          HighlightType.redemption =>
+            isDark ? const Color(0xFF00606B) : const Color(0xFF458B93),
+          HighlightType.elevated =>
+            isDark ? const Color(0xFF6B5800) : const Color(0xFFB08D2A),
+          HighlightType.firstMsg =>
+            isDark ? const Color(0xFF3A6600) : const Color(0xFF558B2F),
+        };
+    return Color.alphaBlend(base.withValues(alpha: opacity), surface);
   }
 }

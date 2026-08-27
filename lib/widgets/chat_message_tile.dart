@@ -33,6 +33,10 @@ class ChatMessageTile extends StatefulWidget {
   final bool showTimestamp;
   final String timestampFormat;
   final bool checkeredMessages;
+
+  /// Global highlight opacity (0–1) from the settings slider; defaults to 1.0
+  /// so existing callers keep the fully-opaque look.
+  final double highlightOpacity;
   final bool lineSeparator;
   final bool isAlternateBackground;
   final String sharedChatMode;
@@ -61,6 +65,7 @@ class ChatMessageTile extends StatefulWidget {
     this.showTimestamp = true,
     this.timestampFormat = kDefaultTimestampFormat,
     this.checkeredMessages = false,
+    this.highlightOpacity = 1.0,
     this.lineSeparator = false,
     this.isAlternateBackground = false,
     this.fadeDeleted = true,
@@ -283,7 +288,7 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
     }
     final highlight = msg.highlight;
     if (highlight != null) {
-      rowColor = highlight.rowColor(rowColor);
+      rowColor = highlight.rowColor(rowColor, opacity: widget.highlightOpacity);
     }
     if (widget.checkeredMessages && widget.isAlternateBackground) {
       // Alternating row background: inverseSurface over the chat surface at

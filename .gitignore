@@ -38,3 +38,5 @@ CertificateSigningRequest.certSigningRequest
 distribution.cer
 distribution.pem
 /apple-certs
+Fastfile
+fastlane/README.md

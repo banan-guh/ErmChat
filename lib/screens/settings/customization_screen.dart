@@ -8,6 +8,7 @@ class CustomizationScreen extends StatefulWidget {
   final ValueChanged<bool>? onTrueDarkChanged;
   final ValueChanged<String>? onAccentColorChanged;
   final ValueChanged<double>? onChatFontScaleChanged;
+  final ValueChanged<double>? onHighlightOpacityChanged;
   final ValueChanged<bool>? onCheckeredMessagesChanged;
   final ValueChanged<bool>? onLineSeparatorChanged;
   final ValueChanged<bool>? onFastSnapChanged;
@@ -19,6 +20,7 @@ class CustomizationScreen extends StatefulWidget {
     this.onTrueDarkChanged,
     this.onAccentColorChanged,
     this.onChatFontScaleChanged,
+    this.onHighlightOpacityChanged,
     this.onCheckeredMessagesChanged,
     this.onLineSeparatorChanged,
     this.onFastSnapChanged,
@@ -34,6 +36,7 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
   bool _trueDark = false;
   String _accentKey = kDefaultAccent;
   double _chatFontSize = 14.0;
+  double _highlightOpacity = 1.0;
   bool _checkeredMessages = false;
   bool _lineSeparator = false;
   bool _fastSnap = true;
@@ -59,6 +62,7 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
         _trueDark = prefs.getBool('true_dark') ?? false;
         _accentKey = prefs.getString('accent_color') ?? kDefaultAccent;
         _chatFontSize = prefs.getDouble('chat_font_size') ?? 14.0;
+        _highlightOpacity = prefs.getDouble('highlight_opacity') ?? 1.0;
         _checkeredMessages = prefs.getBool('checkered_messages') ?? false;
         _lineSeparator = prefs.getBool('line_separator') ?? false;
         _fastSnap = prefs.getBool('fast_channel_snap') ?? true;
@@ -198,6 +202,36 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
                 onChangeEnd: (value) {
                   SharedPreferences.getInstance().then(
                     (prefs) => prefs.setDouble('chat_font_size', value),
+                  );
+                },
+              ),
+            ],
+          ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
+                child: Text(
+                  'Highlight opacity: ${(_highlightOpacity * 100).round()}%',
+                ),
+              ),
+              Slider(
+                value: _highlightOpacity,
+                min: 0,
+                max: 1,
+                divisions: 5,
+                label: '${(_highlightOpacity * 100).round()}%',
+                onChanged: (value) {
+                  setState(() => _highlightOpacity = value);
+                  widget.onHighlightOpacityChanged?.call(value);
+                },
+                onChangeEnd: (value) {
+                  SharedPreferences.getInstance().then(
+                    (prefs) => prefs.setDouble('highlight_opacity', value),
                   );
                 },
               ),
