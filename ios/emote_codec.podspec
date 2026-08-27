@@ -31,6 +31,8 @@ Pod::Spec.new do |s|
       '$(PODS_TARGET_SRCROOT)/../native',
       '$(PODS_TARGET_SRCROOT)/../third_party/libwebp/src',
     ].join(' '),
-    'GCC_PREPROCESSOR_DEFINITIONS' => '$(inherited) WEBP_USE_THREAD=1',
+    # No WEBP_USE_THREAD: libwebp is built single-threaded (matching Android),
+    # so the shim's threaded anim decoder can't deadlock from a Dart isolate.
+    'GCC_PREPROCESSOR_DEFINITIONS' => '$(inherited)',
   }
 end
