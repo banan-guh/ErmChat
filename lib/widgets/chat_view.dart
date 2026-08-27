@@ -118,7 +118,7 @@ class _ChatViewState extends State<ChatView> {
 
   @override
   Widget build(BuildContext context) {
-    final surface = Theme.of(context).colorScheme.surface;
+    final surface = Theme.of(context).scaffoldBackgroundColor;
     final s = widget.chatFontScale * _cachedSystemScale;
 
     return Stack(

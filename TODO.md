@@ -69,3 +69,4 @@
 
 - borders flicker white when tabbing in
 - size emote menu better
+- dedup spaces in reply string

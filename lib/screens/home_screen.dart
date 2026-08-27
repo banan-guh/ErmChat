@@ -311,6 +311,7 @@ class _HomeScreenState extends State<HomeScreen>
   double _chatFontSize = 14.0;
   double _highlightOpacity = 1.0;
   bool _checkeredMessages = false;
+  Color? _lastSurface;
   bool _lineSeparator = false;
   bool _fastSnap = true;
 
@@ -500,6 +501,16 @@ class _HomeScreenState extends State<HomeScreen>
     _chatConn.onMention = _onMentionNotification;
   }
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final surface = Theme.of(context).scaffoldBackgroundColor;
+    if (_lastSurface != surface) {
+      _lastSurface = surface;
+      _tileCache.clear();
+    }
+  }
+
   void _setBackgroundService(bool value) {
     if (_backgroundService == value) return;
     setState(() => _backgroundService = value);
@@ -579,6 +590,7 @@ class _HomeScreenState extends State<HomeScreen>
     if (_showTimestamps == value) return;
     setState(() => _showTimestamps = value);
     // Rendered tiles bake the timestamp setting in; re-render all channels.
+    _tileCache.clear();
     for (final channel in List.of(_chatStore.channels)) {
       _chatStore.touchChannel(channel);
     }
@@ -587,6 +599,7 @@ class _HomeScreenState extends State<HomeScreen>
   void _setTimestampFormat(String value) {
     if (_timestampFormat == value) return;
     setState(() => _timestampFormat = value);
+    _tileCache.clear();
     for (final channel in List.of(_chatStore.channels)) {
       _chatStore.touchChannel(channel);
     }
@@ -595,6 +608,7 @@ class _HomeScreenState extends State<HomeScreen>
   void _setSharedChatMode(String value) {
     if (_sharedChatMode == value) return;
     setState(() => _sharedChatMode = value);
+    _tileCache.clear();
     for (final channel in List.of(_chatStore.channels)) {
       _chatStore.touchChannel(channel);
     }
@@ -603,6 +617,7 @@ class _HomeScreenState extends State<HomeScreen>
   void _setChatFontScale(double value) {
     if (_chatFontSize == value) return;
     setState(() => _chatFontSize = value);
+    _tileCache.clear();
     for (final channel in List.of(_chatStore.channels)) {
       _chatStore.touchChannel(channel);
     }
@@ -611,6 +626,7 @@ class _HomeScreenState extends State<HomeScreen>
   void _setCheckeredMessages(bool value) {
     if (_checkeredMessages == value) return;
     setState(() => _checkeredMessages = value);
+    _tileCache.clear();
     for (final channel in List.of(_chatStore.channels)) {
       _chatStore.touchChannel(channel);
     }
@@ -619,6 +635,7 @@ class _HomeScreenState extends State<HomeScreen>
   void _setHighlightOpacity(double value) {
     if (_highlightOpacity == value) return;
     setState(() => _highlightOpacity = value);
+    _tileCache.clear();
     for (final channel in List.of(_chatStore.channels)) {
       _chatStore.touchChannel(channel);
     }
@@ -627,6 +644,7 @@ class _HomeScreenState extends State<HomeScreen>
   void _setLineSeparator(bool value) {
     if (_lineSeparator == value) return;
     setState(() => _lineSeparator = value);
+    _tileCache.clear();
     for (final channel in List.of(_chatStore.channels)) {
       _chatStore.touchChannel(channel);
     }
@@ -2727,21 +2745,24 @@ class _HomeScreenState extends State<HomeScreen>
             ratio: ratio,
             child: RepaintBoundary(
               child: Material(
-                color: Theme.of(context).colorScheme.surfaceContainerLow,
+                color: Theme.of(context).scaffoldBackgroundColor,
                 clipBehavior: Clip.hardEdge,
                 child: Column(
                   children: [
-                    _buildPanelDragHandle(
-                      ratio: ratio,
-                      maxSize: _fullHeightFraction,
-                      onClose: _closePanel,
-                      onSnap: () => _animateRatio(
-                        ratio,
-                        ratio.value,
-                        _fullHeightFraction,
-                        _sheetAnimDuration,
+                    ColoredBox(
+                      color: Theme.of(context).colorScheme.surfaceContainer,
+                      child: _buildPanelDragHandle(
+                        ratio: ratio,
+                        maxSize: _fullHeightFraction,
+                        onClose: _closePanel,
+                        onSnap: () => _animateRatio(
+                          ratio,
+                          ratio.value,
+                          _fullHeightFraction,
+                          _sheetAnimDuration,
+                        ),
+                        header: header,
                       ),
-                      header: header,
                     ),
                     Expanded(child: body),
                   ],
@@ -3794,7 +3815,7 @@ class _HomeScreenState extends State<HomeScreen>
                             final hasStatus =
                                 status != null && status.isNotEmpty;
                             return AnimatedSize(
-                              duration: const Duration(milliseconds: 200),
+                              duration: const Duration(milliseconds: 300),
                               curve: Curves.easeInOut,
                               alignment: Alignment.topCenter,
                               child: hasStatus
