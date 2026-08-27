@@ -168,15 +168,14 @@ class TabbedLayoutState extends State<TabbedLayout>
     _tabController = TabController(length: len, vsync: this, initialIndex: idx);
     // initialPage only applies when the controller first attaches; on a
     // controller swap the surviving scroll position keeps its old pixels, so
-    // the page must be forced to the selection once mounted.
+    // the page must be forced to the selection once mounted. Route it through
+    // _goTo (which sets _programmaticTarget) rather than a bare jumpToPage:
+    // that suppresses the focusOnHalfDrag flyover commits that would otherwise
+    // select a channel swept past mid-transition, and a mid-transition rebuild
+    // from history/connection state then can't re-commit a neighbor.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final pc = _pageController;
-      if (!mounted || pc == null || !pc.hasClients) return;
-      if (pc.page != null && pc.page != idx.toDouble()) {
-        pc.jumpToPage(idx);
-        _lastReportedIndex = idx;
-        _mirrorPageToStrip(idx.toDouble());
-      }
+      if (!mounted) return;
+      _goTo(idx);
     });
   }
 

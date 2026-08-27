@@ -4933,6 +4933,32 @@ void main() {
       expect(find.text('xqc', skipOffstage: false), findsOneWidget);
     });
 
+    testWidgets('adding a channel selects the newly added channel', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(const TwitchChatApp());
+      await tester.pump();
+
+      await joinChannel(tester, 'alpha');
+      await joinChannel(tester, 'beta');
+      await tester.pumpAndSettle();
+
+      final bar0 = tester.widget<TabBar>(find.byType(TabBar).first);
+      expect(bar0.controller!.length, 2);
+      expect(bar0.controller!.index, 1);
+
+      await joinChannel(tester, 'gamma');
+      await tester.pumpAndSettle();
+      await tester.pump();
+
+      final bar1 = tester.widget<TabBar>(find.byType(TabBar).first);
+      expect(bar1.controller!.length, 3);
+      // The new channel (gamma) is appended last and must be selected;
+      // a regression lands on its neighbor (beta, index 1) instead.
+      expect(bar1.controller!.index, 2);
+      expect(find.text('gamma', skipOffstage: false), findsOneWidget);
+    });
+
     testWidgets('channel bar disappears when last channel is removed', (
       WidgetTester tester,
     ) async {
