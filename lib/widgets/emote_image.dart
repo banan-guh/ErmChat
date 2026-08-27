@@ -125,14 +125,28 @@ bool webpIsAnimated(Uint8List bytes) {
 /// emote image provider's animated-WebP branch.
 Future<EmoteFrameData> decodeEmoteBytes(Uint8List bytes) => _decodeBytes(bytes);
 
+/// How long to wait for the native libwebp shim before falling back to the
+/// pure-Dart decoder. The native decode runs inside a spawned isolate and, on
+/// some platforms, can hang (threaded libwebp from a background isolate on
+/// iOS is a known deadlock vector). Without a bound, a stuck decode would
+/// permanently occupy a decode-gate permit and freeze every subsequent
+/// animated-WebP emote. The timeout makes the call throw, which releases the
+/// permit and routes the emote to the pure-Dart fallback instead.
+@visibleForTesting
+Duration nativeDecodeTimeout = const Duration(seconds: 8);
+
 /// Animated WebP via the native libwebp shim, falling back to the pure-Dart
-/// decoder when the library is missing or the decode fails.
+/// decoder when the library is missing, the decode fails, or it hangs.
 Future<EmoteFrameData> _decodeAnimatedWebp(Uint8List bytes) async {
   try {
-    final native = await NativeEmoteCodec.decodeWebp(bytes);
+    final native = await NativeEmoteCodec.decodeWebp(
+      bytes,
+    ).timeout(nativeDecodeTimeout);
     if (native != null) return native;
   } catch (_) {
-    // Fall through to the pure-Dart decoder.
+    // Fall through to the pure-Dart decoder. A hang is covered here too: the
+    // timeout turns the stuck native call into a throw, so we never leak a
+    // stuck decode-gate permit and the emote still renders via pure-Dart.
   }
   return _decodeWebp(bytes);
 }

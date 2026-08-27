@@ -80,7 +80,15 @@ class NativeEmoteCodec {
   static void reset() {
     _lib = null;
     _available = null;
+    debugDecodeWebpOverride = null;
   }
+
+  /// Test hook: when set, [decodeWebp] returns the result of this function
+  /// instead of invoking the native shim. Lets tests simulate a hanging or
+  /// failing native decode (the iOS freeze) without spawning an isolate.
+  @visibleForTesting
+  static Future<EmoteFrameData?> Function(Uint8List bytes)?
+  debugDecodeWebpOverride;
 
   static DynamicLibrary? _lib;
   static bool? _available;
@@ -120,6 +128,9 @@ class NativeEmoteCodec {
   /// decode fails (callers fall back to the pure-Dart decoder).
   static Future<EmoteFrameData?> decodeWebp(Uint8List bytes) async {
     if (!isAvailable) return null;
+    if (debugDecodeWebpOverride != null) {
+      return debugDecodeWebpOverride!(bytes);
+    }
     // Resolve the library path here and pass the string into the spawned
     // isolate (statics and DynamicLibrary handles don't transfer). The
     // isolate returns raw frames; ui.Image creation happens back on the main
