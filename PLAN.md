@@ -74,3 +74,100 @@ for Yh Zm", notification titles, loading/error messages) = ~300-400 unique strin
 launches with each locale set; runtime language switch via Settings applies without
 restart; services render translated system messages; chat content and Twitch
 `system-msg` remain untranslated.
+
+# Performance: medium-tier backlog
+
+Carried over from the full audit. Each is practical, self-contained, and worth doing
+when touching the file anyway.
+
+## P1. PaintedUsernameText rebuild scope (painted_username_text.dart)
+
+The `ListenableBuilder` listening to `SevenTvPaintService` rebuilds every visible
+username when any paint resolves. Fix: compare `service.lookup(userId)` against the
+previous paint before rebuilding; short-circuit when unchanged.
+
+## P2. InlineEmoteView theme lookup (inline_emote_view.dart:209)
+
+`Theme.of(context).colorScheme.surfaceContainerHighest` is resolved per emote in
+every chat tile (hundreds of InheritedWidget walks per build). Fix: pass the
+highlight color down from the parent tile as a constructor parameter.
+
+## P3. Stacked Opacity compositing (chat_message_tile.dart:246-261)
+
+Up to three independent `Opacity` widgets stack for deleted + backfill + shared-chat
+fading, each allocating an offscreen buffer. Fix: compute a single combined alpha
+and apply once.
+
+## P4. Action message span allocation (message_builder.dart:49-68)
+
+Every `/me` message allocates a fresh `TextSpan` list via `.map().toList()` to
+re-color non-link spans. Fix: cache the colored variant alongside the base spans
+when the version matches.
+
+## P5. Emote menu recent-emotes debounce (emote_menu_panel.dart:85-89)
+
+Every `EmoteManager` notification (7TV live deltas) triggers an async DB query
+for recent emotes. Fix: debounce `_loadRecentEmotes` to coalesce rapid-fire
+notifications.
+
+## P6. ChatView idToIndex rebuild (chat_view.dart:159-168)
+
+Inside the `ValueListenableBuilder` (fires on every new message), a
+`Map<String, int>` is rebuilt by scanning the full message list against pending
+tile-cache keys — O(n*m). Fix: maintain incrementally on add/remove.
+
+## P7. SevenTvEventClient dispose order (seven_tv_event_client.dart:667-682)
+
+`dispose()` nulls `_channel`, `_heartbeatTimer`, etc. before calling
+`_disconnect()`, so the disconnect path can't cancel the still-live
+subscriptions/timers. Fix: call `_disconnect()` first, then null remaining fields.
+Also track the reconnect timer in a field and cancel it on dispose.
+
+## P8. SevenTvEventClient reconnect timer tracking (seven_tv_event_client.dart:602-607)
+
+The reconnect `Timer(delay, ...)` is fire-and-forget. If `dispose()` runs during
+backoff, the timer leaks until it fires. Fix: store the timer in a field and
+cancel in `_disconnect()`/`dispose()`.
+
+## P9. NativeEmoteCodec sequential frame decode (native_emote_codec.dart:155-161)
+
+`ui.decodeImageFromPixels` is awaited sequentially per frame. Fix: fire all
+`decodeImageFromPixels` concurrently and collect results.
+
+## P10. EmoteManager _removeFromSuggestions O(n) (emote_manager.dart:1326-1444)
+
+Each 7TV delta (add/rename/remove) calls `_removeFromSuggestions` which does a
+linear `indexWhere` scan. For batch deltas this is quadratic. Fix: rebuild the
+suggestions list once at the end of `updateSevenTvEmotes` instead of
+inserting/removing per operation.
+
+## P11. EmoteManager _isEmoteUsedElsewhere scan (emote_manager.dart:1446-1451)
+
+Per removed emote, scans every channel's `byCode.values` linearly —
+O(removed * channels * avg_emotes). Fix: maintain a `_globalIdUsageCount:
+Map<String, int>` reference counter (increment on add, decrement on remove) for
+O(1) lookups.
+
+## P12. ChatStore truncation passes (chat_store.dart:591-681)
+
+`truncateChannel` does 5 passes over the full message list: parentOf, thread
+grouping, active-thread identification, keep-indices, retained-list. Fix: collapse
+phases 1+2+3 into a single pass.
+
+## P13. NotificationService sequential show (notification_service.dart:139-141)
+
+Each mention notification `await`s the platform `show()` call, serializing rapid
+pings. Fix: fire `show()` without await; debounce `_updateSummary()`. Also cap
+`_summaryOrder` at ~50 entries and clear `_idsByChannel` on channel-less clear-all.
+
+## P14. EmoteMetaStore migrateFromPrefs batch (emote_meta_store.dart:71-92)
+
+Migration calls `prefs.getString(key)` and `prefs.remove(key)` in a loop — each a
+separate platform channel call. Fix: batch with `prefs.getStringList` or collect all
+keys first, then batch-remove.
+
+## P15. suggestion.dart emote list flatten (home_screen.dart:1042-1049)
+
+`_cachedAutocompleteEmotes` is invalidated on every `_onEmotesChanged` but the
+flatten itself (`expand((e) => e)`) still creates a new list when the cache is
+missed. Fix: cache the flattened list across channels, not just per invalidation.

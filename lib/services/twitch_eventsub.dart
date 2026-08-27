@@ -192,16 +192,12 @@ class EventSubService {
   }
 
   String? _channelFromPayload(Map<String, dynamic> msg) {
-    try {
-      final payload = msg['payload'] as Map<String, dynamic>;
-      final sub = payload['subscription'] as Map<String, dynamic>;
-      final condition = sub['condition'] as Map<String, dynamic>;
-      final userId = condition['broadcaster_user_id'] as String;
-      return _channelUserIds[userId];
-    } catch (_) {
-      logDebug('[EventSub] failed to extract channel from payload');
-      return null;
-    }
+    final payload = msg['payload'] as Map<String, dynamic>?;
+    final sub = payload?['subscription'] as Map<String, dynamic>?;
+    final condition = sub?['condition'] as Map<String, dynamic>?;
+    final userId = condition?['broadcaster_user_id'] as String?;
+    if (userId == null) return null;
+    return _channelUserIds[userId];
   }
 
   @visibleForTesting

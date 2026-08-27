@@ -97,10 +97,12 @@ List<Suggestion> filterSuggestions({
   // user.
   final emoteScored = <(Suggestion, int)>[];
   final matchedIds = <String>{};
+  final lowerWord = word.toLowerCase();
   for (final emote in emotes) {
     final score = _scoreEmote(
       emote.code,
       word,
+      lowerWord,
       recentEmoteIds.contains(emote.id),
     );
     if (score == _noMatch) continue;
@@ -110,7 +112,7 @@ List<Suggestion> filterSuggestions({
   }
   final userScored = <(Suggestion, int)>[];
   for (final user in users) {
-    final score = _scoreEmote(user, word, false);
+    final score = _scoreEmote(user, word, lowerWord, false);
     if (score == _noMatch) continue;
     userScored.add((
       UserSuggestion(displayName: user),
@@ -161,8 +163,8 @@ const _maxSuggestions = 100;
 // An exact-case match gets a flat -10; recently used emotes get a -50 boost.
 // Lower is better. Ported from dankchat's SuggestionProvider, which credits
 // Chatterino2's SmartEmoteStrategy by Mm2PL (chatterino2#4987).
-int _scoreEmote(String code, String query, bool isRecentlyUsed) {
-  final matchIndex = code.toLowerCase().indexOf(query.toLowerCase());
+int _scoreEmote(String code, String query, String lowerQuery, bool isRecentlyUsed) {
+  final matchIndex = code.toLowerCase().indexOf(lowerQuery);
   if (matchIndex < 0) return _noMatch;
 
   var caseDiffs = 0;

@@ -220,6 +220,7 @@ class EmoteManager extends ChangeNotifier {
   bool _usageDirty = false;
   bool _migrationRan = false;
   bool _migrationRanV2 = false;
+  bool _disposed = false;
 
   final Future<List<ConnectivityResult>> Function()? _connectivityProbe;
   final Duration _fetchStagger;
@@ -330,6 +331,7 @@ class EmoteManager extends ChangeNotifier {
   // deltas skip it so already-rendered messages keep the emote state they
   // were built with (no retroactive re-rendering); full refetches bump it.
   void _notify({String? channel, bool bumpVersion = true}) {
+    if (_disposed) return;
     if (bumpVersion) _version++;
     _emoteIndexDirty = true;
     _changedChannel = channel;
@@ -1926,7 +1928,9 @@ class EmoteManager extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
     _usageFlushTimer?.cancel();
+    _precacheQueue.clear();
     super.dispose();
   }
 

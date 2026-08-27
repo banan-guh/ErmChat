@@ -547,9 +547,10 @@ class SevenTvPaintService extends ChangeNotifier {
   }
 
   Future<void> _loadImage(SevenTvPaintImage variant) async {
+    ui.Codec? codec;
     try {
       final bytes = await _fetchBytes(Uri.parse(variant.url));
-      final codec = await ui.instantiateImageCodec(bytes);
+      codec = await ui.instantiateImageCodec(bytes);
       final frame = await codec.getNextFrame();
       _images[variant.url] = frame.image;
       if (_enabled) notifyListeners();
@@ -557,6 +558,7 @@ class SevenTvPaintService extends ChangeNotifier {
       logDebug('7TV paint image failed: ${variant.url}: $e');
       _images[variant.url] = null;
     } finally {
+      codec?.dispose();
       _imageInflight.remove(variant.url);
     }
   }

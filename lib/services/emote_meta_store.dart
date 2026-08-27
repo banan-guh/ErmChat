@@ -109,7 +109,7 @@ class EmoteMetaStore {
       final dir = await _resolveDir();
       final file = dir == null ? null : _fileFor(key, dir);
       if (file != null) {
-        await file.writeAsString(contents, flush: true);
+        await file.writeAsString(contents);
         return;
       }
     } catch (_) {}
