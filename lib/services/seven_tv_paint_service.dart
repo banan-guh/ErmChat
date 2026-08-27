@@ -193,6 +193,44 @@ class SevenTvPaintService extends ChangeNotifier {
       );
     }
     notifyListeners();
+    _refreshAllUserNotifiers();
+  }
+
+  /// Per-user notifiers so [PaintedUsernameText] subscribes narrowly instead of
+  /// to the whole service (which fires on every catalog/image/entitlement
+  /// change). Keyed by Twitch user id; created on first lookup and dropped when
+  /// it loses its only listener.
+  ValueNotifier<SevenTvPaint?> lookupNotifier(String? userId) {
+    if (userId == null || userId.isEmpty) {
+      return ValueNotifier<SevenTvPaint?>(null);
+    }
+    final existing = _userNotifiers[userId];
+    if (existing != null) {
+      lookup(userId);
+      return existing;
+    }
+    final notifier = ValueNotifier<SevenTvPaint?>(lookup(userId));
+    _userNotifiers[userId] = notifier;
+    return notifier;
+  }
+
+  void _refreshUserNotifier(String userId) {
+    final notifier = _userNotifiers[userId];
+    if (notifier == null) return;
+    if (!notifier.hasListeners) {
+      _userNotifiers.remove(userId);
+      return;
+    }
+    SevenTvPaint? paint;
+    final assignment = _assignments[userId];
+    if (assignment != null) paint = _paintsById[assignment.paintId];
+    notifier.value = paint;
+  }
+
+  void _refreshAllUserNotifiers() {
+    for (final userId in List.of(_userNotifiers.keys)) {
+      _refreshUserNotifier(userId);
+    }
   }
 
   final _paintsById = <String, SevenTvPaint>{};
@@ -205,6 +243,8 @@ class SevenTvPaintService extends ChangeNotifier {
   final _pendingUsers = <String>{};
   Timer? _flushTimer;
   bool _resolvingBatch = false;
+
+  final _userNotifiers = <String, ValueNotifier<SevenTvPaint?>>{};
 
   final _images = <String, ui.Image?>{};
   final _imageInflight = <String>{};
@@ -253,6 +293,7 @@ class SevenTvPaintService extends ChangeNotifier {
       if (event.kind == 'entitlement.create') {
         for (final userId in event.twitchUserIds) {
           _assignments[userId] = (paintId: event.cosmeticId, at: _now());
+          _refreshUserNotifier(userId);
           changed = true;
         }
       } else if (event.kind == 'entitlement.delete') {
@@ -260,6 +301,7 @@ class SevenTvPaintService extends ChangeNotifier {
           final existing = _assignments[userId];
           if (existing != null && existing.paintId == event.cosmeticId) {
             _assignments.remove(userId);
+            _refreshUserNotifier(userId);
             changed = true;
           }
         }
@@ -290,6 +332,7 @@ class SevenTvPaintService extends ChangeNotifier {
       }
       _paintsById.addAll(parsed);
       notifyListeners();
+      _refreshAllUserNotifiers();
     } catch (e) {
       logDebug('7TV paint catalog fetch failed: $e');
       _catalogFuture = null;
@@ -385,6 +428,7 @@ class SevenTvPaintService extends ChangeNotifier {
           unawaited(_ensurePaint(paintId));
           changed = true;
         }
+        _refreshUserNotifier(entry.value);
       }
       if (changed) notifyListeners();
     } finally {
@@ -415,6 +459,11 @@ class SevenTvPaintService extends ChangeNotifier {
         final paint = _parsePaint(item);
         if (paint != null) {
           _paintsById[paint.id] = paint;
+          for (final userId in List.of(_userNotifiers.keys)) {
+            if (_assignments[userId]?.paintId == paint.id) {
+              _refreshUserNotifier(userId);
+            }
+          }
           if (_enabled) notifyListeners();
         }
       }

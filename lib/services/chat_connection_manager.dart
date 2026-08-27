@@ -77,7 +77,6 @@ enum ChatPhase { connecting, reconnecting, online }
 class ChatViewBridge {
   ChatViewBridge({
     required this.mentionsChannel,
-    required this.onRebuild,
     required this.onSystemMessage,
     required this.getSelectedChannel,
     required this.getMaxMessagesPerChannel,
@@ -85,9 +84,8 @@ class ChatViewBridge {
   });
 
   final String mentionsChannel;
-  final VoidCallback onRebuild;
   final void Function(String, String, {Color? accent, String? messageId})
-  onSystemMessage;
+      onSystemMessage;
   final String? Function() getSelectedChannel;
   final int Function() getMaxMessagesPerChannel;
   final void Function(String channel, JoinProgress? info)? onJoinProgress;
@@ -163,9 +161,12 @@ class ChatConnectionManager {
   final Map<String, String> channelUserIds;
   final Map<String, String> lastSentWireText;
   final String mentionsChannel;
-  final VoidCallback onRebuild;
+  /// Bumped on connection-phase / channel-ready / reply-clear changes so the
+  /// composer can rebuild without forcing a full HomeScreen setState.
+  final ValueNotifier<int> connectionStateNotifier = ValueNotifier(0);
+
   final void Function(String, String, {Color? accent, String? messageId})
-  onSystemMessage;
+      onSystemMessage;
   void Function(String channel, TwitchMessage msg)? onMention;
   void Function(TwitchMessage msg)? onWhisper;
   final Future<void> Function(String?, List<String>)? onUserEmoteSets;
@@ -305,7 +306,7 @@ class ChatConnectionManager {
     userStore: userStore,
     store: store,
     onSystemMessage: onSystemMessage,
-    onRebuild: onRebuild,
+    connectionStateNotifier: connectionStateNotifier,
     onUserEmoteSets: onUserEmoteSets,
     ensureCurrentUser: _ensureCurrentUser,
   );
@@ -346,7 +347,6 @@ class ChatConnectionManager {
       channelUserIds = config.store.channelUserIds,
       lastSentWireText = config.store.lastSentWireText,
       mentionsChannel = config.bridge.mentionsChannel,
-      onRebuild = config.bridge.onRebuild,
       onSystemMessage = config.bridge.onSystemMessage,
       onUserEmoteSets = config.sinks.onUserEmoteSets,
       onReconnected = config.sinks.onReconnected,
@@ -587,7 +587,7 @@ class ChatConnectionManager {
 
     if (isDisposed) return;
     setReplyToMsg(null);
-    onRebuild();
+    connectionStateNotifier.value++;
     store.requestComposerFocus();
 
     final userLogin = session.login;
@@ -799,7 +799,7 @@ class ChatConnectionManager {
       ircStatusSub?.cancel();
       ircStatusSub = irc.onStatus.listen((status) async {
         if (isDisposed) return;
-        onRebuild();
+        connectionStateNotifier.value++;
         if (status == IrcConnectionStatus.connected && irc.isConnected) {
           _everConnected = true;
           // Edge-triggered: subscribeAll once per connect with 30s throttle.
@@ -865,12 +865,12 @@ class ChatConnectionManager {
           for (final channel in channels) {
             onSystemMessage(channel, 'Reconnected');
           }
-          onRebuild();
+          connectionStateNotifier.value++;
         } else if (status == IrcConnectionStatus.disconnected &&
             !_wasReadDisconnected) {
           _wasReadDisconnected = true;
           _readJoinedChannels.clear();
-          onRebuild();
+          connectionStateNotifier.value++;
           for (final channel in channels) {
             onSystemMessage(channel, 'Chat reconnecting...');
           }
@@ -886,7 +886,7 @@ class ChatConnectionManager {
             .then((_) {
               if (!isDisposed && !_readEverConnected) {
                 _readEverConnected = true;
-                onRebuild();
+    connectionStateNotifier.value++;
               }
             })
             .catchError((_) {}),
@@ -1272,7 +1272,7 @@ class ChatConnectionManager {
           // announcing here would lie while the read side still lags.
           if (isChannelChatReady(event.channel)) {
             _announceConnected(event.channel);
-            onRebuild();
+            connectionStateNotifier.value++;
           }
         }
       }
@@ -1296,7 +1296,7 @@ class ChatConnectionManager {
         // usable now - retire the countdown and announce.
         _clearJoinWait(event.channel);
         _announceConnected(event.channel);
-        onRebuild();
+        connectionStateNotifier.value++;
       }
     });
 

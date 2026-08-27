@@ -4,6 +4,7 @@ import 'dart:convert';
 
 import 'dart:ui' show Color;
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import '../util/constants.dart';
@@ -40,7 +41,7 @@ class ChatChannelSetup {
     required this.userStore,
     required this.store,
     required this.onSystemMessage,
-    required this.onRebuild,
+    required this.connectionStateNotifier,
     this.onUserEmoteSets,
     required this.ensureCurrentUser,
   });
@@ -63,7 +64,7 @@ class ChatChannelSetup {
     String? messageId,
   })
   onSystemMessage;
-  final void Function() onRebuild;
+  final ValueNotifier<int> connectionStateNotifier;
   final Future<void> Function(String?, List<String>)? onUserEmoteSets;
 
   /// Current-user lookup shared with the manager's connect path; the single
@@ -95,17 +96,18 @@ class ChatChannelSetup {
   // Helix fetch is kept separately so ROOMSTATE recomposes don't lose it.
   final _roomStateTags = <String, Map<String, String>>{};
   final _streamStatusParts = <String, List<String>>{};
-  final _chatStatusTimers = <String, Timer>{};
+  Timer? _chatStatusTimer;
+  final _chatStatusChannels = <String>{};
+  static const _chatStatusInterval = Duration(seconds: 60);
   // Channels a join-failure notice was displayed for. A later ROOMSTATE
   // confirmation clears the entry and announces the (late) success.
   final _joinFailureNotified = <String>{};
 
   void dispose() {
     _disposed = true;
-    for (final t in _chatStatusTimers.values) {
-      t.cancel();
-    }
-    _chatStatusTimers.clear();
+    _chatStatusTimer?.cancel();
+    _chatStatusTimer = null;
+    _chatStatusChannels.clear();
     // Release any anonymous channel-user-ID waiters so their timeout timers
     // don't outlive the manager (and don't trip widget-test teardown).
     for (final waiters in _roomIdWaiters.values) {
@@ -177,7 +179,32 @@ class ChatChannelSetup {
       logDebug('[ChatConn] fetchChatStatus failed for $channel: $e');
       return;
     }
+    _applyStreamStatus(channel, stream);
+  }
 
+  Future<void> fetchAllChatStatus() async {
+    final auth = twitchAuth;
+    if (!auth.isConfigured) return;
+    final ids = <String>[];
+    for (final channel in _chatStatusChannels) {
+      final userId = store.channelUserIds[channel];
+      if (userId != null) ids.add(userId);
+    }
+    if (ids.isEmpty) return;
+    Map<String, Map<String, dynamic>> streams;
+    try {
+      streams = await twitchApi.getStreams(auth, ids);
+    } catch (e) {
+      logDebug('[ChatConn] fetchAllChatStatus failed: $e');
+      return;
+    }
+    for (final channel in _chatStatusChannels) {
+      final userId = store.channelUserIds[channel];
+      _applyStreamStatus(channel, userId != null ? streams[userId] : null);
+    }
+  }
+
+  void _applyStreamStatus(String channel, Map<String, dynamic>? stream) {
     final parts = <String>[];
     if (stream != null && stream['type'] == 'live') {
       final viewers = stream['viewer_count'] ?? 0;
@@ -223,7 +250,11 @@ class ChatChannelSetup {
   }
 
   void stopChatStatusTimer(String channel) {
-    _chatStatusTimers.remove(channel)?.cancel();
+    _chatStatusChannels.remove(channel);
+    if (_chatStatusChannels.isEmpty) {
+      _chatStatusTimer?.cancel();
+      _chatStatusTimer = null;
+    }
     _roomStateTags.remove(channel);
     _streamStatusParts.remove(channel);
   }
@@ -283,12 +314,16 @@ class ChatChannelSetup {
     } catch (_) {
       logDebug('[ChatConn] subscribeChannel failed for $channelName');
     }
-    onRebuild();
+    connectionStateNotifier.value++;
     fetchChatStatus(channelName);
-    _chatStatusTimers[channelName]?.cancel();
-    _chatStatusTimers[channelName] = Timer.periodic(
-      const Duration(seconds: 60),
-      (_) => fetchChatStatus(channelName),
+    _chatStatusChannels.add(channelName);
+    _startChatStatusTimer();
+  }
+
+  void _startChatStatusTimer() {
+    _chatStatusTimer ??= Timer.periodic(
+      _chatStatusInterval,
+      (_) => fetchAllChatStatus(),
     );
   }
 

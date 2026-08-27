@@ -402,7 +402,6 @@ ChatConnectionManager _makeConn({
       ),
       bridge: ChatViewBridge(
         mentionsChannel: '@mentions',
-        onRebuild: () {},
         onSystemMessage: (c, t, {Color? accent, String? messageId}) {},
         getSelectedChannel: () => null,
         getMaxMessagesPerChannel: () => maxMessages,
@@ -470,7 +469,6 @@ ChatConnectionManager _makeReconnectConn({
       store: effectiveStore,
       bridge: ChatViewBridge(
         mentionsChannel: '@mentions',
-        onRebuild: () {},
         onSystemMessage:
             onSystemMessage ?? (c, t, {Color? accent, String? messageId}) {},
         getSelectedChannel: () => null,

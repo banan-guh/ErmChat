@@ -436,6 +436,29 @@ class FlutterListViewElement extends RenderObjectElement {
     }
   }
 
+  double get _preferItemHeight {
+    if (widget.delegate is FlutterListViewDelegate) {
+      return (widget.delegate as FlutterListViewDelegate).preferItemHeight;
+    }
+    return 50.0;
+  }
+
+  /// Removes cached heights for items no longer in the list, keeping the map
+  /// bounded. Only does real work once the map grows past 2x the visible
+  /// count, so steady-state message flow stays O(1).
+  void _evictStaleHeights() {
+    final cap = childCount * 2;
+    if (_itemHeights.length <= cap) return;
+    final valid = <String>{};
+    for (var i = 0; i < childCount; i++) {
+      valid.add(getKeyByItemIndex(i));
+    }
+    final stale = _itemHeights.keys.where((k) => !valid.contains(k)).toList();
+    for (final key in stale) {
+      _itemHeights.remove(key);
+    }
+  }
+
   String getKeyByItemIndex(int index) {
     if (widget.delegate is FlutterListViewDelegate) {
       var flutterListDelegate = widget.delegate as FlutterListViewDelegate;
@@ -448,16 +471,6 @@ class FlutterListViewElement extends RenderObjectElement {
 
   /// 只有当total count发生变化或第一次时，会调用
   void calcTotalItemHeight() {
-    // To enhance performance when childcount more than 1 milloion
-    // Because it will loop 1 milloion times
-    // double height = 0;
-    // for (var i = 0; i < childCount; i++) {
-    //   height += getItemHeight(getKeyByItemIndex(i), i);
-    // }
-    // _totalItemHeight = height;
-
-    // 以下是重写该方法
-    var hasCalced = false;
     if (widget.delegate is FlutterListViewDelegate) {
       var flutterListDelegate = widget.delegate as FlutterListViewDelegate;
       if (flutterListDelegate.onItemKey != null ||
@@ -467,28 +480,23 @@ class FlutterListViewElement extends RenderObjectElement {
           height += getItemHeight(getKeyByItemIndex(i), i);
         }
         _totalItemHeight = height;
-        hasCalced = true;
+        _evictStaleHeights();
+        return;
       }
     }
 
-    if (hasCalced == false) {
-      double height = 0;
-      int calcItemCount = 0;
-      for (var index in _itemHeights.keys) {
-        if (int.parse(index) < childCount) {
-          height += _itemHeights[index]!;
-          calcItemCount++;
-        }
+    double height = 0;
+    int calcItemCount = 0;
+    for (var index in _itemHeights.keys) {
+      if (int.parse(index) < childCount) {
+        height += _itemHeights[index]!;
+        calcItemCount++;
       }
-      var itemHeight = 50.0;
-      if (widget.delegate is FlutterListViewDelegate) {
-        var flutterListDelegate = widget.delegate as FlutterListViewDelegate;
-        itemHeight = flutterListDelegate.preferItemHeight;
-      }
-
-      height += ((childCount - calcItemCount) * itemHeight);
-      _totalItemHeight = height;
     }
+    var itemHeight = _preferItemHeight;
+    height += ((childCount - calcItemCount) * itemHeight);
+    _totalItemHeight = height;
+    _evictStaleHeights();
   }
 
   double getScrollOffsetByIndex(int index) {

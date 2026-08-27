@@ -173,6 +173,35 @@ class TwitchApi {
     }
   }
 
+  Future<Map<String, Map<String, dynamic>>> getStreams(
+    TwitchAuth auth,
+    List<String> broadcasterIds,
+  ) async {
+    _clearError();
+    if (broadcasterIds.isEmpty) return {};
+    final query = broadcasterIds.map((id) => 'user_id=$id').join('&');
+    final uri = Uri.parse('$_base/streams?$query');
+    final res = await _client.get(uri, headers: _headers(auth));
+    if (res.statusCode != 200) {
+      _setError('getStreams', res);
+      return {};
+    }
+    try {
+      final data = jsonDecode(res.body) as Map;
+      final list = data['data'] as List;
+      final byId = <String, Map<String, dynamic>>{};
+      for (final item in list) {
+        final m = item as Map<String, dynamic>;
+        final id = m['user_id'] as String?;
+        if (id != null) byId[id] = m;
+      }
+      return byId;
+    } catch (e) {
+      _setError('getStreams: bad response');
+      return {};
+    }
+  }
+
   Future<Map<String, dynamic>?> getUserProfile(
     TwitchAuth auth,
     String login,

@@ -28,12 +28,14 @@ class PaintedUsernameText extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (userId == null) return _buildText(baseStyle);
+    final notifier = service.lookupNotifier(userId);
     return ListenableBuilder(
-      listenable: service,
+      listenable: notifier,
       builder: (_, _) {
         // Lookup doubles as the resolution trigger: unknown users are queued
-        // for the next batched fetch on every pass.
-        final paint = service.lookup(userId);
+        // for the next batched fetch on first mount.
+        final paint = notifier.value ?? service.lookup(userId);
         if (paint == null || paint.layers.isEmpty) {
           return _buildText(baseStyle);
         }

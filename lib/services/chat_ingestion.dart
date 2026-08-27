@@ -118,6 +118,7 @@ class ChatIngestion {
   bool _disposed = false;
   final _recentBanMeta = <String, List<_BanMeta>>{};
   static const _banDedupWindowSeconds = 10;
+  final _inflightSourceData = <String, Future<void>>{};
 
   /// Subscribes to every content stream. Returns the subscriptions for the
   /// caller's dispose bookkeeping.
@@ -236,8 +237,22 @@ class ChatIngestion {
   /// emote set on the first mirrored message (DankChat resolves emotes
   /// against the source channel but never fetches unjoined sets; loading
   /// here lets foreign third-party emotes render). The avatar fetch is
-  /// in-flight deduplicated and cheap once cached.
+  /// in-flight deduplicated and cheap once cached. Concurrent mirrored
+  /// messages for the same source coalesce onto one fetch via
+  /// [_inflightSourceData] so the emote half is not duplicated.
   Future<void> _ensureSourceChannelData(String broadcasterId) async {
+    final existing = _inflightSourceData[broadcasterId];
+    if (existing != null) return existing;
+    final future = _doEnsureSourceChannelData(broadcasterId);
+    _inflightSourceData[broadcasterId] = future;
+    try {
+      await future;
+    } finally {
+      _inflightSourceData.remove(broadcasterId);
+    }
+  }
+
+  Future<void> _doEnsureSourceChannelData(String broadcasterId) async {
     await badgeService.fetchChannelAvatar(twitchAuth, broadcasterId);
     if (_disposed) return;
     final login = badgeService.resolveChannelLogin(broadcasterId);

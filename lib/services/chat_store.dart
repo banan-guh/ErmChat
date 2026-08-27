@@ -134,6 +134,11 @@ class ChatStore {
   /// so writers must bump it after mutating the counter.
   final ValueNotifier<int> mentionsBump = ValueNotifier(0);
 
+  /// Bumped whenever a channel enters or leaves the unread (or unread-mention)
+  /// sets, so tab labels rebuild only when their unread membership changes
+  /// instead of on every incoming message.
+  final ValueNotifier<int> unreadVersion = ValueNotifier(0);
+
   /// Pipeline-path login write: assigns and fires [onLoginApplied].
   void applyLogin(String? login) {
     session.login = login;
@@ -377,6 +382,7 @@ class ChatStore {
         unreadMentions++;
         mentionsBump.value++;
         channelsWithUnreadMentions.add(channel);
+        unreadVersion.value++;
         unreadMentionsPerChannel[channel] =
             (unreadMentionsPerChannel[channel] ?? 0) + 1;
       }
@@ -399,6 +405,7 @@ class ChatStore {
 
     if (channel != selectedChannel && !msg.isHistory && !msg.isSystem) {
       channelsWithUnread.add(channel);
+      unreadVersion.value++;
     }
     noteNewMessage(channel);
     return true;

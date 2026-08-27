@@ -171,9 +171,6 @@ class _HomeScreenState extends State<HomeScreen>
       store: _chatStore,
       bridge: ChatViewBridge(
         mentionsChannel: _mentionsChannel,
-        onRebuild: () {
-          if (mounted) setState(() {});
-        },
         onSystemMessage: _addSystemMessage,
         onJoinProgress: _onJoinProgress,
         getSelectedChannel: () => _selectedChannel,
@@ -305,6 +302,14 @@ class _HomeScreenState extends State<HomeScreen>
   /// 7TV name paints (default off; toggled in Chat settings).
   bool _showNamePaints = false;
 
+  /// Hidden-chrome mode: drops the ErmChat header (title, join, mentions,
+  /// overflow) and the channel tab bar so the chat fills the screen. Transient
+  /// (session-only); the dropdown arrow stays visible to toggle it back.
+  bool _isFullscreen = false;
+
+  /// Whether the chat input box + status row is shown. Persisted.
+  bool _showInput = true;
+
   final _suggestionsNotifier = ValueNotifier<List<Suggestion>>([]);
   final _selectedTabIndex = ValueNotifier<int>(0);
 
@@ -323,18 +328,21 @@ class _HomeScreenState extends State<HomeScreen>
   TwitchMessage? get _openThreadRoot => _panelManager.openThreadRoot;
   set _openThreadRoot(TwitchMessage? v) => _panelManager.openThreadRoot = v;
   List<TwitchMessage> get _threadMessages => _panelManager.threadMessages;
-  set _threadMessages(List<TwitchMessage> v) => _panelManager.threadMessages = v;
+  set _threadMessages(List<TwitchMessage> v) =>
+      _panelManager.threadMessages = v;
   String? get _threadChannel => _panelManager.threadChannel;
   set _threadChannel(String? v) => _panelManager.threadChannel = v;
 
   // Aliases for panel-manager constants/state accessed inline in build.
   AnimationController get _panelScaleCtrl => _panelManager.panelScaleCtrl;
-  DraggableScrollableController get _emoteSheetCtrl => _panelManager.emoteSheetCtrl;
+  DraggableScrollableController get _emoteSheetCtrl =>
+      _panelManager.emoteSheetCtrl;
   double? get _emoteSheetBoxHeight => _panelManager.emoteSheetBoxHeight;
   set _emoteSheetBoxHeight(double? v) => _panelManager.emoteSheetBoxHeight = v;
   static const _emoteMaxFraction = _PanelManager.emoteMaxFraction;
   ValueNotifier<double> get _threadSheetRatio => _panelManager.threadSheetRatio;
-  ValueNotifier<double> get _mentionsSheetRatio => _panelManager.mentionsSheetRatio;
+  ValueNotifier<double> get _mentionsSheetRatio =>
+      _panelManager.mentionsSheetRatio;
 
   late final TabController _mentionsTabCtrl;
   final _threadPanelScrollCtrl = FlutterListViewController();
@@ -557,8 +565,11 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
-  void _setRecentMessagesLimit(int value) =>
-      _setPref(() => _recentMessagesLimit, (v) => _recentMessagesLimit = v, value);
+  void _setRecentMessagesLimit(int value) => _setPref(
+    () => _recentMessagesLimit,
+    (v) => _recentMessagesLimit = v,
+    value,
+  );
 
   void _setReplyToRoot(bool value) =>
       _setPref(() => _replyToRoot, (v) => _replyToRoot = v, value);
@@ -566,26 +577,54 @@ class _HomeScreenState extends State<HomeScreen>
   void _setPreferEmotesFirst(bool value) =>
       _setPref(() => _preferEmotesFirst, (v) => _preferEmotesFirst = v, value);
 
-  void _setShowTimestamps(bool value) =>
-      _setPref(() => _showTimestamps, (v) => _showTimestamps = v, value, rerenderChannels: true);
+  void _setShowTimestamps(bool value) => _setPref(
+    () => _showTimestamps,
+    (v) => _showTimestamps = v,
+    value,
+    rerenderChannels: true,
+  );
 
-  void _setTimestampFormat(String value) =>
-      _setPref(() => _timestampFormat, (v) => _timestampFormat = v, value, rerenderChannels: true);
+  void _setTimestampFormat(String value) => _setPref(
+    () => _timestampFormat,
+    (v) => _timestampFormat = v,
+    value,
+    rerenderChannels: true,
+  );
 
-  void _setSharedChatMode(String value) =>
-      _setPref(() => _sharedChatMode, (v) => _sharedChatMode = v, value, rerenderChannels: true);
+  void _setSharedChatMode(String value) => _setPref(
+    () => _sharedChatMode,
+    (v) => _sharedChatMode = v,
+    value,
+    rerenderChannels: true,
+  );
 
-  void _setChatFontScale(double value) =>
-      _setPref(() => _chatFontSize, (v) => _chatFontSize = v, value, rerenderChannels: true);
+  void _setChatFontScale(double value) => _setPref(
+    () => _chatFontSize,
+    (v) => _chatFontSize = v,
+    value,
+    rerenderChannels: true,
+  );
 
-  void _setCheckeredMessages(bool value) =>
-      _setPref(() => _checkeredMessages, (v) => _checkeredMessages = v, value, rerenderChannels: true);
+  void _setCheckeredMessages(bool value) => _setPref(
+    () => _checkeredMessages,
+    (v) => _checkeredMessages = v,
+    value,
+    rerenderChannels: true,
+  );
 
-  void _setHighlightOpacity(double value) =>
-      _setPref(() => _highlightOpacity, (v) => _highlightOpacity = v, value, rerenderChannels: true);
+  void _setHighlightOpacity(double value) => _setPref(
+    () => _highlightOpacity,
+    (v) => _highlightOpacity = v,
+    value,
+    rerenderChannels: true,
+  );
 
-  void _setLineSeparator(bool value) =>
-      _setPref(() => _lineSeparator, (v) => _lineSeparator = v, value, rerenderChannels: true);
+  void _setLineSeparator(bool value) => _setPref(
+    () => _lineSeparator,
+    (v) => _lineSeparator = v,
+    value,
+    rerenderChannels: true,
+  );
 
   void _setFastSnap(bool value) =>
       _setPref(() => _fastSnap, (v) => _fastSnap = v, value);
@@ -1582,6 +1621,7 @@ class _HomeScreenState extends State<HomeScreen>
       _fastSnap = prefs.getBool('fast_channel_snap') ?? true;
       _sharedChatMode = prefs.getString('shared_chat_mode') ?? 'spotlight';
       _showNamePaints = prefs.getBool('seventv_name_paints') ?? false;
+      _showInput = prefs.getBool('show_input') ?? true;
     });
     if (_showNamePaints) {
       _sevenTvPaintService.enabled = true;
@@ -1658,6 +1698,32 @@ class _HomeScreenState extends State<HomeScreen>
     }
     _truncateChannelMessages(channel);
     _chatStore.noteNewMessage(channel);
+  }
+
+  void _toggleFullscreen() {
+    setState(() => _isFullscreen = !_isFullscreen);
+  }
+
+  void _toggleInputVisibility() {
+    setState(() => _showInput = !_showInput);
+    unawaited(
+      SharedPreferences.getInstance().then(
+        (prefs) => prefs.setBool('show_input', _showInput),
+      ),
+    );
+  }
+
+  /// Tiny arrow anchored top-right just below the channel tab strip (see
+  /// TabbedLayout). Always visible so the top bar / input can be toggled back
+  /// even in fullscreen.
+  /// Tiny arrow anchored top-right just below the channel tab strip (see
+  /// TabbedLayout). Always visible so the top bar / input can be toggled back
+  /// even in fullscreen.
+  Widget _buildChromeMenu() {
+    return _ChromeMenuButton(
+      onToggleFullscreen: _toggleFullscreen,
+      onToggleInput: _toggleInputVisibility,
+    );
   }
 
   /// Translates join-queue progress into a live countdown system line
@@ -1936,6 +2002,7 @@ class _HomeScreenState extends State<HomeScreen>
       _scrollControllers.remove(channel)?.dispose();
       _chatStore.channelsWithUnread.remove(channel);
       _chatStore.channelsWithUnreadMentions.remove(channel);
+      _chatStore.unreadVersion.value++;
       final removedUnread =
           _chatStore.unreadMentionsPerChannel.remove(channel) ?? 0;
       if (removedUnread > 0) {
@@ -2246,12 +2313,12 @@ class _HomeScreenState extends State<HomeScreen>
     required Widget header,
     required Widget body,
   }) => _panelManager.buildOverlaySheet(
-        offstage: offstage,
-        ratio: ratio,
-        header: header,
-        body: body,
-        context: context,
-      );
+    offstage: offstage,
+    ratio: ratio,
+    header: header,
+    body: body,
+    context: context,
+  );
 
   Widget _buildSlideUpContent({
     required DraggableScrollableController controller,
@@ -2259,11 +2326,11 @@ class _HomeScreenState extends State<HomeScreen>
     required double maxSize,
     required Widget child,
   }) => _panelManager.buildSlideUpContent(
-        controller: controller,
-        totalAvailH: totalAvailH,
-        maxSize: maxSize,
-        child: child,
-      );
+    controller: controller,
+    totalAvailH: totalAvailH,
+    maxSize: maxSize,
+    child: child,
+  );
 
   List<TwitchMessage> _computeThreadMessages() {
     return _panelManager.computeThreadMessages(
@@ -2436,6 +2503,7 @@ class _HomeScreenState extends State<HomeScreen>
       _updateCooldownLabel();
       _chatStore.channelsWithUnread.remove(channel);
       _chatStore.channelsWithUnreadMentions.remove(channel);
+      _chatStore.unreadVersion.value++;
       clearedUnread = _chatStore.unreadMentionsPerChannel.remove(channel) ?? 0;
       if (clearedUnread > 0) {
         _chatStore.unreadMentions -= clearedUnread;
@@ -2521,6 +2589,7 @@ class _HomeScreenState extends State<HomeScreen>
 
     return PopScope(
       canPop:
+          !_isFullscreen &&
           _activePanel == OverlayPanel.closed &&
           !_emoteSheetOpen &&
           !_focusNode.hasFocus,
@@ -2530,6 +2599,8 @@ class _HomeScreenState extends State<HomeScreen>
           unawaited(_closeEmoteSheet());
         } else if (_activePanel != OverlayPanel.closed) {
           unawaited(_closePanel());
+        } else if (_isFullscreen) {
+          _toggleFullscreen();
         } else {
           _focusNode.unfocus();
           setState(() {});
@@ -2557,12 +2628,18 @@ class _HomeScreenState extends State<HomeScreen>
                   final sheetBoxHeight = fullBoxH < maxFitBoxH
                       ? fullBoxH
                       : maxFitBoxH;
-                   return Stack(
+                  return Stack(
                     clipBehavior: Clip.hardEdge,
                     children: [
                       Column(
                         children: [
-                          _buildAppBar(),
+                          AnimatedSize(
+                            duration: const Duration(milliseconds: 200),
+                            curve: Curves.easeInOut,
+                            child: !_isFullscreen
+                                ? _buildAppBar()
+                                : const SizedBox.shrink(),
+                          ),
                           _buildChannelTabs(),
                         ],
                       ),
@@ -2600,7 +2677,13 @@ class _HomeScreenState extends State<HomeScreen>
                 },
               ),
             ),
-            _buildInputBar(theme: theme),
+            AnimatedSize(
+              duration: const Duration(milliseconds: 200),
+              curve: Curves.easeInOut,
+              child: _showInput
+                  ? _buildInputBar(theme: theme)
+                  : const SizedBox.shrink(),
+            ),
           ],
         ),
       ),
@@ -2660,6 +2743,7 @@ class _HomeScreenState extends State<HomeScreen>
                         _unreadWhispers = 0;
                         _chatStore.channelsWithUnreadMentions.clear();
                         _chatStore.unreadMentionsPerChannel.clear();
+                        _chatStore.unreadVersion.value++;
                         if (mounted) setState(() {});
                         if (_activePanel == OverlayPanel.mentions) {
                           unawaited(_closePanel());
@@ -2744,18 +2828,20 @@ class _HomeScreenState extends State<HomeScreen>
             child: _chatStore.channels.isNotEmpty
                 ? TabbedLayout(
                     tabs: _chatStore.channels,
-                    selectedIndex:
-                        _chatStore.channels.indexOf(_selectedChannel ?? ''),
+                    selectedIndex: _chatStore.channels.indexOf(
+                      _selectedChannel ?? '',
+                    ),
                     onSelectedIndexChanged: _onChannelChanged,
                     onFocusChanged: _onChannelFocusChanged,
+                    showTabBar: !_isFullscreen,
+                    chromeMenu: _buildChromeMenu(),
                     pageBuilder: (_, i) {
                       final channel = _chatStore.channels[i];
                       return ListenableBuilder(
                         listenable: _versionNotifier(channel),
                         builder: (_, _) => ChatView(
                           channel: channel,
-                          messages:
-                              _chatStore.channelMessages[channel] ?? [],
+                          messages: _chatStore.channelMessages[channel] ?? [],
                           tileCache: _tileCache,
                           atBottomNotifier: _atBottomNotifier(channel),
                           messageNotifier: _messageNotifier(channel),
@@ -2771,11 +2857,7 @@ class _HomeScreenState extends State<HomeScreen>
                           paintService: _showNamePaints
                               ? _sevenTvPaintService
                               : null,
-                          onShowUserProfile: (
-                            login,
-                            userId, {
-                            displayName,
-                          }) =>
+                          onShowUserProfile: (login, userId, {displayName}) =>
                               _showUserProfile(
                                 login,
                                 userId,
@@ -2795,7 +2877,7 @@ class _HomeScreenState extends State<HomeScreen>
                       return ListenableBuilder(
                         listenable: Listenable.merge([
                           _selectedTabIndex,
-                          _messageNotifier(channel),
+                          _chatStore.unreadVersion,
                         ]),
                         builder: (ctx, _) {
                           final focused = i == _selectedTabIndex.value;
@@ -2813,16 +2895,17 @@ class _HomeScreenState extends State<HomeScreen>
                                   fontSize: 14,
                                   fontWeight:
                                       selected ||
-                                              _chatStore.channelsWithUnread
-                                                  .contains(channel)
-                                          ? FontWeight.w600
-                                          : FontWeight.normal,
+                                          _chatStore.channelsWithUnread
+                                              .contains(channel)
+                                      ? FontWeight.w600
+                                      : FontWeight.normal,
                                   color: selected
                                       ? theme.colorScheme.primary
-                                      : _chatStore.channelsWithUnread
-                                                .contains(channel)
-                                          ? theme.colorScheme.onSurface
-                                          : null,
+                                      : _chatStore.channelsWithUnread.contains(
+                                          channel,
+                                        )
+                                      ? theme.colorScheme.onSurface
+                                      : null,
                                 ),
                               ),
                               if (hasUnreadMention && !selected)
@@ -2852,10 +2935,14 @@ class _HomeScreenState extends State<HomeScreen>
               top: 50,
               left: 0,
               right: 0,
-              child: _broadcastWidgets.buildOverlay(
+              child:
+                  _broadcastWidgets.buildOverlay(
                     _selectedChannel!,
                     onMinimizeChanged: (ch, minimized) {
-                      setState(() => _broadcastWidgets.widgetsMinimized[ch] = minimized);
+                      setState(
+                        () =>
+                            _broadcastWidgets.widgetsMinimized[ch] = minimized,
+                      );
                     },
                   ) ??
                   const SizedBox.shrink(),
@@ -2894,10 +2981,7 @@ class _HomeScreenState extends State<HomeScreen>
               ],
             ),
           ),
-          Divider(
-            height: 1,
-            color: Theme.of(context).dividerColor,
-          ),
+          Divider(height: 1, color: Theme.of(context).dividerColor),
         ],
       ),
       body: ChatView(
@@ -2915,8 +2999,7 @@ class _HomeScreenState extends State<HomeScreen>
         highlightOpacity: _highlightOpacity,
         lineSeparator: _lineSeparator,
         sharedChatMode: _sharedChatMode,
-        paintService:
-            _showNamePaints ? _sevenTvPaintService : null,
+        paintService: _showNamePaints ? _sevenTvPaintService : null,
         onShowUserProfile: _showUserProfile,
         onShowMessageMenu: _showPanelMessageMenu,
         showReplyIndicators: false,
@@ -2962,10 +3045,7 @@ class _HomeScreenState extends State<HomeScreen>
               Tab(text: 'Whispers'),
             ],
           ),
-          Divider(
-            height: 1,
-            color: Theme.of(context).dividerColor,
-          ),
+          Divider(height: 1, color: Theme.of(context).dividerColor),
         ],
       ),
       body: TabBarView(
@@ -2974,8 +3054,7 @@ class _HomeScreenState extends State<HomeScreen>
           ChatView(
             key: const ValueKey('mentions_panel'),
             channel: _mentionsChannel,
-            messages:
-                _chatStore.channelMessages[_mentionsChannel] ?? const [],
+            messages: _chatStore.channelMessages[_mentionsChannel] ?? const [],
             atBottomNotifier: _mentionsAtBottom,
             messageNotifier: _mentionsMsgCount,
             scrollController: _mentionsPanelScrollCtrl,
@@ -3081,7 +3160,10 @@ class _HomeScreenState extends State<HomeScreen>
               mainAxisSize: MainAxisSize.min,
               children: [
                 ListenableBuilder(
-                  listenable: _cooldownLabelNotifier,
+                  listenable: Listenable.merge([
+                    _cooldownLabelNotifier,
+                    _chatConn.connectionStateNotifier,
+                  ]),
                   builder: (context, _) {
                     return MessageInput(
                       controller: _messageController,
@@ -3101,14 +3183,15 @@ class _HomeScreenState extends State<HomeScreen>
                         }
                       },
                       replyToMsg: _replyToMsg,
-                      onCancelReply: () =>
-                          setState(() => _replyToMsg = null),
-                      enabled: (_activePanel != OverlayPanel.mentions ||
+                      onCancelReply: () => setState(() => _replyToMsg = null),
+                      enabled:
+                          (_activePanel != OverlayPanel.mentions ||
                               _isWhispersTabActive) &&
                           widget.twitchAuth.isConfigured &&
                           _chatConn.isChatPipeConnected &&
                           (_isWhispersTabActive || _channelChatReady),
-                      hintText: _cooldownLabelNotifier.value ??
+                      hintText:
+                          _cooldownLabelNotifier.value ??
                           (!widget.twitchAuth.isConfigured
                               ? 'Connect an account to chat'
                               : switch ((
@@ -3143,8 +3226,7 @@ class _HomeScreenState extends State<HomeScreen>
                     _selectedTabIndex,
                   ]),
                   builder: (context, _) {
-                    final status =
-                        _chatStore.chatStatus[_selectedChannel];
+                    final status = _chatStore.chatStatus[_selectedChannel];
                     final hasStatus = status != null && status.isNotEmpty;
                     return AnimatedSize(
                       duration: const Duration(milliseconds: 300),
@@ -3161,9 +3243,9 @@ class _HomeScreenState extends State<HomeScreen>
                                 status,
                                 style: TextStyle(
                                   fontSize: 12,
-                                  color: Theme.of(context)
-                                      .colorScheme
-                                      .onSurfaceVariant,
+                                  color: Theme.of(
+                                    context,
+                                  ).colorScheme.onSurfaceVariant,
                                 ),
                                 textAlign: TextAlign.center,
                               ),
@@ -3204,10 +3286,7 @@ class _HomeScreenState extends State<HomeScreen>
 }
 
 class _BroadcastWidgets {
-  _BroadcastWidgets({
-    required this.markDirty,
-    required this.selectedChannel,
-  });
+  _BroadcastWidgets({required this.markDirty, required this.selectedChannel});
 
   final VoidCallback markDirty;
   final String? Function() selectedChannel;
@@ -3332,11 +3411,7 @@ class _BroadcastWidgets {
       total: _fakeGoal,
       expiresAt: _fakeTrainEndsAt,
       topContributions: [
-        HypeTrainContribution(
-          userName: 'fakebits',
-          type: 'BITS',
-          total: 5000,
-        ),
+        HypeTrainContribution(userName: 'fakebits', type: 'BITS', total: 5000),
         HypeTrainContribution(userName: 'fakesub', type: 'SUBS', total: 12),
       ],
     );
@@ -3368,11 +3443,7 @@ class _BroadcastWidgets {
           users: _fakePredYes,
           channelPoints: 9000,
         ),
-        PredictionOutcome(
-          title: 'No',
-          users: _fakePredNo,
-          channelPoints: 4500,
-        ),
+        PredictionOutcome(title: 'No', users: _fakePredNo, channelPoints: 4500),
       ],
       status: 'ACTIVE',
     );
@@ -3728,7 +3799,8 @@ class _PanelManager {
     required EmoteManager emoteManager,
     required Map<String, String> channelUserIds,
   }) {
-    if (selectedChannel != null && !emoteManager.hasChannelCache(selectedChannel)) {
+    if (selectedChannel != null &&
+        !emoteManager.hasChannelCache(selectedChannel)) {
       unawaited(
         emoteManager.resolveEmotes(
           selectedChannel,
@@ -3841,7 +3913,7 @@ class _PanelManager {
     required TwitchMessage? openThreadRoot,
     required Map<String, List<TwitchMessage>> channelMessages,
     required List<TwitchMessage>? Function(String channel, String rootId)
-        threadFor,
+    threadFor,
   }) {
     final entry = openThreadRoot;
     if (entry == null) return const [];
@@ -3896,11 +3968,73 @@ class _PanelManager {
     TwitchMessage current = msg;
     while (current.replyToParentId != null &&
         visited.add(current.replyToParentId!)) {
-      final parent =
-          msgs.where((m) => m.messageId == current.replyToParentId).firstOrNull;
+      final parent = msgs
+          .where((m) => m.messageId == current.replyToParentId)
+          .firstOrNull;
       if (parent == null) break;
       current = parent;
     }
     return current;
+  }
+}
+
+class _ChromeMenuButton extends StatefulWidget {
+  final VoidCallback onToggleFullscreen;
+  final VoidCallback onToggleInput;
+
+  const _ChromeMenuButton({
+    required this.onToggleFullscreen,
+    required this.onToggleInput,
+  });
+
+  @override
+  State<_ChromeMenuButton> createState() => _ChromeMenuButtonState();
+}
+
+class _ChromeMenuButtonState extends State<_ChromeMenuButton> {
+  bool _open = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return PopupMenuButton<String>(
+      position: PopupMenuPosition.under,
+      popUpAnimationStyle: const AnimationStyle(
+        duration: Duration(milliseconds: 175),
+      ),
+      onOpened: () => setState(() => _open = true),
+      onCanceled: () => setState(() => _open = false),
+      onSelected: (value) {
+        setState(() => _open = false);
+        switch (value) {
+          case 'fullscreen':
+            widget.onToggleFullscreen();
+            break;
+          case 'input':
+            widget.onToggleInput();
+            break;
+        }
+      },
+      itemBuilder: (_) => const [
+        PopupMenuItem(value: 'fullscreen', child: Text('Toggle fullscreen')),
+        PopupMenuItem(value: 'input', child: Text('Toggle input')),
+      ],
+      child: Container(
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        padding: const EdgeInsets.all(4),
+        child: AnimatedRotation(
+          turns: _open ? 0.5 : 0.0,
+          duration: const Duration(milliseconds: 175),
+          child: Icon(
+            Icons.expand_more,
+            size: 20,
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+      ),
+    );
   }
 }

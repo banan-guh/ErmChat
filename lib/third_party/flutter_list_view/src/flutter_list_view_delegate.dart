@@ -39,7 +39,7 @@ class FlutterListViewDelegate extends SliverChildDelegate {
       this.initOffsetBasedOnBottom = false,
       this.onIsPermanent,
       this.isSupressElementGenerate = false,
-      this.disableCacheItems = false,
+       this.disableCacheItems = false,
       this.expandDirectToDownWhenFirstItemAlignToEnd = false});
 
   /// When childCount from 0 to non-zore, the [initIndex] will effect,
