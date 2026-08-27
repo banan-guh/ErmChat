@@ -101,6 +101,12 @@ class IgnoreManager extends ChangeNotifier {
   bool _loaded = false;
   final Map<String, RegExp?> _regexCache = {};
 
+  /// Fast-path sets for common-case literal patterns (no regex, no word
+  /// boundary). Built on load/save/upsert/remove so the hot-path lookups
+  /// are O(1) instead of O(n).
+  final Set<String> _literalUserPatterns = {};
+  final Set<String> _literalBlockPatterns = {};
+
   bool get loaded => _loaded;
   List<IgnoreEntry> get users => List.unmodifiable(_users);
   List<IgnoreEntry> get keywords => List.unmodifiable(_keywords);
@@ -110,6 +116,7 @@ class IgnoreManager extends ChangeNotifier {
     _users = decodeEntries(prefs.getString(_usersKey) ?? '');
     _keywords = decodeEntries(prefs.getString(_keywordsKey) ?? '');
     _regexCache.clear();
+    _rebuildLiteralSets();
     _loaded = true;
     notifyListeners();
   }
@@ -125,26 +132,50 @@ class IgnoreManager extends ChangeNotifier {
       jsonEncode([for (final k in _keywords) k.toJson()]),
     );
     _regexCache.clear();
+    _rebuildLiteralSets();
     notifyListeners();
+  }
+
+  void _rebuildLiteralSets() {
+    _literalUserPatterns.clear();
+    _literalBlockPatterns.clear();
+    for (final e in _users) {
+      if (e.pattern.isNotEmpty && !e.isRegex && !e.wordBoundary) {
+        _literalUserPatterns.add(
+          e.caseSensitive ? e.pattern : e.pattern.toLowerCase(),
+        );
+      }
+    }
+    for (final e in _keywords) {
+      if (e.block && e.pattern.isNotEmpty && !e.isRegex && !e.wordBoundary) {
+        _literalBlockPatterns.add(
+          e.caseSensitive ? e.pattern : e.pattern.toLowerCase(),
+        );
+      }
+    }
   }
 
   void upsertUser(IgnoreEntry entry) {
     _upsert(_users, entry);
+    _rebuildLiteralSets();
     notifyListeners();
   }
 
   void removeUser(String id) {
     _users.removeWhere((e) => e.id == id);
+    _rebuildLiteralSets();
     notifyListeners();
   }
 
   void upsertKeyword(IgnoreEntry entry) {
     _upsert(_keywords, entry);
+    _rebuildLiteralSets();
     notifyListeners();
   }
 
   void removeKeyword(String id) {
     _keywords.removeWhere((e) => e.id == id);
+    _rebuildLiteralSets();
     notifyListeners();
   }
 
@@ -190,13 +221,22 @@ class IgnoreManager extends ChangeNotifier {
         : value.toLowerCase().contains(entry.pattern.toLowerCase());
   }
 
-  bool isIgnored(String login) =>
-      _users.any((e) => e.pattern.isNotEmpty && matchesPattern(e, login));
+  bool isIgnored(String login) {
+    final lower = login.toLowerCase();
+    if (_literalUserPatterns.contains(lower)) return true;
+    if (_literalUserPatterns.contains(login)) return true;
+    return _users.any((e) => e.pattern.isNotEmpty && matchesPattern(e, login));
+  }
 
   /// True when any block-mode keyword rule matches [text]: the whole message
   /// is dropped at ingestion instead of rewritten.
-  bool isBlockedPhrase(String text) =>
-      _keywords.any((e) => e.block && matchesPattern(e, text));
+  bool isBlockedPhrase(String text) {
+    final lower = text.toLowerCase();
+    for (final p in _literalBlockPatterns) {
+      if (lower.contains(p)) return true;
+    }
+    return _keywords.any((e) => e.block && matchesPattern(e, text));
+  }
 
   /// Finds every non-overlapping keyword occurrence in [text]. Earliest
   /// start wins; at equal starts the longest match replaces.
