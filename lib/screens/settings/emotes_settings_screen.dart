@@ -330,6 +330,40 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
             style: Theme.of(context).textTheme.bodyMedium,
           ),
         ),
+        _sectionHeader('Emote image cache'),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Text('$_draftCacheMax emotes kept in cache'),
+        ),
+        Slider(
+          key: const Key('emote_cache_slider'),
+          value: _draftCacheMax.toDouble(),
+          min: minEmoteCacheMax.toDouble(),
+          max: maxEmoteCacheMax.toDouble(),
+          divisions: 40,
+          label: '$_draftCacheMax',
+          onChanged: (value) => setState(() => _draftCacheMax = value.toInt()),
+        ),
+        if (_draftCacheMax == 0)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            child: Text(
+              '0 will not keep any emotes in the cache',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Theme.of(context).colorScheme.error,
+              ),
+            ),
+          ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: FilledButton(
+            key: const Key('emote_cache_apply'),
+            onPressed: _draftCacheMax != _appliedCacheMax
+                ? _applyCacheMax
+                : null,
+            child: const Text('Apply'),
+          ),
+        ),
         _sectionHeader('Animation'),
         SwitchListTile(
           secondary: const Icon(Icons.speed),
@@ -454,40 +488,6 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
                   if (mounted) setState(() => _animateGifs = value);
                   widget.onAnimateGifsChanged?.call(value);
                 },
-        ),
-        _sectionHeader('Emote image cache'),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          child: Text('$_draftCacheMax emotes kept in cache'),
-        ),
-        Slider(
-          key: const Key('emote_cache_slider'),
-          value: _draftCacheMax.toDouble(),
-          min: minEmoteCacheMax.toDouble(),
-          max: maxEmoteCacheMax.toDouble(),
-          divisions: 40,
-          label: '$_draftCacheMax',
-          onChanged: (value) => setState(() => _draftCacheMax = value.toInt()),
-        ),
-        if (_draftCacheMax == 0)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-            child: Text(
-              '0 will not keep any emotes in the cache',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: Theme.of(context).colorScheme.error,
-              ),
-            ),
-          ),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          child: FilledButton(
-            key: const Key('emote_cache_apply'),
-            onPressed: _draftCacheMax != _appliedCacheMax
-                ? _applyCacheMax
-                : null,
-            child: const Text('Apply'),
-          ),
         ),
         if (widget.emoteManager != null) ...[
           ListTile(
