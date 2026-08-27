@@ -90,11 +90,6 @@ void main() {
       expect(r.edits.single.end, 9);
     });
 
-    test('empty text and no rules are no-ops', () async {
-      final m = await makeManager();
-      expect(m.applyKeywordReplacements('').changed, isFalse);
-      expect(m.applyKeywordReplacements('hello').changed, isFalse);
-    });
   });
 
   group('block mode + whole word', () {

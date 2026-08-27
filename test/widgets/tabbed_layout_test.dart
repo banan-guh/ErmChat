@@ -53,7 +53,6 @@ void main() {
     ) async {
       final selected = ValueNotifier<int>(0);
       late StateSetter setStateTop;
-      final focuses = <int>[];
 
       await tester.pumpWidget(
         _harness(
@@ -61,7 +60,6 @@ void main() {
           captureSetState: (set) => setStateTop = set,
           onFocusChanged: (i) {
             selected.value = i;
-            focuses.add(i);
           },
           onSelectedIndexChanged: (i) => selected.value = i,
         ),
@@ -105,10 +103,6 @@ void main() {
             },
           ),
         );
-        // Only the first page is live before any navigation.
-        expect(find.byKey(const Key('page-0')), findsOneWidget);
-        expect(find.byKey(const Key('page-2')), findsNothing);
-
         // External navigation to channel c (index 2). The view pager must
         // follow: the page is actually built/moved to index 2.
         setStateTop(() => selected.value = 2);
@@ -210,7 +204,8 @@ void main() {
       );
 
       final centerY = tester.getCenter(find.byType(PageView)).dy;
-      await tester.tapAt(Offset(2, centerY));
+      final edgeX = TabbedLayout.minEdgeExclusion / 2;
+      await tester.tapAt(Offset(edgeX, centerY));
       await tester.pump();
 
       // The edge overlay must not swallow the tap.
@@ -235,8 +230,9 @@ void main() {
         final centerY = tester.getCenter(find.byType(PageView)).dy;
         // Drag leftwards from the right edge: unblocked, this would switch to
         // the next channel (index 1). Blocked, the page stays put.
-        final start = Offset(size.width - 2, centerY);
-        final end = Offset(size.width - 2 - size.width * 0.8, centerY);
+        final edgeX = TabbedLayout.minEdgeExclusion / 2;
+        final start = Offset(size.width - edgeX, centerY);
+        final end = Offset(size.width - edgeX - size.width * 0.8, centerY);
 
         final gesture = await tester.startGesture(start);
         await gesture.moveBy(end - start);

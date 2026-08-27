@@ -153,6 +153,8 @@ void main() {
 
     gate.complete(_pngBytes());
     await _settle(tester);
+    expect(tester.takeException(), isNull);
+    expect(_emoteBox(tester).size, const Size(60, 60));
   });
 
   testWidgets('a sizeless emote in a loose slot keeps its intrinsic size', (
@@ -172,6 +174,6 @@ void main() {
     await _settle(tester);
 
     expect(tester.takeException(), isNull);
-    expect(_emoteBox(tester).size.width, lessThan(100));
+    expect(_emoteBox(tester).size.width, lessThanOrEqualTo(8.0));
   });
 }

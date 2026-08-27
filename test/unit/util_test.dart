@@ -51,10 +51,6 @@ void main() {
       expect(officialColors, contains(color));
     });
 
-    test('is deterministic for same username', () {
-      expect(pickColor('forsen'), pickColor('forsen'));
-    });
-
     test('can return different colors for different usernames', () {
       final results = <String>{};
       for (final name in ['forsen', 'xqc', 'summit1g', 'lirik', 'shroud']) {

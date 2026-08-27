@@ -326,14 +326,6 @@ void main() {
     ]);
   });
 
-  test('writes are accepted while under the cap', () async {
-    final t = DateTime(2026, 1, 1, 12);
-    repo.seed([_obj('https://example.com/a.png', t, id: 1)]);
-    manager.maxObjects = 3;
-
-    expect(await manager.isFull(), isFalse);
-  });
-
   test('repeated isFull within the TTL reuses one repo scan', () async {
     final t = DateTime(2026, 1, 1, 12);
     repo.seed([

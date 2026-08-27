@@ -40,7 +40,7 @@
 
 ## Low Priority / Future
 
-- [ ] **Add unlimited fps option to emotes** - currently you can only choose a fixed setting, just let it run wild with unlimited
+- [x] **Add unlimited fps option to emotes** - currently you can only choose a fixed setting, just let it run wild with unlimited
 - [+] **OS notifications + background** - background finished, notifs finished for android only, not apple.
 - [ ] **Mod View** - official twitch website style. AutoMod queue (hold / approve / deny) as first tab.
 - [+] **Shared Chat** - mirror-only marking, sharedchatnotice unwrap/drop, source-channel emote scoping, lazy participant fetch, ping dedup
@@ -49,7 +49,7 @@
 - [ ] **iOS mention push** - android works, apple server doesn't exist yet.
 - [ ] **Notification tuning** - quiet hours, per-channel mutes, sender cooldowns, collapse sub train bursts.
 - [ ] **Chat search** - search/filter messages while scrolled up.
-- [+] **Slow mode countdown** - countdown on the input box hint, ticks in place; timeouts too (CLEARCHAT ban-duration), mod/vip/sub badges bypass slow.
+- [x] **Slow mode countdown** - countdown on the input box hint, ticks in place; timeouts too (CLEARCHAT ban-duration), mod/vip/sub badges bypass slow.
 - [-] **Emote favorites** - recents exist, favs don't.
 - [+] **EXIF strip before upload** - JPEGs re-encoded without metadata before upload, orientation baked in; other formats untouched.
 - [ ] **Inline image embeds** - render image links posted in chat, off by default.

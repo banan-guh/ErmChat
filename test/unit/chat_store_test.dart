@@ -112,7 +112,7 @@ void main() {
       ]);
     });
 
-    test('accent color survives the insert', () {
+    test('system message without accent has null accent', () {
       final store = _store();
       store.addSystemMessage('test', 'Announcement');
       final msg = store.channelMessages['test']!.first;

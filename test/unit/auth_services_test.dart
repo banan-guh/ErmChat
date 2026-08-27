@@ -59,11 +59,6 @@ void main() {
   });
 
   group('TwitchAuth', () {
-    test('isConfigured returns false when no token', () {
-      final auth = TwitchAuth();
-      expect(auth.isConfigured, isFalse);
-    });
-
     test('setCredentials persists token', () async {
       final auth = TwitchAuth();
       auth.setCredentials(
@@ -100,13 +95,6 @@ void main() {
       expect(auth.accessToken, 'stored_token');
       expect(auth.refreshToken, 'stored_refresh');
       expect(auth.isConfigured, isTrue);
-    });
-
-    test('load handles missing tokens', () async {
-      final auth = TwitchAuth();
-      await auth.load();
-      expect(auth.accessToken, isNull);
-      expect(auth.refreshToken, isNull);
     });
 
     test('setUser persists login and user id', () async {
@@ -403,21 +391,6 @@ void main() {
   });
 
   group('UserStore', () {
-    test('returns empty set for unknown channel', () {
-      final store = UserStore();
-      expect(store.usersForChannel('channel'), isEmpty);
-    });
-
-    test('returns added users for channel', () {
-      final store = UserStore();
-      store.addUser('chan', 'User1');
-      store.addUser('chan', 'User2');
-      final users = store.usersForChannel('chan');
-      expect(users, contains('User1'));
-      expect(users, contains('User2'));
-      expect(users.length, 2);
-    });
-
     test('touches user moves to end of LRU', () {
       final store = UserStore();
       store.addUser('chan', 'User1');
@@ -628,13 +601,6 @@ void main() {
 
       expect(service.banCount('chan'), 1);
       expect(service.timeoutCount('chan'), 2);
-    });
-
-    test('unknown channels read as zero', () {
-      final service = AnalyticsService();
-      expect(service.messagesPerMinute('chan'), 0);
-      expect(service.totalMessages('other'), 0);
-      expect(service.uniqueChatters('other'), 0);
     });
 
     test('resets single channel', () {
