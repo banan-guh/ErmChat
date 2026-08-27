@@ -3289,8 +3289,13 @@ void main() {
         find.widgetWithText(SwitchListTile, 'Show timestamps'),
       );
       expect(toggle.value, isTrue);
-      // Interact with the top-of-list toggle before scrolling down: the
-      // lazy ListView disposes items that scroll out of the cache extent.
+      // Interact with the toggle before scrolling down: the lazy ListView
+      // disposes items that scroll out of the cache extent, so bring it into
+      // view first (otherwise the tap misses and nothing is persisted).
+      await tester.ensureVisible(
+        find.widgetWithText(SwitchListTile, 'Show timestamps'),
+      );
+      await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(SwitchListTile, 'Show timestamps'));
       await tester.pumpAndSettle();
       var prefs = await SharedPreferences.getInstance();
