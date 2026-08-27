@@ -44,6 +44,33 @@ Widget _harness(
 double _pageDx(WidgetTester tester, int i) =>
     tester.getTopLeft(find.byKey(Key('page-$i'))).dx;
 
+// Harness whose tab list (and thus channel count) can change across rebuilds,
+// simulating HomeScreen._addChannel appending to _chatStore.channels.
+Widget _addChannelHarness(
+  ValueNotifier<int> selected,
+  ValueNotifier<List<String>> tabs,
+) {
+  return MaterialApp(
+    home: Scaffold(
+      body: ValueListenableBuilder<List<String>>(
+        valueListenable: tabs,
+        builder: (_, tabList, _) => TabbedLayout(
+          key: const Key('tl'),
+          tabs: tabList,
+          selectedIndex: selected.value,
+          focusOnHalfDrag: true,
+          onFocusChanged: (i) => selected.value = i,
+          onSelectedIndexChanged: (i) => selected.value = i,
+          pageBuilder: (_, i) => Container(
+            key: Key('page-$i'),
+            child: Center(child: Text(tabList[i])),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -278,5 +305,84 @@ void main() {
         expect(_pageDx(tester, 1).abs(), lessThan(2.0));
       });
     }
+  });
+
+  group('TabbedLayout add channel', () {
+    // Regression: adding a channel must land on it AND scroll the tab strip to
+    // reveal it, even when the pager is already parked on the target (initialPage
+    // honored) so no page-scroll notification fires to drive the strip.
+    testWidgets(
+      'adding a channel reveals and lands on the new last tab',
+      (WidgetTester tester) async {
+        final selected = ValueNotifier<int>(0);
+        final tabs = ValueNotifier<List<String>>(['a', 'b']);
+        await tester.pumpWidget(_addChannelHarness(selected, tabs));
+        await tester.pumpAndSettle();
+
+        // Append channel c and select it (index 2), as _addChannel does.
+        tabs.value = ['a', 'b', 'c'];
+        selected.value = 2;
+        await tester.pump();
+        await tester.pumpAndSettle();
+
+        // The pager actually lands on the new channel (not one short).
+        expect(_pageDx(tester, 2).abs(), lessThan(2.0));
+        // The tab strip scrolls to reveal the new tab (on-screen, not past the
+        // right edge in its own scroller).
+        final tabC = find.descendant(
+          of: find.byType(TabBar),
+          matching: find.text('c'),
+        );
+        expect(tabC, findsOneWidget);
+        expect(tabC.hitTestable(), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'adding a channel off the right edge still selects the right channel',
+      (WidgetTester tester) async {
+        final selected = ValueNotifier<int>(0);
+        final tabs = ValueNotifier<List<String>>(
+          ['a', 'b', 'c', 'd', 'e', 'f', 'g'],
+        );
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: ValueListenableBuilder<List<String>>(
+                valueListenable: tabs,
+                builder: (_, tabList, _) => TabbedLayout(
+                  key: const Key('tl'),
+                  tabs: tabList,
+                  selectedIndex: selected.value,
+                  focusOnHalfDrag: true,
+                  onFocusChanged: (i) => selected.value = i,
+                  onSelectedIndexChanged: (i) => selected.value = i,
+                  pageBuilder: (_, i) => Container(
+                    key: Key('page-$i'),
+                    child: Center(child: Text(tabList[i])),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // Add channel h far off the current viewport and select it.
+        tabs.value = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+        selected.value = 7;
+        await tester.pump();
+        await tester.pumpAndSettle();
+
+        // The pager actually lands on the new channel (not one short).
+        expect(_pageDx(tester, 7).abs(), lessThan(2.0));
+        final tabH = find.descendant(
+          of: find.byType(TabBar),
+          matching: find.text('h'),
+        );
+        expect(tabH, findsOneWidget);
+        expect(tabH.hitTestable(), findsOneWidget);
+      },
+    );
   });
 }

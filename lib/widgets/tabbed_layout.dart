@@ -164,17 +164,26 @@ class TabbedLayoutState extends State<TabbedLayout>
   void _initControllers() {
     final len = widget.tabs.length;
     _tabLength = len;
-    _pageController?.dispose();
-    _pageController = null;
     _tabController?.dispose();
     _tabController = null;
-    if (len == 0) return;
+    if (len == 0) {
+      _pageController?.dispose();
+      _pageController = null;
+      return;
+    }
     final idx = widget.selectedIndex.clamp(0, len - 1);
     _lastReportedIndex = idx;
     _programmaticTarget = null;
     _deferredProgrammaticIndex = null;
     _pointerDragging = false;
-    _pageController = PageController(initialPage: idx);
+    // The PageController is created once and kept across channel-count changes.
+    // A swap (dispose + new controller) makes Flutter reuse the surviving
+    // ScrollPosition, which keeps the OLD maxScrollExtent from the previous tab
+    // count; animateToPage(newIndex) then clamps to newIndex-1 and the pager
+    // stops one channel short of the added one. Keeping the controller attached
+    // lets the position recompute its extent against the new children. Only the
+    // TabController needs recreating, since it carries the tab count.
+    _pageController ??= PageController(initialPage: idx);
     _tabController = TabController(length: len, vsync: this, initialIndex: idx);
     // initialPage only applies when the controller first attaches; on a
     // controller swap the surviving scroll position keeps its old pixels, so
@@ -186,6 +195,13 @@ class TabbedLayoutState extends State<TabbedLayout>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _goTo(idx);
+      // The page reaches idx via _goTo, but the scrollable tab strip only
+      // auto-scrolls to the selected tab on an index change/animation, and a
+      // controller swap sets initialIndex without firing that. When the page
+      // is already parked on idx (initialPage honored) _goTo early-returns and
+      // no scroll notification fires, so the new tab stays off-screen. Drive
+      // the strip directly so it always reveals the added channel.
+      _tabController?.animateTo(idx);
     });
   }
 
@@ -295,7 +311,24 @@ class TabbedLayoutState extends State<TabbedLayout>
       return;
     }
     _programmaticTarget = index;
-    pc?.animateToPage(index, duration: _jumpDuration, curve: Curves.ease);
+    // Lazy PageView only lays out pages within the current maxScrollExtent, so
+    // after a channel is appended the extent is stale (still the old tab count)
+    // and animateToPage would clamp to newIndex-1, parking one channel short of
+    // the added one. forcePixels sets pixels without clamping, which forces the
+    // viewport to materialize the new page and recompute its extent.
+    final vw = pc!.position.viewportDimension;
+    final target = index * vw;
+    if (target > pc.position.maxScrollExtent) {
+      // ignore: invalid_use_of_protected_member
+      pc.position.forcePixels(target);
+      _programmaticTarget = null;
+      if (_lastReportedIndex != index) {
+        _lastReportedIndex = index;
+        widget.onSelectedIndexChanged(index);
+      }
+      return;
+    }
+    pc.animateToPage(index, duration: _jumpDuration, curve: Curves.ease);
   }
 
   void _onTabTap(int index) {
