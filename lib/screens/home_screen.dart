@@ -977,7 +977,7 @@ class _HomeScreenState extends State<HomeScreen>
 
     final text = _messageController.text;
     final cursor = _messageController.selection.baseOffset;
-    final word = getCurrentWord(text, cursor);
+    final word = getCurrentWord(text, cursor, extendRight: false);
     final isCommand = word.text.startsWith('/');
     var filterWord = word.text;
     if (isCommand) {
@@ -1042,7 +1042,11 @@ class _HomeScreenState extends State<HomeScreen>
 
     final textBefore = _messageController.text;
     final cursorBefore = _messageController.selection.baseOffset;
-    final wordBefore = getCurrentWord(textBefore, cursorBefore);
+    final wordBefore = getCurrentWord(
+      textBefore,
+      cursorBefore,
+      extendRight: false,
+    );
 
     if (suggestion is UserSuggestion) {
       if (wordBefore.text.startsWith('@')) {
@@ -1050,10 +1054,11 @@ class _HomeScreenState extends State<HomeScreen>
       }
     }
 
-    final trailingSpace =
-        wordBefore.end < textBefore.length && textBefore[wordBefore.end] == ' '
-        ? ''
-        : ' ';
+    final trailingSpace = wordBefore.end >= textBefore.length
+        ? ' '
+        : (textBefore[wordBefore.end] == ' '
+            ? ''
+            : '');
 
     _lastAutoUndo = (
       start: wordBefore.start,
@@ -1061,7 +1066,11 @@ class _HomeScreenState extends State<HomeScreen>
       replacementText: replacement + trailingSpace,
     );
 
-    replaceCurrentWord(_messageController, replacement);
+    replaceCurrentWord(
+      _messageController,
+      replacement,
+      extendRight: false,
+    );
 
     final replEnd =
         wordBefore.start + replacement.length + trailingSpace.length;

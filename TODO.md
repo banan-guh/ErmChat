@@ -29,6 +29,7 @@
 - [-] **Emotes aren't rendered as text** - when emotes aren't loaded yet, show the emote as text first (0-width not shown as text unless overlapping something), then swap in the image when loaded. Not high-priority but would be nice to fix. (SKIPPED)
 - [-] **Invalid argument(s): string is not well-formed UTF-16** - I believe it's a problem with specific characters in the chat messages. Not a crash btw.
 - [+] **EventSub emote fragment false-match** - `twitch_eventsub.dart` fragment position parsing used `indexOf` substring search which could misfire when a fragment's text appeared earlier in the message as a substring. Replaced with a running cursor (fragments arrive in order and reconstruct the message). Observed symptom: emote (`vedalSurprise`) rendering as a shorter garbled name (`vedalS`) with leftover text spilling out. Cannot confirm the cursor logic resolves that exact case - if it recurs, add raw fragment payload logging.
+- [ ] **Emote errors don't retry** - failed decode/load shows `Icons.broken_image` or stuck band until rebuild. Need to add bounded auto-retry in `_EmoteImageCompleter._load`.
 - [+] **Add support for twitch widgets** - e.g. hype train, subs, polls
 
 ## Research / Open Ends
@@ -71,3 +72,4 @@
 - borders flicker white when tabbing in
 - size emote menu better
 - dedup spaces in reply string
+- style bug, add stretch for tab bar channels

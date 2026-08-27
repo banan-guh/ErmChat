@@ -13,26 +13,38 @@ class CurrentWord {
   });
 }
 
-CurrentWord getCurrentWord(String text, int cursorOffset) {
+CurrentWord getCurrentWord(
+  String text,
+  int cursorOffset, {
+  bool extendRight = true,
+}) {
   final safeOffset = cursorOffset.clamp(0, text.length);
   int start = safeOffset;
   while (start > 0 && text[start - 1] != ' ') {
     start--;
   }
   int end = safeOffset;
-  while (end < text.length && text[end] != ' ') {
-    end++;
+  if (extendRight) {
+    while (end < text.length && text[end] != ' ') {
+      end++;
+    }
   }
   return CurrentWord(start: start, end: end, text: text.substring(start, end));
 }
 
-void replaceCurrentWord(TextEditingController controller, String replacement) {
+void replaceCurrentWord(
+  TextEditingController controller,
+  String replacement, {
+  bool extendRight = true,
+}) {
   final text = controller.text;
   final cursor = controller.selection.baseOffset.clamp(0, text.length);
-  final word = getCurrentWord(text, cursor);
-  final trailingSpace = word.end < text.length && text[word.end] == ' '
-      ? ''
-      : ' ';
+  final word = getCurrentWord(text, cursor, extendRight: extendRight);
+  final trailingSpace = word.end >= text.length
+      ? ' '
+      : (text[word.end] == ' '
+          ? ''
+          : (extendRight ? ' ' : ''));
   final newText =
       '${text.substring(0, word.start)}$replacement$trailingSpace${text.substring(word.end)}';
   controller.text = newText;
