@@ -10,6 +10,7 @@ import '../models/twitch_message.dart';
 import '../services/twitch_api.dart';
 import '../services/twitch_auth.dart';
 import '../services/twitch_eventsub.dart';
+import '../util/duration_format.dart';
 import '../services/join_rate_limiter.dart';
 import '../services/twitch_irc.dart';
 import '../services/command_macros.dart';
@@ -2242,13 +2243,11 @@ class _HomeScreenState extends State<HomeScreen>
       return;
     }
 
-    // Local send-gates: Twitch would reject these anyway, so just hold the
-    // message back (before clearing the box). The grace-padded countdowns
-    // keep this open slightly longer than the raw windows on purpose.
-    if (_chatConn.remainingSelfTimeout(channel) != null ||
-        _chatConn.remainingSlowCooldown(channel) != null) {
-      return;
-    }
+    // Send gates are soft: the countdown is shown as a hint in the input box
+    // (_cooldownLabel) but the message is never held back - Twitch enforces
+    // the real block, and a successful echo heals any stale self-timeout gate
+    // (see ChatIngestion.onOwnIrcMessage). A rejection NOTICE just re-surfaces
+    // the countdown.
 
     _lastSentText = text;
     _messageController.clear();
@@ -3063,9 +3062,9 @@ class _HomeScreenState extends State<HomeScreen>
     final channel = _selectedChannel;
     if (channel == null || !_chatStore.channels.contains(channel)) return null;
     final timeout = _chatConn.remainingSelfTimeout(channel);
-    if (timeout != null) return 'Timed out: ${timeout}s';
+    if (timeout != null) return 'Timed out: ${formatSeconds(timeout)}';
     final slow = _chatConn.remainingSlowCooldown(channel);
-    if (slow != null) return 'Slow mode: ${slow}s';
+    if (slow != null) return 'Slow mode: ${formatSeconds(slow)}';
     return null;
   }
 

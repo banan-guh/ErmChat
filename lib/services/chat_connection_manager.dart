@@ -281,6 +281,9 @@ class ChatConnectionManager {
     onSelfTimeoutArmed: (channel, until) {
       _selfTimeoutUntil[channel] = until;
     },
+    onSelfTimeoutCleared: (channel) {
+      _selfTimeoutUntil.remove(channel);
+    },
     onSystemMessage: onSystemMessage,
     onAnalyticsMessage: onAnalyticsMessage,
     onAnalyticsModeration: onAnalyticsModeration,

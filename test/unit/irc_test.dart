@@ -3762,6 +3762,31 @@ void main() {
         conn.dispose();
       },
     );
+
+    test(
+      'a successful own-message echo heals a stale self-timeout gate',
+      () async {
+        final (conn, irc) = await makeConn();
+
+        irc.handleLine(
+          '@ban-duration=600 :tmi.twitch.tv CLEARCHAT #test :viewer',
+        );
+        await Future<void>.delayed(Duration.zero);
+        expect(conn.remainingSelfTimeout('test'), isNotNull);
+
+        // Twitch echoes our own PRIVMSG back, proving the send was accepted
+        // and the timeout was already lifted - the gate must clear so the
+        // input box stops showing a (now false) countdown.
+        conn.ircRead.emitOwnMessage(
+          parseIrcMessage(
+            ':viewer!viewer@viewer.tmi.twitch.tv PRIVMSG #test :hello',
+          )!,
+        );
+        await Future<void>.delayed(Duration.zero);
+        expect(conn.remainingSelfTimeout('test'), isNull);
+        conn.dispose();
+      },
+    );
   });
 
   group('reconnectIfNecessary', () {

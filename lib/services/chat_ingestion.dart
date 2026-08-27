@@ -62,6 +62,7 @@ class ChatIngestion {
     this.getSharedChatMode,
     required this.isModerationActive,
     required this.onSelfTimeoutArmed,
+    required this.onSelfTimeoutCleared,
     required this.onSystemMessage,
     this.onAnalyticsMessage,
     this.onAnalyticsModeration,
@@ -93,6 +94,12 @@ class ChatIngestion {
 
   /// Own timeouts arm the input-box cooldown.
   final void Function(String channel, DateTime until) onSelfTimeoutArmed;
+
+  /// A successfully echoed own message proves the send was accepted; clear
+  /// any stale self-timeout gate so the input box stops showing a countdown
+  /// for a timeout Twitch already lifted (non-mods get no untimeout signal,
+  /// so this echo is the only reliable heal).
+  final void Function(String channel) onSelfTimeoutCleared;
 
   final void Function(
     String channel,
@@ -386,6 +393,10 @@ class ChatIngestion {
         ? ircMsg.params[0].substring(1)
         : null;
     if (channel == null || ircMsg.trailing == null) return;
+
+    // A successful echo means Twitch accepted the send - any self-timeout
+    // gate still armed was for a timeout Twitch has since lifted. Clear it.
+    onSelfTimeoutCleared(channel);
 
     final msg = parseIrcChatMessage(
       ircMsg,

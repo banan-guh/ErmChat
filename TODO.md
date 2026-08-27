@@ -3,7 +3,7 @@
 
 ## High Priority
 
-- [ ] **Check if timeout gate disappears when cancelled** - VERY important, I guess it can be circumvented with a restart
+- [x] **Timeout gate soft block + heal-on-send** - gate no longer hard-blocks; it's a hint in the input box (format "1h 1m 1s"). Cleared on account switch; healed when a sent message echoes back (proves Twitch accepted it); EventSub unban/untimeout clears it for mods. In-memory only, so a restart drops the hint - harmless since Twitch enforces the real block.
 - [ ] **Check for wasteful rebuilds** - MUCH-NEEDED optimization.
 - [ ] **Check for wasteful / unreadable code** - for other people who want to read the codebase.
 - [ ] **50-channel hard cap** - `_addChannel` (home_screen.dart:2071) joins channels with no upper bound; cap at 50 (in `constants.dart`), block new joins past the cap, and disable the "Join channel" buttons (HomeScreen + channel settings) when reached.
