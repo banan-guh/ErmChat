@@ -171,3 +171,43 @@ keys first, then batch-remove.
 `_cachedAutocompleteEmotes` is invalidated on every `_onEmotesChanged` but the
 flatten itself (`expand((e) => e)`) still creates a new list when the cache is
 missed. Fix: cache the flattened list across channels, not just per invalidation.
+
+## P16. systemBodyBuilder parseTextWithLinks leak (chat_view.dart:271)
+
+`systemBodyBuilder` calls `parseTextWithLinks` on every tile rebuild for system
+messages. System messages have no stable `messageId`, so the tile cache skips them.
+Each call creates `RegExp`, runs `linkify()`, and allocates `TapGestureRecognizer`
+objects that are never disposed. Fix: cache parsed spans on the `TwitchMessage`
+object (same `cachedSpans` pattern as regular messages). Use a
+`GestureRecognizerFactory` or dispose recognizers on span reuse.
+
+## P17. RegExp per-message in _mergeHistoryIntoChannel (home_screen.dart:871)
+
+A new `RegExp(RegExp.escape(msg.login), caseSensitive: false)` is compiled for
+every system message during history merge. RegExp compilation is expensive. Fix:
+cache compiled regexps in a `Map<String, RegExp>` (login is the key) scoped to the
+merge call, or use `String.toLowerCase()` comparison instead.
+
+## P18. addRepaintBoundaries disabled (chat_view.dart:198)
+
+`addRepaintBoundaries: false` means a paint in ANY visible message forces
+repainting ALL visible messages. The original comment says it's for performance, but
+the net effect is worse: one changed emote frame repaints the entire visible list.
+Fix: re-enable `addRepaintBoundaries: true` (or verify the manual
+`RepaintBoundary` wrapping in `_buildTile` at line 314 is sufficient and remove the
+`addRepaintBoundaries: false` override).
+
+## P19. 7TV subscriptions never unsubscribed on channel leave
+
+`subscribeEmoteSet`/`subscribeUser`/`subscribeTwitchChannel` are called in
+`chat_channel_setup.dart:476-478` but the corresponding `unsubscribe*` methods on
+`SevenTvEventClient` (lines 236-262) are never called. Stale subscriptions mean 7TV
+sends events for channels no longer viewed. Fix: call `unsubscribe*` in the channel
+removal path (`_removeChannel` in home_screen.dart).
+
+## P20. AnimatedBuilder over-scoped in widget cutout dots (chat_widget_cutout.dart:59)
+
+One `AnimatedBuilder` per page dot, all listening to the same `PageController`
+animation. Every scroll tick rebuilds ALL dots, but only 2 change. Fix: use a single
+`AnimatedBuilder` wrapping the entire `Row` of dots, or scope each dot's listener to
+only fire when its index is adjacent to the active page.

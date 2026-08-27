@@ -95,6 +95,14 @@ class TabbedLayout extends StatefulWidget {
   /// When false, stock PageScrollPhysics is used.
   final bool fastSnap;
 
+  /// When false, only the chat PageView is rendered (no channel tab strip).
+  /// Used by the hidden-chrome / fullscreen mode.
+  final bool showTabBar;
+
+  /// Overlay anchored top-right just below the tab strip (above the chat).
+  /// Used for the hidden-chrome menu arrow; stays visible in fullscreen.
+  final Widget? chromeMenu;
+
   static const double minEdgeExclusion = 20.0;
 
   const TabbedLayout({
@@ -109,6 +117,8 @@ class TabbedLayout extends StatefulWidget {
     this.focusOnHalfDrag = false,
     this.tabBarColor,
     this.fastSnap = true,
+    this.showTabBar = true,
+    this.chromeMenu,
   });
 
   @override
@@ -360,38 +370,50 @@ class TabbedLayoutState extends State<TabbedLayout>
 
     return Column(
       children: [
-        Container(
-          decoration: BoxDecoration(
-            color: widget.tabBarColor ?? theme.colorScheme.surfaceContainer,
-            border: Border(bottom: BorderSide(color: theme.dividerColor)),
-          ),
-          child: SizedBox(
-            height: 40,
-            child: TabBar(
-              controller: _tabController,
-              onTap: _onTabTap,
-              isScrollable: true,
-              tabAlignment: _resolveTabAlignment(),
-              labelPadding: const EdgeInsets.symmetric(
-                horizontal: 12,
-                vertical: 0,
-              ),
-              indicator: BoxDecoration(
-                border: Border(
-                  bottom: BorderSide(
-                    color: theme.colorScheme.primary,
-                    width: 2,
+        AnimatedSize(
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeInOut,
+          child: widget.showTabBar
+              ? Container(
+                  decoration: BoxDecoration(
+                    color:
+                        widget.tabBarColor ??
+                        theme.colorScheme.surfaceContainer,
+                    border: Border(
+                      bottom: BorderSide(color: theme.dividerColor),
+                    ),
                   ),
-                ),
-              ),
-              indicatorSize: TabBarIndicatorSize.label,
-              tabs: List.generate(tabs.length, (i) {
-                return Tab(
-                  child: widget.tabBuilder?.call(context, i) ?? Text(tabs[i]),
-                );
-              }),
-            ),
-          ),
+                  child: SizedBox(
+                    height: 40,
+                    child: TabBar(
+                      controller: _tabController,
+                      onTap: _onTabTap,
+                      isScrollable: true,
+                      tabAlignment: _resolveTabAlignment(),
+                      labelPadding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 0,
+                      ),
+                      indicator: BoxDecoration(
+                        border: Border(
+                          bottom: BorderSide(
+                            color: theme.colorScheme.primary,
+                            width: 2,
+                          ),
+                        ),
+                      ),
+                      indicatorSize: TabBarIndicatorSize.label,
+                      tabs: List.generate(tabs.length, (i) {
+                        return Tab(
+                          child:
+                              widget.tabBuilder?.call(context, i) ??
+                              Text(tabs[i]),
+                        );
+                      }),
+                    ),
+                  ),
+                )
+              : const SizedBox.shrink(),
         ),
         Expanded(
           child: Stack(
@@ -433,6 +455,14 @@ class TabbedLayoutState extends State<TabbedLayout>
                 width: rightExclude,
                 child: const EdgeExclusionZone(),
               ),
+              if (widget.chromeMenu != null)
+                Positioned(
+                  top: widget.showTabBar
+                      ? 8.0
+                      : MediaQuery.of(context).padding.top + 8,
+                  right: 8,
+                  child: widget.chromeMenu!,
+                ),
             ],
           ),
         ),

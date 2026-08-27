@@ -55,7 +55,7 @@
 - [ ] **Inline image embeds** - render image links posted in chat, off by default.
 - [ ] **Dual-pane view** - read two channels side by side.
 - [ ] **Home screen widget / Live Activity** - track last watched channel.
-- [ ] **Different mode** - Toggleable type box visibility and fullscreen.
+- [x] **Different mode** - Toggleable type box visibility and fullscreen.
 - [x] **Announcement highlight for remaining USERNOTICE types** - `standardpayforward`, `communitypayforward`, `charitydonation`, `modiversary`, etc. now highlight like the subs: every USERNOTICE label carries an accent (announcements use their banner color, everything else PRIMARY purple) via `userNoticeAccent`.
 - [+] **Injectable TwitchBadgeService** - injected like EventSubService/IrcService (TwitchChatApp/HomeScreen params).
 - [ ] **AVIF support** - Decode AVIF emotes via libavif + dav1d through the existing FFI shim (`emote_decode_avif`; the shim API is already format-agnostic, see PLAN.md). 7tv uses AVIF so if we can get this to work we can save lots.
