@@ -276,7 +276,7 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
     var rowColor = widget.surface;
     if (msg.systemAccent != null) {
       rowColor = Color.alphaBlend(
-        msg.systemAccent!.withValues(alpha: 0.4),
+        msg.systemAccent!.withValues(alpha: 0.4 * widget.highlightOpacity),
         rowColor,
       );
     }
