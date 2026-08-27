@@ -3355,10 +3355,11 @@ void main() {
       expect(find.text('h:mm a', skipOffstage: false), findsOneWidget);
     });
 
-    testWidgets('animate gifs switch greys out while the fps cap is 0', (
+    testWidgets('animate gifs switch greys out when capping and fps cap is 0', (
       WidgetTester tester,
     ) async {
       SharedPreferences.setMockInitialValues({
+        'emote_cap_fps': true,
         'animate_gifs': false,
         'emote_fps_cap': 0,
       });
@@ -3379,25 +3380,111 @@ void main() {
       expect(gifs.value, isFalse);
     });
 
-    testWidgets('animate gifs switch is editable above the fps cap floor', (
+    testWidgets(
+      'animate gifs switch is editable when capping and fps cap is above 0',
+      (WidgetTester tester) async {
+        SharedPreferences.setMockInitialValues({
+          'emote_cap_fps': true,
+          'emote_fps_cap': 30,
+        });
+
+        await tester.pumpWidget(
+          const MaterialApp(home: EmotesSettingsScreen()),
+        );
+        await tester.pump();
+        await tester.scrollUntilVisible(
+          find.widgetWithText(SwitchListTile, 'Animate gifs'),
+          120,
+          scrollable: find.byType(Scrollable).first,
+        );
+        await tester.pumpAndSettle();
+
+        final gifs = tester.widget<SwitchListTile>(
+          find.widgetWithText(SwitchListTile, 'Animate gifs'),
+        );
+        expect(gifs.onChanged, isNotNull);
+        expect(gifs.value, isTrue);
+      },
+    );
+
+    testWidgets('Cap emote frame rate defaults off and hides sub-settings', (
       WidgetTester tester,
     ) async {
-      SharedPreferences.setMockInitialValues({'emote_fps_cap': 30});
+      SharedPreferences.setMockInitialValues({});
 
       await tester.pumpWidget(const MaterialApp(home: EmotesSettingsScreen()));
       await tester.pump();
-      await tester.scrollUntilVisible(
-        find.widgetWithText(SwitchListTile, 'Animate gifs'),
-        120,
-        scrollable: find.byType(Scrollable).first,
-      );
-      await tester.pumpAndSettle();
 
+      final capTile = tester.widget<SwitchListTile>(
+        find.widgetWithText(SwitchListTile, 'Cap emote frame rate'),
+      );
+      expect(capTile.value, isFalse);
+
+      // Sub-settings are hidden (not in the tree) when the master is off.
+      expect(find.text('Emote frame rate cap: 30 fps'), findsNothing);
+      expect(
+        find.widgetWithText(SwitchListTile, 'Adaptive throttling'),
+        findsNothing,
+      );
+      expect(
+        find.widgetWithText(SwitchListTile, 'Always animate emote panel'),
+        findsNothing,
+      );
+
+      // Animate gifs is always visible and enabled when master is off.
       final gifs = tester.widget<SwitchListTile>(
         find.widgetWithText(SwitchListTile, 'Animate gifs'),
       );
       expect(gifs.onChanged, isNotNull);
       expect(gifs.value, isTrue);
+    });
+
+    testWidgets('enabling Cap emote frame rate reveals sub-settings', (
+      WidgetTester tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({'emote_cap_fps': false});
+
+      await tester.pumpWidget(const MaterialApp(home: EmotesSettingsScreen()));
+      await tester.pump();
+
+      // Sub-settings are not visible initially.
+      expect(find.text('Emote frame rate cap: 30 fps'), findsNothing);
+
+      await tester.tap(
+        find.widgetWithText(SwitchListTile, 'Cap emote frame rate'),
+      );
+      await tester.pumpAndSettle();
+
+      // Sub-settings are now visible.
+      expect(find.text('Emote frame rate cap: 30 fps'), findsOneWidget);
+      expect(
+        find.widgetWithText(SwitchListTile, 'Adaptive throttling'),
+        findsOneWidget,
+      );
+      expect(
+        find.widgetWithText(SwitchListTile, 'Always animate emote panel'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('disabling Cap emote frame rate hides sub-settings', (
+      WidgetTester tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({'emote_cap_fps': true});
+
+      await tester.pumpWidget(const MaterialApp(home: EmotesSettingsScreen()));
+      await tester.pump();
+
+      // Sub-settings visible when master is on.
+      expect(find.text('Emote frame rate cap: 30 fps'), findsOneWidget);
+
+      await tester.tap(
+        find.widgetWithText(SwitchListTile, 'Cap emote frame rate'),
+      );
+      await tester.pumpAndSettle();
+
+      // Sub-settings hidden after toggle off.
+      expect(find.text('Emote frame rate cap: 30 fps'), findsNothing);
     });
 
     testWidgets('whisper notifications default to off', (

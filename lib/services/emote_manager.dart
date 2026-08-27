@@ -913,7 +913,9 @@ class EmoteManager extends ChangeNotifier {
         // visibility toggle can rebuild offline (prefs hold no stashes).
         _hydrateStashesFromCache(cached);
         _notify();
-        if (loaded.fresh || _registryFrozen) {
+        if (loaded.fresh ||
+            _registryFrozen ||
+            _tier == EmoteFetchTier.nothing) {
           // Fresh cache: render immediately, then refresh only the Twitch
           // globals in the background on medium/high (they aren't persisted
           // there, so sub-tier status changes between opens). On low the
@@ -1021,7 +1023,7 @@ class EmoteManager extends ChangeNotifier {
       _reapplyLiveSevenTv(channel);
       _channelFetchTimes[channel] = DateTime.now();
       _notify(channel: channel);
-      if (loaded.fresh || _registryFrozen) {
+      if (loaded.fresh || _registryFrozen || _tier == EmoteFetchTier.nothing) {
         // Fresh cache: render immediately, then refresh only the Twitch
         // channel emotes in the background on medium/high (they aren't
         // persisted there, so sub-tier status changes between opens). On low

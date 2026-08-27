@@ -1325,18 +1325,46 @@ class _HomeScreenState extends State<HomeScreen>
       final loadedCacheCap =
           prefs.getInt(emoteCacheMaxPrefsKey) ?? defaultEmoteCacheMax;
       _applyCacheCap(loadedCacheCap);
-      EmoteUrlProvider.applyFpsCap(prefs.getInt('emote_fps_cap') ?? 30);
+      final capEmoteFps = prefs.getBool('emote_cap_fps') ?? false;
+      if (capEmoteFps) {
+        EmoteUrlProvider.applyFpsCap(prefs.getInt('emote_fps_cap') ?? 30);
+        EmoteUrlProvider.applyAdaptiveThrottle(
+          prefs.getBool('emote_auto_throttle') ?? true,
+        );
+        EmoteUrlProvider.alwaysAnimatePanel =
+            prefs.getBool('always_animate_emote_panel') ?? true;
+      } else {
+        // Uncapped: 60 fps is effectively native on a 60 Hz display.
+        EmoteUrlProvider.applyFpsCap(60);
+        EmoteUrlProvider.applyAdaptiveThrottle(false);
+        EmoteUrlProvider.alwaysAnimatePanel = true;
+      }
       EmoteUrlProvider.applyGifsEnabled(prefs.getBool('animate_gifs') ?? true);
-      EmoteUrlProvider.applyAdaptiveThrottle(
-        prefs.getBool('emote_auto_throttle') ?? true,
-      );
-      EmoteUrlProvider.alwaysAnimatePanel =
-          prefs.getBool('always_animate_emote_panel') ?? true;
       await _refreshConnectivity();
       _reconcileEmoteTier();
     } catch (e) {
       logDebug('_loadEmotePrefs failed: $e');
     }
+  }
+
+  /// Applies emote frame-rate provider state when the master 'Cap emote FPS'
+  /// toggle changes.  When off, emotes run uncapped (fpsCap 60 ~= native 60 Hz)
+  /// with adaptive throttling disabled; the three sub-settings are hidden.
+  void _setCapEmoteFps(bool enabled) {
+    SharedPreferences.getInstance().then((prefs) {
+      if (enabled) {
+        EmoteUrlProvider.applyFpsCap(prefs.getInt('emote_fps_cap') ?? 30);
+        EmoteUrlProvider.applyAdaptiveThrottle(
+          prefs.getBool('emote_auto_throttle') ?? true,
+        );
+        EmoteUrlProvider.alwaysAnimatePanel =
+            prefs.getBool('always_animate_emote_panel') ?? true;
+      } else {
+        EmoteUrlProvider.applyFpsCap(60);
+        EmoteUrlProvider.applyAdaptiveThrottle(false);
+        EmoteUrlProvider.alwaysAnimatePanel = true;
+      }
+    });
   }
 
   Future<void> _refreshConnectivity() async {
@@ -2350,6 +2378,7 @@ class _HomeScreenState extends State<HomeScreen>
           onAdaptiveThrottleChanged: EmoteUrlProvider.applyAdaptiveThrottle,
           onAlwaysAnimatePanelChanged: (value) =>
               EmoteUrlProvider.alwaysAnimatePanel = value,
+          onCapEmoteFpsChanged: _setCapEmoteFps,
           onCheckeredMessagesChanged: _setCheckeredMessages,
           onHighlightOpacityChanged: _setHighlightOpacity,
           onLineSeparatorChanged: _setLineSeparator,
@@ -3199,7 +3228,8 @@ class _HomeScreenState extends State<HomeScreen>
                                         IconButton(
                                           icon: const Icon(Icons.add),
                                           tooltip: 'Join channel',
-                                          onPressed: _chatStore.channels.length >=
+                                          onPressed:
+                                              _chatStore.channels.length >=
                                                   kMaxChannels
                                               ? null
                                               : _addChannelDialog,

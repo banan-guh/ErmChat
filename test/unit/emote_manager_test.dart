@@ -2955,6 +2955,30 @@ void main() {
     });
 
     test(
+      'nothing tier loads a stale (mismatched-tier) cache without fetching',
+      () async {
+        SharedPreferences.setMockInitialValues(
+          channelCache(tier: EmoteFetchTier.high.index),
+        );
+        final manager = EmoteManager(
+          fetchStagger: Duration.zero,
+          tier: EmoteFetchTier.nothing,
+        );
+
+        await manager.resolveEmotes('ch', 'b1');
+
+        // The stale cache (saved as tier 3) is still loaded and rendered;
+        // nothing tier never fetches, so the emotes must come from disk.
+        expect(manager.byCode('ch')!.byCode, contains('ChanE'));
+        // No refetch: the persisted tier tag stays at 3.
+        final data =
+            jsonDecode((await EmoteMetaStore.I.read('emotes3_ch'))!)
+                as Map<String, dynamic>;
+        expect(data['tier'], EmoteFetchTier.high.index);
+      },
+    );
+
+    test(
       'missing tier tag (pre-feature cache) is treated as matching',
       () async {
         SharedPreferences.setMockInitialValues({
