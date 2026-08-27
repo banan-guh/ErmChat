@@ -136,6 +136,12 @@ class _ChatViewState extends State<ChatView> {
                 widget.atBottomNotifier.value = true;
                 widget.onNewMessage?.call(widget.channel);
               }
+            } else if (notification is ScrollEndNotification) {
+              if (notification.metrics.pixels <= 0.5 &&
+                  !widget.atBottomNotifier.value) {
+                widget.atBottomNotifier.value = true;
+                widget.onNewMessage?.call(widget.channel);
+              }
             }
             return false;
           },

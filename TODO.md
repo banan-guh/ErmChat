@@ -67,6 +67,7 @@
 
 ## SMALL bugs
 
+- [ ] **Scroll-to-bottom FAB sticks after channel switch** - `atBottomNotifier` isn't reset when the `FlutterListView` rebuilds with a new channel key. `ScrollEndNotification` handler partially fixes it (fling settling at bottom), but switching away and back still shows a stale FAB. Need to invalidate `atBottomNotifier` on channel change upstream in `HomeScreen`.
 - borders flicker white when tabbing in
 - size emote menu better
 - dedup spaces in reply string
