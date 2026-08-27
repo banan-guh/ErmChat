@@ -2413,6 +2413,10 @@ class _HomeScreenState extends State<HomeScreen>
     void mutate() {
       iosHaptic(HapticFeedback.selectionClick);
       _selectedChannel = channel;
+      // (Re)focusing a channel re-presents the list at the bottom, so clear
+      // any stale "scrolled up" FAB state; otherwise the scroll-to-bottom
+      // button sticks after switching away and back.
+      _atBottomNotifier(channel).value = true;
       _updateCooldownLabel();
       _chatStore.channelsWithUnread.remove(channel);
       _chatStore.channelsWithUnreadMentions.remove(channel);
