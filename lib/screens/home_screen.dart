@@ -328,6 +328,12 @@ class _HomeScreenState extends State<HomeScreen>
   double? get _emoteSheetBoxHeight => _panelManager.emoteSheetBoxHeight;
   set _emoteSheetBoxHeight(double? v) => _panelManager.emoteSheetBoxHeight = v;
   static const _emoteMaxFraction = _PanelManager.emoteMaxFraction;
+
+  // When the soft keyboard is open and the top region shrinks below this
+  // height, the app bar + channel tabs collapse instantly (like dankchat) so
+  // the chat keeps enough room instead of overflowing. Tuned so portrait
+  // phones and roomy landscape tablets keep the bar.
+  static const _kKeyboardChromeCollapseBelowHeight = 300.0;
   ValueNotifier<double> get _threadSheetRatio => _panelManager.threadSheetRatio;
   ValueNotifier<double> get _mentionsSheetRatio =>
       _panelManager.mentionsSheetRatio;
@@ -2531,19 +2537,34 @@ class _HomeScreenState extends State<HomeScreen>
                   final sheetBoxHeight = fullBoxH < maxFitBoxH
                       ? fullBoxH
                       : maxFitBoxH;
+                  // Collapse the top chrome when the keyboard eats so much
+                  // vertical space that the chat would overflow. The composer
+                  // already pads itself up by the inset, so constraints already
+                  // reflect the space left; rebuild fires automatically on
+                  // inset changes.
+                  final keyboardH = MediaQuery.viewInsetsOf(context).bottom;
+                  final hideChromeForKeyboard =
+                      keyboardH > 0 &&
+                      constraints.maxHeight < _kKeyboardChromeCollapseBelowHeight;
                   return Stack(
                     clipBehavior: Clip.hardEdge,
                     children: [
                       Column(
                         children: [
                           AnimatedSize(
-                            duration: const Duration(milliseconds: 200),
+                            // Keep the AnimatedSize mounted (never insert/remove
+                            // it) so its controller never ticks during layout.
+                            // Zero duration when the keyboard crowds makes the
+                            // collapse instant; otherwise it animates back in.
+                            duration: hideChromeForKeyboard
+                                ? const Duration(milliseconds: 1)
+                                : const Duration(milliseconds: 200),
                             curve: Curves.easeInOut,
-                            child: !_isFullscreen
+                            child: !_isFullscreen && !hideChromeForKeyboard
                                 ? _buildAppBar()
                                 : const SizedBox.shrink(),
                           ),
-                          _buildChannelTabs(),
+                          _buildChannelTabs(hideChrome: hideChromeForKeyboard),
                         ],
                       ),
                       _buildThreadPanel(),
@@ -2718,7 +2739,7 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  Widget _buildChannelTabs() {
+  Widget _buildChannelTabs({required bool hideChrome}) {
     final theme = Theme.of(context);
     return Expanded(
       child: Stack(
@@ -2736,7 +2757,10 @@ class _HomeScreenState extends State<HomeScreen>
                     ),
                     onSelectedIndexChanged: _onChannelChanged,
                     onFocusChanged: _onChannelFocusChanged,
-                    showTabBar: !_isFullscreen,
+                    showTabBar: !_isFullscreen && !hideChrome,
+                    tabBarAnimationDuration: hideChrome
+                        ? const Duration(milliseconds: 1)
+                        : const Duration(milliseconds: 200),
                     chromeMenu: _buildChromeMenu(),
                     pageBuilder: (_, i) {
                       final channel = _chatStore.channels[i];

@@ -99,6 +99,10 @@ class TabbedLayout extends StatefulWidget {
   /// Used by the hidden-chrome / fullscreen mode.
   final bool showTabBar;
 
+  /// Duration of the tab-strip show/hide animation. Zeroed (instant) when the
+  /// chrome is collapsed for the keyboard so it snaps shut instead of sliding.
+  final Duration tabBarAnimationDuration;
+
   /// Overlay anchored top-right just below the tab strip (above the chat).
   /// Used for the hidden-chrome menu arrow; stays visible in fullscreen.
   final Widget? chromeMenu;
@@ -119,6 +123,7 @@ class TabbedLayout extends StatefulWidget {
     this.fastSnap = true,
     this.showTabBar = true,
     this.chromeMenu,
+    this.tabBarAnimationDuration = const Duration(milliseconds: 200),
   });
 
   @override
@@ -404,7 +409,7 @@ class TabbedLayoutState extends State<TabbedLayout>
     return Column(
       children: [
         AnimatedSize(
-          duration: const Duration(milliseconds: 200),
+          duration: widget.tabBarAnimationDuration,
           curve: Curves.easeInOut,
           child: widget.showTabBar
               ? Container(

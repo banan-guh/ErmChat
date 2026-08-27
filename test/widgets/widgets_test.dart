@@ -2585,6 +2585,36 @@ void main() {
       },
     );
 
+    testWidgets('top chrome collapses when the keyboard crowds the screen', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(const TwitchChatApp());
+      await tester.pump();
+
+      // Join a channel so the composer renders and reserves keyboard space.
+      await tester.tap(find.byIcon(Icons.add));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).last, 'xqc');
+      await tester.tap(find.text('Join', skipOffstage: false));
+      await tester.pump();
+
+      // App bar is visible by default.
+      expect(find.text('ErmChat', skipOffstage: false), findsOneWidget);
+
+      addTearDown(tester.view.reset);
+
+      // A tall keyboard shrinks the top region below the collapse threshold,
+      // so the app bar + channel tabs snap away to free room for the chat.
+      tester.view.viewInsets = FakeViewPadding(bottom: 900);
+      await tester.pumpAndSettle();
+      expect(find.text('ErmChat', skipOffstage: false), findsNothing);
+
+      // Closing the keyboard restores the bar.
+      tester.view.viewInsets = FakeViewPadding.zero;
+      await tester.pumpAndSettle();
+      expect(find.text('ErmChat', skipOffstage: false), findsOneWidget);
+    });
+
     testWidgets('permanent ban shows "user was banned" message', (
       WidgetTester tester,
     ) async {
