@@ -40,3 +40,4 @@ distribution.pem
 /apple-certs
 Fastfile
 fastlane/README.md
+upload.sh

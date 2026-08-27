@@ -1232,7 +1232,7 @@ class _HomeScreenState extends State<HomeScreen>
         return;
       }
       _threadChannel = _openThreadRoot!.channel;
-      _threadMessages = _computeThreadMessages();
+      _threadMessages..clear()..addAll(_computeThreadMessages());
       _threadMsgCount.value++;
     } else if (_activePanel == OverlayPanel.mentions) {
       _mentionsMsgCount.value++;
@@ -3532,7 +3532,7 @@ class _PanelManager {
   OverlayPanel activePanel = OverlayPanel.closed;
   bool emoteSheetOpen = false;
   TwitchMessage? openThreadRoot;
-  List<TwitchMessage> threadMessages = const [];
+  List<TwitchMessage> threadMessages = [];
   String? threadChannel;
 
   final threadSheetRatio = ValueNotifier(0.0);

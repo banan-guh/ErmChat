@@ -73,3 +73,4 @@
 - size emote menu better
 - dedup spaces in reply string
 - style bug, add stretch for tab bar channels
+- notifs don't matter if no foreground in android (ios push notifs, change if server)
