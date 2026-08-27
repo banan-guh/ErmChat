@@ -17,7 +17,13 @@ int emote_decode_webp(const uint8_t* bytes, size_t len, EmoteDecodedFrames* out)
     return 0;
   }
   opts.color_mode = MODE_RGBA;
-  opts.use_threads = 1;
+  // Keep decoding single-threaded. libwebp's threaded anim decoder can
+  // deadlock when invoked from a spawned Dart isolate (the path used on iOS,
+  // where the shim is statically linked and loaded via DynamicLibrary.process).
+  // A hung decode would never return, permanently holding a decode-gate permit
+  // and freezing every subsequent animated-WebP emote. Single-threaded matches
+  // the Android build, which never compiles libwebp with thread support.
+  opts.use_threads = 0;
 
   WebPAnimDecoder* dec = WebPAnimDecoderNew(&webp_data, &opts);
   if (dec == NULL) {
