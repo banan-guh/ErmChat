@@ -3299,22 +3299,36 @@ void main() {
       await tester.pump();
 
       final toggle = tester.widget<SwitchListTile>(
-        find.widgetWithText(SwitchListTile, 'Show timestamps'),
+        find.widgetWithText(
+          SwitchListTile,
+          'Show timestamps',
+          skipOffstage: false,
+        ),
       );
       expect(toggle.value, isTrue);
       // Interact with the toggle before scrolling down: the lazy ListView
       // disposes items that scroll out of the cache extent, so bring it into
       // view first (otherwise the tap misses and nothing is persisted).
       await tester.ensureVisible(
-        find.widgetWithText(SwitchListTile, 'Show timestamps'),
+        find.widgetWithText(
+          SwitchListTile,
+          'Show timestamps',
+          skipOffstage: false,
+        ),
       );
       await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(SwitchListTile, 'Show timestamps'));
+      await tester.tap(
+        find.widgetWithText(
+          SwitchListTile,
+          'Show timestamps',
+          skipOffstage: false,
+        ),
+      );
       await tester.pumpAndSettle();
       var prefs = await SharedPreferences.getInstance();
       expect(prefs.getBool('show_timestamps'), isFalse);
       await tester.scrollUntilVisible(
-        find.widgetWithText(ListTile, 'Timestamp format'),
+        find.widgetWithText(ListTile, 'Timestamp format', skipOffstage: false),
         120,
       );
       await tester.pumpAndSettle();

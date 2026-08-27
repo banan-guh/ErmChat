@@ -184,12 +184,25 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
     widget.onSharedChatModeChanged?.call(selected);
   }
 
+  Widget _sectionHeader(String title) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+      child: Text(
+        title,
+        style: Theme.of(
+          context,
+        ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Chat')),
       body: ListView(
         children: [
+          _sectionHeader('Messages'),
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -252,18 +265,27 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
               ),
             ],
           ),
-          ListTile(
-            leading: const Icon(Icons.notifications),
-            title: const Text('Pings'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const PingsScreen()),
-              );
+          SwitchListTile(
+            secondary: const Icon(Icons.reply),
+            title: const Text('Reply to thread root'),
+            subtitle: const Text(
+              'Always reply to the first message in a thread instead of the latest',
+            ),
+            value: _replyToRoot,
+            onChanged: (value) async {
+              final prefs = await SharedPreferences.getInstance();
+              await prefs.setBool('reply_to_thread_root', value);
+              if (mounted) setState(() => _replyToRoot = value);
+              widget.onReplyToRootChanged?.call(value);
             },
           ),
-          const _MentionFormatTile(),
+          ListTile(
+            leading: const Icon(Icons.merge_type),
+            title: const Text('Shared chat messages'),
+            subtitle: Text(_sharedChatModeLabel),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: _pickSharedChatMode,
+          ),
           ListTile(
             leading: const Icon(Icons.visibility_off),
             title: const Text('Ignores'),
@@ -276,6 +298,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
               );
             },
           ),
+          const _MentionFormatTile(),
           if (widget.twitchAuth != null)
             ListTile(
               leading: const Icon(Icons.bolt),
@@ -294,32 +317,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
                 );
               },
             ),
-          SwitchListTile(
-            secondary: const Icon(Icons.reply),
-            title: const Text('Reply to thread root'),
-            subtitle: const Text(
-              'Always reply to the first message in a thread instead of the latest',
-            ),
-            value: _replyToRoot,
-            onChanged: (value) async {
-              final prefs = await SharedPreferences.getInstance();
-              await prefs.setBool('reply_to_thread_root', value);
-              if (mounted) setState(() => _replyToRoot = value);
-              widget.onReplyToRootChanged?.call(value);
-            },
-          ),
-          SwitchListTile(
-            secondary: const Icon(Icons.sentiment_very_satisfied),
-            title: const Text('Prefer emote suggestions'),
-            subtitle: const Text('Show emotes above usernames in autocomplete'),
-            value: _preferEmotesFirst,
-            onChanged: (value) async {
-              final prefs = await SharedPreferences.getInstance();
-              await prefs.setBool('prefer_emotes_first', value);
-              if (mounted) setState(() => _preferEmotesFirst = value);
-              widget.onPreferEmotesFirstChanged?.call(value);
-            },
-          ),
+          _sectionHeader('UI'),
           SwitchListTile(
             secondary: const Icon(Icons.schedule),
             title: const Text('Show timestamps'),
@@ -331,6 +329,13 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
               if (mounted) setState(() => _showTimestamps = value);
               widget.onShowTimestampsChanged?.call(value);
             },
+          ),
+          ListTile(
+            leading: const Icon(Icons.access_time),
+            title: const Text('Timestamp format'),
+            subtitle: Text(_timestampFormat),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: _pickTimestampFormat,
           ),
           SwitchListTile(
             secondary: const Icon(Icons.format_paint),
@@ -346,32 +351,28 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
               widget.onNamePaintsChanged?.call(value);
             },
           ),
-          ListTile(
-            leading: const Icon(Icons.access_time),
-            title: const Text('Timestamp format'),
-            subtitle: Text(_timestampFormat),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: _pickTimestampFormat,
-          ),
-          ListTile(
-            leading: const Icon(Icons.merge_type),
-            title: const Text('Shared chat messages'),
-            subtitle: Text(_sharedChatModeLabel),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: _pickSharedChatMode,
-          ),
           SwitchListTile(
-            secondary: const Icon(Icons.wifi_tethering),
-            title: const Text('Keep chat alive in background'),
-            subtitle: const Text(
-              'Stays connected while the app is in the background',
-            ),
-            value: _backgroundService,
+            secondary: const Icon(Icons.sentiment_very_satisfied),
+            title: const Text('Prefer emote suggestions'),
+            subtitle: const Text('Show emotes above usernames in autocomplete'),
+            value: _preferEmotesFirst,
             onChanged: (value) async {
               final prefs = await SharedPreferences.getInstance();
-              await prefs.setBool('background_service', value);
-              if (mounted) setState(() => _backgroundService = value);
-              widget.onBackgroundServiceChanged?.call(value);
+              await prefs.setBool('prefer_emotes_first', value);
+              if (mounted) setState(() => _preferEmotesFirst = value);
+              widget.onPreferEmotesFirstChanged?.call(value);
+            },
+          ),
+          _sectionHeader('Notifications'),
+          ListTile(
+            leading: const Icon(Icons.notifications),
+            title: const Text('Pings'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const PingsScreen()),
+              );
             },
           ),
           // Mention push is Android-only (the foreground service path); the
@@ -404,6 +405,21 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
               },
             ),
           ],
+          _sectionHeader('Connection'),
+          SwitchListTile(
+            secondary: const Icon(Icons.wifi_tethering),
+            title: const Text('Keep chat alive in background'),
+            subtitle: const Text(
+              'Stays connected while the app is in the background',
+            ),
+            value: _backgroundService,
+            onChanged: (value) async {
+              final prefs = await SharedPreferences.getInstance();
+              await prefs.setBool('background_service', value);
+              if (mounted) setState(() => _backgroundService = value);
+              widget.onBackgroundServiceChanged?.call(value);
+            },
+          ),
         ],
       ),
     );
