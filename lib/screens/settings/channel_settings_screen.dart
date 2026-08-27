@@ -1,5 +1,6 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import '../../util/constants.dart';
 import '../../widgets/join_channel_dialog.dart';
 
 class ChannelSettingsScreen extends StatefulWidget {
@@ -77,7 +78,9 @@ class _ChannelSettingsScreenState extends State<ChannelSettingsScreen> {
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             child: OutlinedButton.icon(
-              onPressed: _addChannelDialog,
+              onPressed: channels.length >= kMaxChannels
+                  ? null
+                  : _addChannelDialog,
               icon: const Icon(Icons.add),
               label: const Text('Join channel'),
             ),

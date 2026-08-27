@@ -11,6 +11,7 @@ import 'package:ermchat/theme_colors.dart';
 import 'package:ermchat/screens/settings/account_screen.dart';
 import 'package:ermchat/screens/settings/about_screen.dart';
 import 'package:ermchat/screens/settings/channel_settings_screen.dart';
+import 'package:ermchat/util/constants.dart';
 import 'package:ermchat/screens/settings/chat_settings_screen.dart';
 import 'package:ermchat/screens/settings/customization_screen.dart';
 import 'package:ermchat/screens/settings/emotes_settings_screen.dart';
@@ -3275,6 +3276,40 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(addedChannel, 'newchannel');
+    });
+
+    testWidgets('Channel settings join is blocked at the channel cap', (
+      WidgetTester tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({});
+      String? addedChannel;
+      final channels = List.generate(kMaxChannels, (i) => 'ch$i');
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: ChannelSettingsScreen(
+            channelNotifier: ValueNotifier(channels),
+            onAddChannel: (ch) => addedChannel = ch,
+          ),
+        ),
+      );
+      await tester.pump();
+
+      // The Join button is the 2nd lazy-built child of the channel list; scroll
+      // the outer list down to bring it into view (a real user just scrolls).
+      await tester.scrollUntilVisible(
+        find.text('Join channel', skipOffstage: false),
+        100.0,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.pumpAndSettle();
+
+      // At the cap the Join channel button is disabled, so tapping it opens no
+      // dialog and never fires onAddChannel.
+      await tester.tap(find.text('Join channel', skipOffstage: false));
+      await tester.pumpAndSettle();
+      expect(addedChannel, isNull);
+      expect(find.text('Cancel', skipOffstage: false), findsNothing);
     });
 
     testWidgets('Chat settings timestamp toggle and format picker persist', (

@@ -24,6 +24,11 @@ const kMaxMessagesPerChannelValues = <int>[
 /// member of [kMaxMessagesPerChannelValues].
 const kMaxMessagesPerChannelDefault = 500;
 
+/// Hard ceiling on simultaneously joined channels. The join path checks this
+/// before adding; the restore path (loading saved channels) is intentionally
+/// exempt so existing users with more keep them.
+const kMaxChannels = 50;
+
 /// Default recent-messages history fetch count when nothing is persisted.
 /// Shared by the boot warm-up, HomeScreen's limit loader, and the settings
 /// screen so all three agree.

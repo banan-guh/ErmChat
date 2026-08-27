@@ -2072,6 +2072,7 @@ class _HomeScreenState extends State<HomeScreen>
   Future<void> _addChannel(String channelName) async {
     final name = channelName.trim().toLowerCase();
     if (name.isEmpty || _chatStore.channels.contains(name)) return;
+    if (_chatStore.channels.length >= kMaxChannels) return;
 
     setState(() {
       _chatStore.channels.add(name);
@@ -3177,7 +3178,10 @@ class _HomeScreenState extends State<HomeScreen>
                                         IconButton(
                                           icon: const Icon(Icons.add),
                                           tooltip: 'Join channel',
-                                          onPressed: _addChannelDialog,
+                                          onPressed: _chatStore.channels.length >=
+                                                  kMaxChannels
+                                              ? null
+                                              : _addChannelDialog,
                                         ),
                                         ListenableBuilder(
                                           listenable: _chatStore.mentionsBump,
