@@ -12,6 +12,7 @@ import 'chat_settings_screen.dart';
 import 'customization_screen.dart';
 import 'emotes_settings_screen.dart';
 import 'tools_settings_screen.dart';
+import '../../services/recent_messages.dart';
 
 class SettingsScreen extends StatelessWidget {
   final TwitchAuth twitchAuth;
@@ -24,6 +25,7 @@ class SettingsScreen extends StatelessWidget {
   final ValueChanged<bool>? onWhisperNotifyChanged;
   final ValueChanged<int>? onMaxMessagesPerChannelChanged;
   final ValueChanged<int>? onRecentMessagesChanged;
+  final ValueChanged<RecentMessagesConfig>? onRecentMessagesModeChanged;
   final ValueChanged<bool>? onReplyToRootChanged;
   final ValueChanged<bool>? onPreferEmotesFirstChanged;
   final ValueChanged<bool>? onShowTimestampsChanged;
@@ -68,6 +70,7 @@ class SettingsScreen extends StatelessWidget {
     this.onWhisperNotifyChanged,
     this.onMaxMessagesPerChannelChanged,
     this.onRecentMessagesChanged,
+    this.onRecentMessagesModeChanged,
     this.onReplyToRootChanged,
     this.onPreferEmotesFirstChanged,
     this.onShowTimestampsChanged,
@@ -200,6 +203,7 @@ class SettingsScreen extends StatelessWidget {
                     analyticsService: analyticsService,
                     channels: channels,
                     ttsController: ttsController,
+                    onRecentMessagesModeChanged: onRecentMessagesModeChanged,
                   ),
                 ),
               ),

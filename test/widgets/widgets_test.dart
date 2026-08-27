@@ -3768,6 +3768,25 @@ void main() {
       expect(find.text('Analytics'), findsNothing);
     });
 
+    testWidgets('Tools screen links to recent messages settings', (
+      WidgetTester tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({});
+      await tester.pumpWidget(const MaterialApp(home: ToolsSettingsScreen()));
+      await tester.pump();
+
+      expect(find.text('Recent messages', skipOffstage: false), findsOneWidget);
+
+      await tester.tap(find.text('Recent messages', skipOffstage: false));
+      await tester.pumpAndSettle();
+
+      // The recent-messages settings screen exposes the four provider modes.
+      expect(find.text('Auto', skipOffstage: false), findsOneWidget);
+      expect(find.text('Robotty only', skipOffstage: false), findsOneWidget);
+      expect(find.text('Zneix only', skipOffstage: false), findsOneWidget);
+      expect(find.text('Custom URL', skipOffstage: false), findsOneWidget);
+    });
+
     testWidgets(
       'Recent uploads screen shows stored uploads and copies on tap',
       (WidgetTester tester) async {

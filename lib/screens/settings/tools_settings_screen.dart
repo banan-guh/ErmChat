@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import '../../services/analytics_service.dart';
+import '../../services/recent_messages.dart';
 import '../../services/tts_controller.dart';
 import 'analytics_screen.dart';
+import 'recent_messages_settings_screen.dart';
 import 'recent_uploads_screen.dart';
 import 'uploader_settings_screen.dart';
 import 'tts_settings_screen.dart';
@@ -10,12 +12,14 @@ class ToolsSettingsScreen extends StatelessWidget {
   final AnalyticsService? analyticsService;
   final List<String>? channels;
   final TtsController? ttsController;
+  final ValueChanged<RecentMessagesConfig>? onRecentMessagesModeChanged;
 
   const ToolsSettingsScreen({
     super.key,
     this.analyticsService,
     this.channels,
     this.ttsController,
+    this.onRecentMessagesModeChanged,
   });
 
   @override
@@ -69,6 +73,20 @@ class ToolsSettingsScreen extends StatelessWidget {
                 ),
               ),
             ),
+          _buildTile(
+            context,
+            icon: Icons.history,
+            title: 'Recent messages',
+            subtitle: 'Choose the history provider',
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => RecentMessagesSettingsScreen(
+                  onChanged: onRecentMessagesModeChanged,
+                ),
+              ),
+            ),
+          ),
         ],
       ),
     );

@@ -118,8 +118,8 @@ class _HomeScreenState extends State<HomeScreen>
         connectivityService: _connectivityService,
         joinBudget: _joinBudget,
       );
-  late final _recentMessages =
-      widget.recentMessagesService ?? RecentMessagesService();
+  late RecentMessagesService _recentMessages;
+  RecentMessagesConfig _recentMessagesConfig = RecentMessagesConfig();
   late final _sevenTvClient = SevenTvEventClient(
     connectivityService: _connectivityService,
   );
@@ -404,7 +404,11 @@ class _HomeScreenState extends State<HomeScreen>
     _mentionsTabCtrl.addListener(_onMentionsTabChanged);
     _emoteSheetCtrl.addListener(_onSheetSizeChanged);
     _loadMaxMessages();
-    _ensureBlockedUsersLoaded();
+    unawaited(
+      _loadRecentMessagesConfig().then((_) {
+        if (mounted) _ensureBlockedUsersLoaded();
+      }),
+    );
     unawaited(_pingManager.load());
     unawaited(_ignoreManager.load());
     _loadNotificationSettings();
@@ -1552,6 +1556,29 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
+  Future<void> _loadRecentMessagesConfig() async {
+    if (widget.recentMessagesService != null) {
+      _recentMessages = widget.recentMessagesService!;
+      return;
+    }
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      _recentMessagesConfig = RecentMessagesConfig.fromPrefs(prefs);
+    } catch (e) {
+      logDebug('Failed to load recent-messages config: $e');
+    }
+    _recentMessages = RecentMessagesService(config: _recentMessagesConfig);
+  }
+
+  void _setRecentMessagesMode(RecentMessagesConfig config) {
+    if (widget.recentMessagesService != null) return;
+    setState(() => _recentMessagesConfig = config);
+    _recentMessages = RecentMessagesService(config: config);
+    unawaited(
+      SharedPreferences.getInstance().then((prefs) => config.toPrefs(prefs)),
+    );
+  }
+
   void _loadMaxMessages() async {
     final prefs = await SharedPreferences.getInstance();
     if (!mounted) return;
@@ -2294,6 +2321,7 @@ class _HomeScreenState extends State<HomeScreen>
           onWhisperNotifyChanged: _setWhisperNotify,
           onMaxMessagesPerChannelChanged: _setMaxMessagesPerChannel,
           onRecentMessagesChanged: _setRecentMessagesLimit,
+          onRecentMessagesModeChanged: _setRecentMessagesMode,
           onReplyToRootChanged: _setReplyToRoot,
           onPreferEmotesFirstChanged: _setPreferEmotesFirst,
           onShowTimestampsChanged: _setShowTimestamps,

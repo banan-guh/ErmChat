@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import '../util/constants.dart';
 import '../models/twitch_message.dart';
 import '../color_utils.dart';
@@ -26,6 +27,68 @@ class RecentMessagesException implements Exception {
   String toString() => message;
 }
 
+/// Which recent-messages backend(s) to query.
+enum RecentMessagesMode { auto, robotty, zneix, custom }
+
+/// Selects the recent-messages provider(s) and their failover order.
+///
+/// [auto] queries robotty then its zneix mirror and gives up once both fail;
+/// the forced modes query exactly one source (no automatic switching); [custom]
+/// queries a user-supplied base URL.
+class RecentMessagesConfig {
+  RecentMessagesConfig({this.mode = RecentMessagesMode.auto, this.customUrl})
+    : assert(
+        mode != RecentMessagesMode.custom || (customUrl?.isNotEmpty == true),
+        'custom mode requires a non-empty customUrl',
+      );
+
+  final RecentMessagesMode mode;
+
+  /// Base URL for [RecentMessagesMode.custom] (no trailing path).
+  final String? customUrl;
+
+  /// Ordered base URLs to attempt, in failover order.
+  List<String> get providers {
+    switch (mode) {
+      case RecentMessagesMode.auto:
+        return const [
+          RecentMessagesService._baseUrl,
+          RecentMessagesService._mirrorBaseUrl,
+        ];
+      case RecentMessagesMode.robotty:
+        return const [RecentMessagesService._baseUrl];
+      case RecentMessagesMode.zneix:
+        return const [RecentMessagesService._mirrorBaseUrl];
+      case RecentMessagesMode.custom:
+        return [customUrl!];
+    }
+  }
+
+  static RecentMessagesConfig fromPrefs(SharedPreferences prefs) {
+    final modeStr = prefs.getString('recent_messages_mode') ?? 'auto';
+    final mode = RecentMessagesMode.values.firstWhere(
+      (e) => e.name == modeStr,
+      orElse: () => RecentMessagesMode.auto,
+    );
+    final customUrl = prefs.getString('recent_messages_custom_url');
+    if (mode == RecentMessagesMode.custom ||
+        customUrl == null ||
+        customUrl.isEmpty) {
+      return RecentMessagesConfig();
+    }
+    return RecentMessagesConfig(mode: mode, customUrl: customUrl);
+  }
+
+  Future<void> toPrefs(SharedPreferences prefs) async {
+    await prefs.setString('recent_messages_mode', mode.name);
+    if (customUrl != null && customUrl!.isNotEmpty) {
+      await prefs.setString('recent_messages_custom_url', customUrl!);
+    } else {
+      await prefs.remove('recent_messages_custom_url');
+    }
+  }
+}
+
 class RecentMessagesService {
   static const _baseUrl =
       'https://recent-messages.robotty.de/api/v2/recent-messages';
@@ -36,10 +99,12 @@ class RecentMessagesService {
 
   /// Injectable HTTP client for tests.
   // Private named parameters cannot be initializing formals.
-  // ignore: prefer_initializing_formals
-  RecentMessagesService({http.Client? client}) : _client = client;
+  RecentMessagesService({http.Client? client, RecentMessagesConfig? config})
+    : _client = client, // ignore: prefer_initializing_formals
+      _config = config ?? RecentMessagesConfig();
 
   final http.Client? _client;
+  final RecentMessagesConfig _config;
 
   /// History fetches started at launch, keyed by lowercase channel name.
   /// Consumed once by [fetchRecentPreferWarm].
@@ -48,8 +113,12 @@ class RecentMessagesService {
   /// Starts history fetches as early as possible (app launch) so results are
   /// usually ready by the time the UI asks. Duplicate channels are ignored;
   /// failures are rethrown at consume time.
-  static void warm(Iterable<String> channels, {int limit = 100}) {
-    final service = RecentMessagesService();
+  static void warm(
+    Iterable<String> channels, {
+    int limit = 100,
+    RecentMessagesConfig? config,
+  }) {
+    final service = RecentMessagesService(config: config);
     var armed = 0;
     for (final channel in channels) {
       final key = channel.toLowerCase();
@@ -99,24 +168,38 @@ class RecentMessagesService {
     final path =
         '/${Uri.encodeComponent(channel.toLowerCase())}'
         '?limit=${limit.clamp(1, 800)}';
-    try {
-      return await _fetchFrom('$_baseUrl$path', channel);
-    } on RecentMessagesException catch (e) {
-      // Definitive per-channel answers (invalid login, excluded channel):
-      // the mirror serves the same API and will fail identically.
-      if (e.definitive) {
-        logDebug('[RecentMessages] $channel: ${e.message} (skipping mirror)');
-        rethrow;
+    final providers = _config.providers;
+    Object? lastError;
+    for (var i = 0; i < providers.length; i++) {
+      try {
+        return await _fetchFrom('${providers[i]}$path', channel);
+      } on RecentMessagesException catch (e) {
+        // Definitive per-channel answers (invalid login, excluded channel):
+        // every provider serves the same API and would fail identically.
+        if (e.definitive) {
+          logDebug(
+            '[RecentMessages] $channel: ${e.message} '
+            '(definitive - no failover)',
+          );
+          rethrow;
+        }
+        logDebug(
+          '[RecentMessages] provider ${i + 1} (${providers[i]}) '
+          'failed ($e) - trying next',
+        );
+        lastError = e;
+      } catch (e) {
+        logDebug(
+          '[RecentMessages] provider ${i + 1} (${providers[i]}) '
+          'failed ($e) - trying next',
+        );
+        lastError = e;
       }
-      logDebug('[RecentMessages] primary failed ($e) - trying mirror');
-      return _fetchFrom('$_mirrorBaseUrl$path', channel);
-    } catch (primaryError) {
-      logDebug(
-        '[RecentMessages] primary fetch failed ($primaryError) - '
-        'trying mirror',
-      );
-      return _fetchFrom('$_mirrorBaseUrl$path', channel);
     }
+    // All providers exhausted: surface the last error as-is when it was a
+    // clean RecentMessagesException, otherwise wrap so the UI stays friendly.
+    if (lastError is RecentMessagesException) throw lastError;
+    throw RecentMessagesException('Failed to load chat history');
   }
 
   Future<List<TwitchMessage>> _fetchFrom(String url, String channel) async {

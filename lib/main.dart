@@ -45,6 +45,7 @@ Future<void> _warmHistory() async {
         limit:
             prefs.getInt('recent_messages_limit') ??
             kRecentMessagesLimitDefault,
+        config: RecentMessagesConfig.fromPrefs(prefs),
       );
     }
   } catch (_) {

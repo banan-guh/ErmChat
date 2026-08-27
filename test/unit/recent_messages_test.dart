@@ -141,4 +141,79 @@ void main() {
       );
     });
   });
+
+  group('provider modes', () {
+    test('robotty only does not fall back to the mirror on 5xx', () async {
+      final calls = <Uri>[];
+      final service = RecentMessagesService(
+        config: RecentMessagesConfig(mode: RecentMessagesMode.robotty),
+        client: MockClient((request) async {
+          calls.add(request.url);
+          return http.Response('internal error', 500);
+        }),
+      );
+      await expectLater(
+        service.fetchRecent('test'),
+        throwsA(isA<RecentMessagesException>()),
+      );
+      expect(calls, hasLength(1));
+      expect(calls.single.host, contains('robotty'));
+    });
+
+    test('zneix only queries only zneix', () async {
+      final calls = <Uri>[];
+      final service = RecentMessagesService(
+        config: RecentMessagesConfig(mode: RecentMessagesMode.zneix),
+        client: MockClient((request) async {
+          calls.add(request.url);
+          if (request.url.host.contains('robotty')) {
+            fail('robotty should not be queried in zneix-only mode');
+          }
+          return okBody();
+        }),
+      );
+      final messages = await service.fetchRecent('test');
+      expect(messages.single.text, 'hello world');
+      expect(calls, hasLength(1));
+      expect(calls.single.host, contains('zneix'));
+    });
+
+    test('custom queries only the custom URL', () async {
+      final calls = <Uri>[];
+      const customUrl = 'https://custom.example.com/api/v2/recent-messages';
+      final service = RecentMessagesService(
+        config: RecentMessagesConfig(
+          mode: RecentMessagesMode.custom,
+          customUrl: customUrl,
+        ),
+        client: MockClient((request) async {
+          calls.add(request.url);
+          if (!request.url.toString().startsWith(customUrl)) {
+            fail('only the custom URL should be queried');
+          }
+          return okBody();
+        }),
+      );
+      final messages = await service.fetchRecent('test');
+      expect(messages.single.text, 'hello world');
+      expect(calls, hasLength(1));
+    });
+
+    test('auto tries both providers before giving up', () async {
+      final calls = <Uri>[];
+      final service = RecentMessagesService(
+        client: MockClient((request) async {
+          calls.add(request.url);
+          return http.Response(jsonEncode({'error_code': 'boom'}), 503);
+        }),
+      );
+      await expectLater(
+        service.fetchRecent('test'),
+        throwsA(isA<RecentMessagesException>()),
+      );
+      expect(calls, hasLength(2));
+      expect(calls[0].host, contains('robotty'));
+      expect(calls[1].host, contains('zneix'));
+    });
+  });
 }
