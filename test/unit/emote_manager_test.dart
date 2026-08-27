@@ -19,6 +19,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ermchat/models/emote_fetch_tier.dart';
 import 'package:ermchat/models/generic_emote.dart';
 import 'package:ermchat/services/emote_manager.dart';
+import 'package:ermchat/services/twitch_auth.dart';
 import 'package:ermchat/services/emote_meta_store.dart';
 import 'package:ermchat/services/emote_providers/bttv_emotes.dart';
 import 'package:ermchat/services/emote_providers/ffz_emotes.dart';
@@ -2509,6 +2510,160 @@ void main() {
 
       final byChannel = manager.subscriberEmotesByChannel();
       expect(byChannel.keys, ['alpha', 'zeta']);
+    });
+
+    test(
+      'regression: distinct ownerId (unknown owner) keeps groups separate',
+      () async {
+        // The reported bug: when ownerChannel is unresolved, every sub emote
+        // collapsed into the alphabetically-first storage channel. With ownerId
+        // carried on the emote, each real owner must stay its own group.
+        SharedPreferences.setMockInitialValues({});
+        final manager = EmoteManager(fetchStagger: Duration.zero);
+        GenericEmote sub(String id, String code, String ownerId) => GenericEmote(
+          id: id,
+          code: code,
+          type: EmoteType.twitch,
+          url: 'https://example.com/$id.png',
+          scope: EmoteScope.channel,
+          tier: '1',
+          emoteType: 'subscriptions',
+          ownerId: ownerId,
+        );
+
+        // Account-wide union fanned into two open channels.
+        await manager.storeUserTwitchEmotes({
+          'a': [sub('x', 'X', 'ownerA'), sub('y', 'Y', 'ownerB')],
+          'b': [sub('x', 'X', 'ownerA'), sub('y', 'Y', 'ownerB')],
+        });
+
+        final byChannel = manager.subscriberEmotesByChannel();
+        expect(byChannel.keys, unorderedEquals(['ownerA', 'ownerB']));
+        expect(byChannel['ownerA']!.map((e) => e.code), ['X']);
+        expect(byChannel['ownerB']!.map((e) => e.code), ['Y']);
+      },
+    );
+
+    test('ownerChannel takes precedence over ownerId for grouping', () async {
+      SharedPreferences.setMockInitialValues({});
+      final manager = EmoteManager(fetchStagger: Duration.zero);
+      await manager.storeUserTwitchEmotes({
+        'a': [
+          GenericEmote(
+            id: 'x',
+            code: 'X',
+            type: EmoteType.twitch,
+            url: 'https://example.com/x.png',
+            scope: EmoteScope.channel,
+            tier: '1',
+            emoteType: 'subscriptions',
+            ownerId: 'ownerA',
+            ownerChannel: 'chanA',
+          ),
+        ],
+      });
+
+      final byChannel = manager.subscriberEmotesByChannel();
+      expect(byChannel.keys, ['chanA']);
+    });
+
+    test('ownerId round-trips through json', () {
+      final emote = GenericEmote(
+        id: 'x',
+        code: 'X',
+        type: EmoteType.twitch,
+        url: 'https://example.com/x.png',
+        ownerId: 'ownerA',
+        ownerChannel: 'chanA',
+      );
+      final restored = GenericEmote.fromJson(emote.toJson());
+      expect(restored.ownerId, 'ownerA');
+      expect(restored.ownerChannel, 'chanA');
+    });
+
+    test('loadUserEmoteSets resolves owners and groups by login', () async {
+      final auth = TwitchAuth()..accessToken = 'tok';
+      final manager = EmoteManager(
+        fetchStagger: Duration.zero,
+        fetchUserEmoteSets: (ids, {accessToken, resolution}) async => {
+          'ownerA': [
+            GenericEmote(
+              id: 'x',
+              code: 'X',
+              type: EmoteType.twitch,
+              url: 'https://example.com/x.png',
+              scope: EmoteScope.channel,
+              tier: '1',
+              emoteType: 'subscriptions',
+              ownerId: 'ownerA',
+            ),
+          ],
+        },
+        resolveOwnerLogins: (a, ids) async =>
+            {for (final id in ids) id: 'login_$id'},
+      );
+
+      // ownerA is an open channel, so it's seeded without an API call.
+      await manager.loadUserEmoteSets(['s1'], auth, {'chanA': 'ownerA'});
+      final byChannel = manager.subscriberEmotesByChannel();
+      expect(byChannel.keys, ['chanA']);
+      expect(byChannel['chanA']!.single.code, 'X');
+    });
+
+    test('reconnect heals unresolved owner labels without re-fetching',
+        () async {
+      final auth = TwitchAuth()..accessToken = 'tok';
+      var resolveCalls = 0;
+      final manager = EmoteManager(
+        fetchStagger: Duration.zero,
+        fetchUserEmoteSets: (ids, {accessToken, resolution}) async => {
+          'ownerA': [
+            GenericEmote(
+              id: 'x',
+              code: 'X',
+              type: EmoteType.twitch,
+              url: 'https://example.com/x.png',
+              scope: EmoteScope.channel,
+              tier: '1',
+              emoteType: 'subscriptions',
+              ownerId: 'ownerA',
+            ),
+          ],
+          'ownerB': [
+            GenericEmote(
+              id: 'y',
+              code: 'Y',
+              type: EmoteType.twitch,
+              url: 'https://example.com/y.png',
+              scope: EmoteScope.channel,
+              tier: '1',
+              emoteType: 'subscriptions',
+              ownerId: 'ownerB',
+            ),
+          ],
+        },
+        // First resolution fails (transient); reconnect recovers it.
+        resolveOwnerLogins: (a, ids) async {
+          resolveCalls++;
+          if (resolveCalls == 1) return {};
+          return {for (final id in ids) id: 'login_$id'};
+        },
+      );
+
+      // First connect: no channels open, resolution unavailable -> nothing stored.
+      await manager.loadUserEmoteSets(['s1', 's2'], auth, {});
+      expect(manager.subscriberEmotesByChannel(), isEmpty);
+
+      // Reconnect: channels now open (ownerA seeded, ownerB resolved via API).
+      await manager.loadUserEmoteSets(
+        [],
+        auth,
+        {'chanA': 'ownerA', 'chanB': 'ownerB'},
+      );
+      final byChannel = manager.subscriberEmotesByChannel();
+      expect(byChannel.keys, unorderedEquals(['chanA', 'chanB']));
+      expect(byChannel['chanA']!.single.code, 'X');
+      expect(byChannel['chanB']!.single.code, 'Y');
     });
   });
 

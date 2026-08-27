@@ -8,6 +8,8 @@ import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/emote_fetch_tier.dart';
 import '../models/generic_emote.dart';
+import '../services/twitch_api.dart';
+import '../services/twitch_auth.dart';
 import '../util/log.dart';
 import 'emote_cache_manager.dart';
 import 'emote_meta_store.dart';
@@ -255,7 +257,15 @@ class EmoteManager extends ChangeNotifier {
     sevenTvGlobalFetcher,
     EmoteCacheManager? cacheManager,
     EmoteMetaStore? metaStore,
-  }) : _connectivityProbe = probe,
+    Future<Map<String, String>> Function(TwitchAuth auth, List<String> ids)?
+    resolveOwnerLogins,
+    Future<Map<String, List<GenericEmote>>> Function(
+      List<String> setIds, {
+      String? accessToken,
+      EmoteResolution? resolution,
+    })?
+    fetchUserEmoteSets,
+  })  : _connectivityProbe = probe,
        _injectedCacheManager = cacheManager,
        _metaStore = metaStore ?? EmoteMetaStore.I,
        _sevenTvChannelFetcher =
@@ -265,11 +275,21 @@ class EmoteManager extends ChangeNotifier {
                  channelId,
                  resolution: resolution,
                )),
-       _sevenTvGlobalFetcher =
-           sevenTvGlobalFetcher ??
-           ((EmoteResolution resolution) =>
-               SevenTvEmoteProvider.fetchGlobal(resolution: resolution)),
-       _now = now ?? DateTime.now {
+        _sevenTvGlobalFetcher =
+            sevenTvGlobalFetcher ??
+            ((EmoteResolution resolution) =>
+                SevenTvEmoteProvider.fetchGlobal(resolution: resolution)),
+        _resolveOwnerLogins =
+            resolveOwnerLogins ?? TwitchApi().getUserLoginsByIds,
+        _fetchUserEmoteSets = fetchUserEmoteSets ??
+            ((List<String> ids,
+                    {String? accessToken, EmoteResolution? resolution}) =>
+                TwitchEmoteProvider.fetchEmoteSets(
+                  ids,
+                  accessToken: accessToken,
+                  resolution: resolution ?? EmoteResolution.high,
+                )),
+        _now = now ?? DateTime.now {
     _removeCachedFile =
         removeCachedFile ?? ((String url) => _cacheManager.removeFile(url));
     _tier = tier;
@@ -302,6 +322,37 @@ class EmoteManager extends ChangeNotifier {
   final _channelCaches = <String, ChannelEmotes>{};
   final _channelFetchTimes = <String, DateTime>{};
   final _channelTwitchEmotes = <String, List<GenericEmote>>{};
+
+  /// Resolves sub-emote owner ids to logins (default: Helix /users). Injected
+  /// for tests; the manager owns the cache so grouping never needs a parallel
+  /// map and reconnect can re-resolve without re-fetching.
+  final Future<Map<String, String>> Function(TwitchAuth auth, List<String> ids)
+  _resolveOwnerLogins;
+
+  /// Fetches emote sets by id (default: Twitch EmoteProvider). Injected for
+  /// tests so the daemon's fetch + resolve + store path is fully exercised
+  /// without network access.
+  final Future<Map<String, List<GenericEmote>>> Function(
+    List<String> setIds, {
+    String? accessToken,
+    EmoteResolution? resolution,
+  })
+  _fetchUserEmoteSets;
+
+  /// Emote-set ids already fetched via the IRC emote-sets path, so repeated
+  /// USERSTATE (per channel join / message send) doesn't refetch them. Owned
+  /// by the manager now so the daemon is the single source of fetch state.
+  final Set<String> _fetchedEmoteSetIds = {};
+
+  /// Set ids currently in flight; dropped on failure so the next event retries.
+  final Set<String> _inflightEmoteSetIds = {};
+
+  /// owner id -> login, built up across resolves and reused between reconnects.
+  final Map<String, String> _emoteOwnerLogins = {};
+
+  /// Last fetched user sub-emote sets keyed by owner id. Kept in memory so a
+  /// reconnect can re-stamp resolved logins and re-store without re-fetching.
+  final Map<String, List<GenericEmote>> _fetchedSubEmotesByOwner = {};
   final _sevenTvEmoteSetIds = <String, String>{};
   final _sevenTvUserIds = <String, String>{};
   // Last seen broadcaster id per channel, so targeted provider refetches can
@@ -455,7 +506,9 @@ class EmoteManager extends ChangeNotifier {
     // The account's sub emotes are fanned into every open channel's store, so
     // group by the emote's real owner (ownerChannel) instead of the storage
     // channel and dedup by id: each emote appears exactly once, under the
-    // channel that owns it. Unknown owners fall back to the storage channel.
+    // channel that owns it. Unknown owners fall back to ownerId (stable per
+    // owner) so a not-yet-resolved login still separates into its own group
+    // instead of collapsing into a storage channel.
     final byOwner = <String, GenericEmote>{};
     final ownerOf = <String, String>{};
     final keys = _channelTwitchEmotes.keys.toList()..sort();
@@ -469,7 +522,7 @@ class EmoteManager extends ChangeNotifier {
             : '${e.code}|${e.ownerChannel ?? channel}';
         if (byOwner.containsKey(key)) continue;
         byOwner[key] = e;
-        ownerOf[key] = e.ownerChannel ?? channel;
+        ownerOf[key] = e.ownerChannel ?? e.ownerId ?? channel;
       }
     }
     final grouped = <String, List<GenericEmote>>{};
@@ -977,6 +1030,154 @@ class EmoteManager extends ChangeNotifier {
       _channelCaches[channel] = _buildChannelMap(allEmotes);
     }
     _notify();
+  }
+
+  /// Single cohesive entry point for the account's subscriber emotes: fetches
+  /// the emote sets, resolves each owner id to a login (retryable), stamps the
+  /// identity onto every emote, fans them into the open channels, and stores.
+  /// [openChannelUserIds] is `login -> id` for currently joined channels, used
+  /// to seed owner-logins without an API call. All fetch/dedup/owner state is
+  /// owned by this daemon, so callers just forward the IRC emote-sets events.
+  Future<void> loadUserEmoteSets(
+    List<String> emoteSetIds,
+    TwitchAuth auth,
+    Map<String, String> openChannelUserIds,
+  ) async {
+    if (_tier == EmoteFetchTier.nothing) return;
+    // "0" is Twitch's global set, already loaded by preloadGlobalEmotes.
+    final newSetIds = emoteSetIds
+        .where(
+          (id) =>
+              id != '0' &&
+              !_fetchedEmoteSetIds.contains(id) &&
+              !_inflightEmoteSetIds.contains(id),
+        )
+        .toList();
+    if (newSetIds.isEmpty) {
+      // Nothing new to fetch, but a reconnect may have opened channels whose
+      // owners we can now resolve/relabel, so still try to heal existing sets.
+      await _resolveOwners(auth, openChannelUserIds);
+      await _reStoreCachedSubs(openChannelUserIds);
+      return;
+    }
+    _inflightEmoteSetIds.addAll(newSetIds);
+    try {
+      final byOwner = await _fetchUserEmoteSets(
+        newSetIds,
+        accessToken: auth.accessToken,
+        resolution: _tier.resolution!,
+      );
+      final perOwner = <String, List<GenericEmote>>{};
+      for (final entry in byOwner.entries) {
+        if (entry.key.isEmpty) continue;
+        perOwner[entry.key] = entry.value;
+        _fetchedSubEmotesByOwner[entry.key] = entry.value;
+      }
+      if (perOwner.isEmpty) {
+        logDebug(
+          'loadUserEmoteSets: ${newSetIds.length} sets fetched, no channel emotes',
+        );
+        return;
+      }
+      await _resolveOwners(auth, openChannelUserIds, ownerIds: perOwner.keys);
+      final targets = openChannelUserIds.keys.toList();
+      if (targets.isEmpty) {
+        logDebug('loadUserEmoteSets: no channel targets');
+        return;
+      }
+      final perChannel = _buildPerChannelEmotes(perOwner, targets);
+      await storeUserTwitchEmotes(perChannel);
+      _fetchedEmoteSetIds.addAll(newSetIds);
+    } catch (e) {
+      logDebug('loadUserEmoteSets failed: $e');
+    } finally {
+      // Leave successfully fetched ids marked; failed ids drop out of in-flight
+      // so the next USERSTATE/GLOBALUSERSTATE retries them.
+      _inflightEmoteSetIds.removeAll(
+        newSetIds.where((id) => !_fetchedEmoteSetIds.contains(id)),
+      );
+    }
+  }
+
+  /// Populates [_emoteOwnerLogins] for the given owners (or all cached sets):
+  /// seeds open-channel owners from [openChannelUserIds] with no API call, then
+  /// resolves any still-unknown ids via the injected resolver. Retryable, so a
+  /// reconnect that joins new channels or recovers from a transient API failure
+  /// can relabel previously-unknown owners.
+  Future<void> _resolveOwners(
+    TwitchAuth auth,
+    Map<String, String> openChannelUserIds, {
+    Iterable<String>? ownerIds,
+  }) async {
+    // Seed open-channel owners without an API call.
+    for (final entry in openChannelUserIds.entries) {
+      _emoteOwnerLogins[entry.value] = entry.key;
+    }
+    final owners = (ownerIds ?? _fetchedSubEmotesByOwner.keys)
+        .where((id) => !_emoteOwnerLogins.containsKey(id))
+        .toSet()
+        .toList();
+    if (owners.isEmpty) return;
+    try {
+      final resolved = await _resolveOwnerLogins(auth, owners);
+      _emoteOwnerLogins.addAll(resolved);
+    } catch (e) {
+      logDebug('_resolveOwners failed: $e');
+    }
+  }
+
+  /// Re-stores every cached sub-emote set into the open channels, stamping the
+  /// now-resolved ownerChannel. Used on reconnect so grouped labels self-heal
+  /// with no network fetch (the sets are kept in [_fetchedSubEmotesByOwner]).
+  Future<void> _reStoreCachedSubs(Map<String, String> openChannelUserIds) async {
+    if (_fetchedSubEmotesByOwner.isEmpty) return;
+    final targets = openChannelUserIds.keys.toList();
+    if (targets.isEmpty) return;
+    await storeUserTwitchEmotes(
+      _buildPerChannelEmotes(_fetchedSubEmotesByOwner, targets),
+    );
+  }
+
+  /// Clears per-account user-emote state (fetched sets, owner logins, cached
+  /// sets). Called on account switch so the new account's USERSTATE re-fetches
+  /// its own sub emotes instead of deduping against the previous account's ids.
+  void resetUserEmoteState() {
+    _fetchedEmoteSetIds.clear();
+    _inflightEmoteSetIds.clear();
+    _emoteOwnerLogins.clear();
+    _fetchedSubEmotesByOwner.clear();
+    _subsByChannelCache = null;
+  }
+
+  /// Builds the per-channel emote map for storage: every owner's emotes are
+  /// cloned into every open channel with [ownerId] and resolved [ownerChannel]
+  /// stamped on, so grouping can fall back to [ownerId] when a login is unknown.
+  Map<String, List<GenericEmote>> _buildPerChannelEmotes(
+    Map<String, List<GenericEmote>> perOwner,
+    List<String> targets,
+  ) {
+    final perChannel = <String, List<GenericEmote>>{};
+    for (final target in targets) {
+      perChannel[target] = <GenericEmote>[
+        for (final entry in perOwner.entries)
+          for (final e in entry.value)
+            GenericEmote(
+              id: e.id,
+              code: e.code,
+              type: e.type,
+              url: e.url,
+              url1x: e.url1x,
+              url3x: e.url3x,
+              isAnimated: e.isAnimated,
+              scope: e.scope,
+              tier: e.tier,
+              emoteType: e.emoteType,
+              ownerChannel: _emoteOwnerLogins[entry.key],
+              ownerId: entry.key,
+            ),
+      ];
+    }
+    return perChannel;
   }
 
   /// Resolves the channel's emote cache. [force] skips the persisted-cache

@@ -39,6 +39,11 @@ class GenericEmote {
   final bool isAnimated;
   final EmoteScope scope;
   final String? ownerChannel;
+
+  /// Stable broadcaster (owner) id for subscription emotes. Carried alongside
+  /// the emote so grouping never collapses when [ownerChannel] (the resolved
+  /// login) is still unknown — the manager groups by `ownerChannel ?? ownerId`.
+  final String? ownerId;
   final String? tier;
   final String? emoteType;
   final bool isZeroWidth;
@@ -64,6 +69,7 @@ class GenericEmote {
     this.isAnimated = false,
     this.scope = EmoteScope.global,
     this.ownerChannel,
+    this.ownerId,
     this.tier,
     this.emoteType,
     this.isZeroWidth = false,
@@ -83,6 +89,7 @@ class GenericEmote {
     'isAnimated': isAnimated,
     'scope': scope.name,
     'ownerChannel': ownerChannel,
+    'ownerId': ownerId,
     'tier': tier,
     'emoteType': emoteType,
     'isZeroWidth': isZeroWidth,
@@ -112,6 +119,7 @@ class GenericEmote {
       isAnimated: json['isAnimated'] as bool? ?? false,
       scope: _enumByName(EmoteScope.values, json['scope'], EmoteScope.global),
       ownerChannel: json['ownerChannel'] as String?,
+      ownerId: json['ownerId'] as String?,
       tier: json['tier'] as String?,
       emoteType: json['emoteType'] as String?,
       isZeroWidth: json['isZeroWidth'] as bool? ?? false,

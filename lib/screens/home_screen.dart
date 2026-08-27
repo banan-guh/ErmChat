@@ -27,7 +27,6 @@ import '../services/analytics_service.dart';
 import '../services/twitch_badge_service.dart';
 import '../services/third_party_badge_service.dart';
 import '../services/seven_tv_paint_service.dart';
-import '../services/emote_providers/twitch_emotes.dart';
 import '../util/log.dart';
 import '../util/constants.dart';
 import '../util/sheet_drag.dart';
@@ -256,17 +255,6 @@ class _HomeScreenState extends State<HomeScreen>
   final _scrollControllers = <String, FlutterListViewController>{};
   final _atBottomNotifiers = <String, ValueNotifier<bool>>{};
   final _refetchingChannels = <String>{};
-  // Emote set IDs already fetched via the IRC emote-sets path, so repeated
-  // USERSTATE (per channel join / message send) doesn't refetch them.
-  final _fetchedEmoteSetIds = <String>{};
-  // Emote set IDs currently being fetched. Added before the network call so
-  // a concurrent USERSTATE/GLOBALUSERSTATE doesn't double-fetch the same
-  // sets; removed on failure so a failed fetch is retried by the next event.
-  final _inflightEmoteSetIds = <String>{};
-  // Owner id -> login for sub-emote owners, resolved once per session (open
-  // channels are derived from _chatStore.channelUserIds; the rest via Helix /users).
-  final _emoteOwnerLogins = <String, String>{};
-  bool _emoteOwnerLookupDone = false;
   // Cached flattened emote list for autocomplete, rebuilt on emote set changes.
   List<GenericEmote>? _cachedAutocompleteEmotes;
 
@@ -935,6 +923,14 @@ class _HomeScreenState extends State<HomeScreen>
     for (final channel in List.of(_chatStore.channels)) {
       unawaited(_refetchHistory(channel));
     }
+    // Re-join may have opened channels whose sub-emote owners were previously
+    // unknown; heal their labels in the emote daemon (no re-fetch needed).
+    final auth = widget.twitchAuth;
+    if (auth.isConfigured) {
+      unawaited(
+        _emoteManager.loadUserEmoteSets([], auth, _chatStore.channelUserIds),
+      );
+    }
   }
 
   Future<void> _refetchHistory(String channel) async {
@@ -1255,10 +1251,7 @@ class _HomeScreenState extends State<HomeScreen>
       // old account's set IDs being deduped out), blocks are re-fetched, the
       // retroactive mention scan re-runs, and channels re-resolve emotes with
       // the new token.
-      _fetchedEmoteSetIds.clear();
-      _inflightEmoteSetIds.clear();
-      _emoteOwnerLogins.clear();
-      _emoteOwnerLookupDone = false;
+      _emoteManager.resetUserEmoteState();
       _blocksFetched = false;
       // Fail closed until the new account's block list arrives; without this
       // chat unhides immediately and the old account's list briefly filters.
@@ -1469,121 +1462,21 @@ class _HomeScreenState extends State<HomeScreen>
   // Loads the account's subscriber emotes from the IRC emote-sets tag
   // (GLOBALUSERSTATE/USERSTATE), the authoritative source of which emote sets
   // the account can use (the Helix /chat/emotes/user endpoint omits certain
-  // grants, e.g. bot accounts). USERSTATE is channel-scoped and stores the
-  // fetched emotes directly under its channel; GLOBALUSERSTATE (null channel)
-  // is the account-wide union and acts as a warm-up across open channels.
-  // Set IDs are only marked fetched after a successful fetch, so a failed
-  // fetch is retried by the next USERSTATE/GLOBALUSERSTATE.
+  // grants, e.g. bot accounts). USERSTATE is channel-scoped; GLOBALUSERSTATE
+  // (null channel) is the account-wide union. The actual fetch, owner-login
+  // resolution, and per-channel storage all live in EmoteManager (the emote
+  // daemon); this is a thin forwarder so HomeScreen stays out of emote state.
   Future<void> _loadUserEmoteSets(
     String? channel,
     List<String> emoteSetIds,
   ) async {
     final auth = widget.twitchAuth;
     if (!auth.isConfigured) return;
-    if (_emoteManager.tier == EmoteFetchTier.nothing) return;
-    // Set "0" is Twitch's global emote set: it's already loaded by
-    // preloadGlobalEmotes, so skip it here. Fetching it through this path
-    // would duplicate global emotes into every per-channel cache and mislabel
-    // them with whichever channel happens to be open.
-    final newSetIds = emoteSetIds
-        .where(
-          (id) =>
-              id != '0' &&
-              !_fetchedEmoteSetIds.contains(id) &&
-              !_inflightEmoteSetIds.contains(id),
-        )
-        .toList();
-    if (newSetIds.isEmpty) return;
-    _inflightEmoteSetIds.addAll(newSetIds);
-    try {
-      final byOwner = await TwitchEmoteProvider.fetchEmoteSets(
-        newSetIds,
-        accessToken: auth.accessToken,
-        resolution: _emoteManager.tier.resolution!,
-      );
-      // Only the account's channel-owned sets are stored per channel. The
-      // owner label is resolved from each set's owner_id to an open channel;
-      // a set owned by a channel that isn't open must not be labeled with
-      // whichever channel happens to be open (GLOBALUSERSTATE fans the union
-      // of all the account's sets across every open channel).
-      final perOwner = <String, List<GenericEmote>>{};
-      for (final entry in byOwner.entries) {
-        if (entry.key.isEmpty) continue;
-        perOwner[entry.key] = entry.value;
-      }
-      if (perOwner.isEmpty) {
-        logDebug(
-          '_loadUserEmoteSets: ${newSetIds.length} sets fetched, no channel emotes',
-        );
-        return;
-      }
-      await _ensureEmoteOwnerLogins(perOwner.keys.toList());
-      final targets = channel != null
-          ? [channel]
-          : List.of(_chatStore.channels);
-      if (targets.isEmpty) {
-        logDebug('_loadUserEmoteSets: no channel targets (channel=$channel)');
-        return;
-      }
-      final perChannel = <String, List<GenericEmote>>{};
-      for (final target in targets) {
-        perChannel[target] = <GenericEmote>[
-          for (final entry in perOwner.entries)
-            for (final e in entry.value)
-              GenericEmote(
-                id: e.id,
-                code: e.code,
-                type: e.type,
-                url: e.url,
-                url1x: e.url1x,
-                url3x: e.url3x,
-                isAnimated: e.isAnimated,
-                scope: e.scope,
-                tier: e.tier,
-                emoteType: e.emoteType,
-                ownerChannel: _emoteOwnerLogins[entry.key],
-              ),
-        ];
-      }
-      await _emoteManager.storeUserTwitchEmotes(perChannel);
-      // Mark as fetched only after a successful store, so a transiently empty
-      // or failed fetch stays retryable via the next USERSTATE/GLOBALUSERSTATE
-      // (the finally block only drops IDs that were never marked fetched).
-      _fetchedEmoteSetIds.addAll(newSetIds);
-    } catch (e) {
-      logDebug('_loadUserEmoteSets failed: $e');
-    } finally {
-      // Leave successfully fetched IDs marked; failed IDs drop out of the
-      // in-flight set so the next USERSTATE/GLOBALUSERSTATE retries them.
-      _inflightEmoteSetIds.removeAll(
-        newSetIds.where((id) => !_fetchedEmoteSetIds.contains(id)),
-      );
-    }
-  }
-
-  // Resolves sub-emote owner IDs to logins once per session: open channels
-  // map directly, anything else goes through one batched Helix /users call.
-  Future<void> _ensureEmoteOwnerLogins(List<String> ownerIds) async {
-    if (_emoteOwnerLookupDone) return;
-    _emoteOwnerLookupDone = true;
-    // Seed from the open channels (login -> id), so they need no API call.
-    for (final entry in _chatStore.channelUserIds.entries) {
-      _emoteOwnerLogins[entry.value] = entry.key;
-    }
-    final unknown = ownerIds
-        .where((id) => !_emoteOwnerLogins.containsKey(id))
-        .toSet()
-        .toList();
-    if (unknown.isEmpty) return;
-    try {
-      final resolved = await _twitchApi.getUserLoginsByIds(
-        widget.twitchAuth,
-        unknown,
-      );
-      _emoteOwnerLogins.addAll(resolved);
-    } catch (e) {
-      logDebug('_ensureEmoteOwnerLogins failed: $e');
-    }
+    await _emoteManager.loadUserEmoteSets(
+      emoteSetIds,
+      auth,
+      _chatStore.channelUserIds,
+    );
   }
 
   Future<void> _loadRecentMessagesConfig() async {

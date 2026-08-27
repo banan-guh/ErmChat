@@ -140,6 +140,7 @@ class TwitchEmoteProvider {
                       : EmoteScope.global,
                   tier: item['tier'] as String?,
                   emoteType: item['emote_type'] as String?,
+                  ownerId: ownerId,
                 ),
               );
         }
