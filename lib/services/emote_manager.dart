@@ -1906,7 +1906,8 @@ class EmoteManager extends ChangeNotifier {
           entry.key: entry.value.toJson(),
       },
     };
-    await prefs.setString(_usageKey, jsonEncode(data));
+    final encoded = await Isolate.run(() => jsonEncode(data));
+    await prefs.setString(_usageKey, encoded);
   }
 
   /// Debounced flush for high-frequency view tracking (emote menu cells,

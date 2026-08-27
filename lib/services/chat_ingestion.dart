@@ -44,6 +44,7 @@ class _BanMeta {
 /// lives behind the consulted predicates (pings, ignores, blocks) and every
 /// state law lives in the store.
 class ChatIngestion {
+  static final _spaceRe = RegExp(r'\s+');
   ChatIngestion({
     required this.irc,
     required this.ircRead,
@@ -259,7 +260,7 @@ class ChatIngestion {
     if (channelEmotes == null) return;
     final found = <GenericEmote>[];
     final seen = <String>{};
-    for (final word in msg.text.split(RegExp(r'\s+'))) {
+    for (final word in msg.text.split(_spaceRe)) {
       if (seen.contains(word)) continue;
       final emote = channelEmotes.byCode[word];
       if (emote != null) {

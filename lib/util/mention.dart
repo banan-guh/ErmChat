@@ -7,9 +7,9 @@ final _wordSplitRe = RegExp(r'[\s,;:.!?()\[\]{}<>"/\\|@#$%^&*+=~`]+');
 bool wordMatches(String text, String name) {
   if (name.isEmpty) return false;
   final lower = name.toLowerCase();
-  for (final w in text.split(_wordSplitRe)) {
-    final lowerWord = w.toLowerCase();
-    if (lowerWord == '@$lower' || lowerWord == lower) return true;
+  final lowerText = text.toLowerCase();
+  for (final w in lowerText.split(_wordSplitRe)) {
+    if (w == '@$lower' || w == lower) return true;
   }
   return false;
 }

@@ -264,15 +264,8 @@ Future<EmoteFrameData> _decodeWebp(Uint8List bytes) async {
         _compositeWebpBlend(canvas, converted, frameInfo.x, frameInfo.y);
       }
 
-      // Snapshot current canvas as this frame's output (explicit copy to avoid aliasing)
-      final frameBytes = Uint8List.fromList(canvas.toUint8List());
-      final snapshot = img.Image.fromBytes(
-        width: canvasW,
-        height: canvasH,
-        numChannels: 4,
-        bytes: frameBytes.buffer,
-      );
-      rgba.add(snapshot.toUint8List());
+      // Snapshot current canvas as this frame's output.
+      rgba.add(canvas.toUint8List());
 
       final ms = frameInfo.duration;
       durations.add(
