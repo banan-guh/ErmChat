@@ -6,6 +6,7 @@
 - [ ] **Check if timeout gate disappears when cancelled** - VERY important, I guess it can be circumvented with a restart
 - [ ] **Check for wasteful rebuilds** - MUCH-NEEDED optimization.
 - [ ] **Check for wasteful / unreadable code** - for other people who want to read the codebase.
+- [ ] **50-channel hard cap** - `_addChannel` (home_screen.dart:2071) joins channels with no upper bound; cap at 50 (in `constants.dart`), block new joins past the cap, and disable the "Join channel" buttons (HomeScreen + channel settings) when reached.
 - [x] **Token expiry handling** - expired tokens fail silently right now. Validate on startup, catch the login-failed NOTICE, prompt re-auth. Drop unused scopes while at it (%20 -> + too).
 - [+] **Third-party badges** - BTTV donor, FFZ mod/VIP/user, 7TV badges. Fetch + render next to twitch badges.
 - [+] **Emote visibility toggles** - per-provider switches in emotes settings; gates fetching + all rendering (chat, autocomplete, sheet).

@@ -7,7 +7,7 @@ import '../widgets/chat_message_tile.dart';
 import '../widgets/emote_text.dart';
 import '../widgets/message_builder.dart';
 
-class ChatView extends StatelessWidget {
+class ChatView extends StatefulWidget {
   // Per-channel tile cache bound, well above the visible viewport so tiles
   // stay cached across message insertions while truncated messages evict.
   static const int _maxCachedTiles = 300;
@@ -93,10 +93,33 @@ class ChatView extends StatelessWidget {
   });
 
   @override
+  State<ChatView> createState() => _ChatViewState();
+}
+
+class _ChatViewState extends State<ChatView> {
+  double _cachedSystemScale = 1.0;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final newScale = MediaQuery.textScalerOf(context).scale(1.0);
+    if (newScale != _cachedSystemScale) {
+      _cachedSystemScale = newScale;
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant ChatView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.chatFontScale != oldWidget.chatFontScale) {
+      setState(() {});
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final surface = Theme.of(context).colorScheme.surface;
-    final systemScale = MediaQuery.textScalerOf(context).scale(1.0);
-    final s = chatFontScale * systemScale;
+    final s = widget.chatFontScale * _cachedSystemScale;
 
     return Stack(
       clipBehavior: Clip.hardEdge,
@@ -105,13 +128,13 @@ class ChatView extends StatelessWidget {
           onNotification: (notification) {
             if (notification is ScrollUpdateNotification) {
               final scrolledUp = notification.metrics.pixels > 0.5;
-              final atBottom = atBottomNotifier.value;
+              final atBottom = widget.atBottomNotifier.value;
               if (scrolledUp && atBottom) {
-                atBottomNotifier.value = false;
-                onNewMessage?.call(channel);
+                widget.atBottomNotifier.value = false;
+                widget.onNewMessage?.call(widget.channel);
               } else if (!scrolledUp && !atBottom) {
-                atBottomNotifier.value = true;
-                onNewMessage?.call(channel);
+                widget.atBottomNotifier.value = true;
+                widget.onNewMessage?.call(widget.channel);
               }
             }
             return false;
@@ -121,22 +144,18 @@ class ChatView extends StatelessWidget {
               thickness: WidgetStatePropertyAll(0),
             ),
             child: ValueListenableBuilder<int>(
-              valueListenable: messageNotifier,
+              valueListenable: widget.messageNotifier,
               builder: (_, _, _) {
-                final msgs = messages;
+                final msgs = widget.messages;
                 if (msgs.isEmpty) {
-                  return Center(child: Text(emptyText));
+                  return Center(child: Text(widget.emptyText));
                 }
 
-                final cache = tileCache?.putIfAbsent(
-                  channel,
+                final cache = widget.tileCache?.putIfAbsent(
+                  widget.channel,
                   () => <String?, Widget>{},
                 );
 
-                // Reconciliation only needs indices for already-instantiated
-                // children (the cached tiles), so scanning stops once every
-                // cached id is located - channel buffers can be far larger
-                // than the tile cache bound, keeping this bounded per message.
                 final idToIndex = <String, int>{};
                 if (cache != null) {
                   final pending = cache.keys.whereType<String>().toSet();
@@ -148,16 +167,13 @@ class ChatView extends StatelessWidget {
                   }
                 }
 
-                // Constant gap between the newest message and the type bar
-                // (FlutterListView has no padding parameter, unlike the
-                // ListView this replaced).
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 8),
                   child: FlutterListView(
-                    key: ValueKey(channel),
-                    controller: scrollController,
+                    key: ValueKey(widget.channel),
+                    controller: widget.scrollController,
                     reverse: true,
-                    physics: physics,
+                    physics: widget.physics,
                     delegate: FlutterListViewDelegate(
                       (_, i) => _buildTile(
                         msgs,
@@ -167,7 +183,7 @@ class ChatView extends StatelessWidget {
                         surface,
                         s,
                         context,
-                        checkeredMessages,
+                        widget.checkeredMessages,
                       ),
                       childCount: msgs.length,
                       onItemKey: (i) {
@@ -176,21 +192,8 @@ class ChatView extends StatelessWidget {
                         final m = msgs[i];
                         return 'anon-${m.timestamp.microsecondsSinceEpoch}-${m.login}-${m.text.hashCode}';
                       },
-                      // Arrivals are compensated (the reader glues to the
-                      // newest message automatically) only while glued at
-                      // pixel 0; any real scroll-up past the shared 0.5px
-                      // threshold holds the reading position steady.
-                      // reverse:true already hugs short lists to the bottom
-                      // edge; no FirstItemAlign needed (it pins content to
-                      // the top instead).
-                      // TODO: merge this with the FAB flip's 0.5px
-                      // threshold above into one named constant.
                       keepPosition: true,
                       keepPositionOffset: 0.5,
-                      // Tiles own their RepaintBoundary; dropping the
-                      // automatic KeepAlive wrapper keeps every built tile an
-                      // active child of the sliver instead of parking them in
-                      // the keep-alive bucket.
                       addAutomaticKeepAlives: false,
                       addRepaintBoundaries: false,
                     ),
@@ -201,7 +204,7 @@ class ChatView extends StatelessWidget {
           ),
         ),
         ValueListenableBuilder<bool>(
-          valueListenable: atBottomNotifier,
+          valueListenable: widget.atBottomNotifier,
           builder: (_, atBottom, _) {
             return Positioned(
               right: 16,
@@ -214,11 +217,12 @@ class ChatView extends StatelessWidget {
                     ? const SizedBox.shrink()
                     : FloatingActionButton(
                         key: const ValueKey('scroll_down'),
-                        heroTag: scrollFabHeroTag ?? 'scroll_down_$channel',
+                        heroTag: widget.scrollFabHeroTag ??
+                            'scroll_down_${widget.channel}',
                         onPressed: () {
-                          atBottomNotifier.value = true;
-                          scrollController.jumpTo(0);
-                          onNewMessage?.call(channel);
+                          widget.atBottomNotifier.value = true;
+                          widget.scrollController.jumpTo(0);
+                          widget.onNewMessage?.call(widget.channel);
                         },
                         child: const Icon(Icons.keyboard_arrow_down),
                       ),
@@ -243,7 +247,7 @@ class ChatView extends StatelessWidget {
     final msg = msgs[i];
     // Mentions/whisper rows can come from several channels; badges and
     // emotes resolve against the row's own channel when it has one.
-    final tileChannel = msg.channel ?? channel;
+    final tileChannel = msg.channel ?? widget.channel;
 
     // Checkered stripes are assigned once per message and stay glued to it
     // (DankChat's approach): position-based parity re-flows on every
@@ -251,7 +255,7 @@ class ChatView extends StatelessWidget {
     // "already assigned" record; a global counter guarantees alternation.
     final cached = cache?[msg.messageId];
     if (cached != null) return cached;
-    final parity = doCheckered ? (++_checkerSeq).isEven : i.isEven;
+    final parity = doCheckered ? (++ChatView._checkerSeq).isEven : i.isEven;
 
     final Widget body;
     if (msg.isSystem) {
@@ -260,17 +264,17 @@ class ChatView extends StatelessWidget {
         channel: tileChannel,
         surface: surface,
         textScale: s,
-        showTimestamp: showTimestamp,
-        timestampFormat: timestampFormat,
-        buildBadgeSpans: messageBuilder.buildBadgeSpans,
-        buildMessageSpans: messageBuilder.buildMessageSpans,
+        showTimestamp: widget.showTimestamp,
+        timestampFormat: widget.timestampFormat,
+        buildBadgeSpans: widget.messageBuilder.buildBadgeSpans,
+        buildMessageSpans: widget.messageBuilder.buildMessageSpans,
         systemBodyBuilder: (msg, scale) => parseTextWithLinks(msg.text),
-        checkeredMessages: checkeredMessages,
-        highlightOpacity: highlightOpacity,
-        lineSeparator: lineSeparator,
+        checkeredMessages: widget.checkeredMessages,
+        highlightOpacity: widget.highlightOpacity,
+        lineSeparator: widget.lineSeparator,
         isAlternateBackground: parity,
-        fadeDeleted: fadeDeleted,
-        sharedChatMode: sharedChatMode,
+        fadeDeleted: widget.fadeDeleted,
+        sharedChatMode: widget.sharedChatMode,
       );
     } else {
       body = ChatMessageTile(
@@ -278,29 +282,29 @@ class ChatView extends StatelessWidget {
         channel: tileChannel,
         surface: surface,
         textScale: s,
-        showTimestamp: showTimestamp,
-        timestampFormat: timestampFormat,
-        buildBadgeSpans: messageBuilder.buildBadgeSpans,
-        buildMessageSpans: messageBuilder.buildMessageSpans,
+        showTimestamp: widget.showTimestamp,
+        timestampFormat: widget.timestampFormat,
+        buildBadgeSpans: widget.messageBuilder.buildBadgeSpans,
+        buildMessageSpans: widget.messageBuilder.buildMessageSpans,
         onTapUser: (login, userId) =>
-            onShowUserProfile(login, userId, displayName: msg.displayName),
-        onLongPress: onShowMessageMenu == null
+            widget.onShowUserProfile(login, userId, displayName: msg.displayName),
+        onLongPress: widget.onShowMessageMenu == null
             ? null
-            : () => onShowMessageMenu!(msg),
+            : () => widget.onShowMessageMenu!(msg),
         replyIndicator:
-            showReplyIndicators &&
-                onFindThreadRoot != null &&
-                onShowThreadView != null &&
+            widget.showReplyIndicators &&
+                widget.onFindThreadRoot != null &&
+                widget.onShowThreadView != null &&
                 msg.replyToUser != null
             ? _buildReplyIndicator(context, msg)
             : null,
-        checkeredMessages: checkeredMessages,
-        highlightOpacity: highlightOpacity,
-        lineSeparator: lineSeparator,
+        checkeredMessages: widget.checkeredMessages,
+        highlightOpacity: widget.highlightOpacity,
+        lineSeparator: widget.lineSeparator,
         isAlternateBackground: parity,
-        fadeDeleted: fadeDeleted,
-        sharedChatMode: sharedChatMode,
-        paintService: paintService,
+        fadeDeleted: widget.fadeDeleted,
+        sharedChatMode: widget.sharedChatMode,
+        paintService: widget.paintService,
       );
     }
 
@@ -310,7 +314,7 @@ class ChatView extends StatelessWidget {
     final tile = RepaintBoundary(key: _messageKey(msg), child: body);
     if (cache != null && msg.messageId != null) {
       cache[msg.messageId!] = tile;
-      if (cache.length > _maxCachedTiles) {
+      if (cache.length > ChatView._maxCachedTiles) {
         // Prefer evicting entries for messages that are no longer in the
         // list (truncated out), falling back to the oldest built entry.
         String? stale;
@@ -347,8 +351,8 @@ class ChatView extends StatelessWidget {
       padding: const EdgeInsets.only(left: 12, top: 2),
       child: InkWell(
         onTap: () {
-          final root = onFindThreadRoot?.call(msg);
-          if (root != null) onShowThreadView?.call(root);
+          final root = widget.onFindThreadRoot?.call(msg);
+          if (root != null) widget.onShowThreadView?.call(root);
         },
         child: Row(
           mainAxisSize: MainAxisSize.min,
