@@ -368,9 +368,7 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
         SwitchListTile(
           secondary: const Icon(Icons.speed),
           title: const Text('Cap emote frame rate'),
-          subtitle: const Text(
-            'Limit emote FPS for performance',
-          ),
+          subtitle: const Text('Performance boost',),
           value: _capEmoteFps,
           onChanged: (value) async {
             setState(() => _capEmoteFps = value);
@@ -430,10 +428,7 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
                     SwitchListTile(
                       secondary: const Icon(Icons.speed),
                       title: const Text('Adaptive throttling'),
-                      subtitle: const Text(
-                        'Slow animations further while many animated emotes '
-                        'are visible',
-                      ),
+                      subtitle: const Text('Lower emote FPS with many emotes'),
                       value: _adaptiveThrottle && _emoteFpsCap > 0,
                       onChanged: _emoteFpsCap == 0
                           ? null
@@ -450,10 +445,7 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
                     SwitchListTile(
                       secondary: const Icon(Icons.grid_view),
                       title: const Text('Always animate emote panel'),
-                      subtitle: const Text(
-                        'Keep emote panel previews smooth regardless of '
-                        'the frame rate cap',
-                      ),
+                      subtitle: const Text('Ignore FPS cap for emote preview'),
                       value: _alwaysAnimatePanel,
                       onChanged: (value) async {
                         final prefs = await SharedPreferences.getInstance();
@@ -474,11 +466,7 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
         SwitchListTile(
           secondary: const Icon(Icons.gif_box),
           title: const Text('Animate gifs'),
-          subtitle: Text(
-            _capEmoteFps && _emoteFpsCap == 0
-                ? 'Paused by the frame rate cap'
-                : 'Play animated emotes',
-          ),
+          subtitle: Text('Play animated emotes'),
           value: _animateGifs && (_capEmoteFps ? _emoteFpsCap > 0 : true),
           onChanged: (_capEmoteFps && _emoteFpsCap == 0)
               ? null
@@ -503,7 +491,7 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
             secondary: const Icon(Icons.visibility_off_outlined),
             title: const Text('Allow unlisted emotes'),
             subtitle: const Text(
-              'Shows 7TV emotes their owners marked unlisted.',
+              'Shows 7TV emotes marked unlisted',
             ),
             value: _allowUnlisted,
             onChanged: _onAllowUnlistedChanged,

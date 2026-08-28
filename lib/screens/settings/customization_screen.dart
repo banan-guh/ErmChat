@@ -152,7 +152,6 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
           ),
           SwitchListTile(
             title: const Text('True dark mode'),
-            subtitle: const Text('Pure black chat background'),
             value: _trueDark,
             onChanged: isDark ? _setTrueDark : null,
           ),
@@ -239,9 +238,7 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
           ),
           SwitchListTile(
             title: const Text('Checkered messages'),
-            subtitle: const Text(
-              'Separate each line with a different background brightness',
-            ),
+            subtitle: const Text('Separate each line with a different background brightness'),
             value: _checkeredMessages,
             onChanged: _setCheckeredMessages,
           ),

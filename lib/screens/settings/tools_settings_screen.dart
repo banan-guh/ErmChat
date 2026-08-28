@@ -33,7 +33,6 @@ class ToolsSettingsScreen extends StatelessWidget {
             context,
             icon: Icons.record_voice_over,
             title: 'Text-to-speech',
-            subtitle: 'Read out the active channel',
             onTap: () => Navigator.push(
               context,
               MaterialPageRoute(
@@ -78,7 +77,7 @@ class ToolsSettingsScreen extends StatelessWidget {
             context,
             icon: Icons.history,
             title: 'Recent messages',
-            subtitle: 'Choose the history provider',
+            subtitle: 'Choose provider',
             onTap: () => Navigator.push(
               context,
               MaterialPageRoute(

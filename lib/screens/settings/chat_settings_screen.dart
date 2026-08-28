@@ -289,7 +289,6 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
           ListTile(
             leading: const Icon(Icons.visibility_off),
             title: const Text('Ignores'),
-            subtitle: const Text('Hide users or rewrite keywords locally'),
             trailing: const Icon(Icons.chevron_right),
             onTap: () {
               Navigator.push(
@@ -303,9 +302,6 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
             ListTile(
               leading: const Icon(Icons.bolt),
               title: const Text('Command macros'),
-              subtitle: const Text(
-                'Custom triggers like "!so" that expand on send',
-              ),
               trailing: const Icon(Icons.chevron_right),
               onTap: () {
                 Navigator.push(
@@ -321,7 +317,6 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
           SwitchListTile(
             secondary: const Icon(Icons.schedule),
             title: const Text('Show timestamps'),
-            subtitle: const Text('Display a timestamp before every message'),
             value: _showTimestamps,
             onChanged: (value) async {
               final prefs = await SharedPreferences.getInstance();
@@ -340,9 +335,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
           SwitchListTile(
             secondary: const Icon(Icons.format_paint),
             title: const Text('7TV name paints'),
-            subtitle: const Text(
-              'Gradient username colors for 7TV subscribers',
-            ),
+            subtitle: const Text('Gradient username colors for 7TV subscribers'),
             value: _namePaints,
             onChanged: (value) async {
               final prefs = await SharedPreferences.getInstance();
@@ -354,7 +347,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
           SwitchListTile(
             secondary: const Icon(Icons.sentiment_very_satisfied),
             title: const Text('Prefer emote suggestions'),
-            subtitle: const Text('Show emotes above usernames in autocomplete'),
+            subtitle: const Text('Emote priority over usernames in autocomplete'),
             value: _preferEmotesFirst,
             onChanged: (value) async {
               final prefs = await SharedPreferences.getInstance();
@@ -381,9 +374,6 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
             SwitchListTile(
               secondary: const Icon(Icons.notifications_active),
               title: const Text('Mention notifications'),
-              subtitle: const Text(
-                'Get a notification when someone mentions you in chat',
-              ),
               value: _mentionPush,
               onChanged: (value) async {
                 final prefs = await SharedPreferences.getInstance();
@@ -395,7 +385,6 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
             SwitchListTile(
               secondary: const Icon(Icons.chat_bubble),
               title: const Text('Whisper notifications'),
-              subtitle: const Text('Notify when someone whispers you'),
               value: _whisperNotify,
               onChanged: (value) async {
                 final prefs = await SharedPreferences.getInstance();
@@ -409,9 +398,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
           SwitchListTile(
             secondary: const Icon(Icons.wifi_tethering),
             title: const Text('Keep chat alive in background'),
-            subtitle: const Text(
-              'Stays connected while the app is in the background',
-            ),
+            subtitle: const Text('Foreground notification to not reconnect every time'),
             value: _backgroundService,
             onChanged: (value) async {
               final prefs = await SharedPreferences.getInstance();

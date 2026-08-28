@@ -194,11 +194,6 @@ class _TtsSettingsScreenState extends State<TtsSettingsScreen> {
           SwitchListTile(
             secondary: const Icon(Icons.record_voice_over),
             title: const Text('Enable TTS'),
-            subtitle: Text(
-              _available
-                  ? 'Reads out messages of the active channel'
-                  : 'No TTS engine detected yet - enabling will prompt to install one',
-            ),
             value: _enabled,
             onChanged: (value) => unawaited(_setEnabled(value)),
           ),
