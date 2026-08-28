@@ -6,6 +6,8 @@ import 'package:linkify/linkify.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../util/log.dart';
 import 'inline_emote_view.dart';
+import '../services/link_whitelist.dart';
+import 'link_whitelist.dart';
 import '../models/generic_emote.dart';
 import '../models/twitch_message.dart';
 import '../services/emote_manager.dart';
@@ -24,6 +26,7 @@ class EmoteText {
     required ChannelEmotes? channelEmotes,
     void Function(List<GenericEmote>)? onEmoteTap,
     double scale = 1.0,
+    List<String>? linkWhitelist,
   }) {
     try {
       return _buildUnsafe(
@@ -32,12 +35,13 @@ class EmoteText {
         channelEmotes: channelEmotes,
         onEmoteTap: onEmoteTap,
         scale: scale,
+        linkWhitelist: linkWhitelist,
       );
     } catch (e, stack) {
       logDebug('[EmoteText.build] error: $e');
       logDebug('[EmoteText.build] text="$text"');
       logDebug('[EmoteText.build] stack=$stack');
-      return parseTextWithLinks(text);
+      return parseTextWithLinks(text, linkWhitelist: linkWhitelist);
     }
   }
 
@@ -47,9 +51,10 @@ class EmoteText {
     required ChannelEmotes? channelEmotes,
     void Function(List<GenericEmote>)? onEmoteTap,
     double scale = 1.0,
+    List<String>? linkWhitelist,
   }) {
     if (channelEmotes == null) {
-      return parseTextWithLinks(text);
+      return parseTextWithLinks(text, linkWhitelist: linkWhitelist);
     }
 
     final spans = <InlineSpan>[];
@@ -57,24 +62,39 @@ class EmoteText {
 
     final segments = _buildSegments(text, twitchPositions, byCode);
     if (segments.isEmpty) {
-      return parseTextWithLinks(text);
+      return parseTextWithLinks(text, linkWhitelist: linkWhitelist);
     }
 
     _EmoteSpanData? currentBase;
     int? currentBaseEnd;
     String? pendingSpace;
+    // Text (words + separating whitespace) is buffered and linkified as one
+    // run so a fractured link like "kappa .lol" survives whitespace tokenization
+    // and still links. The whitespace is also tracked separately in
+    // [pendingSpace] for zero-width emote overlay adjacency.
+    var buffer = '';
+
+    void flushText() {
+      if (buffer.isNotEmpty) {
+        spans.addAll(
+          parseTextWithLinks(buffer, linkWhitelist: linkWhitelist),
+        );
+        buffer = '';
+      }
+    }
 
     void flushBase() {
-      if (currentBase == null) return;
-      spans.add(
-        _buildEmoteSpan(currentBase!, onEmoteTap: onEmoteTap, scale: scale),
-      );
-      if (pendingSpace != null) {
-        spans.addAll(parseTextWithLinks(pendingSpace!));
-        pendingSpace = null;
+      // Emit the preceding emote before the trailing text run so "text, emote,
+      // text" renders in source order (the trailing text is flushed after).
+      if (currentBase != null) {
+        spans.add(
+          _buildEmoteSpan(currentBase!, onEmoteTap: onEmoteTap, scale: scale),
+        );
+        currentBase = null;
+        currentBaseEnd = null;
       }
-      currentBase = null;
-      currentBaseEnd = null;
+      flushText();
+      pendingSpace = null;
     }
 
     // Zero-width emotes overlay on the preceding base emote. Whitespace between
@@ -83,14 +103,13 @@ class EmoteText {
     for (final seg in segments) {
       if (seg is TextSegment) {
         if (seg.text.trim().isEmpty) {
+          buffer += seg.text;
           pendingSpace = (pendingSpace ?? '') + seg.text;
         } else {
-          flushBase();
-          if (pendingSpace != null) {
-            spans.addAll(parseTextWithLinks(pendingSpace!));
-            pendingSpace = null;
-          }
-          spans.addAll(parseTextWithLinks(seg.text));
+          // Don't flush here: text runs (including the whitespace that splits
+          // a fractured link like "kappa .lol") must stay buffered until an
+          // emote boundary or the end so they linkify as one unit.
+          buffer += seg.text;
         }
       } else if (seg is EmoteSegment) {
         if (seg.emote.isZeroWidth) {
@@ -104,6 +123,14 @@ class EmoteText {
           } else if (currentBase != null &&
               pendingSpace != null &&
               currentBaseEnd == seg.startIndex - pendingSpace!.length) {
+            // Consume the separating whitespace: drop it from the buffered
+            // text so it isn't rendered between the composited emotes.
+            if (buffer.endsWith(pendingSpace!)) {
+              buffer = buffer.substring(
+                0,
+                buffer.length - pendingSpace!.length,
+              );
+            }
             pendingSpace = null;
             currentBase = _EmoteSpanData(
               base: currentBase!.base,
@@ -112,19 +139,11 @@ class EmoteText {
             currentBaseEnd = seg.endIndex;
           } else {
             flushBase();
-            if (pendingSpace != null) {
-              spans.addAll(parseTextWithLinks(pendingSpace!));
-              pendingSpace = null;
-            }
             currentBase = _EmoteSpanData(base: seg.emote);
             currentBaseEnd = seg.endIndex;
           }
         } else {
           flushBase();
-          if (pendingSpace != null) {
-            spans.addAll(parseTextWithLinks(pendingSpace!));
-            pendingSpace = null;
-          }
           currentBase = _EmoteSpanData(base: seg.emote);
           currentBaseEnd = seg.endIndex;
         }
@@ -132,10 +151,6 @@ class EmoteText {
     }
 
     flushBase();
-
-    if (pendingSpace != null) {
-      spans.addAll(parseTextWithLinks(pendingSpace!));
-    }
 
     return spans;
   }
@@ -340,7 +355,10 @@ class EmoteSegment implements _Segment {
 
 final _collapseSpace = RegExp(r' {2,}');
 
-List<InlineSpan> parseTextWithLinks(String text) {
+List<InlineSpan> parseTextWithLinks(
+  String text, {
+  List<String>? linkWhitelist,
+}) {
   final collapsed = text.replaceAll(_collapseSpace, ' ');
   // Quick guard: ~99% of chat text has no URLs.
   if (!collapsed.contains('.')) return [TextSpan(text: collapsed)];
@@ -348,7 +366,20 @@ List<InlineSpan> parseTextWithLinks(String text) {
     final spans = <InlineSpan>[];
     for (final element in linkify(
       collapsed,
-      options: const LinkifyOptions(humanize: false),
+      // looseUrl lets linkify's stock matcher handle bare domains
+      // (e.g. `example.com`) and defaultToHttps fills in the scheme; the
+      // whitelist linkifier only re-joins fractured (spaced) links.
+      options: const LinkifyOptions(
+        humanize: false,
+        looseUrl: true,
+        defaultToHttps: true,
+      ),
+      linkifiers: [
+        if (LinkWhitelist.instance.enabled)
+          WhitelistLinkifier(linkWhitelist ?? const []),
+        const UrlLinkifier(),
+        const EmailLinkifier(),
+      ],
     )) {
       if (element is UrlElement) {
         spans.add(

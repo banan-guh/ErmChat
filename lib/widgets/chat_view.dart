@@ -8,6 +8,7 @@ import '../util/haptics.dart';
 import '../widgets/chat_message_tile.dart';
 import '../widgets/emote_text.dart';
 import '../widgets/message_builder.dart';
+import '../services/link_whitelist.dart';
 
 class ChatView extends StatefulWidget {
   // Per-channel tile cache bound, well above the visible viewport so tiles
@@ -66,6 +67,11 @@ class ChatView extends StatefulWidget {
   final SevenTvPaintService? paintService;
   final ScrollViewKeyboardDismissBehavior keyboardDismissBehavior;
 
+  /// Whitelisted link suffixes used to linkify bare/short domains. When null,
+  /// [messageBuilder] still carries its own whitelist; this only drives the
+  /// system-message body parser.
+  final LinkWhitelist? linkWhitelist;
+
   const ChatView({
     super.key,
     required this.channel,
@@ -94,6 +100,7 @@ class ChatView extends StatefulWidget {
     this.sharedChatMode = 'spotlight',
     this.paintService,
     this.keyboardDismissBehavior = ScrollViewKeyboardDismissBehavior.manual,
+    this.linkWhitelist,
   });
 
   @override
@@ -281,7 +288,10 @@ class _ChatViewState extends State<ChatView> {
         timestampFormat: widget.timestampFormat,
         buildBadgeSpans: widget.messageBuilder.buildBadgeSpans,
         buildMessageSpans: widget.messageBuilder.buildMessageSpans,
-        systemBodyBuilder: (msg, scale) => parseTextWithLinks(msg.text),
+        systemBodyBuilder: (msg, scale) => parseTextWithLinks(
+          msg.text,
+          linkWhitelist: widget.linkWhitelist?.entries,
+        ),
         checkeredMessages: widget.checkeredMessages,
         highlightOpacity: widget.highlightOpacity,
         lineSeparator: widget.lineSeparator,

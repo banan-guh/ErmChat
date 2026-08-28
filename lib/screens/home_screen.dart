@@ -23,6 +23,7 @@ import '../services/command_handler.dart';
 import '../services/chat_connection_manager.dart';
 import '../services/ping_manager.dart';
 import '../services/ignore_manager.dart';
+import '../services/link_whitelist.dart';
 import '../services/emote_manager.dart';
 import '../services/emote_cache_manager.dart';
 import '../services/analytics_service.dart';
@@ -98,6 +99,7 @@ class _HomeScreenState extends State<HomeScreen>
 
   late final _pingManager = PingManager.instance;
   late final _ignoreManager = IgnoreManager.instance;
+  final _linkWhitelist = LinkWhitelist.instance;
 
   late final _connectivityService =
       widget.connectivityService ?? ConnectivityService();
@@ -208,6 +210,7 @@ class _HomeScreenState extends State<HomeScreen>
     badgeService: _badgeService,
     thirdPartyBadgeService: _thirdPartyBadgeService,
     onShowEmoteSheet: _showEmoteSheet,
+    linkWhitelist: LinkWhitelist.instance,
   );
   late final _commandHandler = CommandHandler(
     twitchApi: _twitchApi,
@@ -386,6 +389,8 @@ class _HomeScreenState extends State<HomeScreen>
     );
     unawaited(_pingManager.load());
     unawaited(_ignoreManager.load());
+    unawaited(_linkWhitelist.load());
+    _linkWhitelist.addListener(_onLinkWhitelistChanged);
     _loadNotificationSettings();
     _broadcastWidgets.loadTestWidgets();
     _storeEventsSub = _chatStore.events.listen(_onStoreEvent);
@@ -1142,6 +1147,15 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
+  void _onLinkWhitelistChanged() {
+    // Re-render visible tiles so the new link-whitelist entries take effect.
+    _tileCache.clear();
+    for (final channel in List.of(_chatStore.channels)) {
+      _chatStore.touchChannel(channel);
+    }
+    if (mounted) setState(() {});
+  }
+
   void _onEmotesChanged() {
     _cachedAutocompleteEmotes = null;
     // Emote data changed: cached message spans are validated against
@@ -1557,6 +1571,7 @@ class _HomeScreenState extends State<HomeScreen>
     _sevenTvClient.dispose();
     _thirdPartyBadgeService.dispose();
     _emoteManager.removeListener(_onEmotesChanged);
+    _linkWhitelist.removeListener(_onLinkWhitelistChanged);
     _emoteManager.dispose();
     widget.twitchAuth.removeListener(_onAuthChanged);
     _messageController.dispose();
@@ -2784,6 +2799,7 @@ class _HomeScreenState extends State<HomeScreen>
                           messageNotifier: _messageNotifier(channel),
                           scrollController: _scrollCtrl(channel),
                           messageBuilder: _messageBuilder,
+                          linkWhitelist: _linkWhitelist,
                           showTimestamp: _showTimestamps,
                           timestampFormat: _timestampFormat,
                           chatFontScale: _chatFontSize / 14.0,
@@ -2999,6 +3015,7 @@ class _HomeScreenState extends State<HomeScreen>
             messageNotifier: _mentionsMsgCount,
             scrollController: _mentionsPanelScrollCtrl,
             messageBuilder: _messageBuilder,
+            linkWhitelist: _linkWhitelist,
             showTimestamp: _showTimestamps,
             timestampFormat: _timestampFormat,
             chatFontScale: _chatFontSize / 14.0,
@@ -3021,6 +3038,7 @@ class _HomeScreenState extends State<HomeScreen>
             messageNotifier: _whispersMsgCount,
             scrollController: _whispersPanelScrollCtrl,
             messageBuilder: _messageBuilder,
+            linkWhitelist: _linkWhitelist,
             showTimestamp: _showTimestamps,
             timestampFormat: _timestampFormat,
             chatFontScale: _chatFontSize / 14.0,

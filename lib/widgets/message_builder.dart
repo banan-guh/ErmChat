@@ -4,6 +4,7 @@ import '../color_utils.dart';
 import '../models/generic_emote.dart';
 import '../models/twitch_message.dart';
 import '../services/emote_manager.dart';
+import '../services/link_whitelist.dart';
 import '../services/third_party_badge_service.dart';
 import '../services/twitch_badge_service.dart';
 import '../util/log.dart';
@@ -14,20 +15,24 @@ class MessageBuilder {
   final TwitchBadgeService badgeService;
   final ThirdPartyBadgeService thirdPartyBadgeService;
   final void Function(List<GenericEmote>) onShowEmoteSheet;
+  final LinkWhitelist linkWhitelist;
 
   MessageBuilder({
     required this.emoteManager,
     required this.badgeService,
     required this.thirdPartyBadgeService,
     required this.onShowEmoteSheet,
-  });
+    LinkWhitelist? linkWhitelist,
+  }) : linkWhitelist = linkWhitelist ?? LinkWhitelist.instance;
 
   /// Composite cache key for message spans: emote data changes recompute
   /// spans, and so do late-arriving shared-chat identity lookups (the source
   /// channel login decides which emote map a mirrored message resolves
   /// against). Prime multiplier keeps the components collision-free.
   int get _spanCacheVersion =>
-      emoteManager.version * 1000003 + badgeService.version;
+      emoteManager.version * 1000003 +
+      badgeService.version +
+      linkWhitelist.entries.fold(0, (h, e) => h ^ e.hashCode * 31);
 
   List<InlineSpan> buildMessageSpans(
     TwitchMessage msg,
@@ -87,6 +92,7 @@ class MessageBuilder {
       channelEmotes: channelEmotes,
       onEmoteTap: onShowEmoteSheet,
       scale: scale,
+      linkWhitelist: linkWhitelist.entries,
     );
   }
 

@@ -3,6 +3,7 @@ import '../../services/analytics_service.dart';
 import '../../services/recent_messages.dart';
 import '../../services/tts_controller.dart';
 import 'analytics_screen.dart';
+import 'link_whitelist_screen.dart';
 import 'recent_messages_settings_screen.dart';
 import 'recent_uploads_screen.dart';
 import 'uploader_settings_screen.dart';
@@ -84,6 +85,17 @@ class ToolsSettingsScreen extends StatelessWidget {
                 builder: (_) => RecentMessagesSettingsScreen(
                   onChanged: onRecentMessagesModeChanged,
                 ),
+              ),
+            ),
+          ),
+          _buildTile(
+            context,
+            icon: Icons.link,
+            title: 'Split link whitelist',
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const LinkWhitelistSettingsScreen(),
               ),
             ),
           ),

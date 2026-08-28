@@ -3356,11 +3356,11 @@ void main() {
         twitchPositions: null,
         channelEmotes: emotes,
       );
-      // Whitespace tokenization splits into: hello, ' ', world
-      expect(spans.length, greaterThanOrEqualTo(3));
-      expect((spans[0] as TextSpan).text, 'hello');
-      expect((spans[1] as TextSpan).text, ' ');
-      expect((spans[2] as TextSpan).text, 'world');
+      // Text runs are linkified as one unit (a fractured link can span the
+      // whitespace), so the whole message is a single TextSpan here.
+      expect(spans, hasLength(1));
+      expect(spans[0], isA<TextSpan>());
+      expect((spans[0] as TextSpan).text, 'hello world');
     });
 
     test('single known emote by text match returns WidgetSpan', () {
@@ -3456,8 +3456,8 @@ void main() {
         twitchPositions: null,
         channelEmotes: emotes,
       );
-      // Kappa (WidgetSpan) + ' ' + 'check' + ' ' + url (TextSpan with blue style)
-      expect(spans.length, greaterThanOrEqualTo(5));
+      // Kappa (WidgetSpan) + ' check ' (text) + url (TextSpan with blue style)
+      expect(spans.length, greaterThanOrEqualTo(3));
       expect(spans[0], isA<WidgetSpan>());
       expect(spans.last, isA<TextSpan>());
       final urlSpan = spans.last as TextSpan;
@@ -3489,12 +3489,11 @@ void main() {
         twitchPositions: null,
         channelEmotes: emotes,
       );
-      // 'hello' breaks chain, ' ' is space, EZ is standalone
-      expect(spans.length, greaterThanOrEqualTo(3));
-      expect(spans[0], isA<TextSpan>());
-      expect((spans[0] as TextSpan).text, 'hello');
-      expect(spans[1], isA<TextSpan>());
+      // 'hello' breaks the chain, so EZ renders as a standalone WidgetSpan.
+      expect(spans.whereType<WidgetSpan>().length, 1);
       expect(spans.last, isA<WidgetSpan>());
+      final text = spans.whereType<TextSpan>().map((s) => s.text).join();
+      expect(text, contains('hello'));
     });
 
     test('base emote followed by zero-width overlay stacks', () {

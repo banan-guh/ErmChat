@@ -3,6 +3,11 @@ import 'dart:math';
 
 const httpTimeout = Duration(seconds: 10);
 
+/// Persisted list of user-whitelisted link suffixes used to rejoin and
+/// linkify fractured (spaced) domains such as `kappa .lol` that would
+/// otherwise evade a "no links" filter.
+const String kLinkWhitelistPrefKey = 'link_whitelist_v1';
+
 /// Discrete max-messages-per-channel options, log-scaled so small buffers can
 /// be fine-tuned while large buffers stay reachable: 100-500 in 100s, then
 /// 1000-5000 in 1000s. The settings slider indexes into this list; stored
