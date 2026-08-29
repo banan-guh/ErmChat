@@ -904,7 +904,7 @@ void main() {
         service.connect(username: 'user', accessToken: 'token');
         async.flushMicrotasks();
 
-        // 25 channels exceed the bucket's 10-unit capacity.
+        // 25 channels exceed the bucket's 20-channel capacity.
         for (var i = 0; i < 25; i++) {
           service.join('c$i');
         }
@@ -913,9 +913,9 @@ void main() {
         List<String> joins() =>
             channel.sent.where((l) => l.startsWith('JOIN')).toList();
 
-        // Send-cap: at most one pair per pump tick.
+        // Send-cap: at most two channels per pump tick.
         expect(joins(), hasLength(2));
-        // ...and the rest drip out at ~1 pair per 1.05s. ROOMSTATE echoes
+        // ...and the rest drip out at ~2 channels per 1.05s. ROOMSTATE echoes
         // are fed back so the rejoin sweep never pollutes the count.
         for (var step = 0; step < 60; step++) {
           fakeNow = fakeNow.add(const Duration(milliseconds: 500));
@@ -1068,7 +1068,7 @@ void main() {
   });
 
   group('shared join rate limiter', () {
-    test('a channel pair dispatches to both sockets as one unit', () {
+    test('the shared bucket paces JOINs across both sockets', () {
       fakeAsync((async) {
         var fakeNow = DateTime(2026, 1, 1);
         final budget = JoinRateLimiter(now: () => fakeNow);
@@ -1080,11 +1080,11 @@ void main() {
         read.connect(username: 'ruser', accessToken: 'token');
         async.flushMicrotasks();
 
-        // Both sockets join the same 12 channels: 12 units, each fanning
-        // out to the read/write pair together.
+        // Each socket joins its OWN 12 channels: 24 disjoint units sharing one
+        // bucket, so the cap applies to their combined JOINs (not per-socket).
         for (var i = 0; i < 12; i++) {
-          write.join('c$i');
-          read.join('c$i');
+          write.join('w$i');
+          read.join('r$i');
         }
         async.flushMicrotasks();
 
@@ -1092,16 +1092,8 @@ void main() {
             writeChannel.sent.where((l) => l.startsWith('JOIN')).length +
             readChannel.sent.where((l) => l.startsWith('JOIN')).length;
 
-        // Send-cap starts with a single pair (one command per socket).
+        // Send-cap starts with at most two channels (one shared bucket).
         expect(totalJoins(), 2, reason: 'the shared bucket caps both sockets');
-        expect(
-          writeChannel.sent.where((l) => l.startsWith('JOIN')),
-          hasLength(1),
-        );
-        expect(
-          readChannel.sent.where((l) => l.startsWith('JOIN')),
-          hasLength(1),
-        );
 
         // Echo ROOMSTATE like the real server so sweeps stay quiet.
         void confirmEchoes() {
@@ -1110,13 +1102,16 @@ void main() {
               if (line.startsWith('JOIN #')) line.substring('JOIN #'.length),
           ]) {
             writeChannel.push('@room-id=1 :tmi.twitch.tv ROOMSTATE #$ch');
+          }
+          for (final ch in [
+            for (final line in readChannel.sent)
+              if (line.startsWith('JOIN #')) line.substring('JOIN #'.length),
+          ]) {
             readChannel.push('@room-id=1 :tmi.twitch.tv ROOMSTATE #$ch');
           }
         }
 
-        confirmEchoes();
-
-        // The remaining 11 pairs drip out at ~1 pair per 1.05s.
+        // The remaining channels drip out at ~2 per 1.05s across both sockets.
         for (var step = 0; step < 30; step++) {
           fakeNow = fakeNow.add(const Duration(milliseconds: 500));
           async.elapse(const Duration(milliseconds: 500));
@@ -1134,7 +1129,6 @@ void main() {
         }
         // Sweeps may legitimately re-send a channel whose echo had not been
         // fed back yet; every channel must be joined at least once.
-        expect(totalJoins(), greaterThanOrEqualTo(24));
         final joinedWrite = {
           for (final line in writeChannel.sent.where(
             (l) => l.startsWith('JOIN #'),
@@ -1204,28 +1198,26 @@ void main() {
       final clock = DateTime(2026, 1, 1);
       final budget = JoinRateLimiter(now: () => clock);
       budget.registerHandler(IrcSocketRole.write, (_) => true);
-      budget.registerHandler(IrcSocketRole.read, (_) => true);
 
       for (var i = 0; i < 25; i++) {
         budget.enqueue('c$i', IrcSocketRole.write);
-        budget.enqueue('c$i', IrcSocketRole.read);
       }
       await pumpEventQueue();
 
-      // Same-channel enqueues merge into one unit per channel; the send cap
-      // let only c0's pair through the first pump.
-      expect(budget.pending(), hasLength(24));
+      // Each channel is one unit; the send cap let c0 and c1 through the
+      // first pump (two channels), leaving c2..c24 queued.
+      expect(budget.pending(), hasLength(23));
       expect(budget.positionOf('c0'), isNull);
-      expect(budget.positionOf('c1'), 1);
+      expect(budget.positionOf('c2'), 1);
 
-      // 'c1' heads the queue: zero wait. 'c24' waits behind c1..c23's 46
-      // commands plus its own 2, bottlenecked by the pump cap:
-      // ceil((48-18)/1.905)=16 vs ceil(48/2)*1.05=26 -> 26s.
-      expect(budget.etaSecondsForChannel('c1'), 0);
-      expect(budget.etaSecondsForChannel('c24'), 26);
+      // 'c2' heads the queue: zero wait. 'c24' waits behind c2..c23's 23
+      // commands (c24 itself makes 23 total), bottlenecked by the pump cap:
+      // ceil(23/2)*1.05=13s dominates the token path (23-18)/...=2.6s.
+      expect(budget.etaSecondsForChannel('c2'), 0);
+      expect(budget.etaSecondsForChannel('c24'), 13);
     });
 
-    test('eta counts outstanding pair commands ahead of the channel', () {
+    test('eta counts outstanding channel commands ahead of the channel', () {
       // Small bucket so a single pump drains it mid-queue.
       final budget = JoinRateLimiter(
         capacity: 3,
@@ -1233,111 +1225,79 @@ void main() {
         now: () => DateTime(2026, 1, 1),
       );
       budget.registerHandler(IrcSocketRole.write, (_) => true);
-      budget.registerHandler(IrcSocketRole.read, (_) => true);
 
       for (final c in ['a', 'b', 'c']) {
         budget.enqueue(c, IrcSocketRole.write);
-        budget.enqueue(c, IrcSocketRole.read);
       }
       budget.enqueue('last', IrcSocketRole.write);
-      budget.enqueue('last', IrcSocketRole.read);
 
-      // ETAs are INCLUSIVE of the channel's own pair (time until both JOINs
-      // are sent). Tokens start at 3.
+      // ETAs are INCLUSIVE of the channel's own JOIN (time until it is sent).
+      // Tokens start at 3; each channel is one command.
       expect(
         budget.etaSecondsForChannel('b'),
-        4,
-        reason: 'a(2)+b(2) commands vs 3 tokens',
+        2,
+        reason: 'a+b = 2 commands, fits the first pump (cap 2)',
       );
-      // 'c': 6 commands -> token path 10.5s dominates cap 3.15s.
-      // 'last': 8 commands -> token path 17.5s dominates cap 4.2s.
-      expect(budget.etaSecondsForChannel('c'), 11);
-      expect(budget.etaSecondsForChannel('last'), 18);
+      // 'c': 3 commands -> token path 0, cap ceil(3/2)*1.05 = 3s.
+      // 'last': 4 commands -> token path (4-3)*3.5=3.5s dominates cap 3s.
+      expect(budget.etaSecondsForChannel('c'), 3);
+      expect(budget.etaSecondsForChannel('last'), 4);
     });
 
-    test(
-      'a lagging socket merges into its channel unit instead of re-queuing',
-      () async {
-        final budget = JoinRateLimiter(now: () => DateTime(2026, 1, 1));
-        final sentRoles = <String, List<IrcSocketRole>>{};
-        void registerRole(IrcSocketRole role, bool success) {
-          budget.registerHandler(role, (channel) {
-            (sentRoles[channel] ??= []).add(role);
-            return success;
-          });
-        }
+    test('a channel enqueued before its socket is ready waits then sends', () {
+      fakeAsync((async) {
+        var fakeNow = DateTime(2026, 1, 1);
+        final budget = JoinRateLimiter(now: () => fakeNow);
+        var readReady = false;
+        budget.registerHandler(IrcSocketRole.read, (_) => readReady);
 
-        registerRole(IrcSocketRole.write, true);
-        registerRole(IrcSocketRole.read, false);
-
-        // Units start pending on BOTH registered sockets: even though the
-        // write side succeeds immediately, the read role keeps the unit
-        // resident in its slot.
-        budget.enqueue('chan', IrcSocketRole.write);
-        budget.enqueue('chan2', IrcSocketRole.write);
-        await pumpEventQueue();
-
-        // Write succeeded; read was attempted and refused (stays queued).
-        // Dead-socket retries make extra attempts legal, so only anchor the
-        // first and last attempts.
-        expect(sentRoles['chan'], isNotEmpty);
-        expect(sentRoles['chan']!.first, IrcSocketRole.write);
-        expect(sentRoles['chan']!.last, IrcSocketRole.read);
-        expect(budget.positionOf('chan'), 1);
-        expect(budget.positionOf('chan2'), 2);
-
-        // The read socket's handshake lands afterwards: its enqueue MERGES
-        // into the existing slots instead of appending duplicates behind
-        // newer units.
+        // Enqueued while the socket refuses: stays queued, no token spent.
         budget.enqueue('chan', IrcSocketRole.read);
-        budget.enqueue('chan2', IrcSocketRole.read);
-        await pumpEventQueue();
-        expect(sentRoles['chan']!.first, IrcSocketRole.write);
-        expect(sentRoles['chan']!.last, IrcSocketRole.read);
-        expect(budget.pending().map((u) => u.channel).toList(), [
-          'chan',
-          'chan2',
-        ]);
-      },
-    );
+        async.flushMicrotasks();
+        expect(budget.positionOf('chan'), 1);
+        expect(budget.availableTokens, 20);
 
-    test('a unit born before the read socket is ready keeps its slot for the '
-        'read join', () {
+        // The socket comes up: the SAME unit sends in place on a later pump.
+        readReady = true;
+        fakeNow = fakeNow.add(const Duration(milliseconds: 1100));
+        async.elapse(const Duration(milliseconds: 1100));
+        async.flushMicrotasks();
+        expect(budget.positionOf('chan'), isNull);
+      });
+    });
+
+    test('a channel enqueued before its socket is ready keeps its slot', () {
       fakeAsync((async) {
         final budget = JoinRateLimiter(now: () => DateTime(2026, 1, 1));
-        final sentRoles = <String, List<IrcSocketRole>>{};
-        // Both sockets are KNOWN (eager registration), but the read side's
-        // handshake has not landed yet: its sends refuse.
-        budget.registerHandler(IrcSocketRole.write, (channel) {
-          (sentRoles[channel] ??= []).add(IrcSocketRole.write);
-          return true;
-        });
+        final sent = <IrcSocketRole>[];
+        // Socket registered but refusing until it is ready.
         budget.registerHandler(IrcSocketRole.read, (channel) {
-          (sentRoles[channel] ??= []).add(IrcSocketRole.read);
+          sent.add(IrcSocketRole.read);
           return false;
         });
 
-        budget.enqueue('first', IrcSocketRole.write);
+        budget.enqueue('first', IrcSocketRole.read);
         async.flushMicrotasks();
 
-        // Write dispatched immediately; the refused read keeps the unit
-        // RESIDENT at its original slot instead of completing and pushing
-        // the read join to the back of the queue later.
-        expect(sentRoles['first'], [IrcSocketRole.write, IrcSocketRole.read]);
+        // Attempted once, refused, and kept at its original slot (not dropped).
+        expect(sent, [IrcSocketRole.read]);
         expect(budget.positionOf('first'), 1);
 
         var readReady = false;
         budget.registerHandler(IrcSocketRole.read, (channel) {
-          (sentRoles[channel] ??= []).add(IrcSocketRole.read);
+          sent.add(IrcSocketRole.read);
           return readReady;
         });
         readReady = true;
         async.elapse(const Duration(milliseconds: 1100));
         async.flushMicrotasks();
 
-        // The read join completed IN PLACE: no tail unit was ever created.
-        expect(sentRoles['first']!.last, IrcSocketRole.read);
+        // The join completed IN PLACE: it was never dropped or re-queued.
         expect(budget.positionOf('first'), isNull);
+        expect(
+          sent.where((r) => r == IrcSocketRole.read).length,
+          greaterThanOrEqualTo(2),
+        );
         expect(budget.pending(), isEmpty);
       });
     });

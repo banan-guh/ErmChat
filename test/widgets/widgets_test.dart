@@ -372,59 +372,62 @@ void main() {
     await tester.pumpAndSettle();
   });
 
-  testWidgets('Adding channel without credentials is view-only: sending blocked, '
-      'incoming messages still render', (WidgetTester tester) async {
-    final fakeEventSub = _FakeEventSubService();
-    final fakeIrc = _FakeIrcService();
-    final fakeRecent = _FakeRecentMessagesService();
+  testWidgets(
+    'Adding channel without credentials is view-only: sending blocked, '
+    'incoming messages still render',
+    (WidgetTester tester) async {
+      final fakeEventSub = _FakeEventSubService();
+      final fakeIrc = _FakeIrcService();
+      final fakeRecent = _FakeRecentMessagesService();
 
-    await tester.pumpWidget(
-      TwitchChatApp(
-        eventSubService: fakeEventSub,
-        ircService: fakeIrc,
-        recentMessagesService: fakeRecent,
-      ),
-    );
-    await tester.pump();
+      await tester.pumpWidget(
+        TwitchChatApp(
+          eventSubService: fakeEventSub,
+          ircService: fakeIrc,
+          recentMessagesService: fakeRecent,
+        ),
+      );
+      await tester.pump();
 
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pumpAndSettle();
+      await tester.tap(find.byIcon(Icons.add));
+      await tester.pumpAndSettle();
 
-    await tester.enterText(find.byType(TextField).last, 'xqc');
-    await tester.tap(find.text('Join', skipOffstage: false));
-    await tester.pump();
+      await tester.enterText(find.byType(TextField).last, 'xqc');
+      await tester.tap(find.text('Join', skipOffstage: false));
+      await tester.pump();
 
-    expect(
-      find.text('Connect an account to chat', skipOffstage: false),
-      findsOneWidget,
-    );
+      expect(
+        find.text('Connect an account to chat', skipOffstage: false),
+        findsOneWidget,
+      );
 
-    // Trying to send does nothing (input is disabled without credentials).
-    await tester.enterText(
-      find.byKey(const Key('message_input')),
-      'hello chat',
-    );
-    await tester.tap(find.byIcon(Icons.send), warnIfMissed: false);
-    await tester.pump();
-    expect(find.textContaining('hello chat'), findsNothing);
+      // Trying to send does nothing (input is disabled without credentials).
+      await tester.enterText(
+        find.byKey(const Key('message_input')),
+        'hello chat',
+      );
+      await tester.tap(find.byIcon(Icons.send), warnIfMissed: false);
+      await tester.pump();
+      expect(find.textContaining('hello chat'), findsNothing);
 
-    // EventSub messages still appear in view-only mode.
-    fakeIrc.emitMessage(
-      TwitchMessage(
-        login: 'xqc',
-        text: 'hello chat',
-        channel: 'xqc',
-        messageId: 'm1',
-      ),
-    );
-    await tester.pump();
-    await tester.pumpAndSettle();
+      // EventSub messages still appear in view-only mode.
+      fakeIrc.emitMessage(
+        TwitchMessage(
+          login: 'xqc',
+          text: 'hello chat',
+          channel: 'xqc',
+          messageId: 'm1',
+        ),
+      );
+      await tester.pump();
+      await tester.pumpAndSettle();
 
-    expect(
-      find.textContaining('hello chat', skipOffstage: false),
-      findsOneWidget,
-    );
-  });
+      expect(
+        find.textContaining('hello chat', skipOffstage: false),
+        findsOneWidget,
+      );
+    },
+  );
 
   testWidgets('Settings screen shows Customization and Account', (
     WidgetTester tester,
@@ -2513,9 +2516,7 @@ void main() {
       await openEmoteMenu(tester);
 
       // The drag surface covers the tab bar strip, not just the pill.
-      final tabSize = tester.getSize(
-        find.text('Recent', skipOffstage: false),
-      );
+      final tabSize = tester.getSize(find.text('Recent', skipOffstage: false));
       await tester.fling(
         find.text('Recent', skipOffstage: false),
         Offset(0, tabSize.height * 5),
@@ -2906,10 +2907,7 @@ void main() {
         await tester.pump();
 
         // The unfocused channel must not show an unread mention indicator.
-        expect(
-          find.byKey(const Key('unread_mention_dot')),
-          findsNothing,
-        );
+        expect(find.byKey(const Key('unread_mention_dot')), findsNothing);
       },
     );
 
@@ -3246,7 +3244,9 @@ void main() {
       );
       await tester.pump(const Duration(milliseconds: 700));
       // Drag down by more than one row height to trigger reorder.
-      final rowHeight = tester.getSize(find.text('a', skipOffstage: false)).height;
+      final rowHeight = tester
+          .getSize(find.text('a', skipOffstage: false))
+          .height;
       await gesture.moveBy(Offset(0, rowHeight * 2));
       await tester.pump();
       await gesture.up();
@@ -3305,10 +3305,12 @@ void main() {
 
       // The Join button is the 2nd lazy-built child of the channel list; scroll
       // the outer list down to bring it into view (a real user just scrolls).
+      // With the cap at 100 channels the default scroll budget can't reach it.
       await tester.scrollUntilVisible(
         find.text('Join channel', skipOffstage: false),
         100.0,
         scrollable: find.byType(Scrollable).first,
+        maxScrolls: 200,
       );
       await tester.pumpAndSettle();
 

@@ -71,9 +71,10 @@ abstract class IrcConnection {
   // network can hang forever while the loop waits on an attempt.
   static const _connectTimeout = Duration(seconds: 10);
   // JOIN pacing: Twitch throttles connections that fire JOINs too fast, so
-  // every JOIN goes through a token bucket. The bucket is shared between the
-  // read and write sockets when the app wires them to one [JoinRateLimiter]
-  // (see HomeScreen); standalone instances fall back to a private bucket.
+  // every JOIN goes through a token bucket. The bucket is shared between
+  // sockets when the app wires them to one [JoinRateLimiter] (see HomeScreen);
+  // standalone instances fall back to a private bucket. Each channel is a
+  // single read-socket JOIN.
   static const _joinPumpInterval = Duration(milliseconds: 1050);
   // ROOMSTATE echoes a processed JOIN; a channel that hasn't confirmed within
   // this window is re-sent (up to a few rounds, then we stop nagging).
@@ -819,8 +820,7 @@ class IrcReadService extends IrcConnection {
   Stream<IrcMessage> get onOwnMessage => _ownMessageController.stream;
 
   /// ROOMSTATE echoes for this socket, so consumers can track which channels
-  /// the read side has actually joined (its JOINs lag the write socket's
-  /// under the shared rate budget).
+  /// the read side has actually joined.
   Stream<IrcRoomStateEvent> get onRoomState => _roomStateController.stream;
 
   IrcReadService({super.connectivityService, super.joinBudget})
