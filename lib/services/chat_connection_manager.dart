@@ -1527,4 +1527,25 @@ class ChatConnectionManager {
       unawaited(sevenTvClient!.forceReconnect());
     }
   }
+
+  /// Re-runs the per-channel data loads (emotes, badges) that failed earlier,
+  /// updating the retryable failure state. Driven by the UI retry affordance.
+  void retryChannelData(String channel) {
+    final userId = store.channelUserIds[channel];
+    if (userId == null) return;
+    final auth = twitchAuth;
+    unawaited(
+      badgeService
+          .fetchChannelBadges(auth, userId, channel)
+          .then((_) => store.clearLoadFailure(channel, 'badges'))
+          .catchError((_) => store.recordLoadFailure(channel, 'badges')),
+    );
+    emoteManager.accessToken = auth.accessToken;
+    unawaited(
+      emoteManager
+          .resolveEmotes(channel, userId)
+          .then((_) => store.clearLoadFailure(channel, 'emotes'))
+          .catchError((_) => store.recordLoadFailure(channel, 'emotes')),
+    );
+  }
 }

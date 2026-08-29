@@ -278,7 +278,15 @@ class ChatChannelSetup {
       channelUserId ??= await _waitForRoomId(channelName);
       if (channelUserId == null) return;
       store.channelUserIds[channelName] = channelUserId;
-      badgeService.fetchChannelBadges(auth, channelUserId, channelName);
+      unawaited(
+        badgeService
+            .fetchChannelBadges(auth, channelUserId, channelName)
+            .then((_) => store.clearLoadFailure(channelName, 'badges'))
+            .catchError((_) {
+              store.recordLoadFailure(channelName, 'badges');
+              logDebug('[ChatConn] fetchChannelBadges failed for $channelName');
+            }),
+      );
 
       emoteManager.accessToken = auth.accessToken;
       logDebug(
@@ -290,11 +298,13 @@ class ChatChannelSetup {
         unawaited(
           emoteManager
               .resolveEmotes(channelName, channelUserId)
-              .catchError(
-                (e) => logDebug(
+              .then((_) => store.clearLoadFailure(channelName, 'emotes'))
+              .catchError((e) {
+                store.recordLoadFailure(channelName, 'emotes');
+                logDebug(
                   '[ChatConn] resolveEmotes failed for $channelName: $e',
-                ),
-              ),
+                );
+              }),
         );
       }
 

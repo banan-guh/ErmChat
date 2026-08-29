@@ -356,4 +356,18 @@ void main() {
       ]);
     });
   });
+
+  test('data-load failures record and clear with the retry notifier', () {
+    final store = _store();
+    expect(store.loadFailedChannels.value, isEmpty);
+    store.recordLoadFailure('test', 'emotes');
+    expect(store.loadFailedChannels.value, contains('test'));
+    store.recordLoadFailure('test', 'badges');
+    expect(store.channelLoadFailures['test'], {'emotes', 'badges'});
+    store.clearLoadFailure('test', 'emotes');
+    expect(store.loadFailedChannels.value, contains('test'));
+    store.clearLoadFailure('test', 'badges');
+    expect(store.loadFailedChannels.value, isNot(contains('test')));
+    expect(store.channelLoadFailures.containsKey('test'), isFalse);
+  });
 }

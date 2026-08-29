@@ -96,6 +96,33 @@ class ChatStore {
   /// Composed status line per channel (room modes + stream info).
   final Map<String, String> chatStatus;
 
+  /// Per-channel data-load failures (emotes/badges/history) that the user can
+  /// retry. Keyed by channel; the inner set lists which loads failed.
+  final Map<String, Set<String>> channelLoadFailures = {};
+
+  /// Channels with at least one failed data load, for UI retry affordances.
+  final ValueNotifier<Set<String>> loadFailedChannels = ValueNotifier(const {});
+
+  void recordLoadFailure(String channel, String kind) {
+    final set = channelLoadFailures.putIfAbsent(channel, () => {});
+    final added = set.add(kind);
+    if (added && !loadFailedChannels.value.contains(channel)) {
+      loadFailedChannels.value = {...loadFailedChannels.value, channel};
+    }
+  }
+
+  void clearLoadFailure(String channel, [String? kind]) {
+    final set = channelLoadFailures[channel];
+    if (set == null) return;
+    if (kind != null) set.remove(kind);
+    if (kind == null || set.isEmpty) channelLoadFailures.remove(channel);
+    loadFailedChannels.value = {
+      ...channelLoadFailures.keys.where(
+        (c) => channelLoadFailures[c]!.isNotEmpty,
+      ),
+    };
+  }
+
   /// Channels with unseen messages (drives tab unread markers).
   final Set<String> channelsWithUnread;
 

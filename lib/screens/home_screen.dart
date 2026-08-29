@@ -3330,16 +3330,25 @@ class _HomeScreenState extends State<HomeScreen>
                   listenable: Listenable.merge([
                     _versionNotifier(_selectedChannel ?? ''),
                     _selectedTabIndex,
+                    _chatStore.loadFailedChannels,
                   ]),
                   builder: (context, _) {
                     final status = _chatStore.chatStatus[_selectedChannel];
                     final hasStatus = status != null && status.isNotEmpty;
+                    final hasLoadFailure =
+                        _selectedChannel != null &&
+                        _chatStore.loadFailedChannels.value.contains(
+                          _selectedChannel,
+                        );
                     return AnimatedSize(
                       duration: const Duration(milliseconds: 300),
                       curve: Curves.easeInOut,
                       alignment: Alignment.topCenter,
-                      child: hasStatus
-                          ? Padding(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (hasStatus)
+                            Padding(
                               padding: const EdgeInsets.only(
                                 left: 12,
                                 right: 12,
@@ -3355,8 +3364,28 @@ class _HomeScreenState extends State<HomeScreen>
                                 ),
                                 textAlign: TextAlign.center,
                               ),
-                            )
-                          : const SizedBox.shrink(),
+                            ),
+                          if (hasLoadFailure)
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 4),
+                              child: InkWell(
+                                onTap: () => _chatConn.retryChannelData(
+                                  _selectedChannel!,
+                                ),
+                                child: Text(
+                                  'Retry failed emotes/badges',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.primary,
+                                    decoration: TextDecoration.underline,
+                                  ),
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
                     );
                   },
                 ),
