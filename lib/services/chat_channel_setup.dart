@@ -262,7 +262,6 @@ class ChatChannelSetup {
   // ---- Subscriptions -------------------------------------------------------
 
   Future<void> subscribeChannel(String channelName) async {
-    irc.join(channelName);
     ircRead.join(channelName);
 
     try {

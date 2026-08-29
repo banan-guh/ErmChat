@@ -41,7 +41,8 @@ dart format .      # format all Dart files
 
 ## Rules
 
-When you make a commit, ALWAYS read [RULES.md](RULES.md) first: short jab titles (4 words target, 8 hard max), body essentially never. RULES.md also holds code-consistency and subagent rules; follow those too.
+When you make a commit, ALWAYS read [RULES.md](RULES.md) first: short jab titles (4 words target, 8 hard max), body essentially never. RULES.md also holds code-consistency and subagent rules; follow those too. Read RULES.md on first init.
+IMPORTANT: NO em-dashes. If a comment is multiple lines long, see if you can rephrase it to be shorter.
 
 ## Notes
 

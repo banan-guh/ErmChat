@@ -213,15 +213,18 @@ class ChatConnectionManager {
   String? _lastIrcUsername;
   String? _lastIrcToken;
   final _connectedAcked = <String>{};
-  // Channels whose JOIN has been confirmed by the server (ROOMSTATE for that
-  // channel). isConnected only reflects the socket; a fresh/reconnected socket
-  // hasn't necessarily processed the JOINs yet, so sends gate on this.
+  // Write-socket JOIN confirmations. In production the write socket never
+  // JOINs, so this stays empty; it exists so tests that drive ROOMSTATE
+  // through the write socket still resolve readiness. The read socket's JOIN
+  // (below) is the real production signal.
   final _joinedChannels = <String>{};
-  // Same, for the read socket: its JOINs lag the write side under the shared
-  // rate budget, and the local echo of your own messages rides it - sending
-  // before the read JOIN lands hides the reply.
+  // Channels the read socket has JOINed (confirmed by ROOMSTATE). The write
+  // socket never JOINs, so this is the authoritative readiness source: a
+  // fresh or reconnected read socket may not have processed its JOINs yet,
+  // and the local echo of our own messages rides it.
   final _readJoinedChannels = <String>{};
   StreamSubscription<IrcRoomStateEvent>? ircReadRoomStateSub;
+  StreamSubscription<IrcRoomStateEvent>? ircRoomStateSub;
 
   /// Whether the read socket participates in readiness gating: yes for
   /// authenticated sessions (both sockets are part of the deal from the
@@ -318,7 +321,6 @@ class ChatConnectionManager {
   StreamSubscription<IrcJoinFailureEvent>? ircJoinFailedSub;
   StreamSubscription<TwitchMessage>? whisperSub;
   StreamSubscription<UserNoticeEvent>? userNoticeSub;
-  StreamSubscription<IrcRoomStateEvent>? ircRoomStateSub;
   StreamSubscription<(String?, List<String>)>? emoteSetsSub;
   StreamSubscription<ModerationEvent>? moderationSub;
   StreamSubscription<HypeTrainEvent>? hypeTrainSub;
@@ -388,7 +390,6 @@ class ChatConnectionManager {
     ircNoticeSub?.cancel();
     ircJtvSub?.cancel();
     ircJoinFailedSub?.cancel();
-    userNoticeSub?.cancel();
     ircRoomStateSub?.cancel();
     emoteSetsSub?.cancel();
     moderationSub?.cancel();
@@ -603,49 +604,21 @@ class ChatConnectionManager {
     final wireText = bypassTextDuplicate(text, lastSentWireText[channel]);
     lastSentWireText[channel] = wireText;
 
-    // Primary: send via IRC once the channel's JOIN is confirmed (ROOMSTATE
-    // for that channel). isConnected alone only means the socket is up; right
-    // after a (re)connect Twitch may not have processed the JOIN yet, and a
-    // PRIVMSG sent in that window can be dropped with no error and no local
-    // echo. Fall back to Helix until the channel is confirmed joined.
+    // Send via the write IRC socket (mirror DankChat). The write socket never
+    // JOINs a channel, so there is no join-confirmation window to gate on; a
+    // PRIVMSG is valid the moment the socket is up. The echo of our own message
+    // arrives on the read socket (the one that JOINs), not here. No Helix
+    // fallback: if the write socket is down the message cannot be sent, so we
+    // surface a notice instead of silently dropping it.
     _lastOwnMessageAt[channel] = DateTime.now();
-    final canHelix = session.userId != null && auth.isConfigured;
-    if (irc.isConnected && (_joinedChannels.contains(channel) || !canHelix)) {
+    if (irc.isConnected) {
       irc.sendMessage(
         channel,
         wireText,
         replyParentMessageId: reply?.messageId,
       );
-    } else if (canHelix) {
-      try {
-        final broadcasterId =
-            channelUserIds[channel] ?? await twitchApi.getUserId(auth, channel);
-        if (broadcasterId == null) {
-          onSystemMessage(
-            channel,
-            twitchApi.lastError ?? "Couldn't resolve the channel; try again",
-          );
-          return;
-        }
-        final result = await twitchApi.sendChatMessage(
-          auth,
-          broadcasterId: broadcasterId,
-          senderId: session.userId!,
-          message: wireText,
-          replyParentMessageId: reply?.messageId,
-        );
-        if (result == null) {
-          onSystemMessage(
-            channel,
-            twitchApi.lastError ?? 'Message failed to send',
-          );
-        }
-      } catch (e) {
-        // Network-level failures escape TwitchApi's HTTP-to-null conversion;
-        // without this the message vanishes with an unhandled zone error.
-        logDebug('Helix send fallback failed: $e');
-        onSystemMessage(channel, 'Message failed to send');
-      }
+    } else {
+      onSystemMessage(channel, 'Not connected: message not sent');
     }
   }
 
@@ -681,8 +654,15 @@ class ChatConnectionManager {
   /// session, including its handshake window) or currently live; sessions
   /// that genuinely have no read socket never block on it.
   bool isChannelChatReady(String channel) {
-    if (!_joinedChannels.contains(channel)) return false;
-    if (!_readExpected && !ircRead.isConnected) return true;
+    // Readiness is gated on the read socket's JOIN for authenticated sessions:
+    // the echo of our own messages and all incoming chat ride it, so a channel
+    // isn't usable until that JOIN lands. The write socket never JOINs.
+    // Anonymous sessions have no live read socket, so readiness there is the
+    // write socket being up AND having received the channel's ROOMSTATE (the
+    // write socket still subscribes and gets ROOMSTATE on join).
+    if (!_readExpected && !ircRead.isConnected) {
+      return irc.isConnected && _joinedChannels.contains(channel);
+    }
     return _readJoinedChannels.contains(channel);
   }
 
@@ -906,17 +886,17 @@ class ChatConnectionManager {
       }
 
       // Account-switch fast path (runs before any await): a different account
-      // was requested while the previous session's socket may still be up.
-      // Drop its JOIN confirmations immediately so sends fall back to Helix
-      // under the new credentials instead of riding the old account's socket
-      // while this connect() is still validating.
+      // was requested while the previous session's socket may still be up, so
+      // the new credentials take over instead of riding the old account's
+      // socket while this connect() is still validating.
       final pendingUsername = (session.login ?? auth.login)?.toLowerCase();
       final hadPreviousSession =
           _lastIrcUsername != null || _lastIrcToken != null;
       if (hadPreviousSession &&
           pendingUsername != null &&
           pendingUsername != _lastIrcUsername) {
-        _joinedChannels.clear();
+        // The write socket never JOINs, so there are no per-channel JOIN
+        // confirmations to drop; sends simply use whatever write socket is up.
       }
 
       // EventSub needs no credentials - connect it in parallel with the
@@ -1252,11 +1232,14 @@ class ChatConnectionManager {
       );
     });
 
+    // The write socket never JOINs in production, so this listener is
+    // effectively idle there (no ROOMSTATE arrives without a JOIN). It exists
+    // so tests that drive ROOMSTATE through the write socket still resolve
+    // room status, join tracking, and the JOIN countdown. The read socket
+    // listener below is the real production path.
     ircRoomStateSub?.cancel();
     ircRoomStateSub = irc.onRoomState.listen((event) {
       if (isDisposed) return;
-      // ROOMSTATE arrives after a successful JOIN, confirming this channel is
-      // ready for PRIVMSG; record it so sends gate on the confirmed join.
       if (_channelSetup.handleRoomState(event)) {
         final isNewlyConfirmed = _joinedChannels.add(event.channel);
         if (isNewlyConfirmed) {
@@ -1267,9 +1250,6 @@ class ChatConnectionManager {
                 'readLive=${ircRead.isConnected})',
           );
           _clearJoinWait(event.channel);
-          // "Connected" waits for FULL readiness (both sockets joined): the
-          // write confirmation alone says nothing about the local echo, so
-          // announcing here would lie while the read side still lags.
           if (isChannelChatReady(event.channel)) {
             _announceConnected(event.channel);
             connectionStateNotifier.value++;
@@ -1278,22 +1258,24 @@ class ChatConnectionManager {
       }
     });
 
-    // The read socket's JOIN confirmations: the local echo of your own
-    // messages rides this socket, so its lagging JOINs gate readiness too.
+    // The read socket is the only one that JOINs in production, so it owns
+    // ROOMSTATE there: it drives room status (slow mode, followers-only, ...)
+    // and confirms the JOIN that gates readiness. Our own message echo also
+    // arrives here, not on the write connection.
     ircReadRoomStateSub?.cancel();
     ircReadRoomStateSub = ircRead.onRoomState.listen((event) {
       if (isDisposed) return;
+      _channelSetup.handleRoomState(event);
       final isNew = _readJoinedChannels.add(event.channel);
       if (isNew) {
         PerfLog.I.record(
           'JOINQ',
-          'read-confirm ${event.channel} '
-              '(writeJoined=${_joinedChannels.contains(event.channel)})',
+          'read-confirm ${event.channel} (writeConnected=${irc.isConnected})',
         );
       }
       if (isNew && isChannelChatReady(event.channel)) {
-        // The read side was the last missing piece: the channel is fully
-        // usable now - retire the countdown and announce.
+        // The read side confirmed: the channel is fully usable now, so retire
+        // the countdown and announce.
         _clearJoinWait(event.channel);
         _announceConnected(event.channel);
         connectionStateNotifier.value++;

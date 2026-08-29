@@ -41,3 +41,4 @@ distribution.pem
 Fastfile
 fastlane/README.md
 upload.sh
+update.sh

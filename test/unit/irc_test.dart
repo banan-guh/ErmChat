@@ -2963,8 +2963,10 @@ void main() {
   });
 
   group('account switch', () {
+    var helixChatSends = 0;
     setUp(() {
       FlutterSecureStorage.setMockInitialValues({});
+      helixChatSends = 0;
     });
 
     // Hermetic Helix stubs: /validate echoes the token's owner, chat sends
@@ -2981,6 +2983,7 @@ void main() {
         );
       }
       if (url.contains('/helix/chat/messages')) {
+        helixChatSends++;
         return http.Response(
           '{"data":[{"is_sent":true,"message_id":"mid-1"}]}',
           200,
@@ -3066,12 +3069,14 @@ void main() {
       );
       expect(store.lastSentWireText, isEmpty);
 
-      // The new socket is up but #test is not re-joined yet: a send must
-      // fall back to Helix (as bob) instead of riding any IRC socket.
+      // The new socket is up but #test is not re-joined yet. The write socket
+      // never JOINs, so a send rides it directly as bob (no Helix, no JOIN).
       irc.emitConnected();
       await Future<void>.delayed(Duration.zero);
       await conn.doSendMessage('hello', 'test');
-      expect(irc.sent, hasLength(1), reason: 'no PRIVMSG before JOIN lands');
+      expect(irc.sent, hasLength(2), reason: 'send rides the write IRC socket');
+      expect(irc.sent.last.$1, 'bob');
+      expect(helixChatSends, 0, reason: 'chat send must never use Helix');
 
       // The deliberate swap still takes the full connect edge: backfill +
       // a fresh Connected line once bob's JOIN confirms on both sockets.
@@ -3959,6 +3964,7 @@ void main() {
       );
 
       await conn.connect();
+      irc.emitConnected();
 
       irc.emitRoomState('test', {'room-id': '1'});
       await pumpEventQueue();
