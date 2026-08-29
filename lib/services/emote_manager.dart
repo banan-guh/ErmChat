@@ -53,7 +53,11 @@ class EmoteUsageRecord {
 
   /// Views within the last [Duration] window are counted in these buckets.
   static const int _bucketCount = 24;
-  static const _recencyHalfLife = Duration(hours: 6);
+  // A long, lax recency window for the usage score: it keeps the emote
+  // priority score stable so the cache eviction admission check (see
+  // EmoteCacheManager._evictLowest) does not thrash long-lived favorites for
+  // one-off emotes.
+  static const _recencyHalfLife = Duration(days: 3);
   static const _steadyRate = 50;
   static const _steadyWeight = 0.75;
 

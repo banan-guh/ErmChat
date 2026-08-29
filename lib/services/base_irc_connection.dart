@@ -7,6 +7,7 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 import '../util/constants.dart';
 import '../util/irc_utils.dart';
 import 'connectivity_service.dart';
+import 'data_usage.dart';
 import 'join_rate_limiter.dart';
 import '../util/log.dart';
 
@@ -512,6 +513,7 @@ abstract class IrcConnection {
 
   void sendLine(String message) {
     try {
+      DataUsageStats.I.recordIrcWrite(message.length);
       channel?.sink.add(message);
     } catch (e) {
       logDebug('$debugPrefix send failed: $e');
@@ -547,6 +549,7 @@ abstract class IrcConnection {
   }
 
   void _handleLine(String raw) {
+    DataUsageStats.I.recordIrcRead(raw.length);
     for (final line in raw.split('\r\n')) {
       if (line.isEmpty) continue;
 

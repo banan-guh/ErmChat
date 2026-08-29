@@ -26,6 +26,13 @@ class ConnectivityService extends ChangeNotifier {
   bool get isOnline => !_results.contains(ConnectivityResult.none);
   bool get isMobile => _results.contains(ConnectivityResult.mobile);
 
+  /// True when the active connection is metered (anything other than Wi-Fi or
+  /// Ethernet: cellular, VPN, Bluetooth tether, "other"). Used to pick the
+  /// emote-fetch tier so a data-limited link fetches less.
+  bool get isMetered => _results.any(
+    (r) => r != ConnectivityResult.wifi && r != ConnectivityResult.ethernet,
+  );
+
   /// Seeds the initial state from the plugin and starts listening. Safe to
   /// call repeatedly; errors keep the optimistic default and are corrected by
   /// the first real connectivity event.

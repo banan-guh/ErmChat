@@ -6,6 +6,8 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../util/log.dart';
+import '../../models/emote_fetch_tier.dart';
+import '../../services/data_usage.dart';
 import '../../util/webp_anim.dart';
 import '../../widgets/emote_image.dart';
 import '../../widgets/welcome_dialog.dart';
@@ -665,6 +667,35 @@ class _PerfLogScreenState extends State<_PerfLogScreen> {
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
               ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Card(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Data usage (since launch)',
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'total ${DataUsageStats.I.totalBytes}B\n'
+                      'IRC read ${DataUsageStats.I.ircReadBytes}B  '
+                      'write ${DataUsageStats.I.ircWriteBytes}B\n'
+                      'emote images ${DataUsageStats.I.emoteDownloadBytes}B  '
+                      'JSON ${DataUsageStats.I.jsonBytes}B\n'
+                      'cache evictions ${DataUsageStats.I.evictions}  '
+                      'tier ${DataUsageStats.I.appliedTier?.label ?? '?'}  '
+                      'metered ${DataUsageStats.I.metered}',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
             ),
           ),
           Expanded(

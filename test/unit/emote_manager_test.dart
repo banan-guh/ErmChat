@@ -4,6 +4,7 @@ import 'package:ermchat/services/emote_cache_manager.dart';
 import '../helpers/fake_cache_repo.dart';
 import 'dart:async';
 import 'dart:io';
+import 'dart:math';
 import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -3188,23 +3189,38 @@ void main() {
       final steadyScore = steady.score(now);
       final burstScore = burst.score(now);
       expect(steadyScore, greaterThan(burstScore));
-      // The burst's entropy collapses its steady term to zero.
-      expect(burstScore, lessThan(0.5));
+      // The burst's entropy collapses its steady term, so its score stays close
+      // to its recency (the lax 3-day window keeps recency high); the steady
+      // record builds a real steady-term boost on top of its recency.
+      final burstRecency = exp(-8 / (3 * 24));
+      final steadyRecency = exp(-3 / (3 * 24));
+      expect(burstScore, lessThan(burstRecency + 0.2));
+      expect(steadyScore, greaterThan(steadyRecency + 0.3));
     });
 
-    test('an emote unused for a day scores near zero', () {
-      // Views happened 25h ago (base anchored there); the 24h window has
-      // rolled past every bucket, so only the recency term remains - and it
-      // has decayed to nothing.
+    test('an emote idle well past the window scores near zero', () {
+      // Views happened 10 days ago; the lax 3-day recency window has fully
+      // elapsed, so the recency term has decayed to near nothing (and the
+      // 24h bucket window has rolled past every recorded view).
       final r = EmoteUsageRecord.rolledForward(
         EmoteUsageRecord(
-          lastUsedAt: now.subtract(const Duration(hours: 25)),
-          bucketBase: hour - 25,
+          lastUsedAt: now.subtract(const Duration(hours: 10 * 24)),
+          bucketBase: hour - 10 * 24,
           buckets: List.filled(24, 1),
         ),
         hour,
       );
       expect(r.score(now), lessThan(0.05));
+      // A freshly-idle (1 day) emote still scores well above it.
+      final fresh = EmoteUsageRecord.rolledForward(
+        EmoteUsageRecord(
+          lastUsedAt: now.subtract(const Duration(hours: 24)),
+          bucketBase: hour - 24,
+          buckets: List.filled(24, 1),
+        ),
+        hour,
+      );
+      expect(fresh.score(now), greaterThan(r.score(now)));
     });
 
     test('uniform distribution scores higher than a clustered one', () {
@@ -3264,7 +3280,7 @@ void main() {
           effectiveEmoteFetchTier(
             manual: tier,
             auto: EmoteFetchAutoMode.off,
-            isMobile: false,
+            isMetered: false,
           ),
           tier,
         );
@@ -3272,7 +3288,7 @@ void main() {
           effectiveEmoteFetchTier(
             manual: tier,
             auto: EmoteFetchAutoMode.off,
-            isMobile: true,
+            isMetered: true,
           ),
           tier,
         );
@@ -3280,42 +3296,42 @@ void main() {
     });
 
     test('balanced picks high on wifi, low on cellular', () {
-      bool isMobile = false;
+      bool isMetered = false;
       expect(
         effectiveEmoteFetchTier(
           manual: EmoteFetchTier.medium,
           auto: EmoteFetchAutoMode.balanced,
-          isMobile: isMobile,
+          isMetered: isMetered,
         ),
         EmoteFetchTier.high,
       );
-      isMobile = true;
+      isMetered = true;
       expect(
         effectiveEmoteFetchTier(
           manual: EmoteFetchTier.medium,
           auto: EmoteFetchAutoMode.balanced,
-          isMobile: isMobile,
+          isMetered: isMetered,
         ),
         EmoteFetchTier.low,
       );
     });
 
     test('aggressive picks medium on wifi, nothing on cellular', () {
-      bool isMobile = false;
+      bool isMetered = false;
       expect(
         effectiveEmoteFetchTier(
           manual: EmoteFetchTier.high,
           auto: EmoteFetchAutoMode.aggressive,
-          isMobile: isMobile,
+          isMetered: isMetered,
         ),
         EmoteFetchTier.medium,
       );
-      isMobile = true;
+      isMetered = true;
       expect(
         effectiveEmoteFetchTier(
           manual: EmoteFetchTier.high,
           auto: EmoteFetchAutoMode.aggressive,
-          isMobile: isMobile,
+          isMetered: isMetered,
         ),
         EmoteFetchTier.nothing,
       );

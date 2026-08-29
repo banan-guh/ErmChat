@@ -5,6 +5,7 @@ import '../../twitch_config.dart';
 import '../../models/generic_emote.dart';
 import '../../util/constants.dart';
 import '../../util/log.dart';
+import '../data_usage.dart';
 
 class TwitchEmoteProvider {
   static Future<List<GenericEmote>> fetchGlobal({
@@ -21,6 +22,7 @@ class TwitchEmoteProvider {
       'Twitch global emotes: ${res.statusCode} - ${res.body.length} bytes',
     );
     throwOnTransientHttpError(res.statusCode, uri);
+    DataUsageStats.I.recordJson(res.bodyBytes.length);
     if (res.statusCode != 200) return [];
     return Isolate.run(() {
       final data = jsonDecode(res.body) as Map<String, dynamic>;
@@ -49,6 +51,7 @@ class TwitchEmoteProvider {
       logDebug('Twitch channel emotes error: ${res.statusCode}');
     }
     throwOnTransientHttpError(res.statusCode, uri);
+    DataUsageStats.I.recordJson(res.bodyBytes.length);
     if (res.statusCode != 200) return [];
     return Isolate.run(() {
       final data = jsonDecode(res.body) as Map<String, dynamic>;
@@ -84,6 +87,7 @@ class TwitchEmoteProvider {
       );
       final res = await http.get(uri, headers: headers).timeout(httpTimeout);
       throwOnTransientHttpError(res.statusCode, uri);
+    DataUsageStats.I.recordJson(res.bodyBytes.length);
       if (res.statusCode != 200) {
         logDebug('Twitch emote set error: ${res.statusCode} ${res.body}');
         continue;

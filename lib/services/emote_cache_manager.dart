@@ -10,6 +10,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../models/emote_fetch_tier.dart';
 import '../util/log.dart';
+import 'data_usage.dart';
 
 /// Shared HTTP client for the cache-full fallback path, reused across calls so
 /// a burst of overflow downloads doesn't spin up a connection per emote.
@@ -99,14 +100,19 @@ class EmoteCacheManager extends CacheManager {
   /// when the URL has no usage history.
   DateTime? Function(String url)? lastUsedAt;
 
-  /// Recency half-life for the no-registry fallback, matching the usage
-  /// registry's own recency term.
-  static const _fallbackHalfLife = Duration(hours: 6);
+  /// Recency half-life for the no-registry fallback. A long, lax window so
+  /// cached files age out slowly: combined with the admission check in
+  /// [_evictLowest] this keeps churn (and the rebuild storms it causes) down.
+  static const _fallbackHalfLife = Duration(days: 3);
 
   /// Eviction candidates used/stored within this window are skipped: a
   /// render may still be reading the file (the same reason overflow temp
   /// files get a grace period).
   static const _evictionGrace = Duration(seconds: 2);
+
+  /// URLs handed out by [getCachedFile] within [_evictionGrace]. A concurrent
+  /// eviction skips them so a render mid-read never hits a deleted file.
+  final Map<String, DateTime> _readProtected = {};
 
   /// Hard cap on cached emote files. Once reached, new emotes are served from
   /// temp files instead of being written to the cache.
@@ -123,12 +129,21 @@ class EmoteCacheManager extends CacheManager {
     return count + _pendingWrites >= _maxObjects;
   }
 
+  /// Runs an enforcement pass immediately (used by the settings Apply path and
+  /// at startup). Normally a no-op since writes are already capped; it only
+  /// does work after the cap was reduced.
+  Future<void> enforceNow() => _enforceCap();
+
   /// The cached file for [url] when the repo still has it, else null. Read
   /// path for the cache-full branch: an emote that was persisted before the
-  /// cache filled up must be served from disk instead of re-downloaded.
+  /// cache filled up must be served from disk instead of re-downloaded. Marks
+  /// the URL read-protected so a concurrent eviction can't delete it mid-read.
   Future<File?> getCachedFile(String url) async {
     try {
       final info = await getFileFromCache(url);
+      if (info?.file != null) {
+        _readProtected[url] = DateTime.now();
+      }
       return info?.file;
     } catch (_) {
       // DB or file gone; the caller falls back to the network.
@@ -136,18 +151,15 @@ class EmoteCacheManager extends CacheManager {
     }
   }
 
-  /// Runs an enforcement pass immediately (used by the settings Apply path and
-  /// at startup). Normally a no-op since writes are already capped; it only
-  /// does work after the cap was reduced.
-  Future<void> enforceNow() => _enforceCap();
-
-  /// Reserves a write slot: accepts while under the cap, or evicts the
+  /// Reserves a write slot for [url]: accepts while under the cap, or evicts the
   /// lowest-priority cached file to free one. Returns false when the cache is
-  /// full and nothing is evictable (repo empty or every candidate within the
-  /// read grace); callers then serve from a temp file instead.
-  Future<bool> _acquireWriteSlot() async {
+  /// full and nothing is evictable (repo empty, every candidate within the read
+  /// grace, or the incoming emote is no more valuable than the lowest cached
+  /// file, in which case we serve it from a temp file instead of churning the
+  /// disk cache); callers then serve from a temp file instead.
+  Future<bool> _acquireWriteSlot(String url) async {
     if (await _tryReserve()) return true;
-    if (!await _evictLowest()) return false;
+    if (!await _evictLowest(priorityScore?.call(url))) return false;
     // The eviction freed a slot; the cached "full" count is now stale.
     _invalidateCount();
     _pendingWrites++;
@@ -174,7 +186,7 @@ class EmoteCacheManager extends CacheManager {
     String? key,
     Map<String, String>? headers,
   }) async {
-    if (!await _acquireWriteSlot()) {
+    if (!await _acquireWriteSlot(url)) {
       // Full: serve the already-cached copy if there is one; otherwise the
       // precacher skips this emote (it only wants files the cache keeps).
       try {
@@ -207,7 +219,7 @@ class EmoteCacheManager extends CacheManager {
       ...?headers,
     };
 
-    if (!await _acquireWriteSlot()) {
+    if (!await _acquireWriteSlot(url)) {
       yield* _serveFromMemory(url, mergedHeaders, withProgress);
       return;
     }
@@ -326,6 +338,7 @@ class EmoteCacheManager extends CacheManager {
       } finally {
         await sink.close();
       }
+      DataUsageStats.I.recordEmoteDownload(received);
       yield FileInfo(
         file,
         FileSource.Online,
@@ -348,19 +361,27 @@ class EmoteCacheManager extends CacheManager {
   /// removal against another eviction's scan.
   Future<bool> _evictionTail = Future.value(true);
 
-  /// Evicts the lowest-priority cached file, returning false when nothing is
-  /// evictable (empty repo, or every candidate is within [_evictionGrace] of
-  /// its last use/store and might be mid-read).
-  Future<bool> _evictLowest() {
+  /// Evicts the lowest-priority cached file to make room for an incoming emote,
+  /// returning false when nothing is evictable. Admission control: if the
+  /// incoming emote's own score is no better than the lowest cached file, we
+  /// refuse to churn the disk cache and the caller serves it from a temp file
+  /// instead. This stops a flood of one-off emotes from evicting long-lived
+  /// favorites just to re-download them next time.
+  Future<bool> _evictLowest(double? incomingScore) {
     final tail = _evictionTail.then((_) async {
       try {
         final objects = await config.repo.getAllObjects();
         if (objects.isEmpty) return false;
         final now = DateTime.now();
+        _readProtected.removeWhere(
+          (url, at) => now.difference(at) > _evictionGrace,
+        );
         CacheObject? victim;
         double? bestScore;
         for (final object in objects) {
           if (_withinGrace(object, now)) continue;
+          // Never delete a file a render is still reading.
+          if (_readProtected.containsKey(object.url)) continue;
           final score = _score(object);
           if (victim == null || score < bestScore!) {
             victim = object;
@@ -368,10 +389,17 @@ class EmoteCacheManager extends CacheManager {
           }
         }
         if (victim == null) return false;
+        // Admission: an incoming emote no more valuable than the weakest cached
+        // file does not earn an eviction. Serve it from temp/network instead.
+        if (incomingScore != null && bestScore! >= incomingScore) {
+          return false;
+        }
         await removeFile(victim.url);
+        DataUsageStats.I.recordEviction();
         logDebug(
           '[EmoteCacheManager] evicted url=${victim.url} '
-          'score=${bestScore!.toStringAsFixed(3)}',
+          'score=${bestScore!.toStringAsFixed(3)} '
+          'incoming=${incomingScore?.toStringAsFixed(3)}',
         );
         return true;
       } catch (_) {

@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:http/http.dart' as http;
 import '../../models/generic_emote.dart';
 import '../../util/constants.dart';
+import '../data_usage.dart';
 
 class FfzEmoteProvider {
   @visibleForTesting
@@ -16,6 +17,7 @@ class FfzEmoteProvider {
     final uri = Uri.parse('https://api.frankerfacez.com/v1/set/global');
     final res = await http.get(uri).timeout(httpTimeout);
     throwOnTransientHttpError(res.statusCode, uri);
+    DataUsageStats.I.recordJson(res.bodyBytes.length);
     if (res.statusCode != 200) return [];
     return Isolate.run(() {
       final data = jsonDecode(res.body) as Map<String, dynamic>;
@@ -40,6 +42,7 @@ class FfzEmoteProvider {
     final uri = Uri.parse('https://api.frankerfacez.com/v1/room/$channelId');
     final res = await http.get(uri).timeout(httpTimeout);
     throwOnTransientHttpError(res.statusCode, uri);
+    DataUsageStats.I.recordJson(res.bodyBytes.length);
     if (res.statusCode != 200) return [];
     return Isolate.run(() {
       final data = jsonDecode(res.body) as Map<String, dynamic>;

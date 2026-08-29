@@ -25,6 +25,7 @@ import '../services/ping_manager.dart';
 import '../services/ignore_manager.dart';
 import '../services/link_whitelist.dart';
 import '../services/emote_manager.dart';
+import '../services/data_usage.dart';
 import '../services/emote_cache_manager.dart';
 import '../services/analytics_service.dart';
 import '../services/twitch_badge_service.dart';
@@ -240,7 +241,7 @@ class _HomeScreenState extends State<HomeScreen>
 
   int _manualEmoteTierIndex = EmoteFetchTier.high.index;
   EmoteFetchAutoMode _emoteAutoMode = defaultEmoteFetchAutoMode;
-  final _isMobile = ValueNotifier<bool>(false);
+  final _isMetered = ValueNotifier<bool>(false);
   VoidCallback? _connectivityListener;
 
   late final _emoteManager = EmoteManager(
@@ -375,6 +376,7 @@ class _HomeScreenState extends State<HomeScreen>
     super.initState();
     unawaited(_ttsController.init());
     unawaited(PerfLog.I.init());
+    DataUsageStats.I.start();
     _chatStore.session.login = widget.initialCurrentUserLogin;
     _pingManager.setAccount(widget.initialCurrentUserLogin);
     _loadEmotePrefs();
@@ -406,9 +408,10 @@ class _HomeScreenState extends State<HomeScreen>
     _emoteManager.addListener(_onEmotesChanged);
     _connectivityService.init();
     _connectivityListener = () {
-      final isMobile = _connectivityService.isMobile;
-      if (isMobile == _isMobile.value) return;
-      _isMobile.value = isMobile;
+      final isMetered = _connectivityService.isMetered;
+      if (isMetered == _isMetered.value) return;
+      _isMetered.value = isMetered;
+      DataUsageStats.I.setContext(isMetered: isMetered);
       _reconcileEmoteTier();
     };
     _connectivityService.addListener(_connectivityListener!);
@@ -1364,7 +1367,7 @@ class _HomeScreenState extends State<HomeScreen>
   Future<void> _refreshConnectivity() async {
     // The service seeds itself in init() and corrects on later events, so
     // here we just read its cached state (avoiding a redundant plugin probe).
-    _isMobile.value = _connectivityService.isMobile;
+    _isMetered.value = _connectivityService.isMetered;
   }
 
   // Computes the effective tier from the manual tier + auto mode and applies
@@ -1374,7 +1377,7 @@ class _HomeScreenState extends State<HomeScreen>
     final effective = effectiveEmoteFetchTier(
       manual: EmoteFetchTier.values[_manualEmoteTierIndex],
       auto: _emoteAutoMode,
-      isMobile: _isMobile.value,
+      isMetered: _isMetered.value,
     );
     if (effective == _emoteManager.tier) return;
     _applyTier(effective);
@@ -1393,13 +1396,12 @@ class _HomeScreenState extends State<HomeScreen>
   void _applyTier(EmoteFetchTier tier) {
     try {
       _emoteManager.tier = tier;
+      DataUsageStats.I.setContext(tier: tier, isMetered: _isMetered.value);
       if (tier == EmoteFetchTier.nothing) {
-        // Rendering tier: wipe in-memory caches and render only whatever
-        // survives on disk, never fetch.
-        _emoteManager.evictGlobal();
-        for (final c in _chatStore.channels) {
-          _emoteManager.evictChannel(c);
-        }
+        // Nothing tier: the resolution is null, so no new fetches happen, but we
+        // must NOT evict the in-memory registry. Cached emotes keep rendering
+        // from disk; wiping would force a full re-resolve (and its rebuild
+        // storm) on every toggle.
         if (mounted) setState(() {});
       } else {
         // Re-resolve caches at the new tier's resolution; the tier tag on
@@ -1556,7 +1558,8 @@ class _HomeScreenState extends State<HomeScreen>
     final listener = _connectivityListener;
     if (listener != null) _connectivityService.removeListener(listener);
     _connectivityListener = null;
-    _isMobile.dispose();
+    _isMetered.dispose();
+    DataUsageStats.I.dispose();
     _chatConn.dispose();
     unawaited(_ttsController.shutdown());
     WidgetsBinding.instance.removeObserver(this);
@@ -2103,7 +2106,7 @@ class _HomeScreenState extends State<HomeScreen>
           onEmoteCacheMaxChanged: _applyCacheCap,
           onSharedChatModeChanged: _setSharedChatMode,
           onEmoteAutoModeChanged: _applyEmoteAutoMode,
-          mobileNotifier: _isMobile,
+          mobileNotifier: _isMetered,
           channelNotifier: _channelNotifier,
           onLeaveChannel: _removeChannel,
           onAddChannel: _addChannel,

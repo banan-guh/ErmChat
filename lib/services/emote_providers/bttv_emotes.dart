@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import '../../models/generic_emote.dart';
 import '../../util/constants.dart';
 import '../../util/log.dart';
+import '../data_usage.dart';
 
 class BttvEmoteProvider {
   // BTTV's API does not mark overlay emotes in any way, so every client
@@ -41,6 +42,7 @@ class BttvEmoteProvider {
     final uri = Uri.parse('https://api.betterttv.net/3/cached/emotes/global');
     final res = await http.get(uri).timeout(httpTimeout);
     throwOnTransientHttpError(res.statusCode, uri);
+    DataUsageStats.I.recordJson(res.bodyBytes.length);
     if (res.statusCode != 200) return [];
     return Isolate.run(() {
       final data = jsonDecode(res.body) as List<dynamic>;
@@ -57,6 +59,7 @@ class BttvEmoteProvider {
     );
     final res = await http.get(uri).timeout(httpTimeout);
     throwOnTransientHttpError(res.statusCode, uri);
+    DataUsageStats.I.recordJson(res.bodyBytes.length);
     if (res.statusCode != 200) return [];
     return Isolate.run(() {
       final data = jsonDecode(res.body) as Map<String, dynamic>;

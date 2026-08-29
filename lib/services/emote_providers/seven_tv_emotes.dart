@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import '../../models/generic_emote.dart';
 import '../../util/constants.dart';
 import '../../util/log.dart';
+import '../data_usage.dart';
 
 class SevenTvChannelResponse {
   final List<GenericEmote> emotes;
@@ -22,6 +23,7 @@ class SevenTvEmoteProvider {
     final uri = Uri.parse('https://7tv.io/v3/emote-sets/global');
     final res = await http.get(uri).timeout(httpTimeout);
     throwOnTransientHttpError(res.statusCode, uri);
+    DataUsageStats.I.recordJson(res.bodyBytes.length);
     if (res.statusCode != 200) return [];
     // The global set is ~2MB / thousands of emotes: decode + parse off the
     // main isolate so startup and the 12h rake don't jank the UI thread.
@@ -39,6 +41,7 @@ class SevenTvEmoteProvider {
     final uri = Uri.parse('https://7tv.io/v3/users/twitch/$channelId');
     final res = await http.get(uri).timeout(httpTimeout);
     throwOnTransientHttpError(res.statusCode, uri);
+    DataUsageStats.I.recordJson(res.bodyBytes.length);
     if (res.statusCode != 200) return SevenTvChannelResponse(emotes: []);
     return Isolate.run(() {
       final data = jsonDecode(res.body) as Map<String, dynamic>;

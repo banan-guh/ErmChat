@@ -69,18 +69,20 @@ extension EmoteFetchAutoModeX on EmoteFetchAutoMode {
 }
 
 /// Effective tier for a connectivity state. Manual tier applies when auto is
-/// off; otherwise the mode picks per `isMobile` (true = cellular data).
+/// off; otherwise the mode picks per `isMetered` (true when the connection is
+/// not Wi-Fi/Ethernet: cellular, VPN, Bluetooth, "other"). Metered links fetch
+/// less to save data.
 EmoteFetchTier effectiveEmoteFetchTier({
   required EmoteFetchTier manual,
   required EmoteFetchAutoMode auto,
-  required bool isMobile,
+  required bool isMetered,
 }) {
   if (auto == EmoteFetchAutoMode.off) return manual;
   return switch (auto) {
     EmoteFetchAutoMode.balanced =>
-      isMobile ? EmoteFetchTier.low : EmoteFetchTier.high,
+      isMetered ? EmoteFetchTier.low : EmoteFetchTier.high,
     EmoteFetchAutoMode.aggressive =>
-      isMobile ? EmoteFetchTier.nothing : EmoteFetchTier.medium,
+      isMetered ? EmoteFetchTier.nothing : EmoteFetchTier.medium,
     EmoteFetchAutoMode.off => manual,
   };
 }
