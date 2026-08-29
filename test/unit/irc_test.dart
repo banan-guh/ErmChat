@@ -3107,63 +3107,84 @@ void main() {
       conn.dispose();
     });
 
-    test('re-subscribe clears stale readiness so the input stays disabled',
-        () async {
-      final irc = _RecordingIrc();
-      final auth = TwitchAuth();
-      auth.setUser('alice', '111');
-      auth.setCredentials(accessToken: 'token_a');
-      final readConn = _NoopIrcRead();
-      final store = ChatStore(
-        channels: ['test'],
-        channelMessages: {},
-        messageKeys: {},
-        chatStatus: {},
-        channelsWithUnread: {},
-        channelsWithUnreadMentions: {},
-        unreadMentionsPerChannel: {},
-        historyLoaded: {},
-        channelsEmotesResolved: {},
-        channelUserIds: {'test': '999'},
-        lastSentWireText: {},
-      );
-      final conn = _makeReconnectConn(
-        eventSub: _NoopEventSub(),
-        irc: irc,
-        ircRead: readConn,
-        currentUserLogin: 'alice',
-        auth: auth,
-        store: store,
-        onReconnected: () {},
-        client: http_testing.MockClient(
-          (request) async => http.Response(
-            '{"data":[{"id":"999","login":"test","display_name":"Test"}]}',
-            200,
+    test(
+      're-subscribe clears stale readiness so the input stays disabled',
+      () async {
+        final irc = _RecordingIrc();
+        final auth = TwitchAuth();
+        auth.setUser('alice', '111');
+        auth.setCredentials(accessToken: 'token_a');
+        final readConn = _NoopIrcRead();
+        final store = ChatStore(
+          channels: ['test'],
+          channelMessages: {},
+          messageKeys: {},
+          chatStatus: {},
+          channelsWithUnread: {},
+          channelsWithUnreadMentions: {},
+          unreadMentionsPerChannel: {},
+          historyLoaded: {},
+          channelsEmotesResolved: {},
+          channelUserIds: {'test': '999'},
+          lastSentWireText: {},
+        );
+        final conn = _makeReconnectConn(
+          eventSub: _NoopEventSub(),
+          irc: irc,
+          ircRead: readConn,
+          currentUserLogin: 'alice',
+          auth: auth,
+          store: store,
+          onReconnected: () {},
+          client: http_testing.MockClient(
+            (request) async => http.Response(
+              '{"data":[{"id":"999","login":"test","display_name":"Test"}]}',
+              200,
+            ),
           ),
-        ),
-      );
-      await conn.connect();
-      irc.emitConnected();
-      irc.handleLine('@room-id=1 :tmi.twitch.tv ROOMSTATE #test');
-      readConn.confirmJoin('test');
-      await Future<void>.delayed(Duration.zero);
-      expect(
-        conn.isChannelChatReady('test'),
-        isTrue,
-        reason: 'ready once the read JOIN confirms',
-      );
+        );
+        await conn.connect();
+        irc.emitConnected();
+        irc.handleLine('@room-id=1 :tmi.twitch.tv ROOMSTATE #test');
+        readConn.confirmJoin('test');
+        await Future<void>.delayed(Duration.zero);
+        expect(
+          conn.isChannelChatReady('test'),
+          isTrue,
+          reason: 'ready once the read JOIN confirms',
+        );
 
-      // Re-subscribe must drop stale membership so the composer stays disabled
-      // during the pending re-join instead of letting a PRIVMSG vanish.
-      await conn.subscribeChannel('test');
-      expect(
-        conn.isChannelChatReady('test'),
-        isFalse,
-        reason: 'stale readiness cleared on re-subscribe',
-      );
+        // Re-subscribe must drop stale membership so the composer stays disabled
+        // during the pending re-join instead of letting a PRIVMSG vanish.
+        await conn.subscribeChannel('test');
+        expect(
+          conn.isChannelChatReady('test'),
+          isFalse,
+          reason: 'stale readiness cleared on re-subscribe',
+        );
 
-      conn.dispose();
-    });
+        conn.dispose();
+      },
+    );
+
+    test(
+      'forceReconnect starts a connection when the socket is already down',
+      () async {
+        final irc = _RecordingIrc();
+        // Simulate a socket that died: creds present but no live channel.
+        irc.username = 'alice';
+        irc.token = 'token';
+        expect(irc.isConnected, isFalse);
+        final before = irc.connectCalls;
+        irc.forceReconnect();
+        expect(
+          irc.connectCalls,
+          greaterThan(before),
+          reason: 'manual reconnect must restart the loop when already down',
+        );
+        irc.dispose();
+      },
+    );
 
     test('logging out tears down the live EventSub session', () async {
       final eventSub = _LiveEventSub();

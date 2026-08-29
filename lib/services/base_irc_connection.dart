@@ -498,18 +498,25 @@ abstract class IrcConnection {
   }
 
   void forceReconnect() {
-    if (channel == null) return;
-    logDebug('$debugPrefix force reconnect (unhealthy socket)');
-    // Bump the generation first so the running loop breaks immediately when
-    // it wakes, then clear the zombie socket before the status event so
-    // rebuilding listeners see a real disconnect, not a stale one.
-    _runGeneration++;
-    _reconnectAttempt = 0;
-    _disconnect();
-    _signalDeath(_DeathReason.closed);
-    _emitStatus(IrcConnectionStatus.disconnected);
-    final firstSettled = Completer<void>();
-    unawaited(_run(_runGeneration, firstSettled));
+    if (channel != null) {
+      logDebug('$debugPrefix force reconnect (unhealthy socket)');
+      // Bump the generation first so the running loop breaks immediately when
+      // it wakes, then clear the zombie socket before the status event so
+      // rebuilding listeners see a real disconnect, not a stale one.
+      _runGeneration++;
+      _reconnectAttempt = 0;
+      _disconnect();
+      _signalDeath(_DeathReason.closed);
+      _emitStatus(IrcConnectionStatus.disconnected);
+      final firstSettled = Completer<void>();
+      unawaited(_run(_runGeneration, firstSettled));
+      return;
+    }
+    // Socket already down: a manual reconnect must still start a connection
+    // instead of silently no-op'ing. Restart the loop with the stored creds.
+    final name = username;
+    if (name == null) return;
+    unawaited(connect(username: name, accessToken: token ?? ''));
   }
 
   void sendLine(String message) {
