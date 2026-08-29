@@ -227,9 +227,11 @@ class IrcService extends IrcConnection {
   final _roomStateController = StreamController<IrcRoomStateEvent>.broadcast(
     sync: true,
   );
+  final _noticeController = StreamController<IrcNoticeEvent>.broadcast();
   final _authFailedController = StreamController<void>.broadcast();
 
   Stream<IrcRoomStateEvent> get onRoomState => _roomStateController.stream;
+  Stream<IrcNoticeEvent> get onNotice => _noticeController.stream;
   Stream<void> get onAuthFailed => _authFailedController.stream;
 
   @override
@@ -262,6 +264,23 @@ class IrcService extends IrcConnection {
             msg.trailing!.contains('Login authentication failed')) {
           _authFailedController.add(null);
           signalFatalAuthFailure();
+          return;
+        }
+        // Send rejections (slow-mode, banned, msg-too-long, ...) arrive here
+        // on the write socket; surface them so the user sees why a send
+        // failed instead of it silently vanishing.
+        final channelParam = msg.params.isNotEmpty ? msg.params[0] : null;
+        final channelName = channelParam != null && channelParam.startsWith('#')
+            ? channelParam.substring(1)
+            : channelParam;
+        if (msg.trailing != null) {
+          _noticeController.add(
+            IrcNoticeEvent(
+              channel: channelName ?? '',
+              message: msg.trailing!,
+              msgId: msg.tags['msg-id'],
+            ),
+          );
         }
         return;
     }
@@ -281,6 +300,7 @@ class IrcService extends IrcConnection {
   @override
   void dispose() {
     _roomStateController.close();
+    _noticeController.close();
     _authFailedController.close();
     super.dispose();
   }

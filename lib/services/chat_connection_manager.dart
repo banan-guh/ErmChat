@@ -334,6 +334,7 @@ class ChatConnectionManager {
   StreamSubscription<IrcConnectionStatus>? ircReadStatusSub;
   StreamSubscription<void>? ircAuthFailedSub;
   StreamSubscription<void>? ircReadAuthFailedSub;
+  StreamSubscription<IrcNoticeEvent>? ircWriteNoticeSub;
   Timer? _watchdogTimer;
 
   ChatConnectionManager(ChatConnectionConfig config)
@@ -407,6 +408,7 @@ class ChatConnectionManager {
     ircWriteRoomStateSub?.cancel();
     ircAuthFailedSub?.cancel();
     ircReadAuthFailedSub?.cancel();
+    ircWriteNoticeSub?.cancel();
     whisperSub?.cancel();
     _watchdogTimer?.cancel();
     _watchdogTimer = null;
@@ -1155,6 +1157,14 @@ class ChatConnectionManager {
 
     ircJtvSub?.cancel();
     ircJtvSub = ircRead.onJtvMessage.listen((event) {
+      if (isDisposed) return;
+      onSystemMessage(event.channel, event.message);
+    });
+
+    // Send rejections (slow-mode, banned, msg-too-long, ...) come back on the
+    // write socket; surface them as system messages instead of dropping them.
+    ircWriteNoticeSub?.cancel();
+    ircWriteNoticeSub = irc.onNotice.listen((event) {
       if (isDisposed) return;
       onSystemMessage(event.channel, event.message);
     });
