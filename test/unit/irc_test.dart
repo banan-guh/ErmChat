@@ -367,6 +367,7 @@ ChatConnectionManager _makeConn({
   DateTime Function()? truncateNow,
   Duration? truncateCoalesceWindow,
   IrcService? irc,
+  IrcReadService? ircRead,
   JoinRateLimiter? joinBudget,
   void Function(String channel, JoinProgress? info)? onJoinProgress,
 }) {
@@ -377,7 +378,7 @@ ChatConnectionManager _makeConn({
         twitchApi: api,
         eventSub: EventSubService(),
         irc: irc ?? IrcService(),
-        ircRead: IrcReadService(),
+        ircRead: ircRead ?? IrcReadService(),
         emoteManager: emoteManager ?? EmoteManager(),
         badgeService: TwitchBadgeService(),
         userStore: UserStore(),
@@ -1010,11 +1011,14 @@ void main() {
         final budget = JoinRateLimiter(now: () => fakeNow);
         final channel = FakeWebSocketChannel();
         final irc = _TestService([channel], joinBudget: budget);
+        final ircRead = _TestIrcRead();
+        ircRead.fakeConnected = true;
         final events = <(String, JoinProgress?)>[];
         final conn = _makeConn(
           channelMessages: {},
           maxMessages: 10,
           irc: irc,
+          ircRead: ircRead,
           joinBudget: budget,
           onJoinProgress: (c, i) => events.add((c, i)),
         );
@@ -1026,6 +1030,7 @@ void main() {
         irc.join('test');
         conn.connect();
         async.flushMicrotasks();
+        ircRead.emitConnected();
 
         // Ticker started on connect: 'test' is waiting behind the fillers.
         fakeNow = fakeNow.add(const Duration(seconds: 1));
@@ -1042,7 +1047,7 @@ void main() {
         expect(waits.first.$2!.position, greaterThanOrEqualTo(1));
 
         // ROOMSTATE confirms the join: the countdown line is retired.
-        channel.push('@room-id=1 :tmi.twitch.tv ROOMSTATE #test');
+        ircRead.emitRoomState('test', {'room-id': '1'});
         fakeNow = fakeNow.add(const Duration(seconds: 1));
         async.elapse(const Duration(milliseconds: 3100));
         expect(events.last.$1, 'test');
@@ -1595,10 +1600,10 @@ void main() {
     });
   });
 
-  late IrcService service;
+  late IrcReadService service;
 
   setUp(() {
-    service = IrcService();
+    service = IrcReadService();
   });
 
   tearDown(() {
@@ -3063,7 +3068,7 @@ void main() {
       // Alice's session state accrues.
       irc.handleLine('@room-id=1 :tmi.twitch.tv ROOMSTATE #test');
       await Future<void>.delayed(Duration.zero);
-      irc.selfBadges['test'] = {'moderator'};
+      readConn.selfBadges['test'] = {'moderator'};
       store.lastSentWireText['test'] = 'seed';
       await conn.doSendMessage('hi', 'test');
       expect(irc.sent.single.$1, 'alice', reason: 'baseline send as alice');
@@ -3076,7 +3081,7 @@ void main() {
 
       expect(irc.username, 'bob');
       expect(
-        irc.selfBadges,
+        readConn.selfBadges,
         isEmpty,
         reason: "alice's badges must not bypass bob's slow mode",
       );
@@ -3233,20 +3238,24 @@ void main() {
       'suspended channel shows one clear message; late success announces',
       () async {
         final irc = _TestIrc();
+        final ircRead = _TestIrcRead();
         final texts = <String>[];
         final conn = _makeReconnectConn(
           eventSub: _NoopEventSub(),
           irc: irc,
+          ircRead: ircRead,
           onReconnected: () {},
           onSystemMessage: (c, t, {Color? accent, String? messageId}) =>
               texts.add(t),
         );
         await conn.connect();
         irc.emitConnected();
+        ircRead.emitConnected();
 
-        // Queue the channel, then deliver the refusal notice.
-        irc.join('test');
-        irc.handleLine(
+        // Queue the channel, then deliver the refusal notice through the
+        // read socket (which now handles JOIN failures).
+        ircRead.join('test');
+        ircRead.handleLine(
           '@msg-id=msg_channel_suspended :tmi.twitch.tv NOTICE #test '
           ':This channel has been suspended or closed.',
         );
@@ -3267,7 +3276,7 @@ void main() {
 
         // A later ROOMSTATE means the channel joined after all: the late
         // success announces, and the honest per-channel Connected lands.
-        irc.handleLine('@room-id=123 :tmi.twitch.tv ROOMSTATE #test');
+        ircRead.handleLine('@room-id=123 :tmi.twitch.tv ROOMSTATE #test');
         await Future<void>.delayed(Duration.zero);
         expect(texts, contains('Joined #test.'));
         expect(
@@ -3284,11 +3293,13 @@ void main() {
   group('USERNOTICE routing', () {
     test('announcement renders label plus child message', () async {
       final irc = _TestIrc();
+      final ircRead = _TestIrcRead();
       final systemMessages = <(String, String, Color?)>[];
       final channelMessages = <String, List<TwitchMessage>>{};
       final conn = _makeReconnectConn(
         eventSub: _NoopEventSub(),
         irc: irc,
+        ircRead: ircRead,
         onReconnected: () {},
         channelMessages: channelMessages,
         onSystemMessage: (c, t, {Color? accent, String? messageId}) {
@@ -3296,10 +3307,10 @@ void main() {
         },
       );
       await conn.connect();
-      irc.emitConnected();
+      ircRead.emitConnected();
 
       // Real captured USERNOTICE line (BLUE announcement).
-      irc.handleLine(
+      ircRead.handleLine(
         '@badge-info=;badges=broadcaster/1;color=#0000FF;display-name=ermugo2;'
         'emotes=emotesv2_123:0-4;flags=;id=abc;login=ermugo2;mod=0;'
         'msg-id=announcement;'
@@ -3334,11 +3345,13 @@ void main() {
 
     test('missing color falls back to PRIMARY', () async {
       final irc = _TestIrc();
+      final ircRead = _TestIrcRead();
       final systemMessages = <(String, String, Color?)>[];
       final channelMessages = <String, List<TwitchMessage>>{};
       final conn = _makeReconnectConn(
         eventSub: _NoopEventSub(),
         irc: irc,
+        ircRead: ircRead,
         onReconnected: () {},
         channelMessages: channelMessages,
         onSystemMessage: (c, t, {Color? accent, String? messageId}) {
@@ -3346,9 +3359,9 @@ void main() {
         },
       );
       await conn.connect();
-      irc.emitConnected();
+      ircRead.emitConnected();
 
-      irc.handleLine(
+      ircRead.handleLine(
         '@msg-id=announcement;login=mm2pl;display-name=Mm2PL;system-msg=;'
         ':tmi.twitch.tv USERNOTICE #test :hi',
       );
@@ -3365,11 +3378,13 @@ void main() {
 
     test('announcement without text renders only the label', () async {
       final irc = _TestIrc();
+      final ircRead = _TestIrcRead();
       final systemMessages = <(String, String, Color?)>[];
       final channelMessages = <String, List<TwitchMessage>>{};
       final conn = _makeReconnectConn(
         eventSub: _NoopEventSub(),
         irc: irc,
+        ircRead: ircRead,
         onReconnected: () {},
         channelMessages: channelMessages,
         onSystemMessage: (c, t, {Color? accent, String? messageId}) {
@@ -3377,9 +3392,9 @@ void main() {
         },
       );
       await conn.connect();
-      irc.emitConnected();
+      ircRead.emitConnected();
 
-      irc.handleLine(
+      ircRead.handleLine(
         '@msg-id=announcement;msg-param-color=ORANGE;login=mm2pl;'
         'display-name=Mm2PL;system-msg=;'
         ':tmi.twitch.tv USERNOTICE #test',
@@ -3398,11 +3413,13 @@ void main() {
 
     test('resub with text renders label plus child message', () async {
       final irc = _TestIrc();
+      final ircRead = _TestIrcRead();
       final systemMessages = <(String, String, Color?)>[];
       final channelMessages = <String, List<TwitchMessage>>{};
       final conn = _makeReconnectConn(
         eventSub: _NoopEventSub(),
         irc: irc,
+        ircRead: ircRead,
         onReconnected: () {},
         channelMessages: channelMessages,
         onSystemMessage: (c, t, {Color? accent, String? messageId}) {
@@ -3410,9 +3427,9 @@ void main() {
         },
       );
       await conn.connect();
-      irc.emitConnected();
+      ircRead.emitConnected();
 
-      irc.handleLine(
+      ircRead.handleLine(
         '@msg-id=resub;system-msg=ronni\\shas\\ssubscribed!;login=ronni;'
         'display-name=ronni;color=#0000FF;badges=subscriber/6;id=abc;'
         'emotes=emotesv2_123:0-4;user-id=456;'
@@ -3444,11 +3461,13 @@ void main() {
 
     test('resub without text stays a single system message', () async {
       final irc = _TestIrc();
+      final ircRead = _TestIrcRead();
       final systemMessages = <(String, String, Color?)>[];
       final channelMessages = <String, List<TwitchMessage>>{};
       final conn = _makeReconnectConn(
         eventSub: _NoopEventSub(),
         irc: irc,
+        ircRead: ircRead,
         onReconnected: () {},
         channelMessages: channelMessages,
         onSystemMessage: (c, t, {Color? accent, String? messageId}) {
@@ -3456,9 +3475,9 @@ void main() {
         },
       );
       await conn.connect();
-      irc.emitConnected();
+      ircRead.emitConnected();
 
-      irc.handleLine(
+      ircRead.handleLine(
         '@msg-id=subgift;system-msg=TWW2\\sgifted\\sa\\sTier\\s1\\ssub\\sto\\sMr_Woodchuck!;'
         'login=tww2;display-name=TWW2;'
         ':tmi.twitch.tv USERNOTICE #test',
@@ -3478,11 +3497,13 @@ void main() {
 
     test('watch streak notice highlights with the purple accent', () async {
       final irc = _TestIrc();
+      final ircRead = _TestIrcRead();
       final systemMessages = <(String, String, Color?)>[];
       final channelMessages = <String, List<TwitchMessage>>{};
       final conn = _makeReconnectConn(
         eventSub: _NoopEventSub(),
         irc: irc,
+        ircRead: ircRead,
         onReconnected: () {},
         channelMessages: channelMessages,
         onSystemMessage: (c, t, {Color? accent, String? messageId}) {
@@ -3490,9 +3511,9 @@ void main() {
         },
       );
       await conn.connect();
-      irc.emitConnected();
+      ircRead.emitConnected();
 
-      irc.handleLine(
+      ircRead.handleLine(
         '@msg-id=viewermilestone;system-msg=ronni\\shas\\sreached\\sa\\swatch\\sstreak\\sof\\s3!;'
         'login=ronni;display-name=ronni;'
         ':tmi.twitch.tv USERNOTICE #test',
@@ -3512,11 +3533,13 @@ void main() {
 
     test('bits badge tier notice highlights with the purple accent', () async {
       final irc = _TestIrc();
+      final ircRead = _TestIrcRead();
       final systemMessages = <(String, String, Color?)>[];
       final channelMessages = <String, List<TwitchMessage>>{};
       final conn = _makeReconnectConn(
         eventSub: _NoopEventSub(),
         irc: irc,
+        ircRead: ircRead,
         onReconnected: () {},
         channelMessages: channelMessages,
         onSystemMessage: (c, t, {Color? accent, String? messageId}) {
@@ -3524,9 +3547,9 @@ void main() {
         },
       );
       await conn.connect();
-      irc.emitConnected();
+      ircRead.emitConnected();
 
-      irc.handleLine(
+      ircRead.handleLine(
         '@msg-id=bitsbadgetier;system-msg=ronni\\ssent\\s100\\sbits!;'
         'login=ronni;display-name=ronni;'
         ':tmi.twitch.tv USERNOTICE #test',
@@ -3545,11 +3568,13 @@ void main() {
 
     test('non-announcement notices highlight with the purple accent', () async {
       final irc = _TestIrc();
+      final ircRead = _TestIrcRead();
       final systemMessages = <(String, String, Color?)>[];
       final channelMessages = <String, List<TwitchMessage>>{};
       final conn = _makeReconnectConn(
         eventSub: _NoopEventSub(),
         irc: irc,
+        ircRead: ircRead,
         onReconnected: () {},
         channelMessages: channelMessages,
         onSystemMessage: (c, t, {Color? accent, String? messageId}) {
@@ -3557,9 +3582,9 @@ void main() {
         },
       );
       await conn.connect();
-      irc.emitConnected();
+      ircRead.emitConnected();
 
-      irc.handleLine(
+      ircRead.handleLine(
         '@msg-id=raid;system-msg=ronni\\sis\\sraiding\\sxqc!;login=ronni;'
         'display-name=ronni;'
         ':tmi.twitch.tv USERNOTICE #test',
@@ -3581,6 +3606,7 @@ void main() {
   group('IRC channel clear', () {
     test('renders cleared message and marks all messages deleted', () async {
       final irc = _TestIrc();
+      final ircRead = _TestIrcRead();
       final systemMessages = <(String, String, Color?)>[];
       final channelMessages = <String, List<TwitchMessage>>{
         'test': [
@@ -3601,6 +3627,7 @@ void main() {
       final conn = _makeReconnectConn(
         eventSub: _NoopEventSub(),
         irc: irc,
+        ircRead: ircRead,
         onReconnected: () {},
         channelMessages: channelMessages,
         onSystemMessage: (c, t, {Color? accent, String? messageId}) {
@@ -3609,8 +3636,9 @@ void main() {
       );
       await conn.connect();
       irc.emitConnected();
+      ircRead.emitConnected();
 
-      irc.handleLine(':tmi.twitch.tv CLEARCHAT #test');
+      ircRead.handleLine(':tmi.twitch.tv CLEARCHAT #test');
 
       expect(systemMessages, hasLength(1));
       expect(systemMessages[0].$2, 'Chat was cleared.');
@@ -3622,6 +3650,7 @@ void main() {
 
     test('ban CLEARCHAT does not trigger the clear path', () async {
       final irc = _TestIrc();
+      final ircRead = _TestIrcRead();
       final systemMessages = <(String, String, Color?)>[];
       final channelMessages = <String, List<TwitchMessage>>{
         'test': [
@@ -3636,6 +3665,7 @@ void main() {
       final conn = _makeReconnectConn(
         eventSub: _NoopEventSub(),
         irc: irc,
+        ircRead: ircRead,
         onReconnected: () {},
         channelMessages: channelMessages,
         onSystemMessage: (c, t, {Color? accent, String? messageId}) {
@@ -3644,8 +3674,9 @@ void main() {
       );
       await conn.connect();
       irc.emitConnected();
+      ircRead.emitConnected();
 
-      irc.handleLine(':tmi.twitch.tv CLEARCHAT #test :forsen');
+      ircRead.handleLine(':tmi.twitch.tv CLEARCHAT #test :forsen');
       await Future<void>.delayed(Duration.zero);
 
       expect(systemMessages.single.$2, 'forsen was banned.');
@@ -3662,17 +3693,19 @@ void main() {
   group('ROOMSTATE splash', () {
     test('updates the chat status splash and merges partial updates', () async {
       final irc = _TestIrc();
+      final ircRead = _TestIrcRead();
       final chatStatus = <String, String>{};
       final conn = _makeReconnectConn(
         eventSub: _NoopEventSub(),
         irc: irc,
+        ircRead: ircRead,
         onReconnected: () {},
         chatStatus: chatStatus,
       );
       await conn.connect();
-      irc.emitConnected();
+      ircRead.emitConnected();
 
-      irc.handleLine(
+      ircRead.handleLine(
         '@emote-only=1;followers-only=30;r9k=1;room-id=1;slow=10;subs-only=0 '
         ':tmi.twitch.tv ROOMSTATE #test',
       );
@@ -3682,7 +3715,7 @@ void main() {
       );
 
       // Partial update: only slow mode changed.
-      irc.handleLine('@room-id=1;slow=0 :tmi.twitch.tv ROOMSTATE #test');
+      ircRead.handleLine('@room-id=1;slow=0 :tmi.twitch.tv ROOMSTATE #test');
       expect(
         chatStatus['test'],
         'Followers-only (30m) · Emote-only · Unique chat',
@@ -3693,23 +3726,25 @@ void main() {
   });
 
   group('send cooldowns', () {
-    Future<(ChatConnectionManager, _TestIrc)> makeConn() async {
+    Future<(ChatConnectionManager, _TestIrcRead)> makeConn() async {
       final irc = _TestIrc();
+      final ircRead = _TestIrcRead();
       final conn = _makeReconnectConn(
         eventSub: _NoopEventSub(),
         irc: irc,
+        ircRead: ircRead,
         onReconnected: () {},
         channels: ['test'],
         currentUserLogin: 'viewer',
       );
       await conn.connect();
-      irc.emitConnected();
-      return (conn, irc);
+      ircRead.emitConnected();
+      return (conn, ircRead);
     }
 
     test('slow mode arms a countdown after your own message', () async {
-      final (conn, irc) = await makeConn();
-      irc.handleLine('@room-id=1;slow=30 :tmi.twitch.tv ROOMSTATE #test');
+      final (conn, ircRead) = await makeConn();
+      ircRead.handleLine('@room-id=1;slow=30 :tmi.twitch.tv ROOMSTATE #test');
       expect(
         conn.remainingSlowCooldown('test'),
         isNull,
@@ -3723,9 +3758,9 @@ void main() {
     });
 
     test('slow-exempt badges skip the slow-mode countdown', () async {
-      final (conn, irc) = await makeConn();
-      irc.handleLine('@room-id=1;slow=30 :tmi.twitch.tv ROOMSTATE #test');
-      irc.selfBadges['test'] = {'moderator'};
+      final (conn, ircRead) = await makeConn();
+      ircRead.handleLine('@room-id=1;slow=30 :tmi.twitch.tv ROOMSTATE #test');
+      ircRead.selfBadges['test'] = {'moderator'};
 
       await conn.doSendMessage('hi', 'test');
 
@@ -3734,13 +3769,15 @@ void main() {
     });
 
     test('own timeout arms the countdown, other timeouts do not', () async {
-      final (conn, irc) = await makeConn();
+      final (conn, ircRead) = await makeConn();
 
-      irc.handleLine('@ban-duration=60 :tmi.twitch.tv CLEARCHAT #test :forsen');
+      ircRead.handleLine(
+        '@ban-duration=60 :tmi.twitch.tv CLEARCHAT #test :forsen',
+      );
       await Future<void>.delayed(Duration.zero);
       expect(conn.remainingSelfTimeout('test'), isNull);
 
-      irc.handleLine(
+      ircRead.handleLine(
         '@ban-duration=600 :tmi.twitch.tv CLEARCHAT #test :viewer',
       );
       await Future<void>.delayed(Duration.zero);
@@ -3749,9 +3786,11 @@ void main() {
     });
 
     test('the send grace outlives the raw timeout expiry', () async {
-      final (conn, irc) = await makeConn();
+      final (conn, ircRead) = await makeConn();
 
-      irc.handleLine('@ban-duration=1 :tmi.twitch.tv CLEARCHAT #test :viewer');
+      ircRead.handleLine(
+        '@ban-duration=1 :tmi.twitch.tv CLEARCHAT #test :viewer',
+      );
       await Future<void>.delayed(Duration.zero);
       // Ceil over the 0.5s-padded window: a fresh 1s timeout reads high.
       expect(conn.remainingSelfTimeout('test'), inInclusiveRange(1, 2));
@@ -3768,9 +3807,9 @@ void main() {
     test(
       'an already-elapsed timeout clears instead of counting down',
       () async {
-        final (conn, irc) = await makeConn();
+        final (conn, ircRead) = await makeConn();
 
-        irc.handleLine(
+        ircRead.handleLine(
           '@ban-duration=0 :tmi.twitch.tv CLEARCHAT #test :viewer',
         );
         await Future<void>.delayed(Duration.zero);
@@ -3782,9 +3821,9 @@ void main() {
     test(
       'a successful own-message echo heals a stale self-timeout gate',
       () async {
-        final (conn, irc) = await makeConn();
+        final (conn, ircRead) = await makeConn();
 
-        irc.handleLine(
+        ircRead.handleLine(
           '@ban-duration=600 :tmi.twitch.tv CLEARCHAT #test :viewer',
         );
         await Future<void>.delayed(Duration.zero);
@@ -3793,7 +3832,7 @@ void main() {
         // Twitch echoes our own PRIVMSG back, proving the send was accepted
         // and the timeout was already lifted - the gate must clear so the
         // input box stops showing a (now false) countdown.
-        conn.ircRead.emitOwnMessage(
+        ircRead.emitOwnMessage(
           parseIrcMessage(
             ':viewer!viewer@viewer.tmi.twitch.tv PRIVMSG #test :hello',
           )!,
@@ -3949,7 +3988,7 @@ void main() {
 
         // Write side confirms first: still not ready, the echo rides the read
         // socket and its JOIN has not landed yet.
-        irc.emitRoomState('test', {'room-id': '1'});
+        irc.handleLine('@room-id=1 :tmi.twitch.tv ROOMSTATE #test');
         await pumpEventQueue();
         expect(conn.isChannelChatReady('test'), isFalse);
 
@@ -3979,7 +4018,7 @@ void main() {
       await conn.connect();
       irc.emitConnected();
 
-      irc.emitRoomState('test', {'room-id': '1'});
+      irc.handleLine('@room-id=1 :tmi.twitch.tv ROOMSTATE #test');
       await pumpEventQueue();
       expect(conn.isChannelChatReady('test'), isTrue);
 
@@ -4101,16 +4140,20 @@ void main() {
     test('forwards GLOBALUSERSTATE emote-sets to onUserEmoteSets', () async {
       final received = <(String?, List<String>)>[];
       final irc = _TestIrc();
+      final ircRead = _TestIrcRead();
       final conn = _makeReconnectConn(
         eventSub: _NoopEventSub(),
         irc: irc,
+        ircRead: ircRead,
         onReconnected: () {},
         onUserEmoteSets: (channel, ids) async => received.add((channel, ids)),
       );
       await conn.connect();
       await flush();
 
-      irc.handleLine('@emote-sets=0,123456789 :tmi.twitch.tv GLOBALUSERSTATE');
+      ircRead.handleLine(
+        '@emote-sets=0,123456789 :tmi.twitch.tv GLOBALUSERSTATE',
+      );
       await flush();
 
       expect(received, hasLength(1));

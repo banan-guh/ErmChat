@@ -85,7 +85,7 @@ class ChatViewBridge {
 
   final String mentionsChannel;
   final void Function(String, String, {Color? accent, String? messageId})
-      onSystemMessage;
+  onSystemMessage;
   final String? Function() getSelectedChannel;
   final int Function() getMaxMessagesPerChannel;
   final void Function(String channel, JoinProgress? info)? onJoinProgress;
@@ -161,12 +161,13 @@ class ChatConnectionManager {
   final Map<String, String> channelUserIds;
   final Map<String, String> lastSentWireText;
   final String mentionsChannel;
+
   /// Bumped on connection-phase / channel-ready / reply-clear changes so the
   /// composer can rebuild without forcing a full HomeScreen setState.
   final ValueNotifier<int> connectionStateNotifier = ValueNotifier(0);
 
   final void Function(String, String, {Color? accent, String? messageId})
-      onSystemMessage;
+  onSystemMessage;
   void Function(String channel, TwitchMessage msg)? onMention;
   void Function(TwitchMessage msg)? onWhisper;
   final Future<void> Function(String?, List<String>)? onUserEmoteSets;
@@ -224,7 +225,7 @@ class ChatConnectionManager {
   // and the local echo of our own messages rides it.
   final _readJoinedChannels = <String>{};
   StreamSubscription<IrcRoomStateEvent>? ircReadRoomStateSub;
-  StreamSubscription<IrcRoomStateEvent>? ircRoomStateSub;
+  StreamSubscription<IrcRoomStateEvent>? ircWriteRoomStateSub;
 
   /// Whether the read socket participates in readiness gating: yes for
   /// authenticated sessions (both sockets are part of the deal from the
@@ -390,7 +391,6 @@ class ChatConnectionManager {
     ircNoticeSub?.cancel();
     ircJtvSub?.cancel();
     ircJoinFailedSub?.cancel();
-    ircRoomStateSub?.cancel();
     emoteSetsSub?.cancel();
     moderationSub?.cancel();
     hypeTrainSub?.cancel();
@@ -401,13 +401,14 @@ class ChatConnectionManager {
     ircStatusSub?.cancel();
     ircReadStatusSub?.cancel();
     ircReadRoomStateSub?.cancel();
+    ircWriteRoomStateSub?.cancel();
     ircAuthFailedSub?.cancel();
     whisperSub?.cancel();
   }
 
   void stopChatStatusTimer(String channel) {
     _channelSetup.stopChatStatusTimer(channel);
-    irc.selfBadges.remove(channel);
+    ircRead.selfBadges.remove(channel);
   }
 
   void maybeAddConnected(String channel) {
@@ -442,7 +443,9 @@ class ChatConnectionManager {
 
   bool _bypassesSlowMode(String channel) {
     final badges =
-        irc.selfBadges[channel] ?? irc.selfBadges[null] ?? const <String>{};
+        ircRead.selfBadges[channel] ??
+        ircRead.selfBadges[null] ??
+        const <String>{};
     return badges.intersection(_slowExemptBadges).isNotEmpty;
   }
 
@@ -865,7 +868,7 @@ class ChatConnectionManager {
             .then((_) {
               if (!isDisposed && !_readEverConnected) {
                 _readEverConnected = true;
-    connectionStateNotifier.value++;
+                connectionStateNotifier.value++;
               }
             })
             .catchError((_) {}),
@@ -1005,7 +1008,7 @@ class ChatConnectionManager {
         _joinedChannels.clear();
         _connectedAcked.clear();
         _lastSubscribeAll = null;
-        irc.clearSelfBadges();
+        ircRead.clearSelfBadges();
         _selfTimeoutUntil.clear();
         _lastOwnMessageAt.clear();
         store.lastSentWireText.clear();
@@ -1111,7 +1114,7 @@ class ChatConnectionManager {
       ..addAll(_ingestion.attach());
 
     ircNoticeSub?.cancel();
-    ircNoticeSub = irc.onNotice.listen((event) {
+    ircNoticeSub = ircRead.onNotice.listen((event) {
       if (isDisposed) return;
       // With channel.moderate active, room-state changes come from EventSub
       // with structured data - suppress the redundant IRC NOTICE.
@@ -1131,21 +1134,23 @@ class ChatConnectionManager {
     });
 
     ircJtvSub?.cancel();
-    ircJtvSub = irc.onJtvMessage.listen((event) {
+    ircJtvSub = ircRead.onJtvMessage.listen((event) {
       if (isDisposed) return;
       onSystemMessage(event.channel, event.message);
     });
 
-    // JOIN failures from the write socket are handled by the setup domain,
+    // JOIN failures from the read socket are handled by the setup domain,
     // which also tracks the notified set for the NOTICE suppression above.
     ircJoinFailedSub?.cancel();
-    ircJoinFailedSub = irc.onJoinFailed.listen(_channelSetup.handleJoinFailed);
+    ircJoinFailedSub = ircRead.onJoinFailed.listen(
+      _channelSetup.handleJoinFailed,
+    );
 
     whisperSub?.cancel();
-    whisperSub = irc.onWhisper.listen(onWhisperEvent);
+    whisperSub = ircRead.onWhisper.listen(onWhisperEvent);
 
     userNoticeSub?.cancel();
-    userNoticeSub = irc.onUserNotice.listen((event) {
+    userNoticeSub = ircRead.onUserNotice.listen((event) {
       if (isDisposed) return;
       final isAnnouncement = event.msgId == 'announcement';
       if (!isAnnouncement) {
@@ -1231,21 +1236,16 @@ class ChatConnectionManager {
       );
     });
 
-    // The write socket JOINs to receive channel traffic, so its ROOMSTATE
-    // resolves room status, join tracking, and the JOIN countdown here too.
-    // The read socket listener below confirms readiness independently.
-    ircRoomStateSub?.cancel();
-    ircRoomStateSub = irc.onRoomState.listen((event) {
+    // The read socket is the sole JOINer: its ROOMSTATE resolves room status
+    // (slow mode, followers-only, ...), confirms the JOIN, and drives
+    // readiness.
+    ircReadRoomStateSub?.cancel();
+    ircReadRoomStateSub = ircRead.onRoomState.listen((event) {
       if (isDisposed) return;
       if (_channelSetup.handleRoomState(event)) {
-        final isNewlyConfirmed = _joinedChannels.add(event.channel);
-        if (isNewlyConfirmed) {
-          PerfLog.I.record(
-            'JOINQ',
-            'write-confirm ${event.channel} '
-                '(readJoined=${_readJoinedChannels.contains(event.channel)}, '
-                'readLive=${ircRead.isConnected})',
-          );
+        final isNew = _readJoinedChannels.add(event.channel);
+        if (isNew) {
+          PerfLog.I.record('JOINQ', 'read-confirm ${event.channel}');
           _clearJoinWait(event.channel);
           if (isChannelChatReady(event.channel)) {
             _announceConnected(event.channel);
@@ -1255,32 +1255,26 @@ class ChatConnectionManager {
       }
     });
 
-    // The read socket JOINs too and owns readiness gating: its ROOMSTATE
-    // drives room status (slow mode, followers-only, ...) and confirms the
-    // JOIN that gates readiness. Our own message echo also arrives here, not
-    // on the write connection.
-    ircReadRoomStateSub?.cancel();
-    ircReadRoomStateSub = ircRead.onRoomState.listen((event) {
+    // The write socket also echoes ROOMSTATE after its own JOIN. Populate
+    // _joinedChannels so anonymous sessions (where the read socket is dead)
+    // can still resolve readiness via the fallback path. For authenticated
+    // sessions this also triggers the second half of the "both sockets
+    // confirmed" check.
+    ircWriteRoomStateSub?.cancel();
+    ircWriteRoomStateSub = irc.onRoomState.listen((event) {
       if (isDisposed) return;
       _channelSetup.handleRoomState(event);
-      final isNew = _readJoinedChannels.add(event.channel);
+      final isNew = _joinedChannels.add(event.channel);
       if (isNew) {
-        PerfLog.I.record(
-          'JOINQ',
-          'read-confirm ${event.channel} (writeConnected=${irc.isConnected})',
-        );
-      }
-      if (isNew && isChannelChatReady(event.channel)) {
-        // The read side confirmed: the channel is fully usable now, so retire
-        // the countdown and announce.
-        _clearJoinWait(event.channel);
-        _announceConnected(event.channel);
-        connectionStateNotifier.value++;
+        if (isChannelChatReady(event.channel)) {
+          _announceConnected(event.channel);
+          connectionStateNotifier.value++;
+        }
       }
     });
 
     emoteSetsSub?.cancel();
-    emoteSetsSub = irc.onUserEmoteSets.listen((event) {
+    emoteSetsSub = ircRead.onUserEmoteSets.listen((event) {
       if (isDisposed || onUserEmoteSets == null) return;
       final (channel, ids) = event;
       unawaited(onUserEmoteSets!(channel, ids));

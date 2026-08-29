@@ -9,8 +9,7 @@ import 'package:http/http.dart' as http;
 
 import '../util/constants.dart';
 import '../util/log.dart';
-import 'base_irc_connection.dart'
-    show IrcJoinFailureEvent, IrcReadService, JoinFailureReason;
+import 'base_irc_connection.dart' show IrcJoinFailureEvent, JoinFailureReason;
 import 'chat_store.dart';
 import 'emote_manager.dart';
 import 'seven_tv_event_client.dart';
@@ -18,7 +17,7 @@ import 'twitch_api.dart';
 import 'twitch_auth.dart';
 import 'twitch_badge_service.dart';
 import 'twitch_eventsub.dart';
-import 'twitch_irc.dart' show IrcRoomStateEvent, IrcService;
+import 'twitch_irc.dart' show IrcReadService, IrcRoomStateEvent, IrcService;
 import 'user_store.dart';
 
 /// The channel-domain of the pipeline: joining channels and resolving their

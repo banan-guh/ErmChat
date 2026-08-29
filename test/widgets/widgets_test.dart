@@ -131,11 +131,6 @@ class _GappedRecentMessagesService extends RecentMessagesService {
 }
 
 class _FakeIrcService extends IrcService {
-  final _banCtrl = StreamController<IrcBanEvent>.broadcast(sync: true);
-  final _noticeCtrl = StreamController<IrcNoticeEvent>.broadcast(sync: true);
-  final _deleteCtrl = StreamController<IrcMessageDeletedEvent>.broadcast(
-    sync: true,
-  );
   final _statusCtrl = StreamController<IrcConnectionStatus>.broadcast(
     sync: true,
   );
@@ -145,15 +140,6 @@ class _FakeIrcService extends IrcService {
     required String username,
     required String accessToken,
   }) async {}
-
-  @override
-  Stream<IrcBanEvent> get onBan => _banCtrl.stream;
-
-  @override
-  Stream<IrcNoticeEvent> get onNotice => _noticeCtrl.stream;
-
-  @override
-  Stream<IrcMessageDeletedEvent> get onMessageDeleted => _deleteCtrl.stream;
 
   @override
   Stream<IrcConnectionStatus> get onStatus => _statusCtrl.stream;
@@ -177,7 +163,68 @@ class _FakeIrcService extends IrcService {
   void triggerConnect({String? joinChannel}) {
     _fakeConnected = true;
     _statusCtrl.add(IrcConnectionStatus.connected);
-    // "Connected" surfaces per channel once its JOIN confirms.
+    if (joinChannel != null) triggerJoin(joinChannel);
+  }
+
+  void triggerDisconnect() {
+    _fakeConnected = false;
+    _statusCtrl.add(IrcConnectionStatus.disconnected);
+  }
+
+  @override
+  void dispose() {
+    _statusCtrl.close();
+    _roomStateCtrl.close();
+    super.dispose();
+  }
+}
+
+class _FakeIrcReadService extends IrcReadService {
+  final _banCtrl = StreamController<IrcBanEvent>.broadcast(sync: true);
+  final _noticeCtrl = StreamController<IrcNoticeEvent>.broadcast(sync: true);
+  final _deleteCtrl = StreamController<IrcMessageDeletedEvent>.broadcast(
+    sync: true,
+  );
+  final _statusCtrl = StreamController<IrcConnectionStatus>.broadcast(
+    sync: true,
+  );
+  final _roomStateCtrl = StreamController<IrcRoomStateEvent>.broadcast(
+    sync: true,
+  );
+
+  @override
+  Future<void> connect({
+    required String username,
+    required String accessToken,
+  }) async {}
+
+  @override
+  Stream<IrcBanEvent> get onBan => _banCtrl.stream;
+
+  @override
+  Stream<IrcNoticeEvent> get onNotice => _noticeCtrl.stream;
+
+  @override
+  Stream<IrcMessageDeletedEvent> get onMessageDeleted => _deleteCtrl.stream;
+
+  @override
+  Stream<IrcConnectionStatus> get onStatus => _statusCtrl.stream;
+
+  @override
+  Stream<IrcRoomStateEvent> get onRoomState => _roomStateCtrl.stream;
+
+  bool _fakeConnected = false;
+
+  @override
+  bool get isConnected => _fakeConnected;
+
+  void triggerJoin(String channel) {
+    _roomStateCtrl.add(IrcRoomStateEvent(channel: channel, tags: const {}));
+  }
+
+  void triggerConnect({String? joinChannel}) {
+    _fakeConnected = true;
+    _statusCtrl.add(IrcConnectionStatus.connected);
     if (joinChannel != null) triggerJoin(joinChannel);
   }
 
@@ -230,6 +277,7 @@ class _FakeIrcService extends IrcService {
     _noticeCtrl.close();
     _deleteCtrl.close();
     _statusCtrl.close();
+    _roomStateCtrl.close();
     super.dispose();
   }
 }
@@ -383,12 +431,14 @@ void main() {
     (WidgetTester tester) async {
       final fakeEventSub = _FakeEventSubService();
       final fakeIrc = _FakeIrcService();
+      final fakeIrcRead = _FakeIrcReadService();
       final fakeRecent = _FakeRecentMessagesService();
 
       await tester.pumpWidget(
         TwitchChatApp(
           eventSubService: fakeEventSub,
           ircService: fakeIrc,
+          ircReadService: fakeIrcRead,
           recentMessagesService: fakeRecent,
         ),
       );
@@ -416,7 +466,7 @@ void main() {
       expect(find.textContaining('hello chat'), findsNothing);
 
       // EventSub messages still appear in view-only mode.
-      fakeIrc.emitMessage(
+      fakeIrcRead.emitMessage(
         TwitchMessage(
           login: 'xqc',
           text: 'hello chat',
@@ -572,11 +622,13 @@ void main() {
     (WidgetTester tester) async {
       final eventSub = _FakeEventSubService();
       final irc = _FakeIrcService();
+      final ircRead = _FakeIrcReadService();
       final recent = _ConfigurableRecentMessagesService(const []);
       await tester.pumpWidget(
         TwitchChatApp(
           eventSubService: eventSub,
           ircService: irc,
+          ircReadService: ircRead,
           recentMessagesService: recent,
           initialCurrentUserLogin: 'me',
         ),
@@ -590,7 +642,7 @@ void main() {
       await tester.pump();
 
       // 'a' is the selected channel; emit a mention there.
-      irc.emitMessage(
+      ircRead.emitMessage(
         TwitchMessage(
           login: 'bob',
           text: 'hey @me how are you',
@@ -611,11 +663,13 @@ void main() {
     (WidgetTester tester) async {
       final eventSub = _FakeEventSubService();
       final irc = _FakeIrcService();
+      final ircRead = _FakeIrcReadService();
       final recent = _ConfigurableRecentMessagesService(const []);
       await tester.pumpWidget(
         TwitchChatApp(
           eventSubService: eventSub,
           ircService: irc,
+          ircReadService: ircRead,
           recentMessagesService: recent,
           initialCurrentUserLogin: 'me',
         ),
@@ -631,7 +685,7 @@ void main() {
         await tester.pump();
       }
 
-      irc.emitMessage(
+      ircRead.emitMessage(
         TwitchMessage(
           login: 'carol',
           text: 'hello @me',
@@ -652,11 +706,13 @@ void main() {
     (WidgetTester tester) async {
       final eventSub = _FakeEventSubService();
       final irc = _FakeIrcService();
+      final ircRead = _FakeIrcReadService();
       final recent = _ConfigurableRecentMessagesService(const []);
       await tester.pumpWidget(
         TwitchChatApp(
           eventSubService: eventSub,
           ircService: irc,
+          ircReadService: ircRead,
           recentMessagesService: recent,
           initialCurrentUserLogin: 'me',
         ),
@@ -671,7 +727,7 @@ void main() {
         await tester.pump();
       }
 
-      irc.emitMessage(
+      ircRead.emitMessage(
         TwitchMessage(
           login: 'carol',
           text: 'hello @me',
@@ -708,11 +764,13 @@ void main() {
     (WidgetTester tester) async {
       final eventSub = _FakeEventSubService();
       final irc = _FakeIrcService();
+      final ircRead = _FakeIrcReadService();
       final recent = _ConfigurableRecentMessagesService(const []);
       await tester.pumpWidget(
         TwitchChatApp(
           eventSubService: eventSub,
           ircService: irc,
+          ircReadService: ircRead,
           recentMessagesService: recent,
           initialCurrentUserLogin: 'me',
         ),
@@ -727,7 +785,7 @@ void main() {
         await tester.pump();
       }
 
-      irc.emitMessage(
+      ircRead.emitMessage(
         TwitchMessage(
           login: 'carol',
           text: 'hello @me',
@@ -752,11 +810,13 @@ void main() {
     (WidgetTester tester) async {
       final eventSub = _FakeEventSubService();
       final irc = _FakeIrcService();
+      final ircRead = _FakeIrcReadService();
       final recent = _ConfigurableRecentMessagesService(const []);
       await tester.pumpWidget(
         TwitchChatApp(
           eventSubService: eventSub,
           ircService: irc,
+          ircReadService: ircRead,
           recentMessagesService: recent,
           initialCurrentUserLogin: 'me',
         ),
@@ -771,7 +831,7 @@ void main() {
         await tester.pump();
       }
 
-      irc.emitMessage(
+      ircRead.emitMessage(
         TwitchMessage(
           login: 'carol',
           text: 'hello @me',
@@ -814,11 +874,13 @@ void main() {
   ) async {
     final eventSub = _FakeEventSubService();
     final irc = _FakeIrcService();
+    final ircRead = _FakeIrcReadService();
     final recent = _ConfigurableRecentMessagesService(const []);
     await tester.pumpWidget(
       TwitchChatApp(
         eventSubService: eventSub,
         ircService: irc,
+        ircReadService: ircRead,
         recentMessagesService: recent,
         initialCurrentUserLogin: 'me',
       ),
@@ -833,7 +895,7 @@ void main() {
       await tester.pump();
     }
 
-    irc.emitMessage(
+    ircRead.emitMessage(
       TwitchMessage(
         login: 'carol',
         text: 'hello @me',
@@ -875,11 +937,13 @@ void main() {
     (WidgetTester tester) async {
       final eventSub = _FakeEventSubService();
       final irc = _FakeIrcService();
+      final ircRead = _FakeIrcReadService();
       final recent = _ConfigurableRecentMessagesService(const []);
       await tester.pumpWidget(
         TwitchChatApp(
           eventSubService: eventSub,
           ircService: irc,
+          ircReadService: ircRead,
           recentMessagesService: recent,
           initialCurrentUserLogin: 'me',
         ),
@@ -894,7 +958,7 @@ void main() {
         await tester.pump();
       }
 
-      irc.emitWhisper(
+      ircRead.emitWhisper(
         TwitchMessage(
           login: 'carol',
           text: 'hello @me',
@@ -933,11 +997,13 @@ void main() {
   ) async {
     final eventSub = _FakeEventSubService();
     final irc = _FakeIrcService();
+    final ircRead = _FakeIrcReadService();
     final recent = _ConfigurableRecentMessagesService(const []);
     await tester.pumpWidget(
       TwitchChatApp(
         eventSubService: eventSub,
         ircService: irc,
+        ircReadService: ircRead,
         recentMessagesService: recent,
         initialCurrentUserLogin: 'me',
       ),
@@ -950,7 +1016,7 @@ void main() {
     await tester.tap(find.text('Join', skipOffstage: false));
     await tester.pump();
 
-    irc.emitMessage(
+    ircRead.emitMessage(
       TwitchMessage(
         login: 'carol',
         text: 'hello @me',
@@ -978,11 +1044,13 @@ void main() {
   ) async {
     final eventSub = _FakeEventSubService();
     final irc = _FakeIrcService();
+    final ircRead = _FakeIrcReadService();
     final recent = _ConfigurableRecentMessagesService(const []);
     await tester.pumpWidget(
       TwitchChatApp(
         eventSubService: eventSub,
         ircService: irc,
+        ircReadService: ircRead,
         recentMessagesService: recent,
         initialCurrentUserLogin: 'me',
       ),
@@ -995,7 +1063,7 @@ void main() {
     await tester.tap(find.text('Join', skipOffstage: false));
     await tester.pump();
 
-    irc.emitWhisper(
+    ircRead.emitWhisper(
       TwitchMessage(
         login: 'carol',
         text: 'psst',
@@ -1029,11 +1097,13 @@ void main() {
       FlutterSecureStorage.setMockInitialValues({'access_token': 'test_token'});
       final eventSub = _FakeEventSubService();
       final irc = _FakeIrcService();
+      final ircRead = _FakeIrcReadService();
       final recent = _ConfigurableRecentMessagesService(const []);
       await tester.pumpWidget(
         TwitchChatApp(
           eventSubService: eventSub,
           ircService: irc,
+          ircReadService: ircRead,
           recentMessagesService: recent,
         ),
       );
@@ -1047,11 +1117,12 @@ void main() {
         await tester.pump();
       }
       irc.triggerConnect();
+      ircRead.triggerConnect();
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 600));
       await tester.pump();
 
-      irc.emitWhisper(
+      ircRead.emitWhisper(
         TwitchMessage(
           login: 'carol',
           text: 'hi',
@@ -1099,11 +1170,13 @@ void main() {
       });
       final eventSub = _FakeEventSubService();
       final irc = _FakeIrcService();
+      final ircRead = _FakeIrcReadService();
       final recent = _ConfigurableRecentMessagesService(const []);
       await tester.pumpWidget(
         TwitchChatApp(
           eventSubService: eventSub,
           ircService: irc,
+          ircReadService: ircRead,
           recentMessagesService: recent,
         ),
       );
@@ -1117,11 +1190,12 @@ void main() {
         await tester.pump();
       }
       irc.triggerConnect();
+      ircRead.triggerConnect();
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 600));
       await tester.pump();
 
-      irc.emitWhisper(
+      ircRead.emitWhisper(
         TwitchMessage(
           login: 'carol',
           text: 'hi there',
@@ -1216,12 +1290,14 @@ void main() {
   ) async {
     final fakeEventSub = _FakeEventSubService();
     final fakeIrc = _FakeIrcService();
+    final fakeIrcRead = _FakeIrcReadService();
     final fakeRecent = _FakeRecentMessagesService();
 
     await tester.pumpWidget(
       TwitchChatApp(
         eventSubService: fakeEventSub,
         ircService: fakeIrc,
+        ircReadService: fakeIrcRead,
         recentMessagesService: fakeRecent,
       ),
     );
@@ -1233,7 +1309,7 @@ void main() {
     await tester.tap(find.text('Join', skipOffstage: false));
     await tester.pump();
 
-    fakeIrc.emitMessage(
+    fakeIrcRead.emitMessage(
       TwitchMessage(
         login: 'xqc',
         text: 'hello',
@@ -1259,12 +1335,14 @@ void main() {
     });
     final fakeEventSub = _FakeEventSubService();
     final fakeIrc = _FakeIrcService();
+    final fakeIrcRead = _FakeIrcReadService();
     final fakeRecent = _FakeRecentMessagesService();
 
     await tester.pumpWidget(
       TwitchChatApp(
         eventSubService: fakeEventSub,
         ircService: fakeIrc,
+        ircReadService: fakeIrcRead,
         recentMessagesService: fakeRecent,
       ),
     );
@@ -1276,7 +1354,7 @@ void main() {
     await tester.tap(find.text('Join', skipOffstage: false));
     await tester.pump();
 
-    fakeIrc.emitMessage(
+    fakeIrcRead.emitMessage(
       TwitchMessage(
         login: 'xqc',
         text: 'hello',
@@ -1303,12 +1381,14 @@ void main() {
     });
     final fakeEventSub = _FakeEventSubService();
     final fakeIrc = _FakeIrcService();
+    final fakeIrcRead = _FakeIrcReadService();
     final fakeRecent = _FakeRecentMessagesService();
 
     await tester.pumpWidget(
       TwitchChatApp(
         eventSubService: fakeEventSub,
         ircService: fakeIrc,
+        ircReadService: fakeIrcRead,
         recentMessagesService: fakeRecent,
       ),
     );
@@ -1320,7 +1400,7 @@ void main() {
     await tester.tap(find.text('Join', skipOffstage: false));
     await tester.pump();
 
-    fakeIrc.emitMessage(
+    fakeIrcRead.emitMessage(
       TwitchMessage(
         login: 'xqc',
         text: 'hello',
@@ -1711,11 +1791,13 @@ void main() {
     );
     final fakeEventSub = _FakeEventSubService();
     final fakeIrc = _FakeIrcService();
+    final fakeIrcRead = _FakeIrcReadService();
 
     await tester.pumpWidget(
       TwitchChatApp(
         eventSubService: fakeEventSub,
         ircService: fakeIrc,
+        ircReadService: fakeIrcRead,
         recentMessagesService: recent,
       ),
     );
@@ -1726,21 +1808,24 @@ void main() {
     );
 
     fakeIrc.triggerConnect();
+    fakeIrcRead.triggerConnect();
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 600));
     await tester.pump();
     expect(recent.callCount, 1);
 
     fakeIrc.triggerDisconnect();
+    fakeIrcRead.triggerDisconnect();
     await tester.pump();
     fakeIrc.triggerConnect();
+    fakeIrcRead.triggerConnect();
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 600));
     await tester.pump();
     expect(recent.callCount, 2, reason: 'reconnect must trigger a re-fetch');
 
     // Live messages arrive while the re-fetch is still in flight.
-    fakeIrc.emitMessage(
+    fakeIrcRead.emitMessage(
       TwitchMessage(
         login: 'carol',
         text: 'live after reconnect',
@@ -1837,11 +1922,13 @@ void main() {
     );
     final fakeEventSub = _FakeEventSubService();
     final fakeIrc = _FakeIrcService();
+    final fakeIrcRead = _FakeIrcReadService();
 
     await tester.pumpWidget(
       TwitchChatApp(
         eventSubService: fakeEventSub,
         ircService: fakeIrc,
+        ircReadService: fakeIrcRead,
         recentMessagesService: recent,
       ),
     );
@@ -1851,7 +1938,7 @@ void main() {
       findsOneWidget,
     );
 
-    fakeIrc.emitBan(
+    fakeIrcRead.emitBan(
       'spammer',
       isTimeout: true,
       durationSeconds: 300,
@@ -1864,8 +1951,10 @@ void main() {
     );
 
     fakeIrc.triggerDisconnect();
+    fakeIrcRead.triggerDisconnect();
     await tester.pump();
     fakeIrc.triggerConnect();
+    fakeIrcRead.triggerConnect();
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 600));
     await tester.pump();
@@ -1954,6 +2043,7 @@ void main() {
       required String channelName,
       required List<TwitchMessage> history,
       _FakeIrcService? irc,
+      IrcReadService? ircReadService,
     }) async {
       final fakeIrc = irc ?? _FakeIrcService();
       final fakeRecent = _ConfigurableRecentMessagesService(history);
@@ -1964,6 +2054,7 @@ void main() {
           eventSubService: es,
           recentMessagesService: fakeRecent,
           ircService: fakeIrc,
+          ircReadService: ircReadService,
         ),
       );
       await tester.pump();
@@ -2050,11 +2141,13 @@ void main() {
           channel: channel,
         );
         final irc = _FakeIrcService();
+        final ircRead = _FakeIrcReadService();
         await joinChannel(
           tester,
           channelName: channel,
           history: [parent, child],
           irc: irc,
+          ircReadService: ircRead,
         );
 
         await tester.pump();
@@ -2073,7 +2166,7 @@ void main() {
         // Flood the channel so truncation evicts every thread member from
         // the main chat buffer while the panel is open.
         for (var i = 0; i < 12; i++) {
-          irc.emitMessage(
+          ircRead.emitMessage(
             TwitchMessage(
               login: 'user$i',
               text: 'flood $i',
@@ -2479,6 +2572,7 @@ void main() {
       WidgetTester tester, {
       required _FakeEventSubService eventSub,
       required _FakeIrcService irc,
+      IrcReadService? ircReadService,
       RecentMessagesService? recent,
     }) async {
       SharedPreferences.setMockInitialValues({'access_token': 'test_token'});
@@ -2490,6 +2584,7 @@ void main() {
           eventSubService: eventSub,
           recentMessagesService: fakeRecent,
           ircService: irc,
+          ircReadService: ircReadService,
         ),
       );
       await tester.pump();
@@ -2626,9 +2721,15 @@ void main() {
     ) async {
       final eventSub = _FakeEventSubService();
       final irc = _FakeIrcService();
-      await setupChannel(tester, eventSub: eventSub, irc: irc);
+      final ircRead = _FakeIrcReadService();
+      await setupChannel(
+        tester,
+        eventSub: eventSub,
+        irc: irc,
+        ircReadService: ircRead,
+      );
 
-      irc.emitBan('baduser', isTimeout: false, channel: 'testchannel');
+      ircRead.emitBan('baduser', isTimeout: false, channel: 'testchannel');
       await tester.pump();
 
       expect(
@@ -2642,9 +2743,15 @@ void main() {
     ) async {
       final eventSub = _FakeEventSubService();
       final irc = _FakeIrcService();
-      await setupChannel(tester, eventSub: eventSub, irc: irc);
+      final ircRead = _FakeIrcReadService();
+      await setupChannel(
+        tester,
+        eventSub: eventSub,
+        irc: irc,
+        ircReadService: ircRead,
+      );
 
-      irc.emitBan(
+      ircRead.emitBan(
         'spammer',
         isTimeout: true,
         durationSeconds: 300,
@@ -2666,9 +2773,15 @@ void main() {
     ) async {
       final eventSub = _FakeEventSubService();
       final irc = _FakeIrcService();
-      await setupChannel(tester, eventSub: eventSub, irc: irc);
+      final ircRead = _FakeIrcReadService();
+      await setupChannel(
+        tester,
+        eventSub: eventSub,
+        irc: irc,
+        ircReadService: ircRead,
+      );
 
-      irc.emitBan('spammer', isTimeout: true, channel: 'testchannel');
+      ircRead.emitBan('spammer', isTimeout: true, channel: 'testchannel');
       await tester.pump();
 
       expect(
@@ -2681,9 +2794,15 @@ void main() {
     testWidgets('notice shows the notice text', (WidgetTester tester) async {
       final eventSub = _FakeEventSubService();
       final irc = _FakeIrcService();
-      await setupChannel(tester, eventSub: eventSub, irc: irc);
+      final ircRead = _FakeIrcReadService();
+      await setupChannel(
+        tester,
+        eventSub: eventSub,
+        irc: irc,
+        ircReadService: ircRead,
+      );
 
-      irc.emitNotice('testchannel', 'This room requires a verified email.');
+      ircRead.emitNotice('testchannel', 'This room requires a verified email.');
       await tester.pump();
 
       expect(
@@ -2700,9 +2819,15 @@ void main() {
     ) async {
       final eventSub = _FakeEventSubService();
       final irc = _FakeIrcService();
-      await setupChannel(tester, eventSub: eventSub, irc: irc);
+      final ircRead = _FakeIrcReadService();
+      await setupChannel(
+        tester,
+        eventSub: eventSub,
+        irc: irc,
+        ircReadService: ircRead,
+      );
 
-      irc.emitDeleted(
+      ircRead.emitDeleted(
         'root-1',
         'testchannel',
         user: 'alice',
@@ -2728,10 +2853,16 @@ void main() {
     ) async {
       final eventSub = _FakeEventSubService();
       final irc = _FakeIrcService();
-      await setupChannel(tester, eventSub: eventSub, irc: irc);
+      final ircRead = _FakeIrcReadService();
+      await setupChannel(
+        tester,
+        eventSub: eventSub,
+        irc: irc,
+        ircReadService: ircRead,
+      );
 
       // Send a live message and let its tile cache/element settle.
-      irc.emitMessage(
+      ircRead.emitMessage(
         TwitchMessage(
           login: 'bob',
           text: 'will be deleted',
@@ -2741,7 +2872,7 @@ void main() {
       );
       await tester.pump();
       // A second live message shifts the first, forcing a real reconciliation.
-      irc.emitMessage(
+      ircRead.emitMessage(
         TwitchMessage(
           login: 'carol',
           text: 'shift me',
@@ -2751,7 +2882,7 @@ void main() {
       );
       await tester.pump();
 
-      irc.emitDeleted(
+      ircRead.emitDeleted(
         'live-1',
         'testchannel',
         user: 'mod',
@@ -2888,12 +3019,14 @@ void main() {
         });
         final eventSub = _FakeEventSubService();
         final irc = _FakeIrcService();
+        final ircRead = _FakeIrcReadService();
         final recent = _FakeRecentMessagesService();
 
         await tester.pumpWidget(
           TwitchChatApp(
             eventSubService: eventSub,
             ircService: irc,
+            ircReadService: ircRead,
             recentMessagesService: recent,
           ),
         );
@@ -2908,7 +3041,7 @@ void main() {
           await tester.pump();
         }
 
-        irc.emitNotice('channelB', 'This room requires a verified email.');
+        ircRead.emitNotice('channelB', 'This room requires a verified email.');
         await tester.pump();
 
         // The unfocused channel must not show an unread mention indicator.
@@ -2921,6 +3054,7 @@ void main() {
     ) async {
       final eventSub = _FakeEventSubService();
       final irc = _FakeIrcService();
+      final ircRead = _FakeIrcReadService();
       final recent = _ConfigurableRecentMessagesService([
         TwitchMessage(
           login: 'bob',
@@ -2935,9 +3069,15 @@ void main() {
           messageId: 'good-1',
         ),
       ]);
-      await setupChannel(tester, eventSub: eventSub, irc: irc, recent: recent);
+      await setupChannel(
+        tester,
+        eventSub: eventSub,
+        irc: irc,
+        ircReadService: ircRead,
+        recent: recent,
+      );
 
-      irc.emitBan('bob', isTimeout: false, channel: 'testchannel');
+      ircRead.emitBan('bob', isTimeout: false, channel: 'testchannel');
       await tester.pump();
 
       // Banned user's message is still visible (greyed out, not removed).
@@ -4005,6 +4145,7 @@ void main() {
       required String channelName,
       required List<TwitchMessage> history,
       _FakeIrcService? irc,
+      IrcReadService? ircReadService,
       int maxMessages = 500,
     }) async {
       SharedPreferences.setMockInitialValues({
@@ -4019,6 +4160,7 @@ void main() {
           eventSubService: es,
           recentMessagesService: fakeRecent,
           ircService: fakeIrc,
+          ircReadService: ircReadService,
         ),
       );
       await tester.pump();
@@ -4207,11 +4349,13 @@ void main() {
           ),
         );
         final irc = _FakeIrcService();
+        final ircRead = _FakeIrcReadService();
         await joinChannel(
           tester,
           channelName: channel,
           history: [parent, child, ...filler],
           irc: irc,
+          ircReadService: ircRead,
           maxMessages: 10,
         );
 
@@ -4236,7 +4380,7 @@ void main() {
 
         // Emit new messages that push the thread past the limit.
         for (int i = 1; i <= 3; i++) {
-          irc.emitMessage(
+          ircRead.emitMessage(
             TwitchMessage(
               login: 'newuser',
               text: 'new message $i',
@@ -4253,7 +4397,7 @@ void main() {
         // deferred: advance the clock and emit one more message so the
         // thread-aware pass runs and drops the thread.
         await tester.pump(const Duration(milliseconds: 300));
-        irc.emitMessage(
+        ircRead.emitMessage(
           TwitchMessage(
             login: 'newuser',
             text: 'new message 4',
@@ -4350,12 +4494,14 @@ void main() {
         );
         final fakeEventSub = _FakeEventSubService();
         final fakeIrc = _FakeIrcService();
+        final fakeIrcRead = _FakeIrcReadService();
         final fakeRecent = _ConfigurableRecentMessagesService(manyMessages);
 
         await tester.pumpWidget(
           TwitchChatApp(
             eventSubService: fakeEventSub,
             ircService: fakeIrc,
+            ircReadService: fakeIrcRead,
             recentMessagesService: fakeRecent,
           ),
         );
@@ -4383,7 +4529,7 @@ void main() {
         final offsetBeforeArrival = position.pixels;
 
         // Emit a new message while scrolled up
-        fakeIrc.emitMessage(
+        fakeIrcRead.emitMessage(
           TwitchMessage(
             login: 'newuser',
             text: 'new message while paused',
@@ -4422,8 +4568,13 @@ void main() {
     ) async {
       final fakeEventSub = _FakeEventSubService();
       final fakeIrc = _FakeIrcService();
+      final fakeIrcRead = _FakeIrcReadService();
       await tester.pumpWidget(
-        TwitchChatApp(eventSubService: fakeEventSub, ircService: fakeIrc),
+        TwitchChatApp(
+          eventSubService: fakeEventSub,
+          ircService: fakeIrc,
+          ircReadService: fakeIrcRead,
+        ),
       );
       await tester.pump();
       await tester.tap(find.byIcon(Icons.add));
@@ -4441,7 +4592,7 @@ void main() {
         systemAccent: accent,
         channel: 'testchannel',
       );
-      fakeIrc.emitMessage(announcement);
+      fakeIrcRead.emitMessage(announcement);
       await tester.pump();
 
       expect(
@@ -4481,8 +4632,13 @@ void main() {
     ) async {
       final fakeEventSub = _FakeEventSubService();
       final fakeIrc = _FakeIrcService();
+      final fakeIrcRead = _FakeIrcReadService();
       await tester.pumpWidget(
-        TwitchChatApp(eventSubService: fakeEventSub, ircService: fakeIrc),
+        TwitchChatApp(
+          eventSubService: fakeEventSub,
+          ircService: fakeIrc,
+          ircReadService: fakeIrcRead,
+        ),
       );
       await tester.pump();
       await tester.tap(find.byIcon(Icons.add));
@@ -4498,7 +4654,7 @@ void main() {
         isSystem: true,
         channel: 'testchannel',
       );
-      fakeIrc.emitMessage(systemMsg);
+      fakeIrcRead.emitMessage(systemMsg);
       await tester.pump();
 
       expect(
@@ -4529,8 +4685,13 @@ void main() {
     ) async {
       final fakeEventSub = _FakeEventSubService();
       final fakeIrc = _FakeIrcService();
+      final fakeIrcRead = _FakeIrcReadService();
       await tester.pumpWidget(
-        TwitchChatApp(eventSubService: fakeEventSub, ircService: fakeIrc),
+        TwitchChatApp(
+          eventSubService: fakeEventSub,
+          ircService: fakeIrc,
+          ircReadService: fakeIrcRead,
+        ),
       );
       await tester.pump();
       await tester.tap(find.byIcon(Icons.add));
@@ -4540,7 +4701,7 @@ void main() {
       await tester.pump();
       await tester.pump();
 
-      fakeIrc.emitUserNotice(
+      fakeIrcRead.emitUserNotice(
         UserNoticeEvent(
           channel: 'testchannel',
           msgId: 'announcement',
@@ -4576,12 +4737,14 @@ void main() {
       FlutterSecureStorage.setMockInitialValues({'access_token': 'test_token'});
       final eventSub = _FakeEventSubService();
       final irc = _FakeIrcService();
+      final ircRead = _FakeIrcReadService();
       final recent = _FakeRecentMessagesService();
 
       await tester.pumpWidget(
         TwitchChatApp(
           eventSubService: eventSub,
           ircService: irc,
+          ircReadService: ircRead,
           recentMessagesService: recent,
         ),
       );
@@ -4593,7 +4756,7 @@ void main() {
       await tester.tap(find.text('Join', skipOffstage: false));
       await tester.pump();
 
-      irc.emitMessage(
+      ircRead.emitMessage(
         TwitchMessage(
           login: 'UserOne',
           text: 'hello chat',
@@ -4609,6 +4772,7 @@ void main() {
       );
 
       irc.triggerConnect(joinChannel: 'xqc');
+      ircRead.triggerConnect(joinChannel: 'xqc');
       await tester.pump();
       await tester.enterText(find.byKey(const Key('message_input')), 'Us');
       await tester.pump();
@@ -4631,12 +4795,14 @@ void main() {
       FlutterSecureStorage.setMockInitialValues({'access_token': 'test_token'});
       final eventSub = _FakeEventSubService();
       final irc = _FakeIrcService();
+      final ircRead = _FakeIrcReadService();
       final recent = _FakeRecentMessagesService();
 
       await tester.pumpWidget(
         TwitchChatApp(
           eventSubService: eventSub,
           ircService: irc,
+          ircReadService: ircRead,
           recentMessagesService: recent,
         ),
       );
@@ -4650,7 +4816,7 @@ void main() {
       await tester.pump();
 
       // Populate user store so UserOne appears as a suggestion.
-      irc.emitMessage(
+      ircRead.emitMessage(
         TwitchMessage(
           login: 'UserOne',
           text: 'hello chat',
@@ -4701,12 +4867,14 @@ void main() {
       FlutterSecureStorage.setMockInitialValues({'access_token': 'test_token'});
       final eventSub = _FakeEventSubService();
       final irc = _FakeIrcService();
+      final ircRead = _FakeIrcReadService();
       final recent = _FakeRecentMessagesService();
 
       await tester.pumpWidget(
         TwitchChatApp(
           eventSubService: eventSub,
           ircService: irc,
+          ircReadService: ircRead,
           recentMessagesService: recent,
         ),
       );
@@ -4718,7 +4886,7 @@ void main() {
       await tester.tap(find.text('Join', skipOffstage: false));
       await tester.pump();
 
-      irc.emitMessage(
+      ircRead.emitMessage(
         TwitchMessage(
           login: 'UserOne',
           text: 'hello chat',

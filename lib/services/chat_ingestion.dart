@@ -7,7 +7,7 @@ import '../models/generic_emote.dart';
 import '../models/twitch_message.dart';
 import '../util/duration_format.dart';
 import '../util/log.dart';
-import 'base_irc_connection.dart' show IrcReadService;
+import 'twitch_irc.dart' show IrcReadService;
 import 'chat_store.dart';
 import 'emote_manager.dart';
 import 'ignore_manager.dart';
@@ -124,9 +124,9 @@ class ChatIngestion {
   /// caller's dispose bookkeeping.
   List<StreamSubscription<void>> attach() {
     return [
-      irc.onMessage.listen(onMessage),
-      irc.onMessageDeleted.listen(_onMessageDeleted),
-      irc.onBan.listen(
+      ircRead.onMessage.listen(onMessage),
+      ircRead.onMessageDeleted.listen(_onMessageDeleted),
+      ircRead.onBan.listen(
         (event) => _handleBanEvent(
           channel: event.channel,
           user: event.user,
@@ -134,7 +134,7 @@ class ChatIngestion {
           duration: event.duration,
         ),
       ),
-      irc.onChannelClear.listen(_onChannelClear),
+      ircRead.onChannelClear.listen(_onChannelClear),
       ircRead.onOwnMessage.listen(onOwnIrcMessage),
     ];
   }

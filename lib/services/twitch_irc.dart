@@ -11,7 +11,6 @@ import 'base_irc_connection.dart';
 export 'base_irc_connection.dart'
     show
         IrcConnection,
-        IrcReadService,
         IrcConnectionStatus,
         IrcJoinFailureEvent,
         JoinFailureReason,
@@ -225,50 +224,12 @@ List<MessageBadge>? parseIrcBadges(String? badgesTag) {
 }
 
 class IrcService extends IrcConnection {
-  final _banController = StreamController<IrcBanEvent>.broadcast();
-  final _noticeController = StreamController<IrcNoticeEvent>.broadcast();
-  final _jtvController = StreamController<IrcNoticeEvent>.broadcast();
-  final _deleteController =
-      StreamController<IrcMessageDeletedEvent>.broadcast();
-  final _messageController = StreamController<TwitchMessage>.broadcast(
-    sync: true,
-  );
-  final _userNoticeController = StreamController<UserNoticeEvent>.broadcast(
-    sync: true,
-  );
-  final _clearController = StreamController<IrcChannelClearEvent>.broadcast(
-    sync: true,
-  );
   final _roomStateController = StreamController<IrcRoomStateEvent>.broadcast(
     sync: true,
   );
-  final _whisperController = StreamController<TwitchMessage>.broadcast(
-    sync: true,
-  );
-  // Channel-scoped emote sets: USERSTATE = channel, GLOBALUSERSTATE =
-  // account-wide (null).
-  final _emoteSetsController =
-      StreamController<(String?, List<String>)>.broadcast(sync: true);
   final _authFailedController = StreamController<void>.broadcast();
 
-  // Own badge set-ids per channel. Feeds slow-mode bypass checks.
-  final selfBadges = <String?, Set<String>>{};
-
-  /// Per-account badges; dropped on account switch to avoid stale bypass.
-  void clearSelfBadges() => selfBadges.clear();
-
-  Stream<IrcBanEvent> get onBan => _banController.stream;
-  Stream<IrcNoticeEvent> get onNotice => _noticeController.stream;
-  Stream<IrcNoticeEvent> get onJtvMessage => _jtvController.stream;
-  Stream<IrcChannelClearEvent> get onChannelClear => _clearController.stream;
   Stream<IrcRoomStateEvent> get onRoomState => _roomStateController.stream;
-  Stream<IrcMessageDeletedEvent> get onMessageDeleted =>
-      _deleteController.stream;
-  Stream<TwitchMessage> get onMessage => _messageController.stream;
-  Stream<UserNoticeEvent> get onUserNotice => _userNoticeController.stream;
-  Stream<TwitchMessage> get onWhisper => _whisperController.stream;
-  Stream<(String?, List<String>)> get onUserEmoteSets =>
-      _emoteSetsController.stream;
   Stream<void> get onAuthFailed => _authFailedController.stream;
 
   @override
@@ -293,6 +254,94 @@ class IrcService extends IrcConnection {
   @override
   void dispatchLine(IrcMessage msg) {
     switch (msg.command) {
+      case 'ROOMSTATE':
+        _handleRoomState(msg);
+        return;
+      case 'NOTICE':
+        if (msg.trailing != null &&
+            msg.trailing!.contains('Login authentication failed')) {
+          _authFailedController.add(null);
+          signalFatalAuthFailure();
+        }
+        return;
+    }
+  }
+
+  void _handleRoomState(IrcMessage msg) {
+    final channelName = msg.params.isNotEmpty
+        ? msg.params[0].substring(1)
+        : null;
+    if (channelName == null) return;
+
+    _roomStateController.add(
+      IrcRoomStateEvent(channel: channelName, tags: msg.tags),
+    );
+  }
+
+  @override
+  void dispose() {
+    _roomStateController.close();
+    _authFailedController.close();
+    super.dispose();
+  }
+}
+
+/// Read-only IRC socket: receives chat (all PRIVMSG), moderation, notices, etc.
+/// Only this socket JOINs channels; the write socket ([IrcService]) stays
+/// join-free so Twitch counts one JOIN per channel against the rate limit.
+class IrcReadService extends IrcConnection {
+  final _banController = StreamController<IrcBanEvent>.broadcast();
+  final _noticeController = StreamController<IrcNoticeEvent>.broadcast();
+  final _jtvController = StreamController<IrcNoticeEvent>.broadcast();
+  final _deleteController =
+      StreamController<IrcMessageDeletedEvent>.broadcast();
+  final _messageController = StreamController<TwitchMessage>.broadcast(
+    sync: true,
+  );
+  final _ownMessageController = StreamController<IrcMessage>.broadcast();
+  final _userNoticeController = StreamController<UserNoticeEvent>.broadcast(
+    sync: true,
+  );
+  final _clearController = StreamController<IrcChannelClearEvent>.broadcast(
+    sync: true,
+  );
+  final _roomStateController = StreamController<IrcRoomStateEvent>.broadcast(
+    sync: true,
+  );
+  final _whisperController = StreamController<TwitchMessage>.broadcast(
+    sync: true,
+  );
+  final _emoteSetsController =
+      StreamController<(String?, List<String>)>.broadcast(sync: true);
+
+  // Own badge set-ids per channel. Feeds slow-mode bypass checks.
+  final selfBadges = <String?, Set<String>>{};
+
+  Stream<IrcBanEvent> get onBan => _banController.stream;
+  Stream<IrcNoticeEvent> get onNotice => _noticeController.stream;
+  Stream<IrcNoticeEvent> get onJtvMessage => _jtvController.stream;
+  Stream<IrcChannelClearEvent> get onChannelClear => _clearController.stream;
+  Stream<IrcRoomStateEvent> get onRoomState => _roomStateController.stream;
+  Stream<IrcMessageDeletedEvent> get onMessageDeleted =>
+      _deleteController.stream;
+  Stream<TwitchMessage> get onMessage => _messageController.stream;
+  Stream<UserNoticeEvent> get onUserNotice => _userNoticeController.stream;
+  Stream<TwitchMessage> get onWhisper => _whisperController.stream;
+  Stream<(String?, List<String>)> get onUserEmoteSets =>
+      _emoteSetsController.stream;
+  Stream<IrcMessage> get onOwnMessage => _ownMessageController.stream;
+
+  IrcReadService({super.connectivityService, super.joinBudget})
+    : super(role: IrcSocketRole.read);
+
+  void clearSelfBadges() => selfBadges.clear();
+
+  @override
+  String get debugPrefix => 'IRC read';
+
+  @override
+  void dispatchLine(IrcMessage msg) {
+    switch (msg.command) {
       case 'CLEARCHAT':
         _handleClearChat(msg);
         return;
@@ -308,8 +357,6 @@ class IrcService extends IrcConnection {
       case 'WHISPER':
         _handleWhisper(msg);
         return;
-      // Both carry the emote-sets tag (authoritative; Helix endpoint omits
-      // some grants).
       case 'USERSTATE':
       case 'GLOBALUSERSTATE':
         _handleUserState(msg);
@@ -334,7 +381,6 @@ class IrcService extends IrcConnection {
     if (channelName == null) return;
 
     final targetUser = msg.trailing;
-    // No target = full channel clear (/clear).
     if (targetUser == null || targetUser.isEmpty) {
       _clearController.add(IrcChannelClearEvent(channel: channelName));
       return;
@@ -379,12 +425,10 @@ class IrcService extends IrcConnection {
 
   void _handleNotice(IrcMessage msg) {
     final channelParam = msg.params.isNotEmpty ? msg.params[0] : null;
-    // NOTICE * is connection-level (e.g. login failure), not channel-scoped.
     if (channelParam == null || channelParam == '*') {
       final trailing = msg.trailing;
       if (trailing != null &&
           trailing.contains('Login authentication failed')) {
-        _authFailedController.add(null);
         signalFatalAuthFailure();
       }
       return;
@@ -419,8 +463,6 @@ class IrcService extends IrcConnection {
     final emoteSets = msg.tags['emote-sets'];
     final badges = parseIrcBadges(msg.tags['badges']);
     if ((emoteSets == null || emoteSets.isEmpty) && badges == null) return;
-    // USERSTATE = channel-scoped; GLOBALUSERSTATE = account-wide (null
-    // channel).
     final channel = msg.command == 'USERSTATE' && msg.params.isNotEmpty
         ? msg.params[0].substring(1)
         : null;
@@ -443,7 +485,7 @@ class IrcService extends IrcConnection {
         ? msg.params[0].substring(1)
         : null;
     if (channelName == null) return;
-    PerfLog.I.record('JOINQ', '[IRC] confirm #$channelName');
+    PerfLog.I.record('JOINQ', '[$debugPrefix] confirm #$channelName');
 
     _roomStateController.add(
       IrcRoomStateEvent(channel: channelName, tags: msg.tags),
@@ -456,8 +498,6 @@ class IrcService extends IrcConnection {
         : null;
     if (channelName == null) return;
 
-    // Shared chat mirrors foreign USERNOTICEs as `sharedchatnotice`; only
-    // announcements are kept.
     var msgId = msg.tags['msg-id'] ?? '';
     if (msgId == 'sharedchatnotice') {
       final sourceMsgId = msg.tags['source-msg-id'];
@@ -504,15 +544,17 @@ class IrcService extends IrcConnection {
         : null;
     if (channelName == null) return;
 
-    final prefixLogin = msg.prefix != null && msg.prefix!.contains('!')
+    _messageController.add(parseIrcChatMessage(msg, channel: channelName));
+
+    // Own messages arrive on the read socket too. Emit on both controllers:
+    // onMessage for regular chat, onOwnMessage for self-timeout heal and
+    // reply-highlight tracking.
+    final sender = msg.prefix != null && msg.prefix!.contains('!')
         ? msg.prefix!.substring(0, msg.prefix!.indexOf('!')).toLowerCase()
         : null;
-    // Own messages are echoed on the read-only socket instead.
-    if (prefixLogin == null || username == null || prefixLogin == username) {
-      return;
+    if (sender == username) {
+      _ownMessageController.add(msg);
     }
-
-    _messageController.add(parseIrcChatMessage(msg, channel: channelName));
   }
 
   void _handleWhisper(IrcMessage msg) {
@@ -522,6 +564,9 @@ class IrcService extends IrcConnection {
 
   @visibleForTesting
   void emitChatMessage(TwitchMessage msg) => _messageController.add(msg);
+
+  @visibleForTesting
+  void emitOwnMessage(IrcMessage msg) => _ownMessageController.add(msg);
 
   @visibleForTesting
   void emitWhisper(TwitchMessage msg) => _whisperController.add(msg);
@@ -541,12 +586,12 @@ class IrcService extends IrcConnection {
     _jtvController.close();
     _deleteController.close();
     _messageController.close();
+    _ownMessageController.close();
     _userNoticeController.close();
     _clearController.close();
     _roomStateController.close();
     _whisperController.close();
     _emoteSetsController.close();
-    _authFailedController.close();
     super.dispose();
   }
 }
