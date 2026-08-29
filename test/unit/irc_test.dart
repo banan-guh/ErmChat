@@ -3186,6 +3186,53 @@ void main() {
       },
     );
 
+    test('read-socket auth failure triggers re-auth', () async {
+      final irc = _RecordingIrc();
+      final auth = TwitchAuth();
+      auth.setUser('alice', '111');
+      auth.setCredentials(accessToken: 'token_a');
+      final readConn = _NoopIrcRead();
+      final store = ChatStore(
+        channels: ['test'],
+        channelMessages: {},
+        messageKeys: {},
+        chatStatus: {},
+        channelsWithUnread: {},
+        channelsWithUnreadMentions: {},
+        unreadMentionsPerChannel: {},
+        historyLoaded: {},
+        channelsEmotesResolved: {},
+        channelUserIds: {'test': '999'},
+        lastSentWireText: {},
+      );
+      final conn = _makeReconnectConn(
+        eventSub: _NoopEventSub(),
+        irc: irc,
+        ircRead: readConn,
+        currentUserLogin: 'alice',
+        auth: auth,
+        store: store,
+        onReconnected: () {},
+        client: http_testing.MockClient(
+          (request) async => http.Response(
+            '{"data":[{"id":"999","login":"test","display_name":"Test"}]}',
+            200,
+          ),
+        ),
+      );
+      await conn.connect();
+      readConn.handleLine(
+        ':tmi.twitch.tv NOTICE * :Login authentication failed',
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(
+        auth.isActiveExpired,
+        isTrue,
+        reason: 'read-side login failure must mark the token expired',
+      );
+      conn.dispose();
+    });
+
     test('logging out tears down the live EventSub session', () async {
       final eventSub = _LiveEventSub();
       final auth = TwitchAuth();

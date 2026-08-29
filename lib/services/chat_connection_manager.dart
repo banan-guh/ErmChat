@@ -332,6 +332,7 @@ class ChatConnectionManager {
   StreamSubscription<IrcConnectionStatus>? ircStatusSub;
   StreamSubscription<IrcConnectionStatus>? ircReadStatusSub;
   StreamSubscription<void>? ircAuthFailedSub;
+  StreamSubscription<void>? ircReadAuthFailedSub;
 
   ChatConnectionManager(ChatConnectionConfig config)
     : twitchApi = config.services.twitchApi,
@@ -403,6 +404,7 @@ class ChatConnectionManager {
     ircReadRoomStateSub?.cancel();
     ircWriteRoomStateSub?.cancel();
     ircAuthFailedSub?.cancel();
+    ircReadAuthFailedSub?.cancel();
     whisperSub?.cancel();
   }
 
@@ -881,6 +883,12 @@ class ChatConnectionManager {
 
       ircAuthFailedSub?.cancel();
       ircAuthFailedSub = irc.onAuthFailed.listen((_) {
+        if (isDisposed) return;
+        _handleExpiredToken();
+      });
+
+      ircReadAuthFailedSub?.cancel();
+      ircReadAuthFailedSub = ircRead.onAuthFailed.listen((_) {
         if (isDisposed) return;
         _handleExpiredToken();
       });

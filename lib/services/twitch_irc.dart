@@ -292,6 +292,7 @@ class IrcService extends IrcConnection {
 class IrcReadService extends IrcConnection {
   final _banController = StreamController<IrcBanEvent>.broadcast();
   final _noticeController = StreamController<IrcNoticeEvent>.broadcast();
+  final _authFailedController = StreamController<void>.broadcast();
   final _jtvController = StreamController<IrcNoticeEvent>.broadcast();
   final _deleteController =
       StreamController<IrcMessageDeletedEvent>.broadcast();
@@ -322,6 +323,7 @@ class IrcReadService extends IrcConnection {
   Stream<IrcNoticeEvent> get onJtvMessage => _jtvController.stream;
   Stream<IrcChannelClearEvent> get onChannelClear => _clearController.stream;
   Stream<IrcRoomStateEvent> get onRoomState => _roomStateController.stream;
+  Stream<void> get onAuthFailed => _authFailedController.stream;
   Stream<IrcMessageDeletedEvent> get onMessageDeleted =>
       _deleteController.stream;
   Stream<TwitchMessage> get onMessage => _messageController.stream;
@@ -429,6 +431,7 @@ class IrcReadService extends IrcConnection {
       final trailing = msg.trailing;
       if (trailing != null &&
           trailing.contains('Login authentication failed')) {
+        _authFailedController.add(null);
         signalFatalAuthFailure();
       }
       return;
@@ -583,6 +586,7 @@ class IrcReadService extends IrcConnection {
   void dispose() {
     _banController.close();
     _noticeController.close();
+    _authFailedController.close();
     _jtvController.close();
     _deleteController.close();
     _messageController.close();
