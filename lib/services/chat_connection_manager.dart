@@ -333,6 +333,7 @@ class ChatConnectionManager {
   StreamSubscription<IrcConnectionStatus>? ircReadStatusSub;
   StreamSubscription<void>? ircAuthFailedSub;
   StreamSubscription<void>? ircReadAuthFailedSub;
+  Timer? _watchdogTimer;
 
   ChatConnectionManager(ChatConnectionConfig config)
     : twitchApi = config.services.twitchApi,
@@ -406,6 +407,8 @@ class ChatConnectionManager {
     ircAuthFailedSub?.cancel();
     ircReadAuthFailedSub?.cancel();
     whisperSub?.cancel();
+    _watchdogTimer?.cancel();
+    _watchdogTimer = null;
   }
 
   void stopChatStatusTimer(String channel) {
@@ -767,6 +770,7 @@ class ChatConnectionManager {
 
       _setupSubscriptions();
       _ensureJoinProgressTicker();
+      _startWatchdog();
 
       sevenTvClient?.connect();
 
@@ -1439,6 +1443,19 @@ class ChatConnectionManager {
     ircRead.forceReconnect();
     unawaited(eventSub.forceReconnect());
     unawaited(sevenTvClient?.forceReconnect());
+  }
+
+  /// Foreground liveness watchdog: periodically re-arms any socket whose
+  /// reconnect loop died without a pending connect (e.g. a fatal-auth break
+  /// or a generation bump that wasn't followed by a fresh connect). The
+  /// in-socket loop already retries forever on ordinary network drops, so
+  /// this only needs to run while the app is in the foreground.
+  void _startWatchdog() {
+    _watchdogTimer?.cancel();
+    _watchdogTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (isDisposed) return;
+      reconnectIfNecessary();
+    });
   }
 
   void reconnectIfNecessary() {

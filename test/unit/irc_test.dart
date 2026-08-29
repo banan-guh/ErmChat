@@ -3233,6 +3233,55 @@ void main() {
       conn.dispose();
     });
 
+    test('foreground watchdog re-arms a dead socket loop', () async {
+      final irc = _RecordingIrc();
+      final auth = TwitchAuth();
+      auth.setUser('alice', '111');
+      auth.setCredentials(accessToken: 'token_a');
+      final readConn = _NoopIrcRead();
+      final store = ChatStore(
+        channels: ['test'],
+        channelMessages: {},
+        messageKeys: {},
+        chatStatus: {},
+        channelsWithUnread: {},
+        channelsWithUnreadMentions: {},
+        unreadMentionsPerChannel: {},
+        historyLoaded: {},
+        channelsEmotesResolved: {},
+        channelUserIds: {'test': '999'},
+        lastSentWireText: {},
+      );
+      final conn = _makeReconnectConn(
+        eventSub: _NoopEventSub(),
+        irc: irc,
+        ircRead: readConn,
+        currentUserLogin: 'alice',
+        auth: auth,
+        store: store,
+        onReconnected: () {},
+        client: http_testing.MockClient(
+          (request) async => http.Response(
+            '{"data":[{"id":"999","login":"test","display_name":"Test"}]}',
+            200,
+          ),
+        ),
+      );
+      await conn.connect();
+      // Simulate a socket whose reconnect loop died (no follow-up connect):
+      // the only thing that can revive it is reconnectIfNecessary, which the
+      // foreground watchdog invokes on its timer.
+      irc.emitDisconnected();
+      final before = irc.connectCalls;
+      conn.reconnectIfNecessary();
+      expect(
+        irc.connectCalls,
+        greaterThan(before),
+        reason: 'watchdog must reconnect a socket whose loop died',
+      );
+      conn.dispose();
+    });
+
     test('logging out tears down the live EventSub session', () async {
       final eventSub = _LiveEventSub();
       final auth = TwitchAuth();
