@@ -4321,6 +4321,9 @@ void main() {
 
         // FAB should be gone
         expect(find.byIcon(Icons.keyboard_arrow_down), findsNothing);
+
+        // Let the DoubleTapGestureRecognizer timer from the drag expire.
+        await tester.pump(const Duration(milliseconds: 50));
       },
     );
 
