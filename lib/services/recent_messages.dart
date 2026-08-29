@@ -188,72 +188,78 @@ class RecentMessagesService {
 
   Future<List<TwitchMessage>> _fetchFrom(String url, String channel) async {
     final uri = Uri.parse(url);
-    final res = await (_client ?? http.Client()).get(uri).timeout(httpTimeout);
+    final ownClient = _client == null ? http.Client() : null;
+    final client = _client ?? ownClient!;
+    try {
+      final res = await client.get(uri).timeout(httpTimeout);
 
-    if (res.statusCode != 200) {
-      // Parse JSON error codes for clean messages.
-      var code = '';
-      try {
-        final decoded = jsonDecode(res.body);
-        if (decoded is Map<String, dynamic>) {
-          code = decoded['error_code'] as String? ?? '';
+      if (res.statusCode != 200) {
+        // Parse JSON error codes for clean messages.
+        var code = '';
+        try {
+          final decoded = jsonDecode(res.body);
+          if (decoded is Map<String, dynamic>) {
+            code = decoded['error_code'] as String? ?? '';
+          }
+        } catch (_) {
+          // Non-JSON: generic message.
         }
-      } catch (_) {
-        // Non-JSON: generic message.
+        final message = switch (code) {
+          'invalid_channel_login' => 'Invalid channel name',
+          'channel_ignored' =>
+            'History unavailable: channel excluded from the history service',
+          _ => 'Failed to load chat history',
+        };
+        throw RecentMessagesException(
+          message,
+          errorCode: code.isEmpty ? null : code,
+          definitive: res.statusCode == 400 || res.statusCode == 403,
+        );
       }
-      final message = switch (code) {
-        'invalid_channel_login' => 'Invalid channel name',
-        'channel_ignored' =>
-          'History unavailable: channel excluded from the history service',
-        _ => 'Failed to load chat history',
-      };
-      throw RecentMessagesException(
-        message,
-        errorCode: code.isEmpty ? null : code,
-        definitive: res.statusCode == 400 || res.statusCode == 403,
-      );
-    }
 
-    final body = jsonDecode(res.body) as Map<String, dynamic>;
-    // Informational error_code on 200; not surfaced.
-    if (body['error_code'] is String) {
-      logDebug(
-        '[RecentMessages] $channel: ${body['error']} '
-        '(${body['error_code']})',
-      );
-    }
-    final rawMessages = body['messages'] as List<dynamic>?;
-    if (rawMessages == null || rawMessages.isEmpty) return [];
+      final body = jsonDecode(res.body) as Map<String, dynamic>;
+      // Informational error_code on 200; not surfaced.
+      if (body['error_code'] is String) {
+        logDebug(
+          '[RecentMessages] $channel: ${body['error']} '
+          '(${body['error_code']})',
+        );
+      }
+      final rawMessages = body['messages'] as List<dynamic>?;
+      if (rawMessages == null || rawMessages.isEmpty) return [];
 
-    final messages = <TwitchMessage>[];
-    final clearMsgTargets = <String>{};
-    for (final raw in rawMessages) {
-      final rawLine = raw as String;
-      final msg = parseIrcMessage(rawLine);
-      if (msg == null) continue;
-      // CLEARMSG: mark target deleted (applied after batch).
-      if (msg.command == 'CLEARMSG') {
-        final target = msg.tags['target-msg-id'];
-        if (target != null && target.isNotEmpty) {
-          clearMsgTargets.add(target);
+      final messages = <TwitchMessage>[];
+      final clearMsgTargets = <String>{};
+      for (final raw in rawMessages) {
+        final rawLine = raw as String;
+        final msg = parseIrcMessage(rawLine);
+        if (msg == null) continue;
+        // CLEARMSG: mark target deleted (applied after batch).
+        if (msg.command == 'CLEARMSG') {
+          final target = msg.tags['target-msg-id'];
+          if (target != null && target.isNotEmpty) {
+            clearMsgTargets.add(target);
+          }
+          continue;
         }
-        continue;
+        // Announcement/sub notices render as child + label.
+        final child = parseAnnouncementChildFromMsg(msg, channel: channel);
+        if (child != null) messages.add(child);
+        final subChild = parseSubChildFromMsg(msg, channel: channel);
+        if (subChild != null) messages.add(subChild);
+        final parsed = parseIrcLineFromMsg(msg, channel: channel);
+        if (parsed != null) messages.add(parsed);
       }
-      // Announcement/sub notices render as child + label.
-      final child = parseAnnouncementChildFromMsg(msg, channel: channel);
-      if (child != null) messages.add(child);
-      final subChild = parseSubChildFromMsg(msg, channel: channel);
-      if (subChild != null) messages.add(subChild);
-      final parsed = parseIrcLineFromMsg(msg, channel: channel);
-      if (parsed != null) messages.add(parsed);
+
+      // Ban sweep: only ban/timeout targets, not announcements.
+      applyBanSweep(messages);
+      applyMessageDeletions(messages, clearMsgTargets);
+
+      messages.sort((a, b) => a.timestamp.compareTo(b.timestamp));
+      return messages;
+    } finally {
+      ownClient?.close();
     }
-
-    // Ban sweep: only ban/timeout targets, not announcements.
-    applyBanSweep(messages);
-    applyMessageDeletions(messages, clearMsgTargets);
-
-    messages.sort((a, b) => a.timestamp.compareTo(b.timestamp));
-    return messages;
   }
 
   /// Extracts deleted message id from CLEARMSG line.

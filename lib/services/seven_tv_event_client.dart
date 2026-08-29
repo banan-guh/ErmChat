@@ -117,6 +117,7 @@ class SevenTvEventClient {
   StreamSubscription<dynamic>? _streamSub;
   Timer? _heartbeatTimer;
   Timer? _connectTimer;
+  Timer? _reconnectTimer;
   int? _heartbeatInterval;
   DateTime _lastHeartbeat = DateTime.now();
   bool _handshakeComplete = false;
@@ -596,7 +597,9 @@ class SevenTvEventClient {
     logDebug(
       '7TV scheduling reconnect in ${delay.inMilliseconds}ms (attempt $_reconnectAttempt)',
     );
-    Timer(delay, () {
+    _reconnectTimer?.cancel();
+    _reconnectTimer = Timer(delay, () {
+      _reconnectTimer = null;
       _reconnecting = false;
       if (!_disposed) {
         connect();
@@ -624,6 +627,8 @@ class SevenTvEventClient {
     _heartbeatTimer = null;
     _connectTimer?.cancel();
     _connectTimer = null;
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
     _heartbeatInterval = null;
     _handshakeComplete = false;
     _reconnecting = false;
@@ -664,6 +669,8 @@ class SevenTvEventClient {
   void dispose() {
     _disposed = true;
     _reconnecting = false;
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
     final listener = _connectivityListener;
     if (listener != null) _connectivityService?.removeListener(listener);
     _connectivityListener = null;

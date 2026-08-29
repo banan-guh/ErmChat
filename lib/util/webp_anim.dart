@@ -219,6 +219,7 @@ class WebpEngineCompositor {
       paint,
     );
     final image = await recorder.endRecording().toImage(canvasW, canvasH);
+    _prev?.dispose();
     _prev = image;
     return image;
   }

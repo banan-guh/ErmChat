@@ -591,7 +591,7 @@ class SevenTvPaintService extends ChangeNotifier {
       if (_enabled) notifyListeners();
     } catch (e) {
       logDebug('7TV paint image failed: ${variant.url}: $e');
-      _images[variant.url] = null;
+      _images.remove(variant.url);
     } finally {
       codec?.dispose();
       _imageInflight.remove(variant.url);
