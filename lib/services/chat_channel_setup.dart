@@ -549,8 +549,8 @@ class ChatChannelSetup {
   /// the caller records it to gate sends on joins.
   bool handleRoomState(IrcRoomStateEvent event) {
     if (_disposed) return false;
-    // A channel whose join previously failed (and announced "Retrying.")
-    // just got in: announce the late success and clear the failure state.
+    // A channel whose join previously failed just got in: announce the late
+    // success and clear the failure state.
     if (_joinFailureNotified.remove(event.channel)) {
       onSystemMessage(event.channel, 'Joined #${event.channel}.');
     }
@@ -580,17 +580,16 @@ class ChatChannelSetup {
   /// and that it keeps trying.
   void handleJoinFailed(IrcJoinFailureEvent event) {
     if (_disposed) return;
-    final detail = switch (event.reason) {
-      JoinFailureReason.suspended => 'the channel is suspended or deleted',
-      JoinFailureReason.noResponse => 'the server never confirmed the join',
+    final text = switch (event.reason) {
+      // A definitive server signal: the channel really is unavailable.
+      JoinFailureReason.suspended =>
+        'Could not join #${event.channel}: the channel is suspended or deleted',
+      // A missing JOIN echo is ambiguous (transient drop, not-yet-joined, or
+      // genuinely gone); never claim nonexistence, just report the failure.
+      JoinFailureReason.noResponse =>
+        'Could not connect to channel #${event.channel}',
     };
-    final suffix = event.reason == JoinFailureReason.noResponse
-        ? ' Retrying.'
-        : '';
     _joinFailureNotified.add(event.channel);
-    onSystemMessage(
-      event.channel,
-      'Could not join #${event.channel}: $detail.$suffix',
-    );
+    onSystemMessage(event.channel, text);
   }
 }

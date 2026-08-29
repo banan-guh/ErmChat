@@ -15,6 +15,8 @@ import 'package:http/http.dart' as http;
 import 'package:ermchat/models/emote_fetch_tier.dart';
 import 'package:ermchat/models/generic_emote.dart';
 import 'package:ermchat/services/chat_connection_manager.dart';
+import 'package:ermchat/services/chat_channel_setup.dart';
+import 'package:ermchat/services/base_irc_connection.dart';
 import 'package:ermchat/services/chat_store.dart';
 import 'package:ermchat/services/emote_manager.dart';
 import 'package:ermchat/services/twitch_api.dart';
@@ -3280,6 +3282,56 @@ void main() {
         reason: 'watchdog must reconnect a socket whose loop died',
       );
       conn.dispose();
+    });
+
+    test('join failure wording never claims nonexistence', () {
+      final messages = <String>[];
+      final setup = ChatChannelSetup(
+        twitchApi: TwitchApi(client: http.Client()),
+        eventSub: EventSubService(),
+        irc: IrcService(),
+        ircRead: IrcReadService(),
+        badgeService: TwitchBadgeService(),
+        emoteManager: EmoteManager(),
+        twitchAuth: TwitchAuth(),
+        userStore: UserStore(),
+        store: ChatStore(
+          channels: [],
+          channelMessages: {},
+          messageKeys: {},
+          chatStatus: {},
+          channelsWithUnread: {},
+          channelsWithUnreadMentions: {},
+          unreadMentionsPerChannel: {},
+          historyLoaded: {},
+          channelsEmotesResolved: {},
+          channelUserIds: {},
+          lastSentWireText: {},
+        ),
+        onSystemMessage: (c, t, {Color? accent, String? messageId}) =>
+            messages.add(t),
+        connectionStateNotifier: ValueNotifier(0),
+        ensureCurrentUser: (_) async => null,
+      );
+      setup.handleJoinFailed(
+        IrcJoinFailureEvent(
+          channel: 'foo',
+          reason: JoinFailureReason.noResponse,
+        ),
+      );
+      setup.handleJoinFailed(
+        IrcJoinFailureEvent(
+          channel: 'bar',
+          reason: JoinFailureReason.suspended,
+        ),
+      );
+      expect(messages, contains('Could not connect to channel #foo'));
+      expect(
+        messages,
+        contains('Could not join #bar: the channel is suspended or deleted'),
+      );
+      expect(messages.join(' '), isNot(contains('does not exist')));
+      setup.dispose();
     });
 
     test('logging out tears down the live EventSub session', () async {

@@ -235,6 +235,7 @@ class ChatConnectionManager {
   // Channels currently showing a join-countdown line; drives the clear emit
   // when the wait ends or the socket drops.
   final _joinWaitShown = <String>{};
+  final _joinFailed = <String>{};
   // Last countdown values shown per channel, so the displayed position never
   // regresses when the rejoin sweep re-queues an in-flight channel.
   final _lastJoinProgress = <String, JoinProgress>{};
@@ -696,6 +697,7 @@ class ChatConnectionManager {
     final budget = joinBudget;
     if (budget == null || isDisposed) return;
     for (final channel in channels) {
+      if (_joinFailed.contains(channel)) continue;
       if (isChannelChatReady(channel)) {
         _clearJoinWait(channel);
         continue;
@@ -863,6 +865,7 @@ class ChatConnectionManager {
             !_wasReadDisconnected) {
           _wasReadDisconnected = true;
           _readJoinedChannels.clear();
+          _joinFailed.clear();
           connectionStateNotifier.value++;
           for (final channel in channels) {
             onSystemMessage(channel, 'Chat reconnecting...');
@@ -1159,9 +1162,14 @@ class ChatConnectionManager {
     // JOIN failures from the read socket are handled by the setup domain,
     // which also tracks the notified set for the NOTICE suppression above.
     ircJoinFailedSub?.cancel();
-    ircJoinFailedSub = ircRead.onJoinFailed.listen(
-      _channelSetup.handleJoinFailed,
-    );
+    ircJoinFailedSub = ircRead.onJoinFailed.listen((event) {
+      if (isDisposed) return;
+      _channelSetup.handleJoinFailed(event);
+      // Stop the perpetual "still joining" marker; the channel is not ready
+      // and the failure was already surfaced as a system message.
+      _joinFailed.add(event.channel);
+      _clearJoinWait(event.channel);
+    });
 
     whisperSub?.cancel();
     whisperSub = ircRead.onWhisper.listen(onWhisperEvent);
@@ -1263,6 +1271,7 @@ class ChatConnectionManager {
         final isNew = _readJoinedChannels.add(event.channel);
         if (isNew) {
           PerfLog.I.record('JOINQ', 'read-confirm ${event.channel}');
+          _joinFailed.remove(event.channel);
           _clearJoinWait(event.channel);
           if (isChannelChatReady(event.channel)) {
             _announceConnected(event.channel);
