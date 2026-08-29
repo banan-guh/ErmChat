@@ -1407,6 +1407,7 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   void _applyTier(EmoteFetchTier tier) {
+    final oldTier = _emoteManager.tier;
     try {
       _emoteManager.tier = tier;
       DataUsageStats.I.setContext(tier: tier, isMetered: _isMetered.value);
@@ -1417,13 +1418,20 @@ class _HomeScreenState extends State<HomeScreen>
         // storm) on every toggle.
         if (mounted) setState(() {});
       } else {
-        // Re-resolve caches at the new tier's resolution; the tier tag on
-        // persisted caches makes stale-resolution entries refetch.
+        // A "no-diff -> diff" switch (e.g. low -> high) introduces resolutions
+        // the old tier never fetched, so force-fetch the new emote URLs. A
+        // switch that stays within already-fetched resolutions (e.g. high ->
+        // medium) reuses the cached tier instead of re-downloading.
+        final needsDiff = _tierAddsResolution(oldTier, tier);
         _emoteManager.evictGlobal();
-        _emoteManager.preloadGlobalEmotes();
+        _emoteManager.preloadGlobalEmotes(force: needsDiff);
         for (final c in _chatStore.channels) {
           _emoteManager.evictChannel(c);
-          _emoteManager.resolveEmotes(c, _chatStore.channelUserIds[c]);
+          _emoteManager.resolveEmotes(
+            c,
+            _chatStore.channelUserIds[c],
+            force: needsDiff,
+          );
         }
         if (mounted) setState(() {});
       }
@@ -1431,6 +1439,20 @@ class _HomeScreenState extends State<HomeScreen>
       logDebug('_applyTier failed: $e');
     }
   }
+
+  /// True when [neu] fetches resolutions [old] did not, i.e. a manual switch
+  /// from a no-diff tier to a diff tier that requires re-fetching emote URLs.
+  bool _tierAddsResolution(EmoteFetchTier old, EmoteFetchTier neu) {
+    final oldSet = _tierResolutions(old);
+    return _tierResolutions(neu).any((r) => !oldSet.contains(r));
+  }
+
+  Set<EmoteResolution> _tierResolutions(EmoteFetchTier tier) => switch (tier) {
+    EmoteFetchTier.nothing => const {},
+    EmoteFetchTier.low => const {EmoteResolution.low},
+    EmoteFetchTier.medium => const {EmoteResolution.medium},
+    EmoteFetchTier.high => const {EmoteResolution.medium, EmoteResolution.high},
+  };
 
   void _applyCacheCap(int cap) {
     _emoteManager.cacheCap = cap;
