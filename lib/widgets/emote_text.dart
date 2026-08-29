@@ -297,11 +297,21 @@ class EmoteText {
       );
     }
     // No per-emote Semantics: tile already wraps with excludeSemantics.
-    Widget emoteWidget = SizedBox(
-      width: maxW,
-      height: maxH,
-      child: Stack(clipBehavior: Clip.none, children: children),
-    );
+    Widget emoteWidget;
+    if (data.overlays.isEmpty) {
+      emoteWidget = _emoteImage(
+        data.base.url,
+        baseSize.width,
+        baseSize.height,
+        alternateUrls: [if (data.base.url1x != null) data.base.url1x!],
+      );
+    } else {
+      emoteWidget = SizedBox(
+        width: maxW,
+        height: maxH,
+        child: Stack(clipBehavior: Clip.none, children: children),
+      );
+    }
     if (onEmoteTap != null) {
       emoteWidget = GestureDetector(
         onTap: () => onEmoteTap([data.base, ...data.overlays]),

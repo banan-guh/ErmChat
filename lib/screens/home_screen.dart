@@ -253,6 +253,7 @@ class _HomeScreenState extends State<HomeScreen>
   final _userStore = UserStore();
   final _channelNotifier = ValueNotifier<List<String>>([]);
   final _tileCache = <String, Map<String?, Widget>>{};
+  final _tabMergeCache = <int, Listenable>{};
   String? _selectedChannel;
   final _blockedLogins = <String>{};
   bool _blocksReady = false;
@@ -2842,10 +2843,13 @@ class _HomeScreenState extends State<HomeScreen>
                     tabBuilder: (_, i) {
                       final channel = _chatStore.channels[i];
                       return ListenableBuilder(
-                        listenable: Listenable.merge([
-                          _selectedTabIndex,
-                          _chatStore.unreadVersion,
-                        ]),
+                        listenable: _tabMergeCache.putIfAbsent(
+                          i,
+                          () => Listenable.merge([
+                            _selectedTabIndex,
+                            _chatStore.unreadVersion,
+                          ]),
+                        ),
                         builder: (ctx, _) {
                           final focused = i == _selectedTabIndex.value;
                           final selected =
