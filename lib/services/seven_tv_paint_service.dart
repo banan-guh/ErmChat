@@ -239,8 +239,11 @@ class SevenTvPaintService extends ChangeNotifier {
 
   final _userNotifiers = <String, ValueNotifier<SevenTvPaint?>>{};
 
+  static const _maxCachedPaintImages = 50;
+
   final _images = <String, ui.Image?>{};
   final _imageInflight = <String>{};
+  final _imageAccessOrder = <String>[];
 
   StreamSubscription<SevenTvEntitlementEvent>? _entitlementSub;
 
@@ -574,7 +577,11 @@ class SevenTvPaintService extends ChangeNotifier {
     final variant = layer.pickVariant();
     if (variant == null) return null;
     final cached = _images[variant.url];
-    if (cached != null) return cached;
+    if (cached != null) {
+      _imageAccessOrder.remove(variant.url);
+      _imageAccessOrder.add(variant.url);
+      return cached;
+    }
     if (_imageInflight.add(variant.url)) {
       unawaited(_loadImage(variant));
     }
@@ -588,6 +595,11 @@ class SevenTvPaintService extends ChangeNotifier {
       codec = await ui.instantiateImageCodec(bytes);
       final frame = await codec.getNextFrame();
       _images[variant.url] = frame.image;
+      _imageAccessOrder.add(variant.url);
+      while (_imageAccessOrder.length > _maxCachedPaintImages) {
+        final oldest = _imageAccessOrder.removeAt(0);
+        _images.remove(oldest)?.dispose();
+      }
       if (_enabled) notifyListeners();
     } catch (e) {
       logDebug('7TV paint image failed: ${variant.url}: $e');
@@ -679,6 +691,11 @@ class SevenTvPaintService extends ChangeNotifier {
   void dispose() {
     _flushTimer?.cancel();
     _entitlementSub?.cancel();
+    for (final img in _images.values) {
+      img?.dispose();
+    }
+    _images.clear();
+    _imageAccessOrder.clear();
     super.dispose();
   }
 }
