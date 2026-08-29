@@ -224,28 +224,15 @@ class NativeEmoteCodec {
     int width,
     int height,
   ) async {
-    // Straight alpha from libwebp -> premultiplied for the engine.
-    final premultiplied = _premultiply(rgba);
+    // Already premultiplied by libwebp (MODE_rgbA) during decode.
     final completer = Completer<ui.Image>();
     ui.decodeImageFromPixels(
-      premultiplied,
+      rgba,
       width,
       height,
       ui.PixelFormat.rgba8888,
       completer.complete,
     );
     return completer.future;
-  }
-
-  static Uint8List _premultiply(Uint8List rgba) {
-    final out = Uint8List(rgba.length);
-    for (var i = 0; i < rgba.length; i += 4) {
-      final a = rgba[i + 3];
-      out[i] = (rgba[i] * a) ~/ 255;
-      out[i + 1] = (rgba[i + 1] * a) ~/ 255;
-      out[i + 2] = (rgba[i + 2] * a) ~/ 255;
-      out[i + 3] = a;
-    }
-    return out;
   }
 }

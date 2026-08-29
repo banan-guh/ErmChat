@@ -16,7 +16,11 @@ int emote_decode_webp(const uint8_t* bytes, size_t len, EmoteDecodedFrames* out)
   if (!WebPAnimDecoderOptionsInit(&opts)) {
     return 0;
   }
-  opts.color_mode = MODE_RGBA;
+  // MODE_rgbA (lowercase 'a') = premultiplied RGBA. libwebp applies the
+  // alpha multiply in C as it emits each row, so the frames come back
+  // premultiplied directly and we skip the per-pixel Dart premultiply loop
+  // that used to run on the main isolate after decode.
+  opts.color_mode = MODE_rgbA;
   // Keep decoding single-threaded. libwebp's threaded anim decoder can
   // deadlock when invoked from a spawned Dart isolate (the path used on iOS,
   // where the shim is statically linked and loaded via DynamicLibrary.process).
