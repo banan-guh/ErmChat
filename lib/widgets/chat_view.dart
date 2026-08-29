@@ -101,7 +101,10 @@ class ChatView extends StatefulWidget {
   State<ChatView> createState() => _ChatViewState();
 }
 
-class _ChatViewState extends State<ChatView> {
+class _ChatViewState extends State<ChatView>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
   double _cachedSystemScale = 1.0;
   int _lastMsgLen = -1;
   Map<String, int> _idToIndex = const {};
@@ -125,6 +128,7 @@ class _ChatViewState extends State<ChatView> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     final surface = Theme.of(context).scaffoldBackgroundColor;
     final s = widget.chatFontScale * _cachedSystemScale;
 

@@ -85,6 +85,7 @@ class TabbedLayout extends StatefulWidget {
   final int selectedIndex;
   final ValueChanged<int> onSelectedIndexChanged;
   final ValueChanged<int>? onFocusChanged;
+  final ValueChanged<int>? onTabTapped;
   final IndexedWidgetBuilder pageBuilder;
   final IndexedWidgetBuilder? tabBuilder;
   final AlignmentGeometry tabAlignment;
@@ -112,6 +113,7 @@ class TabbedLayout extends StatefulWidget {
     required this.onSelectedIndexChanged,
     required this.pageBuilder,
     this.onFocusChanged,
+    this.onTabTapped,
     this.tabBuilder,
     this.tabAlignment = Alignment.centerLeft,
     this.focusOnHalfDrag = false,
@@ -201,7 +203,7 @@ class TabbedLayoutState extends State<TabbedLayout>
 
     if (notification is ScrollStartNotification &&
         notification.dragDetails != null) {
-    // Finger grabbed pager: animated jump loses ownership.
+      // Finger grabbed pager: animated jump loses ownership.
       _pointerDragging = true;
       _programmaticTarget = null;
     }
@@ -286,6 +288,7 @@ class TabbedLayoutState extends State<TabbedLayout>
   }
 
   void _onTabTap(int index) {
+    widget.onTabTapped?.call(index);
     // Commit on landing, not at tap (flight may be dragged back).
     _goTo(index);
   }

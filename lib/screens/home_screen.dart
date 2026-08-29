@@ -1682,11 +1682,7 @@ class _HomeScreenState extends State<HomeScreen>
     return SnackBar(
       behavior: SnackBarBehavior.floating,
       dismissDirection: DismissDirection.horizontal,
-      margin: EdgeInsets.only(
-        bottom: inputBarH,
-        left: 16,
-        right: 16,
-      ),
+      margin: EdgeInsets.only(bottom: inputBarH, left: 16, right: 16),
       content: Text(text),
     );
   }
@@ -1990,9 +1986,9 @@ class _HomeScreenState extends State<HomeScreen>
     }
 
     if (!widget.twitchAuth.isConfigured) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        _snackBar('Connect an account to chat'),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(_snackBar('Connect an account to chat'));
       return;
     }
 
@@ -2015,9 +2011,9 @@ class _HomeScreenState extends State<HomeScreen>
           ),
         );
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          _snackBar('Type /w <username> <message> to whisper'),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(_snackBar('Type /w <username> <message> to whisper'));
       }
       return;
     }
@@ -2450,10 +2446,6 @@ class _HomeScreenState extends State<HomeScreen>
     void mutate() {
       iosHaptic(HapticFeedback.selectionClick);
       _selectedChannel = channel;
-      // (Re)focusing a channel re-presents the list at the bottom, so clear
-      // any stale "scrolled up" FAB state; otherwise the scroll-to-bottom
-      // button sticks after switching away and back.
-      _atBottomNotifier(channel).value = true;
       _updateCooldownLabel();
       _chatStore.channelsWithUnread.remove(channel);
       _chatStore.channelsWithUnreadMentions.remove(channel);
@@ -2804,6 +2796,12 @@ class _HomeScreenState extends State<HomeScreen>
                     ),
                     onSelectedIndexChanged: _onChannelChanged,
                     onFocusChanged: _onChannelFocusChanged,
+                    onTabTapped: (index) {
+                      final channel = _chatStore.channels[index];
+                      final ctrl = _scrollCtrl(channel);
+                      if (ctrl.hasClients) ctrl.jumpTo(0);
+                      _atBottomNotifier(channel).value = true;
+                    },
                     showTabBar: !_isFullscreen && !hideChrome,
                     tabBarAnimationDuration: hideChrome
                         ? const Duration(milliseconds: 1)
