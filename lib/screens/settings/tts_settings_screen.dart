@@ -21,7 +21,7 @@ class _TtsSettingsScreenState extends State<TtsSettingsScreen> {
   late bool _ignoreUrls;
   late bool _ignoreEmotes;
   late bool _forceEnglish;
-  bool _available = false;
+  //bool _available = false;
   TtsOption? _selectedOption;
 
   @override
@@ -44,7 +44,7 @@ class _TtsSettingsScreenState extends State<TtsSettingsScreen> {
     await c.init();
     if (mounted) {
       setState(() {
-        _available = c.isAvailable;
+        //_available = c.isAvailable;
         _selectedOption = c.selectedOption;
       });
     }

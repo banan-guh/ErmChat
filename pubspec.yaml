@@ -92,9 +92,6 @@ flutter:
     - test/fixtures/7tv_boink_2x.webp
     - test/fixtures/7tv_kiss_2x.webp
     - test/fixtures/7tv_kiss_2x.gif
-    # Vendored native dependency; not a pub package, so its license must be
-    # registered manually (see main.dart) and shipped as an asset.
-    - third_party/libwebp/COPYING
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

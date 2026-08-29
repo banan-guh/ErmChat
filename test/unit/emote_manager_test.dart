@@ -8,7 +8,6 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:ermchat/widgets/emote_loading_band.dart';
-import 'package:ermchat/services/emote_codec/native_emote_codec.dart';
 import 'package:ermchat/widgets/emote_image.dart';
 import 'package:ermchat/widgets/emote_probe_memo.dart';
 import 'package:ermchat/widgets/emote_image_provider.dart';
@@ -348,8 +347,6 @@ void main() {
   setUp(() {
     EmoteUrlProvider.debugFetchOverride = null;
     EmoteUrlProvider.debugDecodeOverride = null;
-    NativeEmoteCodec.debugLibPath = '/nonexistent/libemote_codec.so';
-    NativeEmoteCodec.reset();
     // Uncapped baseline: the production default (30) grid-aligns wake times,
     // which would stretch frame deltas across short pumps and skew the
     // timing-sensitive playback tests below. Cap behavior gets explicit
@@ -363,8 +360,6 @@ void main() {
     EmoteUrlProvider.debugDecodeOverride = null;
     EmoteUrlProvider.fpsCap = 60;
     EmoteUrlProvider.alwaysAnimatePanel = true;
-    NativeEmoteCodec.debugLibPath = null;
-    NativeEmoteCodec.reset();
     PaintingBinding.instance.imageCache.clearLiveImages();
     PaintingBinding.instance.imageCache.clear();
   });

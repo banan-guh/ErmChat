@@ -3,10 +3,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:flutter/foundation.dart'
-    show LicenseEntryWithLineBreaks, LicenseRegistry;
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
@@ -25,7 +22,7 @@ import 'widgets/tabbed_layout.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   CachedNetworkImageProvider.defaultCacheManager = EmoteCacheManager();
-  _registerLibwebpLicense();
+
   if (Platform.isAndroid) {
     FlutterForegroundTask.initCommunicationPort();
   }
@@ -53,19 +50,7 @@ Future<void> _warmHistory() async {
   }
 }
 
-/// The vendored libwebp copy is not a pub package, so Flutter's automatic
-/// license collection never sees it. Its COPYING file ships as an asset and
-/// is registered here so the About > licenses page covers it.
-void _registerLibwebpLicense() {
-  LicenseRegistry.addLicense(() async* {
-    try {
-      final text = await rootBundle.loadString('third_party/libwebp/COPYING');
-      yield LicenseEntryWithLineBreaks(['libwebp'], text);
-    } catch (_) {
-      // Asset unavailable (e.g. widget tests); nothing to attribute then.
-    }
-  });
-}
+
 
 ThemeData buildLightTheme({Color seedColor = Colors.blue}) => ThemeData(
   colorScheme: ColorScheme.fromSeed(seedColor: seedColor),

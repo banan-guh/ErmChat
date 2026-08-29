@@ -9,7 +9,7 @@ import 'package:flutter/scheduler.dart';
 import 'package:image/image.dart' as img;
 
 import '../services/emote_cache_manager.dart';
-import '../services/emote_codec/native_emote_codec.dart';
+import '../util/webp_anim.dart';
 import 'emote_image_provider.dart';
 import 'emote_loading_band.dart';
 import 'emote_probe_memo.dart';
@@ -75,12 +75,17 @@ Future<EmoteFrameData> _decodeBytes(Uint8List bytes) {
       // pure-Dart decoder.
       return _decodeWithEngineCodec(bytes);
     case EmoteFormat.webp:
-      // Animated WebP is the only format that hits the engine codec's
-      // compositing/transparency bug (grey artifacts, wrong disposal), so it
-      // gets the native libwebp decoder (when present) with the pure-Dart
-      // decoder as fallback. Static WebP is safe natively and much cheaper.
+      // Engine-first for animated WebP: the stock Flutter engine codec is the
+      // fast path and reports correct frame durations. It has ONE hard failure
+      // mode - its animated-WebP compositor chokes (loudly: throws / stalls /
+      // truncates the frame count) on emotes with transparent / partially
+      // cleared frames (see the dev "Decode diagnosis" screen). For those we
+      // fall back to the reinforced decoder (native libwebp, pure-Dart
+      // fallback), which is correct but slower. So the fast engine path is used
+      // for the vast majority; libwebp only for the emotes the engine provably
+      // cannot decode. Static WebP is always engine-safe.
       if (webpIsAnimated(bytes)) {
-        return _decodeAnimatedWebp(bytes);
+        return _decodeAnimatedWebpEngineFirst(bytes);
       }
       return _decodeStatic(bytes);
     case EmoteFormat.other:
@@ -125,35 +130,82 @@ bool webpIsAnimated(Uint8List bytes) {
 /// emote image provider's animated-WebP branch.
 Future<EmoteFrameData> decodeEmoteBytes(Uint8List bytes) => _decodeBytes(bytes);
 
-/// How long to wait for the native libwebp shim before falling back to the
-/// pure-Dart decoder. The native decode runs inside a spawned isolate and, on
-/// some platforms, can hang (threaded libwebp from a background isolate on
-/// iOS is a known deadlock vector). Without a bound, a stuck decode would
-/// permanently occupy a decode-gate permit and freeze every subsequent
-/// animated-WebP emote. The timeout makes the call throw, which releases the
-/// permit and routes the emote to the pure-Dart fallback instead.
-@visibleForTesting
-Duration nativeDecodeTimeout = const Duration(seconds: 8);
-
-/// Animated WebP via the native libwebp shim, falling back to the pure-Dart
-/// decoder when the library is missing, the decode fails, or it hangs.
-Future<EmoteFrameData> _decodeAnimatedWebp(Uint8List bytes) async {
+/// Engine-first animated WebP: tries the fast animated decode. When the
+/// engine's compositor throws (transparent-frame bug), falls back to
+/// per-frame static decode + spec compositing - still engine-only, no
+/// libwebp. The per-frame path bypasses the buggy animated compositor by
+/// decoding each frame as a standalone still.
+Future<EmoteFrameData> _decodeAnimatedWebpEngineFirst(Uint8List bytes) async {
   try {
-    final native = await NativeEmoteCodec.decodeWebp(
-      bytes,
-    ).timeout(nativeDecodeTimeout);
-    if (native != null) return native;
+    return await _decodeWithEngineCodecSafe(bytes);
   } catch (_) {
-    // Fall through to the pure-Dart decoder. A hang is covered here too: the
-    // timeout turns the stuck native call into a throw, so we never leak a
-    // stuck decode-gate permit and the emote still renders via pure-Dart.
+    return _decodeAnimatedWebpPerFrame(bytes);
   }
-  return _decodeWebp(bytes);
 }
 
-/// Pure-Dart animated WebP decode (the [NativeEmoteCodec] fallback). Exposed
-/// for tests that want to compare against the reference decoder regardless of
-/// the production dispatch in [_decodeAnimatedWebp].
+/// Eager engine decode with loud-failure detection. The engine's animated
+/// compositor fails loudly (throws / hangs) on emotes with transparent frames
+/// - no prediction needed. [TimeoutException] catches stalls; any other throw
+/// propagates and the caller falls back to libwebp.
+Future<EmoteFrameData> _decodeWithEngineCodecSafe(Uint8List bytes) async {
+  final codec = await ui.instantiateImageCodec(bytes);
+  final frames = <ui.Image>[];
+  final durations = <Duration>[];
+  try {
+    for (var i = 0; i < codec.frameCount; i++) {
+      final frame =
+          await codec.getNextFrame().timeout(const Duration(seconds: 3));
+      frames.add(frame.image);
+      durations.add(frame.duration);
+    }
+  } on TimeoutException {
+    for (final f in frames) {
+      f.dispose();
+    }
+    codec.dispose();
+    throw StateError('engine stalled on a frame');
+  } catch (e) {
+    for (final f in frames) {
+      f.dispose();
+    }
+    codec.dispose();
+    rethrow;
+  }
+  codec.dispose();
+  return EmoteFrameData(frames: frames, durations: durations);
+}
+
+/// Engine-only per-frame decode + spec compositing. Bypasses the engine's
+/// buggy animated compositor by splitting the animated WebP into standalone
+/// single-frame WebPs, decoding each via the static engine codec, then
+/// compositing per the WebP blend/dispose rules with [WebpEngineCompositor].
+/// Slower than the animated path (~3-8× for decode) but correct for every
+/// animated WebP - the safety net for emotes the animated compositor can't handle.
+Future<EmoteFrameData> _decodeAnimatedWebpPerFrame(Uint8List bytes) async {
+  final meta = parseWebpAnim(bytes);
+  if (meta.frames.isEmpty) {
+    throw StateError('no ANMF frames found');
+  }
+  final compositor = WebpEngineCompositor(meta.canvasW, meta.canvasH);
+  final frames = <ui.Image>[];
+  final durations = <Duration>[];
+  for (var i = 0; i < meta.frames.length; i++) {
+    final f = meta.frames[i];
+    final standalone = buildStandaloneFrameWebp(f);
+    final codec = await ui.instantiateImageCodec(standalone);
+    final hi = await codec.getNextFrame();
+    final prev = i > 0 ? meta.frames[i - 1] : null;
+    final out = await compositor.composite(prev, f, hi.image);
+    hi.image.dispose();
+    codec.dispose();
+    frames.add(out);
+    durations.add(Duration(milliseconds: f.durationMs));
+  }
+  return EmoteFrameData(frames: frames, durations: durations);
+}
+
+/// Pure-Dart animated WebP decode. Exposed for tests that want a reference
+/// decoder independent of the production engine path.
 @visibleForTesting
 Future<EmoteFrameData> decodeWebpPureDart(Uint8List bytes) =>
     _decodeWebp(bytes);

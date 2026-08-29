@@ -6,7 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../util/log.dart';
-import '../../services/emote_codec/native_emote_codec.dart';
+import '../../util/webp_anim.dart';
 import '../../widgets/emote_image.dart';
 import '../../widgets/welcome_dialog.dart';
 
@@ -76,32 +76,11 @@ class _DevSettingsScreenState extends State<DevSettingsScreen> {
       logDebug('[BENCH] $s');
     }
 
-    log('native libwebp available: ${NativeEmoteCodec.isAvailable}');
-
     Future<void> runTest(String name, Uint8List bytes) async {
       log('\n=== $name (${bytes.length} bytes) ===');
 
-      // decodeEmoteBytes falls back to pure-Dart *silently*, so probe the native
-      // path directly and surface which one the production number came from.
-      // Otherwise a slow "Production" result is indistinguishable from the
-      // intended native path and the benchmark is misleading.
-      String pathLabel;
-      try {
-        final probe = await NativeEmoteCodec.decodeWebp(bytes);
-        if (probe != null) {
-          pathLabel = 'native';
-          for (final f in probe.frames) {
-            f.dispose();
-          }
-        } else {
-          pathLabel = 'pure-Dart (native unavailable)';
-        }
-      } catch (e) {
-        pathLabel = 'pure-Dart (native threw)';
-      }
-      log('  decoder path: $pathLabel');
-
-      // Production pipeline (what the app actually uses)
+      // Production pipeline (what the app actually uses - engine-first,
+      // per-frame fallback on transparent-frame bug).
       final swProd = Stopwatch()..start();
       final frames = await decodeEmoteBytes(bytes);
       swProd.stop();
@@ -110,12 +89,12 @@ class _DevSettingsScreenState extends State<DevSettingsScreen> {
           ? '${frames.frames.first.width}x${frames.frames.first.height}'
           : 'n/a';
       log(
-        'Production decodeEmoteBytes [$pathLabel]: '
+        'Production decodeEmoteBytes: '
         '${swProd.elapsedMilliseconds}ms '
         '($frameCount frames, ${frames.totalDuration.inMilliseconds}ms total, $dims)',
       );
       if (frameCount == 0) {
-        log('WARNING: production decode produced 0 frames — result is meaningless.');
+        log('WARNING: production decode produced 0 frames - result is meaningless.');
       }
       // Frames are GPU-resident ui.Images. Dispose them so repeated runs don't
       // exhaust GPU memory and skew later timings (or fail outright).
@@ -242,6 +221,21 @@ class _DevSettingsScreenState extends State<DevSettingsScreen> {
           ),
           const Divider(),
           ListTile(
+            leading: const Icon(Icons.compare_arrows),
+            title: const Text('Decode diagnosis (engine-only)'),
+            subtitle: const Text(
+              'Engine baseline vs engine+ANMF-durations vs engine '
+              'per-frame composite. No libwebp. Use the two emote presets.',
+            ),
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const _DecodeDiagScreen()),
+              );
+            },
+          ),
+          const Divider(),
+          ListTile(
             leading: const Icon(Icons.receipt_long),
             title: const Text('Performance log'),
             subtitle: const Text(
@@ -256,6 +250,343 @@ class _DevSettingsScreenState extends State<DevSettingsScreen> {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _DecodeDiagScreen extends StatefulWidget {
+  const _DecodeDiagScreen();
+
+  @override
+  State<_DecodeDiagScreen> createState() => _DecodeDiagScreenState();
+}
+
+class _DecodeDiagScreenState extends State<_DecodeDiagScreen> {
+  final _url = TextEditingController();
+  bool _loading = false;
+  String _log = '';
+  List<ui.Image> _allFrames = [];
+  _Variant? _baseline;
+  _Variant? _anmfTiming;
+  _Variant? _composite;
+
+  @override
+  void dispose() {
+    _url.dispose();
+    for (final f in _allFrames) {
+      f.dispose();
+    }
+    super.dispose();
+  }
+
+  void _reset() {
+    for (final f in _allFrames) {
+      f.dispose();
+    }
+    _allFrames = [];
+    _baseline = null;
+    _anmfTiming = null;
+    _composite = null;
+  }
+
+  Future<void> _run() async {
+    _reset();
+    setState(() => _loading = true);
+    _Variant? base;
+    _Variant? comp;
+    WebpAnimInfo? meta;
+    final sb = StringBuffer();
+    try {
+      final resp = await http.get(Uri.parse(_url.text.trim()));
+      if (resp.statusCode != 200) throw StateError('HTTP ${resp.statusCode}');
+      final bytes = resp.bodyBytes;
+      meta = parseWebpAnim(bytes);
+      sb.writeln(
+        'ANMF frames: ${meta.frames.length}, canvas '
+        '${meta.canvasW}x${meta.canvasH}, alpha=${meta.hasAlpha}',
+      );
+
+      // Variant 1: the current engine path (instantiateImageCodec + getNextFrame),
+      // played at the engine's own reported durations. Reproduces both bugs.
+      base = await _decodeBaseline(bytes, meta);
+      sb.writeln(
+        'Engine (engine durations): ${base.frames.length} frames, '
+        'truncated=${base.truncated}, frozen=${base.frozen}'
+        "${base.error != null ? '\n  ERROR: ${base.error}' : ''}",
+      );
+      sb.writeln(
+        '  engine durations (first 5): '
+        '${base.durations.take(5).map((d) => d.inMilliseconds).join(', ')}',
+      );
+      sb.writeln(
+        '  ANMF   durations (first 5): '
+        '${meta.frames.take(5).map((f) => f.durationMs).join(', ')}',
+      );
+
+      // Variant 3: engine per-frame still decode + spec compositing, at ANMF
+      // durations. Tests whether an engine-only path (no libwebp) is viable.
+      comp = await _decodeComposite(bytes, meta);
+      sb.writeln(
+        'Engine per-frame + composite: ${comp.frames.length} frames'
+        "${comp.error != null ? '\n  ERROR: ${comp.error}' : ''}",
+      );
+    } catch (e) {
+      sb.writeln('Top-level error: $e');
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _baseline = base;
+      // Same frames as baseline, but the correct ANMF durations. Isolates
+      // whether Bug A is purely a duration-source problem.
+      _anmfTiming = (base != null && meta != null)
+          ? _Variant(
+              label: 'Engine (ANMF durations)',
+              frames: base.frames,
+              durations: meta.frames
+                  .map((f) => Duration(milliseconds: f.durationMs))
+                  .toList(),
+            )
+          : null;
+      _composite = comp;
+      _log = sb.toString();
+      _loading = false;
+    });
+  }
+
+  Future<_Variant> _decodeBaseline(Uint8List bytes, WebpAnimInfo meta) async {
+    ui.Codec? codec;
+    final frames = <ui.Image>[];
+    final durations = <Duration>[];
+    String? error;
+    var frozen = false;
+    try {
+      codec = await ui.instantiateImageCodec(bytes);
+      for (var i = 0; i < codec.frameCount; i++) {
+        final f =
+            await codec.getNextFrame().timeout(const Duration(seconds: 3));
+        frames.add(f.image);
+        durations.add(f.duration);
+      }
+    } on TimeoutException {
+      frozen = true;
+      error = 'getNextFrame timed out (frozen) after ${frames.length} frames';
+    } catch (e) {
+      error = 'getNextFrame failed at frame ${frames.length}: $e';
+    } finally {
+      codec?.dispose();
+    }
+    final truncated = frames.length != meta.frames.length;
+    _allFrames.addAll(frames);
+    return _Variant(
+      label: 'Engine (engine durations)',
+      frames: frames,
+      durations: durations,
+      truncated: truncated,
+      frozen: frozen,
+      error: error,
+    );
+  }
+
+  Future<_Variant> _decodeComposite(Uint8List bytes, WebpAnimInfo meta) async {
+    final compositor = WebpEngineCompositor(meta.canvasW, meta.canvasH);
+    final frames = <ui.Image>[];
+    final durations = <Duration>[];
+    String? error;
+    try {
+      for (var i = 0; i < meta.frames.length; i++) {
+        final f = meta.frames[i];
+        final standalone = buildStandaloneFrameWebp(f);
+        final codec = await ui.instantiateImageCodec(standalone);
+        final hi = await codec.getNextFrame();
+        final prev = i > 0 ? meta.frames[i - 1] : null;
+        final out = await compositor.composite(prev, f, hi.image);
+        hi.image.dispose();
+        codec.dispose();
+        frames.add(out);
+        durations.add(Duration(milliseconds: f.durationMs));
+      }
+    } catch (e) {
+      error = 'per-frame composite failed at frame ${frames.length}: $e';
+    }
+    _allFrames.addAll(frames);
+    return _Variant(
+      label: 'Engine per-frame + composite',
+      frames: frames,
+      durations: durations,
+      error: error,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Decode diagnosis (engine-only)')),
+      body: ListView(
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _url,
+                    decoration: const InputDecoration(
+                      hintText: 'emote webp url',
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                FilledButton(
+                  onPressed: _loading ? null : _run,
+                  child: _loading
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('Run'),
+                ),
+              ],
+            ),
+          ),
+          Wrap(
+            spacing: 8,
+            children: [
+              TextButton(
+                onPressed: () => _url.text =
+                    'https://cdn.7tv.app/emote/01H5ECBJ080004C067KYDBPSQ2/2x.webp',
+                child: const Text('too-slow emote'),
+              ),
+              TextButton(
+                onPressed: () => _url.text =
+                    'https://cdn.7tv.app/emote/01HE9BETT0000CZHS2ZR11A3ZN/2x.webp',
+                child: const Text('freeze emote'),
+              ),
+            ],
+          ),
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: SelectableText(
+              _log,
+              style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+            ),
+          ),
+          if (_baseline != null) _pane(_baseline!),
+          if (_anmfTiming != null) _pane(_anmfTiming!),
+          if (_composite != null) _pane(_composite!),
+        ],
+      ),
+    );
+  }
+
+  Widget _pane(_Variant v) => Card(
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(6),
+              child: Text(
+                v.label,
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ),
+            if (v.error != null)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: Text(
+                  v.error!,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: Colors.red,
+                  ),
+                ),
+              ),
+            SizedBox(height: 160, child: _FramePlayer(v.frames, v.durations)),
+          ],
+        ),
+      );
+}
+
+class _Variant {
+  const _Variant({
+    required this.label,
+    required this.frames,
+    required this.durations,
+    this.truncated = false,
+    this.frozen = false,
+    this.error,
+  });
+  final String label;
+  final List<ui.Image> frames;
+  final List<Duration> durations;
+  final bool truncated;
+  final bool frozen;
+  final String? error;
+}
+
+/// Frame-accurate player for a decoded [EmoteFrameData]-like bundle. The frames
+/// are owned by the diagnosis screen (disposed there), so this widget never
+/// disposes them - it only drives playback for visual comparison.
+class _FramePlayer extends StatefulWidget {
+  const _FramePlayer(this.frames, this.durations);
+  final List<ui.Image> frames;
+  final List<Duration> durations;
+
+  @override
+  State<_FramePlayer> createState() => _FramePlayerState();
+}
+
+class _FramePlayerState extends State<_FramePlayer> {
+  int _i = 0;
+  Timer? _t;
+
+  @override
+  void initState() {
+    super.initState();
+    _schedule();
+  }
+
+  void _schedule() {
+    if (widget.frames.isEmpty) return;
+    final d = widget.durations[_i];
+    _t = Timer(
+      d > Duration.zero ? d : const Duration(milliseconds: 40),
+      () {
+        if (!mounted) return;
+        setState(() => _i = (_i + 1) % widget.frames.length);
+        _schedule();
+      },
+    );
+  }
+
+  @override
+  void dispose() {
+    _t?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.frames.isEmpty) {
+      return const Center(child: Text('no frames'));
+    }
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        RawImage(image: widget.frames[_i], fit: BoxFit.contain),
+        Positioned(
+          left: 4,
+          top: 4,
+          child: Text(
+            'f ${_i + 1}/${widget.frames.length}',
+            style: const TextStyle(
+              fontSize: 11,
+              color: Colors.white,
+              backgroundColor: Colors.black54,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
