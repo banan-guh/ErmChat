@@ -3988,6 +3988,8 @@ void main() {
           find.text('Copied https://kappa.lol/abc', skipOffstage: false),
           findsOneWidget,
         );
+        // Let the toast auto-close timer fire so no Timer is pending at exit.
+        await tester.pump(const Duration(seconds: 4));
       },
     );
   });
@@ -4446,7 +4448,10 @@ void main() {
           find.textContaining('Test announcement text', skipOffstage: false),
         ),
       ).colorScheme.surface;
-      final blended = Color.alphaBlend(accent.withValues(alpha: 0.4), surface);
+      final blended = Color.alphaBlend(
+        accent.withValues(alpha: 0.4 * 0.4),
+        surface,
+      );
       // The row tint is painted as the tile Material's color (so ink ripples
       // stay visible above it) rather than a ColoredBox over the content.
       final rows = find
@@ -5643,6 +5648,8 @@ void main() {
         find.textContaining('Could not open', skipOffstage: false),
         findsOneWidget,
       );
+      // Let the toast auto-close timer fire so no Timer is pending at exit.
+      await tester.pump(const Duration(seconds: 4));
     });
 
     testWidgets(
@@ -5768,6 +5775,8 @@ void main() {
         find.text('Could not open the report page', skipOffstage: false),
         findsOneWidget,
       );
+      // Let the toast auto-close timer fire so no Timer is pending at exit.
+      await tester.pump(const Duration(seconds: 4));
     });
   });
 

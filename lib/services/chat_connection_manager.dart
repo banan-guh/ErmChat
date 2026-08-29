@@ -604,12 +604,12 @@ class ChatConnectionManager {
     final wireText = bypassTextDuplicate(text, lastSentWireText[channel]);
     lastSentWireText[channel] = wireText;
 
-    // Send via the write IRC socket (mirror DankChat). The write socket never
-    // JOINs a channel, so there is no join-confirmation window to gate on; a
-    // PRIVMSG is valid the moment the socket is up. The echo of our own message
-    // arrives on the read socket (the one that JOINs), not here. No Helix
-    // fallback: if the write socket is down the message cannot be sent, so we
-    // surface a notice instead of silently dropping it.
+    // Send via the write IRC socket (mirror DankChat). The write socket also
+    // JOINs its channels (required to receive their traffic), but a PRIVMSG is
+    // valid the moment the socket is up, so there is no join window to gate
+    // sends on. The echo of our own message arrives on the read socket, not
+    // here. No Helix fallback: if the write socket is down the message cannot
+    // be sent, so we surface a notice instead of silently dropping it.
     _lastOwnMessageAt[channel] = DateTime.now();
     if (irc.isConnected) {
       irc.sendMessage(
@@ -654,12 +654,11 @@ class ChatConnectionManager {
   /// session, including its handshake window) or currently live; sessions
   /// that genuinely have no read socket never block on it.
   bool isChannelChatReady(String channel) {
-    // Readiness is gated on the read socket's JOIN for authenticated sessions:
-    // the echo of our own messages and all incoming chat ride it, so a channel
-    // isn't usable until that JOIN lands. The write socket never JOINs.
-    // Anonymous sessions have no live read socket, so readiness there is the
-    // write socket being up AND having received the channel's ROOMSTATE (the
-    // write socket still subscribes and gets ROOMSTATE on join).
+    // Readiness gates the input (send) side. Authenticated sessions have a
+    // live read socket whose JOIN confirms the channel is usable; anonymous
+    // sessions have no read socket, so readiness there is the write socket
+    // being up AND having received the channel's ROOMSTATE (the write socket
+    // JOINs and gets ROOMSTATE too).
     if (!_readExpected && !ircRead.isConnected) {
       return irc.isConnected && _joinedChannels.contains(channel);
     }
@@ -1232,11 +1231,9 @@ class ChatConnectionManager {
       );
     });
 
-    // The write socket never JOINs in production, so this listener is
-    // effectively idle there (no ROOMSTATE arrives without a JOIN). It exists
-    // so tests that drive ROOMSTATE through the write socket still resolve
-    // room status, join tracking, and the JOIN countdown. The read socket
-    // listener below is the real production path.
+    // The write socket JOINs to receive channel traffic, so its ROOMSTATE
+    // resolves room status, join tracking, and the JOIN countdown here too.
+    // The read socket listener below confirms readiness independently.
     ircRoomStateSub?.cancel();
     ircRoomStateSub = irc.onRoomState.listen((event) {
       if (isDisposed) return;
@@ -1258,10 +1255,10 @@ class ChatConnectionManager {
       }
     });
 
-    // The read socket is the only one that JOINs in production, so it owns
-    // ROOMSTATE there: it drives room status (slow mode, followers-only, ...)
-    // and confirms the JOIN that gates readiness. Our own message echo also
-    // arrives here, not on the write connection.
+    // The read socket JOINs too and owns readiness gating: its ROOMSTATE
+    // drives room status (slow mode, followers-only, ...) and confirms the
+    // JOIN that gates readiness. Our own message echo also arrives here, not
+    // on the write connection.
     ircReadRoomStateSub?.cancel();
     ircReadRoomStateSub = ircRead.onRoomState.listen((event) {
       if (isDisposed) return;
