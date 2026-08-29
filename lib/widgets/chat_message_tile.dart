@@ -29,6 +29,7 @@ class ChatMessageTile extends StatefulWidget {
   systemBodyBuilder;
   final void Function(String login, String? userId)? onTapUser;
   final VoidCallback? onLongPress;
+  final VoidCallback? onDoubleTap;
   final Widget? replyIndicator;
   final bool showTimestamp;
   final String timestampFormat;
@@ -61,6 +62,7 @@ class ChatMessageTile extends StatefulWidget {
     this.systemBodyBuilder,
     this.onTapUser,
     this.onLongPress,
+    this.onDoubleTap,
     this.replyIndicator,
     this.showTimestamp = true,
     this.timestampFormat = kDefaultTimestampFormat,
@@ -313,8 +315,12 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
       );
     }
 
-    if (widget.onLongPress != null) {
-      child = InkWell(onLongPress: widget.onLongPress, child: child);
+    if (widget.onLongPress != null || widget.onDoubleTap != null) {
+      child = InkWell(
+        onLongPress: widget.onLongPress,
+        onDoubleTap: widget.onDoubleTap,
+        child: child,
+      );
     }
 
     child = Material(color: rowColor, child: child);

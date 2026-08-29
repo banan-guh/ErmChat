@@ -38,6 +38,9 @@ class ChatView extends StatefulWidget {
   /// Null disables the long-press message menu.
   final void Function(TwitchMessage)? onShowMessageMenu;
 
+  /// Null disables copy-on-double-tap for chat messages.
+  final void Function(TwitchMessage)? onCopyMessage;
+
   /// Notified on scroll-state flips (main chat unread/jump bookkeeping).
   final void Function(String)? onNewMessage;
   final TwitchMessage? Function(TwitchMessage)? onFindThreadRoot;
@@ -83,6 +86,7 @@ class ChatView extends StatefulWidget {
     required this.messageBuilder,
     required this.onShowUserProfile,
     this.onShowMessageMenu,
+    this.onCopyMessage,
     this.onNewMessage,
     this.onFindThreadRoot,
     this.onShowThreadView,
@@ -317,6 +321,9 @@ class _ChatViewState extends State<ChatView> {
         onLongPress: widget.onShowMessageMenu == null
             ? null
             : () => widget.onShowMessageMenu!(msg),
+        onDoubleTap: widget.onCopyMessage == null
+            ? null
+            : () => widget.onCopyMessage!(msg),
         replyIndicator:
             widget.showReplyIndicators &&
                 widget.onFindThreadRoot != null &&

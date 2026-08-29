@@ -1675,6 +1675,13 @@ class _HomeScreenState extends State<HomeScreen>
     _chatStore.noteNewMessage(channel);
   }
 
+  void _copyMessageToClipboard(TwitchMessage msg) {
+    Clipboard.setData(ClipboardData(text: msg.text));
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Message copied')),
+    );
+  }
+
   void _showMessageMenu(TwitchMessage msg) {
     iosHaptic(HapticFeedback.mediumImpact);
     final threadRoot = _findThreadRoot(msg);
@@ -2820,6 +2827,7 @@ class _HomeScreenState extends State<HomeScreen>
                                 displayName: displayName,
                               ),
                           onShowMessageMenu: _showMessageMenu,
+                          onCopyMessage: _copyMessageToClipboard,
                           onNewMessage: _chatStore.noteNewMessage,
                           onFindThreadRoot: _findThreadRoot,
                           onShowThreadView: _showThreadView,
@@ -2961,6 +2969,7 @@ class _HomeScreenState extends State<HomeScreen>
         paintService: _showNamePaints ? _sevenTvPaintService : null,
         onShowUserProfile: _showUserProfile,
         onShowMessageMenu: _showPanelMessageMenu,
+        onCopyMessage: _copyMessageToClipboard,
         showReplyIndicators: false,
         emptyText: 'No messages found',
       ),
@@ -3029,6 +3038,7 @@ class _HomeScreenState extends State<HomeScreen>
             physics: const ClampingScrollPhysics(),
             onShowUserProfile: _showUserProfile,
             onShowMessageMenu: _showPanelMessageMenu,
+            onCopyMessage: _copyMessageToClipboard,
             showReplyIndicators: false,
             fadeDeleted: false,
             emptyText: 'No mentions or whispers',
@@ -3052,6 +3062,7 @@ class _HomeScreenState extends State<HomeScreen>
             physics: const ClampingScrollPhysics(),
             onShowUserProfile: _showUserProfile,
             onShowMessageMenu: _showPanelMessageMenu,
+            onCopyMessage: _copyMessageToClipboard,
             showReplyIndicators: false,
             emptyText: 'No whispers',
           ),
