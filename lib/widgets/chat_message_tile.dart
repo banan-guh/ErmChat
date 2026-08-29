@@ -63,7 +63,7 @@ class ChatMessageTile extends StatefulWidget {
     this.showTimestamp = true,
     this.timestampFormat = kDefaultTimestampFormat,
     this.checkeredMessages = false,
-    this.highlightOpacity = 1.0,
+    this.highlightOpacity = 0.4,
     this.lineSeparator = false,
     this.isAlternateBackground = false,
     this.fadeDeleted = true,

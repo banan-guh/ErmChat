@@ -89,7 +89,7 @@ class ChatView extends StatefulWidget {
     this.timestampFormat = kDefaultTimestampFormat,
     this.chatFontScale = 1.0,
     this.checkeredMessages = false,
-    this.highlightOpacity = 1.0,
+    this.highlightOpacity = 0.4,
     this.lineSeparator = false,
     this.sharedChatMode = 'spotlight',
     this.paintService,

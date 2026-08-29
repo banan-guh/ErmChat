@@ -288,7 +288,7 @@ class _HomeScreenState extends State<HomeScreen>
   String _timestampFormat = kDefaultTimestampFormat;
   String _sharedChatMode = 'spotlight';
   double _chatFontSize = 14.0;
-  double _highlightOpacity = 1.0;
+  double _highlightOpacity = 0.4;
   bool _checkeredMessages = false;
   Color? _lastSurface;
   bool _lineSeparator = false;
@@ -1538,7 +1538,7 @@ class _HomeScreenState extends State<HomeScreen>
       _timestampFormat =
           prefs.getString(kTimestampFormatPrefKey) ?? kDefaultTimestampFormat;
       _chatFontSize = prefs.getDouble('chat_font_size') ?? 14.0;
-      _highlightOpacity = prefs.getDouble('highlight_opacity') ?? 1.0;
+      _highlightOpacity = prefs.getDouble('highlight_opacity') ?? 0.4;
       _checkeredMessages = prefs.getBool('checkered_messages') ?? false;
       _lineSeparator = prefs.getBool('line_separator') ?? false;
       _fastSnap = prefs.getBool('fast_channel_snap') ?? true;
