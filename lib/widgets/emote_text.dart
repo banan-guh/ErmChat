@@ -299,11 +299,15 @@ class EmoteText {
     // No per-emote Semantics: tile already wraps with excludeSemantics.
     Widget emoteWidget;
     if (data.overlays.isEmpty) {
-      emoteWidget = _emoteImage(
-        data.base.url,
-        baseSize.width,
-        baseSize.height,
-        alternateUrls: [if (data.base.url1x != null) data.base.url1x!],
+      emoteWidget = SizedBox(
+        width: baseSize.width,
+        height: baseSize.height,
+        child: _emoteImage(
+          data.base.url,
+          baseSize.width,
+          baseSize.height,
+          alternateUrls: [if (data.base.url1x != null) data.base.url1x!],
+        ),
       );
     } else {
       emoteWidget = SizedBox(

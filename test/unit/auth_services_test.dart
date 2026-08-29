@@ -623,7 +623,7 @@ void main() {
       expect(service.trackedChannels(), isEmpty);
     });
 
-    test('notifies listeners on record', () {
+    test('notifies listeners on record', () async {
       final service = AnalyticsService();
       var notified = 0;
       service.addListener(() => notified++);
@@ -631,7 +631,9 @@ void main() {
       service.recordMessage('chan', msg('alice', 'hi'));
       service.recordModeration('chan', true);
 
-      expect(notified, 2);
+      // Notifications are coalesced into a single microtask turn.
+      await Future<void>.delayed(Duration.zero);
+      expect(notified, 1);
     });
   });
 
