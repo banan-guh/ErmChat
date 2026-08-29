@@ -149,13 +149,15 @@ class HypeTrainCard extends StatefulWidget {
 
 class _HypeTrainCardState extends State<HypeTrainCard> {
   Timer? _timer;
+  final _remainingNotifier = ValueNotifier<String>('');
 
   @override
   void initState() {
     super.initState();
+    _updateRemaining();
     if (widget.event.expiresAt != null) {
       _timer = Timer.periodic(const Duration(seconds: 1), (_) {
-        if (mounted) setState(() {});
+        _updateRemaining();
       });
     }
   }
@@ -163,17 +165,24 @@ class _HypeTrainCardState extends State<HypeTrainCard> {
   @override
   void dispose() {
     _timer?.cancel();
+    _remainingNotifier.dispose();
     super.dispose();
   }
 
-  String _remaining() {
+  void _updateRemaining() {
     final expiresAt = widget.event.expiresAt;
-    if (expiresAt == null) return '';
+    if (expiresAt == null) {
+      _remainingNotifier.value = '';
+      return;
+    }
     final d = expiresAt.difference(DateTime.now());
-    if (d.isNegative) return '0:00';
+    if (d.isNegative) {
+      _remainingNotifier.value = '0:00';
+      return;
+    }
     final m = d.inMinutes;
     final s = d.inSeconds % 60;
-    return '$m:${s.toString().padLeft(2, '0')}';
+    _remainingNotifier.value = '$m:${s.toString().padLeft(2, '0')}';
   }
 
   @override
@@ -202,7 +211,11 @@ class _HypeTrainCardState extends State<HypeTrainCard> {
                 ),
               ),
               const Spacer(),
-              Text(_remaining(), style: theme.textTheme.labelSmall),
+              ValueListenableBuilder<String>(
+                valueListenable: _remainingNotifier,
+                builder: (_, value, _) =>
+                    Text(value, style: theme.textTheme.labelSmall),
+              ),
             ],
           ),
           const SizedBox(height: 8),
