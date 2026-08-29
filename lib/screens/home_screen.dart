@@ -3312,7 +3312,7 @@ class _HomeScreenState extends State<HomeScreen>
                                     'Reconnecting...',
                                   (ChatPhase.online, _, false, false)
                                       when _selectedChannel != null =>
-                                    'Disconnected',
+                                    'Joining #${_selectedChannel!}...',
                                   (_, OverlayPanel.thread, _, _) =>
                                     'Reply to thread...',
                                   (_, _, true, _) =>
