@@ -61,6 +61,12 @@ import '../services/foreground_task.dart';
 enum OverlayPanel { closed, thread, mentions }
 
 class HomeScreen extends StatefulWidget {
+  // Test seam: when true the join ("+") button never shows its loading spinner.
+  // Tests that intentionally keep the app disconnected (un-faked TwitchChatApp)
+  // flip this so they can still reach the button during the permanent
+  // "connecting" state instead of hitting the gated spinner.
+  static bool disableJoinSpinner = false;
+
   final TwitchAuth twitchAuth;
   final ValueChanged<ThemeMode> onThemeChanged;
   final ValueChanged<bool>? onKeepScreenOnChanged;
@@ -267,9 +273,6 @@ class _HomeScreenState extends State<HomeScreen>
   List<GenericEmote>? _cachedAutocompleteEmotes;
 
   late final _broadcastWidgets = _BroadcastWidgets(
-    markDirty: () {
-      if (mounted) setState(() {});
-    },
     selectedChannel: () => _selectedChannel,
   );
 
@@ -283,6 +286,11 @@ class _HomeScreenState extends State<HomeScreen>
   // Drives the composer's hint directly so the countdown repaints without a
   // full-screen setState — mid-swipe selection commits skip that path.
   final ValueNotifier<String?> _cooldownLabelNotifier = ValueNotifier(null);
+  // True while a manual emote refresh (Reload emotes) is in flight. The
+  // connect/reconnect + per-channel-join loading is read live from
+  // [_chatLoading] (driven by ChatConnectionManager.connectionStateNotifier),
+  // so this only covers emote work that doesn't move the connection phase.
+  final ValueNotifier<bool> _networkBusy = ValueNotifier(false);
   int _maxMessagesPerChannel = kMaxMessagesPerChannelDefault;
   int _recentMessagesLimit = 100;
   bool _showTimestamps = true;
@@ -1464,21 +1472,38 @@ class _HomeScreenState extends State<HomeScreen>
   // channels. Force bypasses the fresh-cache short-circuits so third-party
   // catalogues (7TV/BTTV/FFZ) are pulled again, not just Twitch.
   Future<void> _reloadEmotes() async {
+    _networkBusy.value = true;
     try {
-      await EmoteCacheManager().emptyCache();
-    } catch (e) {
-      logDebug('_reloadEmotes: cache clear failed: $e');
+      try {
+        await EmoteCacheManager().emptyCache();
+      } catch (e) {
+        logDebug('_reloadEmotes: cache clear failed: $e');
+      }
+      await _refreshEmotesAfterAuth(force: true);
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Emotes reloaded')));
+    } finally {
+      _networkBusy.value = false;
     }
-    await _refreshEmotesAfterAuth(force: true);
-    if (!mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('Emotes reloaded')));
   }
 
   // Manual "Reconnect": brute-force teardown + reconnect of every socket.
   void _reconnect() {
     _chatConn.forceReconnect();
+  }
+
+  // True while the chat pipe is still coming up or not every joined channel
+  // has confirmed its JOIN: the join button spins through first load, a
+  // reconnect, and until the last channel is ready. Recomputed on every
+  // connectionStateNotifier bump (phase change + per-channel readiness).
+  bool get _chatLoading {
+    if (_chatConn.connectPhase != ChatPhase.online) return true;
+    for (final channel in _chatStore.channels) {
+      if (!_chatConn.isChannelChatReady(channel)) return true;
+    }
+    return false;
   }
 
   // Loads the account's subscriber emotes from the IRC emote-sets tag
@@ -1570,6 +1595,7 @@ class _HomeScreenState extends State<HomeScreen>
     _broadcastWidgets.dispose();
     _cooldownTickTimer?.cancel();
     _cooldownLabelNotifier.dispose();
+    _networkBusy.dispose();
     _eventSub.dispose();
     _irc.dispose();
     _ircRead.dispose();
@@ -2560,7 +2586,7 @@ class _HomeScreenState extends State<HomeScreen>
             Expanded(
               child: LayoutBuilder(
                 builder: (context, constraints) {
-                  final statusBarH = MediaQuery.of(context).padding.top;
+                  final statusBarH = MediaQuery.paddingOf(context).top;
                   if (MediaQuery.viewInsetsOf(context).bottom == 0) {
                     _emoteSheetBoxHeight = constraints.maxHeight;
                   }
@@ -2615,12 +2641,14 @@ class _HomeScreenState extends State<HomeScreen>
                         bottom: 0,
                         left: 0,
                         child: SizedBox(
-                          width: (MediaQuery.of(context).size.width * 0.6)
-                              .clamp(0.0, 340.0),
+                          width: (MediaQuery.sizeOf(context).width * 0.6).clamp(
+                            0.0,
+                            340.0,
+                          ),
                           child: ConstrainedBox(
                             constraints: BoxConstraints(
                               maxHeight:
-                                  MediaQuery.of(context).size.height * 0.25,
+                                  MediaQuery.sizeOf(context).height * 0.25,
                             ),
                             child: ValueListenableBuilder<List<Suggestion>>(
                               valueListenable: _suggestionsNotifier,
@@ -2684,12 +2712,33 @@ class _HomeScreenState extends State<HomeScreen>
                     ),
                   ),
                   const Spacer(),
-                  IconButton(
-                    icon: const Icon(Icons.add),
-                    tooltip: 'Join channel',
-                    onPressed: _chatStore.channels.length >= kMaxChannels
-                        ? null
-                        : _addChannelDialog,
+                  ListenableBuilder(
+                    listenable: Listenable.merge([
+                      _chatConn.connectionStateNotifier,
+                      _networkBusy,
+                    ]),
+                    builder: (context, _) {
+                      final busy =
+                          !HomeScreen.disableJoinSpinner &&
+                          (_chatLoading || _networkBusy.value);
+                      return IconButton(
+                        icon: busy
+                            ? SizedBox(
+                                width: 24,
+                                height: 24,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: IconTheme.of(context).color,
+                                ),
+                              )
+                            : const Icon(Icons.add),
+                        tooltip: busy ? 'Loading...' : 'Join channel',
+                        onPressed:
+                            busy || _chatStore.channels.length >= kMaxChannels
+                            ? null
+                            : _addChannelDialog,
+                      );
+                    },
                   ),
                   ListenableBuilder(
                     listenable: _chatStore.mentionsBump,
@@ -2915,17 +2964,18 @@ class _HomeScreenState extends State<HomeScreen>
               top: 50,
               left: 0,
               right: 0,
-              child:
-                  _broadcastWidgets.buildOverlay(
-                    _selectedChannel!,
-                    onMinimizeChanged: (ch, minimized) {
-                      setState(
-                        () =>
-                            _broadcastWidgets.widgetsMinimized[ch] = minimized,
-                      );
-                    },
-                  ) ??
-                  const SizedBox.shrink(),
+              child: ValueListenableBuilder<int>(
+                valueListenable: _broadcastWidgets.notifier,
+                builder: (_, _, _) =>
+                    _broadcastWidgets.buildOverlay(
+                      _selectedChannel!,
+                      onMinimizeChanged: (ch, minimized) {
+                        _broadcastWidgets.widgetsMinimized[ch] = minimized;
+                        _broadcastWidgets.notifier.value++;
+                      },
+                    ) ??
+                    const SizedBox.shrink(),
+              ),
             ),
         ],
       ),
@@ -3272,10 +3322,10 @@ class _HomeScreenState extends State<HomeScreen>
 }
 
 class _BroadcastWidgets {
-  _BroadcastWidgets({required this.markDirty, required this.selectedChannel});
+  _BroadcastWidgets({required this.selectedChannel});
 
-  final VoidCallback markDirty;
   final String? Function() selectedChannel;
+  final notifier = ValueNotifier<int>(0);
 
   final hypeTrains = <String, HypeTrainEvent>{};
   final polls = <String, PollEvent>{};
@@ -3300,6 +3350,7 @@ class _BroadcastWidgets {
     mounted = false;
     _testWidgetsTimer?.cancel();
     pageCtrl.dispose();
+    notifier.dispose();
   }
 
   void onHypeTrain(HypeTrainEvent event) {
@@ -3309,7 +3360,7 @@ class _BroadcastWidgets {
     } else {
       hypeTrains[event.channel] = event;
     }
-    markDirty();
+    notifier.value++;
     clampPage();
   }
 
@@ -3320,7 +3371,7 @@ class _BroadcastWidgets {
     } else {
       polls[event.channel] = event;
     }
-    markDirty();
+    notifier.value++;
     clampPage();
   }
 
@@ -3331,7 +3382,7 @@ class _BroadcastWidgets {
     } else {
       predictions[event.channel] = event;
     }
-    markDirty();
+    notifier.value++;
     clampPage();
   }
 
@@ -3372,7 +3423,7 @@ class _BroadcastWidgets {
     polls.clear();
     predictions.clear();
     widgetsMinimized.clear();
-    markDirty();
+    notifier.value++;
   }
 
   void _tickTestWidgets() {
@@ -3433,7 +3484,7 @@ class _BroadcastWidgets {
       ],
       status: 'ACTIVE',
     );
-    markDirty();
+    notifier.value++;
     clampPage();
   }
 
@@ -3626,8 +3677,8 @@ class _PanelManager {
         final cumulativeDelta = details.globalPosition.dy - panelDragStartY;
         final height =
             maxSize *
-            (MediaQuery.of(context).size.height -
-                MediaQuery.of(context).padding.top -
+            (MediaQuery.sizeOf(context).height -
+                MediaQuery.paddingOf(context).top -
                 MediaQuery.viewInsetsOf(context).bottom);
         ratio.value = (panelDragStartRatio - cumulativeDelta / height).clamp(
           0.0,
@@ -3677,7 +3728,7 @@ class _PanelManager {
     required BuildContext context,
   }) {
     return Positioned(
-      top: MediaQuery.of(context).padding.top,
+      top: MediaQuery.paddingOf(context).top,
       bottom: 0,
       left: 0,
       right: 0,

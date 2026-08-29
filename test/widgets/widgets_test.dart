@@ -17,6 +17,7 @@ import 'package:ermchat/screens/settings/customization_screen.dart';
 import 'package:ermchat/screens/settings/emotes_settings_screen.dart';
 import 'package:ermchat/screens/settings/tools_settings_screen.dart';
 import 'package:ermchat/screens/settings/recent_uploads_screen.dart';
+import 'package:ermchat/screens/home_screen.dart';
 import 'package:ermchat/services/media_uploader.dart';
 import 'package:ermchat/services/analytics_service.dart';
 import 'package:ermchat/models/emote_fetch_tier.dart';
@@ -344,6 +345,10 @@ void main() {
   setUp(() {
     SharedPreferences.setMockInitialValues({});
     FlutterSecureStorage.setMockInitialValues({});
+    // Tests keep the app in a disconnected (never "online") state, so the join
+    // button's loading spinner would spin forever and block the "+". Disable it
+    // for the suite; the behavior itself is exercised in the real app.
+    HomeScreen.disableJoinSpinner = true;
   });
 
   testWidgets('Home screen shows credentials message when not configured', (
