@@ -290,9 +290,11 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
           return;
         }
         final frame = await codec.getNextFrame();
+        // Clone before disposing the codec so the image outlives it.
+        final image = frame.image.clone();
         codec.dispose();
         _frames = EmoteFrameData(
-          frames: [frame.image],
+          frames: [image],
           durations: [frame.duration],
         );
         _emitFrame(0);
