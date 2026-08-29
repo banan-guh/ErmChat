@@ -133,6 +133,7 @@ class _HomeScreenState extends State<HomeScreen>
     emoteLookup: (channel) => _emoteManager.byCode(channel),
   );
   final _ttsController = TtsController();
+  final _inputBarKey = GlobalKey();
 
   late final _chatStore =
       ChatStore(
@@ -1210,7 +1211,7 @@ class _HomeScreenState extends State<HomeScreen>
         // Replace any current snackbar so identical/rapid info popups don't
         // queue up one after another.
         messenger.removeCurrentSnackBar();
-        messenger.showSnackBar(SnackBar(content: Text(notice.message ?? '')));
+        messenger.showSnackBar(_snackBar(notice.message ?? ''));
       case ChatNoticeKind.focusInput:
         _focusNode.requestFocus();
     }
@@ -1676,11 +1677,23 @@ class _HomeScreenState extends State<HomeScreen>
     _chatStore.noteNewMessage(channel);
   }
 
+  SnackBar _snackBar(String text) {
+    final inputBarH = _inputBarKey.currentContext?.size?.height ?? 0;
+    return SnackBar(
+      behavior: SnackBarBehavior.floating,
+      dismissDirection: DismissDirection.horizontal,
+      margin: EdgeInsets.only(
+        bottom: inputBarH,
+        left: 16,
+        right: 16,
+      ),
+      content: Text(text),
+    );
+  }
+
   void _copyMessageToClipboard(TwitchMessage msg) {
     Clipboard.setData(ClipboardData(text: msg.text));
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Message copied')),
-    );
+    ScaffoldMessenger.of(context).showSnackBar(_snackBar('Message copied'));
   }
 
   void _showMessageMenu(TwitchMessage msg) {
@@ -1978,7 +1991,7 @@ class _HomeScreenState extends State<HomeScreen>
 
     if (!widget.twitchAuth.isConfigured) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Connect an account to chat')),
+        _snackBar('Connect an account to chat'),
       );
       return;
     }
@@ -2003,9 +2016,7 @@ class _HomeScreenState extends State<HomeScreen>
         );
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Type /w <username> <message> to whisper'),
-          ),
+          _snackBar('Type /w <username> <message> to whisper'),
         );
       }
       return;
@@ -3129,6 +3140,7 @@ class _HomeScreenState extends State<HomeScreen>
         final inset = MediaQuery.viewInsetsOf(ctx).bottom;
         final pad = MediaQuery.paddingOf(ctx).bottom;
         return Padding(
+          key: _inputBarKey,
           padding: EdgeInsets.only(bottom: inset + pad),
           child: ColoredBox(
             color: theme.scaffoldBackgroundColor,

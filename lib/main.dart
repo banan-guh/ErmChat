@@ -55,6 +55,7 @@ ThemeData buildLightTheme({Color seedColor = Colors.blue}) => ThemeData(
   colorScheme: ColorScheme.fromSeed(seedColor: seedColor),
   useMaterial3: true,
   sliderTheme: const SliderThemeData(year2023: false),
+  snackBarTheme: const SnackBarThemeData(behavior: SnackBarBehavior.floating),
 );
 
 ThemeData buildDarkTheme({
@@ -71,6 +72,7 @@ ThemeData buildDarkTheme({
         : base,
     useMaterial3: true,
     sliderTheme: const SliderThemeData(year2023: false),
+    snackBarTheme: const SnackBarThemeData(behavior: SnackBarBehavior.floating),
   );
 }
 
