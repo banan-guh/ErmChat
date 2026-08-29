@@ -209,6 +209,23 @@ void main() {
       );
       expect(result, isEmpty);
     });
+
+    test('fetchChannel hits the numeric room id endpoint', () async {
+      const channelId = '71092938';
+      const url = 'https://api.frankerfacez.com/v1/room/id/$channelId';
+      HttpOverrides.global = _FakeHttpOverrides({
+        url: _ffzBody({
+          '1': 'https://cdn.frankerfacez.com/emote/555/1',
+          '2': 'https://cdn.frankerfacez.com/emote/555/2',
+          '4': 'https://cdn.frankerfacez.com/emote/555/4',
+        }),
+      });
+      final result = await FfzEmoteProvider.fetchChannel(channelId);
+      expect(result, hasLength(1));
+      expect(result.single.code, 'FFZ');
+      expect(result.single.url, 'https://cdn.frankerfacez.com/emote/555/2');
+      expect(result.single.scope, EmoteScope.channel);
+    });
   });
 
   tearDown(() => HttpOverrides.global = null);
@@ -243,6 +260,30 @@ void main() {
       expect(result.single.url1x, 'https://cdn.betterttv.net/emote/b1/1x');
       expect(result.single.url3x, 'https://cdn.betterttv.net/emote/b1/3x');
     });
+
+    test(
+      'fetchChannel hits the users/twitch endpoint and parses both lists',
+      () async {
+        const channelId = '71092938';
+        const url =
+            'https://api.betterttv.net/3/cached/users/twitch/$channelId';
+        HttpOverrides.global = _FakeHttpOverrides({
+          url: jsonEncode({
+            'channelEmotes': [
+              {'id': 'c1', 'code': 'ChnlBTTV', 'imageType': 'png'},
+            ],
+            'sharedEmotes': [
+              {'id': 's1', 'code': 'Shared', 'imageType': 'gif'},
+            ],
+          }),
+        });
+        final result = await BttvEmoteProvider.fetchChannel(channelId);
+        expect(result, hasLength(2));
+        expect(result.any((e) => e.code == 'ChnlBTTV'), isTrue);
+        expect(result.any((e) => e.code == 'Shared'), isTrue);
+        expect(result.firstWhere((e) => e.code == 'Shared').isAnimated, isTrue);
+      },
+    );
   });
 
   tearDown(() => HttpOverrides.global = null);

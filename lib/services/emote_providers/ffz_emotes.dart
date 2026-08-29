@@ -39,7 +39,7 @@ class FfzEmoteProvider {
     String channelId, {
     EmoteResolution resolution = EmoteResolution.high,
   }) async {
-    final uri = Uri.parse('https://api.frankerfacez.com/v1/room/$channelId');
+    final uri = Uri.parse('https://api.frankerfacez.com/v1/room/id/$channelId');
     final res = await http.get(uri).timeout(httpTimeout);
     throwOnTransientHttpError(res.statusCode, uri);
     DataUsageStats.I.recordJson(res.bodyBytes.length);

@@ -53,7 +53,7 @@ class BttvEmoteProvider {
     EmoteResolution resolution = EmoteResolution.high,
   }) async {
     final uri = Uri.parse(
-      'https://api.betterttv.net/3/cached/channels/$channelId',
+      'https://api.betterttv.net/3/cached/users/twitch/$channelId',
     );
     final res = await http.get(uri).timeout(httpTimeout);
     throwOnTransientHttpError(res.statusCode, uri);
