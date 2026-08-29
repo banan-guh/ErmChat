@@ -29,6 +29,18 @@ class _ChannelStats {
 class AnalyticsService extends ChangeNotifier {
   static const _rateWindowMinutes = 60;
 
+  /// Coalesces rapid notifyListeners() calls into a single microtask turn.
+  bool _notifyPending = false;
+
+  void _scheduleNotify() {
+    if (_notifyPending) return;
+    _notifyPending = true;
+    scheduleMicrotask(() {
+      _notifyPending = false;
+      notifyListeners();
+    });
+  }
+
   static const defaultStopwords = {
     'a',
     'an',
@@ -111,7 +123,7 @@ class AnalyticsService extends ChangeNotifier {
     stats.minuteBuckets[minute] = (stats.minuteBuckets[minute] ?? 0) + 1;
     _pruneBuckets(stats, now);
     _countTokens(stats, channel, msg);
-    notifyListeners();
+    _scheduleNotify();
   }
 
   void recordModeration(String channel, bool isTimeout) {
@@ -121,17 +133,17 @@ class AnalyticsService extends ChangeNotifier {
     } else {
       stats.banCount++;
     }
-    notifyListeners();
+    _scheduleNotify();
   }
 
   void resetChannel(String channel) {
-    if (_channels.remove(channel) != null) notifyListeners();
+    if (_channels.remove(channel) != null) _scheduleNotify();
   }
 
   void resetAll() {
     if (_channels.isEmpty) return;
     _channels.clear();
-    notifyListeners();
+    _scheduleNotify();
   }
 
   List<String> trackedChannels() => _channels.keys.toList();
@@ -201,8 +213,7 @@ class AnalyticsService extends ChangeNotifier {
   void _countTokens(_ChannelStats stats, String channel, TwitchMessage msg) {
     final byCode = _emoteLookup?.call(channel)?.byCode;
     final text = msg.text;
-    final sortedPos = (msg.emotePositions ?? const <EmotePosition>[]).toList()
-      ..sort((a, b) => a.startIndex.compareTo(b.startIndex));
+    final sortedPos = msg.emotePositions ?? const <EmotePosition>[];
 
     EmotePosition? posAt(int i) {
       var idx = 0;

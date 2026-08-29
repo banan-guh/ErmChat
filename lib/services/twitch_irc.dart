@@ -186,6 +186,9 @@ List<EmotePosition>? parseIrcEmotePositions(
       );
     }
   }
+  if (positions.isNotEmpty) {
+    positions.sort((a, b) => a.startIndex.compareTo(b.startIndex));
+  }
   return positions.isEmpty ? null : positions;
 }
 

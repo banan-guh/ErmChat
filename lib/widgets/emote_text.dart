@@ -153,10 +153,7 @@ class EmoteText {
   ) {
     final segments = <_Segment>[];
 
-    final sortedPos = twitchPositions != null
-        ? (List<EmotePosition>.from(twitchPositions)
-            ..sort((a, b) => a.startIndex.compareTo(b.startIndex)))
-        : <EmotePosition>[];
+    final sortedPos = twitchPositions ?? <EmotePosition>[];
     int twitchIdx = 0;
 
     EmotePosition? posAt(int i) {
