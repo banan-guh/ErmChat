@@ -272,6 +272,9 @@ class _HomeScreenState extends State<HomeScreen>
   // Cached flattened emote list for autocomplete, rebuilt on emote set changes.
   List<GenericEmote>? _cachedAutocompleteEmotes;
 
+  List<TwitchMessage>? _welcomeMessages;
+  String? _welcomeMessagesKey;
+
   late final _broadcastWidgets = _BroadcastWidgets(
     selectedChannel: () => _selectedChannel,
   );
@@ -2957,7 +2960,7 @@ class _HomeScreenState extends State<HomeScreen>
                       );
                     },
                   )
-                : _buildEmpty(),
+                : _buildWelcomeChatView(),
           ),
           if (_selectedChannel != null)
             Positioned(
@@ -3298,25 +3301,46 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  Widget _buildEmpty() {
-    if (!widget.twitchAuth.isConfigured) {
-      return const Center(
-        child: Text('Configure Twitch credentials in Settings first'),
-      );
+  static const _welcomeChannel = '__welcome__';
+
+  Widget _buildWelcomeChatView() {
+    final text = !widget.twitchAuth.isConfigured
+        ? 'Configure Twitch credentials in Settings first'
+        : 'Press + to join a channel.';
+    if (_welcomeMessages == null || _welcomeMessagesKey != text) {
+      _welcomeMessagesKey = text;
+      _welcomeMessages = [
+        TwitchMessage(
+          login: '',
+          text: text,
+          isSystem: true,
+          messageId: 'welcome',
+          channel: _welcomeChannel,
+        ),
+      ];
     }
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            Icons.chat_bubble_outline,
-            size: 64,
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
-          ),
-          const SizedBox(height: 16),
-          const Text('Press + to join a channel'),
-        ],
-      ),
+    return ChatView(
+      channel: _welcomeChannel,
+      messages: _welcomeMessages!,
+      tileCache: _tileCache,
+      atBottomNotifier: _atBottomNotifier(_welcomeChannel),
+      messageNotifier: _messageNotifier(_welcomeChannel),
+      scrollController: _scrollCtrl(_welcomeChannel),
+      messageBuilder: _messageBuilder,
+      linkWhitelist: _linkWhitelist,
+      showTimestamp: _showTimestamps,
+      timestampFormat: _timestampFormat,
+      chatFontScale: _chatFontSize / 14.0,
+      checkeredMessages: _checkeredMessages,
+      highlightOpacity: _highlightOpacity,
+      lineSeparator: _lineSeparator,
+      sharedChatMode: _sharedChatMode,
+      paintService: _showNamePaints ? _sevenTvPaintService : null,
+      onShowUserProfile: (login, userId, {displayName}) =>
+          _showUserProfile(login, userId, displayName: displayName),
+      keyboardDismissBehavior: (!kIsWeb && Platform.isIOS)
+          ? ScrollViewKeyboardDismissBehavior.onDrag
+          : ScrollViewKeyboardDismissBehavior.manual,
     );
   }
 }

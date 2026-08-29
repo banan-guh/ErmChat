@@ -167,7 +167,40 @@ class _ChatViewState extends State<ChatView>
                 if (msgs.isEmpty) {
                   _lastMsgLen = 0;
                   _idToIndex = const {};
-                  return Center(child: Text(widget.emptyText));
+                  final emptyMsg = TwitchMessage(
+                    login: '',
+                    text: widget.emptyText,
+                    isSystem: true,
+                    channel: widget.channel,
+                  );
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: FlutterListView(
+                      key: ValueKey(widget.channel),
+                      controller: widget.scrollController,
+                      reverse: true,
+                      physics: widget.physics,
+                      keyboardDismissBehavior: widget.keyboardDismissBehavior,
+                      delegate: FlutterListViewDelegate(
+                        (_, i) => _buildTile(
+                          [emptyMsg],
+                          null,
+                          const {},
+                          i,
+                          surface,
+                          s,
+                          context,
+                          widget.checkeredMessages,
+                        ),
+                        childCount: 1,
+                        onItemKey: (_) => 'empty',
+                        keepPosition: true,
+                        keepPositionOffset: 0.5,
+                        addAutomaticKeepAlives: false,
+                        addRepaintBoundaries: false,
+                      ),
+                    ),
+                  );
                 }
 
                 final cache = widget.tileCache?.putIfAbsent(

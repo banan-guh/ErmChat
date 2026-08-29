@@ -367,11 +367,11 @@ void main() {
     expect(find.byIcon(Icons.more_vert), findsOneWidget);
     expect(find.byIcon(Icons.settings), findsNothing);
     expect(
-      find.text(
+      find.textContaining(
         'Configure Twitch credentials in Settings first',
         skipOffstage: false,
       ),
-      findsOneWidget,
+      findsWidgets,
     );
     // Let the anonymous-mode socket attempts resolve so no timer pends.
     await tester.pumpAndSettle();
@@ -562,7 +562,7 @@ void main() {
     expect(find.text('Mentions', skipOffstage: false), findsOneWidget); // tab
     expect(find.text('Whispers', skipOffstage: false), findsOneWidget); // tab
     expect(
-      find.text('No mentions or whispers', skipOffstage: false),
+      find.textContaining('No mentions or whispers', skipOffstage: false),
       findsOneWidget,
     );
   });
