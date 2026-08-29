@@ -484,8 +484,13 @@ class ChatConnectionManager {
     return (left.inMilliseconds / 1000).ceil();
   }
 
-  Future<void> subscribeChannel(String channelName) =>
-      _channelSetup.subscribeChannel(channelName);
+  Future<void> subscribeChannel(String channelName) async {
+    // Clear stale readiness so a re-subscribe re-earns its JOIN confirm.
+    _joinedChannels.remove(channelName);
+    _readJoinedChannels.remove(channelName);
+    connectionStateNotifier.value++;
+    await _channelSetup.subscribeChannel(channelName);
+  }
 
   void subscribeAll() => _channelSetup.subscribeAll(channels);
 
