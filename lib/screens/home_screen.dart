@@ -1487,6 +1487,8 @@ class _HomeScreenState extends State<HomeScreen>
       }
       // Drop in-memory images so unchanged-URL emotes actually re-render.
       PaintingBinding.instance.imageCache.clear();
+      // Also drop keep-alive-held frames (e.g. animated emotes) so they re-fetch.
+      PaintingBinding.instance.imageCache.clearLiveImages();
       final ok = await _refreshEmotesAfterAuth(force: true);
       // Subscriber emotes aren't covered by the global/channel refresh; re-fetch
       // the sets already known from a prior USERSTATE.
