@@ -25,8 +25,7 @@ class SevenTvEmoteProvider {
     throwOnTransientHttpError(res.statusCode, uri);
     DataUsageStats.I.recordJson(res.bodyBytes.length);
     if (res.statusCode != 200) return [];
-    // The global set is ~2MB / thousands of emotes: decode + parse off the
-    // main isolate so startup and the 12h rake don't jank the UI thread.
+    // ~2MB global set: decode off main isolate.
     return Isolate.run(() {
       final data = jsonDecode(res.body) as Map<String, dynamic>;
       final items = data['emotes'] as List<dynamic>? ?? [];
@@ -104,9 +103,7 @@ class SevenTvEmoteProvider {
       bool isAnimated = false;
       double relativeScale = 1.0;
       double aspectRatio = 1.0;
-      // host.files are ordered smallest to largest. Chat renders at ~28dp so
-      // medium/high prefer the 2x tier; high keeps the largest file at or
-      // below 3x (the 4x tier is scrapped) for the sheet/menu.
+      // Files ordered smallest to largest; 2x for chat, <=3x for sheet.
       String? first;
       String? best2x;
       String? lastLe3;
@@ -161,16 +158,12 @@ class SevenTvEmoteProvider {
         );
       }
 
-      // Alias emotes carry the aliased emote's name in data.name; record it
-      // only when it differs from the display name (mirrors dankchat).
+      // Alias name recorded when it differs from display name.
       final baseName = data['name'] as String?;
       final owner = data['owner'] as Map<String, dynamic>?;
       final ownerName = owner?['display_name'] as String?;
 
-      // Unlisted emotes stay parsed but carry the flag; EmoteManager owns
-      // their visibility so the setting flips without a refetch. Gate on the
-      // explicit listed boolean: the private flags bit is independent of
-      // listing and private-but-listed emotes render fine.
+      // Unlisted flag parsed; EmoteManager owns visibility (no refetch needed).
       final listed = data['listed'];
 
       emotes.add(

@@ -35,20 +35,16 @@ class ChatMessageTile extends StatefulWidget {
   final String timestampFormat;
   final bool checkeredMessages;
 
-  /// Global highlight opacity (0–1) from the settings slider; defaults to 1.0
-  /// so existing callers keep the fully-opaque look.
+  /// Highlight opacity from settings slider (0-1). 1.0 = fully opaque.
   final double highlightOpacity;
   final bool lineSeparator;
   final bool isAlternateBackground;
   final String sharedChatMode;
 
-  /// When false, deleted messages render at full opacity. The mentions tab
-  /// uses this so removed rows stay readable there while the main chat keeps
-  /// its faded tombstone.
+  /// Off in the mentions tab so deleted rows stay readable.
   final bool fadeDeleted;
 
-  /// When non-null (and the feature toggle is on), usernames render with 7TV
-  /// name paints where available.
+  /// 7TV name paints for usernames when non-null and toggle is on.
   final SevenTvPaintService? paintService;
 
   const ChatMessageTile({
@@ -129,9 +125,7 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
     if (msg.isSystem) {
       children = widget.systemBodyBuilder != null
           ? widget.systemBodyBuilder!(msg, s)
-          // Safety net for callers without a builder: render the plain text
-          // at the same size/weight as the real path so a fallback hit is
-          // visually indistinguishable.
+          // Fallback: plain text at the same size/weight as the real path.
           : <InlineSpan>[
               TextSpan(
                 text: msg.text,
@@ -250,13 +244,11 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
         child = Opacity(opacity: 0.35, child: child);
       }
     } else if (msg.isBackfill) {
-      // Reconnect history backfill: greyed out but less faded than a
-      // hard deletion so catch-up messages stay distinguishable.
+      // Backfill: less faded than deletion so catch-up messages stay distinct.
       child = Opacity(opacity: 0.5, child: child);
     }
 
-    // Shared-chat 'fade' mode: dim foreign messages while keeping them
-    // readable.
+    // Shared-chat fade mode: dim foreign messages.
     if (widget.sharedChatMode == 'fade' &&
         msg.sourceBroadcasterId != null &&
         !msg.isSystem) {
@@ -271,10 +263,7 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
       );
     }
 
-    // Row background: compose every tint (system accent, first message,
-    // mention highlight, checker stripe) into one opaque color. Painting it
-    // as the Material's color keeps InkWell ripples above the background;
-    // stacked ColoredBoxes used to draw straight over the ink.
+    // Compose all tints into one color on Material (keeps InkWell ripples above).
     var rowColor = widget.surface;
     if (msg.systemAccent != null) {
       rowColor = Color.alphaBlend(
@@ -293,8 +282,7 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
       rowColor = highlight.rowColor(rowColor, opacity: widget.highlightOpacity);
     }
     if (widget.checkeredMessages && widget.isAlternateBackground) {
-      // Alternating row background: inverseSurface over the chat surface at
-      // ~12% alpha, matching dankchat's checkered-lines effect.
+      // Alternating row: inverseSurface at ~12% alpha (dankchat style).
       rowColor = Color.alphaBlend(
         theme.colorScheme.inverseSurface.withValues(alpha: 0.12),
         rowColor,

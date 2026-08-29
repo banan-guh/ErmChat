@@ -14,8 +14,7 @@ const String kDefaultTimestampFormat = 'HH:mm';
 const String kShowTimestampsPrefKey = 'show_timestamps';
 const String kTimestampFormatPrefKey = 'timestamp_format';
 
-/// Formats [time] in the local time zone using a Java-style pattern restricted
-/// to the tokens used by [kTimestampFormats] (H, h, mm, ss, a).
+/// Formats [time] in local zone using a Java-style pattern (H, h, mm, ss, a).
 String formatTimestamp(DateTime time, String format) {
   final local = time.toLocal();
   final h24 = local.hour;

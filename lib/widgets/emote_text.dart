@@ -68,10 +68,7 @@ class EmoteText {
     _EmoteSpanData? currentBase;
     int? currentBaseEnd;
     String? pendingSpace;
-    // Text (words + separating whitespace) is buffered and linkified as one
-    // run so a fractured link like "kappa .lol" survives whitespace tokenization
-    // and still links. The whitespace is also tracked separately in
-    // [pendingSpace] for zero-width emote overlay adjacency.
+    // Buffer text runs for unified linkification (fractured links survive whitespace).
     var buffer = '';
 
     void flushText() {
@@ -84,8 +81,7 @@ class EmoteText {
     }
 
     void flushBase() {
-      // Emit the preceding emote before the trailing text run so "text, emote,
-      // text" renders in source order (the trailing text is flushed after).
+      // Emit emote before trailing text to preserve source order.
       if (currentBase != null) {
         spans.add(
           _buildEmoteSpan(currentBase!, onEmoteTap: onEmoteTap, scale: scale),
@@ -97,18 +93,14 @@ class EmoteText {
       pendingSpace = null;
     }
 
-    // Zero-width emotes overlay on the preceding base emote. Whitespace between
-    // base and overlay is consumed (not rendered) so "PogChamp \u200D" renders
-    // as a single composited emote, not "PogChamp " plus empty overlay.
+    // Zero-width emotes overlay on preceding base; whitespace between is consumed.
     for (final seg in segments) {
       if (seg is TextSegment) {
         if (seg.text.trim().isEmpty) {
           buffer += seg.text;
           pendingSpace = (pendingSpace ?? '') + seg.text;
         } else {
-          // Don't flush here: text runs (including the whitespace that splits
-          // a fractured link like "kappa .lol") must stay buffered until an
-          // emote boundary or the end so they linkify as one unit.
+          // Don't flush: text runs must stay buffered until emote boundary for linkification.
           buffer += seg.text;
         }
       } else if (seg is EmoteSegment) {
@@ -123,8 +115,7 @@ class EmoteText {
           } else if (currentBase != null &&
               pendingSpace != null &&
               currentBaseEnd == seg.startIndex - pendingSpace!.length) {
-            // Consume the separating whitespace: drop it from the buffered
-            // text so it isn't rendered between the composited emotes.
+            // Consume separating whitespace so it isn't rendered between composited emotes.
             if (buffer.endsWith(pendingSpace!)) {
               buffer = buffer.substring(
                 0,
@@ -181,9 +172,7 @@ class EmoteText {
     }
 
     int i = 0;
-    // Two-pass: 1) Twitch positional emotes (exact byte offsets from API)
-    // take precedence. 2) Third-party emotes (BTTV/FFZ/7TV) match whole
-    // whitespace-delimited tokens only.
+    // Two-pass: Twitch positional emotes first, then third-party token matches.
     while (i < text.length) {
       final pos = posAt(i);
       if (pos != null) {
@@ -257,9 +246,7 @@ class EmoteText {
     double height, {
     List<String>? alternateUrls,
   }) {
-    // The lean span renderer: one render box fed by the shared completer.
-    // Chat can hold hundreds of copies of one emote, so the per-copy cost
-    // floor matters more than EmoteImage's richer loading affordances.
+    // Lean renderer: one render box, shared completer. Lower per-copy cost than EmoteImage.
     return InlineEmoteView(
       url: url,
       width: width,
@@ -268,8 +255,7 @@ class EmoteText {
     );
   }
 
-  // Compute bounding box across all overlays, center each image within it.
-  // Larger overlays extend beyond the base emote. Clip.none allows overflow.
+  // Bounding box across overlays; center each image. Clip.none for overflow.
   static WidgetSpan _buildEmoteSpan(
     _EmoteSpanData data, {
     void Function(List<GenericEmote>)? onEmoteTap,
@@ -313,8 +299,7 @@ class EmoteText {
         ),
       );
     }
-    // No per-emote Semantics: chat tiles wrap everything in a Semantics with
-    // excludeSemantics, so these labels were discarded anyway.
+    // No per-emote Semantics: tile already wraps with excludeSemantics.
     Widget emoteWidget = SizedBox(
       width: maxW,
       height: maxH,
@@ -366,9 +351,7 @@ List<InlineSpan> parseTextWithLinks(
     final spans = <InlineSpan>[];
     for (final element in linkify(
       collapsed,
-      // looseUrl lets linkify's stock matcher handle bare domains
-      // (e.g. `example.com`) and defaultToHttps fills in the scheme; the
-      // whitelist linkifier only re-joins fractured (spaced) links.
+      // looseUrl handles bare domains; whitelist only re-joins fractured links.
       options: const LinkifyOptions(
         humanize: false,
         looseUrl: true,

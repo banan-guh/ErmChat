@@ -6,21 +6,15 @@ import '../models/ping_rule.dart';
 import '../models/twitch_message.dart';
 import '../util/mention.dart';
 
-/// Loads highlight rules from SharedPreferences and evaluates messages
-/// against them (DankChat-style highlights). One instance per app, shared
-/// by the live pipeline, history merge, and the retroactive login scan.
-///
-/// Evaluation order: self/system skip, blacklist short-circuit, then every
-/// enabled rule contributes its type to the merged [HighlightState].
+/// Evaluates highlight rules (DankChat-style): skip self/system, blacklist, then rules.
 class PingManager extends ChangeNotifier {
   static const _prefKey = 'ping_rules_v1';
   static const _legacyAltPingsKey = 'alt_pings';
 
-  /// Shared app-wide instance: HomeScreen evaluates against the same rules
-  /// the settings screen edits. Tests construct fresh instances instead.
+  /// Shared instance; tests construct fresh ones.
   static final PingManager instance = PingManager();
 
-  /// Builtin message-rule types, in fixed UI order.
+  /// Built-in message-rule types (fixed UI order).
   static const builtinMessageTypes = [
     'username',
     'reply',
@@ -29,7 +23,7 @@ class PingManager extends ChangeNotifier {
     'elevated',
   ];
 
-  /// Badge presets seeded disabled with colors, like DankChat's defaults.
+  /// Badge presets (seeded disabled, DankChat-style defaults).
   static const presetBadges = <String, int>{
     'broadcaster': 0xFF4E3D14,
     'moderator': 0xFF1E4620,
@@ -45,14 +39,11 @@ class PingManager extends ChangeNotifier {
   bool _loaded = false;
   String? _login;
 
-  /// The active account's display name as Twitch renders it. Not persisted
-  /// in the auth registry, so it is learned from our own IRC echoes.
+  /// Active display name (learned from IRC echoes, not persisted).
   String? _displayName;
   final Map<String, RegExp?> _regexCache = {};
 
-  // Reply-participation registry: recent own message ids and thread roots
-  // per channel. Replies chained onto them count as mentions even without
-  // an explicit name match (DankChat-style reply pings).
+  // Reply-participation: own message ids + thread roots (DankChat-style).
   static const _participationCap = 64;
   final Map<String, Set<String>> _ownMessageIds = {};
   final Map<String, Set<String>> _ownThreadRoots = {};
@@ -77,7 +68,7 @@ class PingManager extends ChangeNotifier {
 
   Future<void> load() async {
     final prefs = await SharedPreferences.getInstance();
-    // Legacy flat keyword list from before the rule engine; superseded.
+    // Legacy: remove old alt_pings key.
     if (prefs.containsKey(_legacyAltPingsKey)) {
       await prefs.remove(_legacyAltPingsKey);
     }
@@ -120,10 +111,7 @@ class PingManager extends ChangeNotifier {
       ),
   ];
 
-  /// Updates the active account used for username/reply matching. A null
-  /// login (account switch / logout) also drops state learned for the
-  /// departed account: its display name and reply-participation registries
-  /// must not ping the new account.
+  /// Sets account for matching; null clears departed account's state.
   void setAccount(String? login) {
     _login = login?.toLowerCase();
     if (login == null) {
@@ -133,16 +121,14 @@ class PingManager extends ChangeNotifier {
     }
   }
 
-  /// Learns the display name from our own message echoes so pings on it
-  /// match too (login and display name can differ).
+  /// Learns display name from own IRC echoes for ping matching.
   void setOwnDisplayName(String? displayName) {
     final dn = displayName?.trim();
     if (dn == null || dn.isEmpty) return;
     _displayName = dn;
   }
 
-  /// Records one of our own outgoing message ids so replies chained onto it
-  /// can ping via participation even without a name match.
+  /// Registers own message id for reply-participation pings.
   void registerOwnMessage(
     String channel,
     String messageId, {
@@ -270,15 +256,14 @@ class PingManager extends ChangeNotifier {
     if (rule.isRegex) {
       final re = _regexFor(rule);
       if (re != null) return re.hasMatch(login);
-      // Invalid regex falls back to a literal comparison below.
+      // Invalid regex: fall back to literal.
     }
     return rule.caseSensitive
         ? login == rule.pattern
         : login.toLowerCase() == rule.pattern.toLowerCase();
   }
 
-  /// Pattern matching for custom keyword rules. Invalid regexes fall back
-  /// to literal substring matching so a typo'd pattern never silently dies.
+  /// Custom keyword matching; invalid regex falls back to literal.
   bool matchesText(PingRule rule, String text) {
     if (rule.pattern.isEmpty) return false;
     if (rule.isRegex || rule.wordBoundary) {
@@ -296,8 +281,7 @@ class PingManager extends ChangeNotifier {
         '\u0000${rule.wordBoundary}';
     return _regexCache.putIfAbsent(key, () {
       try {
-        // Whole-word literals anchor via lookaround (not \b) so patterns
-        // starting or ending with non-word characters still bind correctly.
+        // Lookaround anchors for non-word-char patterns.
         if (!rule.isRegex && rule.wordBoundary) {
           return RegExp(
             '(?<!\\w)${RegExp.escape(rule.pattern)}(?!\\w)',

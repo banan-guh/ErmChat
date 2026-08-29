@@ -2,8 +2,7 @@ import '../models/twitch_message.dart';
 
 final _wordSplitRe = RegExp(r'[\s,;:.!?()\[\]{}<>"/\\|@#$%^&*+=~`]+');
 
-/// Whether [text] contains [name] as a whole word, optionally @-prefixed.
-/// Shared by the mention check and the ping engine's username rule.
+/// Whole-word match of [name] in [text], optionally @-prefixed.
 bool wordMatches(String text, String name) {
   if (name.isEmpty) return false;
   final lower = name.toLowerCase();
@@ -16,9 +15,7 @@ bool wordMatches(String text, String name) {
 
 bool isMention(String text, String login) => wordMatches(text, login);
 
-/// Whether [msg] should count as a mention of [login]: a direct ping or a
-/// reply to that user. System messages and the user's own messages never
-/// count. Shared by the live pipeline, history merge, and backfill scans.
+/// Whether [msg] mentions [login] (direct ping or reply to that user). Excludes system messages and self.
 bool isMentionOf(TwitchMessage msg, String login) {
   if (msg.isSystem || msg.login.toLowerCase() == login) return false;
   final isReplyToMe =

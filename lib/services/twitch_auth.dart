@@ -3,10 +3,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../twitch_config.dart';
 
-/// A saved Twitch account: its login identity plus OAuth credentials.
-/// [userId] stays null until the Helix user lookup resolves (the first lookup
-/// is cached so cold starts skip it). [profileImageUrl] is saved from the same
-/// lookup and powers the avatar in the account switcher.
+/// A saved Twitch account: login, OAuth credentials, and optional profile
+/// image.
 class TwitchAccount {
   final String login;
   final String? userId;
@@ -54,8 +52,7 @@ class TwitchAuth extends ChangeNotifier {
   static const _kLegacyLogin = 'user_login';
   static const _kLegacyUserId = 'user_id';
 
-  /// Credentials of the currently active account. `login`/`userId` stay null
-  /// while a freshly OAuth'd credential is still being resolved.
+  /// Active account credentials. login/userId stay null until resolved.
   String? accessToken;
   String? refreshToken;
   String? login;
@@ -63,17 +60,15 @@ class TwitchAuth extends ChangeNotifier {
   String? profileImageUrl;
   bool _activeExpired = false;
 
-  /// Whether the active account's token has been confirmed dead (401 from
-  /// validate or IRC login-failure NOTICE). True until [setCredentials] or
-  /// [setUser] replaces the credentials.
+  /// True when the token is confirmed dead (401 / IRC NOTICE). Cleared by
+  /// [setCredentials] / [setUser].
   bool get isActiveExpired => _activeExpired;
 
   /// All saved accounts. The active one is what [accessToken]/[login] expose.
   List<TwitchAccount> accounts = [];
 
   final FlutterSecureStorage _storage;
-  // Serializes every storage access so queued fire-and-forget writes can't
-  // race later reads (e.g. a pending-token write vs its delete).
+  // Serialized storage queue to prevent read/write races.
   Future<void> _storageQueue = Future<void>.value();
 
   TwitchAuth({FlutterSecureStorage? storage})
@@ -193,8 +188,7 @@ class TwitchAuth extends ChangeNotifier {
       return;
     }
 
-    // No named account: apply a pending credential if one is waiting for its
-    // user lookup.
+    // Apply pending credential if waiting for user lookup.
     if (accessToken == null) {
       final pending = await _readKey(_kPendingToken);
       if (pending != null && pending.isNotEmpty) {
@@ -212,8 +206,7 @@ class TwitchAuth extends ChangeNotifier {
   void setCredentials({required String accessToken, String? refreshToken}) {
     this.accessToken = accessToken;
     this.refreshToken = refreshToken;
-    // A new credential pair may belong to a different account - drop the
-    // cached user until the account is resolved again.
+    // New credentials may belong to a different account; drop cached user.
     login = null;
     userId = null;
     profileImageUrl = null;
@@ -224,13 +217,8 @@ class TwitchAuth extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Attributes a Helix identity resolution to the active account.
-  ///
-  /// Pass [resolvedWithToken] as the access token the lookup was made with:
-  /// if active credentials changed while the lookup was in flight (account
-  /// switch), the result is stale for the new account and is ignored entirely.
-  /// Without that guard, writing back would pair the old account's login with
-  /// whichever token is active at resolution time and corrupt the registry.
+  /// Resolves Helix identity for the active account. Stale results (from a
+  /// different token) are discarded to prevent registry corruption.
   void setUser(
     String? login,
     String? userId, {
@@ -276,10 +264,8 @@ class TwitchAuth extends ChangeNotifier {
     }
   }
 
-  /// Marks the active account's token as expired (401 from validate or
-  /// IRC login-failure NOTICE). The flag persists across the active account
-  /// in the registry so the settings UI can display it, and is cleared by
-  /// [setCredentials] / [setUser] when fresh credentials arrive.
+  /// Marks the token expired. Persists in registry for the UI; cleared by
+  /// [setCredentials] / [setUser].
   void markActiveExpired() {
     if (_activeExpired) return;
     _activeExpired = true;

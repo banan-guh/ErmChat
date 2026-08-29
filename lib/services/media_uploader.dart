@@ -8,9 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../util/constants.dart';
 import '../util/log.dart';
 
-/// Configuration for a Chatterino-style image uploader endpoint. The default
-/// points at kappa.lol; every field mirrors the uploader settings used by
-/// DankChat/Chatterino so users can point the app at any compatible host.
+/// Image uploader config (default: kappa.lol, DankChat/Chatterino compatible).
 class UploaderConfig {
   final String uploadUrl;
   final String formField;
@@ -33,8 +31,7 @@ class UploaderConfig {
     deletionLinkPattern: '{delete}',
   );
 
-  /// Extra request headers, stored as `Name: value` pairs separated by `;`,
-  /// matching the DankChat uploader config format.
+  /// Extra headers as `Name: value` pairs, `;` separated.
   List<({String name, String value})> get parsedHeaders {
     final raw = headers;
     if (raw == null || raw.isEmpty) return const [];
@@ -71,12 +68,7 @@ class UploadResult {
   const UploadResult({required this.imageLink, this.deleteLink});
 }
 
-/// Re-encodes a JPEG without its metadata so location/camera EXIF never
-/// leaves the device, baking the EXIF orientation into the pixels first so
-/// the stripped image still displays upright. Non-JPEG input (PNG/GIF/video)
-/// is returned untouched: their metadata is not sensitive in practice and
-/// re-encoding would drop GIF animation. A decode failure fails open and
-/// returns the original bytes rather than breaking the upload.
+/// Strips JPEG EXIF (bakes orientation first); non-JPEG returned untouched.
 Future<Uint8List> stripExif(Uint8List bytes) {
   return Isolate.run(() {
     try {
@@ -84,7 +76,7 @@ Future<Uint8List> stripExif(Uint8List bytes) {
       if (decoded == null) return bytes;
       return Uint8List.fromList(img.encodeJpg(img.bakeOrientation(decoded)));
     } catch (_) {
-      // Undecodable input: fail open and upload it as-is.
+      // Undecodable: fail open, upload as-is.
       return bytes;
     }
   });
@@ -143,10 +135,7 @@ class MediaUploader {
 
   Future<void> resetConfig() => saveConfig(UploaderConfig.defaultConfig);
 
-  /// Uploads [file] to the configured endpoint via multipart/form-data and
-  /// returns the resulting image link (and deletion link, when the endpoint
-  /// provides one). When no link pattern is configured the raw response body
-  /// is used as the link (DankChat-compatible behaviour).
+  /// Uploads file via multipart/form-data; raw body when no pattern configured.
   Future<UploadResult> uploadMedia(File file) async {
     final config = await loadConfig();
     final mimeType = _mimeTypeFor(file);
@@ -194,8 +183,7 @@ class MediaUploader {
     );
   }
 
-  /// Substitutes `{path.to.json.value}` tokens in [pattern] with values from
-  /// [json], e.g. `{link}` or `https://host/{id}.{ext}`.
+  /// Substitutes `{path}` tokens in [pattern] from [json].
   String _extractLink(Map<String, dynamic> json, String pattern) {
     var result = pattern;
     final regex = RegExp(r'\{([^}]+)\}');
@@ -211,9 +199,7 @@ class MediaUploader {
   String? _extractLinkOrNull(Map<String, dynamic> json, String? pattern) {
     if (pattern == null || pattern.trim().isEmpty) return null;
     final value = _extractLink(json, pattern);
-    // An unresolved token leaves the placeholder in place; treat that as "the
-    // endpoint didn't provide a deletion link" rather than emitting a literal
-    // "{delete}" string.
+    // Unresolved token = no deletion link.
     if (value.isEmpty || RegExp(r'\{[^}]+\}').hasMatch(value)) return null;
     return value;
   }
@@ -273,7 +259,7 @@ class MediaUploader {
         timestamp: timestamp ?? DateTime.now(),
       ),
     );
-    // Cap the persisted list to keep the pref small.
+    // Cap list to keep pref small.
     final trimmed = uploads.take(50).toList();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(

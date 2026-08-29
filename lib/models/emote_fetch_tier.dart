@@ -1,6 +1,6 @@
 import 'generic_emote.dart';
 
-/// Emote-fetching behavior tier, adjustable in the Emotes settings screen.
+/// Emote-fetch behavior tier.
 enum EmoteFetchTier {
   /// Render only whatever is already cached; fetch nothing at all.
   nothing,
@@ -31,7 +31,7 @@ extension EmoteFetchTierX on EmoteFetchTier {
     EmoteFetchTier.high => '2x emotes with 3x sheet detail, freshest',
   };
 
-  /// Image resolution used when this tier fetches. Null for `nothing`.
+  /// Resolution for this tier's fetch, or null for nothing.
   EmoteResolution? get resolution => switch (this) {
     EmoteFetchTier.nothing => null,
     EmoteFetchTier.low => EmoteResolution.low,
@@ -47,11 +47,10 @@ const defaultEmoteCacheMax = 500;
 const minEmoteCacheMax = 0;
 const maxEmoteCacheMax = 2000;
 
-/// Default auto mode when nothing is persisted: pick by connectivity.
+/// Default auto mode: pick tier by connectivity.
 const defaultEmoteFetchAutoMode = EmoteFetchAutoMode.balanced;
 
-/// Auto tier selection: pick a tier from connectivity instead of the manual
-/// slider. Off keeps the manual tier; the others pick Wi-Fi vs cellular.
+/// Auto tier selection by connectivity. Off = manual; others pick by Wi-Fi vs cellular.
 enum EmoteFetchAutoMode { off, balanced, aggressive }
 
 extension EmoteFetchAutoModeX on EmoteFetchAutoMode {
@@ -68,10 +67,7 @@ extension EmoteFetchAutoModeX on EmoteFetchAutoMode {
   };
 }
 
-/// Effective tier for a connectivity state. Manual tier applies when auto is
-/// off; otherwise the mode picks per `isMetered` (true when the connection is
-/// not Wi-Fi/Ethernet: cellular, VPN, Bluetooth, "other"). Metered links fetch
-/// less to save data.
+/// Effective tier: manual when auto is off, otherwise per isMetered (true = not Wi-Fi/Ethernet).
 EmoteFetchTier effectiveEmoteFetchTier({
   required EmoteFetchTier manual,
   required EmoteFetchAutoMode auto,

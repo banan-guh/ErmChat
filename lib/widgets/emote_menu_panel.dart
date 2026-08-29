@@ -33,23 +33,16 @@ class EmoteMenuPanelWidget extends StatefulWidget {
 }
 
 class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
-  // Position-based close triggers below 5% of screen height (in sheet-size
-  // units, hence the division by emoteMaxFraction in onDragEnd).
+  // Close threshold: 5% of screen height (sheet-size units).
   static const double _emoteCloseFraction = 0.05;
 
-  // Cap the panel width so emotes keep phone-sized proportions (5 columns of
-  // a consistent size) on wide devices like tablets instead of ballooning
-  // across the full screen.
+  // Max panel width: keeps emotes phone-sized on tablets.
   static const double _maxPanelWidth = 480;
 
   int _emoteTabIndex = 0;
   List<GenericEmote> _cachedRecentEmotes = [];
   bool _recentEmotesLoaded = false;
-  // Cached grid cells keyed by emote id. A 7TV delta only adds/removes/moves
-  // cells at and below the change point in the code-sorted lists; unchanged
-  // emotes return the identical cached widget instance, so Flutter
-  // short-circuits rebuilds above the event. Validated against the emote's
-  // URL + the cell padding, so refetches and width changes rebuild cleanly.
+  // Cached grid cells by emote id. Validated against URL + padding; 7TV deltas short-circuit.
   final Map<
     String,
     ({String url, double padding, Widget widget, bool uncapped})
@@ -83,8 +76,7 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
   }
 
   void _onEmoteManagerChanged() {
-    // Rebuild only while the sheet is open; recents refresh on reopen via
-    // didUpdateWidget.
+    // Rebuild only while open; recents refresh on reopen.
     if (!widget.isActive) return;
     _loadRecentEmotes();
   }
@@ -144,10 +136,7 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
                   widget.sheetCtrl.jumpTo(newSize);
                 }
               },
-              // Close on drag-below-threshold or a fast flick down (shared
-              // thresholds in util/sheet_drag.dart). Position close triggers
-              // at 5% of screen height; momentum is more sensitive than
-              // before.
+              // Close on drag-below-threshold or fast flick (shared thresholds).
               onVerticalDragEnd: (details) {
                 if (!widget.sheetCtrl.isAttached) return;
                 final velocity = details.primaryVelocity ?? 0;
@@ -160,9 +149,7 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
                 )) {
                   widget.onClose();
                 } else {
-                  // Scale the settle duration by how far the sheet still has
-                  // to travel and how fast it was released: a short remaining
-                  // distance or a quick fling settles faster.
+                  // Settle duration scales with remaining distance and release speed.
                   final remaining =
                       ((widget.emoteMaxFraction - widget.sheetCtrl.size) /
                               widget.emoteMaxFraction)
@@ -246,10 +233,7 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
       );
     }
 
-    // Only show recents available in the current channel, re-resolved against
-    // the channel's own instances so a shared emote inserts the alias valid
-    // here rather than whichever channel the id index hit first. Falls
-    // through to all recents if channel emotes are not yet loaded.
+    // Filter recents to current channel's emotes; fall through if not loaded.
     final channelEmotes = widget.emoteManager.byCode(
       widget.selectedChannel ?? '',
     );
@@ -277,10 +261,7 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
         const Center(child: Text('No subscriber emotes available')),
       );
     }
-    // Pin the currently viewed channel's group to the top when the account
-    // is subscribed to it; the remaining groups keep their alphabetical
-    // order. The original map is left untouched so the manager cache stays
-    // valid for later calls.
+    // Pin current channel's group to top; rest alphabetical. Original map untouched.
     final selected = widget.selectedChannel;
     if (selected != null && byChannel.containsKey(selected)) {
       final reordered = <String, List<GenericEmote>>{
@@ -316,8 +297,7 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
     return _buildGroupedEmoteGrid(byProvider, scrollController);
   }
 
-  // Sectioned grid with a header per group (used by the Subs tab grouped by
-  // channel and the Global tab grouped by provider).
+  // Sectioned grid with group headers (Subs by channel, Global by provider).
   Widget _buildGroupedEmoteGrid(
     Map<String, List<GenericEmote>> groups,
     ScrollController? scrollController,
@@ -379,9 +359,7 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
     ScrollController? scrollController,
   ) {
     final sidePadding = _panelWidth * 0.08;
-    // CustomScrollView (not GridView) so every tab state shares one top-level
-    // scrollable type: swapping scrollable classes mid-open detaches the
-    // sheet's scroll position, which disposes the running open animation.
+    // CustomScrollView (not GridView): swapping scrollable types mid-open kills the animation.
     return CustomScrollView(
       controller: scrollController,
       slivers: [
@@ -408,10 +386,7 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
     );
   }
 
-  // Maps cached-cell emote ids to their current index in a displayed list,
-  // scanning only until every cached id is located (lists can be far larger
-  // than the cache). Keyed reconciliation lets Flutter move unchanged cells
-  // below a 7TV delta instead of rebuilding them.
+  // Maps cached ids to current indices. Keyed reconciliation moves unchanged cells.
   Map<String, int> _idToIndex(List<GenericEmote> emotes) {
     final pending = _cellCache.keys.toSet();
     if (pending.isEmpty) return const {};
@@ -445,8 +420,7 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
   }
 
   Widget _buildEmoteGridItem(GenericEmote emote, double cellPadding) {
-    // Preview cells render through EmoteImage like chat: frames are decoded
-    // once per URL, shared, and disposed with the last visible widget.
+    // Preview cells use EmoteImage: shared decode, disposed with last widget.
     final url = emote.url;
     final cached = _cellCache[emote.id];
     final uncapped = EmoteUrlProvider.alwaysAnimatePanel;
@@ -456,9 +430,7 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
         cached.uncapped == uncapped) {
       return cached.widget;
     }
-    // Usage marks are a side effect, so they must not run during build (the
-    // grid rebuilds while the panel is open); the cell cache dedups the
-    // mark to once per cell.
+    // Usage marks deferred via post-frame callback (side effect, must not run during build).
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) widget.emoteManager.markEmoteViewed(emote);
     });

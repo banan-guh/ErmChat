@@ -45,17 +45,15 @@ class IrcNoticeEvent {
   IrcNoticeEvent({required this.channel, required this.message, this.msgId});
 }
 
-/// A full channel clear (`/clear`): CLEARCHAT with no target user. Unlike
-/// bans/timeouts, there is no target - every chat message is removed.
+/// Full channel clear (/clear): CLEARCHAT with no target.
 class IrcChannelClearEvent {
   final String channel;
 
   IrcChannelClearEvent({required this.channel});
 }
 
-/// Room-mode state (slow mode, followers-only, emote-only, subs-only, r9k).
-/// Sent on join and again whenever a mode changes. `followersOnly` is "-1"
-/// when off, "0" when always on, otherwise the minutes.
+/// Room-mode state (slow, followers-only, emote-only, subs-only, r9k). Sent
+/// on join and on change.
 class IrcMessageDeletedEvent {
   final String channel;
   final String messageId;
@@ -70,11 +68,8 @@ class IrcMessageDeletedEvent {
   });
 }
 
-/// A USERNOTICE event (sub, resub, subgift, raid, announcement, etc.).
-/// `systemMsg` is Twitch's pre-formatted notice text (e.g. "x has subscribed
-/// for 6 months!"); it is always empty for announcements, where `text` holds
-/// the announcement message. `emotePositions` are parsed from the `emotes`
-/// tag relative to `text` (only announcements carry a meaningful message).
+/// A USERNOTICE event (sub, resub, raid, announcement, etc.). systemMsg is
+/// empty for announcements (where text holds the message).
 class UserNoticeEvent {
   final String channel;
   final String msgId;
@@ -105,10 +100,8 @@ class UserNoticeEvent {
   });
 }
 
-/// Row accent for a USERNOTICE system label. Announcements use their banner
-/// color; every other event (subs, gift subs, watch streaks, bits badge tier
-/// unlocks, raids, pay forwards, charity, modiversary, and any future
-/// msg-id) highlights like a default (PRIMARY) purple announcement.
+/// Row accent for a USERNOTICE. Announcements use banner color; everything
+/// else uses PRIMARY purple.
 Color userNoticeAccent(String msgId, {String? announcementColorParam}) {
   if (msgId == 'announcement') {
     return announcementColorFor(announcementColorParam) ??
@@ -117,19 +110,15 @@ Color userNoticeAccent(String msgId, {String? announcementColorParam}) {
   return announcementColors['PRIMARY']!;
 }
 
-/// Composite message id for a USERNOTICE system label. The raw Twitch id
-/// belongs to the notice's child chat message (sub/resub/announcement
-/// bodies); namespacing keeps the two rows distinct while still letting
-/// live and history copies of the same label dedup against each other.
+/// Composite label id for USERNOTICE. Namespaced so system label and chat
+/// message stay distinct.
 String? userNoticeLabelId(String? rawId) {
   if (rawId == null || rawId.isEmpty) return null;
   return '$rawId:label';
 }
 
-/// Builds the system-message text for a USERNOTICE event. Announcements are
-/// the bare "Announcement" label (DankChat-style; the announcement text is
-/// rendered as a separate child chat message); everything else uses Twitch's
-/// `system-msg`.
+/// System-message text for USERNOTICE. Announcements use bare
+/// "Announcement" label; others use Twitch system-msg.
 String buildUserNoticeText({
   required String msgId,
   required String displayName,
@@ -153,12 +142,8 @@ String buildBanText({
   return '$user was banned.';
 }
 
-/// Parses the IRC `emotes` tag into [EmotePosition]s. Tag positions are
-/// measured against the message body: for regular messages that is
-/// [originalText], and for ACTION (/me) messages Twitch reports them relative
-/// to the text after the `\x01ACTION ` wrapper. [prefixLen] is the number of
-/// characters stripped from the front after that (reply prefix) and
-/// [strippedText] is the text those adjusted positions are measured against.
+/// Parses IRC `emotes` tag into [EmotePosition]s. Positions are relative to
+/// [originalText]; [prefixLen] adjusts for reply prefix.
 List<EmotePosition>? parseIrcEmotePositions(
   String? emotesTag, {
   required String originalText,
@@ -204,13 +189,8 @@ List<EmotePosition>? parseIrcEmotePositions(
   return positions.isEmpty ? null : positions;
 }
 
-/// Converts a position from the IRC `emotes` tag (which counts each
-/// supplementary/astral code point - any emoji or other non-BMP character -
-/// as a single offset) into a UTF-16 code unit index into [text], which is how
-/// Dart strings are indexed internally. Every supplementary character before
-/// the offset occupies 2 UTF-16 units but only counts as 1 in the tag, so each
-/// one shifts the resulting index forward by 1. Returns -1 if [tagOffset]
-/// exceeds the number of code points in [text].
+/// Converts an IRC emote-tag codepoint offset to a UTF-16 index in [text].
+/// Returns -1 if out of bounds.
 int _tagToUtf16(String text, int tagOffset) {
   if (tagOffset <= 0) return tagOffset;
   var utf16 = 0;
@@ -262,20 +242,16 @@ class IrcService extends IrcConnection {
   final _whisperController = StreamController<TwitchMessage>.broadcast(
     sync: true,
   );
-  // Channel-scoped emote-set ids: USERSTATE carries the channel its sets
-  // belong to; GLOBALUSERSTATE emits null (account-wide union).
+  // Channel-scoped emote sets: USERSTATE = channel, GLOBALUSERSTATE =
+  // account-wide (null).
   final _emoteSetsController =
       StreamController<(String?, List<String>)>.broadcast(sync: true);
   final _authFailedController = StreamController<void>.broadcast();
 
-  // Own badge set-ids per channel from USERSTATE, account-wide ones under
-  // the null channel from GLOBALUSERSTATE. Feeds slow-mode bypass checks
-  // (broadcaster/mods/VIPs/subs are not gated by slow mode).
+  // Own badge set-ids per channel. Feeds slow-mode bypass checks.
   final selfBadges = <String?, Set<String>>{};
 
-  /// Self badges are per-account grants; dropped on account switch so
-  /// slow-mode bypass never consults the previous account's badges before
-  /// the new account's first USERSTATE arrives.
+  /// Per-account badges; dropped on account switch to avoid stale bypass.
   void clearSelfBadges() => selfBadges.clear();
 
   Stream<IrcBanEvent> get onBan => _banController.stream;
@@ -329,9 +305,8 @@ class IrcService extends IrcConnection {
       case 'WHISPER':
         _handleWhisper(msg);
         return;
-      // Both carry the emote-sets tag, the authoritative source of which
-      // emote sets the account can use (the Helix /chat/emotes/user endpoint
-      // is known to omit certain grants, e.g. bot accounts).
+      // Both carry the emote-sets tag (authoritative; Helix endpoint omits
+      // some grants).
       case 'USERSTATE':
       case 'GLOBALUSERSTATE':
         _handleUserState(msg);
@@ -356,8 +331,7 @@ class IrcService extends IrcConnection {
     if (channelName == null) return;
 
     final targetUser = msg.trailing;
-    // CLEARCHAT without a target is a full channel clear (/clear) - every
-    // message is removed, there is no user to ban.
+    // No target = full channel clear (/clear).
     if (targetUser == null || targetUser.isEmpty) {
       _clearController.add(IrcChannelClearEvent(channel: channelName));
       return;
@@ -402,8 +376,7 @@ class IrcService extends IrcConnection {
 
   void _handleNotice(IrcMessage msg) {
     final channelParam = msg.params.isNotEmpty ? msg.params[0] : null;
-    // NOTICE * is a connection-level notice (e.g. login failure), not
-    // scoped to any channel.
+    // NOTICE * is connection-level (e.g. login failure), not channel-scoped.
     if (channelParam == null || channelParam == '*') {
       final trailing = msg.trailing;
       if (trailing != null &&
@@ -443,8 +416,8 @@ class IrcService extends IrcConnection {
     final emoteSets = msg.tags['emote-sets'];
     final badges = parseIrcBadges(msg.tags['badges']);
     if ((emoteSets == null || emoteSets.isEmpty) && badges == null) return;
-    // USERSTATE is sent per joined channel and its emote-sets are scoped to
-    // that channel; GLOBALUSERSTATE is the account-wide union (null channel).
+    // USERSTATE = channel-scoped; GLOBALUSERSTATE = account-wide (null
+    // channel).
     final channel = msg.command == 'USERSTATE' && msg.params.isNotEmpty
         ? msg.params[0].substring(1)
         : null;
@@ -480,10 +453,8 @@ class IrcService extends IrcConnection {
         : null;
     if (channelName == null) return;
 
-    // Shared chat mirrors foreign USERNOTICEs with the generic
-    // `sharedchatnotice` type and the real event in `source-msg-id`. Mirrored
-    // notices are dropped except announcements (DankChat-style) so the other
-    // community's sub/resub/streak events stay out of this channel's view.
+    // Shared chat mirrors foreign USERNOTICEs as `sharedchatnotice`; only
+    // announcements are kept.
     var msgId = msg.tags['msg-id'] ?? '';
     if (msgId == 'sharedchatnotice') {
       final sourceMsgId = msg.tags['source-msg-id'];
@@ -577,11 +548,8 @@ class IrcService extends IrcConnection {
   }
 }
 
-/// Parses an IRC PRIVMSG into a [TwitchMessage]. Shared by the live chat
-/// socket, the read-only own-message socket, and history parsing;
-/// `defaultLogin`/`defaultDisplayName`/`defaultUserId` are used when the
-/// message lacks a user prefix or tags (own echoes). `timestamp`/`isHistory`
-/// override the defaults for robotty history lines.
+/// Parses an IRC PRIVMSG into a [TwitchMessage]. Defaults fill in for own
+/// echoes; timestamp/isHistory override for history.
 TwitchMessage parseIrcChatMessage(
   IrcMessage ircMsg, {
   required String? channel,
@@ -602,8 +570,7 @@ TwitchMessage parseIrcChatMessage(
   );
 
   final messageId = ircMsg.tags['id'] ?? ircMsg.tags['message-id'];
-  // PRIVMSG text normally comes in the trailing; messages without a colon
-  // carry the whole text as a single param instead.
+  // Text is in trailing; no-colon messages use param[1].
   final text =
       ircMsg.trailing ?? (ircMsg.params.length > 1 ? ircMsg.params[1] : '');
   final ircReplyParentId = ircMsg.tags['reply-parent-msg-id'];
@@ -617,14 +584,11 @@ TwitchMessage parseIrcChatMessage(
   if (strippedText.startsWith('\x01ACTION ') && strippedText.endsWith('\x01')) {
     isAction = true;
     strippedText = strippedText.substring(8, strippedText.length - 1);
-    // Twitch reports emote positions for ACTION messages relative to the
-    // message body after the \x01ACTION wrapper (see parseIrcEmotePositions),
-    // so the wrapper must not count as a stripped prefix offset.
+    // Emote positions are relative to the ACTION body, not the wrapper.
   }
 
-  // Twitch IRC prepends "@username " to reply echoes. Strip this prefix
-  // so the stored text matches what the user sees; emote positions from IRC
-  // tags use original-text coordinates and must be adjusted by prefixLen below.
+  // Strip "@username " prefix from reply echoes; adjust emote positions by
+  // prefixLen.
   if (ircReplyParentId != null) {
     final prefixMatch = _replyPrefixRe.firstMatch(strippedText);
     if (prefixMatch != null) {
@@ -647,10 +611,7 @@ TwitchMessage parseIrcChatMessage(
       ? ircMsg.tags['color']!
       : pickColor(user.login);
 
-  // Shared chat: Twitch stamps every message with source-* tags during an
-  // active session. Only mirrored messages (source-room-id differs from this
-  // room's room-id) are foreign; native messages carry their own room id and
-  // must not show the attribution chip.
+  // source-room-id != room-id means mirrored (foreign) message.
   final sourceRoomId = ircMsg.tags['source-room-id'];
   final sourceBroadcasterId =
       (sourceRoomId != null &&
@@ -658,18 +619,14 @@ TwitchMessage parseIrcChatMessage(
           sourceRoomId != ircMsg.tags['room-id'])
       ? sourceRoomId
       : null;
-  // The original message id from the source channel; stable across every
-  // mirrored copy, unlike `id` which is unique per receiving room.
+  // source-id: stable across mirrored copies; `id` is room-local.
   final sourceMessageId = ircMsg.tags['source-id'];
 
-  // Cheer messages carry a `bits` tag with the amount; highlight them like
-  // sub notices (PRIMARY purple banner).
+  // Bits tag highlights like sub notices.
   final bitsAmount = int.tryParse(ircMsg.tags['bits'] ?? '');
 
-  // Highlight-relevant tags the ping engine evaluates on. `msg-id` covers
-  // Twitch-side flags (notably `highlighted-message`); `custom-reward-id`
-  // marks channel point redemptions; `pinned-chat-paid-amount` marks Hype
-  // Chats.
+  // Tags for ping evaluation: msg-id, custom-reward-id,
+  // pinned-chat-paid-amount.
   final msgId = ircMsg.tags['msg-id'];
   final customRewardId = ircMsg.tags['custom-reward-id'];
   final pinnedPaidAmount = ircMsg.tags['pinned-chat-paid-amount'];

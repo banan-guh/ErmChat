@@ -1,6 +1,4 @@
-/// Formats a whole number of seconds as compact duration text with d/h/m/s
-/// tiers, skipping zero units ("14d", "1h 30m", "5m 2s", "45s"). Zero
-/// formats as "0s" so the output is never empty.
+/// Compact duration from seconds: "14d", "1h 30m", "45s". Zero -> "0s".
 String formatSeconds(int totalSeconds) {
   if (totalSeconds <= 0) return '0s';
   final days = totalSeconds ~/ 86400;

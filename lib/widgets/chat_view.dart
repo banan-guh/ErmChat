@@ -11,27 +11,23 @@ import '../widgets/message_builder.dart';
 import '../services/link_whitelist.dart';
 
 class ChatView extends StatefulWidget {
-  // Per-channel tile cache bound, well above the visible viewport so tiles
-  // stay cached across message insertions while truncated messages evict.
+  // Per-channel cache bound; high enough to survive message insertions.
   static const int _maxCachedTiles = 300;
 
-  /// Global arrival counter for checkered mode: each newly built message
-  /// takes the next parity so stripes alternate per message and stay glued
-  /// to it instead of re-flowing with index shifts.
+  /// Global counter for checkered mode: stripes alternate and stay glued to messages.
   static int _checkerSeq = 0;
 
   final String channel;
   final List<TwitchMessage> messages;
 
-  /// Per-channel tile cache driving rebuild short-circuits and key-based
-  /// reconciliation. Null (panels) builds tiles fresh per notification tick.
+  /// Per-channel tile cache. Null builds fresh per tick (panels).
   final Map<String, Map<String?, Widget>>? tileCache;
   final ValueNotifier<bool> atBottomNotifier;
   final ValueNotifier<int> messageNotifier;
   final FlutterListViewController scrollController;
   final MessageBuilder messageBuilder;
 
-  /// Opens the profile sheet from a user-name tap.
+  /// Opens the user profile sheet.
   final void Function(String login, String? userId, {String? displayName})
   onShowUserProfile;
 
@@ -46,19 +42,15 @@ class ChatView extends StatefulWidget {
   final TwitchMessage? Function(TwitchMessage)? onFindThreadRoot;
   final void Function(TwitchMessage)? onShowThreadView;
 
-  /// Reply indicators need both thread callbacks to be tappable; off for
-  /// surfaces where every row is a reply (thread panel) or parity demands
-  /// the old look.
+  /// Off when thread callbacks are absent or every row is already a reply.
   final bool showReplyIndicators;
   final String emptyText;
   final ScrollPhysics? physics;
 
-  /// Whether deleted messages render as faded tombstones. Off in the
-  /// mentions tab so removed rows stay readable there.
+  /// Off in the mentions tab so deleted rows stay readable.
   final bool fadeDeleted;
 
-  /// Disambiguates the scroll-down FAB's hero tag when several views exist
-  /// for overlapping channels. Defaults to a [channel]-keyed tag.
+  /// Hero tag for the scroll-down FAB. Defaults to [channel]-keyed.
   final String? scrollFabHeroTag;
   final bool showTimestamp;
   final String timestampFormat;
@@ -70,9 +62,7 @@ class ChatView extends StatefulWidget {
   final SevenTvPaintService? paintService;
   final ScrollViewKeyboardDismissBehavior keyboardDismissBehavior;
 
-  /// Whitelisted link suffixes used to linkify bare/short domains. When null,
-  /// [messageBuilder] still carries its own whitelist; this only drives the
-  /// system-message body parser.
+  /// Link whitelist for system-message parser. Null = use messageBuilder's.
   final LinkWhitelist? linkWhitelist;
 
   const ChatView({
@@ -269,14 +259,10 @@ class _ChatViewState extends State<ChatView> {
     bool doCheckered,
   ) {
     final msg = msgs[i];
-    // Mentions/whisper rows can come from several channels; badges and
-    // emotes resolve against the row's own channel when it has one.
+    // Use the row's own channel for badge/emote resolution.
     final tileChannel = msg.channel ?? widget.channel;
 
-    // Checkered stripes are assigned once per message and stay glued to it
-    // (DankChat's approach): position-based parity re-flows on every
-    // arrival, which crawls the pattern with each message. The cache is the
-    // "already assigned" record; a global counter guarantees alternation.
+    // DankChat-style: parity assigned once per message via global counter, cached.
     final cached = cache?[msg.messageId];
     if (cached != null) return cached;
     final parity = doCheckered ? (++ChatView._checkerSeq).isEven : i.isEven;
@@ -341,15 +327,12 @@ class _ChatViewState extends State<ChatView> {
       );
     }
 
-    // Key the RepaintBoundary (the list's direct child) so elements can be
-    // rematched by messageId on index shifts; the cached identical tile
-    // then short-circuits instead of recreating its state.
+    // Key by messageId for rematch on index shifts; cached tiles short-circuit.
     final tile = RepaintBoundary(key: _messageKey(msg), child: body);
     if (cache != null && msg.messageId != null) {
       cache[msg.messageId!] = tile;
       if (cache.length > ChatView._maxCachedTiles) {
-        // Prefer evicting entries for messages that are no longer in the
-        // list (truncated out), falling back to the oldest built entry.
+        // Evict stale (truncated-out) entries first, then oldest.
         String? stale;
         for (final k in cache.keys) {
           if (k != null && !idToIndex.containsKey(k)) {
@@ -363,9 +346,7 @@ class _ChatViewState extends State<ChatView> {
     return tile;
   }
 
-  // Stable per-message key for tile reconciliation. Real messages key on
-  // their messageId; messageId-less messages fall back to an identity key
-  // derived from their (immutable) fields.
+  // Key by messageId; falls back to an identity key from immutable fields.
   Key _messageKey(TwitchMessage msg) {
     final id = msg.messageId;
     if (id != null) return ValueKey<String>(id);

@@ -54,8 +54,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
   }
 
   Future<void> _fetchProfile() async {
-    // Helix requires a token; without one show the reduced anonymous profile
-    // instead of failing the fetch.
+    // No token = show anonymous profile instead of failing.
     if (!widget.twitchAuth.isConfigured) {
       if (!mounted) return;
       setState(() {
@@ -245,8 +244,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
           widget.onClose();
           final prefs = await SharedPreferences.getInstance();
           final username = widget.username;
-          // Mention format preference: how the name is inserted into the
-          // compose box (dankchat-style name / name, / @name / @name,).
+          // Mention format preference: how name is inserted into compose box.
           final prefix = switch (prefs.getString('mention_format') ?? '@name') {
             'name' => '$username ',
             'name,' => '$username, ',

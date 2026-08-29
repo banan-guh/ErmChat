@@ -14,21 +14,17 @@ class TwitchBadgeService {
   final _globalBadges = <String, BadgeSet>{};
   final _channelBadges = <String, Map<String, BadgeSet>>{};
   final _channelAvatars = <String, String>{};
-  // Identity for shared-chat source channels (and anything else resolved via
-  // the users lookup): broadcasterId -> login / display name.
+  // broadcasterId -> login / display name (shared-chat source channels).
   final _channelLogins = <String, String>{};
   final _channelDisplayNames = <String, String>{};
 
   int _version = 0;
 
-  /// Increments whenever resolved identity data (avatar / login / display
-  /// name) changes, so consumers can invalidate caches keyed on it.
+  /// Bumps on avatar/login/displayName changes for cache invalidation.
   int get version => _version;
 
   bool _globalFetched = false;
-  // In-flight dedup: callers (subscribeChannel, _refreshEmotesAfterAuth, and
-  // per shared-chat message avatar lookups) can fire concurrent fetches for
-  // the same resource; only the first starts a request.
+  // In-flight dedup: concurrent fetches for the same resource are coalesced.
   Future<void>? _inflightGlobal;
   final _inflightChannelBadges = <String, Future<void>>{};
   final _inflightAvatars = <String, Future<void>>{};
@@ -41,8 +37,7 @@ class TwitchBadgeService {
         auth,
       );
       if (sets.isEmpty) {
-        // Don't latch the failed state: a transient failure must be retried
-        // on the next call, not frozen until the service is recreated.
+        // Don't latch failures; retry on next call.
         return;
       }
       _globalBadges.addAll(sets);
@@ -114,13 +109,12 @@ class TwitchBadgeService {
     return _channelAvatars[broadcasterId];
   }
 
-  /// IRC login for [broadcasterId] once resolved via the users lookup, used
-  /// to key shared-chat source channels in the emote manager.
+  /// Resolved IRC login for [broadcasterId]; keys shared-chat source channels.
   String? resolveChannelLogin(String broadcasterId) {
     return _channelLogins[broadcasterId];
   }
 
-  /// Display name for [broadcasterId], for the shared-chat attribution label.
+  /// Display name for [broadcasterId].
   String? resolveChannelDisplayName(String broadcasterId) {
     return _channelDisplayNames[broadcasterId];
   }
@@ -172,8 +166,7 @@ class TwitchBadgeService {
     }
   }
 
-  /// Runtime cache reset (account switch), not teardown; the service keeps
-  /// being used afterwards and the http client intentionally stays open.
+  /// Runtime cache reset (account switch), not teardown.
   void resetCaches() {
     _globalBadges.clear();
     _channelBadges.clear();

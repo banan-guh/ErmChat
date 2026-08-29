@@ -14,12 +14,7 @@ import 'emote_image_provider.dart';
 import 'emote_loading_band.dart';
 import 'emote_probe_memo.dart';
 
-/// Decoded emote frames with their per-frame durations.
-///
-/// The frames are owned by the playback stream the emote image provider
-/// produces (one completer per URL, cached by the stock [ImageCache]);
-/// renderers must not dispose them. [EmoteImage] renders via the stock
-/// [Image] widget, which holds clone handles to the frames.
+/// Decoded emote frames with per-frame durations. Owned by the shared completer; renderers must not dispose.
 class EmoteFrameData {
   EmoteFrameData({required this.frames, required this.durations});
 
@@ -41,8 +36,7 @@ typedef EmoteFrameDecoder = Future<EmoteFrameData> Function(Uint8List bytes);
 
 enum EmoteFormat { gif, webp, other }
 
-/// Sniffs the image format from magic bytes. Exposed for tests; renderers use
-/// it to pick the decode path.
+/// Sniffs image format from magic bytes. Exposed for tests.
 EmoteFormat sniffEmoteFormat(Uint8List bytes) {
   if (bytes.length >= 6 &&
       bytes[0] == 0x47 && // G
@@ -69,21 +63,10 @@ EmoteFormat sniffEmoteFormat(Uint8List bytes) {
 Future<EmoteFrameData> _decodeBytes(Uint8List bytes) {
   switch (sniffEmoteFormat(bytes)) {
     case EmoteFormat.gif:
-      // The engine codec renders animated GIFs correctly (interlace,
-      // transparency and disposal are all solid); the known bug is specific
-      // to animated WebP. Route GIFs native to avoid the isolate-heavy
-      // pure-Dart decoder.
+      // GIFs: engine codec handles them correctly. Route native to avoid isolate cost.
       return _decodeWithEngineCodec(bytes);
     case EmoteFormat.webp:
-      // Engine-first for animated WebP: the stock Flutter engine codec is the
-      // fast path and reports correct frame durations. It has ONE hard failure
-      // mode - its animated-WebP compositor chokes (loudly: throws / stalls /
-      // truncates the frame count) on emotes with transparent / partially
-      // cleared frames (see the dev "Decode diagnosis" screen). For those we
-      // fall back to the reinforced decoder (native libwebp, pure-Dart
-      // fallback), which is correct but slower. So the fast engine path is used
-      // for the vast majority; libwebp only for the emotes the engine provably
-      // cannot decode. Static WebP is always engine-safe.
+      // Engine-first: fast path for most; fallback to reinforced decoder on transparent-frame throws.
       if (webpIsAnimated(bytes)) {
         return _decodeAnimatedWebpEngineFirst(bytes);
       }
@@ -93,9 +76,7 @@ Future<EmoteFrameData> _decodeBytes(Uint8List bytes) {
   }
 }
 
-/// True when a WebP has an ANMF frame chunk (i.e. it is animated). Static
-/// WebP decodes cheaper through the engine codec, so the emote pipeline
-/// routes only animated WebP to the reinforced decoder. Exposed for tests.
+/// True when a WebP has an ANMF chunk (animated). Exposed for tests.
 bool webpIsAnimated(Uint8List bytes) {
   // RIFF 'WEBP' header (12 bytes) followed by chunks.
   if (bytes.length < 12 ||
@@ -124,17 +105,10 @@ bool webpIsAnimated(Uint8List bytes) {
   return false;
 }
 
-/// Production decode pipeline: sniff format → decode (pure-Dart isolate for
-/// animated WebP only, engine codec for everything else) → premultiply alpha
-/// → decodeImageFromPixels → ui.Image. This is the exact path used by the
-/// emote image provider's animated-WebP branch.
+/// Production decode pipeline: sniff, decode, premultiply, emit ui.Image.
 Future<EmoteFrameData> decodeEmoteBytes(Uint8List bytes) => _decodeBytes(bytes);
 
-/// Engine-first animated WebP: tries the fast animated decode. When the
-/// engine's compositor throws (transparent-frame bug), falls back to
-/// per-frame static decode + spec compositing - still engine-only, no
-/// libwebp. The per-frame path bypasses the buggy animated compositor by
-/// decoding each frame as a standalone still.
+/// Engine-first: tries fast decode, falls back to per-frame on transparent-frame throws.
 Future<EmoteFrameData> _decodeAnimatedWebpEngineFirst(Uint8List bytes) async {
   try {
     return await _decodeWithEngineCodecSafe(bytes);
@@ -143,10 +117,7 @@ Future<EmoteFrameData> _decodeAnimatedWebpEngineFirst(Uint8List bytes) async {
   }
 }
 
-/// Eager engine decode with loud-failure detection. The engine's animated
-/// compositor fails loudly (throws / hangs) on emotes with transparent frames
-/// - no prediction needed. [TimeoutException] catches stalls; any other throw
-/// propagates and the caller falls back to libwebp.
+/// Eager engine decode with loud-failure detection. Throws on transparent frames; caller falls back.
 Future<EmoteFrameData> _decodeWithEngineCodecSafe(Uint8List bytes) async {
   final codec = await ui.instantiateImageCodec(bytes);
   final frames = <ui.Image>[];
@@ -175,12 +146,7 @@ Future<EmoteFrameData> _decodeWithEngineCodecSafe(Uint8List bytes) async {
   return EmoteFrameData(frames: frames, durations: durations);
 }
 
-/// Engine-only per-frame decode + spec compositing. Bypasses the engine's
-/// buggy animated compositor by splitting the animated WebP into standalone
-/// single-frame WebPs, decoding each via the static engine codec, then
-/// compositing per the WebP blend/dispose rules with [WebpEngineCompositor].
-/// Slower than the animated path (~3-8× for decode) but correct for every
-/// animated WebP - the safety net for emotes the animated compositor can't handle.
+/// Per-frame decode + spec compositing. Slower but correct; safety net for the engine's animated compositor.
 Future<EmoteFrameData> _decodeAnimatedWebpPerFrame(Uint8List bytes) async {
   final meta = parseWebpAnim(bytes);
   if (meta.frames.isEmpty) {
@@ -204,15 +170,12 @@ Future<EmoteFrameData> _decodeAnimatedWebpPerFrame(Uint8List bytes) async {
   return EmoteFrameData(frames: frames, durations: durations);
 }
 
-/// Pure-Dart animated WebP decode. Exposed for tests that want a reference
-/// decoder independent of the production engine path.
+/// Pure-Dart animated WebP decode. Exposed for tests.
 @visibleForTesting
 Future<EmoteFrameData> decodeWebpPureDart(Uint8List bytes) =>
     _decodeWebp(bytes);
 
-/// Fallback decode using Flutter's engine codec for all formats (including animated).
-/// Uses [instantiateImageCodec] which handles frame durations but has known
-/// transparency/compositing bugs for animated WebP.
+/// Fallback decode via engine codec. Known transparency bugs for animated WebP.
 Future<EmoteFrameData> _decodeWithEngineCodec(Uint8List bytes) async {
   final codec = await ui.instantiateImageCodec(bytes);
   final frames = <ui.Image>[];
@@ -224,8 +187,7 @@ Future<EmoteFrameData> _decodeWithEngineCodec(Uint8List bytes) async {
       durations.add(frame.duration);
     }
   } finally {
-    // The engine codec holds native memory; _decodeStatic disposes it, so
-    // this path must too (the frame images stay valid after disposal).
+    // Engine codec holds native memory; must dispose here too.
     codec.dispose();
   }
   return EmoteFrameData(frames: frames, durations: durations);
@@ -263,7 +225,7 @@ Future<EmoteFrameData> _decodeWebp(Uint8List bytes) async {
     final rgba = <Uint8List>[];
     final durations = <Duration>[];
 
-    // Canvas for compositing - ALWAYS transparent for emote overlay
+    // Compositing canvas, always transparent.
     final canvas = img.Image(width: canvasW, height: canvasH, numChannels: 4);
     canvas.clear(img.ColorRgba8(0, 0, 0, 0));
 
@@ -294,7 +256,7 @@ Future<EmoteFrameData> _decodeWebp(Uint8List bytes) async {
       // Get frame metadata
       final noBlend = (i < framesMeta.length) ? framesMeta[i].noBlend : false;
 
-      // Apply PREVIOUS frame's disposal before compositing current frame
+      // Apply previous frame's disposal before compositing current.
       if (i > 0 && i - 1 < framesMeta.length) {
         final prevMeta = framesMeta[i - 1];
         if (prevMeta.disposeToBackground) {
@@ -326,7 +288,7 @@ Future<EmoteFrameData> _decodeWebp(Uint8List bytes) async {
           blend: img.BlendMode.direct,
         );
       } else {
-        // Normal alpha blend - use WebP's exact straight-alpha formula
+        // Alpha blend per WebP spec.
         _compositeWebpBlend(canvas, converted, frameInfo.x, frameInfo.y);
       }
 
@@ -380,18 +342,7 @@ class _FrameMeta {
   final bool disposeToBackground;
 }
 
-/// Composites [src] over [dst] using WebP's exact straight-alpha blend formula.
-///
-/// WebP spec (straight alpha):
-///   blend.A = src.A + dst.A * (1 - src.A/255)
-///   blend.RGB = (src.RGB*src.A + dst.RGB*dst.A*(1 - src.A/255)) / blend.A
-///
-/// This is NOT the same as generic `srcOver` (which uses `src.A + dst.A*(1-src.A)`).
-/// WebP normalizes by the resulting alpha, not the source alpha.
-///
-/// [src] must be 4-channel (RGBA). [dst] is modified in place.
-/// [dstX], [dstY] is the top-left position of [src] within [dst].
-/// Blending is clipped to [dst] bounds.
+/// WebP straight-alpha blend over [dst] at ([dstX],[dstY]). [src] must be RGBA, [dst] modified in place.
 void _compositeWebpBlend(img.Image dst, img.Image src, int dstX, int dstY) {
   final srcW = src.width;
   final srcH = src.height;
@@ -436,8 +387,7 @@ void _compositeWebpBlend(img.Image dst, img.Image src, int dstX, int dstY) {
       final srcG = srcBytes[srcIdx + 1];
       final srcB = srcBytes[srcIdx + 2];
 
-      // Integer math matching spec: (src*srcA + dst*dstA*invSrcA/255) / blendA
-      // We compute numerator first to avoid intermediate precision loss.
+      // Numerator first to avoid precision loss.
       final r = (srcR * srcA + (dstR * dstA * invSrcA) ~/ 255) ~/ blendA;
       final g = (srcG * srcA + (dstG * dstA * invSrcA) ~/ 255) ~/ blendA;
       final b = (srcB * srcA + (dstB * dstA * invSrcA) ~/ 255) ~/ blendA;
@@ -451,7 +401,7 @@ void _compositeWebpBlend(img.Image dst, img.Image src, int dstX, int dstY) {
 }
 
 List<_FrameMeta> _parseAnmfFrames(Uint8List bytes, int canvasW, int canvasH) {
-  // Walk RIFF chunks to find ANMF frames and read their flags byte (blend bit)
+  // Walk RIFF chunks for ANMF frame flags.
   if (bytes.length < 12 ||
       bytes[0] != 0x52 ||
       bytes[1] != 0x49 ||
@@ -504,9 +454,7 @@ List<_FrameMeta> _parseAnmfFrames(Uint8List bytes, int canvasW, int canvasH) {
 }
 
 Future<EmoteFrameData> _decodeStatic(Uint8List bytes) async {
-  // Single-frame path for PNG and anything else that isn't GIF/WebP. Static
-  // images never hit the animated-codec bug (disposal/compositing), so the
-  // engine codec is safe here.
+  // Static images: engine codec is safe (no animated-codec bug).
   final codec = await ui.instantiateImageCodec(bytes);
   try {
     final frame = await codec.getNextFrame();
@@ -540,15 +488,7 @@ Future<ui.Image> _imageFromRgba(ByteBuffer rgba, int width, int height) {
   return completer.future;
 }
 
-/// Emote renderer that never relies on the engine's animated-WebP codec.
-///
-/// Bytes are fetched through [EmoteUrlProvider] -> [fetchEmoteBytes]
-/// ([EmoteCacheManager]'s settings cap and overflow path both apply) and
-/// decoded inside the shared completer the stock [ImageCache] keeps per URL:
-/// animated WebP uses the reinforced decoder (native libwebp, pure-Dart
-/// fallback), while GIFs and static images route through the engine codec.
-/// Playback is driven by the completer, so every widget showing the same
-/// emote stays in sync.
+/// Emote renderer using [EmoteUrlProvider]'s shared completer. Animated WebP via reinforced decoder; GIFs/static via engine codec.
 class EmoteImage extends StatefulWidget {
   const EmoteImage({
     super.key,
@@ -569,28 +509,17 @@ class EmoteImage extends StatefulWidget {
   final Widget? placeholder;
   final Widget? errorWidget;
 
-  /// Smaller-scale URLs (e.g. the emote's 1x) tried as cached placeholders
-  /// while [url] is still fetching. When a smaller scale is already cached in
-  /// memory or on disk it renders under a faint shimmer instead of an empty
-  /// box.
+  /// Smaller-scale URLs tried as placeholders while [url] loads.
   final List<String>? alternateUrls;
 
-  /// Plays at the emote's native rate regardless of the global FPS cap
-  /// (including a cap of 0). Used by the emote panel so previews stay
-  /// smooth while chat is throttled.
+  /// Plays at native rate regardless of FPS cap. Used by emote panel.
   final bool uncapped;
 
   @override
   State<EmoteImage> createState() => _EmoteImageState();
 }
 
-/// Loading placeholder for emotes: a faint band sweeping in phase across an
-/// otherwise fully transparent box.
-///
-/// Transparency is load-bearing (zero-width overlays must not occlude the
-/// base emote they sit on), and the band is driven by the shared loading
-/// clock, so hundreds of simultaneous placeholders cost one ticker and one
-/// paint each instead of per-instance shader-mask layers.
+/// Transparent loading placeholder with a shared-clock sweep band.
 class EmoteLoadingPlaceholder extends StatelessWidget {
   const EmoteLoadingPlaceholder({super.key, this.width, this.height});
 
@@ -604,13 +533,11 @@ class EmoteLoadingPlaceholder extends StatelessWidget {
 }
 
 class _EmoteImageState extends State<EmoteImage> {
-  /// A smaller cached scale shown under a faint shimmer while the required
-  /// URL loads (null until the probe finds one).
+  /// Cached smaller-scale placeholder URL (null until probed).
   String? _placeholderUrl;
   Object? _loadToken;
 
-  /// URLs currently registered as uncapped on their completers ([url] plus
-  /// an active [_placeholderUrl]). Kept in sync with [EmoteImage.uncapped].
+  /// Uncapped URLs synced with [EmoteImage.uncapped].
   final Set<String> _uncappedUrls = {};
 
   @override
@@ -620,8 +547,7 @@ class _EmoteImageState extends State<EmoteImage> {
     _probePlaceholder();
   }
 
-  /// Aligns completer-level uncapped registrations with the desired set
-  /// (main URL plus active placeholder when [EmoteImage.uncapped] is set).
+  /// Syncs uncapped registrations with the desired set.
   void _syncUncappedRegistrations() {
     final desired = <String>{
       if (widget.uncapped) widget.url,
@@ -638,15 +564,7 @@ class _EmoteImageState extends State<EmoteImage> {
       ..addAll(desired);
   }
 
-  /// Probes the smaller alternate scales for a cached copy to use as the
-  /// placeholder while [EmoteImage.url] is loading. Picks the first hit (the
-  /// smallest scale is listed first by convention). Memory-cached copies
-  /// render from the shared completer (animated in sync with the rest of the
-  /// app); disk-cached copies fetch through the same provider path.
-  ///
-  /// Disk probe results are memoized per URL ([EmoteProbeMemo]): under emote
-  /// spam hundreds of copies of the same emote would otherwise each issue
-  /// the same disk lookup simultaneously.
+  /// Probes alternate scales for a cached placeholder while [url] loads. Picks first hit. Disk results memoized via [EmoteProbeMemo].
   Future<void> _probePlaceholder() async {
     final alternates = widget.alternateUrls;
     if (alternates == null || alternates.isEmpty) return;
@@ -655,16 +573,12 @@ class _EmoteImageState extends State<EmoteImage> {
     for (final altUrl in alternates) {
       if (!mounted || _loadToken != token) return;
       if (altUrl == widget.url) continue;
-      // Memory-cached copies resolve synchronously so the placeholder shows
-      // on the very first frame; disk lookups go through the memoized probe
-      // (hundreds of copies of one emote must not each hit the disk).
+      // Memory hits resolve sync (first frame); disk via memoized probe.
       if (PaintingBinding.instance.imageCache.containsKey(
         EmoteUrlProvider(altUrl),
       )) {
         _setPlaceholder(altUrl, token);
-        // Continue the placeholder's animation clock on the required URL so
-        // the swap happens in phase (same emote, higher scale) instead of
-        // restarting from frame 0.
+        // Seed playback so the swap continues in phase.
         EmoteUrlProvider.seedPlayback(widget.url, altUrl);
         return;
       }
@@ -684,14 +598,12 @@ class _EmoteImageState extends State<EmoteImage> {
     }
   }
 
-  /// Whether the emote disk cache still holds [url] (the memory-cache case
-  /// is handled synchronously before probing).
+  /// Whether [url] is still in the disk cache.
   static Future<bool> _isAltOnDisk(String url) async =>
       await EmoteCacheManager().getFileFromCache(url) != null;
 
   void _setPlaceholder(String altUrl, Object token) {
-    // The probe can resolve mid-build (async disk I/O completes between
-    // frames); defer the setState so it never lands inside a build phase.
+    // Defer setState: probe resolves async (can land mid-build).
     SchedulerBinding.instance.addPostFrameCallback((_) {
       if (!mounted || _loadToken != token) return;
       if (_placeholderUrl == altUrl) return;
@@ -724,21 +636,7 @@ class _EmoteImageState extends State<EmoteImage> {
     }
   }
 
-  /// Wraps the loading state: the (frameless) main image on the bottom with
-  /// [overlay] (a placeholder or a cached smaller scale under a faint
-  /// shimmer) on top.
-  ///
-  /// A finite [EmoteImage.width]/[EmoteImage.height] clamps the stack to
-  /// exactly that box. Expanding to the incoming constraints instead would
-  /// consume loose slots whole: a ListTile leading row throws "Leading widget
-  /// consumes the entire tile width" while the first frame decodes, because
-  /// frameBuilder's subtree replaces the sized raw image.
-  ///
-  /// Without a finite size, the fill behavior applies when the incoming
-  /// constraints are bounded-and-tight (expansion then is exact); an explicit
-  /// infinity dimension keeps the old fill-any-bounded-parent behavior.
-  /// Everything else keeps the children's own size (a Stack with filled
-  /// children requires bounded constraints).
+  /// Stacks main image (bottom) with overlay (top). Finite size clamps the stack; otherwise fills on bounded-tight constraints.
   Widget _loadingStack(Widget main, Widget overlay) {
     final width = widget.width;
     final height = widget.height;
@@ -779,10 +677,7 @@ class _EmoteImageState extends State<EmoteImage> {
   Widget build(BuildContext context) {
     final altUrl = _placeholderUrl;
     return Image(
-      // Key by URL: when a recycled widget (e.g. an autocomplete row whose
-      // list content shifted) switches to a different emote, the inner Image
-      // state is recreated so gaplessPlayback can never keep painting the
-      // previous emote's stale frame while the new URL loads.
+      // Key by URL: recycled widgets must not show stale frames during load.
       key: ValueKey(widget.url),
       image: EmoteUrlProvider(widget.url),
       width: widget.width,
@@ -790,22 +685,11 @@ class _EmoteImageState extends State<EmoteImage> {
       fit: widget.fit,
       gaplessPlayback: true,
       frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
-        // The first frame replaces the loading overlay (errorBuilder handles
-        // failures before this runs). gaplessPlayback keeps the previous
-        // frame showing while a URL change loads, so the overlay only
-        // appears on the first load.
+        // First frame replaces overlay; gaplessPlayback keeps previous frame on URL change.
         if (frame != null) return child;
         final Widget overlay;
         if (altUrl != null) {
-          // A smaller cached scale is showing under a faint loading band
-          // while the required resolution loads. The placeholder follows the
-          // alternate's own completer (animated in sync with chat; its
-          // playback seeds the required URL when it lands); the band sweep
-          // stays subtle so the emote reads clearly, only hinting that a
-          // higher-res copy is coming.
-          // _loadingStack expands the alternate to fill the box (like the
-          // required image) so a small cached scale scales up instead of
-          // rendering at its intrinsic size.
+          // Cached smaller scale under a faint band; seeds required URL on swap. Fills box via _loadingStack.
           overlay = _loadingStack(
             Image(
               key: ValueKey('ph-$altUrl'),

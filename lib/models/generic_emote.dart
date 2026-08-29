@@ -2,9 +2,7 @@ enum EmoteType { twitch, bttv, ffz, sevenTv }
 
 enum EmoteScope { global, channel }
 
-/// Image-resolution tier for emote fetching. Only used when a fetch actually
-/// happens (the `nothing` fetch tier never fetches at all). The 4x tier is
-/// scrapped entirely: no provider ever emits a 4x URL.
+/// Image resolution tier for emote fetching. 4x was dropped; no provider emits a 4x URL.
 enum EmoteResolution {
   /// 1x for the low fetch tier (smallest available).
   low,
@@ -16,45 +14,32 @@ enum EmoteResolution {
   high,
 }
 
-/// Note on the scale fields (`url1x`/`url3x`):
-/// `url` is the active render URL (what chat/autocomplete render at ~28dp).
-/// `url1x`/`url3x` are the scale alternatives used by the emote sheet/menu
-/// resolution picker ("best scale still in cache") and as cached-fallback
-/// placeholders while the required resolution is fetching. `url3x` is only set
-/// where the provider has a true high-res asset (7TV/BTTV/Twitch 3x; FFZ maps
-/// its largest 4x size here since it has no 3x).
+/// url = active render URL. url1x/url3x = scale alternatives for the emote sheet and as cache-fallback placeholders. url3x only set when the provider has a true high-res asset (FFZ maps its 4x here since it lacks 3x).
 class GenericEmote {
   final String id;
   final String code;
   final EmoteType type;
   final String url;
 
-  /// Smallest-scale asset (1x) for cached-fallback placeholders and resolution
-  /// pickers. Null when the provider only exposes a single scale.
+  /// 1x asset for cache fallbacks and resolution picker. Null if single-scale only.
   final String? url1x;
 
-  /// Higher-resolution asset for larger render surfaces (emote sheet, picker
-  /// grid). Null when the provider only exposes one tier or has no 3x.
+  /// 3x asset for emote sheet/picker. Null if no high-res available.
   final String? url3x;
   final bool isAnimated;
   final EmoteScope scope;
   final String? ownerChannel;
 
-  /// Stable broadcaster (owner) id for subscription emotes. Carried alongside
-  /// the emote so grouping never collapses when [ownerChannel] (the resolved
-  /// login) is still unknown — the manager groups by `ownerChannel ?? ownerId`.
+  /// Broadcaster id for sub emotes; used for grouping when ownerChannel is not yet resolved.
   final String? ownerId;
   final String? tier;
   final String? emoteType;
   final bool isZeroWidth;
 
-  /// 7TV emotes whose owner marked them unlisted. They are always parsed and
-  /// kept in the caches; [EmoteManager] filters their visibility at read time
-  /// so the "allow unlisted" setting flips instantly without a refetch.
+  /// Unlisted 7TV emotes. Kept in cache; visibility filtered at read time by the allow-unlisted setting.
   final bool isUnlisted;
 
-  /// For 7TV alias emotes: the name of the emote this one aliases
-  /// (`data.name` when it differs from the top-level `name`).
+  /// 7TV alias: the original emote name when it differs from the top-level name.
   final String? baseName;
   final double relativeScale;
   final double aspectRatio;
@@ -112,9 +97,7 @@ class GenericEmote {
       type: _enumByName(EmoteType.values, json['type'], EmoteType.twitch),
       url: url,
       url1x: json['url1x'] as String?,
-      // Legacy caches (pre-scale-model) stored the high-res asset under
-      // 'urlLarge'; recover it so old persisted emotes still upgrade in the
-      // sheet instead of silently losing the 3x until a refetch.
+      // Recover legacy 'urlLarge' key so old cached emotes keep their 3x.
       url3x: (json['url3x'] ?? json['urlLarge']) as String?,
       isAnimated: json['isAnimated'] as bool? ?? false,
       scope: _enumByName(EmoteScope.values, json['scope'], EmoteScope.global),

@@ -9,9 +9,7 @@ import '../color_utils.dart';
 import '../util/log.dart';
 import 'twitch_irc.dart';
 
-/// History fetch failure with a user-presentable message. [definitive]
-/// marks per-channel answers (invalid login, excluded channel) where trying
-/// the mirror cannot succeed.
+/// Fetch failure. [definitive] = per-channel, no failover helps.
 class RecentMessagesException implements Exception {
   RecentMessagesException(
     this.message, {
@@ -27,14 +25,10 @@ class RecentMessagesException implements Exception {
   String toString() => message;
 }
 
-/// Which recent-messages backend(s) to query.
+/// Recent-messages backend selector.
 enum RecentMessagesMode { auto, robotty, zneix, custom }
 
-/// Selects the recent-messages provider(s) and their failover order.
-///
-/// [auto] queries robotty then its zneix mirror and gives up once both fail;
-/// the forced modes query exactly one source (no automatic switching); [custom]
-/// queries a user-supplied base URL.
+/// Provider selection and failover order.
 class RecentMessagesConfig {
   RecentMessagesConfig({this.mode = RecentMessagesMode.auto, this.customUrl})
     : assert(
@@ -47,7 +41,7 @@ class RecentMessagesConfig {
   /// Base URL for [RecentMessagesMode.custom] (no trailing path).
   final String? customUrl;
 
-  /// Ordered base URLs to attempt, in failover order.
+  /// Ordered failover URLs.
   List<String> get providers {
     switch (mode) {
       case RecentMessagesMode.auto:
@@ -92,13 +86,11 @@ class RecentMessagesConfig {
 class RecentMessagesService {
   static const _baseUrl =
       'https://recent-messages.robotty.de/api/v2/recent-messages';
-  // Mirror of the same service (robotty/recent-messages2) hosted by zneix.
-  // Falls back here when the primary is unavailable (5xx / network error).
+  // Mirror of robotty; fallback on 5xx/network error.
   static const _mirrorBaseUrl =
       'https://recent-messages.zneix.eu/api/v2/recent-messages';
 
   /// Injectable HTTP client for tests.
-  // Private named parameters cannot be initializing formals.
   RecentMessagesService({http.Client? client, RecentMessagesConfig? config})
     : _client = client, // ignore: prefer_initializing_formals
       _config = config ?? RecentMessagesConfig();
@@ -106,13 +98,10 @@ class RecentMessagesService {
   final http.Client? _client;
   final RecentMessagesConfig _config;
 
-  /// History fetches started at launch, keyed by lowercase channel name.
-  /// Consumed once by [fetchRecentPreferWarm].
+  /// Launch-warmed history fetches (consumed once).
   static final Map<String, Future<List<TwitchMessage>>> _warmed = {};
 
-  /// Starts history fetches as early as possible (app launch) so results are
-  /// usually ready by the time the UI asks. Duplicate channels are ignored;
-  /// failures are rethrown at consume time.
+  /// Warms history fetches at launch; duplicates ignored.
   static void warm(
     Iterable<String> channels, {
     int limit = 100,
@@ -131,10 +120,7 @@ class RecentMessagesService {
     }
   }
 
-  /// Returns the warmed result for [channel] when available (consuming it),
-  /// falling back to a fresh [fetchRecent] on miss or warm failure: a launch
-  /// second spent offline must not surface as "Failed to load chat history"
-  /// when the network recovered two seconds later.
+  /// Returns warmed result or fresh fetch on miss/failure.
   Future<List<TwitchMessage>> fetchRecentPreferWarm(
     String channel, {
     int limit = 100,
@@ -174,8 +160,7 @@ class RecentMessagesService {
       try {
         return await _fetchFrom('${providers[i]}$path', channel);
       } on RecentMessagesException catch (e) {
-        // Definitive per-channel answers (invalid login, excluded channel):
-        // every provider serves the same API and would fail identically.
+        // Definitive: same API across providers, no failover.
         if (e.definitive) {
           logDebug(
             '[RecentMessages] $channel: ${e.message} '
@@ -196,8 +181,7 @@ class RecentMessagesService {
         lastError = e;
       }
     }
-    // All providers exhausted: surface the last error as-is when it was a
-    // clean RecentMessagesException, otherwise wrap so the UI stays friendly.
+    // All providers exhausted: surface last error or wrap.
     if (lastError is RecentMessagesException) throw lastError;
     throw RecentMessagesException('Failed to load chat history');
   }
@@ -207,9 +191,7 @@ class RecentMessagesService {
     final res = await (_client ?? http.Client()).get(uri).timeout(httpTimeout);
 
     if (res.statusCode != 200) {
-      // Error bodies are JSON with machine-readable codes:
-      // 400 invalid_channel_login, 403 channel_ignored. Surface a clean
-      // message instead of the raw status line.
+      // Parse JSON error codes for clean messages.
       var code = '';
       try {
         final decoded = jsonDecode(res.body);
@@ -217,7 +199,7 @@ class RecentMessagesService {
           code = decoded['error_code'] as String? ?? '';
         }
       } catch (_) {
-        // Non-JSON body: fall through to the generic message.
+        // Non-JSON: generic message.
       }
       final message = switch (code) {
         'invalid_channel_login' => 'Invalid channel name',
@@ -233,8 +215,7 @@ class RecentMessagesService {
     }
 
     final body = jsonDecode(res.body) as Map<String, dynamic>;
-    // Informational only per the API docs: e.g. channel_not_joined on a 200
-    // still carries whatever history exists. Never surfaced to users.
+    // Informational error_code on 200; not surfaced.
     if (body['error_code'] is String) {
       logDebug(
         '[RecentMessages] $channel: ${body['error']} '
@@ -250,8 +231,7 @@ class RecentMessagesService {
       final rawLine = raw as String;
       final msg = parseIrcMessage(rawLine);
       if (msg == null) continue;
-      // CLEARMSG lines don't render themselves; they mark the target
-      // message as deleted (applied after the batch is parsed).
+      // CLEARMSG: mark target deleted (applied after batch).
       if (msg.command == 'CLEARMSG') {
         final target = msg.tags['target-msg-id'];
         if (target != null && target.isNotEmpty) {
@@ -259,10 +239,7 @@ class RecentMessagesService {
         }
         continue;
       }
-      // Announcement USERNOTICEs render as two entries, like the live view:
-      // the child message (announcement text as a normal message) followed
-      // by the "Announcement" label. Sub/resub notices with a user message
-      // do the same so emotes render in the child.
+      // Announcement/sub notices render as child + label.
       final child = parseAnnouncementChildFromMsg(msg, channel: channel);
       if (child != null) messages.add(child);
       final subChild = parseSubChildFromMsg(msg, channel: channel);
@@ -271,9 +248,7 @@ class RecentMessagesService {
       if (parsed != null) messages.add(parsed);
     }
 
-    // Only ban/timeout system messages sweep prior messages from the
-    // target user; announcements carry a login too but must not delete
-    // anything.
+    // Ban sweep: only ban/timeout targets, not announcements.
     applyBanSweep(messages);
     applyMessageDeletions(messages, clearMsgTargets);
 
@@ -281,22 +256,21 @@ class RecentMessagesService {
     return messages;
   }
 
-  /// Extracts the deleted message id from a CLEARMSG history line, or null.
+  /// Extracts deleted message id from CLEARMSG line.
   @visibleForTesting
   static String? clearMsgTargetId(String raw) {
     final msg = parseIrcMessage(raw);
     return clearMsgTargetIdFromMsg(msg);
   }
 
-  /// Extracts the deleted message id from a pre-parsed CLEARMSG, or null.
+  /// Extracts deleted id from pre-parsed CLEARMSG.
   static String? clearMsgTargetIdFromMsg(IrcMessage? msg) {
     if (msg == null || msg.command != 'CLEARMSG') return null;
     final target = msg.tags['target-msg-id'];
     return (target == null || target.isEmpty) ? null : target;
   }
 
-  /// Marks messages deleted by CLEARMSG history lines (deletions must
-  /// survive a restart like every other event).
+  /// Marks CLEARMSG deletions (survive restart).
   @visibleForTesting
   static void applyMessageDeletions(
     List<TwitchMessage> messages,
@@ -313,9 +287,7 @@ class RecentMessagesService {
     }
   }
 
-  /// Marks messages deleted when a later ban/timeout system message targets
-  /// the same login. Exposed for tests; `isBanNotice` keeps announcements
-  /// (which legitimately carry a login) out of the sweep.
+  /// Ban sweep: deletes prior messages from banned user.
   @visibleForTesting
   static void applyBanSweep(List<TwitchMessage> messages) {
     for (final msg in messages) {
@@ -388,14 +360,14 @@ class RecentMessagesService {
       isHistory: true,
     );
 
-    // Lines with neither a display name nor any text are junk.
+    // Junk: no display name and no text.
     final rawDisplayName = msg.tags['display-name'] ?? '';
     if (rawDisplayName.isEmpty && parsed.text.isEmpty) return null;
     return parsed;
   }
 
   static TwitchMessage? _parseClearChat(IrcMessage msg, String? channel) {
-    // Robotty strips the trailing colon for single-word payloads.
+    // Robotty strips trailing colon.
     final targetUser =
         msg.trailing ?? (msg.params.length > 1 ? msg.params[1] : null);
     if (targetUser == null || targetUser.isEmpty) return null;
@@ -427,18 +399,13 @@ class RecentMessagesService {
   static TwitchMessage? _parseUserNotice(IrcMessage msg, String? channel) {
     var msgId = msg.tags['msg-id'] ?? '';
     if (msgId.isEmpty) return null;
-    // Shared chat mirrors foreign USERNOTICEs as `sharedchatnotice`; drop
-    // them except announcements (DankChat-style clutter reduction), matching
-    // the live IRC path.
+    // Drop mirrored shared-chat notices except announcements.
     if (msgId == 'sharedchatnotice') {
       final sourceMsgId = msg.tags['source-msg-id'];
       if (sourceMsgId != 'announcement') return null;
       msgId = 'announcement';
     }
-    // Only announcements carry a meaningful login; other notices keep it
-    // empty so the ban deletion sweep in fetchRecent never treats them as
-    // ban targets (the sweep also keys on isBanNotice, so this is belt and
-    // braces).
+    // Only announcements carry login; empty prevents false ban sweep.
     final isAnnouncement = msgId == 'announcement';
     final login = isAnnouncement ? (msg.tags['login'] ?? '') : '';
     final displayName = msg.tags['display-name'] ?? login;
@@ -451,7 +418,7 @@ class RecentMessagesService {
     final ts = tsMs != null
         ? DateTime.fromMillisecondsSinceEpoch(int.tryParse(tsMs) ?? 0)
         : DateTime.now();
-    // Robotty strips the trailing colon for single-word payloads.
+    // Robotty strips trailing colon.
     final text = msg.trailing ?? (msg.params.length > 1 ? msg.params[1] : null);
     final isSubWithText =
         (msgId == 'sub' || msgId == 'resub') &&
@@ -465,14 +432,9 @@ class RecentMessagesService {
         systemMsg: systemMsg,
       ),
       isSystem: true,
-      // Namespaced notice id so the label dedups against its live twin
-      // without colliding with the child chat message that shares the raw
-      // USERNOTICE id.
+      // Namespaced id avoids collision with child message.
       messageId: userNoticeLabelId(msg.tags['id']),
-      // Announcements carry their banner accent; every other notice
-      // (subscriptions, gift subs, watch streaks, bits badge tiers, raids,
-      // pay forwards, ...) highlights like a default (PRIMARY) purple
-      // announcement.
+      // Announcements use banner accent; others default purple.
       systemAccent: isAnnouncement
           ? userNoticeAccent(
               'announcement',
@@ -480,8 +442,7 @@ class RecentMessagesService {
             )
           : userNoticeAccent(msgId),
       channel: channel,
-      // 1ms after the child message so the sorted history keeps the child
-      // above the label (List.sort is not stable).
+      // +1ms so child sorts above label.
       timestamp: isAnnouncement || isSubWithText
           ? ts.add(const Duration(milliseconds: 1))
           : ts,
@@ -489,9 +450,7 @@ class RecentMessagesService {
     );
   }
 
-  /// The child chat message for a sub/resub USERNOTICE line that carries a
-  /// user message (the message rendered as a normal chat message so emotes
-  /// render), or null when the line is not a sub/resub with text.
+  /// Child message for sub/resub with text, or null.
   @visibleForTesting
   static TwitchMessage? parseSubChild(String raw, {String? channel}) {
     final msg = parseIrcMessage(raw);
@@ -505,7 +464,7 @@ class RecentMessagesService {
     if (msg == null || msg.command != 'USERNOTICE') return null;
     final msgId = msg.tags['msg-id'];
     if (msgId != 'sub' && msgId != 'resub') return null;
-    // Robotty strips the trailing colon for single-word payloads.
+    // Robotty strips trailing colon.
     final text =
         (msg.trailing ?? (msg.params.length > 1 ? msg.params[1] : null))
             ?.trim();
@@ -539,9 +498,7 @@ class RecentMessagesService {
     );
   }
 
-  /// The child chat message for an announcement USERNOTICE line (the
-  /// announcement text rendered as a normal message, DankChat-style), or
-  /// null when the line is not an announcement with text.
+  /// Child message for announcement USERNOTICE, or null.
   @visibleForTesting
   static TwitchMessage? parseAnnouncementChild(String raw, {String? channel}) {
     final msg = parseIrcMessage(raw);
@@ -553,15 +510,14 @@ class RecentMessagesService {
     String? channel,
   }) {
     if (msg == null || msg.command != 'USERNOTICE') return null;
-    // Mirrored shared-chat announcements arrive as `sharedchatnotice` with
-    // the real type in `source-msg-id`; they render like native ones.
+    // Mirrored shared-chat announcements: real type in source-msg-id.
     final rawMsgId = msg.tags['msg-id'];
     if (rawMsgId != 'announcement' &&
         !(rawMsgId == 'sharedchatnotice' &&
             msg.tags['source-msg-id'] == 'announcement')) {
       return null;
     }
-    // Robotty strips the trailing colon for single-word payloads.
+    // Robotty strips trailing colon.
     final text =
         (msg.trailing ?? (msg.params.length > 1 ? msg.params[1] : null))
             ?.trim();

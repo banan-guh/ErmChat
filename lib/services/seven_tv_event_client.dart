@@ -90,7 +90,7 @@ class SevenTvEntitlementEvent {
   /// Dispatch type: entitlement.create or entitlement.delete.
   final String kind;
 
-  /// Cosmetic kind string from the API object: PAINT, BADGE or EMOTE_SET.
+  /// Cosmetic kind: PAINT, BADGE, or EMOTE_SET.
   final String cosmeticKind;
   final List<String> twitchUserIds;
 
@@ -158,9 +158,8 @@ class SevenTvEventClient {
 
   bool get isConnected => _channel != null;
 
-  /// True when the socket exists but no heartbeat has arrived for well over
-  /// the negotiated interval, i.e. a zombie socket that never errored on its
-  /// own (e.g. frozen by the OS while backgrounded).
+  /// True when socket exists but no heartbeat arrived for >3x the interval
+  /// (zombie, e.g. OS-frozen while backgrounded).
   bool get isStale {
     if (_channel == null) return false;
     final interval = _heartbeatInterval;
@@ -216,8 +215,7 @@ class SevenTvEventClient {
         );
       } catch (e) {
         logDebug('7TV event connect error: $e');
-        // A failed or timed-out handshake must not leave a socket behind,
-        // otherwise isConnected stays true and resume-time checks skip it.
+        // Prevent stale socket from keeping isConnected true on resume.
         _disconnect();
         _scheduleReconnect();
       }
@@ -546,9 +544,8 @@ class SevenTvEventClient {
     _channel?.sink.add(message);
   }
 
-  /// Waits for the WebSocket handshake with an upper bound. The timeout timer
-  /// is tracked and cancelled on disconnect/dispose so a torn-down connect
-  /// never leaves a pending timer behind.
+  /// Waits for the handshake with a timeout; timer is cleaned up on
+  /// disconnect/dispose.
   Future<void> _waitForReady() {
     final channel = _channel;
     if (channel == null) return Future.value();

@@ -1,7 +1,4 @@
-/// Shared sheet drag-to-close decision for the inline panels (thread,
-/// mentions) and the emote menu. A release below [sheetCloseFraction] of the
-/// sheet's max height closes it; a fling faster than [sheetCloseVelocity]
-/// px/s closes it regardless of position.
+/// Drag-to-close logic for sheets. Closes below [sheetCloseFraction] height or faster than [sheetCloseVelocity] px/s.
 const double sheetCloseFraction = 0.85;
 const double sheetCloseVelocity = 200.0;
 

@@ -5,14 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import '../services/media_uploader.dart';
 
-/// Runs the "Upload media" flow for the chat input: lets the user pick an
-/// image/video (gallery or camera), uploads it through the configured
-/// uploader (kappa.lol by default), then inserts the returned link into
-/// [input] and copies it to the clipboard. Successful uploads are recorded
-/// in the recent uploads list (Settings > Tools).
-///
-/// Kept out of the home screen so the chat screen holds no upload logic; the
-/// app bar menu just calls [pickAndUpload] with its own context.
+/// Upload media flow: pick image/video, upload, insert link into [input] and clipboard.
 class MediaUploadController {
   MediaUploadController({
     MediaUploader? uploader,

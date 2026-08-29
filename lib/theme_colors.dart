@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 
-/// Accent presets that seed the app color scheme. Kept in their own file so
-/// both `main.dart` (theme building) and the customization screen can share
-/// the list without an import cycle.
+/// App accent presets, shared by theme builder and customization screen.
 const Map<String, Color> kAccentPresets = {
   'blue': Colors.blue,
   'red': Colors.red,
@@ -16,5 +14,5 @@ const Map<String, Color> kAccentPresets = {
   'brown': Colors.brown,
 };
 
-/// The default accent key shown when a stored value is missing.
+/// Default accent key when nothing is persisted.
 const String kDefaultAccent = 'blue';

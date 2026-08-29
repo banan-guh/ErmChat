@@ -5,17 +5,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../util/constants.dart';
 
-/// Whether a whitelist entry matches as a bare TLD (`lol` -> any `*.lol`) or a
-/// full domain (`kappa.lol` -> that domain and its subdomains).
+/// Bare TLD (any `*.lol`) or full domain (`kappa.lol` + subs).
 enum LinkType { tld, domain }
 
-/// User-managed set of link suffixes used to rejoin and linkify *fractured*
-/// (spaced) domains — the anti-evasion case where a link is typed with a space
-/// to dodge a "no links" filter (e.g. `kappa .lol`, `kappa. lol/ABCDE`). Plain
-/// `kappa.lol` (no space) is handled by linkify's own default, not here.
-///
-/// Shared app-wide singleton (mirrors [IgnoreManager]): the live pipeline and
-/// the settings screen both read/write the same instance.
+/// Rejoins fractured (spaced) domains to dodge "no links" filters.
 class LinkWhitelist extends ChangeNotifier {
   static final LinkWhitelist instance = LinkWhitelist();
 
@@ -26,8 +19,7 @@ class LinkWhitelist extends ChangeNotifier {
     'youtu.be',
   ];
 
-  /// The seeded default entries, exposed so the settings UI can offer a
-  /// "restore defaults" action.
+  /// Default entries for "restore defaults" UI.
   static List<String> get defaultEntries => List.of(_defaults);
 
   List<String> _entries = const [];
@@ -37,8 +29,7 @@ class LinkWhitelist extends ChangeNotifier {
   bool get loaded => _loaded;
   List<String> get entries => List.unmodifiable(_entries);
 
-  /// Strips whitespace and any leading/trailing dots so ` .lol ` and `lol.`
-  /// normalize to `lol`.
+  /// Normalizes entry: strips whitespace and leading/trailing dots.
   static String normalize(String raw) =>
       raw.trim().toLowerCase().replaceAll(RegExp(r'^\.+|\.+$'), '').trim();
 
@@ -51,7 +42,7 @@ class LinkWhitelist extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     final stored = prefs.getStringList(kLinkWhitelistPrefKey);
     if (stored == null) {
-      // First run: seed the defaults so the feature works out of the box.
+      // First run: seed defaults.
       _entries = List.of(_defaults);
       await _persist();
     } else {
@@ -91,7 +82,7 @@ class LinkWhitelist extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Replaces the current list with the seeded defaults.
+  /// Resets to default entries.
   void restoreDefaults() {
     _entries = List.of(_defaults);
     unawaited(_persist());

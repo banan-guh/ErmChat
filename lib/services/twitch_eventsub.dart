@@ -7,9 +7,7 @@ import 'connectivity_service.dart';
 import '../util/constants.dart';
 import '../util/log.dart';
 
-/// A channel.moderate v2 event: a moderator performed a moderation action.
-/// `action` is one of ban, timeout, unban, untimeout, clear, delete, mod,
-/// unmod, vip, unvip, warn (or shared_chat_* variants).
+/// A channel.moderate v2 event. `action` is ban, timeout, delete, mod, etc.
 class ModerationEvent {
   final String channel;
   final String action;
@@ -32,7 +30,7 @@ class ModerationEvent {
   });
 }
 
-/// A hype train event (broadcaster-only). [kind] is one of begin, progress, end.
+/// A hype train event. [kind] is begin, progress, or end.
 class HypeTrainEvent {
   final String channel;
   final String kind;
@@ -65,7 +63,7 @@ class HypeTrainContribution {
   });
 }
 
-/// A channel poll event (broadcaster-only). [kind] is one of begin, progress, end.
+/// A channel poll event. [kind] is begin, progress, or end.
 class PollEvent {
   final String channel;
   final String kind;
@@ -89,8 +87,7 @@ class PollChoice {
   PollChoice({required this.title, required this.votes});
 }
 
-/// A channel prediction event (broadcaster-only). [kind] is one of begin,
-/// progress, lock, end.
+/// A channel prediction event. [kind] is begin, progress, lock, or end.
 class PredictionEvent {
   final String channel;
   final String kind;
@@ -128,8 +125,7 @@ class EventSubService {
 
   WebSocketChannel? _channel;
   String? _sessionId;
-  // When the last frame of any kind arrived; used by [isStale] to spot a
-  // zombie session on app resume.
+  // Last frame arrival time; used by [isStale].
   DateTime _lastActivity = DateTime.now();
   Timer? _keepaliveTimer;
   Timer? _reconnectTimer;
@@ -162,17 +158,15 @@ class EventSubService {
   bool get isConnected => _channel != null;
   String? get sessionId => _sessionId;
 
-  /// True when the socket exists but no frame has arrived for well over the
-  /// keepalive window, i.e. a zombie session that never errored on its own
-  /// (e.g. frozen by the OS while backgrounded).
+  /// True when socket exists but no frame arrived for >1.5x keepalive
+  /// (zombie).
   bool get isStale {
     if (_channel == null) return false;
     final timeoutSeconds = (_keepaliveTimeout * 1.5).round();
     return DateTime.now().difference(_lastActivity).inSeconds > timeoutSeconds;
   }
 
-  /// Tears down a (possibly zombie) session and re-enters the reconnect path.
-  /// Used on app resume where [isConnected] alone can't be trusted.
+  /// Tears down zombie session and reconnects. Used on app resume.
   Future<void> forceReconnect() {
     if (_disposed || _connecting) return Future.value();
     disconnect();
@@ -244,8 +238,7 @@ class EventSubService {
         );
       } catch (e) {
         _safeComplete(null);
-        // A failed or timed-out handshake must not leave a socket behind,
-        // otherwise isConnected stays true and resume-time checks skip it.
+        // Prevent stale socket from keeping isConnected true on resume.
         _channel = null;
         _streamSub = null;
         _statusController.add(EventSubStatus.disconnected);
@@ -257,8 +250,7 @@ class EventSubService {
     }
   }
 
-  // Faster backoff than IRC (2^(n-1) vs 2^(n-2)): EventSub reconnects are
-  // cheaper since no channel rejoin is needed. Capped at 30s with jitter.
+  // Exponential backoff (2^(n-1)), capped 30s with jitter.
   void _scheduleReconnect() {
     if (_reconnecting || _disposed) return;
     if (!_isOnline) return;
@@ -285,9 +277,8 @@ class EventSubService {
     }
   }
 
-  /// Waits for the WebSocket handshake with an upper bound. The timeout timer
-  /// is tracked and cancelled on disconnect/dispose so a torn-down connect
-  /// never leaves a pending timer behind.
+  /// Waits for handshake with a timeout; timer cleaned up on
+  /// disconnect/dispose.
   Future<void> _waitForReady() {
     final channel = _channel;
     if (channel == null) return Future.value();
@@ -360,8 +351,7 @@ class EventSubService {
     }
   }
 
-  // Reset on any message, not just keepalives - Twitch may skip explicit
-  // keepalive frames during active chat. 1.5x multiplier gives grace period.
+  // Reset on any message (Twitch may skip keepalives). 1.5x grace period.
   void _resetKeepalive() {
     _lastActivity = DateTime.now();
     _keepaliveTimer?.cancel();
@@ -372,10 +362,8 @@ class EventSubService {
     });
   }
 
-  /// Routes EventSub notifications into typed events. Moderation is channel
-  /// agnostic (moderator subscriptions); hype train, polls and predictions are
-  /// broadcaster-only and only ever arrive for channels where the logged-in
-  /// user is the broadcaster.
+  /// Routes notifications into typed events. Mod is channel-agnostic;
+  /// hype/poll/prediction are broadcaster-only.
   void _onNotification(Map<String, dynamic> msg) {
     final meta = msg['metadata'] as Map<String, dynamic>;
     final type = meta['subscription_type'] as String? ?? '';

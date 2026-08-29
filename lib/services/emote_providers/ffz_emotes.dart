@@ -80,9 +80,7 @@ class FfzEmoteProvider {
     final name = item['name'] as String?;
     if (id == null || name == null) return null;
     final urls = item['urls'] as Map<String, dynamic>?;
-    // Chat renders at ~28dp; low prefers the 1x tier, medium/high the 2x. FFZ
-    // has no 3x size; its largest is 4x, which is used as the high-res
-    // sheet/menu asset (url3x) since the sheet needs something sharper than 2x.
+    // Low=1x, medium/high=2x. 4x used as sheet/menu high-res.
     final url1 = urls?['1'] as String?;
     final url2 = urls?['2'] as String?;
     final url4 = urls?['4'] as String?;
@@ -99,9 +97,7 @@ class FfzEmoteProvider {
     if (urlPart == null) return null;
     String abs(String url) => url.startsWith('http') ? url : 'https:$url';
     final isAnimated = item['animated'] == true;
-    // FFZ marks overlay ("modifier") emotes with a boolean on the set entry.
-    // modifier_flags carry positional offsets, which we ignore: modifiers
-    // simply stack centered like every other provider's zero-width emotes.
+    // FFZ modifier flag = zero-width overlay (offsets ignored).
     final isZeroWidth = item['modifier'] == true;
     return GenericEmote(
       id: id,

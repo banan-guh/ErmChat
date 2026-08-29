@@ -102,8 +102,7 @@ class _EmoteSheetState extends State<EmoteSheet>
     final theme = Theme.of(context);
     final owner = _ownerLabel(emote);
 
-    // The preview targets the largest scale (3x); the cached 2x from chat
-    // renders as the placeholder while it loads, then the 3x replaces it.
+    // Preview targets 3x; cached 2x shows as placeholder during load.
     final scaleUrls = _scaleUrls(emote);
     final previewUrl = scaleUrls.firstOrNull ?? emote.url;
     final alternateUrls = scaleUrls
@@ -233,8 +232,7 @@ class _EmoteSheetState extends State<EmoteSheet>
     );
   }
 
-  // Uniform height for the swipeable TabBarView: the tallest page across all
-  // emotes (image block vs. scaled text column, plus the three action rows).
+  // Uniform TabBarView height: tallest page across all emotes.
   double _pageHeight() {
     final scale = MediaQuery.textScalerOf(context).scale(1.0);
     var subRows = 0;

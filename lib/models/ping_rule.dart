@@ -3,26 +3,18 @@ import 'dart:convert';
 /// Which list a highlight rule belongs to.
 enum PingRuleKind { message, user, badge, blacklist }
 
-/// A single configurable highlight rule, persisted as JSON in
-/// SharedPreferences (`ping_rules_v1`).
-///
-/// - message rules: builtins (`username`, `reply`, `redemption`, `firstMsg`,
-///   `elevated`) plus user-defined keyword rules (`custom`)
-/// - user rules: highlight every message from one login
-/// - badge rules: highlight messages carrying a badge name
-/// - blacklist: render the message but never highlight or notify it
+/// Highlight rule, persisted as JSON in SharedPreferences (ping_rules_v1). Kinds: message (builtin+custom keywords), user, badge, blacklist.
 class PingRule {
   final String id;
   final PingRuleKind kind;
 
-  /// For message rules: which builtin/custom type. Unused for other kinds.
+  /// Builtin/custom type for message rules; unused for other kinds.
   final String type;
   final String pattern;
   final bool isRegex;
   final bool caseSensitive;
 
-  /// Literal patterns must match on word boundaries. Regexes ignore this
-  /// flag (hand-written lookarounds cover that case).
+  /// Literal patterns match on word boundaries; ignored for regex.
   final bool wordBoundary;
   final bool enabled;
   final bool notify;

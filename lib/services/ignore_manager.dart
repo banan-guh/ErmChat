@@ -5,18 +5,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/twitch_message.dart';
 
-/// One local ignore entry. With [replacement] null it deletes every message
-/// from a matching login outright (user ignores); with a replacement it
-/// rewrites matched keyword occurrences in message text instead. A keyword
-/// entry with [block] drops the whole message rather than rewriting it.
+/// Local ignore: null replacement deletes; with replacement rewrites; block drops whole message.
 class IgnoreEntry {
   final String id;
   final String pattern;
   final bool isRegex;
   final bool caseSensitive;
 
-  /// Literal patterns must match on word boundaries. Regexes ignore this
-  /// flag (hand-written lookarounds cover that case).
+  /// Literal patterns match on word boundaries (regexes ignore this flag).
   final bool wordBoundary;
   final bool block;
   final String? replacement;
@@ -85,15 +81,12 @@ class RewriteResult {
   bool get changed => edits.isNotEmpty;
 }
 
-/// Local ignores, separate from server-side Twitch blocks: user ignores
-/// delete messages outright, keyword rules rewrite them in place (dankchat
-/// style, default replacement "***").
+/// Local ignores: user deletes, keyword rewrites (default "***").
 class IgnoreManager extends ChangeNotifier {
   static const _usersKey = 'local_ignores_v1';
   static const _keywordsKey = 'keyword_replacements_v1';
 
-  /// Shared app-wide instance so settings screens edit the lists the live
-  /// pipeline consults; tests construct fresh instances.
+  /// Shared instance; tests construct fresh ones.
   static final IgnoreManager instance = IgnoreManager();
 
   List<IgnoreEntry> _users = [];
@@ -101,9 +94,7 @@ class IgnoreManager extends ChangeNotifier {
   bool _loaded = false;
   final Map<String, RegExp?> _regexCache = {};
 
-  /// Fast-path sets for common-case literal patterns (no regex, no word
-  /// boundary). Built on load/save/upsert/remove so the hot-path lookups
-  /// are O(1) instead of O(n).
+  /// O(1) literal-pattern sets for hot-path lookups.
   final Set<String> _literalUserPatterns = {};
   final Set<String> _literalBlockPatterns = {};
 
@@ -194,8 +185,7 @@ class IgnoreManager extends ChangeNotifier {
         '\u0000${entry.wordBoundary}';
     return _regexCache.putIfAbsent(key, () {
       try {
-        // Whole-word literals anchor via lookaround (not \b) so patterns
-        // starting or ending with non-word characters still bind correctly.
+        // Lookaround anchors (not \b) for non-word-char patterns.
         if (!entry.isRegex && entry.wordBoundary) {
           return RegExp(
             '(?<!\\w)${RegExp.escape(entry.pattern)}(?!\\w)',
@@ -214,7 +204,7 @@ class IgnoreManager extends ChangeNotifier {
     if (entry.isRegex || entry.wordBoundary) {
       final re = _regexFor(entry);
       if (re != null) return re.hasMatch(value);
-      // Invalid regex falls back to a literal comparison.
+      // Invalid regex: fall back to literal.
     }
     return entry.caseSensitive
         ? value.contains(entry.pattern)
@@ -228,8 +218,7 @@ class IgnoreManager extends ChangeNotifier {
     return _users.any((e) => e.pattern.isNotEmpty && matchesPattern(e, login));
   }
 
-  /// True when any block-mode keyword rule matches [text]: the whole message
-  /// is dropped at ingestion instead of rewritten.
+  /// True when any block keyword matches [text] (message dropped).
   bool isBlockedPhrase(String text) {
     final lower = text.toLowerCase();
     for (final p in _literalBlockPatterns) {
@@ -238,8 +227,7 @@ class IgnoreManager extends ChangeNotifier {
     return _keywords.any((e) => e.block && matchesPattern(e, text));
   }
 
-  /// Finds every non-overlapping keyword occurrence in [text]. Earliest
-  /// start wins; at equal starts the longest match replaces.
+  /// Finds non-overlapping keyword occurrences (earliest + longest wins).
   RewriteResult applyKeywordReplacements(String text) {
     if (!_loaded || text.isEmpty) return RewriteResult(text, const []);
     final candidates = <(int, int, String)>[];
@@ -270,7 +258,7 @@ class IgnoreManager extends ChangeNotifier {
     candidates.sort((a, b) {
       final byStart = a.$1.compareTo(b.$1);
       if (byStart != 0) return byStart;
-      // Longest first, then insertion order is irrelevant for determinism.
+      // Longest first for determinism.
       return (b.$2 - b.$1).compareTo(a.$2 - a.$1);
     });
     final chosen = <(int, int, String)>[];
@@ -295,10 +283,7 @@ class IgnoreManager extends ChangeNotifier {
   }
 }
 
-/// Rewrites a message's text with keyword replacements and realigns its
-/// emote positions, which arrive in IRC tags keyed to the original text.
-/// Emotes overlapping a replaced span are dropped (their coordinates no
-/// longer mean anything).
+/// Rewrites text and realigns emote positions; overlapping emotes dropped.
 void rewriteMessageKeywords(TwitchMessage msg, IgnoreManager manager) {
   final result = manager.applyKeywordReplacements(msg.text);
   if (!result.changed) return;

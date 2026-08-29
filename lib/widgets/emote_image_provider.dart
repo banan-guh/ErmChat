@@ -12,23 +12,13 @@ import 'emote_image.dart';
 
 const _emoteDownloadTimeout = Duration(seconds: 10);
 
-/// Caps concurrent decodes so a burst (e.g. the emote menu opening with
-/// dozens of animated WebP cells) doesn't spawn one isolate per emote at
-/// once.
+/// Caps concurrent decodes to avoid spawning too many isolates.
 const int _maxConcurrentDecodes = 10;
 final _DecodeSemaphore _decodeGate = _DecodeSemaphore(_maxConcurrentDecodes);
 
-/// Fetches raw emote bytes for [url], streaming through the emote disk cache
-/// when it has room and fetching straight into memory when it is full (see
-/// [EmoteCacheManager]).
+/// Fetches emote bytes, streaming through disk cache when room.
 Future<Uint8List> fetchEmoteBytes(String url) async {
-  // When there's room in the disk cache, stream through it (read cached file
-  // or download + persist) exactly as before. When the cache is full (or
-  // maxObjects == 0, meaning "always full" by design), skip disk entirely and
-  // fetch straight into memory: the temp-file overflow path is racy under
-  // concurrency (an overflow file can be evicted while another fetch is still
-  // reading it) and wastes disk I/O at the exact moment we can least afford
-  // it. The count read is TTL-cached, so the isFull probe is cheap.
+  // Stream through disk cache when room; skip to memory when full (overflow path is racy).
   if (!await EmoteCacheManager().isFull()) {
     await for (final response in EmoteCacheManager().getFileStream(url)) {
       if (response is FileInfo) {
@@ -37,8 +27,7 @@ Future<Uint8List> fetchEmoteBytes(String url) async {
     }
     throw StateError('no emote bytes for $url');
   }
-  // Full cache: serve an already-cached copy from disk when the repo still
-  // has it; only then fall back to the network.
+  // Full cache: try disk cache, then network.
   final cached = await EmoteCacheManager().getCachedFile(url);
   if (cached != null) {
     return cached.readAsBytes();
@@ -56,15 +45,7 @@ Future<Uint8List> fetchEmoteBytes(String url) async {
   return resp.bodyBytes;
 }
 
-/// [ImageProvider] for emote URLs.
-///
-/// Keyed by [url], so the stock [ImageCache] shares one decode and one
-/// playback stream between every widget rendering the same emote (and
-/// dedups in-flight fetches of the same URL).
-///
-/// Animated WebP decodes through the reinforced decoder (native libwebp,
-/// pure-Dart fallback); everything else (GIF, static WebP, PNG) falls through
-/// to the stock engine codec, which handles those formats correctly.
+/// ImageProvider for emote URLs. Keyed by [url] for shared decode/playback. Animated WebP via reinforced decoder; rest via engine codec.
 class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
   EmoteUrlProvider(this.url);
 
@@ -89,48 +70,27 @@ class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
     return _EmoteImageCompleter(url: key.url, engineDecode: decode);
   }
 
-  /// Seeds queued for URLs whose completer does not exist yet (or was just
-  /// dropped by the cache because nothing listened within its frame): keyed
-  /// by target URL, consumed by the next completer created for it.
+  /// Seeds queued by target URL for the next completer.
   static final Map<String, String> _pendingSeeds = {};
 
-  /// Playback frame-rate cap for completers driven by our decoder (animated
-  /// WebP and seeded GIFs), in frames per second. Wakes align to this grid so
-  /// N visible emotes request at most [fpsCap] app frames per second total.
-  /// 60 is effectively uncapped on 60 Hz displays; 0 pauses playback entirely
-  /// (the current frame stays shown). Synced from the 'emote_fps_cap' pref.
+  /// FPS cap for decoder-driven completers. 60 = uncapped, 0 = paused. Synced from prefs.
   static int fpsCap = 30;
 
-  /// When true, emotes rendered inside the emote panel play at their native
-  /// rate regardless of [fpsCap] (panel previews stay smooth while chat is
-  /// throttled). Synced from the 'always_animate_emote_panel' pref.
+  /// Panel emotes play at native rate regardless of [fpsCap]. Synced from prefs.
   static bool alwaysAnimatePanel = true;
 
-  /// Whether animated GIFs play. False freezes them at their current frame
-  /// (new ones decode as stills); animated WebP is unaffected. Synced from
-  /// the 'animate_gifs' pref, which is meaningless while [fpsCap] is 0 since
-  /// that pauses all playback anyway.
+  /// Whether animated GIFs play. False freezes at current frame. Synced from prefs.
   static bool gifsEnabled = true;
 
-  /// Adaptive throttling: when true, the effective cap is lowered below
-  /// [fpsCap] once many animated emotes are visible at once (see
-  /// [autoCapFor]), so a screenful of spam degrades smoothly instead of
-  /// stalling the pipeline. Synced from the 'emote_auto_throttle' pref.
+  /// Adaptive throttle: lowers effective cap when many animated emotes are visible. Synced from prefs.
   static bool adaptiveThrottle = true;
 
-  /// Adaptive tier thresholds over total live listeners on playback-capable
-  /// completers: above [adaptiveSoftLimit] the cap halves, above
-  /// [adaptiveHardLimit] it quarters, above [adaptiveStopLimit] playback
-  /// pauses entirely.
+  /// Adaptive tier thresholds. Cap halves/quarters/pauses at each.
   static const int adaptiveSoftLimit = 60;
   static const int adaptiveHardLimit = 150;
   static const int adaptiveStopLimit = 300;
 
-  /// Effective cap for a given visible-animated-emote load and user cap.
-  ///
-  /// Never raises the user's choice; floors at 1 fps so motion stays visible
-  /// until the stop tier pauses outright. A user cap of 0 stays 0 at every
-  /// tier.
+  /// Effective cap for a given listener count. Never raises user's choice; floors at 1 until stop tier.
   @visibleForTesting
   static int autoCapFor(int animatedListeners, int baseCap) {
     if (animatedListeners <= adaptiveSoftLimit) return baseCap;
@@ -143,32 +103,27 @@ class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
     return 0;
   }
 
-  /// Applies the adaptive-throttle toggle and re-evaluates every live
-  /// completer. Called on startup load and when the settings switch flips.
+  /// Toggles adaptive throttle and re-evaluates all live completers.
   static void applyAdaptiveThrottle(bool enabled) {
     adaptiveThrottle = enabled;
     refreshAdaptiveThrottle();
   }
 
-  /// Re-evaluates loop state across all live completers after any input to
-  /// the effective cap changed ([fpsCap], gifs toggle, listener counts).
+  /// Re-evaluates all live completers after cap input changes.
   static void refreshAdaptiveThrottle() {
     for (final completer in List.of(_liveByUrl.values)) {
       completer._refreshForFpsCap();
     }
   }
 
-  /// Total listeners currently attached to playback-capable completers: a
-  /// good proxy for how many animated copies are on screen right now.
+  /// Total listeners on playback-capable completers (animated copies on screen).
   static int get animatedListenerCount => _liveByUrl.values.fold(
     0,
     (total, completer) =>
         total + (completer._playbackCapable ? completer._listenerCount : 0),
   );
 
-  /// Applies a new frame-rate cap (clamped to 0..60) and immediately updates
-  /// every live completer: pausing loops at 0, restarting paused ones above
-  /// 0. Called on startup load and whenever the settings slider moves.
+  /// Sets FPS cap (0..60) and updates all live completers.
   static void applyFpsCap(int cap) {
     fpsCap = cap.clamp(0, 60);
     for (final completer in List.of(_liveByUrl.values)) {
@@ -176,9 +131,7 @@ class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
     }
   }
 
-  /// Toggles GIF animation and immediately freezes or resumes every live
-  /// animated-GIF completer. Called on startup load and when the setting
-  /// flips.
+  /// Toggles GIF animation, freezing/resuming live completers.
   static void applyGifsEnabled(bool enabled) {
     gifsEnabled = enabled;
     for (final completer in List.of(_liveByUrl.values)) {
@@ -186,58 +139,42 @@ class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
     }
   }
 
-  /// Registers [url]'s completer as uncapped (creating it on demand, which
-  /// starts the fetch like a resolve would). No-op when it cannot load.
+  /// Registers [url] as uncapped (creates completer on demand). No-op if unresolvable.
   static void addUncapped(String url) {
     _completerFor(url)?.addUncappedListener();
   }
 
-  /// Drops an uncapped registration made by [addUncapped]. Never creates a
-  /// completer: only already-live instances are consulted.
+  /// Removes an uncapped registration. Only affects live completers.
   static void removeUncapped(String url) {
     _liveByUrl[url]?.removeUncappedListener();
   }
 
-  /// Rounds an absolute wake target (in microseconds) up to the next grid
-  /// multiple so concurrent completers share wake instants. A non-positive
-  /// grid disables alignment. Exposed for tests.
+  /// Rounds wake target up to grid multiple for shared wake instants. Exposed for tests.
   @visibleForTesting
   static int alignWakeUsToGrid(int targetUs, int gridUs) {
     if (gridUs <= 0) return targetUs;
     return ((targetUs + gridUs - 1) ~/ gridUs) * gridUs;
   }
 
-  /// Live completers by URL. The stock [ImageCache] can drop a still-unlistened
-  /// pending completer between frames (its pending hold is released when no
-  /// listener attaches within the creating frame), which would silently fork
-  /// playback and lose the seed; this map keeps the authoritative instance
-  /// discoverable for [seedPlayback]/[currentFrame]. Entries are removed in
-  /// [onDisposed], mirroring cache lifetime.
+  /// Live completers by URL. Authoritative source (ImageCache may drop pending completers).
   static final Map<String, _EmoteImageCompleter> _liveByUrl = {};
 
-  /// Seeds the shared completer for [url] so its animation starts from the
-  /// frame [sourceUrl]'s completer is currently showing instead of frame 0
-  /// (used when a higher-res copy replaces a cached smaller scale, so the
-  /// swap continues the animation in phase). Ignored once [url] is already
-  /// playing or when [sourceUrl] has no frames yet.
+  /// Seeds [url]'s playback from [sourceUrl]'s current frame for in-phase swap.
   static void seedPlayback(String url, String sourceUrl) {
     _pendingSeeds[url] = sourceUrl;
     _completerFor(url)?.seedFrom(sourceUrl);
   }
 
-  /// Current frame index of the shared completer for [url] (0 when not
-  /// loaded). Exposed for tests.
+  /// Current frame index for [url] (0 when not loaded). Exposed for tests.
   @visibleForTesting
   static int currentFrame(String url) =>
       _completerFor(url)?.currentFrameIndex ?? 0;
 
-  /// Effective fps cap of the shared completer for [url] (-1 when absent).
-  @visibleForTesting
+  /// Effective FPS cap for [url] (-1 when absent). Exposed for tests.
   static int debugEffectiveCap(String url) =>
       _liveByUrl[url]?._effectiveFpsCap ?? -1;
 
-  /// The shared completer for [url], created on demand when missing (which
-  /// starts the fetch, matching what the stock [Image] widget would do).
+  /// Shared completer for [url], created on demand.
   static _EmoteImageCompleter? _completerFor(String url) {
     final live = _liveByUrl[url];
     if (live != null && !live._disposed) return live;
@@ -260,28 +197,10 @@ class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
   String toString() => 'EmoteUrlProvider($url)';
 }
 
-/// Streams an emote's frames to any number of listeners (one completer per
-/// URL, shared via the stock [ImageCache], so every widget showing the same
-/// emote renders the same frame at the same time).
-///
-/// Animated WebP frames come from our decoder and are played back here with
-/// the same scheduling scheme the engine's own [MultiFrameImageStreamCompleter]
-/// uses: frame emission only happens inside app-frame callbacks, and the
-/// callback loop halts when the last listener detaches. Because a freeze
-/// (Android battery optimization suspending the VM) collapses into one late
-/// tick whose frame timestamp jumps forward, playback lands on the correct
-/// frame instead of stalling or replaying every intermediate one. The frames
-/// stay alive while the completer is cached. Disposal (cache eviction)
-/// releases every frame.
-///
-/// Non-animated bytes are handed to a stock [MultiFrameImageStreamCompleter]
-/// (engine codec); its events are forwarded so this completer stays the only
-/// one the cache and widgets ever see.
+/// Streams emote frames to listeners (one completer per URL, shared via ImageCache). Animated WebP self-driven; non-animated forwarded from engine completer.
 class _EmoteImageCompleter extends ImageStreamCompleter {
   _EmoteImageCompleter({required this.url, required this._engineDecode}) {
-    // Pick up a seed queued by [EmoteUrlProvider.seedPlayback] before this
-    // instance existed (the cache can drop an unlistened completer, so the
-    // probe's target may not be the instance that survives).
+    // Pick up seed queued before this completer existed.
     final queued = EmoteUrlProvider._pendingSeeds[url];
     if (queued != null && queued != url) _seedFromUrl = queued;
     EmoteUrlProvider._liveByUrl[url] = this;
@@ -298,60 +217,36 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
   int? _frameCallbackId;
   bool _disposed = false;
 
-  /// Position within the animation cycle at the last processed tick. Kept
-  /// across pause/resume so playback resumes from the current frame.
+  /// Cycle position at last tick. Kept across pause/resume.
   Duration _cyclePosition = Duration.zero;
 
-  /// Number of attached listeners that requested uncapped playback (emote
-  /// panel cells when [EmoteUrlProvider.alwaysAnimatePanel] is set). While
-  /// any exist, this completer plays at its native rate regardless of the
-  /// global [EmoteUrlProvider.fpsCap], including at a cap of 0.
+  /// Count of uncapped listeners. While > 0, plays at native rate regardless of FPS cap.
   int _uncappedCount = 0;
 
-  /// Mirror of the framework's private listener count, feeding the adaptive
-  /// throttle's visible-load estimate ([EmoteUrlProvider.animatedListenerCount]).
+  /// Listener count for adaptive throttle's visible-load estimate.
   int _listenerCount = 0;
 
-  /// Whether this completer carries an animation worth throttling (multi
-  /// frame with a real cycle). Static images and frozen single-frame decodes
-  /// stay false so they never inflate the adaptive load.
+  /// Whether this completer has a throttling-worthy animation (multi-frame with real cycle).
   bool _playbackCapable = false;
 
-  /// Set when the decoded bytes are an animated GIF, so a gifs-disabled
-  /// toggle can freeze/resume this completer specifically.
+  /// True for animated GIFs; allows freeze/resume via gifs toggle.
   bool _isAnimatedGif = false;
 
-  /// Frame timestamp when [_cyclePosition] was last advanced. Null after a
-  /// stop, so the first tick back only re-anchors (no catch-up for time
-  /// spent paused); a freeze while playing keeps this set and the gap is
-  /// applied in one step.
+  /// Last advanced timestamp. Null after stop (re-anchor on resume). Set during freeze (gap applied in one step).
   Duration? _shownTimestamp;
   ImageStreamCompleter? _engineCompleter;
   ImageStreamListener? _engineListener;
 
-  /// The engine completer's codec, captured so an engine-path completer can
-  /// report its current frame index (the engine's own counter is private; we
-  /// mirror it via [_engineFramesDelivered]).
+  /// Engine codec; mirrors private frame counter via [_engineFramesDelivered].
   ui.Codec? _engineCodec;
 
-  /// Non-sync frames forwarded from the engine completer; the engine emits
-  /// its current frame synchronously on every listener attach (dropped by the
-  /// forwarder without incrementing), so this mirrors the engine's own frame
-  /// counter exactly.
+  /// Forwarded frame count (sync frames dropped).
   int _engineFramesDelivered = 0;
 
-  /// Source URL whose shared completer's current frame should seed this
-  /// completer's playback start (a cached smaller scale of the same emote).
+  /// Source URL for playback seed (cached smaller scale).
   String? _seedFromUrl;
 
-  /// Keeps the engine completer alive while this completer is alive.
-  ///
-  /// The engine completer disposes itself as soon as its last listener
-  /// detaches; without this handle, a widget re-attaching after a pause (cache
-  /// hit for the same URL) would `addListener` on a disposed engine completer
-  /// and throw. With the handle, detaching just pauses the engine (it cancels
-  /// its timer and bails out of pending frame callbacks) and re-attaching
-  /// resumes it.
+  /// Keeps engine completer alive. Prevents addListener-on-disposed throw after cache hit.
   ImageStreamCompleterHandle? _engineHandle;
 
   Future<void> _load() async {
@@ -366,11 +261,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
           format == EmoteFormat.gif && EmoteUrlProvider.gifsEnabled;
       _isAnimatedGif = format == EmoteFormat.gif;
       if (isWebpAnim || (gifAnimated && seeded)) {
-        // Animated WebP: our decoder (native libwebp, pure-Dart fallback).
-        // Animated GIF: the engine codec decodes (interlace, transparency and
-        // disposal are all solid), but seeding requires our own playback
-        // clock, so a GIF that must continue a smaller scale's animation is
-        // decoded here instead of handed to the engine completer.
+        // Animated WebP: our decoder. Animated GIF with seed: also our decoder (needs our clock).
         final frames = await _decodeGate.withPermit(
           () =>
               (EmoteUrlProvider.debugDecodeOverride ?? decodeEmoteBytes)(bytes),
@@ -382,10 +273,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
           _emitFrame(_frameIndex);
           _startPlayback();
         }
-        // Multi-frame with a real cycle: this completer now counts toward
-        // the adaptive throttle's visible-load estimate. Evaluated after the
-        // seeded start above: refreshing earlier would flip _isPlaying and
-        // make _applySeed abort.
+        // Counts toward adaptive load now that playback is confirmed.
         _playbackCapable =
             frames.frames.length > 1 && frames.totalDuration > Duration.zero;
         EmoteUrlProvider.refreshAdaptiveThrottle();
@@ -420,9 +308,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
           (codec) {
             if (!_disposed) {
               _engineCodec = codec;
-              // Engine-path animations are GIFs only (static WebP and PNG
-              // decode to a single frame); user freezes via gifsEnabled or
-              // the fps cap still count toward the adaptive load.
+              // Engine-path animations are GIFs only. User freezes still count toward adaptive load.
               _playbackCapable = codec.frameCount > 1;
               EmoteUrlProvider.refreshAdaptiveThrottle();
             }
@@ -438,20 +324,12 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
         );
         final listener = ImageStreamListener(
           (info, syncCall) {
-            // A synchronous delivery here is the engine's addListener
-            // handing its current frame to a freshly attached listener. Every
-            // listener already holds that frame (we forwarded it when the
-            // engine first emitted it), so re-broadcasting it via setImage
-            // would call setState on unrelated widgets that may be mid-build
-            // in another subtree. Drop it; the frame the new listener needs
-            // was already delivered synchronously by our own addListener.
+            // Drop sync delivery: engine's addListener hands current frame, already forwarded.
             if (syncCall) {
               info.dispose();
               return;
             }
-            // The engine can deliver a frame that was in flight when this
-            // completer was disposed (cache eviction); setImage on a disposed
-            // completer throws, so drop the handle instead.
+            // Drop frame delivered after disposal (cache eviction).
             if (_disposed) {
               info.dispose();
               return;
@@ -472,18 +350,12 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
       }
     } on Object catch (error, stack) {
       reportError(exception: error, stack: stack);
-      // The stock ImageCache keeps an errored completer in its pending map
-      // forever, so a fresh widget would keep getting the stale error with
-      // no retry. Evict ourselves so the next resolve fetches again.
+      // Evict on error: ImageCache keeps stale errors forever otherwise.
       PaintingBinding.instance.imageCache.evict(EmoteUrlProvider(url));
     }
   }
 
-  /// Seeds this completer's playback start from [sourceUrl]'s current frame.
-  /// Applies when the frames land (or immediately when they already have);
-  /// ignored once playback is running (the source clock and this clock are
-  /// the same in that case only if already in phase, which the shared
-  /// completer guarantees when playing).
+  /// Seeds from [sourceUrl]'s current frame. Applied when frames land; ignored if already playing.
   void seedFrom(String? sourceUrl) {
     if (_disposed || sourceUrl == null || sourceUrl == url) return;
     _seedFromUrl = sourceUrl;
@@ -511,8 +383,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
       );
       _frameIndex = _frameForOffset(frames, _cyclePosition.inMicroseconds);
     } else {
-      // Source plays on the engine-codec path (no self-managed frames);
-      // mirror its frame index into this completer's duration table. Seed
+      // Engine-path source: mirror its frame index. Seed
       // at the END of that frame's window: the engine source is already part
       // way through showing it and advances on its very next tick, and this
       // keeps the swap in phase with it.
@@ -528,13 +399,11 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
     }
   }
 
-  /// Whether the frame-callback loop is currently running (or a pending
-  /// timer will start it again).
+  /// Whether the playback loop is running or a pending timer will restart it.
   bool get _isPlaying =>
       _frameCallbackId != null || (_frameTimer?.isActive ?? false);
 
-  /// Current frame index: [_frameIndex] on the self-driven playback path, or
-  /// the mirrored engine counter on the engine path (0 when not loaded).
+  /// Current frame index (self-driven or engine-mirrored, 0 when not loaded).
   int get currentFrameIndex {
     final frames = _frames;
     if (frames != null) return _frameIndex;
@@ -544,9 +413,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
     return (delivered - 1) % codec.frameCount;
   }
 
-  /// Emits frame [index] as a clone handle (the completer's [setImage]
-  /// disposes the previous handle; the refcounted backing store survives
-  /// because we keep the originals in [_frames]).
+  /// Emits frame [index] as a clone. Original kept in [_frames].
   void _emitFrame(int index) {
     if (_disposed) return;
     final frames = _frames;
@@ -561,10 +428,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
     );
   }
 
-  /// Starts (or restarts) the frame-callback playback loop. Mirrors the
-  /// engine's [MultiFrameImageStreamCompleter]: app frames drive emission,
-  /// and a one-shot timer for the remaining frame duration only requests the
-  /// next app frame, so backgrounded/frozen apps never queue up work.
+  /// Starts the playback loop. App frames drive emission; timer requests next frame.
   void _startPlayback() {
     if (_disposed || !hasListeners) return;
     if (_isPlaying) return;
@@ -576,10 +440,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
     _scheduleAppFrame();
   }
 
-  /// Effective cap for this completer: panel-bypassed cells always run at
-  /// full rate (represented as grid size 0 = no alignment, never paused);
-  /// otherwise the user's cap, lowered through the adaptive tiers when many
-  /// animated emotes are visible at once.
+  /// Effective FPS cap: panel-bypassed = full rate; otherwise user's cap with adaptive tiers.
   int get _effectiveFpsCap {
     if (_uncappedCount > 0) return 60;
     if (!EmoteUrlProvider.adaptiveThrottle) return EmoteUrlProvider.fpsCap;
@@ -589,16 +450,14 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
     );
   }
 
-  /// Grid size in microseconds for wake alignment; 0 disables alignment.
-  /// Uncapped playback (panel bypass) also skips alignment.
+  /// Wake alignment grid in microseconds. 0 or uncapped = no alignment.
   int get _wakeGridUs {
     final cap = _effectiveFpsCap;
     if (cap <= 0 || cap >= 60) return 0;
     return 1000000 ~/ cap;
   }
 
-  /// Re-evaluates loop state after [EmoteUrlProvider.fpsCap] or a panel
-  /// bypass change: stops at an effective pause, restarts when unpaused.
+  /// Re-evaluates loop after cap/panel change: stop at pause, restart when unpaused.
   void _refreshForFpsCap() {
     if (_disposed || !hasListeners) return;
     if (_frames == null) return;
@@ -609,19 +468,13 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
     }
   }
 
-  /// Re-evaluates playback state after [EmoteUrlProvider.gifsEnabled] flips:
-  /// freezes animated GIFs only (engine path stops forwarding, self-driven
-  /// path stops its loop), resumes them when re-enabled. Other formats are
-  /// untouched.
+  /// Re-evaluates after gifsEnabled flip: freezes/resumes animated GIFs only.
   void _refreshForGifs() {
     if (_disposed || !_isAnimatedGif) return;
     final inner = _engineCompleter;
     final listener = _engineListener;
     if (inner != null && listener != null) {
-      // Engine-codec GIF: detaching forwarding freezes it at the current
-      // frame (the engine pauses itself once its last listener detaches);
-      // re-attaching resumes. Its synchronous current-frame delivery on
-      // attach is dropped by our forwarder, so no spurious rebuild.
+      // Engine GIF: detach freezes, re-attach resumes. Sync delivery dropped.
       if (!EmoteUrlProvider.gifsEnabled) {
         inner.removeListener(listener);
       } else if (hasListeners) {
@@ -637,8 +490,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
     }
   }
 
-  /// Registers/unregisters an uncapped listener (emote panel cell), keeping
-  /// the loop state in sync with the resulting effective cap.
+  /// Registers/unregisters an uncapped listener. Syncs loop state.
   void addUncappedListener() {
     _uncappedCount++;
     _refreshForFpsCap();
@@ -649,9 +501,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
     _refreshForFpsCap();
   }
 
-  /// Pauses playback: cancels any pending timer/frame callback and clears
-  /// [_shownTimestamp] so resuming re-anchors instead of applying the pause
-  /// gap. [_cyclePosition] is kept, so the same frame shows on resume.
+  /// Pauses playback. Clears timestamp for re-anchor on resume; keeps cycle position.
   void _stopPlayback() {
     _frameTimer?.cancel();
     _frameTimer = null;
@@ -683,8 +533,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
     final shown = _shownTimestamp;
     var posUs = _cyclePosition.inMicroseconds;
     if (shown != null) {
-      // Apply the full elapsed gap in one step: after a VM freeze the frame
-      // timestamp jumps forward and this lands directly on the right frame.
+      // Apply full elapsed gap in one step (handles VM freeze jumps).
       posUs = (posUs + (timeStamp - shown).inMicroseconds) % totalUs;
       _cyclePosition = Duration(microseconds: posUs);
       final index = _frameForOffset(frames, posUs);
@@ -694,9 +543,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
     }
     _shownTimestamp = timeStamp;
 
-    // Schedule the next tick at the end of the current frame's window,
-    // aligned up to the FPS-cap grid so concurrent emotes share wake times
-    // and the app requests at most cap frames per second in total.
+    // Schedule next tick at frame window end, aligned to FPS-cap grid.
     if (_frameTimer != null) return;
     final gridUs = _wakeGridUs;
     if (_effectiveFpsCap == 0) return; // Paused: stop the loop.
@@ -717,8 +564,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
     });
   }
 
-  /// Returns the frame index whose duration window covers [offsetUs] inside
-  /// the cycle.
+  /// Frame index covering [offsetUs] in the cycle.
   static int _frameForOffset(EmoteFrameData frames, int offsetUs) {
     var accumulated = 0;
     for (var i = 0; i < frames.durations.length; i++) {
@@ -768,9 +614,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
     if (_listenerCount > 0) _listenerCount--;
     _noteAdaptiveInput();
     if (hasListeners) return;
-    // Pause playback and stop forwarding the engine completer so a cached
-    // GIF doesn't keep decoding frames nobody is watching (the engine
-    // completer disposes itself once its last listener detaches).
+    // Pause playback and detach engine completer (stops decoding idle frames).
     _stopPlayback();
     final inner = _engineCompleter;
     final innerListener = _engineListener;
@@ -779,8 +623,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
     }
   }
 
-  /// A change to this completer's listener count shifts the global adaptive
-  /// load; re-evaluate every live loop against the new tier.
+  /// Shifts global adaptive load; re-evaluates all live loops.
   void _noteAdaptiveInput() {
     if (_playbackCapable) EmoteUrlProvider.refreshAdaptiveThrottle();
   }
@@ -821,10 +664,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
   }
 }
 
-/// Simple FIFO permit gate: [withPermit] runs [action] only once a permit is
-/// free, keeping at most [maxPermits] actions in flight (used to cap
-/// concurrent emote decodes so a grid burst doesn't spawn dozens of isolates
-/// at once).
+/// FIFO permit gate: runs [action] only when a permit is free. Caps concurrent decodes.
 class _DecodeSemaphore {
   _DecodeSemaphore(this.maxPermits) : _permits = maxPermits;
 

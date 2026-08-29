@@ -8,9 +8,7 @@ String resolveThreadRootId(String messageId, Map<String, String> parentOf) {
   return cur;
 }
 
-/// The thread identity of a message: an explicit reply root when present,
-/// otherwise the walk-to-root result of its reply-parent chain, otherwise the
-/// message's own id (a standalone thread of one).
+/// Thread root: explicit reply root, or walk-to-root of parent chain, or own id.
 String? threadKeyFor(TwitchMessage m, Map<String, String> parentOf) {
   if (m.replyThreadRootId != null) return m.replyThreadRootId;
   if (m.messageId != null && parentOf.containsKey(m.messageId)) {

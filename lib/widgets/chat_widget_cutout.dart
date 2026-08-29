@@ -2,9 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../services/twitch_eventsub.dart';
 
-/// The fixed "cutout" at the top of chat that hosts the broadcaster-only
-/// widget cards (poll / prediction / hype train). The cutout frame never
-/// moves; swiping sideways only slides the inner [PageView] between pages.
+/// Fixed cutout for broadcaster widget cards (poll/prediction/hype train).
 class ChatWidgetCutout extends StatelessWidget {
   const ChatWidgetCutout({
     super.key,
@@ -85,8 +83,7 @@ class ChatWidgetCutout extends StatelessWidget {
   }
 }
 
-/// The collapsed form of the cutout: a single slim row showing which widget
-/// types are active, with a restore button.
+/// Collapsed cutout: slim row with active widget labels and restore button.
 class ChatWidgetMinimizedBar extends StatelessWidget {
   const ChatWidgetMinimizedBar({
     super.key,

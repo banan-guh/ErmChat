@@ -89,8 +89,7 @@ List<Suggestion> filterSuggestions({
 }) {
   if (word.isEmpty) return const [];
 
-  // Slash words only match commands; users and emote codes cannot contain
-  // slashes. Typing "/" alone surfaces the whole (unfiltered) list.
+  // Slash words match only commands.
   if (word.startsWith('/')) {
     final results = <Suggestion>[];
     final lower = word.toLowerCase();
@@ -102,11 +101,8 @@ List<Suggestion> filterSuggestions({
     return results;
   }
 
-  // Score-based ranking (ported from dankchat's SuggestionProvider, itself
-  // Chatterino's SmartEmoteStrategy): shorter, case-exact, recently used
-  // matches rank first. Users carry a small penalty so emotes win near-ties.
-  // preferEmotesFirst keeps the classic type split: every emote before any
-  // user.
+  // Score-based: shorter, case-exact, recently used rank first. Users
+  // penalized.
   final emoteScored = <(Suggestion, int)>[];
   final matchedIds = <String>{};
   final lowerWord = word.toLowerCase();
@@ -170,11 +166,8 @@ const _noMatch = -1 << 62;
 const _userScorePenalty = 25;
 const _maxSuggestions = 100;
 
-// How costly it is to turn the query into the code: match anywhere
-// (case-insensitive), then charge for case differences and extra characters.
-// An exact-case match gets a flat -10; recently used emotes get a -50 boost.
-// Lower is better. Ported from dankchat's SuggestionProvider, which credits
-// Chatterino2's SmartEmoteStrategy by Mm2PL (chatterino2#4987).
+// Lower is better. Exact-case: -10, recently used: -50. Charges per case
+// diff and extra chars.
 int _scoreEmote(String code, String query, String lowerQuery, bool isRecentlyUsed) {
   final matchIndex = code.toLowerCase().indexOf(lowerQuery);
   if (matchIndex < 0) return _noMatch;

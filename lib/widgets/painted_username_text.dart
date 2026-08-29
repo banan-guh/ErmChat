@@ -4,12 +4,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import '../services/seven_tv_paint_service.dart';
 
-/// Username text filled with a 7TV paint. Listens to the service so a
-/// late-resolving lookup (batched GraphQL, image decode) repaints in place,
-/// which also works inside ChatView's cached-tile short-circuit.
-///
-/// Drop shadows render as a separate underlay so they keep their own colors
-/// instead of being recolored by the gradient mask.
+/// Username with 7TV paint fill. Listens for late resolution. Shadows render as separate underlay.
 class PaintedUsernameText extends StatelessWidget {
   final SevenTvPaintService service;
   final String? userId;
@@ -33,8 +28,7 @@ class PaintedUsernameText extends StatelessWidget {
     return ListenableBuilder(
       listenable: notifier,
       builder: (_, _) {
-        // Lookup doubles as the resolution trigger: unknown users are queued
-        // for the next batched fetch on first mount.
+    // Lookup triggers batched fetch for unknown users.
         final paint = notifier.value ?? service.lookup(userId);
         if (paint == null || paint.layers.isEmpty) {
           return _buildText(baseStyle);
@@ -68,8 +62,7 @@ class PaintedUsernameText extends StatelessWidget {
 
         final fallback =
             paint.fallbackColor ?? baseStyle.color ?? const Color(0xFF808080);
-        // Underlay keeps the shadow colors; the masked overlay carries the
-        // gradient once its shader is ready.
+        // Underlay for shadows; masked overlay for gradient.
         return Stack(
           clipBehavior: Clip.none,
           children: [
@@ -85,8 +78,7 @@ class PaintedUsernameText extends StatelessWidget {
     return ShaderMask(
       shaderCallback: (bounds) {
         final shader = service.shaderFor(paint, bounds.size);
-        // Image textures decode async; an empty gradient hides the overlay
-        // until then so only the shadowed fallback underlay shows.
+        // Empty gradient hides overlay until image textures decode.
         return shader ??
             ui.Gradient.linear(Offset.zero, Offset.zero, [
               const Color(0x00000000),

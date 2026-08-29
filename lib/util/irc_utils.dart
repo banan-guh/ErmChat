@@ -1,7 +1,4 @@
-/// Decodes a Twitch IRCv3 tag value. Twitch escapes tag values with
-/// backslashes (`\s` -> space, `\:` -> `;`, `\\` -> backslash, `\r`, `\n`);
-/// there is no percent-encoding in IRCv3 tags. Single-pass so `\\s` (escaped
-/// backslash followed by `s`) decodes to `\s`, not `\ `.
+/// Decodes a Twitch IRCv3 tag value. Escapes: \s->space, \::>;;, \\->backslash, \r, \n. Single-pass so \\s -> \s, not `\ ` (backslash-space).
 String unescapeIrcTag(String raw) {
   if (!raw.contains(r'\')) return raw;
   final buf = StringBuffer();

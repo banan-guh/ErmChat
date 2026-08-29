@@ -30,8 +30,7 @@ void main() async {
   runApp(const TwitchChatApp());
 }
 
-/// Starts chat-history fetches during boot, concurrent with secure storage
-/// and the first frame, instead of only after both complete.
+/// Pre-warms chat history during boot, concurrent with storage and first frame.
 Future<void> _warmHistory() async {
   try {
     final prefs = await SharedPreferences.getInstance();
@@ -160,8 +159,7 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
     try {
       await _twitchAuth.load();
     } catch (e) {
-      // A secure-storage failure must not hang the app on the loading
-      // spinner forever; fall back to anonymous.
+      // Fall back to anonymous so storage failure doesn't block startup.
       logDebug('Failed to load accounts: $e');
     }
     if (mounted) setState(() => _loaded = true);

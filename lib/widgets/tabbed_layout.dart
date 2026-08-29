@@ -91,20 +91,16 @@ class TabbedLayout extends StatefulWidget {
   final bool focusOnHalfDrag;
   final Color? tabBarColor;
 
-  /// Snappier page-settle spring (M3 Expressive fastSpatial, no-bouncy).
-  /// When false, stock PageScrollPhysics is used.
+  /// Snappier page-settle spring. False = stock PageScrollPhysics.
   final bool fastSnap;
 
-  /// When false, only the chat PageView is rendered (no channel tab strip).
-  /// Used by the hidden-chrome / fullscreen mode.
+  /// Off hides tab strip (hidden-chrome / fullscreen mode).
   final bool showTabBar;
 
-  /// Duration of the tab-strip show/hide animation. Zeroed (instant) when the
-  /// chrome is collapsed for the keyboard so it snaps shut instead of sliding.
+  /// Tab-strip show/hide animation duration. Zero = instant for keyboard collapse.
   final Duration tabBarAnimationDuration;
 
-  /// Overlay anchored top-right just below the tab strip (above the chat).
-  /// Used for the hidden-chrome menu arrow; stays visible in fullscreen.
+  /// Overlay anchored top-right below tab strip (hidden-chrome menu).
   final Widget? chromeMenu;
 
   static const double minEdgeExclusion = 20.0;
@@ -132,32 +128,16 @@ class TabbedLayout extends StatefulWidget {
 
 class TabbedLayoutState extends State<TabbedLayout>
     with TickerProviderStateMixin {
-  // The pager is the single writer. It is the only animated thing here, and
-  // everything else (tab indicator, focus, selection) is derived one-way from
-  // its physical position, committed through one funnel. Focus cannot
-  // disagree with the visible page because it IS round(visible page).
-  //
-  // This replaces the previous TabBarView + TabController pairing, where the
-  // framework wrote TabController.index behind our back at gesture boundaries
-  // (tap flights led the page, ScrollEnd wrote index back, interrupted
-  // animations notified with unreachable targets), which made focus-vs-page
-  // desync representable no matter how carefully listeners reconciled.
+  // Pager is single writer: indicator, focus, selection derived one-way from its position.
   PageController? _pageController;
 
-  // Visual mirror for the tab strip. Never animated by us: index is set
-  // instantly on integer crossings and the fractional position rides on
-  // [TabController.offset], the same writes TabBarView used, so the
-  // indicator behaves pixel-identically.
+  // Visual mirror for tab strip. Index set instantly; offset rides on [TabController.offset].
   TabController? _tabController;
 
   int _tabLength = 0;
-  // Last index reported upward (focus or select) or initialized with.
-  // Dedups settle commits; derived, never a competing writer.
+  // Last reported index. Dedups settle commits.
   int _lastReportedIndex = 0;
-  // While set, an animated jump to this index is in flight (tab tap or
-  // programmatic navigation). Intermediate page crossings are flyover: they
-  // must not focus or commit channels swept past. Cleared when the page
-  // lands or a finger grabs the pager.
+  // In-flight jump target. Intermediate crossings are flyover (no focus/commit). Cleared on land or finger grab.
   int? _programmaticTarget;
   // True while a finger holds the pager.
   bool _pointerDragging = false;
@@ -181,22 +161,10 @@ class TabbedLayoutState extends State<TabbedLayout>
     _programmaticTarget = null;
     _deferredProgrammaticIndex = null;
     _pointerDragging = false;
-    // The PageController is created once and kept across channel-count changes.
-    // A swap (dispose + new controller) makes Flutter reuse the surviving
-    // ScrollPosition, which keeps the OLD maxScrollExtent from the previous tab
-    // count; animateToPage(newIndex) then clamps to newIndex-1 and the pager
-    // stops one channel short of the added one. Keeping the controller attached
-    // lets the position recompute its extent against the new children. Only the
-    // TabController needs recreating, since it carries the tab count.
+    // PageController kept across tab-count changes (swap reuses stale ScrollPosition). Only TabController recreated.
     _pageController ??= PageController(initialPage: idx);
     _tabController = TabController(length: len, vsync: this, initialIndex: idx);
-    // initialPage only applies when the controller first attaches; on a
-    // controller swap the surviving scroll position keeps its old pixels, so
-    // the page must be forced to the selection once mounted. Route it through
-    // _goTo (which sets _programmaticTarget) rather than a bare jumpToPage:
-    // that suppresses the focusOnHalfDrag flyover commits that would otherwise
-    // select a channel swept past mid-transition, and a mid-transition rebuild
-    // from history/connection state then can't re-commit a neighbor.
+    // Force page to selection on controller swap via _goTo (suppresses flyover commits).
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _goTo(idx);
@@ -233,16 +201,14 @@ class TabbedLayoutState extends State<TabbedLayout>
 
     if (notification is ScrollStartNotification &&
         notification.dragDetails != null) {
-      // A finger grabbed the pager: any animated jump we were driving loses
-      // ownership, the finger decides from here.
+    // Finger grabbed pager: animated jump loses ownership.
       _pointerDragging = true;
       _programmaticTarget = null;
     }
 
     _mirrorPageToStrip(page);
 
-    // Half-drag focus: follow the nearest page while scrolling under finger
-    // or momentum, but never for the flyover of a targeted jump.
+    // Half-drag focus: follow nearest page, skip flyover of targeted jumps.
     if (notification is ScrollUpdateNotification &&
         !_isProgrammaticJump &&
         widget.focusOnHalfDrag) {
@@ -255,20 +221,11 @@ class TabbedLayoutState extends State<TabbedLayout>
 
     if (notification is ScrollEndNotification) {
       final wasDragging = _pointerDragging;
-      // Any scroll end means no finger is left on the pager. Lifts carry
-      // dragDetails, but a stolen pointer (back gesture, notification shade,
-      // app switcher) cancels the drag and its ScrollEnd has none. Treating
-      // only lifts as finger-up stranded this flag, and every later
-      // prop-driven selection parked in _deferredProgrammaticIndex forever:
-      // highlight moved, page did not.
+      // Scroll end = no finger. Stolen pointer (back/shade/switcher) cancels drag without dragDetails.
       _pointerDragging = false;
       final nearest = page.round().clamp(0, _tabLength - 1);
       if (!wasDragging) {
-        // Final rest: fling settle or targeted-jump arrival. A jump that
-        // did not land on its target was superseded or lost; the page's
-        // actual position wins. HomeScreen's selection guard is the single
-        // dedup point: never skip a report against the selectedIndex prop,
-        // which lags behind focus commits that rebuild nothing.
+        // Final rest: page's actual position wins. HomeScreen selection guard dedupes.
         _programmaticTarget = null;
         if (nearest != _lastReportedIndex) {
           _lastReportedIndex = nearest;
@@ -278,10 +235,7 @@ class TabbedLayoutState extends State<TabbedLayout>
         // Finger lift: the ballistic snap follows; its landing commits.
         _applyDeferredProgrammatic();
       } else {
-        // Pointer steal: the OS cancelled the drag, so no ballistic is
-        // coming and the pixels would rest mid-page forever. Commit the
-        // honest position, then settle through the normal jump path - or
-        // fly straight to a selection that arrived mid-drag.
+        // Pointer steal: commit honest position, settle or fly to deferred selection.
         _programmaticTarget = null;
         if (nearest != _lastReportedIndex) {
           _lastReportedIndex = nearest;
@@ -306,8 +260,7 @@ class TabbedLayoutState extends State<TabbedLayout>
     final pc = _pageController;
     final page = (pc != null && pc.hasClients) ? pc.page : null;
     if (page != null && page.round() == index) {
-      // Zero-distance jump: nothing will land, so settle the bookkeeping
-      // here. HomeScreen's guard dedupes when it already knows.
+      // Zero-distance jump: settle bookkeeping here.
       _programmaticTarget = null;
       if (_lastReportedIndex != index) {
         _lastReportedIndex = index;
@@ -316,11 +269,7 @@ class TabbedLayoutState extends State<TabbedLayout>
       return;
     }
     _programmaticTarget = index;
-    // Lazy PageView only lays out pages within the current maxScrollExtent, so
-    // after a channel is appended the extent is stale (still the old tab count)
-    // and animateToPage would clamp to newIndex-1, parking one channel short of
-    // the added one. forcePixels sets pixels without clamping, which forces the
-    // viewport to materialize the new page and recompute its extent.
+    // forcePixels past maxScrollExtent to materialize the new page (lazy PageView extent is stale).
     final vw = pc!.position.viewportDimension;
     final target = index * vw;
     if (target > pc.position.maxScrollExtent) {
@@ -337,9 +286,7 @@ class TabbedLayoutState extends State<TabbedLayout>
   }
 
   void _onTabTap(int index) {
-    // Commit on landing, not at tap: a tap whose flight is caught and
-    // dragged back commits nothing for the abandoned channel. Until then the
-    // jump target suppresses flyover commits.
+    // Commit on landing, not at tap (flight may be dragged back).
     _goTo(index);
   }
 
@@ -363,9 +310,7 @@ class TabbedLayoutState extends State<TabbedLayout>
     if (len != _tabLength) {
       _initControllers();
     } else if (len > 0) {
-      // A selection change that did not originate from this widget's pager
-      // (notification tap, channel list change). The pager follows it, but
-      // never while a finger holds the page: defer to lift.
+      // Externally-driven selection change. Pager follows unless finger is down (defers to lift).
       final idx = widget.selectedIndex.clamp(0, len - 1);
       if (idx != _lastReportedIndex) {
         if (_pointerDragging) {
@@ -509,15 +454,7 @@ class TabbedLayoutState extends State<TabbedLayout>
   }
 }
 
-// Covers the OS-reserved edge-gesture strip (systemGestureInsets) so a swipe
-// that starts there is claimed here instead of by the pager's PageView.
-// The OS back gesture then wins and the channel does not switch.
-//
-// It must NOT be opaque: an opaque box would swallow every pointer event in the
-// strip, including taps/long-press on edge messages and emotes. Using a
-// translucent GestureDetector that registers only a horizontal-drag recognizer
-// means taps, long-press, and vertical scrolling fall through to the content
-// beneath, while a horizontal drag is still captured so the page never moves.
+// Covers OS edge-gesture strip so swipes are captured (back gesture wins). Must be translucent to pass taps/vertical scroll through.
 class EdgeExclusionZone extends StatelessWidget {
   const EdgeExclusionZone({super.key});
 

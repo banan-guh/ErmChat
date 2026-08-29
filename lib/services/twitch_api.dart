@@ -17,8 +17,7 @@ class TwitchApi {
   /// HTTP status of the last failed call, or null when no HTTP error.
   int? get lastErrorStatus => _lastErrorStatus;
 
-  /// Human-readable `message` from the Helix error body, or null when the
-  /// failure wasn't an HTTP error.
+  /// Helix error `message`, or null.
   String? get lastHelixMessage => _lastHelixMessage;
 
   late http.Client _client;
@@ -87,10 +86,8 @@ class TwitchApi {
     }
   }
 
-  /// Resolves user IDs to their lowercase login names (Helix GET /users,
-  /// batched at 100 IDs per request). Returns an id -> login map; IDs that
-  /// fail to resolve are simply absent. Used to label subscriber-emote owners
-  /// that aren't currently open channels.
+  /// ID-to-login map via Helix GET /users (batched at 100). Unresolved IDs
+  /// are absent.
   Future<Map<String, String>> getUserLoginsByIds(
     TwitchAuth auth,
     List<String> ids,
@@ -98,8 +95,7 @@ class TwitchApi {
     _clearError();
     final result = <String, String>{};
     final uniqueIds = ids.toSet().toList();
-    // Helix /users accepts up to 100 id params per request; chunk so a large
-    // batch doesn't spawn one request per ID.
+    // Helix caps at 100 ids per request; chunk accordingly.
     const chunkSize = 100;
     for (var i = 0; i < uniqueIds.length; i += chunkSize) {
       var end = i + chunkSize;
@@ -236,8 +232,7 @@ class TwitchApi {
     return false;
   }
 
-  /// Fetches the account's full block list, following pagination (100/page).
-  /// Returns lowercased blocked user logins; empty on failure (fail-open).
+  /// Full paginated block list. Lowercased logins; empty on failure.
   Future<Set<String>> getBlockedUsers(TwitchAuth auth) async {
     _clearError();
     final logins = <String>{};
@@ -370,9 +365,7 @@ class TwitchApi {
     return false;
   }
 
-  /// Warns a user in the broadcaster's channel. The warning arrives as an
-  /// EventSub/IRC moderation event; no local echo is needed beyond the
-  /// command's own success notice.
+  /// Warns a user. Arrives as an EventSub/IRC moderation event.
   Future<bool> warnUser(
     TwitchAuth auth, {
     required String broadcasterId,
@@ -456,8 +449,7 @@ class TwitchApi {
     return false;
   }
 
-  /// Fetches the moderator logins of a channel (paginated, 100/page).
-  /// Empty on failure.
+  /// Paginated moderator logins; empty on failure.
   Future<List<String>> getModerators(
     TwitchAuth auth,
     String broadcasterId,
@@ -524,8 +516,7 @@ class TwitchApi {
     return false;
   }
 
-  /// Fetches the VIP logins of a channel (paginated, 100/page).
-  /// Empty on failure.
+  /// Paginated VIP logins; empty on failure.
   Future<List<String>> getVips(TwitchAuth auth, String broadcasterId) async {
     _clearError();
     final logins = <String>[];
@@ -589,8 +580,7 @@ class TwitchApi {
     return false;
   }
 
-  /// PATCH /helix/chat/settings with the given body fields (e.g.
-  /// slow_mode, follower_mode, emote_mode, subscriber_mode, unique_chat_mode).
+  /// PATCHes chat settings (slow, follower, emote, subscriber, unique mode).
   Future<bool> updateChatSettings(
     TwitchAuth auth, {
     required String broadcasterId,
@@ -693,8 +683,7 @@ class TwitchApi {
     return false;
   }
 
-  // Polls / predictions are broadcaster-only Helix resources. The commands
-  // surface 403s through the shared failure-notice path.
+  // Broadcaster-only; 403s surface via the shared failure-notice path.
 
   /// Creates a poll (2-5 choices, 15-1800s duration enforced by the caller).
   Future<bool> createPoll(
@@ -720,8 +709,7 @@ class TwitchApi {
     return false;
   }
 
-  /// Ends the given poll: TERMINATED closes it showing results, ARCHIVED
-  /// closes and archives it without showing results.
+  /// Ends a poll. TERMINATED shows results; ARCHIVED does not.
   Future<bool> endPoll(
     TwitchAuth auth, {
     required String broadcasterId,
@@ -744,8 +732,7 @@ class TwitchApi {
     return false;
   }
 
-  /// The channel's polls, newest first. Empty on HTTP failure; callers
-  /// distinguish via lastErrorStatus (getModerators pattern).
+  /// Channel polls, newest first. Empty on failure.
   Future<List<Map<String, dynamic>>> getPolls(
     TwitchAuth auth,
     String broadcasterId,
@@ -790,8 +777,8 @@ class TwitchApi {
     return false;
   }
 
-  /// Ends a prediction: LOCKED stops new votes, CANCELED refunds votes,
-  /// RESOLVED awards winners ([winningOutcomeId] required).
+  /// Ends a prediction. LOCKED/CANCELED/RESOLVED; RESOLVED needs
+  /// [winningOutcomeId].
   Future<bool> endPrediction(
     TwitchAuth auth, {
     required String broadcasterId,
@@ -817,8 +804,7 @@ class TwitchApi {
     return false;
   }
 
-  /// The channel's predictions, newest first. Same error semantics as
-  /// [getPolls].
+  /// Channel predictions, newest first.
   Future<List<Map<String, dynamic>>> getPredictions(
     TwitchAuth auth,
     String broadcasterId,
@@ -862,12 +848,8 @@ class TwitchApi {
     'Content-Type': 'application/json',
   };
 
-  /// Validates the access token against Twitch. Returns the login/userId
-  /// and remaining lifetime on success, null on any failure.
-  ///
-  /// Caller should check [lastErrorStatus] after a null return: only
-  /// HTTP 401 means the token is definitively dead; network errors are not
-  /// a reason to treat the token as expired.
+  /// Validates the token. Returns login/userId/expiresIn on success. Null on
+  /// failure; check [lastErrorStatus] -- only 401 is definitive.
   Future<({String login, String userId, int expiresIn})?> validateToken(
     TwitchAuth auth,
   ) async {

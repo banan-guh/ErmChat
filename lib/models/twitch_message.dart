@@ -26,29 +26,24 @@ class TwitchMessage {
   final Color? systemAccent;
   final bool isAction;
 
-  /// Set on ban/timeout system messages from CLEARCHAT so the robotty
-  /// history sweep can tell them apart from other system messages that
-  /// legitimately carry a login (e.g. announcements).
+  /// True for CLEARCHAT ban/timeout messages, so history sweep distinguishes them from announcements.
   final bool isBanNotice;
   String? messageId;
   final String? channel;
   bool deleted;
   final bool isHistory;
 
-  /// True for messages backfilled from history after a disconnect/reconnect
-  /// gap, so the UI can grey them out to distinguish catch-up from live chat.
+  /// Backfilled from history after a reconnect gap; UI greys these out.
   bool isBackfill;
   String? replyToParentId;
   final String? replyToUser;
   final String? replyToText;
   String? replyThreadRootId;
 
-  /// Set by the ping engine when one or more highlight rules matched.
-  /// Null means unhighlighted.
+  /// Set by the ping engine when rules matched; null = unhighlighted.
   HighlightState? highlight;
 
-  /// Convenience for call sites that only care whether the message is
-  /// highlighted at all.
+  /// Whether the message is highlighted.
   bool get isHighlighted => highlight != null;
 
   String? userId;
@@ -63,30 +58,23 @@ class TwitchMessage {
   /// `pinned-chat-paid-amount` value on elevated (Hype Chat) messages.
   final String? pinnedPaidAmount;
 
-  /// Amount of bits cheered with this message (PRIVMSG `bits` tag), or null
-  /// for non-cheer messages.
+  /// Bits cheered (PRIVMSG bits tag), or null for non-cheers.
   final int? bitsAmount;
   final List<EmotePosition>? emotePositions;
   final List<MessageBadge>? badges;
   final String? sourceBroadcasterId;
 
-  /// The original message id from the shared-chat source channel
-  /// (PRIVMSG/USERNOTICE `source-id` tag). Stable across every mirrored copy,
-  /// unlike [messageId] which is unique per receiving room.
+  /// Source-channel message id (source-id tag). Stable across mirrored copies, unlike [messageId].
   final String? sourceMessageId;
   List<InlineSpan>? cachedSpans;
-  // EmoteManager.version at which cachedSpans was computed; when the manager
-  // notifies a higher version, the spans are rebuilt lazily on next render.
+  // EmoteManager.version when cachedSpans was built; rebuilt on next render when version bumps.
   int? cachedSpansVersion;
-  // The text scale that cachedSpans were built for. Cached spans embed
-  // absolute emote pixel sizes, so a scale change must rebuild them (text
-  // resizes and emotes follow).
+  // Text scale when cachedSpans was built; scale change forces rebuild (emotes are absolute-size).
   double? cachedSpansScale;
   List<WidgetSpan>? cachedBadgeSpans;
   int? cachedBadgeSpansVersion;
 
-  /// The badge scale the cached badge spans were built for; cached spans
-  /// embed absolute pixel sizes, so a scale change must rebuild them.
+  /// Badge scale when cachedBadgeSpans was built; scale change forces rebuild.
   double? cachedBadgeSpansScale;
   late final String formattedUsername =
       displayName.toLowerCase() == login.toLowerCase()

@@ -6,8 +6,7 @@ class NotificationService {
       FlutterLocalNotificationsPlugin();
   final _tapController = StreamController<String>.broadcast();
   String? _pendingLaunchChannel;
-  // Monotonic suffix so two mentions in the same second get distinct IDs
-  // (a bare epoch-second ID would replace the first notification).
+  // Monotonic suffix for distinct IDs within the same second.
   int _idSeq = 0;
 
   Stream<String> get onNotificationTap => _tapController.stream;
@@ -60,12 +59,10 @@ class NotificationService {
   }
 
   static const _groupKey = 'chat_mentions_group';
-  // Fixed ID for the group summary; individual IDs are epoch seconds so a
-  // collision is impossible.
+  // Fixed summary ID; individual IDs are epoch seconds (no collision).
   static const _summaryId = 1;
 
-  // Posted notifications grouped for per-channel cancellation, plus the
-  // ordered one-line summaries shown in the Android group summary.
+  // Per-channel notification ids + ordered summary lines.
   final _idsByChannel = <String, List<int>>{};
   final _postedIds = <int>{};
   final _summaryOrder = <int>[];
@@ -159,7 +156,7 @@ class NotificationService {
         contentTitle: 'You have new mentions',
         summaryText: '${_summaryOrder.length} mentions',
       ),
-      // Only the summary should alert; the children stay silent.
+      // Summary alerts only; children stay silent.
       playSound: false,
       enableVibration: false,
     );
@@ -174,9 +171,7 @@ class NotificationService {
   static String _truncate(String message) =>
       message.length > 200 ? '${message.substring(0, 200)}...' : message;
 
-  /// Cancels posted mention notifications. Without [channel] everything is
-  /// cleared (app resumed, toggle switched off); with it only that channel's
-  /// notifications go (user opened the channel).
+  /// Cancels mention notifications (all or per-channel).
   Future<void> clearMentionNotifications([String? channel]) async {
     Iterable<int> ids;
     if (channel == null) {

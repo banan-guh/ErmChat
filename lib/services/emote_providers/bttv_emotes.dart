@@ -8,9 +8,7 @@ import '../../util/log.dart';
 import '../data_usage.dart';
 
 class BttvEmoteProvider {
-  // BTTV's API does not mark overlay emotes in any way, so every client
-  // hardcodes the seasonal/covid overlay codes (chatterino/TwitchDownloader
-  // list). Anything else renders as a normal emote.
+  // BTTV overlay codes: hardcoded (API doesn't mark them).
   static const _zeroWidthCodes = {
     'SoSnowy',
     'IceCold',
@@ -85,12 +83,7 @@ class BttvEmoteProvider {
       if (id == null || code == null) continue;
 
       final isAnimated = item['imageType'] == 'gif';
-      // Chat renders at ~28dp; low fetches the 1x tier, medium/high the 2x
-      // (56px) which covers up to 2x device pixel ratio without the byte cost
-      // of 3x. 3x stays for the large sheet/menu on high only. The 1x/3x URLs
-      // are always derivable from the pattern, so both scale fields are
-      // populated regardless of tier (1x doubles as the cached-fallback
-      // placeholder).
+      // Low=1x, medium/high=2x. 3x for sheet on high only.
       final url = resolution == EmoteResolution.low
           ? 'https://cdn.betterttv.net/emote/$id/1x'
           : 'https://cdn.betterttv.net/emote/$id/2x';
@@ -108,8 +101,7 @@ class BttvEmoteProvider {
           'BTTV: unexpected zeroWidth field type: ${zwField.runtimeType}',
         );
       }
-      // The API never sends the field today; the hardcoded list is what
-      // actually drives overlay rendering.
+      // API never sends zeroWidth; hardcoded list drives overlay rendering.
       isZeroWidth = isZeroWidth || _zeroWidthCodes.contains(code);
 
       emotes.add(

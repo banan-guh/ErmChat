@@ -4,33 +4,17 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
-/// Whether app-level debug logging is enabled.
-///
-/// Tests set this to false (via `test/flutter_test_config.dart`) to keep the
-/// test console readable. The Flutter test binding forces [debugPrint] to a
-/// synchronous console printer, so silencing has to happen at this hook.
+/// Whether debug logging is enabled. Tests set this to false.
 bool debugLogEnabled = true;
 
-/// App logging hook. Call this instead of [debugPrint] so the test suite can
-/// silence chat-pipeline noise (IRC joins, badge fetch failures, reconnect
-/// diagnostics) without touching the binding's [debugPrint] plumbing.
+/// App logging hook. Use instead of [debugPrint] so tests can silence noise.
 void logDebug(String? message, {int? wrapWidth}) {
   if (debugLogEnabled) {
     debugPrint(message, wrapWidth: wrapWidth);
   }
 }
 
-/// Flight recorder for diagnosing erratic freezes.
-///
-/// Keeps a bounded in-memory ring buffer of timestamped records, mirrors each
-/// one to the console via [logDebug], and periodically flushes the buffer to
-/// `perf_log.txt` in the app documents directory. On startup the previous
-/// session's file is rotated to `perf_log.prev.txt`, so a freeze that ends in
-/// a force-kill can still be diagnosed after relaunch (open Dev settings >
-/// Performance log).
-///
-/// All file IO is best-effort: any failure silently degrades to in-memory
-/// only. Logging must never crash the app or distort timings.
+/// Ring-buffer performance log, flushed to perf_log.txt. Previous session rotated to perf_log.prev.txt on startup (Dev settings > Performance log).
 class PerfLog {
   PerfLog._();
   static final PerfLog I = PerfLog._();
@@ -44,8 +28,7 @@ class PerfLog {
   Timer? _flushTimer;
   bool _dirty = false;
 
-  /// Rotates the previous session's log aside and prepares a fresh file.
-  /// Safe to call multiple times; only the first call does work.
+  /// Rotates previous log and prepares a fresh file. Idempotent.
   Future<void> init() async {
     if (_file != null) return;
     try {

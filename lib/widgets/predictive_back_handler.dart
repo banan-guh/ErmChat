@@ -1,18 +1,7 @@
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
-/// Routes Android predictive back gestures to the inline thread/mentions
-/// panels.
-///
-/// Registered as a [WidgetsBindingObserver] while the home screen is mounted.
-/// Accepts the gesture only when a panel is open (thread/mentions); the
-/// closed state (and the emote menu) declines, so the home route's normal
-/// back handling - PopScope - keeps working for them.
-///
-/// While accepted, the system draws the predictive back arrow and this handler
-/// reports gesture progress so the panel can shrink following the drag.
-/// Holding the gesture freezes the panel; cancel animates it back; commit
-/// closes it.
+/// Routes Android predictive back to thread/mentions panels. Accepts when panel open; reports progress for shrink/freeze/cancel/commit.
 class PanelPredictiveBackHandler with WidgetsBindingObserver {
   PanelPredictiveBackHandler({
     required this._isPanelOpen,

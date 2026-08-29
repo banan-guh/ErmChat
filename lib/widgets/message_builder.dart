@@ -25,10 +25,7 @@ class MessageBuilder {
     LinkWhitelist? linkWhitelist,
   }) : linkWhitelist = linkWhitelist ?? LinkWhitelist.instance;
 
-  /// Composite cache key for message spans: emote data changes recompute
-  /// spans, and so do late-arriving shared-chat identity lookups (the source
-  /// channel login decides which emote map a mirrored message resolves
-  /// against). Prime multiplier keeps the components collision-free.
+  /// Composite cache key for message spans. Prime multiplier avoids collisions.
   int get _spanCacheVersion =>
       emoteManager.version * 1000003 +
       badgeService.version +
@@ -54,8 +51,7 @@ class MessageBuilder {
     if (colored) {
       return [
         ...msg.cachedSpans!.map((span) {
-          // Links keep their own blue style; repainting them in the action
-          // color hides that they are clickable.
+    // Links keep blue style (repainting hides clickability).
           if (span is TextSpan && span.recognizer == null) {
             return TextSpan(
               text: span.text,
@@ -79,9 +75,7 @@ class MessageBuilder {
     String channel, {
     double scale = 1.0,
   }) {
-    // Shared-chat messages resolve third-party emotes against the source
-    // channel's set (DankChat-style); until its login is known the host map
-    // is the best available and a later identity bump rebuilds these spans.
+    // Shared-chat: resolve emotes against source channel's set.
     final lookupChannel = msg.sourceBroadcasterId != null
         ? badgeService.resolveChannelLogin(msg.sourceBroadcasterId!) ?? channel
         : channel;
@@ -101,8 +95,7 @@ class MessageBuilder {
     TwitchMessage msg, {
     double badgeScale = 1.0,
   }) {
-    // Badge spans depend on third-party badge data, on the shared-chat
-    // avatar/name lookup, and on the scale baked into their pixel sizes.
+    // Badge cache depends on third-party data, shared-chat lookup, and scale.
     final cacheVersion =
         thirdPartyBadgeService.version * 1000003 + badgeService.version;
     final stale =

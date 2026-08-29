@@ -398,36 +398,27 @@ class EmoteManager extends ChangeNotifier {
     super.notifyListeners();
   }
 
-  /// Consumed by the home screen listener to only invalidate
-  /// spans for the channel whose emotes actually changed.
-  /// Side-effect getter renamed to method for clarity.
+  /// Channel whose emotes changed; cleared on read.
   String? consumeChangedChannel() {
     final c = _changedChannel;
     _changedChannel = null;
     return c;
   }
 
-  // Emote codes touched by the last 7TV delta per channel (added codes,
-  // removed codes, rename old+new). Only set by updateSevenTvEmotes; other
-  // notifies leave it absent so callers can treat them as full refetches.
+  // 7TV delta codes per channel; absent after non-delta notifies.
   final _lastChangedCodes = <String, Set<String>>{};
 
-  /// Consumes and clears the emote codes touched by the last 7TV delta for
-  /// [channel]. Returns null when the last notify was not a 7TV delta (full
-  /// refetch, tier change), in which case callers should refresh everything.
+  /// Last 7TV delta codes for [channel]; null means full refetch.
   Set<String>? consumeChangedCodes(String channel) {
     return _lastChangedCodes.remove(channel);
   }
 
-  // Live 7TV emote list per channel as of the last WebSocket delta. Re-applied
-  // whenever a fetch rebuilds the channel cache, so an in-flight fetch that
-  // started before a delta can't clobber the live add/remove/rename.
+  // Live 7TV list; re-applied after fetch rebuilds to avoid clobbering.
   final _sevenTvLive = <String, List<GenericEmote>>{};
 
   set accessToken(String? value) => _accessToken = value;
 
-  // Three-way merge: channel-only, global-only, or global+channel with channel
-  // overriding. Result cached in _mergedCache, invalidated on any notify().
+  // Merged emotes: channel overrides global. Cached until notify.
   ChannelEmotes? byCode(String channel) {
     final cached = _mergedCache[channel];
     if (cached != null) return cached;
@@ -448,8 +439,7 @@ class EmoteManager extends ChangeNotifier {
     return result;
   }
 
-  // Display order for the global emote grid: 7TV, Twitch, BTTV, FFZ (differs
-  // from _providerPriority, which is the dedup precedence).
+  // Display order for global grid (differs from dedup priority).
   static const _globalSortPriority = {
     EmoteType.sevenTv: 0,
     EmoteType.twitch: 1,
@@ -464,8 +454,7 @@ class EmoteManager extends ChangeNotifier {
     EmoteType.ffz: 'FrankerFaceZ',
   };
 
-  // Global emotes grouped by provider for the emote sheet, in display order
-  // (7TV, Twitch, BTTV, FFZ); each group sorted by code.
+  // Global emotes by provider, in display order, sorted by code.
   Map<String, List<GenericEmote>> globalEmotesByProvider() {
     final cached = _filterVisible(_globalCache);
     if (cached == null) return {};
@@ -494,8 +483,7 @@ class EmoteManager extends ChangeNotifier {
       ..sort((a, b) => a.code.compareTo(b.code));
   }
 
-  /// Whether [channel]'s emote cache has been resolved at least once (even a
-  /// stale copy counts; revalidation happens in the background).
+  /// Whether [channel]'s cache exists (stale is fine).
   bool hasChannelCache(String channel) => _channelCaches.containsKey(channel);
 
   /// Whether the global emote cache has been resolved at least once.
@@ -507,12 +495,7 @@ class EmoteManager extends ChangeNotifier {
     if (!_isProviderOn(EmoteType.twitch)) return {};
     final cached = _subsByChannelCache;
     if (cached != null) return cached;
-    // The account's sub emotes are fanned into every open channel's store, so
-    // group by the emote's real owner (ownerChannel) instead of the storage
-    // channel and dedup by id: each emote appears exactly once, under the
-    // channel that owns it. Unknown owners fall back to ownerId (stable per
-    // owner) so a not-yet-resolved login still separates into its own group
-    // instead of collapsing into a storage channel.
+    // Group subs by ownerChannel (or ownerId), dedup by id.
     final byOwner = <String, GenericEmote>{};
     final ownerOf = <String, String>{};
     final keys = _channelTwitchEmotes.keys.toList()..sort();
@@ -551,16 +534,11 @@ class EmoteManager extends ChangeNotifier {
   SharedPreferences? _prefs;
 
   // ── Provider visibility toggles ─────────────────────────────────────
-  // Disabling a provider gates its fetches AND drops it from every merged
-  // cache (chat rendering, autocomplete, sheet/menu grids), so hidden
-  // providers never surface anywhere.
   static const _disabledProvidersKey = 'emote_providers_disabled';
   final Set<EmoteType> _disabledProviders = {};
   bool _providersLoaded = false;
 
-  // Whether 7TV emotes flagged unlisted render. They are always fetched and
-  // cached; this only gates read-time visibility (see [_filterVisible]), so
-  // flipping it rebuilds the merged caches without any network work.
+  // Whether unlisted 7TV emotes render. Fetch-only; flip rebuilds caches.
   static const _allowUnlisted7tvKey = 'emote_7tv_allow_unlisted';
   bool _allowUnlisted7tv = false;
 
@@ -574,9 +552,7 @@ class EmoteManager extends ChangeNotifier {
       for (final t in EmoteType.values) {
         if (raw.contains(t.name)) _disabledProviders.add(t);
       }
-      // Twitch is no longer toggleable in the UI; an old build could have
-      // persisted it into the disabled set, which would leave Twitch emotes
-      // off with no way back.
+      // Migrate: Twitch is no longer toggleable.
       if (_disabledProviders.remove(EmoteType.twitch)) migrated = true;
     }
     _allowUnlisted7tv = prefs.getBool(_allowUnlisted7tvKey) ?? false;
@@ -587,8 +563,7 @@ class EmoteManager extends ChangeNotifier {
     );
   }
 
-  /// Whether [type]'s emotes are fetched and rendered. Best-effort sync view;
-  /// fetch entry points await [_ensureProvidersLoaded] themselves.
+  /// Whether [type] is fetched and rendered (sync view).
   bool isProviderEnabled(EmoteType type) {
     if (!_providersLoaded) unawaited(_ensureProvidersLoaded());
     return !_disabledProviders.contains(type);
@@ -617,8 +592,7 @@ class EmoteManager extends ChangeNotifier {
     _rebuildCachesForProviderToggles();
   }
 
-  /// Best-effort sync view of the unlisted-emotes setting; fetch entry points
-  /// await [_ensureProvidersLoaded] themselves.
+  /// Whether unlisted 7TV emotes render (sync view).
   bool get allowUnlisted7tv {
     if (!_providersLoaded) unawaited(_ensureProvidersLoaded());
     return _allowUnlisted7tv;
@@ -633,11 +607,7 @@ class EmoteManager extends ChangeNotifier {
     _rebuildCachesForProviderToggles();
   }
 
-  // Read-time visibility gate applied on every merged-cache access: hides
-  // disabled providers and, unless the unlisted setting is on, 7TV emotes
-  // flagged unlisted. Complements the toggle-rebuild path (stashes now also
-  // exist for prefs-restored sessions via _hydrateStashesFromCache).
-  // Same instance when nothing is filtered (the common case).
+  // Filters disabled providers and unlisted 7TV from merged caches.
   ChannelEmotes? _filterVisible(ChannelEmotes? cache) {
     if (cache == null) return null;
     final hideUnlisted = !_allowUnlisted7tv;
@@ -653,10 +623,7 @@ class EmoteManager extends ChangeNotifier {
     );
   }
 
-  // Applies a provider toggle: rebuilds merged caches from the retained
-  // per-provider stashes when they exist, so toggling back on restores the
-  // previous fetch without a refetch. Sessions whose caches came from prefs
-  // have no stashes; read-time filtering covers those until the next fetch.
+  // Rebuilds caches from stashes on toggle; prefs-only sessions lack stashes.
   void _rebuildCachesForProviderToggles() {
     if (_globalProviderEmotes.isNotEmpty) {
       _globalCache = _buildChannelMap([
@@ -677,8 +644,7 @@ class EmoteManager extends ChangeNotifier {
     _notify();
   }
 
-  // Splits a merged cache back into per-provider stashes (appending to any
-  // already retained), giving prefs-restored sessions toggle-rebuild data.
+  // Splits merged cache into per-provider stashes for toggle rebuilds.
   void _hydrateStashesFromCache(ChannelEmotes cache, {String? channel}) {
     final grouped = <String, List<GenericEmote>>{};
     for (final e in cache.suggestions) {
@@ -705,14 +671,7 @@ class EmoteManager extends ChangeNotifier {
   bool _hasChannelStash(String channel, EmoteType type) =>
       _channelProviderEmotes[channel]?[type.name]?.isNotEmpty ?? false;
 
-  /// Refetches the current sets of [types] that have no retained stash data:
-  /// globals plus every resolved channel's set. Covers re-enabling providers
-  /// whose persisted caches no longer contain their emotes (a post-disable
-  /// save stripped them), where a toggle has nothing to rebuild from. No-op
-  /// when stashes already cover everything, e.g. mere off-on flips. The low
-  /// tier is also a no-op: its registries are frozen (see [_registryFrozen]),
-  /// and a stash rebuild would punch through that freeze; re-enabled
-  /// providers stay empty until the next seed or force reload.
+  /// Refetches globals + channels for types with no retained stash.
   Future<void> ensureStashed(Set<EmoteType> types) async {
     await _ensureProvidersLoaded();
     if (_registryFrozen || _tier == EmoteFetchTier.nothing || types.isEmpty) {
@@ -801,8 +760,7 @@ class EmoteManager extends ChangeNotifier {
           channelName: channelName,
           resolution: resolution,
         );
-        // Keep stash semantics aligned with the full fetch path: subscriber
-        // emotes live in _channelTwitchEmotes, not the provider stash.
+        // Subs live in _channelTwitchEmotes, not the provider stash.
         return fetched
             .where(
               (e) =>
@@ -868,10 +826,7 @@ class EmoteManager extends ChangeNotifier {
   /// Resolve an emote by ID across all caches.
   GenericEmote? emoteById(String id) => _emoteById(id);
 
-  // Lazily rebuilt id index: emoteById runs once per emote per chat message,
-  // so the linear scan over every cached emote (global + all channels) is the
-  // hottest lookup in the pipeline. The index is rebuilt only when a notify
-  // or eviction marks it dirty.
+  // Hot-path id index; rebuilt on notify/eviction.
   Map<String, GenericEmote> _emoteByIdIndex = {};
   bool _emoteIndexDirty = true;
 
@@ -879,8 +834,7 @@ class EmoteManager extends ChangeNotifier {
     final index = <String, GenericEmote>{};
     void addAll(Iterable<GenericEmote> emotes) {
       for (final e in emotes) {
-        // putIfAbsent preserves the scan order's precedence (global first,
-        // then channels, then raw Twitch lists) on id collisions.
+        // putIfAbsent keeps scan-order precedence on id collisions.
         index.putIfAbsent(e.id, () => e);
       }
     }
@@ -914,9 +868,7 @@ class EmoteManager extends ChangeNotifier {
     await _flushUsage();
   }
 
-  /// Records that an emote was displayed (chat renders, emote menu, and
-  /// autocomplete) so the cache eviction keeps steadily-used emotes and drops
-  /// ones that were spammed once then went quiet.
+  /// Records emote display for cache eviction scoring.
   void markEmoteViewed(GenericEmote emote) {
     if (_tier == EmoteFetchTier.nothing) return;
     _touchUsage(emote.url);
@@ -933,13 +885,7 @@ class EmoteManager extends ChangeNotifier {
     return result;
   }
 
-  /// Re-resolves [recents] against [suggestions] so an emote shared between
-  /// channels under different names carries the code valid in the given
-  /// channel. Recents store ids only, and the global id index resolves a
-  /// shared id to whichever cache was scanned first, so without this the
-  /// recents grid would insert another channel's alias. Entries with no
-  /// match in [suggestions] are dropped; duplicate ids within [suggestions]
-  /// keep their first occurrence.
+  /// Resolves recents to channel-local codes via [suggestions].
   List<GenericEmote> resolveRecentsForChannel(
     List<GenericEmote> recents,
     List<GenericEmote> suggestions,
@@ -956,9 +902,7 @@ class EmoteManager extends ChangeNotifier {
     return result;
   }
 
-  /// Resolves the global emote cache. [force] skips the persisted-cache
-  /// short-circuits so every enabled provider is fetched from the network
-  /// ("Reload emotes"); the default keeps the TTL-driven startup behavior.
+  /// Loads global emotes. [force] skips cache, fetches from network.
   Future<void> preloadGlobalEmotes({bool force = false}) async {
     await _ensureProvidersLoaded();
     if (_globalCache != null && !force) return;
@@ -968,28 +912,22 @@ class EmoteManager extends ChangeNotifier {
       final cached = loaded.cached;
       if (cached != null) {
         _globalCache = cached;
-        // Split the persisted merge back into per-provider stashes so a
-        // visibility toggle can rebuild offline (prefs hold no stashes).
+        // Hydrate stashes from persisted cache for offline toggle rebuild.
         _hydrateStashesFromCache(cached);
         _notify();
         if (loaded.fresh ||
             _registryFrozen ||
             _tier == EmoteFetchTier.nothing) {
-          // Fresh cache: render immediately, then refresh only the Twitch
-          // globals in the background on medium/high (they aren't persisted
-          // there, so sub-tier status changes between opens). On low the
-          // registry is frozen (see [_registryFrozen]); on nothing they're
-          // already persisted and the cache is effectively infinite, so skip
-          // the network entirely. Non-blocking.
+          // Fresh cache: render, then background-refresh Twitch globals.
           if (!_skipTwitchBackgroundRefresh) {
             unawaited(_enqueueFetch(_refreshTwitchGlobalEmotes));
           }
           return;
         }
       }
-      // Stale or missing: keep showing stale data while revalidating below.
+      // Stale: keep stale data, revalidate below.
     }
-    // Forced reload, stale, or missing: fetch every enabled provider.
+    // Fetch every enabled provider.
     if (_tier == EmoteFetchTier.nothing) return;
     final emotes = await _enqueueFetch(_fetchAllGlobal);
     _globalCache = _buildChannelMap(emotes);
@@ -1006,12 +944,7 @@ class EmoteManager extends ChangeNotifier {
       final emotes = entry.value;
       if (emotes.isEmpty) continue;
       final existing = _channelTwitchEmotes[channel] ?? [];
-      // Freshly fetched emotes first (new wins over same-id entries from an
-      // earlier store or channel fetch), then keep existing non-tiered
-      // entries that aren't already present. Existing tiered entries are
-      // replaced wholesale by the fresh fetch, and everything is deduped by
-      // id so overlapping emote sets or concurrent stores can't stack the
-      // same subscriber emote twice under one channel.
+      // Fresh first, then non-tiered existing; dedup by id.
       final merged = <GenericEmote>[];
       final seen = <String>{};
       for (final e in emotes) {
@@ -1036,19 +969,14 @@ class EmoteManager extends ChangeNotifier {
     _notify();
   }
 
-  /// Single cohesive entry point for the account's subscriber emotes: fetches
-  /// the emote sets, resolves each owner id to a login (retryable), stamps the
-  /// identity onto every emote, fans them into the open channels, and stores.
-  /// [openChannelUserIds] is `login -> id` for currently joined channels, used
-  /// to seed owner-logins without an API call. All fetch/dedup/owner state is
-  /// owned by this daemon, so callers just forward the IRC emote-sets events.
+  /// Loads subscriber emotes: fetch, resolve owners, fan into channels.
   Future<void> loadUserEmoteSets(
     List<String> emoteSetIds,
     TwitchAuth auth,
     Map<String, String> openChannelUserIds,
   ) async {
     if (_tier == EmoteFetchTier.nothing) return;
-    // "0" is Twitch's global set, already loaded by preloadGlobalEmotes.
+    // Skip "0" (Twitch global, already loaded).
     final newSetIds = emoteSetIds
         .where(
           (id) =>
@@ -1058,8 +986,7 @@ class EmoteManager extends ChangeNotifier {
         )
         .toList();
     if (newSetIds.isEmpty) {
-      // Nothing new to fetch, but a reconnect may have opened channels whose
-      // owners we can now resolve/relabel, so still try to heal existing sets.
+      // No new sets, but heal owner labels on reconnect.
       await _resolveOwners(auth, openChannelUserIds);
       await _reStoreCachedSubs(openChannelUserIds);
       return;
@@ -1095,25 +1022,20 @@ class EmoteManager extends ChangeNotifier {
     } catch (e) {
       logDebug('loadUserEmoteSets failed: $e');
     } finally {
-      // Leave successfully fetched ids marked; failed ids drop out of in-flight
-      // so the next USERSTATE/GLOBALUSERSTATE retries them.
+      // Keep fetched ids; failed ones retry on next USERSTATE.
       _inflightEmoteSetIds.removeAll(
         newSetIds.where((id) => !_fetchedEmoteSetIds.contains(id)),
       );
     }
   }
 
-  /// Populates [_emoteOwnerLogins] for the given owners (or all cached sets):
-  /// seeds open-channel owners from [openChannelUserIds] with no API call, then
-  /// resolves any still-unknown ids via the injected resolver. Retryable, so a
-  /// reconnect that joins new channels or recovers from a transient API failure
-  /// can relabel previously-unknown owners.
+  /// Resolves owner ids to logins (open channels skip API).
   Future<void> _resolveOwners(
     TwitchAuth auth,
     Map<String, String> openChannelUserIds, {
     Iterable<String>? ownerIds,
   }) async {
-    // Seed open-channel owners without an API call.
+    // Seed open-channel owners.
     for (final entry in openChannelUserIds.entries) {
       _emoteOwnerLogins[entry.value] = entry.key;
     }
@@ -1130,9 +1052,7 @@ class EmoteManager extends ChangeNotifier {
     }
   }
 
-  /// Re-stores every cached sub-emote set into the open channels, stamping the
-  /// now-resolved ownerChannel. Used on reconnect so grouped labels self-heal
-  /// with no network fetch (the sets are kept in [_fetchedSubEmotesByOwner]).
+  /// Re-stores cached subs with resolved ownerChannel (reconnect heal).
   Future<void> _reStoreCachedSubs(Map<String, String> openChannelUserIds) async {
     if (_fetchedSubEmotesByOwner.isEmpty) return;
     final targets = openChannelUserIds.keys.toList();
@@ -1142,9 +1062,7 @@ class EmoteManager extends ChangeNotifier {
     );
   }
 
-  /// Clears per-account user-emote state (fetched sets, owner logins, cached
-  /// sets). Called on account switch so the new account's USERSTATE re-fetches
-  /// its own sub emotes instead of deduping against the previous account's ids.
+  /// Clears per-account emote state (account switch).
   void resetUserEmoteState() {
     _fetchedEmoteSetIds.clear();
     _inflightEmoteSetIds.clear();
@@ -1153,9 +1071,7 @@ class EmoteManager extends ChangeNotifier {
     _subsByChannelCache = null;
   }
 
-  /// Builds the per-channel emote map for storage: every owner's emotes are
-  /// cloned into every open channel with [ownerId] and resolved [ownerChannel]
-  /// stamped on, so grouping can fall back to [ownerId] when a login is unknown.
+  /// Builds per-channel subs map with owner stamps.
   Map<String, List<GenericEmote>> _buildPerChannelEmotes(
     Map<String, List<GenericEmote>> perOwner,
     List<String> targets,
@@ -1184,9 +1100,7 @@ class EmoteManager extends ChangeNotifier {
     return perChannel;
   }
 
-  /// Resolves the channel's emote cache. [force] skips the persisted-cache
-  /// branch so every enabled provider is fetched from the network
-  /// ("Reload emotes"); the default keeps the TTL-driven startup behavior.
+  /// Loads channel emotes. [force] skips cache, fetches from network.
   Future<void> resolveEmotes(
     String channel,
     String? broadcasterId, {
@@ -1196,7 +1110,7 @@ class EmoteManager extends ChangeNotifier {
     if (broadcasterId != null) _channelBroadcasterIds[channel] = broadcasterId;
     final ttl = await _effectiveTtl();
     if (force) {
-      // The nothing tier never fetches: render only what's already cached.
+      // Nothing tier: render cached only.
       if (_tier == EmoteFetchTier.nothing) return;
       final emotes = await _enqueueFetch(
         () => _fetchAllChannel(broadcasterId, channelName: channel),
@@ -1216,27 +1130,18 @@ class EmoteManager extends ChangeNotifier {
     );
     final cached = loaded.cached;
     if (cached != null) {
-      // The persisted cache never contains Twitch emotes on medium/high, so
-      // re-merge any subscriber emotes already stored for this channel (they
-      // come from the account's own emote list and must not be clobbered by
-      // re-applying the persisted cache).
+      // Re-merge subs not in persisted cache.
       final subs = _channelTwitchEmotes[channel] ?? const <GenericEmote>[];
       _channelCaches[channel] = subs.isEmpty
           ? cached
           : _buildChannelMap([...cached.suggestions, ...subs]);
-      // Split the persisted merge back into per-provider stashes so a
-      // visibility toggle can rebuild offline (prefs hold no stashes).
+      // Hydrate stashes from persisted cache.
       _hydrateStashesFromCache(cached, channel: channel);
       _reapplyLiveSevenTv(channel);
       _channelFetchTimes[channel] = DateTime.now();
       _notify(channel: channel);
       if (loaded.fresh || _registryFrozen || _tier == EmoteFetchTier.nothing) {
-        // Fresh cache: render immediately, then refresh only the Twitch
-        // channel emotes in the background on medium/high (they aren't
-        // persisted there, so sub-tier status changes between opens). On low
-        // the registry is frozen (see [_registryFrozen]); on nothing they're
-        // persisted and the cache is effectively infinite, so skip the
-        // network entirely. Non-blocking.
+        // Fresh: render, background-refresh Twitch channel emotes.
         if (!_skipTwitchBackgroundRefresh) {
           unawaited(
             _enqueueFetch(
@@ -1244,8 +1149,7 @@ class EmoteManager extends ChangeNotifier {
             ),
           );
         }
-        // Reconcile 7TV deltas (medium/high) so cross-session changes are
-        // reflected at startup without waiting for the TTL rake.
+        // Reconcile 7TV deltas at startup.
         if (broadcasterId != null &&
             _tier.index >= EmoteFetchTier.medium.index) {
           unawaited(
@@ -1254,9 +1158,9 @@ class EmoteManager extends ChangeNotifier {
         }
         return;
       }
-      // Stale: keep showing stale data while revalidating below.
+      // Stale: keep stale data, revalidate below.
     }
-    // The nothing tier never fetches: render only what's already cached.
+    // Nothing tier: render cached only.
     if (_tier == EmoteFetchTier.nothing) return;
     final emotes = await _enqueueFetch(
       () => _fetchAllChannel(broadcasterId, channelName: channel),
@@ -1270,15 +1174,12 @@ class EmoteManager extends ChangeNotifier {
   }
 
   void _applyChannelEmotes(String channel, List<GenericEmote> emotes) {
-    // Nothing came back from any provider this cycle and we already have
-    // cached emotes: keep showing them rather than wiping the channel.
+    // Empty fetch: keep cached emotes.
     if (emotes.isEmpty && _channelCaches[channel] != null) {
       logDebug('[EmoteManager] no emotes for $channel, keeping cached');
       return;
     }
-    // Split subscriber-only Twitch emotes from the main cache. They're stored
-    // separately and re-merged via storeUserTwitchEmotes, which preserves
-    // tiered versions over non-tiered for sub-gated emotes.
+    // Subs stored separately, re-merged via storeUserTwitchEmotes.
     final nonSubEmotes = emotes
         .where(
           (e) =>
@@ -1293,9 +1194,7 @@ class EmoteManager extends ChangeNotifier {
     _notify(channel: channel);
   }
 
-  // Re-applies the live 7TV delta state after a fetch rebuilds the channel
-  // cache, so an in-flight fetch that started before a WebSocket delta can't
-  // clobber the live add/remove/rename.
+  // Re-applies live 7TV delta after fetch rebuild.
   void _reapplyLiveSevenTv(String channel) {
     final live = _sevenTvLive[channel];
     if (live == null) return;
@@ -1316,10 +1215,7 @@ class EmoteManager extends ChangeNotifier {
     );
   }
 
-  // Merges freshly fetched channel emotes with any subscriber-only Twitch
-  // emotes already stored for the channel. Subscriber emotes are sourced from
-  // the account's own emote list (storeUserTwitchEmotes), so channel fetches
-  // must preserve them. Returns the full list for the channel cache rebuild.
+  // Merges fetch results with stored subs.
   List<GenericEmote> _mergeWithStoredSubs(
     String channel,
     List<GenericEmote> nonSub,
@@ -1399,11 +1295,7 @@ class EmoteManager extends ChangeNotifier {
     }
   }
 
-  // Fetches the channel's 7TV emote set and diffs it against the loaded cache,
-  // applying add/remove/rename deltas through the same pipeline the 7TV
-  // WebSocket uses. Runs once on a fresh cache (medium/high) so 7TV changes
-  // between sessions show up at startup without waiting for the TTL rake.
-  // Nothing/low are fully cache-driven and never reach this.
+  // Diffs 7TV set against cache at startup (medium/high).
   Future<void> _reconcileSevenTv(String channel, String broadcasterId) async {
     if (_tier.index < EmoteFetchTier.medium.index) return;
     await _ensureProvidersLoaded();
@@ -1422,8 +1314,7 @@ class EmoteManager extends ChangeNotifier {
       if (resp.userId != null) {
         _sevenTvUserIds[channel] = resp.userId!;
       }
-      // A failed or genuinely empty fetch must not wipe cached 7TV emotes
-      // (a non-200 response returns an empty list rather than throwing).
+      // Empty fetch: keep cached 7TV emotes.
       if (resp.emotes.isEmpty) return;
 
       final current = existing.suggestions
@@ -1495,14 +1386,7 @@ class EmoteManager extends ChangeNotifier {
     return null;
   }
 
-  // Live 7TV emote patch: applies add/remove/rename deltas from the 7TV
-  // WebSocket in place on the channel's sorted emote list, so an add/remove
-  // at position k only shifts the entries below it. Only affects 7TV-type
-  // emotes. Add checks scope and provider priority to avoid downgrading
-  // higher-priority entries from other providers. Records the affected emote
-  // codes (consumed via [consumeChangedCodes]) so callers can re-render only
-  // what the delta touched, and evicts removed emotes from the disk cache
-  // when no other channel uses them anymore.
+  // Applies 7TV WS deltas in place; evicts unused from disk cache.
   void updateSevenTvEmotes(
     String channel, {
     List<GenericEmote> added = const [],
@@ -1518,7 +1402,7 @@ class EmoteManager extends ChangeNotifier {
     final removedIdsWithUrls = <(String, List<String>)>[];
 
     if (cache == null) {
-      // No cache yet: build one from the added emotes.
+      // Build initial cache from added emotes.
       final sorted = List.of(added)..sort((a, b) => a.code.compareTo(b.code));
       cache = ChannelEmotes(
         byCode: {for (final e in sorted) e.code: e},
@@ -1597,9 +1481,7 @@ class EmoteManager extends ChangeNotifier {
       _channelCaches[channel] = cache;
     }
 
-    // Keep the per-provider stash in sync so a transient fetch miss can't
-    // resurrect the delta from stale retained data, and record the live 7TV
-    // list so any concurrent fetch rebuild re-applies it.
+    // Sync stash and live list; concurrent fetch re-applies delta.
     final providerStash = _channelProviderEmotes[channel];
     if (providerStash != null &&
         providerStash.containsKey(EmoteType.sevenTv.name)) {
@@ -1612,15 +1494,10 @@ class EmoteManager extends ChangeNotifier {
         .toList();
 
     _lastChangedCodes[channel] = changedCodes;
-    // Live deltas don't bump the span-cache version: messages keep the emote
-    // state they were rendered with (no retroactive re-rendering on add or
-    // remove). The sheet, autocomplete and recents read the updated lists
-    // directly through the listener.
+    // Live deltas don't bump span version (no retroactive re-render).
     _notify(channel: channel, bumpVersion: false);
 
-    // Evict removed emotes from the disk cache once they're gone from every
-    // channel (7TV emotes can be shared across channels), so a removed emote
-    // only lingers in RAM until the next restart.
+    // Evict shared 7TV emotes from disk when gone from all channels.
     final unused = removedIdsWithUrls.where(
       (entry) => !_isEmoteUsedElsewhere(entry.$1),
     );
@@ -1629,14 +1506,13 @@ class EmoteManager extends ChangeNotifier {
     }
   }
 
-  // Removes the entry with the given code from a code-sorted list in place.
+  // Removes code from sorted list in place.
   void _removeFromSuggestions(List<GenericEmote> list, String code) {
     final index = list.indexWhere((e) => e.code == code);
     if (index != -1) list.removeAt(index);
   }
 
-  // Inserts an emote into a code-sorted list in place, replacing the entry
-  // with the same code if one exists.
+  // Inserts into sorted list, replacing same-code entry.
   void _insertSorted(List<GenericEmote> list, GenericEmote emote) {
     final existingIndex = list.indexWhere((e) => e.code == emote.code);
     if (existingIndex != -1) {
@@ -1676,21 +1552,14 @@ class EmoteManager extends ChangeNotifier {
     }
   }
 
-  /// Low/nothing tiers persist Twitch emotes (see [_savePersistedCache]) with an
-  /// effectively infinite TTL, so there's nothing to refresh in the
-  /// background on launch.
+  /// Low/nothing tiers: no Twitch background refresh (infinite TTL).
   bool get _skipTwitchBackgroundRefresh =>
       _tier == EmoteFetchTier.low || _tier == EmoteFetchTier.nothing;
 
-  /// The low tier freezes each registry at its seed fetch: a persisted cache
-  /// is used regardless of age or tier stamp, and only a missing registry
-  /// triggers the one-time network fetch. Explicit force reloads bypass this,
-  /// so users keep a manual escape hatch. Higher tiers revalidate on their
-  /// normal TTLs and are unaffected.
+  /// Low tier: frozen registries (seed fetch only, force bypasses).
   bool get _registryFrozen => _tier == EmoteFetchTier.low;
 
-  /// Connectivity-aware refresh TTL: refresh is cheaper on unmetered
-  /// connections, so cellular gets a longer TTL to avoid data usage.
+  /// TTL varies by connectivity (longer on cellular).
   Future<Duration> _effectiveTtl() async {
     switch (_tier) {
       case EmoteFetchTier.low:
@@ -1705,8 +1574,7 @@ class EmoteManager extends ChangeNotifier {
     }
   }
 
-  /// One-shot connectivity probe, cached for [_connectivityProbeTtl] so the
-  /// rake doesn't hit the platform channel once per channel fetch.
+  /// Cached connectivity probe (avoids per-fetch platform calls).
   Future<ConnectivityResult> _probeConnectivity() async {
     final probe = _connectivityProbe;
     if (probe == null) return ConnectivityResult.wifi;
@@ -1727,12 +1595,7 @@ class EmoteManager extends ChangeNotifier {
     return _probeResult;
   }
 
-  /// Serializes fetches through a small concurrency gate with a stagger that
-  /// is measured from when each fetch was enqueued (not from when the previous
-  /// one finished). A single stale channel still idles the radio for one
-  /// stagger, but N stale channels no longer stack N full stagger + fetch
-  /// rounds behind each other; the [_maxConcurrentFetches] cap keeps a full
-  /// refresh from bursting the network. Fresh caches never enter the queue.
+  /// Enqueues fetch with concurrency gate and stagger.
   Future<T> _enqueueFetch<T>(Future<T> Function() action) {
     final enqueuedAt = DateTime.now();
     return _fetchGate.withPermit(() async {
@@ -1759,13 +1622,11 @@ class EmoteManager extends ChangeNotifier {
   bool _isProviderOn(EmoteType type) => !_disabledProviders.contains(type);
 
   ChannelEmotes _buildChannelMap(List<GenericEmote> emotes) {
-    // Disabled providers never enter any cache: chat, autocomplete and the
-    // sheet all read through these maps.
+    // Disabled providers excluded from all caches.
     final visible = _disabledProviders.isEmpty
         ? emotes
         : emotes.where((e) => !_disabledProviders.contains(e.type)).toList();
-    // Scope precedence (channel > global) applied before provider precedence.
-    // Provider precedence (tiebreaker within same scope): 7TV > BTTV > FFZ > Twitch
+    // Scope > provider priority dedup.
     final best = <String, GenericEmote>{};
     final seenScope = <String, int>{};
     for (final emote in visible) {
@@ -1777,12 +1638,12 @@ class EmoteManager extends ChangeNotifier {
       }
       final existingScopePrio = seenScope[emote.code] ?? 0;
       final newScopePrio = emote.scope.index;
-      // Scope wins: channel (1) over global (0)
+      // Channel scope wins over global.
       if (newScopePrio > existingScopePrio) {
         best[emote.code] = emote;
         seenScope[emote.code] = newScopePrio;
       } else if (newScopePrio == existingScopePrio) {
-        // Same scope – provider precedence
+        // Same scope: provider precedence.
         final existingProvPrio = _providerPriority[existing.type] ?? 99;
         final newProvPrio = _providerPriority[emote.type] ?? 99;
         if (newProvPrio < existingProvPrio) {
@@ -1842,8 +1703,7 @@ class EmoteManager extends ChangeNotifier {
   }) async {
     await _ensureProvidersLoaded();
     if (broadcasterId == null) {
-      // Nothing to fetch (e.g. unknown user id): fall back to whatever this
-      // channel already retained so a transient miss never wipes the cache.
+      // No broadcaster id: keep retained channel emotes.
       final retained = _channelProviderEmotes[channelName];
       if (retained == null) return [];
       return <GenericEmote>[for (final list in retained.values) ...list];
@@ -1940,9 +1800,7 @@ class EmoteManager extends ChangeNotifier {
     final raw = await _metaStore.read(key);
     if (raw == null) return (cached: null, fresh: false);
     try {
-      // Persisted caches can be large (the 7TV global set alone is thousands
-      // of emotes): decode + map-build off the main isolate so startup stays
-      // smooth. The tier/ttl check needs live state, so it stays here.
+      // Decode off main isolate for smooth startup.
       final tierIndex = _tier.index;
       final parsed = await Isolate.run(() {
         final data = jsonDecode(raw) as Map<String, dynamic>;
@@ -1968,9 +1826,7 @@ class EmoteManager extends ChangeNotifier {
     ChannelEmotes channelEmotes,
     Duration ttl,
   ) async {
-    // Low/nothing cache forever, so persist non-sub Twitch emotes too (infinite
-    // TTL must mean zero per-launch network). Medium/high keep the historical
-    // behavior of persisting only non-Twitch emotes.
+    // Low/nothing: persist Twitch too (zero network). Medium/high: non-Twitch only.
     final persistTwitch =
         _tier == EmoteFetchTier.low || _tier == EmoteFetchTier.nothing;
     final saved = channelEmotes.suggestions.where((e) {
@@ -1991,10 +1847,7 @@ class EmoteManager extends ChangeNotifier {
     }
   }
 
-  /// Deletes persisted registries for channels that are no longer joined.
-  /// The global registry ('emotes3_global') is never pruned. Blobs are
-  /// immortal by tier policy, so without this a renamed or left channel's
-  /// metadata would sit on disk forever.
+  /// Prunes persisted registries for left channels.
   Future<void> pruneStaleChannels(Set<String> activeChannels) async {
     try {
       for (final key in await _metaStore.keys()) {
@@ -2010,17 +1863,13 @@ class EmoteManager extends ChangeNotifier {
 
   // ── Disk-cache GC: usage tracking ───────────────────────────────────
 
-  /// The usage registry must be able to hold at least the cache cap, so it
-  /// trims to max(300, [_cacheCap]) entries.
+  /// Usage registry capped at max(300, _cacheCap).
   int get _usageMaxEntries =>
       _cacheCap > _usageMinEntries ? _cacheCap : _usageMinEntries;
 
   final Set<String> _pendingUsageTouches = {};
 
-  /// Keep-priority score fed to the cache manager's eviction order. Rolls the
-  /// record to the current hour (so stale buckets age out) and scores it;
-  /// null when the URL has no usage history (the cache manager then falls
-  /// back to a recency decay from the file's stored time).
+  /// Eviction score; null falls back to recency decay.
   double? _registryScore(String url) {
     final record = _emoteUsage[url];
     if (record == null) return null;
@@ -2036,8 +1885,7 @@ class EmoteManager extends ChangeNotifier {
   void _touchUsage(String url) {
     if (url.isEmpty) return;
     if (!_usageLoaded) {
-      // Not loaded yet: defer so we don't clobber the persisted registry
-      // with a partial in-memory view on the first flush.
+      // Defer until loaded to avoid clobbering persisted registry.
       _pendingUsageTouches.add(url);
       return;
     }
@@ -2096,7 +1944,7 @@ class EmoteManager extends ChangeNotifier {
     if (!_usageDirty) return;
     _usageDirty = false;
     if (_emoteUsage.length > _usageMaxEntries) {
-      // Drop the lowest-scored entries (the same policy the cache uses).
+      // Drop lowest-scored entries.
       final now = _now();
       final entries = _emoteUsage.entries.toList()
         ..sort((a, b) => a.value.score(now).compareTo(b.value.score(now)));
@@ -2117,11 +1965,7 @@ class EmoteManager extends ChangeNotifier {
     await prefs.setString(_usageKey, encoded);
   }
 
-  /// Debounced flush for high-frequency view tracking (emote menu cells,
-  /// autocomplete renders): a burst of touches coalesces into a single prefs
-  /// write after [_usageFlushDelay] of quiet instead of one write per touch.
-  /// Skipped until the registry is loaded (touches defer into
-  /// [_pendingUsageTouches] anyway and are flushed once loading happens).
+  /// Debounced flush for high-frequency view tracking.
   void _scheduleUsageFlush() {
     if (!_usageLoaded) return;
     _usageFlushTimer?.cancel();
@@ -2141,9 +1985,7 @@ class EmoteManager extends ChangeNotifier {
 
   // ── Cache init + migrations ─────────────────────────────────────────
 
-  /// Runs the one-time migrations, registers the usage registry as the cache's
-  /// priority source, and enforces the cap once. There is no periodic sweep:
-  /// [EmoteCacheManager] simply stops persisting once the cap is reached.
+  /// Runs migrations, registers priority source, enforces cap.
   Future<void> startCacheGc() async {
     await _ensureUsageLoaded();
     final cache = _cacheManager;
@@ -2155,9 +1997,7 @@ class EmoteManager extends ChangeNotifier {
       if (prefs.getBool(_migrationKey) ?? false) {
         _migrationRan = true;
       } else {
-        // First launch after the GC landed: the pre-existing cache was
-        // filled by the old 200-file/30-day policy and our usage registry
-        // can't track it, so clear it once. Emotes re-download on demand.
+        // First launch after GC: clear old cache (untracked by usage registry).
         try {
           await DefaultCacheManager().emptyCache();
         } catch (_) {
@@ -2172,9 +2012,7 @@ class EmoteManager extends ChangeNotifier {
       if (prefs.getBool(_migrationKeyV2) ?? false) {
         _migrationRanV2 = true;
       } else {
-        // Emote images now read/write/precache through EmoteCacheManager
-        // (emoteImageCacheV2). Clear the v1 DefaultCacheManager leftovers
-        // once so the orphaned old files stop occupying disk.
+        // v2 migration: clear v1 DefaultCacheManager leftovers.
         try {
           await DefaultCacheManager().emptyCache();
         } catch (_) {
@@ -2193,14 +2031,12 @@ class EmoteManager extends ChangeNotifier {
   final _precacheQueue = <GenericEmote>[];
   bool _isProcessingPrecache = false;
   static const _maxConcurrentPrecache = 5;
-  // The dedup set and queue are bounded: a fast channel can enqueue faster
-  // than the 5-wide drain, and an unbounded set/queue would grow for the
-  // whole session.
+  // Bounded dedup and queue to prevent unbounded growth.
   static const _maxSeenEmoteIds = 2000;
   static const _maxPrecacheQueue = 300;
 
   void enqueueSeenEmotes(List<GenericEmote> emotes) {
-    // The nothing tier never fetches or precaches: no usage tracking either.
+    // Nothing tier: skip fetch and usage tracking.
     if (_tier == EmoteFetchTier.nothing) return;
     final fresh = <GenericEmote>[];
     for (final e in emotes) {
@@ -2209,8 +2045,7 @@ class EmoteManager extends ChangeNotifier {
       }
     }
     if (fresh.isEmpty) return;
-    // Evict the oldest-seen ids (insertion order) instead of clearing the
-    // whole set, so a bounded dedup keeps working past the cap.
+    // Evict oldest-seen ids instead of clearing the set.
     while (_seenEmoteIds.length > _maxSeenEmoteIds) {
       final it = _seenEmoteIds.iterator;
       it.moveNext();
@@ -2219,12 +2054,10 @@ class EmoteManager extends ChangeNotifier {
     for (final e in fresh) {
       _touchUsage(e.url);
     }
-    // A zero cap means nothing is kept: skip the download entirely instead of
-    // precaching files the next enforcement pass would immediately evict.
+    // Zero cap: skip precache (eviction would delete immediately).
     if (_cacheCap > 0) {
       _precacheQueue.addAll(fresh);
-      // Bound the queue: drop the oldest pending entries when a fast channel
-      // outpaces the drain; they are least likely to be seen again anyway.
+      // Bound queue: drop oldest pending when outpacing drain.
       if (_precacheQueue.length > _maxPrecacheQueue) {
         _precacheQueue.removeRange(
           0,

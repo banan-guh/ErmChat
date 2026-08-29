@@ -21,10 +21,7 @@ enum TtsQueueMode { queue, newest }
 
 enum TtsFormatMode { messageOnly, userAndMessage }
 
-/// A selectable TTS engine (Android) or voice (iOS). The two platforms expose
-/// TTS very differently: Android has separate engine implementations (Google
-/// TTS, an OEM engine, ...), while iOS has a single engine with many voices
-/// (accents/locales). This model unifies them behind an id + label.
+/// A selectable TTS engine (Android) or voice (iOS), unified behind id + label.
 class TtsOption {
   final String id;
   final String label;
@@ -41,16 +38,9 @@ class TtsOption {
   int get hashCode => Object.hash(id, label);
 }
 
-/// Reads incoming chat messages aloud via the platform TTS engine, mirroring
-/// dankchat's read-aloud behaviour: only the active channel is spoken, emotes
-/// and URLs can be stripped, and the speaker's name is announced (but not
-/// repeated for consecutive messages from the same user).
-///
-/// Availability is resolved like dankchat: a lightweight language check at
-/// startup, and - when the user enables TTS - the system default engine handles
-/// speech. Engine selection is delegated to the system "Text-to-speech output"
-/// screen on Android (dankchat's approach); on iOS, which has a single engine,
-/// voices can be picked in-app.
+/// Reads chat messages aloud. Only the active channel is spoken;
+/// emotes/URLs can be stripped. Engine selection delegated to system settings
+/// (Android) or in-app (iOS).
 class TtsController {
   final FlutterTts _tts;
   static const MethodChannel _channel = MethodChannel('ermchat/tts');
@@ -81,9 +71,7 @@ class TtsController {
   TtsOption? get selectedOption => _selectedOption;
   List<String> get userIgnoreList => List.unmodifiable(_userIgnoreList);
 
-  /// Android exposes a system "Text-to-speech output" screen for choosing the
-  /// default engine (same flow dankchat uses); iOS has a single engine so there
-  /// is no system screen to open.
+  /// Android only: opens system TTS engine picker. No-op on iOS.
   bool get canOpenSystemSettings => Platform.isAndroid;
 
   String get _defaultLocale {
@@ -93,9 +81,8 @@ class TtsController {
     return locale.replaceAll('_', '-');
   }
 
-  /// Loads settings and checks availability. Like dankchat, the engine is the
-  /// system default (Android resolves it automatically), so we only re-apply a
-  /// previously chosen option rather than auto-selecting one.
+  /// Loads settings and checks availability. Re-applies a previously chosen
+  /// option if any.
   Future<void> init() async {
     await loadFromPrefs();
     _available = await _checkLanguage();
@@ -103,9 +90,7 @@ class TtsController {
     if (_selectedOption != null) await applyOption(_selectedOption!);
   }
 
-  /// Called when the user enables TTS. Enabling is only blocked when TTS is
-  /// truly unavailable (no language support); otherwise the system default
-  /// engine handles speech, re-applying any previously chosen option.
+  /// Enables TTS. Blocked only when no language support is available.
   Future<bool> checkAndPrepare() async {
     if (!_available) _available = await _checkLanguage();
     if (!_available) return false;
@@ -113,23 +98,19 @@ class TtsController {
     return true;
   }
 
-  /// Opens the system "Text-to-speech output" screen (Android) where the user
-  /// picks their default engine - the same flow dankchat uses. No-op elsewhere.
+  /// Opens system TTS settings (Android only).
   Future<void> openSystemTtsSettings() async {
     try {
       await _channel.invokeMethod('openTtsSettings');
     } catch (_) {}
   }
 
-  /// Sentinel option meaning "use whatever engine the system has as default";
-  /// no explicit setEngine call is made for it. Returned when a device blocks
-  /// enumerating engines entirely.
+  /// Sentinel: "use system default". Returned when engine enumeration is
+  /// blocked.
   static const defaultEngineId = '__default__';
 
-  /// Lists the installed TTS engines (Android) or voices (iOS). On Android,
-  /// some devices block enumerating engines ("not allowed to bind to private
-  /// engine"); in that case we fall back to the system default engine, and
-  /// finally to a "Device default" option so the picker is never empty.
+  /// Lists installed engines (Android) or voices (iOS). Falls back to default
+  /// when enumeration is blocked.
   Future<List<TtsOption>> fetchOptions() async {
     final useEngines = overrideIsAndroid ?? Platform.isAndroid;
     final useVoices =
@@ -144,8 +125,7 @@ class TtsController {
               return _parseAndroidEngines(engines);
             }
           } catch (_) {}
-          // getEngines can return empty if called before the TTS engine has
-          // finished initializing; wait a moment and try once more.
+          // Retry after delay: getEngines can be empty before init completes.
           if (attempt == 0) {
             await Future<void>.delayed(const Duration(milliseconds: 400));
           }
@@ -214,8 +194,7 @@ class TtsController {
     return out;
   }
 
-  /// Applies a selected engine/voice to the underlying TTS instance and
-  /// persists it.
+  /// Applies and persists the selected engine/voice.
   Future<void> applyOption(TtsOption option) async {
     try {
       if (overrideIsAndroid ?? Platform.isAndroid) {
@@ -312,8 +291,7 @@ class TtsController {
     _userIgnoreList.addAll(value);
   }
 
-  /// Decides whether [msg] from [channel] should be spoken, given the currently
-  /// visible [selectedChannel]. Only the active channel is read aloud.
+  /// Speaks [msg] if it belongs to the active [selectedChannel].
   void handleMessage(
     String channel,
     TwitchMessage msg,
@@ -384,9 +362,7 @@ class TtsController {
 
   Future<void> _speak(String text) async {
     try {
-      // flutter_tts defaults to QUEUE_FLUSH; set it explicitly so queue mode
-      // actually queues (1 = QUEUE_ADD) and newest mode flushes (0 =
-      // QUEUE_FLUSH) instead of both behaving like flush.
+      // QUEUE_ADD (1) vs QUEUE_FLUSH (0); flutter_tts defaults to FLUSH.
       await _tts.setQueueMode(_queueMode == TtsQueueMode.queue ? 1 : 0);
       await _tts.speak(text);
     } catch (_) {}

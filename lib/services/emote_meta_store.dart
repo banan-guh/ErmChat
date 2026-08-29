@@ -4,17 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// File-backed persistence for emote metadata registries ('emotes3_*').
-///
-/// These blobs are MB-scale JSON, which SharedPreferences handles poorly:
-/// the whole XML parses on first access (in the startup path) and every
-/// write rewrites every entry atomically. Individual files load lazily per
-/// key and can be pruned per channel.
-///
-/// One-time migration copies legacy prefs entries to files verbatim and
-/// deletes the keys. When no usable documents directory exists (widget
-/// tests), reads fall back to legacy prefs entries and writes land in an
-/// in-memory map instead.
+/// File-backed persistence for MB-scale emote metadata blobs.
 class EmoteMetaStore {
   EmoteMetaStore._();
 
@@ -28,7 +18,7 @@ class EmoteMetaStore {
   bool _migrated = false;
   final _fallback = <String, String>{};
 
-  /// Test seam: override where blobs live.
+  /// Test seam: override blob directory.
   @visibleForTesting
   void overrideDirectory(Directory dir) {
     _dir = dir;
@@ -53,7 +43,7 @@ class EmoteMetaStore {
       _dir = Directory('${docs.path}${Platform.pathSeparator}$_dirName');
       await _dir!.create(recursive: true);
     } catch (_) {
-      // No documents directory (tests): degrade to the in-memory fallback.
+      // No docs dir: degrade to in-memory fallback.
       _dir = null;
     }
     return _dir;
@@ -66,8 +56,7 @@ class EmoteMetaStore {
     return File('${dir.path}${Platform.pathSeparator}$key.json');
   }
 
-  /// Copies legacy SharedPreferences entries to files once per process,
-  /// deleting each key only after its file landed. Later calls are no-ops.
+  /// Migrates legacy prefs to files; later calls are no-ops.
   Future<void> migrateFromPrefs(SharedPreferences prefs) async {
     if (_migrated) return;
     _migrated = true;
@@ -83,11 +72,11 @@ class EmoteMetaStore {
             await prefs.remove(key);
           }
         } catch (_) {
-          // Leave the key in place; the read fallback still finds it.
+          // Keep key; read fallback still finds it.
         }
       }
     } catch (_) {
-      // Prefs unavailable: nothing to migrate.
+      // Prefs unavailable: skip migration.
     }
   }
 
@@ -127,7 +116,7 @@ class EmoteMetaStore {
     } catch (_) {}
   }
 
-  /// Every stored registry key currently on disk (or in the fallback).
+  /// All stored registry keys (disk + fallback).
   Future<Set<String>> keys() async {
     try {
       final dir = await _resolveDir();

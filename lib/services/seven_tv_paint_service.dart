@@ -90,9 +90,8 @@ class SevenTvImagePaintLayer extends SevenTvPaintLayer {
 
   const SevenTvImagePaintLayer({required this.images, required super.opacity});
 
-  /// Picks the smallest texture tall enough to stay crisp at ~3x device
-  /// pixel ratio on a chat line, falling back to the largest available so
-  /// tiny variants never upscale-blur.
+  /// Picks smallest texture >=56px tall (for ~3x DPR crispness), falling
+  /// back to largest.
   SevenTvPaintImage? pickVariant() {
     if (images.isEmpty) return null;
     SevenTvPaintImage? best;
@@ -107,9 +106,8 @@ class SevenTvImagePaintLayer extends SevenTvPaintLayer {
   }
 }
 
-/// A parsed 7TV name paint. Layers/shadows come from the v4 GraphQL catalog;
-/// unsupported layer kinds are dropped at parse time, so [layers] may be
-/// empty for paints that cannot be rendered natively.
+/// A parsed 7TV name paint. Unsupported layer kinds are dropped, so [layers]
+/// may be empty.
 class SevenTvPaint {
   final String id;
   final String name;
@@ -123,8 +121,7 @@ class SevenTvPaint {
     required this.shadows,
   });
 
-  /// True when the paint can be drawn as a solid text color directly (single
-  /// solid layer), skipping the ShaderMask entirely.
+  /// True for single-solid-layer paints that can skip the ShaderMask.
   Color? get solidColor {
     final layer = layers.singleOrNull;
     if (layer is! SevenTvSolidColorLayer) return null;
@@ -153,10 +150,8 @@ class SevenTvPaint {
   }
 }
 
-/// Resolves 7TV name paints for chatters: downloads the paint catalog once
-/// per session, maps Twitch user IDs to equipped paints via batched GraphQL
-/// lookups plus live entitlement events, and exposes synchronous lookups for
-/// message rendering. Disabled by default; the settings toggle flips it on.
+/// Resolves 7TV name paints for chatters via catalog + batched lookups + live
+/// entitlement events. Disabled by default.
 class SevenTvPaintService extends ChangeNotifier {
   static const _gqlUrl = 'https://7tv.io/v4/gql';
   static const _userTtl = Duration(hours: 6);
@@ -196,10 +191,8 @@ class SevenTvPaintService extends ChangeNotifier {
     _refreshAllUserNotifiers();
   }
 
-  /// Per-user notifiers so [PaintedUsernameText] subscribes narrowly instead of
-  /// to the whole service (which fires on every catalog/image/entitlement
-  /// change). Keyed by Twitch user id; created on first lookup and dropped when
-  /// it loses its only listener.
+  /// Per-user notifiers for narrow subscription. Created on first lookup,
+  /// dropped when no listeners remain.
   ValueNotifier<SevenTvPaint?> lookupNotifier(String? userId) {
     if (userId == null || userId.isEmpty) {
       return ValueNotifier<SevenTvPaint?>(null);
@@ -283,8 +276,7 @@ class SevenTvPaintService extends ChangeNotifier {
         return res.bodyBytes;
       });
 
-  /// Subscribes to live entitlement changes so equipping/removing a paint in
-  /// a joined channel updates without waiting for the lookup TTL.
+  /// Live entitlement updates bypass the lookup TTL.
   void bindSevenTvEvents(SevenTvEventClient client) {
     _entitlementSub?.cancel();
     _entitlementSub = client.onEntitlement.listen((event) {
@@ -313,8 +305,7 @@ class SevenTvPaintService extends ChangeNotifier {
     });
   }
 
-  /// Downloads the full paint catalog once per session. Failures reset the
-  /// memoized future so the next lookup retries.
+  /// Downloads the catalog once per session; failures allow retry.
   Future<void> ensureCatalog() {
     return _catalogFuture ??= _fetchCatalog();
   }
@@ -339,9 +330,8 @@ class SevenTvPaintService extends ChangeNotifier {
     }
   }
 
-  /// Synchronous render-time lookup. Enqueues unknown/expired users for the
-  /// next batched resolution; returns null until a paint (or a negative
-  /// result) is known.
+  /// Sync render-time lookup. Enqueues unknown/expired users; returns null
+  /// until resolved.
   SevenTvPaint? lookup(String? userId) {
     if (!_enabled || userId == null || userId.isEmpty) return null;
     final now = _now();
@@ -406,8 +396,7 @@ class SevenTvPaintService extends ChangeNotifier {
       final data = await _gqlQuery('{ users { $selections } }');
       final users = data?['users'] as Map<String, dynamic>?;
       if (users == null) {
-        // Offline or API hiccup: back off so a busy chat cannot hot-loop
-        // requests, and drop the users so a later lookup retries.
+        // Back off to prevent hot-loop; users retry on next lookup.
         final until = _now().add(_failureBackoff);
         for (final id in ids) {
           _backoffUntil[id] = until;
@@ -437,8 +426,7 @@ class SevenTvPaintService extends ChangeNotifier {
     }
   }
 
-  // Paint definitions missing from the catalog (created mid-session) are
-  // fetched individually; failures back off like user lookups do.
+  // Missing paints fetched individually; failures back off.
   final _paintFetches = <String>{};
   final _paintBackoff = <String, DateTime>{};
 
@@ -581,9 +569,7 @@ class SevenTvPaintService extends ChangeNotifier {
     return Color(packed);
   }
 
-  /// Resolved texture for an image paint layer, kicking off the async load on
-  /// first request. Returns null until loaded (callers fall back to
-  /// [SevenTvPaint.fallbackColor]).
+  /// Resolved texture for an image layer. Returns null until loaded.
   ui.Image? imageFor(SevenTvImagePaintLayer layer) {
     final variant = layer.pickVariant();
     if (variant == null) return null;
@@ -612,8 +598,7 @@ class SevenTvPaintService extends ChangeNotifier {
     }
   }
 
-  /// Builds the fill shader for [paint] across a [size] box. Returns null
-  /// when nothing drawable is ready yet (image still loading).
+  /// Builds the fill shader for [paint] across [size]. Null when not ready.
   Shader? shaderFor(SevenTvPaint paint, Size size) {
     final layer = paint.layers.firstOrNull;
     if (layer == null || size.isEmpty) return null;
@@ -675,8 +660,7 @@ class SevenTvPaintService extends ChangeNotifier {
         stop.color.withValues(alpha: stop.color.a * opacity),
     ];
     final positions = [for (final stop in stops) stop.at];
-    // Duplicate positions produce hard edges natively in Skia, matching the
-    // extension's CSS behavior.
+    // Duplicate stops produce hard edges, matching CSS behavior.
     return (colors, positions);
   }
 

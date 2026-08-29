@@ -1,9 +1,7 @@
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
-/// Per-frame metadata + raw bitstream for one animation frame, extracted from
-/// an animated WebP's `ANMF` chunk. [bitstream] is the frame's `ALPH` + `VP8`/
-/// `VP8L` subchunks, reusable as a standalone single-frame WebP.
+/// ANMF frame metadata + bitstream (ALPH + VP8/VP8L subchunks).
 class WebpFrameMeta {
   const WebpFrameMeta({
     required this.x,
@@ -47,9 +45,7 @@ int _u24(Uint8List b, int o) =>
 List<int> _u32(int v) =>
     [v & 0xff, (v >> 8) & 0xff, (v >> 16) & 0xff, (v >> 24) & 0xff];
 
-/// Parses the WebP RIFF container for animation metadata. Returns an empty
-/// non-animated info when the bytes are not a WebP or have no `ANMF` chunks.
-/// Pure byte-walking, no decode — cheap enough to run on every emote.
+/// Parses WebP RIFF for animation metadata. Returns non-animated info if not WebP or no ANMF chunks.
 WebpAnimInfo parseWebpAnim(Uint8List bytes) {
   if (bytes.length < 12 ||
       bytes[0] != 0x52 ||
@@ -105,8 +101,7 @@ WebpAnimInfo parseWebpAnim(Uint8List bytes) {
       final dur = _u24(body, 12);
       final flags = body[15];
       final disposeToBackground = (flags & 0x01) != 0;
-      // ANMF flags: bit 1 = Blending method. 0 = alpha-blend, 1 = do not
-      // blend (overwrite). So noBlend == (flags >> 1) & 1.
+      // ANMF flags: bit 1 = blending (0=alpha-blend, 1=overwrite).
       final noBlend = ((flags >> 1) & 0x01) != 0;
       final bitstream = bytes.sublist(bodyStart + 16, bodyEnd);
       frames.add(
@@ -135,8 +130,7 @@ WebpAnimInfo parseWebpAnim(Uint8List bytes) {
   );
 }
 
-/// True when [bitstream] (an `ANMF` frame's `ALPH`+`VP8`/`VP8L` payload)
-/// contains an `ALPH` subchunk, i.e. the frame carries its own transparency.
+/// Whether [b] contains an ALPH subchunk (frame has its own alpha).
 bool _frameHasAlpha(Uint8List b) {
   var p = 0;
   while (p + 8 <= b.length) {
@@ -155,9 +149,7 @@ bool _frameHasAlpha(Uint8List b) {
   return false;
 }
 
-/// Wraps a single frame's `ALPH`+`VP8`/`VP8L` payload in a minimal standalone
-/// single-frame WebP so it can be decoded independently of the (buggy) animated
-/// compositor. The decoded bitmap is the frame's own pixels at (w, h).
+/// Wraps a frame's ALPH+VP8/VP8L payload in a standalone single-frame WebP for independent decode.
 Uint8List buildStandaloneFrameWebp(WebpFrameMeta f) {
   final fa = _frameHasAlpha(f.bitstream);
   final inner = <int>[];
@@ -187,11 +179,7 @@ Uint8List buildStandaloneFrameWebp(WebpFrameMeta f) {
   return Uint8List.fromList(riff);
 }
 
-/// Composites animated-WebP frames into full-canvas `ui.Image`s using only the
-/// engine's static frame decode + Flutter canvas, implementing the WebP spec's
-/// blend/dispose rules. This bypasses the engine's animated-codec compositor
-/// (the source of the transparent-frame freeze) entirely — the path that would
-/// let us drop libwebp.
+/// Composites WebP frames into full-canvas ui.Images using Flutter canvas, implementing blend/dispose rules. Bypasses the engine's buggy animated compositor.
 class WebpEngineCompositor {
   WebpEngineCompositor(this.canvasW, this.canvasH);
 
@@ -199,9 +187,7 @@ class WebpEngineCompositor {
   final int canvasH;
   ui.Image? _prev;
 
-  /// Composites frame [meta] (whose decoded bitmap is [frameBitmap]) atop the
-  /// previous canvas, applying the prior frame's disposal first. Returns the new
-  /// full-canvas frame. Caller owns the returned image's lifecycle.
+  /// Composites [frameBitmap] atop the previous canvas with prior disposal applied. Caller owns the returned image.
   Future<ui.Image> composite(
     WebpFrameMeta? prevMeta,
     WebpFrameMeta meta,
@@ -212,8 +198,7 @@ class WebpEngineCompositor {
     if (_prev != null) {
       canvas.drawImage(_prev!, ui.Offset.zero, ui.Paint());
       if (prevMeta != null && prevMeta.disposeToBackground) {
-        // Dispose-to-background: clear the previous frame's rectangle. Emotes
-        // use a transparent background, so clear to transparent.
+        // Dispose-to-background: clear prev frame's rect to transparent.
         final p = ui.Paint()..blendMode = ui.BlendMode.clear;
         canvas.drawRect(
           ui.Rect.fromLTWH(

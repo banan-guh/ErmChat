@@ -1,20 +1,6 @@
 import 'package:linkify/linkify.dart';
 
-/// linkify [Linkifier] that rejoins and links **fractured/split** links
-/// whose TLD (or full domain) is in a user whitelist — the anti-evasion case
-/// where a link is typed with spaces to dodge a "no links" filter, e.g.
-/// `kappa . lol / EMGIU`, `i .nuuls .com/ ABCD`, or `7tv .app /emotes /abc`.
-///
-/// This is intentionally NOT a general bare-domain whitelist: a plain
-/// `kappa.lol` (no space) is left to linkify's own default handling. Only
-/// forms with whitespace hugging a dot or slash are matched here.
-///
-/// Matching rules (the whitelist is the gate):
-///  - entry WITHOUT a dot (e.g. `lol`)  -> matches any split `*.lol`
-///  - entry WITH a dot    (e.g. `kappa.lol`) -> matches that split domain and
-///    its subdomains (so `sub .kappa.lol` links too)
-///  - a negative lookbehind excludes matches inside `http(s)://`, `www.`,
-///    and email addresses.
+/// Linkifier that rejoins fractured/spaced links against a user whitelist. Only matches whitespace-hugging dots/slashes.
 class WhitelistLinkifier extends Linkifier {
   final Set<String> _tlds;
   final Set<String> _domains;
@@ -29,18 +15,14 @@ class WhitelistLinkifier extends Linkifier {
             if (e.contains('.')) e,
         };
 
-  // Captures a link-like run where dots and slashes are fractured by
-  // whitespace (multi-label, multi-path).  The lookahead ensures at least one
-  // space is present so bare links ("kappa.lol") skip straight to linkify's
-  // own default handler and are never consumed here.
+  // Matches fractured (spaced) link runs. Lookahead ensures bare links skip this.
   static final _regex = RegExp(
     r'(?=(?:[A-Za-z0-9-]|\s)*\s)'
     r'([A-Za-z0-9-]+(?:\s*[\.\/]\s*[A-Za-z0-9-._~%#+?=&]+)*)',
     caseSensitive: false,
   );
 
-  // Collapses spaces around dots and slashes: "kappa . lol / EMGIU" ->
-  // "kappa.lol/EMGIU".
+  // Collapses spaces around dots/slashes.
   static final _spaceAround = RegExp(r'\s*([.\/])\s*');
 
   @override

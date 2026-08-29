@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 
-/// What kind of highlight a message received. The first five are
-/// mention-tier: they ping like a direct mention (unread counters, the
-/// mentions tab, push notifications). Event types only tint the row.
+/// Highlight type. First five are mention-tier (count toward unread/push); rest only tint the row.
 enum HighlightType {
   username,
   reply,
@@ -18,8 +16,7 @@ enum HighlightType {
 class HighlightState {
   final Set<HighlightType> types;
 
-  /// Row color override from the matching rule; null uses the default
-  /// palette. The first colored rule encountered wins.
+  /// Custom row color from the matching rule; null = default palette.
   final Color? customColor;
 
   /// Whether any matching rule asked for a system notification.
@@ -41,8 +38,7 @@ class HighlightState {
 
   bool get hasMention => types.any(_mentionTypes.contains);
 
-  /// Priority order among event types, lowest first. Mention-tier types sit
-  /// above all of these, with [HighlightType.username] winning overall.
+  /// Priority order, lowest first. Mention-tier types always rank above these.
   static const _priority = [
     HighlightType.firstMsg,
     HighlightType.redemption,
@@ -61,11 +57,7 @@ class HighlightState {
     return types.first;
   }
 
-  /// Row background for this highlight: the rule's custom color wins, else
-  /// the per-type default (dankchat's palette). Blends against [surface] so
-  /// light/dark themes both land on readable tints. [opacity] scales the
-  /// highlight's alpha (0 = invisible, 1 = fully opaque), driven by the
-  /// settings slider so it is no longer hard-coded.
+  /// Row color: custom rule color wins, else per-type default. Blended against [surface] at [opacity].
   Color rowColor(Color surface, {double opacity = 1.0}) {
     opacity = opacity.clamp(0.0, 1.0);
     final isDark = surface.computeLuminance() < 0.5;

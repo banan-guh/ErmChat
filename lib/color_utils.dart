@@ -19,8 +19,7 @@ const officialColors = [
   '#00FF7F',
 ];
 
-/// Twitch announcement banner colors (`msg-param-color` tag values),
-/// matching the web client design tokens.
+/// Announcement banner colors mapped from msg-param-color tag values.
 const announcementColors = <String, Color>{
   'PRIMARY': Color(0xFF9146FF),
   'BLUE': Color(0xFF1F69FF),
@@ -29,8 +28,7 @@ const announcementColors = <String, Color>{
   'PURPLE': Color(0xFF9146FF),
 };
 
-/// Maps a `msg-param-color` tag value to its banner color, or null for
-/// unknown/absent values.
+/// Banner color for a msg-param-color value, or null if unknown.
 Color? announcementColorFor(String? value) {
   if (value == null) return null;
   return announcementColors[value.toUpperCase()];

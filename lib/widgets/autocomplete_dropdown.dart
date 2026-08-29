@@ -22,9 +22,7 @@ class AutocompleteDropdown extends StatefulWidget {
 class _AutocompleteDropdownState extends State<AutocompleteDropdown> {
   static const _fontSize = 16.0;
 
-  // Usage marks fire post-frame, deduped per emote for the dropdown's
-  // lifetime: the dropdown rebuilds on every keystroke, so marking from
-  // build() would re-record the same emotes on every rebuild.
+  // Deduped per emote: rebuild on every keystroke would re-record.
   final _viewedEmotes = <String>{};
 
   @override

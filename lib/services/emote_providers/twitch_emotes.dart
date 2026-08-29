@@ -73,8 +73,7 @@ class TwitchEmoteProvider {
     if (accessToken != null) {
       headers['Authorization'] = 'Bearer $accessToken';
     }
-    // Twitch accepts up to 25 emote_set_id params per request; chunk so a
-    // batch with many sets doesn't spawn one request per set.
+    // Chunk to 25 emote_set_id params per request.
     const chunkSize = 25;
     final bodies = <String>[];
     for (var i = 0; i < emoteSetIds.length; i += chunkSize) {
@@ -95,8 +94,7 @@ class TwitchEmoteProvider {
       bodies.add(res.body);
     }
     if (bodies.isEmpty) return {};
-    // Decode + parse every chunk off the main isolate (accounts can hold
-    // many emote sets; the combined payload is comparable to the global set).
+    // Decode off main isolate (payload comparable to global set).
     return Isolate.run(() {
       final result = <String, List<GenericEmote>>{};
       for (final body in bodies) {
@@ -203,11 +201,7 @@ class TwitchEmoteProvider {
     return emotes;
   }
 
-  /// Selects the small/1x/large scale tiers for the given resolution. The
-  /// per-item `scale` list is ordered ascending. Chat renders at ~28dp so
-  /// medium/high prefer the 2.0 tier; high additionally keeps the largest
-  /// (typically 3.0) for the larger sheet/menu. `url1x` (the 1.0 scale, when
-  /// the list has one) is kept as a cached-fallback placeholder candidate.
+  /// Selects scale tiers: 2x for chat, largest for sheet (high only).
   static (String, String?, String?) _selectScales(
     List<String> scales,
     EmoteResolution resolution,

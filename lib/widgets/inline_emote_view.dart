@@ -6,15 +6,7 @@ import 'emote_image_provider.dart';
 import 'emote_probe_memo.dart';
 import 'emote_loading_band.dart';
 
-/// Chat-span emote renderer: the lean counterpart of [EmoteImage].
-///
-/// Where [EmoteImage] layers a stock [Image] (frame builder closures, loading
-/// stacks, keyed inner state), this subscribes straight to the shared
-/// [EmoteUrlProvider] completer and feeds a single render box. An animation
-/// tick becomes "set field, markNeedsPaint" with no setState and no widget
-/// rebuilds, which is what hundreds of copies of one emote per screenful
-/// need. Loading shows the shared-clock band ([paintLoadingBand]), falling
-/// back to a probed smaller cached scale exactly like [EmoteImage].
+/// Lean chat-span emote renderer. Subscribes to [EmoteUrlProvider] completer directly; animation tick = set field + markNeedsPaint.
 class InlineEmoteView extends StatefulWidget {
   const InlineEmoteView({
     super.key,
@@ -28,8 +20,7 @@ class InlineEmoteView extends StatefulWidget {
   final double width;
   final double height;
 
-  /// Smaller-scale URLs probed for a cached copy to show while [url] loads
-  /// (same semantics as [EmoteImage.alternateUrls]).
+  /// Smaller-scale URLs for cached placeholder while [url] loads.
   final List<String>? alternateUrls;
 
   @override
@@ -40,8 +31,7 @@ class _InlineEmoteViewState extends State<InlineEmoteView> {
   ImageStream? _mainStream;
   ImageStream? _altStream;
 
-  // Reused listener instances: the completer deduplicates removals by
-  // identity/equality, so one pair per state is required.
+  // Reused listeners (one pair per state; completer deduplicates removals).
   late final ImageStreamListener _mainListener = ImageStreamListener(
     _onMainFrame,
   );
@@ -49,8 +39,7 @@ class _InlineEmoteViewState extends State<InlineEmoteView> {
     _onAltFrame,
   );
 
-  /// Frames delivered before the render object exists (listeners attach
-  /// before the first build). Ownership transfers to the render box there.
+  /// Buffered frames before render object exists. Ownership transfers on first build.
   ImageInfo? _bufferedMain;
   ImageInfo? _bufferedAlt;
 
@@ -71,8 +60,7 @@ class _InlineEmoteViewState extends State<InlineEmoteView> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    // First dependencies are ready: start resolving (stock Image does its
-    // resolution here too; MediaQuery lookups are illegal in initState).
+    // First dependencies ready: start resolving (MediaQuery illegal in initState).
     if (_mainStream == null) {
       _resolveMain();
       _probeAlternates();
@@ -148,10 +136,7 @@ class _InlineEmoteViewState extends State<InlineEmoteView> {
     _render?.altImage = null;
   }
 
-  /// Probes smaller scales for a cached copy to show while the main URL
-  /// loads. Mirrors [EmoteImage]'s probe: memory-cache hits resolve
-  /// synchronously, disk lookups share [EmoteProbeMemo] so hundreds of
-  /// copies of one emote issue a single lookup.
+  /// Probes alternate scales for cached placeholder. Disk lookups shared via [EmoteProbeMemo].
   Future<void> _probeAlternates() async {
     final alternates = widget.alternateUrls;
     if (alternates == null || alternates.isEmpty) return;
@@ -255,11 +240,7 @@ class _LeafEmoteBox extends LeafRenderObjectWidget {
   }
 }
 
-/// Render box painting one emote frame (or the loading band).
-///
-/// Owns every [ImageInfo] handed to it; setters dispose replaced values and
-/// repaint. While the main frame is absent it listens to the shared loading
-/// clock so the sweep advances without any widget involvement.
+/// Render box for one emote frame. Owns [ImageInfo]s; listens to loading clock when frameless.
 class RenderInlineEmote extends RenderBox {
   RenderInlineEmote(
     this._width,
@@ -349,9 +330,7 @@ class RenderInlineEmote extends RenderBox {
     final shouldListen = attached && _image == null;
     if (shouldListen == _clockSubscribed) return;
     _clockSubscribed = shouldListen;
-    // Each subscribing render box holds one user slot on the shared clock,
-    // so chat-only loading states keep the sweep running even when no
-    // [LoadingBand] widget is mounted.
+    // Render box holds a clock slot, keeping sweep running without [LoadingBand] widgets.
     if (shouldListen) {
       EmoteLoadingClock.acquire();
       EmoteLoadingClock.phase.addListener(markNeedsPaint);
@@ -375,10 +354,7 @@ class RenderInlineEmote extends RenderBox {
     final alt = _altImage;
     final info = main ?? alt;
     if (info != null) {
-      // Contain-fit the frame inside the slot exactly like the stock Image
-      // pipeline: emote textures arrive at 1x/2x/3x pixel sizes that rarely
-      // match the layout box, and inscribe alone would place them at their
-      // intrinsic pixel size, overflowing the text line.
+      // Contain-fit: emote textures rarely match layout size; inscribe would overflow.
       final img = info.image;
       paintImage(
         canvas: canvas,
@@ -389,8 +365,7 @@ class RenderInlineEmote extends RenderBox {
         fit: BoxFit.contain,
       );
       if (main != null) return;
-      // A cached smaller scale is showing: keep the faint hint that a
-      // higher-res copy is coming, matching the EmoteImage overlay look.
+      // Cached smaller scale showing; faint band hints at higher-res incoming.
       canvas.save();
       canvas.translate(offset.dx, offset.dy);
       paintLoadingBand(
