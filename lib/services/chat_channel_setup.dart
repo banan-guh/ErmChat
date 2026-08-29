@@ -262,7 +262,10 @@ class ChatChannelSetup {
   // ---- Subscriptions -------------------------------------------------------
 
   Future<void> subscribeChannel(String channelName) async {
-    irc.join(channelName);
+    // Only the read socket JOINs: Twitch delivers chat on the socket that sent
+    // JOIN, and PRIVMSG sends fine without joining. Joining on the write socket
+    // too just wastes the 20/10s budget and (when the limiter was shared) raced
+    // the read socket for the single JOIN slot per channel.
     ircRead.join(channelName);
 
     try {

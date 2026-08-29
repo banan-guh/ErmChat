@@ -910,12 +910,23 @@ void main() {
         }
         async.flushMicrotasks();
 
-        List<String> joins() =>
-            channel.sent.where((l) => l.startsWith('JOIN')).toList();
+        int joinedChannels() {
+          var count = 0;
+          for (final line in channel.sent) {
+            if (!line.startsWith('JOIN #')) continue;
+            count += line
+                .substring('JOIN #'.length)
+                .split(',')
+                .where((c) => c.isNotEmpty)
+                .map((c) => c.startsWith('#') ? c.substring(1) : c)
+                .length;
+          }
+          return count;
+        }
 
-        // Send-cap: at most two channels per pump tick.
-        expect(joins(), hasLength(2));
-        // ...and the rest drip out at ~2 channels per 1.05s. ROOMSTATE echoes
+        // Send-cap: at most six channels per pump tick (batched into one line).
+        expect(joinedChannels(), 6);
+        // ...and the rest drip out at ~2 channels per second. ROOMSTATE echoes
         // are fed back so the rejoin sweep never pollutes the count.
         for (var step = 0; step < 60; step++) {
           fakeNow = fakeNow.add(const Duration(milliseconds: 500));
@@ -923,11 +934,24 @@ void main() {
           async.flushMicrotasks();
           for (final line in channel.sent.toList()) {
             if (!line.startsWith('JOIN #')) continue;
-            final ch = line.substring('JOIN #'.length);
-            channel.push('@room-id=1 :tmi.twitch.tv ROOMSTATE #$ch');
+            final rest = line.substring('JOIN #'.length);
+            for (final ch in rest.split(',')) {
+              channel.push('@room-id=1 :tmi.twitch.tv ROOMSTATE #$ch');
+            }
           }
         }
-        expect(joins(), hasLength(25));
+        // Every channel must be joined at least once (sweeps may re-send an
+        // unconfirmed channel under the fakeAsync clock, so count distinct).
+        final joined = <String>{};
+        for (final line in channel.sent.where((l) => l.startsWith('JOIN #'))) {
+          joined.addAll(
+            line
+                .substring('JOIN #'.length)
+                .split(',')
+                .map((c) => c.startsWith('#') ? c.substring(1) : c),
+          );
+        }
+        expect(joined.length, 25);
 
         service.dispose();
         channel.dispose();
@@ -969,8 +993,9 @@ void main() {
         service.connect(username: 'user', accessToken: 'token');
         async.flushMicrotasks();
 
-        expect(channel.sent, contains('JOIN #awootismm'));
-        expect(channel.sent, contains('JOIN #ermugo2'));
+        // JOINs are batched into a single line; check the joined channel tokens.
+        expect(channel.sent.join('\n'), contains('#awootismm'));
+        expect(channel.sent.join('\n'), contains('#ermugo2'));
 
         service.dispose();
         channel.dispose();
@@ -1004,7 +1029,7 @@ void main() {
 
         // Ticker started on connect: 'test' is waiting behind the fillers.
         fakeNow = fakeNow.add(const Duration(seconds: 1));
-        async.elapse(const Duration(milliseconds: 1100));
+        async.elapse(const Duration(milliseconds: 3100));
         final waits = events
             .where(
               (e) =>
@@ -1019,7 +1044,7 @@ void main() {
         // ROOMSTATE confirms the join: the countdown line is retired.
         channel.push('@room-id=1 :tmi.twitch.tv ROOMSTATE #test');
         fakeNow = fakeNow.add(const Duration(seconds: 1));
-        async.elapse(const Duration(milliseconds: 1100));
+        async.elapse(const Duration(milliseconds: 3100));
         expect(events.last.$1, 'test');
         expect(events.last.$2, isNull);
 
@@ -1049,7 +1074,7 @@ void main() {
         conn.connect();
         async.flushMicrotasks();
         fakeNow = fakeNow.add(const Duration(seconds: 1));
-        async.elapse(const Duration(milliseconds: 1100));
+        async.elapse(const Duration(milliseconds: 3100));
         expect(events.where((e) => e.$1 == 'test' && e.$2 != null), isNotEmpty);
 
         // Socket death drops the queued JOINs and emits a disconnected
@@ -1057,7 +1082,7 @@ void main() {
         irc.forceReconnect();
         async.flushMicrotasks();
         fakeNow = fakeNow.add(const Duration(seconds: 1));
-        async.elapse(const Duration(milliseconds: 1100));
+        async.elapse(const Duration(milliseconds: 3100));
         expect(
           events.where((e) => e.$1 == 'test' && e.$2 == null),
           isNotEmpty,
@@ -1082,36 +1107,55 @@ void main() {
 
         // Each socket joins its OWN 12 channels: 24 disjoint units sharing one
         // bucket, so the cap applies to their combined JOINs (not per-socket).
+        // Enqueue per socket so same-role units are contiguous (batched).
         for (var i = 0; i < 12; i++) {
           write.join('w$i');
+        }
+        for (var i = 0; i < 12; i++) {
           read.join('r$i');
         }
         async.flushMicrotasks();
 
-        int totalJoins() =>
-            writeChannel.sent.where((l) => l.startsWith('JOIN')).length +
-            readChannel.sent.where((l) => l.startsWith('JOIN')).length;
+        int totalJoinedChannels() {
+          int from(String line) => line.startsWith('JOIN #')
+              ? line
+                    .substring('JOIN #'.length)
+                    .split(',')
+                    .where((c) => c.isNotEmpty)
+                    .map((c) => c.startsWith('#') ? c.substring(1) : c)
+                    .length
+              : 0;
+          return writeChannel.sent.fold(0, (s, l) => s + from(l)) +
+              readChannel.sent.fold(0, (s, l) => s + from(l));
+        }
 
-        // Send-cap starts with at most two channels (one shared bucket).
-        expect(totalJoins(), 2, reason: 'the shared bucket caps both sockets');
+        // Send-cap starts with at most six channels (one shared bucket, one
+        // batched line per pump tick).
+        expect(
+          totalJoinedChannels(),
+          6,
+          reason: 'the shared bucket caps both sockets',
+        );
 
         // Echo ROOMSTATE like the real server so sweeps stay quiet.
         void confirmEchoes() {
-          for (final ch in [
-            for (final line in writeChannel.sent)
-              if (line.startsWith('JOIN #')) line.substring('JOIN #'.length),
-          ]) {
-            writeChannel.push('@room-id=1 :tmi.twitch.tv ROOMSTATE #$ch');
+          for (final line in writeChannel.sent) {
+            if (!line.startsWith('JOIN #')) continue;
+            for (final ch in line.substring('JOIN #'.length).split(',')) {
+              final name = ch.startsWith('#') ? ch.substring(1) : ch;
+              writeChannel.push('@room-id=1 :tmi.twitch.tv ROOMSTATE #$name');
+            }
           }
-          for (final ch in [
-            for (final line in readChannel.sent)
-              if (line.startsWith('JOIN #')) line.substring('JOIN #'.length),
-          ]) {
-            readChannel.push('@room-id=1 :tmi.twitch.tv ROOMSTATE #$ch');
+          for (final line in readChannel.sent) {
+            if (!line.startsWith('JOIN #')) continue;
+            for (final ch in line.substring('JOIN #'.length).split(',')) {
+              final name = ch.startsWith('#') ? ch.substring(1) : ch;
+              readChannel.push('@room-id=1 :tmi.twitch.tv ROOMSTATE #$name');
+            }
           }
         }
 
-        // The remaining channels drip out at ~2 per 1.05s across both sockets.
+        // The remaining channels drip out at ~2 per second across both sockets.
         for (var step = 0; step < 30; step++) {
           fakeNow = fakeNow.add(const Duration(milliseconds: 500));
           async.elapse(const Duration(milliseconds: 500));
@@ -1129,18 +1173,28 @@ void main() {
         }
         // Sweeps may legitimately re-send a channel whose echo had not been
         // fed back yet; every channel must be joined at least once.
-        final joinedWrite = {
-          for (final line in writeChannel.sent.where(
-            (l) => l.startsWith('JOIN #'),
-          ))
-            line.substring('JOIN #'.length),
-        };
-        final joinedRead = {
-          for (final line in readChannel.sent.where(
-            (l) => l.startsWith('JOIN #'),
-          ))
-            line.substring('JOIN #'.length),
-        };
+        final joinedWrite = <String>{};
+        for (final line in writeChannel.sent.where(
+          (l) => l.startsWith('JOIN #'),
+        )) {
+          joinedWrite.addAll(
+            line
+                .substring('JOIN #'.length)
+                .split(',')
+                .map((c) => c.startsWith('#') ? c.substring(1) : c),
+          );
+        }
+        final joinedRead = <String>{};
+        for (final line in readChannel.sent.where(
+          (l) => l.startsWith('JOIN #'),
+        )) {
+          joinedRead.addAll(
+            line
+                .substring('JOIN #'.length)
+                .split(',')
+                .map((c) => c.startsWith('#') ? c.substring(1) : c),
+          );
+        }
         expect(joinedWrite.length, 12);
         expect(joinedRead.length, 12);
 
@@ -1183,8 +1237,8 @@ void main() {
             attempts++;
             return true;
           });
-          fakeNow = fakeNow.add(const Duration(milliseconds: 1100));
-          async.elapse(const Duration(milliseconds: 1100));
+          fakeNow = fakeNow.add(const Duration(milliseconds: 3100));
+          async.elapse(const Duration(milliseconds: 3100));
           async.flushMicrotasks();
 
           expect(attempts, 2);
@@ -1204,17 +1258,17 @@ void main() {
       }
       await pumpEventQueue();
 
-      // Each channel is one unit; the send cap let c0 and c1 through the
-      // first pump (two channels), leaving c2..c24 queued.
-      expect(budget.pending(), hasLength(23));
+      // Each channel is one unit; the send cap (6/pump) let c0..c5 through
+      // the first pump, leaving c6..c24 queued.
+      expect(budget.pending(), hasLength(19));
       expect(budget.positionOf('c0'), isNull);
-      expect(budget.positionOf('c2'), 1);
+      expect(budget.positionOf('c6'), 1);
 
-      // 'c2' heads the queue: zero wait. 'c24' waits behind c2..c23's 23
-      // commands (c24 itself makes 23 total), bottlenecked by the pump cap:
-      // ceil(23/2)*1.05=13s dominates the token path (23-18)/...=2.6s.
-      expect(budget.etaSecondsForChannel('c2'), 0);
-      expect(budget.etaSecondsForChannel('c24'), 13);
+      // 'c6' heads the queue with banked tokens: zero wait. 'c24' is index 18
+      // in the post-burst queue (19 channels behind it); ceil(19/6)*3=12s
+      // dominates the token path.
+      expect(budget.etaSecondsForChannel('c6'), 0);
+      expect(budget.etaSecondsForChannel('c24'), 12);
     });
 
     test('eta counts outstanding channel commands ahead of the channel', () {
@@ -1232,15 +1286,14 @@ void main() {
       budget.enqueue('last', IrcSocketRole.write);
 
       // ETAs are INCLUSIVE of the channel's own JOIN (time until it is sent).
-      // Tokens start at 3; each channel is one command.
+      // Tokens start at 3; batch cap is 6 so a,b,c (3 commands) share the
+      // leading batch (eta 0). 'last' needs a 4th token: (4-3)*3.5s refill.
       expect(
         budget.etaSecondsForChannel('b'),
-        2,
-        reason: 'a+b = 2 commands, fits the first pump (cap 2)',
+        0,
+        reason: 'a+b fit the leading batch (tokens cover 2)',
       );
-      // 'c': 3 commands -> token path 0, cap ceil(3/2)*1.05 = 3s.
-      // 'last': 4 commands -> token path (4-3)*3.5=3.5s dominates cap 3s.
-      expect(budget.etaSecondsForChannel('c'), 3);
+      expect(budget.etaSecondsForChannel('c'), 0);
       expect(budget.etaSecondsForChannel('last'), 4);
     });
 
@@ -1259,8 +1312,8 @@ void main() {
 
         // The socket comes up: the SAME unit sends in place on a later pump.
         readReady = true;
-        fakeNow = fakeNow.add(const Duration(milliseconds: 1100));
-        async.elapse(const Duration(milliseconds: 1100));
+        fakeNow = fakeNow.add(const Duration(milliseconds: 3100));
+        async.elapse(const Duration(milliseconds: 3100));
         async.flushMicrotasks();
         expect(budget.positionOf('chan'), isNull);
       });
@@ -1289,7 +1342,7 @@ void main() {
           return readReady;
         });
         readReady = true;
-        async.elapse(const Duration(milliseconds: 1100));
+        async.elapse(const Duration(milliseconds: 3100));
         async.flushMicrotasks();
 
         // The join completed IN PLACE: it was never dropped or re-queued.

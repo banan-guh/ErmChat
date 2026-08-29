@@ -8,12 +8,16 @@ import 'base_irc_connection.dart' show IrcSocketRole;
 
 export 'base_irc_connection.dart' show IrcSocketRole;
 
-/// Account-wide JOIN pacing: 20 commands/10.5s, token bucket, single read-socket per channel.
+/// Account-wide JOIN pacing: 20 commands/10.5s, token bucket, single read-socket
+/// per channel. Each tick sends one batched `JOIN #a,#b,…` line (up to
+/// [batchSize] channels) so N channels cost N Twitch joins but only one
+/// WebSocket frame.
 class JoinRateLimiter {
   JoinRateLimiter({
     this.capacity = 20,
     this.window = const Duration(milliseconds: 10500),
-    this.pumpInterval = const Duration(milliseconds: 1050),
+    this.pumpInterval = const Duration(seconds: 3),
+    this.batchSize = _batchSize,
     DateTime Function()? now,
   }) : _now = now ?? DateTime.now {
     _lastRefill = _now();
@@ -25,11 +29,15 @@ class JoinRateLimiter {
   /// Refill window (slightly longer than Twitch's 10s to avoid boundary overflows).
   final Duration window;
 
-  /// Pump interval; 2 channels/tick smooths the burst.
+  /// Pump interval; one batched JOIN line per tick.
   final Duration pumpInterval;
 
-  /// Max JOIN sends per pump (2 keeps burst under Twitch limit).
-  static const _maxSendsPerPump = 2;
+  /// Max channels per batched JOIN line. 6/3s keeps the steady rate at ~2/s
+  /// (inside Twitch's 20/10s ceiling) while collapsing frames.
+  static const _batchSize = 6;
+
+  /// Channels per batched JOIN line.
+  final int batchSize;
 
   final DateTime Function() _now;
 
@@ -37,7 +45,7 @@ class JoinRateLimiter {
   late DateTime _lastRefill;
   Timer? _pumpTimer;
   bool _pumpScheduled = false;
-  final _handlers = <IrcSocketRole, bool Function(String channel)>{};
+  final _handlers = <IrcSocketRole, bool Function(List<String> channels)>{};
   final _queue = <({String channel, IrcSocketRole role})>[];
   // Completed units: prevents re-joining on socket bounce.
   final _completed = <String, DateTime>{};
@@ -50,7 +58,10 @@ class JoinRateLimiter {
     return _tokens;
   }
 
-  void registerHandler(IrcSocketRole role, bool Function(String channel) send) {
+  void registerHandler(
+    IrcSocketRole role,
+    bool Function(List<String> channels) send,
+  ) {
     _handlers[role] = send;
   }
 
@@ -64,7 +75,9 @@ class JoinRateLimiter {
       }
       _completed.remove(channel);
     }
-    final existing = _queue.indexWhere((unit) => unit.channel == channel);
+    final existing = _queue.indexWhere(
+      (unit) => unit.channel == channel && unit.role == role,
+    );
     if (existing >= 0) {
       // Duplicate: single JOIN, nothing to add.
       PerfLog.I.record('JOINQ', 'dup $channel (ignored)');
@@ -127,22 +140,20 @@ class JoinRateLimiter {
     ];
   }
 
-  /// ETA seconds for [channel]'s JOIN (respects token + pump cap bottlenecks).
+  /// ETA seconds for [channel]'s JOIN (respects token + per-pump batch cap).
   int etaSecondsForChannel(String channel) {
     final index = _queue.indexWhere((unit) => unit.channel == channel);
     if (index < 0) return 0;
-    // Head unit with banked token: goes out this pump.
-    if (index == 0 && availableTokens >= 1) return 0;
-    // Each queued unit = one JOIN.
-    final commands = index + 1;
+    // Channels in the leading batch go out this pump.
+    if (index < batchSize && availableTokens >= index + 1) return 0;
+    // Each batched line covers [batchSize] channels and is one pump tick.
+    final position = index + 1;
+    final batches = ((position + batchSize - 1) ~/ batchSize);
     final tokenSeconds = math.max(
       0,
-      (commands - availableTokens) * window.inMilliseconds / capacity / 1000,
+      (position - availableTokens) * window.inMilliseconds / capacity / 1000,
     );
-    final capSeconds =
-        (commands / _maxSendsPerPump).ceil() *
-        pumpInterval.inMilliseconds /
-        1000;
+    final capSeconds = batches * pumpInterval.inMilliseconds / 1000;
     return math.max(tokenSeconds, capSeconds).ceil();
   }
 
@@ -171,46 +182,55 @@ class JoinRateLimiter {
 
   void _pump() {
     _refill();
-    var walk = _queue.length;
-    var index = 0;
-    var sendsThisPump = 0;
-    while (_tokens >= 1 &&
-        sendsThisPump < _maxSendsPerPump &&
-        walk > 0 &&
-        index < _queue.length) {
-      final unit = _queue[index];
-      walk--;
-      // Dispatch JOIN; success consumes token, failure retries next pump.
-      final handler = _handlers[unit.role];
-      if (handler != null) {
-        final sent = handler.call(unit.channel);
-        if (sent) {
-          _tokens -= 1;
-          sendsThisPump++;
-          _queue.removeAt(index);
-          _completed[unit.channel] = _now();
-          PerfLog.I.record(
-            'JOINQ',
-            'dispatch ${unit.channel} ${unit.role.name}:ok '
-                'tokens=${_tokens.toStringAsFixed(2)}',
-          );
-        } else {
-          PerfLog.I.record(
-            'JOINQ',
-            'dispatch ${unit.channel} ${unit.role.name}:dead (stays queued)',
-          );
-          // Retry in place; step past so others get a chance.
-          index++;
-        }
-      } else {
-        // No handler: drop unit to avoid starvation.
-        _queue.removeAt(index);
-        PerfLog.I.record(
-          'JOINQ',
-          'dispatch ${unit.channel} ${unit.role.name}:no-handler (dropped)',
-        );
+    if (_queue.isEmpty) {
+      _stop();
+      return;
+    }
+    final head = _queue.first;
+    final handler = _handlers[head.role];
+    if (handler == null) {
+      // No handler for this role: drop the unit to avoid starvation.
+      final dropped = _queue.removeAt(0);
+      PerfLog.I.record(
+        'JOINQ',
+        'dispatch ${dropped.channel} ${dropped.role.name}:no-handler (dropped)',
+      );
+      return;
+    }
+    if (_tokens < 1) return; // wait for the bucket to refill
+    // One batched JOIN line per pump tick, up to [batchSize] channels.
+    final batch = <String>[];
+    final taken = <({String channel, IrcSocketRole role})>[];
+    while (batch.length < batchSize &&
+        _queue.isNotEmpty &&
+        _queue.first.role == head.role &&
+        _tokens >= 1) {
+      final unit = _queue.removeAt(0);
+      taken.add(unit);
+      batch.add(unit.channel);
+      _tokens -= 1;
+    }
+    final sent = handler(batch);
+    if (sent) {
+      for (final unit in taken) {
+        _completed[unit.channel] = _now();
       }
-      if (_tokens < 1) break;
+      PerfLog.I.record(
+        'JOINQ',
+        'dispatch batch(${batch.length}) ${head.role.name}:ok '
+            'tokens=${_tokens.toStringAsFixed(2)}',
+      );
+    } else {
+      // Socket down: put the units back at the front, untouched, so a later
+      // pump retries them; refund the tentatively spent tokens.
+      for (var k = taken.length - 1; k >= 0; k--) {
+        _queue.insert(0, taken[k]);
+      }
+      _tokens += taken.length;
+      PerfLog.I.record(
+        'JOINQ',
+        'dispatch batch ${head.role.name}:dead (stays queued)',
+      );
     }
     if (_queue.isEmpty) _stop();
   }

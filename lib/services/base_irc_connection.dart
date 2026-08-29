@@ -75,7 +75,7 @@ abstract class IrcConnection {
   // sockets when the app wires them to one [JoinRateLimiter] (see HomeScreen);
   // standalone instances fall back to a private bucket. Each channel is a
   // single read-socket JOIN.
-  static const _joinPumpInterval = Duration(milliseconds: 1050);
+  static const _joinPumpInterval = Duration(seconds: 3);
   // ROOMSTATE echoes a processed JOIN; a channel that hasn't confirmed within
   // this window is re-sent (up to a few rounds, then we stop nagging).
   static const _joinConfirmInterval = Duration(seconds: 10);
@@ -184,7 +184,7 @@ abstract class IrcConnection {
     // resident holding the read role in its original slot (instead of
     // completing immediately and pushing the read join to the back of the
     // queue when the read socket's handshake lands later).
-    _injectedJoinBudget?.registerHandler(role, sendJoinNow);
+    _injectedJoinBudget?.registerHandler(role, sendJoinNowBatch);
   }
 
   /// Emits a status event, no-oping after [dispose] so a racing connect or
@@ -673,21 +673,22 @@ abstract class IrcConnection {
   /// the socket is live and exist because a JOIN was lost.
   void _queueJoin(String channel, {bool force = false}) {
     if (!force && this.channel == null) return;
-    _joinBudget.registerHandler(role, sendJoinNow);
+    _joinBudget.registerHandler(role, sendJoinNowBatch);
     _joinBudget.enqueue(channel, role, force: force);
   }
 
-  /// Sends one JOIN immediately. Called by the limiter's pump; returns false
-  /// when the socket is down so the entry is dropped instead of consumed.
+  /// Sends one batched JOIN line immediately. Called by the limiter's pump;
+  /// returns false when the socket is down so the entries stay queued.
   @visibleForTesting
-  bool sendJoinNow(String channel) {
-    if (this.channel == null) {
-      PerfLog.I.record('JOINQ', '[$debugPrefix] send $channel REFUSED (down)');
+  bool sendJoinNowBatch(List<String> channels) {
+    if (channel == null) {
+      PerfLog.I.record('JOINQ', '[$debugPrefix] send batch REFUSED (down)');
       return false;
     }
-    PerfLog.I.record('JOINQ', '[$debugPrefix] send JOIN #$channel');
-    sendLine('JOIN #$channel');
-    _joinPending.add(channel);
+    final line = 'JOIN ${channels.map((c) => '#$c').join(',')}';
+    PerfLog.I.record('JOINQ', '[$debugPrefix] send $line');
+    sendLine(line);
+    _joinPending.addAll(channels);
     return true;
   }
 
