@@ -537,16 +537,18 @@ class ChatStore {
   }
 
   /// Marks every non-system message from [login] in [channel] as deleted
-  /// (bans, timeouts) and signals each mutation.
+  /// (bans, timeouts) and signals once.
   void markUserMessagesDeleted(String channel, String login) {
     final msgs = channelMessages[channel];
     if (msgs == null) return;
+    var touched = false;
     for (final msg in msgs) {
       if (msg.login == login.toLowerCase() && !msg.isSystem && !msg.deleted) {
         msg.deleted = true;
-        messageMutated(channel, msg.messageId);
+        touched = true;
       }
     }
+    if (touched) touchChannel(channel);
   }
 
   /// Marks the non-system message with [messageId] as deleted (CLEARMSG,
