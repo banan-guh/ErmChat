@@ -15,10 +15,15 @@ import 'services/twitch_badge_service.dart';
 import 'theme_colors.dart';
 import 'util/constants.dart';
 import 'util/log.dart';
+import 'util/crash_report.dart';
 import 'widgets/tabbed_layout.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Surface framework and async errors in release instead of silently
+  // dropping them; a backend can be plugged via [crashReporter].
+  FlutterError.onError = (details) =>
+      reportError(details.exception, details.stack);
   // Badges/avatars (CachedNetworkImage) use the library's default cache manager,
   // not EmoteCacheManager. EmoteCacheManager enforces a small, emote-only disk
   // cap and throws when full; routing badges through it made them vanish once
@@ -29,7 +34,7 @@ void main() async {
     FlutterForegroundTask.initCommunicationPort();
   }
   unawaited(_warmHistory());
-  runApp(const TwitchChatApp());
+  runZonedGuarded(() => runApp(const TwitchChatApp()), reportError);
 }
 
 /// Pre-warms chat history during boot, concurrent with storage and first frame.
