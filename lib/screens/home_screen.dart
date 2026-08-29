@@ -1436,7 +1436,7 @@ class _HomeScreenState extends State<HomeScreen>
     _emoteManager.cacheCap = cap;
   }
 
-  Future<void> _refreshEmotesAfterAuth({bool force = false}) async {
+  Future<bool> _refreshEmotesAfterAuth({bool force = false}) async {
     try {
       for (final channel in _chatStore.channels) {
         final userId = await _twitchApi.getUserId(widget.twitchAuth, channel);
@@ -1464,10 +1464,13 @@ class _HomeScreenState extends State<HomeScreen>
           ),
         ),
       );
+      if (mounted) setState(() {});
+      return true;
     } catch (e) {
       logDebug('_refreshEmotesAfterAuth failed: $e');
+      if (mounted) setState(() {});
+      return false;
     }
-    if (mounted) setState(() {});
   }
 
   // Manual "Reload emotes": clears the emote image cache on disk plus all
@@ -1482,11 +1485,26 @@ class _HomeScreenState extends State<HomeScreen>
       } catch (e) {
         logDebug('_reloadEmotes: cache clear failed: $e');
       }
-      await _refreshEmotesAfterAuth(force: true);
+      // Drop in-memory images so unchanged-URL emotes actually re-render.
+      PaintingBinding.instance.imageCache.clear();
+      final ok = await _refreshEmotesAfterAuth(force: true);
+      // Subscriber emotes aren't covered by the global/channel refresh; re-fetch
+      // the sets already known from a prior USERSTATE.
+      final auth = widget.twitchAuth;
+      if (ok && auth.isConfigured) {
+        try {
+          await _emoteManager.reloadUserEmoteSets(
+            auth,
+            _chatStore.channelUserIds,
+          );
+        } catch (e) {
+          logDebug('_reloadEmotes: sub emote reload failed: $e');
+        }
+      }
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Emotes reloaded')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(ok ? 'Emotes reloaded' : 'Emote reload failed')),
+      );
     } finally {
       _networkBusy.value = false;
     }

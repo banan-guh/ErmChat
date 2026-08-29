@@ -269,7 +269,7 @@ class EmoteManager extends ChangeNotifier {
       EmoteResolution? resolution,
     })?
     fetchUserEmoteSets,
-  })  : _connectivityProbe = probe,
+  }) : _connectivityProbe = probe,
        _injectedCacheManager = cacheManager,
        _metaStore = metaStore ?? EmoteMetaStore.I,
        _sevenTvChannelFetcher =
@@ -279,21 +279,24 @@ class EmoteManager extends ChangeNotifier {
                  channelId,
                  resolution: resolution,
                )),
-        _sevenTvGlobalFetcher =
-            sevenTvGlobalFetcher ??
-            ((EmoteResolution resolution) =>
-                SevenTvEmoteProvider.fetchGlobal(resolution: resolution)),
-        _resolveOwnerLogins =
-            resolveOwnerLogins ?? TwitchApi().getUserLoginsByIds,
-        _fetchUserEmoteSets = fetchUserEmoteSets ??
-            ((List<String> ids,
-                    {String? accessToken, EmoteResolution? resolution}) =>
-                TwitchEmoteProvider.fetchEmoteSets(
-                  ids,
-                  accessToken: accessToken,
-                  resolution: resolution ?? EmoteResolution.high,
-                )),
-        _now = now ?? DateTime.now {
+       _sevenTvGlobalFetcher =
+           sevenTvGlobalFetcher ??
+           ((EmoteResolution resolution) =>
+               SevenTvEmoteProvider.fetchGlobal(resolution: resolution)),
+       _resolveOwnerLogins =
+           resolveOwnerLogins ?? TwitchApi().getUserLoginsByIds,
+       _fetchUserEmoteSets =
+           fetchUserEmoteSets ??
+           ((
+             List<String> ids, {
+             String? accessToken,
+             EmoteResolution? resolution,
+           }) => TwitchEmoteProvider.fetchEmoteSets(
+             ids,
+             accessToken: accessToken,
+             resolution: resolution ?? EmoteResolution.high,
+           )),
+       _now = now ?? DateTime.now {
     _removeCachedFile =
         removeCachedFile ?? ((String url) => _cacheManager.removeFile(url));
     _tier = tier;
@@ -1049,7 +1052,9 @@ class EmoteManager extends ChangeNotifier {
   }
 
   /// Re-stores cached subs with resolved ownerChannel (reconnect heal).
-  Future<void> _reStoreCachedSubs(Map<String, String> openChannelUserIds) async {
+  Future<void> _reStoreCachedSubs(
+    Map<String, String> openChannelUserIds,
+  ) async {
     if (_fetchedSubEmotesByOwner.isEmpty) return;
     final targets = openChannelUserIds.keys.toList();
     if (targets.isEmpty) return;
@@ -1065,6 +1070,20 @@ class EmoteManager extends ChangeNotifier {
     _emoteOwnerLogins.clear();
     _fetchedSubEmotesByOwner.clear();
     _subsByChannelCache = null;
+  }
+
+  /// Re-fetches subscriber emotes for the ids already known from a prior
+  /// USERSTATE/GLOBALUSERSTATE. The manual emote reload would otherwise drop
+  /// subs until the next IRC USERSTATE arrives, so call this from that path.
+  Future<void> reloadUserEmoteSets(
+    TwitchAuth auth,
+    Map<String, String> openChannelUserIds,
+  ) async {
+    if (_tier == EmoteFetchTier.nothing) return;
+    if (_fetchedEmoteSetIds.isEmpty) return;
+    final ids = _fetchedEmoteSetIds.toList();
+    _fetchedEmoteSetIds.clear();
+    await loadUserEmoteSets(ids, auth, openChannelUserIds);
   }
 
   /// Builds per-channel subs map with owner stamps.
