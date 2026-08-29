@@ -1505,7 +1505,7 @@ class _HomeScreenState extends State<HomeScreen>
       }
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(ok ? 'Emotes reloaded' : 'Emote reload failed')),
+        _snackBar(ok ? 'Emotes reloaded' : 'Emote reload failed'),
       );
     } finally {
       _networkBusy.value = false;
@@ -1726,19 +1726,44 @@ class _HomeScreenState extends State<HomeScreen>
     _chatStore.noteNewMessage(channel);
   }
 
-  SnackBar _snackBar(String text) {
+  SnackBar _snackBar(String text, {SnackBarAction? action}) {
     final inputBarH = _inputBarKey.currentContext?.size?.height ?? 0;
     return SnackBar(
       behavior: SnackBarBehavior.floating,
       dismissDirection: DismissDirection.horizontal,
       margin: EdgeInsets.only(bottom: inputBarH, left: 16, right: 16),
       content: Text(text),
+      action: action,
     );
   }
 
   void _copyMessageToClipboard(TwitchMessage msg) {
     Clipboard.setData(ClipboardData(text: msg.text));
-    ScaffoldMessenger.of(context).showSnackBar(_snackBar('Message copied'));
+    ScaffoldMessenger.of(context).showSnackBar(
+      _snackBar(
+        'Message copied',
+        action: SnackBarAction(
+          label: 'Paste',
+          onPressed: _pasteFromClipboard,
+        ),
+      ),
+    );
+  }
+
+  /// Pastes the current clipboard text into the chat input at the cursor.
+  Future<void> _pasteFromClipboard() async {
+    final data = await Clipboard.getData(Clipboard.kTextPlain);
+    final text = data?.text;
+    if (text == null || text.isEmpty) return;
+    final controller = _messageController;
+    final selection = controller.selection;
+    final base = selection.baseOffset;
+    final insertAt = base < 0 ? controller.text.length : base;
+    final newText = controller.text.replaceRange(insertAt, insertAt, text);
+    controller.value = TextEditingValue(
+      text: newText,
+      selection: TextSelection.collapsed(offset: insertAt + text.length),
+    );
   }
 
   void _showMessageMenu(TwitchMessage msg) {
