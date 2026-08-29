@@ -218,7 +218,8 @@ class FlutterListViewDelegate extends SliverChildDelegate {
   int? get estimatedChildCount => childCount;
 
   @override
-  bool shouldRebuild(covariant FlutterListViewDelegate oldDelegate) => true;
+  bool shouldRebuild(covariant FlutterListViewDelegate oldDelegate) =>
+      childCount != oldDelegate.childCount || builder != oldDelegate.builder;
 }
 
 class _SaltedValueKey extends ValueKey<Key> {

@@ -103,6 +103,8 @@ class ChatView extends StatefulWidget {
 
 class _ChatViewState extends State<ChatView> {
   double _cachedSystemScale = 1.0;
+  int _lastMsgLen = -1;
+  Map<String, int> _idToIndex = const {};
 
   @override
   void didChangeDependencies() {
@@ -159,6 +161,8 @@ class _ChatViewState extends State<ChatView> {
               builder: (_, _, _) {
                 final msgs = widget.messages;
                 if (msgs.isEmpty) {
+                  _lastMsgLen = 0;
+                  _idToIndex = const {};
                   return Center(child: Text(widget.emptyText));
                 }
 
@@ -167,15 +171,21 @@ class _ChatViewState extends State<ChatView> {
                   () => <String?, Widget>{},
                 );
 
-                final idToIndex = <String, int>{};
-                if (cache != null) {
-                  final pending = cache.keys.whereType<String>().toSet();
-                  for (var i = 0; i < msgs.length && pending.isNotEmpty; i++) {
-                    final id = msgs[i].messageId;
-                    if (id != null && pending.remove(id)) {
-                      idToIndex[id] = i;
+                if (msgs.length != _lastMsgLen) {
+                  _lastMsgLen = msgs.length;
+                  final idToIndex = <String, int>{};
+                  if (cache != null) {
+                    final pending = cache.keys.whereType<String>().toSet();
+                    for (var i = 0;
+                        i < msgs.length && pending.isNotEmpty;
+                        i++) {
+                      final id = msgs[i].messageId;
+                      if (id != null && pending.remove(id)) {
+                        idToIndex[id] = i;
+                      }
                     }
                   }
+                  _idToIndex = idToIndex;
                 }
 
                 return Padding(
@@ -190,7 +200,7 @@ class _ChatViewState extends State<ChatView> {
                       (_, i) => _buildTile(
                         msgs,
                         cache,
-                        idToIndex,
+                        _idToIndex,
                         i,
                         surface,
                         s,
