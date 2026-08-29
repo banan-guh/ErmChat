@@ -324,18 +324,26 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
         );
         final listener = ImageStreamListener(
           (info, syncCall) {
-            // Drop sync delivery: engine's addListener hands current frame, already forwarded.
-            if (syncCall) {
-              info.dispose();
-              return;
-            }
-            // Drop frame delivered after disposal (cache eviction).
-            if (_disposed) {
-              info.dispose();
-              return;
-            }
+            // The engine owns `info`; never dispose it. The async path below
+            // passes our own clone to setImage so the completer's _currentImage
+            // is one we own (setImage would otherwise dispose the engine's own
+            // ImageInfo on the next frame, double-freeing it).
+            if (_disposed) return;
+            // Synchronous re-delivery: the engine hands its current frame to a
+            // freshly attached listener. Rebroadcasting it through setImage
+            // calls setState on the already-building first widget
+            // ("setState during build"). The completer's _currentImage is already
+            // set from an earlier async delivery, so the new listener receives it
+            // via the framework's normal re-push. Do NOT dispose `info`.
+            if (syncCall) return;
             _engineFramesDelivered++;
-            setImage(info);
+            setImage(
+              ImageInfo(
+                image: info.image.clone(),
+                scale: info.scale,
+                debugLabel: info.debugLabel,
+              ),
+            );
           },
           onError: (error, stack) {
             if (_disposed) return;
@@ -413,7 +421,8 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
     return (delivered - 1) % codec.frameCount;
   }
 
-  /// Emits frame [index] as a clone. Original kept in [_frames].
+  /// Emits frame [index] as a clone. [setImage] clones again per listener and
+  /// disposes the previous source, so the original must stay in [_frames].
   void _emitFrame(int index) {
     if (_disposed) return;
     final frames = _frames;

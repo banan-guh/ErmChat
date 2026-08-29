@@ -223,4 +223,51 @@ void main() {
     // than the slot height, confirming contain-fit (not stretch).
     expect(ro.debugFrame, isNotNull);
   });
+
+  testWidgets(
+    'same emote url in two widgets paints both without double-dispose',
+    (tester) async {
+      // Regression: a shared completer handed one ImageInfo to every listener
+      // (and disposing the engine's own image) double-freed the underlying
+      // ui.Image ("cannot dispose of image"). Each listener must get its own
+      // clone and the engine's image must never be disposed by us.
+      EmoteUrlProvider.debugFetchOverride = (_) async => _pngBytes();
+      const url = 'https://inline.test/shared.png';
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Center(
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: const [
+                SizedBox(
+                  width: 28,
+                  height: 28,
+                  child: InlineEmoteView(url: url, width: 28, height: 28),
+                ),
+                SizedBox(
+                  width: 28,
+                  height: 28,
+                  child: InlineEmoteView(url: url, width: 28, height: 28),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      await _pumpUntilLoaded(tester);
+
+      final renderObjects = tester
+          .renderObjectList<RenderInlineEmote>(find.byType(InlineEmoteView))
+          .toList();
+      expect(renderObjects, hasLength(2));
+      for (final ro in renderObjects) {
+        expect(ro.debugFrame, isNotNull);
+      }
+
+      // Dispose both; a shared-image double-dispose would surface here.
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    },
+  );
 }
