@@ -77,6 +77,22 @@ class ChatMessageTile extends StatefulWidget {
 
 class _ChatMessageTileState extends State<ChatMessageTile> {
   TapGestureRecognizer? _usernameRecognizer;
+  DateTime? _lastTap;
+
+  static const _doubleTapThreshold = Duration(milliseconds: 300);
+
+  void _handleTap() {
+    if (widget.onDoubleTap == null) return;
+    final now = DateTime.now();
+    if (_lastTap != null &&
+        now.difference(_lastTap!) < _doubleTapThreshold) {
+      _lastTap = null;
+      widget.onDoubleTap!();
+    } else {
+      _lastTap = now;
+    }
+  }
+
 
   @override
   void initState() {
@@ -305,8 +321,8 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
 
     if (widget.onLongPress != null || widget.onDoubleTap != null) {
       child = InkWell(
+        onTap: _handleTap,
         onLongPress: widget.onLongPress,
-        onDoubleTap: widget.onDoubleTap,
         child: child,
       );
     }
