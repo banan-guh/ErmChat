@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../util/log.dart';
+import '../../services/emote_codec/native_emote_codec.dart';
 import '../../widgets/emote_image.dart';
 import '../../widgets/welcome_dialog.dart';
 
@@ -75,22 +76,58 @@ class _DevSettingsScreenState extends State<DevSettingsScreen> {
       logDebug('[BENCH] $s');
     }
 
+    log('native libwebp available: ${NativeEmoteCodec.isAvailable}');
+
     Future<void> runTest(String name, Uint8List bytes) async {
       log('\n=== $name (${bytes.length} bytes) ===');
+
+      // decodeEmoteBytes falls back to pure-Dart *silently*, so probe the native
+      // path directly and surface which one the production number came from.
+      // Otherwise a slow "Production" result is indistinguishable from the
+      // intended native path and the benchmark is misleading.
+      String pathLabel;
+      try {
+        final probe = await NativeEmoteCodec.decodeWebp(bytes);
+        if (probe != null) {
+          pathLabel = 'native';
+          for (final f in probe.frames) {
+            f.dispose();
+          }
+        } else {
+          pathLabel = 'pure-Dart (native unavailable)';
+        }
+      } catch (e) {
+        pathLabel = 'pure-Dart (native threw)';
+      }
+      log('  decoder path: $pathLabel');
 
       // Production pipeline (what the app actually uses)
       final swProd = Stopwatch()..start();
       final frames = await decodeEmoteBytes(bytes);
       swProd.stop();
+      final frameCount = frames.frames.length;
+      final dims = frameCount > 0
+          ? '${frames.frames.first.width}x${frames.frames.first.height}'
+          : 'n/a';
       log(
-        'Production decodeEmoteBytes: ${swProd.elapsedMilliseconds}ms '
-        '(${frames.frames.length} frames, ${frames.totalDuration.inMilliseconds}ms total)',
+        'Production decodeEmoteBytes [$pathLabel]: '
+        '${swProd.elapsedMilliseconds}ms '
+        '($frameCount frames, ${frames.totalDuration.inMilliseconds}ms total, $dims)',
       );
+      if (frameCount == 0) {
+        log('WARNING: production decode produced 0 frames — result is meaningless.');
+      }
+      // Frames are GPU-resident ui.Images. Dispose them so repeated runs don't
+      // exhaust GPU memory and skew later timings (or fail outright).
+      for (final f in frames.frames) {
+        f.dispose();
+      }
 
       // Engine codec (for comparison - only used for static images in production)
       final swEngine = Stopwatch()..start();
+      ui.Codec? codec;
       try {
-        final codec = await ui.instantiateImageCodec(bytes);
+        codec = await ui.instantiateImageCodec(bytes);
         for (var i = 0; i < codec.frameCount; i++) {
           await codec.getNextFrame();
         }
@@ -102,6 +139,8 @@ class _DevSettingsScreenState extends State<DevSettingsScreen> {
       } catch (e) {
         swEngine.stop();
         log('Engine codec failed: $e');
+      } finally {
+        codec?.dispose();
       }
     }
 
@@ -197,7 +236,7 @@ class _DevSettingsScreenState extends State<DevSettingsScreen> {
             leading: const Icon(Icons.speed),
             title: const Text('Run WebP decode benchmark'),
             subtitle: const Text(
-              'Compares pure-Dart vs engine codec on real emotes',
+              'Compares production decoder (native/pure-Dart) vs engine codec',
             ),
             onTap: () => _runDecodeBenchmark(context),
           ),
