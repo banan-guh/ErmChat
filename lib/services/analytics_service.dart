@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import '../models/generic_emote.dart';
 import '../models/twitch_message.dart';

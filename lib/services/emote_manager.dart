@@ -463,11 +463,7 @@ class EmoteManager extends ChangeNotifier {
       (grouped[e.type] ??= []).add(e);
     }
     final result = <String, List<GenericEmote>>{};
-    final types = _globalSortPriority.keys.toList()
-      ..sort(
-        (a, b) => _globalSortPriority[a]!.compareTo(_globalSortPriority[b]!),
-      );
-    for (final t in types) {
+    for (final t in _globalSortPriority.keys) {
       final list = grouped[t];
       if (list == null || list.isEmpty) continue;
       list.sort((a, b) => a.code.compareTo(b.code));
