@@ -63,7 +63,7 @@ class ChatMessageTile extends StatefulWidget {
     this.showTimestamp = true,
     this.timestampFormat = kDefaultTimestampFormat,
     this.checkeredMessages = false,
-    this.highlightOpacity = 0.4,
+    this.highlightOpacity = 0.6,
     this.lineSeparator = false,
     this.isAlternateBackground = false,
     this.fadeDeleted = true,
@@ -215,9 +215,7 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
     final bodyTextStyle = TextStyle(
       fontSize: 14 * s,
       color: msg.isSystem
-          ? (msg.systemAccent != null
-                ? theme.colorScheme.onSurface
-                : theme.colorScheme.onSurfaceVariant)
+          ? theme.colorScheme.onSurfaceVariant
           : theme.colorScheme.onSurface,
       decoration: TextDecoration.none,
     );
@@ -281,7 +279,18 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
     var rowColor = widget.surface;
     final tintAnchor = highlightAnchor(widget.surface);
     if (msg.systemAccent != null) {
-      final tint = matchTintContrast(msg.systemAccent!, rowColor, tintAnchor);
+      // Blue/purple announcement hues read a touch louder than their measured
+      // brightness even after equalization, so damp them slightly more.
+      final accentHue = HSLColor.fromColor(msg.systemAccent!).hue;
+      final strength = (accentHue >= 210 && accentHue <= 300)
+          ? highlightStrength * 0.85
+          : highlightStrength;
+      final tint = matchTintContrast(
+        msg.systemAccent!,
+        rowColor,
+        tintAnchor,
+        strength: strength,
+      );
       rowColor = Color.alphaBlend(
         tint.withValues(alpha: widget.highlightOpacity),
         rowColor,

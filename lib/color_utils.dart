@@ -97,14 +97,31 @@ Color normalizeColor(Color color, Color background) {
 /// [surface] matches [anchor]'s. Equalizes perceived contrast across hues
 /// (the highlight-tint analogue of [normalizeColor] for text). Hue and
 /// saturation are preserved; only lightness moves.
+/// Perceptual brightness of [c] in 0..1. Unlike linear [luminance] (which
+/// over-weights green and makes reds/purples look brighter than they measure),
+/// this sqrt-weighted metric tracks how bright a hue actually reads, so a
+/// saturated red or purple is scored as bright as it looks.
+double brightness(Color c) {
+  final r = c.r;
+  final g = c.g;
+  final b = c.b;
+  return sqrt(0.299 * r * r + 0.587 * g * g + 0.114 * b * b);
+}
+
 /// Global strength of equalized highlight tints. The anchor hue is lifted to
 /// this fraction of its natural contrast so highlights read evenly without
 /// blowing out at high opacity.
-const highlightStrength = 0.4;
+const highlightStrength = 0.8;
 
-Color matchTintContrast(Color color, Color surface, Color anchor) {
-  final bgLum = luminance(surface);
-  final target = (luminance(anchor) - bgLum).abs() * highlightStrength;
+Color matchTintContrast(
+  Color color,
+  Color surface,
+  Color anchor, {
+  double strength = highlightStrength,
+}) {
+  assert(strength > 0 && strength <= 1, 'strength must be in (0, 1]');
+  final bgLum = brightness(surface);
+  final target = (brightness(anchor) - bgLum).abs() * strength;
   if (target <= 1e-4) return color;
 
   final hsl = HSLColor.fromColor(color);
@@ -120,7 +137,7 @@ Color matchTintContrast(Color color, Color surface, Color anchor) {
   for (var i = 0; i < 16; i++) {
     final mid = (lo + hi) / 2;
     final candidate = HSLColor.fromAHSL(1, hue, saturation, mid).toColor();
-    final delta = (luminance(candidate) - bgLum).abs();
+    final delta = (brightness(candidate) - bgLum).abs();
     best = candidate;
     if ((delta - target).abs() < 1e-4) break;
     if (delta < target) {
@@ -156,16 +173,16 @@ const highlightPaletteLight = <Color>[
   Color(0xFF558B2F),
 ];
 
-/// Built-in highlight color with the strongest luminance contrast against
+/// Built-in highlight color with the strongest perceived contrast against
 /// [surface]. Used as the contrast anchor when equalizing so no highlight is
 /// dulled below its natural vividness (everything else is lifted up to it).
 Color highlightAnchor(Color surface) {
-  final bg = luminance(surface);
+  final bg = brightness(surface);
   final palette = bg < 0.5 ? highlightPaletteDark : highlightPaletteLight;
   Color best = palette.first;
-  var bestDist = (luminance(best) - bg).abs();
+  var bestDist = (brightness(best) - bg).abs();
   for (final c in palette.skip(1)) {
-    final d = (luminance(c) - bg).abs();
+    final d = (brightness(c) - bg).abs();
     if (d > bestDist) {
       bestDist = d;
       best = c;

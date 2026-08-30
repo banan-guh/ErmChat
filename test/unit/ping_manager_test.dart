@@ -412,7 +412,7 @@ void main() {
     test('rowColor normalizes contrast to the vivid anchor; custom wins', () {
       const surfaceDark = Color(0xFF000000);
       const surfaceLight = Color(0xFFFFFFFF);
-      double dist(Color c, Color s) => (luminance(c) - luminance(s)).abs();
+      double dist(Color c, Color s) => (brightness(c) - brightness(s)).abs();
 
       // Every highlight (custom or palette) is normalized to highlightStrength
       // of the most-vivid built-in's contrast, so none is dulled below its
@@ -456,32 +456,42 @@ void main() {
       HighlightType.firstMsg,
     ];
 
-    test('all highlight types normalize to equal contrast on a dark surface', () {
-      const surface = Color(0xFF0E0E10);
-      final distances = <double>[
-        for (final t in types)
-          (() {
-            final row = HighlightState(types: {t}).rowColor(surface, opacity: 0.5);
-            return (luminance(row) - luminance(surface)).abs();
-          })(),
-      ];
-      for (final d in distances) {
-        expect(d, closeTo(distances.first, 0.02));
-      }
-    });
+    test(
+      'all highlight types normalize to equal contrast on a dark surface',
+      () {
+        const surface = Color(0xFF0E0E10);
+        final distances = <double>[
+          for (final t in types)
+            (() {
+              final row = HighlightState(
+                types: {t},
+              ).rowColor(surface, opacity: 0.5);
+              return (brightness(row) - brightness(surface)).abs();
+            })(),
+        ];
+        for (final d in distances) {
+          expect(d, closeTo(distances.first, 0.02));
+        }
+      },
+    );
 
-    test('all highlight types normalize to equal contrast on a light surface', () {
-      const surface = Color(0xFFFFFFFF);
-      final distances = <double>[
-        for (final t in types)
-          (() {
-            final row = HighlightState(types: {t}).rowColor(surface, opacity: 1.0);
-            return (luminance(row) - luminance(surface)).abs();
-          })(),
-      ];
-      for (final d in distances) {
-        expect(d, closeTo(distances.first, 0.02));
-      }
-    });
+    test(
+      'all highlight types normalize to equal contrast on a light surface',
+      () {
+        const surface = Color(0xFFFFFFFF);
+        final distances = <double>[
+          for (final t in types)
+            (() {
+              final row = HighlightState(
+                types: {t},
+              ).rowColor(surface, opacity: 1.0);
+              return (brightness(row) - brightness(surface)).abs();
+            })(),
+        ];
+        for (final d in distances) {
+          expect(d, closeTo(distances.first, 0.02));
+        }
+      },
+    );
   });
 }

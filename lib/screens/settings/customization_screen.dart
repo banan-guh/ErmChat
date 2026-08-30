@@ -36,7 +36,7 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
   bool _trueDark = false;
   String _accentKey = kDefaultAccent;
   double _chatFontSize = 14.0;
-  double _highlightOpacity = 0.4;
+  double _highlightOpacity = 0.6;
   bool _checkeredMessages = false;
   bool _lineSeparator = false;
   bool _fastSnap = true;
@@ -62,7 +62,7 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
         _trueDark = prefs.getBool('true_dark') ?? false;
         _accentKey = prefs.getString('accent_color') ?? kDefaultAccent;
         _chatFontSize = prefs.getDouble('chat_font_size') ?? 14.0;
-        _highlightOpacity = prefs.getDouble('highlight_opacity') ?? 0.4;
+        _highlightOpacity = prefs.getDouble('highlight_opacity') ?? 0.6;
         _checkeredMessages = prefs.getBool('checkered_messages') ?? false;
         _lineSeparator = prefs.getBool('line_separator') ?? false;
         _fastSnap = prefs.getBool('fast_channel_snap') ?? true;

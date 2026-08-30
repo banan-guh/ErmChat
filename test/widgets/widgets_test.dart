@@ -4630,8 +4630,17 @@ void main() {
         ),
       ).colorScheme.surface;
       final anchor = highlightAnchor(surface);
-      final tint = matchTintContrast(accent, surface, anchor);
-      final blended = Color.alphaBlend(tint.withValues(alpha: 0.4), surface);
+      final accentHue = HSLColor.fromColor(accent).hue;
+      final strength = (accentHue >= 210 && accentHue <= 300)
+          ? highlightStrength * 0.85
+          : highlightStrength;
+      final tint = matchTintContrast(
+        accent,
+        surface,
+        anchor,
+        strength: strength,
+      );
+      final blended = Color.alphaBlend(tint.withValues(alpha: 0.6), surface);
       // The row tint is painted as the tile Material's color (so ink ripples
       // stay visible above it) rather than a ColoredBox over the content.
       final rows = find
