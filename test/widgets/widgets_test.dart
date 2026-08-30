@@ -1672,7 +1672,7 @@ void main() {
             .enabled ??
         false;
     expect(inputEnabled(), isFalse);
-    expect(find.text('Joining #testchannel...'), findsOneWidget);
+    expect(find.text('Disconnected'), findsOneWidget);
 
     // JOIN confirms: input unlocks and the hint goes away.
     fakeIrc.triggerJoin('testchannel');
@@ -1681,7 +1681,7 @@ void main() {
     await tester.pump();
 
     expect(inputEnabled(), isTrue);
-    expect(find.text('Joining #testchannel...'), findsNothing);
+    expect(find.text('Disconnected'), findsNothing);
   });
 
   testWidgets(

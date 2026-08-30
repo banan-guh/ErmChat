@@ -593,7 +593,7 @@ class ChatChannelSetup {
     final text = switch (event.reason) {
       // A definitive server signal: the channel really is unavailable.
       JoinFailureReason.suspended =>
-        'Could not join #${event.channel}: the channel is suspended or deleted',
+        'Could not join #${event.channel}: the channel is suspended or deleted.',
       // A missing JOIN echo is ambiguous (transient drop, not-yet-joined, or
       // genuinely gone); never claim nonexistence, just report the failure.
       JoinFailureReason.noResponse =>

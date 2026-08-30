@@ -3328,7 +3328,7 @@ void main() {
       expect(messages, contains('Could not connect to channel #foo'));
       expect(
         messages,
-        contains('Could not join #bar: the channel is suspended or deleted'),
+        contains('Could not join #bar: the channel is suspended or deleted.'),
       );
       expect(messages.join(' '), isNot(contains('does not exist')));
       setup.dispose();
