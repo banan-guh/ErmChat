@@ -8,6 +8,7 @@ import '../models/twitch_message.dart';
 import '../util/duration_format.dart';
 import '../util/log.dart';
 import 'twitch_irc.dart' show IrcReadService;
+import '../util/text_bypass.dart';
 import 'chat_store.dart';
 import 'emote_manager.dart';
 import 'ignore_manager.dart';
@@ -409,6 +410,19 @@ class ChatIngestion {
         ? ircMsg.params[0].substring(1)
         : null;
     if (channel == null || ircMsg.trailing == null) return;
+
+    // Re-sync lastSentWireText from the echo so it doesn't drift if the
+    // server modified the message (truncation, etc.). Skip commands since
+    // they are never compared by the bypass logic.
+    final original = ircMsg.trailing!;
+    final previous = store.lastSentWireText[channel];
+    if (previous != null &&
+        !previous.startsWith('.') &&
+        !previous.startsWith('/')) {
+      if (stripInvisibleSuffix(previous) != stripInvisibleSuffix(original)) {
+        store.lastSentWireText[channel] = original;
+      }
+    }
 
     // A successful echo means Twitch accepted the send - any self-timeout
     // gate still armed was for a timeout Twitch has since lifted. Clear it.

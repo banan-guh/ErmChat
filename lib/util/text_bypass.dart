@@ -1,4 +1,14 @@
-const _invisibleChar = '\u034F';
+const invisibleChar = '\u034F';
+const _invisibleChar = invisibleChar;
+
+/// Strips trailing invisible-char suffix and surrounding whitespace.
+String stripInvisibleSuffix(String s) {
+  var result = s.trimRight();
+  if (result.endsWith(_invisibleChar)) {
+    result = result.substring(0, result.length - 1).trimRight();
+  }
+  return result;
+}
 
 /// Dedup bypass: toggles a trailing invisible-char suffix when [text] equals [lastSent], so adjacent sends differ on the wire but look identical.
 String bypassTextDuplicate(String text, String? lastSent) {
