@@ -217,11 +217,11 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('Emotes')),
       body: widget.mobileNotifier == null
-          ? _buildList(context, tier, autoOn, isMetered: false)
+          ? _buildList(context, tier, autoOn, isMobile: false)
           : ValueListenableBuilder<bool>(
               valueListenable: widget.mobileNotifier!,
-              builder: (context, isMetered, _) =>
-                  _buildList(context, tier, autoOn, isMetered: isMetered),
+              builder: (context, isMobile, _) =>
+                  _buildList(context, tier, autoOn, isMobile: isMobile),
             ),
     );
   }
@@ -230,13 +230,13 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
     BuildContext context,
     EmoteFetchTier tier,
     bool autoOn, {
-    required bool isMetered,
+    required bool isMobile,
   }) {
     final displayTier = autoOn
         ? effectiveEmoteFetchTier(
             manual: tier,
             auto: _autoMode,
-            isMetered: isMetered,
+            isMobile: isMobile,
           )
         : tier;
     return ListView(
@@ -290,11 +290,11 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
                 child: autoOn
                     ? Text(
                         'Auto picks by connection '
-                        '(${isMetered ? 'metered' : 'Wi-Fi'}). '
+                        '(${isMobile ? 'cellular' : 'Wi-Fi'}). '
                         'Currently: ${displayTier.label}. '
                         'Disable auto to choose manually.',
                         key: ValueKey(
-                          'auto_note_${isMetered}_${displayTier.label}',
+                          'auto_note_${isMobile}_${displayTier.label}',
                         ),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,

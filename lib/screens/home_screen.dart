@@ -249,7 +249,7 @@ class _HomeScreenState extends State<HomeScreen>
 
   int _manualEmoteTierIndex = EmoteFetchTier.high.index;
   EmoteFetchAutoMode _emoteAutoMode = defaultEmoteFetchAutoMode;
-  final _isMetered = ValueNotifier<bool>(false);
+  final _isMobile = ValueNotifier<bool>(false);
   VoidCallback? _connectivityListener;
 
   late final _emoteManager = EmoteManager(
@@ -422,10 +422,10 @@ class _HomeScreenState extends State<HomeScreen>
     _emoteManager.addListener(_onEmotesChanged);
     _connectivityService.init();
     _connectivityListener = () {
-      final isMetered = _connectivityService.isMetered;
-      if (isMetered == _isMetered.value) return;
-      _isMetered.value = isMetered;
-      DataUsageStats.I.setContext(isMetered: isMetered);
+      final isMobile = _connectivityService.isMobile;
+      if (isMobile == _isMobile.value) return;
+      _isMobile.value = isMobile;
+      DataUsageStats.I.setContext(isMobile: isMobile);
       _reconcileEmoteTier();
     };
     _connectivityService.addListener(_connectivityListener!);
@@ -1378,7 +1378,7 @@ class _HomeScreenState extends State<HomeScreen>
   Future<void> _refreshConnectivity() async {
     // The service seeds itself in init() and corrects on later events, so
     // here we just read its cached state (avoiding a redundant plugin probe).
-    _isMetered.value = _connectivityService.isMetered;
+    _isMobile.value = _connectivityService.isMobile;
   }
 
   // Computes the effective tier from the manual tier + auto mode and applies
@@ -1388,7 +1388,7 @@ class _HomeScreenState extends State<HomeScreen>
     final effective = effectiveEmoteFetchTier(
       manual: EmoteFetchTier.values[_manualEmoteTierIndex],
       auto: _emoteAutoMode,
-      isMetered: _isMetered.value,
+      isMobile: _isMobile.value,
     );
     if (effective == _emoteManager.tier) return;
     _applyTier(effective);
@@ -1408,7 +1408,7 @@ class _HomeScreenState extends State<HomeScreen>
     final oldTier = _emoteManager.tier;
     try {
       _emoteManager.tier = tier;
-      DataUsageStats.I.setContext(tier: tier, isMetered: _isMetered.value);
+      DataUsageStats.I.setContext(tier: tier, isMobile: _isMobile.value);
       if (tier == EmoteFetchTier.nothing) {
         // Nothing tier: the resolution is null, so no new fetches happen, but we
         // must NOT evict the in-memory registry. Cached emotes keep rendering
@@ -1667,7 +1667,7 @@ class _HomeScreenState extends State<HomeScreen>
     final listener = _connectivityListener;
     if (listener != null) _connectivityService.removeListener(listener);
     _connectivityListener = null;
-    _isMetered.dispose();
+    _isMobile.dispose();
     DataUsageStats.I.dispose();
     _chatConn.dispose();
     unawaited(_ttsController.shutdown());
@@ -2252,7 +2252,7 @@ class _HomeScreenState extends State<HomeScreen>
           onSharedChatModeChanged: _setSharedChatMode,
           onEmoteAutoModeChanged: _applyEmoteAutoMode,
           onNukeEmotes: _nukeEmotes,
-          mobileNotifier: _isMetered,
+          mobileNotifier: _isMobile,
           channelNotifier: _channelNotifier,
           onLeaveChannel: _removeChannel,
           onAddChannel: _addChannel,

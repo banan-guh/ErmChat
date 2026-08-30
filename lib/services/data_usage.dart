@@ -21,7 +21,7 @@ class DataUsageStats {
   int evictions = 0;
 
   EmoteFetchTier? appliedTier;
-  bool metered = false;
+  bool mobile = false;
 
   Timer? _emitTimer;
 
@@ -31,9 +31,9 @@ class DataUsageStats {
   void recordJson(int bytes) => jsonBytes += bytes;
   void recordEviction() => evictions++;
 
-  void setContext({EmoteFetchTier? tier, bool? isMetered}) {
+  void setContext({EmoteFetchTier? tier, bool? isMobile}) {
     if (tier != null) appliedTier = tier;
-    if (isMetered != null) metered = isMetered;
+    if (isMobile != null) mobile = isMobile;
   }
 
   int get totalBytes =>
@@ -52,7 +52,7 @@ class DataUsageStats {
       '10min total=${totalBytes}B '
       'ircR=${ircReadBytes}B ircW=${ircWriteBytes}B '
       'emote=${emoteDownloadBytes}B json=${jsonBytes}B '
-      'evict=$evictions tier=${appliedTier?.label ?? '?'} metered=$metered',
+      'evict=$evictions tier=${appliedTier?.label ?? '?'} mobile=$mobile',
     );
   }
 

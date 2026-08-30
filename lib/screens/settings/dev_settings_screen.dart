@@ -690,7 +690,7 @@ class _PerfLogScreenState extends State<_PerfLogScreen> {
                       'JSON ${DataUsageStats.I.jsonBytes}B\n'
                       'cache evictions ${DataUsageStats.I.evictions}  '
                       'tier ${DataUsageStats.I.appliedTier?.label ?? '?'}  '
-                      'metered ${DataUsageStats.I.metered}',
+                      'mobile ${DataUsageStats.I.mobile}',
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                   ],

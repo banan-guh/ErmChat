@@ -3575,7 +3575,7 @@ void main() {
           effectiveEmoteFetchTier(
             manual: tier,
             auto: EmoteFetchAutoMode.off,
-            isMetered: false,
+            isMobile: false,
           ),
           tier,
         );
@@ -3583,7 +3583,7 @@ void main() {
           effectiveEmoteFetchTier(
             manual: tier,
             auto: EmoteFetchAutoMode.off,
-            isMetered: true,
+            isMobile: true,
           ),
           tier,
         );
@@ -3591,42 +3591,42 @@ void main() {
     });
 
     test('balanced picks high on wifi, low on cellular', () {
-      bool isMetered = false;
+      bool isMobile = false;
       expect(
         effectiveEmoteFetchTier(
           manual: EmoteFetchTier.medium,
           auto: EmoteFetchAutoMode.balanced,
-          isMetered: isMetered,
+          isMobile: isMobile,
         ),
         EmoteFetchTier.high,
       );
-      isMetered = true;
+      isMobile = true;
       expect(
         effectiveEmoteFetchTier(
           manual: EmoteFetchTier.medium,
           auto: EmoteFetchAutoMode.balanced,
-          isMetered: isMetered,
+          isMobile: isMobile,
         ),
         EmoteFetchTier.low,
       );
     });
 
     test('aggressive picks medium on wifi, nothing on cellular', () {
-      bool isMetered = false;
+      bool isMobile = false;
       expect(
         effectiveEmoteFetchTier(
           manual: EmoteFetchTier.high,
           auto: EmoteFetchAutoMode.aggressive,
-          isMetered: isMetered,
+          isMobile: isMobile,
         ),
         EmoteFetchTier.medium,
       );
-      isMetered = true;
+      isMobile = true;
       expect(
         effectiveEmoteFetchTier(
           manual: EmoteFetchTier.high,
           auto: EmoteFetchAutoMode.aggressive,
-          isMetered: isMetered,
+          isMobile: isMobile,
         ),
         EmoteFetchTier.nothing,
       );

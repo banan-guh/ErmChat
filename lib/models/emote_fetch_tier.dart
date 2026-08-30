@@ -67,18 +67,18 @@ extension EmoteFetchAutoModeX on EmoteFetchAutoMode {
   };
 }
 
-/// Effective tier: manual when auto is off, otherwise per isMetered (true = not Wi-Fi/Ethernet).
+/// Effective tier: manual when auto is off, otherwise per isMobile (true = cellular).
 EmoteFetchTier effectiveEmoteFetchTier({
   required EmoteFetchTier manual,
   required EmoteFetchAutoMode auto,
-  required bool isMetered,
+  required bool isMobile,
 }) {
   if (auto == EmoteFetchAutoMode.off) return manual;
   return switch (auto) {
     EmoteFetchAutoMode.balanced =>
-      isMetered ? EmoteFetchTier.low : EmoteFetchTier.high,
+      isMobile ? EmoteFetchTier.low : EmoteFetchTier.high,
     EmoteFetchAutoMode.aggressive =>
-      isMetered ? EmoteFetchTier.nothing : EmoteFetchTier.medium,
+      isMobile ? EmoteFetchTier.nothing : EmoteFetchTier.medium,
     EmoteFetchAutoMode.off => manual,
   };
 }
