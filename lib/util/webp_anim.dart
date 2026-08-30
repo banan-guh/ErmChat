@@ -42,8 +42,12 @@ class WebpAnimInfo {
 int _u24(Uint8List b, int o) =>
     (b[o] & 0xff) | ((b[o + 1] & 0xff) << 8) | ((b[o + 2] & 0xff) << 16);
 
-List<int> _u32(int v) =>
-    [v & 0xff, (v >> 8) & 0xff, (v >> 16) & 0xff, (v >> 24) & 0xff];
+List<int> _u32(int v) => [
+  v & 0xff,
+  (v >> 8) & 0xff,
+  (v >> 16) & 0xff,
+  (v >> 24) & 0xff,
+];
 
 /// Parses WebP RIFF for animation metadata. Returns non-animated info if not WebP or no ANMF chunks.
 WebpAnimInfo parseWebpAnim(Uint8List bytes) {
@@ -74,7 +78,8 @@ WebpAnimInfo parseWebpAnim(Uint8List bytes) {
   var pos = 12;
   while (pos + 8 <= bytes.length) {
     final fourcc = String.fromCharCodes(bytes.sublist(pos, pos + 4));
-    final size = (bytes[pos + 4] & 0xff) |
+    final size =
+        (bytes[pos + 4] & 0xff) |
         ((bytes[pos + 5] & 0xff) << 8) |
         ((bytes[pos + 6] & 0xff) << 16) |
         ((bytes[pos + 7] & 0xff) << 24);
@@ -88,10 +93,7 @@ WebpAnimInfo parseWebpAnim(Uint8List bytes) {
       canvasH = _u24(body, 7) + 1;
     } else if (fourcc == 'ANIM' && size >= 6) {
       isAnimated = true;
-      bgColor = body[0] |
-          (body[1] << 8) |
-          (body[2] << 16) |
-          (body[3] << 24);
+      bgColor = body[0] | (body[1] << 8) | (body[2] << 16) | (body[3] << 24);
     } else if (fourcc == 'ANMF' && size >= 16) {
       isAnimated = true;
       final x = _u24(body, 0);
@@ -135,7 +137,8 @@ bool _frameHasAlpha(Uint8List b) {
   var p = 0;
   while (p + 8 <= b.length) {
     final fc = String.fromCharCodes(b.sublist(p, p + 4));
-    final sz = (b[p + 4] & 0xff) |
+    final sz =
+        (b[p + 4] & 0xff) |
         ((b[p + 5] & 0xff) << 8) |
         ((b[p + 6] & 0xff) << 16) |
         ((b[p + 7] & 0xff) << 24);
@@ -180,6 +183,8 @@ Uint8List buildStandaloneFrameWebp(WebpFrameMeta f) {
 }
 
 /// Composites WebP frames into full-canvas ui.Images using Flutter canvas, implementing blend/dispose rules. Bypasses the engine's buggy animated compositor.
+///
+/// Holds references only; never disposes. Every output from [composite] is owned by the caller, which must dispose them.
 class WebpEngineCompositor {
   WebpEngineCompositor(this.canvasW, this.canvasH);
 
@@ -219,7 +224,6 @@ class WebpEngineCompositor {
       paint,
     );
     final image = await recorder.endRecording().toImage(canvasW, canvasH);
-    _prev?.dispose();
     _prev = image;
     return image;
   }

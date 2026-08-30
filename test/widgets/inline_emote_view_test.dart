@@ -270,4 +270,29 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets('a decode failure stays silent and keeps the band', (
+    tester,
+  ) async {
+    // Transparent-frame WebPs fail engine decode routinely; failures must
+    // degrade to the loading band without reporting through FlutterError.
+    EmoteUrlProvider.debugFetchOverride = (_) async =>
+        Uint8List.fromList('definitely not an image'.codeUnits);
+    const url = 'https://inline.test/broken.png';
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Center(
+          child: SizedBox(
+            width: 28,
+            height: 28,
+            child: InlineEmoteView(url: url, width: 28, height: 28),
+          ),
+        ),
+      ),
+    );
+    await _pumpUntilLoaded(tester);
+
+    expect(tester.takeException(), isNull);
+    expect(_renderOf(tester).debugShowsBand, isTrue);
+  });
 }

@@ -124,8 +124,9 @@ Future<EmoteFrameData> _decodeWithEngineCodecSafe(Uint8List bytes) async {
   final durations = <Duration>[];
   try {
     for (var i = 0; i < codec.frameCount; i++) {
-      final frame =
-          await codec.getNextFrame().timeout(const Duration(seconds: 3));
+      final frame = await codec.getNextFrame().timeout(
+        const Duration(seconds: 3),
+      );
       frames.add(frame.image);
       durations.add(frame.duration);
     }
@@ -155,17 +156,25 @@ Future<EmoteFrameData> _decodeAnimatedWebpPerFrame(Uint8List bytes) async {
   final compositor = WebpEngineCompositor(meta.canvasW, meta.canvasH);
   final frames = <ui.Image>[];
   final durations = <Duration>[];
-  for (var i = 0; i < meta.frames.length; i++) {
-    final f = meta.frames[i];
-    final standalone = buildStandaloneFrameWebp(f);
-    final codec = await ui.instantiateImageCodec(standalone);
-    final hi = await codec.getNextFrame();
-    final prev = i > 0 ? meta.frames[i - 1] : null;
-    final out = await compositor.composite(prev, f, hi.image);
-    hi.image.dispose();
-    codec.dispose();
-    frames.add(out);
-    durations.add(Duration(milliseconds: f.durationMs));
+  try {
+    for (var i = 0; i < meta.frames.length; i++) {
+      final f = meta.frames[i];
+      final standalone = buildStandaloneFrameWebp(f);
+      final codec = await ui.instantiateImageCodec(standalone);
+      final hi = await codec.getNextFrame();
+      final prev = i > 0 ? meta.frames[i - 1] : null;
+      final out = await compositor.composite(prev, f, hi.image);
+      hi.image.dispose();
+      codec.dispose();
+      frames.add(out);
+      durations.add(Duration(milliseconds: f.durationMs));
+    }
+  } on Object {
+    // Partial decode: free frames completed so far before propagating.
+    for (final f in frames) {
+      f.dispose();
+    }
+    rethrow;
   }
   return EmoteFrameData(frames: frames, durations: durations);
 }

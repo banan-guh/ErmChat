@@ -293,10 +293,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
         // Clone before disposing the codec so the image outlives it.
         final image = frame.image.clone();
         codec.dispose();
-        _frames = EmoteFrameData(
-          frames: [image],
-          durations: [frame.duration],
-        );
+        _frames = EmoteFrameData(frames: [image], durations: [frame.duration]);
         _emitFrame(0);
       } else {
         // Everything else goes through the stock engine codec.
@@ -326,30 +323,25 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
         );
         final listener = ImageStreamListener(
           (info, syncCall) {
-            // The engine owns `info`; never dispose it. The async path below
-            // passes our own clone to setImage so the completer's _currentImage
-            // is one we own (setImage would otherwise dispose the engine's own
-            // ImageInfo on the next frame, double-freeing it).
-            if (_disposed) return;
-            // Synchronous re-delivery: the engine hands its current frame to a
-            // freshly attached listener. Rebroadcasting it through setImage
-            // calls setState on the already-building first widget
-            // ("setState during build"). The completer's _currentImage is already
-            // set from an earlier async delivery, so the new listener receives it
-            // via the framework's normal re-push. Do NOT dispose `info`.
-            if (syncCall) return;
+            // The framework hands each listener an owned ImageInfo clone.
+            // setImage takes ownership of `info`; dispose on early returns.
+            if (_disposed) {
+              info.dispose();
+              return;
+            }
+            // Synchronous re-delivery on re-attach: the inner completer's
+            // _currentImage already holds this frame and re-pushes it to new
+            // listeners. Rebroadcasting here would setState during build.
+            if (syncCall) {
+              info.dispose();
+              return;
+            }
             _engineFramesDelivered++;
-            setImage(
-              ImageInfo(
-                image: info.image.clone(),
-                scale: info.scale,
-                debugLabel: info.debugLabel,
-              ),
-            );
+            setImage(info);
           },
           onError: (error, stack) {
             if (_disposed) return;
-            reportError(exception: error, stack: stack);
+            _reportQuietly(error, stack);
             PaintingBinding.instance.imageCache.evict(EmoteUrlProvider(url));
           },
         );
@@ -359,10 +351,16 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
         inner.addListener(listener);
       }
     } on Object catch (error, stack) {
-      reportError(exception: error, stack: stack);
+      _reportQuietly(error, stack);
       // Evict on error: ImageCache keeps stale errors forever otherwise.
       PaintingBinding.instance.imageCache.evict(EmoteUrlProvider(url));
     }
+  }
+
+  /// Notifies error listeners only. Silent details never dump through
+  /// FlutterError.onError; late listeners still receive [_currentError].
+  void _reportQuietly(Object error, StackTrace? stack) {
+    reportError(exception: error, stack: stack, silent: true);
   }
 
   /// Seeds from [sourceUrl]'s current frame. Applied when frames land; ignored if already playing.
@@ -430,13 +428,15 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
     final frames = _frames;
     if (frames == null || frames.frames.isEmpty) return;
     _frameIndex = index;
-    setImage(
-      ImageInfo(
-        image: frames.frames[index].clone(),
-        scale: 1.0,
-        debugLabel: 'emote-$url',
-      ),
-    );
+    final ui.Image clone;
+    try {
+      clone = frames.frames[index].clone();
+    } on StateError {
+      // Frame disposed prematurely: freeze on the last good frame.
+      _stopPlayback();
+      return;
+    }
+    setImage(ImageInfo(image: clone, scale: 1.0, debugLabel: 'emote-$url'));
   }
 
   /// Starts the playback loop. App frames drive emission; timer requests next frame.

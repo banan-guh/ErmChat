@@ -29,6 +29,7 @@ import 'package:ermchat/models/twitch_message.dart';
 import 'package:ermchat/widgets/emote_text.dart';
 import 'package:ermchat/models/twitch_command.dart';
 import 'package:ermchat/services/suggestion.dart';
+import 'package:ermchat/util/webp_anim.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:ermchat/services/media_uploader.dart';
@@ -479,6 +480,46 @@ void main() {
       expect(frames.durations, everyElement(isNot(Duration.zero)));
       for (final f in frames.frames) {
         f.dispose();
+      }
+    });
+
+    test('every decoded frame stays clone-able after the pipeline', () async {
+      // Regression: the fallback compositor disposed previous outputs, which
+      // the frames list still owned; playback clone() then threw "Cannot
+      // clone a disposed image".
+      final frames = await decodeFile('7tv_kiss_2x.webp');
+      for (final f in frames.frames) {
+        final clone = f.clone();
+        clone.dispose();
+      }
+      for (final f in frames.frames) {
+        f.dispose();
+      }
+    });
+
+    test('compositor outputs stay clone-able across the whole loop', () async {
+      final bytes = File('test/fixtures/7tv_boink_2x.webp').readAsBytesSync();
+      final meta = parseWebpAnim(bytes);
+      expect(meta.frames, isNotEmpty);
+      final compositor = WebpEngineCompositor(meta.canvasW, meta.canvasH);
+      final outputs = <ui.Image>[];
+      for (var i = 0; i < meta.frames.length && i < 5; i++) {
+        final f = meta.frames[i];
+        final codec = await ui.instantiateImageCodec(
+          buildStandaloneFrameWebp(f),
+        );
+        final hi = await codec.getNextFrame();
+        final prev = i > 0 ? meta.frames[i - 1] : null;
+        outputs.add(await compositor.composite(prev, f, hi.image));
+        hi.image.dispose();
+        codec.dispose();
+      }
+      for (final out in outputs) {
+        final clone = out.clone();
+        clone.dispose();
+      }
+      for (final out in outputs) {
+        out.dispose();
       }
     });
   });

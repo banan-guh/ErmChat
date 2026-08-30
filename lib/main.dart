@@ -21,9 +21,12 @@ import 'widgets/tabbed_layout.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   // Surface framework and async errors in release instead of silently
-  // dropping them; a backend can be plugged via [crashReporter].
-  FlutterError.onError = (details) =>
-      reportError(details.exception, details.stack);
+  // dropping them; a backend can be plugged via [crashReporter]. Details the
+  // framework flagged silent (expected, already handled) are skipped.
+  FlutterError.onError = (details) {
+    if (details.silent) return;
+    reportError(details.exception, details.stack);
+  };
   // Badges/avatars (CachedNetworkImage) use the library's default cache manager,
   // not EmoteCacheManager. EmoteCacheManager enforces a small, emote-only disk
   // cap and throws when full; routing badges through it made them vanish once

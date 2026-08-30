@@ -32,11 +32,14 @@ class _InlineEmoteViewState extends State<InlineEmoteView> {
   ImageStream? _altStream;
 
   // Reused listeners (one pair per state; completer deduplicates removals).
+  // Emote failures are expected (bad URLs, engine quirks); swallow silently.
   late final ImageStreamListener _mainListener = ImageStreamListener(
     _onMainFrame,
+    onError: (_, _) {},
   );
   late final ImageStreamListener _altListener = ImageStreamListener(
     _onAltFrame,
+    onError: (_, _) {},
   );
 
   /// Buffered frames before render object exists. Ownership transfers on first build.
