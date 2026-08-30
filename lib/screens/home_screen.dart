@@ -1526,9 +1526,9 @@ class _HomeScreenState extends State<HomeScreen>
         }
       }
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        _snackBar(ok ? 'Emotes reloaded' : 'Emote reload failed'),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(_snackBar(ok ? 'Emotes reloaded' : 'Emote reload failed'));
     } finally {
       _networkBusy.value = false;
     }
@@ -1764,10 +1764,7 @@ class _HomeScreenState extends State<HomeScreen>
     ScaffoldMessenger.of(context).showSnackBar(
       _snackBar(
         'Message copied',
-        action: SnackBarAction(
-          label: 'Paste',
-          onPressed: _pasteFromClipboard,
-        ),
+        action: SnackBarAction(label: 'Paste', onPressed: _pasteFromClipboard),
       ),
     );
   }
@@ -3312,7 +3309,7 @@ class _HomeScreenState extends State<HomeScreen>
                                     'Reconnecting...',
                                   (ChatPhase.online, _, false, false)
                                       when _selectedChannel != null =>
-                                    'Joining #${_selectedChannel!}...',
+                                    'Disconnected',
                                   (_, OverlayPanel.thread, _, _) =>
                                     'Reply to thread...',
                                   (_, _, true, _) =>
