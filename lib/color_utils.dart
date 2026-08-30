@@ -92,3 +92,84 @@ Color normalizeColor(Color color, Color background) {
   lightness = lightness.clamp(0.0, 1.0);
   return HSLColor.fromAHSL(1, hue, saturation, lightness).toColor();
 }
+
+/// Shift [color]'s HSL lightness so its blended luminance distance from
+/// [surface] matches [anchor]'s. Equalizes perceived contrast across hues
+/// (the highlight-tint analogue of [normalizeColor] for text). Hue and
+/// saturation are preserved; only lightness moves.
+/// Global strength of equalized highlight tints. The anchor hue is lifted to
+/// this fraction of its natural contrast so highlights read evenly without
+/// blowing out at high opacity.
+const highlightStrength = 0.4;
+
+Color matchTintContrast(Color color, Color surface, Color anchor) {
+  final bgLum = luminance(surface);
+  final target = (luminance(anchor) - bgLum).abs() * highlightStrength;
+  if (target <= 1e-4) return color;
+
+  final hsl = HSLColor.fromColor(color);
+  final hue = hsl.hue;
+  final saturation = hsl.saturation;
+  // On a light background, more contrast means a darker tint; on a dark
+  // background, a lighter tint.
+  final lightenForContrast = bgLum < 0.5;
+
+  double lo = 0.0;
+  double hi = 1.0;
+  Color best = color;
+  for (var i = 0; i < 16; i++) {
+    final mid = (lo + hi) / 2;
+    final candidate = HSLColor.fromAHSL(1, hue, saturation, mid).toColor();
+    final delta = (luminance(candidate) - bgLum).abs();
+    best = candidate;
+    if ((delta - target).abs() < 1e-4) break;
+    if (delta < target) {
+      // Need more contrast: move lightness toward the contrast-increasing end.
+      if (lightenForContrast) {
+        lo = mid;
+      } else {
+        hi = mid;
+      }
+    } else {
+      if (lightenForContrast) {
+        hi = mid;
+      } else {
+        lo = mid;
+      }
+    }
+  }
+  return best;
+}
+
+/// Built-in highlight palette, dark then light themes. Order:
+/// mention/red, redemption/teal, elevated/gold, first-message/green.
+const highlightPaletteDark = <Color>[
+  Color(0xFF8C3A3B),
+  Color(0xFF00606B),
+  Color(0xFF6B5800),
+  Color(0xFF3A6600),
+];
+const highlightPaletteLight = <Color>[
+  Color(0xFFCF5050),
+  Color(0xFF458B93),
+  Color(0xFFB08D2A),
+  Color(0xFF558B2F),
+];
+
+/// Built-in highlight color with the strongest luminance contrast against
+/// [surface]. Used as the contrast anchor when equalizing so no highlight is
+/// dulled below its natural vividness (everything else is lifted up to it).
+Color highlightAnchor(Color surface) {
+  final bg = luminance(surface);
+  final palette = bg < 0.5 ? highlightPaletteDark : highlightPaletteLight;
+  Color best = palette.first;
+  var bestDist = (luminance(best) - bg).abs();
+  for (final c in palette.skip(1)) {
+    final d = (luminance(c) - bg).abs();
+    if (d > bestDist) {
+      bestDist = d;
+      best = c;
+    }
+  }
+  return best;
+}

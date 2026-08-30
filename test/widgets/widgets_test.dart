@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:ermchat/color_utils.dart';
 import 'package:ermchat/third_party/flutter_list_view.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -4604,10 +4605,9 @@ void main() {
           find.textContaining('Test announcement text', skipOffstage: false),
         ),
       ).colorScheme.surface;
-      final blended = Color.alphaBlend(
-        accent.withValues(alpha: 0.4 * 0.4),
-        surface,
-      );
+      final anchor = highlightAnchor(surface);
+      final tint = matchTintContrast(accent, surface, anchor);
+      final blended = Color.alphaBlend(tint.withValues(alpha: 0.4), surface);
       // The row tint is painted as the tile Material's color (so ink ripples
       // stay visible above it) rather than a ColoredBox over the content.
       final rows = find

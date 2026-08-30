@@ -84,15 +84,13 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
   void _handleTap() {
     if (widget.onDoubleTap == null) return;
     final now = DateTime.now();
-    if (_lastTap != null &&
-        now.difference(_lastTap!) < _doubleTapThreshold) {
+    if (_lastTap != null && now.difference(_lastTap!) < _doubleTapThreshold) {
       _lastTap = null;
       widget.onDoubleTap!();
     } else {
       _lastTap = now;
     }
   }
-
 
   @override
   void initState() {
@@ -281,15 +279,18 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
 
     // Compose all tints into one color on Material (keeps InkWell ripples above).
     var rowColor = widget.surface;
+    final tintAnchor = highlightAnchor(widget.surface);
     if (msg.systemAccent != null) {
+      final tint = matchTintContrast(msg.systemAccent!, rowColor, tintAnchor);
       rowColor = Color.alphaBlend(
-        msg.systemAccent!.withValues(alpha: 0.4 * widget.highlightOpacity),
+        tint.withValues(alpha: widget.highlightOpacity),
         rowColor,
       );
     }
     if (msg.isFirstMessage) {
+      final tint = matchTintContrast(Colors.green, rowColor, tintAnchor);
       rowColor = Color.alphaBlend(
-        Colors.green.withValues(alpha: 0.2),
+        tint.withValues(alpha: widget.highlightOpacity),
         rowColor,
       );
     }

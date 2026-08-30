@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:ermchat/color_utils.dart';
 import 'package:ermchat/models/highlight_state.dart';
 import 'package:ermchat/models/ping_rule.dart';
 import 'package:ermchat/models/twitch_badge.dart';
@@ -408,14 +409,79 @@ void main() {
       expect(m.evaluate(msg('zzz'))?.customColor, const Color(0xFF111111));
     });
 
-    test('rowColor uses custom color over palette', () {
-      const state = HighlightState(
+    test('rowColor normalizes contrast to the vivid anchor; custom wins', () {
+      const surfaceDark = Color(0xFF000000);
+      const surfaceLight = Color(0xFFFFFFFF);
+      double dist(Color c, Color s) => (luminance(c) - luminance(s)).abs();
+
+      // Every highlight (custom or palette) is normalized to highlightStrength
+      // of the most-vivid built-in's contrast, so none is dulled below its
+      // natural vividness.
+      const custom = HighlightState(
         types: {HighlightType.username},
         customColor: Color(0xFFABCDEF),
       );
-      expect(state.rowColor(const Color(0xFF000000)), const Color(0xFFABCDEF));
-      const plain = HighlightState(types: {HighlightType.firstMsg});
-      expect(plain.rowColor(const Color(0xFFFFFFFF)), const Color(0xFF558B2F));
+      final customRow = custom.rowColor(surfaceDark);
+      final paletteRow = const HighlightState(
+        types: {HighlightType.username},
+      ).rowColor(surfaceDark);
+      expect(customRow, isNot(equals(paletteRow)));
+      expect(
+        dist(customRow, surfaceDark),
+        closeTo(
+          dist(highlightAnchor(surfaceDark), surfaceDark) * highlightStrength,
+          0.02,
+        ),
+      );
+
+      // Palette highlight (firstMsg) also matches the scaled anchor contrast.
+      final plain = const HighlightState(
+        types: {HighlightType.firstMsg},
+      ).rowColor(surfaceLight);
+      expect(
+        dist(plain, surfaceLight),
+        closeTo(
+          dist(highlightAnchor(surfaceLight), surfaceLight) * highlightStrength,
+          0.02,
+        ),
+      );
+    });
+  });
+
+  group('rowColor contrast equalization', () {
+    const types = [
+      HighlightType.username,
+      HighlightType.redemption,
+      HighlightType.elevated,
+      HighlightType.firstMsg,
+    ];
+
+    test('all highlight types normalize to equal contrast on a dark surface', () {
+      const surface = Color(0xFF0E0E10);
+      final distances = <double>[
+        for (final t in types)
+          (() {
+            final row = HighlightState(types: {t}).rowColor(surface, opacity: 0.5);
+            return (luminance(row) - luminance(surface)).abs();
+          })(),
+      ];
+      for (final d in distances) {
+        expect(d, closeTo(distances.first, 0.02));
+      }
+    });
+
+    test('all highlight types normalize to equal contrast on a light surface', () {
+      const surface = Color(0xFFFFFFFF);
+      final distances = <double>[
+        for (final t in types)
+          (() {
+            final row = HighlightState(types: {t}).rowColor(surface, opacity: 1.0);
+            return (luminance(row) - luminance(surface)).abs();
+          })(),
+      ];
+      for (final d in distances) {
+        expect(d, closeTo(distances.first, 0.02));
+      }
     });
   });
 }
