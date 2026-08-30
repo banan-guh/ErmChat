@@ -213,9 +213,11 @@ class _ChatViewState extends State<ChatView>
                   final idToIndex = <String, int>{};
                   if (cache != null) {
                     final pending = cache.keys.whereType<String>().toSet();
-                    for (var i = 0;
-                        i < msgs.length && pending.isNotEmpty;
-                        i++) {
+                    for (
+                      var i = 0;
+                      i < msgs.length && pending.isNotEmpty;
+                      i++
+                    ) {
                       final id = msgs[i].messageId;
                       if (id != null && pending.remove(id)) {
                         idToIndex[id] = i;

@@ -238,7 +238,9 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
           ),
           SwitchListTile(
             title: const Text('Checkered messages'),
-            subtitle: const Text('Separate each line with a different background brightness'),
+            subtitle: const Text(
+              'Separate each line with a different background brightness',
+            ),
             value: _checkeredMessages,
             onChanged: _setCheckeredMessages,
           ),

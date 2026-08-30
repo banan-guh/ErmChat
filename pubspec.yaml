@@ -89,6 +89,7 @@ flutter:
   uses-material-design: true
 
   assets:
+    - assets/WAYTOOERM.webp
     - test/fixtures/7tv_boink_2x.webp
     - test/fixtures/7tv_kiss_2x.webp
     - test/fixtures/7tv_kiss_2x.gif

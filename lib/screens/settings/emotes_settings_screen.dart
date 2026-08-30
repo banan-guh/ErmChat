@@ -376,8 +376,29 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
               Expanded(
                 child: FilledButton(
                   key: const Key('emote_nuke'),
-                  onPressed: widget.onNukeEmotes,
-                  child: const Text('Nuke'),
+                  onPressed: () async {
+                    final confirm = await showDialog<bool>(
+                      context: context,
+                      builder: (_) => AlertDialog(
+                        title: const Text('Are you sure?'),
+                        content: const Text(
+                          'This will wipe all cached emotes and refetch.',
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(context, false),
+                            child: const Text('No'),
+                          ),
+                          TextButton(
+                            onPressed: () => Navigator.pop(context, true),
+                            child: const Text('Erm the nuke'),
+                          ),
+                        ],
+                      ),
+                    );
+                    if (confirm == true) widget.onNukeEmotes?.call();
+                  },
+                  child: const Text('Nuke emotes'),
                 ),
               ),
             ],

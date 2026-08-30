@@ -47,6 +47,7 @@ import '../services/tts_controller.dart';
 import '../widgets/autocomplete_dropdown.dart';
 import '../widgets/user_profile_sheet.dart';
 import '../widgets/emote_sheet.dart';
+import '../widgets/nuke_overlay.dart';
 import '../widgets/emote_image_provider.dart';
 import '../widgets/message_input.dart';
 import '../widgets/media_upload_controller.dart';
@@ -1510,7 +1511,13 @@ class _HomeScreenState extends State<HomeScreen>
   // network. Besides the in-memory state this also drops the persisted
   // metadata and the image caches, so emotes visibly re-buffer instead of
   // being instantly restored from disk.
-  Future<void> _nukeEmotes() => _runEmoteRefresh(nuke: true);
+  bool _nukePending = false;
+
+  void _nukeEmotes() {
+    _nukePending = true;
+    // Pop both EmotesSettingsScreen and SettingsScreen back to home.
+    Navigator.of(context).popUntil((route) => route.isFirst);
+  }
 
   Future<void> _runEmoteRefresh({required bool nuke}) async {
     _networkBusy.value = true;
@@ -2198,9 +2205,9 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
-  void _openSettings() {
+  Future<void> _openSettings() async {
     _focusNode.unfocus();
-    Navigator.push(
+    await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => SettingsScreen(
@@ -2258,6 +2265,12 @@ class _HomeScreenState extends State<HomeScreen>
         ),
       ),
     );
+    if (_nukePending) {
+      _nukePending = false;
+      if (!mounted) return;
+      NukeOverlay.show(context);
+      await _runEmoteRefresh(nuke: true);
+    }
   }
 
   /// Handles slash commands by routing to the appropriate Twitch API endpoint.

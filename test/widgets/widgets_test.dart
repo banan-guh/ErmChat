@@ -3829,7 +3829,10 @@ void main() {
 
       expect(nuked, isFalse);
       await tester.tap(find.byKey(const Key('emote_nuke')));
-      await tester.pump();
+      await tester.pumpAndSettle();
+      expect(nuked, isFalse);
+      await tester.tap(find.text('Erm the nuke'));
+      await tester.pumpAndSettle();
       expect(nuked, isTrue);
     });
 
