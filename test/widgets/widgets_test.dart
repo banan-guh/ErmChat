@@ -3809,6 +3809,30 @@ void main() {
       expect(prefs.getStringList('emote_providers_disabled'), ['bttv']);
     });
 
+    testWidgets('nuke button invokes the nuke callback', (
+      WidgetTester tester,
+    ) async {
+      var nuked = false;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: EmotesSettingsScreen(onNukeEmotes: () => nuked = true),
+        ),
+      );
+      await tester.pump();
+
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('emote_nuke')),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.pumpAndSettle();
+
+      expect(nuked, isFalse);
+      await tester.tap(find.byKey(const Key('emote_nuke')));
+      await tester.pump();
+      expect(nuked, isTrue);
+    });
+
     testWidgets('allow-unlisted switch flips the manager and persists', (
       WidgetTester tester,
     ) async {

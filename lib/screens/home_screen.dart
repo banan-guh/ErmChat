@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/emote_fetch_tier.dart';
 import '../models/generic_emote.dart';
 import '../models/twitch_message.dart';
+import '../services/emote_cache_manager.dart';
 import '../util/haptics.dart';
 import '../services/twitch_api.dart';
 import '../services/twitch_auth.dart';
@@ -26,7 +27,6 @@ import '../services/ignore_manager.dart';
 import '../services/link_whitelist.dart';
 import '../services/emote_manager.dart';
 import '../services/data_usage.dart';
-import '../services/emote_cache_manager.dart';
 import '../services/analytics_service.dart';
 import '../services/twitch_badge_service.dart';
 import '../services/third_party_badge_service.dart';
@@ -1304,12 +1304,9 @@ class _HomeScreenState extends State<HomeScreen>
       _scanHistoryForMentions();
       unawaited(_ensureBlockedUsersLoaded());
     }
-    // Evict the old account's emotes (and re-resolve channel emotes) BEFORE
-    // reconnecting: _refreshEmotesAfterAuth is async, and its evictChannel()
-    // call would otherwise run *after* connect()'s fresh GLOBALUSERSTATE has
-    // already repopulated the new account's sub emotes -- wiping them and
-    // leaving the list empty (the set IDs are already marked fetched, so no
-    // retry fires).
+    // Re-resolve emotes with the new account's token BEFORE reconnecting so
+    // sub emote sets fetch under the right auth; connect()'s GLOBALUSERSTATE
+    // then layers the fresh sub emotes on top.
     unawaited(_refreshEmotesAfterAuth().then((_) => _chatConn.connect()));
   }
 
@@ -1421,12 +1418,13 @@ class _HomeScreenState extends State<HomeScreen>
         // A "no-diff -> diff" switch (e.g. low -> high) introduces resolutions
         // the old tier never fetched, so force-fetch the new emote URLs. A
         // switch that stays within already-fetched resolutions (e.g. high ->
-        // medium) reuses the cached tier instead of re-downloading.
+        // medium) reuses the cached tier instead of re-downloading. No evict:
+        // successful fetches replace the caches wholesale, and evicting
+        // mid-session breaks the connected 7TV WS client's delta state
+        // (same hazard as the reload path).
         final needsDiff = _tierAddsResolution(oldTier, tier);
-        _emoteManager.evictGlobal();
         _emoteManager.preloadGlobalEmotes(force: needsDiff);
         for (final c in _chatStore.channels) {
-          _emoteManager.evictChannel(c);
           _emoteManager.resolveEmotes(
             c,
             _chatStore.channelUserIds[c],
@@ -1466,12 +1464,18 @@ class _HomeScreenState extends State<HomeScreen>
           _chatStore.channelUserIds[channel] = userId;
         }
       }
-      _emoteManager.evictGlobal();
-      _emoteManager.preloadGlobalEmotes(force: force);
+      // No evict here: a force fetch replaces the caches wholesale and the
+      // per-provider stashes retain the previous data when a provider fails.
+      // Evicting mid-session wrecked live state instead: the connected 7TV
+      // WS client kept applying deltas, and updateSevenTvEmotes rebuilt a
+      // null cache from a single delta's added list, which _reapplyLiveSevenTv
+      // then propagated over every later rebuild.
+      // Await so global emote metadata is present before the post-refresh
+      // rebuild; unawaited left a window where global emotes rendered as text.
+      await _emoteManager.preloadGlobalEmotes(force: force);
       _badgeService.resetCaches();
-      _badgeService.fetchGlobalBadges(widget.twitchAuth);
+      await _badgeService.fetchGlobalBadges(widget.twitchAuth);
       for (final channel in _chatStore.channels) {
-        _emoteManager.evictChannel(channel);
         final userId = _chatStore.channelUserIds[channel];
         if (userId != null) {
           _badgeService.fetchChannelBadges(widget.twitchAuth, userId, channel);
@@ -1495,26 +1499,43 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
-  // Manual "Reload emotes": clears the emote image cache on disk plus all
-  // cached emote metadata, then re-fetches everything (list + images) for all
-  // channels. Force bypasses the fresh-cache short-circuits so third-party
-  // catalogues (7TV/BTTV/FFZ) are pulled again, not just Twitch.
-  Future<void> _reloadEmotes() async {
+  // Manual "Reload emotes": diff refresh. Re-fetches emote metadata
+  // (catalogues + subs) for all channels without touching in-memory state,
+  // so live 7TV WS deltas and cached images stay valid. Force bypasses the
+  // fresh-cache short-circuits so third-party catalogues (7TV/BTTV/FFZ) are
+  // pulled again, not just Twitch.
+  Future<void> _reloadEmotes() => _runEmoteRefresh(nuke: false);
+
+  // Nuke (emotes settings): destroy everything, then refetch from the
+  // network. Besides the in-memory state this also drops the persisted
+  // metadata and the image caches, so emotes visibly re-buffer instead of
+  // being instantly restored from disk.
+  Future<void> _nukeEmotes() => _runEmoteRefresh(nuke: true);
+
+  Future<void> _runEmoteRefresh({required bool nuke}) async {
     _networkBusy.value = true;
+    // Discard failures from before this refresh so the report below only
+    // reflects fetches this refresh triggered.
+    _emoteManager.takeFetchFailures();
     try {
-      try {
+      if (nuke) {
+        await _emoteManager.wipePersisted();
+        _emoteManager.evictGlobal();
+        for (final channel in _chatStore.channels) {
+          _emoteManager.evictChannel(channel);
+        }
         await EmoteCacheManager().emptyCache();
-      } catch (e) {
-        logDebug('_reloadEmotes: cache clear failed: $e');
+        PaintingBinding.instance.imageCache.clear();
+        PaintingBinding.instance.imageCache.clearLiveImages();
+        // Rebuild now, while everything is empty, so the nuke is visible
+        // instead of being instantly papered over by the refetch.
+        _emoteManager.notifyStateCleared();
       }
-      // Drop in-memory images so unchanged-URL emotes actually re-render.
-      PaintingBinding.instance.imageCache.clear();
-      // Also drop keep-alive-held frames (e.g. animated emotes) so they re-fetch.
-      PaintingBinding.instance.imageCache.clearLiveImages();
       final ok = await _refreshEmotesAfterAuth(force: true);
       // Subscriber emotes aren't covered by the global/channel refresh; re-fetch
       // the sets already known from a prior USERSTATE.
       final auth = widget.twitchAuth;
+      var subFailed = false;
       if (ok && auth.isConfigured) {
         try {
           await _emoteManager.reloadUserEmoteSets(
@@ -1522,13 +1543,22 @@ class _HomeScreenState extends State<HomeScreen>
             _chatStore.channelUserIds,
           );
         } catch (e) {
+          subFailed = true;
           logDebug('_reloadEmotes: sub emote reload failed: $e');
         }
       }
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(_snackBar(ok ? 'Emotes reloaded' : 'Emote reload failed'));
+      String message;
+      if (!ok) {
+        message = 'Emote reload failed';
+      } else {
+        final failed = _emoteManager.takeFetchFailures();
+        if (subFailed) failed.add('sub emotes');
+        message = failed.isEmpty
+            ? 'Emotes reloaded'
+            : 'Emotes failed to load for ${failed.join(', ')}';
+      }
+      ScaffoldMessenger.of(context).showSnackBar(_snackBar(message));
     } finally {
       _networkBusy.value = false;
     }
@@ -2214,6 +2244,7 @@ class _HomeScreenState extends State<HomeScreen>
           onEmoteCacheMaxChanged: _applyCacheCap,
           onSharedChatModeChanged: _setSharedChatMode,
           onEmoteAutoModeChanged: _applyEmoteAutoMode,
+          onNukeEmotes: _nukeEmotes,
           mobileNotifier: _isMetered,
           channelNotifier: _channelNotifier,
           onLeaveChannel: _removeChannel,

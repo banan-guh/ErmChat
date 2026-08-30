@@ -11,6 +11,10 @@ class EmotesSettingsScreen extends StatefulWidget {
   final ValueChanged<int>? onEmoteTierChanged;
   final ValueChanged<int>? onEmoteCacheMaxChanged;
   final ValueChanged<EmoteFetchAutoMode>? onEmoteAutoModeChanged;
+
+  /// Nuke action (kills all in-memory emote state, then refetches
+  /// everything). Null hides the section (tests, standalone previews).
+  final VoidCallback? onNukeEmotes;
   final ValueChanged<bool>? onAnimateGifsChanged;
   final ValueChanged<int>? onEmoteFpsCapChanged;
   final ValueChanged<bool>? onAdaptiveThrottleChanged;
@@ -34,6 +38,7 @@ class EmotesSettingsScreen extends StatefulWidget {
     this.onEmoteTierChanged,
     this.onEmoteCacheMaxChanged,
     this.onEmoteAutoModeChanged,
+    this.onNukeEmotes,
     this.onAnimateGifsChanged,
     this.onEmoteFpsCapChanged,
     this.onAdaptiveThrottleChanged,
@@ -356,19 +361,33 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
           ),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          child: FilledButton(
-            key: const Key('emote_cache_apply'),
-            onPressed: _draftCacheMax != _appliedCacheMax
-                ? _applyCacheMax
-                : null,
-            child: const Text('Apply'),
+          child: Row(
+            children: [
+              Expanded(
+                child: FilledButton(
+                  key: const Key('emote_cache_apply'),
+                  onPressed: _draftCacheMax != _appliedCacheMax
+                      ? _applyCacheMax
+                      : null,
+                  child: const Text('Apply'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: FilledButton(
+                  key: const Key('emote_nuke'),
+                  onPressed: widget.onNukeEmotes,
+                  child: const Text('Nuke'),
+                ),
+              ),
+            ],
           ),
         ),
         _sectionHeader('Animation'),
         SwitchListTile(
           secondary: const Icon(Icons.speed),
           title: const Text('Cap emote frame rate'),
-          subtitle: const Text('Performance boost',),
+          subtitle: const Text('Performance boost'),
           value: _capEmoteFps,
           onChanged: (value) async {
             setState(() => _capEmoteFps = value);
@@ -490,9 +509,7 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
             key: const Key('allow_unlisted_tile'),
             secondary: const Icon(Icons.visibility_off_outlined),
             title: const Text('Allow unlisted emotes'),
-            subtitle: const Text(
-              'Shows 7TV emotes marked unlisted',
-            ),
+            subtitle: const Text('Shows 7TV emotes marked unlisted'),
             value: _allowUnlisted,
             onChanged: _onAllowUnlistedChanged,
           ),

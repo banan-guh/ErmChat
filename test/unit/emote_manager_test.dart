@@ -1836,6 +1836,260 @@ void main() {
     });
   });
 
+  group('reload with a flaky provider', () {
+    GenericEmote sevenTv(String id, String code) => GenericEmote(
+      id: id,
+      code: code,
+      type: EmoteType.sevenTv,
+      url: 'https://example.com/$id.png',
+      scope: EmoteScope.channel,
+    );
+
+    Map<String, Object> channelCache(List<GenericEmote> emotes) => {
+      'emotes3_ch': jsonEncode({
+        'ts': DateTime.now().toIso8601String(),
+        'tier': EmoteFetchTier.medium.index,
+        'emotes': emotes.map((e) => e.toJson()).toList(),
+      }),
+    };
+
+    Map<String, Object> globalCache(List<GenericEmote> emotes) => {
+      'emotes3_global': jsonEncode({
+        'ts': DateTime.now().toIso8601String(),
+        'tier': EmoteFetchTier.medium.index,
+        'emotes': emotes.map((e) => e.toJson()).toList(),
+      }),
+    };
+
+    test(
+      'force resolve with a failing 7tv fetch retains channel emotes',
+      () async {
+        SharedPreferences.setMockInitialValues(
+          channelCache([sevenTv('a', 'Alpha')]),
+        );
+        final manager = EmoteManager(
+          fetchStagger: Duration.zero,
+          tier: EmoteFetchTier.medium,
+          removeCachedFile: (url) async {},
+          sevenTvChannelFetcher: (id, resolution) async =>
+              throw Exception('HTTP 429'),
+        );
+
+        // Normal startup resolve: fresh persisted cache renders Alpha; the
+        // background reconcile fails but retention keeps the cache.
+        await manager.resolveEmotes('ch', 'b1');
+        await pumpEventQueue();
+        expect(manager.byCode('ch')!.suggestions.map((e) => e.code), ['Alpha']);
+
+        // Manual reload: evict + force refetch (what _refreshEmotesAfterAuth
+        // does). The 7tv fetch 429s; the other providers fail hermetically.
+        manager.evictChannel('ch');
+        await manager.resolveEmotes('ch', 'b1', force: true);
+        await pumpEventQueue();
+
+        expect(
+          manager.byCode('ch')!.suggestions.map((e) => e.code),
+          ['Alpha'],
+          reason:
+              'a failed provider fetch during reload must not wipe '
+              'that provider\u2019s channel emotes',
+        );
+      },
+    );
+
+    test('failed force resolve does not clobber the persisted cache', () async {
+      SharedPreferences.setMockInitialValues(
+        channelCache([sevenTv('a', 'Alpha')]),
+      );
+      final manager = EmoteManager(
+        fetchStagger: Duration.zero,
+        tier: EmoteFetchTier.medium,
+        removeCachedFile: (url) async {},
+        sevenTvChannelFetcher: (id, resolution) async =>
+            throw Exception('HTTP 429'),
+      );
+
+      await manager.resolveEmotes('ch', 'b1');
+      await pumpEventQueue();
+
+      // Reload with the failing fetch, then a fresh manager reads the
+      // persisted cache the way the next app start would.
+      manager.evictChannel('ch');
+      await manager.resolveEmotes('ch', 'b1', force: true);
+      await pumpEventQueue();
+
+      final fresh = EmoteManager(
+        fetchStagger: Duration.zero,
+        tier: EmoteFetchTier.medium,
+        removeCachedFile: (url) async {},
+        sevenTvChannelFetcher: (id, resolution) async =>
+            throw Exception('HTTP 429'),
+      );
+      await fresh.resolveEmotes('ch', 'b1');
+      await pumpEventQueue();
+      expect(
+        fresh.byCode('ch')!.suggestions.map((e) => e.code),
+        ['Alpha'],
+        reason:
+            'a failed reload must not overwrite the persisted cache '
+            'with an emote-less set',
+      );
+    });
+
+    test(
+      'force global preload with a failing 7tv fetch retains globals',
+      () async {
+        SharedPreferences.setMockInitialValues(
+          globalCache([sevenTv('g', 'GAlpha')]),
+        );
+        final manager = EmoteManager(
+          fetchStagger: Duration.zero,
+          tier: EmoteFetchTier.medium,
+          removeCachedFile: (url) async {},
+          sevenTvGlobalFetcher: (resolution) async =>
+              throw Exception('HTTP 429'),
+        );
+
+        await manager.preloadGlobalEmotes();
+        expect(manager.byCode('ch')?.suggestions.map((e) => e.code), [
+          'GAlpha',
+        ]);
+
+        manager.evictGlobal();
+        await manager.preloadGlobalEmotes(force: true);
+        expect(
+          manager.byCode('ch')?.suggestions.map((e) => e.code),
+          ['GAlpha'],
+          reason:
+              'a failed 7tv global fetch during reload must not wipe '
+              'the global 7tv emotes',
+        );
+      },
+    );
+
+    test('failed fetches are reported per channel', () async {
+      SharedPreferences.setMockInitialValues(
+        channelCache([sevenTv('a', 'Alpha')]),
+      );
+      final manager = EmoteManager(
+        fetchStagger: Duration.zero,
+        tier: EmoteFetchTier.medium,
+        removeCachedFile: (url) async {},
+        sevenTvChannelFetcher: (id, resolution) async =>
+            throw Exception('HTTP 429'),
+      );
+
+      // Startup path: the failed reconcile and background twitch refresh
+      // swallow their own errors and must not count as reload failures.
+      await manager.resolveEmotes('ch', 'b1');
+      await pumpEventQueue();
+      expect(manager.takeFetchFailures(), isEmpty);
+
+      // Reload path: the force fetch records the channel it failed for.
+      manager.evictChannel('ch');
+      await manager.resolveEmotes('ch', 'b1', force: true);
+      await pumpEventQueue();
+      expect(manager.takeFetchFailures(), ['ch']);
+      expect(manager.takeFetchFailures(), isEmpty, reason: 'take clears');
+    });
+
+    test('reload without evict retains the in-memory stash', () async {
+      SharedPreferences.setMockInitialValues({});
+      var calls = 0;
+      final manager = EmoteManager(
+        fetchStagger: Duration.zero,
+        tier: EmoteFetchTier.medium,
+        removeCachedFile: (url) async {},
+        sevenTvChannelFetcher: (id, resolution) async {
+          calls++;
+          if (calls == 1) {
+            return SevenTvChannelResponse(emotes: [sevenTv('a', 'Alpha')]);
+          }
+          throw Exception('HTTP 429');
+        },
+      );
+
+      await manager.resolveEmotes('ch', 'b1', force: true);
+      expect(manager.byCode('ch')!.suggestions.map((e) => e.code), ['Alpha']);
+
+      // Reload (no evict): the 7tv fetch fails, the first fetch's stash
+      // entry keeps the emotes alive.
+      await manager.resolveEmotes('ch', 'b1', force: true);
+      expect(
+        manager.byCode('ch')!.suggestions.map((e) => e.code),
+        ['Alpha'],
+        reason: 'stash retention must not depend on the persisted cache',
+      );
+    });
+
+    test('a pre-resolve delta does not override the full fetch', () async {
+      SharedPreferences.setMockInitialValues({});
+      final manager = EmoteManager(
+        fetchStagger: Duration.zero,
+        tier: EmoteFetchTier.medium,
+        removeCachedFile: (url) async {},
+        sevenTvChannelFetcher: (id, resolution) async => SevenTvChannelResponse(
+          emotes: [sevenTv('a', 'Alpha'), sevenTv('b', 'Bravo')],
+        ),
+      );
+
+      // WS delta lands before the channel resolves (e.g. right after JOIN):
+      // it renders immediately but is not a full set.
+      manager.updateSevenTvEmotes('ch', added: [sevenTv('z', 'Zeta')]);
+      expect(manager.byCode('ch')!.suggestions.map((e) => e.code), ['Zeta']);
+
+      // Full fetch rebuilds the set; the partial delta view must not be
+      // re-applied over it via the live list.
+      await manager.resolveEmotes('ch', 'b1');
+      await pumpEventQueue();
+      expect(manager.byCode('ch')!.suggestions.map((e) => e.code), [
+        'Alpha',
+        'Bravo',
+      ]);
+    });
+
+    test('empty-but-successful fetches keep retained stash entries', () async {
+      // Damaged persisted cache: the 7tv entries were already lost.
+      final bttvOnly = GenericEmote(
+        id: 'bt',
+        code: 'BttvThing',
+        type: EmoteType.bttv,
+        url: 'https://example.com/bt.png',
+        scope: EmoteScope.channel,
+      );
+      SharedPreferences.setMockInitialValues(channelCache([bttvOnly]));
+      final manager = EmoteManager(
+        fetchStagger: Duration.zero,
+        tier: EmoteFetchTier.medium,
+        removeCachedFile: (url) async {},
+        sevenTvChannelFetcher: (id, resolution) async =>
+            SevenTvChannelResponse(emotes: [sevenTv('a', 'Alpha')]),
+      );
+
+      await manager.resolveEmotes('ch', 'b1', force: true);
+      await pumpEventQueue();
+      expect(
+        manager.byCode('ch')!.suggestions.map((e) => e.code),
+        containsAll(['Alpha', 'BttvThing']),
+      );
+
+      // The healed set is persisted: a fresh manager reads it back whole.
+      final fresh = EmoteManager(
+        fetchStagger: Duration.zero,
+        tier: EmoteFetchTier.medium,
+        removeCachedFile: (url) async {},
+        sevenTvChannelFetcher: (id, resolution) async =>
+            throw Exception('HTTP 429'),
+      );
+      await fresh.resolveEmotes('ch', 'b1');
+      await pumpEventQueue();
+      expect(
+        fresh.byCode('ch')!.suggestions.map((e) => e.code),
+        containsAll(['Alpha', 'BttvThing']),
+      );
+    });
+  });
+
   group('low tier registry freeze', () {
     GenericEmote sevenTv(String id, String code) => GenericEmote(
       id: id,
@@ -2516,16 +2770,17 @@ void main() {
         // carried on the emote, each real owner must stay its own group.
         SharedPreferences.setMockInitialValues({});
         final manager = EmoteManager(fetchStagger: Duration.zero);
-        GenericEmote sub(String id, String code, String ownerId) => GenericEmote(
-          id: id,
-          code: code,
-          type: EmoteType.twitch,
-          url: 'https://example.com/$id.png',
-          scope: EmoteScope.channel,
-          tier: '1',
-          emoteType: 'subscriptions',
-          ownerId: ownerId,
-        );
+        GenericEmote sub(String id, String code, String ownerId) =>
+            GenericEmote(
+              id: id,
+              code: code,
+              type: EmoteType.twitch,
+              url: 'https://example.com/$id.png',
+              scope: EmoteScope.channel,
+              tier: '1',
+              emoteType: 'subscriptions',
+              ownerId: ownerId,
+            );
 
         // Account-wide union fanned into two open channels.
         await manager.storeUserTwitchEmotes({
@@ -2595,8 +2850,9 @@ void main() {
             ),
           ],
         },
-        resolveOwnerLogins: (a, ids) async =>
-            {for (final id in ids) id: 'login_$id'},
+        resolveOwnerLogins: (a, ids) async => {
+          for (final id in ids) id: 'login_$id',
+        },
       );
 
       // ownerA is an open channel, so it's seeded without an API call.
@@ -2606,8 +2862,7 @@ void main() {
       expect(byChannel['chanA']!.single.code, 'X');
     });
 
-    test('reconnect heals unresolved owner labels without re-fetching',
-        () async {
+    test('reconnect heals unresolved owner labels without re-fetching', () async {
       final auth = TwitchAuth()..accessToken = 'tok';
       var resolveCalls = 0;
       final manager = EmoteManager(
@@ -2651,11 +2906,10 @@ void main() {
       expect(manager.subscriberEmotesByChannel(), isEmpty);
 
       // Reconnect: channels now open (ownerA seeded, ownerB resolved via API).
-      await manager.loadUserEmoteSets(
-        [],
-        auth,
-        {'chanA': 'ownerA', 'chanB': 'ownerB'},
-      );
+      await manager.loadUserEmoteSets([], auth, {
+        'chanA': 'ownerA',
+        'chanB': 'ownerB',
+      });
       final byChannel = manager.subscriberEmotesByChannel();
       expect(byChannel.keys, unorderedEquals(['chanA', 'chanB']));
       expect(byChannel['chanA']!.single.code, 'X');
