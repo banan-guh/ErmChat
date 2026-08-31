@@ -109,6 +109,17 @@ class JoinRateLimiter {
     if (_queue.isEmpty) _stop();
   }
 
+  /// Moves [channel] to the front of the queue so the next pump tick
+  /// dispatches it first. No-op if not queued or already at head.
+  bool bumpToFront(String channel) {
+    final index = _queue.indexWhere((unit) => unit.channel == channel);
+    if (index <= 0) return index == 0;
+    final unit = _queue.removeAt(index);
+    _queue.insert(0, unit);
+    _schedulePump();
+    return true;
+  }
+
   /// Empties queue (session teardown).
   void clear() {
     _queue.clear();

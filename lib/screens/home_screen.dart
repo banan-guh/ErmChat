@@ -2034,6 +2034,7 @@ class _HomeScreenState extends State<HomeScreen>
 
     logDebug('[HomeScreen] joining channel: $name');
     await _subscribeChannel(name);
+    _chatConn.focusChannel(name);
 
     if (mounted) setState(() {});
   }
@@ -2612,6 +2613,7 @@ class _HomeScreenState extends State<HomeScreen>
     }
     _broadcastWidgets.resetPage();
     _selectedTabIndex.value = index;
+    _chatConn.focusChannel(channel);
   }
 
   void _onChannelFocusChanged(int index) {

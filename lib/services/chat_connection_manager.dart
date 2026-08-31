@@ -719,7 +719,10 @@ class ChatConnectionManager {
             'wait $channel clamped pos=$position -> $shown',
           );
         }
-        final eta = budget.etaSecondsForChannel(channel);
+        final rawEta = budget.etaSecondsForChannel(channel);
+        final eta = (last != null && last.etaSeconds < rawEta)
+            ? last.etaSeconds
+            : rawEta;
         final numbersDone = position <= 1 && eta <= 0;
         if (numbersDone) {
           // Head-of-queue with banked tokens: dispatches this instant, and
@@ -1452,6 +1455,12 @@ class ChatConnectionManager {
     // Ignored users' whispers are dropped like their channel messages.
     if (!msg.isSystem && ignoreManager?.isIgnored(msg.login) == true) return;
     onWhisper?.call(msg);
+  }
+
+  /// Bumps [channel] to the front of the JOIN queue so the next pump tick
+  /// dispatches it first. No-op if not queued.
+  void focusChannel(String channel) {
+    joinBudget?.bumpToFront(channel);
   }
 
   /// Brute-force teardown + reconnect of every socket (manual "Reconnect"
