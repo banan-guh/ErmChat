@@ -65,6 +65,7 @@
 - [-] **Inkwell on top** - move inkwell of half-under msgs to fully under (currently overlaps). - somewhere it got fixed I think.
 - [ ] **Translations** - how? - l110 or whatever it's called i dont remember
 - [ ] **Accessibility** - make wishlist
+- [ ] **Put badges on user card** - show badges next to username in the user info card.
 
 ## SMALL bugs
 

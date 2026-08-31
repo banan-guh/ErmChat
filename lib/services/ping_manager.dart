@@ -152,11 +152,9 @@ class PingManager extends ChangeNotifier {
   HighlightState? evaluate(TwitchMessage msg) {
     if (!_loaded || msg.isSystem) return null;
     final selfLogin = _login;
-    if (selfLogin != null &&
+    final isSelf = selfLogin != null &&
         selfLogin.isNotEmpty &&
-        msg.login.toLowerCase() == selfLogin) {
-      return null;
-    }
+        msg.login.toLowerCase() == selfLogin;
     if (_isBlacklisted(msg.login)) return null;
 
     final types = <HighlightType>{};
@@ -175,9 +173,13 @@ class PingManager extends ChangeNotifier {
         case PingRuleKind.message:
           switch (rule.type) {
             case 'username':
-              if (_matchesSelfName(msg)) add(rule, HighlightType.username);
+              if (!isSelf && _matchesSelfName(msg)) {
+                add(rule, HighlightType.username);
+              }
             case 'reply':
-              if (_isReplyToMe(msg)) add(rule, HighlightType.reply);
+              if (!isSelf && _isReplyToMe(msg)) {
+                add(rule, HighlightType.reply);
+              }
             case 'custom':
               if (matchesText(rule, msg.text)) add(rule, HighlightType.custom);
             case 'redemption':

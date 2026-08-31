@@ -136,7 +136,7 @@ void main() {
       );
     });
 
-    test('never pings self or system messages', () async {
+    test('username and reply builtins skip self messages', () async {
       final m = await makeManager();
       m.setAccount('forsen');
       expect(m.evaluate(msg('hi forsen', login: 'forsen')), isNull);
@@ -151,6 +151,21 @@ void main() {
       m.upsertRule(rule);
       return m;
     }
+
+    test('matches own messages', () async {
+      final m = await managerWith(
+        const PingRule(
+          id: 'c1',
+          kind: PingRuleKind.message,
+          type: 'custom',
+          pattern: 'KEKW',
+        ),
+      );
+      expect(
+        m.evaluate(msg('KEKW', login: 'me'))?.primary,
+        HighlightType.custom,
+      );
+    });
 
     test('substring match by default', () async {
       final m = await managerWith(
