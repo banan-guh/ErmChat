@@ -427,6 +427,39 @@ void main() {
   });
 
   testWidgets(
+    'Home screen shows signed-in and join prompts when configured with no channels',
+    (WidgetTester tester) async {
+      FlutterSecureStorage.setMockInitialValues({
+        'accounts': '[{"login":"alice","access_token":"tok_a"}]',
+        'active_login': 'alice',
+        'access_token': 'tok_a',
+      });
+      await tester.pumpWidget(
+        TwitchChatApp(
+          eventSubService: _FakeEventSubService(),
+          ircService: _FakeIrcService(),
+          recentMessagesService: _FakeRecentMessagesService(),
+        ),
+      );
+      await tester.pump();
+
+      expect(
+        find.textContaining('Signed in as alice', skipOffstage: false),
+        findsWidgets,
+      );
+      expect(
+        find.textContaining('Press + to join a channel', skipOffstage: false),
+        findsWidgets,
+      );
+      expect(
+        find.textContaining('Configure Twitch', skipOffstage: false),
+        findsNothing,
+      );
+      await tester.pumpAndSettle();
+    },
+  );
+
+  testWidgets(
     'Adding channel without credentials is view-only: sending blocked, '
     'incoming messages still render',
     (WidgetTester tester) async {

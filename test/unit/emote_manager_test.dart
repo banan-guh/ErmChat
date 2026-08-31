@@ -2956,6 +2956,80 @@ void main() {
       expect(byChannel['chanA']!.single.code, 'X');
       expect(byChannel['chanB']!.single.code, 'Y');
     });
+
+    test('resetUserEmoteState clears stored sub emotes', () async {
+      SharedPreferences.setMockInitialValues({});
+      final manager = EmoteManager(fetchStagger: Duration.zero);
+      await manager.storeUserTwitchEmotes({
+        'ch': [subEmote()],
+      });
+
+      expect(manager.subscriberEmotesByChannel(), isNotEmpty);
+
+      manager.resetUserEmoteState();
+
+      expect(manager.subscriberEmotesByChannel(), isEmpty);
+    });
+
+    test('resetUserEmoteState removes subs from channel cache', () async {
+      SharedPreferences.setMockInitialValues({});
+      final manager = EmoteManager(fetchStagger: Duration.zero);
+      await manager.storeUserTwitchEmotes({
+        'ch': [subEmote()],
+      });
+
+      expect(
+        manager.byCode('ch')!.suggestions.map((e) => e.code),
+        contains('SubEmote'),
+      );
+
+      manager.resetUserEmoteState();
+
+      final codes =
+          manager.byCode('ch')?.suggestions.map((e) => e.code).toList() ?? [];
+      expect(codes, isNot(contains('SubEmote')));
+    });
+
+    test(
+      'fresh persisted cache does not leak old user subs after reset',
+      () async {
+        SharedPreferences.setMockInitialValues({
+          'emotes3_ch': jsonEncode({
+            'ts': DateTime.now()
+                .subtract(const Duration(hours: 1))
+                .toIso8601String(),
+            'emotes': [
+              subEmote().toJson(),
+              makeTestEmote(id: 'n1', code: 'NonTwitch').toJson(),
+            ],
+          }),
+        });
+        final manager = EmoteManager(fetchStagger: Duration.zero);
+        // First resolve: subs in the persisted cache are filtered out because
+        // _channelTwitchEmotes is empty (subs come from USERSTATE, not disk).
+        await manager.resolveEmotes('ch', 'b1');
+        expect(
+          manager.byCode('ch')!.suggestions.map((e) => e.code),
+          contains('NonTwitch'),
+        );
+
+        // Simulate account switch.
+        manager.resetUserEmoteState();
+        await manager.resolveEmotes('ch', 'b1');
+
+        final codes = manager
+            .byCode('ch')!
+            .suggestions
+            .map((e) => e.code)
+            .toList();
+        expect(
+          codes,
+          isNot(contains('SubEmote')),
+          reason: 'old user subs must not leak from persisted cache',
+        );
+        expect(codes, contains('NonTwitch'));
+      },
+    );
   });
 
   group('cache cap + usage registry', () {

@@ -59,7 +59,7 @@
 - [x] **Different mode** - Toggleable type box visibility and fullscreen.
 - [x] **Announcement highlight for remaining USERNOTICE types** - `standardpayforward`, `communitypayforward`, `charitydonation`, `modiversary`, etc. now highlight like the subs: every USERNOTICE label carries an accent (announcements use their banner color, everything else PRIMARY purple) via `userNoticeAccent`.
 - [+] **Injectable TwitchBadgeService** - injected like EventSubService/IrcService (TwitchChatApp/HomeScreen params).
-- [ ] **AVIF support** - Decode AVIF emotes via libavif + dav1d through the existing FFI shim (`emote_decode_avif`; the shim API is already format-agnostic, see PLAN.md). 7tv uses AVIF so if we can get this to work we can save lots. <- Most likely not happening, compatibility issues across devices with shims.
+- [-] **AVIF support** - Decode AVIF emotes via libavif + dav1d through the existing FFI shim (`emote_decode_avif`; the shim API is already format-agnostic, see PLAN.md). 7tv uses AVIF so if we can get this to work we can save lots. <- Most likely not happening, compatibility issues across devices with shims. skipping (for now)
 - [-] **Token refresh instead of re-auth every 60 days** - Access tokens expire roughly every 60 days; implement a refresh path instead of forcing full re-auth. Note: implicit-grant tokens (`response_type=token`) can't be refreshed - requires an auth flow change (e.g. device code grant). - too much of a security risk, discard.
 - [-] **Make select UI more friendly** - reference dankchat when selecting text. investigate far future.
 - [-] **Inkwell on top** - move inkwell of half-under msgs to fully under (currently overlaps). - somewhere it got fixed I think.

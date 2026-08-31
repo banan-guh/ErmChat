@@ -3443,19 +3443,37 @@ class _HomeScreenState extends State<HomeScreen>
   static const _welcomeChannel = '__welcome__';
 
   Widget _buildWelcomeChatView() {
-    final text = !widget.twitchAuth.isConfigured
-        ? 'Configure Twitch credentials in Settings first'
-        : 'Press + to join a channel.';
-    if (_welcomeMessages == null || _welcomeMessagesKey != text) {
-      _welcomeMessagesKey = text;
+    final configured = widget.twitchAuth.isConfigured;
+    final login = widget.twitchAuth.login;
+    final key = '$configured:$login';
+    if (_welcomeMessagesKey != key) {
+      _welcomeMessagesKey = key;
       _welcomeMessages = [
-        TwitchMessage(
-          login: '',
-          text: text,
-          isSystem: true,
-          messageId: 'welcome',
-          channel: _welcomeChannel,
-        ),
+        if (!configured)
+          TwitchMessage(
+            login: '',
+            text: 'Configure Twitch credentials in Settings first',
+            isSystem: true,
+            messageId: 'welcome',
+            channel: _welcomeChannel,
+          )
+        else ...[
+          if (login != null)
+            TwitchMessage(
+              login: '',
+              text: 'Signed in as $login',
+              isSystem: true,
+              messageId: 'welcome-signin',
+              channel: _welcomeChannel,
+            ),
+          TwitchMessage(
+            login: '',
+            text: 'Press + to join a channel.',
+            isSystem: true,
+            messageId: 'welcome-join',
+            channel: _welcomeChannel,
+          ),
+        ],
       ];
     }
     return ChatView(

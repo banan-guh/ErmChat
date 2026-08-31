@@ -1109,7 +1109,14 @@ class EmoteManager extends ChangeNotifier {
     _inflightEmoteSetIds.clear();
     _emoteOwnerLogins.clear();
     _fetchedSubEmotesByOwner.clear();
+    _channelTwitchEmotes.clear();
     _subsByChannelCache = null;
+    // Drop merged caches so the UI stops showing the old user's sub emotes
+    // immediately; _refreshEmotesAfterAuth will rebuild them from the
+    // (sub-filtered) persisted cache.
+    _channelCaches.clear();
+    _mergedCache.clear();
+    _notify();
   }
 
   /// Re-fetches subscriber emotes for the ids already known from a prior
@@ -1189,11 +1196,18 @@ class EmoteManager extends ChangeNotifier {
     );
     final cached = loaded.cached;
     if (cached != null) {
-      // Re-merge subs not in persisted cache.
+      // Filter sub emotes from the persisted cache: subs are owned by
+      // _channelTwitchEmotes (populated by USERSTATE via storeUserTwitchEmotes)
+      // and must not leak across account switches through the disk cache.
+      final nonSubCached = cached.suggestions
+          .where(
+            (e) =>
+                !(e.type == EmoteType.twitch &&
+                    (e.tier != null || e.emoteType == 'subscriptions')),
+          )
+          .toList();
       final subs = _channelTwitchEmotes[channel] ?? const <GenericEmote>[];
-      _channelCaches[channel] = subs.isEmpty
-          ? cached
-          : _buildChannelMap([...cached.suggestions, ...subs]);
+      _channelCaches[channel] = _buildChannelMap([...nonSubCached, ...subs]);
       // Hydrate stashes from persisted cache.
       _hydrateStashesFromCache(cached, channel: channel);
       _reapplyLiveSevenTv(channel);
