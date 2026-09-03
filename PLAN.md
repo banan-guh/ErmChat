@@ -211,3 +211,125 @@ One `AnimatedBuilder` per page dot, all listening to the same `PageController`
 animation. Every scroll tick rebuilds ALL dots, but only 2 change. Fix: use a single
 `AnimatedBuilder` wrapping the entire `Row` of dots, or scope each dot's listener to
 only fire when its index is adjacent to the active page.
+
+
+# Mod View
+
+Parity wishlist with twitch.tv mod view. Land the wishlist in TODO first,
+then implement one item at a time. V1 starts with M1.
+
+## M0. Wishlist
+
+1. AutoMod queue (hold/allow/deny) as first tab.
+2. Quick actions on user/message: timeout picker + reason, ban/unban, delete, warn, clear.
+3. Chat mode controls: slow/followers/emoteonly/subs/r9k/shield/commercial/raid/shoutout.
+4. Mod/vip list manager (view/add/remove).
+5. Unban request inbox.
+6. Blocked/permitted terms manager.
+7. Warnings log + mod activity feed.
+8. Suspicious users + AutoMod settings editor.
+
+## M1. AutoMod queue (first tab)
+
+- Problem: moderation today is slash commands plus a read-only event feed.
+  No queue, no approve/deny UI. Missing Helix verbs
+  (`manageHeldAutoModMessages`, `getAutoModSettings`, `getBlockedTerms`,
+  `getBannedUsers`, `getWarnings`) and scopes
+  (`moderator:manage:automod`, `moderator:read:automod_settings`,
+  `moderator:manage:unban_requests`, `moderator:read:suspicious_users`).
+- Solution:
+  - Add Helix verbs to `TwitchApi` plus the missing scopes in `twitch_oauth.dart`.
+  - Subscribe `automod.message.held` + `automod.message.updated` per modded
+    channel in `chat_channel_setup.dart` next to `channel.moderate` v2.
+  - New `heldMessages` collection in `ChatStore` with kernel verbs
+    (add/resolve/expire), unit tests in `chat_store_test.dart`.
+  - UI: `ModView` screen or `OverlayPanel.modQueue` tab; entry from app bar
+    3 dots, user profile sheet, and message long press (both currently have
+    no mod rows).
+
+## Verification
+
+Held message appears in queue; allow releases to chat; deny drops it;
+403 non-mod hides the entry.
+
+# Webview video player (DankChat port)
+
+## V1. Per-channel player above chat
+
+- Problem: no in-app video. Chat only, links open externally.
+- Solution (copies `~/dankchat/app/.../stream/`):
+  - New dep `webview_flutter`. New `StreamPlayerController` (current channel,
+    audio-only, theater flags) plus `StreamPlayerView` (16:9 box above
+    `ChatView` with close/audio-only/theater overlay).
+  - URL: `https://player.twitch.tv/?channel=$channel&enableExtensions=$flag&muted=false&parent=twitch.tv`
+    (`StreamViewModel.kt:148-156`). JS on, `mediaPlaybackRequiresUserGesture=false`,
+    `domStorageEnabled=true` (`StreamWebView.kt:9-24`).
+  - `WebViewClient` allowlist: `about:blank`, `https://id.twitch.tv/`,
+    `https://www.twitch.tv/passport-callback`, `https://player.twitch.tv/`;
+    block rest (`StreamView.kt:448-509`). Handle render-process death with a
+    generation counter; cache WebView behind a retain setting; switch URL per
+    channel via `setStream(channel)`; resume after config change with
+    `document.querySelector('video')?.play()`.
+  - Toggle from channel header or 3 dots menu. Settings: retain webview, show
+    extensions, audio-only default.
+- Boundary: chat stays the source of truth; player is view-only.
+
+## Verification
+
+Channel A plays; switch to B loads B; close stops; audio-only hides video;
+rotation/theater keeps playback; `parent=twitch.tv` verified on Android
+WebView and iOS WKWebView.
+
+# Native Twitch GIFs
+
+Generic `.gif` link embeds stay future work (`TODO.md:56`). This spec covers
+only native T2/T3 GIPHY messages. Chatterino7 does not have this feature;
+standard Chatterino has link previews plus image uploader only, and open
+issue `chatterino2#7186` tracks the same gap.
+
+## G1. Render T2/T3 GIF messages
+
+- Problem: wire format unknown. Chatterino note says GIFs "work essentially
+  as emotes but there is no list and they need to be loaded after the message
+  is received." Twitch docs: single standalone message, 30s cooldown, PG
+  default (G optional), respects AutoMod/emote-only/shield/timeout, fallback
+  is GIF name text, static preview if animations disabled.
+- Solution:
+  - Investigative step: capture raw IRC tags plus EventSub
+    `channel.chat.message` fragments for a T2/T3 GIF message.
+  - Parse into new `TwitchMessage` fields (`gifUrl` + fallback text) in
+    `twitch_irc.dart` and `twitch_eventsub.dart`, preserving emote offset logic.
+  - Render via `CachedNetworkImage` in `message_builder.dart`/`emote_text.dart`,
+    reusing `InlineEmoteView` sizing and the unlimited-fps setting. New chat
+    appearance pref for disable-animations (static preview).
+  - `ChatStore` needs no new laws; GIF is message content like emotes.
+
+## Verification
+
+T2 GIF renders animated; non-sub sees fallback text; delete/timeout removes
+it; disable-animations shows static; cooldown and moderation behavior match
+Twitch.
+
+# Threads dashboard
+
+## T1. Active + Saved tabbed panel (like mentions)
+
+- Problem: threads exist in kernel (`ChatStore` threads, `threadFor`,
+  `computeThreadMessages`) with single-thread view only. No overview, no
+  saved threads.
+- Solution:
+  - Extend `OverlayPanel` in `home_screen.dart:62` with a threads dashboard
+    using a TabBar: Active / Saved. Reuse `_buildMentionsPanel` /
+    `_buildThreadPanel` patterns and `PanelManager.computeThreadMessages`.
+  - Active tab: derive from store threads sorted by `lastActivity`, unread
+    via `PingManager` participation.
+  - Saved tab: bookmark action in `_showMessageMenu` ("Save thread") plus
+    unsave; persist `channel -> [rootIds]` in prefs (cap ~50).
+  - Tap row opens existing `_showThreadView`; reply via main input bar
+    (`_replyToMsg` + focus) since panels stay copy-only. Entry in app bar
+    3 dots next to mentions.
+
+## Verification
+
+Active list updates live; save persists across restart; tap navigates to
+thread; reply from dashboard posts to the correct thread root.

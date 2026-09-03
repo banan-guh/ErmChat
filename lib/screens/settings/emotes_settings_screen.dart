@@ -468,7 +468,7 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
                     SwitchListTile(
                       secondary: const Icon(Icons.speed),
                       title: const Text('Adaptive throttling'),
-                      subtitle: const Text('Lower emote FPS with many emotes'),
+                      subtitle: const Text('Lower emote FPS when the UI stutters'),
                       value: _adaptiveThrottle && _emoteFpsCap > 0,
                       onChanged: _emoteFpsCap == 0
                           ? null

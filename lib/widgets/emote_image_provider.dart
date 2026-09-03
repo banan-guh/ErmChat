@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
@@ -45,6 +44,111 @@ Future<Uint8List> fetchEmoteBytes(String url) async {
   return resp.bodyBytes;
 }
 
+/// Adaptive perf governor: maps the fraction of frames over the refresh
+/// budget to a smooth quadratic cut. Curve (base 30): r0.2->30, r0.4->27,
+/// r0.6->22, r0.8->12, r1.0->5.
+class _PerfGovernor {
+  _PerfGovernor({DateTime Function()? now, double Function()? refreshRateFps})
+    : _now = now ?? DateTime.now,
+      _refreshRateFps = refreshRateFps ?? _defaultRefreshRate;
+
+  @visibleForTesting
+  static const int floorFps = 5;
+  @visibleForTesting
+  static const double strainGate = 0.15;
+
+  DateTime Function() _now;
+  double Function() _refreshRateFps;
+  final List<_PerfSample> _samples = [];
+  DateTime? _lastSampleTime;
+
+  void addFrame({required Duration build, required Duration raster}) {
+    final now = _now();
+    final last = _lastSampleTime;
+    if (last != null && now.difference(last) > const Duration(seconds: 2)) {
+      _samples.clear();
+    }
+    _lastSampleTime = now;
+    _samples.add(_PerfSample((build + raster).inMicroseconds, now));
+    _prune(now);
+  }
+
+  void onTimings(List<FrameTiming> timings) {
+    for (final timing in timings) {
+      addFrame(build: timing.buildDuration, raster: timing.rasterDuration);
+    }
+  }
+
+  int capFor(int baseCap) {
+    if (baseCap <= 0) return 0;
+    final last = _lastSampleTime;
+    if (last == null) return baseCap;
+    final now = _now();
+    if (now.difference(last) > const Duration(seconds: 2)) {
+      _samples.clear();
+      _lastSampleTime = null;
+      return baseCap;
+    }
+    _prune(now);
+    if (_samples.length < 10) return baseCap;
+    final budgetUs = _budgetUs();
+    var over = 0;
+    for (final sample in _samples) {
+      if (sample.costUs > budgetUs) over++;
+    }
+    final r = over / _samples.length;
+    if (r < strainGate) return baseCap;
+    final s = (r - strainGate) / (1 - strainGate);
+    final capped = (baseCap * (1 - s * s)).round();
+    return capped < floorFps ? floorFps : capped;
+  }
+
+  @visibleForTesting
+  void reset() {
+    _samples.clear();
+    _lastSampleTime = null;
+  }
+
+  void _prune(DateTime now) {
+    final cutoff = now.subtract(const Duration(seconds: 2));
+    while (_samples.isNotEmpty && _samples.first.time.isBefore(cutoff)) {
+      _samples.removeAt(0);
+    }
+    while (_samples.length > 60) {
+      _samples.removeAt(0);
+    }
+  }
+
+  int _budgetUs() {
+    double fps;
+    try {
+      fps = _refreshRateFps();
+    } catch (_) {
+      fps = 60.0;
+    }
+    if (fps.isNaN || fps.isInfinite || fps <= 0) fps = 60.0;
+    return (1000000 / fps).round();
+  }
+
+  static double _defaultRefreshRate() {
+    try {
+      final views = SchedulerBinding.instance.platformDispatcher.views;
+      if (views.isEmpty) return 60.0;
+      final rate = views.first.display.refreshRate;
+      return rate > 0 ? rate : 60.0;
+    } catch (_) {
+      return 60.0;
+    }
+  }
+}
+
+class _PerfSample {
+  _PerfSample(this.costUs, this.time);
+
+  final int costUs;
+  final DateTime time;
+}
+
 /// ImageProvider for emote URLs. Keyed by [url] for shared decode/playback. Animated WebP via reinforced decoder; rest via engine codec.
 class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
   EmoteUrlProvider(this.url);
@@ -82,30 +186,72 @@ class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
   /// Whether animated GIFs play. False freezes at current frame. Synced from prefs.
   static bool gifsEnabled = true;
 
-  /// Adaptive throttle: lowers effective cap when many animated emotes are visible. Synced from prefs.
+  /// Adaptive throttle: lowers the effective cap from measured frame strain.
+  /// Synced from prefs.
   static bool adaptiveThrottle = true;
 
-  /// Adaptive tier thresholds. Cap halves/quarters/pauses at each.
-  static const int adaptiveSoftLimit = 60;
-  static const int adaptiveHardLimit = 150;
-  static const int adaptiveStopLimit = 300;
+  /// Shared perf verdict driving the adaptive cap.
+  static final _PerfGovernor _governor = _PerfGovernor();
 
-  /// Effective cap for a given listener count. Never raises user's choice; floors at 1 until stop tier.
-  @visibleForTesting
-  static int autoCapFor(int animatedListeners, int baseCap) {
-    if (animatedListeners <= adaptiveSoftLimit) return baseCap;
-    if (animatedListeners <= adaptiveHardLimit) {
-      return math.max(1, baseCap ~/ 2);
-    }
-    if (animatedListeners <= adaptiveStopLimit) {
-      return math.max(1, baseCap ~/ 4);
-    }
-    return 0;
+  /// Whether the frame-timings callback is subscribed.
+  static bool _perfSubscribed = false;
+
+  /// Timings entry point. Re-evaluates live loops.
+  static void _onPerfTimings(List<FrameTiming> timings) {
+    _governor.onTimings(timings);
+    refreshAdaptiveThrottle();
   }
+
+  /// Matches the timings subscription to [adaptiveThrottle]. Never polls
+  /// while the setting is off.
+  static void _syncPerfSubscription() {
+    if (adaptiveThrottle) {
+      if (!_perfSubscribed) {
+        SchedulerBinding.instance.addTimingsCallback(_onPerfTimings);
+        _perfSubscribed = true;
+      }
+      return;
+    }
+    if (!_perfSubscribed) return;
+    SchedulerBinding.instance.removeTimingsCallback(_onPerfTimings);
+    _perfSubscribed = false;
+    _governor.reset();
+    refreshAdaptiveThrottle();
+  }
+
+  /// Timings subscription state. Exposed for tests.
+  @visibleForTesting
+  static bool get debugPerfSubscribed => _perfSubscribed;
+
+  /// Resets the shared perf governor. Exposed for tests.
+  @visibleForTesting
+  static void debugResetPerf() => _governor.reset();
+
+  /// Overrides the governor clock/budget. Exposed for tests.
+  @visibleForTesting
+  static void debugSetPerfSources({
+    DateTime Function()? now,
+    double Function()? refreshRateFps,
+  }) {
+    if (now != null) _governor._now = now;
+    if (refreshRateFps != null) _governor._refreshRateFps = refreshRateFps;
+  }
+
+  /// Feeds one frame to the shared governor. Exposed for tests.
+  @visibleForTesting
+  static void debugAddPerfFrame({
+    required Duration build,
+    required Duration raster,
+  }) => _governor.addFrame(build: build, raster: raster);
+
+  /// Governor cap for [baseCap]. Exposed for tests.
+  @visibleForTesting
+  static int debugPerfCapFor(int baseCap) => _governor.capFor(baseCap);
 
   /// Toggles adaptive throttle and re-evaluates all live completers.
   static void applyAdaptiveThrottle(bool enabled) {
     adaptiveThrottle = enabled;
+    _syncPerfSubscription();
     refreshAdaptiveThrottle();
   }
 
@@ -223,7 +369,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
   /// Count of uncapped listeners. While > 0, plays at native rate regardless of FPS cap.
   int _uncappedCount = 0;
 
-  /// Listener count for adaptive throttle's visible-load estimate.
+  /// Listener count (telemetry only; the governor reads frame strain).
   int _listenerCount = 0;
 
   /// Whether this completer has a throttling-worthy animation (multi-frame with real cycle).
@@ -273,10 +419,9 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
           _emitFrame(_frameIndex);
           _startPlayback();
         }
-        // Counts toward adaptive load now that playback is confirmed.
+        // Telemetry now that playback is confirmed.
         _playbackCapable =
             frames.frames.length > 1 && frames.totalDuration > Duration.zero;
-        EmoteUrlProvider.refreshAdaptiveThrottle();
       } else if (format == EmoteFormat.gif && !EmoteUrlProvider.gifsEnabled) {
         // Frozen GIF: decode only the first frame so it shows as a still image.
         final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
@@ -307,9 +452,8 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
           (codec) {
             if (!_disposed) {
               _engineCodec = codec;
-              // Engine-path animations are GIFs only. User freezes still count toward adaptive load.
+              // Engine-path animations are GIFs only (telemetry).
               _playbackCapable = codec.frameCount > 1;
-              EmoteUrlProvider.refreshAdaptiveThrottle();
             }
           },
           onError: (_) {
@@ -441,6 +585,8 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
 
   /// Starts the playback loop. App frames drive emission; timer requests next frame.
   void _startPlayback() {
+    // Lazy subscribe so startup works regardless of prefs-sync order.
+    EmoteUrlProvider._syncPerfSubscription();
     if (_disposed || !hasListeners) return;
     if (_isPlaying) return;
     final frames = _frames;
@@ -451,14 +597,12 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
     _scheduleAppFrame();
   }
 
-  /// Effective FPS cap: panel-bypassed = full rate; otherwise user's cap with adaptive tiers.
+  /// Effective FPS cap: panel-bypassed = full rate; otherwise the user's cap
+  /// with the perf governor when adaptiveThrottle is on.
   int get _effectiveFpsCap {
     if (_uncappedCount > 0) return 60;
     if (!EmoteUrlProvider.adaptiveThrottle) return EmoteUrlProvider.fpsCap;
-    return EmoteUrlProvider.autoCapFor(
-      EmoteUrlProvider.animatedListenerCount,
-      EmoteUrlProvider.fpsCap,
-    );
+    return EmoteUrlProvider._governor.capFor(EmoteUrlProvider.fpsCap);
   }
 
   /// Wake alignment grid in microseconds. 0 or uncapped = no alignment.
@@ -634,10 +778,9 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
     }
   }
 
-  /// Shifts global adaptive load; re-evaluates all live loops.
-  void _noteAdaptiveInput() {
-    if (_playbackCapable) EmoteUrlProvider.refreshAdaptiveThrottle();
-  }
+  /// Telemetry hook. The governor reacts to frame strain, so listener
+  /// changes no longer re-evaluate loops.
+  void _noteAdaptiveInput() {}
 
   @override
   @mustCallSuper
@@ -646,11 +789,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
     if (EmoteUrlProvider._liveByUrl[url] == this) {
       EmoteUrlProvider._liveByUrl.remove(url);
     }
-    if (_playbackCapable) {
-      // Free the capacity this completer contributed to the adaptive load.
-      _playbackCapable = false;
-      EmoteUrlProvider.refreshAdaptiveThrottle();
-    }
+    _playbackCapable = false;
     _stopPlayback();
     final inner = _engineCompleter;
     final innerListener = _engineListener;
