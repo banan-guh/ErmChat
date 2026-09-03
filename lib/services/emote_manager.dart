@@ -373,6 +373,9 @@ class EmoteManager extends ChangeNotifier {
   // _hydrateStashesFromCache read. Never write display labels here.
   final _globalProviderEmotes = <String, List<GenericEmote>>{};
   final _channelProviderEmotes = <String, Map<String, List<GenericEmote>>>{};
+  // Owner-less Twitch unlocks from the IRC emote-sets path (per-account
+  // Prime/Turbo/2FA/Hype Train emotes). Merged into the global cache.
+  final _unlockedTwitchEmotes = <String, GenericEmote>{};
   String? _accessToken;
   final _mergedCache = <String, ChannelEmotes?>{};
   String? _changedChannel;
@@ -640,6 +643,7 @@ class EmoteManager extends ChangeNotifier {
     if (_globalProviderEmotes.isNotEmpty) {
       _globalCache = _buildChannelMap([
         for (final list in _globalProviderEmotes.values) ...list,
+        ..._unlockedTwitchEmotes.values,
       ]);
     }
     for (final entry in _channelProviderEmotes.entries) {
@@ -769,10 +773,7 @@ class EmoteManager extends ChangeNotifier {
   ) async {
     switch (type) {
       case EmoteType.twitch:
-        return TwitchEmoteProvider.fetchGlobal(
-          accessToken: _accessToken,
-          resolution: resolution,
-        );
+        return _fetchTwitchGlobal(resolution);
       case EmoteType.bttv:
         return BttvEmoteProvider.fetchGlobal(resolution: resolution);
       case EmoteType.ffz:
@@ -974,6 +975,50 @@ class EmoteManager extends ChangeNotifier {
     _notify();
   }
 
+  /// Defaults plus the global unlockable catalogue (broadcaster_id=0).
+  /// The /global endpoint returns defaults only, so the picker and
+  /// autocomplete miss Prime/Turbo/2FA/Hype Train emotes without this.
+  /// An unlockable fetch failure only logs: defaults still apply.
+  Future<List<GenericEmote>> _fetchTwitchGlobal(
+    EmoteResolution resolution,
+  ) async {
+    final defaults = await TwitchEmoteProvider.fetchGlobal(
+      accessToken: _accessToken,
+      resolution: resolution,
+    );
+    List<GenericEmote> unlockable = const [];
+    try {
+      unlockable = await TwitchEmoteProvider.fetchGlobalUnlockable(
+        accessToken: _accessToken,
+        resolution: resolution,
+      );
+    } catch (e) {
+      logDebug('[EmoteManager] global unlockable emotes failed: $e');
+    }
+    if (unlockable.isEmpty) return defaults;
+    final seen = <String>{};
+    final merged = <GenericEmote>[];
+    for (final e in [...defaults, ...unlockable]) {
+      if (e.id.isEmpty || seen.add(e.id)) merged.add(e);
+    }
+    return merged;
+  }
+
+  /// Stores owner-less emote-set results (per-account unlocks) in the
+  /// global cache so they render in chat, autocomplete, and the picker.
+  void _storeUnlockedGlobalEmotes(List<GenericEmote> emotes) {
+    if (emotes.isEmpty) return;
+    for (final e in emotes) {
+      _unlockedTwitchEmotes[e.id.isNotEmpty ? e.id : e.code] = e;
+    }
+    final current = _globalCache;
+    _globalCache = _buildChannelMap([
+      if (current != null) ...current.suggestions,
+      ..._unlockedTwitchEmotes.values,
+    ]);
+    _notify();
+  }
+
   Future<void> storeUserTwitchEmotes(
     Map<String, List<GenericEmote>> perChannel,
   ) async {
@@ -1038,11 +1083,18 @@ class EmoteManager extends ChangeNotifier {
         resolution: _tier.resolution!,
       );
       final perOwner = <String, List<GenericEmote>>{};
+      final unlocked = <GenericEmote>[];
       for (final entry in byOwner.entries) {
-        if (entry.key.isEmpty) continue;
-        perOwner[entry.key] = entry.value;
-        _fetchedSubEmotesByOwner[entry.key] = entry.value;
+        if (entry.key.isEmpty) {
+          // Owner-less sets are global unlocks, not channel subs.
+          unlocked.addAll(entry.value);
+        } else {
+          perOwner[entry.key] = entry.value;
+          _fetchedSubEmotesByOwner[entry.key] = entry.value;
+        }
       }
+      if (unlocked.isNotEmpty) _storeUnlockedGlobalEmotes(unlocked);
+      _fetchedEmoteSetIds.addAll(newSetIds);
       if (perOwner.isEmpty) {
         logDebug(
           'loadUserEmoteSets: ${newSetIds.length} sets fetched, no channel emotes',
@@ -1057,7 +1109,6 @@ class EmoteManager extends ChangeNotifier {
       }
       final perChannel = _buildPerChannelEmotes(perOwner, targets);
       await storeUserTwitchEmotes(perChannel);
-      _fetchedEmoteSetIds.addAll(newSetIds);
     } catch (e) {
       logDebug('loadUserEmoteSets failed: $e');
     } finally {
@@ -1111,6 +1162,15 @@ class EmoteManager extends ChangeNotifier {
     _fetchedSubEmotesByOwner.clear();
     _channelTwitchEmotes.clear();
     _subsByChannelCache = null;
+    // Unlocks are per-account: drop them from the globals they merged into.
+    final removedIds = _unlockedTwitchEmotes.keys.toSet();
+    _unlockedTwitchEmotes.clear();
+    final global = _globalCache;
+    if (global != null && removedIds.isNotEmpty) {
+      _globalCache = _buildChannelMap(
+        global.suggestions.where((e) => !removedIds.contains(e.id)).toList(),
+      );
+    }
     // Drop merged caches so the UI stops showing the old user's sub emotes
     // immediately; _refreshEmotesAfterAuth will rebuild them from the
     // (sub-filtered) persisted cache.
@@ -1348,10 +1408,7 @@ class EmoteManager extends ChangeNotifier {
     await _ensureProvidersLoaded();
     if (!_isProviderOn(EmoteType.twitch)) return;
     try {
-      final emotes = await TwitchEmoteProvider.fetchGlobal(
-        accessToken: _accessToken,
-        resolution: _tier.resolution!,
-      );
+      final emotes = await _fetchTwitchGlobal(_tier.resolution!);
       if (emotes.isEmpty) return;
       _globalProviderEmotes[EmoteType.twitch.name] = emotes;
       final current = _globalCache;
@@ -1360,6 +1417,7 @@ class EmoteManager extends ChangeNotifier {
           for (final e in current.suggestions)
             if (e.type != EmoteType.twitch) e,
         ...emotes,
+        ..._unlockedTwitchEmotes.values,
       ];
       _globalCache = _buildChannelMap(all);
       _notify();
@@ -1440,6 +1498,7 @@ class EmoteManager extends ChangeNotifier {
   void evictGlobal() {
     _globalCache = null;
     _globalProviderEmotes.clear();
+    _unlockedTwitchEmotes.clear();
     _mergedCache.clear();
     _emoteIndexDirty = true;
   }
@@ -1747,10 +1806,7 @@ class EmoteManager extends ChangeNotifier {
     final providers = <EmoteType, Future<List<GenericEmote>> Function()>{
       EmoteType.twitch: () async {
         if (!_isProviderOn(EmoteType.twitch)) return [];
-        final emotes = await TwitchEmoteProvider.fetchGlobal(
-          accessToken: _accessToken,
-          resolution: _tier.resolution!,
-        );
+        final emotes = await _fetchTwitchGlobal(_tier.resolution!);
         // Empty fetch: keep the retained stash entry.
         if (emotes.isNotEmpty) {
           _globalProviderEmotes[EmoteType.twitch.name] = emotes;
@@ -1793,6 +1849,7 @@ class EmoteManager extends ChangeNotifier {
     );
     return <GenericEmote>[
       for (final list in _globalProviderEmotes.values) ...list,
+      ..._unlockedTwitchEmotes.values,
     ];
   }
 

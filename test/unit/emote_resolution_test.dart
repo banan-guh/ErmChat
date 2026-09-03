@@ -340,4 +340,39 @@ void main() {
       expect(result.single.url3x, isNull);
     });
   });
+
+  group('TwitchEmoteProvider global unlockables', () {
+    const unlockUrl =
+        'https://api.twitch.tv/helix/chat/emotes?broadcaster_id=0';
+
+    Future<List<GenericEmote>> fetchUnlockable() {
+      HttpOverrides.global = _FakeHttpOverrides({
+        unlockUrl: jsonEncode({
+          'data': [
+            {
+              'id': 'prime1',
+              'name': 'PrimePride',
+              'format': ['static'],
+              'scale': ['1.0', '2.0', '3.0'],
+              'theme_mode': ['light'],
+              'emote_type': 'prime',
+            },
+          ],
+        }),
+      });
+      return TwitchEmoteProvider.fetchGlobalUnlockable(
+        resolution: EmoteResolution.high,
+      );
+    }
+
+    test('parses unlockables as global emotes', () async {
+      final result = await fetchUnlockable();
+      expect(result, hasLength(1));
+      final emote = result.single;
+      expect(emote.code, 'PrimePride');
+      expect(emote.scope, EmoteScope.global);
+      expect(emote.emoteType, 'prime');
+      expect(emote.url, _url('prime1', '2.0'));
+    });
+  });
 }

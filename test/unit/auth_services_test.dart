@@ -379,6 +379,22 @@ void main() {
       );
     });
 
+    test('requests EventSub moderation scopes', () {
+      final urlInfo = TwitchOAuth.generateAuthUrl();
+      expect(urlInfo, isNotNull);
+
+      final url = Uri.parse(urlInfo!.url);
+      final scopes = url.queryParameters['scope']!.split(' ');
+      // channel.moderate v2 rejects the subscription without these.
+      expect(
+        scopes,
+        containsAll([
+          'moderator:read:blocked_terms',
+          'moderator:read:unban_requests',
+        ]),
+      );
+    });
+
     test('does not request EventSub-only scopes', () {
       final urlInfo = TwitchOAuth.generateAuthUrl();
       expect(urlInfo, isNotNull);

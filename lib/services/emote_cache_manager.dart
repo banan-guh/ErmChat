@@ -192,7 +192,7 @@ class EmoteCacheManager extends CacheManager {
       try {
         final object = await config.repo.get(url);
         if (object != null) {
-          return super.getSingleFile(url, key: key, headers: headers);
+          return await super.getSingleFile(url, key: key, headers: headers);
         }
       } catch (_) {
         // Fall through to the throw below; the caller handles it.

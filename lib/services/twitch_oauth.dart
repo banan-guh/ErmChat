@@ -97,7 +97,9 @@ class TwitchOAuth {
         'channel:manage:moderators+channel:manage:vips+channel:edit:commercial+channel:manage:raids+'
         'moderator:manage:shield_mode+channel:manage:broadcast+user:manage:whispers+'
         'channel:read:hype_train+channel:read:polls+channel:read:predictions+'
-        'channel:manage:polls+channel:manage:predictions'
+        'channel:manage:polls+channel:manage:predictions+'
+        // EventSub channel.moderate v2 requires these:
+        'moderator:read:blocked_terms+moderator:read:unban_requests'
         '&state=$state'
         '&force_verify=true';
     return (url: url, state: state);

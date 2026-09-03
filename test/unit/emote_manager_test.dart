@@ -2056,11 +2056,9 @@ void main() {
       // Reload (no evict): the 7tv fetch fails, the first fetch's stash
       // entry keeps the emotes alive.
       await manager.resolveEmotes('ch', 'b1', force: true);
-      expect(
-        manager.byCode('ch')!.suggestions.map((e) => e.code),
-        ['Alpha'],
-        reason: 'stash retention must not depend on the persisted cache',
-      );
+      expect(manager.byCode('ch')!.suggestions.map((e) => e.code), [
+        'Alpha',
+      ], reason: 'stash retention must not depend on the persisted cache');
     });
 
     test('a pre-resolve delta does not override the full fetch', () async {
@@ -2467,11 +2465,9 @@ void main() {
           manager.globalEmotesByProvider()['SevenTV']!.map((e) => e.code),
           ['Fresh7tv'],
         );
-        expect(
-          manager.globalEmotesByProvider()['Twitch']!.map((e) => e.code),
-          ['KeptTwitch'],
-          reason: 'targeted refetch must not wipe other providers',
-        );
+        expect(manager.globalEmotesByProvider()['Twitch']!.map((e) => e.code), [
+          'KeptTwitch',
+        ], reason: 'targeted refetch must not wipe other providers');
 
         // A second pass no-ops: the stash now covers 7TV.
         await manager.ensureStashed({EmoteType.sevenTv});
@@ -2901,6 +2897,88 @@ void main() {
       final byChannel = manager.subscriberEmotesByChannel();
       expect(byChannel.keys, ['chanA']);
       expect(byChannel['chanA']!.single.code, 'X');
+    });
+
+    GenericEmote unlockedEmote() => GenericEmote(
+      id: 'u1',
+      code: 'PrimePride',
+      type: EmoteType.twitch,
+      url: 'https://example.com/u1.png',
+      scope: EmoteScope.global,
+      emoteType: 'prime',
+    );
+
+    GenericEmote ownedSubEmote() => GenericEmote(
+      id: 'x',
+      code: 'X',
+      type: EmoteType.twitch,
+      url: 'https://example.com/x.png',
+      scope: EmoteScope.channel,
+      tier: '1',
+      emoteType: 'subscriptions',
+      ownerId: 'ownerA',
+    );
+
+    test('loadUserEmoteSets stores owner-less unlocks globally', () async {
+      final auth = TwitchAuth()..accessToken = 'tok';
+      final manager = EmoteManager(
+        fetchStagger: Duration.zero,
+        fetchUserEmoteSets: (ids, {accessToken, resolution}) async => {
+          '': [unlockedEmote()],
+          'ownerA': [ownedSubEmote()],
+        },
+        resolveOwnerLogins: (a, ids) async => {
+          for (final id in ids) id: 'login_$id',
+        },
+      );
+
+      await manager.loadUserEmoteSets(['s1'], auth, {'chanA': 'ownerA'});
+
+      // Unlock renders through the global lookup in every channel.
+      expect(manager.byCode('chanA')?.byCode['PrimePride']?.id, 'u1');
+      // Unlock is not misfiled as a subscriber emote.
+      final subs = manager.subscriberEmotesByChannel()['chanA'] ?? const [];
+      expect(subs.map((e) => e.code), contains('X'));
+      expect(subs.map((e) => e.code), isNot(contains('PrimePride')));
+    });
+
+    test('unlockable-only sets are marked fetched', () async {
+      var fetchCalls = 0;
+      final auth = TwitchAuth()..accessToken = 'tok';
+      final manager = EmoteManager(
+        fetchStagger: Duration.zero,
+        fetchUserEmoteSets: (ids, {accessToken, resolution}) async {
+          fetchCalls++;
+          return {
+            '': [unlockedEmote()],
+          };
+        },
+        resolveOwnerLogins: (a, ids) async => {},
+      );
+
+      await manager.loadUserEmoteSets(['s1'], auth, {'chanA': 'ownerA'});
+      await manager.loadUserEmoteSets(['s1'], auth, {'chanA': 'ownerA'});
+
+      expect(fetchCalls, 1);
+      expect(manager.byCode('chanA')?.byCode['PrimePride']?.id, 'u1');
+    });
+
+    test('resetUserEmoteState clears unlocked global emotes', () async {
+      final auth = TwitchAuth()..accessToken = 'tok';
+      final manager = EmoteManager(
+        fetchStagger: Duration.zero,
+        fetchUserEmoteSets: (ids, {accessToken, resolution}) async => {
+          '': [unlockedEmote()],
+        },
+        resolveOwnerLogins: (a, ids) async => {},
+      );
+
+      await manager.loadUserEmoteSets(['s1'], auth, {'chanA': 'ownerA'});
+      expect(manager.byCode('chanA')?.byCode['PrimePride'], isNotNull);
+
+      manager.resetUserEmoteState();
+
+      expect(manager.byCode('chanA')?.byCode['PrimePride'], isNull);
     });
 
     test('reconnect heals unresolved owner labels without re-fetching', () async {

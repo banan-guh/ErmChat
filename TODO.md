@@ -26,6 +26,7 @@
 
 ## Bugs
 
+- [x] **Twitch global unlockable emotes missing from picker** - `/global` returns defaults only; also fetch the `broadcaster_id=0` catalogue and keep owner-less emote-set unlocks (Prime/Turbo/2FA/Hype Train) in the global cache. EventSub `channel.moderate` v2 needs `moderator:read:blocked_terms` + `moderator:read:unban_requests`, added to the OAuth request (existing users re-auth to pick them up).
 - [-] **Emotes aren't rendered as text** - when emotes aren't loaded yet, show the emote as text first (0-width not shown as text unless overlapping something), then swap in the image when loaded. Not high-priority but would be nice to fix. (SKIPPED)
 - [-] **Invalid argument(s): string is not well-formed UTF-16** - I believe it's a problem with specific characters in the chat messages. Not a crash btw.
 - [+] **EventSub emote fragment false-match** - `twitch_eventsub.dart` fragment position parsing used `indexOf` substring search which could misfire when a fragment's text appeared earlier in the message as a substring. Replaced with a running cursor (fragments arrive in order and reconstruct the message). Observed symptom: emote (`vedalSurprise`) rendering as a shorter garbled name (`vedalS`) with leftover text spilling out. Cannot confirm the cursor logic resolves that exact case - if it recurs, add raw fragment payload logging.

@@ -11,26 +11,28 @@ class TwitchEmoteProvider {
   static Future<List<GenericEmote>> fetchGlobal({
     String? accessToken,
     EmoteResolution resolution = EmoteResolution.high,
-  }) async {
-    final uri = Uri.parse('https://api.twitch.tv/helix/chat/emotes/global');
-    final headers = <String, String>{'Client-ID': TwitchConfig.clientId};
-    if (accessToken != null) {
-      headers['Authorization'] = 'Bearer $accessToken';
-    }
-    final res = await http.get(uri, headers: headers).timeout(httpTimeout);
-    logDebug(
-      'Twitch global emotes: ${res.statusCode} - ${res.body.length} bytes',
+  }) {
+    return _get(
+      Uri.parse('https://api.twitch.tv/helix/chat/emotes/global'),
+      channel: false,
+      accessToken: accessToken,
+      resolution: resolution,
     );
-    throwOnTransientHttpError(res.statusCode, uri);
-    DataUsageStats.I.recordJson(res.bodyBytes.length);
-    if (res.statusCode != 200) return [];
-    return Isolate.run(() {
-      final data = jsonDecode(res.body) as Map<String, dynamic>;
-      return _parseEmotes(
-        data['data'] as List<dynamic>? ?? [],
-        resolution: resolution,
-      );
-    });
+  }
+
+  /// Global unlockable catalogue (Prime, Turbo, 2FA, Hype Train,
+  /// limited-time). The /global endpoint returns defaults only, so without
+  /// this these emotes never reach the picker or autocomplete.
+  static Future<List<GenericEmote>> fetchGlobalUnlockable({
+    String? accessToken,
+    EmoteResolution resolution = EmoteResolution.high,
+  }) {
+    return _get(
+      Uri.parse('https://api.twitch.tv/helix/chat/emotes?broadcaster_id=0'),
+      channel: false,
+      accessToken: accessToken,
+      resolution: resolution,
+    );
   }
 
   static Future<List<GenericEmote>> fetchChannel(
@@ -38,18 +40,33 @@ class TwitchEmoteProvider {
     String? accessToken,
     String? channelName,
     EmoteResolution resolution = EmoteResolution.high,
-  }) async {
-    final uri = Uri.parse(
-      'https://api.twitch.tv/helix/chat/emotes?broadcaster_id=$broadcasterId',
+  }) {
+    return _get(
+      Uri.parse(
+        'https://api.twitch.tv/helix/chat/emotes?broadcaster_id=$broadcasterId',
+      ),
+      channel: true,
+      channelName: channelName,
+      accessToken: accessToken,
+      resolution: resolution,
     );
+  }
+
+  static Future<List<GenericEmote>> _get(
+    Uri uri, {
+    required bool channel,
+    String? channelName,
+    String? accessToken,
+    EmoteResolution resolution = EmoteResolution.high,
+  }) async {
     final headers = <String, String>{'Client-ID': TwitchConfig.clientId};
     if (accessToken != null) {
       headers['Authorization'] = 'Bearer $accessToken';
     }
     final res = await http.get(uri, headers: headers).timeout(httpTimeout);
-    if (res.statusCode != 200) {
-      logDebug('Twitch channel emotes error: ${res.statusCode}');
-    }
+    logDebug(
+      'Twitch emotes $uri: ${res.statusCode} - ${res.body.length} bytes',
+    );
     throwOnTransientHttpError(res.statusCode, uri);
     DataUsageStats.I.recordJson(res.bodyBytes.length);
     if (res.statusCode != 200) return [];
@@ -57,7 +74,7 @@ class TwitchEmoteProvider {
       final data = jsonDecode(res.body) as Map<String, dynamic>;
       return _parseEmotes(
         data['data'] as List<dynamic>? ?? [],
-        channel: true,
+        channel: channel,
         channelName: channelName,
         resolution: resolution,
       );
@@ -86,7 +103,7 @@ class TwitchEmoteProvider {
       );
       final res = await http.get(uri, headers: headers).timeout(httpTimeout);
       throwOnTransientHttpError(res.statusCode, uri);
-    DataUsageStats.I.recordJson(res.bodyBytes.length);
+      DataUsageStats.I.recordJson(res.bodyBytes.length);
       if (res.statusCode != 200) {
         logDebug('Twitch emote set error: ${res.statusCode} ${res.body}');
         continue;
@@ -193,6 +210,8 @@ class TwitchEmoteProvider {
           isAnimated: isAnimated,
           scope: channel ? EmoteScope.channel : EmoteScope.global,
           tier: tier,
+          emoteType: item['emote_type'] as String?,
+          ownerId: item['owner_id'] as String?,
           ownerChannel: channel ? channelName : null,
         ),
       );
