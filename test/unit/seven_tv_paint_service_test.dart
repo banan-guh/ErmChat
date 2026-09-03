@@ -316,6 +316,39 @@ void main() {
       client.dispose();
     });
 
+    test(
+      'EMOTE_SET entitlements are surfaced',
+      skip: 'personal 7TV feat',
+      () async {
+        final client = SevenTvEventClient();
+        final events = <SevenTvEntitlementEvent>[];
+        client.onEntitlement.listen(events.add);
+        client.handleRawMessage({
+          'op': 0,
+          'd': {
+            'type': 'entitlement.create',
+            'body': {
+              'object': {
+                'kind': 'EMOTE_SET',
+                'ref_id': 'personal-set-1',
+                'user': {
+                  'connections': [
+                    {'platform': 'TWITCH', 'id': '71092938'},
+                  ],
+                },
+              },
+            },
+          },
+        });
+        await Future<void>.delayed(Duration.zero);
+        expect(events, hasLength(1));
+        expect(events.single.cosmeticKind, 'EMOTE_SET');
+        expect(events.single.cosmeticId, 'personal-set-1');
+        expect(events.single.twitchUserIds, ['71092938']);
+        client.dispose();
+      },
+    );
+
     test('service applies live paint entitlements to lookups', () async {
       final client = SevenTvEventClient();
       final service = SevenTvPaintService(gqlQuery: (_) async => null)

@@ -1039,14 +1039,7 @@ class _HomeScreenState extends State<HomeScreen>
       final isMention = word.text.startsWith('@');
       final emotes = isMention
           ? <GenericEmote>[]
-          : _cachedAutocompleteEmotes ??= [
-              ...?_emoteManager.byCode(channel)?.suggestions,
-              // Subscriber emotes are global - usable in every channel, not
-              // just the one they belong to.
-              ..._emoteManager.subscriberEmotesByChannel().values.expand(
-                (e) => e,
-              ),
-            ];
+          : _cachedAutocompleteEmotes ??= _emoteManager.sendableEmotes(channel);
       filtered = filterSuggestions(
         word: filterWord,
         emotes: emotes,
@@ -2454,6 +2447,7 @@ class _HomeScreenState extends State<HomeScreen>
         messageController: _messageController,
         focusNode: _focusNode,
         onClose: () => Navigator.pop(ctx),
+        onUseEmote: _emoteManager.markEmoteUsed,
       ),
     );
   }

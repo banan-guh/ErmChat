@@ -4078,6 +4078,141 @@ void main() {
       expect(box.width, 28.0);
       expect(box.height, 28.0);
     });
+
+    group('sender proof', () {
+      GenericEmote lockedSub(String code) => GenericEmote(
+        id: 'sub-$code',
+        code: code,
+        type: EmoteType.twitch,
+        url: 'https://example.com/sub-$code.png',
+        scope: EmoteScope.channel,
+        ownerChannel: 'somechannel',
+        tier: '1000',
+        emoteType: 'subscriptions',
+      );
+
+      GenericEmote follower(String code) => GenericEmote(
+        id: 'fol-$code',
+        code: code,
+        type: EmoteType.twitch,
+        url: 'https://example.com/fol-$code.png',
+        scope: EmoteScope.channel,
+        ownerChannel: 'somechannel',
+        emoteType: 'follower',
+      );
+
+      String textOf(List<InlineSpan> spans) =>
+          spans.whereType<TextSpan>().map((s) => s.text ?? '').join();
+
+      test('locked sub code without IRC tag stays text', () {
+        final spans = EmoteText.build(
+          text: 'mySubEmote',
+          twitchPositions: null,
+          channelEmotes: _makeEmotes({'mySubEmote': lockedSub('mySubEmote')}),
+        );
+        expect(spans.any((s) => s is WidgetSpan), isFalse);
+        expect(textOf(spans), contains('mySubEmote'));
+      });
+
+      test('same sub code with IRC tag renders', () {
+        final spans = EmoteText.build(
+          text: 'mySubEmote',
+          twitchPositions: const [
+            EmotePosition(
+              emoteId: 'sub-mySubEmote',
+              startIndex: 0,
+              endIndex: 10,
+              emoteCode: 'mySubEmote',
+            ),
+          ],
+          channelEmotes: _makeEmotes({'mySubEmote': lockedSub('mySubEmote')}),
+        );
+        expect(spans.any((s) => s is WidgetSpan), isTrue);
+      });
+
+      test('follower code without IRC tag stays text', () {
+        final spans = EmoteText.build(
+          text: 'folEmote',
+          twitchPositions: null,
+          channelEmotes: _makeEmotes({'folEmote': follower('folEmote')}),
+        );
+        expect(spans.any((s) => s is WidgetSpan), isFalse);
+        expect(textOf(spans), contains('folEmote'));
+      });
+
+      test('follower code with IRC tag renders', () {
+        final spans = EmoteText.build(
+          text: 'folEmote',
+          twitchPositions: const [
+            EmotePosition(
+              emoteId: 'fol-folEmote',
+              startIndex: 0,
+              endIndex: 8,
+              emoteCode: 'folEmote',
+            ),
+          ],
+          channelEmotes: _makeEmotes({'folEmote': follower('folEmote')}),
+        );
+        expect(spans.any((s) => s is WidgetSpan), isTrue);
+      });
+
+      test('sub code from a stranger does not render inside a sentence', () {
+        final spans = EmoteText.build(
+          text: 'hi mySubEmote there',
+          twitchPositions: null,
+          channelEmotes: _makeEmotes({'mySubEmote': lockedSub('mySubEmote')}),
+        );
+        expect(spans.any((s) => s is WidgetSpan), isFalse);
+      });
+
+      test('third-party channel emote without tag renders', () {
+        final spans = EmoteText.build(
+          text: 'KEKW',
+          twitchPositions: null,
+          channelEmotes: _makeEmotes({
+            'KEKW': makeTestEmote(
+              id: '7tv-KEKW',
+              code: 'KEKW',
+              type: EmoteType.sevenTv,
+              scope: EmoteScope.channel,
+            ),
+          }),
+        );
+        expect(spans.any((s) => s is WidgetSpan), isTrue);
+      });
+
+      test('Twitch global default without tag renders', () {
+        final spans = EmoteText.build(
+          text: 'Kappa',
+          twitchPositions: null,
+          channelEmotes: _makeEmotes({
+            'Kappa': makeTestEmote(
+              id: 'global-Kappa',
+              code: 'Kappa',
+              type: EmoteType.twitch,
+              scope: EmoteScope.global,
+            ),
+          }),
+        );
+        expect(spans.any((s) => s is WidgetSpan), isTrue);
+      });
+
+      test('global unlockable without tag renders', () {
+        final spans = EmoteText.build(
+          text: 'PrimeBot',
+          twitchPositions: null,
+          channelEmotes: _makeEmotes({
+            'PrimeBot': makeTestEmote(
+              id: 'unlock-PrimeBot',
+              code: 'PrimeBot',
+              type: EmoteType.twitch,
+              scope: EmoteScope.global,
+            ),
+          }),
+        );
+        expect(spans.any((s) => s is WidgetSpan), isTrue);
+      });
+    });
   });
 
   group('SevenTvEmoteProvider', () {
@@ -4949,6 +5084,120 @@ void main() {
       final resolved = manager.resolveRecentsForChannel(recents, channel);
 
       expect(resolved.map((e) => e.id), ['b', 'a']);
+    });
+  });
+
+  group('emote kernel verbs', () {
+    GenericEmote twitchEmote(
+      String id,
+      String code, {
+      String? tier,
+      String? emoteType,
+      String? ownerChannel,
+    }) => GenericEmote(
+      id: id,
+      code: code,
+      type: EmoteType.twitch,
+      url: 'https://example.com/$id.png',
+      scope: EmoteScope.channel,
+      tier: tier,
+      emoteType: emoteType,
+      ownerChannel: ownerChannel,
+    );
+
+    test('sendableEmotes matches the merged channel suggestions', () async {
+      SharedPreferences.setMockInitialValues({});
+      final manager = EmoteManager(fetchStagger: Duration.zero);
+      await manager.storeUserTwitchEmotes({
+        'ch': [
+          twitchEmote(
+            's1',
+            'SubEmote',
+            tier: '1000',
+            emoteType: 'subscriptions',
+            ownerChannel: 'alpha',
+          ),
+        ],
+      });
+
+      final via = manager.sendableEmotes('ch').map((e) => e.id).toList();
+      final direct = manager
+          .byCode('ch')!
+          .suggestions
+          .map((e) => e.id)
+          .toList();
+
+      expect(via, direct);
+      expect(via, contains('s1'));
+    });
+
+    test(
+      'subsGrouped pins the selected channel without mutating cache',
+      () async {
+        SharedPreferences.setMockInitialValues({});
+        final manager = EmoteManager(fetchStagger: Duration.zero);
+        await manager.storeUserTwitchEmotes({
+          'ch': [
+            twitchEmote(
+              'a1',
+              'AlphaEmote',
+              tier: '1000',
+              emoteType: 'subscriptions',
+              ownerChannel: 'alpha',
+            ),
+            twitchEmote(
+              'b1',
+              'BetaEmote',
+              tier: '1000',
+              emoteType: 'subscriptions',
+              ownerChannel: 'beta',
+            ),
+          ],
+        });
+
+        expect(manager.subsGrouped(pinnedChannel: 'beta').keys.toList(), [
+          'beta',
+          'alpha',
+        ]);
+        expect(manager.subscriberEmotesByChannel().keys.toList(), [
+          'alpha',
+          'beta',
+        ]);
+      },
+    );
+
+    test('channelTabEmotes shows follower emotes and hides subs', () async {
+      SharedPreferences.setMockInitialValues({});
+      final manager = EmoteManager(fetchStagger: Duration.zero);
+      await manager.storeUserTwitchEmotes({
+        'ch': [
+          twitchEmote(
+            's1',
+            'SubEmote',
+            tier: '1000',
+            emoteType: 'subscriptions',
+            ownerChannel: 'alpha',
+          ),
+          twitchEmote('f1', 'FolEmote', emoteType: 'follower'),
+        ],
+      });
+
+      final codes = manager.channelTabEmotes('ch').map((e) => e.code);
+      expect(codes, contains('FolEmote'));
+      expect(codes, isNot(contains('SubEmote')));
+    });
+
+    test('recentsForChannel resolves the channel-local alias', () async {
+      SharedPreferences.setMockInitialValues({});
+      final manager = EmoteManager(fetchStagger: Duration.zero);
+      await manager.storeUserTwitchEmotes({
+        'chA': [twitchEmote('x', 'Emote')],
+        'chB': [twitchEmote('x', 'ThisEmote')],
+      });
+      await manager.markEmoteUsed(twitchEmote('x', 'Emote'));
+
+      final resolved = await manager.recentsForChannel('chB');
+      expect(resolved.single.code, 'ThisEmote');
     });
   });
 }

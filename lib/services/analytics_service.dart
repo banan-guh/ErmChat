@@ -213,59 +213,18 @@ class AnalyticsService extends ChangeNotifier {
   }
 
   void _countTokens(_ChannelStats stats, String channel, TwitchMessage msg) {
-    final byCode = _emoteLookup?.call(channel)?.byCode;
-    final text = msg.text;
-    final sortedPos = msg.emotePositions ?? const <EmotePosition>[];
-
-    EmotePosition? posAt(int i) {
-      var idx = 0;
-      while (idx < sortedPos.length && sortedPos[idx].endIndex <= i) {
-        idx++;
-      }
-      if (idx < sortedPos.length && i >= sortedPos[idx].startIndex) {
-        return sortedPos[idx];
-      }
-      return null;
-    }
-
-    int i = 0;
-    while (i < text.length) {
-      final pos = posAt(i);
-      if (pos != null) {
-        final lookup = byCode?[pos.emoteCode];
-        final emote =
-            lookup ??
-            GenericEmote(
-              id: pos.emoteId,
-              code: pos.emoteCode,
-              type: EmoteType.twitch,
-              url:
-                  'https://static-cdn.jtvnw.net/emoticons/v2/${pos.emoteId}/default/dark/3.0',
-            );
-        _countEmote(stats, emote);
-        i = pos.endIndex;
-        continue;
-      }
-
-      if (text[i] == ' ' || text[i] == '\t' || text[i] == '\n') {
-        i++;
-        continue;
-      }
-
-      final start = i;
-      while (i < text.length &&
-          text[i] != ' ' &&
-          text[i] != '\t' &&
-          text[i] != '\n' &&
-          posAt(i) == null) {
-        i++;
-      }
-      final token = text.substring(start, i);
-      final emote = byCode?[token];
+    final byCode = _emoteLookup?.call(channel)?.byCode ?? const {};
+    final tokens = EmoteManager.tokenize(
+      text: msg.text,
+      positions: msg.emotePositions,
+      byCode: byCode,
+    );
+    for (final token in tokens) {
+      final emote = token.emote;
       if (emote != null) {
         _countEmote(stats, emote);
-      } else {
-        _countWord(stats, token);
+      } else if (token.text.trim().isNotEmpty) {
+        _countWord(stats, token.text);
       }
     }
   }

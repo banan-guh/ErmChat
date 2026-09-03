@@ -3,7 +3,6 @@ import 'dart:async';
 import 'dart:ui' show Color;
 
 import '../models/emote_fetch_tier.dart';
-import '../models/generic_emote.dart';
 import '../models/twitch_message.dart';
 import '../util/duration_format.dart';
 import '../util/log.dart';
@@ -45,7 +44,6 @@ class _BanMeta {
 /// lives behind the consulted predicates (pings, ignores, blocks) and every
 /// state law lives in the store.
 class ChatIngestion {
-  static final _spaceRe = RegExp(r'\s+');
   ChatIngestion({
     required this.irc,
     required this.ircRead,
@@ -267,23 +265,14 @@ class ChatIngestion {
   void precacheMessageEmotes(TwitchMessage msg, String channel) {
     if (emoteManager.tier == EmoteFetchTier.nothing) return;
     if (msg.isSystem || msg.isHistory) return;
-    // Shared-chat messages resolve against their source channel's set,
-    // mirroring the message builder lookup.
     final lookupChannel = msg.sourceBroadcasterId != null
         ? badgeService.resolveChannelLogin(msg.sourceBroadcasterId!) ?? channel
         : channel;
-    final channelEmotes = emoteManager.byCode(lookupChannel);
-    if (channelEmotes == null) return;
-    final found = <GenericEmote>[];
-    final seen = <String>{};
-    for (final word in msg.text.split(_spaceRe)) {
-      if (seen.contains(word)) continue;
-      final emote = channelEmotes.byCode[word];
-      if (emote != null) {
-        found.add(emote);
-        seen.add(word);
-      }
-    }
+    final found = emoteManager.matchEmotes(
+      channel: lookupChannel,
+      text: msg.text,
+      positions: msg.emotePositions,
+    );
     if (found.isNotEmpty) {
       emoteManager.enqueueSeenEmotes(found);
     }

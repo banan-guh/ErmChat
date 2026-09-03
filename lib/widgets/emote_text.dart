@@ -73,9 +73,7 @@ class EmoteText {
 
     void flushText() {
       if (buffer.isNotEmpty) {
-        spans.addAll(
-          parseTextWithLinks(buffer, linkWhitelist: linkWhitelist),
-        );
+        spans.addAll(parseTextWithLinks(buffer, linkWhitelist: linkWhitelist));
         buffer = '';
       }
     }
@@ -151,85 +149,20 @@ class EmoteText {
     List<EmotePosition>? twitchPositions,
     Map<String, GenericEmote> byCode,
   ) {
-    final segments = <_Segment>[];
-
-    final sortedPos = twitchPositions ?? <EmotePosition>[];
-    int twitchIdx = 0;
-
-    EmotePosition? posAt(int i) {
-      while (twitchIdx < sortedPos.length &&
-          sortedPos[twitchIdx].endIndex <= i) {
-        twitchIdx++;
-      }
-      if (twitchIdx < sortedPos.length &&
-          i >= sortedPos[twitchIdx].startIndex) {
-        return sortedPos[twitchIdx];
-      }
-      return null;
-    }
-
-    int i = 0;
-    // Two-pass: Twitch positional emotes first, then third-party token matches.
-    while (i < text.length) {
-      final pos = posAt(i);
-      if (pos != null) {
-        final emoteCode = pos.emoteCode;
-        final length = pos.endIndex - pos.startIndex;
-        final emote = byCode[emoteCode];
-        if (emote != null) {
-          segments.add(
-            EmoteSegment(emote: emote, startIndex: i, endIndex: i + length),
-          );
-        } else {
-          segments.add(
-            EmoteSegment(
-              emote: GenericEmote(
-                id: pos.emoteId,
-                code: emoteCode,
-                type: EmoteType.twitch,
-                url:
-                    'https://static-cdn.jtvnw.net/emoticons/v2/${pos.emoteId}/default/dark/3.0',
-              ),
-              startIndex: i,
-              endIndex: i + length,
-            ),
-          );
-        }
-        i = pos.endIndex;
-        continue;
-      }
-
-      if (text[i] == ' ' || text[i] == '\t' || text[i] == '\n') {
-        final start = i;
-        while (i < text.length &&
-            (text[i] == ' ' || text[i] == '\t' || text[i] == '\n')) {
-          i++;
-        }
-        segments.add(TextSegment(text: text.substring(start, i)));
-        continue;
-      }
-
-      final start = i;
-      while (i < text.length &&
-          text[i] != ' ' &&
-          text[i] != '\t' &&
-          text[i] != '\n' &&
-          posAt(i) == null) {
-        i++;
-      }
-      final token = text.substring(start, i);
-
-      final emote = byCode[token];
-      if (emote != null) {
-        segments.add(
-          EmoteSegment(emote: emote, startIndex: start, endIndex: i),
+    return EmoteManager.tokenize(
+      text: text,
+      positions: twitchPositions,
+      byCode: byCode,
+    ).map((token) {
+      if (token.isEmote) {
+        return EmoteSegment(
+          emote: token.emote!,
+          startIndex: token.start,
+          endIndex: token.end,
         );
-      } else {
-        segments.add(TextSegment(text: token));
       }
-    }
-
-    return segments;
+      return TextSegment(text: token.text);
+    }).toList();
   }
 
   static Size _emoteSize(GenericEmote emote, double scale) {

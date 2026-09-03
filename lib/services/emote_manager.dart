@@ -8,6 +8,7 @@ import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/emote_fetch_tier.dart';
 import '../models/generic_emote.dart';
+import '../models/twitch_message.dart';
 import '../services/twitch_api.dart';
 import '../services/twitch_auth.dart';
 import '../util/log.dart';
@@ -23,6 +24,23 @@ class ChannelEmotes {
   final List<GenericEmote> suggestions;
 
   ChannelEmotes({required this.byCode, required this.suggestions});
+}
+
+/// One token from [EmoteManager.tokenize]: either an emote or plain text.
+class EmoteToken {
+  final GenericEmote? emote;
+  final String text;
+  final int start;
+  final int end;
+
+  const EmoteToken({
+    this.emote,
+    required this.text,
+    required this.start,
+    required this.end,
+  });
+
+  bool get isEmote => emote != null;
 }
 
 /// Per-URL usage history feeding the disk-cache eviction priority.
@@ -456,6 +474,161 @@ class EmoteManager extends ChangeNotifier {
     result = _filterVisible(result);
     _mergedCache[channel] = result;
     return result;
+  }
+
+  /// Twitch emotes that need sender proof: they render only from the IRC
+  /// `emotes` tag, never from a bare word match. Covers sub, follower, and
+  /// bits tiers. Globals and unlockables stay word-matchable.
+  static bool isTwitchLocked(GenericEmote e) {
+    if (e.type != EmoteType.twitch) return false;
+    if (e.tier != null) return true;
+    return e.emoteType == 'subscriptions' ||
+        e.emoteType == 'follower' ||
+        e.emoteType == 'bitstier';
+  }
+
+  /// Fallback image URL for a Twitch emote id the API map does not contain.
+  static String twitchFallbackUrl(String id) =>
+      'https://static-cdn.jtvnw.net/emoticons/v2/$id/default/dark/3.0';
+
+  /// Shared tokenizer: Twitch positional emotes first, then word matches.
+  /// Locked Twitch emotes never match by word; everything else does.
+  static List<EmoteToken> tokenize({
+    required String text,
+    required List<EmotePosition>? positions,
+    required Map<String, GenericEmote> byCode,
+  }) {
+    final tokens = <EmoteToken>[];
+    final sortedPos = positions ?? const <EmotePosition>[];
+    var twitchIdx = 0;
+
+    EmotePosition? posAt(int i) {
+      while (twitchIdx < sortedPos.length &&
+          sortedPos[twitchIdx].endIndex <= i) {
+        twitchIdx++;
+      }
+      if (twitchIdx < sortedPos.length &&
+          i >= sortedPos[twitchIdx].startIndex) {
+        return sortedPos[twitchIdx];
+      }
+      return null;
+    }
+
+    var i = 0;
+    while (i < text.length) {
+      final pos = posAt(i);
+      if (pos != null) {
+        final emote =
+            byCode[pos.emoteCode] ??
+            GenericEmote(
+              id: pos.emoteId,
+              code: pos.emoteCode,
+              type: EmoteType.twitch,
+              url: twitchFallbackUrl(pos.emoteId),
+            );
+        tokens.add(
+          EmoteToken(
+            emote: emote,
+            text: text.substring(i, pos.endIndex),
+            start: i,
+            end: pos.endIndex,
+          ),
+        );
+        i = pos.endIndex;
+        continue;
+      }
+
+      if (text[i] == ' ' || text[i] == '\t' || text[i] == '\n') {
+        final start = i;
+        while (i < text.length &&
+            (text[i] == ' ' || text[i] == '\t' || text[i] == '\n')) {
+          i++;
+        }
+        tokens.add(
+          EmoteToken(text: text.substring(start, i), start: start, end: i),
+        );
+        continue;
+      }
+
+      final start = i;
+      while (i < text.length &&
+          text[i] != ' ' &&
+          text[i] != '\t' &&
+          text[i] != '\n' &&
+          posAt(i) == null) {
+        i++;
+      }
+      final word = text.substring(start, i);
+      final emote = byCode[word];
+      if (emote != null && !isTwitchLocked(emote)) {
+        tokens.add(EmoteToken(emote: emote, text: word, start: start, end: i));
+      } else {
+        tokens.add(EmoteToken(text: word, start: start, end: i));
+      }
+    }
+    return tokens;
+  }
+
+  /// What the viewer can type in [channel]: the merged, visibility-filtered
+  /// suggestion list. Owned subs are already fanned into every channel, and
+  /// follower emotes only exist in their home channel, so no extra merge.
+  List<GenericEmote> sendableEmotes(String channel) =>
+      byCode(channel)?.suggestions ?? const [];
+
+  /// Recents resolved to [channel]-local codes; dead ids are dropped.
+  Future<List<GenericEmote>> recentsForChannel(String channel) async {
+    final recents = await recentEmotes();
+    final suggestions = byCode(channel)?.suggestions;
+    if (suggestions == null) return recents;
+    return resolveRecentsForChannel(recents, suggestions);
+  }
+
+  /// Subscriber emotes grouped by owner, with [pinnedChannel] first.
+  Map<String, List<GenericEmote>> subsGrouped({String? pinnedChannel}) {
+    final grouped = Map<String, List<GenericEmote>>.of(
+      subscriberEmotesByChannel(),
+    );
+    final pinned = pinnedChannel != null ? grouped.remove(pinnedChannel) : null;
+    if (pinned == null) return grouped;
+    return {pinnedChannel!: pinned, ...grouped};
+  }
+
+  /// Channel picker tab: third-party channel emotes plus non-sub Twitch
+  /// channel emotes (follower and public), sorted by code.
+  List<GenericEmote> channelTabEmotes(String channel) {
+    final cached = _filterVisible(_channelCaches[channel]);
+    if (cached == null) return [];
+    final result = cached.suggestions
+        .where(
+          (e) =>
+              e.type != EmoteType.twitch ||
+              (e.emoteType != 'subscriptions' && e.tier == null),
+        )
+        .toList();
+    result.sort((a, b) => a.code.compareTo(b.code));
+    return result;
+  }
+
+  /// Emotes found in [text] for precache: tag emotes by id plus word
+  /// matches under the sender-proof rule, deduped by id.
+  List<GenericEmote> matchEmotes({
+    required String channel,
+    required String text,
+    required List<EmotePosition>? positions,
+  }) {
+    final lookup = byCode(channel);
+    if (lookup == null) return const [];
+    final seen = <String>{};
+    final found = <GenericEmote>[];
+    for (final token in tokenize(
+      text: text,
+      positions: positions,
+      byCode: lookup.byCode,
+    )) {
+      final emote = token.emote;
+      if (emote != null && seen.add(emote.id)) found.add(emote);
+    }
+    return found;
   }
 
   // Display order for global grid (differs from dedup priority).

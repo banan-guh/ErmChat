@@ -10,6 +10,7 @@ class EmoteSheet extends StatefulWidget {
   final TextEditingController messageController;
   final FocusNode focusNode;
   final VoidCallback onClose;
+  final void Function(GenericEmote emote)? onUseEmote;
 
   const EmoteSheet({
     super.key,
@@ -17,6 +18,7 @@ class EmoteSheet extends StatefulWidget {
     required this.messageController,
     required this.focusNode,
     required this.onClose,
+    this.onUseEmote,
   });
 
   @override
@@ -203,6 +205,7 @@ class _EmoteSheetState extends State<EmoteSheet>
             title: const Text('Use emote'),
             onTap: () {
               widget.onClose();
+              widget.onUseEmote?.call(emote);
               final text = widget.messageController.text;
               final suffix = text.isEmpty ? emote.code : ' ${emote.code}';
               widget.messageController.text = '$text$suffix';

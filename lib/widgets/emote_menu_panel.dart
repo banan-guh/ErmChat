@@ -61,11 +61,13 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
   void didUpdateWidget(covariant EmoteMenuPanelWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.isActive && !oldWidget.isActive) {
-      // Fresh recents + a clean cell cache on (re)open.
       _cellCache.clear();
       _loadRecentEmotes();
     } else if (!widget.isActive && oldWidget.isActive) {
       _cellCache.clear();
+    } else if (widget.isActive &&
+        widget.selectedChannel != oldWidget.selectedChannel) {
+      _loadRecentEmotes();
     }
   }
 
@@ -82,7 +84,9 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
   }
 
   Future<void> _loadRecentEmotes() async {
-    final recent = await widget.emoteManager.recentEmotes();
+    final recent = await widget.emoteManager.recentsForChannel(
+      widget.selectedChannel ?? '',
+    );
     if (mounted) {
       setState(() {
         _cachedRecentEmotes = recent;
@@ -233,50 +237,31 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
       );
     }
 
-    // Filter recents to current channel's emotes; fall through if not loaded.
-    final channelEmotes = widget.emoteManager.byCode(
-      widget.selectedChannel ?? '',
-    );
-    final filtered = channelEmotes != null
-        ? widget.emoteManager.resolveRecentsForChannel(
-            _cachedRecentEmotes,
-            channelEmotes.suggestions,
-          )
-        : _cachedRecentEmotes;
-
-    if (filtered.isEmpty) {
+    if (_cachedRecentEmotes.isEmpty) {
       return _buildEmoteEmptyState(
         scrollController,
         const Center(child: Text('No recently used emotes')),
       );
     }
-    return _buildEmoteGrid(filtered, scrollController);
+    return _buildEmoteGrid(_cachedRecentEmotes, scrollController);
   }
 
   Widget _buildEmoteSubsGrid(ScrollController? scrollController) {
-    final byChannel = widget.emoteManager.subscriberEmotesByChannel();
+    final byChannel = widget.emoteManager.subsGrouped(
+      pinnedChannel: widget.selectedChannel,
+    );
     if (byChannel.isEmpty) {
       return _buildEmoteEmptyState(
         scrollController,
         const Center(child: Text('No subscriber emotes available')),
       );
     }
-    // Pin current channel's group to top; rest alphabetical. Original map untouched.
-    final selected = widget.selectedChannel;
-    if (selected != null && byChannel.containsKey(selected)) {
-      final reordered = <String, List<GenericEmote>>{
-        selected: byChannel[selected]!,
-        for (final entry in byChannel.entries)
-          if (entry.key != selected) entry.key: entry.value,
-      };
-      return _buildGroupedEmoteGrid(reordered, scrollController);
-    }
     return _buildGroupedEmoteGrid(byChannel, scrollController);
   }
 
   Widget _buildEmoteChannelGrid(ScrollController? scrollController) {
     final channel = widget.selectedChannel ?? '';
-    final emotes = widget.emoteManager.channelNonTwitchEmotes(channel);
+    final emotes = widget.emoteManager.channelTabEmotes(channel);
     if (emotes.isEmpty) {
       return _buildEmoteEmptyState(
         scrollController,
