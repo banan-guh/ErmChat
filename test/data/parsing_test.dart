@@ -2458,4 +2458,58 @@ void main() {
       expect(RecentMessagesService.parseAnnouncementChild(raw), isNull);
     });
   });
+
+  group('parseIrcGifPositions', () {
+    test('parses docs example into one attachment', () {
+      const text = '[Y A Y Yes GIF by Djemilah Birnie]';
+      final gifs = parseIrcGifPositions(
+        '0-33|joSNxeswxuc74Juo8X|https://media4.giphy.com/media/joSNxeswxuc74Juo8X/giphy.gif?cid=abc&rid=giphy.gif&ct=g',
+        originalText: text,
+        strippedText: text,
+      );
+      expect(gifs, hasLength(1));
+      expect(gifs!.first.gifId, 'joSNxeswxuc74Juo8X');
+      expect(gifs.first.startIndex, 0);
+      expect(gifs.first.endIndex, text.length);
+      expect(gifs.first.url, contains('media4.giphy.com'));
+    });
+
+    test('returns null for empty or null tag', () {
+      expect(
+        parseIrcGifPositions('', originalText: 'x', strippedText: 'x'),
+        isNull,
+      );
+      expect(
+        parseIrcGifPositions(null, originalText: 'x', strippedText: 'x'),
+        isNull,
+      );
+    });
+
+    test('skips malformed entries and non-https urls', () {
+      const text = 'hello world';
+      final gifs = parseIrcGifPositions(
+        'bogus,0-4|id1|http://insecure/x.gif,0-4|id2|https://giphy.com/x.gif',
+        originalText: text,
+        strippedText: text,
+      );
+      expect(gifs, hasLength(1));
+      expect(gifs!.first.gifId, 'id2');
+    });
+
+    test('full PRIVMSG with gifs tag round-trips through json', () {
+      const raw =
+          '@badge-info=subscriber/30;badges=broadcaster/1,subscriber/0;'
+          'color=#033700;display-name=TwitchDev;emotes=;first-msg=0;flags=;'
+          'gifs=0-33|joSNxeswxuc74Juo8X|https://media4.giphy.com/media/joSNxeswxuc74Juo8X/giphy.gif?cid=abc&rid=giphy.gif&ct=g;'
+          'id=401abf17-7e99-45d6-9bdf-43934e839327;mod=0;room-id=12826;'
+          'subscriber=1;tmi-sent-ts=1783632907018;turbo=0;user-id=141981764;'
+          'user-type= :twitchdev!twitchdev@twitchdev.tmi.twitch.tv PRIVMSG #twitch :[Y A Y Yes GIF by Djemilah Birnie]';
+      final irc = parseIrcMessage(raw)!;
+      final msg = parseIrcChatMessage(irc, channel: 'twitch');
+      expect(msg.gifAttachments, hasLength(1));
+      final restored = TwitchMessage.fromJson(msg.toJson());
+      expect(restored.gifAttachments, hasLength(1));
+      expect(restored.gifAttachments!.first.url, msg.gifAttachments!.first.url);
+    });
+  });
 }

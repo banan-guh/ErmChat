@@ -30,6 +30,34 @@ class EmotePosition {
   );
 }
 
+class GifAttachment {
+  final String gifId;
+  final String url;
+  final int startIndex;
+  final int endIndex;
+
+  const GifAttachment({
+    required this.gifId,
+    required this.url,
+    required this.startIndex,
+    required this.endIndex,
+  });
+
+  Map<String, dynamic> toJson() => {
+    'gifId': gifId,
+    'url': url,
+    'startIndex': startIndex,
+    'endIndex': endIndex,
+  };
+
+  factory GifAttachment.fromJson(Map<String, dynamic> json) => GifAttachment(
+    gifId: json['gifId'] as String? ?? '',
+    url: json['url'] as String? ?? '',
+    startIndex: (json['startIndex'] as num?)?.toInt() ?? 0,
+    endIndex: (json['endIndex'] as num?)?.toInt() ?? 0,
+  );
+}
+
 class TwitchMessage {
   final DateTime timestamp;
   final String login;
@@ -75,6 +103,7 @@ class TwitchMessage {
   /// Bits cheered (PRIVMSG bits tag), or null for non-cheers.
   final int? bitsAmount;
   final List<EmotePosition>? emotePositions;
+  final List<GifAttachment>? gifAttachments;
   final List<MessageBadge>? badges;
   final String? sourceBroadcasterId;
 
@@ -133,6 +162,7 @@ class TwitchMessage {
     this.bitsAmount,
     this.userId,
     this.emotePositions,
+    this.gifAttachments,
     this.badges,
     this.sourceBroadcasterId,
     this.sourceMessageId,
@@ -167,6 +197,7 @@ class TwitchMessage {
     'pinnedPaidAmount': pinnedPaidAmount,
     'bitsAmount': bitsAmount,
     'emotePositions': emotePositions?.map((e) => e.toJson()).toList(),
+    'gifAttachments': gifAttachments?.map((g) => g.toJson()).toList(),
     'badges': badges
         ?.map((b) => {'setId': b.setId, 'versionId': b.versionId})
         .toList(),
@@ -204,6 +235,10 @@ class TwitchMessage {
     emotePositions: (json['emotePositions'] as List?)
         ?.whereType<Map>()
         .map((e) => EmotePosition.fromJson(Map<String, dynamic>.from(e)))
+        .toList(),
+    gifAttachments: (json['gifAttachments'] as List?)
+        ?.whereType<Map>()
+        .map((e) => GifAttachment.fromJson(Map<String, dynamic>.from(e)))
         .toList(),
     badges: (json['badges'] as List?)
         ?.whereType<Map>()

@@ -9,6 +9,7 @@ import '../services/third_party_badge_service.dart';
 import '../services/twitch_badge_service.dart';
 import '../util/log.dart';
 import 'emote_text.dart';
+import 'inline_emote_view.dart';
 
 class MessageBuilder {
   final EmoteManager emoteManager;
@@ -86,14 +87,77 @@ class MessageBuilder {
       lookupChannel,
       msg.userId,
     );
-    return EmoteText.build(
-      text: msg.text,
-      twitchPositions: msg.emotePositions,
-      channelEmotes: channelEmotes,
-      onEmoteTap: onShowEmoteSheet,
-      scale: scale,
-      linkWhitelist: linkWhitelist.entries,
-      onEmailTap: onEmailTap,
+    final gifs = msg.gifAttachments;
+    if (gifs == null || gifs.isEmpty) {
+      return EmoteText.build(
+        text: msg.text,
+        twitchPositions: msg.emotePositions,
+        channelEmotes: channelEmotes,
+        onEmoteTap: onShowEmoteSheet,
+        scale: scale,
+        linkWhitelist: linkWhitelist.entries,
+        onEmailTap: onEmailTap,
+      );
+    }
+    // GIF messages: splice inline GIF images over their text ranges; GIF wins
+    // over emotes/text in its range, gaps render through the normal path.
+    final sorted = [...gifs]
+      ..sort((a, b) => a.startIndex.compareTo(b.startIndex));
+    final spans = <InlineSpan>[];
+    var cursor = 0;
+
+    void addGap(String gap, int gapStart) {
+      if (gap.isEmpty) return;
+      final inner = <EmotePosition>[];
+      for (final p in msg.emotePositions ?? const <EmotePosition>[]) {
+        if (p.startIndex >= gapStart && p.endIndex <= gapStart + gap.length) {
+          inner.add(
+            EmotePosition(
+              emoteId: p.emoteId,
+              startIndex: p.startIndex - gapStart,
+              endIndex: p.endIndex - gapStart,
+              emoteCode: p.emoteCode,
+            ),
+          );
+        }
+      }
+      spans.addAll(
+        EmoteText.build(
+          text: gap,
+          twitchPositions: inner.isEmpty ? null : inner,
+          channelEmotes: channelEmotes,
+          onEmoteTap: onShowEmoteSheet,
+          scale: scale,
+          linkWhitelist: linkWhitelist.entries,
+          onEmailTap: onEmailTap,
+        ),
+      );
+    }
+
+    for (final gif in sorted) {
+      if (gif.startIndex < cursor) continue;
+      if (gif.startIndex > msg.text.length || gif.endIndex > msg.text.length) {
+        continue;
+      }
+      addGap(msg.text.substring(cursor, gif.startIndex), cursor);
+      spans.add(_buildGifSpan(gif.url, scale));
+      cursor = gif.endIndex;
+    }
+    addGap(msg.text.substring(cursor), cursor);
+    return spans;
+  }
+
+  /// Inline chat GIF. Fixed box with contain fit; animation, caching, and the
+  /// animate_gifs freeze all come from the shared emote image pipeline.
+  static WidgetSpan _buildGifSpan(String url, double scale) {
+    final height = 120.0 * scale;
+    final width = 180.0 * scale;
+    return WidgetSpan(
+      alignment: PlaceholderAlignment.middle,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 2),
+        child: InlineEmoteView(url: url, width: width, height: height),
+      ),
     );
   }
 

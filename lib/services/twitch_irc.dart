@@ -191,6 +191,54 @@ List<EmotePosition>? parseIrcEmotePositions(
   return positions.isEmpty ? null : positions;
 }
 
+/// Parses IRC `gifs` tag into [GifAttachment]s. Format per entry:
+/// `<start>-<end>|<gifId>|<url>`, entries comma-separated. Positions are
+/// relative to [originalText]; [prefixLen] adjusts for reply prefix.
+/// URLs are used verbatim and never modified.
+List<GifAttachment>? parseIrcGifPositions(
+  String? gifsTag, {
+  required String originalText,
+  required String strippedText,
+  int prefixLen = 0,
+}) {
+  if (gifsTag == null || gifsTag.isEmpty) return null;
+  final baseText =
+      originalText.startsWith('\x01ACTION ') && originalText.endsWith('\x01')
+      ? originalText.substring(8)
+      : originalText;
+  // Regex scan instead of comma-split: URLs could legally contain commas.
+  final entryRe = RegExp(r'(\d+)-(\d+)\|([^|]+)\|(.+?)(?=,\d+-\d+\||$)');
+  final attachments = <GifAttachment>[];
+  for (final m in entryRe.allMatches(gifsTag)) {
+    final start = int.tryParse(m.group(1)!);
+    final end = int.tryParse(m.group(2)!);
+    final gifId = m.group(3)!;
+    final url = m.group(4)!;
+    if (start == null || end == null || gifId.isEmpty || url.isEmpty) {
+      continue;
+    }
+    if (!url.startsWith('https://')) continue;
+    final utf16Start = _tagToUtf16(baseText, start);
+    final utf16End = _tagToUtf16(baseText, end + 1);
+    if (utf16Start < 0 || utf16End > baseText.length) continue;
+    final adjStart = utf16Start - prefixLen;
+    final adjEnd = utf16End - prefixLen;
+    if (adjStart < 0 || adjEnd > strippedText.length) continue;
+    attachments.add(
+      GifAttachment(
+        gifId: gifId,
+        url: url,
+        startIndex: adjStart,
+        endIndex: adjEnd,
+      ),
+    );
+  }
+  if (attachments.isNotEmpty) {
+    attachments.sort((a, b) => a.startIndex.compareTo(b.startIndex));
+  }
+  return attachments.isEmpty ? null : attachments;
+}
+
 /// Converts an IRC emote-tag codepoint offset to a UTF-16 index in [text].
 /// Returns -1 if out of bounds.
 int _tagToUtf16(String text, int tagOffset) {
@@ -719,6 +767,12 @@ TwitchMessage parseIrcChatMessage(
     replyThreadRootId: ircReplyThreadRootId,
     emotePositions: parseIrcEmotePositions(
       ircMsg.tags['emotes'],
+      originalText: text,
+      strippedText: strippedText,
+      prefixLen: prefixLen,
+    ),
+    gifAttachments: parseIrcGifPositions(
+      ircMsg.tags['gifs'],
       originalText: text,
       strippedText: strippedText,
       prefixLen: prefixLen,
