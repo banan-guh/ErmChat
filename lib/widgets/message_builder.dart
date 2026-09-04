@@ -17,6 +17,9 @@ class MessageBuilder {
   final void Function(List<GenericEmote>) onShowEmoteSheet;
   final LinkWhitelist linkWhitelist;
 
+  /// Tap handler for email spans (copy + feedback). Null copies silently.
+  void Function(String email)? onEmailTap;
+
   MessageBuilder({
     required this.emoteManager,
     required this.badgeService,
@@ -90,6 +93,7 @@ class MessageBuilder {
       onEmoteTap: onShowEmoteSheet,
       scale: scale,
       linkWhitelist: linkWhitelist.entries,
+      onEmailTap: onEmailTap,
     );
   }
 

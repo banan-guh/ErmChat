@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:linkify/linkify.dart';
 import 'package:ermchat/color_utils.dart';
 import 'package:ermchat/services/suggestion.dart';
 import 'package:ermchat/models/twitch_message.dart';
@@ -16,6 +18,8 @@ import 'package:ermchat/services/emote_manager.dart';
 import 'package:ermchat/services/twitch_badge_service.dart';
 import 'package:ermchat/services/third_party_badge_service.dart';
 import 'package:ermchat/widgets/message_builder.dart';
+import 'package:ermchat/widgets/emote_text.dart';
+import 'package:ermchat/widgets/link_whitelist.dart';
 
 TwitchMessage _msg(String text, {String login = 'otheruser', String? replyTo}) {
   return TwitchMessage(
@@ -527,6 +531,336 @@ void main() {
     for (final s in plain) {
       expect(s.style?.color, isNot(Colors.blue), reason: '/me tint applies');
     }
+  });
+
+  group('WhitelistLinkifier split links', () {
+    const options = LinkifyOptions(
+      humanize: false,
+      looseUrl: true,
+      defaultToHttps: true,
+    );
+
+    List<LinkifyElement> runLinkifier(String text, List<String> whitelist) {
+      return WhitelistLinkifier(whitelist).parse([TextElement(text)], options);
+    }
+
+    List<UrlElement> urlsOf(String text, List<String> whitelist) =>
+        runLinkifier(text, whitelist).whereType<UrlElement>().toList();
+
+    test('links space-before-dot with trailing slash', () {
+      final urls = urlsOf('check example .com/ out', ['com']);
+      expect(urls, hasLength(1));
+      expect(urls.single.url, 'https://example.com/');
+      expect(urls.single.text, 'example .com/');
+    });
+
+    test('links space-after-dot with trailing slash', () {
+      final urls = urlsOf('check example. com/ out', ['com']);
+      expect(urls, hasLength(1));
+      expect(urls.single.url, 'https://example.com/');
+      expect(urls.single.text, 'example. com/');
+    });
+
+    test('links space-after-dot with path', () {
+      final urls = urlsOf('see example. com/foo', ['com']);
+      expect(urls, hasLength(1));
+      expect(urls.single.url, 'https://example.com/foo');
+    });
+
+    test('links fully spaced domain with path', () {
+      final urls = urlsOf('see example . com / foo', ['com']);
+      expect(urls, hasLength(1));
+      expect(urls.single.url, 'https://example.com/foo');
+    });
+
+    test('keeps linking space-before-dot without path', () {
+      final urls = urlsOf('check example .com out', ['com']);
+      expect(urls, hasLength(1));
+      expect(urls.single.url, 'https://example.com');
+    });
+
+    test('links whitelisted domain with split path', () {
+      final urls = urlsOf('watch kappa .lol/ABCDE now', ['kappa.lol']);
+      expect(urls, hasLength(1));
+      expect(urls.single.url, 'https://kappa.lol/ABCDE');
+    });
+
+    test('links subdomains of whitelisted domains', () {
+      final urls = urlsOf('see sub .kappa.lol/x', ['kappa.lol']);
+      expect(urls, hasLength(1));
+      expect(urls.single.url, 'https://sub.kappa.lol/x');
+    });
+
+    test('keeps trailing slash without eating the next word', () {
+      final urls = urlsOf('see i .nuuls .com/ ABCD', ['i.nuuls.com']);
+      expect(urls, hasLength(1));
+      expect(urls.single.url, 'https://i.nuuls.com/');
+    });
+
+    test('does not link sentence boundary without path', () {
+      expect(urlsOf('that was nice. gg guys', ['gg']), isEmpty);
+      expect(urlsOf('that was cool. lol', ['lol']), isEmpty);
+      expect(urlsOf('hello. world', ['world']), isEmpty);
+    });
+
+    test('does not link non-whitelisted fractured runs', () {
+      expect(urlsOf('check example. com/ out', ['net']), isEmpty);
+      expect(urlsOf('check example .com/ out', ['net']), isEmpty);
+    });
+
+    test('links bare whitelisted domains stock linkify misses', () {
+      final urls = urlsOf('check x.com out', ['x.com']);
+      expect(urls, hasLength(1));
+      expect(urls.single.url, 'https://x.com');
+      expect(urls.single.text, 'x.com', reason: 'no scheme shown');
+    });
+
+    test('links bare domains via whitelisted TLD', () {
+      final urls = urlsOf('check x.com out', ['com']);
+      expect(urls, hasLength(1));
+      expect(urls.single.url, 'https://x.com');
+    });
+
+    test('links bare whitelisted domains with paths', () {
+      final urls = urlsOf('check kappa.lol/tests out', ['kappa.lol']);
+      expect(urls, hasLength(1));
+      expect(urls.single.url, 'https://kappa.lol/tests');
+      expect(urls.single.text, 'kappa.lol/tests');
+    });
+
+    test('does not link bare non-whitelisted domains', () {
+      expect(urlsOf('check x.com out', ['net']), isEmpty);
+    });
+
+    test('bare linking works with fracture detection off', () {
+      final elements = WhitelistLinkifier(const [
+        'x.com',
+      ], fractures: false).parse([TextElement('check x.com out')], options);
+      final urls = elements.whereType<UrlElement>().toList();
+      expect(urls, hasLength(1));
+      expect(urls.single.url, 'https://x.com');
+    });
+
+    test('fractured runs stay plain with fracture detection off', () {
+      final elements = WhitelistLinkifier(
+        const ['com'],
+        fractures: false,
+      ).parse([TextElement('check example .com/ out')], options);
+      expect(elements.whereType<UrlElement>(), isEmpty);
+    });
+
+    test('leaves emails intact', () {
+      expect(urlsOf('mail foo@gmail.com today', ['com']), isEmpty);
+      expect(urlsOf('mail foo@gmail.com today', ['gmail.com']), isEmpty);
+    });
+
+    test('leaves scheme URLs intact', () {
+      expect(urlsOf('visit https://x.com/a today', ['x.com']), isEmpty);
+      expect(urlsOf('visit https://example.com/a today', ['com']), isEmpty);
+    });
+
+    test('full linkify pipeline keeps scheme URLs whole', () {
+      final elements = linkify(
+        'visit https://example.com/a today',
+        options: options,
+        linkifiers: [
+          const SafeEmailLinkifier(),
+          WhitelistLinkifier(const ['com']),
+          const UrlLinkifier(),
+        ],
+      );
+      final urls = elements.whereType<UrlElement>().toList();
+      expect(urls, hasLength(1));
+      expect(urls.single.url, 'https://example.com/a');
+    });
+
+    test('does not link lone whitelisted words', () {
+      expect(urlsOf('lol that was funny', ['lol']), isEmpty);
+    });
+
+    test('empty whitelist passes text through', () {
+      final elements = runLinkifier('check example. com/ out', []);
+      expect(elements, hasLength(1));
+      expect(elements.single, isA<TextElement>());
+    });
+
+    test('full linkify pipeline links the split domain once', () {
+      final elements = linkify(
+        'check example. com/ out',
+        options: options,
+        linkifiers: [
+          const SafeEmailLinkifier(),
+          WhitelistLinkifier(const ['com']),
+          const UrlLinkifier(),
+        ],
+      );
+      final urls = elements.whereType<UrlElement>().toList();
+      expect(urls, hasLength(1));
+      expect(urls.single.url, 'https://example.com/');
+    });
+
+    test('links show without the scheme but keep it for launching', () {
+      const humanized = LinkifyOptions(
+        humanize: true,
+        looseUrl: true,
+        defaultToHttps: true,
+      );
+      final elements = linkify(
+        'check https://example.com/x out',
+        options: humanized,
+        linkifiers: [
+          const SafeEmailLinkifier(),
+          WhitelistLinkifier(const ['com']),
+          const UrlLinkifier(),
+        ],
+      );
+      final urls = elements.whereType<UrlElement>().toList();
+      expect(urls, hasLength(1));
+      expect(urls.single.url, 'https://example.com/x');
+      expect(urls.single.text, 'example.com/x');
+    });
+  });
+
+  group('SingleCharDomainLinkifier', () {
+    const options = LinkifyOptions(
+      humanize: true,
+      looseUrl: true,
+      defaultToHttps: true,
+    );
+
+    List<UrlElement> runSingle(String text) => const SingleCharDomainLinkifier()
+        .parse([TextElement(text)], options)
+        .whereType<UrlElement>()
+        .toList();
+
+    test('links every known domain bare, no whitelist needed', () {
+      for (final domain in SingleCharDomainLinkifier.domains) {
+        final urls = runSingle('check $domain/abc out');
+        expect(urls, hasLength(1), reason: domain);
+        expect(urls.single.url, 'https://$domain/abc', reason: domain);
+        expect(urls.single.text, '$domain/abc', reason: domain);
+      }
+    });
+
+    test('ignores unlisted single-char domains', () {
+      expect(runSingle('check y.com/abc out'), isEmpty);
+      expect(runSingle('check q.net/abc out'), isEmpty);
+    });
+
+    test('leaves longer labels to stock linkify', () {
+      expect(runSingle('check ax.com/abc out'), isEmpty);
+    });
+
+    test('leaves emails, schemes, and subdomains whole', () {
+      expect(runSingle('mail foo@gmail.com today'), isEmpty);
+      expect(runSingle('visit https://x.com/a today'), isEmpty);
+      expect(runSingle('visit www.x.com/a today'), isEmpty);
+      expect(runSingle('visit sub.x.com/a today'), isEmpty);
+    });
+
+    test('keeps trailing sentence periods out of the link', () {
+      final urls = runSingle('visit x.com.');
+      expect(urls, hasLength(1));
+      expect(urls.single.url, 'https://x.com');
+      expect(urls.single.text, 'x.com');
+    });
+
+    test('prod pipeline links bare x.com with an empty whitelist', () {
+      final elements = linkify(
+        'check x.com out',
+        options: options,
+        linkifiers: [
+          const SafeEmailLinkifier(),
+          const SingleCharDomainLinkifier(),
+          WhitelistLinkifier(const []),
+          const UrlLinkifier(),
+        ],
+      );
+      final urls = elements.whereType<UrlElement>().toList();
+      expect(urls, hasLength(1));
+      expect(urls.single.url, 'https://x.com');
+      expect(urls.single.text, 'x.com');
+    });
+  });
+
+  group('SafeEmailLinkifier', () {
+    const options = LinkifyOptions(
+      humanize: true,
+      looseUrl: true,
+      defaultToHttps: true,
+    );
+
+    List<LinkifyElement> runEmail(String text) =>
+        const SafeEmailLinkifier().parse([TextElement(text)], options);
+
+    test('claims plain email addresses', () {
+      final elements = runEmail('mail foo@gmail.com today');
+      final emails = elements.whereType<EmailElement>().toList();
+      expect(emails, hasLength(1));
+      expect(emails.single.emailAddress, 'foo@gmail.com');
+    });
+
+    test('claims multiple email addresses', () {
+      final elements = runEmail('a@b.co and c@d.io');
+      expect(elements.whereType<EmailElement>().map((e) => e.emailAddress), [
+        'a@b.co',
+        'c@d.io',
+      ]);
+    });
+
+    test('leaves scheme URLs with userinfo whole', () {
+      const text = 'visit https://user@host.com/x now';
+      final elements = runEmail(text);
+      expect(elements.whereType<EmailElement>(), isEmpty);
+      expect(elements.map((e) => e.text).join(), text);
+    });
+
+    test('full pipeline keeps userinfo URLs whole', () {
+      final elements = linkify(
+        'visit https://user@host.com/x now',
+        options: options,
+        linkifiers: [
+          const SafeEmailLinkifier(),
+          WhitelistLinkifier(const ['com']),
+          const UrlLinkifier(),
+        ],
+      );
+      final urls = elements.whereType<UrlElement>().toList();
+      expect(urls, hasLength(1));
+      expect(urls.single.url, 'https://user@host.com/x');
+      expect(elements.whereType<EmailElement>(), isEmpty);
+    });
+
+    test('full pipeline routes plain emails to EmailElement', () {
+      final elements = linkify(
+        'mail foo@gmail.com today',
+        options: options,
+        linkifiers: [
+          const SafeEmailLinkifier(),
+          WhitelistLinkifier(const ['com']),
+          const UrlLinkifier(),
+        ],
+      );
+      final emails = elements.whereType<EmailElement>().toList();
+      expect(emails, hasLength(1));
+      expect(emails.single.emailAddress, 'foo@gmail.com');
+      expect(elements.whereType<UrlElement>(), isEmpty);
+    });
+
+    test('email spans are tappable and report the address', () {
+      String? tapped;
+      final spans = parseTextWithLinks(
+        'mail foo@gmail.com today',
+        onEmailTap: (email) => tapped = email,
+      );
+      final emailSpan = spans.whereType<TextSpan>().firstWhere(
+        (s) => s.recognizer != null,
+      );
+      expect(emailSpan.text, 'foo@gmail.com');
+      expect(emailSpan.style?.color, Colors.blue);
+      (emailSpan.recognizer! as TapGestureRecognizer).onTap!();
+      expect(tapped, 'foo@gmail.com');
+    });
   });
 
   group('crash_report', () {

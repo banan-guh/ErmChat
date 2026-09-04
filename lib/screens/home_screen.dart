@@ -505,6 +505,7 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    _messageBuilder.onEmailTap = _copyEmail;
     final surface = Theme.of(context).scaffoldBackgroundColor;
     if (_lastSurface != surface) {
       _lastSurface = surface;
@@ -1807,6 +1808,12 @@ class _HomeScreenState extends State<HomeScreen>
         action: SnackBarAction(label: 'Paste', onPressed: _pasteFromClipboard),
       ),
     );
+  }
+
+  void _copyEmail(String email) {
+    Clipboard.setData(ClipboardData(text: email));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(_snackBar('Copied $email'));
   }
 
   /// Pastes the current clipboard text into the chat input at the cursor.

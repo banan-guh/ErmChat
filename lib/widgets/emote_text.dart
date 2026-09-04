@@ -2,6 +2,7 @@ import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
+import 'package:flutter/services.dart';
 import 'package:linkify/linkify.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../util/log.dart';
@@ -27,6 +28,7 @@ class EmoteText {
     void Function(List<GenericEmote>)? onEmoteTap,
     double scale = 1.0,
     List<String>? linkWhitelist,
+    void Function(String email)? onEmailTap,
   }) {
     try {
       return _buildUnsafe(
@@ -36,12 +38,17 @@ class EmoteText {
         onEmoteTap: onEmoteTap,
         scale: scale,
         linkWhitelist: linkWhitelist,
+        onEmailTap: onEmailTap,
       );
     } catch (e, stack) {
       logDebug('[EmoteText.build] error: $e');
       logDebug('[EmoteText.build] text="$text"');
       logDebug('[EmoteText.build] stack=$stack');
-      return parseTextWithLinks(text, linkWhitelist: linkWhitelist);
+      return parseTextWithLinks(
+        text,
+        linkWhitelist: linkWhitelist,
+        onEmailTap: onEmailTap,
+      );
     }
   }
 
@@ -52,9 +59,14 @@ class EmoteText {
     void Function(List<GenericEmote>)? onEmoteTap,
     double scale = 1.0,
     List<String>? linkWhitelist,
+    void Function(String email)? onEmailTap,
   }) {
     if (channelEmotes == null) {
-      return parseTextWithLinks(text, linkWhitelist: linkWhitelist);
+      return parseTextWithLinks(
+        text,
+        linkWhitelist: linkWhitelist,
+        onEmailTap: onEmailTap,
+      );
     }
 
     final spans = <InlineSpan>[];
@@ -62,7 +74,11 @@ class EmoteText {
 
     final segments = _buildSegments(text, twitchPositions, byCode);
     if (segments.isEmpty) {
-      return parseTextWithLinks(text, linkWhitelist: linkWhitelist);
+      return parseTextWithLinks(
+        text,
+        linkWhitelist: linkWhitelist,
+        onEmailTap: onEmailTap,
+      );
     }
 
     _EmoteSpanData? currentBase;
@@ -73,7 +89,13 @@ class EmoteText {
 
     void flushText() {
       if (buffer.isNotEmpty) {
-        spans.addAll(parseTextWithLinks(buffer, linkWhitelist: linkWhitelist));
+        spans.addAll(
+          parseTextWithLinks(
+            buffer,
+            linkWhitelist: linkWhitelist,
+            onEmailTap: onEmailTap,
+          ),
+        );
         buffer = '';
       }
     }
@@ -287,7 +309,13 @@ final _collapseSpace = RegExp(r' {2,}');
 List<InlineSpan> parseTextWithLinks(
   String text, {
   List<String>? linkWhitelist,
+  // Tap handler for emails (copy + feedback). Null copies silently.
+  void Function(String email)? onEmailTap,
 }) {
+  // Fast path: no dots and no runs means no links and nothing to collapse.
+  if (!text.contains('.') && !text.contains('  ')) {
+    return [TextSpan(text: text)];
+  }
   final collapsed = text.replaceAll(_collapseSpace, ' ');
   // Quick guard: ~99% of chat text has no URLs.
   if (!collapsed.contains('.')) return [TextSpan(text: collapsed)];
@@ -295,17 +323,24 @@ List<InlineSpan> parseTextWithLinks(
     final spans = <InlineSpan>[];
     for (final element in linkify(
       collapsed,
-      // looseUrl handles bare domains; whitelist only re-joins fractured links.
+      // looseUrl handles bare domains; humanize hides the scheme.
       options: const LinkifyOptions(
-        humanize: false,
+        humanize: true,
         looseUrl: true,
         defaultToHttps: true,
       ),
       linkifiers: [
-        if (LinkWhitelist.instance.enabled)
-          WhitelistLinkifier(linkWhitelist ?? const []),
+        // Email first: it needs the text whole, and stock UrlLinkifier
+        // would eat the host half of foo@gmail.com.
+        const SafeEmailLinkifier(),
+        // Exact single-char domains before fuzzy fracture matching.
+        const SingleCharDomainLinkifier(),
+        // Bare whitelisted domains always link; fractured ones need the toggle.
+        WhitelistLinkifier(
+          linkWhitelist ?? const [],
+          fractures: LinkWhitelist.instance.enabled,
+        ),
         const UrlLinkifier(),
-        const EmailLinkifier(),
       ],
     )) {
       if (element is UrlElement) {
@@ -315,6 +350,22 @@ List<InlineSpan> parseTextWithLinks(
             style: const TextStyle(color: Colors.blue),
             recognizer: TapGestureRecognizer()
               ..onTap = () => launchUrl(Uri.parse(element.url)),
+          ),
+        );
+      } else if (element is EmailElement) {
+        spans.add(
+          TextSpan(
+            text: element.emailAddress,
+            style: const TextStyle(color: Colors.blue),
+            recognizer: TapGestureRecognizer()
+              ..onTap = () {
+                final email = element.emailAddress;
+                if (onEmailTap != null) {
+                  onEmailTap(email);
+                } else {
+                  Clipboard.setData(ClipboardData(text: email));
+                }
+              },
           ),
         );
       } else {

@@ -67,6 +67,7 @@
 - [ ] **Translations** - how? - l110 or whatever it's called i dont remember
 - [ ] **Accessibility** - make wishlist
 - [ ] **Put badges on user card** - show badges next to username in the user info card.
+- [ ] **Stream player battery saver** - currently streams drink battery like no other
 
 ## SMALL bugs
 
@@ -76,3 +77,4 @@
 - dedup spaces in reply string X
 - style bug, add stretch for tab bar channels
 - notifs don't matter if no foreground in android (ios push notifs, change if server)
+- greedy split links - `kappa.lol/ tests` (space after slash) only links `kappa.lol/`; optionally extend the path to the next word, at the cost of eating prose after `/` (`x.com/ for details`)

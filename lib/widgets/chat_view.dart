@@ -330,6 +330,7 @@ class _ChatViewState extends State<ChatView>
         systemBodyBuilder: (msg, scale) => parseTextWithLinks(
           msg.text,
           linkWhitelist: widget.linkWhitelist?.entries,
+          onEmailTap: widget.messageBuilder.onEmailTap,
         ),
         checkeredMessages: widget.checkeredMessages,
         highlightOpacity: widget.highlightOpacity,

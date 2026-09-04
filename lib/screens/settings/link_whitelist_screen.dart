@@ -58,31 +58,31 @@ class _LinkWhitelistSettingsScreenState
       floatingActionButton: FloatingActionButton(
         onPressed: LinkWhitelist.instance.enabled
             ? () => showDialog(
-                  context: context,
-                  builder: (ctx) => AlertDialog(
-                    title: const Text('Add link'),
-                    content: TextField(
-                      controller: _controller,
-                      autofocus: true,
-                      decoration: const InputDecoration(
-                        labelText: 'Domain or TLD',
-                        helperText:
-                            'e.g. "lol" (any *.lol) or "kappa.lol" (+subs)',
-                      ),
-                      onSubmitted: (_) => _add(ctx),
+                context: context,
+                builder: (ctx) => AlertDialog(
+                  title: const Text('Add link'),
+                  content: TextField(
+                    controller: _controller,
+                    autofocus: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Domain or TLD',
+                      helperText:
+                          'e.g. "lol" (any *.lol) or "kappa.lol" (+subs)',
                     ),
-                    actions: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(context),
-                        child: const Text('Cancel'),
-                      ),
-                      TextButton(
-                        onPressed: () => _add(ctx),
-                        child: const Text('Add'),
-                      ),
-                    ],
+                    onSubmitted: (_) => _add(ctx),
                   ),
-                )
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('Cancel'),
+                    ),
+                    TextButton(
+                      onPressed: () => _add(ctx),
+                      child: const Text('Add'),
+                    ),
+                  ],
+                ),
+              )
             : null,
         child: const Icon(Icons.add),
       ),
@@ -118,9 +118,7 @@ class _LinkWhitelistSettingsScreenState
                           trailing: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              _TypeBadge(
-                                LinkWhitelist.classify(entry),
-                              ),
+                              _TypeBadge(LinkWhitelist.classify(entry)),
                               IconButton(
                                 icon: const Icon(Icons.delete_outline),
                                 tooltip: 'Remove',

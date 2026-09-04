@@ -3569,7 +3569,7 @@ void main() {
       expect(spans[0], isA<WidgetSpan>());
       expect(spans.last, isA<TextSpan>());
       final urlSpan = spans.last as TextSpan;
-      expect(urlSpan.text, 'https://example.com');
+      expect(urlSpan.text, 'example.com', reason: 'scheme is humanized away');
       expect(urlSpan.style?.color, Colors.blue);
     });
 
