@@ -279,7 +279,10 @@ class EmoteText {
     }
     return WidgetSpan(
       alignment: PlaceholderAlignment.middle,
-      child: emoteWidget,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 2),
+        child: emoteWidget,
+      ),
     );
   }
 }

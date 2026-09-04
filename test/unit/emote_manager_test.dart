@@ -3692,7 +3692,8 @@ void main() {
       );
       expect(spans, hasLength(1));
       expect(spans[0], isA<WidgetSpan>());
-      var box = (spans[0] as WidgetSpan).child as SizedBox;
+      var pad = (spans[0] as WidgetSpan).child as Padding;
+      var box = pad.child as SizedBox;
       expect(box.width, 28.0 * 0.625);
       expect(box.height, 28.0 * 0.625);
 
@@ -3715,7 +3716,8 @@ void main() {
       );
       expect(spans, hasLength(1));
       expect(spans[0], isA<WidgetSpan>());
-      box = (spans[0] as WidgetSpan).child as SizedBox;
+      pad = (spans[0] as WidgetSpan).child as Padding;
+      box = pad.child as SizedBox;
       expect(box.width, 28.0);
       expect(box.height, 28.0);
     });
