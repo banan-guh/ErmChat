@@ -2681,7 +2681,7 @@ void main() {
       expect(msgs['test']!.length, 1);
       final msg = msgs['test']!.first;
       expect(msg.bitsAmount, 100);
-      expect(msg.systemAccent, const Color(0xFF9146FF));
+      expect(msg.systemAccent, const Color(0xFF7C47D1));
       expect(msg.text, 'Cheer100 take my bits');
     });
 
@@ -3264,7 +3264,7 @@ void main() {
         'missing color falls back to PRIMARY',
         '@msg-id=announcement;login=mm2pl;display-name=Mm2PL;system-msg=;'
             ':tmi.twitch.tv USERNOTICE #test :hi',
-        const Color(0xFF9146FF),
+        const Color(0xFF7C47D1),
         true,
       ),
       (
@@ -3337,7 +3337,7 @@ void main() {
       expect(systemMessages, hasLength(1));
       expect(systemMessages[0].$1, 'test');
       expect(systemMessages[0].$2, 'ronni has subscribed!');
-      expect(systemMessages[0].$3, const Color(0xFF9146FF));
+      expect(systemMessages[0].$3, const Color(0xFF7C47D1));
 
       // Child message renders as a normal chat message on the same accent,
       // carrying the emotes parsed from the USERNOTICE line.
@@ -3349,7 +3349,7 @@ void main() {
       expect(child.color, '#0000FF');
       expect(child.userId, '456');
       expect(child.messageId, 'abc');
-      expect(child.systemAccent, const Color(0xFF9146FF));
+      expect(child.systemAccent, const Color(0xFF7C47D1));
       expect(child.badges, hasLength(1));
       expect(child.emotePositions, isNotNull);
       expect(child.emotePositions!.single.emoteCode, 'Great');
@@ -3383,7 +3383,7 @@ void main() {
 
       expect(systemMessages, hasLength(1));
       expect(systemMessages[0].$2, 'TWW2 gifted a Tier 1 sub to Mr_Woodchuck!');
-      expect(systemMessages[0].$3, const Color(0xFF9146FF));
+      expect(systemMessages[0].$3, const Color(0xFF7C47D1));
       expect(
         channelMessages['test'],
         isNull,
@@ -3429,7 +3429,7 @@ void main() {
         ircRead.emitConnected();
         ircRead.handleLine(line);
         expect(systemMessages, hasLength(1), reason: name);
-        expect(systemMessages[0].$3, const Color(0xFF9146FF), reason: name);
+        expect(systemMessages[0].$3, const Color(0xFF7C47D1), reason: name);
         if (text != null) {
           expect(systemMessages[0].$2, text, reason: name);
         }

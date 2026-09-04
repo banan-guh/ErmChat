@@ -70,7 +70,7 @@ void main() {
         'parses cheer PRIVMSG with purple accent',
         '@badges=bits/1000;bits=100;display-name=ronni;id=cheer-1;rm-received-ts=1700000000000 :ronni!ronni@ronni.tmi.twitch.tv PRIVMSG #xqc :Cheer100 take my bits',
         100,
-        const Color(0xFF9146FF),
+        const Color(0xFF7C47D1),
       ),
       (
         'non-cheer PRIVMSG has no bits amount or accent',
@@ -262,7 +262,7 @@ void main() {
       expect(msg.login, isEmpty, reason: 'non-announcement notices drop login');
       expect(
         msg.systemAccent,
-        const Color(0xFF9146FF),
+        const Color(0xFF7C47D1),
         reason: 'sub notices highlight like a default purple announcement',
       );
       expect(
@@ -292,7 +292,7 @@ void main() {
         expect(msg, isNotNull, reason: name);
         expect(msg!.isSystem, isTrue, reason: name);
         expect(msg.text, text, reason: name);
-        expect(msg.systemAccent, const Color(0xFF9146FF), reason: name);
+        expect(msg.systemAccent, const Color(0xFF7C47D1), reason: name);
       });
     }
 
@@ -313,7 +313,7 @@ void main() {
       final msg = RecentMessagesService.parseIrcLine(raw);
       expect(msg, isNotNull);
       expect(msg!.text, 'Announcement');
-      expect(msg.systemAccent, const Color(0xFF9146FF));
+      expect(msg.systemAccent, const Color(0xFF7C47D1));
     });
 
     test('empty announcement still renders the label', () {
@@ -339,7 +339,7 @@ void main() {
         final msg = RecentMessagesService.parseIrcLine(raw);
         expect(msg, isNotNull, reason: name);
         expect(msg!.isSystem, isTrue, reason: name);
-        expect(msg.systemAccent, const Color(0xFF9146FF), reason: name);
+        expect(msg.systemAccent, const Color(0xFF7C47D1), reason: name);
       });
     }
 
@@ -449,14 +449,14 @@ void main() {
       final label = RecentMessagesService.parseIrcLine(raw);
       expect(label, isNotNull);
       expect(label!.text, 'Announcement');
-      expect(label.systemAccent, const Color(0xFF9146FF));
+      expect(label.systemAccent, const Color(0xFF7C47D1));
 
       final child = RecentMessagesService.parseAnnouncementChild(raw);
       expect(child, isNotNull);
       expect(child!.text, 'uuh');
       expect(child.login, 'ermugo2');
       expect(child.messageId, '1151c190-4c78-4f31-b436-d75b3003e68c');
-      expect(child.systemAccent, const Color(0xFF9146FF));
+      expect(child.systemAccent, const Color(0xFF7C47D1));
       expect(child.badges, hasLength(1));
     });
   });
@@ -476,7 +476,7 @@ void main() {
       expect(child.messageId, 'abc-123');
       expect(child.badges, hasLength(1));
       expect(child.badges!.single.setId, 'subscriber');
-      expect(child.systemAccent, const Color(0xFF9146FF));
+      expect(child.systemAccent, const Color(0xFF7C47D1));
       expect(child.isHistory, isTrue);
       expect(
         child.timestamp,
@@ -494,7 +494,7 @@ void main() {
       expect(child.emotePositions!.single.emoteCode, 'PogChamp');
       expect(child.emotePositions!.single.startIndex, 0);
       expect(child.emotePositions!.single.endIndex, 8);
-      expect(child.systemAccent, const Color(0xFF9146FF));
+      expect(child.systemAccent, const Color(0xFF7C47D1));
     });
 
     for (final (name, raw) in [
@@ -529,13 +529,13 @@ void main() {
       final label = RecentMessagesService.parseIrcLine(raw);
       expect(label, isNotNull);
       expect(label!.text, 'ronni has subscribed!');
-      expect(label.systemAccent, const Color(0xFF9146FF));
+      expect(label.systemAccent, const Color(0xFF7C47D1));
 
       final child = RecentMessagesService.parseSubChild(raw);
       expect(child, isNotNull);
       expect(child!.text, 'hello');
       expect(child.login, 'ronni');
-      expect(child.systemAccent, const Color(0xFF9146FF));
+      expect(child.systemAccent, const Color(0xFF7C47D1));
     });
   });
 

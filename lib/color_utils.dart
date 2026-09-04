@@ -20,12 +20,14 @@ const officialColors = [
 ];
 
 /// Announcement banner colors mapped from msg-param-color tag values.
+/// PRIMARY/PURPLE is muted toward dankchat sub purple (S~0.47): same hue
+/// at 60% saturation so row tints stay calm after contrast equalization.
 const announcementColors = <String, Color>{
-  'PRIMARY': Color(0xFF9146FF),
+  'PRIMARY': Color(0xFF7C47D1),
   'BLUE': Color(0xFF1F69FF),
   'GREEN': Color(0xFF00C853),
   'ORANGE': Color(0xFFFF6F00),
-  'PURPLE': Color(0xFF9146FF),
+  'PURPLE': Color(0xFF7C47D1),
 };
 
 /// Banner color for a msg-param-color value, or null if unknown.

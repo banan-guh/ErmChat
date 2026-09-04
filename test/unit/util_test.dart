@@ -79,11 +79,11 @@ void main() {
   group('announcementColorFor', () {
     test('maps known colors case-insensitively and returns null otherwise', () {
       const cases = {
-        'PRIMARY': Color(0xFF9146FF),
+        'PRIMARY': Color(0xFF7C47D1),
         'BLUE': Color(0xFF1F69FF),
         'GREEN': Color(0xFF00C853),
         'ORANGE': Color(0xFFFF6F00),
-        'PURPLE': Color(0xFF9146FF),
+        'PURPLE': Color(0xFF7C47D1),
       };
       cases.forEach((name, color) {
         expect(announcementColorFor(name), color, reason: 'input: $name');
