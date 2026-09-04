@@ -11,6 +11,7 @@ import 'channel_settings_screen.dart';
 import 'chat_settings_screen.dart';
 import 'customization_screen.dart';
 import 'emotes_settings_screen.dart';
+import 'stream_settings_screen.dart';
 import 'tools_settings_screen.dart';
 import '../../services/recent_messages.dart';
 
@@ -56,6 +57,8 @@ class SettingsScreen extends StatelessWidget {
   final OAuthStarter? oAuthStarter;
   final TtsController? ttsController;
   final EmoteManager? emoteManager;
+  final ValueChanged<bool>? onStreamExtensionsChanged;
+  final ValueChanged<bool>? onRetainWebviewChanged;
 
   /// Live hook for the dev-only test-widgets toggle (About > 7 taps).
   final ValueChanged<bool>? onTestWidgetsChanged;
@@ -103,6 +106,8 @@ class SettingsScreen extends StatelessWidget {
     this.oAuthStarter,
     this.ttsController,
     this.emoteManager,
+    this.onStreamExtensionsChanged,
+    this.onRetainWebviewChanged,
     this.onTestWidgetsChanged,
   });
 
@@ -224,6 +229,20 @@ class SettingsScreen extends StatelessWidget {
                 builder: (_) => AccountScreen(
                   twitchAuth: twitchAuth,
                   oAuthStarter: oAuthStarter,
+                ),
+              ),
+            ),
+          ),
+          _buildTile(
+            context,
+            icon: Icons.live_tv,
+            title: 'Stream player',
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => StreamSettingsScreen(
+                  onShowExtensionsChanged: onStreamExtensionsChanged,
+                  onRetainWebviewChanged: onRetainWebviewChanged,
                 ),
               ),
             ),

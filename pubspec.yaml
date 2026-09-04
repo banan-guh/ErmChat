@@ -55,6 +55,9 @@ dependencies:
   linkify: ^5.0.0
   image_picker: ^1.2.3
   flutter_tts: ^4.2.5
+  webview_flutter: ^4.14.1
+  webview_flutter_android: ^4.14.1
+  webview_flutter_wkwebview: ^3.26.1
 dev_dependencies:
   flutter_test:
     sdk: flutter

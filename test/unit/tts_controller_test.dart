@@ -2,6 +2,7 @@ import 'package:flutter_tts/flutter_tts.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/widgets.dart';
 import 'package:ermchat/services/tts_controller.dart';
+import 'package:ermchat/services/stream_player_controller.dart';
 import 'package:ermchat/models/twitch_message.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -326,5 +327,78 @@ void main() {
         );
       },
     );
+  });
+
+  group('StreamPlayerController', () {
+    test('toggleStream flips per channel and clears flags', () {
+      final controller = StreamPlayerController();
+      controller.toggleStream('foo');
+      expect(controller.currentChannel, 'foo');
+      expect(controller.isActive, isTrue);
+
+      controller.toggleStream('foo');
+      expect(controller.currentChannel, isNull);
+      expect(controller.isActive, isFalse);
+      controller.dispose();
+    });
+
+    test('switching channels keeps audio-only off', () {
+      final controller = StreamPlayerController();
+      controller.toggleStream('foo');
+      controller.toggleAudioOnly();
+      expect(controller.isAudioOnly, isTrue);
+      controller.toggleStream('bar');
+      expect(controller.currentChannel, 'bar');
+      expect(controller.isAudioOnly, isFalse);
+      controller.dispose();
+    });
+
+    test('audio-only exits theater mode', () {
+      final controller = StreamPlayerController();
+      controller.toggleStream('foo');
+      controller.toggleTheaterMode();
+      expect(controller.isTheaterMode, isTrue);
+      controller.toggleAudioOnly();
+      expect(controller.isTheaterMode, isFalse);
+      expect(controller.isAudioOnly, isTrue);
+      controller.dispose();
+    });
+
+    test('playerUrl carries channel and extensions flag', () {
+      final controller = StreamPlayerController();
+      final url = controller.playerUrl('foo');
+      expect(url, contains('channel=foo'));
+      expect(url, contains('player.twitch.tv'));
+      expect(url, contains('parent=twitch.tv'));
+      controller.setShowExtensions(true);
+      expect(controller.playerUrl('foo'), contains('enableExtensions=true'));
+      controller.dispose();
+    });
+
+    test('split fraction clamps and render death bumps generation', () {
+      final controller = StreamPlayerController();
+      controller.setSplitFraction(0.9);
+      expect(controller.splitFraction, 0.8);
+      controller.setSplitFraction(0.1);
+      expect(controller.splitFraction, 0.2);
+      final generation = controller.generation;
+      controller.onRenderProcessGone();
+      expect(controller.generation, generation + 1);
+      expect(controller.hasEverAttached, isFalse);
+      controller.dispose();
+    });
+
+    test('closeStream and exitTheaterMode clear state', () {
+      final controller = StreamPlayerController();
+      controller.toggleStream('foo');
+      controller.toggleTheaterMode();
+      controller.exitTheaterMode();
+      expect(controller.isTheaterMode, isFalse);
+      expect(controller.isActive, isTrue);
+      controller.closeStream();
+      expect(controller.isActive, isFalse);
+      expect(controller.isAudioOnly, isFalse);
+      controller.dispose();
+    });
   });
 }

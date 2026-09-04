@@ -27,6 +27,7 @@ import '../services/ignore_manager.dart';
 import '../services/link_whitelist.dart';
 import '../services/emote_manager.dart';
 import '../services/data_usage.dart';
+import '../services/stream_player_controller.dart';
 import '../services/analytics_service.dart';
 import '../services/twitch_badge_service.dart';
 import '../services/third_party_badge_service.dart';
@@ -55,6 +56,7 @@ import '../widgets/media_upload_controller.dart';
 import '../widgets/emote_menu_panel.dart';
 import '../widgets/chat_view.dart';
 import '../widgets/message_builder.dart';
+import '../widgets/stream_player_view.dart';
 import '../widgets/predictive_back_handler.dart';
 import '../widgets/chat_widget_cutout.dart';
 import '../widgets/join_channel_dialog.dart';
@@ -320,6 +322,11 @@ class _HomeScreenState extends State<HomeScreen>
   /// Whether the chat input box + status row is shown. Persisted.
   bool _showInput = true;
 
+  final _streamPlayer = StreamPlayerController();
+  bool _theaterChatVisible = true;
+  bool _wasTheaterMode = false;
+  static const _audioBarHeight = 56.0;
+
   final _suggestionsNotifier = ValueNotifier<List<Suggestion>>([]);
   final _selectedTabIndex = ValueNotifier<int>(0);
 
@@ -420,6 +427,8 @@ class _HomeScreenState extends State<HomeScreen>
     unawaited(_pingManager.load());
     unawaited(_ignoreManager.load());
     unawaited(_linkWhitelist.load());
+    unawaited(_streamPlayer.loadPrefs());
+    _streamPlayer.addListener(_onStreamPlayerChanged);
     _linkWhitelist.addListener(_onLinkWhitelistChanged);
     _loadNotificationSettings();
     _broadcastWidgets.loadTestWidgets();
@@ -1748,6 +1757,8 @@ class _HomeScreenState extends State<HomeScreen>
     _thirdPartyBadgeService.dispose();
     _emoteManager.removeListener(_onEmotesChanged);
     _linkWhitelist.removeListener(_onLinkWhitelistChanged);
+    _streamPlayer.removeListener(_onStreamPlayerChanged);
+    _streamPlayer.dispose();
     _emoteManager.dispose();
     widget.twitchAuth.removeListener(_onAuthChanged);
     _messageController.dispose();
@@ -1804,6 +1815,32 @@ class _HomeScreenState extends State<HomeScreen>
     setState(() => _isFullscreen = !_isFullscreen);
   }
 
+  void _toggleStreamForSelected() {
+    if (_streamPlayer.isActive) {
+      setState(() => _streamPlayer.closeStream());
+      return;
+    }
+    final channel = _selectedChannel;
+    if (channel == null) return;
+    setState(() => _streamPlayer.toggleStream(channel));
+  }
+
+  bool _isChannelLive(String channel) =>
+      (_chatStore.chatStatus[channel] ?? '').contains('Live');
+
+  void _onStreamPlayerChanged() {
+    if (!mounted) return;
+    final enteringTheater = _streamPlayer.isTheaterMode && !_wasTheaterMode;
+    _wasTheaterMode = _streamPlayer.isTheaterMode;
+    setState(() {});
+    if (!enteringTheater) return;
+    final channel = _streamPlayer.currentChannel;
+    if (channel == null) return;
+    if (_selectedChannel == channel) return;
+    if (!_chatStore.channels.contains(channel)) return;
+    _onChannelChanged(_chatStore.channels.indexOf(channel));
+  }
+
   void _toggleInputVisibility() {
     setState(() => _showInput = !_showInput);
     unawaited(
@@ -1823,6 +1860,12 @@ class _HomeScreenState extends State<HomeScreen>
     return _ChromeMenuButton(
       onToggleFullscreen: _toggleFullscreen,
       onToggleInput: _toggleInputVisibility,
+      onToggleStream: _toggleStreamForSelected,
+      showStreamToggle: () =>
+          _streamPlayer.isActive ||
+          !widget.twitchAuth.isConfigured ||
+          (_selectedChannel != null && _isChannelLive(_selectedChannel!)),
+      streamActive: () => _streamPlayer.isActive,
     );
   }
 
@@ -2134,6 +2177,7 @@ class _HomeScreenState extends State<HomeScreen>
   void _removeChannel(String channel) {
     _chatConn.stopChatStatusTimer(channel);
     _analytics.resetChannel(channel);
+    if (_streamPlayer.currentChannel == channel) _streamPlayer.closeStream();
     _irc.part(channel);
     _ircRead.part(channel);
     _emoteManager.evictChannel(channel);
@@ -2360,6 +2404,8 @@ class _HomeScreenState extends State<HomeScreen>
           channels: _chatStore.channels,
           ttsController: _ttsController,
           emoteManager: _emoteManager,
+          onStreamExtensionsChanged: _streamPlayer.setShowExtensions,
+          onRetainWebviewChanged: _streamPlayer.setRetainWebview,
           onTestWidgetsChanged: _broadcastWidgets.setTestWidgets,
         ),
       ),
@@ -3032,6 +3078,7 @@ class _HomeScreenState extends State<HomeScreen>
     return PopScope(
       canPop:
           !_isFullscreen &&
+          !_streamPlayer.isTheaterMode &&
           _activePanel == OverlayPanel.closed &&
           !_emoteSheetOpen &&
           !_focusNode.hasFocus,
@@ -3041,6 +3088,8 @@ class _HomeScreenState extends State<HomeScreen>
           unawaited(_closeEmoteSheet());
         } else if (_activePanel != OverlayPanel.closed) {
           unawaited(_closePanel());
+        } else if (_streamPlayer.isTheaterMode) {
+          _streamPlayer.exitTheaterMode();
         } else if (_isFullscreen) {
           _toggleFullscreen();
         } else {
@@ -3083,23 +3132,14 @@ class _HomeScreenState extends State<HomeScreen>
                   return Stack(
                     clipBehavior: Clip.hardEdge,
                     children: [
-                      Column(
-                        children: [
-                          AnimatedSize(
-                            // Keep the AnimatedSize mounted (never insert/remove
-                            // it) so its controller never ticks during layout.
-                            // Zero duration when the keyboard crowds makes the
-                            // collapse instant; otherwise it animates back in.
-                            duration: hideChromeForKeyboard
-                                ? const Duration(milliseconds: 1)
-                                : const Duration(milliseconds: 200),
-                            curve: Curves.easeInOut,
-                            child: !_isFullscreen && !hideChromeForKeyboard
-                                ? _buildAppBar()
-                                : const SizedBox.shrink(),
-                          ),
-                          _buildChannelTabs(hideChrome: hideChromeForKeyboard),
-                        ],
+                      ListenableBuilder(
+                        listenable: _streamPlayer,
+                        builder: (_, _) => _buildBodyColumn(
+                          hideChromeForKeyboard: hideChromeForKeyboard,
+                          maxWidth: constraints.maxWidth,
+                          maxHeight: constraints.maxHeight,
+                          keyboardH: keyboardH,
+                        ),
                       ),
                       _buildThreadPanel(),
                       _buildMentionsPanel(),
@@ -3156,6 +3196,199 @@ class _HomeScreenState extends State<HomeScreen>
   bool get _channelChatReady =>
       _selectedChannel != null &&
       _chatConn.isChannelChatReady(_selectedChannel!);
+
+  /// Stream layout selector (DankChat MainScreen): landscape theater first,
+  /// then wide split, else the stacked portrait player above chat.
+  Widget _buildBodyColumn({
+    required bool hideChromeForKeyboard,
+    required double maxWidth,
+    required double maxHeight,
+    required double keyboardH,
+  }) {
+    final channel = _streamPlayer.currentChannel;
+    final landscape =
+        MediaQuery.orientationOf(context) == Orientation.landscape;
+    if (channel != null &&
+        !_streamPlayer.isAudioOnly &&
+        _streamPlayer.isTheaterMode &&
+        landscape) {
+      return Column(children: [Expanded(child: _buildTheater(channel))]);
+    }
+    if (channel != null && !_streamPlayer.isAudioOnly && maxWidth >= 600) {
+      return Column(
+        children: [Expanded(child: _buildSplit(channel, maxWidth))],
+      );
+    }
+    final showVideo =
+        channel == null ||
+        _showStreamVideo(
+          maxWidth: maxWidth,
+          maxHeight: maxHeight,
+          keyboardH: keyboardH,
+        );
+    final showPlayerVideo =
+        showVideo && channel != null && !_streamPlayer.isAudioOnly;
+    final aboveTabsH = channel == null
+        ? 0.0
+        : showPlayerVideo
+        ? maxWidth * 9 / 16
+        : _audioBarHeight;
+    return Column(
+      children: [
+        AnimatedSize(
+          duration: hideChromeForKeyboard
+              ? const Duration(milliseconds: 1)
+              : const Duration(milliseconds: 200),
+          curve: Curves.easeInOut,
+          child: !_isFullscreen && !hideChromeForKeyboard
+              ? _buildAppBar()
+              : const SizedBox.shrink(),
+        ),
+        _buildChannelTabs(
+          hideChrome: hideChromeForKeyboard,
+          overlayTop: 50 + aboveTabsH,
+          belowTabBar: channel == null
+              ? null
+              : _buildStackedPlayer(channel, showVideo),
+        ),
+      ],
+    );
+  }
+
+  // DankChat shouldShowStream: hide video when the keyboard leaves under
+  // 9 chat lines; audio keeps playing.
+  bool _showStreamVideo({
+    required double maxWidth,
+    required double maxHeight,
+    required double keyboardH,
+  }) {
+    if (keyboardH <= 0) return true;
+    final inputH = _showInput
+        ? (_inputBarKey.currentContext?.size?.height ?? 56)
+        : 0;
+    final streamH = maxWidth * 9 / 16;
+    return maxHeight - keyboardH - streamH - inputH >= _chatFontSize * 9;
+  }
+
+  Widget _playerView(
+    String channel, {
+    bool fillPane = false,
+    bool visible = true,
+  }) {
+    final key = _streamPlayer.retainWebview ? 'stream' : 'stream:$channel';
+    return StreamPlayerView(
+      key: ValueKey(key),
+      controller: _streamPlayer,
+      channel: channel,
+      fillPane: fillPane,
+      visible: visible,
+    );
+  }
+
+  Widget _buildStackedPlayer(String channel, bool showVideo) {
+    final show = showVideo && !_streamPlayer.isAudioOnly;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Visibility(
+          visible: show,
+          maintainState: true,
+          maintainAnimation: true,
+          child: _playerView(channel, visible: show),
+        ),
+        if (!show)
+          StreamAudioBar(
+            key: ValueKey('audio:$channel'),
+            controller: _streamPlayer,
+            channel: channel,
+          ),
+      ],
+    );
+  }
+
+  // Landscape theater: full-bleed video with a translucent chat overlay.
+  // The WebView keeps full size and is never resized (DankChat TheaterLayout).
+  Widget _buildTheater(String channel) {
+    final scheme = Theme.of(context).colorScheme;
+    final panelW = (MediaQuery.sizeOf(context).width - 120).clamp(200.0, 320.0);
+    return Stack(
+      children: [
+        Positioned.fill(child: _playerView(channel, fillPane: true)),
+        if (_theaterChatVisible)
+          Positioned(
+            top: 0,
+            bottom: 0,
+            right: 0,
+            width: panelW,
+            child: ColoredBox(
+              color: scheme.surface.withValues(alpha: 0.92),
+              child: SafeArea(
+                left: false,
+                child: _buildChannelStack(hideChrome: true, overlayTop: 8),
+              ),
+            ),
+          ),
+        Positioned(
+          bottom: 16,
+          right: _theaterChatVisible ? panelW + 8 : 8,
+          child: FloatingActionButton.small(
+            heroTag: 'theater_chat_toggle',
+            tooltip: _theaterChatVisible ? 'Hide chat' : 'Show chat',
+            onPressed: () =>
+                setState(() => _theaterChatVisible = !_theaterChatVisible),
+            child: Icon(
+              _theaterChatVisible ? Icons.visibility_off : Icons.visibility,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSplit(String channel, double maxWidth) {
+    var dragFrac = _streamPlayer.splitFraction;
+    return StatefulBuilder(
+      builder: (context, setLocal) {
+        return Row(
+          children: [
+            SizedBox(
+              width: maxWidth * dragFrac,
+              child: _playerView(channel, fillPane: true),
+            ),
+            GestureDetector(
+              behavior: HitTestBehavior.translucent,
+              onHorizontalDragUpdate: (details) => setLocal(() {
+                dragFrac = (dragFrac + details.delta.dx / maxWidth).clamp(
+                  0.2,
+                  0.8,
+                );
+              }),
+              onHorizontalDragEnd: (_) =>
+                  _streamPlayer.setSplitFraction(dragFrac),
+              child: const SizedBox(
+                width: 16,
+                child: Center(
+                  child: SizedBox(
+                    width: 4,
+                    height: 48,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: Colors.grey,
+                        borderRadius: BorderRadius.all(Radius.circular(2)),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            Expanded(
+              child: _buildChannelStack(hideChrome: false, overlayTop: 50),
+            ),
+          ],
+        );
+      },
+    );
+  }
 
   Widget _buildAppBar() {
     final theme = Theme.of(context);
@@ -3257,8 +3490,8 @@ class _HomeScreenState extends State<HomeScreen>
                           break;
                       }
                     },
-                    itemBuilder: (_) => const [
-                      PopupMenuItem(
+                    itemBuilder: (_) => [
+                      const PopupMenuItem(
                         value: 'settings',
                         child: Row(
                           children: [
@@ -3268,8 +3501,8 @@ class _HomeScreenState extends State<HomeScreen>
                           ],
                         ),
                       ),
-                      PopupMenuDivider(),
-                      PopupMenuItem(
+                      const PopupMenuDivider(),
+                      const PopupMenuItem(
                         value: 'threads',
                         child: Row(
                           children: [
@@ -3279,15 +3512,15 @@ class _HomeScreenState extends State<HomeScreen>
                           ],
                         ),
                       ),
-                      PopupMenuItem(
+                      const PopupMenuItem(
                         value: 'upload',
                         child: Text('Upload media'),
                       ),
-                      PopupMenuItem(
+                      const PopupMenuItem(
                         value: 'reload_emotes',
                         child: Text('Reload emotes'),
                       ),
-                      PopupMenuItem(
+                      const PopupMenuItem(
                         value: 'reconnect',
                         child: Text('Reconnect'),
                       ),
@@ -3309,158 +3542,175 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  Widget _buildChannelTabs({required bool hideChrome}) {
-    final theme = Theme.of(context);
+  Widget _buildChannelTabs({
+    required bool hideChrome,
+    double overlayTop = 50,
+    Widget? belowTabBar,
+  }) {
     return Expanded(
-      child: Stack(
-        children: [
-          Listener(
-            behavior: HitTestBehavior.translucent,
-            onPointerDown: (_) {
-              _suggestionsNotifier.value = [];
-            },
-            child: _chatStore.channels.isNotEmpty
-                ? TabbedLayout(
-                    tabs: _chatStore.channels,
-                    selectedIndex: _chatStore.channels.indexOf(
-                      _selectedChannel ?? '',
-                    ),
-                    onSelectedIndexChanged: _onChannelChanged,
-                    onFocusChanged: _onChannelFocusChanged,
-                    onTabTapped: (index) {
-                      final channel = _chatStore.channels[index];
-                      final ctrl = _scrollCtrl(channel);
-                      if (ctrl.hasClients) ctrl.jumpTo(0);
-                      _atBottomNotifier(channel).value = true;
-                    },
-                    showTabBar: !_isFullscreen && !hideChrome,
-                    tabBarAnimationDuration: hideChrome
-                        ? const Duration(milliseconds: 1)
-                        : const Duration(milliseconds: 200),
-                    chromeMenu: _buildChromeMenu(),
-                    pageBuilder: (_, i) {
-                      final channel = _chatStore.channels[i];
-                      return ListenableBuilder(
-                        listenable: _versionNotifier(channel),
-                        builder: (_, _) => ChatView(
-                          channel: channel,
-                          messages: _chatStore.channelMessages[channel] ?? [],
-                          tileCache: _tileCache,
-                          atBottomNotifier: _atBottomNotifier(channel),
-                          messageNotifier: _messageNotifier(channel),
-                          scrollController: _scrollCtrl(channel),
-                          messageBuilder: _messageBuilder,
-                          linkWhitelist: _linkWhitelist,
-                          showTimestamp: _showTimestamps,
-                          timestampFormat: _timestampFormat,
-                          chatFontScale: _chatFontSize / 14.0,
-                          checkeredMessages: _checkeredMessages,
-                          highlightOpacity: _highlightOpacity,
-                          lineSeparator: _lineSeparator,
-                          sharedChatMode: _sharedChatMode,
-                          paintService: _showNamePaints
-                              ? _sevenTvPaintService
-                              : null,
-                          onShowUserProfile: (login, userId, {displayName}) =>
-                              _showUserProfile(
-                                login,
-                                userId,
-                                displayName: displayName,
-                              ),
-                          onShowMessageMenu: _showMessageMenu,
-                          onCopyMessage: _copyMessageToClipboard,
-                          onNewMessage: _chatStore.noteNewMessage,
-                          onFindThreadRoot: _findThreadRoot,
-                          onShowThreadView: _showThreadView,
-                          keyboardDismissBehavior: (!kIsWeb && Platform.isIOS)
-                              ? ScrollViewKeyboardDismissBehavior.onDrag
-                              : ScrollViewKeyboardDismissBehavior.manual,
-                        ),
-                      );
-                    },
-                    focusOnHalfDrag: true,
-                    fastSnap: _fastSnap,
-                    tabBuilder: (_, i) {
-                      final channel = _chatStore.channels[i];
-                      return ListenableBuilder(
-                        listenable: _tabMergeCache.putIfAbsent(
-                          i,
-                          () => Listenable.merge([
-                            _selectedTabIndex,
-                            _chatStore.unreadVersion,
-                          ]),
-                        ),
-                        builder: (ctx, _) {
-                          final focused = i == _selectedTabIndex.value;
-                          final selected =
-                              focused || channel == _selectedChannel;
-                          final hasUnreadMention = _chatStore
-                              .channelsWithUnreadMentions
-                              .contains(channel);
-                          return Stack(
-                            clipBehavior: Clip.none,
-                            children: [
-                              Text(
-                                channel,
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  fontWeight:
-                                      selected ||
-                                          _chatStore.channelsWithUnread
-                                              .contains(channel)
-                                      ? FontWeight.w600
-                                      : FontWeight.normal,
-                                  color: selected
-                                      ? theme.colorScheme.primary
-                                      : _chatStore.channelsWithUnread.contains(
+      child: _buildChannelStack(
+        hideChrome: hideChrome,
+        overlayTop: overlayTop,
+        belowTabBar: belowTabBar,
+      ),
+    );
+  }
+
+  Widget _buildChannelStack({
+    required bool hideChrome,
+    required double overlayTop,
+    Widget? belowTabBar,
+  }) {
+    final theme = Theme.of(context);
+    return Stack(
+      children: [
+        Listener(
+          behavior: HitTestBehavior.translucent,
+          onPointerDown: (_) {
+            _suggestionsNotifier.value = [];
+          },
+          child: _chatStore.channels.isNotEmpty
+              ? TabbedLayout(
+                  tabs: _chatStore.channels,
+                  selectedIndex: _chatStore.channels.indexOf(
+                    _selectedChannel ?? '',
+                  ),
+                  onSelectedIndexChanged: _onChannelChanged,
+                  onFocusChanged: _onChannelFocusChanged,
+                  onTabTapped: (index) {
+                    final channel = _chatStore.channels[index];
+                    final ctrl = _scrollCtrl(channel);
+                    if (ctrl.hasClients) ctrl.jumpTo(0);
+                    _atBottomNotifier(channel).value = true;
+                  },
+                  showTabBar: !_isFullscreen && !hideChrome,
+                  tabBarAnimationDuration: hideChrome
+                      ? const Duration(milliseconds: 1)
+                      : const Duration(milliseconds: 200),
+                  chromeMenu: _buildChromeMenu(),
+                  belowTabBar: belowTabBar,
+                  pageBuilder: (_, i) {
+                    final channel = _chatStore.channels[i];
+                    return ListenableBuilder(
+                      listenable: _versionNotifier(channel),
+                      builder: (_, _) => ChatView(
+                        channel: channel,
+                        messages: _chatStore.channelMessages[channel] ?? [],
+                        tileCache: _tileCache,
+                        atBottomNotifier: _atBottomNotifier(channel),
+                        messageNotifier: _messageNotifier(channel),
+                        scrollController: _scrollCtrl(channel),
+                        messageBuilder: _messageBuilder,
+                        linkWhitelist: _linkWhitelist,
+                        showTimestamp: _showTimestamps,
+                        timestampFormat: _timestampFormat,
+                        chatFontScale: _chatFontSize / 14.0,
+                        checkeredMessages: _checkeredMessages,
+                        highlightOpacity: _highlightOpacity,
+                        lineSeparator: _lineSeparator,
+                        sharedChatMode: _sharedChatMode,
+                        paintService: _showNamePaints
+                            ? _sevenTvPaintService
+                            : null,
+                        onShowUserProfile: (login, userId, {displayName}) =>
+                            _showUserProfile(
+                              login,
+                              userId,
+                              displayName: displayName,
+                            ),
+                        onShowMessageMenu: _showMessageMenu,
+                        onCopyMessage: _copyMessageToClipboard,
+                        onNewMessage: _chatStore.noteNewMessage,
+                        onFindThreadRoot: _findThreadRoot,
+                        onShowThreadView: _showThreadView,
+                        keyboardDismissBehavior: (!kIsWeb && Platform.isIOS)
+                            ? ScrollViewKeyboardDismissBehavior.onDrag
+                            : ScrollViewKeyboardDismissBehavior.manual,
+                      ),
+                    );
+                  },
+                  focusOnHalfDrag: true,
+                  fastSnap: _fastSnap,
+                  tabBuilder: (_, i) {
+                    final channel = _chatStore.channels[i];
+                    return ListenableBuilder(
+                      listenable: _tabMergeCache.putIfAbsent(
+                        i,
+                        () => Listenable.merge([
+                          _selectedTabIndex,
+                          _chatStore.unreadVersion,
+                        ]),
+                      ),
+                      builder: (ctx, _) {
+                        final focused = i == _selectedTabIndex.value;
+                        final selected = focused || channel == _selectedChannel;
+                        final hasUnreadMention = _chatStore
+                            .channelsWithUnreadMentions
+                            .contains(channel);
+                        return Stack(
+                          clipBehavior: Clip.none,
+                          children: [
+                            Text(
+                              channel,
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight:
+                                    selected ||
+                                        _chatStore.channelsWithUnread.contains(
                                           channel,
                                         )
-                                      ? theme.colorScheme.onSurface
-                                      : null,
-                                ),
+                                    ? FontWeight.w600
+                                    : FontWeight.normal,
+                                color: selected
+                                    ? theme.colorScheme.primary
+                                    : _chatStore.channelsWithUnread.contains(
+                                        channel,
+                                      )
+                                    ? theme.colorScheme.onSurface
+                                    : null,
                               ),
-                              if (hasUnreadMention && !selected)
-                                Positioned(
-                                  top: -2,
-                                  right: -4,
-                                  child: Container(
-                                    key: const Key('unread_mention_dot'),
-                                    width: 6,
-                                    height: 6,
-                                    decoration: BoxDecoration(
-                                      color: theme.colorScheme.error,
-                                      shape: BoxShape.circle,
-                                    ),
+                            ),
+                            if (hasUnreadMention && !selected)
+                              Positioned(
+                                top: -2,
+                                right: -4,
+                                child: Container(
+                                  key: const Key('unread_mention_dot'),
+                                  width: 6,
+                                  height: 6,
+                                  decoration: BoxDecoration(
+                                    color: theme.colorScheme.error,
+                                    shape: BoxShape.circle,
                                   ),
                                 ),
-                            ],
-                          );
-                        },
-                      );
-                    },
-                  )
-                : _buildWelcomeChatView(),
-          ),
-          if (_selectedChannel != null)
-            Positioned(
-              top: 50,
-              left: 0,
-              right: 0,
-              child: ValueListenableBuilder<int>(
-                valueListenable: _broadcastWidgets.notifier,
-                builder: (_, _, _) =>
-                    _broadcastWidgets.buildOverlay(
-                      _selectedChannel!,
-                      onMinimizeChanged: (ch, minimized) {
-                        _broadcastWidgets.widgetsMinimized[ch] = minimized;
-                        _broadcastWidgets.notifier.value++;
+                              ),
+                          ],
+                        );
                       },
-                    ) ??
-                    const SizedBox.shrink(),
-              ),
+                    );
+                  },
+                )
+              : _buildWelcomeChatView(),
+        ),
+        if (_selectedChannel != null)
+          Positioned(
+            top: overlayTop,
+            left: 0,
+            right: 0,
+            child: ValueListenableBuilder<int>(
+              valueListenable: _broadcastWidgets.notifier,
+              builder: (_, _, _) =>
+                  _broadcastWidgets.buildOverlay(
+                    _selectedChannel!,
+                    onMinimizeChanged: (ch, minimized) {
+                      _broadcastWidgets.widgetsMinimized[ch] = minimized;
+                      _broadcastWidgets.notifier.value++;
+                    },
+                  ) ??
+                  const SizedBox.shrink(),
             ),
-        ],
-      ),
+          ),
+      ],
     );
   }
 
@@ -4716,10 +4966,16 @@ class _PanelManager {
 class _ChromeMenuButton extends StatefulWidget {
   final VoidCallback onToggleFullscreen;
   final VoidCallback onToggleInput;
+  final VoidCallback? onToggleStream;
+  final bool Function()? showStreamToggle;
+  final bool Function()? streamActive;
 
   const _ChromeMenuButton({
     required this.onToggleFullscreen,
     required this.onToggleInput,
+    this.onToggleStream,
+    this.showStreamToggle,
+    this.streamActive,
   });
 
   @override
@@ -4748,12 +5004,27 @@ class _ChromeMenuButtonState extends State<_ChromeMenuButton> {
           case 'input':
             widget.onToggleInput();
             break;
+          case 'stream':
+            widget.onToggleStream?.call();
+            break;
         }
       },
-      itemBuilder: (_) => const [
-        PopupMenuItem(value: 'fullscreen', child: Text('Toggle fullscreen')),
-        PopupMenuItem(value: 'input', child: Text('Toggle input')),
-      ],
+      itemBuilder: (_) {
+        final showStream = widget.showStreamToggle?.call() ?? false;
+        final active = widget.streamActive?.call() ?? false;
+        return [
+          const PopupMenuItem(
+            value: 'fullscreen',
+            child: Text('Toggle fullscreen'),
+          ),
+          const PopupMenuItem(value: 'input', child: Text('Toggle input')),
+          if (showStream)
+            PopupMenuItem(
+              value: 'stream',
+              child: Text(active ? 'Hide stream' : 'Show stream'),
+            ),
+        ];
+      },
       child: Container(
         decoration: BoxDecoration(
           color: theme.colorScheme.surfaceContainerHighest,

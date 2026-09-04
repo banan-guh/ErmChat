@@ -104,6 +104,9 @@ class TabbedLayout extends StatefulWidget {
   /// Overlay anchored top-right below tab strip (hidden-chrome menu).
   final Widget? chromeMenu;
 
+  /// Slot between the tab strip and the pages (stream player dock).
+  final Widget? belowTabBar;
+
   static const double minEdgeExclusion = 20.0;
 
   const TabbedLayout({
@@ -121,6 +124,7 @@ class TabbedLayout extends StatefulWidget {
     this.fastSnap = true,
     this.showTabBar = true,
     this.chromeMenu,
+    this.belowTabBar,
     this.tabBarAnimationDuration = const Duration(milliseconds: 200),
   });
 
@@ -401,6 +405,7 @@ class TabbedLayoutState extends State<TabbedLayout>
                 )
               : const SizedBox.shrink(),
         ),
+        if (widget.belowTabBar != null) widget.belowTabBar!,
         Expanded(
           child: Stack(
             children: [

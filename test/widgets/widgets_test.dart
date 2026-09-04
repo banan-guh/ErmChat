@@ -488,6 +488,37 @@ void main() {
     },
   );
 
+  testWidgets('chrome menu offers Show stream without live status', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      TwitchChatApp(
+        key: UniqueKey(),
+        eventSubService: _FakeEventSubService(),
+        ircService: _FakeIrcService(),
+        ircReadService: _FakeIrcReadService(),
+        recentMessagesService: _FakeRecentMessagesService(),
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.byIcon(Icons.add));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).last, 'xqc');
+    await tester.tap(find.text('Join', skipOffstage: false));
+    await tester.pumpAndSettle();
+
+    // WebView has no platform view in tests, so open the menu but never
+    // tap the item itself.
+    expect(find.byIcon(Icons.expand_more), findsOneWidget);
+    await tester.tap(find.byIcon(Icons.expand_more));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Toggle fullscreen'), findsOneWidget);
+    expect(find.text('Toggle input'), findsOneWidget);
+    expect(find.text('Show stream'), findsOneWidget);
+  });
+
   group('ChatMessageTile deleted rows', () {
     TwitchMessage deletedMsg() => TwitchMessage(
       login: 'alice',
