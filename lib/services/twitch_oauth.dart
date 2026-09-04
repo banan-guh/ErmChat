@@ -99,7 +99,11 @@ class TwitchOAuth {
         'channel:read:hype_train+channel:read:polls+channel:read:predictions+'
         'channel:manage:polls+channel:manage:predictions+'
         // EventSub channel.moderate v2 requires these:
-        'moderator:read:blocked_terms+moderator:read:unban_requests'
+        'moderator:read:blocked_terms+moderator:read:unban_requests+'
+        // AutoMod queue (hold/update subs + allow/deny) needs manage;
+        // read:automod_settings rides along so the later settings editor
+        // does not force a second re-auth.
+        'moderator:manage:automod+moderator:read:automod_settings'
         '&state=$state'
         '&force_verify=true';
     return (url: url, state: state);

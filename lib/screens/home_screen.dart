@@ -22,6 +22,7 @@ import '../services/connectivity_service.dart';
 import '../services/recent_messages.dart';
 import '../services/seven_tv_event_client.dart';
 import '../services/command_handler.dart';
+import '../services/mod_actions.dart';
 import '../services/chat_connection_manager.dart';
 import '../services/ping_manager.dart';
 import '../services/ignore_manager.dart';
@@ -58,13 +59,14 @@ import '../widgets/media_upload_controller.dart';
 import '../widgets/emote_menu_panel.dart';
 import '../widgets/chat_view.dart';
 import '../widgets/message_builder.dart';
+import '../widgets/mod_view.dart';
 import '../widgets/stream_player_view.dart';
 import '../widgets/predictive_back_handler.dart';
 import '../widgets/chat_widget_cutout.dart';
 import '../widgets/join_channel_dialog.dart';
 import '../services/foreground_task.dart';
 
-enum OverlayPanel { closed, thread, mentions }
+enum OverlayPanel { closed, thread, mentions, modView }
 
 // Speed above which release direction overrides distance when choosing the
 // user-card target. Mirrors the framework's dismiss-fling scale.
@@ -273,9 +275,15 @@ class _HomeScreenState extends State<HomeScreen>
     onShowEmoteSheet: _showEmoteSheet,
     linkWhitelist: LinkWhitelist.instance,
   );
+  late final _modActions = ModActions(
+    twitchApi: _twitchApi,
+    getChannelUserIds: () => _chatStore.channelUserIds,
+    getCurrentUserId: () => _chatStore.session.userId,
+  );
   late final _commandHandler = CommandHandler(
     twitchApi: _twitchApi,
     irc: _irc,
+    modActions: _modActions,
     getChannelUserIds: () => _chatStore.channelUserIds,
     getCurrentUserId: () => _chatStore.session.userId,
     getCurrentUserLogin: () => _chatStore.session.login,
@@ -414,9 +422,14 @@ class _HomeScreenState extends State<HomeScreen>
   ValueNotifier<double> get _threadSheetRatio => _panelManager.threadSheetRatio;
   ValueNotifier<double> get _mentionsSheetRatio =>
       _panelManager.mentionsSheetRatio;
+  ValueNotifier<double> get _modSheetRatio => _panelManager.modSheetRatio;
 
   late final TabController _mentionsTabCtrl;
   late final TabController _threadsTabCtrl;
+  late final TabController _modTabCtrl;
+  // Ticks the Mod View Modes tab on ROOMSTATE echoes (the queue listens to
+  // the kernel's heldVersion itself).
+  final _modPanelVersion = ValueNotifier(0);
   final _threadPanelScrollCtrl = FlutterListViewController();
   final _mentionsPanelScrollCtrl = FlutterListViewController();
 
@@ -464,6 +477,7 @@ class _HomeScreenState extends State<HomeScreen>
     _mentionsTabCtrl.addListener(_onMentionsTabChanged);
     _threadsTabCtrl = TabController(length: 3, vsync: this);
     _threadsTabCtrl.addListener(_onThreadsTabChanged);
+    _modTabCtrl = TabController(length: 3, vsync: this);
     _panelManager.emoteSheetCtrl.addListener(_panelManager.onSheetSizeChanged);
     _loadMaxMessages();
     unawaited(_loadSavedThreads());
@@ -1385,6 +1399,12 @@ class _HomeScreenState extends State<HomeScreen>
     } else if (_activePanel == OverlayPanel.mentions) {
       _mentionsMsgCount.value++;
       _whispersMsgCount.value++;
+    } else if (_activePanel == OverlayPanel.modView) {
+      // Modes are per selected channel; background channels need no work.
+      if (changedChannel != null && changedChannel != _selectedChannel) {
+        return;
+      }
+      _modPanelVersion.value++;
     }
   }
 
@@ -1397,6 +1417,8 @@ class _HomeScreenState extends State<HomeScreen>
       // re-resolves the active account and reconnects with its credentials.
       _chatStore.session.login = null;
       _chatStore.session.userId = null;
+      // The queue belongs to the previous account's moderation scope.
+      _chatStore.clearAllHeldMessages();
       _pingManager.setAccount(null);
       // The emote-set / block / mention caches are per-account: reset them so
       // the new account's USERSTATE re-fetches its sub emotes (instead of the
@@ -1816,6 +1838,8 @@ class _HomeScreenState extends State<HomeScreen>
     _mentionsTabCtrl.dispose();
     _threadsTabCtrl.removeListener(_onThreadsTabChanged);
     _threadsTabCtrl.dispose();
+    _modTabCtrl.dispose();
+    _modPanelVersion.dispose();
     _threadPanelScrollCtrl.dispose();
     _mentionsPanelScrollCtrl.dispose();
     _whispersPanelScrollCtrl.dispose();
@@ -2036,6 +2060,42 @@ class _HomeScreenState extends State<HomeScreen>
                   Navigator.pop(ctx);
                 },
               ),
+              if (_canModerateMessage(msg)) ...[
+                ListTile(
+                  leading: const Icon(Icons.timer_outlined),
+                  title: const Text('Timeout'),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    unawaited(_modTimeoutMessage(msg));
+                  },
+                ),
+                if (msg.messageId != null)
+                  ListTile(
+                    leading: const Icon(Icons.delete_outline),
+                    title: const Text('Delete'),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      unawaited(_modDeleteMessage(msg));
+                    },
+                  ),
+                ListTile(
+                  leading: const Icon(Icons.warning_amber_outlined),
+                  title: const Text('Warn'),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    unawaited(_modWarnMessage(msg));
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.gavel_outlined),
+                  title: const Text('Ban'),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    unawaited(_modBanMessage(msg));
+                  },
+                ),
+                const Divider(height: 1),
+              ],
               ListTile(
                 leading: const Icon(Icons.more_horiz),
                 title: const Text('More...'),
@@ -2119,6 +2179,88 @@ class _HomeScreenState extends State<HomeScreen>
         ),
       ),
     );
+  }
+
+  bool _canModerateMessage(TwitchMessage msg) {
+    final channel = msg.channel;
+    // No mod actions on yourself; Twitch rejects them all.
+    final selfLogin = _chatStore.session.login?.toLowerCase();
+    return !msg.isSystem &&
+        channel != null &&
+        _chatConn.isModerationActive(channel) &&
+        (selfLogin == null || msg.login.toLowerCase() != selfLogin);
+  }
+
+  Future<void> _modTimeoutMessage(TwitchMessage msg) async {
+    final channel = msg.channel;
+    if (channel == null) return;
+    final picked = await showTimeoutDialog(context, msg.login);
+    if (picked == null || !mounted) return;
+    final timeoutResult = await _modActions.timeoutUser(
+      widget.twitchAuth,
+      channel,
+      login: msg.login,
+      userId: msg.userId,
+      duration: picked.seconds,
+      reason: picked.reason,
+    );
+    if (!mounted) return;
+    showModError(context, timeoutResult);
+  }
+
+  Future<void> _modDeleteMessage(TwitchMessage msg) async {
+    final channel = msg.channel;
+    final messageId = msg.messageId;
+    if (channel == null || messageId == null) return;
+    final deleteResult = await _modActions.deleteMessage(
+      widget.twitchAuth,
+      channel,
+      messageId,
+    );
+    if (!mounted) return;
+    showModError(context, deleteResult);
+  }
+
+  Future<void> _modWarnMessage(TwitchMessage msg) async {
+    final channel = msg.channel;
+    if (channel == null) return;
+    final reason = await showModTextDialog(
+      context,
+      title: 'Warn ${msg.login}?',
+      label: 'Reason (optional)',
+      confirmLabel: 'Warn',
+    );
+    if (reason == null || !mounted) return;
+    final warnResult = await _modActions.warnUser(
+      widget.twitchAuth,
+      channel,
+      login: msg.login,
+      userId: msg.userId,
+      reason: reason.isEmpty ? null : reason,
+    );
+    if (!mounted) return;
+    showModError(context, warnResult);
+  }
+
+  Future<void> _modBanMessage(TwitchMessage msg) async {
+    final channel = msg.channel;
+    if (channel == null) return;
+    final reason = await showModTextDialog(
+      context,
+      title: 'Ban ${msg.login}?',
+      label: 'Reason (optional)',
+      confirmLabel: 'Ban',
+    );
+    if (reason == null || !mounted) return;
+    final banResult = await _modActions.banUser(
+      widget.twitchAuth,
+      channel,
+      login: msg.login,
+      userId: msg.userId,
+      reason: reason.isEmpty ? null : reason,
+    );
+    if (!mounted) return;
+    showModError(context, banResult);
   }
 
   void _maybeAddConnected(String channel) {
@@ -2224,6 +2366,7 @@ class _HomeScreenState extends State<HomeScreen>
 
   void _removeChannel(String channel) {
     _chatConn.stopChatStatusTimer(channel);
+    _chatConn.forgetChannel(channel);
     _analytics.resetChannel(channel);
     if (_streamPlayer.currentChannel == channel) _streamPlayer.closeStream();
     _irc.part(channel);
@@ -2232,6 +2375,9 @@ class _HomeScreenState extends State<HomeScreen>
     _badgeService.clearChannel(channel);
     _chatStore.channelsEmotesResolved.remove(channel);
     _chatStore.historyLoaded.remove(channel);
+    // Sync, unlike forgetChannel below: the global heldVersion has no
+    // per-channel listeners to protect, so the queue dies with the channel.
+    _chatStore.clearHeldMessages(channel);
     _chatStore.channelUserIds.remove(channel);
     _chatStore.lastSentWireText.remove(channel);
     _chatStore.chatStatus.remove(channel);
@@ -2765,6 +2911,26 @@ class _HomeScreenState extends State<HomeScreen>
     });
   }
 
+  Future<void> _showModView() async {
+    await _panelManager.closePanel();
+    if (!mounted) return;
+    _focusNode.unfocus();
+    setState(() {
+      _activePanel = OverlayPanel.modView;
+      _openThreadRoot = null;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _panelManager.animateRatio(
+          _panelManager.modSheetRatio,
+          0.0,
+          _PanelManager.fullHeightFraction,
+          _PanelManager.sheetAnimDuration,
+        );
+      }
+    });
+  }
+
   void _showEmoteMenu() {
     _panelManager.showEmoteMenu(
       selectedChannel: _selectedChannel,
@@ -2875,7 +3041,15 @@ class _HomeScreenState extends State<HomeScreen>
     // Compact card: history reveals by scrolling. Settle releases only when the
     // gesture moved the sheet, so scrolling the message list cannot collapse
     // it. Dismiss through the route for one continuous exit motion.
-    const initialChildSize = 0.42;
+    // Mod rows add four tiles, so the card opens taller to reach the same
+    // history cutoff. Height follows the rows actually shown (no mod rows
+    // on yourself), not just mod status.
+    final canModerate =
+        channel != null && _chatConn.isModerationActive(channel);
+    final isSelf =
+        _chatStore.session.login != null &&
+        username.toLowerCase() == _chatStore.session.login!.toLowerCase();
+    final initialChildSize = canModerate && !isSelf ? 0.65 : 0.4;
     const minExtent = 0.25;
     showModalBottomSheet(
       context: context,
@@ -2930,6 +3104,10 @@ class _HomeScreenState extends State<HomeScreen>
               userId: userId,
               twitchApi: _twitchApi,
               twitchAuth: widget.twitchAuth,
+              modActions: _modActions,
+              channel: channel,
+              canModerate: canModerate,
+              isSelf: isSelf,
               messageController: _messageController,
               focusNode: _focusNode,
               onClose: () => Navigator.pop(ctx),
@@ -3292,6 +3470,7 @@ class _HomeScreenState extends State<HomeScreen>
                       ),
                       _buildThreadPanel(),
                       _buildMentionsPanel(),
+                      _buildModViewPanel(),
                       _buildEmotePicker(sheetBoxHeight: sheetBoxHeight),
                       // Autocomplete dropdown - floats above chat, anchored just
                       // above the message input, 60% width like DankChat's popup.
@@ -3622,6 +3801,9 @@ class _HomeScreenState extends State<HomeScreen>
                     ),
                     onSelected: (value) {
                       switch (value) {
+                        case 'modview':
+                          _showModView();
+                          break;
                         case 'threads':
                           _showThreadsDashboard(tab: 1);
                           break;
@@ -3651,6 +3833,17 @@ class _HomeScreenState extends State<HomeScreen>
                         ),
                       ),
                       const PopupMenuDivider(),
+                      if (_selectedChannel != null)
+                        const PopupMenuItem(
+                          value: 'modview',
+                          child: Row(
+                            children: [
+                              Icon(Icons.shield_outlined, size: 20),
+                              SizedBox(width: 12),
+                              Text('Mod view'),
+                            ],
+                          ),
+                        ),
                       const PopupMenuItem(
                         value: 'threads',
                         child: Row(
@@ -4148,6 +4341,67 @@ class _HomeScreenState extends State<HomeScreen>
             emptyText: 'No whispers',
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildModViewPanel() {
+    final channel = _selectedChannel ?? '';
+    return _buildOverlaySheet(
+      offstage: _activePanel != OverlayPanel.modView,
+      ratio: _modSheetRatio,
+      header: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: Row(
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.arrow_back),
+                  tooltip: 'Back',
+                  onPressed: _closePanel,
+                ),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    channel.isEmpty ? 'Mod view' : 'Mod view · #$channel',
+                    style: TextStyle(
+                      fontSize: 20,
+                      color: Theme.of(context).colorScheme.onSurface,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          TabBar(
+            controller: _modTabCtrl,
+            padding: const EdgeInsets.fromLTRB(100.0, 0.0, 100.0, 0.0),
+            // Three tabs like the threads panel: center the strip and let
+            // it scroll instead of clipping labels on narrow phones.
+            isScrollable: true,
+            tabAlignment: TabAlignment.center,
+            tabs: const [
+              Tab(text: 'Queue'),
+              Tab(text: 'Modes'),
+              Tab(text: 'Mods'),
+            ],
+          ),
+          Divider(height: 1, color: Theme.of(context).dividerColor),
+        ],
+      ),
+      body: ModViewPanel(
+        channel: channel,
+        store: _chatStore,
+        modActions: _modActions,
+        auth: widget.twitchAuth,
+        tabController: _modTabCtrl,
+        refresh: _modPanelVersion,
+        isModerationActive: (c) =>
+            c.isNotEmpty && _chatConn.isModerationActive(c),
+        isAutomodActive: (c) => c.isNotEmpty && _chatConn.isAutomodActive(c),
+        getRoomModes: (c) => c.isEmpty ? const {} : _chatConn.roomStateTags(c),
       ),
     );
   }
@@ -4655,6 +4909,7 @@ class _PanelManager {
 
   final threadSheetRatio = ValueNotifier(0.0);
   final mentionsSheetRatio = ValueNotifier(0.0);
+  final modSheetRatio = ValueNotifier(0.0);
   late final AnimationController panelScaleCtrl = AnimationController(
     vsync: vsync,
     duration: const Duration(milliseconds: 200),
@@ -4680,6 +4935,7 @@ class _PanelManager {
     emoteSheetCtrl.dispose();
     threadSheetRatio.dispose();
     mentionsSheetRatio.dispose();
+    modSheetRatio.dispose();
   }
 
   void onSheetSizeChanged() {
@@ -4716,6 +4972,13 @@ class _PanelManager {
       await animateRatio(
         mentionsSheetRatio,
         mentionsSheetRatio.value,
+        0.0,
+        sheetCloseDuration,
+      );
+    } else if (panelToClose == OverlayPanel.modView) {
+      await animateRatio(
+        modSheetRatio,
+        modSheetRatio.value,
         0.0,
         sheetCloseDuration,
       );

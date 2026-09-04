@@ -325,6 +325,7 @@ class ChatConnectionManager {
   StreamSubscription<UserNoticeEvent>? userNoticeSub;
   StreamSubscription<(String?, List<String>)>? emoteSetsSub;
   StreamSubscription<ModerationEvent>? moderationSub;
+  StreamSubscription<AutomodHeldEvent>? automodHeldSub;
   StreamSubscription<HypeTrainEvent>? hypeTrainSub;
   StreamSubscription<PollEvent>? pollSub;
   StreamSubscription<PredictionEvent>? predictionSub;
@@ -397,6 +398,7 @@ class ChatConnectionManager {
     ircJoinFailedSub?.cancel();
     emoteSetsSub?.cancel();
     moderationSub?.cancel();
+    automodHeldSub?.cancel();
     hypeTrainSub?.cancel();
     pollSub?.cancel();
     predictionSub?.cancel();
@@ -407,6 +409,7 @@ class ChatConnectionManager {
     ircReadRoomStateSub?.cancel();
     ircWriteRoomStateSub?.cancel();
     ircAuthFailedSub?.cancel();
+    userNoticeSub?.cancel();
     ircReadAuthFailedSub?.cancel();
     ircWriteNoticeSub?.cancel();
     whisperSub?.cancel();
@@ -418,6 +421,10 @@ class ChatConnectionManager {
     _channelSetup.stopChatStatusTimer(channel);
     ircRead.selfBadges.remove(channel);
   }
+
+  /// Drops per-channel subscription state (channel left); the next join
+  /// re-subscribes from scratch.
+  void forgetChannel(String channel) => _channelSetup.forgetChannel(channel);
 
   void maybeAddConnected(String channel) {
     if (irc.isConnected &&
@@ -460,6 +467,18 @@ class ChatConnectionManager {
   /// Seconds of the channel's current slow mode from the merged ROOMSTATE
   /// tags; 0 when off (missing/empty/0 all mean off).
   int slowModeSeconds(String channel) => _channelSetup.slowModeSeconds(channel);
+
+  /// Whether event-driven moderation (and its Mod View rows) is up.
+  bool isModerationActive(String channel) =>
+      _channelSetup.isModerationActive(channel);
+
+  /// Whether the AutoMod queue subscriptions are up.
+  bool isAutomodActive(String channel) =>
+      _channelSetup.isAutomodActive(channel);
+
+  /// Merged ROOMSTATE tags for the mode toggles.
+  Map<String, String> roomStateTags(String channel) =>
+      _channelSetup.roomStateTags(channel);
 
   /// Seconds left on your timeout in [channel], null when none is active.
   /// Ceil-rounded over the padded window, so the display starts one second
@@ -789,7 +808,12 @@ class ChatConnectionManager {
       statusSub?.cancel();
       statusSub = eventSub.onStatus.listen((status) {
         if (isDisposed) return;
-        if (status == EventSubStatus.disconnected) {
+        if (status == EventSubStatus.disconnected ||
+            status == EventSubStatus.connecting) {
+          // Connecting clears too: session_reconnect/keepalive paths replace
+          // the session inside connect() without emitting disconnected, so
+          // without this the stale active sets would skip every resubscribe
+          // on the new session (subs are session-scoped and die with it).
           _channelSetup.clearSessionState();
         } else if (status == EventSubStatus.connected) {
           _channelSetup.resubscribeEventSubChannels(channels);
@@ -971,6 +995,15 @@ class ChatConnectionManager {
         // resubscribes every channel instead of skipping "already
         // subscribed" ones.
         _channelSetup.clearSessionState();
+        // Skip sets reset here too when the identity already differs: the
+        // post-lookup reset below runs after awaits, and a fast handshake
+        // would otherwise resubscribe against the old account's rejections.
+        // Best-effort (login may resolve below); the later reset re-checks.
+        final preUsername = (session.login ?? auth.login)?.toLowerCase();
+        if (_lastIrcUsername != preUsername ||
+            _lastIrcToken != (auth.accessToken ?? 'anonymous')) {
+          _channelSetup.resetAccountScope();
+        }
         eventSubFuture = eventSub.connect();
       } else {
         // Leaving authenticated mode: any live EventSub session belongs to
@@ -1035,6 +1068,8 @@ class ChatConnectionManager {
         _lastSubscribeAll = null;
         ircRead.clearSelfBadges();
         _selfTimeoutUntil.clear();
+        // The queue belongs to the old account's moderation scope.
+        store.clearAllHeldMessages();
         _lastOwnMessageAt.clear();
         store.lastSentWireText.clear();
         // Make the new socket take the full connect edge (history backfill,
@@ -1115,6 +1150,10 @@ class ChatConnectionManager {
     twitchAuth.markActiveExpired();
     store.applyLogin(null);
     session.userId = null;
+    // Logged-out identity keeps no queue, and the dead token's subs will
+    // not resolve it; IRC fallback resumes moderation echoes.
+    store.clearAllHeldMessages();
+    _channelSetup.clearSessionState();
     for (final channel in channels) {
       onSystemMessage(
         channel,
@@ -1321,6 +1360,8 @@ class ChatConnectionManager {
 
     moderationSub ??= eventSub.onModeration.listen(_onModerationEvent);
 
+    automodHeldSub ??= eventSub.onAutomodHeld.listen(_onAutomodHeld);
+
     hypeTrainSub ??= eventSub.onHypeTrain.listen((event) {
       if (isDisposed) return;
       if (!_channelSetup.isWidgetActive(event.channel)) return;
@@ -1437,6 +1478,27 @@ class ChatConnectionManager {
         onSystemMessage(event.channel, '$mod warned $target$reason.');
         break;
     }
+  }
+
+  // automod.message.hold/update v2 events: hold queues, any resolution
+  // (approved/denied/expired, here or by another mod) dequeues. Resolves
+  // apply ungated: the idempotent drop is always safe to honor.
+  void _onAutomodHeld(AutomodHeldEvent event) {
+    if (isDisposed) return;
+    if (event.status != 'held') {
+      store.resolveHeldMessage(event.channel, event.messageId);
+      return;
+    }
+    if (!_channelSetup.isAutomodActive(event.channel)) return;
+    store.addHeldMessage(
+      HeldMessage(
+        messageId: event.messageId,
+        channel: event.channel,
+        userLogin: event.userLogin,
+        text: event.text,
+        category: event.category,
+      ),
+    );
   }
 
   // Chat-content routing lives in [ChatIngestion]; kept as delegators so

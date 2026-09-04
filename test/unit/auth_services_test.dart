@@ -855,25 +855,25 @@ void main() {
       (
         'timeout with explicit duration and reason',
         '/timeout foo 30 being rude',
-        '30',
+        30,
         'being rude',
       ),
       (
         'timeout defaults to 600s when duration omitted',
         '/timeout foo',
-        '600',
+        600,
         null,
       ),
       (
         'timeout accepts DankChat-style unit durations',
         '/timeout foo 2m30s',
-        '150',
+        150,
         null,
       ),
       (
         'timeout treats non-numeric second arg as reason',
         '/timeout foo stop it',
-        '600',
+        600,
         'stop it',
       ),
     ]) {
@@ -1284,6 +1284,9 @@ void main() {
         MockClient((req) async {
           requests.add(req);
           if (req.url.path == '/helix/users') return userFound();
+          if (req.url.path == '/helix/chat/shoutouts') {
+            return http.Response('', 204);
+          }
           return http.Response('', 200);
         }),
       );
@@ -1294,10 +1297,11 @@ void main() {
       final req = requests.firstWhere(
         (r) => r.url.path == '/helix/chat/shoutouts',
       );
-      final body = jsonDecode(req.body) as Map;
-      expect(body['from_broadcaster_id'], '111');
-      expect(body['to_broadcaster_id'], '999');
-      expect(body['moderator_id'], '222');
+      expect(req.method, 'POST');
+      expect(req.body, isEmpty, reason: 'query-only call');
+      expect(req.url.queryParameters['from_broadcaster_id'], '111');
+      expect(req.url.queryParameters['to_broadcaster_id'], '999');
+      expect(req.url.queryParameters['moderator_id'], '222');
     });
 
     test('/color success confirms the change', () async {

@@ -52,6 +52,23 @@ class ThreadEntry {
       replies.any((r) => r.messageId == messageId);
 }
 
+/// One AutoMod-held message awaiting a moderation decision.
+class HeldMessage {
+  final String messageId;
+  final String channel;
+  final String userLogin;
+  final String text;
+  final String category;
+
+  const HeldMessage({
+    required this.messageId,
+    required this.channel,
+    required this.userLogin,
+    required this.text,
+    required this.category,
+  });
+}
+
 /// Read-only summary of one tracked thread for the threads dashboard. The
 /// dashboard is per-channel and sorted by [lastActivity] (newest first).
 class ThreadSummary {
@@ -137,6 +154,55 @@ class ChatStore {
         (c) => channelLoadFailures[c]!.isNotEmpty,
       ),
     };
+  }
+
+  // ---- AutoMod queue -------------------------------------------------------
+
+  /// Held messages per channel, newest first. The queue UI reads these live;
+  /// [heldVersion] ticks on every mutation.
+  final Map<String, List<HeldMessage>> heldMessages = {};
+
+  /// Bumped on any queue mutation so the Mod View rebuilds.
+  final ValueNotifier<int> heldVersion = ValueNotifier(0);
+
+  /// Per-channel queue bound; beyond it the oldest undecided holds drop.
+  static const maxHeldPerChannel = 200;
+
+  /// Queues a held message; duplicate deliveries (EventSub resends the same
+  /// message_id) are ignored.
+  void addHeldMessage(HeldMessage held) {
+    final list = heldMessages.putIfAbsent(held.channel, () => []);
+    if (list.any((m) => m.messageId == held.messageId)) return;
+    list.insert(0, held);
+    if (list.length > maxHeldPerChannel) {
+      list.removeRange(maxHeldPerChannel, list.length);
+    }
+    heldVersion.value++;
+  }
+
+  /// Drops a queue entry (allowed, denied, or expired elsewhere). Returns
+  /// false when the entry was already gone.
+  bool resolveHeldMessage(String channel, String messageId) {
+    final list = heldMessages[channel];
+    if (list == null) return false;
+    final before = list.length;
+    list.removeWhere((m) => m.messageId == messageId);
+    if (list.length == before) return false;
+    if (list.isEmpty) heldMessages.remove(channel);
+    heldVersion.value++;
+    return true;
+  }
+
+  /// Drops a channel's whole queue (channel left).
+  void clearHeldMessages(String channel) {
+    if (heldMessages.remove(channel) != null) heldVersion.value++;
+  }
+
+  /// Drops every queue (account switch); one bump for the batch.
+  void clearAllHeldMessages() {
+    if (heldMessages.isEmpty) return;
+    heldMessages.clear();
+    heldVersion.value++;
   }
 
   /// Channels with unseen messages (drives tab unread markers).
@@ -254,6 +320,7 @@ class ChatStore {
     _channelThreads.remove(channel);
     messageKeys.removeWhere((k) => k.startsWith('$channel:'));
     savedThreadKeys.removeWhere((k) => k.startsWith('$channel:'));
+    clearHeldMessages(channel);
   }
 
   void dispose() {
@@ -264,6 +331,9 @@ class ChatStore {
       n.dispose();
     }
     mentionsBump.dispose();
+    unreadVersion.dispose();
+    loadFailedChannels.dispose();
+    heldVersion.dispose();
     _events.close();
     _notices.close();
   }

@@ -339,8 +339,8 @@ class TwitchApi {
     final uri = Uri.parse(
       '$_base/moderation/bans?broadcaster_id=$broadcasterId&moderator_id=$moderatorId',
     );
-    final data = <String, String>{'user_id': userId};
-    if (duration != null) data['duration'] = duration.toString();
+    final data = <String, dynamic>{'user_id': userId};
+    if (duration != null) data['duration'] = duration;
     if (reason != null && reason.isNotEmpty) data['reason'] = reason;
     final body = jsonEncode({'data': data});
     final res = await _client.post(uri, headers: _headers(auth), body: body);
@@ -386,6 +386,28 @@ class TwitchApi {
     return false;
   }
 
+  /// Allows or denies an AutoMod-held message. [moderatorId] is the acting
+  /// moderator (must match the token user); the held message is addressed
+  /// by [messageId] alone. 204 on success.
+  Future<bool> manageHeldAutoModMessages(
+    TwitchAuth auth, {
+    required String moderatorId,
+    required String messageId,
+    required bool allow,
+  }) async {
+    _clearError();
+    final uri = Uri.parse('$_base/moderation/automod/message');
+    final body = jsonEncode({
+      'user_id': moderatorId,
+      'msg_id': messageId,
+      'action': allow ? 'ALLOW' : 'DENY',
+    });
+    final res = await _client.post(uri, headers: _headers(auth), body: body);
+    if (res.statusCode == 204) return true;
+    _setError('manageHeldAutoModMessages', res);
+    return false;
+  }
+
   Future<bool> deleteChatMessage(
     TwitchAuth auth, {
     required String broadcasterId,
@@ -421,6 +443,7 @@ class TwitchApi {
     return false;
   }
 
+  /// Query-only call with an empty body; 204 on success.
   Future<bool> sendShoutout(
     TwitchAuth auth, {
     required String broadcasterId,
@@ -428,14 +451,11 @@ class TwitchApi {
     required String targetUserId,
   }) async {
     _clearError();
-    final uri = Uri.parse('$_base/chat/shoutouts');
-    final body = jsonEncode({
-      'from_broadcaster_id': broadcasterId,
-      'to_broadcaster_id': targetUserId,
-      'moderator_id': moderatorId,
-    });
-    final res = await _client.post(uri, headers: _headers(auth), body: body);
-    if (res.statusCode == 200) return true;
+    final uri = Uri.parse(
+      '$_base/chat/shoutouts?from_broadcaster_id=$broadcasterId&to_broadcaster_id=$targetUserId&moderator_id=$moderatorId',
+    );
+    final res = await _client.post(uri, headers: _headers(auth));
+    if (res.statusCode == 204) return true;
     _setError('sendShoutout', res);
     return false;
   }
@@ -660,6 +680,32 @@ class TwitchApi {
     if (res.statusCode == 200) return true;
     _setError('updateShieldMode', res);
     return false;
+  }
+
+  /// Shield Mode flag; null on failure (check [lastErrorStatus]).
+  Future<bool?> getShieldModeStatus(
+    TwitchAuth auth, {
+    required String broadcasterId,
+    required String moderatorId,
+  }) async {
+    _clearError();
+    final uri = Uri.parse(
+      '$_base/moderation/shield_mode?broadcaster_id=$broadcasterId&moderator_id=$moderatorId',
+    );
+    final res = await _client.get(uri, headers: _headers(auth));
+    if (res.statusCode != 200) {
+      _setError('getShieldModeStatus', res);
+      return null;
+    }
+    try {
+      final data = jsonDecode(res.body) as Map;
+      final list = data['data'] as List;
+      if (list.isEmpty) return null;
+      return (list[0] as Map)['is_active'] as bool?;
+    } catch (e) {
+      _setError('getShieldModeStatus: bad response');
+      return null;
+    }
   }
 
   Future<bool> createMarker(

@@ -30,6 +30,26 @@ class ModerationEvent {
   });
 }
 
+/// An AutoMod queue event. [status] is held (new) or the resolution that
+/// removed it from the queue: approved, denied, expired.
+class AutomodHeldEvent {
+  final String channel;
+  final String messageId;
+  final String userLogin;
+  final String text;
+  final String category;
+  final String status;
+
+  AutomodHeldEvent({
+    required this.channel,
+    required this.messageId,
+    required this.userLogin,
+    required this.text,
+    required this.category,
+    required this.status,
+  });
+}
+
 /// A hype train event. [kind] is begin, progress, or end.
 class HypeTrainEvent {
   final String channel;
@@ -144,6 +164,9 @@ class EventSubService {
   final _moderationController = StreamController<ModerationEvent>.broadcast(
     sync: true,
   );
+  final _automodHeldController = StreamController<AutomodHeldEvent>.broadcast(
+    sync: true,
+  );
   final _hypeTrainController = StreamController<HypeTrainEvent>.broadcast(
     sync: true,
   );
@@ -176,6 +199,7 @@ class EventSubService {
   EventSubService({this._connectivityService});
 
   Stream<ModerationEvent> get onModeration => _moderationController.stream;
+  Stream<AutomodHeldEvent> get onAutomodHeld => _automodHeldController.stream;
   Stream<HypeTrainEvent> get onHypeTrain => _hypeTrainController.stream;
   Stream<PollEvent> get onPoll => _pollController.stream;
   Stream<PredictionEvent> get onPrediction => _predictionController.stream;
@@ -390,7 +414,45 @@ class EventSubService {
       );
     } else if (type == 'channel.moderate') {
       _emitModeration(channel, event);
+    } else if (type == 'automod.message.hold') {
+      if (channel == null) return;
+      _emitAutomodHeld(channel, event, 'held');
+    } else if (type == 'automod.message.update') {
+      if (channel == null) return;
+      final status = (event['status'] as String?)?.toLowerCase() ?? 'updated';
+      _emitAutomodHeld(channel, event, status);
     }
+  }
+
+  void _emitAutomodHeld(
+    String channel,
+    Map<String, dynamic> event,
+    String status,
+  ) {
+    final messageId = event['message_id'] as String?;
+    if (messageId == null || messageId.isEmpty) return;
+    // v1 sends message as a bare string; v2 nests it in a message object.
+    final message = event['message'];
+    final text = message is String
+        ? message
+        : (message as Map?)?['text'] as String? ?? '';
+    // v2 nests the category in the automod object; blocked-term holds have
+    // no category, so the reason ('blocked_term') stands in.
+    final automod = event['automod'] as Map?;
+    _automodHeldController.add(
+      AutomodHeldEvent(
+        channel: channel,
+        messageId: messageId,
+        userLogin: event['user_login'] as String? ?? '',
+        text: text,
+        category:
+            automod?['category'] as String? ??
+            event['category'] as String? ??
+            event['reason'] as String? ??
+            'automod',
+        status: status,
+      ),
+    );
   }
 
   void _emitHypeTrain(String channel, Map<String, dynamic> event, String kind) {
@@ -594,6 +656,7 @@ class EventSubService {
     if (listener != null) _connectivityService?.removeListener(listener);
     _connectivityListener = null;
     _moderationController.close();
+    _automodHeldController.close();
     _hypeTrainController.close();
     _pollController.close();
     _predictionController.close();

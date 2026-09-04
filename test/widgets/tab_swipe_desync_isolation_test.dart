@@ -369,7 +369,7 @@ void main() {
     testWidgets('R8: sweep catch fractions below half for persistent '
         'desync', (tester) async {
       final failures = <double, String>{};
-      for (final fraction in [0.30, 0.36, 0.42, 0.48]) {
+      for (final fraction in [0.30, 0.36, 0.4, 0.48]) {
         final (home, _) = await pumpHome(tester);
         await _tapTab(tester, 'b');
         await tester.pump(const Duration(milliseconds: 40));

@@ -881,7 +881,7 @@ void main() {
 
   group('userSheetNearestDetent', () {
     const minExtent = 0.25;
-    const cardExtent = 0.42;
+    const cardExtent = 0.4;
     const maxExtent = 1.0;
 
     double nearest(double size) => userSheetNearestDetent(
@@ -906,7 +906,7 @@ void main() {
 
   group('userSheetTargetDetent', () {
     const minExtent = 0.25;
-    const cardExtent = 0.42;
+    const cardExtent = 0.4;
     const maxExtent = 1.0;
 
     double target(double size, double velocityDy) => userSheetTargetDetent(

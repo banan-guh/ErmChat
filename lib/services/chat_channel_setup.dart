@@ -83,6 +83,10 @@ class ChatChannelSetup {
   // re-attempt (and re-log) the subscription on every reconnect for the current
   // account.
   final _moderationSkippedChannels = <String>{};
+  // Same pair for the AutoMod queue (automod.message.hold/update v2): the
+  // 403 skip persists per account, the active set dies with the session.
+  final _automodChannels = <String>{};
+  final _automodSkippedChannels = <String>{};
   // Channels with an active hype train / poll / prediction widget subscription
   // (broadcaster-only; see _subscribeWidgets). Same lifecycle as
   // _moderationChannels: cleared when the EventSub session dies.
@@ -126,6 +130,9 @@ class ChatChannelSetup {
   bool isModerationActive(String channel) =>
       _moderationChannels.contains(channel);
 
+  /// Whether the AutoMod queue subscriptions are active for a channel.
+  bool isAutomodActive(String channel) => _automodChannels.contains(channel);
+
   /// Whether the broadcaster-only widget subscriptions are active for a
   /// channel; while they are, EventSub hype train/poll/prediction events are
   /// surfaced instead of being dropped as unsolicited.
@@ -136,6 +143,11 @@ class ChatChannelSetup {
   bool isJoinFailureNotified(String channel) =>
       _joinFailureNotified.contains(channel);
 
+  /// Copy of the merged ROOMSTATE tags for a channel (slow, followers-only,
+  /// emote-only, subs-only, r9k). Powers the Mod View mode toggles.
+  Map<String, String> roomStateTags(String channel) =>
+      Map.of(_roomStateTags[channel] ?? const {});
+
   /// Failure state is per socket lifetime: the fresh socket runs its own fast
   /// sweep, so it may legitimately fail (and re-announce) again.
   void resetJoinFailureState() => _joinFailureNotified.clear();
@@ -144,6 +156,7 @@ class ChatChannelSetup {
   /// fallback resumes until [resubscribeEventSubChannels] runs again.
   void clearSessionState() {
     _moderationChannels.clear();
+    _automodChannels.clear();
     _widgetChannels.clear();
   }
 
@@ -152,7 +165,16 @@ class ChatChannelSetup {
   /// channel after a switch.
   void resetAccountScope() {
     _moderationSkippedChannels.clear();
+    _automodSkippedChannels.clear();
     _widgetSkippedChannels.clear();
+  }
+
+  /// Drops per-channel subscription state (channel left). Skip sets survive:
+  /// they record the account's rejection, which a rejoin would hit again.
+  void forgetChannel(String channel) {
+    _moderationChannels.remove(channel);
+    _automodChannels.remove(channel);
+    _widgetChannels.remove(channel);
   }
 
   // ---- Status --------------------------------------------------------------
@@ -278,6 +300,9 @@ class ChatChannelSetup {
       channelUserId ??= await _waitForRoomId(channelName);
       if (channelUserId == null) return;
       store.channelUserIds[channelName] = channelUserId;
+      // Map before any await below: a resubscribe completing in the gap
+      // would otherwise deliver events with no channel and drop them.
+      eventSub.setChannelMapping(channelUserId, channelName);
       unawaited(
         badgeService
             .fetchChannelBadges(auth, channelUserId, channelName)
@@ -319,8 +344,15 @@ class ChatChannelSetup {
       }
 
       if (store.session.login != null && store.session.userId != null) {
-        eventSub.setChannelMapping(channelUserId, channelName);
-        unawaited(_subscribeModeration(channelName, channelUserId));
+        // Guard like resubscribeEventSubChannels: a connected-edge resubscribe
+        // racing this join must not double-subscribe (409s dedupe, but each
+        // attempt costs Helix calls and a redundant touchChannel).
+        if (!_moderationChannels.contains(channelName)) {
+          unawaited(_subscribeModeration(channelName, channelUserId));
+        }
+        if (!_automodChannels.contains(channelName)) {
+          unawaited(_subscribeAutomod(channelName, channelUserId));
+        }
         unawaited(_subscribeWidgets(channelName, channelUserId));
       }
     } catch (_) {
@@ -381,6 +413,9 @@ class ChatChannelSetup {
         );
         if (ok) {
           _moderationChannels.add(channelName);
+          // The Mod View snapshots mod state at build; wake it so the new
+          // rows appear without waiting for the next chat event.
+          store.touchChannel(channelName);
           return;
         }
         if (twitchApi.lastErrorStatus == 403) {
@@ -396,6 +431,68 @@ class ChatChannelSetup {
       }
     } catch (_) {
       logDebug('[ChatConn] subscribeModeration failed for $channelName');
+    }
+  }
+
+  // AutoMod queue: hold feeds the queue, update resolves entries decided
+  // elsewhere. Same one-attempt shape as _subscribeModeration; both types
+  // need moderator:manage:automod, so one 403 skips the channel for both.
+  Future<void> _subscribeAutomod(
+    String channelName,
+    String channelUserId,
+  ) async {
+    try {
+      final auth = twitchAuth;
+      if (!auth.isConfigured || store.session.userId == null) return;
+      if (_automodSkippedChannels.contains(channelName)) return;
+      for (int attempt = 0; attempt < 3; attempt++) {
+        final sessionId = eventSub.sessionId;
+        if (sessionId == null) {
+          await Future.delayed(const Duration(seconds: 1));
+          continue;
+        }
+        if (attempt > 0) await Future.delayed(const Duration(seconds: 1));
+        const types = [
+          ('automod.message.hold', '2'),
+          ('automod.message.update', '2'),
+        ];
+        // The queue is only active when both subs are up: without update,
+        // entries decided by other mods would linger with no resolution.
+        var subscribed = 0;
+        for (final (type, version) in types) {
+          // A 403 on hold dooms update too; skip the second doomed call.
+          if (_automodSkippedChannels.contains(channelName)) break;
+          final ok = await twitchApi.createEventSubSubscription(
+            auth: auth,
+            sessionId: sessionId,
+            type: type,
+            version: version,
+            condition: {
+              'broadcaster_user_id': channelUserId,
+              'moderator_user_id': store.session.userId!,
+            },
+          );
+          if (ok) {
+            subscribed++;
+            continue;
+          }
+          if (twitchApi.lastErrorStatus == 403) {
+            _automodSkippedChannels.add(channelName);
+          } else {
+            logDebug(
+              '[ChatConn] $type subscription failed for $channelName (${twitchApi.lastError ?? "unknown"})',
+            );
+          }
+        }
+        if (subscribed == types.length) {
+          _automodChannels.add(channelName);
+          // Same wake-up as moderation subs (see _subscribeModeration).
+          store.touchChannel(channelName);
+        }
+        return;
+      }
+    } catch (_) {
+      logDebug('[ChatConn] subscribeAutomod failed for $channelName');
     }
   }
 
@@ -476,6 +573,9 @@ class ChatChannelSetup {
       if (channelUserId == null) continue;
       if (!_moderationChannels.contains(channel)) {
         unawaited(_subscribeModeration(channel, channelUserId));
+      }
+      if (!_automodChannels.contains(channel)) {
+        unawaited(_subscribeAutomod(channel, channelUserId));
       }
       if (uid == channelUserId && !_widgetChannels.contains(channel)) {
         unawaited(_subscribeWidgets(channel, channelUserId));

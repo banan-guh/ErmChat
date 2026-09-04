@@ -1,4 +1,5 @@
 import '../models/twitch_command.dart';
+import '../services/mod_actions.dart';
 import '../services/twitch_api.dart';
 import '../services/twitch_auth.dart';
 import '../services/twitch_irc.dart';
@@ -9,6 +10,7 @@ class CommandHandler {
   static final _whitespaceRe = RegExp(r'\s+');
   final TwitchApi twitchApi;
   final IrcService irc;
+  final ModActions modActions;
   final Map<String, String> Function() getChannelUserIds;
   final String? Function() getCurrentUserId;
   final String? Function() getCurrentUserLogin;
@@ -17,7 +19,6 @@ class CommandHandler {
   final void Function(String target, String message)? onWhisperSent;
   final void Function(String login)? onUserBlocked;
   final void Function(String login)? onUserUnblocked;
-  final _userIdCache = <String, String>{};
 
   /// Every command the app can run. Used for / autocomplete - all commands
   /// are suggested regardless of permissions; the API rejects what the
@@ -86,16 +87,18 @@ class CommandHandler {
     this.onWhisperSent,
     this.onUserBlocked,
     this.onUserUnblocked,
-  });
+    ModActions? modActions,
+  }) : modActions =
+           modActions ??
+           ModActions(
+             twitchApi: twitchApi,
+             getChannelUserIds: getChannelUserIds,
+             getCurrentUserId: getCurrentUserId,
+           );
 
-  Future<String?> _resolveUserId(TwitchAuth auth, String login) async {
-    final lower = login.toLowerCase();
-    final cached = _userIdCache[lower];
-    if (cached != null) return cached;
-    final id = await twitchApi.getUserId(auth, login);
-    if (id != null) _userIdCache[lower] = id;
-    return id;
-  }
+  // Shares the ModActions cache so /w and /block reuse mod-path lookups.
+  Future<String?> _resolveUserId(TwitchAuth auth, String login) =>
+      modActions.resolveUserId(auth, login);
 
   /// Human-readable reason for the last failed Helix call, in the style of
   /// DankChat's system messages.
@@ -156,6 +159,22 @@ class CommandHandler {
       addSystemMessage(channel, text);
     }
   }
+
+  /// Maps a ModActions failure to the command's chat copy. [verb] renders the
+  /// self/broadcaster guards ("You cannot ban yourself").
+  String _modCopy(
+    String action,
+    String verb,
+    ModResult result,
+  ) => switch (result.failure) {
+    ModFailure.unknownUser => 'No user matching that username.',
+    ModFailure.selfTarget => 'Failed to $action - You cannot $verb yourself.',
+    ModFailure.broadcasterTarget =>
+      'Failed to $action - You cannot $verb the broadcaster.',
+    ModFailure.notJoined => 'Channel not joined.',
+    _ =>
+      'Failed to $action - ${result.reason ?? 'An unknown error has occurred.'}',
+  };
 
   /// /w is account-scoped (whispers are not bound to a channel) and is
   /// handled before the broadcaster-channel gate below.
@@ -325,38 +344,16 @@ class CommandHandler {
           }
           final targetLogin = args[0];
           final reason = args.length > 1 ? args.sublist(1).join(' ') : null;
-          final targetId = await _resolveUserId(auth, targetLogin);
-          if (targetId == null) {
-            addSystemMessage(channel, 'No user matching that username.');
-            return;
-          }
-          if (targetId == currentUserId) {
-            addSystemMessage(
-              channel,
-              'Failed to ban user - You cannot ban yourself.',
-            );
-            return;
-          }
-          if (targetId == broadcasterId) {
-            addSystemMessage(
-              channel,
-              'Failed to ban user - You cannot ban the broadcaster.',
-            );
-            return;
-          }
-          final ok = await _moderate(
-            'ban user',
+          final banResult = await modActions.banUser(
+            auth,
             channel,
-            () => twitchApi.banUser(
-              auth,
-              broadcasterId: broadcasterId,
-              moderatorId: currentUserId,
-              userId: targetId,
-              reason: reason,
-            ),
+            login: targetLogin,
+            reason: reason,
           );
-          if (ok) {
+          if (banResult.ok) {
             addSystemMessage(channel, '$targetLogin has been banned.');
+          } else {
+            addSystemMessage(channel, _modCopy('ban user', 'ban', banResult));
           }
 
         case '/unban':
@@ -365,23 +362,15 @@ class CommandHandler {
             addSystemMessage(channel, 'Usage: $cmd <username>');
             return;
           }
-          final targetId = await _resolveUserId(auth, args[0]);
-          if (targetId == null) {
-            addSystemMessage(channel, 'No user matching that username.');
-            return;
-          }
-          final ok = await _moderate(
-            'unban user',
+          final unbanResult = await modActions.unbanUser(
+            auth,
             channel,
-            () => twitchApi.unbanUser(
-              auth,
-              broadcasterId: broadcasterId,
-              moderatorId: currentUserId,
-              userId: targetId,
-            ),
+            login: args[0],
           );
-          if (ok) {
+          if (unbanResult.ok) {
             addSystemMessage(channel, '${args[0]} has been unbanned.');
+          } else {
+            addSystemMessage(channel, _modCopy('unban user', '', unbanResult));
           }
 
         case '/warn':
@@ -391,38 +380,19 @@ class CommandHandler {
           }
           final targetLogin = args[0];
           final warnReason = args.length > 1 ? args.sublist(1).join(' ') : null;
-          final targetId = await _resolveUserId(auth, targetLogin);
-          if (targetId == null) {
-            addSystemMessage(channel, 'No user matching that username.');
-            return;
-          }
-          if (targetId == currentUserId) {
-            addSystemMessage(
-              channel,
-              'Failed to warn user - You cannot warn yourself.',
-            );
-            return;
-          }
-          if (targetId == broadcasterId) {
-            addSystemMessage(
-              channel,
-              'Failed to warn user - You cannot warn the broadcaster.',
-            );
-            return;
-          }
-          final ok = await _moderate(
-            'warn user',
+          final warnResult = await modActions.warnUser(
+            auth,
             channel,
-            () => twitchApi.warnUser(
-              auth,
-              broadcasterId: broadcasterId,
-              moderatorId: currentUserId,
-              userId: targetId,
-              reason: warnReason,
-            ),
+            login: targetLogin,
+            reason: warnReason,
           );
-          if (ok) {
+          if (warnResult.ok) {
             addSystemMessage(channel, '$targetLogin has been warned.');
+          } else {
+            addSystemMessage(
+              channel,
+              _modCopy('warn user', 'warn', warnResult),
+            );
           }
 
         case '/timeout':
@@ -445,41 +415,22 @@ class CommandHandler {
               reason = args.sublist(1).join(' ');
             }
           }
-          final targetId = await _resolveUserId(auth, targetLogin);
-          if (targetId == null) {
-            addSystemMessage(channel, 'No user matching that username.');
-            return;
-          }
-          if (targetId == currentUserId) {
-            addSystemMessage(
-              channel,
-              'Failed to timeout user - You cannot timeout yourself.',
-            );
-            return;
-          }
-          if (targetId == broadcasterId) {
-            addSystemMessage(
-              channel,
-              'Failed to timeout user - You cannot timeout the broadcaster.',
-            );
-            return;
-          }
-          final ok = await _moderate(
-            'timeout user',
+          final timeoutResult = await modActions.timeoutUser(
+            auth,
             channel,
-            () => twitchApi.banUser(
-              auth,
-              broadcasterId: broadcasterId,
-              moderatorId: currentUserId,
-              userId: targetId,
-              duration: duration,
-              reason: reason,
-            ),
+            login: targetLogin,
+            duration: duration,
+            reason: reason,
           );
-          if (ok) {
+          if (timeoutResult.ok) {
             addSystemMessage(
               channel,
               '$targetLogin timed out for ${formatSeconds(duration)}.',
+            );
+          } else {
+            addSystemMessage(
+              channel,
+              _modCopy('timeout user', 'timeout', timeoutResult),
             );
           }
 
@@ -488,32 +439,29 @@ class CommandHandler {
             addSystemMessage(channel, 'Usage: /delete <message_id>');
             return;
           }
-          final ok = await _moderate(
-            'delete chat messages',
+          final deleteResult = await modActions.deleteMessage(
+            auth,
             channel,
-            () => twitchApi.deleteChatMessage(
-              auth,
-              broadcasterId: broadcasterId,
-              moderatorId: currentUserId,
-              messageId: args[0],
-            ),
+            args[0],
           );
-          if (ok) {
+          if (deleteResult.ok) {
             addSystemMessage(channel, 'Message deleted.');
+          } else {
+            addSystemMessage(
+              channel,
+              _modCopy('delete chat messages', '', deleteResult),
+            );
           }
 
         case '/clear':
-          final ok = await _moderate(
-            'delete chat messages',
-            channel,
-            () => twitchApi.deleteChatMessage(
-              auth,
-              broadcasterId: broadcasterId,
-              moderatorId: currentUserId,
-            ),
-          );
-          if (ok) {
+          final clearResult = await modActions.clearChat(auth, channel);
+          if (clearResult.ok) {
             addSystemMessage(channel, 'Chat cleared.');
+          } else {
+            addSystemMessage(
+              channel,
+              _modCopy('delete chat messages', '', clearResult),
+            );
           }
 
         case '/announce':
@@ -548,17 +496,16 @@ class CommandHandler {
               return;
             }
           }
-          final ok = await twitchApi.sendChatAnnouncement(
+          final announceResult = await modActions.sendAnnouncement(
             auth,
-            broadcasterId: broadcasterId,
-            moderatorId: currentUserId,
+            channel,
             message: message,
             color: color,
           );
-          if (!ok) {
+          if (!announceResult.ok) {
             addSystemMessage(
               channel,
-              'Failed to send announcement - ${_failureReason()}',
+              _modCopy('send announcement', '', announceResult),
             );
           }
 
@@ -567,24 +514,18 @@ class CommandHandler {
             addSystemMessage(channel, 'Usage: /shoutout <username>');
             return;
           }
-          final targetId = await _resolveUserId(auth, args[0]);
-          if (targetId == null) {
-            addSystemMessage(channel, 'No user matching that username.');
-            return;
-          }
-          final ok = await twitchApi.sendShoutout(
+          final shoutoutResult = await modActions.sendShoutout(
             auth,
-            broadcasterId: broadcasterId,
-            moderatorId: currentUserId,
-            targetUserId: targetId,
+            channel,
+            login: args[0],
           );
-          if (!ok) {
+          if (shoutoutResult.ok) {
+            addSystemMessage(channel, 'Sent shoutout to ${args[0]}');
+          } else {
             addSystemMessage(
               channel,
-              'Failed to send shoutout - ${_failureReason()}',
+              _modCopy('send shoutout', '', shoutoutResult),
             );
-          } else {
-            addSystemMessage(channel, 'Sent shoutout to ${args[0]}');
           }
 
         case '/mod':
@@ -593,38 +534,33 @@ class CommandHandler {
             addSystemMessage(channel, 'Usage: $cmd <username>');
             return;
           }
-          final targetId = await _resolveUserId(auth, args[0]);
-          if (targetId == null) {
-            addSystemMessage(channel, 'No user matching that username.');
-            return;
-          }
           final isMod = cmd == '/mod';
-          final ok = await _moderate(
-            isMod ? 'add channel moderator' : 'remove channel moderator',
+          final modResult = await modActions.setModerator(
+            auth,
             channel,
-            () => isMod
-                ? twitchApi.addModerator(
-                    auth,
-                    broadcasterId: broadcasterId,
-                    userId: targetId,
-                  )
-                : twitchApi.removeModerator(
-                    auth,
-                    broadcasterId: broadcasterId,
-                    userId: targetId,
-                  ),
+            login: args[0],
+            add: isMod,
           );
-          if (ok) {
+          if (modResult.ok) {
             addSystemMessage(
               channel,
               isMod
                   ? 'You have added ${args[0]} as a moderator of this channel.'
                   : 'You have removed ${args[0]} as a moderator of this channel.',
             );
+          } else {
+            addSystemMessage(
+              channel,
+              _modCopy(
+                isMod ? 'add channel moderator' : 'remove channel moderator',
+                '',
+                modResult,
+              ),
+            );
           }
 
         case '/mods':
-          final list = await twitchApi.getModerators(auth, broadcasterId);
+          final list = await modActions.getModerators(auth, channel);
           if (twitchApi.lastErrorStatus != null) {
             addSystemMessage(
               channel,
@@ -648,38 +584,29 @@ class CommandHandler {
             addSystemMessage(channel, 'Usage: $cmd <username>');
             return;
           }
-          final targetId = await _resolveUserId(auth, args[0]);
-          if (targetId == null) {
-            addSystemMessage(channel, 'No user matching that username.');
-            return;
-          }
           final isVip = cmd == '/vip';
-          final ok = await _moderate(
-            isVip ? 'add VIP' : 'remove VIP',
+          final vipResult = await modActions.setVip(
+            auth,
             channel,
-            () => isVip
-                ? twitchApi.addVip(
-                    auth,
-                    broadcasterId: broadcasterId,
-                    userId: targetId,
-                  )
-                : twitchApi.removeVip(
-                    auth,
-                    broadcasterId: broadcasterId,
-                    userId: targetId,
-                  ),
+            login: args[0],
+            add: isVip,
           );
-          if (ok) {
+          if (vipResult.ok) {
             addSystemMessage(
               channel,
               isVip
                   ? 'You have added ${args[0]} as a VIP of this channel.'
                   : 'You have removed ${args[0]} as a VIP of this channel.',
             );
+          } else {
+            addSystemMessage(
+              channel,
+              _modCopy(isVip ? 'add VIP' : 'remove VIP', '', vipResult),
+            );
           }
 
         case '/vips':
-          final list = await twitchApi.getVips(auth, broadcasterId);
+          final list = await modActions.getVips(auth, channel);
           if (twitchApi.lastErrorStatus != null) {
             addSystemMessage(
               channel,
@@ -697,18 +624,18 @@ class CommandHandler {
         case '/slow':
         case '/slowoff':
           if (cmd == '/slowoff') {
-            final ok = await _moderate(
-              'update chat settings',
+            final slowOffResult = await modActions.setSlowMode(
+              auth,
               channel,
-              () => twitchApi.updateChatSettings(
-                auth,
-                broadcasterId: broadcasterId,
-                moderatorId: currentUserId,
-                body: {'slow_mode': false},
-              ),
+              enabled: false,
             );
-            if (ok) {
+            if (slowOffResult.ok) {
               addSystemMessage(channel, 'Slow mode disabled.');
+            } else {
+              addSystemMessage(
+                channel,
+                _modCopy('update chat settings', '', slowOffResult),
+              );
             }
             return;
           }
@@ -720,39 +647,40 @@ class CommandHandler {
             );
             return;
           }
-          final ok = await _moderate(
-            'update chat settings',
+          final slowResult = await modActions.setSlowMode(
+            auth,
             channel,
-            () => twitchApi.updateChatSettings(
-              auth,
-              broadcasterId: broadcasterId,
-              moderatorId: currentUserId,
-              body: {'slow_mode': true, 'slow_mode_wait_time': slowSeconds},
-            ),
+            enabled: true,
+            seconds: slowSeconds,
           );
-          if (ok) {
+          if (slowResult.ok) {
             addSystemMessage(channel, 'Slow mode enabled (${slowSeconds}s).');
+          } else {
+            addSystemMessage(
+              channel,
+              _modCopy('update chat settings', '', slowResult),
+            );
           }
 
         case '/followers':
         case '/followersoff':
           if (cmd == '/followersoff') {
-            final ok = await _moderate(
-              'update chat settings',
+            final followersOffResult = await modActions.setFollowersMode(
+              auth,
               channel,
-              () => twitchApi.updateChatSettings(
-                auth,
-                broadcasterId: broadcasterId,
-                moderatorId: currentUserId,
-                body: {'follower_mode': false},
-              ),
+              enabled: false,
             );
-            if (ok) {
+            if (followersOffResult.ok) {
               addSystemMessage(channel, 'Followers-only mode disabled.');
+            } else {
+              addSystemMessage(
+                channel,
+                _modCopy('update chat settings', '', followersOffResult),
+              );
             }
             return;
           }
-          Map<String, dynamic> body = {'follower_mode': true};
+          int? followerMinutes;
           if (args.isNotEmpty) {
             final seconds = _parseDurationSeconds(args.join(' '));
             if (seconds == null || seconds <= 0) {
@@ -762,64 +690,62 @@ class CommandHandler {
               );
               return;
             }
-            body = {
-              'follower_mode': true,
-              'follower_mode_duration': (seconds / 60).ceil(),
-            };
+            followerMinutes = (seconds / 60).ceil();
           }
-          final ok = await _moderate(
-            'update chat settings',
+          final followersResult = await modActions.setFollowersMode(
+            auth,
             channel,
-            () => twitchApi.updateChatSettings(
-              auth,
-              broadcasterId: broadcasterId,
-              moderatorId: currentUserId,
-              body: body,
-            ),
+            enabled: true,
+            minutes: followerMinutes,
           );
-          if (ok) {
+          if (followersResult.ok) {
             addSystemMessage(channel, 'Followers-only mode enabled.');
+          } else {
+            addSystemMessage(
+              channel,
+              _modCopy('update chat settings', '', followersResult),
+            );
           }
 
         case '/emoteonly':
         case '/emoteonlyoff':
           final enable = cmd == '/emoteonly';
-          final ok = await _moderate(
-            'update chat settings',
+          final emoteOnlyResult = await modActions.setEmoteOnly(
+            auth,
             channel,
-            () => twitchApi.updateChatSettings(
-              auth,
-              broadcasterId: broadcasterId,
-              moderatorId: currentUserId,
-              body: {'emote_mode': enable},
-            ),
+            enabled: enable,
           );
-          if (ok) {
+          if (emoteOnlyResult.ok) {
             addSystemMessage(
               channel,
               enable ? 'Emote-only mode enabled.' : 'Emote-only mode disabled.',
+            );
+          } else {
+            addSystemMessage(
+              channel,
+              _modCopy('update chat settings', '', emoteOnlyResult),
             );
           }
 
         case '/subscribers':
         case '/subscribersoff':
-          final enable = cmd == '/subscribers';
-          final ok = await _moderate(
-            'update chat settings',
+          final subsOnly = cmd == '/subscribers';
+          final subsResult = await modActions.setSubscribersOnly(
+            auth,
             channel,
-            () => twitchApi.updateChatSettings(
-              auth,
-              broadcasterId: broadcasterId,
-              moderatorId: currentUserId,
-              body: {'subscriber_mode': enable},
-            ),
+            enabled: subsOnly,
           );
-          if (ok) {
+          if (subsResult.ok) {
             addSystemMessage(
               channel,
-              enable
+              subsOnly
                   ? 'Subscribers-only mode enabled.'
                   : 'Subscribers-only mode disabled.',
+            );
+          } else {
+            addSystemMessage(
+              channel,
+              _modCopy('update chat settings', '', subsResult),
             );
           }
 
@@ -827,23 +753,23 @@ class CommandHandler {
         case '/r9kbetaoff':
         case '/uniquechat':
         case '/uniquechatoff':
-          final enable = cmd == '/r9kbeta' || cmd == '/uniquechat';
-          final ok = await _moderate(
-            'update chat settings',
+          final unique = cmd == '/r9kbeta' || cmd == '/uniquechat';
+          final uniqueResult = await modActions.setUniqueChat(
+            auth,
             channel,
-            () => twitchApi.updateChatSettings(
-              auth,
-              broadcasterId: broadcasterId,
-              moderatorId: currentUserId,
-              body: {'unique_chat_mode': enable},
-            ),
+            enabled: unique,
           );
-          if (ok) {
+          if (uniqueResult.ok) {
             addSystemMessage(
               channel,
-              enable
+              unique
                   ? 'Unique-chat mode enabled.'
                   : 'Unique-chat mode disabled.',
+            );
+          } else {
+            addSystemMessage(
+              channel,
+              _modCopy('update chat settings', '', uniqueResult),
             );
           }
 
@@ -864,19 +790,20 @@ class CommandHandler {
             );
             return;
           }
-          final ok = await _moderate(
-            'start commercial',
+          final commercialResult = await modActions.startCommercial(
+            auth,
             channel,
-            () => twitchApi.startCommercial(
-              auth,
-              broadcasterId: broadcasterId,
-              length: length,
-            ),
+            length: length,
           );
-          if (ok) {
+          if (commercialResult.ok) {
             addSystemMessage(
               channel,
               'Starting $length second long commercial break.',
+            );
+          } else {
+            addSystemMessage(
+              channel,
+              _modCopy('start commercial', '', commercialResult),
             );
           }
 
@@ -885,72 +812,63 @@ class CommandHandler {
             addSystemMessage(channel, 'Usage: /raid <username>');
             return;
           }
-          final targetId = await _resolveUserId(auth, args[0]);
-          if (targetId == null) {
-            addSystemMessage(channel, 'No user matching that username.');
-            return;
-          }
-          final ok = await _moderate(
-            'start a raid',
+          final raidResult = await modActions.startRaid(
+            auth,
             channel,
-            () => twitchApi.startRaid(
-              auth,
-              fromBroadcasterId: broadcasterId,
-              toBroadcasterId: targetId,
-            ),
+            login: args[0],
           );
-          if (ok) {
+          if (raidResult.ok) {
             addSystemMessage(channel, 'You started to raid ${args[0]}.');
+          } else {
+            addSystemMessage(channel, _modCopy('start a raid', '', raidResult));
           }
 
         case '/unraid':
-          final ok = await _moderate(
-            'cancel the raid',
-            channel,
-            () => twitchApi.cancelRaid(auth, broadcasterId: broadcasterId),
-          );
-          if (ok) {
+          final unraidResult = await modActions.cancelRaid(auth, channel);
+          if (unraidResult.ok) {
             addSystemMessage(channel, 'You cancelled the raid.');
+          } else {
+            addSystemMessage(
+              channel,
+              _modCopy('cancel the raid', '', unraidResult),
+            );
           }
 
         case '/shield':
         case '/shieldoff':
           final active = cmd == '/shield';
-          final ok = await _moderate(
-            'update shield mode',
+          final shieldResult = await modActions.setShieldMode(
+            auth,
             channel,
-            () => twitchApi.updateShieldMode(
-              auth,
-              broadcasterId: broadcasterId,
-              moderatorId: currentUserId,
-              active: active,
-            ),
+            active: active,
           );
-          if (ok) {
+          if (shieldResult.ok) {
             addSystemMessage(
               channel,
               active
                   ? 'Shield mode was activated.'
                   : 'Shield mode was deactivated.',
             );
+          } else {
+            addSystemMessage(
+              channel,
+              _modCopy('update shield mode', '', shieldResult),
+            );
           }
 
         case '/marker':
-          final joined = args.join(' ');
-          final description = joined.length <= 140
-              ? joined
-              : joined.substring(0, 140);
-          final ok = await _moderate(
-            'create stream marker',
+          final markerResult = await modActions.createMarker(
+            auth,
             channel,
-            () => twitchApi.createMarker(
-              auth,
-              broadcasterId: broadcasterId,
-              description: description.isEmpty ? null : description,
-            ),
+            description: args.join(' '),
           );
-          if (ok) {
+          if (markerResult.ok) {
             addSystemMessage(channel, 'Stream marker added.');
+          } else {
+            addSystemMessage(
+              channel,
+              _modCopy('create stream marker', '', markerResult),
+            );
           }
 
         case '/poll':

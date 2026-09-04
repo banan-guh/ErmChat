@@ -5126,12 +5126,12 @@ void main() {
                             var tracker = VelocityTracker.withKind(
                               PointerDeviceKind.touch,
                             );
-                            var sizeAtDown = 0.42;
+                            var sizeAtDown = 0.4;
                             return Listener(
                               onPointerDown: (e) {
                                 sizeAtDown = sheetController.isAttached
                                     ? sheetController.size
-                                    : 0.42;
+                                    : 0.4;
                                 tracker = VelocityTracker.withKind(
                                   PointerDeviceKind.touch,
                                 );
@@ -5146,7 +5146,7 @@ void main() {
                                 final target = userSheetTargetDetent(
                                   size,
                                   minExtent: 0.25,
-                                  cardExtent: 0.42,
+                                  cardExtent: 0.4,
                                   maxExtent: maxExtent,
                                   velocityDy: tracker
                                       .getVelocity()
@@ -5169,7 +5169,7 @@ void main() {
                               },
                               child: DraggableScrollableSheet(
                                 controller: sheetController,
-                                initialChildSize: 0.42,
+                                initialChildSize: 0.4,
                                 minChildSize: 0.25,
                                 maxChildSize: maxExtent,
                                 expand: false,
@@ -5188,7 +5188,7 @@ void main() {
                                       onClose: () => Navigator.pop(ctx),
                                       scrollController: scrollController,
                                       sheetController: sheetController,
-                                      sheetCollapsedExtent: 0.42,
+                                      sheetCollapsedExtent: 0.4,
                                       userMessages: [
                                         for (var i = 0; i < 30; i++)
                                           TwitchMessage(
@@ -5218,7 +5218,7 @@ void main() {
 
         // Arrow tap grows the sheet to full height.
         await openSheet();
-        expect(sheetController.size, 0.42);
+        expect(sheetController.size, 0.4);
         await tester.tap(find.byIcon(Icons.keyboard_arrow_down));
         await tester.pumpAndSettle();
         expect(sheetController.size, maxExtent);
@@ -5239,12 +5239,12 @@ void main() {
           1500,
         );
         await tester.pumpAndSettle();
-        expect(sheetController.size, closeTo(0.42, 0.02));
+        expect(sheetController.size, closeTo(0.4, 0.02));
 
         // Release between detents eases back to the card.
         await tester.dragFrom(const Offset(400, 300), const Offset(0, 250));
         await tester.pumpAndSettle();
-        expect(sheetController.size, closeTo(0.42, 0.02));
+        expect(sheetController.size, closeTo(0.4, 0.02));
 
         // Fresh card, upward fling eases directly to full height.
         await openSheet();

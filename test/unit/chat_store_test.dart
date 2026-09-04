@@ -548,4 +548,80 @@ void main() {
       expect(out.last.text, 'm11');
     });
   });
+
+  group('ChatStore held queue', () {
+    HeldMessage held(String id, [String channel = 'test']) => HeldMessage(
+      messageId: id,
+      channel: channel,
+      userLogin: 'spammer',
+      text: 'bad text',
+      category: 'bullying',
+    );
+
+    test('queues newest first and ignores duplicate deliveries', () {
+      final store = _store();
+      store.addHeldMessage(held('m1'));
+      store.addHeldMessage(held('m2'));
+      expect(store.heldMessages['test']!.map((m) => m.messageId), ['m2', 'm1']);
+      final version = store.heldVersion.value;
+      store.addHeldMessage(held('m1'));
+      expect(store.heldMessages['test'], hasLength(2));
+      expect(store.heldVersion.value, version, reason: 'dup is a no-op');
+    });
+
+    test('resolve drops the entry and prunes empty channels', () {
+      final store = _store();
+      store.addHeldMessage(held('m1'));
+      store.addHeldMessage(held('m2'));
+      expect(store.resolveHeldMessage('test', 'm1'), isTrue);
+      expect(store.heldMessages['test']!.map((m) => m.messageId), ['m2']);
+      expect(store.resolveHeldMessage('test', 'm1'), isFalse);
+      expect(store.resolveHeldMessage('missing', 'm1'), isFalse);
+      expect(store.resolveHeldMessage('test', 'm2'), isTrue);
+      expect(store.heldMessages.containsKey('test'), isFalse);
+    });
+
+    test('resolved ids re-queue, and the per-channel cap drops oldest', () {
+      final store = _store();
+      store.addHeldMessage(held('m1'));
+      expect(store.resolveHeldMessage('test', 'm1'), isTrue);
+      store.addHeldMessage(held('m1'));
+      expect(store.heldMessages['test']!.map((m) => m.messageId), [
+        'm1',
+      ], reason: 're-hold after resolve queues again');
+      for (var i = 0; i < ChatStore.maxHeldPerChannel + 10; i++) {
+        store.addHeldMessage(held('cap$i'));
+      }
+      final queue = store.heldMessages['test']!;
+      expect(queue, hasLength(ChatStore.maxHeldPerChannel));
+      expect(queue.first.messageId, 'cap209');
+      expect(queue.last.messageId, 'cap10');
+    });
+
+    test('clearAllHeldMessages drops every queue in one bump', () {
+      final store = _store();
+      store.addHeldMessage(held('m1'));
+      store.addHeldMessage(held('m2', 'other'));
+      final version = store.heldVersion.value;
+      store.clearAllHeldMessages();
+      expect(store.heldMessages, isEmpty);
+      expect(store.heldVersion.value, version + 1);
+      store.clearAllHeldMessages();
+      expect(store.heldVersion.value, version + 1, reason: 'no-op is quiet');
+    });
+
+    test('clearHeldMessages drops the channel queue, forgetChannel too', () {
+      final store = _store();
+      store.addHeldMessage(held('m1'));
+      store.addHeldMessage(held('m2', 'other'));
+      final version = store.heldVersion.value;
+      store.clearHeldMessages('missing');
+      expect(store.heldVersion.value, version, reason: 'no-op is quiet');
+      store.clearHeldMessages('test');
+      expect(store.heldMessages.containsKey('test'), isFalse);
+      expect(store.heldMessages.containsKey('other'), isTrue);
+      store.forgetChannel('other');
+      expect(store.heldMessages.containsKey('other'), isFalse);
+    });
+  });
 }

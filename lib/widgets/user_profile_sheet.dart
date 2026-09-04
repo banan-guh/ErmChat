@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/twitch_message.dart';
+import '../services/mod_actions.dart';
 import '../services/twitch_api.dart';
 import '../services/twitch_auth.dart';
 import '../util/log.dart';
+import 'mod_view.dart';
 
 class UserProfileSheet extends StatefulWidget {
   final String username;
@@ -17,6 +19,15 @@ class UserProfileSheet extends StatefulWidget {
   final VoidCallback onClose;
   final void Function(String login)? onUserBlocked;
   final VoidCallback? onWhisperUser;
+
+  /// Mod action executor plus the channel they apply to. Null (or
+  /// [canModerate] false) hides the Timeout/Ban/Unban/Warn rows.
+  final ModActions? modActions;
+  final String? channel;
+  final bool canModerate;
+
+  /// True for your own card; mod rows never apply to yourself.
+  final bool isSelf;
 
   /// Scroll controller from the wrapping DraggableScrollableSheet. A local
   /// one is used when null (e.g. tests embedding the sheet directly).
@@ -51,6 +62,10 @@ class UserProfileSheet extends StatefulWidget {
     required this.onClose,
     this.onUserBlocked,
     this.onWhisperUser,
+    this.modActions,
+    this.channel,
+    this.canModerate = false,
+    this.isSelf = false,
     this.scrollController,
     this.sheetController,
     this.sheetCollapsedExtent = 0.5,
@@ -253,7 +268,12 @@ class UserProfileSheetState extends State<UserProfileSheet> {
                 // History is buffer-local, so it shows for anonymous too.
                 // Rows live below the fold; the floating arrow hints at them.
                 if (widget.messageRowBuilder != null) ...[
-                  const SliverToBoxAdapter(child: Divider()),
+                  const SliverToBoxAdapter(
+                    child: Padding(
+                      padding: EdgeInsets.only(bottom: 12),
+                      child: Divider(height: 1),
+                    ),
+                  ),
                   if (widget.userMessages.isEmpty)
                     SliverToBoxAdapter(child: _buildHistoryEmpty(theme))
                   else
@@ -421,8 +441,115 @@ class UserProfileSheetState extends State<UserProfileSheet> {
     );
   }
 
+  String? get _targetUserId => widget.userId ?? _profile?['id'] as String?;
+
+  Future<void> _modTimeout() async {
+    final modActions = widget.modActions;
+    final channel = widget.channel;
+    if (modActions == null || channel == null) return;
+    final picked = await showTimeoutDialog(context, widget.username);
+    if (picked == null || !mounted) return;
+    final result = await modActions.timeoutUser(
+      widget.twitchAuth,
+      channel,
+      login: widget.username,
+      userId: _targetUserId,
+      duration: picked.seconds,
+      reason: picked.reason,
+    );
+    if (!mounted) return;
+    showModError(context, result);
+  }
+
+  Future<void> _modBan({required bool ban}) async {
+    final modActions = widget.modActions;
+    final channel = widget.channel;
+    if (modActions == null || channel == null) return;
+    if (ban) {
+      final reason = await showModTextDialog(
+        context,
+        title: 'Ban ${widget.username}?',
+        label: 'Reason (optional)',
+        confirmLabel: 'Ban',
+      );
+      if (reason == null || !mounted) return;
+      final result = await modActions.banUser(
+        widget.twitchAuth,
+        channel,
+        login: widget.username,
+        userId: _targetUserId,
+        reason: reason.isEmpty ? null : reason,
+      );
+      if (!mounted) return;
+      showModError(context, result);
+    } else {
+      final result = await modActions.unbanUser(
+        widget.twitchAuth,
+        channel,
+        login: widget.username,
+        userId: _targetUserId,
+      );
+      if (!mounted) return;
+      showModError(context, result);
+    }
+  }
+
+  Future<void> _modWarn() async {
+    final modActions = widget.modActions;
+    final channel = widget.channel;
+    if (modActions == null || channel == null) return;
+    final reason = await showModTextDialog(
+      context,
+      title: 'Warn ${widget.username}?',
+      label: 'Reason (optional)',
+      confirmLabel: 'Warn',
+    );
+    if (reason == null || !mounted) return;
+    final result = await modActions.warnUser(
+      widget.twitchAuth,
+      channel,
+      login: widget.username,
+      userId: _targetUserId,
+      reason: reason.isEmpty ? null : reason,
+    );
+    if (!mounted) return;
+    showModError(context, result);
+  }
+
   List<Widget> _buildActionTiles() {
+    final showMod =
+        widget.canModerate &&
+        !widget.isSelf &&
+        widget.modActions != null &&
+        widget.channel != null;
     return [
+      if (showMod) ...[
+        ListTile(
+          dense: true,
+          leading: const Icon(Icons.timer_outlined),
+          title: const Text('Timeout'),
+          onTap: _modTimeout,
+        ),
+        ListTile(
+          dense: true,
+          leading: const Icon(Icons.gavel_outlined),
+          title: const Text('Ban'),
+          onTap: () => _modBan(ban: true),
+        ),
+        ListTile(
+          dense: true,
+          leading: const Icon(Icons.undo_outlined),
+          title: const Text('Unban'),
+          onTap: () => _modBan(ban: false),
+        ),
+        ListTile(
+          dense: true,
+          leading: const Icon(Icons.warning_amber_outlined),
+          title: const Text('Warn'),
+          onTap: _modWarn,
+        ),
+        const Divider(height: 1),
+      ],
       ListTile(
         dense: true,
         leading: const Icon(Icons.alternate_email),
