@@ -48,7 +48,7 @@ class _StreamSettingsScreenState extends State<StreamSettingsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Stream player')),
+      appBar: AppBar(title: const Text('Livestreams')),
       body: ListView(
         children: [
           SwitchListTile(

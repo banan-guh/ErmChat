@@ -202,6 +202,20 @@ class SettingsScreen extends StatelessWidget {
               ),
             ),
           ),
+          _buildTile(
+            context,
+            icon: Icons.play_arrow,
+            title: 'Livestreams',
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => StreamSettingsScreen(
+                  onShowExtensionsChanged: onStreamExtensionsChanged,
+                  onRetainWebviewChanged: onRetainWebviewChanged,
+                ),
+              ),
+            ),
+          ),
           if (analyticsService != null && channels != null)
             _buildTile(
               context,
@@ -229,20 +243,6 @@ class SettingsScreen extends StatelessWidget {
                 builder: (_) => AccountScreen(
                   twitchAuth: twitchAuth,
                   oAuthStarter: oAuthStarter,
-                ),
-              ),
-            ),
-          ),
-          _buildTile(
-            context,
-            icon: Icons.live_tv,
-            title: 'Stream player',
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => StreamSettingsScreen(
-                  onShowExtensionsChanged: onStreamExtensionsChanged,
-                  onRetainWebviewChanged: onRetainWebviewChanged,
                 ),
               ),
             ),
