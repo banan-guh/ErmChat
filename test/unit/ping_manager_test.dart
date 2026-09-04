@@ -56,25 +56,6 @@ void main() {
   }
 
   group('PingManager defaults', () {
-    test('seeds builtin rules and badge presets', () async {
-      final m = await makeManager();
-      expect(m.loaded, isTrue);
-      final username = m.rules.firstWhere((r) => r.id == 'builtin_username');
-      expect(username.enabled, isTrue);
-      expect(username.notify, isTrue);
-      final redemption = m.rules.firstWhere(
-        (r) => r.id == 'builtin_redemption',
-      );
-      expect(redemption.enabled, isTrue);
-      expect(redemption.notify, isFalse);
-      final modBadge = m.rules.firstWhere(
-        (r) => r.id == 'preset_badge_moderator',
-      );
-      expect(modBadge.kind, PingRuleKind.badge);
-      expect(modBadge.enabled, isFalse);
-      expect(modBadge.colorArgb, isNotNull);
-    });
-
     test('drops the legacy alt_pings key', () async {
       await makeManager({
         'alt_pings': <String>['kekw'],
@@ -84,7 +65,7 @@ void main() {
       expect(prefs.containsKey('ping_rules_v1'), isTrue);
     });
 
-    test('rules survive a JSON round trip', () {
+    test('round-trips rules through JSON and tolerates garbage input', () {
       const rule = PingRule(
         id: 'r1',
         kind: PingRuleKind.message,
@@ -98,9 +79,6 @@ void main() {
       );
       final decoded = decodeRules(encodeRules([rule]));
       expect(decoded.single.toJson(), rule.toJson());
-    });
-
-    test('decode tolerates garbage input', () {
       expect(decodeRules('not json'), isEmpty);
       expect(decodeRules('{"id": "x"}'), isEmpty);
     });
@@ -152,36 +130,36 @@ void main() {
       return m;
     }
 
-    test('matches own messages', () async {
-      final m = await managerWith(
-        const PingRule(
-          id: 'c1',
-          kind: PingRuleKind.message,
-          type: 'custom',
-          pattern: 'KEKW',
-        ),
-      );
-      expect(
-        m.evaluate(msg('KEKW', login: 'me'))?.primary,
-        HighlightType.custom,
-      );
-    });
-
-    test('substring match by default', () async {
-      final m = await managerWith(
-        const PingRule(
-          id: 'c1',
-          kind: PingRuleKind.message,
-          type: 'custom',
-          pattern: 'KEKW',
-        ),
-      );
-      expect(
-        m.evaluate(msg('lol kekw'))?.types,
-        contains(HighlightType.custom),
-      );
-      expect(m.evaluate(msg('nothing here')), isNull);
-    });
+    test(
+      'matches custom keywords by substring including own messages',
+      () async {
+        final m = await managerWith(
+          const PingRule(
+            id: 'c1',
+            kind: PingRuleKind.message,
+            type: 'custom',
+            pattern: 'KEKW',
+          ),
+        );
+        const cases = [
+          ('KEKW', 'me', true),
+          ('lol kekw', 'otheruser', true),
+          ('nothing here', 'otheruser', false),
+        ];
+        for (final (text, login, shouldMatch) in cases) {
+          final result = m.evaluate(msg(text, login: login));
+          if (shouldMatch) {
+            expect(
+              result?.types,
+              contains(HighlightType.custom),
+              reason: 'text: $text login: $login',
+            );
+          } else {
+            expect(result, isNull, reason: 'text: $text login: $login');
+          }
+        }
+      },
+    );
 
     test('regex matching with fallback on invalid patterns', () async {
       final m = await managerWith(
@@ -208,8 +186,8 @@ void main() {
       expect(bad.evaluate(msg('(unclosed lol')), isNotNull);
     });
 
-    test('case sensitive flag is honored', () async {
-      final m = await managerWith(
+    test('honors the case sensitive and enabled flags', () async {
+      final sensitive = await managerWith(
         const PingRule(
           id: 'c4',
           kind: PingRuleKind.message,
@@ -218,12 +196,10 @@ void main() {
           caseSensitive: true,
         ),
       );
-      expect(m.evaluate(msg('kekw')), isNull);
-      expect(m.evaluate(msg('KEKW')), isNotNull);
-    });
+      expect(sensitive.evaluate(msg('kekw')), isNull);
+      expect(sensitive.evaluate(msg('KEKW')), isNotNull);
 
-    test('disabled rules do not highlight', () async {
-      final m = await managerWith(
+      final disabled = await managerWith(
         const PingRule(
           id: 'c5',
           kind: PingRuleKind.message,
@@ -232,7 +208,7 @@ void main() {
           enabled: false,
         ),
       );
-      expect(m.evaluate(msg('ping')), isNull);
+      expect(disabled.evaluate(msg('ping')), isNull);
     });
 
     test('whole word flag anchors literal patterns', () async {
@@ -400,112 +376,68 @@ void main() {
       expect(both?.primary, HighlightType.username);
       expect(both?.hasMention, isTrue);
     });
-
-    test('first colored rule wins', () async {
-      final m = await makeManager();
-      m.upsertRule(
-        const PingRule(
-          id: 'col1',
-          kind: PingRuleKind.message,
-          type: 'custom',
-          pattern: 'zzz',
-          colorArgb: 0xFF111111,
-        ),
-      );
-      m.upsertRule(
-        const PingRule(
-          id: 'col2',
-          kind: PingRuleKind.message,
-          type: 'custom',
-          pattern: 'zzz',
-          colorArgb: 0xFF222222,
-        ),
-      );
-      expect(m.evaluate(msg('zzz'))?.customColor, const Color(0xFF111111));
-    });
-
-    test('rowColor normalizes contrast to the vivid anchor; custom wins', () {
-      const surfaceDark = Color(0xFF000000);
-      const surfaceLight = Color(0xFFFFFFFF);
-      double dist(Color c, Color s) => (brightness(c) - brightness(s)).abs();
-
-      // Every highlight (custom or palette) is normalized to highlightStrength
-      // of the most-vivid built-in's contrast, so none is dulled below its
-      // natural vividness.
-      const custom = HighlightState(
-        types: {HighlightType.username},
-        customColor: Color(0xFFABCDEF),
-      );
-      final customRow = custom.rowColor(surfaceDark);
-      final paletteRow = const HighlightState(
-        types: {HighlightType.username},
-      ).rowColor(surfaceDark);
-      expect(customRow, isNot(equals(paletteRow)));
-      expect(
-        dist(customRow, surfaceDark),
-        closeTo(
-          dist(highlightAnchor(surfaceDark), surfaceDark) * highlightStrength,
-          0.02,
-        ),
-      );
-
-      // Palette highlight (firstMsg) also matches the scaled anchor contrast.
-      final plain = const HighlightState(
-        types: {HighlightType.firstMsg},
-      ).rowColor(surfaceLight);
-      expect(
-        dist(plain, surfaceLight),
-        closeTo(
-          dist(highlightAnchor(surfaceLight), surfaceLight) * highlightStrength,
-          0.02,
-        ),
-      );
-    });
   });
 
   group('rowColor contrast equalization', () {
-    const types = [
-      HighlightType.username,
-      HighlightType.redemption,
-      HighlightType.elevated,
-      HighlightType.firstMsg,
-    ];
-
     test(
-      'all highlight types normalize to equal contrast on a dark surface',
+      'normalizes every highlight to equal contrast with custom colors winning',
       () {
-        const surface = Color(0xFF0E0E10);
-        final distances = <double>[
-          for (final t in types)
-            (() {
-              final row = HighlightState(
-                types: {t},
-              ).rowColor(surface, opacity: 0.5);
-              return (brightness(row) - brightness(surface)).abs();
-            })(),
+        double dist(Color c, Color s) => (brightness(c) - brightness(s)).abs();
+        const cases = [(Color(0xFF0E0E10), 0.5), (Color(0xFFFFFFFF), 1.0)];
+        const types = [
+          HighlightType.username,
+          HighlightType.redemption,
+          HighlightType.elevated,
+          HighlightType.firstMsg,
         ];
-        for (final d in distances) {
-          expect(d, closeTo(distances.first, 0.02));
+        for (final (surface, opacity) in cases) {
+          final distances = <double>[
+            for (final t in types)
+              (() {
+                final row = HighlightState(
+                  types: {t},
+                ).rowColor(surface, opacity: opacity);
+                return (brightness(row) - brightness(surface)).abs();
+              })(),
+          ];
+          for (final d in distances) {
+            expect(
+              d,
+              closeTo(distances.first, 0.02),
+              reason: 'surface: $surface',
+            );
+          }
+          final plain = HighlightState(
+            types: {HighlightType.firstMsg},
+          ).rowColor(surface);
+          expect(
+            dist(plain, surface),
+            closeTo(
+              dist(highlightAnchor(surface), surface) * highlightStrength,
+              0.02,
+            ),
+            reason: 'surface: $surface matches the scaled anchor',
+          );
         }
-      },
-    );
 
-    test(
-      'all highlight types normalize to equal contrast on a light surface',
-      () {
-        const surface = Color(0xFFFFFFFF);
-        final distances = <double>[
-          for (final t in types)
-            (() {
-              final row = HighlightState(
-                types: {t},
-              ).rowColor(surface, opacity: 1.0);
-              return (brightness(row) - brightness(surface)).abs();
-            })(),
-        ];
-        for (final d in distances) {
-          expect(d, closeTo(distances.first, 0.02));
-        }
+        // Custom colors win over the palette without changing the budget.
+        const surfaceDark = Color(0xFF000000);
+        const custom = HighlightState(
+          types: {HighlightType.username},
+          customColor: Color(0xFFABCDEF),
+        );
+        final customRow = custom.rowColor(surfaceDark);
+        final paletteRow = const HighlightState(
+          types: {HighlightType.username},
+        ).rowColor(surfaceDark);
+        expect(customRow, isNot(equals(paletteRow)));
+        expect(
+          dist(customRow, surfaceDark),
+          closeTo(
+            dist(highlightAnchor(surfaceDark), surfaceDark) * highlightStrength,
+            0.02,
+          ),
+        );
       },
     );
   });

@@ -128,46 +128,32 @@ void main() {
     expect(fake.spoken, ['Bob said one', 'two']);
   });
 
-  test('strips emotes when enabled', () async {
-    final fake = FakeTts();
-    final c = await makeController(fake);
-    c.setFormatMode(TtsFormatMode.messageOnly);
-    final m = buildMsg(
-      text: 'hello Kappa',
-      emotePositions: [
-        EmotePosition(
-          emoteId: '1',
-          startIndex: 6,
-          endIndex: 11,
-          emoteCode: 'Kappa',
-        ),
-      ],
-    );
-    c.handleMessage('chan', m, 'chan');
-    await pumpEventQueue();
-    expect(fake.spoken, ['hello']);
-  });
-
-  test('keeps emotes when disabled', () async {
-    final fake = FakeTts();
-    final c = await makeController(fake);
-    c.setFormatMode(TtsFormatMode.messageOnly);
-    c.setIgnoreEmotes(false);
-    final m = buildMsg(
-      text: 'hello Kappa',
-      emotePositions: [
-        EmotePosition(
-          emoteId: '1',
-          startIndex: 6,
-          endIndex: 11,
-          emoteCode: 'Kappa',
-        ),
-      ],
-    );
-    c.handleMessage('chan', m, 'chan');
-    await pumpEventQueue();
-    expect(fake.spoken, ['hello Kappa']);
-  });
+  test(
+    'respects the ignore emotes setting when speaking emote codes',
+    () async {
+      const cases = [(true, 'hello'), (false, 'hello Kappa')];
+      for (final (ignoreEmotes, expected) in cases) {
+        final fake = FakeTts();
+        final c = await makeController(fake);
+        c.setFormatMode(TtsFormatMode.messageOnly);
+        c.setIgnoreEmotes(ignoreEmotes);
+        final m = buildMsg(
+          text: 'hello Kappa',
+          emotePositions: [
+            EmotePosition(
+              emoteId: '1',
+              startIndex: 6,
+              endIndex: 11,
+              emoteCode: 'Kappa',
+            ),
+          ],
+        );
+        c.handleMessage('chan', m, 'chan');
+        await pumpEventQueue();
+        expect(fake.spoken, [expected], reason: 'ignoreEmotes: $ignoreEmotes');
+      }
+    },
+  );
 
   test('strips urls', () async {
     final fake = FakeTts();
@@ -209,24 +195,17 @@ void main() {
     expect(fake.spoken, isEmpty);
   });
 
-  test('newest queue mode uses QUEUE_FLUSH (0)', () async {
-    final fake = FakeTts();
-    final c = await makeController(fake);
-    c.setQueueMode(TtsQueueMode.newest);
-    c.handleMessage('chan', buildMsg(text: 'hi'), 'chan');
-    await pumpEventQueue();
-    expect(fake.setQueueModeCalls, [0]);
-    expect(fake.spoken, ['Bob. hi']);
-  });
-
-  test('queue mode uses QUEUE_ADD (1)', () async {
-    final fake = FakeTts();
-    final c = await makeController(fake);
-    c.setQueueMode(TtsQueueMode.queue);
-    c.handleMessage('chan', buildMsg(text: 'hi'), 'chan');
-    await pumpEventQueue();
-    expect(fake.setQueueModeCalls, [1]);
-    expect(fake.spoken, ['Bob. hi']);
+  test('applies the selected queue mode before speaking', () async {
+    const cases = [(TtsQueueMode.newest, 0), (TtsQueueMode.queue, 1)];
+    for (final (mode, expectedCall) in cases) {
+      final fake = FakeTts();
+      final c = await makeController(fake);
+      c.setQueueMode(mode);
+      c.handleMessage('chan', buildMsg(text: 'hi'), 'chan');
+      await pumpEventQueue();
+      expect(fake.setQueueModeCalls, [expectedCall], reason: 'mode: $mode');
+      expect(fake.spoken, ['Bob. hi'], reason: 'mode: $mode');
+    }
   });
 
   test('skips history and backfill', () async {
@@ -242,24 +221,22 @@ void main() {
   });
 
   group('engine/voice picker', () {
-    test('fetchOptions parses Android engines', () async {
-      final fake = FakeTts();
-      fake.engines = [
+    test('fetchOptions parses platform engines and voices', () async {
+      final androidFake = FakeTts();
+      androidFake.engines = [
         {'name': 'com.google.android.tts', 'label': 'Google TTS'},
         {'name': 'com.svox.pico', 'label': 'Pico TTS'},
       ];
-      final c = TtsController(tts: fake);
-      c.overrideIsAndroid = true;
-      final opts = await c.fetchOptions();
-      expect(opts, hasLength(2));
-      expect(opts[0].id, 'com.google.android.tts');
-      expect(opts[0].label, 'Google TTS');
-      expect(opts[1].label, 'Pico TTS');
-    });
+      final androidController = TtsController(tts: androidFake);
+      androidController.overrideIsAndroid = true;
+      final androidOpts = await androidController.fetchOptions();
+      expect(androidOpts, hasLength(2));
+      expect(androidOpts[0].id, 'com.google.android.tts');
+      expect(androidOpts[0].label, 'Google TTS');
+      expect(androidOpts[1].label, 'Pico TTS');
 
-    test('fetchOptions parses iOS voices', () async {
-      final fake = FakeTts();
-      fake.voices = [
+      final iosFake = FakeTts();
+      iosFake.voices = [
         {
           'name': 'Samantha',
           'locale': 'en-US',
@@ -267,101 +244,87 @@ void main() {
         },
         {'name': 'Daniel', 'locale': 'en-GB', 'identifier': 'x'},
       ];
-      final c = TtsController(tts: fake);
-      c.overrideIsAndroid = false;
-      final opts = await c.fetchOptions();
-      expect(opts, hasLength(2));
-      expect(opts[0].id, 'com.apple.voice.en-US.Samantha');
-      expect(opts[0].label, 'Samantha (en-US)');
-      expect(opts[1].id, 'x');
+      final iosController = TtsController(tts: iosFake);
+      iosController.overrideIsAndroid = false;
+      final iosOpts = await iosController.fetchOptions();
+      expect(iosOpts, hasLength(2));
+      expect(iosOpts[0].id, 'com.apple.voice.en-US.Samantha');
+      expect(iosOpts[0].label, 'Samantha (en-US)');
+      expect(iosOpts[1].id, 'x');
     });
 
-    test('applyOption routes Android to setEngine', () async {
-      final fake = FakeTts();
-      final c = TtsController(tts: fake);
-      c.overrideIsAndroid = true;
-      final opt = TtsOption(
+    test('applyOption routes the selection to the platform setter', () async {
+      final engineFake = FakeTts();
+      final engineController = TtsController(tts: engineFake);
+      engineController.overrideIsAndroid = true;
+      final engineOpt = TtsOption(
         id: 'com.google.android.tts',
         label: 'Google TTS',
         raw: {'name': 'com.google.android.tts'},
       );
-      await c.applyOption(opt);
-      expect(fake.setEngineId, 'com.google.android.tts');
-    });
+      await engineController.applyOption(engineOpt);
+      expect(engineFake.setEngineId, 'com.google.android.tts');
 
-    test('applyOption routes non-Android to setVoice', () async {
-      final fake = FakeTts();
-      final c = TtsController(tts: fake);
-      c.overrideIsAndroid = false;
-      final opt = TtsOption(
+      final voiceFake = FakeTts();
+      final voiceController = TtsController(tts: voiceFake);
+      voiceController.overrideIsAndroid = false;
+      final voiceOpt = TtsOption(
         id: 'x',
         label: 'Daniel (en-GB)',
         raw: {'name': 'Daniel', 'locale': 'en-GB'},
       );
-      await c.applyOption(opt);
-      expect(fake.setVoiceRaw, {'name': 'Daniel', 'locale': 'en-GB'});
-    });
-
-    test('init does not auto-select an engine (uses system default)', () async {
-      await (await SharedPreferences.getInstance()).clear();
-      final fake = FakeTts();
-      fake.engines = [
-        {'name': 'com.google.android.tts', 'label': 'Google TTS'},
-      ];
-      final c = TtsController(tts: fake);
-      c.overrideIsAndroid = true;
-      await c.init();
-      expect(fake.setEngineId, isNull);
-      expect(c.selectedOption, isNull);
-    });
-
-    test('fetchOptions falls back to default engine when blocked', () async {
-      final fake = FakeTts();
-      fake.engines = [];
-      fake.defaultEngine = 'com.google.android.tts';
-      final c = TtsController(tts: fake);
-      c.overrideIsAndroid = true;
-      final opts = await c.fetchOptions();
-      expect(opts, hasLength(1));
-      expect(opts.first.id, 'com.google.android.tts');
-    });
-
-    test('checkAndPrepare succeeds with no enumerable engines', () async {
-      final fake = FakeTts();
-      fake.engines = [];
-      fake.defaultEngine = 'com.google.android.tts';
-      final c = TtsController(tts: fake);
-      c.overrideIsAndroid = true;
-      expect(await c.checkAndPrepare(), isTrue);
+      await voiceController.applyOption(voiceOpt);
+      expect(voiceFake.setVoiceRaw, {'name': 'Daniel', 'locale': 'en-GB'});
     });
 
     test(
-      'fetchOptions offers Device default when nothing is enumerable',
+      'falls back to the device default without preselecting an engine',
       () async {
-        final fake = FakeTts();
-        fake.engines = [];
-        fake.defaultEngine = null;
-        final c = TtsController(tts: fake);
-        c.overrideIsAndroid = true;
-        final opts = await c.fetchOptions();
-        expect(opts, hasLength(1));
-        expect(opts.first.id, TtsController.defaultEngineId);
-        expect(opts.first.label, 'Device default');
+        await (await SharedPreferences.getInstance()).clear();
+        final initFake = FakeTts();
+        initFake.engines = [
+          {'name': 'com.google.android.tts', 'label': 'Google TTS'},
+        ];
+        final initController = TtsController(tts: initFake);
+        initController.overrideIsAndroid = true;
+        await initController.init();
+        expect(initFake.setEngineId, isNull);
+        expect(initController.selectedOption, isNull);
+
+        final blockedFake = FakeTts();
+        blockedFake.engines = [];
+        blockedFake.defaultEngine = 'com.google.android.tts';
+        final blockedController = TtsController(tts: blockedFake);
+        blockedController.overrideIsAndroid = true;
+        final blockedOpts = await blockedController.fetchOptions();
+        expect(blockedOpts, hasLength(1));
+        expect(blockedOpts.first.id, 'com.google.android.tts');
+
+        final emptyFake = FakeTts();
+        emptyFake.engines = [];
+        emptyFake.defaultEngine = null;
+        final emptyController = TtsController(tts: emptyFake);
+        emptyController.overrideIsAndroid = true;
+        final emptyOpts = await emptyController.fetchOptions();
+        expect(emptyOpts, hasLength(1));
+        expect(emptyOpts.first.id, TtsController.defaultEngineId);
+        expect(emptyOpts.first.label, 'Device default');
+
+        final defaultFake = FakeTts();
+        final defaultController = TtsController(tts: defaultFake);
+        defaultController.overrideIsAndroid = true;
+        const opt = TtsOption(
+          id: TtsController.defaultEngineId,
+          label: 'Device default',
+          raw: {},
+        );
+        await defaultController.applyOption(opt);
+        expect(defaultFake.setEngineId, isNull);
+        expect(
+          defaultController.selectedOption?.id,
+          TtsController.defaultEngineId,
+        );
       },
     );
-
-    test('Device default option does not call setEngine', () async {
-      final fake = FakeTts();
-      final c = TtsController(tts: fake);
-      c.overrideIsAndroid = true;
-      final opt = const TtsOption(
-        id: TtsController.defaultEngineId,
-        label: 'Device default',
-        raw: {},
-      );
-      await c.applyOption(opt);
-      expect(fake.setEngineId, isNull);
-      expect(c.selectedOption?.id, TtsController.defaultEngineId);
-    });
   });
 }

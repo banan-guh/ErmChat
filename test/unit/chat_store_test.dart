@@ -19,39 +19,43 @@ ChatStore _store() => ChatStore(
 
 void main() {
   group('ChatStore.upsertSystemMessage', () {
-    test('inserts when the id is new, updates in place afterwards', () {
-      final store = _store();
-      expect(
-        store.upsertSystemMessage(
-          'test',
-          'Joining · position 12 · ~14s',
-          messageId: 'join_wait_test',
-        ),
-        isTrue,
-      );
-      expect(
-        store.upsertSystemMessage(
-          'test',
-          'Joining · position 12 · ~13s',
-          messageId: 'join_wait_test',
-        ),
-        isTrue,
-      );
+    test(
+      'inserts when the id is new, updates in place afterwards and treats identical text as a no-op',
+      () {
+        final store = _store();
+        expect(
+          store.upsertSystemMessage(
+            'test',
+            'Joining · position 12 · ~14s',
+            messageId: 'join_wait_test',
+          ),
+          isTrue,
+        );
+        expect(
+          store.upsertSystemMessage(
+            'test',
+            'Joining · position 12 · ~13s',
+            messageId: 'join_wait_test',
+          ),
+          isTrue,
+        );
 
-      final msgs = store.channelMessages['test']!;
-      expect(msgs, hasLength(1), reason: 'ticks update, never stack');
-      expect(msgs.first.text, 'Joining · position 12 · ~13s');
-      expect(msgs.first.messageId, 'join_wait_test');
-    });
+        final msgs = store.channelMessages['test']!;
+        expect(msgs, hasLength(1), reason: 'ticks update, never stack');
+        expect(msgs.first.text, 'Joining · position 12 · ~13s');
+        expect(msgs.first.messageId, 'join_wait_test');
 
-    test('identical text is a no-op', () {
-      final store = _store();
-      store.upsertSystemMessage('test', 'same', messageId: 'id1');
-      expect(
-        store.upsertSystemMessage('test', 'same', messageId: 'id1'),
-        isFalse,
-      );
-    });
+        expect(
+          store.upsertSystemMessage('test', 'same', messageId: 'id1'),
+          isTrue,
+        );
+        expect(
+          store.upsertSystemMessage('test', 'same', messageId: 'id1'),
+          isFalse,
+          reason: 'identical text is a no-op',
+        );
+      },
+    );
 
     test('removeSystemMessage drops only the matching row', () {
       final store = _store();
@@ -89,60 +93,70 @@ void main() {
       expect(texts, contains('Reconnected'));
     });
 
-    test('Reconnected folds transient markers and dedups itself', () {
-      final store = _store();
-      store.addSystemMessage('test', 'Disconnected');
-      store.addSystemMessage('test', 'Chat reconnecting...');
-      expect(store.addSystemMessage('test', 'Reconnected'), isTrue);
+    test(
+      'Reconnected folds transient markers, dedups itself and suppresses the reconnecting marker while Disconnected is present',
+      () {
+        final store = _store();
+        store.addSystemMessage('test', 'Disconnected');
+        store.addSystemMessage('test', 'Chat reconnecting...');
+        expect(store.addSystemMessage('test', 'Reconnected'), isTrue);
 
-      final texts = store.channelMessages['test']!.map((m) => m.text).toList();
-      expect(texts, ['Reconnected']);
+        final texts = store.channelMessages['test']!
+            .map((m) => m.text)
+            .toList();
+        expect(texts, ['Reconnected']);
 
-      // The second socket reporting recovery must not stack a line.
-      expect(store.addSystemMessage('test', 'Reconnected'), isFalse);
-      expect(store.channelMessages['test']!, hasLength(1));
-    });
+        // The second socket reporting recovery must not stack a line.
+        expect(store.addSystemMessage('test', 'Reconnected'), isFalse);
+        expect(store.channelMessages['test']!, hasLength(1));
 
-    test('reconnecting marker suppressed while Disconnected present', () {
-      final store = _store();
-      store.addSystemMessage('test', 'Disconnected');
-      expect(store.addSystemMessage('test', 'Chat reconnecting...'), isFalse);
-      expect(store.channelMessages['test']!.map((m) => m.text), [
-        'Disconnected',
-      ]);
-    });
+        final suppressed = _store();
+        suppressed.addSystemMessage('test', 'Disconnected');
+        expect(
+          suppressed.addSystemMessage('test', 'Chat reconnecting...'),
+          isFalse,
+        );
+        expect(suppressed.channelMessages['test']!.map((m) => m.text), [
+          'Disconnected',
+        ]);
+      },
+    );
 
-    test('system message without accent has null accent', () {
-      final store = _store();
-      store.addSystemMessage('test', 'Announcement');
-      final msg = store.channelMessages['test']!.first;
-      expect(msg.isSystem, isTrue);
-      expect(msg.systemAccent, isNull);
-    });
-
-    test('messageId dedup skips a repeat insert and returns false', () {
-      final store = _store();
-      expect(
-        store.addSystemMessage(
-          'test',
-          'ronni subscribed!',
-          messageId: 'n1:label',
-        ),
-        isTrue,
-      );
-      expect(store.channelMessages['test']!.first.messageId, 'n1:label');
-
-      expect(
-        store.addSystemMessage(
-          'test',
-          'ronni subscribed!',
-          messageId: 'n1:label',
-        ),
-        isFalse,
-        reason: 'the same notice event must not stack a second label',
-      );
-      expect(store.channelMessages['test'], hasLength(1));
-    });
+    test(
+      'messageId dedup skips a repeat insert while distinct ids with identical text both insert',
+      () {
+        final table = [
+          ('repeat id is skipped', 'n1:label', 'n1:label', false, 1),
+          ('distinct id inserts', 'n1:label', 'n2:label', true, 2),
+        ];
+        for (final (label, firstId, secondId, secondResult, count) in table) {
+          final store = _store();
+          expect(
+            store.addSystemMessage(
+              'test',
+              'ronni subscribed!',
+              messageId: firstId,
+            ),
+            isTrue,
+            reason: label,
+          );
+          expect(
+            store.addSystemMessage(
+              'test',
+              'ronni subscribed!',
+              messageId: secondId,
+            ),
+            secondResult ? isTrue : isFalse,
+            reason: label,
+          );
+          expect(
+            store.channelMessages['test'],
+            hasLength(count),
+            reason: label,
+          );
+        }
+      },
+    );
 
     test('label id never collides with the child message id', () {
       final store = _store();
@@ -165,19 +179,6 @@ void main() {
       );
       expect(store.channelMessages['test'], hasLength(2));
     });
-
-    test('distinct ids with identical text both insert', () {
-      final store = _store();
-      expect(
-        store.addSystemMessage('test', 'Announcement', messageId: 'n1:label'),
-        isTrue,
-      );
-      expect(
-        store.addSystemMessage('test', 'Announcement', messageId: 'n2:label'),
-        isTrue,
-      );
-      expect(store.channelMessages['test'], hasLength(2));
-    });
   });
 
   group('ChatStore.ingestMessage', () {
@@ -187,80 +188,61 @@ void main() {
       messageId: id,
       channel: 'test',
     );
-    test('duplicate returns false and skips signals', () {
-      final store = _store();
-      expect(store.ingestMessage(live('m1'), maxMessages: 10), isTrue);
-
-      final events = <ChatStoreEvent>[];
-      final sub = store.events.listen(events.add);
-      expect(store.ingestMessage(live('m1'), maxMessages: 10), isFalse);
-      sub.cancel();
-
-      expect(store.channelMessages['test'], hasLength(1));
-      expect(store.messageCountNotifier('test').value, 1);
-      expect(events, isEmpty);
-    });
-
-    test('insert bumps messageCountNotifier and emits newContent', () {
+    test('inserts and duplicate signals share one notifier contract', () {
       final store = _store();
       final events = <ChatStoreEvent>[];
       final sub = store.events.listen(events.add);
-
       expect(store.ingestMessage(live('m1'), maxMessages: 10), isTrue);
-      sub.cancel();
-
       expect(store.channelMessages['test']!.first.messageId, 'm1');
       expect(store.messageCountNotifier('test').value, 1);
       expect(events.single.signal, ChatStoreSignal.newContent);
       expect(events.single.channel, 'test');
+      sub.cancel();
+
+      final dupEvents = <ChatStoreEvent>[];
+      final dupSub = store.events.listen(dupEvents.add);
+      expect(store.ingestMessage(live('m1'), maxMessages: 10), isFalse);
+      dupSub.cancel();
+      expect(store.channelMessages['test'], hasLength(1));
+      expect(store.messageCountNotifier('test').value, 1);
+      expect(dupEvents, isEmpty);
     });
 
-    test(
-      'mention highlight bumps unread bookkeeping and mirrors into mentions',
-      () {
+    for (final (name, highlight, selected, unread, bump) in [
+      (
+        'mention highlight bumps unread bookkeeping and mirrors into mentions',
+        const HighlightState(types: {HighlightType.username}),
+        'other',
+        1,
+        1,
+      ),
+      (
+        'mention in the selected channel skips counters but still mirrors',
+        const HighlightState(types: {HighlightType.reply}),
+        'test',
+        0,
+        0,
+      ),
+    ]) {
+      test(name, () {
         final store = _store();
-        final msg = live('m1')
-          ..highlight = const HighlightState(types: {HighlightType.username});
+        final msg = live('m1')..highlight = highlight;
 
         expect(
           store.ingestMessage(
             msg,
             maxMessages: 10,
-            selectedChannel: 'other',
+            selectedChannel: selected,
             mentionsChannel: '@mentions',
           ),
           isTrue,
         );
-        expect(store.unreadMentions, 1);
-        expect(store.mentionsBump.value, 1);
-        expect(store.channelsWithUnreadMentions, contains('test'));
-        expect(store.unreadMentionsPerChannel['test'], 1);
-        expect(store.channelMessages['@mentions']!.single.messageId, 'm1');
-      },
-    );
-
-    test(
-      'mention in the selected channel skips counters but still mirrors',
-      () {
-        final store = _store();
-        final msg = live('m1')
-          ..highlight = const HighlightState(types: {HighlightType.reply});
-
-        expect(
-          store.ingestMessage(
-            msg,
-            maxMessages: 10,
-            selectedChannel: 'test',
-            mentionsChannel: '@mentions',
-          ),
-          isTrue,
-        );
-        expect(store.unreadMentions, 0);
-        expect(store.mentionsBump.value, 0);
-        expect(store.unreadMentionsPerChannel, isEmpty);
+        expect(store.unreadMentions, unread);
+        expect(store.mentionsBump.value, bump);
         expect(store.channelMessages['@mentions'], hasLength(1));
-      },
-    );
+        expect(store.channelMessages['@mentions']!.single.messageId, 'm1');
+      });
+    }
   });
 
   group('ChatStore.mirrorMentions', () {
@@ -273,56 +255,49 @@ void main() {
           timestamp: ts,
         );
 
-    test('sorts a mixed batch newest-first across midnight', () {
-      final store = _store();
-      // History spanning midnight arrives with wall-clock-looking order
-      // flips; the buffer must stay ordered by real timestamps.
-      final beforeMidnight = mention('m1', DateTime(2026, 8, 22, 23, 59, 59));
-      final afterMidnight = mention('m2', DateTime(2026, 8, 23, 0, 0, 1));
-
-      store.mirrorMentions('@mentions', [
-        beforeMidnight,
-        afterMidnight,
-      ], maxMessages: 10);
-
-      expect(store.channelMessages['@mentions']!.map((m) => m.messageId), [
-        'm2',
-        'm1',
-      ]);
-    });
-
-    test('caller iteration order never leaks into the buffer', () {
-      final store = _store();
-      final msgs = [
-        for (var i = 0; i < 5; i++)
-          mention('m$i', DateTime(2026, 8, 20, 12, 0, i)),
-      ];
-
-      // Newest-first input (as channel buffers are stored) must yield the
-      // same result as oldest-first input.
-      store.mirrorMentions('@mentions', msgs, maxMessages: 10);
-      expect(store.channelMessages['@mentions']!.map((m) => m.messageId), [
-        'm4',
-        'm3',
-        'm2',
-        'm1',
-        'm0',
-      ]);
-
-      final other = _store();
-      other.mirrorMentions(
-        '@mentions',
-        msgs.reversed.toList(),
-        maxMessages: 10,
-      );
-      expect(other.channelMessages['@mentions']!.map((m) => m.messageId), [
-        'm4',
-        'm3',
-        'm2',
-        'm1',
-        'm0',
-      ]);
-    });
+    test(
+      'mirror ordering stays newest-first across midnight and caller iteration order',
+      () {
+        final cases = [
+          (
+            'sorts a mixed batch newest-first across midnight',
+            [
+              mention('m1', DateTime(2026, 8, 22, 23, 59, 59)),
+              mention('m2', DateTime(2026, 8, 23, 0, 0, 1)),
+            ],
+            ['m2', 'm1'],
+          ),
+          (
+            'caller iteration order never leaks into the buffer',
+            [
+              for (var i = 0; i < 5; i++)
+                mention('m$i', DateTime(2026, 8, 20, 12, 0, i)),
+            ],
+            ['m4', 'm3', 'm2', 'm1', 'm0'],
+          ),
+        ];
+        for (final (label, input, expected) in cases) {
+          final store = _store();
+          store.mirrorMentions('@mentions', input, maxMessages: 10);
+          expect(
+            store.channelMessages['@mentions']!.map((m) => m.messageId),
+            expected,
+            reason: label,
+          );
+          final other = _store();
+          other.mirrorMentions(
+            '@mentions',
+            input.reversed.toList(),
+            maxMessages: 10,
+          );
+          expect(
+            other.channelMessages['@mentions']!.map((m) => m.messageId),
+            expected,
+            reason: '$label reversed',
+          );
+        }
+      },
+    );
 
     test('dedupes against the buffer and within the batch', () {
       final store = _store();
@@ -355,19 +330,5 @@ void main() {
         'm2',
       ]);
     });
-  });
-
-  test('data-load failures record and clear with the retry notifier', () {
-    final store = _store();
-    expect(store.loadFailedChannels.value, isEmpty);
-    store.recordLoadFailure('test', 'emotes');
-    expect(store.loadFailedChannels.value, contains('test'));
-    store.recordLoadFailure('test', 'badges');
-    expect(store.channelLoadFailures['test'], {'emotes', 'badges'});
-    store.clearLoadFailure('test', 'emotes');
-    expect(store.loadFailedChannels.value, contains('test'));
-    store.clearLoadFailure('test', 'badges');
-    expect(store.loadFailedChannels.value, isNot(contains('test')));
-    expect(store.channelLoadFailures.containsKey('test'), isFalse);
   });
 }

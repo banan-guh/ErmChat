@@ -37,47 +37,55 @@ Map<String, dynamic> _moderate({
 
 void main() {
   group('parseIrcLine', () {
-    test('parses basic PRIVMSG', () {
-      const raw =
-          '@display-name=forsen;color=#FF0000;id=abc-123;rm-received-ts=1700000000000 :forsen!forsen@forsen.tmi.twitch.tv PRIVMSG #xqc :Hello chat';
-      final msg = RecentMessagesService.parseIrcLine(raw);
-      expect(msg, isNotNull);
-      expect(msg!.login, 'forsen');
-      expect(msg.text, 'Hello chat');
-      expect(msg.color, '#FF0000');
-      expect(msg.messageId, 'abc-123');
-      expect(msg.isHistory, isTrue);
-      expect(msg.channel, isNull);
-    });
+    for (final (name, raw, expectedColor) in [
+      (
+        'parses basic PRIVMSG',
+        '@display-name=forsen;color=#FF0000;id=abc-123;rm-received-ts=1700000000000 :forsen!forsen@forsen.tmi.twitch.tv PRIVMSG #xqc :Hello chat',
+        '#FF0000',
+      ),
+      (
+        'parses message without color tag',
+        '@display-name=forsen;id=def-456;rm-received-ts=1700000000000 :forsen!forsen@forsen.tmi.twitch.tv PRIVMSG #xqc :no color',
+        null,
+      ),
+    ]) {
+      test(name, () {
+        final msg = RecentMessagesService.parseIrcLine(raw);
+        expect(msg, isNotNull, reason: name);
+        expect(msg!.login, 'forsen', reason: name);
+        if (expectedColor != null) {
+          expect(msg.color, expectedColor, reason: name);
+          expect(msg.messageId, 'abc-123', reason: name);
+          expect(msg.isHistory, isTrue, reason: name);
+          expect(msg.channel, isNull, reason: name);
+        } else {
+          expect(msg.color, isNotNull, reason: name);
+          expect(msg.color!.startsWith('#'), isTrue, reason: name);
+        }
+      });
+    }
 
-    test('parses message without color tag', () {
-      const raw =
-          '@display-name=forsen;id=def-456;rm-received-ts=1700000000000 :forsen!forsen@forsen.tmi.twitch.tv PRIVMSG #xqc :no color';
-      final msg = RecentMessagesService.parseIrcLine(raw);
-      expect(msg, isNotNull);
-      expect(msg!.login, 'forsen');
-      expect(msg.text, 'no color');
-      expect(msg.color, isNotNull);
-      expect(msg.color!.startsWith('#'), isTrue);
-    });
-
-    test('parses cheer PRIVMSG with purple accent', () {
-      const raw =
-          '@badges=bits/1000;bits=100;display-name=ronni;id=cheer-1;rm-received-ts=1700000000000 :ronni!ronni@ronni.tmi.twitch.tv PRIVMSG #xqc :Cheer100 take my bits';
-      final msg = RecentMessagesService.parseIrcLine(raw);
-      expect(msg, isNotNull);
-      expect(msg!.bitsAmount, 100);
-      expect(msg.systemAccent, const Color(0xFF9146FF));
-    });
-
-    test('non-cheer PRIVMSG has no bits amount or accent', () {
-      const raw =
-          '@display-name=forsen;id=abc-123;rm-received-ts=1700000000000 :forsen!forsen@forsen.tmi.twitch.tv PRIVMSG #xqc :Hello chat';
-      final msg = RecentMessagesService.parseIrcLine(raw);
-      expect(msg, isNotNull);
-      expect(msg!.bitsAmount, isNull);
-      expect(msg.systemAccent, isNull);
-    });
+    for (final (name, raw, bits, accent) in [
+      (
+        'parses cheer PRIVMSG with purple accent',
+        '@badges=bits/1000;bits=100;display-name=ronni;id=cheer-1;rm-received-ts=1700000000000 :ronni!ronni@ronni.tmi.twitch.tv PRIVMSG #xqc :Cheer100 take my bits',
+        100,
+        const Color(0xFF9146FF),
+      ),
+      (
+        'non-cheer PRIVMSG has no bits amount or accent',
+        '@display-name=forsen;id=abc-123;rm-received-ts=1700000000000 :forsen!forsen@forsen.tmi.twitch.tv PRIVMSG #xqc :Hello chat',
+        null,
+        null,
+      ),
+    ]) {
+      test(name, () {
+        final msg = RecentMessagesService.parseIrcLine(raw);
+        expect(msg, isNotNull, reason: name);
+        expect(msg!.bitsAmount, bits, reason: name);
+        expect(msg.systemAccent, accent, reason: name);
+      });
+    }
 
     test('parses reply IRC tags', () {
       const raw =
@@ -90,25 +98,31 @@ void main() {
       expect(msg.text, 'reply text');
     });
 
-    test('parses highlight-related tags', () {
-      const raw =
-          '@msg-id=highlighted-message;custom-reward-id=reward-9;pinned-chat-paid-amount=100;display-name=forsen;id=elev-1 :forsen!forsen@forsen.tmi.twitch.tv PRIVMSG #xqc :yo';
-      final msg = RecentMessagesService.parseIrcLine(raw);
-      expect(msg, isNotNull);
-      expect(msg!.msgId, 'highlighted-message');
-      expect(msg.customRewardId, 'reward-9');
-      expect(msg.pinnedPaidAmount, '100');
-    });
-
-    test('plain PRIVMSG has no highlight tags', () {
-      const raw =
-          '@display-name=forsen;id=abc-123 :forsen!forsen@forsen.tmi.twitch.tv PRIVMSG #xqc :Hello chat';
-      final msg = RecentMessagesService.parseIrcLine(raw);
-      expect(msg, isNotNull);
-      expect(msg!.msgId, isNull);
-      expect(msg.customRewardId, isNull);
-      expect(msg.pinnedPaidAmount, isNull);
-    });
+    for (final (name, raw, msgId) in [
+      (
+        'parses highlight-related tags',
+        '@msg-id=highlighted-message;custom-reward-id=reward-9;pinned-chat-paid-amount=100;display-name=forsen;id=elev-1 :forsen!forsen@forsen.tmi.twitch.tv PRIVMSG #xqc :yo',
+        'highlighted-message',
+      ),
+      (
+        'plain PRIVMSG has no highlight tags',
+        '@display-name=forsen;id=abc-123 :forsen!forsen@forsen.tmi.twitch.tv PRIVMSG #xqc :Hello chat',
+        null,
+      ),
+    ]) {
+      test(name, () {
+        final msg = RecentMessagesService.parseIrcLine(raw);
+        expect(msg, isNotNull, reason: name);
+        expect(msg!.msgId, msgId, reason: name);
+        if (msgId != null) {
+          expect(msg.customRewardId, 'reward-9', reason: name);
+          expect(msg.pinnedPaidAmount, '100', reason: name);
+        } else {
+          expect(msg.customRewardId, isNull, reason: name);
+          expect(msg.pinnedPaidAmount, isNull, reason: name);
+        }
+      });
+    }
 
     test('handles malformed escape in reply tag', () {
       const raw =
@@ -118,33 +132,41 @@ void main() {
       expect(msg!.replyToText, r'unknown\qescape');
     });
 
-    test('returns null for JOIN', () {
-      const raw = '@display-name=forsen :tmi.twitch.tv JOIN #xqc';
-      final msg = RecentMessagesService.parseIrcLine(raw);
-      expect(msg, isNull);
-    });
+    for (final (name, raw) in [
+      (
+        'returns null for JOIN',
+        '@display-name=forsen :tmi.twitch.tv JOIN #xqc',
+      ),
+      (
+        'returns null for empty display-name and text',
+        '@display-name=;id=zzz-333 :user!user@user.tmi.twitch.tv PRIVMSG #xqc :',
+      ),
+    ]) {
+      test(name, () {
+        expect(RecentMessagesService.parseIrcLine(raw), isNull, reason: name);
+      });
+    }
 
-    test('parses timeout CLEARCHAT', () {
-      const raw =
-          '@ban-duration=300;target-user-id=974273622;rm-received-ts=1700000000000;historical=1 :tmi.twitch.tv CLEARCHAT #ermugo2 :ermugo1';
-      final msg = RecentMessagesService.parseIrcLine(raw);
-      expect(msg, isNotNull);
-      expect(msg!.isSystem, isTrue);
-      expect(msg.text, 'ermugo1 was timed out for 5m.');
-      expect(msg.isHistory, isTrue);
-      expect(msg.channel, isNull);
-      expect(msg.timestamp.millisecondsSinceEpoch, 1700000000000);
-    });
-
-    test('parses ban CLEARCHAT without ban-duration', () {
-      const raw =
-          '@target-user-id=974273622;rm-received-ts=1700000000000 :tmi.twitch.tv CLEARCHAT #ermugo2 :ermugo1';
-      final msg = RecentMessagesService.parseIrcLine(raw);
-      expect(msg, isNotNull);
-      expect(msg!.isSystem, isTrue);
-      expect(msg.text, 'ermugo1 was banned.');
-      expect(msg.isHistory, isTrue);
-    });
+    for (final (name, raw, text) in [
+      (
+        'parses timeout CLEARCHAT',
+        '@ban-duration=300;target-user-id=974273622;rm-received-ts=1700000000000;historical=1 :tmi.twitch.tv CLEARCHAT #ermugo2 :ermugo1',
+        'ermugo1 was timed out for 5m.',
+      ),
+      (
+        'parses ban CLEARCHAT without ban-duration',
+        '@target-user-id=974273622;rm-received-ts=1700000000000 :tmi.twitch.tv CLEARCHAT #ermugo2 :ermugo1',
+        'ermugo1 was banned.',
+      ),
+    ]) {
+      test(name, () {
+        final msg = RecentMessagesService.parseIrcLine(raw);
+        expect(msg, isNotNull, reason: name);
+        expect(msg!.isSystem, isTrue, reason: name);
+        expect(msg.text, text, reason: name);
+        expect(msg.isHistory, isTrue, reason: name);
+      });
+    }
 
     test('parses robotty CLEARCHAT without trailing colon', () {
       const raw =
@@ -166,13 +188,6 @@ void main() {
     test('CLEARCHAT without trailing returns null', () {
       const raw =
           '@ban-duration=300;rm-received-ts=1700000000000 :tmi.twitch.tv CLEARCHAT #ermugo2';
-      final msg = RecentMessagesService.parseIrcLine(raw);
-      expect(msg, isNull);
-    });
-
-    test('returns null for empty display-name and text', () {
-      const raw =
-          '@display-name=;id=zzz-333 :user!user@user.tmi.twitch.tv PRIVMSG #xqc :';
       final msg = RecentMessagesService.parseIrcLine(raw);
       expect(msg, isNull);
     });
@@ -213,17 +228,20 @@ void main() {
       expect(msg.emotePositions!.first.endIndex, 13);
     });
 
-    test('parses non-reply emotes unchanged', () {
-      const raw =
-          '@display-name=testuser;id=em-noreply-1;rm-received-ts=1700000000000;emotes=123456:6-12 :testuser!testuser@testuser.tmi.twitch.tv PRIVMSG #xqc :hello forsenE';
-      final msg = RecentMessagesService.parseIrcLine(raw);
-      expect(msg, isNotNull);
-      expect(msg!.text, 'hello forsenE');
-      expect(msg.emotePositions, hasLength(1));
-      expect(msg.emotePositions!.first.emoteCode, 'forsenE');
-      expect(msg.emotePositions!.first.startIndex, 6);
-      expect(msg.emotePositions!.first.endIndex, 13);
-    });
+    test(
+      'parses non-reply emotes unchanged alongside the reply RangeError regression',
+      () {
+        const raw =
+            '@display-name=testuser;id=em-noreply-1;rm-received-ts=1700000000000;emotes=123456:6-12 :testuser!testuser@testuser.tmi.twitch.tv PRIVMSG #xqc :hello forsenE';
+        final msg = RecentMessagesService.parseIrcLine(raw);
+        expect(msg, isNotNull);
+        expect(msg!.text, 'hello forsenE');
+        expect(msg.emotePositions, hasLength(1));
+        expect(msg.emotePositions!.first.emoteCode, 'forsenE');
+        expect(msg.emotePositions!.first.startIndex, 6);
+        expect(msg.emotePositions!.first.endIndex, 13);
+      },
+    );
 
     test('parses single-word message without trailing colon', () {
       const raw =
@@ -262,15 +280,21 @@ void main() {
       expect(msg!.messageId, isNull);
     });
 
-    test('parses subgift USERNOTICE without user message', () {
-      const raw =
-          '@msg-id=subgift;system-msg=TWW2\\sgifted\\sa\\sTier\\s1\\ssub\\sto\\sMr_Woodchuck!;login=tww2;display-name=TWW2;rm-received-ts=1700000000000 :tmi.twitch.tv USERNOTICE #xqc';
-      final msg = RecentMessagesService.parseIrcLine(raw);
-      expect(msg, isNotNull);
-      expect(msg!.isSystem, isTrue);
-      expect(msg.text, 'TWW2 gifted a Tier 1 sub to Mr_Woodchuck!');
-      expect(msg.systemAccent, const Color(0xFF9146FF));
-    });
+    for (final (name, raw, text) in [
+      (
+        'parses subgift USERNOTICE without user message',
+        '@msg-id=subgift;system-msg=TWW2\\sgifted\\sa\\sTier\\s1\\ssub\\sto\\sMr_Woodchuck!;login=tww2;display-name=TWW2;rm-received-ts=1700000000000 :tmi.twitch.tv USERNOTICE #xqc',
+        'TWW2 gifted a Tier 1 sub to Mr_Woodchuck!',
+      ),
+    ]) {
+      test(name, () {
+        final msg = RecentMessagesService.parseIrcLine(raw);
+        expect(msg, isNotNull, reason: name);
+        expect(msg!.isSystem, isTrue, reason: name);
+        expect(msg.text, text, reason: name);
+        expect(msg.systemAccent, const Color(0xFF9146FF), reason: name);
+      });
+    }
 
     test('parses announcement USERNOTICE into label with login', () {
       const raw =
@@ -301,26 +325,23 @@ void main() {
       expect(msg.systemAccent, const Color(0xFFFF6F00));
     });
 
-    test('non-announcement notices highlight with the purple accent', () {
-      const raw =
-          '@msg-id=raid;system-msg=ronni\\sis\\sraiding\\sxqc!;login=ronni;display-name=ronni;rm-received-ts=1700000000000 :tmi.twitch.tv USERNOTICE #xqc';
-      final msg = RecentMessagesService.parseIrcLine(raw);
-      expect(msg, isNotNull);
-      expect(msg!.isSystem, isTrue);
-      expect(
-        msg.systemAccent,
-        const Color(0xFF9146FF),
-        reason: 'raids highlight like a default purple announcement',
-      );
-    });
-
-    test('payforward notices highlight with the purple accent', () {
-      const raw =
-          '@msg-id=standardpayforward;system-msg=ronni\\spaid\\sforward\\sa\\ssub!;login=ronni;display-name=ronni;rm-received-ts=1700000000000 :tmi.twitch.tv USERNOTICE #xqc';
-      final msg = RecentMessagesService.parseIrcLine(raw);
-      expect(msg, isNotNull);
-      expect(msg!.systemAccent, const Color(0xFF9146FF));
-    });
+    for (final (name, raw) in [
+      (
+        'non-announcement notices highlight with the purple accent',
+        '@msg-id=raid;system-msg=ronni\\sis\\sraiding\\sxqc!;login=ronni;display-name=ronni;rm-received-ts=1700000000000 :tmi.twitch.tv USERNOTICE #xqc',
+      ),
+      (
+        'payforward notices highlight with the purple accent',
+        '@msg-id=standardpayforward;system-msg=ronni\\spaid\\sforward\\sa\\ssub!;login=ronni;display-name=ronni;rm-received-ts=1700000000000 :tmi.twitch.tv USERNOTICE #xqc',
+      ),
+    ]) {
+      test(name, () {
+        final msg = RecentMessagesService.parseIrcLine(raw);
+        expect(msg, isNotNull, reason: name);
+        expect(msg!.isSystem, isTrue, reason: name);
+        expect(msg.systemAccent, const Color(0xFF9146FF), reason: name);
+      });
+    }
 
     test('returns null for USERNOTICE without msg-id', () {
       const raw =
@@ -329,20 +350,30 @@ void main() {
       expect(msg, isNull);
     });
 
-    test('parses NOTICE into a system message', () {
-      const raw =
-          '@msg-id=slow_on;rm-received-ts=1700000000000 :tmi.twitch.tv NOTICE #xqc :This room is now in slow mode.';
-      final msg = RecentMessagesService.parseIrcLine(raw);
-      expect(msg, isNotNull);
-      expect(msg!.isSystem, isTrue);
-      expect(msg.text, 'This room is now in slow mode.');
-      expect(msg.isHistory, isTrue);
-    });
-
-    test('returns null for NOTICE without text', () {
-      const raw = ':tmi.twitch.tv NOTICE #xqc';
-      expect(RecentMessagesService.parseIrcLine(raw), isNull);
-    });
+    for (final (name, raw, text) in [
+      (
+        'parses NOTICE into a system message',
+        '@msg-id=slow_on;rm-received-ts=1700000000000 :tmi.twitch.tv NOTICE #xqc :This room is now in slow mode.',
+        'This room is now in slow mode.',
+      ),
+      (
+        'returns null for NOTICE without text',
+        ':tmi.twitch.tv NOTICE #xqc',
+        null,
+      ),
+    ]) {
+      test(name, () {
+        final msg = RecentMessagesService.parseIrcLine(raw);
+        if (text == null) {
+          expect(msg, isNull, reason: name);
+        } else {
+          expect(msg, isNotNull, reason: name);
+          expect(msg!.isSystem, isTrue, reason: name);
+          expect(msg.text, text, reason: name);
+          expect(msg.isHistory, isTrue, reason: name);
+        }
+      });
+    }
   });
 
   group('parseAnnouncementChild', () {
@@ -381,23 +412,28 @@ void main() {
       expect(child.systemAccent, const Color(0xFF00C853));
     });
 
-    test('returns null for non-announcement USERNOTICE', () {
-      const raw =
-          '@msg-id=resub;system-msg=ronni\\shas\\ssubscribed!;login=ronni;rm-received-ts=1700000000000 :tmi.twitch.tv USERNOTICE #xqc :Great stream!';
-      expect(RecentMessagesService.parseAnnouncementChild(raw), isNull);
-    });
-
-    test('returns null when announcement has no text', () {
-      const raw =
-          '@msg-id=announcement;msg-param-color=ORANGE;login=mm2pl;rm-received-ts=1700000000000 :tmi.twitch.tv USERNOTICE #xqc';
-      expect(RecentMessagesService.parseAnnouncementChild(raw), isNull);
-    });
-
-    test('returns null for non-USERNOTICE lines', () {
-      const raw =
-          '@display-name=forsen :forsen!forsen@forsen.tmi.twitch.tv PRIVMSG #xqc :hi';
-      expect(RecentMessagesService.parseAnnouncementChild(raw), isNull);
-    });
+    for (final (name, raw) in [
+      (
+        'returns null for non-announcement USERNOTICE',
+        '@msg-id=resub;system-msg=ronni\\shas\\ssubscribed!;login=ronni;rm-received-ts=1700000000000 :tmi.twitch.tv USERNOTICE #xqc :Great stream!',
+      ),
+      (
+        'returns null when announcement has no text',
+        '@msg-id=announcement;msg-param-color=ORANGE;login=mm2pl;rm-received-ts=1700000000000 :tmi.twitch.tv USERNOTICE #xqc',
+      ),
+      (
+        'returns null for non-USERNOTICE lines',
+        '@display-name=forsen :forsen!forsen@forsen.tmi.twitch.tv PRIVMSG #xqc :hi',
+      ),
+    ]) {
+      test(name, () {
+        expect(
+          RecentMessagesService.parseAnnouncementChild(raw),
+          isNull,
+          reason: name,
+        );
+      });
+    }
 
     test('parses robotty announcement without trailing colon', () {
       // Real robotty line: single-word message, no colon before the text.
@@ -461,23 +497,24 @@ void main() {
       expect(child.systemAccent, const Color(0xFF9146FF));
     });
 
-    test('returns null for non-sub/resub USERNOTICE', () {
-      const raw =
-          '@msg-id=announcement;msg-param-color=BLUE;login=mm2pl;rm-received-ts=1700000000000 :tmi.twitch.tv USERNOTICE #xqc :hello';
-      expect(RecentMessagesService.parseSubChild(raw), isNull);
-    });
-
-    test('returns null when resub has no user message', () {
-      const raw =
-          '@msg-id=resub;system-msg=ronni\\shas\\ssubscribed!;login=ronni;rm-received-ts=1700000000000 :tmi.twitch.tv USERNOTICE #xqc';
-      expect(RecentMessagesService.parseSubChild(raw), isNull);
-    });
-
-    test('returns null for non-USERNOTICE lines', () {
-      const raw =
-          '@display-name=forsen :forsen!forsen@forsen.tmi.twitch.tv PRIVMSG #xqc :hi';
-      expect(RecentMessagesService.parseSubChild(raw), isNull);
-    });
+    for (final (name, raw) in [
+      (
+        'returns null for non-sub/resub USERNOTICE',
+        '@msg-id=announcement;msg-param-color=BLUE;login=mm2pl;rm-received-ts=1700000000000 :tmi.twitch.tv USERNOTICE #xqc :hello',
+      ),
+      (
+        'returns null when resub has no user message',
+        '@msg-id=resub;system-msg=ronni\\shas\\ssubscribed!;login=ronni;rm-received-ts=1700000000000 :tmi.twitch.tv USERNOTICE #xqc',
+      ),
+      (
+        'returns null for non-USERNOTICE lines',
+        '@display-name=forsen :forsen!forsen@forsen.tmi.twitch.tv PRIVMSG #xqc :hi',
+      ),
+    ]) {
+      test(name, () {
+        expect(RecentMessagesService.parseSubChild(raw), isNull, reason: name);
+      });
+    }
 
     test('robotty resub line parses both label and child', () {
       // Real robotty line shape: single-word message, no colon before text.
@@ -587,21 +624,24 @@ void main() {
       );
     });
 
-    test('returns null for non-CLEARMSG lines', () {
-      expect(
-        RecentMessagesService.clearMsgTargetId(
-          '@display-name=forsen :forsen!forsen@forsen.tmi.twitch.tv PRIVMSG #xqc :hi',
-        ),
-        isNull,
-      );
-      expect(
-        RecentMessagesService.clearMsgTargetId(
-          ':tmi.twitch.tv CLEARMSG #xqc :kuh',
-        ),
-        isNull,
-        reason: 'no target-msg-id tag',
-      );
-    });
+    for (final (name, raw) in [
+      (
+        'returns null for non-CLEARMSG lines',
+        '@display-name=forsen :forsen!forsen@forsen.tmi.twitch.tv PRIVMSG #xqc :hi',
+      ),
+      (
+        'returns null for CLEARMSG without target-msg-id tag',
+        ':tmi.twitch.tv CLEARMSG #xqc :kuh',
+      ),
+    ]) {
+      test(name, () {
+        expect(
+          RecentMessagesService.clearMsgTargetId(raw),
+          isNull,
+          reason: name,
+        );
+      });
+    }
 
     test('marks matching messages deleted', () {
       final t0 = DateTime(2024, 1, 1, 12, 0, 0);
@@ -653,87 +693,68 @@ void main() {
   }
 
   group('getUserId', () {
-    test('sends GET /helix/users?login= and returns id on 200', () async {
-      late http.Request captured;
-      final api = createApi(
-        (req) => captured = req,
-        respond: () => http.Response(
-          '{"data": [{"id": "12345", "login": "testuser"}]}',
-          200,
-        ),
-      );
-
-      expect(await api.getUserId(auth, 'testuser'), '12345');
-
-      expect(captured.method, 'GET');
-      expect(
-        captured.url.toString(),
-        'https://api.twitch.tv/helix/users?login=testuser',
-      );
-      expectAuthHeaders(captured);
-    });
-
-    test('returns null on non-200', () async {
-      final api = createApi(
-        (_) {},
-        respond: () => http.Response('Not Found', 404),
-      );
-
-      expect(await api.getUserId(auth, 'testuser'), isNull);
-      expect(api.lastError, contains('getUserId'));
-    });
-
-    test('returns null when data list is empty', () async {
-      final api = createApi(
-        (_) {},
-        respond: () => http.Response('{"data": []}', 200),
-      );
-
-      expect(await api.getUserId(auth, 'nonexistent'), isNull);
-      expect(api.lastError, contains('not found'));
-    });
+    for (final (name, status, body, expected) in [
+      (
+        'sends GET /helix/users?login= and returns id on 200',
+        200,
+        '{"data": [{"id": "12345", "login": "testuser"}]}',
+        '12345',
+      ),
+      ('returns null on non-200', 404, 'Not Found', null),
+      ('returns null when data list is empty', 200, '{"data": []}', null),
+    ]) {
+      test(name, () async {
+        late http.Request captured;
+        final api = createApi(
+          (req) => captured = req,
+          respond: () => http.Response(body, status),
+        );
+        expect(await api.getUserId(auth, 'testuser'), expected, reason: name);
+        if (expected != null) {
+          expect(captured.method, 'GET');
+          expect(
+            captured.url.toString(),
+            'https://api.twitch.tv/helix/users?login=testuser',
+          );
+          expectAuthHeaders(captured);
+        } else {
+          expect(api.lastError, isNotNull, reason: name);
+        }
+      });
+    }
   });
 
   group('getCurrentUser', () {
-    test('sends GET /helix/users and returns id and login on 200', () async {
-      late http.Request captured;
-      final api = createApi(
-        (req) => captured = req,
-        respond: () => http.Response(
-          '{"data": [{"id": "1", "login": "currentuser"}]}',
-          200,
-        ),
-      );
-
-      final result = await api.getCurrentUser(auth);
-      expect(result, isNotNull);
-      expect(result!['id'], '1');
-      expect(result['login'], 'currentuser');
-
-      expect(captured.method, 'GET');
-      expect(captured.url.toString(), 'https://api.twitch.tv/helix/users');
-      expectAuthHeaders(captured);
-    });
-
-    test('returns null on non-200', () async {
-      final api = createApi(
-        (_) {},
-        respond: () => http.Response('Unauthorized', 401),
-      );
-
-      expect(await api.getCurrentUser(auth), isNull);
-      expect(api.lastError, contains('getCurrentUser'));
-    });
-
-    test('returns null when data list is empty', () async {
-      final api = createApi(
-        (_) {},
-        respond: () => http.Response('{"data": []}', 200),
-      );
-
-      expect(await api.getCurrentUser(auth), isNull);
-      expect(api.lastError, contains('No user associated'));
-    });
+    for (final (name, status, body, expectUser) in [
+      (
+        'sends GET /helix/users and returns id and login on 200',
+        200,
+        '{"data": [{"id": "1", "login": "currentuser"}]}',
+        true,
+      ),
+      ('returns null on non-200', 401, 'Unauthorized', false),
+      ('returns null when data list is empty', 200, '{"data": []}', false),
+    ]) {
+      test(name, () async {
+        late http.Request captured;
+        final api = createApi(
+          (req) => captured = req,
+          respond: () => http.Response(body, status),
+        );
+        final result = await api.getCurrentUser(auth);
+        if (expectUser) {
+          expect(result, isNotNull, reason: name);
+          expect(result!['id'], '1', reason: name);
+          expect(result['login'], 'currentuser', reason: name);
+          expect(captured.method, 'GET');
+          expect(captured.url.toString(), 'https://api.twitch.tv/helix/users');
+          expectAuthHeaders(captured);
+        } else {
+          expect(result, isNull, reason: name);
+          expect(api.lastError, isNotNull, reason: name);
+        }
+      });
+    }
   });
 
   group('getUserLoginsByIds', () {
@@ -782,19 +803,25 @@ void main() {
       expect(result['0'], 'user_0');
     });
 
-    test('dedups input ids before building the query', () async {
-      final requests = <String>[];
-      final api = TwitchApi(
-        client: MockClient((request) async {
-          requests.add(request.url.toString());
-          return http.Response('{"data": []}', 200);
-        }),
-      );
-
-      await api.getUserLoginsByIds(auth, ['1', '1', '1']);
-
-      expect(requests.single, 'https://api.twitch.tv/helix/users?id=1');
-    });
+    for (final (name, input, expectedUrl) in [
+      (
+        'dedups input ids before building the query',
+        ['1', '1', '1'],
+        'https://api.twitch.tv/helix/users?id=1',
+      ),
+    ]) {
+      test(name, () async {
+        final requests = <String>[];
+        final api = TwitchApi(
+          client: MockClient((request) async {
+            requests.add(request.url.toString());
+            return http.Response('{"data": []}', 200);
+          }),
+        );
+        await api.getUserLoginsByIds(auth, input);
+        expect(requests.single, expectedUrl, reason: name);
+      });
+    }
 
     test('skips failed chunks and returns whatever resolved', () async {
       var call = 0;
@@ -857,42 +884,28 @@ void main() {
       },
     );
 
-    test('returns true on 409 (already exists)', () async {
-      final api = createApi(
-        (_) {},
-        respond: () => http.Response('Conflict', 409),
-      );
-
-      expect(
-        await api.createEventSubSubscription(
-          auth: auth,
-          sessionId: 's1',
-          type: 'channel.moderate',
-          version: '2',
-          condition: {'broadcaster_user_id': 'b1'},
-        ),
-        isTrue,
-      );
-    });
-
-    test('returns false on other HTTP error', () async {
-      final api = createApi(
-        (_) {},
-        respond: () => http.Response('Forbidden', 403),
-      );
-
-      expect(
-        await api.createEventSubSubscription(
-          auth: auth,
-          sessionId: 's1',
-          type: 'channel.moderate',
-          version: '2',
-          condition: {'broadcaster_user_id': 'b1'},
-        ),
-        isFalse,
-      );
-      expect(api.lastError, contains('createEventSubSubscription'));
-    });
+    for (final (name, status, expected) in [
+      ('returns true on 409 (already exists)', 409, true),
+      ('returns false on other HTTP error', 403, false),
+    ]) {
+      test(name, () async {
+        final api = createApi(
+          (_) {},
+          respond: () => http.Response('err', status),
+        );
+        expect(
+          await api.createEventSubSubscription(
+            auth: auth,
+            sessionId: 's1',
+            type: 'channel.moderate',
+            version: '2',
+            condition: {'broadcaster_user_id': 'b1'},
+          ),
+          expected,
+          reason: name,
+        );
+      });
+    }
   });
 
   group('getUserProfile', () {
@@ -923,60 +936,62 @@ void main() {
       },
     );
 
-    test('returns null when data list is empty', () async {
-      final api = createApi(
-        (_) {},
-        respond: () => http.Response('{"data": []}', 200),
-      );
-
-      expect(await api.getUserProfile(auth, 'nonexistent'), isNull);
-      expect(api.lastError, contains('not found'));
-    });
-
-    test('returns null on non-200', () async {
-      final api = createApi(
-        (_) {},
-        respond: () => http.Response('Not Found', 404),
-      );
-
-      expect(await api.getUserProfile(auth, 'testuser'), isNull);
-      expect(api.lastError, contains('getUserProfile'));
-    });
+    for (final (name, status, body) in [
+      ('returns null when data list is empty', 200, '{"data": []}'),
+      ('returns null on non-200', 404, 'Not Found'),
+    ]) {
+      test(name, () async {
+        final api = createApi(
+          (_) {},
+          respond: () => http.Response(body, status),
+        );
+        expect(
+          await api.getUserProfile(auth, 'testuser'),
+          isNull,
+          reason: name,
+        );
+        expect(api.lastError, isNotNull, reason: name);
+      });
+    }
   });
 
   group('blockUser', () {
-    test(
-      'sends PUT /helix/users/blocks?target_user_id= and returns true on 204',
-      () async {
+    for (final (name, status, expected) in [
+      (
+        'sends PUT /helix/users/blocks?target_user_id= and returns true on 204',
+        204,
+        true,
+      ),
+      ('returns false on non-204', 403, false),
+    ]) {
+      test(name, () async {
         late http.Request captured;
-        final api = createApi((req) => captured = req);
-
-        expect(await api.blockUser(auth, 'target123'), isTrue);
-
-        expect(captured.method, 'PUT');
-        expect(
-          captured.url.toString(),
-          'https://api.twitch.tv/helix/users/blocks?target_user_id=target123',
+        final api = createApi(
+          (req) => captured = req,
+          respond: () => http.Response('x', status),
         );
-        expectAuthHeaders(captured);
-      },
-    );
-
-    test('returns false on non-204', () async {
-      final api = createApi(
-        (_) {},
-        respond: () => http.Response('Forbidden', 403),
-      );
-
-      expect(await api.blockUser(auth, 'target123'), isFalse);
-      expect(api.lastError, contains('blockUser'));
-    });
+        expect(await api.blockUser(auth, 'target123'), expected, reason: name);
+        if (expected) {
+          expect(captured.method, 'PUT');
+          expect(
+            captured.url.toString(),
+            'https://api.twitch.tv/helix/users/blocks?target_user_id=target123',
+          );
+          expectAuthHeaders(captured);
+        }
+      });
+    }
   });
 
   group('sendChatMessage', () {
-    test(
-      'sends POST /helix/chat/messages with message body and returns id',
-      () async {
+    for (final (name, replyId) in [
+      (
+        'sends POST /helix/chat/messages with message body and returns id',
+        null,
+      ),
+      ('includes reply_parent_message_id when replying', 'parent1'),
+    ]) {
+      test(name, () async {
         late http.Request captured;
         final api = createApi(
           (req) => captured = req,
@@ -985,51 +1000,22 @@ void main() {
             200,
           ),
         );
-
         final id = await api.sendChatMessage(
           auth,
           broadcasterId: 'b1',
           senderId: 's1',
           message: 'hello chat',
+          replyParentMessageId: replyId,
         );
-        expect(id, 'abc123');
-
-        expect(captured.method, 'POST');
-        expect(
-          captured.url.toString(),
-          'https://api.twitch.tv/helix/chat/messages',
-        );
-        expectAuthHeaders(captured);
+        expect(id, 'abc123', reason: name);
         final body = jsonDecode(captured.body) as Map<String, dynamic>;
-        expect(body, {
-          'broadcaster_id': 'b1',
-          'sender_id': 's1',
-          'message': 'hello chat',
-        });
-      },
-    );
-
-    test('includes reply_parent_message_id when replying', () async {
-      late http.Request captured;
-      final api = createApi(
-        (req) => captured = req,
-        respond: () => http.Response(
-          '{"data": [{"message_id": "abc123", "is_sent": true}]}',
-          200,
-        ),
-      );
-
-      await api.sendChatMessage(
-        auth,
-        broadcasterId: 'b1',
-        senderId: 's1',
-        message: 'reply',
-        replyParentMessageId: 'parent1',
-      );
-
-      final body = jsonDecode(captured.body) as Map<String, dynamic>;
-      expect(body['reply_parent_message_id'], 'parent1');
-    });
+        if (replyId != null) {
+          expect(body['reply_parent_message_id'], replyId, reason: name);
+        } else {
+          expect(body['message'], 'hello chat', reason: name);
+        }
+      });
+    }
 
     test('returns null when message was dropped', () async {
       final api = createApi(
@@ -1054,19 +1040,6 @@ void main() {
   });
 
   group('getBlockedUsers', () {
-    test('returns null set when no cached userId', () async {
-      var called = false;
-      final api = TwitchApi(
-        client: MockClient((request) async {
-          called = true;
-          return http.Response('', 500);
-        }),
-      );
-
-      expect(await api.getBlockedUsers(auth), isEmpty);
-      expect(called, isFalse);
-    });
-
     test('follows pagination and lowercases logins', () async {
       final requests = <String>[];
       final api = TwitchApi(
@@ -1112,29 +1085,31 @@ void main() {
   });
 
   group('unblockUser', () {
-    test('sends DELETE /helix/users/blocks and returns true on 204', () async {
-      late http.Request captured;
-      final api = createApi((req) => captured = req);
-
-      expect(await api.unblockUser(auth, 'target123'), isTrue);
-
-      expect(captured.method, 'DELETE');
-      expect(
-        captured.url.toString(),
-        'https://api.twitch.tv/helix/users/blocks?target_user_id=target123',
-      );
-      expectAuthHeaders(captured);
-    });
-
-    test('returns false on non-204', () async {
-      final api = createApi(
-        (_) {},
-        respond: () => http.Response('Forbidden', 403),
-      );
-
-      expect(await api.unblockUser(auth, 'target123'), isFalse);
-      expect(api.lastError, contains('unblockUser'));
-    });
+    for (final (name, status, expected) in [
+      ('sends DELETE /helix/users/blocks and returns true on 204', 204, true),
+      ('returns false on non-204', 403, false),
+    ]) {
+      test(name, () async {
+        late http.Request captured;
+        final api = createApi(
+          (req) => captured = req,
+          respond: () => http.Response('x', status),
+        );
+        expect(
+          await api.unblockUser(auth, 'target123'),
+          expected,
+          reason: name,
+        );
+        if (expected) {
+          expect(captured.method, 'DELETE');
+          expect(
+            captured.url.toString(),
+            'https://api.twitch.tv/helix/users/blocks?target_user_id=target123',
+          );
+          expectAuthHeaders(captured);
+        }
+      });
+    }
   });
 
   group('moderators', () {
@@ -1161,37 +1136,29 @@ void main() {
       expect(requests[0], contains('broadcaster_id=b1'));
     });
 
-    test('addModerator POSTs to /helix/moderation/moderators', () async {
-      late http.Request captured;
-      final api = createApi((req) => captured = req);
-
-      expect(
-        await api.addModerator(auth, broadcasterId: 'b1', userId: 'u1'),
-        isTrue,
-      );
-
-      expect(captured.method, 'POST');
-      expect(
-        captured.url.toString(),
-        'https://api.twitch.tv/helix/moderation/moderators?broadcaster_id=b1&user_id=u1',
-      );
-    });
-
-    test('removeModerator DELETEs /helix/moderation/moderators', () async {
-      late http.Request captured;
-      final api = createApi((req) => captured = req);
-
-      expect(
-        await api.removeModerator(auth, broadcasterId: 'b1', userId: 'u1'),
-        isTrue,
-      );
-
-      expect(captured.method, 'DELETE');
-      expect(
-        captured.url.toString(),
-        'https://api.twitch.tv/helix/moderation/moderators?broadcaster_id=b1&user_id=u1',
-      );
-    });
+    for (final (name, method) in [
+      ('addModerator POSTs to /helix/moderation/moderators', 'POST'),
+      ('removeModerator DELETEs /helix/moderation/moderators', 'DELETE'),
+    ]) {
+      test(name, () async {
+        late http.Request captured;
+        final api = createApi((req) => captured = req);
+        final ok = method == 'POST'
+            ? await api.addModerator(auth, broadcasterId: 'b1', userId: 'u1')
+            : await api.removeModerator(
+                auth,
+                broadcasterId: 'b1',
+                userId: 'u1',
+              );
+        expect(ok, isTrue, reason: name);
+        expect(captured.method, method, reason: name);
+        expect(
+          captured.url.toString(),
+          'https://api.twitch.tv/helix/moderation/moderators?broadcaster_id=b1&user_id=u1',
+          reason: name,
+        );
+      });
+    }
   });
 
   group('vips', () {
@@ -1209,214 +1176,192 @@ void main() {
       expect(logins, ['alice', 'bob']);
     });
 
-    test('addVip POSTs to /helix/channels/vips', () async {
-      late http.Request captured;
-      final api = createApi((req) => captured = req);
-
-      expect(await api.addVip(auth, broadcasterId: 'b1', userId: 'u1'), isTrue);
-
-      expect(captured.method, 'POST');
-      expect(
-        captured.url.toString(),
-        'https://api.twitch.tv/helix/channels/vips?broadcaster_id=b1&user_id=u1',
-      );
-    });
-
-    test('removeVip DELETEs /helix/channels/vips', () async {
-      late http.Request captured;
-      final api = createApi((req) => captured = req);
-
-      expect(
-        await api.removeVip(auth, broadcasterId: 'b1', userId: 'u1'),
-        isTrue,
-      );
-
-      expect(captured.method, 'DELETE');
-      expect(
-        captured.url.toString(),
-        'https://api.twitch.tv/helix/channels/vips?broadcaster_id=b1&user_id=u1',
-      );
-    });
+    for (final (name, method) in [
+      ('addVip POSTs to /helix/channels/vips', 'POST'),
+      ('removeVip DELETEs /helix/channels/vips', 'DELETE'),
+    ]) {
+      test(name, () async {
+        late http.Request captured;
+        final api = createApi((req) => captured = req);
+        final ok = method == 'POST'
+            ? await api.addVip(auth, broadcasterId: 'b1', userId: 'u1')
+            : await api.removeVip(auth, broadcasterId: 'b1', userId: 'u1');
+        expect(ok, isTrue, reason: name);
+        expect(captured.method, method, reason: name);
+        expect(
+          captured.url.toString(),
+          'https://api.twitch.tv/helix/channels/vips?broadcaster_id=b1&user_id=u1',
+          reason: name,
+        );
+      });
+    }
   });
 
   group('updateChatSettings', () {
-    test('PATCHes /helix/chat/settings with the given body', () async {
-      late http.Request captured;
-      final api = createApi(
-        (req) => captured = req,
-        respond: () => http.Response('{"data": []}', 200),
-      );
-
-      final ok = await api.updateChatSettings(
-        auth,
-        broadcasterId: 'b1',
-        moderatorId: 'm1',
-        body: {'slow_mode': true, 'slow_mode_wait_time': 30},
-      );
-
-      expect(ok, isTrue);
-      expect(captured.method, 'PATCH');
-      expect(
-        captured.url.toString(),
-        'https://api.twitch.tv/helix/chat/settings?broadcaster_id=b1&moderator_id=m1',
-      );
-      final body = jsonDecode(captured.body) as Map<String, dynamic>;
-      expect(body['slow_mode'], isTrue);
-      expect(body['slow_mode_wait_time'], 30);
-    });
-
-    test('returns false on non-200', () async {
-      final api = createApi(
-        (_) {},
-        respond: () => http.Response('Forbidden', 403),
-      );
-
-      final ok = await api.updateChatSettings(
-        auth,
-        broadcasterId: 'b1',
-        moderatorId: 'm1',
-        body: {'slow_mode': true},
-      );
-
-      expect(ok, isFalse);
-      expect(api.lastError, contains('updateChatSettings'));
-    });
+    for (final (name, status, expected) in [
+      ('PATCHes /helix/chat/settings with the given body', 200, true),
+      ('returns false on non-200', 403, false),
+    ]) {
+      test(name, () async {
+        late http.Request captured;
+        final api = createApi(
+          (req) => captured = req,
+          respond: () => http.Response('{"data": []}', status),
+        );
+        final ok = await api.updateChatSettings(
+          auth,
+          broadcasterId: 'b1',
+          moderatorId: 'm1',
+          body: {'slow_mode': true, 'slow_mode_wait_time': 30},
+        );
+        expect(ok, expected, reason: name);
+        if (expected) {
+          expect(captured.method, 'PATCH');
+          expect(
+            captured.url.toString(),
+            'https://api.twitch.tv/helix/chat/settings?broadcaster_id=b1&moderator_id=m1',
+          );
+        }
+      });
+    }
   });
 
   group('commercial / raid / shield / marker / whisper', () {
-    test(
-      'startCommercial POSTs length to /helix/channels/commercial',
-      () async {
-        late http.Request captured;
-        final api = createApi(
-          (req) => captured = req,
-          respond: () => http.Response('{"data": []}', 200),
-        );
-
-        expect(
-          await api.startCommercial(auth, broadcasterId: 'b1', length: 90),
-          isTrue,
-        );
-
-        expect(captured.method, 'POST');
-        expect(
-          captured.url.toString(),
-          'https://api.twitch.tv/helix/channels/commercial',
-        );
-        final body = jsonDecode(captured.body) as Map<String, dynamic>;
-        expect(body, {'broadcaster_id': 'b1', 'length': 90});
-      },
-    );
-
-    test('startRaid POSTs to /helix/raids with both broadcaster ids', () async {
-      late http.Request captured;
-      final api = createApi(
-        (req) => captured = req,
-        respond: () => http.Response('{"data": []}', 200),
-      );
-
-      expect(
-        await api.startRaid(
-          auth,
-          fromBroadcasterId: 'b1',
-          toBroadcasterId: 'b2',
-        ),
-        isTrue,
-      );
-
-      expect(captured.method, 'POST');
-      expect(
-        captured.url.toString(),
-        'https://api.twitch.tv/helix/raids?from_broadcaster_id=b1&to_broadcaster_id=b2',
-      );
-    });
-
-    test('cancelRaid DELETEs /helix/raids', () async {
-      late http.Request captured;
-      final api = createApi((req) => captured = req);
-
-      expect(await api.cancelRaid(auth, broadcasterId: 'b1'), isTrue);
-
-      expect(captured.method, 'DELETE');
-      expect(
-        captured.url.toString(),
-        'https://api.twitch.tv/helix/raids?broadcaster_id=b1',
-      );
-    });
-
-    test(
-      'updateShieldMode PUTs is_active to /helix/moderation/shield_mode',
-      () async {
-        late http.Request captured;
-        final api = createApi(
-          (req) => captured = req,
-          respond: () => http.Response('{"data": []}', 200),
-        );
-
-        expect(
-          await api.updateShieldMode(
-            auth,
-            broadcasterId: 'b1',
-            moderatorId: 'm1',
-            active: true,
-          ),
-          isTrue,
-        );
-
-        expect(captured.method, 'PUT');
-        expect(
-          captured.url.toString(),
-          'https://api.twitch.tv/helix/moderation/shield_mode?broadcaster_id=b1&moderator_id=m1',
-        );
-        expect(jsonDecode(captured.body), {'is_active': true});
-      },
-    );
-
-    test('createMarker POSTs description to /helix/streams/markers', () async {
-      late http.Request captured;
-      final api = createApi(
-        (req) => captured = req,
-        respond: () => http.Response('{"data": []}', 200),
-      );
-
-      expect(
-        await api.createMarker(auth, broadcasterId: 'b1', description: 'clip'),
-        isTrue,
-      );
-
-      expect(captured.method, 'POST');
-      expect(
-        captured.url.toString(),
-        'https://api.twitch.tv/helix/streams/markers',
-      );
-      final body = jsonDecode(captured.body) as Map<String, dynamic>;
-      expect(body, {'user_id': 'b1', 'description': 'clip'});
-    });
-
-    test(
-      'sendWhisper POSTs to /helix/whispers with the message body',
-      () async {
-        late http.Request captured;
-        final api = createApi((req) => captured = req);
-
-        expect(
-          await api.sendWhisper(
-            auth,
-            fromUserId: 'f1',
-            toUserId: 't1',
-            message: 'hello',
-          ),
-          isTrue,
-        );
-
-        expect(captured.method, 'POST');
-        expect(
-          captured.url.toString(),
-          'https://api.twitch.tv/helix/whispers?from_user_id=f1&to_user_id=t1',
-        );
-        expect(jsonDecode(captured.body), {'message': 'hello'});
-      },
-    );
+    for (final (name, run) in <(String, Future<void> Function())>[
+      (
+        'startCommercial POSTs length to /helix/channels/commercial',
+        () async {
+          late http.Request captured;
+          final api = createApi(
+            (req) => captured = req,
+            respond: () => http.Response('{"data": []}', 200),
+          );
+          expect(
+            await api.startCommercial(auth, broadcasterId: 'b1', length: 90),
+            isTrue,
+          );
+          expect(captured.method, 'POST');
+          expect(
+            captured.url.toString(),
+            'https://api.twitch.tv/helix/channels/commercial',
+          );
+          final body = jsonDecode(captured.body) as Map<String, dynamic>;
+          expect(body, {'broadcaster_id': 'b1', 'length': 90});
+        },
+      ),
+      (
+        'startRaid POSTs to /helix/raids with both broadcaster ids',
+        () async {
+          late http.Request captured;
+          final api = createApi(
+            (req) => captured = req,
+            respond: () => http.Response('{"data": []}', 200),
+          );
+          expect(
+            await api.startRaid(
+              auth,
+              fromBroadcasterId: 'b1',
+              toBroadcasterId: 'b2',
+            ),
+            isTrue,
+          );
+          expect(captured.method, 'POST');
+          expect(
+            captured.url.toString(),
+            'https://api.twitch.tv/helix/raids?from_broadcaster_id=b1&to_broadcaster_id=b2',
+          );
+        },
+      ),
+      (
+        'cancelRaid DELETEs /helix/raids',
+        () async {
+          late http.Request captured;
+          final api = createApi((req) => captured = req);
+          expect(await api.cancelRaid(auth, broadcasterId: 'b1'), isTrue);
+          expect(captured.method, 'DELETE');
+          expect(
+            captured.url.toString(),
+            'https://api.twitch.tv/helix/raids?broadcaster_id=b1',
+          );
+        },
+      ),
+      (
+        'updateShieldMode PUTs is_active to /helix/moderation/shield_mode',
+        () async {
+          late http.Request captured;
+          final api = createApi(
+            (req) => captured = req,
+            respond: () => http.Response('{"data": []}', 200),
+          );
+          expect(
+            await api.updateShieldMode(
+              auth,
+              broadcasterId: 'b1',
+              moderatorId: 'm1',
+              active: true,
+            ),
+            isTrue,
+          );
+          expect(captured.method, 'PUT');
+          expect(
+            captured.url.toString(),
+            'https://api.twitch.tv/helix/moderation/shield_mode?broadcaster_id=b1&moderator_id=m1',
+          );
+          expect(jsonDecode(captured.body), {'is_active': true});
+        },
+      ),
+      (
+        'createMarker POSTs description to /helix/streams/markers',
+        () async {
+          late http.Request captured;
+          final api = createApi(
+            (req) => captured = req,
+            respond: () => http.Response('{"data": []}', 200),
+          );
+          expect(
+            await api.createMarker(
+              auth,
+              broadcasterId: 'b1',
+              description: 'clip',
+            ),
+            isTrue,
+          );
+          expect(captured.method, 'POST');
+          expect(
+            captured.url.toString(),
+            'https://api.twitch.tv/helix/streams/markers',
+          );
+          final body = jsonDecode(captured.body) as Map<String, dynamic>;
+          expect(body, {'user_id': 'b1', 'description': 'clip'});
+        },
+      ),
+      (
+        'sendWhisper POSTs to /helix/whispers with the message body',
+        () async {
+          late http.Request captured;
+          final api = createApi((req) => captured = req);
+          expect(
+            await api.sendWhisper(
+              auth,
+              fromUserId: 'f1',
+              toUserId: 't1',
+              message: 'hello',
+            ),
+            isTrue,
+          );
+          expect(captured.method, 'POST');
+          expect(
+            captured.url.toString(),
+            'https://api.twitch.tv/helix/whispers?from_user_id=f1&to_user_id=t1',
+          );
+          expect(jsonDecode(captured.body), {'message': 'hello'});
+        },
+      ),
+    ]) {
+      test(name, () async {
+        await run();
+      });
+    }
   });
 
   group('error capture', () {
@@ -1450,19 +1395,6 @@ void main() {
 
   tearDown(() {
     service.dispose();
-  });
-
-  group('session_welcome', () {
-    test('session_welcome with null timeout defaults to 10', () {
-      service.handleRawMessage(<String, dynamic>{
-        'metadata': <String, dynamic>{'message_type': 'session_welcome'},
-        'payload': <String, dynamic>{
-          'session': <String, dynamic>{'id': 'sess-2'},
-        },
-      });
-
-      expect(service.sessionId, 'sess-2');
-    });
   });
 
   group('notification (channel.moderate)', () {
@@ -1513,118 +1445,82 @@ void main() {
       expect(events[0].durationSeconds, closeTo(300, 10));
     });
 
-    test('delete carries message id and body', () async {
-      final events = <ModerationEvent>[];
-      service.onModeration.listen(events.add);
-
-      service.handleRawMessage(
-        _moderate(
-          action: 'delete',
-          meta: {
-            'delete': {
-              'user_name': 'targetuser',
-              'message_id': 'msg-1',
-              'message_body': 'hello',
-            },
+    for (final (name, action, meta, expectedAction) in [
+      (
+        'delete carries message id and body',
+        'delete',
+        {
+          'delete': {
+            'user_name': 'targetuser',
+            'message_id': 'msg-1',
+            'message_body': 'hello',
           },
-        ),
-      );
-
-      expect(events, hasLength(1));
-      expect(events[0].action, 'delete');
-      expect(events[0].targetName, 'targetuser');
-      expect(events[0].messageId, 'msg-1');
-      expect(events[0].messageBody, 'hello');
-    });
-
-    test('shared_chat actions map to their base action', () async {
-      final events = <ModerationEvent>[];
-      service.onModeration.listen(events.add);
-
-      service.handleRawMessage(
-        _moderate(
-          action: 'shared_chat_ban',
-          meta: {
-            'shared_chat_ban': {'user_name': 'targetuser'},
-          },
-        ),
-      );
-
-      expect(events, hasLength(1));
-      expect(events[0].action, 'ban');
-    });
-
-    test('ignores notifications for unknown subscription types', () async {
-      final events = <ModerationEvent>[];
-      service.onModeration.listen(events.add);
-
-      service.handleRawMessage(<String, dynamic>{
-        'metadata': <String, dynamic>{
-          'message_type': 'notification',
-          'subscription_type': 'channel.chat.message',
         },
-        'payload': <String, dynamic>{
-          'subscription': <String, dynamic>{
-            'condition': <String, dynamic>{
-              'broadcaster_user_id': 'broadcaster1',
-            },
-          },
-          'event': <String, dynamic>{'chatter_user_name': 'someone'},
+        'delete',
+      ),
+      (
+        'shared_chat actions map to their base action',
+        'shared_chat_ban',
+        {
+          'shared_chat_ban': {'user_name': 'targetuser'},
         },
+        'ban',
+      ),
+      (
+        'clear emits event without target',
+        'clear',
+        <String, dynamic>{},
+        'clear',
+      ),
+    ]) {
+      test(name, () async {
+        final events = <ModerationEvent>[];
+        service.onModeration.listen(events.add);
+        service.handleRawMessage(_moderate(action: action, meta: meta));
+        expect(events, hasLength(1), reason: name);
+        expect(events[0].action, expectedAction, reason: name);
+        if (expectedAction == 'delete') {
+          expect(events[0].messageId, 'msg-1', reason: name);
+          expect(events[0].messageBody, 'hello', reason: name);
+        }
+        if (expectedAction == 'clear') {
+          expect(events[0].targetName, isNull, reason: name);
+        }
       });
+    }
 
-      expect(events, isEmpty);
-    });
-
-    test('drops events without a channel mapping', () async {
-      final events = <ModerationEvent>[];
-      service.onModeration.listen(events.add);
-
-      service.handleRawMessage(<String, dynamic>{
-        'metadata': <String, dynamic>{
-          'message_type': 'notification',
-          'subscription_type': 'channel.moderate',
-        },
-        'payload': <String, dynamic>{
-          'subscription': <String, dynamic>{
-            'condition': <String, dynamic>{
-              'broadcaster_user_id': 'unknown_broadcaster',
-            },
+    for (final (name, type, broadcaster) in [
+      (
+        'ignores notifications for unknown subscription types',
+        'channel.chat.message',
+        'broadcaster1',
+      ),
+      (
+        'drops events without a channel mapping',
+        'channel.moderate',
+        'unknown_broadcaster',
+      ),
+    ]) {
+      test(name, () async {
+        final events = <ModerationEvent>[];
+        service.onModeration.listen(events.add);
+        service.handleRawMessage(<String, dynamic>{
+          'metadata': <String, dynamic>{
+            'message_type': 'notification',
+            'subscription_type': type,
           },
-          'event': <String, dynamic>{'action': 'clear'},
-        },
+          'payload': <String, dynamic>{
+            'subscription': <String, dynamic>{
+              'condition': <String, dynamic>{
+                'broadcaster_user_id': broadcaster,
+              },
+            },
+            'event': <String, dynamic>{'action': 'clear'},
+          },
+        });
+        expect(events, isEmpty, reason: name);
       });
-
-      expect(events, isEmpty);
-    });
-
-    test('clear emits event without target', () async {
-      final events = <ModerationEvent>[];
-      service.onModeration.listen(events.add);
-
-      service.handleRawMessage(
-        _moderate(action: 'clear', meta: <String, dynamic>{}),
-      );
-
-      expect(events, hasLength(1));
-      expect(events[0].action, 'clear');
-      expect(events[0].targetName, isNull);
-    });
-  });
-
-  group('session_reconnect and revocation', () {
-    test('malformed frames do not crash', () {
-      expect(
-        () => service.handleRawMessage(<String, dynamic>{}),
-        returnsNormally,
-      );
-      expect(
-        () => service.handleRawMessage(<String, dynamic>{
-          'metadata': <String, dynamic>{'message_type': 123},
-        }),
-        returnsNormally,
-      );
-    });
+    }
   });
 
   Map<String, dynamic> widget(
@@ -1678,124 +1574,11 @@ void main() {
     );
   });
 
-  group('notification (channel.poll)', () {
-    test('progress emits PollEvent with choices and votes', () async {
-      final events = <PollEvent>[];
-      service.onPoll.listen(events.add);
-
-      service.handleRawMessage(
-        widget('channel.poll.progress', <String, dynamic>{
-          'title': 'Best game?',
-          'status': 'ACTIVE',
-          'choices': <Map<String, dynamic>>[
-            {'id': '1', 'title': 'Minecraft', 'votes': 10},
-            {'id': '2', 'title': 'Terraria', 'votes': 20},
-          ],
-        }),
-      );
-
-      expect(events, hasLength(1));
-      final e = events[0];
-      expect(e.channel, 'testchannel');
-      expect(e.kind, 'progress');
-      expect(e.title, 'Best game?');
-      expect(e.choices, hasLength(2));
-      expect(e.choices[0].title, 'Minecraft');
-      expect(e.choices[0].votes, 10);
-      expect(e.choices[1].votes, 20);
-    });
-  });
-
-  group('notification (channel.prediction)', () {
-    test('lock emits PredictionEvent with outcomes', () async {
-      final events = <PredictionEvent>[];
-      service.onPrediction.listen(events.add);
-
-      service.handleRawMessage(
-        widget('channel.prediction.lock', <String, dynamic>{
-          'title': 'Will we win?',
-          'status': 'LOCKED',
-          'outcomes': <Map<String, dynamic>>[
-            {
-              'id': '1',
-              'title': 'Yes',
-              'users': 15,
-              'channel_points': 300,
-              'color': 'BLUE',
-            },
-            {
-              'id': '2',
-              'title': 'No',
-              'users': 5,
-              'channel_points': 100,
-              'color': 'PINK',
-            },
-          ],
-        }),
-      );
-
-      expect(events, hasLength(1));
-      final e = events[0];
-      expect(e.channel, 'testchannel');
-      expect(e.kind, 'lock');
-      expect(e.title, 'Will we win?');
-      expect(e.outcomes, hasLength(2));
-      expect(e.outcomes[0].title, 'Yes');
-      expect(e.outcomes[0].users, 15);
-      expect(e.outcomes[0].channelPoints, 300);
-    });
-  });
-
   group('parseIrcMessage', () {
-    test('parses basic IRC message', () {
-      final msg = parseIrcMessage(':tmi.twitch.tv CLEARCHAT #xqc :forsen');
-      expect(msg, isNotNull);
-      expect(msg!.command, 'CLEARCHAT');
-      expect(msg.params, ['#xqc']);
-      expect(msg.trailing, 'forsen');
-      expect(msg.prefix, 'tmi.twitch.tv');
-      expect(msg.tags, isEmpty);
-    });
-
-    test('parses CLEARCHAT with tags (timeout)', () {
-      const line =
-          '@ban-duration=300;target-user-id=12345 :tmi.twitch.tv CLEARCHAT #xqc :forsen';
-      final msg = parseIrcMessage(line);
-      expect(msg, isNotNull);
-      expect(msg!.command, 'CLEARCHAT');
-      expect(msg.params, ['#xqc']);
-      expect(msg.trailing, 'forsen');
-      expect(msg.tags['ban-duration'], '300');
-      expect(msg.tags['target-user-id'], '12345');
-    });
-
-    test('parses CLEARMSG with target-msg-id and login tags', () {
-      const line =
-          '@login=forsen;target-msg-id=abc-123;room-id=12345 :tmi.twitch.tv CLEARMSG #xqc :bad message';
-      final msg = parseIrcMessage(line);
-      expect(msg, isNotNull);
-      expect(msg!.command, 'CLEARMSG');
-      expect(msg.params, ['#xqc']);
-      expect(msg.tags['login'], 'forsen');
-      expect(msg.tags['target-msg-id'], 'abc-123');
-      expect(msg.trailing, 'bad message');
-    });
-
     test('parses PING message', () {
       final msg = parseIrcMessage('PING :tmi.twitch.tv');
       expect(msg, isNotNull);
       expect(msg!.command, 'PING');
-    });
-
-    test('parses message with prefix only', () {
-      final msg = parseIrcMessage(
-        ':testuser!testuser@testuser.tmi.twitch.tv PRIVMSG #xqc :hello',
-      );
-      expect(msg, isNotNull);
-      expect(msg!.command, 'PRIVMSG');
-      expect(msg.prefix, 'testuser!testuser@testuser.tmi.twitch.tv');
-      expect(msg.params, ['#xqc']);
-      expect(msg.trailing, 'hello');
     });
 
     test('handles malformed message', () {
@@ -1803,51 +1586,63 @@ void main() {
       expect(msg, isNull);
     });
 
-    test('handles message with spaces in trailing', () {
-      final msg = parseIrcMessage(
+    for (final (name, line, command, trailing) in [
+      (
+        'parses basic IRC message',
+        ':tmi.twitch.tv CLEARCHAT #xqc :forsen',
+        'CLEARCHAT',
+        'forsen',
+      ),
+      (
+        'parses CLEARCHAT with tags (timeout)',
+        '@ban-duration=300;target-user-id=12345 :tmi.twitch.tv CLEARCHAT #xqc :forsen',
+        'CLEARCHAT',
+        'forsen',
+      ),
+      (
+        'parses CLEARMSG with target-msg-id and login tags',
+        '@login=forsen;target-msg-id=abc-123;room-id=12345 :tmi.twitch.tv CLEARMSG #xqc :bad message',
+        'CLEARMSG',
+        'bad message',
+      ),
+      (
+        'parses message with prefix only',
+        ':testuser!testuser@testuser.tmi.twitch.tv PRIVMSG #xqc :hello',
+        'PRIVMSG',
+        'hello',
+      ),
+      (
+        'handles message with spaces in trailing',
         ':user!user@user.tmi.twitch.tv PRIVMSG #channel :hello world this is a test',
-      );
-      expect(msg, isNotNull);
-      expect(msg!.trailing, 'hello world this is a test');
-    });
-
-    test('parses NOTICE message', () {
-      final msg = parseIrcMessage(
+        'PRIVMSG',
+        'hello world this is a test',
+      ),
+      (
+        'parses NOTICE message',
         ':tmi.twitch.tv NOTICE #xqc :This room requires a verified email account to chat.',
-      );
-      expect(msg, isNotNull);
-      expect(msg!.command, 'NOTICE');
-      expect(msg.params, ['#xqc']);
-      expect(
-        msg.trailing,
+        'NOTICE',
         'This room requires a verified email account to chat.',
-      );
-    });
-
-    test('parses NOTICE with tags', () {
-      const line =
-          '@msg-id=slow_mode :tmi.twitch.tv NOTICE #xqc :You are sending messages too fast.';
-      final msg = parseIrcMessage(line);
-      expect(msg, isNotNull);
-      expect(msg!.command, 'NOTICE');
-      expect(msg.tags['msg-id'], 'slow_mode');
-      expect(msg.trailing, 'You are sending messages too fast.');
-    });
-
-    test('parses WHISPER message', () {
-      const line =
-          '@badges=;color=#FF0000;display-name=SomeUser;emotes=;message-id=whisper-1;thread-id=abc;turbo=0;user-id=999;user-type= :someuser!someuser@someuser.tmi.twitch.tv WHISPER recipient :hey there';
-      final msg = parseIrcMessage(line);
-      expect(msg, isNotNull);
-      expect(msg!.command, 'WHISPER');
-      expect(msg.prefix, 'someuser!someuser@someuser.tmi.twitch.tv');
-      expect(msg.params, ['recipient']);
-      expect(msg.trailing, 'hey there');
-      expect(msg.tags['message-id'], 'whisper-1');
-      expect(msg.tags['display-name'], 'SomeUser');
-      expect(msg.tags['color'], '#FF0000');
-      expect(msg.tags['user-id'], '999');
-    });
+      ),
+      (
+        'parses NOTICE with tags',
+        '@msg-id=slow_mode :tmi.twitch.tv NOTICE #xqc :You are sending messages too fast.',
+        'NOTICE',
+        'You are sending messages too fast.',
+      ),
+      (
+        'parses WHISPER message',
+        '@badges=;color=#FF0000;display-name=SomeUser;emotes=;message-id=whisper-1;thread-id=abc;turbo=0;user-id=999;user-type= :someuser!someuser@someuser.tmi.twitch.tv WHISPER recipient :hey there',
+        'WHISPER',
+        'hey there',
+      ),
+    ]) {
+      test(name, () {
+        final msg = parseIrcMessage(line);
+        expect(msg, isNotNull, reason: name);
+        expect(msg!.command, command, reason: name);
+        expect(msg.trailing, trailing, reason: name);
+      });
+    }
   });
 
   group('parseIrcEmotePositions', () {
@@ -1892,35 +1687,39 @@ void main() {
       );
     });
 
-    test('ACTION messages use body-relative positions', () {
-      // Twitch reports /me emote positions relative to the message body
-      // (after "\x01ACTION "), e.g. emotes=25:0-4 for "\x01ACTION Kappa\x01".
-      final positions = parseIrcEmotePositions(
+    for (final (name, tag, original, stripped, prefix, start, end) in [
+      (
+        'ACTION messages use body-relative positions',
         '25:0-4',
-        originalText: '\x01ACTION Kappa\x01',
-        strippedText: 'Kappa',
-      );
-      expect(positions, hasLength(1));
-      expect(positions!.first.emoteId, '25');
-      expect(positions.first.emoteCode, 'Kappa');
-      expect(positions.first.startIndex, 0);
-      expect(positions.first.endIndex, 5);
-    });
-
-    test('ACTION messages with reply prefix adjust by reply length only', () {
-      // Positions stay body-relative (after the wrapper); the reply prefix
-      // "@User " is stripped and its length is subtracted separately.
-      final positions = parseIrcEmotePositions(
+        '\x01ACTION Kappa\x01',
+        'Kappa',
+        0,
+        0,
+        5,
+      ),
+      (
+        'ACTION messages with reply prefix adjust by reply length only',
         '25:9-13',
-        originalText: '\x01ACTION @User hi Kappa\x01',
-        strippedText: 'hi Kappa',
-        prefixLen: 6,
-      );
-      expect(positions, hasLength(1));
-      expect(positions!.first.emoteCode, 'Kappa');
-      expect(positions.first.startIndex, 3);
-      expect(positions.first.endIndex, 8);
-    });
+        '\x01ACTION @User hi Kappa\x01',
+        'hi Kappa',
+        6,
+        3,
+        8,
+      ),
+    ]) {
+      test(name, () {
+        final positions = parseIrcEmotePositions(
+          tag,
+          originalText: original,
+          strippedText: stripped,
+          prefixLen: prefix,
+        );
+        expect(positions, hasLength(1), reason: name);
+        expect(positions!.first.emoteCode, 'Kappa', reason: name);
+        expect(positions.first.startIndex, start, reason: name);
+        expect(positions.first.endIndex, end, reason: name);
+      });
+    }
   });
 
   group('shared chat PRIVMSG marking', () {
@@ -1937,46 +1736,40 @@ void main() {
       expect(msg.messageId, 'copy-1');
     });
 
-    test('native message during session has no chip', () {
-      const raw =
-          '@badges=subscriber/1;display-name=XQC;id=native-1;'
-          'room-id=9999;source-room-id=9999;'
-          'user-id=99;color=#00FF00 '
-          ':xqc!xqc@xqc.tmi.twitch.tv PRIVMSG #xqc :My own';
-      final msg = RecentMessagesService.parseIrcLine(raw);
-      expect(msg, isNotNull);
-      expect(msg!.sourceBroadcasterId, isNull);
-      expect(msg.sourceMessageId, isNull);
-    });
-
-    test('plain message with no shared tags has no chip', () {
-      const raw =
-          '@badges=subscriber/1;display-name=Forsen;id=abc-123;'
-          'user-id=42;color=#FF0000 '
-          ':forsen!forsen@forsen.tmi.twitch.tv PRIVMSG #xqc :Plain';
-      final msg = RecentMessagesService.parseIrcLine(raw);
-      expect(msg, isNotNull);
-      expect(msg!.sourceBroadcasterId, isNull);
-      expect(msg.sourceMessageId, isNull);
-    });
+    for (final (name, raw) in [
+      (
+        'native message during session has no chip',
+        '@badges=subscriber/1;display-name=XQC;id=native-1;room-id=9999;source-room-id=9999;user-id=99;color=#00FF00 :xqc!xqc@xqc.tmi.twitch.tv PRIVMSG #xqc :My own',
+      ),
+      (
+        'plain message with no shared tags has no chip',
+        '@badges=subscriber/1;display-name=Forsen;id=abc-123;user-id=42;color=#FF0000 :forsen!forsen@forsen.tmi.twitch.tv PRIVMSG #xqc :Plain',
+      ),
+    ]) {
+      test(name, () {
+        final msg = RecentMessagesService.parseIrcLine(raw);
+        expect(msg, isNotNull, reason: name);
+        expect(msg!.sourceBroadcasterId, isNull, reason: name);
+        expect(msg.sourceMessageId, isNull, reason: name);
+      });
+    }
   });
 
   group('shared chat USERNOTICE (history)', () {
-    test('drops mirrored resub', () {
-      const raw =
-          '@msg-id=sharedchatnotice;source-msg-id=resub;'
-          'login=forsen;system-msg=Resub\\s5\\smonths; '
-          ':tmi.twitch.tv USERNOTICE #xqc';
-      expect(RecentMessagesService.parseIrcLine(raw), isNull);
-    });
-
-    test('drops mirrored bitsbadgetier', () {
-      const raw =
-          '@msg-id=sharedchatnotice;source-msg-id=bitsbadgetier;'
-          'login=forsen;system-msg=New\\sbits\\sbadge; '
-          ':tmi.twitch.tv USERNOTICE #xqc';
-      expect(RecentMessagesService.parseIrcLine(raw), isNull);
-    });
+    for (final (name, raw) in [
+      (
+        'drops mirrored resub',
+        '@msg-id=sharedchatnotice;source-msg-id=resub;login=forsen;system-msg=Resub\\s5\\smonths; :tmi.twitch.tv USERNOTICE #xqc',
+      ),
+      (
+        'drops mirrored bitsbadgetier',
+        '@msg-id=sharedchatnotice;source-msg-id=bitsbadgetier;login=forsen;system-msg=New\\sbits\\sbadge; :tmi.twitch.tv USERNOTICE #xqc',
+      ),
+    ]) {
+      test(name, () {
+        expect(RecentMessagesService.parseIrcLine(raw), isNull, reason: name);
+      });
+    }
 
     test('renders mirrored announcement as system message', () {
       const raw =

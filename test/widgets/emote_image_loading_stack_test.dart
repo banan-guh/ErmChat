@@ -43,85 +43,82 @@ void main() {
   // stack used to expand into whatever bounded constraints surrounded it. In
   // a ListTile leading slot that meant a full-width leader and a fatal
   // "Leading widget consumes the entire tile width" layout assertion.
-  testWidgets('a loading emote stays its own size in a ListTile leading slot', (
-    tester,
-  ) async {
-    final gate = Completer<Uint8List>();
-    EmoteUrlProvider.debugFetchOverride = (_) => gate.future;
-    const url = 'https://leading.test/gated.png';
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: ListView(
-            children: [
-              ListTile(
-                leading: EmoteImage(url: url, width: 28, height: 28),
-                title: const Text('emote'),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-    await tester.pump();
-
-    expect(tester.takeException(), isNull);
-    expect(_emoteBox(tester).size, const Size(28, 28));
-
-    gate.complete(_pngBytes());
-    await _settle(tester);
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('a cached alternate under the faint band stays clamped too', (
-    tester,
-  ) async {
-    final altPng = _pngBytes();
-    final altUrl = 'https://leading.test/small.png';
-    final mainUrl = 'https://leading.test/big.png';
-    EmoteUrlProvider.debugFetchOverride = (_) async => altPng;
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: Center(child: EmoteImage(url: altUrl, width: 28, height: 28)),
-        ),
-      ),
-    );
-    await _settle(tester);
-    await tester.pumpWidget(const SizedBox.shrink());
-    await tester.pump();
-
-    final mainGate = Completer<Uint8List>();
-    EmoteUrlProvider.debugFetchOverride = (url) =>
-        url == altUrl ? Future.value(altPng) : mainGate.future;
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: ListView(
-            children: [
-              ListTile(
-                leading: EmoteImage(
-                  url: mainUrl,
-                  width: 28,
-                  height: 28,
-                  alternateUrls: [altUrl],
+  testWidgets(
+    'loading and cached alternate emotes stay sized in leading slots',
+    (tester) async {
+      final gate = Completer<Uint8List>();
+      EmoteUrlProvider.debugFetchOverride = (_) => gate.future;
+      const url = 'https://leading.test/gated.png';
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: ListView(
+              children: [
+                ListTile(
+                  leading: EmoteImage(url: url, width: 28, height: 28),
+                  title: const Text('emote'),
                 ),
-                title: const Text('emote'),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
-      ),
-    );
-    await tester.pump();
+      );
+      await tester.pump();
 
-    expect(tester.takeException(), isNull);
-    expect(_emoteBox(tester).size, const Size(28, 28));
+      expect(tester.takeException(), isNull);
+      expect(_emoteBox(tester).size, const Size(28, 28));
 
-    mainGate.complete(_pngBytes());
-    await _settle(tester);
-    expect(tester.takeException(), isNull);
-  });
+      gate.complete(_pngBytes());
+      await _settle(tester);
+      expect(tester.takeException(), isNull);
+
+      final altPng = _pngBytes();
+      final altUrl = 'https://leading.test/small.png';
+      final mainUrl = 'https://leading.test/big.png';
+      EmoteUrlProvider.debugFetchOverride = (_) async => altPng;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Center(child: EmoteImage(url: altUrl, width: 28, height: 28)),
+          ),
+        ),
+      );
+      await _settle(tester);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+
+      final mainGate = Completer<Uint8List>();
+      EmoteUrlProvider.debugFetchOverride = (url) =>
+          url == altUrl ? Future.value(altPng) : mainGate.future;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: ListView(
+              children: [
+                ListTile(
+                  leading: EmoteImage(
+                    url: mainUrl,
+                    width: 28,
+                    height: 28,
+                    alternateUrls: [altUrl],
+                  ),
+                  title: const Text('emote'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(tester.takeException(), isNull);
+      expect(_emoteBox(tester).size, const Size(28, 28));
+
+      mainGate.complete(_pngBytes());
+      await _settle(tester);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets('an explicit infinity dimension still fills a bounded parent', (
     tester,

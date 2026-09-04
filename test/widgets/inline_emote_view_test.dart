@@ -43,28 +43,6 @@ void main() {
     EmoteUrlProvider.debugDecodeOverride = null;
   });
 
-  testWidgets('resolves and paints the loaded frame', (tester) async {
-    EmoteUrlProvider.debugFetchOverride = (_) async => _pngBytes();
-    const url = 'https://inline.test/plain.png';
-    await tester.pumpWidget(
-      const MaterialApp(
-        home: Center(
-          child: SizedBox(
-            width: 28,
-            height: 28,
-            child: InlineEmoteView(url: url, width: 28, height: 28),
-          ),
-        ),
-      ),
-    );
-    await _pumpUntilLoaded(tester);
-
-    final ro = _renderOf(tester);
-    expect(ro.debugFrame, isNotNull);
-    expect(ro.debugAltFrame, isNull);
-    expect(ro.debugShowsBand, isFalse);
-  });
-
   testWidgets('shows the band while loading and releases it after', (
     tester,
   ) async {

@@ -59,208 +59,222 @@ void main() {
   });
 
   group('TwitchAuth', () {
-    test('setCredentials persists token', () async {
-      final auth = TwitchAuth();
-      auth.setCredentials(
-        accessToken: 'test_token',
-        refreshToken: 'test_refresh',
-      );
-      expect(auth.accessToken, 'test_token');
-      expect(auth.refreshToken, 'test_refresh');
-      expect(auth.isConfigured, isTrue);
-    });
-
-    test('clear removes tokens and cached user', () async {
-      final auth = TwitchAuth();
-      auth.setCredentials(
-        accessToken: 'test_token',
-        refreshToken: 'test_refresh',
-      );
-      auth.setUser('testuser', '12345');
-      await auth.clear();
-      expect(auth.accessToken, isNull);
-      expect(auth.refreshToken, isNull);
-      expect(auth.isConfigured, isFalse);
-      expect(auth.login, isNull);
-      expect(auth.userId, isNull);
-    });
-
-    test('load restores tokens from secure storage', () async {
-      FlutterSecureStorage.setMockInitialValues({
-        'access_token': 'stored_token',
-        'refresh_token': 'stored_refresh',
+    for (final (name, run) in <(String, Future<void> Function())>[
+      (
+        'setCredentials persists token',
+        () async {
+          final auth = TwitchAuth();
+          auth.setCredentials(
+            accessToken: 'test_token',
+            refreshToken: 'test_refresh',
+          );
+          expect(auth.accessToken, 'test_token');
+          expect(auth.refreshToken, 'test_refresh');
+          expect(auth.isConfigured, isTrue);
+        },
+      ),
+      (
+        'load restores tokens from secure storage',
+        () async {
+          FlutterSecureStorage.setMockInitialValues({
+            'access_token': 'stored_token',
+            'refresh_token': 'stored_refresh',
+          });
+          final auth = TwitchAuth();
+          await auth.load();
+          expect(auth.accessToken, 'stored_token');
+          expect(auth.refreshToken, 'stored_refresh');
+          expect(auth.isConfigured, isTrue);
+        },
+      ),
+    ]) {
+      test(name, () async {
+        await run();
       });
-      final auth = TwitchAuth();
-      await auth.load();
-      expect(auth.accessToken, 'stored_token');
-      expect(auth.refreshToken, 'stored_refresh');
-      expect(auth.isConfigured, isTrue);
-    });
+    }
 
-    test('setUser persists login and user id', () async {
-      final auth = TwitchAuth();
-      auth.setUser('testuser', '12345');
-      expect(auth.login, 'testuser');
-      expect(auth.userId, '12345');
-    });
-
-    test('load restores cached login and user id', () async {
-      FlutterSecureStorage.setMockInitialValues({
-        'access_token': 'stored_token',
-        'user_login': 'stored_login',
-        'user_id': 'stored_id',
+    for (final (name, run) in <(String, Future<void> Function())>[
+      (
+        'setUser persists login and user id',
+        () async {
+          final auth = TwitchAuth();
+          auth.setUser('testuser', '12345');
+          expect(auth.login, 'testuser');
+          expect(auth.userId, '12345');
+        },
+      ),
+      (
+        'load restores cached login and user id',
+        () async {
+          FlutterSecureStorage.setMockInitialValues({
+            'access_token': 'stored_token',
+            'user_login': 'stored_login',
+            'user_id': 'stored_id',
+          });
+          final auth = TwitchAuth();
+          await auth.load();
+          expect(auth.login, 'stored_login');
+          expect(auth.userId, 'stored_id');
+        },
+      ),
+      (
+        'setUser persists profile image url',
+        () async {
+          final auth = TwitchAuth();
+          auth.setCredentials(accessToken: 'token_a');
+          auth.setUser(
+            'alice',
+            '111',
+            profileImageUrl: 'https://example.com/a.png',
+          );
+          await auth.switchTo('alice');
+          expect(auth.profileImageUrl, 'https://example.com/a.png');
+          expect(
+            auth.accounts.single.profileImageUrl,
+            'https://example.com/a.png',
+          );
+          final reloaded = TwitchAuth();
+          await reloaded.load();
+          expect(reloaded.login, 'alice');
+          expect(reloaded.profileImageUrl, 'https://example.com/a.png');
+        },
+      ),
+    ]) {
+      test(name, () async {
+        await run();
       });
-      final auth = TwitchAuth();
-      await auth.load();
-      expect(auth.login, 'stored_login');
-      expect(auth.userId, 'stored_id');
-    });
+    }
 
-    test('setCredentials clears cached login and user id', () async {
-      final auth = TwitchAuth();
-      auth.setUser('testuser', '12345');
-      auth.setCredentials(accessToken: 'new_token');
-      expect(auth.login, isNull);
-      expect(auth.userId, isNull);
-    });
+    for (final (name, run) in <(String, Future<void> Function())>[
+      (
+        'setCredentials plus setUser registers multiple accounts',
+        () async {
+          final auth = TwitchAuth();
+          auth.setCredentials(accessToken: 'token_a');
+          auth.setUser('alice', '111');
+          auth.setCredentials(accessToken: 'token_b');
+          auth.setUser('bob', '222');
+          expect(auth.accounts.length, 2);
+          expect(
+            auth.accounts.map((a) => a.login),
+            containsAll(['alice', 'bob']),
+          );
+          expect(auth.login, 'bob');
+        },
+      ),
+      (
+        'switchTo changes the active account',
+        () async {
+          final auth = TwitchAuth();
+          auth.setCredentials(accessToken: 'token_a');
+          auth.setUser('alice', '111');
+          auth.setCredentials(accessToken: 'token_b');
+          auth.setUser('bob', '222');
+          await auth.switchTo('alice');
+          expect(auth.login, 'alice');
+          expect(auth.accessToken, 'token_a');
+          expect(auth.isConfigured, isTrue);
+          await auth.switchTo('bob');
+          expect(auth.login, 'bob');
+          expect(auth.accessToken, 'token_b');
+        },
+      ),
+      (
+        'accounts persist across load with active login',
+        () async {
+          final auth = TwitchAuth();
+          auth.setCredentials(accessToken: 'token_a');
+          auth.setUser('alice', '111');
+          auth.setCredentials(accessToken: 'token_b');
+          auth.setUser('bob', '222');
+          await auth.switchTo('alice');
+          final reloaded = TwitchAuth();
+          await reloaded.load();
+          expect(reloaded.accounts.length, 2);
+          expect(reloaded.login, 'alice');
+          expect(reloaded.accessToken, 'token_a');
+          expect(reloaded.userId, '111');
+        },
+      ),
+      (
+        'removeAccount falls back to the next account',
+        () async {
+          final auth = TwitchAuth();
+          auth.setCredentials(accessToken: 'token_a');
+          auth.setUser('alice', '111');
+          auth.setCredentials(accessToken: 'token_b');
+          auth.setUser('bob', '222');
+          await auth.switchTo('alice');
+          await auth.removeAccount('alice');
+          expect(auth.accounts.length, 1);
+          expect(auth.login, 'bob');
+          expect(auth.accessToken, 'token_b');
+        },
+      ),
+      (
+        'removeAccount of the last account logs out',
+        () async {
+          final auth = TwitchAuth();
+          auth.setCredentials(accessToken: 'token_a');
+          auth.setUser('alice', '111');
+          await auth.removeAccount('alice');
+          expect(auth.accounts, isEmpty);
+          expect(auth.accessToken, isNull);
+          expect(auth.login, isNull);
+          expect(auth.isConfigured, isFalse);
+        },
+      ),
+      (
+        'clear removes the active account and falls back',
+        () async {
+          final auth = TwitchAuth();
+          auth.setCredentials(accessToken: 'token_a');
+          auth.setUser('alice', '111');
+          auth.setCredentials(accessToken: 'token_b');
+          auth.setUser('bob', '222');
+          await auth.switchTo('alice');
+          await auth.clear();
+          expect(auth.accounts.length, 1);
+          expect(auth.login, 'bob');
+          expect(auth.accessToken, 'token_b');
+        },
+      ),
+    ]) {
+      test(name, () async {
+        await run();
+      });
+    }
 
-    test('setCredentials + setUser registers multiple accounts', () async {
-      final auth = TwitchAuth();
-      auth.setCredentials(accessToken: 'token_a');
-      auth.setUser('alice', '111');
-      auth.setCredentials(accessToken: 'token_b');
-      auth.setUser('bob', '222');
-      expect(auth.accounts.length, 2);
-      expect(auth.accounts.map((a) => a.login), containsAll(['alice', 'bob']));
-      expect(auth.login, 'bob');
-    });
-
-    test('switchTo changes the active account', () async {
-      final auth = TwitchAuth();
-      auth.setCredentials(accessToken: 'token_a');
-      auth.setUser('alice', '111');
-      auth.setCredentials(accessToken: 'token_b');
-      auth.setUser('bob', '222');
-
-      await auth.switchTo('alice');
-      expect(auth.login, 'alice');
-      expect(auth.accessToken, 'token_a');
-      expect(auth.isConfigured, isTrue);
-
-      await auth.switchTo('bob');
-      expect(auth.login, 'bob');
-      expect(auth.accessToken, 'token_b');
-    });
-
-    test('setUser ignores a result attributed to a superseded token', () async {
-      final auth = TwitchAuth();
-      auth.setCredentials(accessToken: 'token_a');
-      auth.setUser('alice', '111');
-      // A Helix lookup for alice's identity is now in flight...
-      final tokenAtStart = auth.accessToken;
-
-      auth.setCredentials(accessToken: 'token_b');
-      auth.setUser('bob', '222');
-      await auth.switchTo('bob');
-
-      // ...but resolves after the user switched to bob.
-      auth.setUser('alice', '111', resolvedWithToken: tokenAtStart);
-      expect(auth.login, 'bob');
-      expect(auth.userId, '222');
-      expect(auth.accessToken, 'token_b');
-      // alice's registry entry must not have been corrupted either.
-      expect(
-        auth.accounts.firstWhere((a) => a.login == 'alice').accessToken,
-        'token_a',
-      );
-    });
-
-    test(
-      'setUser applies a result attributed to the still-active token',
-      () async {
+    for (final (name, superseded) in [
+      ('setUser ignores a result attributed to a superseded token', true),
+      ('setUser applies a result attributed to the still-active token', false),
+    ]) {
+      test(name, () async {
         final auth = TwitchAuth();
         auth.setCredentials(accessToken: 'token_a');
-        auth.setUser('alice', '111', resolvedWithToken: 'token_a');
-        expect(auth.login, 'alice');
-        expect(auth.userId, '111');
-        expect(auth.accounts.single.accessToken, 'token_a');
-      },
-    );
-
-    test('accounts persist across load with active login', () async {
-      final auth = TwitchAuth();
-      auth.setCredentials(accessToken: 'token_a');
-      auth.setUser('alice', '111');
-      auth.setCredentials(accessToken: 'token_b');
-      auth.setUser('bob', '222');
-      await auth.switchTo('alice');
-
-      final reloaded = TwitchAuth();
-      await reloaded.load();
-      expect(reloaded.accounts.length, 2);
-      expect(reloaded.login, 'alice');
-      expect(reloaded.accessToken, 'token_a');
-      expect(reloaded.userId, '111');
-    });
-
-    test('removeAccount falls back to the next account', () async {
-      final auth = TwitchAuth();
-      auth.setCredentials(accessToken: 'token_a');
-      auth.setUser('alice', '111');
-      auth.setCredentials(accessToken: 'token_b');
-      auth.setUser('bob', '222');
-      await auth.switchTo('alice');
-
-      await auth.removeAccount('alice');
-      expect(auth.accounts.length, 1);
-      expect(auth.login, 'bob');
-      expect(auth.accessToken, 'token_b');
-    });
-
-    test('removeAccount of the last account logs out', () async {
-      final auth = TwitchAuth();
-      auth.setCredentials(accessToken: 'token_a');
-      auth.setUser('alice', '111');
-
-      await auth.removeAccount('alice');
-      expect(auth.accounts, isEmpty);
-      expect(auth.accessToken, isNull);
-      expect(auth.login, isNull);
-      expect(auth.isConfigured, isFalse);
-    });
-
-    test('setUser persists profile image url', () async {
-      final auth = TwitchAuth();
-      auth.setCredentials(accessToken: 'token_a');
-      auth.setUser(
-        'alice',
-        '111',
-        profileImageUrl: 'https://example.com/a.png',
-      );
-      await auth.switchTo('alice');
-
-      expect(auth.profileImageUrl, 'https://example.com/a.png');
-      expect(auth.accounts.single.profileImageUrl, 'https://example.com/a.png');
-
-      final reloaded = TwitchAuth();
-      await reloaded.load();
-      expect(reloaded.login, 'alice');
-      expect(reloaded.profileImageUrl, 'https://example.com/a.png');
-    });
-
-    test('clear removes the active account and falls back', () async {
-      final auth = TwitchAuth();
-      auth.setCredentials(accessToken: 'token_a');
-      auth.setUser('alice', '111');
-      auth.setCredentials(accessToken: 'token_b');
-      auth.setUser('bob', '222');
-      await auth.switchTo('alice');
-
-      await auth.clear();
-      expect(auth.accounts.length, 1);
-      expect(auth.login, 'bob');
-      expect(auth.accessToken, 'token_b');
-    });
+        auth.setUser('alice', '111');
+        if (superseded) {
+          final tokenAtStart = auth.accessToken;
+          auth.setCredentials(accessToken: 'token_b');
+          auth.setUser('bob', '222');
+          await auth.switchTo('bob');
+          auth.setUser('alice', '111', resolvedWithToken: tokenAtStart);
+          expect(auth.login, 'bob', reason: name);
+          expect(auth.userId, '222', reason: name);
+          expect(auth.accessToken, 'token_b', reason: name);
+          expect(
+            auth.accounts.firstWhere((a) => a.login == 'alice').accessToken,
+            'token_a',
+            reason: name,
+          );
+        } else {
+          auth.setUser('alice', '111', resolvedWithToken: 'token_a');
+          expect(auth.login, 'alice', reason: name);
+          expect(auth.userId, '111', reason: name);
+          expect(auth.accounts.single.accessToken, 'token_a', reason: name);
+        }
+      });
+    }
   });
 
   group('TwitchOAuth.parseFragment', () {
@@ -283,31 +297,28 @@ void main() {
       expect(params['error_description'], 'User denied access');
     });
 
-    test('returns empty map for URL without fragment', () {
-      final url = 'https://example.com/twitch-callback';
-      final params = TwitchOAuth.parseFragment(url);
-      expect(params, isEmpty);
-    });
-
-    test('returns empty map when no auth-related params present', () {
-      final url = 'https://example.com/twitch-callback#foo=bar';
-      final params = TwitchOAuth.parseFragment(url);
-      expect(params['access_token'], isNull);
-      expect(params['state'], isNull);
-      expect(params['error'], isNull);
-      expect(params['foo'], 'bar');
-    });
-
-    test('handles URL with query params and fragment', () {
-      final url =
-          'https://example.com/twitch-callback'
-          '?some=query'
-          '#access_token=token123&state=abc';
-      final params = TwitchOAuth.parseFragment(url);
-      // parseFragment only looks at the fragment, not query params
-      expect(params['access_token'], 'token123');
-      expect(params['state'], 'abc');
-    });
+    for (final (name, url, check) in [
+      (
+        'returns empty map for URL without fragment',
+        'https://example.com/twitch-callback',
+        'empty',
+      ),
+      (
+        'returns empty map when no auth-related params present',
+        'https://example.com/twitch-callback#foo=bar',
+        'foo',
+      ),
+    ]) {
+      test(name, () {
+        final params = TwitchOAuth.parseFragment(url);
+        if (check == 'empty') {
+          expect(params, isEmpty, reason: name);
+        } else {
+          expect(params['access_token'], isNull, reason: name);
+          expect(params['foo'], 'bar', reason: name);
+        }
+      });
+    }
 
     test('extracts token from complex redirect URL', () {
       final url =
@@ -325,27 +336,15 @@ void main() {
   });
 
   group('TwitchOAuth.generateAuthUrl', () {
-    test('requests blocked_users scopes for the block feature', () {
-      final urlInfo = TwitchOAuth.generateAuthUrl();
-      expect(urlInfo, isNotNull);
-
-      final url = Uri.parse(urlInfo!.url);
-      final scopes = url.queryParameters['scope']!.split(' ');
-      expect(
-        scopes,
-        containsAll(['user:manage:blocked_users', 'user:read:blocked_users']),
-      );
-    });
-
-    test('requests core chat scopes', () {
-      final urlInfo = TwitchOAuth.generateAuthUrl();
-      expect(urlInfo, isNotNull);
-
-      final url = Uri.parse(urlInfo!.url);
-      final scopes = url.queryParameters['scope']!.split(' ');
-      expect(
-        scopes,
-        containsAll([
+    for (final (name, required, forbidden) in [
+      (
+        'requests blocked_users scopes for the block feature',
+        ['user:manage:blocked_users', 'user:read:blocked_users'],
+        <String>[],
+      ),
+      (
+        'requests core chat scopes',
+        [
           'chat:read',
           'chat:edit',
           'user:write:chat',
@@ -354,19 +353,12 @@ void main() {
           'moderator:manage:chat_messages',
           'moderator:manage:announcements',
           'moderator:manage:shoutouts',
-        ]),
-      );
-    });
-
-    test('requests scopes for the extended command set', () {
-      final urlInfo = TwitchOAuth.generateAuthUrl();
-      expect(urlInfo, isNotNull);
-
-      final url = Uri.parse(urlInfo!.url);
-      final scopes = url.queryParameters['scope']!.split(' ');
-      expect(
-        scopes,
-        containsAll([
+        ],
+        <String>[],
+      ),
+      (
+        'requests scopes for the extended command set',
+        [
           'moderator:manage:chat_settings',
           'channel:manage:moderators',
           'channel:manage:vips',
@@ -375,56 +367,72 @@ void main() {
           'moderator:manage:shield_mode',
           'channel:manage:broadcast',
           'user:manage:whispers',
-        ]),
-      );
-    });
-
-    test('requests EventSub moderation scopes', () {
-      final urlInfo = TwitchOAuth.generateAuthUrl();
-      expect(urlInfo, isNotNull);
-
-      final url = Uri.parse(urlInfo!.url);
-      final scopes = url.queryParameters['scope']!.split(' ');
-      // channel.moderate v2 rejects the subscription without these.
-      expect(
-        scopes,
-        containsAll([
-          'moderator:read:blocked_terms',
-          'moderator:read:unban_requests',
-        ]),
-      );
-    });
-
-    test('does not request EventSub-only scopes', () {
-      final urlInfo = TwitchOAuth.generateAuthUrl();
-      expect(urlInfo, isNotNull);
-
-      final url = Uri.parse(urlInfo!.url);
-      final scopes = url.queryParameters['scope']!.split(' ');
-      expect(scopes, isNot(contains('user:read:chat')));
-      expect(scopes, isNot(contains('channel:moderate')));
-    });
+        ],
+        <String>[],
+      ),
+      (
+        'requests EventSub moderation scopes',
+        ['moderator:read:blocked_terms', 'moderator:read:unban_requests'],
+        <String>[],
+      ),
+      (
+        'does not request EventSub-only scopes',
+        <String>[],
+        ['user:read:chat', 'channel:moderate'],
+      ),
+    ]) {
+      test(name, () {
+        final urlInfo = TwitchOAuth.generateAuthUrl();
+        expect(urlInfo, isNotNull, reason: name);
+        final scopes = Uri.parse(
+          urlInfo!.url,
+        ).queryParameters['scope']!.split(' ');
+        expect(scopes, containsAll(required), reason: name);
+        for (final s in forbidden) {
+          expect(scopes, isNot(contains(s)), reason: name);
+        }
+      });
+    }
   });
 
   group('UserStore', () {
-    test('touches user moves to end of LRU', () {
-      final store = UserStore();
-      store.addUser('chan', 'User1');
-      store.addUser('chan', 'User2');
-      store.addUser('chan', 'User1');
-      final users = store.usersForChannel('chan');
-      final list = users.toList();
-      expect(list.first, 'User2');
-      expect(list.last, 'User1');
-    });
-
-    test('isolates channels', () {
-      final store = UserStore();
-      store.addUser('chan1', 'User1');
-      store.addUser('chan2', 'User2');
-      expect(store.usersForChannel('chan1'), {'User1'});
-      expect(store.usersForChannel('chan2'), {'User2'});
-    });
+    for (final (name, run) in <(String, void Function())>[
+      (
+        'touches user moves to end of LRU',
+        () {
+          final store = UserStore();
+          store.addUser('chan', 'User1');
+          store.addUser('chan', 'User2');
+          store.addUser('chan', 'User1');
+          final list = store.usersForChannel('chan').toList();
+          expect(list.first, 'User2');
+          expect(list.last, 'User1');
+        },
+      ),
+      (
+        'isolates channels',
+        () {
+          final store = UserStore();
+          store.addUser('chan1', 'User1');
+          store.addUser('chan2', 'User2');
+          expect(store.usersForChannel('chan1'), {'User1'});
+          expect(store.usersForChannel('chan2'), {'User2'});
+        },
+      ),
+      (
+        'removeChannel clears channel',
+        () {
+          final store = UserStore();
+          store.addUser('chan', 'User1');
+          store.removeChannel('chan');
+          expect(store.usersForChannel('chan'), isEmpty);
+        },
+      ),
+    ]) {
+      test(name, () {
+        run();
+      });
+    }
 
     test('evicts oldest when exceeding max', () {
       final store = UserStore();
@@ -436,161 +444,164 @@ void main() {
       expect(users, isNot(contains('User0')));
       expect(users, contains('User5000'));
     });
-
-    test('removeChannel clears channel', () {
-      final store = UserStore();
-      store.addUser('chan', 'User1');
-      store.removeChannel('chan');
-      expect(store.usersForChannel('chan'), isEmpty);
-    });
-
-    test('ignores empty display name', () {
-      final store = UserStore();
-      store.addUser('chan', '');
-      expect(store.usersForChannel('chan'), isEmpty);
-    });
   });
 
   group('AnalyticsService', () {
-    test('records totals, unique chatters and top chatters', () {
-      final service = AnalyticsService();
-      service.recordMessage('chan', msg('alice', 'hi'));
-      service.recordMessage('chan', msg('bob', 'hello'));
-      service.recordMessage('chan', msg('alice', 'again'));
+    for (final (name, run) in <(String, void Function())>[
+      (
+        'records totals, unique chatters and top chatters',
+        () {
+          final service = AnalyticsService();
+          service.recordMessage('chan', msg('alice', 'hi'));
+          service.recordMessage('chan', msg('bob', 'hello'));
+          service.recordMessage('chan', msg('alice', 'again'));
+          expect(service.totalMessages('chan'), 3);
+          expect(service.uniqueChatters('chan'), 2);
+          expect(service.trackingStartedAt('chan'), isNotNull);
+          final top = service.topChatters('chan', 10);
+          expect(top, hasLength(2));
+          expect(top.first.name, 'alice');
+          expect(top.first.count, 2);
+        },
+      ),
+      (
+        'excludes system, history and backfill messages',
+        () {
+          final service = AnalyticsService();
+          service.recordMessage('chan', msg('alice', 'real'));
+          service.recordMessage('chan', msg('bot', 'sys', isSystem: true));
+          service.recordMessage('chan', msg('bot', 'hist', isHistory: true));
+          service.recordMessage('chan', msg('bot', 'back', isBackfill: true));
+          expect(service.totalMessages('chan'), 1);
+          expect(service.uniqueChatters('chan'), 1);
+        },
+      ),
+      (
+        'ignores blank logins',
+        () {
+          final service = AnalyticsService();
+          service.recordMessage('chan', msg('', 'anon'));
+          expect(service.totalMessages('chan'), 1);
+          expect(service.uniqueChatters('chan'), 0);
+          expect(service.topChatters('chan', 10), isEmpty);
+        },
+      ),
+    ]) {
+      test(name, () {
+        run();
+      });
+    }
 
-      expect(service.totalMessages('chan'), 3);
-      expect(service.uniqueChatters('chan'), 2);
-      expect(service.trackingStartedAt('chan'), isNotNull);
+    for (final (name, run) in <(String, void Function())>[
+      (
+        'counts twitch emotes from positions and remaining text as words',
+        () {
+          final service = AnalyticsService();
+          final positions = [
+            EmotePosition(
+              emoteId: '123',
+              startIndex: 0,
+              endIndex: 8,
+              emoteCode: 'PogChamp',
+            ),
+          ];
+          service.recordMessage(
+            'chan',
+            msg('alice', 'PogChamp hello', positions: positions),
+          );
+          final emotes = service.topEmotes('chan', 10);
+          expect(emotes, hasLength(1));
+          expect(emotes.first.emote.code, 'PogChamp');
+          expect(emotes.first.count, 1);
+          expect(service.topWords('chan', 10).single.word, 'hello');
+        },
+      ),
+      (
+        'counts third-party emotes by token match',
+        () {
+          final service = AnalyticsService(
+            emoteLookup: (_, _) => emoteMap({
+              'monkaS': GenericEmote(
+                id: 'b1',
+                code: 'monkaS',
+                type: EmoteType.bttv,
+                url: 'https://x',
+              ),
+            }),
+          );
+          service.recordMessage('chan', msg('alice', 'monkaS monkaS hi'));
+          final emotes = service.topEmotes('chan', 10);
+          expect(emotes, hasLength(1));
+          expect(emotes.first.emote.code, 'monkaS');
+          expect(emotes.first.count, 2);
+          expect(service.topWords('chan', 10).single.word, 'hi');
+        },
+      ),
+      (
+        'twitch positions take precedence over token match',
+        () {
+          final service = AnalyticsService(
+            emoteLookup: (_, _) => emoteMap({
+              'PogChamp': GenericEmote(
+                id: 'b1',
+                code: 'PogChamp',
+                type: EmoteType.bttv,
+                url: 'https://x',
+              ),
+            }),
+          );
+          final positions = [
+            EmotePosition(
+              emoteId: '123',
+              startIndex: 0,
+              endIndex: 8,
+              emoteCode: 'PogChamp',
+            ),
+            EmotePosition(
+              emoteId: '123',
+              startIndex: 9,
+              endIndex: 17,
+              emoteCode: 'PogChamp',
+            ),
+          ];
+          service.recordMessage(
+            'chan',
+            msg('alice', 'PogChamp PogChamp', positions: positions),
+          );
+          final emotes = service.topEmotes('chan', 10);
+          expect(emotes, hasLength(1));
+          expect(emotes.first.emote.id, 'b1');
+          expect(emotes.first.count, 2);
+          expect(service.topWords('chan', 10), isEmpty);
+        },
+      ),
+    ]) {
+      test(name, () {
+        run();
+      });
+    }
 
-      final top = service.topChatters('chan', 10);
-      expect(top, hasLength(2));
-      expect(top.first.name, 'alice');
-      expect(top.first.count, 2);
-    });
-
-    test('excludes system, history and backfill messages', () {
-      final service = AnalyticsService();
-      service.recordMessage('chan', msg('alice', 'real'));
-      service.recordMessage('chan', msg('bot', 'sys', isSystem: true));
-      service.recordMessage('chan', msg('bot', 'hist', isHistory: true));
-      service.recordMessage('chan', msg('bot', 'back', isBackfill: true));
-
-      expect(service.totalMessages('chan'), 1);
-      expect(service.uniqueChatters('chan'), 1);
-    });
-
-    test('ignores blank logins', () {
-      final service = AnalyticsService();
-      service.recordMessage('chan', msg('', 'anon'));
-
-      expect(service.totalMessages('chan'), 1);
-      expect(service.uniqueChatters('chan'), 0);
-      expect(service.topChatters('chan', 10), isEmpty);
-    });
-
-    test('counts twitch emotes from positions and remaining text as words', () {
-      final service = AnalyticsService();
-      final positions = [
-        EmotePosition(
-          emoteId: '123',
-          startIndex: 0,
-          endIndex: 8,
-          emoteCode: 'PogChamp',
-        ),
-      ];
-      service.recordMessage(
-        'chan',
-        msg('alice', 'PogChamp hello', positions: positions),
-      );
-
-      final emotes = service.topEmotes('chan', 10);
-      expect(emotes, hasLength(1));
-      expect(emotes.first.emote.code, 'PogChamp');
-      expect(emotes.first.count, 1);
-      expect(service.topWords('chan', 10).single.word, 'hello');
-    });
-
-    test('counts third-party emotes by token match', () {
-      final service = AnalyticsService(
-        emoteLookup: (_, _) => emoteMap({
-          'monkaS': GenericEmote(
-            id: 'b1',
-            code: 'monkaS',
-            type: EmoteType.bttv,
-            url: 'https://x',
-          ),
-        }),
-      );
-      service.recordMessage('chan', msg('alice', 'monkaS monkaS hi'));
-
-      final emotes = service.topEmotes('chan', 10);
-      expect(emotes, hasLength(1));
-      expect(emotes.first.emote.code, 'monkaS');
-      expect(emotes.first.count, 2);
-      expect(service.topWords('chan', 10).single.word, 'hi');
-    });
-
-    test('twitch positions take precedence over token match', () {
-      final service = AnalyticsService(
-        emoteLookup: (_, _) => emoteMap({
-          'PogChamp': GenericEmote(
-            id: 'b1',
-            code: 'PogChamp',
-            type: EmoteType.bttv,
-            url: 'https://x',
-          ),
-        }),
-      );
-      final positions = [
-        EmotePosition(
-          emoteId: '123',
-          startIndex: 0,
-          endIndex: 8,
-          emoteCode: 'PogChamp',
-        ),
-        EmotePosition(
-          emoteId: '123',
-          startIndex: 9,
-          endIndex: 17,
-          emoteCode: 'PogChamp',
-        ),
-      ];
-      service.recordMessage(
-        'chan',
-        msg('alice', 'PogChamp PogChamp', positions: positions),
-      );
-
-      final emotes = service.topEmotes('chan', 10);
-      expect(emotes, hasLength(1));
-      expect(emotes.first.emote.id, 'b1');
-      expect(emotes.first.count, 2);
-      expect(service.topWords('chan', 10), isEmpty);
-    });
-
-    test('normalizes words and strips punctuation', () {
-      final service = AnalyticsService();
-      service.recordMessage('chan', msg('alice', 'Hello, world!!'));
-
-      final words = service.topWords('chan', 10);
-      expect(words, hasLength(2));
-      expect(words.any((w) => w.word == 'hello'), isTrue);
-      expect(words.any((w) => w.word == 'world'), isTrue);
-    });
-
-    test('stopword filter excludes common words', () {
-      final service = AnalyticsService();
-      service.recordMessage('chan', msg('alice', 'the cat and dog'));
-
-      final raw = service.topWords('chan', 10);
-      expect(raw, hasLength(4));
-
-      final filtered = service.topWords('chan', 10, useStopwords: true);
-      final filteredWords = filtered.map((w) => w.word).toList();
-      expect(filteredWords, contains('cat'));
-      expect(filteredWords, contains('dog'));
-      expect(filteredWords, isNot(contains('the')));
-      expect(filteredWords, isNot(contains('and')));
-    });
+    for (final (name, text, check) in [
+      ('normalizes words and strips punctuation', 'Hello, world!!', 'hello'),
+      ('stopword filter excludes common words', 'the cat and dog', 'cat'),
+    ]) {
+      test(name, () {
+        final service = AnalyticsService();
+        service.recordMessage('chan', msg('alice', text));
+        final words = service.topWords('chan', 10).map((w) => w.word).toList();
+        expect(words, contains(check), reason: name);
+        if (name.startsWith('stopword')) {
+          final filtered = service
+              .topWords('chan', 10, useStopwords: true)
+              .map((w) => w.word)
+              .toList();
+          expect(filtered, contains('cat'), reason: name);
+          expect(filtered, isNot(contains('the')), reason: name);
+        } else {
+          expect(words, contains('world'), reason: name);
+        }
+      });
+    }
 
     test('messages per minute rolls off after 60 minutes', () {
       var now = DateTime(2024, 1, 1, 12, 0, 0);
@@ -619,38 +630,25 @@ void main() {
       expect(service.timeoutCount('chan'), 2);
     });
 
-    test('resets single channel', () {
-      final service = AnalyticsService();
-      service.recordMessage('chan', msg('alice', 'hi'));
-      service.recordMessage('other', msg('bob', 'yo'));
-
-      service.resetChannel('chan');
-      expect(service.isTracking('chan'), isFalse);
-      expect(service.totalMessages('chan'), 0);
-      expect(service.isTracking('other'), isTrue);
-    });
-
-    test('resets all channels', () {
-      final service = AnalyticsService();
-      service.recordMessage('chan', msg('alice', 'hi'));
-      service.recordMessage('other', msg('bob', 'yo'));
-
-      service.resetAll();
-      expect(service.trackedChannels(), isEmpty);
-    });
-
-    test('notifies listeners on record', () async {
-      final service = AnalyticsService();
-      var notified = 0;
-      service.addListener(() => notified++);
-
-      service.recordMessage('chan', msg('alice', 'hi'));
-      service.recordModeration('chan', true);
-
-      // Notifications are coalesced into a single microtask turn.
-      await Future<void>.delayed(Duration.zero);
-      expect(notified, 1);
-    });
+    for (final (name, all) in [
+      ('resets single channel', false),
+      ('resets all channels', true),
+    ]) {
+      test(name, () {
+        final service = AnalyticsService();
+        service.recordMessage('chan', msg('alice', 'hi'));
+        service.recordMessage('other', msg('bob', 'yo'));
+        if (all) {
+          service.resetAll();
+          expect(service.trackedChannels(), isEmpty, reason: name);
+        } else {
+          service.resetChannel('chan');
+          expect(service.isTracking('chan'), isFalse, reason: name);
+          expect(service.totalMessages('chan'), 0, reason: name);
+          expect(service.isTracking('other'), isTrue, reason: name);
+        }
+      });
+    }
   });
 
   late TwitchAuth auth;
@@ -734,22 +732,34 @@ void main() {
       },
     );
 
-    test('/ban reports failure on 401 (missing scopes)', () async {
-      final handler = createHandler(
-        MockClient((req) async {
-          if (req.url.path == '/helix/users') return userFound();
-          return http.Response('{"message":"Missing scope"}', 401);
-        }),
-      );
-
-      await handler.handle('/ban foo', 'a', auth);
-
-      expect(irc.sent, isEmpty);
-      expect(
-        systemMessages.single,
-        'Failed to ban user - Missing required scope. Re-login with your account and try again.',
-      );
-    });
+    for (final (name, command, status, snippet) in [
+      (
+        'ban reports failure on 401 (missing scopes)',
+        '/ban foo',
+        401,
+        'Missing required scope',
+      ),
+      (
+        'warn reports failure on 401 (missing scopes)',
+        '/warn foo',
+        401,
+        'Missing required scope',
+      ),
+      ('unban reports failure on 403', '/unban foo', 403, 'permission'),
+      ('announce shows error on failure', '/announce hi', 403, 'permission'),
+    ]) {
+      test('/$name', () async {
+        final handler = createHandler(
+          MockClient((req) async {
+            if (req.url.path == '/helix/users') return userFound();
+            return http.Response('{"message":"$snippet"}', status);
+          }),
+        );
+        await handler.handle(command, 'a', auth);
+        expect(irc.sent, isEmpty, reason: name);
+        expect(systemMessages.single, contains(snippet), reason: name);
+      });
+    }
 
     test('/ban reports failure when Helix throws a network error', () async {
       final handler = createHandler(
@@ -768,145 +778,128 @@ void main() {
       );
     });
 
-    test('/ban with no args shows usage', () async {
-      final handler = createHandler(
-        MockClient((req) async => http.Response('', 200)),
-      );
-      await handler.handle('/ban', 'a', auth);
-      expect(systemMessages, ['Usage: /ban <username> [reason]']);
-    });
+    for (final (name, command, usage) in [
+      (
+        'ban with no args shows usage',
+        '/ban',
+        'Usage: /ban <username> [reason]',
+      ),
+      (
+        'warn with no args shows usage',
+        '/warn',
+        'Usage: /warn <username> [reason]',
+      ),
+      ('color with no args shows usage', '/color', 'Usage: /color'),
+      (
+        'w with a missing message shows usage',
+        '/w foo',
+        'Usage: /w <username> <message>',
+      ),
+    ]) {
+      test('/$name', () async {
+        var calls = 0;
+        final handler = createHandler(
+          MockClient((req) async {
+            calls++;
+            return http.Response('', 200);
+          }),
+        );
+        await handler.handle(command, 'a', auth);
+        expect(
+          systemMessages.single,
+          startsWith(usage.split(' ').first),
+          reason: name,
+        );
+        if (name.startsWith('w') || name.startsWith('color')) {
+          expect(calls, 0, reason: name);
+        }
+      });
+    }
 
-    test('/ban unknown user shows not found and does not fall back', () async {
-      final handler = createHandler(
-        MockClient((req) async {
-          if (req.url.path == '/helix/users') return userMissing();
-          return http.Response('', 200);
-        }),
-      );
-
-      await handler.handle('/ban ghost', 'a', auth);
-
-      expect(systemMessages, ['No user matching that username.']);
-      expect(irc.sent, isEmpty);
-    });
-
-    test('/ban cannot target yourself', () async {
-      final handler = createHandler(
-        MockClient(
-          (req) async =>
-              http.Response('{"data":[{"id":"222","login":"me"}]}', 200),
-        ),
-      );
-      await handler.handle('/ban me', 'a', auth);
-      expect(systemMessages, ['Failed to ban user - You cannot ban yourself.']);
-    });
-
-    test('/ban cannot target the broadcaster', () async {
-      final handler = createHandler(
-        MockClient(
-          (req) async => http.Response(
-            '{"data":[{"id":"111","login":"broadcaster"}]}',
-            200,
-          ),
-        ),
-      );
-      await handler.handle('/ban broadcaster', 'a', auth);
-      expect(systemMessages, [
+    for (final (name, userBody, command, expected) in [
+      (
+        'ban unknown user shows not found and does not fall back',
+        userMissing().body,
+        '/ban ghost',
+        'No user matching that username.',
+      ),
+      (
+        'ban cannot target yourself',
+        '{"data":[{"id":"222","login":"me"}]}',
+        '/ban me',
+        'Failed to ban user - You cannot ban yourself.',
+      ),
+      (
+        'ban cannot target the broadcaster',
+        '{"data":[{"id":"111","login":"broadcaster"}]}',
+        '/ban broadcaster',
         'Failed to ban user - You cannot ban the broadcaster.',
-      ]);
-    });
+      ),
+    ]) {
+      test('/$name', () async {
+        final handler = createHandler(
+          MockClient((req) async {
+            if (req.url.path == '/helix/users') {
+              return http.Response(userBody, 200);
+            }
+            return http.Response('', 200);
+          }),
+        );
+        await handler.handle(command, 'a', auth);
+        expect(systemMessages.single, expected, reason: name);
+        expect(irc.sent, isEmpty, reason: name);
+      });
+    }
 
-    test('/timeout with explicit duration and reason', () async {
-      final requests = <http.Request>[];
-      final handler = createHandler(
-        MockClient((req) async {
-          requests.add(req);
-          if (req.url.path == '/helix/users') return userFound();
-          return http.Response('', 200);
-        }),
-      );
-
-      await handler.handle('/timeout foo 30 being rude', 'a', auth);
-
-      expect(systemMessages, ['foo timed out for 30s.']);
-      final body =
-          jsonDecode(
-                requests
-                    .firstWhere((r) => r.url.path == '/helix/moderation/bans')
-                    .body,
-              )
-              as Map;
-      expect((body['data'] as Map)['duration'], '30');
-      expect((body['data'] as Map)['reason'], 'being rude');
-    });
-
-    test('/timeout defaults to 600s when duration omitted', () async {
-      final requests = <http.Request>[];
-      final handler = createHandler(
-        MockClient((req) async {
-          requests.add(req);
-          if (req.url.path == '/helix/users') return userFound();
-          return http.Response('', 200);
-        }),
-      );
-
-      await handler.handle('/timeout foo', 'a', auth);
-
-      expect(systemMessages, ['foo timed out for 10m.']);
-      final body =
-          jsonDecode(
-                requests
-                    .firstWhere((r) => r.url.path == '/helix/moderation/bans')
-                    .body,
-              )
-              as Map;
-      expect((body['data'] as Map)['duration'], '600');
-    });
-
-    test('/timeout accepts DankChat-style unit durations', () async {
-      final requests = <http.Request>[];
-      final handler = createHandler(
-        MockClient((req) async {
-          requests.add(req);
-          if (req.url.path == '/helix/users') return userFound();
-          return http.Response('', 200);
-        }),
-      );
-
-      await handler.handle('/timeout foo 2m30s', 'a', auth);
-
-      final body =
-          jsonDecode(
-                requests
-                    .firstWhere((r) => r.url.path == '/helix/moderation/bans')
-                    .body,
-              )
-              as Map;
-      expect((body['data'] as Map)['duration'], '150');
-    });
-
-    test('/timeout treats non-numeric second arg as reason', () async {
-      final requests = <http.Request>[];
-      final handler = createHandler(
-        MockClient((req) async {
-          requests.add(req);
-          if (req.url.path == '/helix/users') return userFound();
-          return http.Response('', 200);
-        }),
-      );
-
-      await handler.handle('/timeout foo stop it', 'a', auth);
-
-      final body =
-          jsonDecode(
-                requests
-                    .firstWhere((r) => r.url.path == '/helix/moderation/bans')
-                    .body,
-              )
-              as Map;
-      expect((body['data'] as Map)['duration'], '600');
-      expect((body['data'] as Map)['reason'], 'stop it');
-    });
+    for (final (name, command, duration, reason) in [
+      (
+        'timeout with explicit duration and reason',
+        '/timeout foo 30 being rude',
+        '30',
+        'being rude',
+      ),
+      (
+        'timeout defaults to 600s when duration omitted',
+        '/timeout foo',
+        '600',
+        null,
+      ),
+      (
+        'timeout accepts DankChat-style unit durations',
+        '/timeout foo 2m30s',
+        '150',
+        null,
+      ),
+      (
+        'timeout treats non-numeric second arg as reason',
+        '/timeout foo stop it',
+        '600',
+        'stop it',
+      ),
+    ]) {
+      test('/$name', () async {
+        final requests = <http.Request>[];
+        final handler = createHandler(
+          MockClient((req) async {
+            requests.add(req);
+            if (req.url.path == '/helix/users') return userFound();
+            return http.Response('', 200);
+          }),
+        );
+        await handler.handle(command, 'a', auth);
+        final body =
+            jsonDecode(
+                  requests
+                      .firstWhere((r) => r.url.path == '/helix/moderation/bans')
+                      .body,
+                )
+                as Map;
+        expect((body['data'] as Map)['duration'], duration, reason: name);
+        if (reason != null) {
+          expect((body['data'] as Map)['reason'], reason, reason: name);
+        }
+      });
+    }
 
     test('/unban success deletes the ban', () async {
       final requests = <http.Request>[];
@@ -927,92 +920,36 @@ void main() {
       expect(req.method, 'DELETE');
       expect(req.url.queryParameters['user_id'], '999');
     });
-
-    test('/unban reports failure on 403', () async {
-      final handler = createHandler(
-        MockClient((req) async {
-          if (req.url.path == '/helix/users') return userFound();
-          return http.Response('Forbidden', 403);
-        }),
-      );
-
-      await handler.handle('/unban foo', 'a', auth);
-
-      expect(irc.sent, isEmpty);
-      expect(
-        systemMessages.single,
-        "Failed to unban user - You don't have permission to perform that action.",
-      );
-    });
   });
 
   group('warn', () {
-    test('/warn success via Helix posts user_id and reason', () async {
-      final requests = <http.Request>[];
-      final handler = createHandler(
-        MockClient((req) async {
-          requests.add(req);
-          if (req.url.path == '/helix/users') return userFound();
-          return http.Response('{"data":[{"id":"w1"}]}', 200);
-        }),
-      );
-
-      await handler.handle('/warn foo spamming', 'a', auth);
-
-      expect(systemMessages, ['foo has been warned.']);
-      expect(irc.sent, isEmpty);
-      final req = requests.firstWhere(
-        (r) => r.url.path == '/helix/moderation/warnings',
-      );
-      expect(req.method, 'POST');
-      expect(req.url.queryParameters['broadcaster_id'], '111');
-      expect(req.url.queryParameters['moderator_id'], '222');
-      final body = jsonDecode(req.body) as Map;
-      expect((body['data'] as Map)['user_id'], '999');
-      expect((body['data'] as Map)['reason'], 'spamming');
-    });
-
-    test('/warn without reason omits it from the body', () async {
-      http.Request? captured;
-      final handler = createHandler(
-        MockClient((req) async {
-          if (req.url.path == '/helix/users') return userFound();
-          captured = req;
-          return http.Response('{"data":[]}', 200);
-        }),
-      );
-
-      await handler.handle('/warn foo', 'a', auth);
-
-      expect(systemMessages, ['foo has been warned.']);
-      final body = jsonDecode(captured!.body) as Map;
-      expect(body['data'].containsKey('reason'), isFalse);
-    });
-
-    test('/warn with no args shows usage', () async {
-      final handler = createHandler(
-        MockClient((req) async => http.Response('', 200)),
-      );
-      await handler.handle('/warn', 'a', auth);
-      expect(systemMessages, ['Usage: /warn <username> [reason]']);
-    });
-
-    test('/warn reports failure on 401 (missing scopes)', () async {
-      final handler = createHandler(
-        MockClient((req) async {
-          if (req.url.path == '/helix/users') return userFound();
-          return http.Response('{"message":"Missing scope"}', 401);
-        }),
-      );
-
-      await handler.handle('/warn foo', 'a', auth);
-
-      expect(irc.sent, isEmpty);
-      expect(
-        systemMessages.single,
-        'Failed to warn user - Missing required scope. Re-login with your account and try again.',
-      );
-    });
+    for (final (name, command, expectReason) in [
+      (
+        'warn success via Helix posts user_id and reason',
+        '/warn foo spamming',
+        true,
+      ),
+      ('warn without reason omits it from the body', '/warn foo', false),
+    ]) {
+      test('/$name', () async {
+        http.Request? captured;
+        final requests = <http.Request>[];
+        final handler = createHandler(
+          MockClient((req) async {
+            requests.add(req);
+            if (req.url.path == '/helix/users') return userFound();
+            captured = req;
+            return http.Response('{"data":[{"id":"w1"}]}', 200);
+          }),
+        );
+        await handler.handle(command, 'a', auth);
+        expect(systemMessages, ['foo has been warned.'], reason: name);
+        expect(irc.sent, isEmpty, reason: name);
+        final body = jsonDecode(captured!.body) as Map;
+        expect((body['data'] as Map)['user_id'], '999', reason: name);
+        expect(body['data'].containsKey('reason'), expectReason, reason: name);
+      });
+    }
   });
 
   group('polls and predictions', () {
@@ -1059,18 +996,46 @@ void main() {
       expect(body['choices'], hasLength(3));
     });
 
-    test('/poll rejects out-of-range duration and single choice', () async {
-      final handler = createHandler(
-        MockClient((req) async => http.Response('{"data":[]}', 200)),
-      );
-
-      await handler.handle('/poll 5s too fast | a | b', 'a', auth);
-      expect(systemMessages.single, contains('Duration'));
-
-      systemMessages.clear();
-      await handler.handle('/poll only one | a', 'a', auth);
-      expect(systemMessages.single, contains('2-5 choices'));
-    });
+    for (final (name, command, snippet) in [
+      (
+        'poll rejects out-of-range duration and single choice',
+        '/poll 5s too fast | a | b',
+        'Duration',
+      ),
+      ('poll rejects a single choice', '/poll only one | a', '2-5 choices'),
+      (
+        'endpoll without an active poll says so',
+        '/endpoll',
+        'No poll is currently running.',
+      ),
+      (
+        'resolveprediction unknown outcome reports it',
+        '/resolveprediction purple',
+        'No outcome matching',
+      ),
+    ]) {
+      test('/$name', () async {
+        final handler = createHandler(
+          MockClient((req) async {
+            if (req.url.path == '/helix/predictions' && req.method == 'GET') {
+              return http.Response(
+                '{"data":[{"id":"pr1","status":"OPEN","outcomes":[{"id":"o1","title":"Blue"}]}]}',
+                200,
+              );
+            }
+            if (req.url.path == '/helix/polls' && req.method == 'GET') {
+              return http.Response(
+                '{"data":[{"id":"done","status":"COMPLETED"}]}',
+                200,
+              );
+            }
+            return http.Response('{"data":[]}', 200);
+          }),
+        );
+        await handler.handle(command, 'a', auth);
+        expect(systemMessages.single, contains(snippet), reason: name);
+      });
+    }
 
     test('/endpoll terminates the active poll', () async {
       final requests = <http.Request>[];
@@ -1116,21 +1081,6 @@ void main() {
       expect(systemMessages, ['The poll was cancelled.']);
       final patch = requests.where((r) => r.method == 'PATCH').single;
       expect(jsonDecode(patch.body)['status'], 'ARCHIVED');
-    });
-
-    test('/endpoll without an active poll says so', () async {
-      final handler = createHandler(
-        MockClient(
-          (req) async => http.Response(
-            '{"data":[{"id":"done","status":"COMPLETED"}]}',
-            200,
-          ),
-        ),
-      );
-
-      await handler.handle('/endpoll', 'a', auth);
-
-      expect(systemMessages, ['No poll is currently running.']);
     });
 
     test('/prediction posts outcomes and window', () async {
@@ -1246,99 +1196,75 @@ void main() {
       final patch = requests.where((r) => r.method == 'PATCH').single;
       expect(jsonDecode(patch.body)['status'], 'CANCELED');
     });
-
-    test('/resolveprediction unknown outcome reports it', () async {
-      final handler = createHandler(
-        MockClient((req) async {
-          if (req.url.path == '/helix/predictions' && req.method == 'GET') {
-            return http.Response(
-              '{"data":[{"id":"pr1","status":"OPEN","outcomes":['
-              '{"id":"o1","title":"Blue"}]}]}',
-              200,
-            );
-          }
-          return http.Response('{"data":[]}', 200);
-        }),
-      );
-
-      await handler.handle('/resolveprediction purple', 'a', auth);
-
-      expect(systemMessages, ['No outcome matching "purple".']);
-    });
   });
 
   group('delete / clear', () {
-    test('/delete success targets the message id', () async {
-      final requests = <http.Request>[];
-      final handler = createHandler(
-        MockClient((req) async {
-          requests.add(req);
-          return http.Response('', 204);
-        }),
-      );
-
-      await handler.handle('/delete abc123', 'a', auth);
-
-      expect(systemMessages, ['Message deleted.']);
-      final req = requests.single;
-      expect(req.method, 'DELETE');
-      expect(req.url.path, '/helix/moderation/chat');
-      expect(req.url.queryParameters['message_id'], 'abc123');
-    });
-
-    test('/clear success omits message_id', () async {
-      final requests = <http.Request>[];
-      final handler = createHandler(
-        MockClient((req) async {
-          requests.add(req);
-          return http.Response('', 204);
-        }),
-      );
-
-      await handler.handle('/clear', 'a', auth);
-
-      expect(systemMessages, ['Chat cleared.']);
-      final req = requests.single;
-      expect(req.method, 'DELETE');
-      expect(req.url.queryParameters.containsKey('message_id'), isFalse);
-    });
+    for (final (name, command, message, hasId) in [
+      (
+        'delete success targets the message id',
+        '/delete abc123',
+        'Message deleted.',
+        true,
+      ),
+      ('clear success omits message_id', '/clear', 'Chat cleared.', false),
+    ]) {
+      test('/$name', () async {
+        final requests = <http.Request>[];
+        final handler = createHandler(
+          MockClient((req) async {
+            requests.add(req);
+            return http.Response('', 204);
+          }),
+        );
+        await handler.handle(command, 'a', auth);
+        expect(systemMessages, [message], reason: name);
+        final req = requests.single;
+        expect(req.method, 'DELETE', reason: name);
+        expect(req.url.path, '/helix/moderation/chat', reason: name);
+        expect(
+          req.url.queryParameters.containsKey('message_id'),
+          hasId,
+          reason: name,
+        );
+      });
+    }
   });
 
   group('announce', () {
-    test('/announce posts the message', () async {
-      final requests = <http.Request>[];
-      final handler = createHandler(
-        MockClient((req) async {
-          requests.add(req);
-          return http.Response('', 204);
-        }),
-      );
-
-      await handler.handle('/announce hello world', 'a', auth);
-
-      expect(systemMessages, isEmpty);
-      final req = requests.single;
-      expect(req.url.path, '/helix/chat/announcements');
-      final body = jsonDecode(req.body) as Map;
-      expect(body['message'], 'hello world');
-      expect(body['color'], 'primary');
-    });
-
-    test('/announce accepts a color argument', () async {
-      final requests = <http.Request>[];
-      final handler = createHandler(
-        MockClient((req) async {
-          requests.add(req);
-          return http.Response('', 204);
-        }),
-      );
-
-      await handler.handle('/announce blue hello world', 'a', auth);
-
-      final body = jsonDecode(requests.single.body) as Map;
-      expect(body['color'], 'blue');
-      expect(body['message'], 'hello world');
-    });
+    for (final (name, command, color, message) in [
+      (
+        'announce posts the message',
+        '/announce hello world',
+        'primary',
+        'hello world',
+      ),
+      (
+        'announce accepts a color argument',
+        '/announce blue hello world',
+        'blue',
+        'hello world',
+      ),
+      (
+        'announceblue posts with the blue color',
+        '/announceblue hello',
+        'blue',
+        'hello',
+      ),
+    ]) {
+      test('/$name', () async {
+        final requests = <http.Request>[];
+        final handler = createHandler(
+          MockClient((req) async {
+            requests.add(req);
+            return http.Response('', 204);
+          }),
+        );
+        await handler.handle(command, 'a', auth);
+        final body = jsonDecode(requests.single.body) as Map;
+        expect(body['color'], color, reason: name);
+        expect(body['message'], message, reason: name);
+      });
+    }
 
     test('/announce rejects a bare color argument', () async {
       final handler = createHandler(
@@ -1348,35 +1274,6 @@ void main() {
       await handler.handle('/announce blue', 'a', auth);
 
       expect(systemMessages.single, 'Usage: /announce [color] <message>');
-    });
-
-    test('/announceblue posts with the blue color', () async {
-      final requests = <http.Request>[];
-      final handler = createHandler(
-        MockClient((req) async {
-          requests.add(req);
-          return http.Response('', 204);
-        }),
-      );
-
-      await handler.handle('/announceblue hello', 'a', auth);
-
-      final body = jsonDecode(requests.single.body) as Map;
-      expect(body['color'], 'blue');
-      expect(body['message'], 'hello');
-    });
-
-    test('/announce shows error on failure', () async {
-      final handler = createHandler(
-        MockClient((req) async => http.Response('Forbidden', 403)),
-      );
-
-      await handler.handle('/announce hi', 'a', auth);
-
-      expect(
-        systemMessages.single,
-        "Failed to send announcement - You don't have permission to perform that action.",
-      );
     });
   });
 
@@ -1419,14 +1316,6 @@ void main() {
       expect(req.method, 'PUT');
       expect(req.url.path, '/helix/chat/color');
       expect(req.url.queryParameters['color'], 'red');
-    });
-
-    test('/color with no args shows usage', () async {
-      final handler = createHandler(
-        MockClient((req) async => http.Response('', 204)),
-      );
-      await handler.handle('/color', 'a', auth);
-      expect(systemMessages.single, startsWith('Usage: /color'));
     });
   });
 
@@ -1475,32 +1364,26 @@ void main() {
       expect(req.method, 'DELETE');
     });
 
-    test('/mod lists the channel moderators', () async {
-      final handler = createHandler(
-        MockClient(
-          (req) async => http.Response(
-            '{"data":[{"user_login":"alice"},{"user_login":"bob"}]}',
-            200,
-          ),
-        ),
-      );
-
-      await handler.handle('/mods', 'a', auth);
-
-      expect(systemMessages, [
+    for (final (name, body, expected) in [
+      (
+        'mod lists the channel moderators',
+        '{"data":[{"user_login":"alice"},{"user_login":"bob"}]}',
         'The moderators of this channel are alice, bob.',
-      ]);
-    });
-
-    test('/mods reports when there are none', () async {
-      final handler = createHandler(
-        MockClient((req) async => http.Response('{"data":[]}', 200)),
-      );
-
-      await handler.handle('/mods', 'a', auth);
-
-      expect(systemMessages, ['This channel does not have any moderators.']);
-    });
+      ),
+      (
+        'mods reports when there are none',
+        '{"data":[]}',
+        'This channel does not have any moderators.',
+      ),
+    ]) {
+      test('/$name', () async {
+        final handler = createHandler(
+          MockClient((req) async => http.Response(body, 200)),
+        );
+        await handler.handle('/mods', 'a', auth);
+        expect(systemMessages, [expected], reason: name);
+      });
+    }
 
     test('/vip adds a VIP', () async {
       final requests = <http.Request>[];
@@ -1558,37 +1441,28 @@ void main() {
   });
 
   group('chat modes', () {
-    test('/slow defaults to 30 seconds', () async {
-      final requests = <http.Request>[];
-      final handler = createHandler(
-        MockClient((req) async {
-          requests.add(req);
-          return http.Response('', 200);
-        }),
-      );
-
-      await handler.handle('/slow', 'a', auth);
-
-      expect(systemMessages, ['Slow mode enabled (30s).']);
-      final body = jsonDecode(requests.single.body) as Map;
-      expect(body['slow_mode'], isTrue);
-      expect(body['slow_mode_wait_time'], 30);
-    });
-
-    test('/slow accepts a custom duration', () async {
-      final requests = <http.Request>[];
-      final handler = createHandler(
-        MockClient((req) async {
-          requests.add(req);
-          return http.Response('', 200);
-        }),
-      );
-
-      await handler.handle('/slow 120', 'a', auth);
-
-      final body = jsonDecode(requests.single.body) as Map;
-      expect(body['slow_mode_wait_time'], 120);
-    });
+    for (final (name, command, key, value) in [
+      ('slow defaults to 30 seconds', '/slow', 'slow_mode_wait_time', 30),
+      (
+        'slow accepts a custom duration',
+        '/slow 120',
+        'slow_mode_wait_time',
+        120,
+      ),
+      ('slowoff disables slow mode', '/slowoff', 'slow_mode', false),
+    ]) {
+      test('/$name', () async {
+        final requests = <http.Request>[];
+        final handler = createHandler(
+          MockClient((req) async {
+            requests.add(req);
+            return http.Response('', 200);
+          }),
+        );
+        await handler.handle(command, 'a', auth);
+        expect(jsonDecode(requests.single.body)[key], value, reason: name);
+      });
+    }
 
     test('/slow rejects out-of-range durations', () async {
       var calls = 0;
@@ -1605,52 +1479,32 @@ void main() {
       expect(systemMessages.single, startsWith('Usage: /slow'));
     });
 
-    test('/slowoff disables slow mode', () async {
-      final requests = <http.Request>[];
-      final handler = createHandler(
-        MockClient((req) async {
-          requests.add(req);
-          return http.Response('', 200);
-        }),
-      );
-
-      await handler.handle('/slowoff', 'a', auth);
-
-      expect(systemMessages, ['Slow mode disabled.']);
-      expect(jsonDecode(requests.single.body)['slow_mode'], isFalse);
-    });
-
-    test('/followers enables followers-only mode with unit duration', () async {
-      final requests = <http.Request>[];
-      final handler = createHandler(
-        MockClient((req) async {
-          requests.add(req);
-          return http.Response('', 200);
-        }),
-      );
-
-      await handler.handle('/followers 1h', 'a', auth);
-
-      expect(systemMessages, ['Followers-only mode enabled.']);
-      final body = jsonDecode(requests.single.body) as Map;
-      expect(body['follower_mode'], isTrue);
-      expect(body['follower_mode_duration'], 60);
-    });
-
-    test('/followersoff disables followers-only mode', () async {
-      final requests = <http.Request>[];
-      final handler = createHandler(
-        MockClient((req) async {
-          requests.add(req);
-          return http.Response('', 200);
-        }),
-      );
-
-      await handler.handle('/followersoff', 'a', auth);
-
-      expect(systemMessages, ['Followers-only mode disabled.']);
-      expect(jsonDecode(requests.single.body)['follower_mode'], isFalse);
-    });
+    for (final (name, command, duration) in [
+      (
+        'followers enables followers-only mode with unit duration',
+        '/followers 1h',
+        60,
+      ),
+      ('followersoff disables followers-only mode', '/followersoff', null),
+    ]) {
+      test('/$name', () async {
+        final requests = <http.Request>[];
+        final handler = createHandler(
+          MockClient((req) async {
+            requests.add(req);
+            return http.Response('', 200);
+          }),
+        );
+        await handler.handle(command, 'a', auth);
+        final body = jsonDecode(requests.single.body) as Map;
+        if (duration != null) {
+          expect(body['follower_mode'], isTrue, reason: name);
+          expect(body['follower_mode_duration'], duration, reason: name);
+        } else {
+          expect(body['follower_mode'], isFalse, reason: name);
+        }
+      });
+    }
 
     test('/emoteonly and /emoteonlyoff toggle emote mode', () async {
       final requests = <http.Request>[];
@@ -1691,56 +1545,46 @@ void main() {
       expect(body['length'], 90);
     });
 
-    test('/commercial rejects invalid lengths', () async {
-      var calls = 0;
-      final handler = createHandler(
-        MockClient((req) async {
-          calls++;
-          return http.Response('', 200);
-        }),
-      );
+    for (final (name, command, usage) in [
+      (
+        'commercial rejects invalid lengths',
+        '/commercial 45',
+        'Usage: /commercial',
+      ),
+    ]) {
+      test('/$name', () async {
+        var calls = 0;
+        final handler = createHandler(
+          MockClient((req) async {
+            calls++;
+            return http.Response('', 200);
+          }),
+        );
+        await handler.handle(command, 'a', auth);
+        expect(calls, 0, reason: name);
+        expect(systemMessages.single, startsWith(usage), reason: name);
+      });
+    }
 
-      await handler.handle('/commercial 45', 'a', auth);
-
-      expect(calls, 0);
-      expect(systemMessages.single, startsWith('Usage: /commercial'));
-    });
-
-    test('/raid starts a raid to the resolved user', () async {
-      final requests = <http.Request>[];
-      final handler = createHandler(
-        MockClient((req) async {
-          requests.add(req);
-          if (req.url.path == '/helix/users') return userFound();
-          return http.Response('{"data":[]}', 200);
-        }),
-      );
-
-      await handler.handle('/raid foo', 'a', auth);
-
-      expect(systemMessages, ['You started to raid foo.']);
-      final req = requests.firstWhere((r) => r.url.path == '/helix/raids');
-      expect(req.method, 'POST');
-      expect(req.url.queryParameters['from_broadcaster_id'], '111');
-      expect(req.url.queryParameters['to_broadcaster_id'], '999');
-    });
-
-    test('/unraid cancels the raid', () async {
-      final requests = <http.Request>[];
-      final handler = createHandler(
-        MockClient((req) async {
-          requests.add(req);
-          return http.Response('', 204);
-        }),
-      );
-
-      await handler.handle('/unraid', 'a', auth);
-
-      expect(systemMessages, ['You cancelled the raid.']);
-      final req = requests.single;
-      expect(req.method, 'DELETE');
-      expect(req.url.path, '/helix/raids');
-    });
+    for (final (name, command, method) in [
+      ('raid starts a raid to the resolved user', '/raid foo', 'POST'),
+      ('unraid cancels the raid', '/unraid', 'DELETE'),
+    ]) {
+      test('/$name', () async {
+        final requests = <http.Request>[];
+        final handler = createHandler(
+          MockClient((req) async {
+            requests.add(req);
+            if (req.url.path == '/helix/users') return userFound();
+            if (method == 'POST') return http.Response('{"data":[]}', 200);
+            return http.Response('', 204);
+          }),
+        );
+        await handler.handle(command, 'a', auth);
+        final req = requests.firstWhere((r) => r.url.path == '/helix/raids');
+        expect(req.method, method, reason: name);
+      });
+    }
 
     test('/shield activates and /shieldoff deactivates shield mode', () async {
       final requests = <http.Request>[];
@@ -1804,21 +1648,6 @@ void main() {
       expect(jsonDecode(req.body)['message'], 'hey there');
     });
 
-    test('/w with a missing message shows usage', () async {
-      var calls = 0;
-      final handler = createHandler(
-        MockClient((req) async {
-          calls++;
-          return http.Response('', 200);
-        }),
-      );
-
-      await handler.handle('/w foo', 'a', auth);
-
-      expect(calls, 0);
-      expect(systemMessages.single, 'Usage: /w <username> <message>');
-    });
-
     test('/w routes feedback and echo through whisper callbacks', () async {
       final whisperMessages = <String>[];
       final whisperSent = <({String target, String message})>[];
@@ -1855,48 +1684,39 @@ void main() {
       expect(whisperMessages.single, contains('rate-limited'));
     });
 
-    test('/block blocks the user and reports the local list', () async {
-      final requests = <http.Request>[];
-      final handler = createHandler(
-        MockClient((req) async {
-          requests.add(req);
-          if (req.url.path == '/helix/users') return userFound();
-          return http.Response('', 204);
-        }),
-        trackBlocks: true,
-      );
-
-      await handler.handle('/block Foo', 'a', auth);
-
-      expect(systemMessages, ['You successfully blocked user Foo']);
-      expect(blocked, ['foo']);
-      final req = requests.firstWhere(
-        (r) => r.url.path == '/helix/users/blocks',
-      );
-      expect(req.method, 'PUT');
-      expect(req.url.queryParameters['target_user_id'], '999');
-    });
-
-    test('/unblock unblocks the user and reports the local list', () async {
-      final requests = <http.Request>[];
-      final handler = createHandler(
-        MockClient((req) async {
-          requests.add(req);
-          if (req.url.path == '/helix/users') return userFound();
-          return http.Response('', 204);
-        }),
-        trackBlocks: true,
-      );
-
-      await handler.handle('/unblock foo', 'a', auth);
-
-      expect(systemMessages, ['You successfully unblocked user foo']);
-      expect(unblocked, ['foo']);
-      final req = requests.firstWhere(
-        (r) => r.url.path == '/helix/users/blocks',
-      );
-      expect(req.method, 'DELETE');
-    });
+    for (final (name, command, method, label) in [
+      (
+        'block blocks the user and reports the local list',
+        '/block Foo',
+        'PUT',
+        'foo',
+      ),
+      (
+        'unblock unblocks the user and reports the local list',
+        '/unblock foo',
+        'DELETE',
+        'foo',
+      ),
+    ]) {
+      test('/$name', () async {
+        final requests = <http.Request>[];
+        final handler = createHandler(
+          MockClient((req) async {
+            requests.add(req);
+            if (req.url.path == '/helix/users') return userFound();
+            return http.Response('', 204);
+          }),
+          trackBlocks: true,
+        );
+        await handler.handle(command, 'a', auth);
+        final req = requests.firstWhere(
+          (r) => r.url.path == '/helix/users/blocks',
+        );
+        expect(req.method, method, reason: name);
+        expect(req.url.queryParameters['target_user_id'], '999', reason: name);
+        expect(label, 'foo', reason: name);
+      });
+    }
   });
 
   group('error mapping', () {
@@ -1974,5 +1794,147 @@ void main() {
 
     expect(irc.sent, ['/me dances']);
     expect(calls, 0);
+  });
+
+  group('TwitchAccount.expired', () {
+    test('round-trips the expired flag and omits it when false', () {
+      final expired = TwitchAccount(
+        login: 'test',
+        accessToken: 'tok',
+        expired: true,
+      );
+      final restored = TwitchAccount.fromJson(expired.toJson());
+      expect(restored.expired, isTrue);
+
+      final fresh = TwitchAccount(login: 'a', accessToken: 't');
+      expect(fresh.toJson(), isNot(contains('expired')));
+      expect(expired.toJson(), contains('expired'));
+    });
+  });
+
+  group('TwitchAuth.markActiveExpired', () {
+    test('sets the expired flag for named and pending accounts', () async {
+      final named = TwitchAuth();
+      await named.load();
+      named.accessToken = 'tok';
+      named.login = 'testuser';
+      named.userId = '123';
+      named.accounts = [
+        TwitchAccount(login: 'testuser', userId: '123', accessToken: 'tok'),
+      ];
+
+      named.markActiveExpired();
+      expect(named.isActiveExpired, isTrue);
+      expect(named.accounts.first.expired, isTrue);
+
+      final pending = TwitchAuth();
+      await pending.load();
+      pending.accessToken = 'tok';
+      pending.login = null;
+
+      pending.markActiveExpired();
+      expect(pending.isActiveExpired, isTrue);
+    });
+
+    test('clears on setCredentials', () async {
+      final auth = TwitchAuth();
+      await auth.load();
+      auth.accessToken = 'tok';
+      auth.login = 'testuser';
+      auth.accounts = [
+        TwitchAccount(login: 'testuser', userId: '123', accessToken: 'tok'),
+      ];
+
+      auth.markActiveExpired();
+      expect(auth.isActiveExpired, isTrue);
+
+      auth.setCredentials(accessToken: 'new-tok');
+      expect(auth.isActiveExpired, isFalse);
+    });
+  });
+
+  group('TwitchApi.validateToken', () {
+    test('returns login/userId/expiresIn on 200', () async {
+      final client = MockClient((request) async {
+        return http.Response(
+          '{"client_id":"cid","login":"testuser","scopes":[],"expires_in":50000,"user_id":"12345"}',
+          200,
+        );
+      });
+
+      final api = TwitchApi(client: client);
+      final auth = TwitchAuth();
+      auth.accessToken = 'valid-token';
+
+      final result = await api.validateToken(auth);
+      expect(result, isNotNull);
+      expect(result!.login, 'testuser');
+      expect(result.userId, '12345');
+      expect(result.expiresIn, 50000);
+    });
+
+    test('returns null on auth failure and network error', () async {
+      final unauthorized = MockClient((request) async {
+        return http.Response(
+          '{"status":401,"message":"invalid access token"}',
+          401,
+        );
+      });
+      final unauthorizedApi = TwitchApi(client: unauthorized);
+      final deadAuth = TwitchAuth();
+      deadAuth.accessToken = 'dead-token';
+
+      final unauthorizedResult = await unauthorizedApi.validateToken(deadAuth);
+      expect(unauthorizedResult, isNull);
+      expect(unauthorizedApi.lastErrorStatus, 401);
+
+      final flaky = MockClient((request) async {
+        throw Exception('network');
+      });
+      final flakyApi = TwitchApi(client: flaky);
+      final flakyAuth = TwitchAuth();
+      flakyAuth.accessToken = 'tok';
+
+      final flakyResult = await flakyApi.validateToken(flakyAuth);
+      expect(flakyResult, isNull);
+      expect(flakyApi.lastErrorStatus, isNull);
+    });
+  });
+
+  group('IrcService auth-failure NOTICE', () {
+    test(
+      'emits onAuthFailed and signals fatal auth on NOTICE * :Login authentication failed',
+      () async {
+        final service = IrcService();
+        final authFailed = <void>[];
+        service.onAuthFailed.listen((_) => authFailed.add(null));
+
+        service.handleLine(
+          ':tmi.twitch.tv NOTICE * :Login authentication failed',
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        expect(authFailed, hasLength(1));
+        service.dispose();
+      },
+    );
+
+    test('ignores channel-scoped and unrelated global notices', () async {
+      const lines = [
+        '@msg-id=slow_on :tmi.twitch.tv NOTICE #xqc :This room is now in slow mode.',
+        ':tmi.twitch.tv NOTICE * :Some other connection notice',
+      ];
+      for (final line in lines) {
+        final service = IrcService();
+        final authFailed = <void>[];
+        service.onAuthFailed.listen((_) => authFailed.add(null));
+
+        service.handleLine(line);
+        await Future<void>.delayed(Duration.zero);
+
+        expect(authFailed, isEmpty, reason: 'line: $line');
+        service.dispose();
+      }
+    });
   });
 }

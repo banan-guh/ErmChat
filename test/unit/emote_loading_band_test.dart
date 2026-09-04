@@ -80,7 +80,7 @@ void main() {
   });
 
   group('EmoteLoadingClock', () {
-    testWidgets('runs while placeholders are mounted and stops at zero', (
+    testWidgets('placeholders share one clock lifecycle with refcounting', (
       tester,
     ) async {
       late ValueNotifier<double> phase;
@@ -97,21 +97,6 @@ void main() {
       await tester.pump(const Duration(milliseconds: 300));
       expect(phase.value, isNot(first));
 
-      await tester.pumpWidget(const SizedBox.shrink());
-      expect(EmoteLoadingClock.isActive, isFalse);
-
-      // Re-mounting restarts the shared clock.
-      await tester.pumpWidget(
-        const MaterialApp(home: LoadingBand(width: 28, height: 28)),
-      );
-      expect(EmoteLoadingClock.isActive, isTrue);
-      await tester.pumpWidget(const SizedBox.shrink());
-      expect(EmoteLoadingClock.isActive, isFalse);
-    });
-
-    testWidgets('two placeholder consumers share one lifecycle', (
-      tester,
-    ) async {
       await tester.pumpWidget(
         const MaterialApp(
           home: Column(
@@ -121,12 +106,18 @@ void main() {
       );
       expect(EmoteLoadingClock.isActive, isTrue);
 
-      // Removing one consumer must not stop the clock.
       await tester.pumpWidget(
         const MaterialApp(home: Column(children: [LoadingBand()])),
       );
       expect(EmoteLoadingClock.isActive, isTrue);
 
+      await tester.pumpWidget(const SizedBox.shrink());
+      expect(EmoteLoadingClock.isActive, isFalse);
+
+      await tester.pumpWidget(
+        const MaterialApp(home: LoadingBand(width: 28, height: 28)),
+      );
+      expect(EmoteLoadingClock.isActive, isTrue);
       await tester.pumpWidget(const SizedBox.shrink());
       expect(EmoteLoadingClock.isActive, isFalse);
     });

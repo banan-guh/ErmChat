@@ -11,50 +11,46 @@ void main() {
       '!plain': 'hello',
     };
 
-    test('returns null when no trigger matches', () {
-      expect(expandMacro('!unknown x', macros), isNull);
-      expect(expandMacro('Kappa 123', macros), isNull);
-    });
-
-    test('returns null for empty input or empty lookup', () {
-      expect(expandMacro('', macros), isNull);
-      expect(expandMacro('   ', macros), isNull);
+    test('returns null when nothing matches or the input is empty', () {
+      const nullInputs = ['!unknown x', 'Kappa 123', '', '   '];
+      for (final input in nullInputs) {
+        expect(expandMacro(input, macros), isNull, reason: 'input: "$input"');
+      }
       expect(expandMacro('!so forsen', const {}), isNull);
     });
 
-    test('substitutes positional args', () {
-      expect(expandMacro('!so forsen', macros), '/shoutout forsen');
-      expect(
-        expandMacro('!love forsen forsen2', macros),
-        'forsen loves forsen2',
-      );
-    });
+    test(
+      'substitutes positional and tail args, leaving missing args empty',
+      () {
+        const cases = {
+          '!so forsen': '/shoutout forsen',
+          '!love forsen forsen2': 'forsen loves forsen2',
+          '!so': '/shoutout ',
+          '!love forsen': 'forsen loves ',
+          '!multi a b c d': 'a then b c d end',
+          '!multi a': 'a then  end',
+        };
+        cases.forEach((input, expected) {
+          expect(
+            expandMacro(input, macros),
+            expected,
+            reason: 'input: "$input"',
+          );
+        });
+      },
+    );
 
-    test('missing args expand to empty string', () {
-      expect(expandMacro('!so', macros), '/shoutout ');
-      expect(expandMacro('!love forsen', macros), 'forsen loves ');
-    });
-
-    test('{n+} joins the tail of the args', () {
-      expect(expandMacro('!multi a b c d', macros), 'a then b c d end');
-      expect(expandMacro('!multi a', macros), 'a then  end');
-    });
-
-    test('trigger matching is case-insensitive, body preserved', () {
+    test('matches the trigger case-insensitively as the first token only', () {
       expect(expandMacro('!SO forsen', macros), '/shoutout forsen');
-    });
-
-    test('trigger must be the first token', () {
       expect(expandMacro('say !so now', macros), isNull);
     });
 
-    test('invalid or zero placeholder specs stay literal', () {
+    test('keeps invalid specs literal and never re-expands output', () {
       const body = 'keep {0} and {x} and {} but use {1}';
-      final result = expandMacro('!t hi', {'!t': body});
-      expect(result, 'keep {0} and {x} and {} but use hi');
-    });
-
-    test('no re-expansion of macro output (single pass)', () {
+      expect(
+        expandMacro('!t hi', {'!t': body}),
+        'keep {0} and {x} and {} but use hi',
+      );
       // "!plain" expands to "hello", never to the !love chain.
       final nested = {'!a': '!b {1}', '!b': 'done'};
       expect(expandMacro('!a x', nested), '!b x');
@@ -62,7 +58,7 @@ void main() {
   });
 
   group('macro store', () {
-    test('save + load round-trips per account', () async {
+    test('round-trips macros per account and keeps the cache fresh', () async {
       SharedPreferences.setMockInitialValues({});
       const login = 'tester';
       final macros = [
@@ -77,10 +73,7 @@ void main() {
       expect(loaded[0].name, '!so');
       expect(loaded[0].body, '/shoutout {1}');
       expect(loaded[1].body, 'hi {1+}');
-    });
 
-    test('accounts are isolated and cache stays fresh after save', () async {
-      SharedPreferences.setMockInitialValues({});
       await saveMacros('alice', [const CommandMacro(name: '!a', body: 'aaa')]);
       await saveMacros('bob', [const CommandMacro(name: '!b', body: 'bbb')]);
 

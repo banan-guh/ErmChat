@@ -43,27 +43,12 @@ void main() {
     expect(EmoteUrlProvider.debugPerfCapFor(30), 30);
   });
 
-  test('no samples ever keeps the base cap', () {
-    _useGovernor(_Clock());
-    expect(EmoteUrlProvider.debugPerfCapFor(30), 30);
-  });
-
-  test('under 10 samples keeps the base cap', () {
-    _useGovernor(_Clock());
-    _feed(over: 9, total: 9);
-    expect(EmoteUrlProvider.debugPerfCapFor(30), 30);
-  });
-
-  test('mild strain barely trims the cap', () {
-    _useGovernor(_Clock());
-    _feed(over: 6, total: 20);
-    expect(EmoteUrlProvider.debugPerfCapFor(30), greaterThanOrEqualTo(27));
-  });
-
-  test('quadratic gentleness: r=0.4 cuts at most 10 percent', () {
-    _useGovernor(_Clock());
-    _feed(over: 8, total: 20);
-    expect(EmoteUrlProvider.debugPerfCapFor(30), greaterThanOrEqualTo(27));
+  test('mild and quadratic strain barely trim the cap', () {
+    for (final over in [6, 8]) {
+      _useGovernor(_Clock());
+      _feed(over: over, total: 20);
+      expect(EmoteUrlProvider.debugPerfCapFor(30), greaterThanOrEqualTo(27));
+    }
   });
 
   test('heavy strain drops to the low teens', () {

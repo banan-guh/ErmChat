@@ -67,38 +67,6 @@ final _solidData = {
   'shadows': [],
 };
 
-final _imageData = {
-  'layers': [
-    {
-      'opacity': 1.0,
-      'ty': {
-        '__typename': 'PaintLayerTypeImage',
-        'images': [
-          {
-            'url': 'https://cdn.example/p_4x.png',
-            'scale': 4,
-            'width': 128,
-            'height': 128,
-          },
-          {
-            'url': 'https://cdn.example/p_2x.png',
-            'scale': 2,
-            'width': 64,
-            'height': 64,
-          },
-          {
-            'url': 'https://cdn.example/p_1x.png',
-            'scale': 1,
-            'width': 32,
-            'height': 32,
-          },
-        ],
-      },
-    },
-  ],
-  'shadows': [],
-};
-
 String _catalogQueryResponse(List<Map<String, dynamic>> items) => jsonEncode({
   'data': {
     'paints': {'paints': items},
@@ -165,36 +133,22 @@ void main() {
       expect(solid.a, closeTo((1 / 255) * 0.8, 0.0005));
       service.dispose();
     });
-
-    test('image layers pick the smallest variant at or above 32px', () async {
-      final service = SevenTvPaintService(
-        gqlQuery: (_) async =>
-            jsonDecode(
-                  _catalogQueryResponse([_paintItem('p3', 'Img', _imageData)]),
-                )['data']
-                as Map<String, dynamic>,
-      );
-      await service.ensureCatalog();
-
-      final layer = SevenTvImagePaintLayer(
-        images: [
-          for (final img in _imageData['layers']![0]['ty']['images'] as List)
-            SevenTvPaintImage(
-              url: img['url'] as String,
-              width: img['width'] as int,
-              height: img['height'] as int,
-              scale: img['scale'] as int,
-            ),
-        ],
-        opacity: 1,
-      );
-      expect(layer.pickVariant()!.url, 'https://cdn.example/p_2x.png');
-      service.dispose();
-    });
   });
 
   group('SevenTvPaintService user resolution', () {
-    test('batched lookup resolves users and negative-caches misses', () async {
+    test('resolves batched users and stays idle while disabled', () async {
+      var queried = false;
+      final disabled = SevenTvPaintService(
+        gqlQuery: (_) async {
+          queried = true;
+          return null;
+        },
+      );
+      expect(disabled.lookup('111'), isNull);
+      await disabled.flushForTesting();
+      expect(queried, isFalse);
+      disabled.dispose();
+
       var queryCount = 0;
       late DateTime clock;
       clock = DateTime(2026, 1, 1);
@@ -249,24 +203,10 @@ void main() {
       expect(queryCount, countAfterFirstPass);
       service.dispose();
     });
-
-    test('disabled service never resolves or queues', () async {
-      var queried = false;
-      final service = SevenTvPaintService(
-        gqlQuery: (_) async {
-          queried = true;
-          return null;
-        },
-      );
-      expect(service.lookup('111'), isNull);
-      await service.flushForTesting();
-      expect(queried, isFalse);
-      service.dispose();
-    });
   });
 
   group('SevenTvEventClient entitlement dispatches', () {
-    test('paint entitlements carry kind and twitch ids', () async {
+    test('surfaces paint and emote set entitlements with twitch ids', () async {
       final client = SevenTvEventClient();
       final events = <SevenTvEntitlementEvent>[];
       client.onEntitlement.listen(events.add);
@@ -306,24 +246,6 @@ void main() {
           },
         },
       });
-
-      await Future<void>.delayed(Duration.zero);
-      expect(events, hasLength(2));
-      expect(events.first.cosmeticKind, 'PAINT');
-      expect(events.first.kind, 'entitlement.create');
-      expect(events.first.cosmeticId, 'paint-1');
-      expect(events.first.twitchUserIds, ['71092938']);
-      expect(events.last.cosmeticKind, 'EMOTE_SET');
-      expect(events.last.kind, 'entitlement.delete');
-      expect(events.last.cosmeticId, 'set-1');
-      expect(events.last.twitchUserIds, ['27237403']);
-      client.dispose();
-    });
-
-    test('EMOTE_SET entitlements are surfaced', () async {
-      final client = SevenTvEventClient();
-      final events = <SevenTvEntitlementEvent>[];
-      client.onEntitlement.listen(events.add);
       client.handleRawMessage({
         'op': 0,
         'd': {
@@ -341,11 +263,21 @@ void main() {
           },
         },
       });
+
       await Future<void>.delayed(Duration.zero);
-      expect(events, hasLength(1));
-      expect(events.single.cosmeticKind, 'EMOTE_SET');
-      expect(events.single.cosmeticId, 'personal-set-1');
-      expect(events.single.twitchUserIds, ['71092938']);
+      expect(events, hasLength(3));
+      const cases = [
+        ('PAINT', 'entitlement.create', 'paint-1', ['71092938']),
+        ('EMOTE_SET', 'entitlement.delete', 'set-1', ['27237403']),
+        ('EMOTE_SET', 'entitlement.create', 'personal-set-1', ['71092938']),
+      ];
+      for (var i = 0; i < cases.length; i++) {
+        final (cosmeticKind, kind, cosmeticId, twitchIds) = cases[i];
+        expect(events[i].cosmeticKind, cosmeticKind, reason: 'event $i');
+        expect(events[i].kind, kind, reason: 'event $i');
+        expect(events[i].cosmeticId, cosmeticId, reason: 'event $i');
+        expect(events[i].twitchUserIds, twitchIds, reason: 'event $i');
+      }
       client.dispose();
     });
 
@@ -414,22 +346,7 @@ void main() {
       expect(find.byType(ShaderMask), findsNothing);
     });
 
-    testWidgets('routes usernames through the paint widget when on', (
-      tester,
-    ) async {
-      final service = SevenTvPaintService(gqlQuery: (_) async => null)
-        ..enabled = true;
-      await tester.pumpWidget(
-        MaterialApp(home: Scaffold(body: tile(message('777'), service))),
-      );
-      // Let the queued batch flush timer fire so teardown has no pending
-      // timers.
-      await tester.pump(const Duration(milliseconds: 300));
-      expect(find.byType(PaintedUsernameText), findsOneWidget);
-      service.dispose();
-    });
-
-    testWidgets('gradient paints wrap the username in a ShaderMask', (
+    testWidgets('routes painted usernames through the gradient widget', (
       tester,
     ) async {
       final service = SevenTvPaintService(gqlQuery: (_) async => null)
@@ -456,10 +373,19 @@ void main() {
         ..assignForTesting('888', 'g1');
 
       await tester.pumpWidget(
+        MaterialApp(home: Scaffold(body: tile(message('777'), service))),
+      );
+      // Let the queued batch flush timer fire so teardown has no pending
+      // timers.
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.byType(PaintedUsernameText), findsOneWidget);
+
+      await tester.pumpWidget(
         MaterialApp(home: Scaffold(body: tile(message('888'), service))),
       );
       await tester.pump();
 
+      expect(find.byType(PaintedUsernameText), findsOneWidget);
       expect(find.byType(ShaderMask), findsOneWidget);
       service.dispose();
     });

@@ -16,23 +16,28 @@ void main() {
   }
 
   group('user ignores', () {
-    test('match case-insensitively by default', () async {
-      final m = await makeManager();
-      m.upsertUser(const IgnoreEntry(id: 'u1', pattern: 'SpamBot'));
-      expect(m.isIgnored('spambot'), isTrue);
-      expect(m.isIgnored('SPAMBOT'), isTrue);
-      expect(m.isIgnored('other'), isFalse);
-    });
+    test(
+      'matches user ignores case-insensitively unless the flag is set',
+      () async {
+        final m = await makeManager();
+        m.upsertUser(const IgnoreEntry(id: 'u1', pattern: 'SpamBot'));
+        const baseCases = [
+          ('spambot', true),
+          ('SPAMBOT', true),
+          ('other', false),
+        ];
+        for (final (input, expected) in baseCases) {
+          expect(m.isIgnored(input), expected, reason: 'input: $input');
+        }
 
-    test('case sensitive flag is honored', () async {
-      final m = await makeManager();
-      m.upsertUser(
-        const IgnoreEntry(id: 'u2', pattern: 'Spam', caseSensitive: true),
-      );
-      // contains semantics for literal patterns
-      expect(m.isIgnored('xSpamx'), isTrue);
-      expect(m.isIgnored('spam'), isFalse);
-    });
+        m.upsertUser(
+          const IgnoreEntry(id: 'u2', pattern: 'Spam', caseSensitive: true),
+        );
+        // Contains semantics for literal patterns.
+        expect(m.isIgnored('xSpamx'), isTrue);
+        expect(m.isIgnored('spam'), isFalse);
+      },
+    );
 
     test('regex user patterns match logins', () async {
       final m = await makeManager();
@@ -46,30 +51,48 @@ void main() {
   });
 
   group('keyword replacements', () {
-    test('plain patterns replace all occurrences, default ***', () async {
-      final m = await makeManager();
-      m.upsertKeyword(const IgnoreEntry(id: 'k1', pattern: 'KEKW'));
-      final r = m.applyKeywordReplacements('lol KEKW kekw KEKW!');
-      expect(r.text, 'lol *** *** ***!');
-      expect(r.changed, isTrue);
-    });
+    test(
+      'rewrites plain patterns with the default replacement and resolves overlaps',
+      () async {
+        final m = await makeManager();
+        m.upsertKeyword(const IgnoreEntry(id: 'k1', pattern: 'KEKW'));
+        final r = m.applyKeywordReplacements('lol KEKW kekw KEKW!');
+        expect(r.text, 'lol *** *** ***!');
+        expect(r.changed, isTrue);
 
-    test('custom replacement text', () async {
-      final m = await makeManager();
-      m.upsertKeyword(
-        const IgnoreEntry(id: 'k2', pattern: 'bad', replacement: '[censored]'),
-      );
-      expect(
-        m.applyKeywordReplacements('bad bad').text,
-        '[censored] [censored]',
-      );
-    });
+        final overlap = await makeManager();
+        overlap.upsertKeyword(const IgnoreEntry(id: 'k5a', pattern: 'abcdef'));
+        overlap.upsertKeyword(const IgnoreEntry(id: 'k5b', pattern: 'abc'));
+        // abcdef starts earlier in the string and wins the overlap.
+        final or = overlap.applyKeywordReplacements('xx abcdef yy');
+        expect(or.text, 'xx *** yy');
+        expect(or.edits.single.start, 3);
+        expect(or.edits.single.end, 9);
+      },
+    );
 
-    test('case insensitive matching keeps original casing intact', () async {
-      final m = await makeManager();
-      m.upsertKeyword(const IgnoreEntry(id: 'k3', pattern: 'ugoh'));
-      expect(m.applyKeywordReplacements('UGOH!').text, '***!');
-    });
+    test(
+      'applies custom replacements while preserving the original casing',
+      () async {
+        final m = await makeManager();
+        m.upsertKeyword(
+          const IgnoreEntry(
+            id: 'k2',
+            pattern: 'bad',
+            replacement: '[censored]',
+          ),
+        );
+        m.upsertKeyword(const IgnoreEntry(id: 'k3', pattern: 'ugoh'));
+        const cases = {'bad bad': '[censored] [censored]', 'UGOH!': '***!'};
+        cases.forEach((input, expected) {
+          expect(
+            m.applyKeywordReplacements(input).text,
+            expected,
+            reason: 'input: $input',
+          );
+        });
+      },
+    );
 
     test('regex rules with invalid fallback to literal', () async {
       final m = await makeManager();
@@ -78,18 +101,6 @@ void main() {
       );
       expect(m.applyKeywordReplacements('(oops there').text, '*** there');
     });
-
-    test('overlapping matches resolve to earliest then longest', () async {
-      final m = await makeManager();
-      m.upsertKeyword(const IgnoreEntry(id: 'k5a', pattern: 'abcdef'));
-      m.upsertKeyword(const IgnoreEntry(id: 'k5b', pattern: 'abc'));
-      // abcdef starts earlier in the string and wins the overlap.
-      final r = m.applyKeywordReplacements('xx abcdef yy');
-      expect(r.text, 'xx *** yy');
-      expect(r.edits.single.start, 3);
-      expect(r.edits.single.end, 9);
-    });
-
   });
 
   group('block mode + whole word', () {
@@ -175,7 +186,7 @@ void main() {
   });
 
   group('persistence', () {
-    test('entries survive a JSON round trip', () {
+    test('round-trips entries through JSON and tolerates garbage input', () {
       const entry = IgnoreEntry(
         id: 'p1',
         pattern: 'x',
@@ -190,9 +201,6 @@ void main() {
         ']',
       );
       expect(decoded.single.toJson(), entry.toJson());
-    });
-
-    test('decode tolerates garbage input', () {
       expect(decodeEntries('garbage'), isEmpty);
       expect(decodeEntries('{"id":"x"}'), isEmpty);
     });

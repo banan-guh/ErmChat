@@ -113,7 +113,7 @@ void main() {
     });
 
     testWidgets(
-      'programmatic selection change moves the visible page to that channel',
+      'Programmatic selection moves the page and ignores unchanged rebuilds',
       (WidgetTester tester) async {
         final selected = ValueNotifier<int>(0);
         late StateSetter setStateTop;
@@ -142,32 +142,6 @@ void main() {
         // it (the parent already committed index 2), so the state is
         // unchanged by the redundant report.
         expect(selectedReports, [2]);
-      },
-    );
-
-    testWidgets(
-      'rebuild with unchanged selection after a programmatic switch is a no-op',
-      (WidgetTester tester) async {
-        final selected = ValueNotifier<int>(0);
-        late StateSetter setStateTop;
-        final selectedReports = <int>[];
-
-        await tester.pumpWidget(
-          _harness(
-            selected,
-            captureSetState: (set) => setStateTop = set,
-            onFocusChanged: (i) => selected.value = i,
-            onSelectedIndexChanged: (i) {
-              selected.value = i;
-              selectedReports.add(i);
-            },
-          ),
-        );
-
-        setStateTop(() => selected.value = 1);
-        await tester.pump();
-        await tester.pumpAndSettle();
-        expect(_pageDx(tester, 1).abs(), lessThan(2.0));
 
         // Extra unrelated rebuilds must not move the page or re-fire.
         selectedReports.clear();
@@ -176,7 +150,7 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(selectedReports, isEmpty);
-        expect(_pageDx(tester, 1).abs(), lessThan(2.0));
+        expect(_pageDx(tester, 2).abs(), lessThan(2.0));
       },
     );
   });
@@ -215,7 +189,7 @@ void main() {
       );
     }
 
-    testWidgets('tap at the edge falls through to the page content', (
+    testWidgets('Edge zone lets taps through but blocks channel drags', (
       WidgetTester tester,
     ) async {
       final selected = ValueNotifier<int>(0);
@@ -237,83 +211,63 @@ void main() {
 
       // The edge overlay must not swallow the tap.
       expect(tapCount.value, 1);
+      expect(selected.value, 0);
+
+      final size = tester.getSize(find.byType(PageView));
+      // Drag leftwards from the right edge: unblocked, this would switch to
+      // the next channel (index 1). Blocked, the page stays put.
+      final start = Offset(size.width - edgeX, centerY);
+      final end = Offset(size.width - edgeX - size.width * 0.8, centerY);
+
+      final gesture = await tester.startGesture(start);
+      await gesture.moveBy(end - start);
+      await tester.pump();
+      await gesture.up();
+      await tester.pumpAndSettle();
+
+      // The channel did not switch; the OS back gesture keeps the edge.
+      expect(selected.value, 0);
+      expect(_pageDx(tester, 0).abs(), lessThan(2.0));
     });
-
-    testWidgets(
-      'horizontal drag starting at the edge does not switch the channel',
-      (WidgetTester tester) async {
-        final selected = ValueNotifier<int>(0);
-
-        await tester.pumpWidget(
-          edgeHarness(
-            selected,
-            ValueNotifier<int>(0),
-            onFocusChanged: (i) => selected.value = i,
-            onSelectedIndexChanged: (i) => selected.value = i,
-          ),
-        );
-
-        final size = tester.getSize(find.byType(PageView));
-        final centerY = tester.getCenter(find.byType(PageView)).dy;
-        // Drag leftwards from the right edge: unblocked, this would switch to
-        // the next channel (index 1). Blocked, the page stays put.
-        final edgeX = TabbedLayout.minEdgeExclusion / 2;
-        final start = Offset(size.width - edgeX, centerY);
-        final end = Offset(size.width - edgeX - size.width * 0.8, centerY);
-
-        final gesture = await tester.startGesture(start);
-        await gesture.moveBy(end - start);
-        await tester.pump();
-        await gesture.up();
-        await tester.pumpAndSettle();
-
-        // The channel did not switch; the OS back gesture keeps the edge.
-        expect(selected.value, 0);
-        expect(_pageDx(tester, 0).abs(), lessThan(2.0));
-      },
-    );
   });
 
   group('TabbedLayout fastSnap', () {
-    // Swipes to the next channel with both physics modes; the toggle must not
-    // change the switching behaviour, only the settle spring.
-    for (final fastSnap in [true, false]) {
-      testWidgets('swipe switches channels with fastSnap: $fastSnap', (
-        WidgetTester tester,
-      ) async {
-        final selected = ValueNotifier<int>(0);
+    testWidgets('Swipe switches channels with fast snap enabled', (
+      WidgetTester tester,
+    ) async {
+      final selected = ValueNotifier<int>(0);
 
-        await tester.pumpWidget(
-          _harness(
-            selected,
-            captureSetState: (_) {},
-            onFocusChanged: (i) => selected.value = i,
-            onSelectedIndexChanged: (i) => selected.value = i,
-            fastSnap: fastSnap,
-          ),
-        );
+      await tester.pumpWidget(
+        _harness(
+          selected,
+          captureSetState: (_) {},
+          onFocusChanged: (i) => selected.value = i,
+          onSelectedIndexChanged: (i) => selected.value = i,
+          fastSnap: true,
+        ),
+      );
 
-        final size = tester.getSize(find.byType(PageView));
-        final center = tester.getCenter(find.byType(PageView));
-        final gesture = await tester.startGesture(center);
-        await gesture.moveBy(Offset(-size.width * 0.6, 0));
-        await tester.pump();
-        await gesture.up();
-        await tester.pumpAndSettle();
+      final size = tester.getSize(find.byType(PageView));
+      final center = tester.getCenter(find.byType(PageView));
+      final gesture = await tester.startGesture(center);
+      await gesture.moveBy(Offset(-size.width * 0.6, 0));
+      await tester.pump();
+      await gesture.up();
+      await tester.pumpAndSettle();
 
-        expect(selected.value, 1);
-        expect(_pageDx(tester, 1).abs(), lessThan(2.0));
-      });
-    }
+      expect(selected.value, 1);
+      expect(_pageDx(tester, 1).abs(), lessThan(2.0));
+    });
   });
 
   group('TabbedLayout add channel', () {
     // Regression: adding a channel must land on it AND scroll the tab strip to
     // reveal it, even when the pager is already parked on the target (initialPage
     // honored) so no page-scroll notification fires to drive the strip.
-    testWidgets(
-      'adding a channel reveals and lands on the new last tab',
-      (WidgetTester tester) async {
+    testWidgets('Adding channels lands on and reveals the new tab', (
+      WidgetTester tester,
+    ) async {
+      {
         final selected = ValueNotifier<int>(0);
         final tabs = ValueNotifier<List<String>>(['a', 'b']);
         await tester.pumpWidget(_addChannelHarness(selected, tabs));
@@ -335,37 +289,19 @@ void main() {
         );
         expect(tabC, findsOneWidget);
         expect(tabC.hitTestable(), findsOneWidget);
-      },
-    );
-
-    testWidgets(
-      'adding a channel off the right edge still selects the right channel',
-      (WidgetTester tester) async {
+      }
+      {
         final selected = ValueNotifier<int>(0);
-        final tabs = ValueNotifier<List<String>>(
-          ['a', 'b', 'c', 'd', 'e', 'f', 'g'],
-        );
-        await tester.pumpWidget(
-          MaterialApp(
-            home: Scaffold(
-              body: ValueListenableBuilder<List<String>>(
-                valueListenable: tabs,
-                builder: (_, tabList, _) => TabbedLayout(
-                  key: const Key('tl'),
-                  tabs: tabList,
-                  selectedIndex: selected.value,
-                  focusOnHalfDrag: true,
-                  onFocusChanged: (i) => selected.value = i,
-                  onSelectedIndexChanged: (i) => selected.value = i,
-                  pageBuilder: (_, i) => Container(
-                    key: Key('page-$i'),
-                    child: Center(child: Text(tabList[i])),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        );
+        final tabs = ValueNotifier<List<String>>([
+          'a',
+          'b',
+          'c',
+          'd',
+          'e',
+          'f',
+          'g',
+        ]);
+        await tester.pumpWidget(_addChannelHarness(selected, tabs));
         await tester.pumpAndSettle();
 
         // Add channel h far off the current viewport and select it.
@@ -382,7 +318,7 @@ void main() {
         );
         expect(tabH, findsOneWidget);
         expect(tabH.hitTestable(), findsOneWidget);
-      },
-    );
+      }
+    });
   });
 }

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
@@ -25,6 +26,8 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:ermchat/services/twitch_badge_service.dart';
 import 'package:ermchat/services/user_store.dart';
 import 'package:http/testing.dart' as http_testing;
+import 'package:http/testing.dart';
+import 'package:ermchat/services/recent_messages.dart';
 
 class _TestService extends IrcService {
   _TestService(
@@ -587,54 +590,45 @@ void main() {
   });
 
   group('PING/PONG keepalive', () {
-    test('sends keepalive PING and reconnects when no PONG arrives', () {
-      fakeAsync((async) {
-        final channel = FakeWebSocketChannel();
-        final service = _TestService([channel]);
-        final statuses = <IrcConnectionStatus>[];
-        service.onStatus.listen(statuses.add);
-        service.connect(username: 'user', accessToken: 'token');
-        async.flushMicrotasks();
-        expect(service.openAttempts, 1);
-
-        // Tick 1 (~60s): sends a keepalive PING.
-        async.elapse(const Duration(seconds: 61));
-        expect(channel.sent, contains('PING :keepalive'));
-        expect(statuses, isNot(contains(IrcConnectionStatus.disconnected)));
-
-        // The dedicated PONG timer (30s) reconnects without waiting for the
-        // next keepalive tick.
-        async.elapse(const Duration(seconds: 31));
-        expect(statuses, contains(IrcConnectionStatus.disconnected));
-        async.elapse(const Duration(milliseconds: 1250));
-        expect(service.openAttempts, 2);
-
-        service.dispose();
-        channel.dispose();
+    for (final (name, answer) in [
+      ('sends keepalive PING and reconnects when no PONG arrives', false),
+      ('PONG within the pong window keeps the connection alive', true),
+    ]) {
+      test(name, () {
+        fakeAsync((async) {
+          final channel = FakeWebSocketChannel();
+          final service = _TestService([channel]);
+          final statuses = <IrcConnectionStatus>[];
+          service.onStatus.listen(statuses.add);
+          service.connect(username: 'user', accessToken: 'token');
+          async.flushMicrotasks();
+          async.elapse(const Duration(seconds: 61));
+          expect(channel.sent, contains('PING :keepalive'), reason: name);
+          if (answer) {
+            channel.push('PONG :keepalive');
+            async.flushMicrotasks();
+          }
+          async.elapse(const Duration(seconds: 31));
+          if (answer) {
+            expect(
+              statuses,
+              isNot(contains(IrcConnectionStatus.disconnected)),
+              reason: name,
+            );
+          } else {
+            expect(
+              statuses,
+              contains(IrcConnectionStatus.disconnected),
+              reason: name,
+            );
+            async.elapse(const Duration(milliseconds: 1250));
+            expect(service.openAttempts, 2, reason: name);
+          }
+          service.dispose();
+          channel.dispose();
+        });
       });
-    });
-
-    test('PONG within the pong window keeps the connection alive', () {
-      fakeAsync((async) {
-        final channel = FakeWebSocketChannel();
-        final service = _TestService([channel]);
-        final statuses = <IrcConnectionStatus>[];
-        service.onStatus.listen(statuses.add);
-        service.connect(username: 'user', accessToken: 'token');
-        async.flushMicrotasks();
-
-        async.elapse(const Duration(seconds: 61));
-        expect(channel.sent, contains('PING :keepalive'));
-
-        channel.push('PONG :keepalive');
-        async.flushMicrotasks();
-        async.elapse(const Duration(seconds: 31));
-        expect(statuses, isNot(contains(IrcConnectionStatus.disconnected)));
-
-        service.dispose();
-        channel.dispose();
-      });
-    });
+    }
 
     test('incoming PONG clears awaitingPong', () {
       fakeAsync((async) {
@@ -678,72 +672,50 @@ void main() {
   });
 
   group('checkAlive', () {
-    test('returns true when a PONG echoes the probe token', () {
-      fakeAsync((async) {
-        final channel = FakeWebSocketChannel();
-        final service = _TestService([channel]);
-        service.connect(username: 'user', accessToken: 'token');
-        async.flushMicrotasks();
-
-        bool? result;
-        service.checkAlive().then((value) => result = value);
-        async.flushMicrotasks();
-        expect(channel.sent, contains('PING :alive-check-0'));
-        expect(result, isNull);
-
-        channel.push(':tmi.twitch.tv PONG tmi.twitch.tv :alive-check-0');
-        async.flushMicrotasks();
-        expect(result, isTrue);
-
-        service.dispose();
-        channel.dispose();
+    for (final (name, push, expectTrue) in [
+      (
+        'returns true when a PONG echoes the probe token',
+        ':tmi.twitch.tv PONG tmi.twitch.tv :alive-check-0',
+        true,
+      ),
+      (
+        'a stale keepalive PONG does not satisfy an in-flight probe',
+        'PONG :tmi.twitch.tv',
+        null,
+      ),
+      ('returns false on timeout when no PONG arrives', null, false),
+    ]) {
+      test(name, () {
+        fakeAsync((async) {
+          final channel = FakeWebSocketChannel();
+          final service = _TestService([channel]);
+          service.connect(username: 'user', accessToken: 'token');
+          async.flushMicrotasks();
+          bool? result;
+          service.checkAlive().then((value) => result = value);
+          async.flushMicrotasks();
+          expect(channel.sent, contains('PING :alive-check-0'), reason: name);
+          if (push != null && expectTrue == true) {
+            channel.push(push);
+            async.flushMicrotasks();
+            expect(result, isTrue, reason: name);
+          } else if (push != null) {
+            channel.push(push);
+            async.flushMicrotasks();
+            expect(result, isNull, reason: name);
+            channel.push(':tmi.twitch.tv PONG tmi.twitch.tv :alive-check-0');
+            async.flushMicrotasks();
+            expect(result, isTrue, reason: name);
+          } else {
+            async.elapse(const Duration(seconds: 6));
+            async.flushMicrotasks();
+            expect(result, isFalse, reason: name);
+          }
+          service.dispose();
+          channel.dispose();
+        });
       });
-    });
-
-    test('a stale keepalive PONG does not satisfy an in-flight probe', () {
-      fakeAsync((async) {
-        final channel = FakeWebSocketChannel();
-        final service = _TestService([channel]);
-        service.connect(username: 'user', accessToken: 'token');
-        async.flushMicrotasks();
-
-        bool? result;
-        service.checkAlive().then((value) => result = value);
-        async.flushMicrotasks();
-
-        // A PONG left over from a keepalive PING (or Twitch's bare-ping
-        // answer) must not be mistaken for a response to the probe.
-        channel.push('PONG :tmi.twitch.tv');
-        async.flushMicrotasks();
-        expect(result, isNull);
-
-        channel.push(':tmi.twitch.tv PONG tmi.twitch.tv :alive-check-0');
-        async.flushMicrotasks();
-        expect(result, isTrue);
-
-        service.dispose();
-        channel.dispose();
-      });
-    });
-
-    test('returns false on timeout when no PONG arrives', () {
-      fakeAsync((async) {
-        final channel = FakeWebSocketChannel();
-        final service = _TestService([channel]);
-        service.connect(username: 'user', accessToken: 'token');
-        async.flushMicrotasks();
-
-        bool? result;
-        service.checkAlive().then((value) => result = value);
-        async.flushMicrotasks();
-        async.elapse(const Duration(seconds: 6));
-        async.flushMicrotasks();
-        expect(result, isFalse);
-
-        service.dispose();
-        channel.dispose();
-      });
-    });
+    }
 
     test('returns false when there is no socket', () async {
       final service = _TestService([FakeWebSocketChannel()]);
@@ -812,30 +784,38 @@ void main() {
       });
     }
 
-    test('stream error', () {
-      expectDisconnectedWithSocketCleared((_, service) {
-        service.channels.last.failNow();
+    for (final (name, trigger)
+        in <(String, void Function(FakeAsync, _TestService))>[
+          (
+            'stream error',
+            (_, service) {
+              service.channels.last.failNow();
+            },
+          ),
+          (
+            'RECONNECT command',
+            (_, service) {
+              service.handleLine(':tmi.twitch.tv RECONNECT');
+            },
+          ),
+          (
+            'PONG timeout',
+            (async, _) {
+              async.elapse(const Duration(seconds: 61));
+              async.elapse(const Duration(seconds: 31));
+            },
+          ),
+          (
+            'forceReconnect',
+            (_, service) {
+              service.forceReconnect();
+            },
+          ),
+        ]) {
+      test(name, () {
+        expectDisconnectedWithSocketCleared(trigger);
       });
-    });
-
-    test('RECONNECT command', () {
-      expectDisconnectedWithSocketCleared((_, service) {
-        service.handleLine(':tmi.twitch.tv RECONNECT');
-      });
-    });
-
-    test('PONG timeout', () {
-      expectDisconnectedWithSocketCleared((async, _) {
-        async.elapse(const Duration(seconds: 61));
-        async.elapse(const Duration(seconds: 31));
-      });
-    });
-
-    test('forceReconnect', () {
-      expectDisconnectedWithSocketCleared((_, service) {
-        service.forceReconnect();
-      });
-    });
+    }
   });
 
   group('handshake does not report connected early', () {
@@ -1007,96 +987,62 @@ void main() {
   });
 
   group('join progress surfacing', () {
-    test('queued channel shows a countdown that retires on ROOMSTATE', () {
-      fakeAsync((async) {
-        var fakeNow = DateTime(2026, 1, 1);
-        final budget = JoinRateLimiter(now: () => fakeNow);
-        final channel = FakeWebSocketChannel();
-        final irc = _TestService([channel], joinBudget: budget);
-        final ircRead = _TestIrcRead();
-        ircRead.fakeConnected = true;
-        final events = <(String, JoinProgress?)>[];
-        final conn = _makeConn(
-          channelMessages: {},
-          maxMessages: 10,
-          irc: irc,
-          ircRead: ircRead,
-          joinBudget: budget,
-          onJoinProgress: (c, i) => events.add((c, i)),
-        );
-
-        // Fill the FIFO so 'test' lands past the initial 20-token burst.
-        for (var i = 0; i < 22; i++) {
-          irc.join('filler$i');
-        }
-        irc.join('test');
-        conn.connect();
-        async.flushMicrotasks();
-        ircRead.emitConnected();
-
-        // Ticker started on connect: 'test' is waiting behind the fillers.
-        fakeNow = fakeNow.add(const Duration(seconds: 1));
-        async.elapse(const Duration(milliseconds: 3100));
-        final waits = events
-            .where(
-              (e) =>
-                  e.$1 == 'test' &&
-                  e.$2 != null &&
-                  e.$2!.position > 0, // numberless markers aren't countdowns
-            )
-            .toList();
-        expect(waits, isNotEmpty, reason: 'a queued channel shows a countdown');
-        expect(waits.first.$2!.position, greaterThanOrEqualTo(1));
-
-        // ROOMSTATE confirms the join: the countdown line is retired.
-        ircRead.emitRoomState('test', {'room-id': '1'});
-        fakeNow = fakeNow.add(const Duration(seconds: 1));
-        async.elapse(const Duration(milliseconds: 3100));
-        expect(events.last.$1, 'test');
-        expect(events.last.$2, isNull);
-
-        conn.dispose();
-      });
-    });
-
-    test('disconnect clears every shown countdown', () {
-      fakeAsync((async) {
-        var fakeNow = DateTime(2026, 1, 1);
-        final budget = JoinRateLimiter(now: () => fakeNow);
-        final channel = FakeWebSocketChannel();
-        final irc = _TestService([channel], joinBudget: budget);
-        final events = <(String, JoinProgress?)>[];
-        final conn = _makeConn(
-          channelMessages: {},
-          maxMessages: 10,
-          irc: irc,
-          joinBudget: budget,
-          onJoinProgress: (c, i) => events.add((c, i)),
-        );
-
-        for (var i = 0; i < 22; i++) {
-          irc.join('filler$i');
-        }
-        irc.join('test');
-        conn.connect();
-        async.flushMicrotasks();
-        fakeNow = fakeNow.add(const Duration(seconds: 1));
-        async.elapse(const Duration(milliseconds: 3100));
-        expect(events.where((e) => e.$1 == 'test' && e.$2 != null), isNotEmpty);
-
-        // Socket death drops the queued JOINs and emits a disconnected
-        // status: every shown countdown must be retired.
-        irc.forceReconnect();
-        async.flushMicrotasks();
-        fakeNow = fakeNow.add(const Duration(seconds: 1));
-        async.elapse(const Duration(milliseconds: 3100));
-        expect(
-          events.where((e) => e.$1 == 'test' && e.$2 == null),
-          isNotEmpty,
-          reason: 'the countdown must not outlive its socket',
-        );
-      });
-    });
+    test(
+      'queued channel shows a countdown that retires on ROOMSTATE and clears on disconnect',
+      () {
+        fakeAsync((async) {
+          var fakeNow = DateTime(2026, 1, 1);
+          final budget = JoinRateLimiter(now: () => fakeNow);
+          final channel = FakeWebSocketChannel();
+          final irc = _TestService([channel], joinBudget: budget);
+          final ircRead = _TestIrcRead();
+          ircRead.fakeConnected = true;
+          final events = <(String, JoinProgress?)>[];
+          final conn = _makeConn(
+            channelMessages: {},
+            maxMessages: 10,
+            irc: irc,
+            ircRead: ircRead,
+            joinBudget: budget,
+            onJoinProgress: (c, i) => events.add((c, i)),
+          );
+          for (var i = 0; i < 22; i++) {
+            irc.join('filler$i');
+          }
+          irc.join('test');
+          conn.connect();
+          async.flushMicrotasks();
+          ircRead.emitConnected();
+          fakeNow = fakeNow.add(const Duration(seconds: 1));
+          async.elapse(const Duration(milliseconds: 3100));
+          final waits = events
+              .where(
+                (e) => e.$1 == 'test' && e.$2 != null && e.$2!.position > 0,
+              )
+              .toList();
+          expect(
+            waits,
+            isNotEmpty,
+            reason: 'a queued channel shows a countdown',
+          );
+          ircRead.emitRoomState('test', {'room-id': '1'});
+          fakeNow = fakeNow.add(const Duration(seconds: 1));
+          async.elapse(const Duration(milliseconds: 3100));
+          expect(events.last.$1, 'test');
+          expect(events.last.$2, isNull);
+          irc.forceReconnect();
+          async.flushMicrotasks();
+          fakeNow = fakeNow.add(const Duration(seconds: 1));
+          async.elapse(const Duration(milliseconds: 3100));
+          expect(
+            events.where((e) => e.$1 == 'test' && e.$2 == null),
+            isNotEmpty,
+            reason: 'the countdown must not outlive its socket',
+          );
+          conn.dispose();
+        });
+      },
+    );
   });
 
   group('shared join rate limiter', () {
@@ -1255,54 +1201,47 @@ void main() {
       },
     );
 
-    test('position and eta track FIFO order and refill rate', () async {
-      final clock = DateTime(2026, 1, 1);
-      final budget = JoinRateLimiter(now: () => clock);
-      budget.registerHandler(IrcSocketRole.write, (_) => true);
-
-      for (var i = 0; i < 25; i++) {
-        budget.enqueue('c$i', IrcSocketRole.write);
-      }
-      await pumpEventQueue();
-
-      // Each channel is one unit; the send cap (6/pump) let c0..c5 through
-      // the first pump, leaving c6..c24 queued.
-      expect(budget.pending(), hasLength(19));
-      expect(budget.positionOf('c0'), isNull);
-      expect(budget.positionOf('c6'), 1);
-
-      // 'c6' heads the queue with banked tokens: zero wait. 'c24' is index 18
-      // in the post-burst queue (19 channels behind it); ceil(19/6)*3=12s
-      // dominates the token path.
-      expect(budget.etaSecondsForChannel('c6'), 0);
-      expect(budget.etaSecondsForChannel('c24'), 12);
-    });
-
-    test('eta counts outstanding channel commands ahead of the channel', () {
-      // Small bucket so a single pump drains it mid-queue.
-      final budget = JoinRateLimiter(
-        capacity: 3,
-        window: const Duration(milliseconds: 10500),
-        now: () => DateTime(2026, 1, 1),
-      );
-      budget.registerHandler(IrcSocketRole.write, (_) => true);
-
-      for (final c in ['a', 'b', 'c']) {
-        budget.enqueue(c, IrcSocketRole.write);
-      }
-      budget.enqueue('last', IrcSocketRole.write);
-
-      // ETAs are INCLUSIVE of the channel's own JOIN (time until it is sent).
-      // Tokens start at 3; batch cap is 6 so a,b,c (3 commands) share the
-      // leading batch (eta 0). 'last' needs a 4th token: (4-3)*3.5s refill.
-      expect(
-        budget.etaSecondsForChannel('b'),
-        0,
-        reason: 'a+b fit the leading batch (tokens cover 2)',
-      );
-      expect(budget.etaSecondsForChannel('c'), 0);
-      expect(budget.etaSecondsForChannel('last'), 4);
-    });
+    for (final (name, run) in <(String, Future<void> Function())>[
+      (
+        'position and eta track FIFO order and refill rate',
+        () async {
+          final clock = DateTime(2026, 1, 1);
+          final budget = JoinRateLimiter(now: () => clock);
+          budget.registerHandler(IrcSocketRole.write, (_) => true);
+          for (var i = 0; i < 25; i++) {
+            budget.enqueue('c$i', IrcSocketRole.write);
+          }
+          await pumpEventQueue();
+          expect(budget.pending(), hasLength(19));
+          expect(budget.positionOf('c0'), isNull);
+          expect(budget.positionOf('c6'), 1);
+          expect(budget.etaSecondsForChannel('c6'), 0);
+          expect(budget.etaSecondsForChannel('c24'), 12);
+        },
+      ),
+      (
+        'eta counts outstanding channel commands ahead of the channel',
+        () async {
+          final budget = JoinRateLimiter(
+            capacity: 3,
+            window: const Duration(milliseconds: 10500),
+            now: () => DateTime(2026, 1, 1),
+          );
+          budget.registerHandler(IrcSocketRole.write, (_) => true);
+          for (final c in ['a', 'b', 'c']) {
+            budget.enqueue(c, IrcSocketRole.write);
+          }
+          budget.enqueue('last', IrcSocketRole.write);
+          expect(budget.etaSecondsForChannel('b'), 0);
+          expect(budget.etaSecondsForChannel('c'), 0);
+          expect(budget.etaSecondsForChannel('last'), 4);
+        },
+      ),
+    ]) {
+      test(name, () async {
+        await run();
+      });
+    }
 
     test('a channel enqueued before its socket is ready waits then sends', () {
       fakeAsync((async) {
@@ -1360,28 +1299,6 @@ void main() {
         );
         expect(budget.pending(), isEmpty);
       });
-    });
-
-    test('one live handler is enough to send and consume a unit', () async {
-      final clock = DateTime(2026, 1, 1);
-      final budget = JoinRateLimiter(now: () => clock);
-      var writeSends = 0;
-      budget.registerHandler(IrcSocketRole.write, (_) {
-        writeSends++;
-        return true;
-      });
-      // No read handler registered (read socket never came up).
-
-      budget.enqueue('solo', IrcSocketRole.write);
-      await pumpEventQueue();
-
-      expect(writeSends, 1);
-      expect(budget.positionOf('solo'), isNull);
-      expect(
-        budget.availableTokens,
-        closeTo(19, 0.001),
-        reason: 'the unit consumed exactly one token',
-      );
     });
   });
 
@@ -1546,60 +1463,39 @@ void main() {
   });
 
   group('connectivity accelerator', () {
-    test('coming back online wakes the backoff sleep early', () {
-      fakeAsync((async) {
-        final conn = ConnectivityService();
-        conn.debugSetResults(const [ConnectivityResult.none]);
-        final times = <Duration>[];
-        final service = _TestService(
-          [FakeWebSocketChannel(failReady: true)],
-          connectivityService: conn,
-          onOpen: () => times.add(async.elapsed),
-        );
-        service.connect(username: 'user', accessToken: 'token');
-        async.flushMicrotasks();
-        expect(times, hasLength(1));
-
-        // Still offline: the next attempt waits on the backoff timer.
-        async.elapse(const Duration(milliseconds: 200));
-        expect(times, hasLength(1));
-
-        // Back online: the sleep is woken immediately and the retry fires now.
-        conn.debugSetResults(const [ConnectivityResult.wifi]);
-        async.flushMicrotasks();
-        expect(times, hasLength(2));
-        expect(
-          times[1],
-          lessThan(const Duration(milliseconds: 900)),
-          reason: 'the backoff wait must be shortened, not run out',
-        );
-
-        service.dispose();
-        conn.dispose();
-      });
-    });
-
-    test('an offline blip does not stop the retry loop (no gate)', () {
-      fakeAsync((async) {
-        final conn = ConnectivityService();
-        conn.debugSetResults(const [ConnectivityResult.none]);
-        final times = <Duration>[];
-        final service = _TestService(
-          [FakeWebSocketChannel(failReady: true)],
-          connectivityService: conn,
-          onOpen: () => times.add(async.elapsed),
-        );
-        service.connect(username: 'user', accessToken: 'token');
-        async.flushMicrotasks();
-
-        // Even fully offline, the loop keeps retrying on its own schedule.
-        async.elapse(const Duration(seconds: 30));
-        expect(times.length, greaterThanOrEqualTo(4));
-
-        service.dispose();
-        conn.dispose();
-      });
-    });
+    test(
+      'coming back online wakes the backoff early while an offline blip never stops the retry loop',
+      () {
+        fakeAsync((async) {
+          final conn = ConnectivityService();
+          conn.debugSetResults(const [ConnectivityResult.none]);
+          final times = <Duration>[];
+          final service = _TestService(
+            [FakeWebSocketChannel(failReady: true)],
+            connectivityService: conn,
+            onOpen: () => times.add(async.elapsed),
+          );
+          service.connect(username: 'user', accessToken: 'token');
+          async.flushMicrotasks();
+          expect(times, hasLength(1));
+          async.elapse(const Duration(milliseconds: 200));
+          expect(times, hasLength(1));
+          conn.debugSetResults(const [ConnectivityResult.wifi]);
+          async.flushMicrotasks();
+          expect(times, hasLength(2));
+          expect(
+            times[1],
+            lessThan(const Duration(milliseconds: 900)),
+            reason: 'the backoff wait must be shortened, not run out',
+          );
+          conn.debugSetResults(const [ConnectivityResult.none]);
+          async.elapse(const Duration(seconds: 30));
+          expect(times.length, greaterThanOrEqualTo(4));
+          service.dispose();
+          conn.dispose();
+        });
+      },
+    );
   });
 
   late IrcReadService service;
@@ -1613,13 +1509,22 @@ void main() {
   });
 
   group('channel tracking', () {
-    test('join does not crash when not connected', () {
-      expect(() => service.join('testchannel'), returnsNormally);
-    });
-
-    test('part does not crash when not connected', () {
-      expect(() => service.part('testchannel'), returnsNormally);
-    });
+    for (final (name, run) in [
+      (
+        'join does not crash when not connected',
+        (IrcReadService s) =>
+            () => s.join('testchannel'),
+      ),
+      (
+        'part does not crash when not connected',
+        (IrcReadService s) =>
+            () => s.part('testchannel'),
+      ),
+    ]) {
+      test(name, () {
+        expect(run(service), returnsNormally, reason: name);
+      });
+    }
   });
 
   group('CLEARMSG', () {
@@ -1641,64 +1546,61 @@ void main() {
       expect(events[0].deletedMessageText, 'bad message');
     });
 
-    test('ignores CLEARMSG without target-msg-id', () async {
-      final events = <IrcMessageDeletedEvent>[];
-      service.onMessageDeleted.listen(events.add);
-
-      service.handleLine(
+    for (final (name, line, user) in [
+      (
+        'ignores CLEARMSG without target-msg-id',
         '@login=forsen :tmi.twitch.tv CLEARMSG #xqc :bad message',
-      );
-      await flush();
-
-      expect(events, isEmpty);
-    });
-
-    test('defaults user to unknown when login tag missing', () async {
-      final events = <IrcMessageDeletedEvent>[];
-      service.onMessageDeleted.listen(events.add);
-
-      service.handleLine(
+        null,
+      ),
+      (
+        'defaults user to unknown when login tag missing',
         '@target-msg-id=xyz :tmi.twitch.tv CLEARMSG #xqc :deleted',
-      );
-      await flush();
-
-      expect(events, hasLength(1));
-      expect(events[0].user, 'unknown');
-    });
+        'unknown',
+      ),
+    ]) {
+      test(name, () async {
+        final events = <IrcMessageDeletedEvent>[];
+        service.onMessageDeleted.listen(events.add);
+        service.handleLine(line);
+        await flush();
+        if (user == null) {
+          expect(events, isEmpty, reason: name);
+        } else {
+          expect(events, hasLength(1), reason: name);
+          expect(events[0].user, user, reason: name);
+        }
+      });
+    }
   });
 
   group('CLEARCHAT', () {
     Future<void> flush() => Future<void>.delayed(Duration.zero);
 
-    test('emits ban event for permanent ban', () async {
-      final events = <IrcBanEvent>[];
-      service.onBan.listen(events.add);
-
-      service.handleLine(':tmi.twitch.tv CLEARCHAT #xqc :forsen');
-      await flush();
-
-      expect(events, hasLength(1));
-      expect(events[0].channel, 'xqc');
-      expect(events[0].user, 'forsen');
-      expect(events[0].isTimeout, isFalse);
-      expect(events[0].duration, isNull);
-    });
-
-    test('emits timeout event with duration', () async {
-      final events = <IrcBanEvent>[];
-      service.onBan.listen(events.add);
-
-      service.handleLine(
+    for (final (name, line, timeout, duration) in [
+      (
+        'emits ban event for permanent ban',
+        ':tmi.twitch.tv CLEARCHAT #xqc :forsen',
+        false,
+        null,
+      ),
+      (
+        'emits timeout event with duration',
         '@ban-duration=300;target-user-id=12345 :tmi.twitch.tv CLEARCHAT #xqc :forsen',
-      );
-      await flush();
-
-      expect(events, hasLength(1));
-      expect(events[0].user, 'forsen');
-      expect(events[0].isTimeout, isTrue);
-      expect(events[0].duration, 300);
-      expect(events[0].userId, '12345');
-    });
+        true,
+        300,
+      ),
+    ]) {
+      test(name, () async {
+        final events = <IrcBanEvent>[];
+        service.onBan.listen(events.add);
+        service.handleLine(line);
+        await flush();
+        expect(events, hasLength(1), reason: name);
+        expect(events[0].user, 'forsen', reason: name);
+        expect(events[0].isTimeout, timeout, reason: name);
+        expect(events[0].duration, duration, reason: name);
+      });
+    }
 
     test('emits channel clear for full room clear (no target user)', () async {
       final bans = <IrcBanEvent>[];
@@ -1755,43 +1657,40 @@ void main() {
       expect(messageCount, 0);
     });
 
-    test('emits emote-sets from GLOBALUSERSTATE without channel', () async {
-      final sets = <(String?, List<String>)>[];
-      service.onUserEmoteSets.listen(sets.add);
-
-      service.handleLine(
+    for (final (name, line, channel, ids) in [
+      (
+        'emits emote-sets from GLOBALUSERSTATE without channel',
         '@emote-sets=0,123456789,987654321 :tmi.twitch.tv GLOBALUSERSTATE',
-      );
-      await flush();
-
-      expect(sets, hasLength(1));
-      expect(sets.single.$1, isNull);
-      expect(sets.single.$2, <String>['0', '123456789', '987654321']);
-    });
-
-    test('emits channel-scoped emote-sets from USERSTATE', () async {
-      final sets = <(String?, List<String>)>[];
-      service.onUserEmoteSets.listen(sets.add);
-
-      service.handleLine(
+        null,
+        ['0', '123456789', '987654321'],
+      ),
+      (
+        'emits channel-scoped emote-sets from USERSTATE',
         '@emote-sets=300374079,0 :tmi.twitch.tv USERSTATE #xqc',
-      );
-      await flush();
-
-      expect(sets, hasLength(1));
-      expect(sets.single.$1, 'xqc');
-      expect(sets.single.$2, <String>['300374079', '0']);
-    });
-
-    test('does not emit when emote-sets tag is missing', () async {
-      var emitted = false;
-      service.onUserEmoteSets.listen((_) => emitted = true);
-
-      service.handleLine('@badges=staff/1 :tmi.twitch.tv GLOBALUSERSTATE');
-      await flush();
-
-      expect(emitted, isFalse);
-    });
+        'xqc',
+        ['300374079', '0'],
+      ),
+      (
+        'does not emit when emote-sets tag is missing',
+        '@badges=staff/1 :tmi.twitch.tv GLOBALUSERSTATE',
+        'missing',
+        <String>[],
+      ),
+    ]) {
+      test(name, () async {
+        final sets = <(String?, List<String>)>[];
+        service.onUserEmoteSets.listen(sets.add);
+        service.handleLine(line);
+        await flush();
+        if (channel == 'missing') {
+          expect(sets, isEmpty, reason: name);
+        } else {
+          expect(sets, hasLength(1), reason: name);
+          expect(sets.single.$1, channel, reason: name);
+          expect(sets.single.$2, ids, reason: name);
+        }
+      });
+    }
   });
 
   group('USERNOTICE', () {
@@ -1824,37 +1723,40 @@ void main() {
       },
     );
 
-    test('parses announcement emotes into emote positions', () async {
-      final userNotices = <UserNoticeEvent>[];
-      service.onUserNotice.listen(userNotices.add);
-
-      service.handleLine(
-        '@msg-id=announcement;msg-param-color=GREEN;login=mm2pl;'
-        'display-name=Mm2PL;emotes=emotesv2_123:0-7;system-msg=;'
-        ':tmi.twitch.tv USERNOTICE #xqc :PogChamp test',
-      );
-      await flush();
-
-      expect(userNotices, hasLength(1));
-      expect(userNotices[0].emotePositions, isNotNull);
-      expect(userNotices[0].emotePositions!.single.emoteCode, 'PogChamp');
-      expect(userNotices[0].emotePositions!.single.startIndex, 0);
-      expect(userNotices[0].emotePositions!.single.endIndex, 8);
-    });
-
-    test('NOTICE still routes to onNotice', () async {
-      final notices = <IrcNoticeEvent>[];
-      service.onNotice.listen(notices.add);
-
-      service.handleLine(
+    for (final (name, line, code) in [
+      (
+        'parses announcement emotes into emote positions',
+        '@msg-id=announcement;msg-param-color=GREEN;login=mm2pl;display-name=Mm2PL;emotes=emotesv2_123:0-7;system-msg=;:tmi.twitch.tv USERNOTICE #xqc :PogChamp test',
+        'PogChamp',
+      ),
+      (
+        'NOTICE still routes to onNotice',
         '@msg-id=slow_on :tmi.twitch.tv NOTICE #xqc :This room is now in slow mode.',
-      );
-      await flush();
-
-      expect(notices, hasLength(1));
-      expect(notices[0].msgId, 'slow_on');
-      expect(notices[0].message, contains('slow mode'));
-    });
+        'slow_on',
+      ),
+    ]) {
+      test(name, () async {
+        if (name.startsWith('parses')) {
+          final userNotices = <UserNoticeEvent>[];
+          service.onUserNotice.listen(userNotices.add);
+          service.handleLine(line);
+          await flush();
+          expect(userNotices, hasLength(1), reason: name);
+          expect(
+            userNotices[0].emotePositions!.single.emoteCode,
+            code,
+            reason: name,
+          );
+        } else {
+          final notices = <IrcNoticeEvent>[];
+          service.onNotice.listen(notices.add);
+          service.handleLine(line);
+          await flush();
+          expect(notices, hasLength(1), reason: name);
+          expect(notices[0].msgId, code, reason: name);
+        }
+      });
+    }
   });
 
   group('WHISPER', () {
@@ -1898,60 +1800,66 @@ void main() {
   });
 
   group('session lifecycle', () {
-    test('handleRawMessage welcome sets sessionId and emits connected', () {
-      final statuses = <EventSubStatus>[];
-      esService.onStatus.listen(statuses.add);
-
-      esService.handleRawMessage(_welcome(id: 'sess-lifecycle'));
-
-      expect(esService.sessionId, 'sess-lifecycle');
-      expect(statuses, contains(EventSubStatus.connected));
-    });
-
-    test('second welcome overwrites sessionId', () {
-      esService.handleRawMessage(_welcome(id: 'sess-a'));
-      expect(esService.sessionId, 'sess-a');
-
-      esService.handleRawMessage(_welcome(id: 'sess-b'));
-      expect(esService.sessionId, 'sess-b');
-    });
-
-    test('disconnect clears sessionId', () {
-      esService.handleRawMessage(_welcome(id: 'sess-clear'));
-      expect(esService.sessionId, 'sess-clear');
-
-      esService.disconnect();
-      expect(esService.sessionId, isNull);
-    });
-
-    test('welcome after disconnect sets sessionId again', () {
-      esService.handleRawMessage(_welcome(id: 'first'));
-      expect(esService.sessionId, 'first');
-
-      esService.disconnect();
-      expect(esService.sessionId, isNull);
-
-      esService.handleRawMessage(_welcome(id: 'second'));
-      expect(esService.sessionId, 'second');
-    });
-  });
-
-  group('session completer', () {
-    test('waitForSession completes after welcome', () async {
-      final future = esService.waitForSession();
-
-      esService.handleRawMessage(_welcome(id: 'sess-completer'));
-
-      final result = await future;
-      expect(result, 'sess-completer');
-    });
-
-    test('waitForSession returns immediately if session already set', () async {
-      esService.emitConnected();
-
-      final result = await esService.waitForSession();
-      expect(result, 'test-session-id');
-    });
+    for (final (name, run) in <(String, Future<void> Function())>[
+      (
+        'handleRawMessage welcome sets sessionId and emits connected',
+        () async {
+          final statuses = <EventSubStatus>[];
+          esService.onStatus.listen(statuses.add);
+          esService.handleRawMessage(_welcome(id: 'sess-lifecycle'));
+          expect(esService.sessionId, 'sess-lifecycle');
+          expect(statuses, contains(EventSubStatus.connected));
+        },
+      ),
+      (
+        'second welcome overwrites sessionId',
+        () async {
+          esService.handleRawMessage(_welcome(id: 'sess-a'));
+          expect(esService.sessionId, 'sess-a');
+          esService.handleRawMessage(_welcome(id: 'sess-b'));
+          expect(esService.sessionId, 'sess-b');
+        },
+      ),
+      (
+        'disconnect clears sessionId',
+        () async {
+          esService.handleRawMessage(_welcome(id: 'sess-clear'));
+          expect(esService.sessionId, 'sess-clear');
+          esService.disconnect();
+          expect(esService.sessionId, isNull);
+        },
+      ),
+      (
+        'welcome after disconnect sets sessionId again',
+        () async {
+          esService.handleRawMessage(_welcome(id: 'first'));
+          expect(esService.sessionId, 'first');
+          esService.disconnect();
+          expect(esService.sessionId, isNull);
+          esService.handleRawMessage(_welcome(id: 'second'));
+          expect(esService.sessionId, 'second');
+        },
+      ),
+      (
+        'waitForSession completes after welcome',
+        () async {
+          final future = esService.waitForSession();
+          esService.handleRawMessage(_welcome(id: 'sess-completer'));
+          expect(await future, 'sess-completer');
+        },
+      ),
+      (
+        'waitForSession returns immediately if session already set',
+        () async {
+          esService.emitConnected();
+          expect(await esService.waitForSession(), 'test-session-id');
+        },
+      ),
+    ]) {
+      test(name, () async {
+        await run();
+      });
+    }
   });
 
   late SevenTvEventClient client;
@@ -1974,17 +1882,17 @@ void main() {
   });
 
   group('subscription queueing', () {
-    test('subscribeEmoteSet does not trigger stream events before Hello', () {
-      client.subscribeEmoteSet('set1');
-      expect(emoteEvents, isEmpty);
-      expect(userEvents, isEmpty);
-    });
-
-    test('Hello emits connected status', () {
-      client.handleRawMessage(_hello());
-      expect(statusEvents, hasLength(1));
-      expect(statusEvents.first, SevenTvEventStatus.connected);
-    });
+    test(
+      'subscribe before Hello stays quiet and Hello emits connected status',
+      () {
+        client.subscribeEmoteSet('set1');
+        expect(emoteEvents, isEmpty);
+        expect(userEvents, isEmpty);
+        client.handleRawMessage(_hello());
+        expect(statusEvents, hasLength(1));
+        expect(statusEvents.first, SevenTvEventStatus.connected);
+      },
+    );
   });
 
   group('dispatch events', () {
@@ -1995,71 +1903,65 @@ void main() {
       statusEvents.clear();
     });
 
-    test('emote_set.update parses added emote', () {
-      client.handleRawMessage(
-        _emoteSetUpdate(
-          emoteSetId: 'set123',
-          pushed: [
-            {
-              'value': {'id': 'abc', 'name': 'KEKW'},
-            },
-          ],
-          actor: 'streamer',
-        ),
-      );
-
-      expect(emoteEvents, hasLength(1));
-      expect(emoteEvents[0].emoteSetId, 'set123');
-      expect(emoteEvents[0].added, hasLength(1));
-      expect(emoteEvents[0].added[0].id, 'abc');
-      expect(emoteEvents[0].added[0].name, 'KEKW');
-      expect(emoteEvents[0].added[0].raw['id'], 'abc');
-      expect(emoteEvents[0].actor, 'streamer');
-      expect(emoteEvents[0].removed, isEmpty);
-      expect(emoteEvents[0].renamed, isEmpty);
-    });
-
-    test('emote_set.update parses removed emote', () {
-      client.handleRawMessage(
-        _emoteSetUpdate(
-          emoteSetId: 'set123',
-          pulled: [
-            {
-              'old_value': {'id': 'xyz', 'name': 'PogU'},
-            },
-          ],
-        ),
-      );
-
-      expect(emoteEvents, hasLength(1));
-      expect(emoteEvents[0].added, isEmpty);
-      expect(emoteEvents[0].removed, hasLength(1));
-      expect(emoteEvents[0].removed[0].id, 'xyz');
-      expect(emoteEvents[0].removed[0].name, 'PogU');
-      expect(emoteEvents[0].renamed, isEmpty);
-    });
-
-    test('emote_set.update parses renamed emote', () {
-      client.handleRawMessage(
-        _emoteSetUpdate(
-          emoteSetId: 'set123',
-          updated: [
-            {
-              'value': {'id': 'def', 'name': 'NewName'},
-              'old_value': {'id': 'def', 'name': 'OldName'},
-            },
-          ],
-        ),
-      );
-
-      expect(emoteEvents, hasLength(1));
-      expect(emoteEvents[0].added, isEmpty);
-      expect(emoteEvents[0].removed, isEmpty);
-      expect(emoteEvents[0].renamed, hasLength(1));
-      expect(emoteEvents[0].renamed[0].id, 'def');
-      expect(emoteEvents[0].renamed[0].newName, 'NewName');
-      expect(emoteEvents[0].renamed[0].oldName, 'OldName');
-    });
+    for (final (name, pushed, pulled, updated) in [
+      (
+        'emote_set.update parses added emote',
+        [
+          {
+            'value': {'id': 'abc', 'name': 'KEKW'},
+          },
+        ],
+        <Map<String, dynamic>>[],
+        <Map<String, dynamic>>[],
+      ),
+      (
+        'emote_set.update parses removed emote',
+        <Map<String, dynamic>>[],
+        [
+          {
+            'old_value': {'id': 'xyz', 'name': 'PogU'},
+          },
+        ],
+        <Map<String, dynamic>>[],
+      ),
+      (
+        'emote_set.update parses renamed emote',
+        <Map<String, dynamic>>[],
+        <Map<String, dynamic>>[],
+        [
+          {
+            'value': {'id': 'def', 'name': 'NewName'},
+            'old_value': {'id': 'def', 'name': 'OldName'},
+          },
+        ],
+      ),
+    ]) {
+      test(name, () {
+        client.handleRawMessage(
+          _emoteSetUpdate(
+            emoteSetId: 'set123',
+            pushed: pushed,
+            pulled: pulled,
+            updated: updated,
+          ),
+        );
+        expect(emoteEvents, hasLength(1), reason: name);
+        final e = emoteEvents.single;
+        expect(e.emoteSetId, 'set123', reason: name);
+        if (name.contains('added')) {
+          expect(e.added.single.id, 'abc', reason: name);
+          expect(e.added.single.name, 'KEKW', reason: name);
+          expect(e.removed, isEmpty, reason: name);
+          expect(e.renamed, isEmpty, reason: name);
+        } else if (name.contains('removed')) {
+          expect(e.removed.single.id, 'xyz', reason: name);
+          expect(e.added, isEmpty, reason: name);
+        } else {
+          expect(e.renamed.single.newName, 'NewName', reason: name);
+          expect(e.renamed.single.oldName, 'OldName', reason: name);
+        }
+      });
+    }
 
     test('emote_set.update handles multiple changes at once', () {
       client.handleRawMessage(
@@ -2142,44 +2044,34 @@ void main() {
       expect(userEvents[0].actor, isNull);
     });
 
-    test('user.update ignores non-emote_set_id fields', () {
-      client.handleRawMessage({
-        'op': 0,
-        'd': {
-          'type': 'user.update',
-          'id': 'user789',
-          'body': {
-            'connection_index': 0,
-            'change_map': {
-              'fields': [
-                {'key': 'other_field', 'value': 'foo', 'old_value': 'bar'},
-              ],
+    for (final (name, fields) in [
+      (
+        'user.update ignores non-emote_set_id fields',
+        [
+          {'key': 'other_field', 'value': 'foo', 'old_value': 'bar'},
+        ],
+      ),
+      (
+        'user.update ignores empty new emote set id',
+        [
+          {'key': 'emote_set_id', 'value': '', 'old_value': 'old'},
+        ],
+      ),
+    ]) {
+      test(name, () {
+        client.handleRawMessage({
+          'op': 0,
+          'd': {
+            'type': 'user.update',
+            'id': 'userx',
+            'body': {
+              'change_map': {'fields': fields},
             },
           },
-        },
+        });
+        expect(userEvents, isEmpty, reason: name);
       });
-
-      expect(userEvents, isEmpty);
-    });
-
-    test('user.update ignores empty new emote set id', () {
-      client.handleRawMessage({
-        'op': 0,
-        'd': {
-          'type': 'user.update',
-          'id': 'userx',
-          'body': {
-            'change_map': {
-              'fields': [
-                {'key': 'emote_set_id', 'value': '', 'old_value': 'old'},
-              ],
-            },
-          },
-        },
-      });
-
-      expect(userEvents, isEmpty);
-    });
+    }
   });
 
   group('status events', () {
@@ -2187,13 +2079,6 @@ void main() {
       client.emitDisconnected();
       expect(statusEvents, hasLength(1));
       expect(statusEvents.first, SevenTvEventStatus.disconnected);
-    });
-
-    test('handleRawMessage ignores unknown op codes gracefully', () {
-      client.handleRawMessage({'op': 99, 'd': {}});
-      expect(emoteEvents, isEmpty);
-      expect(userEvents, isEmpty);
-      expect(statusEvents, isEmpty);
     });
   });
 
@@ -2209,31 +2094,7 @@ void main() {
     });
   });
 
-  group('heartbeat', () {
-    test('op 2 heartbeat does not emit any events', () {
-      client.handleRawMessage(_hello());
-      statusEvents.clear();
-
-      client.handleRawMessage({
-        'op': 2,
-        'd': {'count': 1},
-      });
-
-      expect(emoteEvents, isEmpty);
-      expect(userEvents, isEmpty);
-      expect(statusEvents, isEmpty);
-    });
-  });
-
-  group('op 4 reconnect request', () {
-    test('op 4 message is handled gracefully', () {
-      client.handleRawMessage({'op': 4, 'd': {}});
-      expect(emoteEvents, isEmpty);
-      expect(userEvents, isEmpty);
-    });
-  });
-
-  group('op 5 and op 7 ignored', () {
+  group('ignored ops', () {
     setUp(() {
       client.handleRawMessage(_hello());
       emoteEvents.clear();
@@ -2241,19 +2102,20 @@ void main() {
       statusEvents.clear();
     });
 
-    test('ack message (op 5) is ignored', () {
-      client.handleRawMessage({'op': 5, 'd': {}});
-      expect(emoteEvents, isEmpty);
-      expect(userEvents, isEmpty);
-      expect(statusEvents, isEmpty);
-    });
-
-    test('end of stream message (op 7) is ignored', () {
-      client.handleRawMessage({'op': 7, 'd': {}});
-      expect(emoteEvents, isEmpty);
-      expect(userEvents, isEmpty);
-      expect(statusEvents, isEmpty);
-    });
+    for (final (name, op) in [
+      ('op 2 heartbeat does not emit any events', 2),
+      ('op 4 message is handled gracefully', 4),
+      ('ack message (op 5) is ignored', 5),
+      ('end of stream message (op 7) is ignored', 7),
+      ('handleRawMessage ignores unknown op codes gracefully', 99),
+    ]) {
+      test(name, () {
+        client.handleRawMessage({'op': op, 'd': {}});
+        expect(emoteEvents, isEmpty, reason: name);
+        expect(userEvents, isEmpty, reason: name);
+        expect(statusEvents, isEmpty, reason: name);
+      });
+    }
   });
 
   group('dispose', () {
@@ -2288,7 +2150,6 @@ void main() {
 
   group('reconnect and connectivity', () {
     test('hello resets reconnectAttempt to 0', () {
-      // Simulate several reconnect attempts
       for (var i = 0; i < 5; i++) {
         client.scheduleReconnectForTest();
         client.isReconnecting = false;
@@ -2299,152 +2160,111 @@ void main() {
       expect(client.reconnectAttempt, 0);
     });
 
-    test('scheduleReconnect increments reconnectAttempt', () {
-      client.scheduleReconnectForTest();
-      expect(client.reconnectAttempt, 1);
-      expect(client.isReconnecting, true);
-    });
-
-    test('scheduleReconnect returns early when isReconnecting is true', () {
-      client.scheduleReconnectForTest();
-      expect(client.reconnectAttempt, 1);
-
-      client.scheduleReconnectForTest();
-      expect(client.reconnectAttempt, 1);
-    });
-
-    test('scheduleReconnect returns early when isOnline is false', () {
-      final offlineClient = SevenTvEventClient();
-      offlineClient.isOnline = false;
-      offlineClient.scheduleReconnectForTest();
-      expect(offlineClient.reconnectAttempt, 0);
-      expect(offlineClient.isReconnecting, false);
-    });
-
-    test(
-      'reconnectAttempt capped after max and resets reconnecting on each call',
-      () {
-        final client2 = SevenTvEventClient();
-        for (var i = 0; i < 8; i++) {
-          client2.scheduleReconnectForTest();
-          client2.isReconnecting = false;
+    for (final (name, online, busy, expected) in [
+      ('scheduleReconnect increments reconnectAttempt', true, false, 1),
+      (
+        'scheduleReconnect returns early when isReconnecting is true',
+        true,
+        true,
+        1,
+      ),
+      (
+        'scheduleReconnect returns early when isOnline is false',
+        false,
+        false,
+        0,
+      ),
+      (
+        'reconnectAttempt capped after max and resets reconnecting on each call',
+        true,
+        false,
+        10,
+      ),
+    ]) {
+      test(name, () {
+        if (name.startsWith('reconnectAttempt capped')) {
+          final client2 = SevenTvEventClient();
+          for (var i = 0; i < 10; i++) {
+            client2.scheduleReconnectForTest();
+            client2.isReconnecting = false;
+          }
+          expect(client2.reconnectAttempt, expected, reason: name);
+          return;
         }
-        client2.scheduleReconnectForTest();
-        expect(client2.reconnectAttempt, 9);
-        expect(client2.isReconnecting, false);
-
-        client2.scheduleReconnectForTest();
-        expect(client2.reconnectAttempt, 10);
-        expect(client2.isReconnecting, false);
-      },
-    );
+        final c = SevenTvEventClient();
+        c.isOnline = online;
+        if (busy) {
+          c.scheduleReconnectForTest();
+          expect(c.reconnectAttempt, 1, reason: name);
+          c.scheduleReconnectForTest();
+          expect(c.reconnectAttempt, expected, reason: name);
+        } else {
+          c.scheduleReconnectForTest();
+          expect(c.reconnectAttempt, expected, reason: name);
+        }
+        c.dispose();
+      });
+    }
   });
 
   TestWidgetsFlutterBinding.ensureInitialized();
-  test('keeps exactly maxMessages when no threads exist', () {
-    // 25 messages, newest first (m24, m23, ..., m0)
-    final msgs = <String, List<TwitchMessage>>{
-      'test': List.generate(25, (i) => _msg('m${24 - i}', 'msg ${24 - i}')),
-    };
-    final conn = _makeConn(channelMessages: msgs, maxMessages: 10);
-    conn.store.truncateChannel('test', maxMessages: 10);
-    expect(msgs['test']!.length, 10);
-    expect(msgs['test']!.first.messageId, 'm24');
-    expect(msgs['test']!.last.messageId, 'm15');
-  });
+  for (final (name, count, expected) in [
+    ('keeps exactly maxMessages when no threads exist', 25, 10),
+    ('no-op when under limit', 5, 5),
+  ]) {
+    test(name, () {
+      final msgs = <String, List<TwitchMessage>>{
+        'test': List.generate(count, (i) => _msg('m$i', 'msg $i')),
+      };
+      final conn = _makeConn(channelMessages: msgs, maxMessages: 10);
+      conn.store.truncateChannel('test', maxMessages: 10);
+      expect(msgs['test']!.length, expected, reason: name);
+    });
+  }
 
-  test('preserves multi-level thread when leaf is within limit', () {
-    // 8 non-thread + grandchild + child + parent = 11, limit 10
-    // grandchild at index 8 (within), child at 9 (within), parent at 10 (past)
-    final msgs = <String, List<TwitchMessage>>{
-      'test': [
-        ...List.generate(8, (i) => _msg('f$i', 'filler $i')),
-        _msg('grand', 'leaf', replyToParentId: 'child'),
-        _msg('child', 'mid', replyToParentId: 'parent'),
-        _msg('parent', 'root'),
-      ],
-    };
-    final conn = _makeConn(channelMessages: msgs, maxMessages: 10);
-    conn.store.truncateChannel('test', maxMessages: 10);
-    expect(msgs['test']!.length, 11);
-    final ids = msgs['test']!.map((m) => m.messageId).toSet();
-    expect(ids.contains('parent'), true);
-    expect(ids.contains('child'), true);
-    expect(ids.contains('grand'), true);
-  });
-
-  test('removes multi-level thread when all ancestors are past limit', () {
-    // 10 non-thread + grandchild + child + parent = 13, limit 10
-    final msgs = <String, List<TwitchMessage>>{
-      'test': [
-        ...List.generate(10, (i) => _msg('f$i', 'filler $i')),
-        _msg('grand', 'leaf', replyToParentId: 'child'),
-        _msg('child', 'mid', replyToParentId: 'parent'),
-        _msg('parent', 'root'),
-      ],
-    };
-    final conn = _makeConn(channelMessages: msgs, maxMessages: 10);
-    conn.store.truncateChannel('test', maxMessages: 10);
-    expect(msgs['test']!.length, 10);
-    final ids = msgs['test']!.map((m) => m.messageId).toSet();
-    expect(ids.contains('parent'), false);
-    expect(ids.contains('child'), false);
-    expect(ids.contains('grand'), false);
-  });
-
-  test('handles multiple independent threads', () {
-    // 6 non-thread + threadA(parent+child=2) + threadB(parent+child=2) = 10, limit 10
-    // Both threads within limit
-    final msgs = <String, List<TwitchMessage>>{
-      'test': [
-        ...List.generate(6, (i) => _msg('f$i', 'filler $i')),
-        _msg('aChild', 'reply', replyToParentId: 'aParent'),
-        _msg('aParent', 'root A'),
-        _msg('bChild', 'reply', replyToParentId: 'bParent'),
-        _msg('bParent', 'root B'),
-      ],
-    };
-    final conn = _makeConn(channelMessages: msgs, maxMessages: 10);
-    conn.store.truncateChannel('test', maxMessages: 10);
-    final ids = msgs['test']!.map((m) => m.messageId).toSet();
-    expect(ids.contains('aParent'), true);
-    expect(ids.contains('aChild'), true);
-    expect(ids.contains('bParent'), true);
-    expect(ids.contains('bChild'), true);
-  });
-
-  test(
-    'removes one thread but keeps another when only one is within limit',
-    () {
-      // 8 non-thread + threadA(2) + threadB(2) = 12, limit 10
-      // threadA at indices 8-9 (within limit), threadB at 10-11 (past)
+  for (final (name, fillers, keepParent) in [
+    ('preserves multi-level thread when leaf is within limit', 8, true),
+    ('removes multi-level thread when all ancestors are past limit', 10, false),
+  ]) {
+    test(name, () {
       final msgs = <String, List<TwitchMessage>>{
         'test': [
-          ...List.generate(8, (i) => _msg('f$i', 'filler $i')),
-          _msg('aChild', 'reply', replyToParentId: 'aParent'),
-          _msg('aParent', 'root A'),
-          _msg('bChild', 'reply', replyToParentId: 'bParent'),
-          _msg('bParent', 'root B'),
+          ...List.generate(fillers, (i) => _msg('f$i', 'filler $i')),
+          _msg('grand', 'leaf', replyToParentId: 'child'),
+          _msg('child', 'mid', replyToParentId: 'parent'),
+          _msg('parent', 'root'),
         ],
       };
       final conn = _makeConn(channelMessages: msgs, maxMessages: 10);
       conn.store.truncateChannel('test', maxMessages: 10);
       final ids = msgs['test']!.map((m) => m.messageId).toSet();
-      expect(ids.contains('aParent'), true);
-      expect(ids.contains('aChild'), true);
-      expect(ids.contains('bParent'), false);
-      expect(ids.contains('bChild'), false);
+      expect(ids.contains('parent'), keepParent, reason: name);
+      expect(ids.contains('child'), keepParent, reason: name);
+      expect(ids.contains('grand'), keepParent, reason: name);
+    });
+  }
+
+  test(
+    'handles multiple independent threads with one inside and one outside the limit',
+    () {
+      for (final (fillers, keepB) in [(6, true), (8, false)]) {
+        final msgs = <String, List<TwitchMessage>>{
+          'test': [
+            ...List.generate(fillers, (i) => _msg('f$i', 'filler $i')),
+            _msg('aChild', 'reply', replyToParentId: 'aParent'),
+            _msg('aParent', 'root A'),
+            _msg('bChild', 'reply', replyToParentId: 'bParent'),
+            _msg('bParent', 'root B'),
+          ],
+        };
+        final conn = _makeConn(channelMessages: msgs, maxMessages: 10);
+        conn.store.truncateChannel('test', maxMessages: 10);
+        final ids = msgs['test']!.map((m) => m.messageId).toSet();
+        expect(ids.contains('aParent'), isTrue, reason: 'thread A stays');
+        expect(ids.contains('bParent'), keepB, reason: 'thread B keeps $keepB');
+      }
     },
   );
-
-  test('no-op when under limit', () {
-    final msgs = <String, List<TwitchMessage>>{
-      'test': List.generate(5, (i) => _msg('m$i', 'msg $i')),
-    };
-    final conn = _makeConn(channelMessages: msgs, maxMessages: 10);
-    conn.store.truncateChannel('test', maxMessages: 10);
-    expect(msgs['test']!.length, 5);
-  });
 
   group('thread stress', () {
     test('deeply nested chain preserves whole thread', () {
@@ -2488,36 +2308,6 @@ void main() {
           reason: 'filler f$i missing',
         );
       }
-    });
-
-    test('truncation stays bounded under heavy thread spam', () {
-      // 1000 messages: 800 non-thread + 100 threads × 2 msgs each.
-      // Many thread leaves are in the first 100 slots, making roots active.
-      // Total preserved should not explode (threads + 100 non-thread).
-      const limit = 100;
-      const threadCount = 100;
-      const fillerCount = 800;
-      final msgs = <String, List<TwitchMessage>>{
-        'test': [
-          for (var t = threadCount - 1; t >= 0; t--)
-            _msg('t${t}_c', 'child $t', replyToParentId: 't${t}_r'),
-          for (var t = threadCount - 1; t >= 0; t--) _msg('t${t}_r', 'root $t'),
-          for (var i = 0; i < fillerCount; i++) _msg('f$i', 'filler $i'),
-        ],
-      };
-      final conn = _makeConn(channelMessages: msgs, maxMessages: limit);
-      conn.store.truncateChannel('test', maxMessages: limit);
-
-      final remaining = msgs['test']!;
-      // Should NOT balloon to 10000.
-      // All 100 leaves are visible (first 100 non-system slots).
-      // Each makes its root active → 100 threads × 2 msgs + 100 fillers = 300.
-      expect(remaining.length, greaterThan(100));
-      expect(
-        remaining.length,
-        lessThan(500),
-        reason: 'should not balloon past ~3x limit',
-      );
     });
 
     test('many small threads with leaves in window all preserved', () {
@@ -2622,26 +2412,22 @@ void main() {
       expect(thread.map((m) => m.messageId), ['r1', 'c1']);
     });
 
-    test('indexing is idempotent across live/history double delivery', () {
-      final root = _msg('r1', 'root');
-      final child = _taggedMsg('c1', 'child', rootId: 'r1');
-      final msgs = <String, List<TwitchMessage>>{
-        'test': [root, child],
-      };
-      final conn = _makeConn(channelMessages: msgs, maxMessages: 10);
-      conn.store.indexMessages('test', [root, child]);
-      conn.store.indexMessages('test', [root, child]);
-
-      final thread = conn.store.threadFor('test', 'r1')!;
-      expect(thread.map((m) => m.messageId), ['r1', 'c1']);
-    });
-
     test('live ingestion indexes threads through the message pipeline', () {
       final msgs = <String, List<TwitchMessage>>{'test': <TwitchMessage>[]};
       final conn = _makeConn(channelMessages: msgs, maxMessages: 100);
       conn.onMessage(_msg('r1', 'root'));
       conn.onMessage(_taggedMsg('c1', 'child', rootId: 'r1'));
 
+      expect(conn.store.threadFor('test', 'r1')!.map((m) => m.messageId), [
+        'r1',
+        'c1',
+      ]);
+
+      // Double delivery stays idempotent.
+      conn.store.indexMessages('test', [
+        _msg('r1', 'root'),
+        _taggedMsg('c1', 'child', rootId: 'r1'),
+      ]);
       expect(conn.store.threadFor('test', 'r1')!.map((m) => m.messageId), [
         'r1',
         'c1',
@@ -2662,11 +2448,9 @@ void main() {
       conn.store.decayEvicted('test', [c1, c2, root]);
 
       final thread = conn.store.threadFor('test', 'r1')!;
-      expect(
-        thread.map((m) => m.messageId),
-        ['r1'],
-        reason: 'replies decay out; pinned root keeps the thread viewable',
-      );
+      expect(thread.map((m) => m.messageId), [
+        'r1',
+      ], reason: 'replies decay out; pinned root keeps the thread viewable');
     });
 
     test('truncation keeps the store in sync with the trimmed buffer', () {
@@ -2695,19 +2479,6 @@ void main() {
       ]);
     });
 
-    test('clearChannelThreads drops entries for the channel', () {
-      final root = _msg('r1', 'root');
-      final child = _taggedMsg('c1', 'child', rootId: 'r1');
-      final msgs = <String, List<TwitchMessage>>{
-        'test': [root, child],
-      };
-      final conn = _makeConn(channelMessages: msgs, maxMessages: 10);
-      conn.store.indexMessages('test', [root, child]);
-      conn.store.clearThreads('test');
-
-      expect(conn.store.threadFor('test', 'r1'), isNull);
-    });
-
     test('per-channel entry count stays under the LRU cap', () {
       final msgs = <String, List<TwitchMessage>>{'test': <TwitchMessage>[]};
       final conn = _makeConn(channelMessages: msgs, maxMessages: 10);
@@ -2731,203 +2502,159 @@ void main() {
   });
 
   group('truncate coalescing', () {
-    test('defers the full pass while messages arrive within the window', () {
-      var t = DateTime(2026, 1, 1, 12);
-      final msgs = <String, List<TwitchMessage>>{
-        'test': List.generate(11, (i) => _msg('m${10 - i}', 'msg ${10 - i}')),
-      };
-      final conn = _makeConn(
-        channelMessages: msgs,
-        maxMessages: 10,
-        truncateNow: () => t,
-      );
-      // Direct truncate seeds the last-full-pass timestamp.
-      conn.store.truncateChannel('test', maxMessages: 10);
-      expect(msgs['test']!.length, 10);
+    test(
+      'defers within the window, runs after it, forces on hard cap and stays bounded',
+      () {
+        var t = DateTime(2026, 1, 1, 12);
+        Map<String, List<TwitchMessage>> fresh() =>
+            <String, List<TwitchMessage>>{
+              'test': List.generate(
+                11,
+                (i) => _msg('m${10 - i}', 'msg ${10 - i}'),
+              ),
+            };
 
-      // Within the window: message inserts but truncation is deferred.
-      t = t.add(const Duration(milliseconds: 100));
-      conn.onMessage(_msg('new1', 'new one'));
-      expect(msgs['test']!.length, 11);
-    });
+        var msgs = fresh();
+        var conn = _makeConn(
+          channelMessages: msgs,
+          maxMessages: 10,
+          truncateNow: () => t,
+        );
+        conn.store.truncateChannel('test', maxMessages: 10);
+        t = t.add(const Duration(milliseconds: 100));
+        conn.onMessage(_msg('new1', 'new one'));
+        expect(msgs['test']!.length, 11);
 
-    test('runs the full pass on the first message after the window', () {
-      var t = DateTime(2026, 1, 1, 12);
-      final msgs = <String, List<TwitchMessage>>{
-        'test': List.generate(11, (i) => _msg('m${10 - i}', 'msg ${10 - i}')),
-      };
-      final conn = _makeConn(
-        channelMessages: msgs,
-        maxMessages: 10,
-        truncateNow: () => t,
-      );
-      conn.store.truncateChannel('test', maxMessages: 10);
-      expect(msgs['test']!.length, 10);
+        t = DateTime(2026, 1, 1, 12);
+        msgs = fresh();
+        conn = _makeConn(
+          channelMessages: msgs,
+          maxMessages: 10,
+          truncateNow: () => t,
+        );
+        conn.store.truncateChannel('test', maxMessages: 10);
+        t = t.add(const Duration(milliseconds: 300));
+        conn.onMessage(_msg('new1', 'new one'));
+        expect(msgs['test']!.length, 10);
 
-      // Past the window: the message triggers the full pass.
-      t = t.add(const Duration(milliseconds: 300));
-      conn.onMessage(_msg('new1', 'new one'));
-      expect(msgs['test']!.length, 10);
-    });
+        t = DateTime(2026, 1, 1, 12);
+        msgs = fresh();
+        conn = _makeConn(
+          channelMessages: msgs,
+          maxMessages: 10,
+          truncateNow: () => t,
+        );
+        conn.store.truncateChannel('test', maxMessages: 10);
+        t = t.add(const Duration(milliseconds: 100));
+        for (var i = 1; i <= 11; i++) {
+          conn.onMessage(_msg('b$i', 'burst $i'));
+        }
+        expect(msgs['test']!.length, 10);
 
-    test('runs the full pass immediately when the hard cap is exceeded', () {
-      var t = DateTime(2026, 1, 1, 12);
-      final msgs = <String, List<TwitchMessage>>{
-        'test': List.generate(11, (i) => _msg('m${10 - i}', 'msg ${10 - i}')),
-      };
-      final conn = _makeConn(
-        channelMessages: msgs,
-        maxMessages: 10,
-        truncateNow: () => t,
-      );
-      conn.store.truncateChannel('test', maxMessages: 10);
-      expect(msgs['test']!.length, 10);
-
-      // 11 messages within the window push past 2x the cap (20): the full
-      // pass runs even though the window has not elapsed.
-      t = t.add(const Duration(milliseconds: 100));
-      for (var i = 1; i <= 11; i++) {
-        conn.onMessage(_msg('b$i', 'burst $i'));
-      }
-      expect(msgs['test']!.length, 10);
-    });
-
-    test('keeps the buffer bounded between passes', () {
-      var t = DateTime(2026, 1, 1, 12);
-      final msgs = <String, List<TwitchMessage>>{
-        'test': List.generate(11, (i) => _msg('m${10 - i}', 'msg ${10 - i}')),
-      };
-      final conn = _makeConn(
-        channelMessages: msgs,
-        maxMessages: 10,
-        truncateNow: () => t,
-      );
-      conn.store.truncateChannel('test', maxMessages: 10);
-      expect(msgs['test']!.length, 10);
-
-      // 4 deferred messages stay in the buffer (hard cap not reached).
-      t = t.add(const Duration(milliseconds: 100));
-      for (var i = 1; i <= 4; i++) {
-        conn.onMessage(_msg('b$i', 'burst $i'));
-      }
-      expect(msgs['test']!.length, 14);
-    });
-  });
-
-  group('lifecycle', () {
-    test('double dispose does not crash', () {
-      final conn = _makeConn(channelMessages: {}, maxMessages: 10);
-      conn.dispose();
-      expect(() => conn.dispose(), returnsNormally);
-    });
-
-    test('connect after dispose is no-op', () async {
-      final conn = _makeConn(channelMessages: {}, maxMessages: 10);
-      conn.dispose();
-      // Should return without setting up listeners or connecting
-      expect(() => conn.connect(), returnsNormally);
-    });
+        t = DateTime(2026, 1, 1, 12);
+        msgs = fresh();
+        conn = _makeConn(
+          channelMessages: msgs,
+          maxMessages: 10,
+          truncateNow: () => t,
+        );
+        conn.store.truncateChannel('test', maxMessages: 10);
+        t = t.add(const Duration(milliseconds: 100));
+        for (var i = 1; i <= 4; i++) {
+          conn.onMessage(_msg('b$i', 'burst $i'));
+        }
+        expect(msgs['test']!.length, 14);
+      },
+    );
   });
 
   group('badge parsing', () {
-    test('parses badges from IRC badges tag on own message', () {
-      final msgs = <String, List<TwitchMessage>>{'test': []};
-      final conn = _makeConn(channelMessages: msgs, maxMessages: 100);
-
-      final ircMsg = IrcMessage(
-        tags: {
+    for (final (name, tags, expectBadges) in [
+      (
+        'parses badges from IRC badges tag on own message',
+        {
           'badges': 'broadcaster/1,subscriber/12',
           'display-name': 'TestUser',
           'user-id': '12345',
           'id': 'msg1',
         },
-        prefix: 'testuser!testuser@testuser.tmi.twitch.tv',
-        command: 'PRIVMSG',
-        params: ['#test'],
-        trailing: 'hello',
-      );
-
-      conn.onOwnIrcMessage(ircMsg);
-
-      expect(msgs['test']!.length, 1);
-      final msg = msgs['test']!.first;
-      expect(msg.badges, isNotNull);
-      expect(msg.badges!.length, 2);
-      expect(msg.badges![0].setId, 'broadcaster');
-      expect(msg.badges![0].versionId, '1');
-      expect(msg.badges![1].setId, 'subscriber');
-      expect(msg.badges![1].versionId, '12');
-    });
-
-    test('badges is null when badges tag is absent', () {
-      final msgs = <String, List<TwitchMessage>>{'test': []};
-      final conn = _makeConn(channelMessages: msgs, maxMessages: 100);
-
-      final ircMsg = IrcMessage(
-        tags: {'display-name': 'TestUser', 'user-id': '12345', 'id': 'msg2'},
-        prefix: 'testuser!testuser@testuser.tmi.twitch.tv',
-        command: 'PRIVMSG',
-        params: ['#test'],
-        trailing: 'hello',
-      );
-
-      conn.onOwnIrcMessage(ircMsg);
-
-      expect(msgs['test']!.length, 1);
-      final msg = msgs['test']!.first;
-      expect(msg.badges, isNull);
-    });
+        true,
+      ),
+      (
+        'badges is null when badges tag is absent',
+        {'display-name': 'TestUser', 'user-id': '12345', 'id': 'msg2'},
+        false,
+      ),
+    ]) {
+      test(name, () {
+        final msgs = <String, List<TwitchMessage>>{'test': []};
+        final conn = _makeConn(channelMessages: msgs, maxMessages: 100);
+        conn.onOwnIrcMessage(
+          IrcMessage(
+            tags: tags,
+            prefix: 'testuser!testuser@testuser.tmi.twitch.tv',
+            command: 'PRIVMSG',
+            params: ['#test'],
+            trailing: 'hello',
+          ),
+        );
+        final msg = msgs['test']!.first;
+        if (expectBadges) {
+          expect(msg.badges, isNotNull, reason: name);
+          expect(msg.badges!.length, 2, reason: name);
+          expect(msg.badges![0].setId, 'broadcaster', reason: name);
+        } else {
+          expect(msg.badges, isNull, reason: name);
+        }
+      });
+    }
   });
 
   group('own /me messages', () {
-    test('strips ACTION wrapper and sets isAction', () {
-      final msgs = <String, List<TwitchMessage>>{'test': []};
-      final conn = _makeConn(channelMessages: msgs, maxMessages: 100);
+    test(
+      'strips ACTION wrapper, sets isAction and adjusts emote positions',
+      () {
+        var msgs = <String, List<TwitchMessage>>{'test': []};
+        var conn = _makeConn(channelMessages: msgs, maxMessages: 100);
+        conn.onOwnIrcMessage(
+          IrcMessage(
+            tags: {
+              'display-name': 'TestUser',
+              'user-id': '12345',
+              'id': 'msg-me',
+            },
+            prefix: 'testuser!testuser@testuser.tmi.twitch.tv',
+            command: 'PRIVMSG',
+            params: ['#test'],
+            trailing: '\x01ACTION waves at chat\x01',
+          ),
+        );
+        expect(msgs['test']!.first.text, 'waves at chat');
+        expect(msgs['test']!.first.isAction, isTrue);
 
-      final ircMsg = IrcMessage(
-        tags: {'display-name': 'TestUser', 'user-id': '12345', 'id': 'msg-me'},
-        prefix: 'testuser!testuser@testuser.tmi.twitch.tv',
-        command: 'PRIVMSG',
-        params: ['#test'],
-        trailing: '\x01ACTION waves at chat\x01',
-      );
-
-      conn.onOwnIrcMessage(ircMsg);
-
-      expect(msgs['test']!.length, 1);
-      final msg = msgs['test']!.first;
-      expect(msg.text, 'waves at chat');
-      expect(msg.isAction, isTrue);
-    });
-
-    test('adjusts emote positions for the stripped ACTION prefix', () {
-      final msgs = <String, List<TwitchMessage>>{'test': []};
-      final conn = _makeConn(channelMessages: msgs, maxMessages: 100);
-
-      final ircMsg = IrcMessage(
-        tags: {
-          'display-name': 'TestUser',
-          'user-id': '12345',
-          'id': 'msg-me2',
-          // Twitch reports ACTION positions relative to the message body
-          // (after the \x01ACTION wrapper), not the raw PRIVMSG text.
-          'emotes': '123:0-7',
-        },
-        prefix: 'testuser!testuser@testuser.tmi.twitch.tv',
-        command: 'PRIVMSG',
-        params: ['#test'],
-        trailing: '\x01ACTION PogChamp hi\x01',
-      );
-
-      conn.onOwnIrcMessage(ircMsg);
-
-      final msg = msgs['test']!.first;
-      expect(msg.text, 'PogChamp hi');
-      expect(msg.emotePositions, isNotNull);
-      expect(msg.emotePositions!.single.startIndex, 0);
-      expect(msg.emotePositions!.single.endIndex, 8);
-      expect(msg.emotePositions!.single.emoteCode, 'PogChamp');
-    });
+        msgs = <String, List<TwitchMessage>>{'test': []};
+        conn = _makeConn(channelMessages: msgs, maxMessages: 100);
+        conn.onOwnIrcMessage(
+          IrcMessage(
+            tags: {
+              'display-name': 'TestUser',
+              'user-id': '12345',
+              'id': 'msg-me2',
+              'emotes': '123:0-7',
+            },
+            prefix: 'testuser!testuser@testuser.tmi.twitch.tv',
+            command: 'PRIVMSG',
+            params: ['#test'],
+            trailing: '\x01ACTION PogChamp hi\x01',
+          ),
+        );
+        final msg = msgs['test']!.first;
+        expect(msg.text, 'PogChamp hi');
+        expect(msg.emotePositions!.single.emoteCode, 'PogChamp');
+        expect(msg.emotePositions!.single.startIndex, 0);
+        expect(msg.emotePositions!.single.endIndex, 8);
+      },
+    );
   });
 
   group('cheer highlighting', () {
@@ -3412,156 +3139,69 @@ void main() {
   });
 
   group('read socket fatal auth', () {
-    test('NOTICE * :Login authentication failed stops the retry loop', () {
-      fakeAsync((async) {
-        final socket = FakeWebSocketChannel();
-        final service = _LoopIrcRead(socket);
-        final statuses = <IrcConnectionStatus>[];
-        service.onStatus.listen(statuses.add);
-        service.connect(username: 'alice', accessToken: 'dead-token');
-        async.flushMicrotasks();
-        expect(statuses, contains(IrcConnectionStatus.connected));
-        final attemptsBefore = service.openAttempts;
-
-        socket.push(':tmi.twitch.tv NOTICE * :Login authentication failed');
-        async.flushMicrotasks();
-        async.elapse(const Duration(seconds: 5));
-
-        expect(
-          service.openAttempts,
-          attemptsBefore,
-          reason: 'a dead token cannot be fixed by retrying',
-        );
-        expect(statuses.last, IrcConnectionStatus.disconnected);
-        expect(service.isConnected, isFalse);
-
-        service.dispose();
-        socket.dispose();
+    for (final (name, notice, fatal) in [
+      (
+        'NOTICE * :Login authentication failed stops the retry loop',
+        ':tmi.twitch.tv NOTICE * :Login authentication failed',
+        true,
+      ),
+      (
+        'other NOTICE * messages do not stop the read loop',
+        ':tmi.twitch.tv NOTICE * :Some other notice',
+        false,
+      ),
+    ]) {
+      test(name, () {
+        fakeAsync((async) {
+          final socket = FakeWebSocketChannel();
+          final service = _LoopIrcRead(socket);
+          final statuses = <IrcConnectionStatus>[];
+          service.onStatus.listen(statuses.add);
+          service.connect(username: 'alice', accessToken: 'token');
+          async.flushMicrotasks();
+          final attemptsBefore = service.openAttempts;
+          socket.push(notice);
+          async.flushMicrotasks();
+          async.elapse(const Duration(seconds: 5));
+          if (fatal) {
+            expect(service.openAttempts, attemptsBefore, reason: name);
+            expect(
+              statuses.last,
+              IrcConnectionStatus.disconnected,
+              reason: name,
+            );
+            expect(service.isConnected, isFalse, reason: name);
+          } else {
+            expect(service.openAttempts, 1, reason: name);
+            expect(service.isConnected, isTrue, reason: name);
+          }
+          service.dispose();
+          socket.dispose();
+        });
       });
-    });
-
-    test('other NOTICE * messages do not stop the read loop', () {
-      fakeAsync((async) {
-        final socket = FakeWebSocketChannel();
-        final service = _LoopIrcRead(socket);
-        service.connect(username: 'alice', accessToken: 'token');
-        async.flushMicrotasks();
-
-        socket.push(':tmi.twitch.tv NOTICE * :Some other notice');
-        async.flushMicrotasks();
-        async.elapse(const Duration(seconds: 5));
-
-        // Without a fatal notice the socket stays healthy (no retry churn).
-        expect(service.openAttempts, 1);
-        expect(service.isConnected, isTrue);
-
-        service.dispose();
-        socket.dispose();
-      });
-    });
+    }
   });
 
   group('reconnect callback', () {
-    test('fires on IRC reconnect but not on first connect', () async {
-      final irc = _TestIrc();
-      var calls = 0;
-      final conn = _makeReconnectConn(
-        eventSub: _NoopEventSub(),
-        irc: irc,
-        onReconnected: () => calls++,
-      );
-      await conn.connect();
-
-      irc.emitConnected();
-      expect(calls, 0, reason: 'first connect must not trigger a re-fetch');
-
-      irc.emitDisconnected();
-      irc.emitConnected();
-      expect(calls, 1, reason: 'reconnect must trigger a re-fetch');
-
-      // The second emitConnected lands inside the 30s subscribe throttle, so
-      // the throttle return is reached after onReconnected already fired.
-      irc.emitDisconnected();
-      irc.emitConnected();
-      expect(calls, 2);
-
-      conn.dispose();
-    });
-
     test(
-      'does not fire on repeated connected status without a disconnect',
+      'fires on IRC reconnect but not on first connect or repeated status',
       () async {
-        final irc = _TestIrc();
         var calls = 0;
+        final irc = _TestIrc();
         final conn = _makeReconnectConn(
           eventSub: _NoopEventSub(),
           irc: irc,
           onReconnected: () => calls++,
         );
         await conn.connect();
-
         irc.emitConnected();
+        expect(calls, 0, reason: 'first connect must not trigger a re-fetch');
         irc.emitConnected();
-        expect(calls, 0);
-
+        expect(calls, 0, reason: 'repeated status must not fire');
+        irc.emitDisconnected();
+        irc.emitConnected();
+        expect(calls, 1, reason: 'reconnect must trigger a re-fetch');
         conn.dispose();
-      },
-    );
-  });
-
-  group('JOIN failure surfacing', () {
-    test(
-      'suspended channel shows one clear message; late success announces',
-      () async {
-        final irc = _TestIrc();
-        final ircRead = _TestIrcRead();
-        final texts = <String>[];
-        final conn = _makeReconnectConn(
-          eventSub: _NoopEventSub(),
-          irc: irc,
-          ircRead: ircRead,
-          onReconnected: () {},
-          onSystemMessage: (c, t, {Color? accent, String? messageId}) =>
-              texts.add(t),
-        );
-        await conn.connect();
-        irc.emitConnected();
-        ircRead.emitConnected();
-
-        // Queue the channel, then deliver the refusal notice through the
-        // read socket (which now handles JOIN failures).
-        ircRead.join('test');
-        ircRead.handleLine(
-          '@msg-id=msg_channel_suspended :tmi.twitch.tv NOTICE #test '
-          ':This channel has been suspended or closed.',
-        );
-        await Future<void>.delayed(Duration.zero);
-
-        expect(
-          texts,
-          contains(
-            'Could not join #test: '
-            'the channel is suspended or deleted.',
-          ),
-        );
-        expect(
-          texts.any((t) => t.contains('suspended or closed')),
-          isFalse,
-          reason: "Twitch's raw refusal notice must not duplicate ours",
-        );
-
-        // A later ROOMSTATE means the channel joined after all: the late
-        // success announces, and the honest per-channel Connected lands.
-        ircRead.handleLine('@room-id=123 :tmi.twitch.tv ROOMSTATE #test');
-        await Future<void>.delayed(Duration.zero);
-        expect(texts, contains('Joined #test.'));
-        expect(
-          texts.lastIndexOf('Joined #test.'),
-          greaterThan(texts.indexOf('Could not join #test: ')),
-        );
-
-        conn.dispose();
-        irc.dispose();
       },
     );
   });
@@ -3619,73 +3259,55 @@ void main() {
       conn.dispose();
     });
 
-    test('missing color falls back to PRIMARY', () async {
-      final irc = _TestIrc();
-      final ircRead = _TestIrcRead();
-      final systemMessages = <(String, String, Color?)>[];
-      final channelMessages = <String, List<TwitchMessage>>{};
-      final conn = _makeReconnectConn(
-        eventSub: _NoopEventSub(),
-        irc: irc,
-        ircRead: ircRead,
-        onReconnected: () {},
-        channelMessages: channelMessages,
-        onSystemMessage: (c, t, {Color? accent, String? messageId}) {
-          systemMessages.add((c, t, accent));
-        },
-      );
-      await conn.connect();
-      ircRead.emitConnected();
-
-      ircRead.handleLine(
+    for (final (name, line, accent, hasChild) in [
+      (
+        'missing color falls back to PRIMARY',
         '@msg-id=announcement;login=mm2pl;display-name=Mm2PL;system-msg=;'
-        ':tmi.twitch.tv USERNOTICE #test :hi',
-      );
-
-      expect(systemMessages.single.$2, 'Announcement');
-      expect(systemMessages.single.$3, const Color(0xFF9146FF));
-      expect(
-        channelMessages['test']!.first.systemAccent,
+            ':tmi.twitch.tv USERNOTICE #test :hi',
         const Color(0xFF9146FF),
-      );
-
-      conn.dispose();
-    });
-
-    test('announcement without text renders only the label', () async {
-      final irc = _TestIrc();
-      final ircRead = _TestIrcRead();
-      final systemMessages = <(String, String, Color?)>[];
-      final channelMessages = <String, List<TwitchMessage>>{};
-      final conn = _makeReconnectConn(
-        eventSub: _NoopEventSub(),
-        irc: irc,
-        ircRead: ircRead,
-        onReconnected: () {},
-        channelMessages: channelMessages,
-        onSystemMessage: (c, t, {Color? accent, String? messageId}) {
-          systemMessages.add((c, t, accent));
-        },
-      );
-      await conn.connect();
-      ircRead.emitConnected();
-
-      ircRead.handleLine(
+        true,
+      ),
+      (
+        'announcement without text renders only the label',
         '@msg-id=announcement;msg-param-color=ORANGE;login=mm2pl;'
-        'display-name=Mm2PL;system-msg=;'
-        ':tmi.twitch.tv USERNOTICE #test',
-      );
-
-      expect(systemMessages.single.$2, 'Announcement');
-      expect(systemMessages.single.$3, const Color(0xFFFF6F00));
-      expect(
-        channelMessages['test'],
-        isNull,
-        reason: 'no child message without announcement text',
-      );
-
-      conn.dispose();
-    });
+            'display-name=Mm2PL;system-msg=;'
+            ':tmi.twitch.tv USERNOTICE #test',
+        const Color(0xFFFF6F00),
+        false,
+      ),
+    ]) {
+      test(name, () async {
+        final irc = _TestIrc();
+        final ircRead = _TestIrcRead();
+        final systemMessages = <(String, String, Color?)>[];
+        final channelMessages = <String, List<TwitchMessage>>{};
+        final conn = _makeReconnectConn(
+          eventSub: _NoopEventSub(),
+          irc: irc,
+          ircRead: ircRead,
+          onReconnected: () {},
+          channelMessages: channelMessages,
+          onSystemMessage: (c, t, {Color? accent, String? messageId}) {
+            systemMessages.add((c, t, accent));
+          },
+        );
+        await conn.connect();
+        ircRead.emitConnected();
+        ircRead.handleLine(line);
+        expect(systemMessages.single.$2, 'Announcement', reason: name);
+        expect(systemMessages.single.$3, accent, reason: name);
+        if (hasChild) {
+          expect(
+            channelMessages['test']!.first.systemAccent,
+            accent,
+            reason: name,
+          );
+        } else {
+          expect(channelMessages['test'], isNull, reason: name);
+        }
+        conn.dispose();
+      });
+    }
 
     test('resub with text renders label plus child message', () async {
       final irc = _TestIrc();
@@ -3771,112 +3393,50 @@ void main() {
       conn.dispose();
     });
 
-    test('watch streak notice highlights with the purple accent', () async {
-      final irc = _TestIrc();
-      final ircRead = _TestIrcRead();
-      final systemMessages = <(String, String, Color?)>[];
-      final channelMessages = <String, List<TwitchMessage>>{};
-      final conn = _makeReconnectConn(
-        eventSub: _NoopEventSub(),
-        irc: irc,
-        ircRead: ircRead,
-        onReconnected: () {},
-        channelMessages: channelMessages,
-        onSystemMessage: (c, t, {Color? accent, String? messageId}) {
-          systemMessages.add((c, t, accent));
-        },
-      );
-      await conn.connect();
-      ircRead.emitConnected();
-
-      ircRead.handleLine(
-        '@msg-id=viewermilestone;system-msg=ronni\\shas\\sreached\\sa\\swatch\\sstreak\\sof\\s3!;'
-        'login=ronni;display-name=ronni;'
-        ':tmi.twitch.tv USERNOTICE #test',
-      );
-
-      expect(systemMessages, hasLength(1));
-      expect(systemMessages[0].$2, 'ronni has reached a watch streak of 3!');
-      expect(systemMessages[0].$3, const Color(0xFF9146FF));
-      expect(
-        channelMessages['test'],
-        isNull,
-        reason: 'watch streaks carry no user message',
-      );
-
-      conn.dispose();
-    });
-
-    test('bits badge tier notice highlights with the purple accent', () async {
-      final irc = _TestIrc();
-      final ircRead = _TestIrcRead();
-      final systemMessages = <(String, String, Color?)>[];
-      final channelMessages = <String, List<TwitchMessage>>{};
-      final conn = _makeReconnectConn(
-        eventSub: _NoopEventSub(),
-        irc: irc,
-        ircRead: ircRead,
-        onReconnected: () {},
-        channelMessages: channelMessages,
-        onSystemMessage: (c, t, {Color? accent, String? messageId}) {
-          systemMessages.add((c, t, accent));
-        },
-      );
-      await conn.connect();
-      ircRead.emitConnected();
-
-      ircRead.handleLine(
-        '@msg-id=bitsbadgetier;system-msg=ronni\\ssent\\s100\\sbits!;'
-        'login=ronni;display-name=ronni;'
-        ':tmi.twitch.tv USERNOTICE #test',
-      );
-
-      expect(systemMessages, hasLength(1));
-      expect(systemMessages[0].$3, const Color(0xFF9146FF));
-      expect(
-        channelMessages['test'],
-        isNull,
-        reason: 'bits badge tier notices carry no user message',
-      );
-
-      conn.dispose();
-    });
-
-    test('non-announcement notices highlight with the purple accent', () async {
-      final irc = _TestIrc();
-      final ircRead = _TestIrcRead();
-      final systemMessages = <(String, String, Color?)>[];
-      final channelMessages = <String, List<TwitchMessage>>{};
-      final conn = _makeReconnectConn(
-        eventSub: _NoopEventSub(),
-        irc: irc,
-        ircRead: ircRead,
-        onReconnected: () {},
-        channelMessages: channelMessages,
-        onSystemMessage: (c, t, {Color? accent, String? messageId}) {
-          systemMessages.add((c, t, accent));
-        },
-      );
-      await conn.connect();
-      ircRead.emitConnected();
-
-      ircRead.handleLine(
-        '@msg-id=raid;system-msg=ronni\\sis\\sraiding\\sxqc!;login=ronni;'
-        'display-name=ronni;'
-        ':tmi.twitch.tv USERNOTICE #test',
-      );
-
-      expect(systemMessages, hasLength(1));
-      expect(systemMessages[0].$2, 'ronni is raiding xqc!');
-      expect(systemMessages[0].$3, const Color(0xFF9146FF));
-      expect(
-        channelMessages['test'],
-        isNull,
-        reason: 'non-announcements never produce a child message',
-      );
-
-      conn.dispose();
-    });
+    for (final (name, line, text) in [
+      (
+        'watch streak notice highlights with the purple accent',
+        '@msg-id=viewermilestone;system-msg=ronni\\shas\\sreached\\sa\\swatch\\sstreak\\sof\\s3!;login=ronni;display-name=ronni;:tmi.twitch.tv USERNOTICE #test',
+        'ronni has reached a watch streak of 3!',
+      ),
+      (
+        'bits badge tier notice highlights with the purple accent',
+        '@msg-id=bitsbadgetier;system-msg=ronni\\ssent\\s100\\sbits!;login=ronni;display-name=ronni;:tmi.twitch.tv USERNOTICE #test',
+        null,
+      ),
+      (
+        'non-announcement notices highlight with the purple accent',
+        '@msg-id=raid;system-msg=ronni\\sis\\sraiding\\sxqc!;login=ronni;display-name=ronni;:tmi.twitch.tv USERNOTICE #test',
+        'ronni is raiding xqc!',
+      ),
+    ]) {
+      test(name, () async {
+        final irc = _TestIrc();
+        final ircRead = _TestIrcRead();
+        final systemMessages = <(String, String, Color?)>[];
+        final channelMessages = <String, List<TwitchMessage>>{};
+        final conn = _makeReconnectConn(
+          eventSub: _NoopEventSub(),
+          irc: irc,
+          ircRead: ircRead,
+          onReconnected: () {},
+          channelMessages: channelMessages,
+          onSystemMessage: (c, t, {Color? accent, String? messageId}) {
+            systemMessages.add((c, t, accent));
+          },
+        );
+        await conn.connect();
+        ircRead.emitConnected();
+        ircRead.handleLine(line);
+        expect(systemMessages, hasLength(1), reason: name);
+        expect(systemMessages[0].$3, const Color(0xFF9146FF), reason: name);
+        if (text != null) {
+          expect(systemMessages[0].$2, text, reason: name);
+        }
+        expect(channelMessages['test'], isNull, reason: name);
+        conn.dispose();
+      });
+    }
   });
 
   group('IRC channel clear', () {
@@ -3920,47 +3480,6 @@ void main() {
       expect(systemMessages[0].$2, 'Chat was cleared.');
       expect(channelMessages['test']![0].deleted, isTrue);
       expect(channelMessages['test']![1].deleted, isTrue);
-
-      conn.dispose();
-    });
-
-    test('ban CLEARCHAT does not trigger the clear path', () async {
-      final irc = _TestIrc();
-      final ircRead = _TestIrcRead();
-      final systemMessages = <(String, String, Color?)>[];
-      final channelMessages = <String, List<TwitchMessage>>{
-        'test': [
-          TwitchMessage(
-            login: 'forsen',
-            text: 'msg1',
-            messageId: 'm1',
-            channel: 'test',
-          ),
-        ],
-      };
-      final conn = _makeReconnectConn(
-        eventSub: _NoopEventSub(),
-        irc: irc,
-        ircRead: ircRead,
-        onReconnected: () {},
-        channelMessages: channelMessages,
-        onSystemMessage: (c, t, {Color? accent, String? messageId}) {
-          systemMessages.add((c, t, accent));
-        },
-      );
-      await conn.connect();
-      irc.emitConnected();
-      ircRead.emitConnected();
-
-      ircRead.handleLine(':tmi.twitch.tv CLEARCHAT #test :forsen');
-      await Future<void>.delayed(Duration.zero);
-
-      expect(systemMessages.single.$2, 'forsen was banned.');
-      expect(
-        channelMessages['test']!.single.deleted,
-        isTrue,
-        reason: 'the banned user\'s message is deleted, not the whole chat',
-      );
 
       conn.dispose();
     });
@@ -4018,31 +3537,29 @@ void main() {
       return (conn, ircRead);
     }
 
-    test('slow mode arms a countdown after your own message', () async {
-      final (conn, ircRead) = await makeConn();
-      ircRead.handleLine('@room-id=1;slow=30 :tmi.twitch.tv ROOMSTATE #test');
-      expect(
-        conn.remainingSlowCooldown('test'),
-        isNull,
-        reason: 'no countdown before you send anything',
-      );
-
-      await conn.doSendMessage('hi', 'test');
-
-      expect(conn.remainingSlowCooldown('test'), inInclusiveRange(25, 31));
-      conn.dispose();
-    });
-
-    test('slow-exempt badges skip the slow-mode countdown', () async {
-      final (conn, ircRead) = await makeConn();
-      ircRead.handleLine('@room-id=1;slow=30 :tmi.twitch.tv ROOMSTATE #test');
-      ircRead.selfBadges['test'] = {'moderator'};
-
-      await conn.doSendMessage('hi', 'test');
-
-      expect(conn.remainingSlowCooldown('test'), isNull);
-      conn.dispose();
-    });
+    for (final (name, badge, expectCooldown) in [
+      ('slow mode arms a countdown after your own message', null, true),
+      ('slow-exempt badges skip the slow-mode countdown', 'moderator', false),
+    ]) {
+      test(name, () async {
+        final (conn, ircRead) = await makeConn();
+        ircRead.handleLine('@room-id=1;slow=30 :tmi.twitch.tv ROOMSTATE #test');
+        if (badge != null) {
+          ircRead.selfBadges['test'] = {badge};
+        }
+        await conn.doSendMessage('hi', 'test');
+        if (expectCooldown) {
+          expect(
+            conn.remainingSlowCooldown('test'),
+            inInclusiveRange(25, 31),
+            reason: name,
+          );
+        } else {
+          expect(conn.remainingSlowCooldown('test'), isNull, reason: name);
+        }
+        conn.dispose();
+      });
+    }
 
     test('own timeout arms the countdown, other timeouts do not', () async {
       final (conn, ircRead) = await makeConn();
@@ -4063,181 +3580,99 @@ void main() {
 
     test('the send grace outlives the raw timeout expiry', () async {
       final (conn, ircRead) = await makeConn();
-
       ircRead.handleLine(
         '@ban-duration=1 :tmi.twitch.tv CLEARCHAT #test :viewer',
       );
       await Future<void>.delayed(Duration.zero);
-      // Ceil over the 0.5s-padded window: a fresh 1s timeout reads high.
       expect(conn.remainingSelfTimeout('test'), inInclusiveRange(1, 2));
-
-      // Past raw expiry (1s) but inside the grace: still gated.
       await Future<void>.delayed(const Duration(milliseconds: 1100));
       expect(conn.remainingSelfTimeout('test'), isNotNull);
-
       await Future<void>.delayed(const Duration(milliseconds: 600));
+      expect(conn.remainingSelfTimeout('test'), isNull);
+
+      // An already-elapsed timeout clears instead of counting down.
+      ircRead.handleLine(
+        '@ban-duration=0 :tmi.twitch.tv CLEARCHAT #test :viewer',
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(conn.remainingSelfTimeout('test'), isNull);
+
+      // A successful own-message echo heals a stale self-timeout gate.
+      ircRead.handleLine(
+        '@ban-duration=600 :tmi.twitch.tv CLEARCHAT #test :viewer',
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(conn.remainingSelfTimeout('test'), isNotNull);
+      ircRead.emitOwnMessage(
+        parseIrcMessage(
+          ':viewer!viewer@viewer.tmi.twitch.tv PRIVMSG #test :hello',
+        )!,
+      );
+      await Future<void>.delayed(Duration.zero);
       expect(conn.remainingSelfTimeout('test'), isNull);
       conn.dispose();
     });
-
-    test(
-      'an already-elapsed timeout clears instead of counting down',
-      () async {
-        final (conn, ircRead) = await makeConn();
-
-        ircRead.handleLine(
-          '@ban-duration=0 :tmi.twitch.tv CLEARCHAT #test :viewer',
-        );
-        await Future<void>.delayed(Duration.zero);
-        expect(conn.remainingSelfTimeout('test'), isNull);
-        conn.dispose();
-      },
-    );
-
-    test(
-      'a successful own-message echo heals a stale self-timeout gate',
-      () async {
-        final (conn, ircRead) = await makeConn();
-
-        ircRead.handleLine(
-          '@ban-duration=600 :tmi.twitch.tv CLEARCHAT #test :viewer',
-        );
-        await Future<void>.delayed(Duration.zero);
-        expect(conn.remainingSelfTimeout('test'), isNotNull);
-
-        // Twitch echoes our own PRIVMSG back, proving the send was accepted
-        // and the timeout was already lifted - the gate must clear so the
-        // input box stops showing a (now false) countdown.
-        ircRead.emitOwnMessage(
-          parseIrcMessage(
-            ':viewer!viewer@viewer.tmi.twitch.tv PRIVMSG #test :hello',
-          )!,
-        );
-        await Future<void>.delayed(Duration.zero);
-        expect(conn.remainingSelfTimeout('test'), isNull);
-        conn.dispose();
-      },
-    );
   });
 
   group('reconnectIfNecessary', () {
-    test('does not reconnect a healthy connection', () {
-      fakeAsync((async) {
-        final irc = _TestIrc();
-        irc.alive = true;
-        final conn = _makeReconnectConn(
-          eventSub: _NoopEventSub(),
-          irc: irc,
-          onReconnected: () {},
-          currentUserLogin: 'testuser',
-        );
-
-        irc.connect(username: 'testuser', accessToken: 'token');
-        irc.emitConnected();
-        conn.reconnectIfNecessary();
-        async.flushMicrotasks();
-        expect(
-          irc.connectCalls,
-          1,
-          reason: 'healthy socket must not be reconnected on resume',
-        );
-
-        conn.dispose();
+    for (final (name, alive, connected) in [
+      ('does not reconnect a healthy connection', true, true),
+      ('forces a reconnect when checkAlive fails (zombie socket)', false, true),
+      ('connects when the socket is missing entirely', true, false),
+    ]) {
+      test(name, () {
+        fakeAsync((async) {
+          final irc = _TestIrc();
+          irc.alive = alive;
+          final conn = _makeReconnectConn(
+            eventSub: _NoopEventSub(),
+            irc: irc,
+            onReconnected: () {},
+            currentUserLogin: 'testuser',
+          );
+          if (connected) {
+            irc.connect(username: 'testuser', accessToken: 'token');
+            irc.emitConnected();
+          }
+          conn.reconnectIfNecessary();
+          async.flushMicrotasks();
+          if (name.startsWith('does not')) {
+            expect(irc.connectCalls, 1, reason: name);
+          } else if (name.startsWith('forces')) {
+            expect(irc.openAttempts, 1, reason: name);
+            expect(irc.isConnected, isTrue, reason: name);
+          } else {
+            expect(irc.connectCalls, 1, reason: name);
+          }
+          conn.dispose();
+        });
       });
-    });
+    }
 
-    test('forces a reconnect when checkAlive fails (zombie socket)', () {
-      fakeAsync((async) {
-        final irc = _TestIrc();
-        irc.alive = false;
-        final conn = _makeReconnectConn(
-          eventSub: _NoopEventSub(),
-          irc: irc,
-          onReconnected: () {},
-          currentUserLogin: 'testuser',
-        );
-
-        irc.connect(username: 'testuser', accessToken: 'token');
-        irc.emitConnected();
-        conn.reconnectIfNecessary();
-        async.flushMicrotasks();
-        // forceReconnect restarts the loop immediately (no backoff).
-        expect(irc.openAttempts, 1);
-        expect(irc.isConnected, isTrue);
-
-        conn.dispose();
+    for (final (name, stale, calls) in [
+      ('reconnects a stale EventSub session on resume', true, 1),
+      ('does not reconnect a healthy EventSub session on resume', false, 0),
+    ]) {
+      test(name, () {
+        fakeAsync((async) {
+          final irc = _TestIrc();
+          irc.alive = true;
+          final eventSub = _StaleEventSub(stale: stale);
+          final conn = _makeReconnectConn(
+            eventSub: eventSub,
+            irc: irc,
+            onReconnected: () {},
+            currentUserLogin: 'testuser',
+          );
+          irc.connect(username: 'testuser', accessToken: 'token');
+          irc.emitConnected();
+          conn.reconnectIfNecessary();
+          async.flushMicrotasks();
+          expect(eventSub.forceCalls, calls, reason: name);
+          conn.dispose();
+        });
       });
-    });
-
-    test('connects when the socket is missing entirely', () {
-      fakeAsync((async) {
-        final irc = _TestIrc();
-        final conn = _makeReconnectConn(
-          eventSub: _NoopEventSub(),
-          irc: irc,
-          onReconnected: () {},
-          currentUserLogin: 'testuser',
-        );
-
-        conn.reconnectIfNecessary();
-        async.flushMicrotasks();
-        expect(irc.connectCalls, 1);
-
-        conn.dispose();
-      });
-    });
-
-    test('reconnects a stale EventSub session on resume', () {
-      fakeAsync((async) {
-        final irc = _TestIrc();
-        irc.alive = true;
-        final eventSub = _StaleEventSub(stale: true);
-        final conn = _makeReconnectConn(
-          eventSub: eventSub,
-          irc: irc,
-          onReconnected: () {},
-          currentUserLogin: 'testuser',
-        );
-
-        irc.connect(username: 'testuser', accessToken: 'token');
-        irc.emitConnected();
-        conn.reconnectIfNecessary();
-        async.flushMicrotasks();
-        expect(
-          eventSub.forceCalls,
-          1,
-          reason: 'a zombie EventSub session must be torn down on resume',
-        );
-
-        conn.dispose();
-      });
-    });
-
-    test('does not reconnect a healthy EventSub session on resume', () {
-      fakeAsync((async) {
-        final irc = _TestIrc();
-        irc.alive = true;
-        final eventSub = _StaleEventSub(stale: false);
-        final conn = _makeReconnectConn(
-          eventSub: eventSub,
-          irc: irc,
-          onReconnected: () {},
-          currentUserLogin: 'testuser',
-        );
-
-        irc.connect(username: 'testuser', accessToken: 'token');
-        irc.emitConnected();
-        conn.reconnectIfNecessary();
-        async.flushMicrotasks();
-        expect(
-          eventSub.forceCalls,
-          0,
-          reason: 'a live session must not be torn down on every resume',
-        );
-
-        conn.dispose();
-      });
-    });
+    }
   });
 
   group('read socket status', () {
@@ -4301,183 +3736,105 @@ void main() {
       conn.dispose();
     });
 
-    test('read outage surfaces as Chat reconnecting... then Reconnected', () {
-      fakeAsync((async) {
-        final messages = <(String, String)>[];
-        final ircRead = _TestIrcRead();
-        final irc = _TestIrc();
-        final conn = _makeReconnectConn(
-          eventSub: _NoopEventSub(),
-          irc: irc,
-          ircRead: ircRead,
-          onReconnected: () {},
-          channels: const ['test'],
-          currentUserLogin: 'testuser',
-          onSystemMessage: (c, t, {Color? accent, String? messageId}) =>
-              messages.add((c, t)),
-        );
+    test(
+      'read outage surfaces as Chat reconnecting then Reconnected and stays silent before any join',
+      () {
+        fakeAsync((async) {
+          final messages = <(String, String)>[];
+          final ircRead = _TestIrcRead();
+          final irc = _TestIrc();
+          final conn = _makeReconnectConn(
+            eventSub: _NoopEventSub(),
+            irc: irc,
+            ircRead: ircRead,
+            onReconnected: () {},
+            channels: const ['test'],
+            currentUserLogin: 'testuser',
+            onSystemMessage: (c, t, {Color? accent, String? messageId}) =>
+                messages.add((c, t)),
+          );
+          conn.connect();
+          async.flushMicrotasks();
+          ircRead.emitDisconnected();
+          async.flushMicrotasks();
+          expect(messages, contains(('test', 'Chat reconnecting...')));
+          ircRead.emitConnected();
+          async.flushMicrotasks();
+          expect(messages, contains(('test', 'Reconnected')));
+          ircRead.emitConnected();
+          async.flushMicrotasks();
+          expect(
+            messages.where((m) => m.$2 == 'Reconnected').length,
+            1,
+            reason: 'repeated connected must not re-announce recovery',
+          );
+          conn.dispose();
 
-        conn.connect();
-        async.flushMicrotasks();
-
-        // The read socket dies alone (write stays up): an explicit marker is
-        // emitted so the outage is not invisible.
-        ircRead.emitDisconnected();
-        async.flushMicrotasks();
-        expect(messages, contains(('test', 'Chat reconnecting...')));
-
-        // Recovery is announced and the marker is not re-emitted for a
-        // repeated connected status.
-        ircRead.emitConnected();
-        async.flushMicrotasks();
-        expect(messages, contains(('test', 'Reconnected')));
-
-        ircRead.emitConnected();
-        async.flushMicrotasks();
-        expect(
-          messages.where((m) => m.$2 == 'Reconnected').length,
-          1,
-          reason: 'repeated connected must not re-announce recovery',
-        );
-
-        conn.dispose();
-      });
-    });
-
-    test('read outage before a channel joins emits nothing for it', () {
-      fakeAsync((async) {
-        final messages = <(String, String)>[];
-        final ircRead = _TestIrcRead();
-        final irc = _TestIrc();
-        final conn = _makeReconnectConn(
-          eventSub: _NoopEventSub(),
-          irc: irc,
-          ircRead: ircRead,
-          onReconnected: () {},
-          channels: const [],
-          currentUserLogin: 'testuser',
-          onSystemMessage: (c, t, {Color? accent, String? messageId}) =>
-              messages.add((c, t)),
-        );
-
-        conn.connect();
-        async.flushMicrotasks();
-
-        // No channels yet: a disconnect is invisible (nothing to mark).
-        ircRead.emitDisconnected();
-        async.flushMicrotasks();
-        expect(messages, isEmpty);
-
-        conn.dispose();
-      });
-    });
-  });
-
-  group('broadcaster-only chat widgets', () {
-    test('drops widget events without an active widget subscription', () async {
-      final eventSub = _NoopEventSub();
-      eventSub.setChannelMapping('broadcaster1', 'test');
-      final hypeTrains = <HypeTrainEvent>[];
-      final conn = _makeReconnectConn(
-        eventSub: eventSub,
-        irc: _TestIrc(),
-        onReconnected: () {},
-        onHypeTrain: hypeTrains.add,
-      );
-      await conn.connect();
-
-      eventSub.handleRawMessage(<String, dynamic>{
-        'metadata': <String, dynamic>{
-          'message_type': 'notification',
-          'subscription_type': 'channel.hype_train.begin',
-        },
-        'payload': <String, dynamic>{
-          'subscription': <String, dynamic>{
-            'condition': <String, dynamic>{
-              'broadcaster_user_id': 'broadcaster1',
-            },
-          },
-          'event': <String, dynamic>{'level': 1, 'progress': 0, 'total': 100},
-        },
-      });
-
-      expect(
-        hypeTrains,
-        isEmpty,
-        reason: 'a non-broadcaster viewer must never surface widget events',
-      );
-      conn.dispose();
-    });
+          final empty = <(String, String)>[];
+          final conn2 = _makeReconnectConn(
+            eventSub: _NoopEventSub(),
+            irc: _TestIrc(),
+            ircRead: _TestIrcRead(),
+            onReconnected: () {},
+            channels: const [],
+            currentUserLogin: 'testuser',
+            onSystemMessage: (c, t, {Color? accent, String? messageId}) =>
+                empty.add((c, t)),
+          );
+          conn2.connect();
+          async.flushMicrotasks();
+          expect(empty, isEmpty);
+          conn2.dispose();
+        });
+      },
+    );
   });
 
   group('IRC emote-sets', () {
     Future<void> flush() => Future<void>.delayed(Duration.zero);
 
-    test('forwards GLOBALUSERSTATE emote-sets to onUserEmoteSets', () async {
-      final received = <(String?, List<String>)>[];
-      final irc = _TestIrc();
-      final ircRead = _TestIrcRead();
-      final conn = _makeReconnectConn(
-        eventSub: _NoopEventSub(),
-        irc: irc,
-        ircRead: ircRead,
-        onReconnected: () {},
-        onUserEmoteSets: (channel, ids) async => received.add((channel, ids)),
-      );
-      await conn.connect();
-      await flush();
-
-      ircRead.handleLine(
+    for (final (name, line, expectCall) in [
+      (
+        'forwards GLOBALUSERSTATE emote-sets to onUserEmoteSets',
         '@emote-sets=0,123456789 :tmi.twitch.tv GLOBALUSERSTATE',
-      );
-      await flush();
-
-      expect(received, hasLength(1));
-      expect(received.single.$1, isNull);
-      expect(received.single.$2, <String>['0', '123456789']);
-      conn.dispose();
-    });
-
-    test('does not call onUserEmoteSets when tag is missing', () async {
-      var called = false;
-      final irc = _TestIrc();
-      final conn = _makeReconnectConn(
-        eventSub: _NoopEventSub(),
-        irc: irc,
-        onReconnected: () {},
-        onUserEmoteSets: (_, _) async => called = true,
-      );
-      await conn.connect();
-      await flush();
-
-      irc.handleLine('@badges=staff/1 :tmi.twitch.tv GLOBALUSERSTATE');
-      await flush();
-
-      expect(called, isFalse);
-      conn.dispose();
-    });
+        true,
+      ),
+      (
+        'does not call onUserEmoteSets when tag is missing',
+        '@badges=staff/1 :tmi.twitch.tv GLOBALUSERSTATE',
+        false,
+      ),
+    ]) {
+      test(name, () async {
+        var called = false;
+        final received = <(String?, List<String>)>[];
+        final irc = _TestIrc();
+        final ircRead = _TestIrcRead();
+        final conn = _makeReconnectConn(
+          eventSub: _NoopEventSub(),
+          irc: irc,
+          ircRead: ircRead,
+          onReconnected: () {},
+          onUserEmoteSets: (channel, ids) async {
+            called = true;
+            received.add((channel, ids));
+          },
+        );
+        await conn.connect();
+        await flush();
+        ircRead.handleLine(line);
+        irc.handleLine(line);
+        await flush();
+        expect(called, expectCall, reason: name);
+        if (expectCall) {
+          expect(received.single.$2, <String>['0', '123456789'], reason: name);
+        }
+        conn.dispose();
+      });
+    }
   });
 
   group('message emote precache', () {
-    test('nothing tier skips precaching entirely', () {
-      final emoteManager = _SpyEmoteManager(tier: EmoteFetchTier.nothing);
-      final msgs = <String, List<TwitchMessage>>{'test': []};
-      final conn = _makeConn(
-        channelMessages: msgs,
-        maxMessages: 100,
-        emoteManager: emoteManager,
-      );
-
-      conn.precacheMessageEmotes(_msg('m1', 'E1 hello'), 'test');
-
-      expect(
-        emoteManager.enqueueSeenCalls,
-        0,
-        reason: 'nothing tier must never precache or touch usage',
-      );
-      conn.dispose();
-    });
-
     test('live messages feed the usage registry through emote positions', () {
       final emoteManager = _SpyEmoteManager(tier: EmoteFetchTier.high);
       final msgs = <String, List<TwitchMessage>>{'test': []};
@@ -4569,17 +3926,225 @@ void main() {
       badgeService.resetCaches();
     });
 
-    test('resolves login and display name after avatar fetch', () async {
-      final auth = TwitchAuth()..accessToken = 'fake-token';
-      await badgeService.fetchChannelAvatar(auth, '1234');
-      expect(badgeService.resolveChannelLogin('1234'), 'forsen');
-      expect(badgeService.resolveChannelDisplayName('1234'), 'Forsen');
-      expect(badgeService.version, greaterThan(0));
+    test(
+      'resolves login and display name after avatar fetch and returns null before it',
+      () async {
+        expect(badgeService.resolveChannelLogin('1234'), isNull);
+        expect(badgeService.resolveChannelDisplayName('1234'), isNull);
+        final auth = TwitchAuth()..accessToken = 'fake-token';
+        await badgeService.fetchChannelAvatar(auth, '1234');
+        expect(badgeService.resolveChannelLogin('1234'), 'forsen');
+        expect(badgeService.resolveChannelDisplayName('1234'), 'Forsen');
+        expect(badgeService.version, greaterThan(0));
+      },
+    );
+  });
+
+  group('RecentMessagesService', () {
+    const privmsgLine =
+        '@rm-received-ts=1566417979914;historical=1;id=3c33033a;'
+        'display-name=Alice;color=#9ACD32;user-id=42239452 '
+        ':alice!alice@alice.tmi.twitch.tv PRIVMSG #test :hello world';
+
+    http.Response okBody() => http.Response(
+      jsonEncode({
+        'messages': [privmsgLine],
+        'error': null,
+        'error_code': null,
+      }),
+      200,
+    );
+
+    group('error handling', () {
+      test(
+        '200 with channel_not_joined still parses whatever history exists',
+        () async {
+          final calls = <Uri>[];
+          final service = RecentMessagesService(
+            client: MockClient((request) async {
+              calls.add(request.url);
+              return http.Response(
+                jsonEncode({
+                  'messages': [privmsgLine],
+                  'error':
+                      'The bot is currently not joined to this channel '
+                      '(in progress or failed previously)',
+                  'error_code': 'channel_not_joined',
+                }),
+                200,
+              );
+            }),
+          );
+
+          final messages = await service.fetchRecent('test');
+
+          expect(calls, hasLength(1), reason: 'informational error: no mirror');
+          expect(messages, hasLength(1));
+          expect(messages.single.text, 'hello world');
+        },
+      );
+
+      test(
+        'maps definitive channel errors without trying the mirror',
+        () async {
+          const cases = [
+            (
+              400,
+              'invalid_channel_login',
+              'Invalid channel login `this_is_wrong`',
+              'this_is_wrong',
+              'Invalid channel name',
+            ),
+            (
+              403,
+              'channel_ignored',
+              'The channel login `x` is excluded from this service',
+              'x',
+              'History unavailable: channel excluded from the history service',
+            ),
+          ];
+          for (final (status, code, error, channel, message) in cases) {
+            final calls = <Uri>[];
+            final service = RecentMessagesService(
+              client: MockClient((request) async {
+                calls.add(request.url);
+                return http.Response(
+                  jsonEncode({
+                    'status': status,
+                    'error': error,
+                    'error_code': code,
+                  }),
+                  status,
+                );
+              }),
+            );
+
+            await expectLater(
+              service.fetchRecent(channel),
+              throwsA(
+                isA<RecentMessagesException>()
+                    .having((e) => e.message, 'message', message)
+                    .having((e) => e.definitive, 'definitive', isTrue),
+              ),
+              reason: 'code: $code',
+            );
+            expect(calls, hasLength(1), reason: 'definitive error: no mirror');
+          }
+        },
+      );
+
+      test(
+        'falls back on server errors and fails clean when all fail',
+        () async {
+          final fallback = RecentMessagesService(
+            client: MockClient((request) async {
+              if (request.url.host.contains('robotty')) {
+                return http.Response('internal error', 500);
+              }
+              return okBody();
+            }),
+          );
+
+          final messages = await fallback.fetchRecent('test');
+          expect(messages.single.text, 'hello world');
+
+          final generic = RecentMessagesService(
+            client: MockClient(
+              (_) async => http.Response(
+                jsonEncode({'error_code': 'something_new'}),
+                503,
+              ),
+            ),
+          );
+
+          // 503 is not definitive: the mirror also fails, surfacing the generic
+          // message from whichever attempt threw last.
+          await expectLater(
+            generic.fetchRecent('test'),
+            throwsA(
+              isA<RecentMessagesException>().having(
+                (e) => e.message,
+                'message',
+                'Failed to load chat history',
+              ),
+            ),
+          );
+        },
+      );
     });
 
-    test('returns null before fetch completes', () {
-      expect(badgeService.resolveChannelLogin('1234'), isNull);
-      expect(badgeService.resolveChannelDisplayName('1234'), isNull);
+    group('provider modes', () {
+      test(
+        'queries only the selected provider in single provider modes',
+        () async {
+          final robottyCalls = <Uri>[];
+          final robotty = RecentMessagesService(
+            config: RecentMessagesConfig(mode: RecentMessagesMode.robotty),
+            client: MockClient((request) async {
+              robottyCalls.add(request.url);
+              return http.Response('internal error', 500);
+            }),
+          );
+          await expectLater(
+            robotty.fetchRecent('test'),
+            throwsA(isA<RecentMessagesException>()),
+          );
+          expect(robottyCalls, hasLength(1));
+          expect(robottyCalls.single.host, contains('robotty'));
+
+          final zneixCalls = <Uri>[];
+          final zneix = RecentMessagesService(
+            config: RecentMessagesConfig(mode: RecentMessagesMode.zneix),
+            client: MockClient((request) async {
+              zneixCalls.add(request.url);
+              if (request.url.host.contains('robotty')) {
+                fail('robotty should not be queried in zneix-only mode');
+              }
+              return okBody();
+            }),
+          );
+          final zneixMessages = await zneix.fetchRecent('test');
+          expect(zneixMessages.single.text, 'hello world');
+          expect(zneixCalls, hasLength(1));
+          expect(zneixCalls.single.host, contains('zneix'));
+
+          final customCalls = <Uri>[];
+          const customUrl = 'https://custom.example.com/api/v2/recent-messages';
+          final custom = RecentMessagesService(
+            config: RecentMessagesConfig(
+              mode: RecentMessagesMode.custom,
+              customUrl: customUrl,
+            ),
+            client: MockClient((request) async {
+              customCalls.add(request.url);
+              if (!request.url.toString().startsWith(customUrl)) {
+                fail('only the custom URL should be queried');
+              }
+              return okBody();
+            }),
+          );
+          final customMessages = await custom.fetchRecent('test');
+          expect(customMessages.single.text, 'hello world');
+          expect(customCalls, hasLength(1));
+        },
+      );
+
+      test('auto tries both providers before giving up', () async {
+        final calls = <Uri>[];
+        final service = RecentMessagesService(
+          client: MockClient((request) async {
+            calls.add(request.url);
+            return http.Response(jsonEncode({'error_code': 'boom'}), 503);
+          }),
+        );
+        await expectLater(
+          service.fetchRecent('test'),
+          throwsA(isA<RecentMessagesException>()),
+        );
+        expect(calls, hasLength(2));
+        expect(calls[0].host, contains('robotty'));
+        expect(calls[1].host, contains('zneix'));
+      });
     });
   });
 }

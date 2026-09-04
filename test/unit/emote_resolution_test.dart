@@ -172,24 +172,17 @@ void main() {
       return FfzEmoteProvider.fetchGlobal(resolution: resolution);
     }
 
-    test('low uses the 1x url with url1x and keeps the 4x as url3x', () async {
-      final result = await fetchGlobal(
-        EmoteResolution.low,
-        urls: {'1': '$base/1', '2': '$base/2', '4': '$base/4'},
-      );
-      expect(result.single.url, '$base/1');
-      expect(result.single.url1x, '$base/1');
-      expect(result.single.url3x, '$base/4');
-    });
+    test('low and medium use the 1x and 2x urls with alternates', () async {
+      final urls = {'1': '$base/1', '2': '$base/2', '4': '$base/4'};
+      final low = await fetchGlobal(EmoteResolution.low, urls: urls);
+      expect(low.single.url, '$base/1');
+      expect(low.single.url1x, '$base/1');
+      expect(low.single.url3x, '$base/4');
 
-    test('medium uses the 2x url with url1x and the 4x url3x', () async {
-      final result = await fetchGlobal(
-        EmoteResolution.medium,
-        urls: {'1': '$base/1', '2': '$base/2', '4': '$base/4'},
-      );
-      expect(result.single.url, '$base/2');
-      expect(result.single.url1x, '$base/1');
-      expect(result.single.url3x, '$base/4');
+      final medium = await fetchGlobal(EmoteResolution.medium, urls: urls);
+      expect(medium.single.url, '$base/2');
+      expect(medium.single.url1x, '$base/1');
+      expect(medium.single.url3x, '$base/4');
     });
 
     test('drops url1x/url3x when the emote lacks those sizes', () async {
@@ -240,18 +233,16 @@ void main() {
       return BttvEmoteProvider.fetchGlobal(resolution: resolution);
     }
 
-    test('low uses the 1x url and no url3x', () async {
-      final result = await fetchGlobal(EmoteResolution.low);
-      expect(result.single.url, 'https://cdn.betterttv.net/emote/b1/1x');
-      expect(result.single.url1x, 'https://cdn.betterttv.net/emote/b1/1x');
-      expect(result.single.url3x, isNull);
-    });
+    test('low and medium use the 1x and 2x urls without url3x', () async {
+      final low = await fetchGlobal(EmoteResolution.low);
+      expect(low.single.url, 'https://cdn.betterttv.net/emote/b1/1x');
+      expect(low.single.url1x, 'https://cdn.betterttv.net/emote/b1/1x');
+      expect(low.single.url3x, isNull);
 
-    test('medium uses the 2x url with 1x alternate and no url3x', () async {
-      final result = await fetchGlobal(EmoteResolution.medium);
-      expect(result.single.url, 'https://cdn.betterttv.net/emote/b1/2x');
-      expect(result.single.url1x, 'https://cdn.betterttv.net/emote/b1/1x');
-      expect(result.single.url3x, isNull);
+      final medium = await fetchGlobal(EmoteResolution.medium);
+      expect(medium.single.url, 'https://cdn.betterttv.net/emote/b1/2x');
+      expect(medium.single.url1x, 'https://cdn.betterttv.net/emote/b1/1x');
+      expect(medium.single.url3x, isNull);
     });
 
     test('high uses the 2x url, 1x alternate and the 3x url3x', () async {
@@ -307,18 +298,16 @@ void main() {
       return TwitchEmoteProvider.fetchGlobal(resolution: resolution);
     }
 
-    test('low uses the smallest scale and no url3x', () async {
-      final result = await fetchGlobal(EmoteResolution.low);
-      expect(result.single.url, _url('1', '1.0'));
-      expect(result.single.url1x, _url('1', '1.0'));
-      expect(result.single.url3x, isNull);
-    });
+    test('low and medium use the small scales without url3x', () async {
+      final low = await fetchGlobal(EmoteResolution.low);
+      expect(low.single.url, _url('1', '1.0'));
+      expect(low.single.url1x, _url('1', '1.0'));
+      expect(low.single.url3x, isNull);
 
-    test('medium uses the 2.0 scale and no url3x', () async {
-      final result = await fetchGlobal(EmoteResolution.medium);
-      expect(result.single.url, _url('1', '2.0'));
-      expect(result.single.url1x, _url('1', '1.0'));
-      expect(result.single.url3x, isNull);
+      final medium = await fetchGlobal(EmoteResolution.medium);
+      expect(medium.single.url, _url('1', '2.0'));
+      expect(medium.single.url1x, _url('1', '1.0'));
+      expect(medium.single.url3x, isNull);
     });
 
     test('high uses 2.0, 1x alternate and the largest (3.0) url3x', () async {
