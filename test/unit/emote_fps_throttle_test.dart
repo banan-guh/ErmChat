@@ -5,6 +5,7 @@ const _okBuild = Duration(milliseconds: 4);
 const _okRaster = Duration(milliseconds: 4);
 const _heavyBuild = Duration(milliseconds: 12);
 const _heavyRaster = Duration(milliseconds: 12);
+const _tick = Duration(seconds: 6);
 
 class _Clock {
   DateTime now = DateTime(2026, 1, 1);
@@ -34,6 +35,13 @@ void _useGovernor(_Clock clock, {double fps = 60}) {
   EmoteUrlProvider.debugResetPerf();
 }
 
+/// Advances past the tick boundary and feeds one tick worth of frames.
+int _nextTick(_Clock clock, {required int over, required int total}) {
+  clock.now = clock.now.add(_tick);
+  _feed(over: over, total: total);
+  return EmoteUrlProvider.debugPerfCapFor(30);
+}
+
 void main() {
   tearDown(EmoteUrlProvider.debugResetPerf);
 
@@ -43,26 +51,53 @@ void main() {
     expect(EmoteUrlProvider.debugPerfCapFor(30), 30);
   });
 
-  test('mild and quadratic strain barely trim the cap', () {
-    for (final over in [6, 8]) {
-      _useGovernor(_Clock());
-      _feed(over: over, total: 20);
-      expect(EmoteUrlProvider.debugPerfCapFor(30), greaterThanOrEqualTo(27));
-    }
+  test('mild strain trims a little on the first tick', () {
+    _useGovernor(_Clock());
+    _feed(over: 6, total: 20);
+    // Target is ~29, within one down-step of 30.
+    expect(EmoteUrlProvider.debugPerfCapFor(30), 29);
+
+    _useGovernor(_Clock());
+    _feed(over: 8, total: 20);
+    // Target is ~27, within one down-step of 30.
+    expect(EmoteUrlProvider.debugPerfCapFor(30), 27);
   });
 
-  test('heavy strain drops to the low teens', () {
-    _useGovernor(_Clock());
+  test('heavy strain rate-limits the first drop', () {
+    final clock = _Clock();
+    _useGovernor(clock);
     _feed(over: 16, total: 20);
-    final cap = EmoteUrlProvider.debugPerfCapFor(30);
-    expect(cap, greaterThanOrEqualTo(10));
-    expect(cap, lessThanOrEqualTo(14));
+    // Target is ~12 but the down-step caps the move at 30 -> 20.
+    expect(EmoteUrlProvider.debugPerfCapFor(30), 20);
+    // Between ticks the smoothed value holds.
+    expect(EmoteUrlProvider.debugPerfCapFor(30), 20);
+
+    // Next tick reaches the target.
+    expect(_nextTick(clock, over: 16, total: 20), 12);
   });
 
-  test('saturated strain pins the floor', () {
-    _useGovernor(_Clock());
+  test('saturated strain walks to the floor over ticks', () {
+    final clock = _Clock();
+    _useGovernor(clock);
     _feed(over: 20, total: 20);
-    expect(EmoteUrlProvider.debugPerfCapFor(30), 5);
+    expect(EmoteUrlProvider.debugPerfCapFor(30), 20);
+    expect(_nextTick(clock, over: 20, total: 20), 10);
+    expect(_nextTick(clock, over: 20, total: 20), 5);
+    expect(_nextTick(clock, over: 20, total: 20), 5);
+  });
+
+  test('recovery climbs slowly', () {
+    final clock = _Clock();
+    _useGovernor(clock);
+    _feed(over: 20, total: 20);
+    expect(EmoteUrlProvider.debugPerfCapFor(30), 20);
+    expect(_nextTick(clock, over: 20, total: 20), 10);
+    expect(_nextTick(clock, over: 20, total: 20), 5);
+
+    // Healthy ticks recover by at most maxUpStep (3) each.
+    expect(_nextTick(clock, over: 0, total: 20), 8);
+    expect(_nextTick(clock, over: 0, total: 20), 11);
+    expect(EmoteUrlProvider.debugPerfCapFor(30), 11);
   });
 
   test('a base cap of zero stays zero at any ratio', () {
@@ -73,13 +108,21 @@ void main() {
     }
   });
 
+  test('lowering the base cap applies at once', () {
+    final clock = _Clock();
+    _useGovernor(clock);
+    _feed(over: 0, total: 20);
+    expect(EmoteUrlProvider.debugPerfCapFor(30), 30);
+    expect(EmoteUrlProvider.debugPerfCapFor(10), 10);
+  });
+
   test('a sample gap resets to healthy', () {
     final clock = _Clock();
     _useGovernor(clock);
     _feed(over: 20, total: 20);
-    expect(EmoteUrlProvider.debugPerfCapFor(30), 5);
+    expect(EmoteUrlProvider.debugPerfCapFor(30), 20);
 
-    clock.now = clock.now.add(const Duration(seconds: 3));
+    clock.now = clock.now.add(const Duration(seconds: 6));
     expect(EmoteUrlProvider.debugPerfCapFor(30), 30);
   });
 

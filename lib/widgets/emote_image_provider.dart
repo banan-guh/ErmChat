@@ -44,9 +44,11 @@ Future<Uint8List> fetchEmoteBytes(String url) async {
   return resp.bodyBytes;
 }
 
-/// Adaptive perf governor: maps the fraction of frames over the refresh
-/// budget to a smooth quadratic cut. Curve (base 30): r0.2->30, r0.4->27,
-/// r0.6->22, r0.8->12, r1.0->5.
+/// Adaptive perf governor: slow loop over the strain ratio (fraction of
+/// frames over the refresh budget). Every [tickInterval] it maps the ratio
+/// to a target via a quadratic cut (base 30: r0.2->30, r0.4->27, r0.6->22,
+/// r0.8->12, r1.0->5) and moves the smoothed cap toward it by at most
+/// [maxDownStep] down or [maxUpStep] up, so recovery takes several ticks.
 class _PerfGovernor {
   _PerfGovernor({DateTime Function()? now, double Function()? refreshRateFps})
     : _now = now ?? DateTime.now,
@@ -56,16 +58,28 @@ class _PerfGovernor {
   static const int floorFps = 5;
   @visibleForTesting
   static const double strainGate = 0.15;
+  @visibleForTesting
+  static const Duration tickInterval = Duration(seconds: 5);
+  @visibleForTesting
+  static const int maxDownStep = 10;
+  @visibleForTesting
+  static const int maxUpStep = 3;
+  @visibleForTesting
+  static const int minSamples = 10;
 
   DateTime Function() _now;
   double Function() _refreshRateFps;
   final List<_PerfSample> _samples = [];
   DateTime? _lastSampleTime;
+  int? _smoothedCap;
+  DateTime? _lastTick;
 
   void addFrame({required Duration build, required Duration raster}) {
     final now = _now();
     final last = _lastSampleTime;
-    if (last != null && now.difference(last) > const Duration(seconds: 2)) {
+    // Drop stale samples after idle, but keep the smoothed cap so recovery
+    // stays slow; the gap reset in capFor handles the fully idle case.
+    if (last != null && now.difference(last) > tickInterval) {
       _samples.clear();
     }
     _lastSampleTime = now;
@@ -81,16 +95,46 @@ class _PerfGovernor {
 
   int capFor(int baseCap) {
     if (baseCap <= 0) return 0;
+    if (baseCap <= floorFps) return baseCap;
+    // User lowered the base cap: respect it at once.
+    final smoothed = _smoothedCap;
+    if (smoothed != null && baseCap < smoothed) {
+      _smoothedCap = baseCap;
+      return baseCap;
+    }
     final last = _lastSampleTime;
     if (last == null) return baseCap;
     final now = _now();
-    if (now.difference(last) > const Duration(seconds: 2)) {
+    if (now.difference(last) > tickInterval) {
       _samples.clear();
       _lastSampleTime = null;
+      _smoothedCap = null;
+      _lastTick = null;
       return baseCap;
     }
     _prune(now);
-    if (_samples.length < 10) return baseCap;
+    if (_samples.length < minSamples) return _smoothedCap ?? baseCap;
+    final tick = _lastTick;
+    // Rate-limit: hold the smoothed value between ticks.
+    if (tick != null && now.difference(tick) < tickInterval) {
+      return (_smoothedCap ?? baseCap).clamp(floorFps, baseCap);
+    }
+    final target = _targetFor(baseCap);
+    var current = _smoothedCap ?? baseCap;
+    if (current > baseCap) current = baseCap;
+    final delta = target - current;
+    final step = delta < 0
+        ? delta.clamp(-maxDownStep, 0)
+        : delta.clamp(0, maxUpStep);
+    current += step;
+    if (current < floorFps) current = floorFps;
+    if (current > baseCap) current = baseCap;
+    _smoothedCap = current;
+    _lastTick = now;
+    return current;
+  }
+
+  int _targetFor(int baseCap) {
     final budgetUs = _budgetUs();
     var over = 0;
     for (final sample in _samples) {
@@ -107,14 +151,16 @@ class _PerfGovernor {
   void reset() {
     _samples.clear();
     _lastSampleTime = null;
+    _smoothedCap = null;
+    _lastTick = null;
   }
 
   void _prune(DateTime now) {
-    final cutoff = now.subtract(const Duration(seconds: 2));
+    final cutoff = now.subtract(tickInterval);
     while (_samples.isNotEmpty && _samples.first.time.isBefore(cutoff)) {
       _samples.removeAt(0);
     }
-    while (_samples.length > 60) {
+    while (_samples.length > 600) {
       _samples.removeAt(0);
     }
   }
