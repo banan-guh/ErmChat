@@ -137,7 +137,8 @@ class _HomeScreenState extends State<HomeScreen>
   );
   late final _twitchApi = TwitchApi();
   late final _analytics = AnalyticsService(
-    emoteLookup: (channel) => _emoteManager.byCode(channel),
+    emoteLookup: (channel, senderTwitchId) =>
+        _emoteManager.byCodeForSender(channel, senderTwitchId),
   );
   final _ttsController = TtsController();
   final _inputBarKey = GlobalKey();
@@ -417,7 +418,9 @@ class _HomeScreenState extends State<HomeScreen>
     });
     _chatConn.onWhisper = _onWhisper;
     _emoteManager.accessToken = widget.twitchAuth.accessToken;
+    _emoteManager.viewerTwitchId = widget.twitchAuth.userId;
     _emoteManager.preloadGlobalEmotes();
+    unawaited(_emoteManager.loadViewerPersonalSevenTvSets());
     _emoteManager.startCacheGc();
     _emoteManager.addListener(_onEmotesChanged);
     _connectivityService.init();
@@ -432,6 +435,9 @@ class _HomeScreenState extends State<HomeScreen>
     _badgeService.fetchGlobalBadges(widget.twitchAuth);
     _thirdPartyBadgeService.bindSevenTvEvents(_sevenTvClient);
     _sevenTvPaintService.bindSevenTvEvents(_sevenTvClient);
+    _sevenTvEntitlementSub = _sevenTvClient.onEntitlement.listen(
+      _emoteManager.applySevenTvEntitlement,
+    );
     unawaited(_thirdPartyBadgeService.fetchFfzBadges());
     unawaited(_thirdPartyBadgeService.fetchBttvBadges());
     widget.twitchAuth.addListener(_onAuthChanged);
@@ -1204,6 +1210,7 @@ class _HomeScreenState extends State<HomeScreen>
 
   StreamSubscription<ChatStoreEvent>? _storeEventsSub;
   StreamSubscription<ChatNotice>? _noticesSub;
+  StreamSubscription<SevenTvEntitlementEvent>? _sevenTvEntitlementSub;
 
   // The store announces every mutation; this is the view bookkeeping that
   // reacts: tile-cache eviction and overlay-panel data refresh. Rendering
@@ -1467,6 +1474,8 @@ class _HomeScreenState extends State<HomeScreen>
       // Await so global emote metadata is present before the post-refresh
       // rebuild; unawaited left a window where global emotes rendered as text.
       await _emoteManager.preloadGlobalEmotes(force: force);
+      _emoteManager.viewerTwitchId = widget.twitchAuth.userId;
+      await _emoteManager.loadViewerPersonalSevenTvSets();
       _badgeService.resetCaches();
       await _badgeService.fetchGlobalBadges(widget.twitchAuth);
       for (final channel in _chatStore.channels) {
@@ -1675,6 +1684,7 @@ class _HomeScreenState extends State<HomeScreen>
     _irc.dispose();
     _ircRead.dispose();
     _sevenTvClient.dispose();
+    _sevenTvEntitlementSub?.cancel();
     _thirdPartyBadgeService.dispose();
     _emoteManager.removeListener(_onEmotesChanged);
     _linkWhitelist.removeListener(_onLinkWhitelistChanged);

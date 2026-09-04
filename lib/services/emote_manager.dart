@@ -14,6 +14,7 @@ import '../services/twitch_auth.dart';
 import '../util/log.dart';
 import 'emote_cache_manager.dart';
 import 'emote_meta_store.dart';
+import 'seven_tv_event_client.dart';
 import 'emote_providers/twitch_emotes.dart';
 import 'emote_providers/bttv_emotes.dart';
 import 'emote_providers/ffz_emotes.dart';
@@ -41,6 +42,14 @@ class EmoteToken {
   });
 
   bool get isEmote => emote != null;
+}
+
+/// Another viewer's personal 7TV emotes, cached for sender-scoped render.
+class _ForeignPersonalSets {
+  final Map<String, GenericEmote> byCode;
+  final DateTime fetchedAt;
+
+  const _ForeignPersonalSets({required this.byCode, required this.fetchedAt});
 }
 
 /// Per-URL usage history feeding the disk-cache eviction priority.
@@ -231,6 +240,12 @@ class EmoteManager extends ChangeNotifier {
   _sevenTvChannelFetcher;
   final Future<List<GenericEmote>> Function(EmoteResolution resolution)
   _sevenTvGlobalFetcher;
+  final Future<List<String>> Function(String twitchId) _sevenTvOwnedSetIds;
+  final Future<List<GenericEmote>> Function(
+    String setId,
+    EmoteResolution resolution,
+  )
+  _sevenTvEmoteSetFetcher;
   final EmoteCacheManager? _injectedCacheManager;
   EmoteCacheManager? _cacheManagerInstance;
   final EmoteMetaStore _metaStore;
@@ -277,6 +292,12 @@ class EmoteManager extends ChangeNotifier {
     sevenTvChannelFetcher,
     Future<List<GenericEmote>> Function(EmoteResolution resolution)?
     sevenTvGlobalFetcher,
+    Future<List<String>> Function(String twitchId)? sevenTvOwnedSetIdsFetcher,
+    Future<List<GenericEmote>> Function(
+      String setId,
+      EmoteResolution resolution,
+    )?
+    sevenTvEmoteSetFetcher,
     EmoteCacheManager? cacheManager,
     EmoteMetaStore? metaStore,
     Future<Map<String, String>> Function(TwitchAuth auth, List<String> ids)?
@@ -301,6 +322,15 @@ class EmoteManager extends ChangeNotifier {
            sevenTvGlobalFetcher ??
            ((EmoteResolution resolution) =>
                SevenTvEmoteProvider.fetchGlobal(resolution: resolution)),
+       _sevenTvOwnedSetIds =
+           sevenTvOwnedSetIdsFetcher ?? SevenTvEmoteProvider.fetchOwnedSetIds,
+       _sevenTvEmoteSetFetcher =
+           sevenTvEmoteSetFetcher ??
+           ((String setId, EmoteResolution resolution) =>
+               SevenTvEmoteProvider.fetchEmoteSet(
+                 setId,
+                 resolution: resolution,
+               )),
        _resolveOwnerLogins =
            resolveOwnerLogins ?? TwitchApi().getUserLoginsByIds,
        _fetchUserEmoteSets =
@@ -395,6 +425,18 @@ class EmoteManager extends ChangeNotifier {
   // Prime/Turbo/2FA/Hype Train emotes). Merged into the global cache.
   final _unlockedTwitchEmotes = <String, GenericEmote>{};
   String? _accessToken;
+  // Viewer Twitch user id; personal 7TV grants are matched against it.
+  String? _viewerTwitchId;
+  // Owned 7TV set ids and their merged emotes (personal grants, usable in
+  // every channel). Kept out of the persisted caches; rebuilt per account.
+  final _personalSevenTvSetIds = <String>{};
+  final _personalSevenTvSets = <String, List<GenericEmote>>{};
+  // Other viewers' personal 7TV sets by sender Twitch id. Sender-scoped:
+  // only that sender's messages render them. Bounded LRU with TTL.
+  final _foreignPersonalSets = <String, _ForeignPersonalSets>{};
+  final _foreignPersonalInflight = <String, Future<void>>{};
+  static const _foreignPersonalTtl = Duration(hours: 24);
+  static const _maxForeignPersonalSenders = 200;
   final _mergedCache = <String, ChannelEmotes?>{};
   String? _changedChannel;
   // Monotonic counter bumped on every notify; message span caches compare
@@ -455,7 +497,8 @@ class EmoteManager extends ChangeNotifier {
 
   set accessToken(String? value) => _accessToken = value;
 
-  // Merged emotes: channel overrides global. Cached until notify.
+  // Merged emotes: channel overrides global, personal 7TV merges everywhere.
+  // Cached until notify.
   ChannelEmotes? byCode(String channel) {
     final cached = _mergedCache[channel];
     if (cached != null) return cached;
@@ -471,9 +514,25 @@ class EmoteManager extends ChangeNotifier {
         ..sort((a, b) => a.code.compareTo(b.code));
       result = ChannelEmotes(byCode: merged, suggestions: suggestions);
     }
+    result = _withPersonal(result);
     result = _filterVisible(result);
     _mergedCache[channel] = result;
     return result;
+  }
+
+  // Personal 7TV emotes join every channel; channel sets win code conflicts.
+  ChannelEmotes? _withPersonal(ChannelEmotes? base) {
+    if (_personalSevenTvSets.isEmpty) return base;
+    final merged = <String, GenericEmote>{};
+    for (final setEmotes in _personalSevenTvSets.values) {
+      for (final e in setEmotes) {
+        merged.putIfAbsent(e.code, () => e);
+      }
+    }
+    if (base != null) merged.addAll(base.byCode);
+    final suggestions = merged.values.toList()
+      ..sort((a, b) => a.code.compareTo(b.code));
+    return ChannelEmotes(byCode: merged, suggestions: suggestions);
   }
 
   /// Twitch emotes that need sender proof: they render only from the IRC
@@ -615,8 +674,11 @@ class EmoteManager extends ChangeNotifier {
     required String channel,
     required String text,
     required List<EmotePosition>? positions,
+    String? senderTwitchId,
   }) {
-    final lookup = byCode(channel);
+    final lookup = senderTwitchId == null
+        ? byCode(channel)
+        : byCodeForSender(channel, senderTwitchId);
     if (lookup == null) return const [];
     final seen = <String>{};
     final found = <GenericEmote>[];
@@ -629,6 +691,179 @@ class EmoteManager extends ChangeNotifier {
       if (emote != null && seen.add(emote.id)) found.add(emote);
     }
     return found;
+  }
+
+  /// Viewer Twitch user id for matching personal 7TV grants. Cleared logout.
+  set viewerTwitchId(String? value) {
+    if (_viewerTwitchId == value) return;
+    _viewerTwitchId = value;
+    _personalSevenTvSetIds.clear();
+    _personalSevenTvSets.clear();
+    _notify();
+  }
+
+  /// Bootstrap: fetch the viewer's owned 7TV sets and their emotes.
+  Future<void> loadViewerPersonalSevenTvSets() async {
+    final viewerId = _viewerTwitchId;
+    if (viewerId == null || viewerId.isEmpty) return;
+    if (_tier == EmoteFetchTier.nothing) return;
+    if (!_isProviderOn(EmoteType.sevenTv)) return;
+    List<String> setIds;
+    try {
+      setIds = await _sevenTvOwnedSetIds(viewerId);
+    } catch (e) {
+      logDebug('[EmoteManager] personal 7TV set listing failed: $e');
+      return;
+    }
+    var changed = false;
+    for (final setId in setIds) {
+      if (_personalSevenTvSetIds.contains(setId)) continue;
+      List<GenericEmote> emotes;
+      try {
+        emotes = await _sevenTvEmoteSetFetcher(setId, _tier.resolution!);
+      } catch (e) {
+        logDebug('[EmoteManager] personal 7TV set $setId failed: $e');
+        continue;
+      }
+      _personalSevenTvSetIds.add(setId);
+      _personalSevenTvSets[setId] = emotes;
+      changed = true;
+    }
+    if (changed) _notify();
+  }
+
+  /// Live personal 7TV grant/revoke from the entitlement stream. Only the
+  /// viewer's own EMOTE_SET events apply; everything else is ignored.
+  Future<void> applySevenTvEntitlement(SevenTvEntitlementEvent event) async {
+    if (event.cosmeticKind != 'EMOTE_SET') return;
+    final viewerId = _viewerTwitchId;
+    if (viewerId == null || !event.twitchUserIds.contains(viewerId)) return;
+    if (_tier == EmoteFetchTier.nothing) return;
+    if (!_isProviderOn(EmoteType.sevenTv)) return;
+    if (event.kind == 'entitlement.delete') {
+      final hadSet = _personalSevenTvSetIds.remove(event.cosmeticId);
+      final hadEmotes = _personalSevenTvSets.remove(event.cosmeticId) != null;
+      if (hadSet || hadEmotes) _notify();
+      return;
+    }
+    if (_personalSevenTvSetIds.contains(event.cosmeticId)) return;
+    List<GenericEmote> emotes;
+    try {
+      emotes = await _sevenTvEmoteSetFetcher(
+        event.cosmeticId,
+        _tier.resolution!,
+      );
+    } catch (e) {
+      logDebug('[EmoteManager] personal 7TV grant fetch failed: $e');
+      return;
+    }
+    _personalSevenTvSetIds.add(event.cosmeticId);
+    _personalSevenTvSets[event.cosmeticId] = emotes;
+    _notify();
+  }
+
+  /// Map for one message: channel sets plus the sender's personal 7TV emotes
+  /// underneath. Foreign codes never leak into other senders' messages.
+  ChannelEmotes? byCodeForSender(String channel, String? senderTwitchId) {
+    final base = byCode(channel);
+    final record = senderTwitchId == null
+        ? null
+        : _foreignPersonalSets[senderTwitchId];
+    if (record == null || record.byCode.isEmpty) return base;
+    if (!_isProviderOn(EmoteType.sevenTv)) return base;
+    final foreign = _filterVisible(
+      ChannelEmotes(
+        byCode: record.byCode,
+        suggestions: record.byCode.values.toList(),
+      ),
+    );
+    if (foreign == null) return base;
+    final merged = {...foreign.byCode};
+    if (base != null) merged.addAll(base.byCode);
+    final suggestions = merged.values.toList()
+      ..sort((a, b) => a.code.compareTo(b.code));
+    return ChannelEmotes(byCode: merged, suggestions: suggestions);
+  }
+
+  /// Fetch another viewer's personal 7TV sets when [text] holds words the
+  /// channel map cannot resolve. Cached per sender with TTL; at most one
+  /// inflight fetch per sender. Fire-and-forget from ingestion.
+  Future<void> ensureForeignPersonalSets({
+    required String? senderTwitchId,
+    required String channel,
+    required String text,
+    required List<EmotePosition>? positions,
+  }) async {
+    if (senderTwitchId == null || senderTwitchId.isEmpty) return;
+    if (_tier == EmoteFetchTier.nothing) return;
+    if (!_isProviderOn(EmoteType.sevenTv)) return;
+    final existing = _foreignPersonalSets.remove(senderTwitchId);
+    if (existing != null) {
+      _foreignPersonalSets[senderTwitchId] = existing;
+      if (_now().difference(existing.fetchedAt) < _foreignPersonalTtl) return;
+    }
+    final lookup = byCode(channel);
+    final hasUnknown =
+        lookup == null ||
+        tokenize(
+          text: text,
+          positions: positions,
+          byCode: lookup.byCode,
+        ).any((t) => !t.isEmote && t.text.trim().isNotEmpty);
+    if (!hasUnknown) return;
+    final inflight = _foreignPersonalInflight[senderTwitchId];
+    if (inflight != null) return inflight;
+    final future = _fetchForeignPersonalSets(senderTwitchId);
+    _foreignPersonalInflight[senderTwitchId] = future;
+    try {
+      await future;
+    } finally {
+      _foreignPersonalInflight.remove(senderTwitchId);
+    }
+  }
+
+  Future<void> _fetchForeignPersonalSets(String senderTwitchId) async {
+    final before = _foreignPersonalSets[senderTwitchId]?.byCode.keys.toSet();
+    // Concurrency-gated but stagger-free: the stagger's delay timer outlives
+    // short sessions, while sender fetches are already naturally sparse.
+    await _fetchGate.withPermit(() async {
+      List<String> setIds;
+      try {
+        setIds = await _sevenTvOwnedSetIds(senderTwitchId);
+      } catch (e) {
+        logDebug('[EmoteManager] foreign 7TV set listing failed: $e');
+        return;
+      }
+      final emotes = <String, GenericEmote>{};
+      for (final setId in setIds) {
+        List<GenericEmote> fetched;
+        try {
+          fetched = await _sevenTvEmoteSetFetcher(setId, _tier.resolution!);
+        } catch (e) {
+          logDebug('[EmoteManager] foreign 7TV set $setId failed: $e');
+          continue;
+        }
+        for (final e in fetched) {
+          emotes[e.code] = e;
+        }
+      }
+      _foreignPersonalSets.remove(senderTwitchId);
+      _foreignPersonalSets[senderTwitchId] = _ForeignPersonalSets(
+        byCode: emotes,
+        fetchedAt: _now(),
+      );
+      while (_foreignPersonalSets.length > _maxForeignPersonalSenders) {
+        _foreignPersonalSets.remove(_foreignPersonalSets.keys.first);
+      }
+    });
+    final after = _foreignPersonalSets[senderTwitchId]?.byCode.keys.toSet();
+    if (after != null &&
+        after.isNotEmpty &&
+        (before == null ||
+            after.length != before.length ||
+            !after.containsAll(before))) {
+      _notify();
+    }
   }
 
   // Display order for global grid (differs from dedup priority).
@@ -648,7 +883,7 @@ class EmoteManager extends ChangeNotifier {
 
   // Global emotes by provider, in display order, sorted by code.
   Map<String, List<GenericEmote>> globalEmotesByProvider() {
-    final cached = _filterVisible(_globalCache);
+    final cached = _filterVisible(_withPersonal(_globalCache));
     if (cached == null) return {};
     final grouped = <EmoteType, List<GenericEmote>>{};
     for (final e in cached.suggestions) {
@@ -1056,6 +1291,9 @@ class EmoteManager extends ChangeNotifier {
     for (final raw in _channelTwitchEmotes.values) {
       addAll(raw);
     }
+    for (final setEmotes in _personalSevenTvSets.values) {
+      addAll(setEmotes);
+    }
     _emoteByIdIndex = index;
     _emoteIndexDirty = false;
   }
@@ -1338,6 +1576,9 @@ class EmoteManager extends ChangeNotifier {
     // Unlocks are per-account: drop them from the globals they merged into.
     final removedIds = _unlockedTwitchEmotes.keys.toSet();
     _unlockedTwitchEmotes.clear();
+    _personalSevenTvSetIds.clear();
+    _personalSevenTvSets.clear();
+    _foreignPersonalSets.clear();
     final global = _globalCache;
     if (global != null && removedIds.isNotEmpty) {
       _globalCache = _buildChannelMap(

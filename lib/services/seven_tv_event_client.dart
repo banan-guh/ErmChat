@@ -497,7 +497,9 @@ class SevenTvEventClient {
         final cosmeticId = obj['ref_id'] as String? ?? '';
         final cosmeticKind = obj['kind'] as String? ?? '';
         if (cosmeticId.isEmpty ||
-            (cosmeticKind != 'BADGE' && cosmeticKind != 'PAINT')) {
+            (cosmeticKind != 'BADGE' &&
+                cosmeticKind != 'PAINT' &&
+                cosmeticKind != 'EMOTE_SET')) {
           break;
         }
         final userObj = obj['user'] as Map<String, dynamic>? ?? {};

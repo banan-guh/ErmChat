@@ -56,6 +56,48 @@ class SevenTvEmoteProvider {
     });
   }
 
+  /// Owned set ids for a Twitch user id (`user.emote_sets`). Contents need a
+  /// per-set [fetchEmoteSet]; the listing carries no emotes.
+  static Future<List<String>> fetchOwnedSetIds(String twitchId) async {
+    final uri = Uri.parse('https://7tv.io/v3/users/twitch/$twitchId');
+    final res = await http.get(uri).timeout(httpTimeout);
+    throwOnTransientHttpError(res.statusCode, uri);
+    DataUsageStats.I.recordJson(res.bodyBytes.length);
+    if (res.statusCode != 200) return [];
+    return Isolate.run(() {
+      final data = jsonDecode(res.body) as Map<String, dynamic>;
+      return parseOwnedSetIds(data);
+    });
+  }
+
+  static List<String> parseOwnedSetIds(Map<String, dynamic> data) {
+    final user = data['user'] as Map<String, dynamic>?;
+    final sets = user?['emote_sets'] as List<dynamic>? ?? [];
+    return [
+      for (final entry in sets)
+        if (entry is Map<String, dynamic> && entry['id'] is String)
+          entry['id'] as String,
+    ];
+  }
+
+  /// Emotes of one set by id (personal grants, channel sets). Same item
+  /// shape as the global endpoint; personal sets are usable anywhere.
+  static Future<List<GenericEmote>> fetchEmoteSet(
+    String setId, {
+    EmoteResolution resolution = EmoteResolution.high,
+  }) async {
+    final uri = Uri.parse('https://7tv.io/v3/emote-sets/$setId');
+    final res = await http.get(uri).timeout(httpTimeout);
+    throwOnTransientHttpError(res.statusCode, uri);
+    DataUsageStats.I.recordJson(res.bodyBytes.length);
+    if (res.statusCode != 200) return [];
+    return Isolate.run(() {
+      final data = jsonDecode(res.body) as Map<String, dynamic>;
+      final items = data['emotes'] as List<dynamic>? ?? [];
+      return _parseEmotes(items, resolution: resolution);
+    });
+  }
+
   static GenericEmote? parseSingleEmote(
     Map<String, dynamic> item, {
     bool channel = false,

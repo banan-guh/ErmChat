@@ -308,46 +308,46 @@ void main() {
       });
 
       await Future<void>.delayed(Duration.zero);
-      expect(events, hasLength(1));
-      expect(events.single.cosmeticKind, 'PAINT');
-      expect(events.single.kind, 'entitlement.create');
-      expect(events.single.cosmeticId, 'paint-1');
-      expect(events.single.twitchUserIds, ['71092938']);
+      expect(events, hasLength(2));
+      expect(events.first.cosmeticKind, 'PAINT');
+      expect(events.first.kind, 'entitlement.create');
+      expect(events.first.cosmeticId, 'paint-1');
+      expect(events.first.twitchUserIds, ['71092938']);
+      expect(events.last.cosmeticKind, 'EMOTE_SET');
+      expect(events.last.kind, 'entitlement.delete');
+      expect(events.last.cosmeticId, 'set-1');
+      expect(events.last.twitchUserIds, ['27237403']);
       client.dispose();
     });
 
-    test(
-      'EMOTE_SET entitlements are surfaced',
-      skip: 'personal 7TV feat',
-      () async {
-        final client = SevenTvEventClient();
-        final events = <SevenTvEntitlementEvent>[];
-        client.onEntitlement.listen(events.add);
-        client.handleRawMessage({
-          'op': 0,
-          'd': {
-            'type': 'entitlement.create',
-            'body': {
-              'object': {
-                'kind': 'EMOTE_SET',
-                'ref_id': 'personal-set-1',
-                'user': {
-                  'connections': [
-                    {'platform': 'TWITCH', 'id': '71092938'},
-                  ],
-                },
+    test('EMOTE_SET entitlements are surfaced', () async {
+      final client = SevenTvEventClient();
+      final events = <SevenTvEntitlementEvent>[];
+      client.onEntitlement.listen(events.add);
+      client.handleRawMessage({
+        'op': 0,
+        'd': {
+          'type': 'entitlement.create',
+          'body': {
+            'object': {
+              'kind': 'EMOTE_SET',
+              'ref_id': 'personal-set-1',
+              'user': {
+                'connections': [
+                  {'platform': 'TWITCH', 'id': '71092938'},
+                ],
               },
             },
           },
-        });
-        await Future<void>.delayed(Duration.zero);
-        expect(events, hasLength(1));
-        expect(events.single.cosmeticKind, 'EMOTE_SET');
-        expect(events.single.cosmeticId, 'personal-set-1');
-        expect(events.single.twitchUserIds, ['71092938']);
-        client.dispose();
-      },
-    );
+        },
+      });
+      await Future<void>.delayed(Duration.zero);
+      expect(events, hasLength(1));
+      expect(events.single.cosmeticKind, 'EMOTE_SET');
+      expect(events.single.cosmeticId, 'personal-set-1');
+      expect(events.single.twitchUserIds, ['71092938']);
+      client.dispose();
+    });
 
     test('service applies live paint entitlements to lookups', () async {
       final client = SevenTvEventClient();

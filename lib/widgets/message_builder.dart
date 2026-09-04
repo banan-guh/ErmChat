@@ -51,7 +51,7 @@ class MessageBuilder {
     if (colored) {
       return [
         ...msg.cachedSpans!.map((span) {
-    // Links keep blue style (repainting hides clickability).
+          // Links keep blue style (repainting hides clickability).
           if (span is TextSpan && span.recognizer == null) {
             return TextSpan(
               text: span.text,
@@ -79,7 +79,10 @@ class MessageBuilder {
     final lookupChannel = msg.sourceBroadcasterId != null
         ? badgeService.resolveChannelLogin(msg.sourceBroadcasterId!) ?? channel
         : channel;
-    final channelEmotes = emoteManager.byCode(lookupChannel);
+    final channelEmotes = emoteManager.byCodeForSender(
+      lookupChannel,
+      msg.userId,
+    );
     return EmoteText.build(
       text: msg.text,
       twitchPositions: msg.emotePositions,

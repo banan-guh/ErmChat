@@ -512,7 +512,7 @@ void main() {
 
     test('counts third-party emotes by token match', () {
       final service = AnalyticsService(
-        emoteLookup: (_) => emoteMap({
+        emoteLookup: (_, _) => emoteMap({
           'monkaS': GenericEmote(
             id: 'b1',
             code: 'monkaS',
@@ -532,7 +532,7 @@ void main() {
 
     test('twitch positions take precedence over token match', () {
       final service = AnalyticsService(
-        emoteLookup: (_) => emoteMap({
+        emoteLookup: (_, _) => emoteMap({
           'PogChamp': GenericEmote(
             id: 'b1',
             code: 'PogChamp',

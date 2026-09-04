@@ -272,9 +272,20 @@ class ChatIngestion {
       channel: lookupChannel,
       text: msg.text,
       positions: msg.emotePositions,
+      senderTwitchId: msg.userId,
     );
     if (found.isNotEmpty) {
       emoteManager.enqueueSeenEmotes(found);
+    }
+    if (!msg.isHistory && !msg.isSystem) {
+      unawaited(
+        emoteManager.ensureForeignPersonalSets(
+          senderTwitchId: msg.userId,
+          channel: lookupChannel,
+          text: msg.text,
+          positions: msg.emotePositions,
+        ),
+      );
     }
   }
 

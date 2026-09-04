@@ -93,7 +93,8 @@ class AnalyticsService extends ChangeNotifier {
     'your',
   };
 
-  final ChannelEmotes? Function(String channel)? _emoteLookup;
+  final ChannelEmotes? Function(String channel, String? senderTwitchId)?
+  _emoteLookup;
   final DateTime Function() _now;
   final Set<String> stopwords;
 
@@ -213,7 +214,7 @@ class AnalyticsService extends ChangeNotifier {
   }
 
   void _countTokens(_ChannelStats stats, String channel, TwitchMessage msg) {
-    final byCode = _emoteLookup?.call(channel)?.byCode ?? const {};
+    final byCode = _emoteLookup?.call(channel, msg.userId)?.byCode ?? const {};
     final tokens = EmoteManager.tokenize(
       text: msg.text,
       positions: msg.emotePositions,
