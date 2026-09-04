@@ -3505,13 +3505,12 @@ class _HomeScreenState extends State<HomeScreen>
                 },
               ),
             ),
-            AnimatedSize(
-              duration: const Duration(milliseconds: 200),
-              curve: Curves.easeInOut,
-              child: _showInput
-                  ? _buildInputBar(theme: theme)
-                  : const SizedBox.shrink(),
-            ),
+            // No AnimatedSize: the input pads itself by the live keyboard
+            // inset, and filtering that through a fixed duration janks.
+            if (_showInput)
+              _buildInputBar(theme: theme)
+            else
+              const SizedBox.shrink(),
           ],
         ),
       ),
@@ -3565,7 +3564,7 @@ class _HomeScreenState extends State<HomeScreen>
       children: [
         AnimatedSize(
           duration: hideChromeForKeyboard
-              ? const Duration(milliseconds: 1)
+              ? Duration.zero
               : const Duration(milliseconds: 200),
           curve: Curves.easeInOut,
           child: !_isFullscreen && !hideChromeForKeyboard
@@ -3927,7 +3926,7 @@ class _HomeScreenState extends State<HomeScreen>
                   },
                   showTabBar: !_isFullscreen && !hideChrome,
                   tabBarAnimationDuration: hideChrome
-                      ? const Duration(milliseconds: 1)
+                      ? Duration.zero
                       : const Duration(milliseconds: 200),
                   chromeMenu: _buildChromeMenu(),
                   belowTabBar: belowTabBar,
