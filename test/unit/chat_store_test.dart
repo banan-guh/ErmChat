@@ -331,4 +331,169 @@ void main() {
       ]);
     });
   });
+
+  group('ChatStore.activeThreads', () {
+    ChatStore tickingStore(DateTime start) {
+      var t = start;
+      return ChatStore(
+        channels: ['test'],
+        channelMessages: {},
+        messageKeys: {},
+        chatStatus: {},
+        channelsWithUnread: {},
+        channelsWithUnreadMentions: {},
+        unreadMentionsPerChannel: {},
+        historyLoaded: {},
+        channelsEmotesResolved: {},
+        channelUserIds: {},
+        lastSentWireText: {},
+        now: () => t = t.add(const Duration(seconds: 1)),
+      );
+    }
+
+    TwitchMessage root(String id) => TwitchMessage(
+      login: 'alice',
+      text: 'root $id',
+      messageId: id,
+      channel: 'test',
+    );
+
+    TwitchMessage reply(String id, String rootId) => TwitchMessage(
+      login: 'bob',
+      text: 'reply $id',
+      messageId: id,
+      channel: 'test',
+      replyToParentId: rootId,
+      replyThreadRootId: rootId,
+    );
+
+    test('empty when no threads were ever ingested', () {
+      expect(_store().activeThreads('test'), isEmpty);
+      expect(_store().activeThreads('missing'), isEmpty);
+    });
+
+    test('sorts newest activity first with reply counts', () {
+      final store = tickingStore(DateTime(2026, 1, 1));
+      expect(store.ingestMessage(root('r1'), maxMessages: 100), isTrue);
+      expect(store.ingestMessage(reply('c1', 'r1'), maxMessages: 100), isTrue);
+      expect(store.ingestMessage(root('r2'), maxMessages: 100), isTrue);
+      expect(store.ingestMessage(reply('c2', 'r2'), maxMessages: 100), isTrue);
+      expect(store.ingestMessage(reply('c2b', 'r2'), maxMessages: 100), isTrue);
+      expect(store.ingestMessage(reply('c3', 'r1'), maxMessages: 100), isTrue);
+
+      final threads = store.activeThreads('test');
+      expect(threads.map((t) => t.rootId), ['r1', 'r2']);
+      expect(threads.first.replyCount, 2);
+      expect(threads.last.replyCount, 2);
+      expect(threads.first.root?.messageId, 'r1');
+    });
+
+    test('hides threads with a single reply', () {
+      final store = tickingStore(DateTime(2026, 1, 1));
+      expect(store.ingestMessage(root('r1'), maxMessages: 100), isTrue);
+      expect(store.ingestMessage(reply('c1', 'r1'), maxMessages: 100), isTrue);
+      expect(store.activeThreads('test'), isEmpty);
+      // The thread itself still resolves for the message-menu View thread.
+      expect(store.threadFor('test', 'r1'), hasLength(2));
+    });
+
+    test('includes orphan threads whose root never arrived', () {
+      final store = tickingStore(DateTime(2026, 1, 1));
+      store.indexMessages('test', [reply('c1', 'ghost'), reply('c2', 'ghost')]);
+
+      final threads = store.activeThreads('test');
+      expect(threads, hasLength(1));
+      expect(threads.single.rootId, 'ghost');
+      expect(threads.single.root, isNull);
+      expect(threads.single.replyCount, 2);
+    });
+
+    test('standalone messages never become threads', () {
+      final store = tickingStore(DateTime(2026, 1, 1));
+      store.indexMessages('test', [root('r1')]);
+      expect(store.activeThreads('test'), isEmpty);
+    });
+
+    test('decayed threads with no replies left drop out', () {
+      final store = tickingStore(DateTime(2026, 1, 1));
+      expect(store.ingestMessage(root('r1'), maxMessages: 100), isTrue);
+      final replyA = reply('c1', 'r1');
+      final replyB = reply('c2', 'r1');
+      expect(store.ingestMessage(replyA, maxMessages: 100), isTrue);
+      expect(store.ingestMessage(replyB, maxMessages: 100), isTrue);
+      expect(store.activeThreads('test'), hasLength(1));
+      store.decayEvicted('test', [replyA, replyB]);
+      expect(store.activeThreads('test'), isEmpty);
+    });
+
+    test('saved threads survive truncation past the window', () {
+      final store = tickingStore(DateTime(2026, 1, 1));
+      final savedRoot = root('r1');
+      final savedReplyA = reply('c1', 'r1');
+      final savedReplyB = reply('c2', 'r1');
+      final savedReplyC = reply('c3', 'r1');
+      TwitchMessage filler(String id) => TwitchMessage(
+        login: 'z',
+        text: 'filler $id',
+        messageId: id,
+        channel: 'test',
+      );
+      store.channelMessages['test'] = [
+        for (var i = 0; i < 10; i++) filler('n$i'),
+        savedReplyC,
+        savedReplyB,
+        savedReplyA,
+        savedRoot,
+        for (var i = 0; i < 10; i++) filler('o$i'),
+      ];
+      store.indexMessages('test', [
+        savedRoot,
+        savedReplyA,
+        savedReplyB,
+        savedReplyC,
+      ]);
+      store.savedThreadKeys.add('test:r1');
+      store.truncateChannel('test', maxMessages: 5);
+
+      final ids = store.channelMessages['test']!
+          .map((m) => m.messageId)
+          .toSet();
+      expect(ids, contains('r1'));
+      expect(ids, contains('c1'));
+      expect(ids, contains('c2'));
+      expect(ids, contains('c3'));
+      expect(ids, isNot(contains('o0')));
+      // Saved replies never decay out of the thread map either.
+      store.decayEvicted('test', [savedReplyA]);
+      expect(store.activeThreads('test').map((t) => t.rootId), contains('r1'));
+    });
+
+    test('thread cap never evicts saved entries', () {
+      final store = tickingStore(DateTime(2026, 1, 1));
+      expect(store.ingestMessage(root('r0'), maxMessages: 10000), isTrue);
+      expect(
+        store.ingestMessage(reply('c0', 'r0'), maxMessages: 10000),
+        isTrue,
+      );
+      expect(
+        store.ingestMessage(reply('d0', 'r0'), maxMessages: 10000),
+        isTrue,
+      );
+      store.savedThreadKeys.add('test:r0');
+      for (var i = 1; i <= 70; i++) {
+        expect(store.ingestMessage(root('r$i'), maxMessages: 10000), isTrue);
+        expect(
+          store.ingestMessage(reply('c$i', 'r$i'), maxMessages: 10000),
+          isTrue,
+        );
+        expect(
+          store.ingestMessage(reply('d$i', 'r$i'), maxMessages: 10000),
+          isTrue,
+        );
+      }
+      final ids = store.activeThreads('test').map((t) => t.rootId).toSet();
+      expect(ids, contains('r0'));
+      expect(ids.length, lessThanOrEqualTo(65));
+    });
+  });
 }

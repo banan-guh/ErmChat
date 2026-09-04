@@ -1812,10 +1812,7 @@ void main() {
           );
           await tester.pumpAndSettle();
 
-          expect(
-            find.text('Reply Thread', skipOffstage: false),
-            findsOneWidget,
-          );
+          expect(find.text('Threads', skipOffstage: false), findsOneWidget);
           expect(find.byIcon(Icons.close), findsOneWidget);
           expect(
             find.textContaining('parent msg', skipOffstage: false),
@@ -1860,10 +1857,7 @@ void main() {
           await tester.tap(find.text('View thread', skipOffstage: false));
           await tester.pumpAndSettle();
 
-          expect(
-            find.text('Reply Thread', skipOffstage: false),
-            findsOneWidget,
-          );
+          expect(find.text('Threads', skipOffstage: false), findsOneWidget);
           expect(
             find.textContaining('parent msg', skipOffstage: false),
             findsAtLeast(1),
@@ -1918,10 +1912,7 @@ void main() {
           await tester.tap(find.text('View thread', skipOffstage: false));
           await tester.pumpAndSettle();
 
-          expect(
-            find.text('Reply Thread', skipOffstage: false),
-            findsOneWidget,
-          );
+          expect(find.text('Threads', skipOffstage: false), findsOneWidget);
           expect(
             find.textContaining('parent msg', skipOffstage: false),
             findsAtLeast(1),
@@ -1980,10 +1971,7 @@ void main() {
           );
           await tester.pumpAndSettle();
 
-          expect(
-            find.text('Reply Thread', skipOffstage: false),
-            findsOneWidget,
-          );
+          expect(find.text('Threads', skipOffstage: false), findsOneWidget);
           expect(
             find.textContaining('root level', skipOffstage: false),
             findsAtLeast(1),
@@ -2041,7 +2029,7 @@ void main() {
           find.textContaining('replying to alice', skipOffstage: false),
         );
         await tester.pumpAndSettle();
-        expect(find.text('Reply Thread', skipOffstage: false), findsOneWidget);
+        expect(find.text('Threads', skipOffstage: false), findsOneWidget);
         expect(
           find.textContaining('thread root', skipOffstage: false),
           findsAtLeast(1),
@@ -2125,10 +2113,7 @@ void main() {
           );
           await tester.pumpAndSettle();
 
-          expect(
-            find.text('Reply Thread', skipOffstage: false),
-            findsOneWidget,
-          );
+          expect(find.text('Threads', skipOffstage: false), findsOneWidget);
           expect(
             find.textContaining('orphan msg', skipOffstage: false),
             findsAtLeast(1),
@@ -2184,7 +2169,7 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      expect(find.text('Reply Thread', skipOffstage: false), findsOneWidget);
+      expect(find.text('Threads', skipOffstage: false), findsOneWidget);
 
       final childInThread = find.textContaining(
         'bob: child msg',
@@ -2246,17 +2231,17 @@ void main() {
           ),
         );
         await tester.pumpAndSettle();
-        expect(find.text('Reply Thread', skipOffstage: false), findsOneWidget);
+        expect(find.text('Threads', skipOffstage: false), findsOneWidget);
         final headerSize = tester.getSize(
-          find.text('Reply Thread', skipOffstage: false),
+          find.text('Threads', skipOffstage: false),
         );
         await tester.fling(
-          find.text('Reply Thread', skipOffstage: false),
+          find.text('Threads', skipOffstage: false),
           Offset(0, headerSize.height * 3),
           1000,
         );
         await tester.pumpAndSettle();
-        expect(find.text('Reply Thread'), findsNothing);
+        expect(find.text('Threads'), findsNothing);
       }
       {
         SharedPreferences.setMockInitialValues({'access_token': 'test_token'});

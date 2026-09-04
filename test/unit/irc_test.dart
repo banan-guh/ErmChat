@@ -2343,10 +2343,10 @@ void main() {
       }
     });
 
-    test('system messages compete with non-thread for same quota', () {
+    test('system messages ride free outside the chat quota', () {
       // 100 system + 100 non-thread + 1 thread (3 msgs) with leaf visible.
-      // System messages share the non-thread quota of 100.
-      // Non-thread limit is 100 → 100 non-thread + 3 thread = 103 total.
+      // System markers never spend the maxMessages budget; only chat
+      // messages do. Total: 100 non-thread + 3 thread + 100 system.
       const limit = 100;
       final msgs = <String, List<TwitchMessage>>{
         'test': [
@@ -2368,8 +2368,8 @@ void main() {
       conn.store.truncateChannel('test', maxMessages: limit);
 
       final remaining = msgs['test']!;
-      // Thread (3) + non-thread+system (limit)
-      expect(remaining.length, 3 + limit);
+      // Thread (3) + non-thread (limit) + system (free)
+      expect(remaining.length, 3 + limit * 2);
 
       // Thread preserved
       expect(remaining.any((m) => m.messageId == 'root'), true);
