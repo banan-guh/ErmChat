@@ -17,6 +17,17 @@ class SevenTvChannelResponse {
 class SevenTvEmoteProvider {
   static const int _zeroWidthFlag = 1 << 8;
 
+  /// Only this set kind is usable anywhere; channel and seasonal sets stay
+  /// channel-scoped. Observed values: personal 4, channel 0.
+  static const int _personalSetFlag = 1 << 2;
+
+  /// Whether a set payload (`user.emote_sets[]` entry or `emote-sets/<id>`
+  /// response) is a personal set. Missing flags fail closed.
+  static bool isPersonalSet(Map<String, dynamic> data) {
+    final flags = data['flags'];
+    return flags is int && (flags & _personalSetFlag) != 0;
+  }
+
   static Future<List<GenericEmote>> fetchGlobal({
     EmoteResolution resolution = EmoteResolution.high,
   }) async {
@@ -56,8 +67,8 @@ class SevenTvEmoteProvider {
     });
   }
 
-  /// Owned set ids for a Twitch user id (`user.emote_sets`). Contents need a
-  /// per-set [fetchEmoteSet]; the listing carries no emotes.
+  /// Personal set ids for a Twitch user id (`user.emote_sets`). Channel and
+  /// seasonal sets are excluded; contents need a per-set [fetchEmoteSet].
   static Future<List<String>> fetchOwnedSetIds(String twitchId) async {
     final uri = Uri.parse('https://7tv.io/v3/users/twitch/$twitchId');
     final res = await http.get(uri).timeout(httpTimeout);
@@ -75,13 +86,15 @@ class SevenTvEmoteProvider {
     final sets = user?['emote_sets'] as List<dynamic>? ?? [];
     return [
       for (final entry in sets)
-        if (entry is Map<String, dynamic> && entry['id'] is String)
+        if (entry is Map<String, dynamic> &&
+            entry['id'] is String &&
+            isPersonalSet(entry))
           entry['id'] as String,
     ];
   }
 
-  /// Emotes of one set by id (personal grants, channel sets). Same item
-  /// shape as the global endpoint; personal sets are usable anywhere.
+  /// Emotes of one personal set by id. Non-personal sets return empty so a
+  /// mistargeted id never leaks channel emotes into the global merge.
   static Future<List<GenericEmote>> fetchEmoteSet(
     String setId, {
     EmoteResolution resolution = EmoteResolution.high,
@@ -93,6 +106,7 @@ class SevenTvEmoteProvider {
     if (res.statusCode != 200) return [];
     return Isolate.run(() {
       final data = jsonDecode(res.body) as Map<String, dynamic>;
+      if (!isPersonalSet(data)) return <GenericEmote>[];
       final items = data['emotes'] as List<dynamic>? ?? [];
       return _parseEmotes(items, resolution: resolution);
     });

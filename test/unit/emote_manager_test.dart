@@ -3845,20 +3845,29 @@ void main() {
   });
 
   group('SevenTvEmoteProvider', () {
-    test('parseOwnedSetIds lists owned sets', () {
+    test('parseOwnedSetIds keeps only personal sets', () {
       expect(
         SevenTvEmoteProvider.parseOwnedSetIds({
           'user': {
             'emote_sets': [
-              {'id': 'set-1', 'name': 'Personal Emotes'},
-              {'id': 'set-2', 'name': 'Channel'},
-              {'name': 'missing id'},
+              {'id': 'set-1', 'name': 'Personal Emotes', 'flags': 4},
+              {'id': 'set-2', 'name': 'Channel', 'flags': 0},
+              {'id': 'set-3', 'name': 'Seasonal', 'flags': 0},
+              {'id': 'set-4', 'name': 'No flags'},
+              {'name': 'missing id', 'flags': 4},
             ],
           },
         }),
-        ['set-1', 'set-2'],
+        ['set-1'],
       );
       expect(SevenTvEmoteProvider.parseOwnedSetIds({}), isEmpty);
+    });
+
+    test('isPersonalSet matches the personal flag only', () {
+      expect(SevenTvEmoteProvider.isPersonalSet({'flags': 4}), isTrue);
+      expect(SevenTvEmoteProvider.isPersonalSet({'flags': 0}), isFalse);
+      expect(SevenTvEmoteProvider.isPersonalSet({}), isFalse);
+      expect(SevenTvEmoteProvider.isPersonalSet({'flags': '4'}), isFalse);
     });
 
     test('parses plain alias owner and channel emotes', () {
