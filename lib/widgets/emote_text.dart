@@ -326,7 +326,8 @@ List<InlineSpan> parseTextWithLinks(
     final spans = <InlineSpan>[];
     for (final element in linkify(
       collapsed,
-      // looseUrl handles bare domains; humanize hides the scheme.
+      // looseUrl handles bare domains; show originText so the
+      // scheme stays visible and highlighted.
       options: const LinkifyOptions(
         humanize: true,
         looseUrl: true,
@@ -349,7 +350,7 @@ List<InlineSpan> parseTextWithLinks(
       if (element is UrlElement) {
         spans.add(
           TextSpan(
-            text: element.text,
+            text: element.originText,
             style: const TextStyle(color: Colors.blue),
             recognizer: TapGestureRecognizer()
               ..onTap = () => launchUrl(Uri.parse(element.url)),

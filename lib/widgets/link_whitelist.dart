@@ -159,7 +159,7 @@ class SingleCharDomainLinkifier extends Linkifier {
       if (m.start > lastEnd) {
         out.add(TextElement(text.substring(lastEnd, m.start)));
       }
-      out.add(UrlElement('https://$shown', shown, raw));
+      out.add(UrlElement('https://$shown', shown));
       lastEnd = m.start + shown.length;
     }
     if (lastEnd < text.length) {
