@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../third_party/flutter_list_view/flutter_list_view.dart';
@@ -64,6 +65,52 @@ import '../widgets/join_channel_dialog.dart';
 import '../services/foreground_task.dart';
 
 enum OverlayPanel { closed, thread, mentions }
+
+// Speed above which release direction overrides distance when choosing the
+// user-card target. Mirrors the framework's dismiss-fling scale.
+const double kUserSheetFlingVelocity = 500.0;
+
+// Nearest user-card detent, for slow releases in the manual eased settle.
+double userSheetNearestDetent(
+  double size, {
+  required double minExtent,
+  required double cardExtent,
+  required double maxExtent,
+}) {
+  var target = minExtent;
+  var best = (size - minExtent).abs();
+  for (final d in <double>[cardExtent, maxExtent]) {
+    final dist = (size - d).abs();
+    if (dist < best) {
+      best = dist;
+      target = d;
+    }
+  }
+  return target;
+}
+
+// Velocity-directed detent: fast upward releases move up one detent, fast
+// downward releases move down one, and slow releases use nearest distance.
+double userSheetTargetDetent(
+  double size, {
+  required double minExtent,
+  required double cardExtent,
+  required double maxExtent,
+  double velocityDy = 0,
+}) {
+  if (velocityDy <= -kUserSheetFlingVelocity) {
+    return size < cardExtent ? cardExtent : maxExtent;
+  }
+  if (velocityDy >= kUserSheetFlingVelocity) {
+    return size <= cardExtent ? minExtent : cardExtent;
+  }
+  return userSheetNearestDetent(
+    size,
+    minExtent: minExtent,
+    cardExtent: cardExtent,
+    maxExtent: maxExtent,
+  );
+}
 
 class HomeScreen extends StatefulWidget {
   // Test seam: when true the join ("+") button never shows its loading spinner.
@@ -2825,40 +2872,78 @@ class _HomeScreenState extends State<HomeScreen>
     final maxChildSize =
         (screenH - MediaQuery.paddingOf(context).top) / screenH;
     final sheetController = DraggableScrollableController();
-    // Compact card: history reveals by scrolling. Detents are card and full
-    // only. Releasing below card slides to min, which pops the route, so
-    // dismissal never rests mid-way.
+    // Compact card: history reveals by scrolling. Settle releases only when the
+    // gesture moved the sheet, so scrolling the message list cannot collapse
+    // it. Dismiss through the route for one continuous exit motion.
     const initialChildSize = 0.42;
     const minExtent = 0.25;
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      builder: (ctx) => DraggableScrollableSheet(
-        controller: sheetController,
-        initialChildSize: initialChildSize,
-        minChildSize: minExtent,
-        maxChildSize: maxChildSize,
-        expand: false,
-        snap: true,
-        snapSizes: [initialChildSize, maxChildSize],
-        builder: (_, scrollController) => UserProfileSheet(
-          username: username,
-          displayName: displayName ?? username,
-          userId: userId,
-          twitchApi: _twitchApi,
-          twitchAuth: widget.twitchAuth,
-          messageController: _messageController,
-          focusNode: _focusNode,
-          onClose: () => Navigator.pop(ctx),
-          onUserBlocked: _onUserBlocked,
-          onWhisperUser: () => _showWhispersForUser(username),
-          scrollController: scrollController,
-          sheetController: sheetController,
-          sheetCollapsedExtent: initialChildSize,
-          userMessages: history,
-          messageRowBuilder: _buildUserHistoryRow,
-        ),
-      ),
+      builder: (ctx) {
+        var tracker = VelocityTracker.withKind(PointerDeviceKind.touch);
+        var sizeAtDown = initialChildSize;
+        return Listener(
+          onPointerDown: (e) {
+            sizeAtDown = sheetController.isAttached
+                ? sheetController.size
+                : initialChildSize;
+            tracker = VelocityTracker.withKind(PointerDeviceKind.touch);
+            tracker.addPosition(e.timeStamp, e.position);
+          },
+          onPointerMove: (e) => tracker.addPosition(e.timeStamp, e.position),
+          onPointerUp: (_) {
+            if (!sheetController.isAttached) return;
+            final size = sheetController.size;
+            if ((size - sizeAtDown).abs() <= 0.001) return;
+            final target = userSheetTargetDetent(
+              size,
+              minExtent: minExtent,
+              cardExtent: initialChildSize,
+              maxExtent: maxChildSize,
+              velocityDy: tracker.getVelocity().pixelsPerSecond.dy,
+            );
+            if (target == minExtent) {
+              sheetController.jumpTo(size);
+              if (ModalRoute.of(ctx)?.isCurrent ?? false) {
+                Navigator.pop(ctx);
+              }
+              return;
+            }
+            if ((target - size).abs() <= 0.02) return;
+            sheetController.animateTo(
+              target,
+              duration: _PanelManager.sheetAnimDuration,
+              curve: Curves.easeOutCubic,
+            );
+          },
+          child: DraggableScrollableSheet(
+            controller: sheetController,
+            initialChildSize: initialChildSize,
+            minChildSize: minExtent,
+            maxChildSize: maxChildSize,
+            expand: false,
+            snap: false,
+            builder: (_, scrollController) => UserProfileSheet(
+              username: username,
+              displayName: displayName ?? username,
+              userId: userId,
+              twitchApi: _twitchApi,
+              twitchAuth: widget.twitchAuth,
+              messageController: _messageController,
+              focusNode: _focusNode,
+              onClose: () => Navigator.pop(ctx),
+              onUserBlocked: _onUserBlocked,
+              onWhisperUser: () => _showWhispersForUser(username),
+              scrollController: scrollController,
+              sheetController: sheetController,
+              sheetCollapsedExtent: initialChildSize,
+              userMessages: history,
+              messageRowBuilder: _buildUserHistoryRow,
+            ),
+          ),
+        );
+      },
     ).whenComplete(sheetController.dispose);
   }
 

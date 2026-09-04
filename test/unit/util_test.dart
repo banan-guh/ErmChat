@@ -9,6 +9,7 @@ import 'package:ermchat/util/mention.dart';
 import 'package:ermchat/util/duration_format.dart';
 import 'package:ermchat/util/text_bypass.dart';
 import 'package:ermchat/main.dart';
+import 'package:ermchat/screens/home_screen.dart';
 import 'package:ermchat/util/timestamp_formatter.dart';
 import 'package:ermchat/util/crash_report.dart';
 import 'package:flutter/services.dart';
@@ -875,6 +876,64 @@ void main() {
       expect(captured, 'boom');
       expect(capturedStack, isNotNull);
       crashReporter = null;
+    });
+  });
+
+  group('userSheetNearestDetent', () {
+    const minExtent = 0.25;
+    const cardExtent = 0.42;
+    const maxExtent = 1.0;
+
+    double nearest(double size) => userSheetNearestDetent(
+      size,
+      minExtent: minExtent,
+      cardExtent: cardExtent,
+      maxExtent: maxExtent,
+    );
+
+    test('detents map to themselves', () {
+      expect(nearest(minExtent), minExtent);
+      expect(nearest(cardExtent), cardExtent);
+      expect(nearest(maxExtent), maxExtent);
+    });
+
+    test('between detents picks the nearer one', () {
+      expect(nearest(0.3), minExtent);
+      expect(nearest(0.6), cardExtent);
+      expect(nearest(0.9), maxExtent);
+    });
+  });
+
+  group('userSheetTargetDetent', () {
+    const minExtent = 0.25;
+    const cardExtent = 0.42;
+    const maxExtent = 1.0;
+
+    double target(double size, double velocityDy) => userSheetTargetDetent(
+      size,
+      minExtent: minExtent,
+      cardExtent: cardExtent,
+      maxExtent: maxExtent,
+      velocityDy: velocityDy,
+    );
+
+    test('slow releases use distance', () {
+      expect(target(0.3, 100), minExtent);
+      expect(target(0.6, -100), cardExtent);
+      expect(target(0.9, 100), maxExtent);
+    });
+
+    test('fast upward releases move up one detent', () {
+      expect(target(0.3, -1000), cardExtent);
+      expect(target(cardExtent, -1000), maxExtent);
+      expect(target(0.8, -1000), maxExtent);
+    });
+
+    test('fast downward releases move down one detent', () {
+      expect(target(maxExtent, 1000), cardExtent);
+      expect(target(0.8, 1000), cardExtent);
+      expect(target(cardExtent, 1000), minExtent);
+      expect(target(0.3, 1000), minExtent);
     });
   });
 }

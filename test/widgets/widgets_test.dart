@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:ermchat/color_utils.dart';
 import 'package:ermchat/third_party/flutter_list_view.dart';
@@ -5102,7 +5103,7 @@ void main() {
     });
 
     testWidgets(
-      'User profile sheet expands on arrow tap, dismisses in one drag',
+      'User profile sheet expands on arrow tap, dismisses in one fling',
       (WidgetTester tester) async {
         // Test env has no status bar, so max extent is the full height.
         const maxExtent = 1.0;
@@ -5120,39 +5121,88 @@ void main() {
                         showModalBottomSheet(
                           context: context,
                           isScrollControlled: true,
-                          builder: (ctx) => DraggableScrollableSheet(
-                            controller: sheetController,
-                            initialChildSize: 0.42,
-                            minChildSize: 0.25,
-                            maxChildSize: maxExtent,
-                            expand: false,
-                            snap: true,
-                            snapSizes: const [0.42, maxExtent],
-                            builder: (_, scrollController) => UserProfileSheet(
-                              username: 'testuser',
-                              userId: '123',
-                              displayName: 'TestUser',
-                              twitchApi: createApi(),
-                              twitchAuth: TwitchAuth()
-                                ..accessToken = 'test-token',
-                              messageController: TextEditingController(),
-                              focusNode: FocusNode(),
-                              onClose: () => Navigator.pop(ctx),
-                              scrollController: scrollController,
-                              sheetController: sheetController,
-                              sheetCollapsedExtent: 0.42,
-                              userMessages: [
-                                for (var i = 0; i < 30; i++)
-                                  TwitchMessage(
-                                    login: 'testuser',
-                                    text: 'm$i',
-                                    channel: 'somechannel',
-                                  ),
-                              ],
-                              messageRowBuilder: (context, msg) =>
-                                  Text('row:${msg.text}'),
-                            ),
-                          ),
+                          builder: (ctx) {
+                            // Mirrors production wiring (immediate eased settle).
+                            var tracker = VelocityTracker.withKind(
+                              PointerDeviceKind.touch,
+                            );
+                            var sizeAtDown = 0.42;
+                            return Listener(
+                              onPointerDown: (e) {
+                                sizeAtDown = sheetController.isAttached
+                                    ? sheetController.size
+                                    : 0.42;
+                                tracker = VelocityTracker.withKind(
+                                  PointerDeviceKind.touch,
+                                );
+                                tracker.addPosition(e.timeStamp, e.position);
+                              },
+                              onPointerMove: (e) =>
+                                  tracker.addPosition(e.timeStamp, e.position),
+                              onPointerUp: (_) {
+                                if (!sheetController.isAttached) return;
+                                final size = sheetController.size;
+                                if ((size - sizeAtDown).abs() <= 0.001) return;
+                                final target = userSheetTargetDetent(
+                                  size,
+                                  minExtent: 0.25,
+                                  cardExtent: 0.42,
+                                  maxExtent: maxExtent,
+                                  velocityDy: tracker
+                                      .getVelocity()
+                                      .pixelsPerSecond
+                                      .dy,
+                                );
+                                if (target == 0.25) {
+                                  sheetController.jumpTo(size);
+                                  if (ModalRoute.of(ctx)?.isCurrent ?? false) {
+                                    Navigator.pop(ctx);
+                                  }
+                                  return;
+                                }
+                                if ((target - size).abs() <= 0.02) return;
+                                sheetController.animateTo(
+                                  target,
+                                  duration: const Duration(milliseconds: 250),
+                                  curve: Curves.easeOutCubic,
+                                );
+                              },
+                              child: DraggableScrollableSheet(
+                                controller: sheetController,
+                                initialChildSize: 0.42,
+                                minChildSize: 0.25,
+                                maxChildSize: maxExtent,
+                                expand: false,
+                                snap: false,
+                                builder: (_, scrollController) =>
+                                    UserProfileSheet(
+                                      username: 'testuser',
+                                      userId: '123',
+                                      displayName: 'TestUser',
+                                      twitchApi: createApi(),
+                                      twitchAuth: TwitchAuth()
+                                        ..accessToken = 'test-token',
+                                      messageController:
+                                          TextEditingController(),
+                                      focusNode: FocusNode(),
+                                      onClose: () => Navigator.pop(ctx),
+                                      scrollController: scrollController,
+                                      sheetController: sheetController,
+                                      sheetCollapsedExtent: 0.42,
+                                      userMessages: [
+                                        for (var i = 0; i < 30; i++)
+                                          TwitchMessage(
+                                            login: 'testuser',
+                                            text: 'm$i',
+                                            channel: 'somechannel',
+                                          ),
+                                      ],
+                                      messageRowBuilder: (context, msg) =>
+                                          Text('row:${msg.text}'),
+                                    ),
+                              ),
+                            );
+                          },
                         ).whenComplete(sheetController.dispose);
                       },
                       child: const Text('open-card'),
@@ -5174,14 +5224,45 @@ void main() {
         expect(sheetController.size, maxExtent);
         expect(find.text('row:m0', skipOffstage: false), findsOneWidget);
 
-        // Release between detents snaps back to the card.
+        // Scrolling the history list does not move the full sheet.
+        await tester.dragFrom(const Offset(400, 300), const Offset(0, -200));
+        await tester.pumpAndSettle();
+        expect(find.byIcon(Icons.keyboard_arrow_up), findsOneWidget);
+        await tester.dragFrom(const Offset(400, 300), const Offset(0, 200));
+        await tester.pumpAndSettle();
+        expect(sheetController.size, maxExtent);
+
+        // Fast downward fling eases directly back to the card.
+        await tester.flingFrom(
+          const Offset(400, 300),
+          const Offset(0, 250),
+          1500,
+        );
+        await tester.pumpAndSettle();
+        expect(sheetController.size, closeTo(0.42, 0.02));
+
+        // Release between detents eases back to the card.
         await tester.dragFrom(const Offset(400, 300), const Offset(0, 250));
         await tester.pumpAndSettle();
         expect(sheetController.size, closeTo(0.42, 0.02));
 
-        // Fresh card, downward drag dismisses in one gesture, no mid stop.
+        // Fresh card, upward fling eases directly to full height.
         await openSheet();
-        await tester.dragFrom(const Offset(400, 450), const Offset(0, 200));
+        await tester.flingFrom(
+          const Offset(400, 450),
+          const Offset(0, -300),
+          1500,
+        );
+        await tester.pumpAndSettle();
+        expect(sheetController.size, maxExtent);
+
+        // Fresh card, downward fling dismisses in one gesture, no mid stop.
+        await openSheet();
+        await tester.flingFrom(
+          const Offset(400, 450),
+          const Offset(0, 200),
+          1500,
+        );
         await tester.pumpAndSettle();
         expect(find.text('row:m0'), findsNothing);
       },
