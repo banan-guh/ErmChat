@@ -3173,7 +3173,7 @@ void main() {
       final clock = DateTime(2026, 1, 1, 12);
       final manager = await makeManager(clock: () => clock);
       manager.markEmoteViewed(makeEmotes(1)[0]);
-      await pumpEventQueue();
+      await manager.flushUsageForTesting();
 
       final prefs = await SharedPreferences.getInstance();
       expect(
@@ -3187,7 +3187,7 @@ void main() {
       final clock = DateTime(2026, 1, 1, 12);
       final manager = await makeManager(clock: () => clock);
       manager.markEmoteViewed(makeEmotes(1)[0]);
-      await pumpEventQueue();
+      await manager.flushUsageForTesting();
 
       // A fresh instance loads the same registry and surfaces it through the
       // cache manager's priority source.

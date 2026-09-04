@@ -2176,6 +2176,9 @@ class EmoteManager extends ChangeNotifier {
   Future<void> enqueueFetchForTesting(Future<void> Function() action) =>
       _enqueueFetch(action);
 
+  @visibleForTesting
+  Future<void> flushUsageForTesting() => _flushUsage();
+
   /// Sync gate for fetch lambdas; callers must have awaited
   /// [_ensureProvidersLoaded] first.
   bool _isProviderOn(EmoteType type) => !_disabledProviders.contains(type);

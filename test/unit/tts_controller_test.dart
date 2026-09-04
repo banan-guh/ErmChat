@@ -95,7 +95,7 @@ void main() {
     final c = await makeController(fake);
     c.handleMessage('chan', buildMsg(text: 'hi'), 'chan');
     c.handleMessage('other', buildMsg(text: 'nope'), 'chan');
-    await Future.delayed(const Duration(milliseconds: 10));
+    await pumpEventQueue();
     expect(fake.spoken, ['Bob. hi']);
   });
 
@@ -104,7 +104,7 @@ void main() {
     final c = await makeController(fake);
     c.setFormatMode(TtsFormatMode.messageOnly);
     c.handleMessage('chan', buildMsg(text: 'hi'), 'chan');
-    await Future.delayed(const Duration(milliseconds: 10));
+    await pumpEventQueue();
     expect(fake.spoken, ['hi']);
   });
 
@@ -114,7 +114,7 @@ void main() {
     c.setForceEnglish(true);
     expect(fake.setLanguageCalls, greaterThan(0));
     c.handleMessage('chan', buildMsg(text: 'hi'), 'chan');
-    await Future.delayed(const Duration(milliseconds: 10));
+    await pumpEventQueue();
     expect(fake.spoken, ['Bob said hi']);
   });
 
@@ -124,7 +124,7 @@ void main() {
     c.setForceEnglish(true);
     c.handleMessage('chan', buildMsg(text: 'one'), 'chan');
     c.handleMessage('chan', buildMsg(text: 'two'), 'chan');
-    await Future.delayed(const Duration(milliseconds: 10));
+    await pumpEventQueue();
     expect(fake.spoken, ['Bob said one', 'two']);
   });
 
@@ -144,7 +144,7 @@ void main() {
       ],
     );
     c.handleMessage('chan', m, 'chan');
-    await Future.delayed(const Duration(milliseconds: 10));
+    await pumpEventQueue();
     expect(fake.spoken, ['hello']);
   });
 
@@ -165,7 +165,7 @@ void main() {
       ],
     );
     c.handleMessage('chan', m, 'chan');
-    await Future.delayed(const Duration(milliseconds: 10));
+    await pumpEventQueue();
     expect(fake.spoken, ['hello Kappa']);
   });
 
@@ -178,7 +178,7 @@ void main() {
       buildMsg(text: 'see https://twitch.tv/x now'),
       'chan',
     );
-    await Future.delayed(const Duration(milliseconds: 10));
+    await pumpEventQueue();
     expect(fake.spoken, ['see  now']);
   });
 
@@ -187,7 +187,7 @@ void main() {
     final c = await makeController(fake);
     c.setFormatMode(TtsFormatMode.messageOnly);
     c.handleMessage('chan', buildMsg(text: 'hi 🔥 there'), 'chan');
-    await Future.delayed(const Duration(milliseconds: 10));
+    await pumpEventQueue();
     expect(fake.spoken, ['hi 🔥 there']);
   });
 
@@ -196,7 +196,7 @@ void main() {
     final c = await makeController(fake);
     c.setUserIgnoreList(['bob']);
     c.handleMessage('chan', buildMsg(text: 'hi'), 'chan');
-    await Future.delayed(const Duration(milliseconds: 10));
+    await pumpEventQueue();
     expect(fake.spoken, isEmpty);
   });
 
@@ -205,7 +205,7 @@ void main() {
     final c = await makeController(fake);
     c.setEnabled(false);
     c.handleMessage('chan', buildMsg(text: 'hi'), 'chan');
-    await Future.delayed(const Duration(milliseconds: 10));
+    await pumpEventQueue();
     expect(fake.spoken, isEmpty);
   });
 
@@ -214,7 +214,7 @@ void main() {
     final c = await makeController(fake);
     c.setQueueMode(TtsQueueMode.newest);
     c.handleMessage('chan', buildMsg(text: 'hi'), 'chan');
-    await Future.delayed(const Duration(milliseconds: 10));
+    await pumpEventQueue();
     expect(fake.setQueueModeCalls, [0]);
     expect(fake.spoken, ['Bob. hi']);
   });
@@ -224,7 +224,7 @@ void main() {
     final c = await makeController(fake);
     c.setQueueMode(TtsQueueMode.queue);
     c.handleMessage('chan', buildMsg(text: 'hi'), 'chan');
-    await Future.delayed(const Duration(milliseconds: 10));
+    await pumpEventQueue();
     expect(fake.setQueueModeCalls, [1]);
     expect(fake.spoken, ['Bob. hi']);
   });
@@ -237,7 +237,7 @@ void main() {
       TwitchMessage(login: 'bob', text: 'old', isHistory: true),
       'chan',
     );
-    await Future.delayed(const Duration(milliseconds: 10));
+    await pumpEventQueue();
     expect(fake.spoken, isEmpty);
   });
 

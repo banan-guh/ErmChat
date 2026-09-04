@@ -3482,20 +3482,29 @@ void main() {
       );
       await tester.pump();
 
-      // The Join button is the 2nd lazy-built child of the channel list; scroll
-      // the outer list down to bring it into view (a real user just scrolls).
-      // With the cap at 100 channels the default scroll budget can't reach it.
-      await tester.scrollUntilVisible(
-        find.text('Join channel', skipOffstage: false),
-        100.0,
-        scrollable: find.byType(Scrollable).first,
-        maxScrolls: 200,
-      );
+      // The Join button sits below the capped list, so it starts offstage.
+      // Jump straight to the bottom in one drag instead of stepping
+      // through every row.
+      await tester.drag(find.byType(Scrollable).first, const Offset(0, -5000));
       await tester.pumpAndSettle();
 
       // At the cap the Join channel button is disabled, so tapping it opens no
       // dialog and never fires onAddChannel.
-      await tester.tap(find.text('Join channel', skipOffstage: false));
+      final joinFinder = find.text('Join channel', skipOffstage: false);
+      expect(joinFinder, findsOneWidget);
+      expect(
+        tester
+            .widget<OutlinedButton>(
+              find.widgetWithText(
+                OutlinedButton,
+                'Join channel',
+                skipOffstage: false,
+              ),
+            )
+            .onPressed,
+        isNull,
+      );
+      await tester.tap(joinFinder, warnIfMissed: false);
       await tester.pumpAndSettle();
       expect(addedChannel, isNull);
       expect(find.text('Cancel', skipOffstage: false), findsNothing);
