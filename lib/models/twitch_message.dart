@@ -14,6 +14,20 @@ class EmotePosition {
     required this.endIndex,
     required this.emoteCode,
   });
+
+  Map<String, dynamic> toJson() => {
+    'emoteId': emoteId,
+    'startIndex': startIndex,
+    'endIndex': endIndex,
+    'emoteCode': emoteCode,
+  };
+
+  factory EmotePosition.fromJson(Map<String, dynamic> json) => EmotePosition(
+    emoteId: json['emoteId'] as String? ?? '',
+    startIndex: (json['startIndex'] as num?)?.toInt() ?? 0,
+    endIndex: (json['endIndex'] as num?)?.toInt() ?? 0,
+    emoteCode: json['emoteCode'] as String? ?? '',
+  );
 }
 
 class TwitchMessage {
@@ -124,4 +138,83 @@ class TwitchMessage {
     this.sourceMessageId,
   }) : timestamp = timestamp ?? DateTime.now(),
        displayName = displayName ?? login;
+
+  // Full-log persistence for saved threads. Highlight and span caches are
+  // session state: highlights re-evaluate on load, spans rebuild lazily.
+  Map<String, dynamic> toJson() => {
+    'login': login,
+    'displayName': displayName,
+    'text': text,
+    'color': color,
+    'timestamp': timestamp.toUtc().toIso8601String(),
+    'isSystem': isSystem,
+    'systemAccent': systemAccent?.toARGB32(),
+    'isAction': isAction,
+    'isBanNotice': isBanNotice,
+    'messageId': messageId,
+    'channel': channel,
+    'deleted': deleted,
+    'isHistory': isHistory,
+    'isBackfill': isBackfill,
+    'replyToParentId': replyToParentId,
+    'replyToUser': replyToUser,
+    'replyToText': replyToText,
+    'replyThreadRootId': replyThreadRootId,
+    'userId': userId,
+    'isFirstMessage': isFirstMessage,
+    'msgId': msgId,
+    'customRewardId': customRewardId,
+    'pinnedPaidAmount': pinnedPaidAmount,
+    'bitsAmount': bitsAmount,
+    'emotePositions': emotePositions?.map((e) => e.toJson()).toList(),
+    'badges': badges
+        ?.map((b) => {'setId': b.setId, 'versionId': b.versionId})
+        .toList(),
+    'sourceBroadcasterId': sourceBroadcasterId,
+    'sourceMessageId': sourceMessageId,
+  };
+
+  factory TwitchMessage.fromJson(Map<String, dynamic> json) => TwitchMessage(
+    login: json['login'] as String? ?? '',
+    displayName: json['displayName'] as String?,
+    text: json['text'] as String? ?? '',
+    color: json['color'] as String?,
+    timestamp: DateTime.tryParse(json['timestamp'] as String? ?? '')?.toLocal(),
+    isSystem: json['isSystem'] as bool? ?? false,
+    systemAccent: (json['systemAccent'] as num?) != null
+        ? Color((json['systemAccent'] as num).toInt())
+        : null,
+    isAction: json['isAction'] as bool? ?? false,
+    isBanNotice: json['isBanNotice'] as bool? ?? false,
+    messageId: json['messageId'] as String?,
+    channel: json['channel'] as String?,
+    deleted: json['deleted'] as bool? ?? false,
+    isHistory: json['isHistory'] as bool? ?? false,
+    isBackfill: json['isBackfill'] as bool? ?? false,
+    replyToParentId: json['replyToParentId'] as String?,
+    replyToUser: json['replyToUser'] as String?,
+    replyToText: json['replyToText'] as String?,
+    replyThreadRootId: json['replyThreadRootId'] as String?,
+    userId: json['userId'] as String?,
+    isFirstMessage: json['isFirstMessage'] as bool? ?? false,
+    msgId: json['msgId'] as String?,
+    customRewardId: json['customRewardId'] as String?,
+    pinnedPaidAmount: json['pinnedPaidAmount'] as String?,
+    bitsAmount: (json['bitsAmount'] as num?)?.toInt(),
+    emotePositions: (json['emotePositions'] as List?)
+        ?.whereType<Map>()
+        .map((e) => EmotePosition.fromJson(Map<String, dynamic>.from(e)))
+        .toList(),
+    badges: (json['badges'] as List?)
+        ?.whereType<Map>()
+        .map(
+          (e) => MessageBadge(
+            setId: e['setId'] as String? ?? '',
+            versionId: e['versionId'] as String? ?? '',
+          ),
+        )
+        .toList(),
+    sourceBroadcasterId: json['sourceBroadcasterId'] as String?,
+    sourceMessageId: json['sourceMessageId'] as String?,
+  );
 }

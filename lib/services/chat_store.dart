@@ -52,6 +52,22 @@ class ThreadEntry {
       replies.any((r) => r.messageId == messageId);
 }
 
+/// Read-only summary of one tracked thread for the threads dashboard. The
+/// dashboard is per-channel and sorted by [lastActivity] (newest first).
+class ThreadSummary {
+  final String rootId;
+  final TwitchMessage? root;
+  final DateTime lastActivity;
+  final int replyCount;
+
+  const ThreadSummary({
+    required this.rootId,
+    required this.root,
+    required this.lastActivity,
+    required this.replyCount,
+  });
+}
+
 /// Owns the shared chat state: the per-channel buffers the connection
 /// pipeline writes and the UI renders. One instance is created by
 /// HomeScreen and handed to [ChatConnectionManager]; both sides hold the
@@ -236,6 +252,8 @@ class ChatStore {
     _versions.remove(channel)?.dispose();
     _messageCounters.remove(channel)?.dispose();
     _channelThreads.remove(channel);
+    messageKeys.removeWhere((k) => k.startsWith('$channel:'));
+    savedThreadKeys.removeWhere((k) => k.startsWith('$channel:'));
   }
 
   void dispose() {
@@ -254,6 +272,12 @@ class ChatStore {
 
   static const _maxTrackedThreadsPerChannel = 64;
   final _channelThreads = <String, Map<String, ThreadEntry>>{};
+
+  /// Saved threads (`$channel:$rootId`, channel lowercased) are exempt from
+  /// truncation, decay, and the per-channel thread cap: a saved thread keeps
+  /// every message in memory and on disk forever. HomeScreen syncs this set
+  /// from SavedThreadsStore after each toggle/load.
+  final Set<String> savedThreadKeys = {};
   int _nextSystemMessageId = 0;
 
   /// Inserts a system message at the top of [channel]'s buffer, applying the
@@ -481,44 +505,52 @@ class ChatStore {
 
   void _indexThreadMember(String channel, TwitchMessage msg) {
     final id = msg.messageId;
-    if (id == null) return;
+    if (id == null || msg.isSystem) return;
     final threads = _channelThreads.putIfAbsent(channel, () => {});
     final rootId = msg.replyThreadRootId;
 
     if (rootId == null || rootId == id) {
       // A potential root: adopt it into an orphan entry created earlier by a
-      // reply whose root was not on screen yet.
+      // reply whose root was not on screen yet. Adoption alone is not new
+      // activity, so lastActivity stays put.
       final entry = threads[id];
       if (entry != null && entry.root == null && !msg.isSystem) {
         entry.root = msg;
-        entry.lastActivity = now();
+      } else if (entry != null && entry.root != null) {
+        // Fresher instance of an already-pinned root (history + live dup):
+        // carry over mutation flags instead of freezing the stale object.
+        entry.root!.deleted = entry.root!.deleted || msg.deleted;
+        if (entry.root!.text != msg.text && msg.text.isNotEmpty) {
+          entry.root!.text = msg.text;
+        }
       }
       return;
     }
 
     final isNewEntry = !threads.containsKey(rootId);
-    final entry = threads.putIfAbsent(rootId, ThreadEntry.new);
+    final entry = threads.putIfAbsent(
+      rootId,
+      () => ThreadEntry()..lastActivity = now(),
+    );
     if (entry.hasMessage(id)) return;
     entry.lastActivity = now();
     entry.root ??= _lookupBufferRoot(channel, rootId);
     entry.replies.add(msg);
-    if (isNewEntry) _enforceThreadCap(threads);
+    if (isNewEntry) _enforceThreadCap(channel, threads);
   }
 
-  // Keeps the per-channel thread map bounded: oldest-touched entries fall off
-  // first. Only runs when a new entry pushes past the cap.
-  void _enforceThreadCap(Map<String, ThreadEntry> threads) {
-    while (threads.length > _maxTrackedThreadsPerChannel) {
-      String? oldestKey;
-      DateTime? oldestAt;
-      for (final e in threads.entries) {
-        if (oldestAt == null || e.value.lastActivity.isBefore(oldestAt)) {
-          oldestAt = e.value.lastActivity;
-          oldestKey = e.key;
-        }
-      }
-      if (oldestKey == null) break;
-      threads.remove(oldestKey);
+  // Keeps the per-channel thread map bounded: oldest-touched non-saved
+  // entries fall off first. Saved threads never count toward the cap.
+  void _enforceThreadCap(String channel, Map<String, ThreadEntry> threads) {
+    while (true) {
+      final unsaved = threads.entries
+          .where((e) => !savedThreadKeys.contains('$channel:${e.key}'))
+          .toList();
+      if (unsaved.length <= _maxTrackedThreadsPerChannel) break;
+      unsaved.sort(
+        (a, b) => a.value.lastActivity.compareTo(b.value.lastActivity),
+      );
+      threads.remove(unsaved.first.key);
     }
   }
 
@@ -540,9 +572,36 @@ class ChatStore {
     return [if (entry.root != null) entry.root!, ...entry.replies];
   }
 
+  /// Live thread overview for [channel], newest activity first. Only threads
+  /// with more than one reply are listed (single replies stay reachable via
+  /// the message menu's View thread, but don't earn a dashboard row).
+  /// Decayed entries (pinned root whose replies all scrolled away) and empty
+  /// ones are skipped; orphan entries (replies seen before their root) are
+  /// included so the dashboard never hides a live thread.
+  List<ThreadSummary> activeThreads(String channel) {
+    final threads = _channelThreads[channel];
+    if (threads == null || threads.isEmpty) return const [];
+    final out = <ThreadSummary>[];
+    for (final e in threads.entries) {
+      if (e.value.replies.length <= 1) continue;
+      out.add(
+        ThreadSummary(
+          rootId: e.key,
+          root: e.value.root,
+          lastActivity: e.value.lastActivity,
+          replyCount: e.value.replies.length,
+        ),
+      );
+    }
+    out.sort((a, b) => b.lastActivity.compareTo(a.lastActivity));
+    return out;
+  }
+
   /// Decays evicted messages out of the thread map: replies that left the
-  /// channel buffer drop from their entry, while the pinned root survives so
-  /// the thread stays viewable after every member has scrolled away.
+  /// channel buffer drop from their entry. Saved threads never decay, and
+  /// entries whose replies all decayed are reaped so they stop occupying a
+  /// cap slot. Pinned roots of unsaved threads survive for the single-thread
+  /// view but hide from the dashboard (see [activeThreads]).
   void decayEvicted(String channel, Iterable<TwitchMessage> evicted) {
     final threads = _channelThreads[channel];
     if (threads == null || threads.isEmpty) return;
@@ -552,15 +611,14 @@ class ChatStore {
       final rootId = msg.replyThreadRootId;
       // Roots stay pinned; only reply membership decays.
       if (rootId == null || rootId == id) continue;
+      if (savedThreadKeys.contains('$channel:$rootId')) continue;
       final entry = threads[rootId];
       if (entry == null) continue;
       entry.replies.removeWhere((r) => identical(r, msg) || r.messageId == id);
+      if (entry.replies.isEmpty && entry.root == null) {
+        threads.remove(rootId);
+      }
     }
-  }
-
-  /// Drops a channel's thread entries (channel removed from the app).
-  void clearThreads(String channel) {
-    _channelThreads.remove(channel);
   }
 
   /// Marks every non-system message from [login] in [channel] as deleted
@@ -669,14 +727,33 @@ class ChatStore {
       }
     }
 
-    // Phase 4: collect indices to keep.
+    // Saved threads are exempt from pruning entirely: every member stays in
+    // memory (and on disk via SavedThreadsStore) forever, outside the
+    // maxMessages budget.
+    final savedIds = <String>{};
+    for (final entry in threadGroups.entries) {
+      if (savedThreadKeys.contains('$channel:${entry.key}')) {
+        for (final m in entry.value) {
+          if (m.messageId != null) savedIds.add(m.messageId!);
+        }
+      }
+    }
+
+    // Phase 4: collect indices to keep. System markers ride along for free;
+    // only chat messages spend the maxMessages budget.
     final keepIndices = <int>{};
     int nonThreadKept = 0;
     for (int i = 0; i < msgs.length; i++) {
       final m = msgs[i];
+      if (m.isSystem) {
+        keepIndices.add(i);
+        continue;
+      }
+      final isSavedThread =
+          m.messageId != null && savedIds.contains(m.messageId!);
       final isActiveThread =
           m.messageId != null && threadIds.contains(m.messageId!);
-      if (isActiveThread) {
+      if (isSavedThread || isActiveThread) {
         keepIndices.add(i);
       } else {
         final key = threadKeyFor(m, parentOf);

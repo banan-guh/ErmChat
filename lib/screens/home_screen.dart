@@ -41,6 +41,7 @@ import '../widgets/tabbed_layout.dart';
 import '../widgets/welcome_dialog.dart';
 import '../services/user_store.dart';
 import '../services/chat_store.dart';
+import '../services/saved_threads_store.dart';
 import '../services/suggestion.dart';
 import '../services/notification_service.dart';
 import '../services/tts_controller.dart';
@@ -360,6 +361,7 @@ class _HomeScreenState extends State<HomeScreen>
       _panelManager.mentionsSheetRatio;
 
   late final TabController _mentionsTabCtrl;
+  late final TabController _threadsTabCtrl;
   final _threadPanelScrollCtrl = FlutterListViewController();
   final _mentionsPanelScrollCtrl = FlutterListViewController();
 
@@ -379,6 +381,14 @@ class _HomeScreenState extends State<HomeScreen>
   int _unreadWhispers = 0;
   String? _whisperTarget;
 
+  // Threads dashboard state (view-only caches; the kernel owns the threads).
+  final _savedThreads = SavedThreadsStore();
+  // Last-viewed stamp per "$channel:$rootId"; a thread is unread while its
+  // kernel lastActivity runs ahead of this stamp.
+  final _threadLastSeen = <String, DateTime>{};
+  // Ticks the Active/Saved lists (they read the kernel + saved store live).
+  final _threadsListVersion = ValueNotifier(0);
+
   bool _mentionScanDone = false;
   String? _lastSentText;
 
@@ -397,8 +407,11 @@ class _HomeScreenState extends State<HomeScreen>
     _loadEmotePrefs();
     _mentionsTabCtrl = TabController(length: 2, vsync: this);
     _mentionsTabCtrl.addListener(_onMentionsTabChanged);
+    _threadsTabCtrl = TabController(length: 3, vsync: this);
+    _threadsTabCtrl.addListener(_onThreadsTabChanged);
     _panelManager.emoteSheetCtrl.addListener(_panelManager.onSheetSizeChanged);
     _loadMaxMessages();
+    unawaited(_loadSavedThreads());
     unawaited(
       _loadRecentMessagesConfig().then((_) {
         if (mounted) _ensureBlockedUsersLoaded();
@@ -1237,9 +1250,11 @@ class _HomeScreenState extends State<HomeScreen>
     _updateCooldownLabel();
     switch (event.signal) {
       case ChatStoreSignal.newContent:
+        _syncSavedWithChannel(event.channel);
         _onPanelDataChanged(event.channel);
       case ChatStoreSignal.channelTouched:
         _tileCache.remove(event.channel);
+        _syncSavedWithChannel(event.channel);
         _onPanelDataChanged(event.channel);
       case ChatStoreSignal.messageMutated:
         if (event.messageId != null) {
@@ -1249,6 +1264,31 @@ class _HomeScreenState extends State<HomeScreen>
         // system line in every path), so an open panel would keep rendering
         // the stale row.
         _onPanelDataChanged(event.channel);
+    }
+  }
+
+  // Appends channel buffer rows belonging to saved threads into the
+  // persisted full log. Skips channels with no saved threads; dedup by id
+  // keeps the per-event scan cheap and idempotent across history merges.
+  void _syncSavedWithChannel(String channel) {
+    var hasSaved = false;
+    for (final t in _savedThreads.threads) {
+      if (t.channel == channel) {
+        hasSaved = true;
+        break;
+      }
+    }
+    if (!hasSaved) return;
+    final msgs = _chatStore.channelMessages[channel];
+    if (msgs == null || msgs.isEmpty) return;
+    var appended = false;
+    for (final m in msgs) {
+      if (m.isSystem) continue;
+      if (_savedThreads.appendMessage(m)) appended = true;
+    }
+    if (appended) {
+      unawaited(_persistSavedThreads());
+      _threadsListVersion.value++;
     }
   }
 
@@ -1266,6 +1306,25 @@ class _HomeScreenState extends State<HomeScreen>
         ..clear()
         ..addAll(_computeThreadMessages());
       _threadMsgCount.value++;
+      // Watching the Thread tab marks it seen so the Active row does not flip
+      // back to unread while you stare at it.
+      if (_threadsTabCtrl.index == 0) {
+        final channel = _openThreadRoot!.channel;
+        final rootId =
+            _openThreadRoot!.replyThreadRootId ?? _openThreadRoot!.messageId;
+        if (channel != null && rootId != null) {
+          _threadLastSeen['$channel:$rootId'] = DateTime.now();
+        }
+      }
+      _threadsListVersion.value++;
+    } else if (_activePanel == OverlayPanel.thread) {
+      // Dashboard open without a thread selected: the Active list still moves.
+      if (changedChannel != null &&
+          changedChannel != _selectedChannel &&
+          changedChannel != _threadChannel) {
+        return;
+      }
+      _threadsListVersion.value++;
     } else if (_activePanel == OverlayPanel.mentions) {
       _mentionsMsgCount.value++;
       _whispersMsgCount.value++;
@@ -1696,11 +1755,14 @@ class _HomeScreenState extends State<HomeScreen>
     _focusNode.dispose();
     _mentionsTabCtrl.removeListener(_onMentionsTabChanged);
     _mentionsTabCtrl.dispose();
+    _threadsTabCtrl.removeListener(_onThreadsTabChanged);
+    _threadsTabCtrl.dispose();
     _threadPanelScrollCtrl.dispose();
     _mentionsPanelScrollCtrl.dispose();
     _whispersPanelScrollCtrl.dispose();
     _threadAtBottom.dispose();
     _threadMsgCount.dispose();
+    _threadsListVersion.dispose();
     _mentionsAtBottom.dispose();
     _mentionsMsgCount.dispose();
     _whispersAtBottom.dispose();
@@ -1836,6 +1898,7 @@ class _HomeScreenState extends State<HomeScreen>
     iosHaptic(HapticFeedback.mediumImpact);
     final threadRoot = _findThreadRoot(msg);
     final hasThread = threadRoot != null;
+    final threadSaved = hasThread && _isThreadSaved(threadRoot);
     showModalBottomSheet(
       context: context,
       builder: (ctx) => SafeArea(
@@ -1860,7 +1923,18 @@ class _HomeScreenState extends State<HomeScreen>
                   title: const Text('View thread'),
                   onTap: () {
                     Navigator.pop(ctx);
-                    _showThreadView(threadRoot);
+                    unawaited(_showThreadView(threadRoot));
+                  },
+                ),
+              if (hasThread)
+                ListTile(
+                  leading: Icon(
+                    threadSaved ? Icons.bookmark : Icons.bookmark_border,
+                  ),
+                  title: Text(threadSaved ? 'Unsave thread' : 'Save thread'),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _toggleSaveThread(threadRoot);
                   },
                 ),
               ListTile(
@@ -2093,6 +2167,13 @@ class _HomeScreenState extends State<HomeScreen>
         if (_chatStore.unreadMentions < 0) _chatStore.unreadMentions = 0;
       }
       _chatStore.messageKeys.removeWhere((k) => k.startsWith('$channel:'));
+      _threadLastSeen.removeWhere((k, _) => k.startsWith('$channel:'));
+      // Drop thread-panel state pointing at the departed channel so the
+      // Thread tab never renders a channel that is no longer joined. Saved
+      // bookmarks are global and intentionally survive.
+      if (_openThreadRoot?.channel == channel) _openThreadRoot = null;
+      if (_openThreadRoot == null) _threadMessages = [];
+      if (_threadChannel == channel) _threadChannel = null;
       if (_selectedChannel == channel) {
         _selectedChannel = _chatStore.channels.isNotEmpty
             ? _chatStore.channels.last
@@ -2159,8 +2240,12 @@ class _HomeScreenState extends State<HomeScreen>
       return;
     }
 
-    // The Mentions tab of the panel stays read-only.
+    // The Mentions tab of the panel stays read-only, as do the threads
+    // dashboard lists: replies are composed from the Thread tab only.
     if (_activePanel == OverlayPanel.mentions) {
+      return;
+    }
+    if (_activePanel == OverlayPanel.thread && _threadsTabCtrl.index != 0) {
       return;
     }
 
@@ -2175,6 +2260,9 @@ class _HomeScreenState extends State<HomeScreen>
 
     final threadRoot = _openThreadRoot;
     if (threadRoot != null) {
+      // The reply lands in the thread's channel, which can differ from the
+      // selected channel when a saved thread from another channel is open.
+      final targetChannel = threadRoot.channel ?? channel;
       final threadMsgs = _computeThreadMessages();
       final TwitchMessage? replyTo;
       if (_replyToRoot) {
@@ -2185,14 +2273,14 @@ class _HomeScreenState extends State<HomeScreen>
             login: '',
             text: '',
             messageId: rootId,
-            channel: channel,
+            channel: targetChannel,
           ),
         );
       } else {
         // Newest-first thread order: the latest reply sits at index 0.
         replyTo = threadMsgs.isNotEmpty ? threadMsgs.first : null;
       }
-      _doSendMessage(text, channel, replyTo: replyTo);
+      _doSendMessage(text, targetChannel, replyTo: replyTo);
     } else {
       _doSendMessage(text, channel);
     }
@@ -2315,25 +2403,34 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  Future<void> _showThreadView(TwitchMessage rootMsg) async {
+  Future<void> _showThreadView(
+    TwitchMessage rootMsg, {
+    bool switchChannel = true,
+  }) async {
     final channel = rootMsg.channel;
     if (channel == null) return;
     await _panelManager.closePanel();
-    if (_selectedChannel != channel) {
+    if (!mounted) return;
+    if (switchChannel && _selectedChannel != channel) {
       final idx = _chatStore.channels.indexOf(channel);
       if (idx >= 0) _onChannelChanged(idx);
     }
+    if (!mounted) return;
     setState(() {
       _activePanel = OverlayPanel.thread;
       _openThreadRoot = rootMsg;
     });
     _threadChannel = channel;
-    _threadMessages = _panelManager.computeThreadMessages(
-      openThreadRoot: _openThreadRoot,
-      channelMessages: _chatStore.channelMessages,
-      threadFor: (ch, rootId) => _chatStore.threadFor(ch, rootId),
-    );
+    _threadMessages = _computeThreadMessages();
     _threadMsgCount.value++;
+    final rootId = rootMsg.replyThreadRootId ?? rootMsg.messageId;
+    if (rootId != null) {
+      _threadLastSeen['$channel:$rootId'] = DateTime.now();
+      _threadsListVersion.value++;
+    }
+    // Jump, don't animate: the panel opens already on the Thread tab, so an
+    // animateTo would flash the strip swiping over from Active/Saved.
+    _threadsTabCtrl.index = 0;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         _panelManager.animateRatio(
@@ -2346,8 +2443,212 @@ class _HomeScreenState extends State<HomeScreen>
     });
   }
 
+  // Opens the threads dashboard (Thread | Active | Saved tabs) without
+  // dropping a currently open thread: the Thread tab keeps its rows so the
+  // dashboard can be browsed and returned from.
+  Future<void> _showThreadsDashboard({int tab = 1}) async {
+    final prevRoot = _openThreadRoot;
+    final prevMsgs = List.of(_threadMessages);
+    final prevChannel = _threadChannel;
+    await _panelManager.closePanel();
+    if (!mounted) return;
+    _focusNode.unfocus();
+    setState(() {
+      _activePanel = OverlayPanel.thread;
+    });
+    // closePanel clears the manager's root; restore the open thread so the
+    // Thread tab survives dashboard browsing. Active stays per selected
+    // channel; the Thread tab may show another channel's thread.
+    _openThreadRoot = prevRoot;
+    _panelManager.openThreadRoot = prevRoot;
+    _threadMessages = prevMsgs;
+    _threadChannel = prevRoot?.channel ?? prevChannel ?? _selectedChannel;
+    // Same no-flash jump as _showThreadView: the sheet opens already on the
+    // requested tab.
+    _threadsTabCtrl.index = tab.clamp(0, 2);
+    _threadsListVersion.value++;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _panelManager.animateRatio(
+          _panelManager.threadSheetRatio,
+          0.0,
+          _PanelManager.fullHeightFraction,
+          _PanelManager.sheetAnimDuration,
+        );
+      }
+    });
+  }
+
+  Future<void> _loadSavedThreads() async {
+    try {
+      await _savedThreads.load();
+      _syncSavedKeys();
+      if (mounted) _threadsListVersion.value++;
+    } catch (_) {
+      // Corrupt storage never blocks startup; dashboard just starts empty.
+    }
+  }
+
+  Future<void> _persistSavedThreads() async {
+    try {
+      await _savedThreads.flush();
+    } catch (_) {
+      // Best effort; the in-memory list still works for the session.
+    }
+  }
+
+  void _syncSavedKeys() {
+    _chatStore.savedThreadKeys
+      ..clear()
+      ..addAll(_savedThreads.keys);
+  }
+
+  String? _threadRootIdOf(TwitchMessage msg) =>
+      msg.replyThreadRootId ?? msg.messageId;
+
+  bool _isThreadSaved(TwitchMessage rootMsg) {
+    final channel = rootMsg.channel;
+    final rootId = _threadRootIdOf(rootMsg);
+    if (channel == null || rootId == null) return false;
+    return _savedThreads.isSaved(channel, rootId);
+  }
+
+  // Resolves the actual root message for a thread key, so bookmarks snapshot
+  // the root's author/text instead of whichever reply the user long-pressed.
+  TwitchMessage? _resolveThreadRootMessage(String channel, String rootId) {
+    final indexed = _chatStore.threadFor(channel, rootId);
+    if (indexed != null) {
+      for (final m in indexed) {
+        if (m.messageId == rootId) return m;
+      }
+    }
+    final buffered = _chatStore.channelMessages[channel];
+    if (buffered != null) {
+      for (final m in buffered) {
+        if (m.messageId == rootId) return m;
+      }
+    }
+    final logged = _savedThreads.messagesFor(channel, rootId);
+    for (final m in logged) {
+      if (m.messageId == rootId) return m;
+    }
+    return null;
+  }
+
+  // Newest message of a thread by timestamp (insertion order is not a sort
+  // contract: history batches can arrive out of order).
+  TwitchMessage? _newestThreadMessage(List<TwitchMessage> msgs) {
+    if (msgs.isEmpty) return null;
+    var best = msgs.first;
+    for (final m in msgs.skip(1)) {
+      if (m.timestamp.isAfter(best.timestamp)) best = m;
+    }
+    return best;
+  }
+
+  void _toggleSaveThread(TwitchMessage rootMsg) {
+    final channel = rootMsg.channel?.toLowerCase();
+    final rootId = _threadRootIdOf(rootMsg);
+    if (channel == null || rootId == null) return;
+    final resolved = _resolveThreadRootMessage(channel, rootId) ?? rootMsg;
+    final willEvict =
+        !_savedThreads.isSaved(channel, rootId) &&
+        _savedThreads.threads.length >= maxSavedThreads;
+    final fullLog = _computeThreadMessagesFor(channel, rootId);
+    final saved = _savedThreads.toggle(
+      SavedThread.fromMessage(resolved, rootId),
+      fullLog.isEmpty ? [resolved] : fullLog,
+    );
+    _syncSavedKeys();
+    unawaited(_persistSavedThreads());
+    _threadsListVersion.value++;
+    if (mounted) {
+      setState(() {});
+      ScaffoldMessenger.of(context).showSnackBar(
+        _snackBar(
+          saved
+              ? (willEvict ? 'Thread saved (oldest removed)' : 'Thread saved')
+              : 'Thread unsaved',
+        ),
+      );
+    }
+  }
+
+  // Full log for a thread key: live store first, then the persisted log for
+  // saved threads (dedup by id, newest-first). Used at save time and by the
+  // thread view so saved threads render fully offline.
+  List<TwitchMessage> _computeThreadMessagesFor(String channel, String rootId) {
+    final seen = <String>{};
+    final out = <TwitchMessage>[];
+    void add(TwitchMessage m) {
+      final id = m.messageId;
+      if (id != null) {
+        if (!seen.add(id)) return;
+      }
+      out.add(m);
+    }
+
+    final live = _chatStore.threadFor(channel, rootId);
+    if (live != null) {
+      for (final m in live) {
+        add(m);
+      }
+    } else {
+      final buffered = _chatStore.channelMessages[channel];
+      if (buffered != null) {
+        final parentOf = <String, String>{};
+        for (final m in buffered) {
+          if (m.replyToParentId != null && m.messageId != null) {
+            parentOf[m.messageId!] = m.replyToParentId!;
+          }
+        }
+        for (final m in buffered) {
+          if (threadKeyFor(m, parentOf) == rootId) add(m);
+        }
+      }
+    }
+    if (_savedThreads.isSaved(channel, rootId)) {
+      for (final m in _savedThreads.messagesFor(channel, rootId)) {
+        add(m);
+      }
+    }
+    out.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    return out;
+  }
+
+  void _openActiveThread(ThreadSummary summary, String channel) {
+    final msgs = _chatStore.threadFor(channel, summary.rootId);
+    TwitchMessage? target = summary.root;
+    target ??= msgs?.firstOrNull;
+    target ??= _resolveThreadRootMessage(channel, summary.rootId);
+    if (target == null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(_snackBar('Thread no longer available'));
+      return;
+    }
+    unawaited(_showThreadView(target));
+  }
+
+  void _openSavedThread(SavedThread entry) {
+    // Saved threads open offline: the persisted log renders even when the
+    // channel is not joined, and no channel switch happens in that case.
+    final joined = _chatStore.channels.contains(entry.channel);
+    final target =
+        _resolveThreadRootMessage(entry.channel, entry.rootId) ??
+        TwitchMessage(
+          login: entry.login.isNotEmpty ? entry.login : 'thread',
+          displayName: entry.author.isNotEmpty ? entry.author : entry.login,
+          text: '',
+          messageId: entry.rootId,
+          channel: entry.channel,
+        );
+    unawaited(_showThreadView(target, switchChannel: joined));
+  }
+
   Future<void> _showMentionsView() async {
     await _panelManager.closePanel();
+    if (!mounted) return;
     _focusNode.unfocus();
     setState(() {
       _activePanel = OverlayPanel.mentions;
@@ -2425,11 +2726,38 @@ class _HomeScreenState extends State<HomeScreen>
   );
 
   List<TwitchMessage> _computeThreadMessages() {
-    return _panelManager.computeThreadMessages(
+    final live = _panelManager.computeThreadMessages(
       openThreadRoot: _openThreadRoot,
       channelMessages: _chatStore.channelMessages,
       threadFor: (ch, rootId) => _chatStore.threadFor(ch, rootId),
     );
+    // Saved threads merge the persisted full log so the view survives buffer
+    // eviction and restarts. Live rows win on id conflicts.
+    final root = _openThreadRoot;
+    final channel = root?.channel;
+    final rootId = root == null
+        ? null
+        : (root.replyThreadRootId ?? root.messageId);
+    if (channel == null || rootId == null) return live;
+    if (!_savedThreads.isSaved(channel, rootId)) return live;
+    final seen = <String>{};
+    final out = <TwitchMessage>[];
+    for (final m in live) {
+      final id = m.messageId;
+      if (id != null) {
+        if (!seen.add(id)) continue;
+      }
+      out.add(m);
+    }
+    for (final m in _savedThreads.messagesFor(channel, rootId)) {
+      final id = m.messageId;
+      if (id != null) {
+        if (!seen.add(id)) continue;
+      }
+      out.add(m);
+    }
+    out.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    return out;
   }
 
   void _showUserProfile(
@@ -2555,6 +2883,23 @@ class _HomeScreenState extends State<HomeScreen>
       if (_chatStore.unreadMentions < 0) _chatStore.unreadMentions = 0;
       _unreadWhispers = 0;
       _chatStore.mentionsBump.value++;
+    }
+    setState(() {});
+  }
+
+  void _onThreadsTabChanged() {
+    if (_threadsTabCtrl.indexIsChanging) return;
+    iosHaptic(HapticFeedback.selectionClick);
+    // Returning to the Thread tab marks the open thread seen so its Active
+    // row clears its unread highlight.
+    if (_threadsTabCtrl.index == 0 && _openThreadRoot != null) {
+      final channel = _openThreadRoot!.channel;
+      final rootId =
+          _openThreadRoot!.replyThreadRootId ?? _openThreadRoot!.messageId;
+      if (channel != null && rootId != null) {
+        _threadLastSeen['$channel:$rootId'] = DateTime.now();
+        _threadsListVersion.value++;
+      }
     }
     setState(() {});
   }
@@ -2895,6 +3240,9 @@ class _HomeScreenState extends State<HomeScreen>
                     ),
                     onSelected: (value) {
                       switch (value) {
+                        case 'threads':
+                          _showThreadsDashboard(tab: 1);
+                          break;
                         case 'upload':
                           _uploadController.pickAndUpload(context);
                           break;
@@ -2921,6 +3269,16 @@ class _HomeScreenState extends State<HomeScreen>
                         ),
                       ),
                       PopupMenuDivider(),
+                      PopupMenuItem(
+                        value: 'threads',
+                        child: Row(
+                          children: [
+                            Icon(Icons.forum, size: 20),
+                            SizedBox(width: 12),
+                            Text('Threads'),
+                          ],
+                        ),
+                      ),
                       PopupMenuItem(
                         value: 'upload',
                         child: Text('Upload media'),
@@ -3119,13 +3477,13 @@ class _HomeScreenState extends State<HomeScreen>
               children: [
                 IconButton(
                   icon: const Icon(Icons.close),
-                  tooltip: 'Close reply thread',
+                  tooltip: 'Close',
                   onPressed: _closePanel,
                 ),
                 const SizedBox(width: 4),
                 Expanded(
                   child: Text(
-                    'Reply Thread',
+                    'Threads',
                     style: TextStyle(
                       fontSize: 20,
                       color: Theme.of(context).colorScheme.onSurface,
@@ -3135,31 +3493,168 @@ class _HomeScreenState extends State<HomeScreen>
               ],
             ),
           ),
+          TabBar(
+            controller: _threadsTabCtrl,
+            padding: EdgeInsets.fromLTRB(100.0, 0.0, 100.0, 0.0),
+            // Three tabs in the mentions-width island: center the strip so it
+            // reads the same, and let it scroll instead of clipping labels on
+            // narrow phones.
+            isScrollable: true,
+            tabAlignment: TabAlignment.center,
+            tabs: const [
+              Tab(text: 'Thread'),
+              Tab(text: 'Active'),
+              Tab(text: 'Saved'),
+            ],
+          ),
           Divider(height: 1, color: Theme.of(context).dividerColor),
         ],
       ),
-      body: ChatView(
-        key: const ValueKey('thread_panel'),
-        channel: _threadChannel ?? '',
-        messages: _threadMessages,
-        atBottomNotifier: _threadAtBottom,
-        messageNotifier: _threadMsgCount,
-        scrollController: _threadPanelScrollCtrl,
-        messageBuilder: _messageBuilder,
-        showTimestamp: _showTimestamps,
-        timestampFormat: _timestampFormat,
-        chatFontScale: _chatFontSize / 14.0,
-        checkeredMessages: _checkeredMessages,
-        highlightOpacity: _highlightOpacity,
-        lineSeparator: _lineSeparator,
-        sharedChatMode: _sharedChatMode,
-        paintService: _showNamePaints ? _sevenTvPaintService : null,
-        onShowUserProfile: _showUserProfile,
-        onShowMessageMenu: _showPanelMessageMenu,
-        onCopyMessage: _copyMessageToClipboard,
-        showReplyIndicators: false,
-        emptyText: 'No messages found',
+      body: TabBarView(
+        controller: _threadsTabCtrl,
+        children: [
+          ChatView(
+            key: const ValueKey('thread_panel'),
+            channel: _threadChannel ?? '',
+            messages: _threadMessages,
+            atBottomNotifier: _threadAtBottom,
+            messageNotifier: _threadMsgCount,
+            scrollController: _threadPanelScrollCtrl,
+            messageBuilder: _messageBuilder,
+            showTimestamp: _showTimestamps,
+            timestampFormat: _timestampFormat,
+            chatFontScale: _chatFontSize / 14.0,
+            checkeredMessages: _checkeredMessages,
+            highlightOpacity: _highlightOpacity,
+            lineSeparator: _lineSeparator,
+            sharedChatMode: _sharedChatMode,
+            paintService: _showNamePaints ? _sevenTvPaintService : null,
+            onShowUserProfile: _showUserProfile,
+            onShowMessageMenu: _showPanelMessageMenu,
+            onCopyMessage: _copyMessageToClipboard,
+            showReplyIndicators: false,
+            emptyText: 'No messages found',
+          ),
+          _buildActiveThreadsList(),
+          _buildSavedThreadsList(),
+        ],
       ),
+    );
+  }
+
+  bool _isThreadUnread(String channel, ThreadSummary summary) {
+    final seen = _threadLastSeen['$channel:${summary.rootId}'];
+    if (seen == null) return true;
+    return summary.lastActivity.isAfter(seen);
+  }
+
+  Widget _buildActiveThreadsList() {
+    return ValueListenableBuilder<int>(
+      valueListenable: _threadsListVersion,
+      builder: (context, _, _) {
+        final channel = _selectedChannel ?? _threadChannel;
+        if (channel == null) {
+          return const Center(child: Text('Join a channel to see threads'));
+        }
+        final threads = _chatStore.activeThreads(channel);
+        if (threads.isEmpty) {
+          return const Center(child: Text('No active threads'));
+        }
+        final theme = Theme.of(context);
+        return ListView.builder(
+          itemCount: threads.length,
+          itemBuilder: (context, i) {
+            final summary = threads[i];
+            final unread = _isThreadUnread(channel, summary);
+            // Orphan threads have no root yet; show the newest reply by
+            // timestamp so the row still identifies the conversation.
+            final live = _chatStore.threadFor(channel, summary.rootId);
+            final display =
+                summary.root ??
+                (live == null ? null : _newestThreadMessage(live));
+            final author = display != null
+                ? (display.displayName.isNotEmpty
+                      ? display.displayName
+                      : display.login)
+                : 'Thread';
+            final preview = display != null ? display.text : '';
+            final saved = _savedThreads.isSaved(channel, summary.rootId);
+            return ListTile(
+              leading: const Icon(Icons.forum),
+              title: Text(
+                preview.isEmpty ? author : '$author: $preview',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontWeight: unread ? FontWeight.w600 : FontWeight.normal,
+                  color: unread ? theme.colorScheme.onSurface : null,
+                ),
+              ),
+              subtitle: Text(
+                '${summary.replyCount} '
+                '${summary.replyCount == 1 ? 'reply' : 'replies'}'
+                ' · ${formatTimestamp(summary.lastActivity, _timestampFormat)}',
+              ),
+              trailing: display == null
+                  ? null
+                  : IconButton(
+                      icon: Icon(
+                        saved ? Icons.bookmark : Icons.bookmark_border,
+                      ),
+                      tooltip: saved ? 'Unsave thread' : 'Save thread',
+                      onPressed: () => _toggleSaveThread(display),
+                    ),
+              onTap: () => _openActiveThread(summary, channel),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildSavedThreadsList() {
+    return ValueListenableBuilder<int>(
+      valueListenable: _threadsListVersion,
+      builder: (context, _, _) {
+        final saved = _savedThreads.threads;
+        if (saved.isEmpty) {
+          return const Center(child: Text('No saved threads yet'));
+        }
+        return ListView.builder(
+          itemCount: saved.length,
+          itemBuilder: (context, i) {
+            final entry = saved[i];
+            return ListTile(
+              leading: const Icon(Icons.bookmark),
+              title: Text(
+                entry.preview.isEmpty
+                    ? entry.author
+                    : '${entry.author}: ${entry.preview}',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+              subtitle: Text('#${entry.channel}'),
+              trailing: IconButton(
+                icon: const Icon(Icons.bookmark),
+                tooltip: 'Unsave thread',
+                onPressed: () {
+                  _savedThreads.remove(entry.channel, entry.rootId);
+                  _syncSavedKeys();
+                  unawaited(_persistSavedThreads());
+                  _threadsListVersion.value++;
+                  if (mounted) {
+                    setState(() {});
+                    ScaffoldMessenger.of(
+                      context,
+                    ).showSnackBar(_snackBar('Thread unsaved'));
+                  }
+                },
+              ),
+              onTap: () => _openSavedThread(entry),
+            );
+          },
+        );
+      },
     );
   }
 
@@ -3347,6 +3842,8 @@ class _HomeScreenState extends State<HomeScreen>
                       enabled:
                           (_activePanel != OverlayPanel.mentions ||
                               _isWhispersTabActive) &&
+                          (_activePanel != OverlayPanel.thread ||
+                              _threadsTabCtrl.index == 0) &&
                           widget.twitchAuth.isConfigured &&
                           _chatConn.isChatPipeConnected &&
                           (_isWhispersTabActive || _channelChatReady),
@@ -3367,8 +3864,11 @@ class _HomeScreenState extends State<HomeScreen>
                                   (ChatPhase.online, _, false, false)
                                       when _selectedChannel != null =>
                                     'Disconnected',
-                                  (_, OverlayPanel.thread, _, _) =>
+                                  (_, OverlayPanel.thread, _, _)
+                                      when _threadsTabCtrl.index == 0 =>
                                     'Reply to thread...',
+                                  (_, OverlayPanel.thread, _, _) =>
+                                    'Select a thread to reply...',
                                   (_, _, true, _) =>
                                     _whisperTarget != null
                                         ? 'Whisper to $_whisperTarget...'
@@ -3822,8 +4322,13 @@ class _PanelManager {
       );
     }
     if (isMounted()) {
-      activePanel = OverlayPanel.closed;
-      openThreadRoot = null;
+      // A reopen racing the close animation wins: only clear when the panel
+      // is still the one that started closing (e.g. rapid thread-to-thread
+      // taps must not wipe the newly opened root).
+      if (activePanel == panelToClose) {
+        activePanel = OverlayPanel.closed;
+        openThreadRoot = null;
+      }
       panelScaleCtrl.value = 1.0;
       markDirty();
     }
