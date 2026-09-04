@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../models/twitch_message.dart';
 import '../services/twitch_api.dart';
 import '../services/twitch_auth.dart';
 import '../util/log.dart';
@@ -17,6 +18,27 @@ class UserProfileSheet extends StatefulWidget {
   final void Function(String login)? onUserBlocked;
   final VoidCallback? onWhisperUser;
 
+  /// Scroll controller from the wrapping DraggableScrollableSheet. A local
+  /// one is used when null (e.g. tests embedding the sheet directly).
+  final ScrollController? scrollController;
+
+  /// Sheet controller for the wrapping DraggableScrollableSheet. Drives the
+  /// expand arrow (tap jumps to full, arrow hides once revealed). Null in
+  /// tests, where the arrow is shown but inert.
+  final DraggableScrollableController? sheetController;
+
+  /// Sheet extent the card opens at. The arrow shows while the sheet is at
+  /// or below this size and the history is unscrolled.
+  final double sheetCollapsedExtent;
+
+  /// Snapshot of this user's buffered messages, oldest first. Rendered
+  /// read-only below the fold; empty shows a placeholder row instead.
+  final List<TwitchMessage> userMessages;
+
+  /// Builds one history row with full chat styling. Null hides the section.
+  final Widget Function(BuildContext context, TwitchMessage message)?
+  messageRowBuilder;
+
   const UserProfileSheet({
     super.key,
     required this.username,
@@ -29,6 +51,11 @@ class UserProfileSheet extends StatefulWidget {
     required this.onClose,
     this.onUserBlocked,
     this.onWhisperUser,
+    this.scrollController,
+    this.sheetController,
+    this.sheetCollapsedExtent = 0.5,
+    this.userMessages = const [],
+    this.messageRowBuilder,
   });
 
   @override
@@ -40,17 +67,80 @@ class UserProfileSheetState extends State<UserProfileSheet> {
   bool _loading = true;
   String? _error;
   bool _anonymous = false;
+  bool _arrowVisible = true;
+  bool _arrowUp = false;
+  ScrollController? _fallbackController;
+
+  ScrollController get _scrollController =>
+      widget.scrollController ?? (_fallbackController ??= ScrollController());
+
+  bool get _hasHistory =>
+      widget.messageRowBuilder != null && widget.userMessages.isNotEmpty;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.sheetController?.addListener(_refreshArrow);
+    _fetchProfile();
+  }
+
+  @override
+  void dispose() {
+    widget.sheetController?.removeListener(_refreshArrow);
+    _fallbackController?.dispose();
+    super.dispose();
+  }
+
+  // The floating arrow hints at below-fold history. Scrolled, it flips up
+  // and glides back to the top. It hides once the sheet grows past opening.
+  void _onScrollPixels(double pixels) {
+    final up = pixels > 4;
+    if (up != _arrowUp && mounted) setState(() => _arrowUp = up);
+    _refreshArrow();
+  }
+
+  void _refreshArrow() {
+    if (!mounted) return;
+    final controller = widget.sheetController;
+    final extent = controller != null && controller.isAttached
+        ? controller.size
+        : null;
+    final visible =
+        _hasHistory &&
+        (_arrowUp ||
+            extent == null ||
+            extent <= widget.sheetCollapsedExtent + 0.05);
+    if (visible != _arrowVisible) setState(() => _arrowVisible = visible);
+  }
+
+  void _onArrowTap() {
+    // Scrolled: glide back to the top instead of fighting the sheet.
+    if (_arrowUp) {
+      _scrollController.animateTo(
+        0,
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeOut,
+      );
+      return;
+    }
+    _expandSheet();
+  }
+
+  void _expandSheet() {
+    final controller = widget.sheetController;
+    if (controller == null || !controller.isAttached) return;
+    // Clamps to maxChildSize automatically.
+    controller.animateTo(
+      1,
+      duration: const Duration(milliseconds: 250),
+      curve: Curves.easeOut,
+    );
+  }
 
   String get _formattedDisplayName {
     final display = _profile?['display_name'] as String? ?? widget.displayName;
     if (display.toLowerCase() == widget.username.toLowerCase()) return display;
     return '${widget.username}($display)';
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    _fetchProfile();
   }
 
   Future<void> _fetchProfile() async {
@@ -102,135 +192,232 @@ class UserProfileSheetState extends State<UserProfileSheet> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final actions = _profile != null ? _buildActionTiles() : const <Widget>[];
 
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Center(
-            child: Container(
-              width: 32,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.grey[400],
-                borderRadius: BorderRadius.circular(2),
+    return Stack(
+      children: [
+        NotificationListener<ScrollUpdateNotification>(
+          onNotification: (notification) {
+            _onScrollPixels(notification.metrics.pixels);
+            return false;
+          },
+          child: CustomScrollView(
+            controller: _scrollController,
+            slivers: [
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 16),
+                  child: Center(
+                    child: Container(
+                      width: 32,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[400],
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                ),
               ),
-            ),
+              const SliverToBoxAdapter(child: SizedBox(height: 16)),
+              if (_loading) ...[
+                const SliverToBoxAdapter(
+                  child: Center(
+                    child: Padding(
+                      padding: EdgeInsets.all(24),
+                      child: CircularProgressIndicator(),
+                    ),
+                  ),
+                ),
+              ] else if (_error != null) ...[
+                SliverToBoxAdapter(
+                  child: Center(
+                    child: Text(
+                      _error!,
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                ),
+              ] else ...[
+                SliverPadding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  sliver: SliverToBoxAdapter(child: _buildProfileHeader(theme)),
+                ),
+                if (_profile != null)
+                  SliverList.builder(
+                    itemCount: actions.length,
+                    itemBuilder: (context, i) => actions[i],
+                  ),
+                // History is buffer-local, so it shows for anonymous too.
+                // Rows live below the fold; the floating arrow hints at them.
+                if (widget.messageRowBuilder != null) ...[
+                  const SliverToBoxAdapter(child: Divider()),
+                  if (widget.userMessages.isEmpty)
+                    SliverToBoxAdapter(child: _buildHistoryEmpty(theme))
+                  else
+                    SliverList.builder(
+                      itemCount: widget.userMessages.length,
+                      itemBuilder: (context, i) => widget.messageRowBuilder!(
+                        context,
+                        widget.userMessages[i],
+                      ),
+                    ),
+                ],
+              ],
+              const SliverToBoxAdapter(child: SizedBox(height: 24)),
+            ],
           ),
-          const SizedBox(height: 16),
-          if (_loading) ...[
-            const Center(
-              child: Padding(
-                padding: EdgeInsets.all(24),
-                child: CircularProgressIndicator(),
-              ),
-            ),
-          ] else if (_error != null) ...[
-            Center(
-              child: Text(
-                _error!,
-                style: TextStyle(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+        ),
+        if (_hasHistory)
+          Positioned(
+            bottom: 16 + MediaQuery.paddingOf(context).bottom,
+            left: 0,
+            right: 0,
+            child: Center(
+              child: AnimatedOpacity(
+                opacity: _arrowVisible ? 1 : 0,
+                duration: const Duration(milliseconds: 200),
+                child: IgnorePointer(
+                  ignoring: !_arrowVisible,
+                  child: ExcludeSemantics(
+                    excluding: !_arrowVisible,
+                    child: _buildHistoryArrow(theme),
+                  ),
                 ),
               ),
             ),
-          ] else if (_anonymous) ...[
-            Row(
+          ),
+      ],
+    );
+  }
+
+  Widget _buildHistoryArrow(ThemeData theme) {
+    return Material(
+      shape: const CircleBorder(),
+      elevation: 3,
+      color: theme.colorScheme.surfaceContainerHighest,
+      child: IconButton(
+        tooltip: _arrowUp ? 'Back to top' : 'Show recent messages',
+        icon: Icon(
+          _arrowUp ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
+        ),
+        color: theme.colorScheme.onSurfaceVariant,
+        onPressed: _onArrowTap,
+      ),
+    );
+  }
+
+  Widget _buildHistoryEmpty(ThemeData theme) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+      child: Text(
+        'No recent messages from this user here yet',
+        style: TextStyle(
+          fontSize: 13,
+          color: theme.colorScheme.onSurfaceVariant,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildProfileHeader(ThemeData theme) {
+    if (_anonymous) {
+      return Row(
+        children: [
+          Container(
+            width: 64,
+            height: 64,
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surfaceContainerHighest,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(
+              Icons.person,
+              size: 32,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Container(
-                  width: 64,
-                  height: 64,
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.surfaceContainerHighest,
-                    borderRadius: BorderRadius.circular(8),
+                Text(
+                  _formattedDisplayName,
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600,
+                    color: theme.colorScheme.onSurface,
                   ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Connect an account to see profile',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Image.network(
+                _profile!['profile_image_url'] as String? ?? '',
+                width: 96,
+                height: 96,
+                fit: BoxFit.cover,
+                errorBuilder: (_, _, _) => Container(
+                  width: 96,
+                  height: 96,
+                  color: theme.colorScheme.surfaceContainerHighest,
                   child: Icon(
                     Icons.person,
                     size: 32,
                     color: theme.colorScheme.onSurfaceVariant,
                   ),
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        _formattedDisplayName,
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w600,
-                          color: theme.colorScheme.onSurface,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        'Connect an account to see profile',
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: theme.colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
+              ),
             ),
-          ] else if (_profile != null) ...[
-            Row(
-              children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: Image.network(
-                    _profile!['profile_image_url'] as String? ?? '',
-                    width: 96,
-                    height: 96,
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, _, _) => Container(
-                      width: 96,
-                      height: 96,
-                      color: theme.colorScheme.surfaceContainerHighest,
-                      child: Icon(
-                        Icons.person,
-                        size: 32,
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _formattedDisplayName,
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w600,
+                      color: theme.colorScheme.onSurface,
                     ),
                   ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        _formattedDisplayName,
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w600,
-                          color: theme.colorScheme.onSurface,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        'Created: ${_formatDate(_profile!['created_at'] as String? ?? '')}',
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: theme.colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ],
+                  const SizedBox(height: 2),
+                  Text(
+                    'Created: ${_formatDate(_profile!['created_at'] as String? ?? '')}',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-            const SizedBox(height: 12),
-            ..._buildActionTiles(),
           ],
-        ],
-      ),
+        ),
+        const SizedBox(height: 12),
+      ],
     );
   }
 

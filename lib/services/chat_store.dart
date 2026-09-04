@@ -636,6 +636,25 @@ class ChatStore {
     if (touched) touchChannel(channel);
   }
 
+  /// Newest-first non-system messages from [login] in [channel].
+  List<TwitchMessage> recentMessagesFromUser(
+    String channel,
+    String login, {
+    int limit = 50,
+  }) {
+    final want = login.toLowerCase();
+    if (want.isEmpty || limit <= 0) return [];
+    final msgs = channelMessages[channel];
+    if (msgs == null) return [];
+    final out = <TwitchMessage>[];
+    for (final msg in msgs) {
+      if (out.length >= limit) break;
+      if (msg.isSystem || msg.login.toLowerCase() != want) continue;
+      out.add(msg);
+    }
+    return out;
+  }
+
   /// Marks the non-system message with [messageId] as deleted (CLEARMSG,
   /// mod deletes). Returns false when no such live row exists.
   bool markMessageDeleted(String channel, String messageId) {

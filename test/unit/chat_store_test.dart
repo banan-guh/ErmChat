@@ -496,4 +496,56 @@ void main() {
       expect(ids.length, lessThanOrEqualTo(65));
     });
   });
+
+  group('ChatStore.recentMessagesFromUser', () {
+    TwitchMessage msg(String login, String text) =>
+        TwitchMessage(login: login, text: text, channel: 'test');
+
+    test('returns newest-first matches, skips system rows', () {
+      final store = _store();
+      store.channelMessages['test'] = [
+        msg('bob', 'new'),
+        msg('alice', 'skip me'),
+        TwitchMessage(login: '', text: 'sys', isSystem: true, channel: 'test'),
+        msg('bob', 'old'),
+      ];
+      final out = store.recentMessagesFromUser('test', 'bob');
+      expect(out.map((m) => m.text), ['new', 'old']);
+    });
+
+    test('matches case-insensitively and honors limit', () {
+      final store = _store();
+      store.channelMessages['test'] = [
+        msg('bob', 'c'),
+        msg('BOB', 'b'),
+        msg('bob', 'a'),
+      ];
+      expect(
+        store
+            .recentMessagesFromUser('test', 'BoB', limit: 2)
+            .map((m) => m.text),
+        ['c', 'b'],
+      );
+    });
+
+    test('empty for unknown channel, blank login, or non-positive limit', () {
+      final store = _store();
+      store.channelMessages['test'] = [msg('bob', 'hi')];
+      expect(store.recentMessagesFromUser('test', 'missing'), isEmpty);
+      expect(store.recentMessagesFromUser('missing', 'bob'), isEmpty);
+      expect(store.recentMessagesFromUser('test', ''), isEmpty);
+      expect(store.recentMessagesFromUser('test', 'bob', limit: 0), isEmpty);
+    });
+
+    test('default limit keeps the 50 newest', () {
+      final store = _store();
+      store.channelMessages['test'] = [
+        for (var i = 60; i >= 1; i--) msg('bob', 'm$i'),
+      ];
+      final out = store.recentMessagesFromUser('test', 'bob');
+      expect(out, hasLength(50));
+      expect(out.first.text, 'm60');
+      expect(out.last.text, 'm11');
+    });
+  });
 }

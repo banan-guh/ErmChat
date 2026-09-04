@@ -47,6 +47,7 @@ import '../services/suggestion.dart';
 import '../services/notification_service.dart';
 import '../services/tts_controller.dart';
 import '../widgets/autocomplete_dropdown.dart';
+import '../widgets/chat_message_tile.dart';
 import '../widgets/user_profile_sheet.dart';
 import '../widgets/emote_sheet.dart';
 import '../widgets/nuke_overlay.dart';
@@ -2811,20 +2812,83 @@ class _HomeScreenState extends State<HomeScreen>
     String? userId, {
     String? displayName,
   }) {
+    final channel = _selectedChannel;
+    // Buffer snapshot oldest-first like chat; short-lived, so no subscription.
+    final history = channel == null
+        ? const <TwitchMessage>[]
+        : _chatStore
+              .recentMessagesFromUser(channel, username)
+              .reversed
+              .toList();
+    // Threads panels top out below the status bar; match that edge here.
+    final screenH = MediaQuery.sizeOf(context).height;
+    final maxChildSize =
+        (screenH - MediaQuery.paddingOf(context).top) / screenH;
+    final sheetController = DraggableScrollableController();
+    // Compact card: history reveals by scrolling. Detents are card and full
+    // only. Releasing below card slides to min, which pops the route, so
+    // dismissal never rests mid-way.
+    const initialChildSize = 0.42;
+    const minExtent = 0.25;
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      builder: (ctx) => UserProfileSheet(
-        username: username,
-        displayName: displayName ?? username,
-        userId: userId,
-        twitchApi: _twitchApi,
-        twitchAuth: widget.twitchAuth,
-        messageController: _messageController,
-        focusNode: _focusNode,
-        onClose: () => Navigator.pop(ctx),
-        onUserBlocked: _onUserBlocked,
-        onWhisperUser: () => _showWhispersForUser(username),
+      builder: (ctx) => DraggableScrollableSheet(
+        controller: sheetController,
+        initialChildSize: initialChildSize,
+        minChildSize: minExtent,
+        maxChildSize: maxChildSize,
+        expand: false,
+        snap: true,
+        snapSizes: [initialChildSize, maxChildSize],
+        builder: (_, scrollController) => UserProfileSheet(
+          username: username,
+          displayName: displayName ?? username,
+          userId: userId,
+          twitchApi: _twitchApi,
+          twitchAuth: widget.twitchAuth,
+          messageController: _messageController,
+          focusNode: _focusNode,
+          onClose: () => Navigator.pop(ctx),
+          onUserBlocked: _onUserBlocked,
+          onWhisperUser: () => _showWhispersForUser(username),
+          scrollController: scrollController,
+          sheetController: sheetController,
+          sheetCollapsedExtent: initialChildSize,
+          userMessages: history,
+          messageRowBuilder: _buildUserHistoryRow,
+        ),
+      ),
+    ).whenComplete(sheetController.dispose);
+  }
+
+  // Read-only history row for the user card: full chat styling, but no
+  // profile recursion, menus, or reply affordances. Double-tap copies.
+  Widget _buildUserHistoryRow(BuildContext context, TwitchMessage msg) {
+    final theme = Theme.of(context);
+    // Same background the modal sheet paints, so rows blend into the card.
+    final surface =
+        theme.bottomSheetTheme.modalBackgroundColor ??
+        theme.bottomSheetTheme.backgroundColor ??
+        theme.colorScheme.surfaceContainerLow;
+    return RepaintBoundary(
+      child: ChatMessageTile(
+        message: msg,
+        channel: msg.channel ?? _selectedChannel ?? '',
+        surface: surface,
+        textScale:
+            MediaQuery.textScalerOf(context).scale(1.0) * _chatFontSize / 14.0,
+        buildBadgeSpans: _messageBuilder.buildBadgeSpans,
+        buildMessageSpans: _messageBuilder.buildMessageSpans,
+        onDoubleTap: () => _copyMessageToClipboard(msg),
+        showTimestamp: _showTimestamps,
+        timestampFormat: _timestampFormat,
+        checkeredMessages: _checkeredMessages,
+        highlightOpacity: _highlightOpacity,
+        lineSeparator: _lineSeparator,
+        sharedChatMode: _sharedChatMode,
+        fadeDeleted: false,
+        paintService: _showNamePaints ? _sevenTvPaintService : null,
       ),
     );
   }

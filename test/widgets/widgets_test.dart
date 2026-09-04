@@ -5019,6 +5019,191 @@ void main() {
         await tester.pump(const Duration(seconds: 4));
       }
     });
+
+    Widget wrapUserProfileWithHistory(
+      TwitchApi api,
+      List<TwitchMessage> messages,
+    ) {
+      return MaterialApp(
+        key: UniqueKey(),
+        home: Scaffold(
+          body: UserProfileSheet(
+            username: 'testuser',
+            userId: '123',
+            displayName: 'TestUser',
+            twitchApi: api,
+            twitchAuth: TwitchAuth()..accessToken = 'test-token',
+            messageController: TextEditingController(),
+            focusNode: FocusNode(),
+            onClose: () {},
+            userMessages: messages,
+            messageRowBuilder: (context, msg) => Text('row:${msg.text}'),
+          ),
+        ),
+      );
+    }
+
+    testWidgets('User profile renders history rows with a floating arrow', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        wrapUserProfileWithHistory(createApi(), [
+          TwitchMessage(
+            login: 'testuser',
+            text: 'hello',
+            channel: 'somechannel',
+          ),
+          TwitchMessage(
+            login: 'testuser',
+            text: 'world',
+            channel: 'somechannel',
+          ),
+        ]),
+      );
+      await tester.pumpAndSettle();
+
+      // Rows render below the fold; the arrow floats with no header text.
+      expect(find.text('row:hello', skipOffstage: false), findsOneWidget);
+      expect(find.text('row:world', skipOffstage: false), findsOneWidget);
+      expect(find.textContaining('Recent messages'), findsNothing);
+      expect(find.byIcon(Icons.keyboard_arrow_down), findsOneWidget);
+
+      // No sheet controller here, so tapping the arrow is a safe no-op.
+      await tester.tap(find.byIcon(Icons.keyboard_arrow_down));
+      await tester.pumpAndSettle();
+      expect(find.text('row:hello', skipOffstage: false), findsOneWidget);
+    });
+
+    testWidgets('User profile arrow flips up when history is scrolled', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        wrapUserProfileWithHistory(createApi(), [
+          for (var i = 0; i < 30; i++)
+            TwitchMessage(
+              login: 'testuser',
+              text: 'm$i',
+              channel: 'somechannel',
+            ),
+        ]),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byIcon(Icons.keyboard_arrow_down), findsOneWidget);
+
+      await tester.drag(find.text('row:m0'), const Offset(0, -300));
+      await tester.pumpAndSettle();
+      expect(find.byIcon(Icons.keyboard_arrow_up), findsOneWidget);
+
+      // Tapping the up arrow glides back to the top.
+      await tester.tap(find.byIcon(Icons.keyboard_arrow_up));
+      await tester.pumpAndSettle();
+      expect(find.byIcon(Icons.keyboard_arrow_down), findsOneWidget);
+    });
+
+    testWidgets(
+      'User profile sheet expands on arrow tap, dismisses in one drag',
+      (WidgetTester tester) async {
+        // Test env has no status bar, so max extent is the full height.
+        const maxExtent = 1.0;
+        var sheetController = DraggableScrollableController();
+        Future<void> openSheet() async {
+          sheetController = DraggableScrollableController();
+          await tester.pumpWidget(
+            MaterialApp(
+              key: UniqueKey(),
+              home: Scaffold(
+                body: Builder(
+                  builder: (context) {
+                    return TextButton(
+                      onPressed: () {
+                        showModalBottomSheet(
+                          context: context,
+                          isScrollControlled: true,
+                          builder: (ctx) => DraggableScrollableSheet(
+                            controller: sheetController,
+                            initialChildSize: 0.42,
+                            minChildSize: 0.25,
+                            maxChildSize: maxExtent,
+                            expand: false,
+                            snap: true,
+                            snapSizes: const [0.42, maxExtent],
+                            builder: (_, scrollController) => UserProfileSheet(
+                              username: 'testuser',
+                              userId: '123',
+                              displayName: 'TestUser',
+                              twitchApi: createApi(),
+                              twitchAuth: TwitchAuth()
+                                ..accessToken = 'test-token',
+                              messageController: TextEditingController(),
+                              focusNode: FocusNode(),
+                              onClose: () => Navigator.pop(ctx),
+                              scrollController: scrollController,
+                              sheetController: sheetController,
+                              sheetCollapsedExtent: 0.42,
+                              userMessages: [
+                                for (var i = 0; i < 30; i++)
+                                  TwitchMessage(
+                                    login: 'testuser',
+                                    text: 'm$i',
+                                    channel: 'somechannel',
+                                  ),
+                              ],
+                              messageRowBuilder: (context, msg) =>
+                                  Text('row:${msg.text}'),
+                            ),
+                          ),
+                        ).whenComplete(sheetController.dispose);
+                      },
+                      child: const Text('open-card'),
+                    );
+                  },
+                ),
+              ),
+            ),
+          );
+          await tester.tap(find.text('open-card'));
+          await tester.pumpAndSettle();
+        }
+
+        // Arrow tap grows the sheet to full height.
+        await openSheet();
+        expect(sheetController.size, 0.42);
+        await tester.tap(find.byIcon(Icons.keyboard_arrow_down));
+        await tester.pumpAndSettle();
+        expect(sheetController.size, maxExtent);
+        expect(find.text('row:m0', skipOffstage: false), findsOneWidget);
+
+        // Release between detents snaps back to the card.
+        await tester.dragFrom(const Offset(400, 300), const Offset(0, 250));
+        await tester.pumpAndSettle();
+        expect(sheetController.size, closeTo(0.42, 0.02));
+
+        // Fresh card, downward drag dismisses in one gesture, no mid stop.
+        await openSheet();
+        await tester.dragFrom(const Offset(400, 450), const Offset(0, 200));
+        await tester.pumpAndSettle();
+        expect(find.text('row:m0'), findsNothing);
+      },
+    );
+
+    testWidgets('User profile shows empty history placeholder', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(wrapUserProfileWithHistory(createApi(), []));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('Recent messages'), findsNothing);
+      expect(find.byIcon(Icons.keyboard_arrow_down), findsNothing);
+      expect(find.byIcon(Icons.keyboard_arrow_up), findsNothing);
+      expect(
+        find.text(
+          'No recent messages from this user here yet',
+          skipOffstage: false,
+        ),
+        findsOneWidget,
+      );
+    });
   });
 
   // Regression: the chat list must hug the bottom edge when its content is
