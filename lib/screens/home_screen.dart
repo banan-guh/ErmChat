@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:io' show Platform;
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../third_party/flutter_list_view/flutter_list_view.dart';
@@ -36,7 +35,6 @@ import '../util/log.dart';
 import '../util/constants.dart';
 import '../util/timestamp_formatter.dart';
 import '../screens/settings/settings_screen.dart';
-import '../widgets/tabbed_layout.dart';
 import '../widgets/panel_manager.dart';
 import '../widgets/welcome_dialog.dart';
 import '../services/user_store.dart';
@@ -47,11 +45,13 @@ import '../services/tts_controller.dart';
 import '../widgets/autocomplete_dropdown.dart';
 import '../widgets/broadcast_widgets.dart';
 import '../widgets/chat_body.dart';
-import '../widgets/chrome_menu_button.dart';
 import '../composer/composer_bar.dart';
 import '../composer/composer_controller.dart';
 import '../sheets/message_menu.dart';
 import '../sheets/user_sheet.dart';
+import '../chrome/channel_stack.dart';
+import '../chrome/home_app_bar.dart';
+import '../chrome/stream_layout.dart';
 import '../panels/threads.dart';
 import '../panels/mentions.dart';
 import '../panels/mod_panel.dart';
@@ -59,9 +59,7 @@ import '../widgets/nuke_overlay.dart';
 import '../widgets/emote_image_provider.dart';
 import '../widgets/media_upload_controller.dart';
 import '../widgets/emote_menu_panel.dart';
-import '../widgets/chat_view.dart';
 import '../widgets/message_builder.dart';
-import '../widgets/stream_player_view.dart';
 import '../widgets/predictive_back_handler.dart';
 import '../widgets/join_channel_dialog.dart';
 import '../services/foreground_task.dart';
@@ -114,7 +112,10 @@ class _HomeScreenState extends State<HomeScreen>
         UserSheetHost,
         ThreadPanelsHost,
         MentionsPanelsHost,
-        ModPanelsHost {
+        ModPanelsHost,
+        HomeAppBarHost,
+        ChannelPanelsHost,
+        StreamPanelsHost {
   static const _mentionsChannel = '@mentions';
 
   late final _pingManager = PingManager.instance;
@@ -279,7 +280,6 @@ class _HomeScreenState extends State<HomeScreen>
   final _userStore = UserStore();
   final _channelNotifier = ValueNotifier<List<String>>([]);
   final _tileCache = <String, Map<String?, Widget>>{};
-  final _tabMergeCache = <int, Listenable>{};
   String? _selectedChannel;
   final _blockedLogins = <String>{};
   bool _blocksReady = false;
@@ -288,9 +288,6 @@ class _HomeScreenState extends State<HomeScreen>
   final _scrollControllers = <String, FlutterListViewController>{};
   final _atBottomNotifiers = <String, ValueNotifier<bool>>{};
   final _refetchingChannels = <String>{};
-
-  List<TwitchMessage>? _welcomeMessages;
-  String? _welcomeMessagesKey;
 
   late final _broadcastWidgets = BroadcastWidgets(
     selectedChannel: () => _selectedChannel,
@@ -330,8 +327,6 @@ class _HomeScreenState extends State<HomeScreen>
 
   final _streamPlayer = StreamPlayerController();
   bool _theaterChatVisible = true;
-  bool _wasTheaterMode = false;
-  static const _audioBarHeight = 56.0;
 
   final _selectedTabIndex = ValueNotifier<int>(0);
 
@@ -488,7 +483,7 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   bool isMounted() => mounted;
   @override
-  void switchChannelTo(int index) => _onChannelChanged(index);
+  void switchChannelTo(int index) => _channels.onChannelChanged(index);
 
   late final _mentions = MentionsPanels(
     panelManager: _panelManager,
@@ -515,11 +510,102 @@ class _HomeScreenState extends State<HomeScreen>
     host: this,
   );
 
+  late final _chrome = HomeAppBar(
+    chatStore: _chatStore,
+    chatConn: _chatConn,
+    networkBusy: _networkBusy,
+    twitchAuth: widget.twitchAuth,
+    streamPlayer: _streamPlayer,
+    uploadController: _uploadController,
+    mentions: _mentions,
+    mod: _mod,
+    threads: _threads,
+    host: this,
+  );
+
+  late final _channels = ChannelPanels(
+    chatStore: _chatStore,
+    tileCache: _tileCache,
+    messageBuilder: _messageBuilder,
+    linkWhitelist: _linkWhitelist,
+    twitchAuth: widget.twitchAuth,
+    paintService: _sevenTvPaintService,
+    selectedTabIndex: _selectedTabIndex,
+    userSheets: _userSheets,
+    menus: _menus,
+    threads: _threads,
+    composer: _composer,
+    broadcastWidgets: _broadcastWidgets,
+    homeAppBar: _chrome,
+    host: this,
+  );
+
+  late final _stream = StreamPanels(
+    streamPlayer: _streamPlayer,
+    chatStore: _chatStore,
+    channels: _channels,
+    homeAppBar: _chrome,
+    host: this,
+  );
+
   // MentionsPanelsHost: shell-owned state the inbox reads but does not own.
   @override
   int get maxMessages => _maxMessagesPerChannel;
   @override
   void notifyWhisper(TwitchMessage msg) => _maybeNotifyWhisper(msg);
+
+  // HomeAppBarHost / ChannelPanelsHost / StreamPanelsHost.
+  @override
+  Future<void> closePanel() => _closePanel();
+  @override
+  bool get chatLoading => _chatLoading;
+  @override
+  bool get disableJoinSpinner => HomeScreen.disableJoinSpinner;
+  @override
+  bool get isFullscreen => _isFullscreen;
+  @override
+  bool get showInput => _showInput;
+  @override
+  bool get showNamePaints => _showNamePaints;
+  @override
+  bool get fastSnap => _fastSnap;
+  @override
+  bool get theaterChatVisible => _theaterChatVisible;
+  @override
+  void toggleTheaterChat() =>
+      setState(() => _theaterChatVisible = !_theaterChatVisible);
+  @override
+  void setStreamState(void Function() fn) => setState(fn);
+  @override
+  void addChannelDialog() => _addChannelDialog();
+  @override
+  void toggleFullscreen() => _toggleFullscreen();
+  @override
+  void toggleInput() => _toggleInputVisibility();
+  @override
+  void toggleStream() => _stream.toggleStreamForSelected();
+  @override
+  void reloadEmotes() => _reloadEmotes();
+  @override
+  void reconnect() => _reconnect();
+  @override
+  void openSettings() => _openSettings();
+  @override
+  void commitChannelSelection(int index, {required bool rebuild}) =>
+      _commitChannelSelection(index, rebuild: rebuild);
+  @override
+  void onChannelChanged(int index) => _channels.onChannelChanged(index);
+  @override
+  ValueNotifier<int> versionNotifier(String channel) =>
+      _versionNotifier(channel);
+  @override
+  ValueNotifier<int> messageNotifier(String channel) =>
+      _messageNotifier(channel);
+  @override
+  ValueNotifier<bool> atBottomNotifier(String channel) =>
+      _atBottomNotifier(channel);
+  @override
+  FlutterListViewController scrollCtrl(String channel) => _scrollCtrl(channel);
 
   @override
   void initState() {
@@ -547,7 +633,7 @@ class _HomeScreenState extends State<HomeScreen>
     unawaited(_ignoreManager.load());
     unawaited(_linkWhitelist.load());
     unawaited(_streamPlayer.loadPrefs());
-    _streamPlayer.addListener(_onStreamPlayerChanged);
+    _streamPlayer.addListener(_stream.onStreamPlayerChanged);
     _linkWhitelist.addListener(_onLinkWhitelistChanged);
     _loadNotificationSettings();
     _broadcastWidgets.loadTestWidgets();
@@ -1650,7 +1736,7 @@ class _HomeScreenState extends State<HomeScreen>
     _thirdPartyBadgeService.dispose();
     _emoteManager.removeListener(_onEmotesChanged);
     _linkWhitelist.removeListener(_onLinkWhitelistChanged);
-    _streamPlayer.removeListener(_onStreamPlayerChanged);
+    _streamPlayer.removeListener(_stream.onStreamPlayerChanged);
     _streamPlayer.dispose();
     _emoteManager.dispose();
     widget.twitchAuth.removeListener(_onAuthChanged);
@@ -1699,54 +1785,12 @@ class _HomeScreenState extends State<HomeScreen>
     setState(() => _isFullscreen = !_isFullscreen);
   }
 
-  void _toggleStreamForSelected() {
-    if (_streamPlayer.isActive) {
-      setState(() => _streamPlayer.closeStream());
-      return;
-    }
-    final channel = _selectedChannel;
-    if (channel == null) return;
-    setState(() => _streamPlayer.toggleStream(channel));
-  }
-
-  bool _isChannelLive(String channel) =>
-      (_chatStore.chatStatus[channel] ?? '').contains('Live');
-
-  void _onStreamPlayerChanged() {
-    if (!mounted) return;
-    final enteringTheater = _streamPlayer.isTheaterMode && !_wasTheaterMode;
-    _wasTheaterMode = _streamPlayer.isTheaterMode;
-    setState(() {});
-    if (!enteringTheater) return;
-    final channel = _streamPlayer.currentChannel;
-    if (channel == null) return;
-    if (_selectedChannel == channel) return;
-    if (!_chatStore.channels.contains(channel)) return;
-    _onChannelChanged(_chatStore.channels.indexOf(channel));
-  }
-
   void _toggleInputVisibility() {
     setState(() => _showInput = !_showInput);
     unawaited(
       SharedPreferences.getInstance().then(
         (prefs) => prefs.setBool('show_input', _showInput),
       ),
-    );
-  }
-
-  /// Tiny arrow anchored top-right just below the channel tab strip (see
-  /// TabbedLayout). Always visible so the top bar / input can be toggled back
-  /// even in fullscreen.
-  Widget _buildChromeMenu() {
-    return ChromeMenuButton(
-      onToggleFullscreen: _toggleFullscreen,
-      onToggleInput: _toggleInputVisibility,
-      onToggleStream: _toggleStreamForSelected,
-      showStreamToggle: () =>
-          _streamPlayer.isActive ||
-          !widget.twitchAuth.isConfigured ||
-          (_selectedChannel != null && _isChannelLive(_selectedChannel!)),
-      streamActive: () => _streamPlayer.isActive,
     );
   }
 
@@ -2151,7 +2195,7 @@ class _HomeScreenState extends State<HomeScreen>
   void _navigateToChannel(String channel) {
     final index = _chatStore.channels.indexOf(channel);
     if (index >= 0) {
-      _onChannelChanged(index);
+      _channels.onChannelChanged(index);
     }
   }
 
@@ -2194,14 +2238,6 @@ class _HomeScreenState extends State<HomeScreen>
     _broadcastWidgets.resetPage();
     _selectedTabIndex.value = index;
     _chatConn.focusChannel(channel);
-  }
-
-  void _onChannelFocusChanged(int index) {
-    _commitChannelSelection(index, rebuild: false);
-  }
-
-  void _onChannelChanged(int index) {
-    _commitChannelSelection(index, rebuild: true);
   }
 
   // Retroactive mention scan: runs once on login. Hits are batched and
@@ -2272,7 +2308,8 @@ class _HomeScreenState extends State<HomeScreen>
               }) {
                 return ListenableBuilder(
                   listenable: _streamPlayer,
-                  builder: (_, _) => _buildBodyColumn(
+                  builder: (_, _) => _stream.bodyColumn(
+                    context,
                     hideChromeForKeyboard: hideChromeForKeyboard,
                     maxWidth: maxWidth,
                     maxHeight: maxHeight,
@@ -2325,536 +2362,6 @@ class _HomeScreenState extends State<HomeScreen>
 
   /// Stream layout selector (DankChat MainScreen): landscape theater first,
   /// then wide split, else the stacked portrait player above chat.
-  Widget _buildBodyColumn({
-    required bool hideChromeForKeyboard,
-    required double maxWidth,
-    required double maxHeight,
-    required double keyboardH,
-  }) {
-    final channel = _streamPlayer.currentChannel;
-    final landscape =
-        MediaQuery.orientationOf(context) == Orientation.landscape;
-    if (channel != null &&
-        !_streamPlayer.isAudioOnly &&
-        _streamPlayer.isTheaterMode &&
-        landscape) {
-      return Column(children: [Expanded(child: _buildTheater(channel))]);
-    }
-    if (channel != null && !_streamPlayer.isAudioOnly && maxWidth >= 600) {
-      return Column(
-        children: [Expanded(child: _buildSplit(channel, maxWidth))],
-      );
-    }
-    final showVideo =
-        channel == null ||
-        _showStreamVideo(
-          maxWidth: maxWidth,
-          maxHeight: maxHeight,
-          keyboardH: keyboardH,
-        );
-    final showPlayerVideo =
-        showVideo && channel != null && !_streamPlayer.isAudioOnly;
-    final aboveTabsH = channel == null
-        ? 0.0
-        : showPlayerVideo
-        ? maxWidth * 9 / 16
-        : _audioBarHeight;
-    return Column(
-      children: [
-        AnimatedSize(
-          duration: hideChromeForKeyboard
-              ? Duration.zero
-              : const Duration(milliseconds: 200),
-          curve: Curves.easeInOut,
-          child: !_isFullscreen && !hideChromeForKeyboard
-              ? _buildAppBar()
-              : const SizedBox.shrink(),
-        ),
-        _buildChannelTabs(
-          hideChrome: hideChromeForKeyboard,
-          overlayTop: 50 + aboveTabsH,
-          belowTabBar: channel == null
-              ? null
-              : _buildStackedPlayer(channel, showVideo),
-        ),
-      ],
-    );
-  }
-
-  // DankChat shouldShowStream: hide video when the keyboard leaves under
-  // 9 chat lines; audio keeps playing.
-  bool _showStreamVideo({
-    required double maxWidth,
-    required double maxHeight,
-    required double keyboardH,
-  }) {
-    if (keyboardH <= 0) return true;
-    final inputH = _showInput
-        ? (inputBarKey.currentContext?.size?.height ?? 56)
-        : 0;
-    final streamH = maxWidth * 9 / 16;
-    return maxHeight - keyboardH - streamH - inputH >= _chatFontSize * 9;
-  }
-
-  Widget _playerView(
-    String channel, {
-    bool fillPane = false,
-    bool visible = true,
-  }) {
-    final key = _streamPlayer.retainWebview ? 'stream' : 'stream:$channel';
-    return StreamPlayerView(
-      key: ValueKey(key),
-      controller: _streamPlayer,
-      channel: channel,
-      fillPane: fillPane,
-      visible: visible,
-    );
-  }
-
-  Widget _buildStackedPlayer(String channel, bool showVideo) {
-    final show = showVideo && !_streamPlayer.isAudioOnly;
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Visibility(
-          visible: show,
-          maintainState: true,
-          maintainAnimation: true,
-          child: _playerView(channel, visible: show),
-        ),
-        if (!show)
-          StreamAudioBar(
-            key: ValueKey('audio:$channel'),
-            controller: _streamPlayer,
-            channel: channel,
-          ),
-      ],
-    );
-  }
-
-  // Landscape theater: full-bleed video with a translucent chat overlay.
-  // The WebView keeps full size and is never resized (DankChat TheaterLayout).
-  Widget _buildTheater(String channel) {
-    final scheme = Theme.of(context).colorScheme;
-    final panelW = (MediaQuery.sizeOf(context).width - 120).clamp(200.0, 320.0);
-    return Stack(
-      children: [
-        Positioned.fill(child: _playerView(channel, fillPane: true)),
-        if (_theaterChatVisible)
-          Positioned(
-            top: 0,
-            bottom: 0,
-            right: 0,
-            width: panelW,
-            child: ColoredBox(
-              color: scheme.surface.withValues(alpha: 0.92),
-              child: SafeArea(
-                left: false,
-                child: _buildChannelStack(hideChrome: true, overlayTop: 8),
-              ),
-            ),
-          ),
-        Positioned(
-          bottom: 16,
-          right: _theaterChatVisible ? panelW + 8 : 8,
-          child: FloatingActionButton.small(
-            heroTag: 'theater_chat_toggle',
-            tooltip: _theaterChatVisible ? 'Hide chat' : 'Show chat',
-            onPressed: () =>
-                setState(() => _theaterChatVisible = !_theaterChatVisible),
-            child: Icon(
-              _theaterChatVisible ? Icons.visibility_off : Icons.visibility,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildSplit(String channel, double maxWidth) {
-    var dragFrac = _streamPlayer.splitFraction;
-    return StatefulBuilder(
-      builder: (context, setLocal) {
-        return Row(
-          children: [
-            SizedBox(
-              width: maxWidth * dragFrac,
-              child: _playerView(channel, fillPane: true),
-            ),
-            GestureDetector(
-              behavior: HitTestBehavior.translucent,
-              onHorizontalDragUpdate: (details) => setLocal(() {
-                dragFrac = (dragFrac + details.delta.dx / maxWidth).clamp(
-                  0.2,
-                  0.8,
-                );
-              }),
-              onHorizontalDragEnd: (_) =>
-                  _streamPlayer.setSplitFraction(dragFrac),
-              child: const SizedBox(
-                width: 16,
-                child: Center(
-                  child: SizedBox(
-                    width: 4,
-                    height: 48,
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        color: Colors.grey,
-                        borderRadius: BorderRadius.all(Radius.circular(2)),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            Expanded(
-              child: _buildChannelStack(hideChrome: false, overlayTop: 50),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  Widget _buildAppBar() {
-    final theme = Theme.of(context);
-    return ColoredBox(
-      color: theme.colorScheme.surfaceContainer,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          SafeArea(
-            bottom: false,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4),
-              child: Row(
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.only(left: 8),
-                    child: Text(
-                      'ErmChat',
-                      style: TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.w400,
-                      ),
-                    ),
-                  ),
-                  const Spacer(),
-                  ListenableBuilder(
-                    listenable: Listenable.merge([
-                      _chatConn.connectionStateNotifier,
-                      _networkBusy,
-                    ]),
-                    builder: (context, _) {
-                      final busy =
-                          !HomeScreen.disableJoinSpinner &&
-                          (_chatLoading || _networkBusy.value);
-                      return IconButton(
-                        icon: busy
-                            ? SizedBox(
-                                width: 24,
-                                height: 24,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: IconTheme.of(context).color,
-                                ),
-                              )
-                            : const Icon(Icons.add),
-                        tooltip: busy ? 'Loading...' : 'Join channel',
-                        onPressed:
-                            busy || _chatStore.channels.length >= kMaxChannels
-                            ? null
-                            : _addChannelDialog,
-                      );
-                    },
-                  ),
-                  ListenableBuilder(
-                    listenable: _chatStore.mentionsBump,
-                    builder: (context, _) => IconButton(
-                      icon: Icon(
-                        Icons.notifications_active,
-                        color: _chatStore.unreadMentions > 0
-                            ? theme.colorScheme.error
-                            : null,
-                      ),
-                      tooltip: 'Mentions',
-                      onPressed: () {
-                        _chatStore.unreadMentions = 0;
-                        _mentions.clearUnreadWhispers();
-                        _chatStore.channelsWithUnreadMentions.clear();
-                        _chatStore.unreadMentionsPerChannel.clear();
-                        _chatStore.unreadVersion.value++;
-                        if (mounted) setState(() {});
-                        if (_activePanel == OverlayPanel.mentions) {
-                          unawaited(_closePanel());
-                        } else {
-                          _mentions.showMentionsView();
-                        }
-                      },
-                    ),
-                  ),
-                  PopupMenuButton<String>(
-                    popUpAnimationStyle: const AnimationStyle(
-                      duration: Duration(milliseconds: 175),
-                    ),
-                    onSelected: (value) {
-                      switch (value) {
-                        case 'modview':
-                          _mod.showModView();
-                          break;
-                        case 'threads':
-                          _threads.showThreadsDashboard(tab: 1);
-                          break;
-                        case 'upload':
-                          _uploadController.pickAndUpload(context);
-                          break;
-                        case 'reload_emotes':
-                          _reloadEmotes();
-                          break;
-                        case 'reconnect':
-                          _reconnect();
-                          break;
-                        case 'settings':
-                          _openSettings();
-                          break;
-                      }
-                    },
-                    itemBuilder: (_) => [
-                      const PopupMenuItem(
-                        value: 'settings',
-                        child: Row(
-                          children: [
-                            Icon(Icons.settings, size: 20),
-                            SizedBox(width: 12),
-                            Text('Settings'),
-                          ],
-                        ),
-                      ),
-                      const PopupMenuDivider(),
-                      if (_selectedChannel != null)
-                        const PopupMenuItem(
-                          value: 'modview',
-                          child: Row(
-                            children: [
-                              Icon(Icons.shield_outlined, size: 20),
-                              SizedBox(width: 12),
-                              Text('Mod view'),
-                            ],
-                          ),
-                        ),
-                      const PopupMenuItem(
-                        value: 'threads',
-                        child: Row(
-                          children: [
-                            Icon(Icons.forum, size: 20),
-                            SizedBox(width: 12),
-                            Text('Threads'),
-                          ],
-                        ),
-                      ),
-                      const PopupMenuItem(
-                        value: 'upload',
-                        child: Text('Upload media'),
-                      ),
-                      const PopupMenuItem(
-                        value: 'reload_emotes',
-                        child: Text('Reload emotes'),
-                      ),
-                      const PopupMenuItem(
-                        value: 'reconnect',
-                        child: Text('Reconnect'),
-                      ),
-                    ],
-                    child: GestureDetector(
-                      onLongPress: _openSettings,
-                      child: const Padding(
-                        padding: EdgeInsets.all(12),
-                        child: Icon(Icons.more_vert),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildChannelTabs({
-    required bool hideChrome,
-    double overlayTop = 50,
-    Widget? belowTabBar,
-  }) {
-    return Expanded(
-      child: _buildChannelStack(
-        hideChrome: hideChrome,
-        overlayTop: overlayTop,
-        belowTabBar: belowTabBar,
-      ),
-    );
-  }
-
-  Widget _buildChannelStack({
-    required bool hideChrome,
-    required double overlayTop,
-    Widget? belowTabBar,
-  }) {
-    final theme = Theme.of(context);
-    return Stack(
-      children: [
-        Listener(
-          behavior: HitTestBehavior.translucent,
-          onPointerDown: (_) {
-            _composer.clearSuggestions();
-          },
-          child: _chatStore.channels.isNotEmpty
-              ? TabbedLayout(
-                  tabs: _chatStore.channels,
-                  selectedIndex: _chatStore.channels.indexOf(
-                    _selectedChannel ?? '',
-                  ),
-                  onSelectedIndexChanged: _onChannelChanged,
-                  onFocusChanged: _onChannelFocusChanged,
-                  onTabTapped: (index) {
-                    final channel = _chatStore.channels[index];
-                    final ctrl = _scrollCtrl(channel);
-                    if (ctrl.hasClients) ctrl.jumpTo(0);
-                    _atBottomNotifier(channel).value = true;
-                  },
-                  showTabBar: !_isFullscreen && !hideChrome,
-                  tabBarAnimationDuration: hideChrome
-                      ? Duration.zero
-                      : const Duration(milliseconds: 200),
-                  chromeMenu: _buildChromeMenu(),
-                  belowTabBar: belowTabBar,
-                  pageBuilder: (_, i) {
-                    final channel = _chatStore.channels[i];
-                    return ListenableBuilder(
-                      listenable: _versionNotifier(channel),
-                      builder: (_, _) => ChatView(
-                        channel: channel,
-                        messages: _chatStore.channelMessages[channel] ?? [],
-                        tileCache: _tileCache,
-                        atBottomNotifier: _atBottomNotifier(channel),
-                        messageNotifier: _messageNotifier(channel),
-                        scrollController: _scrollCtrl(channel),
-                        messageBuilder: _messageBuilder,
-                        linkWhitelist: _linkWhitelist,
-                        showTimestamp: _showTimestamps,
-                        timestampFormat: _timestampFormat,
-                        chatFontScale: _chatFontSize / 14.0,
-                        checkeredMessages: _checkeredMessages,
-                        highlightOpacity: _highlightOpacity,
-                        lineSeparator: _lineSeparator,
-                        sharedChatMode: _sharedChatMode,
-                        paintService: _showNamePaints
-                            ? _sevenTvPaintService
-                            : null,
-                        onShowUserProfile: (login, userId, {displayName}) =>
-                            _userSheets.showUserProfile(
-                              context,
-                              login,
-                              userId,
-                              displayName: displayName,
-                            ),
-                        onShowMessageMenu: (msg) =>
-                            _menus.showMessageMenu(context, msg),
-                        onCopyMessage: _copyMessageToClipboard,
-                        onNewMessage: _chatStore.noteNewMessage,
-                        onFindThreadRoot: _threads.findThreadRoot,
-                        onShowThreadView: (msg) => _threads.showThreadView(msg),
-                        keyboardDismissBehavior: (!kIsWeb && Platform.isIOS)
-                            ? ScrollViewKeyboardDismissBehavior.onDrag
-                            : ScrollViewKeyboardDismissBehavior.manual,
-                      ),
-                    );
-                  },
-                  focusOnHalfDrag: true,
-                  fastSnap: _fastSnap,
-                  tabBuilder: (_, i) {
-                    final channel = _chatStore.channels[i];
-                    return ListenableBuilder(
-                      listenable: _tabMergeCache.putIfAbsent(
-                        i,
-                        () => Listenable.merge([
-                          _selectedTabIndex,
-                          _chatStore.unreadVersion,
-                        ]),
-                      ),
-                      builder: (ctx, _) {
-                        final focused = i == _selectedTabIndex.value;
-                        final selected = focused || channel == _selectedChannel;
-                        final hasUnreadMention = _chatStore
-                            .channelsWithUnreadMentions
-                            .contains(channel);
-                        return Stack(
-                          clipBehavior: Clip.none,
-                          children: [
-                            Text(
-                              channel,
-                              style: TextStyle(
-                                fontSize: 14,
-                                fontWeight:
-                                    selected ||
-                                        _chatStore.channelsWithUnread.contains(
-                                          channel,
-                                        )
-                                    ? FontWeight.w600
-                                    : FontWeight.normal,
-                                color: selected
-                                    ? theme.colorScheme.primary
-                                    : _chatStore.channelsWithUnread.contains(
-                                        channel,
-                                      )
-                                    ? theme.colorScheme.onSurface
-                                    : null,
-                              ),
-                            ),
-                            if (hasUnreadMention && !selected)
-                              Positioned(
-                                top: -2,
-                                right: -4,
-                                child: Container(
-                                  key: const Key('unread_mention_dot'),
-                                  width: 6,
-                                  height: 6,
-                                  decoration: BoxDecoration(
-                                    color: theme.colorScheme.error,
-                                    shape: BoxShape.circle,
-                                  ),
-                                ),
-                              ),
-                          ],
-                        );
-                      },
-                    );
-                  },
-                )
-              : _buildWelcomeChatView(),
-        ),
-        if (_selectedChannel != null)
-          Positioned(
-            top: overlayTop,
-            left: 0,
-            right: 0,
-            child: ValueListenableBuilder<int>(
-              valueListenable: _broadcastWidgets.notifier,
-              builder: (_, _, _) =>
-                  _broadcastWidgets.buildOverlay(
-                    _selectedChannel!,
-                    onMinimizeChanged: (ch, minimized) {
-                      _broadcastWidgets.setMinimized(ch, minimized);
-                    },
-                  ) ??
-                  const SizedBox.shrink(),
-            ),
-          ),
-      ],
-    );
-  }
-
   Widget _buildEmotePicker({required double sheetBoxHeight}) {
     return Positioned(
       bottom: 0,
@@ -2900,67 +2407,6 @@ class _HomeScreenState extends State<HomeScreen>
           },
         ),
       ),
-    );
-  }
-
-  static const _welcomeChannel = '__welcome__';
-
-  Widget _buildWelcomeChatView() {
-    final configured = widget.twitchAuth.isConfigured;
-    final login = widget.twitchAuth.login;
-    final key = '$configured:$login';
-    if (_welcomeMessagesKey != key) {
-      _welcomeMessagesKey = key;
-      _welcomeMessages = [
-        if (!configured)
-          TwitchMessage(
-            login: '',
-            text: 'Configure Twitch credentials in Settings first',
-            isSystem: true,
-            messageId: 'welcome',
-            channel: _welcomeChannel,
-          )
-        else ...[
-          if (login != null)
-            TwitchMessage(
-              login: '',
-              text: 'Signed in as $login',
-              isSystem: true,
-              messageId: 'welcome-signin',
-              channel: _welcomeChannel,
-            ),
-          TwitchMessage(
-            login: '',
-            text: 'Press + to join a channel.',
-            isSystem: true,
-            messageId: 'welcome-join',
-            channel: _welcomeChannel,
-          ),
-        ],
-      ];
-    }
-    return ChatView(
-      channel: _welcomeChannel,
-      messages: _welcomeMessages!,
-      tileCache: _tileCache,
-      atBottomNotifier: _atBottomNotifier(_welcomeChannel),
-      messageNotifier: _messageNotifier(_welcomeChannel),
-      scrollController: _scrollCtrl(_welcomeChannel),
-      messageBuilder: _messageBuilder,
-      linkWhitelist: _linkWhitelist,
-      showTimestamp: _showTimestamps,
-      timestampFormat: _timestampFormat,
-      chatFontScale: _chatFontSize / 14.0,
-      checkeredMessages: _checkeredMessages,
-      highlightOpacity: _highlightOpacity,
-      lineSeparator: _lineSeparator,
-      sharedChatMode: _sharedChatMode,
-      paintService: _showNamePaints ? _sevenTvPaintService : null,
-      onShowUserProfile: (login, userId, {displayName}) => _userSheets
-          .showUserProfile(context, login, userId, displayName: displayName),
-      keyboardDismissBehavior: (!kIsWeb && Platform.isIOS)
-          ? ScrollViewKeyboardDismissBehavior.onDrag
-          : ScrollViewKeyboardDismissBehavior.manual,
     );
   }
 }
