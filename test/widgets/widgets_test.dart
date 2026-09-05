@@ -17,6 +17,7 @@ import 'package:ermchat/screens/settings/customization_screen.dart';
 import 'package:ermchat/screens/settings/emotes_settings_screen.dart';
 import 'package:ermchat/screens/settings/tools_settings_screen.dart';
 import 'package:ermchat/screens/home_screen.dart';
+import 'package:ermchat/sheets/user_sheet.dart';
 import 'package:ermchat/services/analytics_service.dart';
 import 'package:ermchat/models/emote_fetch_tier.dart';
 import 'package:ermchat/services/twitch_api.dart';
@@ -38,6 +39,7 @@ import 'package:ermchat/widgets/emote_menu_panel.dart';
 import 'package:url_launcher_platform_interface/link.dart';
 import 'package:url_launcher_platform_interface/url_launcher_platform_interface.dart';
 import 'package:ermchat/widgets/emote_sheet.dart';
+import 'package:ermchat/widgets/message_input.dart';
 import 'package:ermchat/widgets/user_profile_sheet.dart';
 
 class _FakeEventSubService extends EventSubService {
@@ -518,6 +520,59 @@ void main() {
     expect(find.text('Toggle fullscreen'), findsOneWidget);
     expect(find.text('Toggle input'), findsOneWidget);
     expect(find.text('Show stream'), findsOneWidget);
+  });
+
+  testWidgets('toggle input hides and restores the composer without errors', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      TwitchChatApp(
+        key: UniqueKey(),
+        eventSubService: _FakeEventSubService(),
+        ircService: _FakeIrcService(),
+        ircReadService: _FakeIrcReadService(),
+        recentMessagesService: _FakeRecentMessagesService(),
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.byIcon(Icons.add));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).last, 'xqc');
+    await tester.tap(find.text('Join', skipOffstage: false));
+    await tester.pumpAndSettle();
+
+    Future<void> toggleInput() async {
+      await tester.tap(find.byIcon(Icons.expand_more));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Toggle input'));
+      await tester.pumpAndSettle();
+    }
+
+    // Composer visible before the toggle.
+    expect(find.byType(MessageInput), findsOneWidget);
+
+    // Hide with the keyboard closed: chat and chrome survive.
+    await toggleInput();
+    expect(tester.takeException(), isNull);
+    expect(find.byType(ErrorWidget), findsNothing);
+    expect(find.byType(MessageInput), findsNothing);
+    expect(find.text('xqc', skipOffstage: false), findsWidgets);
+
+    // Restore: composer comes back.
+    await toggleInput();
+    expect(tester.takeException(), isNull);
+    expect(find.byType(MessageInput), findsOneWidget);
+
+    // Hide with the keyboard open: no strand, no error.
+    await tester.tap(find.byType(MessageInput));
+    await tester.showKeyboard(find.byType(TextField).first);
+    await tester.pump();
+    await toggleInput();
+    expect(tester.takeException(), isNull);
+    expect(find.byType(ErrorWidget), findsNothing);
+    expect(find.byType(MessageInput), findsNothing);
+    expect(find.text('xqc', skipOffstage: false), findsWidgets);
   });
 
   group('ChatMessageTile deleted rows', () {
