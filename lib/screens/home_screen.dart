@@ -34,7 +34,6 @@ import '../services/third_party_badge_service.dart';
 import '../services/seven_tv_paint_service.dart';
 import '../util/log.dart';
 import '../util/constants.dart';
-import '../util/thread_utils.dart';
 import '../util/timestamp_formatter.dart';
 import '../screens/settings/settings_screen.dart';
 import '../widgets/tabbed_layout.dart';
@@ -42,7 +41,6 @@ import '../widgets/panel_manager.dart';
 import '../widgets/welcome_dialog.dart';
 import '../services/user_store.dart';
 import '../services/chat_store.dart';
-import '../services/saved_threads_store.dart';
 import '../services/suggestion.dart';
 import '../services/notification_service.dart';
 import '../services/tts_controller.dart';
@@ -54,13 +52,15 @@ import '../composer/composer_bar.dart';
 import '../composer/composer_controller.dart';
 import '../sheets/message_menu.dart';
 import '../sheets/user_sheet.dart';
+import '../panels/threads.dart';
+import '../panels/mentions.dart';
+import '../panels/mod_panel.dart';
 import '../widgets/nuke_overlay.dart';
 import '../widgets/emote_image_provider.dart';
 import '../widgets/media_upload_controller.dart';
 import '../widgets/emote_menu_panel.dart';
 import '../widgets/chat_view.dart';
 import '../widgets/message_builder.dart';
-import '../widgets/mod_view.dart';
 import '../widgets/stream_player_view.dart';
 import '../widgets/predictive_back_handler.dart';
 import '../widgets/join_channel_dialog.dart';
@@ -108,7 +108,13 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen>
     with WidgetsBindingObserver, TickerProviderStateMixin
-    implements ComposerHost, MessageMenuHost, UserSheetHost {
+    implements
+        ComposerHost,
+        MessageMenuHost,
+        UserSheetHost,
+        ThreadPanelsHost,
+        MentionsPanelsHost,
+        ModPanelsHost {
   static const _mentionsChannel = '@mentions';
 
   late final _pingManager = PingManager.instance;
@@ -240,8 +246,10 @@ class _HomeScreenState extends State<HomeScreen>
     getCurrentUserId: () => _chatStore.session.userId,
     getCurrentUserLogin: () => _chatStore.session.login,
     addSystemMessage: _addSystemMessage,
-    whisperAddSystemMessage: _addWhisperSystemMessage,
-    onWhisperSent: _onWhisperSent,
+    whisperAddSystemMessage: (channel, text) =>
+        _mentions.addWhisperSystemMessage(channel, text),
+    onWhisperSent: (target, message) =>
+        _mentions.onWhisperSent(target, message),
     onUserBlocked: _onUserBlocked,
     onUserUnblocked: _onUserUnblocked,
   );
@@ -337,15 +345,7 @@ class _HomeScreenState extends State<HomeScreen>
 
   // Delegating accessors for state that moved to PanelManager.
   OverlayPanel get _activePanel => _panelManager.activePanel;
-  set _activePanel(OverlayPanel v) => _panelManager.activePanel = v;
   bool get _emoteSheetOpen => _panelManager.emoteSheetOpen;
-  TwitchMessage? get _openThreadRoot => _panelManager.openThreadRoot;
-  set _openThreadRoot(TwitchMessage? v) => _panelManager.openThreadRoot = v;
-  List<TwitchMessage> get _threadMessages => _panelManager.threadMessages;
-  set _threadMessages(List<TwitchMessage> v) =>
-      _panelManager.threadMessages = v;
-  String? get _threadChannel => _panelManager.threadChannel;
-  set _threadChannel(String? v) => _panelManager.threadChannel = v;
 
   // Aliases for panel-manager constants/state accessed inline in build.
   AnimationController get _panelScaleCtrl => _panelManager.panelScaleCtrl;
@@ -353,43 +353,11 @@ class _HomeScreenState extends State<HomeScreen>
       _panelManager.emoteSheetCtrl;
   static const _emoteMaxFraction = PanelManager.emoteMaxFraction;
 
-  ValueNotifier<double> get _threadSheetRatio => _panelManager.threadSheetRatio;
-  ValueNotifier<double> get _mentionsSheetRatio =>
-      _panelManager.mentionsSheetRatio;
-  ValueNotifier<double> get _modSheetRatio => _panelManager.modSheetRatio;
-
   late final TabController _mentionsTabCtrl;
   late final TabController _threadsTabCtrl;
   late final TabController _modTabCtrl;
-  // Ticks the Mod View Modes tab on ROOMSTATE echoes (the queue listens to
-  // the kernel's heldVersion itself).
-  final _modPanelVersion = ValueNotifier(0);
-  final _threadPanelScrollCtrl = FlutterListViewController();
-  final _mentionsPanelScrollCtrl = FlutterListViewController();
 
   late final PanelPredictiveBackHandler _predictiveBackHandler;
-
-  // Panel rebuild plumbing mirrors main chat: the lists below are read
-  // directly by each ChatView and these notifiers just tick rebuilds.
-  final _threadAtBottom = ValueNotifier(true);
-  final _threadMsgCount = ValueNotifier(0);
-  final _mentionsAtBottom = ValueNotifier(true);
-  final _mentionsMsgCount = ValueNotifier(0);
-  final _whispersAtBottom = ValueNotifier(true);
-  final _whispersMsgCount = ValueNotifier(0);
-
-  final _whispersPanelScrollCtrl = FlutterListViewController();
-  final _whispers = <TwitchMessage>[];
-  int _unreadWhispers = 0;
-  String? _whisperTarget;
-
-  // Threads dashboard state (view-only caches; the kernel owns the threads).
-  final _savedThreads = SavedThreadsStore();
-  // Last-viewed stamp per "$channel:$rootId"; a thread is unread while its
-  // kernel lastActivity runs ahead of this stamp.
-  final _threadLastSeen = <String, DateTime>{};
-  // Ticks the Active/Saved lists (they read the kernel + saved store live).
-  final _threadsListVersion = ValueNotifier(0);
 
   bool _mentionScanDone = false;
 
@@ -407,21 +375,22 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   String? get selectedChannel => _selectedChannel;
   @override
-  bool get isWhispersTabActive => _isWhispersTabActive;
+  bool get isWhispersTabActive => _mentions.isWhispersTabActive;
   @override
-  String? get whisperTarget => _whisperTarget;
+  String? get whisperTarget => _mentions.whisperTarget;
   @override
   OverlayPanel get activePanel => _activePanel;
   @override
   int get threadsTabIndex => _threadsTabCtrl.index;
   @override
-  TwitchMessage? get openThreadRoot => _openThreadRoot;
+  TwitchMessage? get openThreadRoot => _panelManager.openThreadRoot;
   @override
   bool get replyToRoot => _replyToRoot;
   @override
   bool get preferEmotesFirst => _preferEmotesFirst;
   @override
-  List<TwitchMessage> computeThreadMessages() => _computeThreadMessages();
+  List<TwitchMessage> computeThreadMessages() =>
+      _threads.computeThreadMessages();
   @override
   bool get channelChatReady => _channelChatReady;
   @override
@@ -455,16 +424,17 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   String? get sessionLogin => _chatStore.session.login;
   @override
-  TwitchMessage? findThreadRoot(TwitchMessage msg) => _findThreadRoot(msg);
+  TwitchMessage? findThreadRoot(TwitchMessage msg) =>
+      _threads.findThreadRoot(msg);
   @override
-  bool isThreadSaved(TwitchMessage msg) => _isThreadSaved(msg);
+  bool isThreadSaved(TwitchMessage msg) => _threads.isThreadSaved(msg);
   @override
   void startReply(TwitchMessage msg) => _composer.startReply(msg);
   @override
   Future<void> showThreadView(TwitchMessage root) =>
-      _showThreadView(root, switchChannel: true);
+      _threads.showThreadView(root, switchChannel: true);
   @override
-  void toggleSaveThread(TwitchMessage root) => _toggleSaveThread(root);
+  void toggleSaveThread(TwitchMessage root) => _threads.toggleSaveThread(root);
 
   late final _userSheets = UserSheets(
     chatStore: _chatStore,
@@ -497,9 +467,59 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   void onUserBlocked(String login) => _onUserBlocked(login);
   @override
-  void showWhispersForUser(String login) => _showWhispersForUser(login);
+  void showWhispersForUser(String login) =>
+      _mentions.showWhispersForUser(login);
   @override
   void copyMessage(TwitchMessage msg) => _copyMessageToClipboard(msg);
+
+  late final _threads = ThreadPanels(
+    panelManager: _panelManager,
+    chatStore: _chatStore,
+    threadsTab: () => _threadsTabCtrl,
+    composer: _composer,
+    messageBuilder: _messageBuilder,
+    userSheets: _userSheets,
+    menus: _menus,
+    host: this,
+  );
+
+  // ThreadPanelsHost: shell-owned state the thread panels read but do not own.
+  // Appearance getters come from the UserSheetHost implementation above.
+  @override
+  bool isMounted() => mounted;
+  @override
+  void switchChannelTo(int index) => _onChannelChanged(index);
+
+  late final _mentions = MentionsPanels(
+    panelManager: _panelManager,
+    chatStore: _chatStore,
+    chatConn: _chatConn,
+    twitchAuth: widget.twitchAuth,
+    mentionsTab: () => _mentionsTabCtrl,
+    composer: _composer,
+    messageBuilder: _messageBuilder,
+    userSheets: _userSheets,
+    menus: _menus,
+    mentionsChannel: _mentionsChannel,
+    host: this,
+  );
+
+  late final _mod = ModPanels(
+    panelManager: _panelManager,
+    chatStore: _chatStore,
+    chatConn: _chatConn,
+    twitchAuth: widget.twitchAuth,
+    modActions: _modActions,
+    modTab: () => _modTabCtrl,
+    composer: _composer,
+    host: this,
+  );
+
+  // MentionsPanelsHost: shell-owned state the inbox reads but does not own.
+  @override
+  int get maxMessages => _maxMessagesPerChannel;
+  @override
+  void notifyWhisper(TwitchMessage msg) => _maybeNotifyWhisper(msg);
 
   @override
   void initState() {
@@ -511,13 +531,13 @@ class _HomeScreenState extends State<HomeScreen>
     _pingManager.setAccount(widget.initialCurrentUserLogin);
     _loadEmotePrefs();
     _mentionsTabCtrl = TabController(length: 2, vsync: this);
-    _mentionsTabCtrl.addListener(_onMentionsTabChanged);
+    _mentionsTabCtrl.addListener(_mentions.onMentionsTabChanged);
     _threadsTabCtrl = TabController(length: 3, vsync: this);
-    _threadsTabCtrl.addListener(_onThreadsTabChanged);
+    _threadsTabCtrl.addListener(_threads.onThreadsTabChanged);
     _modTabCtrl = TabController(length: 3, vsync: this);
     _panelManager.emoteSheetCtrl.addListener(_panelManager.onSheetSizeChanged);
     _loadMaxMessages();
-    unawaited(_loadSavedThreads());
+    unawaited(_threads.loadSaved());
     unawaited(
       _loadRecentMessagesConfig().then((_) {
         if (mounted) _ensureBlockedUsersLoaded();
@@ -534,7 +554,7 @@ class _HomeScreenState extends State<HomeScreen>
     _storeEventsSub = _chatStore.events.listen(_onStoreEvent);
     _noticesSub = _chatStore.notices.listen(_onStoreNotice);
     _chatConn.connect();
-    _chatConn.onWhisper = _onWhisper;
+    _chatConn.onWhisper = _mentions.onWhisper;
     _emoteManager.accessToken = widget.twitchAuth.accessToken;
     _emoteManager.viewerTwitchId = widget.twitchAuth.userId;
     _emoteManager.preloadGlobalEmotes();
@@ -669,7 +689,7 @@ class _HomeScreenState extends State<HomeScreen>
 
   void _maybeNotifyWhisper(TwitchMessage msg) {
     if (!_whisperNotify || !_isBackgrounded) return;
-    if (_notificationTapSub == null || _isWhispersTabActive) return;
+    if (_notificationTapSub == null || _mentions.isWhispersTabActive) return;
     unawaited(
       _notificationService.showWhisperNotification(
         userName: msg.displayName,
@@ -1188,11 +1208,11 @@ class _HomeScreenState extends State<HomeScreen>
     _composer.refreshCooldown();
     switch (event.signal) {
       case ChatStoreSignal.newContent:
-        _syncSavedWithChannel(event.channel);
+        _threads.syncSavedWithChannel(event.channel);
         _onPanelDataChanged(event.channel);
       case ChatStoreSignal.channelTouched:
         _tileCache.remove(event.channel);
-        _syncSavedWithChannel(event.channel);
+        _threads.syncSavedWithChannel(event.channel);
         _onPanelDataChanged(event.channel);
       case ChatStoreSignal.messageMutated:
         if (event.messageId != null) {
@@ -1208,71 +1228,11 @@ class _HomeScreenState extends State<HomeScreen>
   // Appends channel buffer rows belonging to saved threads into the
   // persisted full log. Skips channels with no saved threads; dedup by id
   // keeps the per-event scan cheap and idempotent across history merges.
-  void _syncSavedWithChannel(String channel) {
-    var hasSaved = false;
-    for (final t in _savedThreads.threads) {
-      if (t.channel == channel) {
-        hasSaved = true;
-        break;
-      }
-    }
-    if (!hasSaved) return;
-    final msgs = _chatStore.channelMessages[channel];
-    if (msgs == null || msgs.isEmpty) return;
-    var appended = false;
-    for (final m in msgs) {
-      if (m.isSystem) continue;
-      if (_savedThreads.appendMessage(m)) appended = true;
-    }
-    if (appended) {
-      unawaited(_persistSavedThreads());
-      _threadsListVersion.value++;
-    }
-  }
-
   void _onPanelDataChanged([String? changedChannel]) {
     if (_activePanel == OverlayPanel.closed) return;
-    if (_activePanel == OverlayPanel.thread && _openThreadRoot != null) {
-      // Skip recomputation unless the new message belongs to the open thread's
-      // channel; the thread itself only mutates when that channel moves.
-      if (changedChannel != null &&
-          changedChannel != _openThreadRoot!.channel) {
-        return;
-      }
-      _threadChannel = _openThreadRoot!.channel;
-      _threadMessages
-        ..clear()
-        ..addAll(_computeThreadMessages());
-      _threadMsgCount.value++;
-      // Watching the Thread tab marks it seen so the Active row does not flip
-      // back to unread while you stare at it.
-      if (_threadsTabCtrl.index == 0) {
-        final channel = _openThreadRoot!.channel;
-        final rootId =
-            _openThreadRoot!.replyThreadRootId ?? _openThreadRoot!.messageId;
-        if (channel != null && rootId != null) {
-          _threadLastSeen['$channel:$rootId'] = DateTime.now();
-        }
-      }
-      _threadsListVersion.value++;
-    } else if (_activePanel == OverlayPanel.thread) {
-      // Dashboard open without a thread selected: the Active list still moves.
-      if (changedChannel != null &&
-          changedChannel != _selectedChannel &&
-          changedChannel != _threadChannel) {
-        return;
-      }
-      _threadsListVersion.value++;
-    } else if (_activePanel == OverlayPanel.mentions) {
-      _mentionsMsgCount.value++;
-      _whispersMsgCount.value++;
-    } else if (_activePanel == OverlayPanel.modView) {
-      // Modes are per selected channel; background channels need no work.
-      if (changedChannel != null && changedChannel != _selectedChannel) {
-        return;
-      }
-      _modPanelVersion.value++;
-    }
+    _threads.refreshOnData(changedChannel);
+    if (_activePanel == OverlayPanel.mentions) _mentions.refreshOnData();
+    _mod.refreshOnData(changedChannel);
   }
 
   void _onAuthChanged() {
@@ -1303,11 +1263,8 @@ class _HomeScreenState extends State<HomeScreen>
       _mentionScanDone = false;
       _chatStore.channelsEmotesResolved.clear();
       // Whispers and the mentions feed belong to the previous account.
-      _whispers.clear();
-      _unreadWhispers = 0;
-      _whispersMsgCount.value++;
+      _mentions.clearForAccountSwitch();
       _chatStore.truncateChannel(_mentionsChannel, maxMessages: 0);
-      _mentionsMsgCount.value++;
       _scanHistoryForMentions();
       unawaited(_ensureBlockedUsersLoaded());
     }
@@ -1697,22 +1654,14 @@ class _HomeScreenState extends State<HomeScreen>
     _streamPlayer.dispose();
     _emoteManager.dispose();
     widget.twitchAuth.removeListener(_onAuthChanged);
-    _mentionsTabCtrl.removeListener(_onMentionsTabChanged);
+    _mentionsTabCtrl.removeListener(_mentions.onMentionsTabChanged);
     _mentionsTabCtrl.dispose();
-    _threadsTabCtrl.removeListener(_onThreadsTabChanged);
+    _threadsTabCtrl.removeListener(_threads.onThreadsTabChanged);
     _threadsTabCtrl.dispose();
     _modTabCtrl.dispose();
-    _modPanelVersion.dispose();
-    _threadPanelScrollCtrl.dispose();
-    _mentionsPanelScrollCtrl.dispose();
-    _whispersPanelScrollCtrl.dispose();
-    _threadAtBottom.dispose();
-    _threadMsgCount.dispose();
-    _threadsListVersion.dispose();
-    _mentionsAtBottom.dispose();
-    _mentionsMsgCount.dispose();
-    _whispersAtBottom.dispose();
-    _whispersMsgCount.dispose();
+    _threads.dispose();
+    _mentions.dispose();
+    _mod.dispose();
     for (final c in _scrollControllers.values) {
       c.dispose();
     }
@@ -2008,13 +1957,7 @@ class _HomeScreenState extends State<HomeScreen>
         if (_chatStore.unreadMentions < 0) _chatStore.unreadMentions = 0;
       }
       _chatStore.messageKeys.removeWhere((k) => k.startsWith('$channel:'));
-      _threadLastSeen.removeWhere((k, _) => k.startsWith('$channel:'));
-      // Drop thread-panel state pointing at the departed channel so the
-      // Thread tab never renders a channel that is no longer joined. Saved
-      // bookmarks are global and intentionally survive.
-      if (_openThreadRoot?.channel == channel) _openThreadRoot = null;
-      if (_openThreadRoot == null) _threadMessages = [];
-      if (_threadChannel == channel) _threadChannel = null;
+      _threads.forgetChannel(channel);
       if (_selectedChannel == channel) {
         _selectedChannel = _chatStore.channels.isNotEmpty
             ? _chatStore.channels.last
@@ -2130,301 +2073,6 @@ class _HomeScreenState extends State<HomeScreen>
   // Walk the reply-parent chain to the root with cycle detection (visited set).
   // A message that has children is treated as root even if it has a parent
   // (handles nested reply scenarios).
-  TwitchMessage? _findThreadRoot(TwitchMessage msg) {
-    return _panelManager.findThreadRoot(
-      msg,
-      channelMessages: _chatStore.channelMessages,
-    );
-  }
-
-  Future<void> _showThreadView(
-    TwitchMessage rootMsg, {
-    bool switchChannel = true,
-  }) async {
-    final channel = rootMsg.channel;
-    if (channel == null) return;
-    await _panelManager.closePanel();
-    if (!mounted) return;
-    if (switchChannel && _selectedChannel != channel) {
-      final idx = _chatStore.channels.indexOf(channel);
-      if (idx >= 0) _onChannelChanged(idx);
-    }
-    if (!mounted) return;
-    setState(() {
-      _activePanel = OverlayPanel.thread;
-      _openThreadRoot = rootMsg;
-    });
-    _threadChannel = channel;
-    _threadMessages = _computeThreadMessages();
-    _threadMsgCount.value++;
-    final rootId = rootMsg.replyThreadRootId ?? rootMsg.messageId;
-    if (rootId != null) {
-      _threadLastSeen['$channel:$rootId'] = DateTime.now();
-      _threadsListVersion.value++;
-    }
-    // Jump, don't animate: the panel opens already on the Thread tab, so an
-    // animateTo would flash the strip swiping over from Active/Saved.
-    _threadsTabCtrl.index = 0;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        _panelManager.animateRatio(
-          _panelManager.threadSheetRatio,
-          0.0,
-          PanelManager.fullHeightFraction,
-          PanelManager.sheetAnimDuration,
-        );
-      }
-    });
-  }
-
-  // Opens the threads dashboard (Thread | Active | Saved tabs) without
-  // dropping a currently open thread: the Thread tab keeps its rows so the
-  // dashboard can be browsed and returned from.
-  Future<void> _showThreadsDashboard({int tab = 1}) async {
-    final prevRoot = _openThreadRoot;
-    final prevMsgs = List.of(_threadMessages);
-    final prevChannel = _threadChannel;
-    await _panelManager.closePanel();
-    if (!mounted) return;
-    _composer.unfocus();
-    setState(() {
-      _activePanel = OverlayPanel.thread;
-    });
-    // closePanel clears the manager's root; restore the open thread so the
-    // Thread tab survives dashboard browsing. Active stays per selected
-    // channel; the Thread tab may show another channel's thread.
-    _openThreadRoot = prevRoot;
-    _panelManager.openThreadRoot = prevRoot;
-    _threadMessages = prevMsgs;
-    _threadChannel = prevRoot?.channel ?? prevChannel ?? _selectedChannel;
-    // Same no-flash jump as _showThreadView: the sheet opens already on the
-    // requested tab.
-    _threadsTabCtrl.index = tab.clamp(0, 2);
-    _threadsListVersion.value++;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        _panelManager.animateRatio(
-          _panelManager.threadSheetRatio,
-          0.0,
-          PanelManager.fullHeightFraction,
-          PanelManager.sheetAnimDuration,
-        );
-      }
-    });
-  }
-
-  Future<void> _loadSavedThreads() async {
-    try {
-      await _savedThreads.load();
-      _syncSavedKeys();
-      if (mounted) _threadsListVersion.value++;
-    } catch (_) {
-      // Corrupt storage never blocks startup; dashboard just starts empty.
-    }
-  }
-
-  Future<void> _persistSavedThreads() async {
-    try {
-      await _savedThreads.flush();
-    } catch (_) {
-      // Best effort; the in-memory list still works for the session.
-    }
-  }
-
-  void _syncSavedKeys() {
-    _chatStore.savedThreadKeys
-      ..clear()
-      ..addAll(_savedThreads.keys);
-  }
-
-  String? _threadRootIdOf(TwitchMessage msg) =>
-      msg.replyThreadRootId ?? msg.messageId;
-
-  bool _isThreadSaved(TwitchMessage rootMsg) {
-    final channel = rootMsg.channel;
-    final rootId = _threadRootIdOf(rootMsg);
-    if (channel == null || rootId == null) return false;
-    return _savedThreads.isSaved(channel, rootId);
-  }
-
-  // Resolves the actual root message for a thread key, so bookmarks snapshot
-  // the root's author/text instead of whichever reply the user long-pressed.
-  TwitchMessage? _resolveThreadRootMessage(String channel, String rootId) {
-    final indexed = _chatStore.threadFor(channel, rootId);
-    if (indexed != null) {
-      for (final m in indexed) {
-        if (m.messageId == rootId) return m;
-      }
-    }
-    final buffered = _chatStore.channelMessages[channel];
-    if (buffered != null) {
-      for (final m in buffered) {
-        if (m.messageId == rootId) return m;
-      }
-    }
-    final logged = _savedThreads.messagesFor(channel, rootId);
-    for (final m in logged) {
-      if (m.messageId == rootId) return m;
-    }
-    return null;
-  }
-
-  // Newest message of a thread by timestamp (insertion order is not a sort
-  // contract: history batches can arrive out of order).
-  TwitchMessage? _newestThreadMessage(List<TwitchMessage> msgs) {
-    if (msgs.isEmpty) return null;
-    var best = msgs.first;
-    for (final m in msgs.skip(1)) {
-      if (m.timestamp.isAfter(best.timestamp)) best = m;
-    }
-    return best;
-  }
-
-  void _toggleSaveThread(TwitchMessage rootMsg) {
-    final channel = rootMsg.channel?.toLowerCase();
-    final rootId = _threadRootIdOf(rootMsg);
-    if (channel == null || rootId == null) return;
-    final resolved = _resolveThreadRootMessage(channel, rootId) ?? rootMsg;
-    final willEvict =
-        !_savedThreads.isSaved(channel, rootId) &&
-        _savedThreads.threads.length >= maxSavedThreads;
-    final fullLog = _computeThreadMessagesFor(channel, rootId);
-    final saved = _savedThreads.toggle(
-      SavedThread.fromMessage(resolved, rootId),
-      fullLog.isEmpty ? [resolved] : fullLog,
-    );
-    _syncSavedKeys();
-    unawaited(_persistSavedThreads());
-    _threadsListVersion.value++;
-    if (mounted) {
-      setState(() {});
-      ScaffoldMessenger.of(context).showSnackBar(
-        _snackBar(
-          saved
-              ? (willEvict ? 'Thread saved (oldest removed)' : 'Thread saved')
-              : 'Thread unsaved',
-        ),
-      );
-    }
-  }
-
-  // Full log for a thread key: live store first, then the persisted log for
-  // saved threads (dedup by id, newest-first). Used at save time and by the
-  // thread view so saved threads render fully offline.
-  List<TwitchMessage> _computeThreadMessagesFor(String channel, String rootId) {
-    final seen = <String>{};
-    final out = <TwitchMessage>[];
-    void add(TwitchMessage m) {
-      final id = m.messageId;
-      if (id != null) {
-        if (!seen.add(id)) return;
-      }
-      out.add(m);
-    }
-
-    final live = _chatStore.threadFor(channel, rootId);
-    if (live != null) {
-      for (final m in live) {
-        add(m);
-      }
-    } else {
-      final buffered = _chatStore.channelMessages[channel];
-      if (buffered != null) {
-        final parentOf = <String, String>{};
-        for (final m in buffered) {
-          if (m.replyToParentId != null && m.messageId != null) {
-            parentOf[m.messageId!] = m.replyToParentId!;
-          }
-        }
-        for (final m in buffered) {
-          if (threadKeyFor(m, parentOf) == rootId) add(m);
-        }
-      }
-    }
-    if (_savedThreads.isSaved(channel, rootId)) {
-      for (final m in _savedThreads.messagesFor(channel, rootId)) {
-        add(m);
-      }
-    }
-    out.sort((a, b) => b.timestamp.compareTo(a.timestamp));
-    return out;
-  }
-
-  void _openActiveThread(ThreadSummary summary, String channel) {
-    final msgs = _chatStore.threadFor(channel, summary.rootId);
-    TwitchMessage? target = summary.root;
-    target ??= msgs?.firstOrNull;
-    target ??= _resolveThreadRootMessage(channel, summary.rootId);
-    if (target == null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(_snackBar('Thread no longer available'));
-      return;
-    }
-    unawaited(_showThreadView(target));
-  }
-
-  void _openSavedThread(SavedThread entry) {
-    // Saved threads open offline: the persisted log renders even when the
-    // channel is not joined, and no channel switch happens in that case.
-    final joined = _chatStore.channels.contains(entry.channel);
-    final target =
-        _resolveThreadRootMessage(entry.channel, entry.rootId) ??
-        TwitchMessage(
-          login: entry.login.isNotEmpty ? entry.login : 'thread',
-          displayName: entry.author.isNotEmpty ? entry.author : entry.login,
-          text: '',
-          messageId: entry.rootId,
-          channel: entry.channel,
-        );
-    unawaited(_showThreadView(target, switchChannel: joined));
-  }
-
-  Future<void> _showMentionsView() async {
-    await _panelManager.closePanel();
-    if (!mounted) return;
-    _composer.unfocus();
-    setState(() {
-      _activePanel = OverlayPanel.mentions;
-      _openThreadRoot = null;
-    });
-    // Pre-create the mentions buffer so the ChatView's list reference stays
-    // stable across the first mirrorMentions insertion.
-    _chatStore.channelMessages.putIfAbsent(_mentionsChannel, () => []);
-    _mentionsMsgCount.value++;
-    _whispersMsgCount.value++;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        _panelManager.animateRatio(
-          _panelManager.mentionsSheetRatio,
-          0.0,
-          PanelManager.fullHeightFraction,
-          PanelManager.sheetAnimDuration,
-        );
-      }
-    });
-  }
-
-  Future<void> _showModView() async {
-    await _panelManager.closePanel();
-    if (!mounted) return;
-    _composer.unfocus();
-    setState(() {
-      _activePanel = OverlayPanel.modView;
-      _openThreadRoot = null;
-    });
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        _panelManager.animateRatio(
-          _panelManager.modSheetRatio,
-          0.0,
-          PanelManager.fullHeightFraction,
-          PanelManager.sheetAnimDuration,
-        );
-      }
-    });
-  }
-
   void _showEmoteMenu() {
     _panelManager.showEmoteMenu(
       selectedChannel: _selectedChannel,
@@ -2471,41 +2119,6 @@ class _HomeScreenState extends State<HomeScreen>
     child: child,
   );
 
-  List<TwitchMessage> _computeThreadMessages() {
-    final live = _panelManager.computeThreadMessages(
-      openThreadRoot: _openThreadRoot,
-      channelMessages: _chatStore.channelMessages,
-      threadFor: (ch, rootId) => _chatStore.threadFor(ch, rootId),
-    );
-    // Saved threads merge the persisted full log so the view survives buffer
-    // eviction and restarts. Live rows win on id conflicts.
-    final root = _openThreadRoot;
-    final channel = root?.channel;
-    final rootId = root == null
-        ? null
-        : (root.replyThreadRootId ?? root.messageId);
-    if (channel == null || rootId == null) return live;
-    if (!_savedThreads.isSaved(channel, rootId)) return live;
-    final seen = <String>{};
-    final out = <TwitchMessage>[];
-    for (final m in live) {
-      final id = m.messageId;
-      if (id != null) {
-        if (!seen.add(id)) continue;
-      }
-      out.add(m);
-    }
-    for (final m in _savedThreads.messagesFor(channel, rootId)) {
-      final id = m.messageId;
-      if (id != null) {
-        if (!seen.add(id)) continue;
-      }
-      out.add(m);
-    }
-    out.sort((a, b) => b.timestamp.compareTo(a.timestamp));
-    return out;
-  }
-
   // Push-dedup for shared chat: a message you're joined to both sides of
   // arrives once natively and once mirrored, with different room-local `id`s
   // but the same stable `source-id`. Key on that to notify exactly once.
@@ -2529,101 +2142,6 @@ class _HomeScreenState extends State<HomeScreen>
       userName: msg.displayName,
       message: msg.text,
     );
-  }
-
-  bool get _isWhispersTabActive =>
-      _activePanel == OverlayPanel.mentions && _mentionsTabCtrl.index == 1;
-
-  void _onWhisper(TwitchMessage msg) {
-    if (!mounted) return;
-    _maybeNotifyWhisper(msg);
-    _whispers.insert(0, msg);
-    if (_whispers.length > _maxMessagesPerChannel) {
-      _whispers.removeRange(_maxMessagesPerChannel, _whispers.length);
-    }
-    _whisperTarget = msg.login;
-    _whispersMsgCount.value++;
-    if (!_isWhispersTabActive) {
-      _unreadWhispers++;
-      _chatStore.unreadMentions++;
-    }
-    _chatStore.mentionsBump.value++;
-  }
-
-  void _addWhisperSystemMessage(String channel, String text) {
-    _whispers.insert(
-      0,
-      TwitchMessage(login: '', text: text, isSystem: true, channel: null),
-    );
-    if (_whispers.length > _maxMessagesPerChannel) {
-      _whispers.removeRange(_maxMessagesPerChannel, _whispers.length);
-    }
-    _whispersMsgCount.value++;
-    _chatStore.mentionsBump.value++;
-  }
-
-  void _onWhisperSent(String target, String message) {
-    final login = _chatStore.session.login;
-    if (login == null) return;
-    _whisperTarget = target;
-    _whispers.insert(
-      0,
-      TwitchMessage(
-        login: login,
-        displayName: login,
-        text: message,
-        channel: null,
-      ),
-    );
-    if (_whispers.length > _maxMessagesPerChannel) {
-      _whispers.removeRange(_maxMessagesPerChannel, _whispers.length);
-    }
-    _whispersMsgCount.value++;
-    _chatStore.mentionsBump.value++;
-  }
-
-  void _onMentionsTabChanged() {
-    // TabController notifies on every animation tick while a swipe is in
-    // progress; rebuilding the whole screen per frame is wasted work.
-    if (_mentionsTabCtrl.indexIsChanging) return;
-    iosHaptic(HapticFeedback.selectionClick);
-    if (_mentionsTabCtrl.index == 1 && _unreadWhispers > 0) {
-      _chatStore.unreadMentions -= _unreadWhispers;
-      if (_chatStore.unreadMentions < 0) _chatStore.unreadMentions = 0;
-      _unreadWhispers = 0;
-      _chatStore.mentionsBump.value++;
-    }
-    setState(() {});
-  }
-
-  void _onThreadsTabChanged() {
-    if (_threadsTabCtrl.indexIsChanging) return;
-    iosHaptic(HapticFeedback.selectionClick);
-    // Returning to the Thread tab marks the open thread seen so its Active
-    // row clears its unread highlight.
-    if (_threadsTabCtrl.index == 0 && _openThreadRoot != null) {
-      final channel = _openThreadRoot!.channel;
-      final rootId =
-          _openThreadRoot!.replyThreadRootId ?? _openThreadRoot!.messageId;
-      if (channel != null && rootId != null) {
-        _threadLastSeen['$channel:$rootId'] = DateTime.now();
-        _threadsListVersion.value++;
-      }
-    }
-    setState(() {});
-  }
-
-  void _showWhispersForUser(String login) {
-    _whisperTarget = login;
-    if (_activePanel != OverlayPanel.mentions) {
-      _showMentionsView();
-    }
-    _mentionsTabCtrl.animateTo(1);
-    _chatStore.unreadMentions -= _unreadWhispers;
-    if (_chatStore.unreadMentions < 0) _chatStore.unreadMentions = 0;
-    _unreadWhispers = 0;
-    _chatStore.mentionsBump.value++;
-    _composer.focus();
   }
 
   void _onNotificationTap(String channel) {
@@ -2658,7 +2176,7 @@ class _HomeScreenState extends State<HomeScreen>
         _chatStore.unreadMentions -= clearedUnread;
         if (_chatStore.unreadMentions < 0) _chatStore.unreadMentions = 0;
       }
-      _openThreadRoot = null;
+      _threads.clearOpenThread();
       _composer.onChannelChanged();
     }
 
@@ -2762,9 +2280,21 @@ class _HomeScreenState extends State<HomeScreen>
                   ),
                 );
               },
-          threadPanel: _buildThreadPanel(),
-          mentionsPanel: _buildMentionsPanel(),
-          modViewPanel: _buildModViewPanel(),
+          threadPanel: _threads.threadPanel(
+            context,
+            overlaySheet: _buildOverlaySheet,
+            closePanel: _closePanel,
+          ),
+          mentionsPanel: _mentions.mentionsPanel(
+            context,
+            overlaySheet: _buildOverlaySheet,
+            closePanel: _closePanel,
+          ),
+          modViewPanel: _mod.modViewPanel(
+            context,
+            overlaySheet: _buildOverlaySheet,
+            closePanel: _closePanel,
+          ),
           emotePickerBuilder: (context, {required sheetBoxHeight}) =>
               _buildEmotePicker(sheetBoxHeight: sheetBoxHeight),
           autocomplete: ValueListenableBuilder<List<Suggestion>>(
@@ -3050,7 +2580,7 @@ class _HomeScreenState extends State<HomeScreen>
                       tooltip: 'Mentions',
                       onPressed: () {
                         _chatStore.unreadMentions = 0;
-                        _unreadWhispers = 0;
+                        _mentions.clearUnreadWhispers();
                         _chatStore.channelsWithUnreadMentions.clear();
                         _chatStore.unreadMentionsPerChannel.clear();
                         _chatStore.unreadVersion.value++;
@@ -3058,7 +2588,7 @@ class _HomeScreenState extends State<HomeScreen>
                         if (_activePanel == OverlayPanel.mentions) {
                           unawaited(_closePanel());
                         } else {
-                          _showMentionsView();
+                          _mentions.showMentionsView();
                         }
                       },
                     ),
@@ -3070,10 +2600,10 @@ class _HomeScreenState extends State<HomeScreen>
                     onSelected: (value) {
                       switch (value) {
                         case 'modview':
-                          _showModView();
+                          _mod.showModView();
                           break;
                         case 'threads':
-                          _showThreadsDashboard(tab: 1);
+                          _threads.showThreadsDashboard(tab: 1);
                           break;
                         case 'upload':
                           _uploadController.pickAndUpload(context);
@@ -3233,8 +2763,8 @@ class _HomeScreenState extends State<HomeScreen>
                             _menus.showMessageMenu(context, msg),
                         onCopyMessage: _copyMessageToClipboard,
                         onNewMessage: _chatStore.noteNewMessage,
-                        onFindThreadRoot: _findThreadRoot,
-                        onShowThreadView: _showThreadView,
+                        onFindThreadRoot: _threads.findThreadRoot,
+                        onShowThreadView: (msg) => _threads.showThreadView(msg),
                         keyboardDismissBehavior: (!kIsWeb && Platform.isIOS)
                             ? ScrollViewKeyboardDismissBehavior.onDrag
                             : ScrollViewKeyboardDismissBehavior.manual,
@@ -3322,377 +2852,6 @@ class _HomeScreenState extends State<HomeScreen>
             ),
           ),
       ],
-    );
-  }
-
-  Widget _buildThreadPanel() {
-    return _buildOverlaySheet(
-      offstage: _activePanel != OverlayPanel.thread,
-      ratio: _threadSheetRatio,
-      header: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8),
-            child: Row(
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.close),
-                  tooltip: 'Close',
-                  onPressed: _closePanel,
-                ),
-                const SizedBox(width: 4),
-                Expanded(
-                  child: Text(
-                    'Threads',
-                    style: TextStyle(
-                      fontSize: 20,
-                      color: Theme.of(context).colorScheme.onSurface,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          TabBar(
-            controller: _threadsTabCtrl,
-            padding: EdgeInsets.fromLTRB(100.0, 0.0, 100.0, 0.0),
-            // Three tabs in the mentions-width island: center the strip so it
-            // reads the same, and let it scroll instead of clipping labels on
-            // narrow phones.
-            isScrollable: true,
-            tabAlignment: TabAlignment.center,
-            tabs: const [
-              Tab(text: 'Thread'),
-              Tab(text: 'Active'),
-              Tab(text: 'Saved'),
-            ],
-          ),
-          Divider(height: 1, color: Theme.of(context).dividerColor),
-        ],
-      ),
-      body: TabBarView(
-        controller: _threadsTabCtrl,
-        children: [
-          ChatView(
-            key: const ValueKey('thread_panel'),
-            channel: _threadChannel ?? '',
-            messages: _threadMessages,
-            atBottomNotifier: _threadAtBottom,
-            messageNotifier: _threadMsgCount,
-            scrollController: _threadPanelScrollCtrl,
-            messageBuilder: _messageBuilder,
-            showTimestamp: _showTimestamps,
-            timestampFormat: _timestampFormat,
-            chatFontScale: _chatFontSize / 14.0,
-            checkeredMessages: _checkeredMessages,
-            highlightOpacity: _highlightOpacity,
-            lineSeparator: _lineSeparator,
-            sharedChatMode: _sharedChatMode,
-            paintService: _showNamePaints ? _sevenTvPaintService : null,
-            onShowUserProfile: (login, userId, {displayName}) =>
-                _userSheets.showUserProfile(
-                  context,
-                  login,
-                  userId,
-                  displayName: displayName,
-                ),
-            onShowMessageMenu: (msg) =>
-                _menus.showPanelMessageMenu(context, msg),
-            onCopyMessage: _copyMessageToClipboard,
-            showReplyIndicators: false,
-            emptyText: 'No messages found',
-          ),
-          _buildActiveThreadsList(),
-          _buildSavedThreadsList(),
-        ],
-      ),
-    );
-  }
-
-  bool _isThreadUnread(String channel, ThreadSummary summary) {
-    final seen = _threadLastSeen['$channel:${summary.rootId}'];
-    if (seen == null) return true;
-    return summary.lastActivity.isAfter(seen);
-  }
-
-  Widget _buildActiveThreadsList() {
-    return ValueListenableBuilder<int>(
-      valueListenable: _threadsListVersion,
-      builder: (context, _, _) {
-        final channel = _selectedChannel ?? _threadChannel;
-        if (channel == null) {
-          return const Center(child: Text('Join a channel to see threads'));
-        }
-        final threads = _chatStore.activeThreads(channel);
-        if (threads.isEmpty) {
-          return const Center(child: Text('No active threads'));
-        }
-        final theme = Theme.of(context);
-        return ListView.builder(
-          itemCount: threads.length,
-          itemBuilder: (context, i) {
-            final summary = threads[i];
-            final unread = _isThreadUnread(channel, summary);
-            // Orphan threads have no root yet; show the newest reply by
-            // timestamp so the row still identifies the conversation.
-            final live = _chatStore.threadFor(channel, summary.rootId);
-            final display =
-                summary.root ??
-                (live == null ? null : _newestThreadMessage(live));
-            final author = display != null
-                ? (display.displayName.isNotEmpty
-                      ? display.displayName
-                      : display.login)
-                : 'Thread';
-            final preview = display != null ? display.text : '';
-            final saved = _savedThreads.isSaved(channel, summary.rootId);
-            return ListTile(
-              leading: const Icon(Icons.forum),
-              title: Text(
-                preview.isEmpty ? author : '$author: $preview',
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontWeight: unread ? FontWeight.w600 : FontWeight.normal,
-                  color: unread ? theme.colorScheme.onSurface : null,
-                ),
-              ),
-              subtitle: Text(
-                '${summary.replyCount} '
-                '${summary.replyCount == 1 ? 'reply' : 'replies'}'
-                ' · ${formatTimestamp(summary.lastActivity, _timestampFormat)}',
-              ),
-              trailing: display == null
-                  ? null
-                  : IconButton(
-                      icon: Icon(
-                        saved ? Icons.bookmark : Icons.bookmark_border,
-                      ),
-                      tooltip: saved ? 'Unsave thread' : 'Save thread',
-                      onPressed: () => _toggleSaveThread(display),
-                    ),
-              onTap: () => _openActiveThread(summary, channel),
-            );
-          },
-        );
-      },
-    );
-  }
-
-  Widget _buildSavedThreadsList() {
-    return ValueListenableBuilder<int>(
-      valueListenable: _threadsListVersion,
-      builder: (context, _, _) {
-        final saved = _savedThreads.threads;
-        if (saved.isEmpty) {
-          return const Center(child: Text('No saved threads yet'));
-        }
-        return ListView.builder(
-          itemCount: saved.length,
-          itemBuilder: (context, i) {
-            final entry = saved[i];
-            return ListTile(
-              leading: const Icon(Icons.bookmark),
-              title: Text(
-                entry.preview.isEmpty
-                    ? entry.author
-                    : '${entry.author}: ${entry.preview}',
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-              subtitle: Text('#${entry.channel}'),
-              trailing: IconButton(
-                icon: const Icon(Icons.bookmark),
-                tooltip: 'Unsave thread',
-                onPressed: () {
-                  _savedThreads.remove(entry.channel, entry.rootId);
-                  _syncSavedKeys();
-                  unawaited(_persistSavedThreads());
-                  _threadsListVersion.value++;
-                  if (mounted) {
-                    setState(() {});
-                    ScaffoldMessenger.of(
-                      context,
-                    ).showSnackBar(_snackBar('Thread unsaved'));
-                  }
-                },
-              ),
-              onTap: () => _openSavedThread(entry),
-            );
-          },
-        );
-      },
-    );
-  }
-
-  Widget _buildMentionsPanel() {
-    return _buildOverlaySheet(
-      offstage: _activePanel != OverlayPanel.mentions,
-      ratio: _mentionsSheetRatio,
-      header: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8),
-            child: Row(
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.arrow_back),
-                  tooltip: 'Back',
-                  onPressed: _closePanel,
-                ),
-                const SizedBox(width: 4),
-                Expanded(
-                  child: Text(
-                    'Mentions / Whispers',
-                    style: TextStyle(
-                      fontSize: 20,
-                      color: Theme.of(context).colorScheme.onSurface,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          TabBar(
-            controller: _mentionsTabCtrl,
-            padding: EdgeInsets.fromLTRB(100.0, 0.0, 100.0, 0.0),
-            tabs: const [
-              Tab(text: 'Mentions'),
-              Tab(text: 'Whispers'),
-            ],
-          ),
-          Divider(height: 1, color: Theme.of(context).dividerColor),
-        ],
-      ),
-      body: TabBarView(
-        controller: _mentionsTabCtrl,
-        children: [
-          ChatView(
-            key: const ValueKey('mentions_panel'),
-            channel: _mentionsChannel,
-            messages: _chatStore.channelMessages[_mentionsChannel] ?? const [],
-            atBottomNotifier: _mentionsAtBottom,
-            messageNotifier: _mentionsMsgCount,
-            scrollController: _mentionsPanelScrollCtrl,
-            messageBuilder: _messageBuilder,
-            linkWhitelist: _linkWhitelist,
-            showTimestamp: _showTimestamps,
-            timestampFormat: _timestampFormat,
-            chatFontScale: _chatFontSize / 14.0,
-            checkeredMessages: _checkeredMessages,
-            highlightOpacity: _highlightOpacity,
-            lineSeparator: _lineSeparator,
-            sharedChatMode: _sharedChatMode,
-            physics: const ClampingScrollPhysics(),
-            onShowUserProfile: (login, userId, {displayName}) =>
-                _userSheets.showUserProfile(
-                  context,
-                  login,
-                  userId,
-                  displayName: displayName,
-                ),
-            onShowMessageMenu: (msg) =>
-                _menus.showPanelMessageMenu(context, msg),
-            onCopyMessage: _copyMessageToClipboard,
-            showReplyIndicators: false,
-            fadeDeleted: false,
-            emptyText: 'No mentions or whispers',
-          ),
-          ChatView(
-            key: const ValueKey('whispers_panel'),
-            channel: '@whispers',
-            messages: _whispers,
-            atBottomNotifier: _whispersAtBottom,
-            messageNotifier: _whispersMsgCount,
-            scrollController: _whispersPanelScrollCtrl,
-            messageBuilder: _messageBuilder,
-            linkWhitelist: _linkWhitelist,
-            showTimestamp: _showTimestamps,
-            timestampFormat: _timestampFormat,
-            chatFontScale: _chatFontSize / 14.0,
-            checkeredMessages: _checkeredMessages,
-            highlightOpacity: _highlightOpacity,
-            lineSeparator: _lineSeparator,
-            sharedChatMode: _sharedChatMode,
-            physics: const ClampingScrollPhysics(),
-            onShowUserProfile: (login, userId, {displayName}) =>
-                _userSheets.showUserProfile(
-                  context,
-                  login,
-                  userId,
-                  displayName: displayName,
-                ),
-            onShowMessageMenu: (msg) =>
-                _menus.showPanelMessageMenu(context, msg),
-            onCopyMessage: _copyMessageToClipboard,
-            showReplyIndicators: false,
-            emptyText: 'No whispers',
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildModViewPanel() {
-    final channel = _selectedChannel ?? '';
-    return _buildOverlaySheet(
-      offstage: _activePanel != OverlayPanel.modView,
-      ratio: _modSheetRatio,
-      header: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8),
-            child: Row(
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.arrow_back),
-                  tooltip: 'Back',
-                  onPressed: _closePanel,
-                ),
-                const SizedBox(width: 4),
-                Expanded(
-                  child: Text(
-                    channel.isEmpty ? 'Mod view' : 'Mod view · #$channel',
-                    style: TextStyle(
-                      fontSize: 20,
-                      color: Theme.of(context).colorScheme.onSurface,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          TabBar(
-            controller: _modTabCtrl,
-            padding: const EdgeInsets.fromLTRB(100.0, 0.0, 100.0, 0.0),
-            // Three tabs like the threads panel: center the strip and let
-            // it scroll instead of clipping labels on narrow phones.
-            isScrollable: true,
-            tabAlignment: TabAlignment.center,
-            tabs: const [
-              Tab(text: 'Queue'),
-              Tab(text: 'Modes'),
-              Tab(text: 'Mods'),
-            ],
-          ),
-          Divider(height: 1, color: Theme.of(context).dividerColor),
-        ],
-      ),
-      body: ModViewPanel(
-        channel: channel,
-        store: _chatStore,
-        modActions: _modActions,
-        auth: widget.twitchAuth,
-        tabController: _modTabCtrl,
-        refresh: _modPanelVersion,
-        isModerationActive: (c) =>
-            c.isNotEmpty && _chatConn.isModerationActive(c),
-        isAutomodActive: (c) => c.isNotEmpty && _chatConn.isAutomodActive(c),
-        getRoomModes: (c) => c.isEmpty ? const {} : _chatConn.roomStateTags(c),
-      ),
     );
   }
 
