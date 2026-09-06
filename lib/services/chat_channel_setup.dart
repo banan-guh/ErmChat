@@ -101,7 +101,7 @@ class ChatChannelSetup {
   final _streamStatusParts = <String, List<String>>{};
   Timer? _chatStatusTimer;
   final _chatStatusChannels = <String>{};
-  static const _chatStatusInterval = Duration(seconds: 60);
+  static const _chatStatusInterval = Duration(seconds: 30);
   // Channels a join-failure notice was displayed for. A later ROOMSTATE
   // confirmation clears the entry and announces the (late) success.
   final _joinFailureNotified = <String>{};
