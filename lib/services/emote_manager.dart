@@ -700,7 +700,9 @@ class EmoteManager extends ChangeNotifier {
   }
 
   /// Bootstrap: fetch the viewer's owned 7TV sets and their emotes.
+  /// Restores the persisted seed first so known sets skip the network.
   Future<void> loadViewerPersonalSevenTvSets() async {
+    await loadPersistedPersonalSets();
     final viewerId = _viewerTwitchId;
     if (viewerId == null || viewerId.isEmpty) return;
     if (_tier == EmoteFetchTier.nothing) return;
@@ -726,7 +728,10 @@ class EmoteManager extends ChangeNotifier {
       _personalSevenTvSets[setId] = emotes;
       changed = true;
     }
-    if (changed) _notify();
+    if (changed) {
+      _notify();
+      unawaited(_savePersonalSets());
+    }
   }
 
   /// Live personal 7TV grant/revoke from the entitlement stream. The
@@ -749,7 +754,10 @@ class EmoteManager extends ChangeNotifier {
     if (event.kind == 'entitlement.delete') {
       final hadSet = _personalSevenTvSetIds.remove(event.cosmeticId);
       final hadEmotes = _personalSevenTvSets.remove(event.cosmeticId) != null;
-      if (hadSet || hadEmotes) _notify();
+      if (hadSet || hadEmotes) {
+        _notify();
+        unawaited(_savePersonalSets());
+      }
       return;
     }
     if (_personalSevenTvSetIds.contains(event.cosmeticId)) return;
@@ -766,6 +774,7 @@ class EmoteManager extends ChangeNotifier {
     _personalSevenTvSetIds.add(event.cosmeticId);
     _personalSevenTvSets[event.cosmeticId] = emotes;
     _notify();
+    unawaited(_savePersonalSets());
   }
 
   /// Map for one message: channel sets plus the sender's personal 7TV emotes
@@ -817,6 +826,7 @@ class EmoteManager extends ChangeNotifier {
     }
     if (mappingChanged) _rebuildForeignPersonalUsers(setId);
     await _fillForeignPersonalSet(setId);
+    unawaited(_savePersonalSets());
   }
 
   /// Drops a foreign user's personal-set grant (entitlement.delete).
@@ -839,7 +849,10 @@ class EmoteManager extends ChangeNotifier {
       owners.removeAll(userTwitchIds);
       if (owners.isEmpty) _foreignPersonalSetOwners.remove(setId);
     }
-    if (changed) _notify();
+    if (changed) {
+      _notify();
+      unawaited(_savePersonalSets());
+    }
   }
 
   /// Placeholder for a personal set announced over the socket whose contents
@@ -900,6 +913,7 @@ class EmoteManager extends ChangeNotifier {
     if (!changed) return;
     _rebuildForeignPersonalUsers(setId);
     _notify();
+    unawaited(_savePersonalSets());
   }
 
   /// One-time REST fill for a socket-announced set. Once per set id, shared
@@ -961,6 +975,114 @@ class EmoteManager extends ChangeNotifier {
         suggestions: suggestions,
       );
     }
+  }
+
+  // Personal sets change rarely and the socket corrects them live, so the
+  // disk copy is a long-lived cold-start seed (not a source of truth).
+  static const _personalSetsKey = 'emotes3_personal_sets';
+  static const _personalSetsTtl = Duration(days: 30);
+
+  @visibleForTesting
+  Future<void> flushPersonalSetsForTest() => _savePersonalSets();
+
+  Future<void> _savePersonalSets() async {
+    try {
+      final viewer = <String, dynamic>{};
+      for (final id in _personalSevenTvSetIds) {
+        final emotes = _personalSevenTvSets[id];
+        if (emotes == null || emotes.isEmpty) continue;
+        viewer[id] = emotes.map((e) => e.toJson()).toList();
+      }
+      final foreign = <String, dynamic>{};
+      final owners = <String, dynamic>{};
+      for (final entry in _foreignPersonalSetContents.entries) {
+        if (entry.value.isEmpty) continue;
+        final setOwners = _foreignPersonalSetOwners[entry.key];
+        if (setOwners == null || setOwners.isEmpty) continue;
+        foreign[entry.key] = entry.value.map((e) => e.toJson()).toList();
+        owners[entry.key] = setOwners.toList();
+      }
+      if (viewer.isEmpty && foreign.isEmpty) {
+        await _metaStore.delete(_personalSetsKey);
+        return;
+      }
+      await _metaStore.write(
+        _personalSetsKey,
+        jsonEncode({
+          'ts': DateTime.now().toIso8601String(),
+          'viewerId': _viewerTwitchId,
+          'viewer': viewer,
+          'foreignOwners': owners,
+          'foreign': foreign,
+        }),
+      );
+    } catch (_) {
+      logDebug('[EmoteManager] failed to save personal sets');
+    }
+  }
+
+  /// Restores persisted personal sets. Viewer sets apply only to the matching
+  /// account; foreign sets apply to everyone. Never overwrites live data:
+  /// only unknown set ids are filled.
+  Future<void> loadPersistedPersonalSets() async {
+    try {
+      final raw = await _metaStore.read(_personalSetsKey);
+      if (raw == null) return;
+      final data = jsonDecode(raw) as Map<String, dynamic>;
+      final ts = DateTime.tryParse(data['ts'] as String? ?? '');
+      if (ts == null || DateTime.now().difference(ts) > _personalSetsTtl) {
+        await _metaStore.delete(_personalSetsKey);
+        return;
+      }
+      var changed = false;
+      final viewerId = _viewerTwitchId;
+      if (viewerId != null && (data['viewerId'] as String?) == viewerId) {
+        final viewer = data['viewer'] as Map<String, dynamic>? ?? {};
+        for (final entry in viewer.entries) {
+          if (_personalSevenTvSetIds.contains(entry.key)) continue;
+          final emotes = _decodeEmoteList(entry.value);
+          if (emotes.isEmpty) continue;
+          _personalSevenTvSetIds.add(entry.key);
+          _personalSevenTvSets[entry.key] = emotes;
+          changed = true;
+        }
+      }
+      final foreign = data['foreign'] as Map<String, dynamic>? ?? {};
+      final owners = data['foreignOwners'] as Map<String, dynamic>? ?? {};
+      for (final entry in foreign.entries) {
+        if (_foreignPersonalSetContents.containsKey(entry.key)) continue;
+        final emotes = _decodeEmoteList(entry.value);
+        if (emotes.isEmpty) continue;
+        final setOwners = (owners[entry.key] as List<dynamic>? ?? [])
+            .whereType<String>()
+            .where((u) => u.isNotEmpty && u != viewerId)
+            .toSet();
+        if (setOwners.isEmpty) continue;
+        _foreignPersonalSetContents[entry.key] = emotes;
+        _foreignPersonalSetOwners[entry.key] = setOwners;
+        for (final userId in setOwners) {
+          _foreignPersonalUserSets.putIfAbsent(userId, () => {}).add(entry.key);
+        }
+        _rebuildForeignPersonalUsers(entry.key);
+        changed = true;
+      }
+      if (changed) _notify();
+    } catch (_) {
+      logDebug('[EmoteManager] failed to load personal sets');
+    }
+  }
+
+  List<GenericEmote> _decodeEmoteList(Object? raw) {
+    final out = <GenericEmote>[];
+    if (raw is! List<dynamic>) return out;
+    for (final item in raw) {
+      try {
+        if (item is Map<String, dynamic>) {
+          out.add(GenericEmote.fromJson(item));
+        }
+      } catch (_) {}
+    }
+    return out;
   }
 
   // Display order for global grid (differs from dedup priority).
@@ -2529,6 +2651,8 @@ class EmoteManager extends ChangeNotifier {
     try {
       for (final key in await _metaStore.keys()) {
         if (!key.startsWith('emotes3_')) continue;
+        // Personal seeds are account-scoped, not channel-scoped.
+        if (key == _personalSetsKey) continue;
         final channel = key.substring('emotes3_'.length);
         if (channel.isEmpty || channel == 'global') continue;
         if (!activeChannels.contains(channel)) {

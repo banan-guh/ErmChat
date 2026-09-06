@@ -4883,4 +4883,117 @@ void main() {
       );
     });
   });
+
+  group('persisted personal sets', () {
+    late Directory dir;
+
+    setUp(() async {
+      dir = await Directory.systemTemp.createTemp('ermchat_meta');
+      EmoteMetaStore.I.overrideDirectory(dir);
+      addTearDown(() => EmoteMetaStore.I.reset());
+      addTearDown(() => dir.delete(recursive: true));
+    });
+
+    GenericEmote personal(String id, String code) => GenericEmote(
+      id: id,
+      code: code,
+      type: EmoteType.sevenTv,
+      url: 'https://example.com/$id.webp',
+      scope: EmoteScope.personal,
+    );
+
+    EmoteManager seedManager() => EmoteManager(
+      fetchStagger: Duration.zero,
+      sevenTvOwnedSetIdsFetcher: (_) async => ['vset'],
+      sevenTvEmoteSetFetcher: (setId, _) async => [
+        if (setId == 'vset') personal('v1', 'Mine'),
+        if (setId == 'fset') personal('f1', 'Theirs'),
+      ],
+    );
+
+    Future<void> seed() async {
+      SharedPreferences.setMockInitialValues({});
+      final manager = seedManager();
+      manager.viewerTwitchId = 'viewer-1';
+      await manager.loadViewerPersonalSevenTvSets();
+      await manager.trackForeignPersonalGrant(['sender-1'], 'fset');
+      await manager.flushPersonalSetsForTest();
+    }
+
+    test('round-trips viewer and foreign sets across restarts', () async {
+      await seed();
+      final manager = EmoteManager(fetchStagger: Duration.zero);
+      manager.viewerTwitchId = 'viewer-1';
+      await manager.loadPersistedPersonalSets();
+
+      expect(manager.byCode('ch')!.byCode.keys, contains('Mine'));
+      expect(
+        manager.byCodeForSender('ch', 'sender-1')!.byCode.keys,
+        contains('Theirs'),
+      );
+      expect(
+        manager.byCodeForSender('ch', 'sender-2')?.byCode.keys ?? [],
+        isNot(contains('Theirs')),
+      );
+    });
+
+    test('viewer sets restore only for the matching account', () async {
+      await seed();
+      final manager = EmoteManager(fetchStagger: Duration.zero);
+      manager.viewerTwitchId = 'viewer-2';
+      await manager.loadPersistedPersonalSets();
+
+      expect(manager.byCode('ch')?.byCode.keys ?? [], isNot(contains('Mine')));
+      expect(
+        manager.byCodeForSender('ch', 'sender-1')!.byCode.keys,
+        contains('Theirs'),
+      );
+    });
+
+    test('expired seeds are dropped', () async {
+      SharedPreferences.setMockInitialValues({});
+      await EmoteMetaStore.I.write(
+        'emotes3_personal_sets',
+        jsonEncode({
+          'ts': DateTime.now()
+              .subtract(const Duration(days: 31))
+              .toIso8601String(),
+          'viewerId': 'viewer-1',
+          'viewer': {
+            'vset': [personal('v1', 'Mine').toJson()],
+          },
+          'foreignOwners': {
+            'fset': ['sender-1'],
+          },
+          'foreign': {
+            'fset': [personal('f1', 'Theirs').toJson()],
+          },
+        }),
+      );
+      final manager = EmoteManager(fetchStagger: Duration.zero);
+      manager.viewerTwitchId = 'viewer-1';
+      await manager.loadPersistedPersonalSets();
+
+      expect(manager.byCode('ch')?.byCode.keys ?? [], isNot(contains('Mine')));
+      expect(
+        manager.byCodeForSender('ch', 'sender-1')?.byCode.keys ?? [],
+        isNot(contains('Theirs')),
+      );
+      expect(await EmoteMetaStore.I.read('emotes3_personal_sets'), isNull);
+    });
+
+    test(
+      'prune keeps the personal seed while dropping dead channels',
+      () async {
+        SharedPreferences.setMockInitialValues({});
+        await EmoteMetaStore.I.write('emotes3_personal_sets', '{}');
+        await EmoteMetaStore.I.write('emotes3_deadch', '{}');
+        final manager = EmoteManager(fetchStagger: Duration.zero);
+        await manager.pruneStaleChannels({'ch'});
+
+        expect(await EmoteMetaStore.I.read('emotes3_personal_sets'), isNotNull);
+        expect(await EmoteMetaStore.I.read('emotes3_deadch'), isNull);
+      },
+    );
+  });
 }
