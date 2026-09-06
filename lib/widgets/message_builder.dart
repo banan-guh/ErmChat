@@ -3,6 +3,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import '../color_utils.dart';
 import '../models/generic_emote.dart';
 import '../models/twitch_message.dart';
+import '../util/constants.dart';
 import '../services/emote_manager.dart';
 import '../services/link_whitelist.dart';
 import '../services/third_party_badge_service.dart';
@@ -18,6 +19,12 @@ class MessageBuilder {
   final void Function(List<GenericEmote>) onShowEmoteSheet;
   final LinkWhitelist linkWhitelist;
 
+  /// Whether Giphy attachments render inline. Off falls back to plain text.
+  bool showGifs;
+
+  /// Inline Giphy box height at textScale 1.0; width derives from 3:2 aspect.
+  double gifHeight;
+
   /// Tap handler for email spans (copy + feedback). Null copies silently.
   void Function(String email)? onEmailTap;
 
@@ -27,13 +34,19 @@ class MessageBuilder {
     required this.thirdPartyBadgeService,
     required this.onShowEmoteSheet,
     LinkWhitelist? linkWhitelist,
+    this.showGifs = kGiphyInlineEnabledDefault,
+    this.gifHeight = kGiphyInlineHeightDefault,
   }) : linkWhitelist = linkWhitelist ?? LinkWhitelist.instance;
 
   /// Composite cache key for message spans. Prime multiplier avoids collisions.
-  int get _spanCacheVersion =>
-      emoteManager.version * 1000003 +
-      badgeService.version +
-      linkWhitelist.entries.fold(0, (h, e) => h ^ e.hashCode * 31);
+  /// Giphy prefs join the key (prime offset for the toggle, spread factor
+  /// for the height) so changes recompute spans lazily.
+  int get _spanCacheVersion {
+    var v = emoteManager.version * 1000003 + badgeService.version;
+    v += linkWhitelist.entries.fold<int>(0, (h, e) => h ^ e.hashCode * 31);
+    if (showGifs) v += 10000019 + (gifHeight * 13).toInt();
+    return v;
+  }
 
   List<InlineSpan> buildMessageSpans(
     TwitchMessage msg,
@@ -87,7 +100,8 @@ class MessageBuilder {
       lookupChannel,
       msg.userId,
     );
-    final gifs = msg.gifAttachments;
+    // Giphy toggle off falls back to plain text (same as no attachments).
+    final gifs = showGifs ? msg.gifAttachments : null;
     if (gifs == null || gifs.isEmpty) {
       return EmoteText.build(
         text: msg.text,
@@ -149,9 +163,9 @@ class MessageBuilder {
 
   /// Inline chat GIF. Fixed box with contain fit; animation, caching, and the
   /// animate_gifs freeze all come from the shared emote image pipeline.
-  static WidgetSpan _buildGifSpan(String url, double scale) {
-    final height = 120.0 * scale;
-    final width = 180.0 * scale;
+  WidgetSpan _buildGifSpan(String url, double scale) {
+    final height = gifHeight * scale;
+    final width = gifHeight * 1.5 * scale;
     return WidgetSpan(
       alignment: PlaceholderAlignment.middle,
       child: Padding(

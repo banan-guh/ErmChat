@@ -9,6 +9,7 @@ import '../../util/timestamp_formatter.dart';
 import 'macros_screen.dart';
 import 'pings_screen.dart';
 import 'ignores_screen.dart';
+import 'inline_embeds_screen.dart';
 import 'settings_page.dart';
 
 class ChatSettingsScreen extends StatefulWidget {
@@ -24,6 +25,8 @@ class ChatSettingsScreen extends StatefulWidget {
   final ValueChanged<String>? onTimestampFormatChanged;
   final ValueChanged<String>? onSharedChatModeChanged;
   final ValueChanged<bool>? onNamePaintsChanged;
+  final ValueChanged<bool>? onShowGifsChanged;
+  final ValueChanged<double>? onGifHeightChanged;
 
   const ChatSettingsScreen({
     super.key,
@@ -39,6 +42,8 @@ class ChatSettingsScreen extends StatefulWidget {
     this.onTimestampFormatChanged,
     this.onSharedChatModeChanged,
     this.onNamePaintsChanged,
+    this.onShowGifsChanged,
+    this.onGifHeightChanged,
   });
 
   @override
@@ -57,6 +62,8 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
   String _timestampFormat = kDefaultTimestampFormat;
   String _sharedChatMode = 'spotlight';
   bool _namePaints = false;
+  bool _showGifs = kGiphyInlineEnabledDefault;
+  double _gifHeight = kGiphyInlineHeightDefault;
 
   @override
   void initState() {
@@ -85,6 +92,13 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
             prefs.getString(kTimestampFormatPrefKey) ?? kDefaultTimestampFormat;
         _sharedChatMode = prefs.getString('shared_chat_mode') ?? 'spotlight';
         _namePaints = prefs.getBool('seventv_name_paints') ?? false;
+        _showGifs =
+            prefs.getBool(kGiphyInlineEnabledPrefKey) ??
+            kGiphyInlineEnabledDefault;
+        _gifHeight =
+            (prefs.getDouble(kGiphyInlineHeightPrefKey) ??
+                    kGiphyInlineHeightDefault)
+                .clamp(kGiphyInlineHeightMin, kGiphyInlineHeightMax);
       });
     }
   }
@@ -295,6 +309,31 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
               Navigator.push(
                 context,
                 MaterialPageRoute(builder: (_) => const IgnoresScreen()),
+              );
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.gif_box),
+            title: const Text('Inline embeds'),
+            subtitle: Text(
+              _showGifs ? 'Giphy on (${_gifHeight.round()}dp)' : 'Off',
+            ),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => InlineEmbedsScreen(
+                    onShowGifsChanged: (v) {
+                      if (mounted) setState(() => _showGifs = v);
+                      widget.onShowGifsChanged?.call(v);
+                    },
+                    onGifHeightChanged: (v) {
+                      if (mounted) setState(() => _gifHeight = v);
+                      widget.onGifHeightChanged?.call(v);
+                    },
+                  ),
+                ),
               );
             },
           ),

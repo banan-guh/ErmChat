@@ -29,6 +29,14 @@ const kMaxChannels = 100;
 /// Default recent-messages fetch count, shared across boot, HomeScreen, and settings.
 const kRecentMessagesLimitDefault = 100;
 
+/// Giphy inline embeds: off by default, height slider in dp at textScale 1.0.
+const String kGiphyInlineEnabledPrefKey = 'giphy_inline_enabled';
+const String kGiphyInlineHeightPrefKey = 'giphy_inline_height';
+const bool kGiphyInlineEnabledDefault = false;
+const double kGiphyInlineHeightDefault = 120.0;
+const double kGiphyInlineHeightMin = 60.0;
+const double kGiphyInlineHeightMax = 240.0;
+
 /// Snaps a raw (possibly legacy) value to the nearest log-scale step.
 int snapToMaxMessagesStep(int value) {
   var best = kMaxMessagesPerChannelValues.first;

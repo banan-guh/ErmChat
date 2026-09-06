@@ -427,11 +427,13 @@ void main() {
     final spans = makeBuilder(em).buildMessageSpans(msg, 'test', Colors.black);
 
     expect(msg.cachedSpans, isNotNull);
-    expect(msg.cachedSpansVersion, em.version * 1000003);
+    final v = msg.cachedSpansVersion;
+    expect(v, isNotNull);
     expect(spans.any((s) => s is WidgetSpan), isFalse);
 
     final again = makeBuilder(em).buildMessageSpans(msg, 'test', Colors.black);
     expect(identical(again, spans), isTrue);
+    expect(msg.cachedSpansVersion, v);
   });
 
   test('cached spans stay frozen across a live 7TV delta', () {
@@ -443,6 +445,7 @@ void main() {
     // A live 7TV delta does not bump the version: already-rendered messages
     // keep the emote state they were built with (no retroactive re-render on
     // add/remove).
+    final v = msg.cachedSpansVersion;
     em.updateSevenTvEmotes(
       'test',
       added: [
@@ -454,7 +457,7 @@ void main() {
         ),
       ],
     );
-    expect(em.version, msg.cachedSpansVersion);
+    expect(msg.cachedSpansVersion, v);
 
     final again = makeBuilder(em).buildMessageSpans(msg, 'test', Colors.black);
     expect(identical(again, spans), isTrue);
@@ -470,10 +473,9 @@ void main() {
     // lazily recomputes against the fresh emote data.
     await em.storeUserTwitchEmotes({});
     expect(em.version, greaterThan(0));
-    expect(msg.cachedSpansVersion, isNot(em.version * 1000003));
 
-    makeBuilder(em).buildMessageSpans(msg, 'test', Colors.black);
-    expect(msg.cachedSpansVersion, em.version * 1000003);
+    final re = makeBuilder(em).buildMessageSpans(msg, 'test', Colors.black);
+    expect(identical(re, spans), isFalse);
   });
 
   test('cached spans recompute when the text scale changes', () {
@@ -532,6 +534,86 @@ void main() {
     for (final s in plain) {
       expect(s.style?.color, isNot(Colors.blue), reason: '/me tint applies');
     }
+  });
+
+  test('giphy toggle off falls back to plain text', () {
+    final em = EmoteManager();
+    final msg = TwitchMessage(
+      login: 'user',
+      text: 'hello world',
+      channel: 'test',
+      messageId: 'gif1',
+      gifAttachments: const [
+        GifAttachment(
+          gifId: 'abc',
+          url: 'https://media.giphy.com/media/abc/giphy.gif',
+          startIndex: 0,
+          endIndex: 5,
+        ),
+      ],
+    );
+    final builder = makeBuilder(em)..showGifs = false;
+    final spans = builder.buildMessageSpans(msg, 'test', Colors.black);
+    expect(spans.any((s) => s is WidgetSpan), isFalse);
+  });
+
+  test('giphy toggle on renders inline gif and invalidates cache', () {
+    final em = EmoteManager();
+    final msg = TwitchMessage(
+      login: 'user',
+      text: 'hello world',
+      channel: 'test',
+      messageId: 'gif2',
+      gifAttachments: const [
+        GifAttachment(
+          gifId: 'abc',
+          url: 'https://media.giphy.com/media/abc/giphy.gif',
+          startIndex: 0,
+          endIndex: 5,
+        ),
+      ],
+    );
+    final builder = makeBuilder(em)..showGifs = false;
+    final textOnly = builder.buildMessageSpans(msg, 'test', Colors.black);
+    expect(textOnly.any((s) => s is WidgetSpan), isFalse);
+
+    builder.showGifs = true;
+    final withGif = builder.buildMessageSpans(msg, 'test', Colors.black);
+    expect(identical(withGif, textOnly), isFalse);
+    expect(withGif.any((s) => s is WidgetSpan), isTrue);
+    // The gap after the gif range still renders as text.
+    expect(
+      withGif.whereType<TextSpan>().any(
+        (s) => s.text?.contains('world') ?? false,
+      ),
+      isTrue,
+    );
+  });
+
+  test('giphy height change invalidates the span cache', () {
+    final em = EmoteManager();
+    final msg = TwitchMessage(
+      login: 'user',
+      text: 'hello world',
+      channel: 'test',
+      messageId: 'gif3',
+      gifAttachments: const [
+        GifAttachment(
+          gifId: 'abc',
+          url: 'https://media.giphy.com/media/abc/giphy.gif',
+          startIndex: 0,
+          endIndex: 5,
+        ),
+      ],
+    );
+    final builder = makeBuilder(em)..showGifs = true;
+    final first = builder.buildMessageSpans(msg, 'test', Colors.black);
+    expect(first.any((s) => s is WidgetSpan), isTrue);
+
+    builder.gifHeight = 200;
+    final second = builder.buildMessageSpans(msg, 'test', Colors.black);
+    expect(identical(second, first), isFalse);
+    expect(second.any((s) => s is WidgetSpan), isTrue);
   });
 
   group('WhitelistLinkifier split links', () {

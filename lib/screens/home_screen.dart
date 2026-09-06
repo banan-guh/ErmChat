@@ -235,6 +235,8 @@ class _HomeScreenState extends State<HomeScreen>
     thirdPartyBadgeService: _thirdPartyBadgeService,
     onShowEmoteSheet: (emotes) => _userSheets.showEmoteSheet(context, emotes),
     linkWhitelist: LinkWhitelist.instance,
+    showGifs: _showGifs,
+    gifHeight: _gifHeight,
   );
   late final _modActions = ModActions(
     twitchApi: _twitchApi,
@@ -316,6 +318,10 @@ class _HomeScreenState extends State<HomeScreen>
 
   /// 7TV name paints (default off; toggled in Chat settings).
   bool _showNamePaints = false;
+
+  /// Giphy inline embeds (default off; toggled in Chat > Inline embeds).
+  bool _showGifs = kGiphyInlineEnabledDefault;
+  double _gifHeight = kGiphyInlineHeightDefault;
 
   /// Hidden-chrome mode: drops the ErmChat header (title, join, mentions,
   /// overflow) and the channel tab bar so the chat fills the screen. Transient
@@ -942,6 +948,27 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
+  void _setShowGifs(bool value) {
+    if (_showGifs == value) return;
+    setState(() => _showGifs = value);
+    _messageBuilder.showGifs = value;
+    _tileCache.clear();
+    for (final channel in List.of(_chatStore.channels)) {
+      _chatStore.touchChannel(channel);
+    }
+  }
+
+  void _setGifHeight(double value) {
+    final clamped = value.clamp(kGiphyInlineHeightMin, kGiphyInlineHeightMax);
+    if (_gifHeight == clamped) return;
+    setState(() => _gifHeight = clamped);
+    _messageBuilder.gifHeight = clamped;
+    _tileCache.clear();
+    for (final channel in List.of(_chatStore.channels)) {
+      _chatStore.touchChannel(channel);
+    }
+  }
+
   Future<void> _initForegroundService() async {
     initForegroundService();
     await requestForegroundPermissions();
@@ -1225,7 +1252,22 @@ class _HomeScreenState extends State<HomeScreen>
       _fastSnap = prefs.getBool('fast_channel_snap') ?? true;
       _sharedChatMode = prefs.getString('shared_chat_mode') ?? 'spotlight';
       _showNamePaints = prefs.getBool('seventv_name_paints') ?? false;
+      _showGifs =
+          prefs.getBool(kGiphyInlineEnabledPrefKey) ??
+          kGiphyInlineEnabledDefault;
+      _gifHeight =
+          (prefs.getDouble(kGiphyInlineHeightPrefKey) ??
+                  kGiphyInlineHeightDefault)
+              .clamp(kGiphyInlineHeightMin, kGiphyInlineHeightMax);
       _showInput = prefs.getBool('show_input') ?? true;
+      _messageBuilder.showGifs = _showGifs;
+      _messageBuilder.gifHeight = _gifHeight;
+      // Prefs load async; tiles built with defaults before this returns
+      // would keep stale spans, so evict them like the live setters do.
+      _tileCache.clear();
+      for (final channel in List.of(_chatStore.channels)) {
+        _chatStore.touchChannel(channel);
+      }
     });
     if (_showNamePaints) {
       _sevenTvPaintService.enabled = true;
@@ -1401,6 +1443,8 @@ class _HomeScreenState extends State<HomeScreen>
           onLineSeparatorChanged: _setLineSeparator,
           onFastSnapChanged: _setFastSnap,
           onNamePaintsChanged: _setNamePaints,
+          onShowGifsChanged: _setShowGifs,
+          onGifHeightChanged: _setGifHeight,
           onEmoteTierChanged: _emotes.applyTier,
           onEmoteCacheMaxChanged: _emotes.applyCacheCap,
           onSharedChatModeChanged: _setSharedChatMode,
