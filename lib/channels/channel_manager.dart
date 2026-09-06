@@ -111,6 +111,10 @@ class ChannelManager {
     chatStore.truncateChannel(channel, maxMessages: host.maxMessages);
   }
 
+  void truncateChannelCoalesced(String channel) {
+    chatStore.truncateWithCoalesce(channel, maxMessages: host.maxMessages);
+  }
+
   Future<void> saveChannels() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setStringList('channels', List.of(chatStore.channels));

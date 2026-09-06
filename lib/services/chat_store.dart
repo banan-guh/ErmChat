@@ -795,13 +795,13 @@ class ChatStore {
     threadGroups.removeWhere((_, ms) => ms.length <= 1);
 
     // Phase 2: a thread is active if any member sits within the first
-    // maxMessages non-system messages (newest-first).
+    // maxMessages messages (newest-first, any type sharing the budget).
     final activeThreadKeys = <String>{};
     int visibleCount = 0;
     for (final m in msgs) {
-      if (m.isSystem) continue;
       if (visibleCount >= maxMessages) break;
       visibleCount++;
+      if (m.isSystem) continue;
       final key = threadKeyFor(m, parentOf);
       if (key != null && threadGroups.containsKey(key)) {
         activeThreadKeys.add(key);
@@ -828,22 +828,23 @@ class ChatStore {
       }
     }
 
-    // Phase 4: collect indices to keep. System markers ride along for free;
-    // only chat messages spend the maxMessages budget.
+    // Phase 4: collect indices to keep. System markers share the
+    // maxMessages budget with chat; only thread-pinned rows stay exempt.
     final keepIndices = <int>{};
-    int nonThreadKept = 0;
+    int kept = 0;
     for (int i = 0; i < msgs.length; i++) {
       final m = msgs[i];
-      if (m.isSystem) {
-        keepIndices.add(i);
-        continue;
-      }
       final isSavedThread =
           m.messageId != null && savedIds.contains(m.messageId!);
       final isActiveThread =
           m.messageId != null && threadIds.contains(m.messageId!);
       if (isSavedThread || isActiveThread) {
         keepIndices.add(i);
+      } else if (m.isSystem) {
+        if (kept < maxMessages) {
+          keepIndices.add(i);
+          kept++;
+        }
       } else {
         final key = threadKeyFor(m, parentOf);
         final isOrphanThread =
@@ -851,9 +852,9 @@ class ChatStore {
             !isActiveThread &&
             key != null &&
             threadGroups.containsKey(key);
-        if (!isOrphanThread && nonThreadKept < maxMessages) {
+        if (!isOrphanThread && kept < maxMessages) {
           keepIndices.add(i);
-          nonThreadKept++;
+          kept++;
         }
       }
     }

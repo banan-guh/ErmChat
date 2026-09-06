@@ -1649,7 +1649,7 @@ class _HomeScreenState extends State<HomeScreen>
   // guard makes the second one a no-op, so bookkeeping runs exactly once per
   // real switch regardless of gesture timing.
   void _truncateChannelMessages(String channel) {
-    _channelManager.truncateChannel(channel);
+    _channelManager.truncateChannelCoalesced(channel);
   }
 
   @override

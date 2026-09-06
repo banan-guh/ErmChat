@@ -2343,10 +2343,11 @@ void main() {
       }
     });
 
-    test('system messages ride free outside the chat quota', () {
+    test('system messages share the chat quota', () {
       // 100 system + 100 non-thread + 1 thread (3 msgs) with leaf visible.
-      // System markers never spend the maxMessages budget; only chat
-      // messages do. Total: 100 non-thread + 3 thread + 100 system.
+      // System markers share the maxMessages budget with chat; only
+      // thread-pinned rows stay exempt. System rows are oldest here, so
+      // they age out first. Total: 100 non-thread + 3 thread.
       const limit = 100;
       final msgs = <String, List<TwitchMessage>>{
         'test': [
@@ -2368,8 +2369,9 @@ void main() {
       conn.store.truncateChannel('test', maxMessages: limit);
 
       final remaining = msgs['test']!;
-      // Thread (3) + non-thread (limit) + system (free)
-      expect(remaining.length, 3 + limit * 2);
+      // Thread (3, exempt) + budget (limit, newest-first); oldest system
+      // rows fall off first under the shared quota.
+      expect(remaining.length, 3 + limit);
 
       // Thread preserved
       expect(remaining.any((m) => m.messageId == 'root'), true);
