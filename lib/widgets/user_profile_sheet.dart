@@ -1,12 +1,14 @@
 import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show HapticFeedback;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/twitch_message.dart';
 import '../services/mod_actions.dart';
 import '../services/twitch_api.dart';
 import '../services/twitch_auth.dart';
+import '../util/haptics.dart';
 import '../util/log.dart';
 import 'app_snack.dart';
 import 'mod_view.dart';
@@ -137,11 +139,8 @@ class UserProfileSheetState extends State<UserProfileSheet> {
 
   void _onArrowTap() {
     if (!_scrollController.hasClients) return;
-    _scrollController.animateTo(
-      _scrollController.position.maxScrollExtent,
-      duration: const Duration(milliseconds: 250),
-      curve: Curves.easeOut,
-    );
+    iosHaptic(HapticFeedback.lightImpact);
+    _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
   }
 
   // Card drags resize the sheet; release settles via the sheet detents.
@@ -351,19 +350,16 @@ class UserProfileSheetState extends State<UserProfileSheet> {
           ),
         if (_hasHistory)
           Positioned(
+            right: 16,
             bottom: 16 + MediaQuery.paddingOf(context).bottom,
-            left: 0,
-            right: 0,
-            child: Center(
-              child: AnimatedOpacity(
-                opacity: _arrowVisible ? 1 : 0,
-                duration: const Duration(milliseconds: 200),
-                child: IgnorePointer(
-                  ignoring: !_arrowVisible,
-                  child: ExcludeSemantics(
-                    excluding: !_arrowVisible,
-                    child: _buildHistoryArrow(theme),
-                  ),
+            child: AnimatedOpacity(
+              opacity: _arrowVisible ? 1 : 0,
+              duration: const Duration(milliseconds: 200),
+              child: IgnorePointer(
+                ignoring: !_arrowVisible,
+                child: ExcludeSemantics(
+                  excluding: !_arrowVisible,
+                  child: _buildHistoryArrow(theme),
                 ),
               ),
             ),
@@ -423,17 +419,15 @@ class UserProfileSheetState extends State<UserProfileSheet> {
     );
   }
 
+  // Same scroll-down FAB as ChatView: appears when scrolled up, jumps to
+  // the latest message. Own hero tag so it never collides with chat FABs.
   Widget _buildHistoryArrow(ThemeData theme) {
-    return Material(
-      shape: const CircleBorder(),
-      elevation: 3,
-      color: theme.colorScheme.surfaceContainerHighest,
-      child: IconButton(
-        tooltip: 'Jump to latest',
-        icon: const Icon(Icons.keyboard_arrow_down),
-        color: theme.colorScheme.onSurfaceVariant,
-        onPressed: _onArrowTap,
-      ),
+    return FloatingActionButton(
+      key: const ValueKey('user_history_scroll_down'),
+      heroTag: 'user_history_scroll_down',
+      tooltip: 'Jump to latest',
+      onPressed: _onArrowTap,
+      child: const Icon(Icons.keyboard_arrow_down),
     );
   }
 

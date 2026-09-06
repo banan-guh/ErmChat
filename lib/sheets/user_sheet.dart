@@ -127,8 +127,13 @@ class UserSheets {
     final sheetController = DraggableScrollableController();
     // Compact card: history reveals by scrolling. Settle releases only when
     // the gesture moved the sheet, so list scrolling cannot collapse it.
-    // Dismiss through the route for one continuous exit motion.
-    final canModerate = channel != null && chatConn.isModerationActive(channel);
+    // Dismiss through the route for one continuous exit motion. Mod rows
+    // show only while live (same Live check as the app bar chrome).
+    final isLive =
+        channel != null &&
+        (chatStore.chatStatus[channel] ?? '').contains('Live');
+    final canModerate =
+        channel != null && chatConn.isModerationActive(channel) && isLive;
     final login = host.sessionLogin;
     final isSelf =
         login != null && username.toLowerCase() == login.toLowerCase();
@@ -136,7 +141,8 @@ class UserSheets {
     const minExtent = 0.25;
     // First measurement parks the sheet exactly on the card; the history
     // hides below the fold until expansion. Later measures only retarget
-    // the detents.
+    // the detents. Risk: opens on the estimate, then eases here; rotation
+    // mid-open or very slow devices may show that jump.
     void onCardMeasured(double naturalH) {
       final availH =
           screenH -

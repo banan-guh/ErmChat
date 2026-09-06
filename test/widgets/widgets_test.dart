@@ -5307,7 +5307,7 @@ void main() {
       expect(find.text('row:m29'), findsNothing);
       expect(arrowOpacity(tester), 1);
 
-      // Tapping it glides back to the latest and hides again.
+      // Tapping it jumps back to the latest and hides again.
       await tester.tap(find.byIcon(Icons.keyboard_arrow_down));
       await tester.pumpAndSettle();
       expect(find.text('row:m29'), findsOneWidget);
@@ -5588,7 +5588,7 @@ void main() {
       expect(arrowOpacity(tester), 0);
 
       // Scrolling down toward older messages reveals the jump arrow, and
-      // tapping it glides back to the latest without moving the sheet.
+      // tapping it jumps back to the latest without moving the sheet.
       await tester.dragFrom(const Offset(400, 500), const Offset(0, 100));
       await tester.pumpAndSettle();
       expect(sheetController.size, maxExtent);
