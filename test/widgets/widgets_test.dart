@@ -5126,7 +5126,11 @@ void main() {
 
     Widget wrapEmoteSheet(GenericEmote emote) => wrapMany([emote]);
 
-    GenericEmote sevenTvEmote({String? baseName, bool zeroWidth = false}) {
+    GenericEmote sevenTvEmote({
+      String? baseName,
+      bool zeroWidth = false,
+      EmoteScope scope = EmoteScope.global,
+    }) {
       return GenericEmote(
         id: '7tv-1',
         code: 'Cope',
@@ -5135,6 +5139,7 @@ void main() {
         baseName: baseName,
         isZeroWidth: zeroWidth,
         ownerChannel: 'CopeQueen',
+        scope: scope,
       );
     }
 
@@ -5178,6 +5183,18 @@ void main() {
 
           expect(
             find.text('7TV Global Emote (Zero Width)', skipOffstage: false),
+            findsOneWidget,
+          );
+        }
+        {
+          await tester.pumpWidget(
+            wrapEmoteSheet(sevenTvEmote(scope: EmoteScope.personal)),
+          );
+          await tester.pump();
+          await tester.pump();
+
+          expect(
+            find.text('7TV Personal Emote', skipOffstage: false),
             findsOneWidget,
           );
         }

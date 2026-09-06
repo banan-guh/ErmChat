@@ -45,12 +45,6 @@ class EmoteToken {
 }
 
 /// Another viewer's personal 7TV emotes, cached for sender-scoped render.
-class _ForeignPersonalSets {
-  final Map<String, GenericEmote> byCode;
-  final DateTime fetchedAt;
-
-  const _ForeignPersonalSets({required this.byCode, required this.fetchedAt});
-}
 
 /// Per-URL usage history feeding the disk-cache eviction priority.
 ///
@@ -431,12 +425,15 @@ class EmoteManager extends ChangeNotifier {
   // every channel). Kept out of the persisted caches; rebuilt per account.
   final _personalSevenTvSetIds = <String>{};
   final _personalSevenTvSets = <String, List<GenericEmote>>{};
-  // Other viewers' personal 7TV sets by sender Twitch id. Sender-scoped:
-  // only that sender's messages render them. Bounded LRU with TTL.
-  final _foreignPersonalSets = <String, _ForeignPersonalSets>{};
-  final _foreignPersonalInflight = <String, Future<void>>{};
-  static const _foreignPersonalTtl = Duration(hours: 24);
-  static const _maxForeignPersonalSenders = 200;
+  // Other viewers' personal 7TV sets, learned from the socket (chatterino7
+  // parity): entitlement.create maps users to sets, emote_set.* fills the
+  // contents. Sender-scoped: only that sender's messages render them. No
+  // per-sender REST; unknown set contents fetch once per set id.
+  final _foreignPersonalSetOwners = <String, Set<String>>{};
+  final _foreignPersonalUserSets = <String, Set<String>>{};
+  final _foreignPersonalSetContents = <String, List<GenericEmote>>{};
+  final _foreignPersonalSetInflight = <String, Future<void>>{};
+  final _foreignPersonalSets = <String, ChannelEmotes>{};
   final _mergedCache = <String, ChannelEmotes?>{};
   String? _changedChannel;
   // Monotonic counter bumped on every notify; message span caches compare
@@ -732,12 +729,21 @@ class EmoteManager extends ChangeNotifier {
     if (changed) _notify();
   }
 
-  /// Live personal 7TV grant/revoke from the entitlement stream. Only the
-  /// viewer's own EMOTE_SET events apply; everything else is ignored.
+  /// Live personal 7TV grant/revoke from the entitlement stream. The
+  /// viewer's own EMOTE_SET events feed the personal merge; everyone else's
+  /// feed the socket-first foreign discovery (chatterino7 parity, no
+  /// per-sender REST).
   Future<void> applySevenTvEntitlement(SevenTvEntitlementEvent event) async {
     if (event.cosmeticKind != 'EMOTE_SET') return;
     final viewerId = _viewerTwitchId;
-    if (viewerId == null || !event.twitchUserIds.contains(viewerId)) return;
+    if (viewerId == null || !event.twitchUserIds.contains(viewerId)) {
+      if (event.kind == 'entitlement.delete') {
+        dropForeignPersonalGrant(event.twitchUserIds, event.cosmeticId);
+      } else {
+        await trackForeignPersonalGrant(event.twitchUserIds, event.cosmeticId);
+      }
+      return;
+    }
     if (_tier == EmoteFetchTier.nothing) return;
     if (!_isProviderOn(EmoteType.sevenTv)) return;
     if (event.kind == 'entitlement.delete') {
@@ -785,84 +791,175 @@ class EmoteManager extends ChangeNotifier {
     return ChannelEmotes(byCode: merged, suggestions: suggestions);
   }
 
-  /// Fetch another viewer's personal 7TV sets when [text] holds words the
-  /// channel map cannot resolve. Cached per sender with TTL; at most one
-  /// inflight fetch per sender. Fire-and-forget from ingestion.
-  Future<void> ensureForeignPersonalSets({
-    required String? senderTwitchId,
-    required String channel,
-    required String text,
-    required List<EmotePosition>? positions,
-  }) async {
-    if (senderTwitchId == null || senderTwitchId.isEmpty) return;
+  /// Maps foreign users to a personal set from a socket entitlement grant.
+  /// Unknown set contents fetch once per set id (shared by all owners).
+  Future<void> trackForeignPersonalGrant(
+    Iterable<String> userTwitchIds,
+    String setId,
+  ) async {
+    if (setId.isEmpty) return;
+    var mappingChanged = false;
+    for (final userId in userTwitchIds) {
+      if (userId.isEmpty) continue;
+      // The viewer's own grants live in _personalSevenTvSets, never here.
+      if (userId == _viewerTwitchId) continue;
+      if (_foreignPersonalUserSets.putIfAbsent(userId, () => {}).add(setId)) {
+        mappingChanged = true;
+      }
+      _foreignPersonalSetOwners.putIfAbsent(setId, () => {}).add(userId);
+    }
+    if (_foreignPersonalSetContents.containsKey(setId)) {
+      if (mappingChanged) {
+        _rebuildForeignPersonalUsers(setId);
+        _notify();
+      }
+      return;
+    }
+    if (mappingChanged) _rebuildForeignPersonalUsers(setId);
+    await _fillForeignPersonalSet(setId);
+  }
+
+  /// Drops a foreign user's personal-set grant (entitlement.delete).
+  void dropForeignPersonalGrant(Iterable<String> userTwitchIds, String setId) {
+    if (setId.isEmpty) return;
+    var changed = false;
+    for (final userId in userTwitchIds) {
+      final sets = _foreignPersonalUserSets[userId];
+      if (sets == null) continue;
+      if (sets.remove(setId)) changed = true;
+      if (sets.isEmpty) {
+        _foreignPersonalUserSets.remove(userId);
+        _foreignPersonalSets.remove(userId);
+      } else {
+        _rebuildForeignPersonalUser(userId);
+      }
+    }
+    final owners = _foreignPersonalSetOwners[setId];
+    if (owners != null) {
+      owners.removeAll(userTwitchIds);
+      if (owners.isEmpty) _foreignPersonalSetOwners.remove(setId);
+    }
+    if (changed) _notify();
+  }
+
+  /// Placeholder for a personal set announced over the socket whose contents
+  /// arrive via later emote_set.update dispatches.
+  void trackForeignPersonalSet(String setId) {
+    if (setId.isEmpty) return;
+    _foreignPersonalSetContents.putIfAbsent(setId, () => []);
+  }
+
+  /// Applies a socket emote_set.update to a tracked foreign personal set.
+  /// Unknown sets are ignored: without a grant mapping the contents render
+  /// for nobody.
+  void applyForeignPersonalSetUpdate({
+    required String setId,
+    required List<GenericEmote> added,
+    required List<String> removedIds,
+    required Map<String, String> renamed,
+  }) {
+    final contents = _foreignPersonalSetContents[setId];
+    if (contents == null) return;
+    var changed = false;
+    if (removedIds.isNotEmpty) {
+      final ids = removedIds.toSet();
+      final before = contents.length;
+      contents.removeWhere((e) => ids.contains(e.id));
+      changed = changed || contents.length != before;
+    }
+    for (final entry in renamed.entries) {
+      final idx = contents.indexWhere((e) => e.id == entry.key);
+      if (idx < 0) continue;
+      final e = contents[idx];
+      contents[idx] = GenericEmote(
+        id: e.id,
+        code: entry.value,
+        type: e.type,
+        url: e.url,
+        url1x: e.url1x,
+        url3x: e.url3x,
+        isAnimated: e.isAnimated,
+        scope: e.scope,
+        ownerChannel: e.ownerChannel,
+        ownerId: e.ownerId,
+        tier: e.tier,
+        emoteType: e.emoteType,
+        isZeroWidth: e.isZeroWidth,
+        isUnlisted: e.isUnlisted,
+        baseName: e.baseName,
+        relativeScale: e.relativeScale,
+        aspectRatio: e.aspectRatio,
+      );
+      changed = true;
+    }
+    for (final e in added) {
+      if (contents.any((x) => x.id == e.id)) continue;
+      contents.add(e);
+      changed = true;
+    }
+    if (!changed) return;
+    _rebuildForeignPersonalUsers(setId);
+    _notify();
+  }
+
+  /// One-time REST fill for a socket-announced set. Once per set id, shared
+  /// by all owners; failures stay uncached so a later grant retries.
+  Future<void> _fillForeignPersonalSet(String setId) async {
+    if (_foreignPersonalSetContents.containsKey(setId)) return;
     if (_tier == EmoteFetchTier.nothing) return;
     if (!_isProviderOn(EmoteType.sevenTv)) return;
-    final existing = _foreignPersonalSets.remove(senderTwitchId);
-    if (existing != null) {
-      _foreignPersonalSets[senderTwitchId] = existing;
-      if (_now().difference(existing.fetchedAt) < _foreignPersonalTtl) return;
-    }
-    final lookup = byCode(channel);
-    final hasUnknown =
-        lookup == null ||
-        tokenize(
-          text: text,
-          positions: positions,
-          byCode: lookup.byCode,
-        ).any((t) => !t.isEmote && t.text.trim().isNotEmpty);
-    if (!hasUnknown) return;
-    final inflight = _foreignPersonalInflight[senderTwitchId];
-    if (inflight != null) return inflight;
-    final future = _fetchForeignPersonalSets(senderTwitchId);
-    _foreignPersonalInflight[senderTwitchId] = future;
+    if (_foreignPersonalSetInflight.containsKey(setId)) return;
+    final future = _fetchGate.withPermit(() async {
+      List<GenericEmote> fetched;
+      try {
+        fetched = await _sevenTvEmoteSetFetcher(setId, _tier.resolution!);
+      } catch (e) {
+        logDebug('[EmoteManager] foreign 7TV set $setId failed: $e');
+        return;
+      }
+      if (fetched.isEmpty) return;
+      _foreignPersonalSetContents[setId] = fetched;
+      _rebuildForeignPersonalUsers(setId);
+      _notify();
+    });
+    _foreignPersonalSetInflight[setId] = future;
     try {
       await future;
     } finally {
-      _foreignPersonalInflight.remove(senderTwitchId);
+      _foreignPersonalSetInflight.remove(setId);
     }
   }
 
-  Future<void> _fetchForeignPersonalSets(String senderTwitchId) async {
-    final before = _foreignPersonalSets[senderTwitchId]?.byCode.keys.toSet();
-    // Concurrency-gated but stagger-free: the stagger's delay timer outlives
-    // short sessions, while sender fetches are already naturally sparse.
-    await _fetchGate.withPermit(() async {
-      List<String> setIds;
-      try {
-        setIds = await _sevenTvOwnedSetIds(senderTwitchId);
-      } catch (e) {
-        logDebug('[EmoteManager] foreign 7TV set listing failed: $e');
-        return;
+  void _rebuildForeignPersonalUsers(String setId) {
+    final owners = _foreignPersonalSetOwners[setId];
+    if (owners == null) return;
+    for (final userId in owners) {
+      _rebuildForeignPersonalUser(userId);
+    }
+  }
+
+  void _rebuildForeignPersonalUser(String userId) {
+    final setIds = _foreignPersonalUserSets[userId];
+    if (setIds == null || setIds.isEmpty) {
+      _foreignPersonalSets.remove(userId);
+      return;
+    }
+    final merged = <String, GenericEmote>{};
+    for (final id in setIds) {
+      for (final e
+          in _foreignPersonalSetContents[id] ?? const <GenericEmote>[]) {
+        merged.putIfAbsent(e.code, () => e);
       }
-      final emotes = <String, GenericEmote>{};
-      for (final setId in setIds) {
-        List<GenericEmote> fetched;
-        try {
-          fetched = await _sevenTvEmoteSetFetcher(setId, _tier.resolution!);
-        } catch (e) {
-          logDebug('[EmoteManager] foreign 7TV set $setId failed: $e');
-          continue;
-        }
-        for (final e in fetched) {
-          emotes[e.code] = e;
-        }
-      }
-      _foreignPersonalSets.remove(senderTwitchId);
-      _foreignPersonalSets[senderTwitchId] = _ForeignPersonalSets(
-        byCode: emotes,
-        fetchedAt: _now(),
+    }
+    if (merged.isEmpty) {
+      _foreignPersonalSets.remove(userId);
+    } else {
+      final suggestions = merged.values.toList()
+        ..sort((a, b) => a.code.compareTo(b.code));
+      _foreignPersonalSets[userId] = ChannelEmotes(
+        byCode: merged,
+        suggestions: suggestions,
       );
-      while (_foreignPersonalSets.length > _maxForeignPersonalSenders) {
-        _foreignPersonalSets.remove(_foreignPersonalSets.keys.first);
-      }
-    });
-    final after = _foreignPersonalSets[senderTwitchId]?.byCode.keys.toSet();
-    if (after != null &&
-        after.isNotEmpty &&
-        (before == null ||
-            after.length != before.length ||
-            !after.containsAll(before))) {
-      _notify();
     }
   }
 
@@ -1578,6 +1675,9 @@ class EmoteManager extends ChangeNotifier {
     _unlockedTwitchEmotes.clear();
     _personalSevenTvSetIds.clear();
     _personalSevenTvSets.clear();
+    _foreignPersonalSetOwners.clear();
+    _foreignPersonalUserSets.clear();
+    _foreignPersonalSetContents.clear();
     _foreignPersonalSets.clear();
     final global = _globalCache;
     if (global != null && removedIds.isNotEmpty) {

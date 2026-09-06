@@ -331,6 +331,7 @@ class ChatConnectionManager {
   StreamSubscription<PredictionEvent>? predictionSub;
   StreamSubscription<SevenTvEmoteUpdateEvent>? sevenTvEmoteSub;
   StreamSubscription<SevenTvUserUpdate>? sevenTvUserSub;
+  StreamSubscription<SevenTvPersonalSetEvent>? sevenTvPersonalSub;
   StreamSubscription<IrcConnectionStatus>? ircStatusSub;
   StreamSubscription<IrcConnectionStatus>? ircReadStatusSub;
   StreamSubscription<void>? ircAuthFailedSub;
@@ -404,6 +405,7 @@ class ChatConnectionManager {
     predictionSub?.cancel();
     sevenTvEmoteSub?.cancel();
     sevenTvUserSub?.cancel();
+    sevenTvPersonalSub?.cancel();
     ircStatusSub?.cancel();
     ircReadStatusSub?.cancel();
     ircReadRoomStateSub?.cancel();
@@ -547,7 +549,23 @@ class ChatConnectionManager {
 
   void _onSevenTvEmoteSetUpdate(SevenTvEmoteUpdateEvent event) {
     final channel = emoteManager.getChannelForSevenTvEmoteSet(event.emoteSetId);
-    if (channel == null) return;
+    if (channel == null) {
+      // Foreign personal set (or untracked): contents only matter with a
+      // grant mapping, which the manager checks before applying.
+      emoteManager.applyForeignPersonalSetUpdate(
+        setId: event.emoteSetId,
+        added: event.added
+            .map(
+              (e) =>
+                  SevenTvEmoteProvider.parseSingleEmote(e.raw, personal: true),
+            )
+            .whereType<GenericEmote>()
+            .toList(),
+        removedIds: event.removed.map((e) => e.id).toList(),
+        renamed: {for (final r in event.renamed) r.id: r.newName},
+      );
+      return;
+    }
 
     final added = event.added
         .map((e) => SevenTvEmoteProvider.parseSingleEmote(e.raw, channel: true))
@@ -1385,6 +1403,10 @@ class ChatConnectionManager {
       );
       sevenTvUserSub?.cancel();
       sevenTvUserSub = sevenTvClient!.onUserUpdate.listen(_onSevenTvUserUpdate);
+      sevenTvPersonalSub?.cancel();
+      sevenTvPersonalSub = sevenTvClient!.onPersonalSet.listen(
+        (event) => emoteManager.trackForeignPersonalSet(event.setId),
+      );
     }
   }
 

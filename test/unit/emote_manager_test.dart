@@ -3918,6 +3918,16 @@ void main() {
       expect(emote!.scope, EmoteScope.channel);
     });
 
+    test('marks personal set emotes with personal scope', () {
+      final emote = SevenTvEmoteProvider.parseSingleEmote({
+        'id': 'emote-p1',
+        'name': 'MyPersonal',
+        'data': {'name': 'MyPersonal', 'host': _host('1x.webp')},
+      }, personal: true);
+      expect(emote, isNotNull);
+      expect(emote!.scope, EmoteScope.personal);
+    });
+
     test('parses zero-width flag', () {
       final emote = SevenTvEmoteProvider.parseSingleEmote({
         'id': 'emote-5',
@@ -4657,27 +4667,51 @@ void main() {
       code: code,
       type: EmoteType.sevenTv,
       url: 'https://example.com/$id.webp',
-      scope: EmoteScope.global,
+      scope: EmoteScope.personal,
     );
 
-    test('sender codes render only for that sender', () async {
+    SevenTvEntitlementEvent grant(
+      String setId, {
+      String kind = 'entitlement.create',
+      List<String> twitchUserIds = const ['sender-1'],
+    }) => SevenTvEntitlementEvent(
+      cosmeticId: setId,
+      kind: kind,
+      cosmeticKind: 'EMOTE_SET',
+      twitchUserIds: twitchUserIds,
+    );
+
+    EmoteManager socketManager({
+      Map<String, List<GenericEmote>> sets = const {},
+      void Function()? onListing,
+      void Function()? onSetFetch,
+    }) => EmoteManager(
+      fetchStagger: Duration.zero,
+      // Per-sender listings are gone: any call here is REST spam.
+      sevenTvOwnedSetIdsFetcher: (_) async {
+        onListing?.call();
+        return [];
+      },
+      sevenTvEmoteSetFetcher: (setId, _) async {
+        onSetFetch?.call();
+        return sets[setId] ?? [];
+      },
+    );
+
+    test('socket grant maps sender codes with no per-sender fetch', () async {
       SharedPreferences.setMockInitialValues({});
       var listings = 0;
-      final manager = EmoteManager(
-        fetchStagger: Duration.zero,
-        sevenTvOwnedSetIdsFetcher: (_) async {
-          listings++;
-          return ['set-1'];
+      var setFetches = 0;
+      final manager = socketManager(
+        sets: {
+          'set-1': [personal('p1', 'TheirCode')],
         },
-        sevenTvEmoteSetFetcher: (_, _) async => [personal('p1', 'TheirCode')],
+        onListing: () => listings++,
+        onSetFetch: () => setFetches++,
       );
-      await manager.ensureForeignPersonalSets(
-        senderTwitchId: 'sender-1',
-        channel: 'ch',
-        text: 'TheirCode hello',
-        positions: null,
-      );
-      expect(listings, 1);
+      await manager.applySevenTvEntitlement(grant('set-1'));
+      expect(listings, 0);
+      expect(setFetches, 1);
 
       final senderMap = manager.byCodeForSender('ch', 'sender-1')!;
       expect(senderMap.byCode.keys, contains('TheirCode'));
@@ -4704,98 +4738,149 @@ void main() {
       expect(strangerSpans.any((s) => s is WidgetSpan), isFalse);
     });
 
-    test('senders without sets are cached negatively', () async {
+    test('shared set contents fetch once for two owners', () async {
       SharedPreferences.setMockInitialValues({});
-      var listings = 0;
-      final manager = EmoteManager(
-        fetchStagger: Duration.zero,
-        sevenTvOwnedSetIdsFetcher: (_) async {
-          listings++;
-          return [];
+      var setFetches = 0;
+      final manager = socketManager(
+        sets: {
+          'set-1': [personal('p1', 'Shared')],
         },
-        sevenTvEmoteSetFetcher: (_, _) async => [],
+        onSetFetch: () => setFetches++,
       );
-      for (var i = 0; i < 2; i++) {
-        await manager.ensureForeignPersonalSets(
-          senderTwitchId: 'plain-user',
-          channel: 'ch',
-          text: 'hello world',
-          positions: null,
-        );
-      }
-      expect(listings, 1);
+      await manager.applySevenTvEntitlement(
+        grant('set-1', twitchUserIds: ['sender-1']),
+      );
+      await manager.applySevenTvEntitlement(
+        grant('set-1', twitchUserIds: ['sender-2']),
+      );
+      expect(setFetches, 1);
       expect(
-        manager.byCodeForSender('ch', 'plain-user')?.byCode.keys ?? [],
-        isNot(contains('hello')),
+        manager.byCodeForSender('ch', 'sender-1')!.byCode.keys,
+        contains('Shared'),
+      );
+      expect(
+        manager.byCodeForSender('ch', 'sender-2')!.byCode.keys,
+        contains('Shared'),
       );
     });
 
-    test('stale entries refetch after TTL', () async {
-      SharedPreferences.setMockInitialValues({});
-      var clock = DateTime(2026, 1, 1, 12);
-      var listings = 0;
-      final manager = EmoteManager(
-        fetchStagger: Duration.zero,
-        now: () => clock,
-        sevenTvOwnedSetIdsFetcher: (_) async {
-          listings++;
-          return ['set-1'];
-        },
-        sevenTvEmoteSetFetcher: (_, _) async => [personal('p1', 'TheirCode')],
-      );
-      await manager.ensureForeignPersonalSets(
-        senderTwitchId: 'sender-1',
-        channel: 'ch',
-        text: 'TheirCode',
-        positions: null,
-      );
-      await manager.ensureForeignPersonalSets(
-        senderTwitchId: 'sender-1',
-        channel: 'ch',
-        text: 'TheirCode',
-        positions: null,
-      );
-      expect(listings, 1);
+    test(
+      'parser-marked personal emotes flow through the socket path',
+      () async {
+        SharedPreferences.setMockInitialValues({});
+        // Same parse path fetchEmoteSet uses for personal sets.
+        final parsed = SevenTvEmoteProvider.parseSingleEmote({
+          'id': 'p1',
+          'name': 'TheirCode',
+          'data': {'name': 'TheirCode', 'host': _host('1x.webp')},
+        }, personal: true)!;
+        expect(parsed.scope, EmoteScope.personal);
+        final manager = socketManager(
+          sets: {
+            'set-1': [parsed],
+          },
+        );
+        await manager.applySevenTvEntitlement(grant('set-1'));
 
-      clock = clock.add(const Duration(hours: 25));
-      await manager.ensureForeignPersonalSets(
-        senderTwitchId: 'sender-1',
-        channel: 'ch',
-        text: 'TheirCode',
-        positions: null,
+        final senderMap = manager.byCodeForSender('ch', 'sender-1')!;
+        expect(senderMap.byCode.keys, contains('TheirCode'));
+        final spans = EmoteText.build(
+          text: 'TheirCode',
+          twitchPositions: null,
+          channelEmotes: senderMap,
+        );
+        expect(spans.any((s) => s is WidgetSpan), isTrue);
+      },
+    );
+
+    test('socket updates mutate tracked sets, unknown sets ignored', () async {
+      SharedPreferences.setMockInitialValues({});
+      final manager = socketManager(
+        sets: {
+          'set-1': [personal('p1', 'TheirCode')],
+        },
       );
-      expect(listings, 2);
+      await manager.applySevenTvEntitlement(grant('set-1'));
+
+      // Unknown set id: ignored, no entry created.
+      manager.applyForeignPersonalSetUpdate(
+        setId: 'set-unknown',
+        added: [personal('px', 'Ghost')],
+        removedIds: const [],
+        renamed: const {},
+      );
+      expect(
+        manager.byCodeForSender('ch', 'sender-1')!.byCode.keys,
+        isNot(contains('Ghost')),
+      );
+
+      // Add + rename + remove against the tracked set.
+      manager.applyForeignPersonalSetUpdate(
+        setId: 'set-1',
+        added: [personal('p2', 'Fresh')],
+        removedIds: const ['p1'],
+        renamed: const {},
+      );
+      manager.applyForeignPersonalSetUpdate(
+        setId: 'set-1',
+        added: const [],
+        removedIds: const [],
+        renamed: const {'p2': 'FreshRenamed'},
+      );
+      final codes = manager
+          .byCodeForSender('ch', 'sender-1')!
+          .byCode
+          .keys
+          .toSet();
+      expect(codes, contains('FreshRenamed'));
+      expect(codes, isNot(contains('TheirCode')));
+      expect(codes, isNot(contains('Fresh')));
     });
 
-    test('messages without unknown words skip the fetch', () async {
+    test('grant delete drops only that sender mapping', () async {
       SharedPreferences.setMockInitialValues({});
-      var listings = 0;
-      final manager = EmoteManager(
-        fetchStagger: Duration.zero,
-        sevenTvOwnedSetIdsFetcher: (_) async {
-          listings++;
-          return [];
+      final manager = socketManager(
+        sets: {
+          'set-1': [personal('p1', 'Shared')],
         },
-        sevenTvEmoteSetFetcher: (_, _) async => [],
       );
-      await manager.storeUserTwitchEmotes({
-        'ch': [
-          GenericEmote(
-            id: 'tw-1',
-            code: 'Known',
-            type: EmoteType.twitch,
-            url: 'https://example.com/tw-1.png',
-            scope: EmoteScope.channel,
-          ),
-        ],
-      });
-      await manager.ensureForeignPersonalSets(
-        senderTwitchId: 'sender-1',
-        channel: 'ch',
-        text: '   ',
-        positions: null,
+      await manager.applySevenTvEntitlement(
+        grant('set-1', twitchUserIds: ['sender-1']),
       );
-      expect(listings, 0);
+      await manager.applySevenTvEntitlement(
+        grant('set-1', twitchUserIds: ['sender-2']),
+      );
+      await manager.applySevenTvEntitlement(
+        grant('set-1', kind: 'entitlement.delete', twitchUserIds: ['sender-1']),
+      );
+      expect(
+        manager.byCodeForSender('ch', 'sender-1')?.byCode.keys ?? [],
+        isNot(contains('Shared')),
+      );
+      expect(
+        manager.byCodeForSender('ch', 'sender-2')!.byCode.keys,
+        contains('Shared'),
+      );
+    });
+
+    test('viewer grants never leak into foreign maps', () async {
+      SharedPreferences.setMockInitialValues({});
+      final manager = socketManager(
+        sets: {
+          'set-1': [personal('p1', 'Mine')],
+        },
+      );
+      manager.viewerTwitchId = 'viewer-1';
+      await manager.applySevenTvEntitlement(
+        grant('set-1', twitchUserIds: ['viewer-1']),
+      );
+      // Own emote usable everywhere via the base merge, but the stranger's
+      // sender map carries no foreign extras beyond the base map.
+      expect(manager.byCode('ch')!.byCode.keys, contains('Mine'));
+      expect(
+        manager.byCodeForSender('ch', 'sender-9')!.byCode.keys,
+        unorderedEquals(manager.byCode('ch')!.byCode.keys),
+      );
     });
   });
 }

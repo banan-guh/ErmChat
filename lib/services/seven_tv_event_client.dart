@@ -4,6 +4,7 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'connectivity_service.dart';
+import 'emote_providers/seven_tv_emotes.dart';
 import '../util/constants.dart';
 import '../util/log.dart';
 
@@ -102,6 +103,14 @@ class SevenTvEntitlementEvent {
   });
 }
 
+/// A personal 7TV emote set announced over the socket. Contents arrive via
+/// later emote_set.update dispatches or a one-time REST fill.
+class SevenTvPersonalSetEvent {
+  final String setId;
+
+  const SevenTvPersonalSetEvent({required this.setId});
+}
+
 enum SevenTvEventStatus { connected, disconnected }
 
 class SevenTvEventClient {
@@ -143,6 +152,9 @@ class SevenTvEventClient {
   final _entitlementCtrl = StreamController<SevenTvEntitlementEvent>.broadcast(
     sync: true,
   );
+  final _personalSetCtrl = StreamController<SevenTvPersonalSetEvent>.broadcast(
+    sync: true,
+  );
   final _statusCtrl = StreamController<SevenTvEventStatus>.broadcast(
     sync: true,
   );
@@ -153,6 +165,7 @@ class SevenTvEventClient {
   Stream<SevenTvCosmeticCreateEvent> get onCosmeticCreate =>
       _cosmeticCreateCtrl.stream;
   Stream<SevenTvEntitlementEvent> get onEntitlement => _entitlementCtrl.stream;
+  Stream<SevenTvPersonalSetEvent> get onPersonalSet => _personalSetCtrl.stream;
   Stream<SevenTvEventStatus> get onStatus => _statusCtrl.stream;
 
   SevenTvEventClient({this._connectivityService});
@@ -290,6 +303,9 @@ class SevenTvEventClient {
       'cosmetic.create',
       'entitlement.create',
       'entitlement.delete',
+      // Personal-set creates/updates for grants in this channel (chatterino7
+      // parity): the mapping arrives via entitlement.create, contents here.
+      'emote_set.*',
     ]) {
       _send(
         jsonEncode({
@@ -427,6 +443,14 @@ class SevenTvEventClient {
             actor: actor,
           ),
         );
+
+      case 'emote_set.create':
+        final created = body['object'] as Map<String, dynamic>? ?? body;
+        final createdId = created['id'] as String? ?? '';
+        if (createdId.isEmpty) break;
+        // Fail closed like the REST path: only personal sets are tracked.
+        if (!SevenTvEmoteProvider.isPersonalSet(created)) break;
+        _personalSetCtrl.add(SevenTvPersonalSetEvent(setId: createdId));
 
       case 'user.update':
         final changeMap = body['change_map'] as Map<String, dynamic>? ?? {};
@@ -684,6 +708,7 @@ class SevenTvEventClient {
     _userUpdateCtrl.close();
     _cosmeticCreateCtrl.close();
     _entitlementCtrl.close();
+    _personalSetCtrl.close();
     _statusCtrl.close();
   }
 }

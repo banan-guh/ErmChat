@@ -65,7 +65,11 @@ class _EmoteSheetState extends State<EmoteSheet>
     if (emote.type == EmoteType.twitch) {
       return emote.isZeroWidth ? 'Twitch Emote (Zero Width)' : 'Twitch Emote';
     }
-    final scope = emote.scope == EmoteScope.global ? 'Global' : 'Channel';
+    final scope = switch (emote.scope) {
+      EmoteScope.global => 'Global',
+      EmoteScope.channel => 'Channel',
+      EmoteScope.personal => 'Personal',
+    };
     var label = '$provider $scope Emote';
     if (emote.isZeroWidth) {
       label = '$label (Zero Width)';

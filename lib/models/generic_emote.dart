@@ -1,6 +1,6 @@
 enum EmoteType { twitch, bttv, ffz, sevenTv }
 
-enum EmoteScope { global, channel }
+enum EmoteScope { global, channel, personal }
 
 /// Image resolution tier for emote fetching. 4x was dropped; no provider emits a 4x URL.
 enum EmoteResolution {

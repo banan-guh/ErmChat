@@ -108,18 +108,20 @@ class SevenTvEmoteProvider {
       final data = jsonDecode(res.body) as Map<String, dynamic>;
       if (!isPersonalSet(data)) return <GenericEmote>[];
       final items = data['emotes'] as List<dynamic>? ?? [];
-      return _parseEmotes(items, resolution: resolution);
+      return _parseEmotes(items, personal: true, resolution: resolution);
     });
   }
 
   static GenericEmote? parseSingleEmote(
     Map<String, dynamic> item, {
     bool channel = false,
+    bool personal = false,
     EmoteResolution resolution = EmoteResolution.high,
   }) {
     final emotes = _parseEmotes(
       [item],
       channel: channel,
+      personal: personal,
       resolution: resolution,
     );
     return emotes.isNotEmpty ? emotes.first : null;
@@ -129,6 +131,7 @@ class SevenTvEmoteProvider {
     List<dynamic> items, {
     bool global = false,
     bool channel = false,
+    bool personal = false,
     EmoteResolution resolution = EmoteResolution.high,
   }) {
     final emotes = <GenericEmote>[];
@@ -231,7 +234,9 @@ class SevenTvEmoteProvider {
           url1x: url1x,
           url3x: url3x,
           isAnimated: isAnimated,
-          scope: global
+          scope: personal
+              ? EmoteScope.personal
+              : global
               ? EmoteScope.global
               : channel
               ? EmoteScope.channel
