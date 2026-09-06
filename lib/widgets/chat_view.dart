@@ -374,6 +374,11 @@ class _ChatViewState extends State<ChatView>
         fadeDeleted: widget.fadeDeleted,
         sharedChatMode: widget.sharedChatMode,
         paintService: widget.paintService,
+        showImages: widget.messageBuilder.showImages,
+        imageHeight: widget.messageBuilder.imageHeight,
+        linkWhitelist:
+            widget.linkWhitelist?.entries ??
+            widget.messageBuilder.linkWhitelist.entries,
       );
     }
 

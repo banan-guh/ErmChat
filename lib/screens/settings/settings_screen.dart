@@ -45,6 +45,8 @@ class SettingsScreen extends StatelessWidget {
   final ValueChanged<bool>? onNamePaintsChanged;
   final ValueChanged<bool>? onShowGifsChanged;
   final ValueChanged<double>? onGifHeightChanged;
+  final ValueChanged<bool>? onShowImagesChanged;
+  final ValueChanged<double>? onImageHeightChanged;
   final ValueChanged<int>? onEmoteTierChanged;
   final ValueChanged<int>? onEmoteCacheMaxChanged;
   final ValueChanged<EmoteFetchAutoMode>? onEmoteAutoModeChanged;
@@ -96,6 +98,8 @@ class SettingsScreen extends StatelessWidget {
     this.onNamePaintsChanged,
     this.onShowGifsChanged,
     this.onGifHeightChanged,
+    this.onShowImagesChanged,
+    this.onImageHeightChanged,
     this.onEmoteTierChanged,
     this.onEmoteCacheMaxChanged,
     this.onEmoteAutoModeChanged,
@@ -182,6 +186,8 @@ class SettingsScreen extends StatelessWidget {
                   onNamePaintsChanged: onNamePaintsChanged,
                   onShowGifsChanged: onShowGifsChanged,
                   onGifHeightChanged: onGifHeightChanged,
+                  onShowImagesChanged: onShowImagesChanged,
+                  onImageHeightChanged: onImageHeightChanged,
                 ),
               ),
             ),

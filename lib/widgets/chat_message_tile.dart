@@ -1,9 +1,13 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../color_utils.dart';
 import '../models/twitch_message.dart';
 import '../services/seven_tv_paint_service.dart';
+import '../util/constants.dart';
+import '../util/log.dart';
 import '../util/timestamp_formatter.dart';
+import 'emote_text.dart';
 import 'painted_username_text.dart';
 
 class ChatMessageTile extends StatefulWidget {
@@ -23,6 +27,7 @@ class ChatMessageTile extends StatefulWidget {
     Color surface, {
     bool colored,
     double textScale,
+    void Function(String url)? onImageTap,
   })
   buildMessageSpans;
   final List<InlineSpan> Function(TwitchMessage msg, double textScale)?
@@ -47,6 +52,16 @@ class ChatMessageTile extends StatefulWidget {
   /// 7TV name paints for usernames when non-null and toggle is on.
   final SevenTvPaintService? paintService;
 
+  /// Image embeds (off by default). Icon taps toggle previews below the text.
+  final bool showImages;
+
+  /// Preview max height at textScale 1.0. Loads only when expanded.
+  final double imageHeight;
+
+  /// Whitelist entries for image-link detection. Same input the span path
+  /// uses, so icons and the preview column agree on fractured links.
+  final List<String>? linkWhitelist;
+
   const ChatMessageTile({
     super.key,
     required this.message,
@@ -69,6 +84,9 @@ class ChatMessageTile extends StatefulWidget {
     this.fadeDeleted = true,
     this.sharedChatMode = 'spotlight',
     this.paintService,
+    this.showImages = kImageEmbedEnabledDefault,
+    this.imageHeight = kImageEmbedHeightDefault,
+    this.linkWhitelist,
   });
 
   @override
@@ -78,6 +96,10 @@ class ChatMessageTile extends StatefulWidget {
 class _ChatMessageTileState extends State<ChatMessageTile> {
   TapGestureRecognizer? _usernameRecognizer;
   DateTime? _lastTap;
+
+  /// Expanded image preview URLs. Tile-local: cached tiles keep their own
+  /// state, fresh tiles start collapsed. Never persisted.
+  final _expandedEmbeds = <String>{};
 
   static const _doubleTapThreshold = Duration(milliseconds: 300);
 
@@ -117,6 +139,40 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
     }
   }
 
+  void _toggleEmbed(String url) {
+    setState(() {
+      if (!_expandedEmbeds.remove(url)) _expandedEmbeds.add(url);
+    });
+  }
+
+  /// One collapsed-by-default preview. Built only when expanded, so no
+  /// bytes load until the user taps the icon next to the link. Direct load
+  /// on purpose: arbitrary hosts cannot go through the emote disk cap, and
+  /// GIFs here animate regardless of the animate_gifs freeze.
+  Widget _embedPreview(String url, double s) {
+    final maxH = widget.imageHeight * s;
+    return Padding(
+      padding: const EdgeInsets.only(left: 8, right: 8, top: 2, bottom: 4),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxWidth: 300 * s, maxHeight: maxH),
+          child: CachedNetworkImage(
+            imageUrl: url,
+            fit: BoxFit.contain,
+            alignment: Alignment.centerLeft,
+            fadeInDuration: Duration.zero,
+            placeholder: (_, _) => SizedBox(width: 300 * s, height: maxH),
+            errorWidget: (_, failedUrl, error) {
+              logDebug('Image embed load failed: $failedUrl - $error');
+              return const Icon(Icons.broken_image);
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   void dispose() {
     _usernameRecognizer?.dispose();
@@ -135,6 +191,8 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
     final List<InlineSpan> children;
     final String semanticsLabel;
     final bool deleted;
+    // Image preview URLs for the embed column below the text.
+    List<String> embedUrls = const [];
 
     if (msg.isSystem) {
       children = widget.systemBodyBuilder != null
@@ -192,14 +250,22 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
               widget.surface,
               colored: true,
               textScale: s,
+              onImageTap: widget.showImages ? _toggleEmbed : null,
             )
           : widget.buildMessageSpans(
               msg,
               widget.channel,
               widget.surface,
               textScale: s,
+              onImageTap: widget.showImages ? _toggleEmbed : null,
             );
 
+      if (widget.showImages) {
+        embedUrls = collectImageEmbedUrls(
+          msg.text,
+          linkWhitelist: widget.linkWhitelist,
+        ).take(kMaxImageEmbedsPerMessage).toList();
+      }
       children = [...badges, usernameSpan, ...bodySpans];
       semanticsLabel = msg.isHighlighted
           ? 'Mention: $ts ${msg.formattedUsername}: ${msg.text}'
@@ -250,6 +316,18 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
         ],
       ),
     );
+
+    final expanded = [
+      for (final url in embedUrls)
+        if (_expandedEmbeds.contains(url)) url,
+    ];
+    if (expanded.isNotEmpty) {
+      child = Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [child, for (final url in expanded) _embedPreview(url, s)],
+      );
+    }
 
     if (deleted) {
       if (widget.fadeDeleted) {

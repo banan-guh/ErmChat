@@ -25,6 +25,13 @@ class MessageBuilder {
   /// Inline Giphy box height at textScale 1.0; width derives from 3:2 aspect.
   double gifHeight;
 
+  /// Whether image links get an expand icon. Previews render outside the
+  /// cached spans (tile column), so only the icon joins the cache key.
+  bool showImages;
+
+  /// Inline image preview max height at textScale 1.0.
+  double imageHeight;
+
   /// Tap handler for email spans (copy + feedback). Null copies silently.
   void Function(String email)? onEmailTap;
 
@@ -36,6 +43,8 @@ class MessageBuilder {
     LinkWhitelist? linkWhitelist,
     this.showGifs = kGiphyInlineEnabledDefault,
     this.gifHeight = kGiphyInlineHeightDefault,
+    this.showImages = kImageEmbedEnabledDefault,
+    this.imageHeight = kImageEmbedHeightDefault,
   }) : linkWhitelist = linkWhitelist ?? LinkWhitelist.instance;
 
   /// Composite cache key for message spans. Prime multiplier avoids collisions.
@@ -45,6 +54,7 @@ class MessageBuilder {
     var v = emoteManager.version * 1000003 + badgeService.version;
     v += linkWhitelist.entries.fold<int>(0, (h, e) => h ^ e.hashCode * 31);
     if (showGifs) v += 10000019 + (gifHeight * 13).toInt();
+    if (showImages) v += 20000029;
     return v;
   }
 
@@ -54,7 +64,20 @@ class MessageBuilder {
     Color surface, {
     bool colored = false,
     double textScale = 1.0,
+    void Function(String url)? onImageTap,
   }) {
+    // Tile-bound image callbacks must not ride the shared cache: panels reuse
+    // message objects, and a cached closure would toggle the wrong tile.
+    if (onImageTap != null) {
+      final fresh = _computeMessageSpans(
+        msg,
+        channel,
+        scale: textScale,
+        onImageTap: onImageTap,
+      );
+      if (colored) return _recolor(fresh, msg, surface, textScale);
+      return fresh;
+    }
     final spanVersion = _spanCacheVersion;
     final stale =
         msg.cachedSpans == null ||
@@ -65,32 +88,40 @@ class MessageBuilder {
       msg.cachedSpansVersion = spanVersion;
       msg.cachedSpansScale = textScale;
     }
-    if (colored) {
-      return [
-        ...msg.cachedSpans!.map((span) {
-          // Links keep blue style (repainting hides clickability).
-          if (span is TextSpan && span.recognizer == null) {
-            return TextSpan(
-              text: span.text,
-              style: TextStyle(
-                fontSize: 14 * textScale,
-                color: parseColor(msg.color, background: surface),
-                decoration: TextDecoration.none,
-              ),
-              recognizer: span.recognizer,
-            );
-          }
-          return span;
-        }),
-      ];
-    }
+    if (colored) return _recolor(msg.cachedSpans!, msg, surface, textScale);
     return msg.cachedSpans!;
+  }
+
+  List<InlineSpan> _recolor(
+    List<InlineSpan> spans,
+    TwitchMessage msg,
+    Color surface,
+    double textScale,
+  ) {
+    return [
+      ...spans.map((span) {
+        // Links keep blue style (repainting hides clickability).
+        if (span is TextSpan && span.recognizer == null) {
+          return TextSpan(
+            text: span.text,
+            style: TextStyle(
+              fontSize: 14 * textScale,
+              color: parseColor(msg.color, background: surface),
+              decoration: TextDecoration.none,
+            ),
+            recognizer: span.recognizer,
+          );
+        }
+        return span;
+      }),
+    ];
   }
 
   List<InlineSpan> _computeMessageSpans(
     TwitchMessage msg,
     String channel, {
     double scale = 1.0,
+    void Function(String url)? onImageTap,
   }) {
     // Shared-chat: resolve emotes against source channel's set.
     final lookupChannel = msg.sourceBroadcasterId != null
@@ -111,6 +142,8 @@ class MessageBuilder {
         scale: scale,
         linkWhitelist: linkWhitelist.entries,
         onEmailTap: onEmailTap,
+        showImages: showImages,
+        onImageTap: onImageTap,
       );
     }
     // GIF messages: splice inline GIF images over their text ranges; GIF wins
@@ -144,6 +177,8 @@ class MessageBuilder {
           scale: scale,
           linkWhitelist: linkWhitelist.entries,
           onEmailTap: onEmailTap,
+          showImages: showImages,
+          onImageTap: onImageTap,
         ),
       );
     }

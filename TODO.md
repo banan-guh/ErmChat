@@ -58,7 +58,7 @@
 - [x] **Slow mode countdown** - countdown on the input box hint, ticks in place; timeouts too (CLEARCHAT ban-duration), mod/vip/sub badges bypass slow.
 - [-] **Emote favorites** - recents exist, favs don't.
 - [+] **EXIF strip before upload** - JPEGs re-encoded without metadata before upload, orientation baked in; other formats untouched.
-- [ ] **Inline image embeds** - render image links posted in chat, off by default.
+- [+] **Inline image embeds** - render image links posted in chat, off by default.
 - [ ] **Dual-pane view** - read two channels side by side.
 - [ ] **Home screen widget / Live Activity** - track last watched channel.
 - [x] **Different mode** - Toggleable type box visibility and fullscreen.
@@ -83,3 +83,4 @@
 - style bug, add stretch for tab bar channels
 - notifs don't matter if no foreground in android (ios push notifs, change if server)
 - greedy split links - `kappa.lol/ tests` (space after slash) only links `kappa.lol/`; optionally extend the path to the next word, at the cost of eating prose after `/` (`x.com/ for details`)
+- fast swipe default

@@ -6,11 +6,15 @@ import 'settings_page.dart';
 class InlineEmbedsScreen extends StatefulWidget {
   final ValueChanged<bool>? onShowGifsChanged;
   final ValueChanged<double>? onGifHeightChanged;
+  final ValueChanged<bool>? onShowImagesChanged;
+  final ValueChanged<double>? onImageHeightChanged;
 
   const InlineEmbedsScreen({
     super.key,
     this.onShowGifsChanged,
     this.onGifHeightChanged,
+    this.onShowImagesChanged,
+    this.onImageHeightChanged,
   });
 
   @override
@@ -20,6 +24,8 @@ class InlineEmbedsScreen extends StatefulWidget {
 class _InlineEmbedsScreenState extends State<InlineEmbedsScreen> {
   bool _showGifs = kGiphyInlineEnabledDefault;
   double _gifHeight = kGiphyInlineHeightDefault;
+  bool _showImages = kImageEmbedEnabledDefault;
+  double _imageHeight = kImageEmbedHeightDefault;
 
   @override
   void initState() {
@@ -38,6 +44,13 @@ class _InlineEmbedsScreenState extends State<InlineEmbedsScreen> {
             (prefs.getDouble(kGiphyInlineHeightPrefKey) ??
                     kGiphyInlineHeightDefault)
                 .clamp(kGiphyInlineHeightMin, kGiphyInlineHeightMax);
+        _showImages =
+            prefs.getBool(kImageEmbedEnabledPrefKey) ??
+            kImageEmbedEnabledDefault;
+        _imageHeight =
+            (prefs.getDouble(kImageEmbedHeightPrefKey) ??
+                    kImageEmbedHeightDefault)
+                .clamp(kImageEmbedHeightMin, kImageEmbedHeightMax);
       });
     }
   }
@@ -100,6 +113,66 @@ class _InlineEmbedsScreenState extends State<InlineEmbedsScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
             child: Text(
               'Animation follows Emotes > Animate GIFs.',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+          _sectionHeader('Images'),
+          SwitchListTile(
+            secondary: const Icon(Icons.image_outlined),
+            title: const Text('Show images inline'),
+            subtitle: const Text(
+              'Image links get an icon; tap to expand the preview',
+            ),
+            value: _showImages,
+            onChanged: (value) async {
+              final prefs = await SharedPreferences.getInstance();
+              await prefs.setBool(kImageEmbedEnabledPrefKey, value);
+              if (mounted) setState(() => _showImages = value);
+              widget.onShowImagesChanged?.call(value);
+            },
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Text(
+              'Image height: ${_imageHeight.round()}dp',
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: _showImages
+                    ? null
+                    : Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+          Slider(
+            value: _imageHeight.clamp(
+              kImageEmbedHeightMin,
+              kImageEmbedHeightMax,
+            ),
+            min: kImageEmbedHeightMin,
+            max: kImageEmbedHeightMax,
+            divisions: 12,
+            label: '${_imageHeight.round()}dp',
+            onChanged: _showImages
+                ? (value) {
+                    setState(() => _imageHeight = value);
+                    widget.onImageHeightChanged?.call(value);
+                  }
+                : null,
+            onChangeEnd: _showImages
+                ? (value) {
+                    SharedPreferences.getInstance().then(
+                      (prefs) =>
+                          prefs.setDouble(kImageEmbedHeightPrefKey, value),
+                    );
+                  }
+                : null,
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            child: Text(
+              'Previews load only when expanded, directly from the host, '
+              'which sees your IP. Off by default.',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 color: Theme.of(context).colorScheme.onSurfaceVariant,
               ),

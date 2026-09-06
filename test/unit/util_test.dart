@@ -21,6 +21,7 @@ import 'package:ermchat/services/third_party_badge_service.dart';
 import 'package:ermchat/widgets/message_builder.dart';
 import 'package:ermchat/widgets/emote_text.dart';
 import 'package:ermchat/widgets/link_whitelist.dart';
+import 'package:ermchat/util/constants.dart';
 
 TwitchMessage _msg(String text, {String login = 'otheruser', String? replyTo}) {
   return TwitchMessage(
@@ -614,6 +615,77 @@ void main() {
     final second = builder.buildMessageSpans(msg, 'test', Colors.black);
     expect(identical(second, first), isFalse);
     expect(second.any((s) => s is WidgetSpan), isTrue);
+  });
+
+  group('image embeds', () {
+    test('detects image extensions, ignores query and fragment', () {
+      expect(isImageEmbedCandidate('https://example.com/a.png'), isTrue);
+      expect(isImageEmbedCandidate('https://example.com/a.JPG?x=1#y'), isTrue);
+      expect(isImageEmbedCandidate('http://example.com/a.webp'), isTrue);
+      expect(isImageEmbedCandidate('https://example.com/a.mp4'), isFalse);
+      expect(isImageEmbedCandidate('https://example.com/page'), isFalse);
+      expect(isImageEmbedCandidate('https://example.com/a.png/'), isFalse);
+    });
+
+    test('treats known hosts as images without an extension', () {
+      expect(isImageEmbedCandidate('https://kappa.lol/abc'), isTrue);
+      expect(isImageEmbedCandidate('https://sub.kappa.lol/abc'), isTrue);
+      expect(isImageEmbedCandidate('https://kappa.lol'), isFalse);
+      expect(isImageEmbedCandidate('https://youtu.be/abc'), isFalse);
+      expect(isImageEmbedCandidate('not a url'), isFalse);
+    });
+
+    test('collects embed urls in order without duplicates', () {
+      final urls = collectImageEmbedUrls(
+        'see https://kappa.lol/abc and https://example.com/x.jpg '
+        'and https://kappa.lol/abc',
+      );
+      expect(urls, ['https://kappa.lol/abc', 'https://example.com/x.jpg']);
+    });
+
+    TwitchMessage imgMsg(String id, String text) =>
+        TwitchMessage(login: 'u', text: text, channel: 'test', messageId: id);
+
+    test('icons appear only when enabled with a tap handler', () {
+      final em = EmoteManager();
+      final builder = makeBuilder(em)..showImages = true;
+      final tapped = <String>[];
+      final spans = builder.buildMessageSpans(
+        imgMsg('img1', 'look https://example.com/a.png ok'),
+        'test',
+        Colors.black,
+        onImageTap: tapped.add,
+      );
+      expect(spans.any((s) => s is WidgetSpan), isTrue);
+
+      // Plain links get no icon even when enabled.
+      final plain = builder.buildMessageSpans(
+        imgMsg('img2', 'see https://example.com/page ok'),
+        'test',
+        Colors.black,
+        onImageTap: tapped.add,
+      );
+      expect(plain.any((s) => s is WidgetSpan), isFalse);
+
+      // Enabled but no tap handler means no icon (nothing to expand).
+      final noTap = builder.buildMessageSpans(
+        imgMsg('img3', 'look https://example.com/a.png ok'),
+        'test',
+        Colors.black,
+      );
+      expect(noTap.any((s) => s is WidgetSpan), isFalse);
+    });
+
+    test('showImages toggle invalidates the span cache', () {
+      final em = EmoteManager();
+      final builder = makeBuilder(em)..showImages = false;
+      final msg = imgMsg('img4', 'look https://example.com/a.png ok');
+      final off = builder.buildMessageSpans(msg, 'test', Colors.black);
+
+      builder.showImages = true;
+      final on = builder.buildMessageSpans(msg, 'test', Colors.black);
+      expect(identical(on, off), isFalse);
+    });
   });
 
   group('WhitelistLinkifier split links', () {

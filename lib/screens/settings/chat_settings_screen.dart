@@ -27,6 +27,8 @@ class ChatSettingsScreen extends StatefulWidget {
   final ValueChanged<bool>? onNamePaintsChanged;
   final ValueChanged<bool>? onShowGifsChanged;
   final ValueChanged<double>? onGifHeightChanged;
+  final ValueChanged<bool>? onShowImagesChanged;
+  final ValueChanged<double>? onImageHeightChanged;
 
   const ChatSettingsScreen({
     super.key,
@@ -44,6 +46,8 @@ class ChatSettingsScreen extends StatefulWidget {
     this.onNamePaintsChanged,
     this.onShowGifsChanged,
     this.onGifHeightChanged,
+    this.onShowImagesChanged,
+    this.onImageHeightChanged,
   });
 
   @override
@@ -64,6 +68,8 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
   bool _namePaints = false;
   bool _showGifs = kGiphyInlineEnabledDefault;
   double _gifHeight = kGiphyInlineHeightDefault;
+  bool _showImages = kImageEmbedEnabledDefault;
+  double _imageHeight = kImageEmbedHeightDefault;
 
   @override
   void initState() {
@@ -99,6 +105,13 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
             (prefs.getDouble(kGiphyInlineHeightPrefKey) ??
                     kGiphyInlineHeightDefault)
                 .clamp(kGiphyInlineHeightMin, kGiphyInlineHeightMax);
+        _showImages =
+            prefs.getBool(kImageEmbedEnabledPrefKey) ??
+            kImageEmbedEnabledDefault;
+        _imageHeight =
+            (prefs.getDouble(kImageEmbedHeightPrefKey) ??
+                    kImageEmbedHeightDefault)
+                .clamp(kImageEmbedHeightMin, kImageEmbedHeightMax);
       });
     }
   }
@@ -211,6 +224,14 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
     );
   }
 
+  String get _inlineEmbedsSubtitle {
+    final parts = <String>[];
+    if (_showGifs) parts.add('Giphy on (${_gifHeight.round()}dp)');
+    if (_showImages) parts.add('Images on (${_imageHeight.round()}dp)');
+    if (parts.isEmpty) return 'Off';
+    return parts.join(', ');
+  }
+
   @override
   Widget build(BuildContext context) {
     return SettingsPage(
@@ -315,9 +336,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
           ListTile(
             leading: const Icon(Icons.gif_box),
             title: const Text('Inline embeds'),
-            subtitle: Text(
-              _showGifs ? 'Giphy on (${_gifHeight.round()}dp)' : 'Off',
-            ),
+            subtitle: Text(_inlineEmbedsSubtitle),
             trailing: const Icon(Icons.chevron_right),
             onTap: () {
               Navigator.push(
@@ -331,6 +350,14 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
                     onGifHeightChanged: (v) {
                       if (mounted) setState(() => _gifHeight = v);
                       widget.onGifHeightChanged?.call(v);
+                    },
+                    onShowImagesChanged: (v) {
+                      if (mounted) setState(() => _showImages = v);
+                      widget.onShowImagesChanged?.call(v);
+                    },
+                    onImageHeightChanged: (v) {
+                      if (mounted) setState(() => _imageHeight = v);
+                      widget.onImageHeightChanged?.call(v);
                     },
                   ),
                 ),

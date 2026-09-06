@@ -332,9 +332,10 @@ void main() {
           surface: Colors.black,
           textScale: 1.0,
           buildBadgeSpans: (_, _, {badgeScale = 1.0}) => [],
-          buildMessageSpans: (_, _, _, {colored = false, textScale = 1.0}) => [
-            TextSpan(text: msg.text),
-          ],
+          buildMessageSpans:
+              (_, _, _, {colored = false, textScale = 1.0, onImageTap}) => [
+                TextSpan(text: msg.text),
+              ],
           paintService: paints,
         );
 

@@ -595,8 +595,9 @@ void main() {
           surface: Colors.white,
           textScale: 1.0,
           buildBadgeSpans: (_, _, {double badgeScale = 1.0}) => const [],
-          buildMessageSpans: (_, _, _, {colored = false, textScale = 1.0}) =>
-              <InlineSpan>[TextSpan(text: 'gone')],
+          buildMessageSpans:
+              (_, _, _, {colored = false, textScale = 1.0, onImageTap}) =>
+                  <InlineSpan>[TextSpan(text: 'gone')],
           fadeDeleted: fadeDeleted,
         ),
       ),

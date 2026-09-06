@@ -5,6 +5,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
 import 'package:linkify/linkify.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../util/constants.dart';
 import '../util/log.dart';
 import 'inline_emote_view.dart';
 import '../services/link_whitelist.dart';
@@ -29,6 +30,8 @@ class EmoteText {
     double scale = 1.0,
     List<String>? linkWhitelist,
     void Function(String email)? onEmailTap,
+    bool showImages = false,
+    void Function(String url)? onImageTap,
   }) {
     try {
       return _buildUnsafe(
@@ -39,6 +42,8 @@ class EmoteText {
         scale: scale,
         linkWhitelist: linkWhitelist,
         onEmailTap: onEmailTap,
+        showImages: showImages,
+        onImageTap: onImageTap,
       );
     } catch (e, stack) {
       logDebug('[EmoteText.build] error: $e');
@@ -48,6 +53,9 @@ class EmoteText {
         text,
         linkWhitelist: linkWhitelist,
         onEmailTap: onEmailTap,
+        showImages: showImages,
+        onImageTap: onImageTap,
+        scale: scale,
       );
     }
   }
@@ -60,12 +68,17 @@ class EmoteText {
     double scale = 1.0,
     List<String>? linkWhitelist,
     void Function(String email)? onEmailTap,
+    bool showImages = false,
+    void Function(String url)? onImageTap,
   }) {
     if (channelEmotes == null) {
       return parseTextWithLinks(
         text,
         linkWhitelist: linkWhitelist,
         onEmailTap: onEmailTap,
+        showImages: showImages,
+        onImageTap: onImageTap,
+        scale: scale,
       );
     }
 
@@ -78,6 +91,9 @@ class EmoteText {
         text,
         linkWhitelist: linkWhitelist,
         onEmailTap: onEmailTap,
+        showImages: showImages,
+        onImageTap: onImageTap,
+        scale: scale,
       );
     }
 
@@ -94,6 +110,9 @@ class EmoteText {
             buffer,
             linkWhitelist: linkWhitelist,
             onEmailTap: onEmailTap,
+            showImages: showImages,
+            onImageTap: onImageTap,
+            scale: scale,
           ),
         );
         buffer = '';
@@ -309,11 +328,67 @@ class EmoteSegment implements _Segment {
 
 final _collapseSpace = RegExp(r' {2,}');
 
+/// Same linkifier stack as [parseTextWithLinks].
+List<LinkifyElement> _linkifyChat(
+  String collapsed,
+  List<String>? linkWhitelist,
+) {
+  return linkify(
+    collapsed,
+    // looseUrl handles bare domains; show originText so the
+    // scheme stays visible and highlighted.
+    options: const LinkifyOptions(
+      humanize: true,
+      looseUrl: true,
+      defaultToHttps: true,
+    ),
+    linkifiers: [
+      // Email first: it needs the text whole, and stock UrlLinkifier
+      // would eat the host half of foo@gmail.com.
+      const SafeEmailLinkifier(),
+      // Exact single-char domains before fuzzy fracture matching.
+      const SingleCharDomainLinkifier(),
+      // Bare whitelisted domains always link; fractured ones need the toggle.
+      WhitelistLinkifier(
+        linkWhitelist ?? const [],
+        fractures: LinkWhitelist.instance.enabled,
+      ),
+      const UrlLinkifier(),
+    ],
+  );
+}
+
+/// Normalized URLs in [text] that look like raw image serves, in order and
+/// deduped, capped like the inline icons. Tile previews use this, so pass the
+/// same whitelist entries the span path uses or fractured links disagree.
+List<String> collectImageEmbedUrls(String text, {List<String>? linkWhitelist}) {
+  if (!text.contains('.')) return const [];
+  try {
+    final collapsed = text.replaceAll(_collapseSpace, ' ');
+    if (!collapsed.contains('.')) return const [];
+    final urls = <String>[];
+    for (final element in _linkifyChat(collapsed, linkWhitelist)) {
+      if (urls.length >= kMaxImageEmbedsPerMessage) break;
+      if (element is UrlElement && isImageEmbedCandidate(element.url)) {
+        if (!urls.contains(element.url)) urls.add(element.url);
+      }
+    }
+    return urls;
+  } catch (e) {
+    logDebug('[collectImageEmbedUrls] error: $e');
+    return const [];
+  }
+}
+
 List<InlineSpan> parseTextWithLinks(
   String text, {
   List<String>? linkWhitelist,
   // Tap handler for emails (copy + feedback). Null copies silently.
   void Function(String email)? onEmailTap,
+  // Image embeds: candidate links get an expand icon. Null tap = no icon.
+  bool showImages = false,
+  void Function(String url)? onImageTap,
+  double scale = 1.0,
 }) {
   // Fast path: no dots and no runs means no links and nothing to collapse.
   if (!text.contains('.') && !text.contains('  ')) {
@@ -324,29 +399,8 @@ List<InlineSpan> parseTextWithLinks(
   if (!collapsed.contains('.')) return [TextSpan(text: collapsed)];
   try {
     final spans = <InlineSpan>[];
-    for (final element in linkify(
-      collapsed,
-      // looseUrl handles bare domains; show originText so the
-      // scheme stays visible and highlighted.
-      options: const LinkifyOptions(
-        humanize: true,
-        looseUrl: true,
-        defaultToHttps: true,
-      ),
-      linkifiers: [
-        // Email first: it needs the text whole, and stock UrlLinkifier
-        // would eat the host half of foo@gmail.com.
-        const SafeEmailLinkifier(),
-        // Exact single-char domains before fuzzy fracture matching.
-        const SingleCharDomainLinkifier(),
-        // Bare whitelisted domains always link; fractured ones need the toggle.
-        WhitelistLinkifier(
-          linkWhitelist ?? const [],
-          fractures: LinkWhitelist.instance.enabled,
-        ),
-        const UrlLinkifier(),
-      ],
-    )) {
+    var imageCount = 0;
+    for (final element in _linkifyChat(collapsed, linkWhitelist)) {
       if (element is UrlElement) {
         spans.add(
           TextSpan(
@@ -356,6 +410,39 @@ List<InlineSpan> parseTextWithLinks(
               ..onTap = () => launchUrl(Uri.parse(element.url)),
           ),
         );
+        if (showImages &&
+            onImageTap != null &&
+            imageCount < kMaxImageEmbedsPerMessage &&
+            isImageEmbedCandidate(element.url)) {
+          imageCount++;
+          final url = element.url;
+          // Emote-sized tap box so the toggle is as easy to hit as an emote.
+          final box = 28.0 * scale;
+          spans.add(
+            WidgetSpan(
+              alignment: PlaceholderAlignment.middle,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => onImageTap(url),
+                child: Padding(
+                  padding: const EdgeInsets.only(left: 2),
+                  child: SizedBox(
+                    width: box,
+                    height: box,
+                    child: Center(
+                      child: Icon(
+                        Icons.image_outlined,
+                        size: 20.0 * scale,
+                        color: Colors.blue,
+                        semanticLabel: 'Expand image',
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          );
+        }
       } else if (element is EmailElement) {
         spans.add(
           TextSpan(

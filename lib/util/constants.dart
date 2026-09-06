@@ -37,6 +37,50 @@ const double kGiphyInlineHeightDefault = 120.0;
 const double kGiphyInlineHeightMin = 60.0;
 const double kGiphyInlineHeightMax = 240.0;
 
+/// Image link embeds: extension match anywhere, or extensionless links on
+/// these raw-image hosts (subdomains included). Kept separate from the
+/// split-link whitelist: youtu.be links but never serves raw images.
+const String kImageEmbedEnabledPrefKey = 'image_embeds_enabled';
+const String kImageEmbedHeightPrefKey = 'image_embeds_height';
+const bool kImageEmbedEnabledDefault = false;
+const double kImageEmbedHeightDefault = 120.0;
+const double kImageEmbedHeightMin = 60.0;
+const double kImageEmbedHeightMax = 240.0;
+
+/// Raw-image hosts whose short links carry no extension (kappa.lol/abc).
+const kImageEmbedHosts = <String>[
+  'kappa.lol',
+  'segs.lol',
+  'i.nuuls.com',
+  'gachi.gay',
+  'olrite.lol',
+];
+
+/// At most this many expandable previews render under one message.
+const kMaxImageEmbedsPerMessage = 4;
+
+const _kImageExtensions = <String>{'png', 'jpg', 'jpeg', 'gif', 'webp'};
+
+/// Best-effort sync check for raw image serves: image extension in the path
+/// (query/fragment stripped by Uri), or a known host with a real path.
+/// Bare host roots (upload homepages) never count.
+bool isImageEmbedCandidate(String url) {
+  final uri = Uri.tryParse(url);
+  if (uri == null || uri.host.isEmpty) return false;
+  if (uri.scheme != 'https' && uri.scheme != 'http') return false;
+  final host = uri.host.toLowerCase();
+  final knownHost = kImageEmbedHosts.any(
+    (d) => host == d || host.endsWith('.$d'),
+  );
+  if (knownHost) return uri.pathSegments.isNotEmpty;
+  final path = uri.path.toLowerCase();
+  final dot = path.lastIndexOf('.');
+  if (dot < 0) return false;
+  final ext = path.substring(dot + 1);
+  if (ext.contains('/')) return false;
+  return _kImageExtensions.contains(ext);
+}
+
 /// Snaps a raw (possibly legacy) value to the nearest log-scale step.
 int snapToMaxMessagesStep(int value) {
   var best = kMaxMessagesPerChannelValues.first;

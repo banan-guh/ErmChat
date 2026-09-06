@@ -237,6 +237,8 @@ class _HomeScreenState extends State<HomeScreen>
     linkWhitelist: LinkWhitelist.instance,
     showGifs: _showGifs,
     gifHeight: _gifHeight,
+    showImages: _showImages,
+    imageHeight: _imageHeight,
   );
   late final _modActions = ModActions(
     twitchApi: _twitchApi,
@@ -322,6 +324,8 @@ class _HomeScreenState extends State<HomeScreen>
   /// Giphy inline embeds (default off; toggled in Chat > Inline embeds).
   bool _showGifs = kGiphyInlineEnabledDefault;
   double _gifHeight = kGiphyInlineHeightDefault;
+  bool _showImages = kImageEmbedEnabledDefault;
+  double _imageHeight = kImageEmbedHeightDefault;
 
   /// Hidden-chrome mode: drops the ErmChat header (title, join, mentions,
   /// overflow) and the channel tab bar so the chat fills the screen. Transient
@@ -969,6 +973,27 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
+  void _setShowImages(bool value) {
+    if (_showImages == value) return;
+    setState(() => _showImages = value);
+    _messageBuilder.showImages = value;
+    _tileCache.clear();
+    for (final channel in List.of(_chatStore.channels)) {
+      _chatStore.touchChannel(channel);
+    }
+  }
+
+  void _setImageHeight(double value) {
+    final clamped = value.clamp(kImageEmbedHeightMin, kImageEmbedHeightMax);
+    if (_imageHeight == clamped) return;
+    setState(() => _imageHeight = clamped);
+    _messageBuilder.imageHeight = clamped;
+    _tileCache.clear();
+    for (final channel in List.of(_chatStore.channels)) {
+      _chatStore.touchChannel(channel);
+    }
+  }
+
   Future<void> _initForegroundService() async {
     initForegroundService();
     await requestForegroundPermissions();
@@ -1259,9 +1284,17 @@ class _HomeScreenState extends State<HomeScreen>
           (prefs.getDouble(kGiphyInlineHeightPrefKey) ??
                   kGiphyInlineHeightDefault)
               .clamp(kGiphyInlineHeightMin, kGiphyInlineHeightMax);
+      _showImages =
+          prefs.getBool(kImageEmbedEnabledPrefKey) ?? kImageEmbedEnabledDefault;
+      _imageHeight =
+          (prefs.getDouble(kImageEmbedHeightPrefKey) ??
+                  kImageEmbedHeightDefault)
+              .clamp(kImageEmbedHeightMin, kImageEmbedHeightMax);
       _showInput = prefs.getBool('show_input') ?? true;
       _messageBuilder.showGifs = _showGifs;
       _messageBuilder.gifHeight = _gifHeight;
+      _messageBuilder.showImages = _showImages;
+      _messageBuilder.imageHeight = _imageHeight;
       // Prefs load async; tiles built with defaults before this returns
       // would keep stale spans, so evict them like the live setters do.
       _tileCache.clear();
@@ -1445,6 +1478,8 @@ class _HomeScreenState extends State<HomeScreen>
           onNamePaintsChanged: _setNamePaints,
           onShowGifsChanged: _setShowGifs,
           onGifHeightChanged: _setGifHeight,
+          onShowImagesChanged: _setShowImages,
+          onImageHeightChanged: _setImageHeight,
           onEmoteTierChanged: _emotes.applyTier,
           onEmoteCacheMaxChanged: _emotes.applyCacheCap,
           onSharedChatModeChanged: _setSharedChatMode,
