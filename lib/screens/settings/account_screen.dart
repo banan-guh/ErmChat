@@ -7,6 +7,7 @@ import '../../services/twitch_api.dart';
 import '../../services/twitch_auth.dart';
 import '../../services/twitch_oauth.dart';
 import '../../twitch_config.dart';
+import '../../widgets/app_snack.dart';
 import 'settings_page.dart';
 
 enum _AuthState { idle, waiting, success, error, needsSetup, pasteToken }
@@ -376,9 +377,7 @@ class _AccountScreenState extends State<AccountScreen> {
                 onPressed: () {
                   if (_browserAuthUrl != null) {
                     Clipboard.setData(ClipboardData(text: _browserAuthUrl!));
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('URL copied!')),
-                    );
+                    AppSnack.show(context, 'URL copied!');
                   }
                 },
                 icon: const Icon(Icons.copy, size: 18),

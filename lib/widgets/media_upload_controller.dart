@@ -4,6 +4,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import '../services/media_uploader.dart';
+import 'app_snack.dart';
+
+/// Notice sink for upload results. Home wires the inline notice bar;
+/// detached uses fall back to the overlay snackbar.
+typedef NoticeCallback =
+    void Function(
+      String message, {
+      String? actionLabel,
+      VoidCallback? onAction,
+    });
 
 /// Upload media flow: pick image/video, upload, insert link into [input] and clipboard.
 class MediaUploadController {
@@ -11,11 +21,13 @@ class MediaUploadController {
     MediaUploader? uploader,
     required this.input,
     this.focusNode,
+    this.onNotice,
   }) : _uploader = uploader ?? MediaUploader();
 
   final MediaUploader _uploader;
   final TextEditingController input;
   final FocusNode? focusNode;
+  final NoticeCallback? onNotice;
 
   bool _isUploading = false;
 
@@ -84,8 +96,11 @@ class MediaUploadController {
   }
 
   void _showSnack(BuildContext context, String message) {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message)));
+    final notice = onNotice;
+    if (notice != null) {
+      notice(message);
+      return;
+    }
+    AppSnack.show(context, message);
   }
 }

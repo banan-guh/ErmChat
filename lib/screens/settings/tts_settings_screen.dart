@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../services/tts_controller.dart';
+import '../../widgets/app_snack.dart';
 import 'settings_page.dart';
 import 'tts_user_ignore_list_screen.dart';
 
@@ -67,15 +68,10 @@ class _TtsSettingsScreenState extends State<TtsSettingsScreen> {
         final ready = await c.checkAndPrepare();
         if (!ready) {
           if (mounted) {
-            final messenger = ScaffoldMessenger.of(context);
-            messenger.removeCurrentSnackBar();
-            messenger.showSnackBar(
-              const SnackBar(
-                content: Text(
-                  'No TTS engine available. Install or enable one in your '
-                  'device\'s Text-to-speech settings, then enable again.',
-                ),
-              ),
+            AppSnack.showError(
+              context,
+              'No TTS engine available. Install or enable one in your '
+              'device\'s Text-to-speech settings, then enable again.',
             );
             setState(() => _enabled = false);
           }
@@ -156,9 +152,7 @@ class _TtsSettingsScreenState extends State<TtsSettingsScreen> {
     final options = await c.fetchOptions();
     if (!mounted) return;
     if (options.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('No TTS engines available')));
+      AppSnack.showError(context, 'No TTS engines available');
       return;
     }
     final chosen = await showDialog<TtsOption>(

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../services/media_uploader.dart';
 import '../../util/timestamp_formatter.dart';
+import '../../widgets/app_snack.dart';
 import 'settings_page.dart';
 
 class RecentUploadsScreen extends StatefulWidget {
@@ -34,9 +35,7 @@ class _RecentUploadsScreenState extends State<RecentUploadsScreen> {
   Future<void> _copyLink(RecentUpload upload) async {
     Clipboard.setData(ClipboardData(text: upload.imageLink)).ignore();
     if (!mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text('Copied ${upload.imageLink}')));
+    AppSnack.show(context, 'Copied ${upload.imageLink}');
   }
 
   Future<void> _delete(int index) async {

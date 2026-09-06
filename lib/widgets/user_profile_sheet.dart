@@ -6,6 +6,7 @@ import '../services/mod_actions.dart';
 import '../services/twitch_api.dart';
 import '../services/twitch_auth.dart';
 import '../util/log.dart';
+import 'app_snack.dart';
 import 'mod_view.dart';
 
 class UserProfileSheet extends StatefulWidget {
@@ -589,9 +590,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
         onTap: () async {
           final userId = widget.userId ?? _profile?['id'] as String?;
           if (userId == null) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Cannot block: user ID unknown')),
-            );
+            AppSnack.show(context, 'Cannot block: user ID unknown');
             return;
           }
           final confirmed = await showDialog<bool>(
@@ -619,14 +618,11 @@ class UserProfileSheetState extends State<UserProfileSheet> {
             userId,
           );
           if (!mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                ok
-                    ? '${widget.displayName} blocked'
-                    : 'Block failed: ${widget.twitchApi.lastError ?? "unknown"}',
-              ),
-            ),
+          AppSnack.show(
+            context,
+            ok
+                ? '${widget.displayName} blocked'
+                : 'Block failed: ${widget.twitchApi.lastError ?? "unknown"}',
           );
           if (ok) widget.onUserBlocked?.call(widget.username);
           widget.onClose();
@@ -640,9 +636,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
           final url = Uri.parse('https://twitch.tv/${widget.username}/report');
           final ok = await launchUrl(url, mode: LaunchMode.externalApplication);
           if (!ok && mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Could not open the report page')),
-            );
+            AppSnack.show(context, 'Could not open the report page');
           }
         },
       ),

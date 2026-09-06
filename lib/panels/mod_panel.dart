@@ -12,6 +12,7 @@ import '../widgets/panel_manager.dart';
 abstract class ModPanelsHost extends ShellState {
   bool isMounted();
   void markDirty();
+  void showNotice(String text);
 }
 
 // Moderation panel and its show verb.
@@ -134,6 +135,7 @@ class ModPanels {
         auth: twitchAuth,
         tabController: modTab(),
         refresh: modPanelVersion,
+        onNotice: host.showNotice,
         isModerationActive: (c) =>
             c.isNotEmpty && chatConn.isModerationActive(c),
         isAutomodActive: (c) => c.isNotEmpty && chatConn.isAutomodActive(c),

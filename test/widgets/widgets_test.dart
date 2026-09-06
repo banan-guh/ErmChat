@@ -27,9 +27,11 @@ import 'package:ermchat/services/recent_messages.dart';
 import 'package:ermchat/services/twitch_auth.dart';
 import 'package:ermchat/models/twitch_message.dart';
 import 'package:ermchat/services/suggestion.dart';
+import 'package:ermchat/widgets/app_snack.dart';
 import 'package:ermchat/widgets/autocomplete_dropdown.dart';
 import 'package:ermchat/widgets/chat_body.dart';
 import 'package:ermchat/widgets/chat_message_tile.dart';
+import 'package:ermchat/widgets/chat_notice_bar.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:ermchat/services/emote_cache_manager.dart';
 import '../helpers/fake_cache_repo.dart';
@@ -5470,4 +5472,224 @@ void main() {
     // Oldest row starts near the top, not pinned to the very top edge.
     expect(tester.getRect(row('row 2')).top, lessThan(460.0));
   });
+
+  group('Chat notices and snackbars', () {
+    test('notice show replaces the current notice', () {
+      final controller = ChatNoticeController();
+      controller.show('first');
+      controller.show('second');
+      expect(controller.current?.message, 'second');
+      controller.dispose();
+    });
+
+    test('notice dismiss clears the current notice', () {
+      final controller = ChatNoticeController();
+      controller.show('hello');
+      controller.dismiss();
+      expect(controller.current, isNull);
+      controller.dispose();
+    });
+
+    test('notice auto-dismisses after the duration', () async {
+      final controller = ChatNoticeController();
+      controller.show('hello', duration: const Duration(milliseconds: 50));
+      expect(controller.current, isNotNull);
+      await Future.delayed(const Duration(milliseconds: 120));
+      expect(controller.current, isNull);
+      controller.dispose();
+    });
+
+    test('notice replace resets the auto-dismiss timer', () async {
+      final controller = ChatNoticeController();
+      controller.show('first', duration: const Duration(milliseconds: 60));
+      await Future.delayed(const Duration(milliseconds: 40));
+      controller.show('second', duration: const Duration(milliseconds: 200));
+      await Future.delayed(const Duration(milliseconds: 60));
+      expect(controller.current?.message, 'second');
+      controller.dispose();
+    });
+
+    testWidgets('notice floats above the composer without resizing the chat', (
+      tester,
+    ) async {
+      final controller = ChatNoticeController();
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(_noticeHarness(controller));
+      final chatSize = tester.getSize(find.byKey(const Key('notice-chat')));
+      controller.show('hello');
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 250));
+      expect(find.text('hello'), findsOneWidget);
+      final barBottom = tester.getBottomLeft(find.text('hello')).dy;
+      final composerTop = tester
+          .getTopLeft(find.byKey(const Key('notice-composer')))
+          .dy;
+      // Bar padding ends 8dp above the composer, so text sits higher still.
+      expect(composerTop - barBottom, greaterThanOrEqualTo(8));
+      // Overlay: the chat keeps its size instead of shrinking.
+      expect(tester.getSize(find.byKey(const Key('notice-chat'))), chatSize);
+      controller.dismiss();
+      await tester.pump();
+    });
+
+    testWidgets('notice action runs the callback and dismisses', (
+      tester,
+    ) async {
+      final controller = ChatNoticeController();
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(_noticeHarness(controller));
+      var pressed = 0;
+      controller.show(
+        'copied',
+        actionLabel: 'Paste',
+        onAction: () => pressed++,
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 250));
+      await tester.tap(find.text('Paste'));
+      await tester.pump();
+      expect(pressed, 1);
+      expect(find.text('copied'), findsNothing);
+    });
+
+    testWidgets('notice horizontal swipe dismisses', (tester) async {
+      final controller = ChatNoticeController();
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(_noticeHarness(controller));
+      controller.show('hello');
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 250));
+      await tester.fling(find.text('hello'), const Offset(400, 0), 800);
+      await tester.pumpAndSettle();
+      expect(find.text('hello'), findsNothing);
+    });
+
+    testWidgets('notice auto-dismisses on screen', (tester) async {
+      final controller = ChatNoticeController();
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(_noticeHarness(controller));
+      controller.show('hello', duration: const Duration(milliseconds: 100));
+      await tester.pump();
+      expect(find.text('hello'), findsOneWidget);
+      await tester.pump(const Duration(milliseconds: 200));
+      await tester.pump();
+      expect(find.text('hello'), findsNothing);
+    });
+
+    testWidgets('overlay snackbar uses the shared style', (tester) async {
+      await tester.pumpWidget(_snackHarness());
+      await tester.tap(find.text('show snack'));
+      await tester.pump();
+      expect(find.text('from button'), findsOneWidget);
+      final bar = tester.widget<SnackBar>(find.byType(SnackBar));
+      expect(bar.behavior, SnackBarBehavior.floating);
+      expect(bar.dismissDirection, DismissDirection.horizontal);
+      expect(bar.duration, AppSnack.defaultDuration);
+    });
+
+    testWidgets('overlay snackbar replaces instead of queueing', (
+      tester,
+    ) async {
+      await tester.pumpWidget(_snackHarness());
+      final context = tester.element(find.text('show snack'));
+      AppSnack.show(context, 'first');
+      await tester.pump();
+      AppSnack.show(context, 'second');
+      await tester.pump();
+      expect(find.text('first'), findsNothing);
+      expect(find.text('second'), findsOneWidget);
+      expect(find.byType(SnackBar), findsOneWidget);
+    });
+
+    testWidgets('page push pops the overlay snackbar', (tester) async {
+      await tester.pumpWidget(_snackHarness());
+      final context = tester.element(find.text('show snack'));
+      AppSnack.show(context, 'lingering');
+      await tester.pump();
+      expect(find.text('lingering'), findsOneWidget);
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const Scaffold(body: Text('next'))),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('lingering'), findsNothing);
+    });
+
+    testWidgets('page pop pops the overlay snackbar', (tester) async {
+      await tester.pumpWidget(_snackHarness());
+      final context = tester.element(find.text('show snack'));
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const Scaffold(body: Text('next'))),
+      );
+      await tester.pumpAndSettle();
+      final next = tester.element(find.text('next'));
+      AppSnack.show(next, 'on next');
+      await tester.pump();
+      expect(find.text('on next'), findsOneWidget);
+      Navigator.of(next).pop();
+      await tester.pumpAndSettle();
+      expect(find.text('on next'), findsNothing);
+    });
+
+    testWidgets('dialog push leaves the overlay snackbar alone', (
+      tester,
+    ) async {
+      await tester.pumpWidget(_snackHarness());
+      final context = tester.element(find.text('show snack'));
+      AppSnack.show(context, 'behind dialog');
+      await tester.pump();
+      showDialog(
+        context: context,
+        builder: (_) => const AlertDialog(content: Text('dialog')),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('dialog'), findsOneWidget);
+      expect(find.text('behind dialog'), findsOneWidget);
+    });
+  });
+}
+
+// Bar over a fake composer through the real ChatBody, so overlay order and
+// the composer gap match production layout.
+Widget _noticeHarness(ChatNoticeController controller) {
+  return MaterialApp(
+    home: Scaffold(
+      body: ChatBody(
+        bodyBuilder:
+            (
+              context, {
+              required hideChromeForKeyboard,
+              required maxWidth,
+              required maxHeight,
+              required keyboardH,
+            }) => Container(key: const Key('notice-chat')),
+        threadPanel: const SizedBox.shrink(),
+        mentionsPanel: const SizedBox.shrink(),
+        modViewPanel: const SizedBox.shrink(),
+        emotePickerBuilder: (context, {required sheetBoxHeight}) =>
+            const SizedBox.shrink(),
+        autocomplete: const SizedBox.shrink(),
+        emoteMaxFraction: 0.5,
+        keyboardH: 0,
+        composer: const SizedBox(key: Key('notice-composer'), height: 56),
+        notice: ChatNoticeBar(controller: controller),
+      ),
+    ),
+  );
+}
+
+Widget _snackHarness() {
+  return MaterialApp(
+    scaffoldMessengerKey: rootScaffoldMessengerKey,
+    navigatorObservers: [SnackPopObserver()],
+    home: Scaffold(
+      body: Builder(
+        builder: (context) => Center(
+          child: TextButton(
+            onPressed: () => AppSnack.show(context, 'from button'),
+            child: const Text('show snack'),
+          ),
+        ),
+      ),
+    ),
+  );
 }

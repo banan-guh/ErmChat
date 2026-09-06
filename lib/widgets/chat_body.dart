@@ -47,6 +47,7 @@ class ChatBody extends StatefulWidget {
     required this.emoteMaxFraction,
     required this.keyboardH,
     this.composer,
+    this.notice,
   });
 
   final ChatBodyBuilder bodyBuilder;
@@ -57,6 +58,11 @@ class ChatBody extends StatefulWidget {
   final Widget autocomplete;
   final double emoteMaxFraction;
   final Widget? composer;
+
+  /// Inline notice bar floating over the chat, anchored above the composer.
+  /// In the body stack (not the Scaffold overlay), so it tracks keyboard
+  /// and composer height changes by layout instead of a frozen margin.
+  final Widget? notice;
 
   /// True keyboard overlap in dp, read ABOVE the Scaffold: the Scaffold
   /// consumes viewInsets for its body, so reading them here is always 0
@@ -137,6 +143,16 @@ class _ChatBodyState extends State<ChatBody> {
                       ),
                     ),
                   ),
+                  // Chat notice - floats over the chat, anchored just above
+                  // the composer. Overlay, not column content, so showing it
+                  // never resizes the chat.
+                  if (widget.notice != null)
+                    Positioned(
+                      bottom: 0,
+                      left: 0,
+                      right: 0,
+                      child: widget.notice!,
+                    ),
                 ],
               );
             },
@@ -144,7 +160,7 @@ class _ChatBodyState extends State<ChatBody> {
         ),
         // No manual keyboard lift: the Scaffold already shrank the body,
         // so the composer sits above the keyboard at settled constraints.
-        // The key stays on the box so snackbar sizing measures as before.
+        // The key stays on the box so video sizing measures as before.
         composer == null
             ? const SizedBox.shrink()
             : Padding(

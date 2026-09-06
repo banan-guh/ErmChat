@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../util/log.dart';
+import 'app_snack.dart';
 import 'emote_image.dart';
 import '../models/generic_emote.dart';
 
@@ -94,9 +95,7 @@ class _EmoteSheetState extends State<EmoteSheet>
       mode: LaunchMode.externalApplication,
     );
     if (!ok && mounted) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Could not open $url')));
+      AppSnack.show(context, 'Could not open $url');
     }
   }
 

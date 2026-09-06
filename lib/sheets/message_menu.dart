@@ -19,6 +19,7 @@ abstract class MessageMenuHost extends ShellState {
   void startReply(TwitchMessage msg);
   Future<void> showThreadView(TwitchMessage root);
   void toggleSaveThread(TwitchMessage root);
+  void showNotice(String text);
 }
 
 // Long-press menus for chat messages plus the mod action verbs.
@@ -228,7 +229,7 @@ class MessageMenus {
       reason: picked.reason,
     );
     if (!context.mounted) return;
-    showModError(context, timeoutResult);
+    if (!timeoutResult.ok) host.showNotice(modErrorText(timeoutResult));
   }
 
   Future<void> modDelete(BuildContext context, TwitchMessage msg) async {
@@ -241,7 +242,7 @@ class MessageMenus {
       messageId,
     );
     if (!context.mounted) return;
-    showModError(context, deleteResult);
+    if (!deleteResult.ok) host.showNotice(modErrorText(deleteResult));
   }
 
   Future<void> modWarn(BuildContext context, TwitchMessage msg) async {
@@ -262,7 +263,7 @@ class MessageMenus {
       reason: reason.isEmpty ? null : reason,
     );
     if (!context.mounted) return;
-    showModError(context, warnResult);
+    if (!warnResult.ok) host.showNotice(modErrorText(warnResult));
   }
 
   Future<void> modBan(BuildContext context, TwitchMessage msg) async {
@@ -283,6 +284,6 @@ class MessageMenus {
       reason: reason.isEmpty ? null : reason,
     );
     if (!context.mounted) return;
-    showModError(context, banResult);
+    if (!banResult.ok) host.showNotice(modErrorText(banResult));
   }
 }

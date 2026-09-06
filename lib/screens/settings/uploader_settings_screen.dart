@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../services/media_uploader.dart';
+import '../../widgets/app_snack.dart';
 import 'settings_page.dart';
 
 class UploaderSettingsScreen extends StatefulWidget {
@@ -56,9 +57,7 @@ class _UploaderSettingsScreenState extends State<UploaderSettingsScreen> {
       ),
     );
     if (!mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('Uploader settings saved')));
+    AppSnack.show(context, 'Uploader settings saved');
   }
 
   Future<void> _reset() async {

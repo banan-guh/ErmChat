@@ -10,6 +10,7 @@ import '../../models/emote_fetch_tier.dart';
 import '../../services/data_usage.dart';
 import '../../util/webp_anim.dart';
 import '../../widgets/emote_image.dart';
+import '../../widgets/app_snack.dart';
 import '../../widgets/welcome_dialog.dart';
 import 'settings_page.dart';
 
@@ -69,9 +70,7 @@ class _DevSettingsScreenState extends State<DevSettingsScreen> {
   }
 
   Future<void> _runDecodeBenchmark(BuildContext context) async {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Running decode benchmark...')),
-    );
+    AppSnack.show(context, 'Running decode benchmark...');
 
     final results = <String>[];
     void log(String s) {
@@ -628,9 +627,7 @@ class _PerfLogScreenState extends State<_PerfLogScreen> {
       ..writeAll(PerfLog.I.entries(), '\n')
       ..writeln();
     Clipboard.setData(ClipboardData(text: buffer.toString()));
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Copied ${PerfLog.I.entries().length} entries')),
-    );
+    AppSnack.show(context, 'Copied ${PerfLog.I.entries().length} entries');
   }
 
   @override

@@ -41,8 +41,10 @@ import '../services/suggestion.dart';
 import '../services/notification_service.dart';
 import '../services/tts_controller.dart';
 import '../widgets/autocomplete_dropdown.dart';
+import '../widgets/app_snack.dart';
 import '../widgets/broadcast_widgets.dart';
 import '../widgets/chat_body.dart';
+import '../widgets/chat_notice_bar.dart';
 import '../composer/composer_bar.dart';
 import '../composer/composer_controller.dart';
 import '../sheets/message_menu.dart';
@@ -257,6 +259,7 @@ class _HomeScreenState extends State<HomeScreen>
   late final MediaUploadController _uploadController = MediaUploadController(
     input: _composer.messageController,
     focusNode: _composer.focusNode,
+    onNotice: _chatNotice.show,
   );
 
   final _notificationService = NotificationService();
@@ -284,6 +287,7 @@ class _HomeScreenState extends State<HomeScreen>
   bool _blocksFetched = false;
   final _scrollControllers = <String, FlutterListViewController>{};
   final _atBottomNotifiers = <String, ValueNotifier<bool>>{};
+  final _chatNotice = ChatNoticeController();
 
   late final _broadcastWidgets = BroadcastWidgets(
     selectedChannel: () => _selectedChannel,
@@ -384,7 +388,7 @@ class _HomeScreenState extends State<HomeScreen>
   bool get channelChatReady => _channelChatReady;
   @override
   void showNotice(String text) {
-    ScaffoldMessenger.of(context).showSnackBar(_snackBar(text));
+    _chatNotice.show(text);
   }
 
   @override
@@ -657,8 +661,7 @@ class _HomeScreenState extends State<HomeScreen>
   void forgetAtBottomNotifier(String channel) =>
       _atBottomNotifiers.remove(channel)?.dispose();
   @override
-  void showSnack(String message) =>
-      ScaffoldMessenger.of(context).showSnackBar(_snackBar(message));
+  void showSnack(String message) => _chatNotice.show(message);
 
   @override
   void initState() {
@@ -1079,11 +1082,9 @@ class _HomeScreenState extends State<HomeScreen>
     switch (notice.kind) {
       case ChatNoticeKind.info:
         if (!mounted) return;
-        final messenger = ScaffoldMessenger.of(context);
-        // Replace any current snackbar so identical/rapid info popups don't
-        // queue up one after another.
-        messenger.removeCurrentSnackBar();
-        messenger.showSnackBar(_snackBar(notice.message ?? ''));
+        // Replace the current notice so identical/rapid info popups don't
+        // queue up one after another (ChatNoticeController replaces).
+        _chatNotice.show(notice.message ?? '');
       case ChatNoticeKind.focusInput:
         _composer.focus();
     }
@@ -1275,6 +1276,7 @@ class _HomeScreenState extends State<HomeScreen>
     for (final n in _atBottomNotifiers.values) {
       n.dispose();
     }
+    _chatNotice.dispose();
     _tileCache.clear();
     _storeEventsSub?.cancel();
     _noticesSub?.cancel();
@@ -1319,31 +1321,19 @@ class _HomeScreenState extends State<HomeScreen>
   /// ("Joining: position 12, ~14s"); position 0 means numbers are over
   /// (sent, awaiting echo) and the line degrades to a plain marker; a null
   /// [info] retires the line.
-  SnackBar _snackBar(String text, {SnackBarAction? action}) {
-    final inputBarH = inputBarKey.currentContext?.size?.height ?? 0;
-    return SnackBar(
-      behavior: SnackBarBehavior.floating,
-      dismissDirection: DismissDirection.horizontal,
-      margin: EdgeInsets.only(bottom: inputBarH, left: 16, right: 16),
-      content: Text(text),
-      action: action,
-    );
-  }
-
   void _copyMessageToClipboard(TwitchMessage msg) {
     Clipboard.setData(ClipboardData(text: msg.text));
-    ScaffoldMessenger.of(context).showSnackBar(
-      _snackBar(
-        'Message copied',
-        action: SnackBarAction(label: 'Paste', onPressed: _pasteFromClipboard),
-      ),
+    _chatNotice.show(
+      'Message copied',
+      actionLabel: 'Paste',
+      onAction: _pasteFromClipboard,
     );
   }
 
   void _copyEmail(String email) {
     Clipboard.setData(ClipboardData(text: email));
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(_snackBar('Copied $email'));
+    _chatNotice.show('Copied $email');
   }
 
   /// Pastes the current clipboard text into the chat input at the cursor.
@@ -1368,6 +1358,9 @@ class _HomeScreenState extends State<HomeScreen>
 
   Future<void> _openSettings() async {
     _composer.unfocus();
+    // Pop notices and overlay snackbars on screen change.
+    _chatNotice.dismiss();
+    if (mounted) AppSnack.clear(context);
     await Navigator.push(
       context,
       MaterialPageRoute(
@@ -1635,6 +1628,7 @@ class _HomeScreenState extends State<HomeScreen>
                   selectedTabIndex: _selectedTabIndex,
                 )
               : null,
+          notice: ChatNoticeBar(controller: _chatNotice),
         ),
       ),
     );

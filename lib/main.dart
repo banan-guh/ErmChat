@@ -17,6 +17,7 @@ import 'theme_colors.dart';
 import 'util/constants.dart';
 import 'util/log.dart';
 import 'util/crash_report.dart';
+import 'widgets/app_snack.dart';
 import 'widgets/tabbed_layout.dart';
 
 void main() async {
@@ -162,6 +163,7 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
       kAccentPresets[_accentKey] ?? kAccentPresets[kDefaultAccent]!;
   final _twitchAuth = TwitchAuth();
   bool _loaded = false;
+  final _snackPopObserver = SnackPopObserver();
 
   @override
   void initState() {
@@ -232,6 +234,8 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
         theme: buildLightTheme(seedColor: _seedColor),
         darkTheme: buildDarkTheme(trueDark: _trueDark, seedColor: _seedColor),
         builder: _edgeExclusionWrapper,
+        scaffoldMessengerKey: rootScaffoldMessengerKey,
+        navigatorObservers: [_snackPopObserver],
         home: const Scaffold(body: Center(child: CircularProgressIndicator())),
       );
     }
@@ -242,6 +246,8 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
       theme: buildLightTheme(seedColor: _seedColor),
       darkTheme: buildDarkTheme(trueDark: _trueDark, seedColor: _seedColor),
       builder: _edgeExclusionWrapper,
+      scaffoldMessengerKey: rootScaffoldMessengerKey,
+      navigatorObservers: [_snackPopObserver],
       home: HomeScreen(
         twitchAuth: _twitchAuth,
         onThemeChanged: _setThemeMode,

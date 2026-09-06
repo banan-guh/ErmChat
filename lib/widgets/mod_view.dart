@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../services/chat_store.dart';
 import '../services/mod_actions.dart';
 import '../services/twitch_auth.dart';
+import 'app_snack.dart';
 
 /// Snackbar copy for a failed mod action.
 String modErrorText(ModResult result) => switch (result.failure) {
@@ -14,9 +15,7 @@ String modErrorText(ModResult result) => switch (result.failure) {
 
 void showModError(BuildContext context, ModResult result) {
   if (result.ok) return;
-  ScaffoldMessenger.of(
-    context,
-  ).showSnackBar(SnackBar(content: Text(modErrorText(result))));
+  AppSnack.showError(context, modErrorText(result));
 }
 
 /// Timeout picker: preset chips plus custom seconds and an optional reason.
@@ -171,6 +170,7 @@ class ModViewPanel extends StatelessWidget {
     required this.isModerationActive,
     required this.isAutomodActive,
     required this.getRoomModes,
+    required this.onNotice,
   });
 
   final String channel;
@@ -182,6 +182,9 @@ class ModViewPanel extends StatelessWidget {
   final bool Function(String channel) isModerationActive;
   final bool Function(String channel) isAutomodActive;
   final Map<String, String> Function(String channel) getRoomModes;
+
+  /// Notice sink for failures; the shell routes these to the inline bar.
+  final ValueChanged<String> onNotice;
 
   @override
   Widget build(BuildContext context) {
@@ -211,6 +214,7 @@ class ModViewPanel extends StatelessWidget {
               auth: auth,
               automodActive: automodActive,
               scopeReady: moderationActive,
+              onNotice: onNotice,
             ),
             _ModesTab(
               channel: channel,
@@ -218,8 +222,14 @@ class ModViewPanel extends StatelessWidget {
               auth: auth,
               roomModes: getRoomModes(channel),
               moderationActive: moderationActive,
+              onNotice: onNotice,
             ),
-            _PeopleTab(channel: channel, modActions: modActions, auth: auth),
+            _PeopleTab(
+              channel: channel,
+              modActions: modActions,
+              auth: auth,
+              onNotice: onNotice,
+            ),
           ],
         );
       },
@@ -235,6 +245,7 @@ class _QueueTab extends StatefulWidget {
     required this.auth,
     required this.automodActive,
     required this.scopeReady,
+    required this.onNotice,
   });
 
   final String channel;
@@ -243,6 +254,7 @@ class _QueueTab extends StatefulWidget {
   final TwitchAuth auth;
   final bool automodActive;
   final bool scopeReady;
+  final ValueChanged<String> onNotice;
 
   @override
   State<_QueueTab> createState() => _QueueTabState();
@@ -265,7 +277,7 @@ class _QueueTabState extends State<_QueueTab> {
       if (result.ok) {
         widget.store.resolveHeldMessage(widget.channel, held.messageId);
       } else {
-        showModError(context, result);
+        widget.onNotice(modErrorText(result));
       }
     } finally {
       _pending.remove(held.messageId);
@@ -369,6 +381,7 @@ class _ModesTab extends StatefulWidget {
     required this.auth,
     required this.roomModes,
     required this.moderationActive,
+    required this.onNotice,
   });
 
   final String channel;
@@ -376,6 +389,7 @@ class _ModesTab extends StatefulWidget {
   final TwitchAuth auth;
   final Map<String, String> roomModes;
   final bool moderationActive;
+  final ValueChanged<String> onNotice;
 
   @override
   State<_ModesTab> createState() => _ModesTabState();
@@ -423,7 +437,7 @@ class _ModesTabState extends State<_ModesTab> {
       final result = await call();
       // Modes refresh off the ROOMSTATE echo; shield refetches directly.
       if (!mounted) return;
-      if (!result.ok) showModError(context, result);
+      if (!result.ok) widget.onNotice(modErrorText(result));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -633,11 +647,13 @@ class _PeopleTab extends StatefulWidget {
     required this.channel,
     required this.modActions,
     required this.auth,
+    required this.onNotice,
   });
 
   final String channel;
   final ModActions modActions;
   final TwitchAuth auth;
+  final ValueChanged<String> onNotice;
 
   @override
   State<_PeopleTab> createState() => _PeopleTabState();
@@ -703,9 +719,7 @@ class _PeopleTabState extends State<_PeopleTab> {
     );
     if (login == null || !mounted) return;
     if (login.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Enter a username.')));
+      widget.onNotice('Enter a username.');
       return;
     }
     final result = moderator
@@ -725,7 +739,7 @@ class _PeopleTabState extends State<_PeopleTab> {
     if (result.ok) {
       _load();
     } else {
-      showModError(context, result);
+      widget.onNotice(modErrorText(result));
     }
   }
 
@@ -747,7 +761,7 @@ class _PeopleTabState extends State<_PeopleTab> {
     if (result.ok) {
       _load();
     } else {
-      showModError(context, result);
+      widget.onNotice(modErrorText(result));
     }
   }
 
