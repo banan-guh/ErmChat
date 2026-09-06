@@ -103,9 +103,11 @@ class UserSheets {
   final UserSheetHost host;
 
   // Card detent in sheet fractions, derived from the measured card height
-  // (card plus divider plus history peek). Starts at the hand-tuned guess
-  // until the first measurement lands.
+  // plus history peek. Starts at the hand-tuned guess until measurement.
   double _cardExtent = 0.5;
+
+  // Last settled target. Late measures skip the yank if the user moved on.
+  double _settledTarget = 0.5;
 
   void showUserProfile(
     BuildContext context,
@@ -132,31 +134,34 @@ class UserSheets {
         login != null && username.toLowerCase() == login.toLowerCase();
     final screenH = MediaQuery.sizeOf(context).height;
     const minExtent = 0.25;
-    // First measurement settles the sheet onto the real card size, so every
-    // screen and text scale opens on card plus history peek. Later measures
-    // only retarget the detents.
+    // First measurement parks the sheet exactly on the card; the history
+    // hides below the fold until expansion. Later measures only retarget
+    // the detents.
     void onCardMeasured(double naturalH) {
-      final target =
-          ((naturalH +
-                      UserProfileSheet.dividerBlock +
-                      UserProfileSheet.historyPeek) /
-                  screenH)
-              .clamp(minExtent, maxChildSize)
-              .toDouble();
+      final availH =
+          screenH -
+          MediaQuery.paddingOf(context).top -
+          MediaQuery.paddingOf(context).bottom;
+      final target = (naturalH / availH)
+          .clamp(minExtent, maxChildSize)
+          .toDouble();
       _cardExtent = target;
-      if (sheetController.isAttached &&
-          (sheetController.size - target).abs() > 0.02) {
-        sheetController.animateTo(
-          target,
-          duration: PanelManager.sheetAnimDuration,
-          curve: Curves.easeOutCubic,
-        );
-      }
+      if (!sheetController.isAttached) return;
+      if ((sheetController.size - _settledTarget).abs() > 0.05) return;
+      if ((sheetController.size - target).abs() <= 0.02) return;
+      sheetController.animateTo(
+        target,
+        duration: PanelManager.sheetAnimDuration,
+        curve: Curves.easeOutCubic,
+      );
+      _settledTarget = target;
     }
 
     // Opening estimates until the first measurement lands and settles the
     // sheet onto the real card size.
     final initialChildSize = canModerate && !isSelf ? 0.675 : 0.43;
+    _cardExtent = initialChildSize;
+    _settledTarget = initialChildSize;
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -164,6 +169,9 @@ class UserSheets {
       builder: (ctx) {
         var tracker = VelocityTracker.withKind(PointerDeviceKind.touch);
         var sizeAtDown = initialChildSize;
+        ScrollController? listController;
+        var listOffsetAtDown = 0.0;
+        var listMoved = false;
         // Route-level SafeArea clears the nav bar; useSafeArea skips bottom.
         return SafeArea(
           top: false,
@@ -175,27 +183,41 @@ class UserSheets {
                   : initialChildSize;
               tracker = VelocityTracker.withKind(PointerDeviceKind.touch);
               tracker.addPosition(e.timeStamp, e.position);
+              listMoved = false;
+              if (listController?.hasClients ?? false) {
+                listOffsetAtDown = listController!.offset;
+              }
             },
             onPointerMove: (e) => tracker.addPosition(e.timeStamp, e.position),
             onPointerUp: (_) {
               if (!sheetController.isAttached) return;
+              if (listController?.hasClients ?? false) {
+                listMoved =
+                    (listController!.offset - listOffsetAtDown).abs() > 4;
+              }
               final size = sheetController.size;
-              if ((size - sizeAtDown).abs() <= 0.001) return;
+              final sizeMoved = (size - sizeAtDown).abs() > 0.001;
+              final velocityDy = tracker.getVelocity().pixelsPerSecond.dy;
               final target = userSheetTargetDetent(
                 size,
                 minExtent: minExtent,
                 cardExtent: _cardExtent,
                 maxExtent: maxChildSize,
-                velocityDy: tracker.getVelocity().pixelsPerSecond.dy,
+                velocityDy: velocityDy,
               );
+              final flingDown = velocityDy >= kUserSheetFlingVelocity;
               if (target == minExtent) {
+                // Pure list gestures never dismiss; still taps stay put.
+                if (listMoved || (!sizeMoved && !flingDown)) return;
                 sheetController.jumpTo(size);
                 if (ModalRoute.of(ctx)?.isCurrent ?? false) {
                   Navigator.pop(ctx);
                 }
                 return;
               }
+              if (!sizeMoved) return;
               if ((target - size).abs() <= 0.02) return;
+              _settledTarget = target;
               sheetController.animateTo(
                 target,
                 duration: PanelManager.sheetAnimDuration,
@@ -209,28 +231,31 @@ class UserSheets {
               maxChildSize: maxChildSize,
               expand: false,
               snap: false,
-              builder: (_, scrollController) => UserProfileSheet(
-                username: username,
-                displayName: displayName ?? username,
-                userId: userId,
-                twitchApi: twitchApi,
-                twitchAuth: twitchAuth,
-                modActions: modActions,
-                channel: channel,
-                canModerate: canModerate,
-                isSelf: isSelf,
-                messageController: composer.messageController,
-                focusNode: composer.focusNode,
-                onClose: () => Navigator.pop(ctx),
-                onUserBlocked: host.onUserBlocked,
-                onWhisperUser: () => host.showWhispersForUser(username),
-                scrollController: scrollController,
-                sheetController: sheetController,
-                sheetMinExtent: minExtent,
-                onCardMeasured: onCardMeasured,
-                userMessages: history,
-                messageRowBuilder: (ctx, msg) => userHistoryRow(ctx, msg),
-              ),
+              builder: (_, scrollController) {
+                listController = scrollController;
+                return UserProfileSheet(
+                  username: username,
+                  displayName: displayName ?? username,
+                  userId: userId,
+                  twitchApi: twitchApi,
+                  twitchAuth: twitchAuth,
+                  modActions: modActions,
+                  channel: channel,
+                  canModerate: canModerate,
+                  isSelf: isSelf,
+                  messageController: composer.messageController,
+                  focusNode: composer.focusNode,
+                  onClose: () => Navigator.pop(ctx),
+                  onUserBlocked: host.onUserBlocked,
+                  onWhisperUser: () => host.showWhispersForUser(username),
+                  scrollController: scrollController,
+                  sheetController: sheetController,
+                  sheetMinExtent: minExtent,
+                  onCardMeasured: onCardMeasured,
+                  userMessages: history,
+                  messageRowBuilder: (ctx, msg) => userHistoryRow(ctx, msg),
+                );
+              },
             ),
           ),
         );

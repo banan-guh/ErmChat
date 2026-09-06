@@ -12,11 +12,6 @@ import 'app_snack.dart';
 import 'mod_view.dart';
 
 class UserProfileSheet extends StatefulWidget {
-  /// History peek the open sheet reserves below the card, in logical px.
-  static const double historyPeek = 96;
-
-  /// Divider block height between the card and the history.
-  static const double dividerBlock = 13;
   final String username;
   final String? userId;
   final String displayName;
@@ -257,17 +252,14 @@ class UserProfileSheetState extends State<UserProfileSheet> {
         theme.bottomSheetTheme.modalBackgroundColor ??
         theme.bottomSheetTheme.backgroundColor ??
         theme.colorScheme.surfaceContainerLow;
-    // Card takes its natural height first; the history keeps the rest with
-    // a peek so its presence is always discoverable.
+    // Card takes its natural height first; the history gets whatever is
+    // left (possibly nothing at the card detent) and is revealed by
+    // expanding the sheet.
     Widget sheetBody(double sheetH) {
       final avail = sheetH.isFinite ? sheetH : media.height;
       if (avail <= 0) return const SizedBox.shrink();
       final natural = _naturalCardH;
-      final reserved =
-          UserProfileSheet.dividerBlock + UserProfileSheet.historyPeek;
-      final cardH = natural == null
-          ? avail
-          : min(natural, max(0.0, avail - reserved));
+      final cardH = natural == null ? avail : min(natural, avail);
       return Column(
         children: [
           SizedBox(
@@ -341,15 +333,19 @@ class UserProfileSheetState extends State<UserProfileSheet> {
     return Stack(
       children: [
         sheet,
-        // Natural-height measure copy, mounted only while unread. Same
-        // width as the sheet so wrapped text measures identically.
-        if (_measureDirty)
+        // Offstage copy reads true natural height. OverflowBox lifts the
+        // sheet cap; skipped while loading so the spinner never sticks.
+        if (_measureDirty && !_loading)
           Offstage(
             child: SizedBox(
               width: measureW,
-              child: KeyedSubtree(
-                key: _cardMeasureKey,
-                child: _buildCard(theme, actions),
+              child: OverflowBox(
+                maxHeight: double.infinity,
+                alignment: Alignment.topCenter,
+                child: KeyedSubtree(
+                  key: _cardMeasureKey,
+                  child: _buildCard(theme, actions),
+                ),
               ),
             ),
           ),

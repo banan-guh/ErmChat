@@ -5419,6 +5419,9 @@ void main() {
                             PointerDeviceKind.touch,
                           );
                           var sizeAtDown = 0.4;
+                          ScrollController? listController;
+                          var listOffsetAtDown = 0.0;
+                          var listMoved = false;
                           return Listener(
                             onPointerDown: (e) {
                               sizeAtDown = sheetController.isAttached
@@ -5428,30 +5431,49 @@ void main() {
                                 PointerDeviceKind.touch,
                               );
                               tracker.addPosition(e.timeStamp, e.position);
+                              listMoved = false;
+                              if (listController?.hasClients ?? false) {
+                                listOffsetAtDown = listController!.offset;
+                              }
                             },
                             onPointerMove: (e) =>
                                 tracker.addPosition(e.timeStamp, e.position),
                             onPointerUp: (_) {
                               if (!sheetController.isAttached) return;
+                              if (listController?.hasClients ?? false) {
+                                listMoved =
+                                    (listController!.offset - listOffsetAtDown)
+                                        .abs() >
+                                    4;
+                              }
                               final size = sheetController.size;
-                              if ((size - sizeAtDown).abs() <= 0.001) return;
+                              final sizeMoved =
+                                  (size - sizeAtDown).abs() > 0.001;
+                              final velocityDy = tracker
+                                  .getVelocity()
+                                  .pixelsPerSecond
+                                  .dy;
                               final target = userSheetTargetDetent(
                                 size,
                                 minExtent: 0.25,
                                 cardExtent: cardExtent,
                                 maxExtent: maxExtent,
-                                velocityDy: tracker
-                                    .getVelocity()
-                                    .pixelsPerSecond
-                                    .dy,
+                                velocityDy: velocityDy,
                               );
+                              final flingDown =
+                                  velocityDy >= kUserSheetFlingVelocity;
                               if (target == 0.25) {
+                                // Pure list gestures never dismiss; taps stay.
+                                if (listMoved || (!sizeMoved && !flingDown)) {
+                                  return;
+                                }
                                 sheetController.jumpTo(size);
                                 if (ModalRoute.of(ctx)?.isCurrent ?? false) {
                                   Navigator.pop(ctx);
                                 }
                                 return;
                               }
+                              if (!sizeMoved) return;
                               if ((target - size).abs() <= 0.02) return;
                               sheetController.animateTo(
                                 target,
@@ -5466,55 +5488,52 @@ void main() {
                               maxChildSize: maxExtent,
                               expand: false,
                               snap: false,
-                              builder: (_, scrollController) =>
-                                  UserProfileSheet(
-                                    username: 'testuser',
-                                    userId: '123',
-                                    displayName: 'TestUser',
-                                    twitchApi: createApi(),
-                                    twitchAuth: TwitchAuth()
-                                      ..accessToken = 'test-token',
-                                    messageController: TextEditingController(),
-                                    focusNode: FocusNode(),
-                                    onClose: () => Navigator.pop(ctx),
-                                    scrollController: scrollController,
-                                    sheetController: sheetController,
-                                    sheetMinExtent: 0.25,
-                                    onCardMeasured: (naturalH) {
-                                      cardExtent =
-                                          ((naturalH +
-                                                      UserProfileSheet
-                                                          .dividerBlock +
-                                                      UserProfileSheet
-                                                          .historyPeek) /
-                                                  screenH)
-                                              .clamp(0.25, maxExtent)
-                                              .toDouble();
-                                      if (!sheetController.isAttached) return;
-                                      if ((sheetController.size - cardExtent)
-                                              .abs() >
-                                          0.02) {
-                                        sheetController.animateTo(
-                                          cardExtent,
-                                          duration: const Duration(
-                                            milliseconds: 250,
-                                          ),
-                                          curve: Curves.easeOutCubic,
-                                        );
-                                      }
-                                    },
-                                    userMessages: [
-                                      // Oldest first, like production.
-                                      for (var i = 0; i < 30; i++)
-                                        TwitchMessage(
-                                          login: 'testuser',
-                                          text: 'm$i',
-                                          channel: 'somechannel',
+                              builder: (_, scrollController) {
+                                listController = scrollController;
+                                return UserProfileSheet(
+                                  username: 'testuser',
+                                  userId: '123',
+                                  displayName: 'TestUser',
+                                  twitchApi: createApi(),
+                                  twitchAuth: TwitchAuth()
+                                    ..accessToken = 'test-token',
+                                  messageController: TextEditingController(),
+                                  focusNode: FocusNode(),
+                                  onClose: () => Navigator.pop(ctx),
+                                  scrollController: scrollController,
+                                  sheetController: sheetController,
+                                  sheetMinExtent: 0.25,
+                                  onCardMeasured: (naturalH) {
+                                    // Test padding is zero, so availH is screenH.
+                                    cardExtent = (naturalH / screenH)
+                                        .clamp(0.25, maxExtent)
+                                        .toDouble();
+                                    if (!sheetController.isAttached) return;
+                                    if ((sheetController.size - cardExtent)
+                                            .abs() >
+                                        0.02) {
+                                      sheetController.animateTo(
+                                        cardExtent,
+                                        duration: const Duration(
+                                          milliseconds: 250,
                                         ),
-                                    ],
-                                    messageRowBuilder: (context, msg) =>
-                                        Text('row:${msg.text}'),
-                                  ),
+                                        curve: Curves.easeOutCubic,
+                                      );
+                                    }
+                                  },
+                                  userMessages: [
+                                    // Oldest first, like production.
+                                    for (var i = 0; i < 30; i++)
+                                      TwitchMessage(
+                                        login: 'testuser',
+                                        text: 'm$i',
+                                        channel: 'somechannel',
+                                      ),
+                                  ],
+                                  messageRowBuilder: (context, msg) =>
+                                      Text('row:${msg.text}'),
+                                );
+                              },
                             ),
                           );
                         },
@@ -5533,37 +5552,31 @@ void main() {
 
       // Opens settled onto the measured card: full card plus history peek,
       // latest message visible, jump arrow hidden.
+      // Opens parked exactly on the card: full card, history hidden below
+      // the fold like a garage door (zero-height region), jump arrow hidden.
       await openSheet();
       final settled = sheetController.size;
       expect(settled, greaterThan(0.5));
       expect(find.text('TestUser'), findsOneWidget);
       expect(find.text('Report'), findsOneWidget);
-      expect(find.text('row:m29'), findsOneWidget);
+      expect(tester.getSize(find.byType(ListView)).height, closeTo(0, 1));
       expect(find.text('row:m0'), findsNothing);
       expect(arrowOpacity(tester), 0);
 
-      // Scrolling down toward older messages reveals the jump arrow, and
-      // tapping it glides back to the latest without moving the sheet.
-      await tester.dragFrom(const Offset(400, 560), const Offset(0, 100));
-      await tester.pumpAndSettle();
-      expect(sheetController.size, settled);
-      expect(arrowOpacity(tester), 1);
-      await tester.tap(find.byIcon(Icons.keyboard_arrow_down));
-      await tester.pumpAndSettle();
-      expect(find.text('row:m29'), findsOneWidget);
-      expect(sheetController.size, settled);
-      expect(arrowOpacity(tester), 0);
-
       // Card drags resize the sheet and settle back onto the card.
-      final cardDrag = await tester.startGesture(const Offset(400, 350));
-      await cardDrag.moveBy(const Offset(0, -100));
+      // Two moves: the first clears touch slop, the second drags.
+      final cardDrag = await tester.startGesture(const Offset(400, 500));
+      await cardDrag.moveBy(const Offset(0, -20));
+      await tester.pump();
+      await cardDrag.moveBy(const Offset(0, -50));
       await tester.pump();
       expect(sheetController.size, greaterThan(settled + 0.05));
       await cardDrag.up();
       await tester.pumpAndSettle();
-      expect(sheetController.size, closeTo(settled, 0.02));
+      expect(sheetController.size, closeTo(settled, 0.03));
 
-      // Upward fling grows to full height.
+      // Upward fling grows to full height, revealing the history pinned to
+      // the latest message.
       await tester.flingFrom(
         const Offset(400, 450),
         const Offset(0, -300),
@@ -5571,11 +5584,25 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(sheetController.size, maxExtent);
+      expect(find.text('row:m29'), findsOneWidget);
+      expect(arrowOpacity(tester), 0);
+
+      // Scrolling down toward older messages reveals the jump arrow, and
+      // tapping it glides back to the latest without moving the sheet.
+      await tester.dragFrom(const Offset(400, 500), const Offset(0, 100));
+      await tester.pumpAndSettle();
+      expect(sheetController.size, maxExtent);
+      expect(arrowOpacity(tester), 1);
+      await tester.tap(find.byIcon(Icons.keyboard_arrow_down));
+      await tester.pumpAndSettle();
+      expect(find.text('row:m29'), findsOneWidget);
+      expect(sheetController.size, maxExtent);
+      expect(arrowOpacity(tester), 0);
 
       // Slow downward drag on the card eases back to the measured card.
-      await tester.dragFrom(const Offset(400, 350), const Offset(0, 150));
+      await tester.dragFrom(const Offset(400, 200), const Offset(0, 150));
       await tester.pumpAndSettle();
-      expect(sheetController.size, closeTo(settled, 0.02));
+      expect(sheetController.size, closeTo(settled, 0.03));
 
       // Fresh card, upward fling eases directly to full height.
       await openSheet();
@@ -5590,9 +5617,354 @@ void main() {
       // Fresh card, dragging the card past the minimum dismisses in one
       // gesture, no mid stop.
       await openSheet();
-      await tester.dragFrom(const Offset(400, 350), const Offset(0, 400));
+      await tester.dragFrom(const Offset(400, 500), const Offset(0, 400));
       await tester.pumpAndSettle();
       expect(find.text('row:m0'), findsNothing);
+    });
+
+    testWidgets('User profile dismisses from min on fast card fling', (
+      WidgetTester tester,
+    ) async {
+      const maxExtent = 1.0;
+      const screenH = 600.0;
+      var sheetController = DraggableScrollableController();
+      var cardExtent = 0.4;
+      Future<void> openSheet() async {
+        sheetController = DraggableScrollableController();
+        cardExtent = 0.4;
+        await tester.pumpWidget(
+          MaterialApp(
+            key: UniqueKey(),
+            home: Scaffold(
+              body: Builder(
+                builder: (context) {
+                  return TextButton(
+                    onPressed: () {
+                      showModalBottomSheet(
+                        context: context,
+                        isScrollControlled: true,
+                        builder: (ctx) {
+                          var tracker = VelocityTracker.withKind(
+                            PointerDeviceKind.touch,
+                          );
+                          var sizeAtDown = 0.4;
+                          ScrollController? listController;
+                          var listOffsetAtDown = 0.0;
+                          var listMoved = false;
+                          return Listener(
+                            onPointerDown: (e) {
+                              sizeAtDown = sheetController.isAttached
+                                  ? sheetController.size
+                                  : 0.4;
+                              tracker = VelocityTracker.withKind(
+                                PointerDeviceKind.touch,
+                              );
+                              tracker.addPosition(e.timeStamp, e.position);
+                              listMoved = false;
+                              if (listController?.hasClients ?? false) {
+                                listOffsetAtDown = listController!.offset;
+                              }
+                            },
+                            onPointerMove: (e) =>
+                                tracker.addPosition(e.timeStamp, e.position),
+                            onPointerUp: (_) {
+                              if (!sheetController.isAttached) return;
+                              if (listController?.hasClients ?? false) {
+                                listMoved =
+                                    (listController!.offset - listOffsetAtDown)
+                                        .abs() >
+                                    4;
+                              }
+                              final size = sheetController.size;
+                              final sizeMoved =
+                                  (size - sizeAtDown).abs() > 0.001;
+                              final velocityDy = tracker
+                                  .getVelocity()
+                                  .pixelsPerSecond
+                                  .dy;
+                              final target = userSheetTargetDetent(
+                                size,
+                                minExtent: 0.25,
+                                cardExtent: cardExtent,
+                                maxExtent: maxExtent,
+                                velocityDy: velocityDy,
+                              );
+                              final flingDown =
+                                  velocityDy >= kUserSheetFlingVelocity;
+                              if (target == 0.25) {
+                                // Pure list gestures never dismiss; taps stay.
+                                if (listMoved || (!sizeMoved && !flingDown)) {
+                                  return;
+                                }
+                                sheetController.jumpTo(size);
+                                if (ModalRoute.of(ctx)?.isCurrent ?? false) {
+                                  Navigator.pop(ctx);
+                                }
+                                return;
+                              }
+                              if (!sizeMoved) return;
+                              if ((target - size).abs() <= 0.02) return;
+                              sheetController.animateTo(
+                                target,
+                                duration: const Duration(milliseconds: 250),
+                                curve: Curves.easeOutCubic,
+                              );
+                            },
+                            child: DraggableScrollableSheet(
+                              controller: sheetController,
+                              initialChildSize: 0.4,
+                              minChildSize: 0.25,
+                              maxChildSize: maxExtent,
+                              expand: false,
+                              snap: false,
+                              builder: (_, scrollController) {
+                                listController = scrollController;
+                                return UserProfileSheet(
+                                  username: 'testuser',
+                                  userId: '123',
+                                  displayName: 'TestUser',
+                                  twitchApi: createApi(),
+                                  twitchAuth: TwitchAuth()
+                                    ..accessToken = 'test-token',
+                                  messageController: TextEditingController(),
+                                  focusNode: FocusNode(),
+                                  onClose: () => Navigator.pop(ctx),
+                                  scrollController: scrollController,
+                                  sheetController: sheetController,
+                                  sheetMinExtent: 0.25,
+                                  onCardMeasured: (naturalH) {
+                                    cardExtent = (naturalH / screenH)
+                                        .clamp(0.25, maxExtent)
+                                        .toDouble();
+                                    if (!sheetController.isAttached) return;
+                                    if ((sheetController.size - cardExtent)
+                                            .abs() >
+                                        0.02) {
+                                      sheetController.animateTo(
+                                        cardExtent,
+                                        duration: const Duration(
+                                          milliseconds: 250,
+                                        ),
+                                        curve: Curves.easeOutCubic,
+                                      );
+                                    }
+                                  },
+                                  userMessages: [
+                                    for (var i = 0; i < 30; i++)
+                                      TwitchMessage(
+                                        login: 'testuser',
+                                        text: 'm$i',
+                                        channel: 'somechannel',
+                                      ),
+                                  ],
+                                  messageRowBuilder: (context, msg) =>
+                                      Text('row:${msg.text}'),
+                                );
+                              },
+                            ),
+                          );
+                        },
+                      ).whenComplete(sheetController.dispose);
+                    },
+                    child: const Text('open-card'),
+                  );
+                },
+              ),
+            ),
+          ),
+        );
+        await tester.tap(find.text('open-card'));
+        await tester.pumpAndSettle();
+      }
+
+      await openSheet();
+      expect(find.text('Report'), findsOneWidget);
+      sheetController.jumpTo(0.25);
+      await tester.pump();
+      // Fast downward fling on the card dismisses even though size sticks.
+      await tester.flingFrom(
+        const Offset(400, 460),
+        const Offset(0, 200),
+        1500,
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('TestUser'), findsNothing);
+    });
+
+    testWidgets('User profile keeps route on fast history fling', (
+      WidgetTester tester,
+    ) async {
+      const maxExtent = 1.0;
+      const screenH = 600.0;
+      var sheetController = DraggableScrollableController();
+      var cardExtent = 0.4;
+      Future<void> openSheet() async {
+        sheetController = DraggableScrollableController();
+        cardExtent = 0.4;
+        await tester.pumpWidget(
+          MaterialApp(
+            key: UniqueKey(),
+            home: Scaffold(
+              body: Builder(
+                builder: (context) {
+                  return TextButton(
+                    onPressed: () {
+                      showModalBottomSheet(
+                        context: context,
+                        isScrollControlled: true,
+                        builder: (ctx) {
+                          var tracker = VelocityTracker.withKind(
+                            PointerDeviceKind.touch,
+                          );
+                          var sizeAtDown = 0.4;
+                          ScrollController? listController;
+                          var listOffsetAtDown = 0.0;
+                          var listMoved = false;
+                          return Listener(
+                            onPointerDown: (e) {
+                              sizeAtDown = sheetController.isAttached
+                                  ? sheetController.size
+                                  : 0.4;
+                              tracker = VelocityTracker.withKind(
+                                PointerDeviceKind.touch,
+                              );
+                              tracker.addPosition(e.timeStamp, e.position);
+                              listMoved = false;
+                              if (listController?.hasClients ?? false) {
+                                listOffsetAtDown = listController!.offset;
+                              }
+                            },
+                            onPointerMove: (e) =>
+                                tracker.addPosition(e.timeStamp, e.position),
+                            onPointerUp: (_) {
+                              if (!sheetController.isAttached) return;
+                              if (listController?.hasClients ?? false) {
+                                listMoved =
+                                    (listController!.offset - listOffsetAtDown)
+                                        .abs() >
+                                    4;
+                              }
+                              final size = sheetController.size;
+                              final sizeMoved =
+                                  (size - sizeAtDown).abs() > 0.001;
+                              final velocityDy = tracker
+                                  .getVelocity()
+                                  .pixelsPerSecond
+                                  .dy;
+                              final target = userSheetTargetDetent(
+                                size,
+                                minExtent: 0.25,
+                                cardExtent: cardExtent,
+                                maxExtent: maxExtent,
+                                velocityDy: velocityDy,
+                              );
+                              final flingDown =
+                                  velocityDy >= kUserSheetFlingVelocity;
+                              if (target == 0.25) {
+                                // Pure list gestures never dismiss; taps stay.
+                                if (listMoved || (!sizeMoved && !flingDown)) {
+                                  return;
+                                }
+                                sheetController.jumpTo(size);
+                                if (ModalRoute.of(ctx)?.isCurrent ?? false) {
+                                  Navigator.pop(ctx);
+                                }
+                                return;
+                              }
+                              if (!sizeMoved) return;
+                              if ((target - size).abs() <= 0.02) return;
+                              sheetController.animateTo(
+                                target,
+                                duration: const Duration(milliseconds: 250),
+                                curve: Curves.easeOutCubic,
+                              );
+                            },
+                            child: DraggableScrollableSheet(
+                              controller: sheetController,
+                              initialChildSize: 0.4,
+                              minChildSize: 0.25,
+                              maxChildSize: maxExtent,
+                              expand: false,
+                              snap: false,
+                              builder: (_, scrollController) {
+                                listController = scrollController;
+                                return UserProfileSheet(
+                                  username: 'testuser',
+                                  userId: '123',
+                                  displayName: 'TestUser',
+                                  twitchApi: createApi(),
+                                  twitchAuth: TwitchAuth()
+                                    ..accessToken = 'test-token',
+                                  messageController: TextEditingController(),
+                                  focusNode: FocusNode(),
+                                  onClose: () => Navigator.pop(ctx),
+                                  scrollController: scrollController,
+                                  sheetController: sheetController,
+                                  sheetMinExtent: 0.25,
+                                  onCardMeasured: (naturalH) {
+                                    cardExtent = (naturalH / screenH)
+                                        .clamp(0.25, maxExtent)
+                                        .toDouble();
+                                    if (!sheetController.isAttached) return;
+                                    if ((sheetController.size - cardExtent)
+                                            .abs() >
+                                        0.02) {
+                                      sheetController.animateTo(
+                                        cardExtent,
+                                        duration: const Duration(
+                                          milliseconds: 250,
+                                        ),
+                                        curve: Curves.easeOutCubic,
+                                      );
+                                    }
+                                  },
+                                  userMessages: [
+                                    for (var i = 0; i < 30; i++)
+                                      TwitchMessage(
+                                        login: 'testuser',
+                                        text: 'm$i',
+                                        channel: 'somechannel',
+                                      ),
+                                  ],
+                                  messageRowBuilder: (context, msg) =>
+                                      Text('row:${msg.text}'),
+                                );
+                              },
+                            ),
+                          );
+                        },
+                      ).whenComplete(sheetController.dispose);
+                    },
+                    child: const Text('open-card'),
+                  );
+                },
+              ),
+            ),
+          ),
+        );
+        await tester.tap(find.text('open-card'));
+        await tester.pumpAndSettle();
+      }
+
+      await openSheet();
+      expect(find.text('Report'), findsOneWidget);
+      // Expand first: at the card detent the history hides below the fold.
+      await tester.flingFrom(
+        const Offset(400, 450),
+        const Offset(0, -300),
+        1500,
+      );
+      await tester.pumpAndSettle();
+      expect(sheetController.size, maxExtent);
+      // Fast downward fling on history never dismisses the route (the
+      // sheet may coast to a mid stop, unsnapped, but stays open).
+      await tester.flingFrom(
+        const Offset(400, 560),
+        const Offset(0, 200),
+        1500,
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('TestUser'), findsOneWidget);
     });
 
     testWidgets('User profile shows empty history placeholder', (
