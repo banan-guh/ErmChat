@@ -10,8 +10,17 @@ class MessageInput extends StatelessWidget {
   final TwitchMessage? replyToMsg;
   final VoidCallback? onCancelReply;
   final VoidCallback? onTap;
+  final ValueChanged<String>? onChanged;
+  final ValueChanged<String>? onSubmitted;
   final bool enabled;
   final String? hintText;
+
+  // Search mode: hides the reply banner. Prefix/suffix slots take over.
+  final bool searchMode;
+
+  // slot replacements for search mode (close + filter buttons).
+  final Widget? prefixOverride;
+  final Widget? suffixOverride;
 
   const MessageInput({
     super.key,
@@ -19,12 +28,17 @@ class MessageInput extends StatelessWidget {
     required this.focusNode,
     required this.onSend,
     this.onTap,
+    this.onChanged,
+    this.onSubmitted,
     this.onSendLongPress,
     this.onEmoteToggle,
     this.replyToMsg,
     this.onCancelReply,
     this.enabled = true,
     this.hintText,
+    this.searchMode = false,
+    this.prefixOverride,
+    this.suffixOverride,
   });
 
   Color _inputAccent(BuildContext context) {
@@ -41,7 +55,7 @@ class MessageInput extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (replyToMsg != null && enabled)
+          if (replyToMsg != null && enabled && !searchMode)
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
               decoration: BoxDecoration(
@@ -94,56 +108,63 @@ class MessageInput extends StatelessWidget {
             controller: controller,
             focusNode: focusNode,
             onTap: onTap,
+            onChanged: onChanged,
+            onSubmitted: onSubmitted,
             enabled: enabled,
             minLines: 1,
-            maxLines: 6,
+            maxLines: searchMode ? 1 : 6,
+            textInputAction: searchMode ? TextInputAction.search : null,
             decoration: InputDecoration(
               labelText: effectiveHint,
               border: const OutlineInputBorder(),
-              prefixIcon: SizedBox(
-                width: 48,
-                height: 48,
-                child: Material(
-                  type: MaterialType.transparency,
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(24),
-                    onTap: onEmoteToggle,
-                    child: ListenableBuilder(
-                      listenable: focusNode,
-                      builder: (_, _) => Icon(
-                        Icons.emoji_emotions_outlined,
-                        color: _inputAccent(context),
+              prefixIcon:
+                  prefixOverride ??
+                  SizedBox(
+                    width: 48,
+                    height: 48,
+                    child: Material(
+                      type: MaterialType.transparency,
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(24),
+                        onTap: onEmoteToggle,
+                        child: ListenableBuilder(
+                          listenable: focusNode,
+                          builder: (_, _) => Icon(
+                            Icons.emoji_emotions_outlined,
+                            color: _inputAccent(context),
+                          ),
+                        ),
                       ),
                     ),
                   ),
-                ),
-              ),
-              suffixIcon: SizedBox(
-                width: 48,
-                height: 48,
-                child: Material(
-                  type: MaterialType.transparency,
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(24),
-                    onTap: enabled ? onSend : null,
-                    onLongPress: enabled ? onSendLongPress : null,
-                    child: ListenableBuilder(
-                      listenable: focusNode,
-                      builder: (_, _) {
-                        final theme = Theme.of(context);
-                        return Icon(
-                          Icons.send,
-                          color: !enabled
-                              ? theme.colorScheme.onSurface.withValues(
-                                  alpha: 0.38,
-                                )
-                              : _inputAccent(context),
-                        );
-                      },
+              suffixIcon:
+                  suffixOverride ??
+                  SizedBox(
+                    width: 48,
+                    height: 48,
+                    child: Material(
+                      type: MaterialType.transparency,
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(24),
+                        onTap: enabled ? onSend : null,
+                        onLongPress: enabled ? onSendLongPress : null,
+                        child: ListenableBuilder(
+                          listenable: focusNode,
+                          builder: (_, _) {
+                            final theme = Theme.of(context);
+                            return Icon(
+                              Icons.send,
+                              color: !enabled
+                                  ? theme.colorScheme.onSurface.withValues(
+                                      alpha: 0.38,
+                                    )
+                                  : _inputAccent(context),
+                            );
+                          },
+                        ),
+                      ),
                     ),
                   ),
-                ),
-              ),
             ),
           ),
         ],

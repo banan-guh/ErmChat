@@ -57,6 +57,7 @@ import '../chrome/stream_layout.dart';
 import '../panels/threads.dart';
 import '../panels/mentions.dart';
 import '../panels/mod_panel.dart';
+import '../panels/search.dart';
 import '../widgets/nuke_overlay.dart';
 import '../widgets/emote_image_provider.dart';
 import '../widgets/media_upload_controller.dart';
@@ -115,6 +116,7 @@ class _HomeScreenState extends State<HomeScreen>
         ThreadPanelsHost,
         MentionsPanelsHost,
         ModPanelsHost,
+        SearchPanelsHost,
         HomeAppBarHost,
         ChannelPanelsHost,
         StreamPanelsHost,
@@ -519,6 +521,8 @@ class _HomeScreenState extends State<HomeScreen>
     host: this,
   );
 
+  late final _search = SearchPanels(chatStore: _chatStore, host: this);
+
   late final _chrome = HomeAppBar(
     chatStore: _chatStore,
     chatConn: _chatConn,
@@ -543,6 +547,7 @@ class _HomeScreenState extends State<HomeScreen>
     userSheets: _userSheets,
     menus: _menus,
     threads: _threads,
+    search: _search,
     composer: _composer,
     broadcastWidgets: _broadcastWidgets,
     homeAppBar: _chrome,
@@ -631,14 +636,31 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   void toggleStream() => _stream.toggleStreamForSelected();
   @override
+  void toggleSearch() => _search.toggleSearch();
+  @override
+  void setShowInput(bool value) => _setShowInput(value);
+  @override
+  void clearComposerSuggestions() => _composer.clearSuggestions();
+  @override
+  FocusNode get composerFocusNode => _composer.focusNode;
+  @override
+  void forgetSearch(String channel) {
+    _search.forget(channel);
+    _search.syncFieldTo(_selectedChannel);
+  }
+
+  @override
   void reloadEmotes() => _emotes.reload();
   @override
   void reconnect() => _reconnect();
   @override
   void openSettings() => _openSettings();
   @override
-  void commitChannelSelection(int index, {required bool rebuild}) =>
-      _channelManager.commitChannelSelection(index, rebuild: rebuild);
+  void commitChannelSelection(int index, {required bool rebuild}) {
+    _channelManager.commitChannelSelection(index, rebuild: rebuild);
+    _search.syncFieldTo(_selectedChannel);
+  }
+
   @override
   void onChannelChanged(int index) => _channels.onChannelChanged(index);
   @override
@@ -1346,6 +1368,7 @@ class _HomeScreenState extends State<HomeScreen>
     _threads.dispose();
     _mentions.dispose();
     _mod.dispose();
+    _search.dispose();
     for (final c in _scrollControllers.values) {
       c.dispose();
     }
@@ -1384,11 +1407,14 @@ class _HomeScreenState extends State<HomeScreen>
     setState(() => _isFullscreen = !_isFullscreen);
   }
 
-  void _toggleInputVisibility() {
-    setState(() => _showInput = !_showInput);
+  void _toggleInputVisibility() => _setShowInput(!_showInput);
+
+  void _setShowInput(bool value) {
+    if (_showInput == value) return;
+    setState(() => _showInput = value);
     unawaited(
       SharedPreferences.getInstance().then(
-        (prefs) => prefs.setBool('show_input', _showInput),
+        (prefs) => prefs.setBool('show_input', value),
       ),
     );
   }
@@ -1434,6 +1460,9 @@ class _HomeScreenState extends State<HomeScreen>
 
   Future<void> _openSettings() async {
     _composer.unfocus();
+    // The menu hands focus back to the search field on close, which
+    // would raise the keyboard over the settings page.
+    _search.focusNode.unfocus();
     // Pop notices and overlay snackbars on screen change.
     _chatNotice.dismiss();
     if (mounted) AppSnack.clear(context);
@@ -1631,10 +1660,13 @@ class _HomeScreenState extends State<HomeScreen>
           !_streamPlayer.isTheaterMode &&
           _activePanel == OverlayPanel.closed &&
           !_emoteSheetOpen &&
+          !_search.open &&
           !_composer.hasFocus,
       onPopInvokedWithResult: (didPop, _) {
         if (didPop) return;
-        if (_emoteSheetOpen) {
+        if (_search.open) {
+          _search.closeSearch();
+        } else if (_emoteSheetOpen) {
           unawaited(_closeEmoteSheet());
         } else if (_activePanel != OverlayPanel.closed) {
           unawaited(_closePanel());
@@ -1708,6 +1740,7 @@ class _HomeScreenState extends State<HomeScreen>
               ? ComposerBar(
                   controller: _composer,
                   selectedTabIndex: _selectedTabIndex,
+                  search: _search,
                 )
               : null,
           notice: ChatNoticeBar(controller: _chatNotice),

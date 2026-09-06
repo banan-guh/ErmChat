@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-// Dropdown for mod view plus fullscreen, input, and stream toggles.
+// Dropdown for search, mod view, and fullscreen, input, stream toggles.
 class ChromeMenuButton extends StatefulWidget {
   final VoidCallback onToggleFullscreen;
   final VoidCallback onToggleInput;
@@ -9,6 +9,7 @@ class ChromeMenuButton extends StatefulWidget {
   final bool Function()? streamActive;
   final VoidCallback? onShowModView;
   final bool Function()? showModView;
+  final VoidCallback? onToggleSearch;
 
   const ChromeMenuButton({
     super.key,
@@ -19,6 +20,7 @@ class ChromeMenuButton extends StatefulWidget {
     this.streamActive,
     this.onShowModView,
     this.showModView,
+    this.onToggleSearch,
   });
 
   @override
@@ -33,6 +35,8 @@ class ChromeMenuButtonState extends State<ChromeMenuButton> {
     final theme = Theme.of(context);
     return PopupMenuButton<String>(
       position: PopupMenuPosition.under,
+      // Keeps the keyboard up: the menu route never steals field focus.
+      requestFocus: false,
       popUpAnimationStyle: const AnimationStyle(
         duration: Duration(milliseconds: 175),
       ),
@@ -43,6 +47,9 @@ class ChromeMenuButtonState extends State<ChromeMenuButton> {
         switch (value) {
           case 'modview':
             widget.onShowModView?.call();
+            break;
+          case 'search':
+            widget.onToggleSearch?.call();
             break;
           case 'fullscreen':
             widget.onToggleFullscreen();
@@ -61,17 +68,8 @@ class ChromeMenuButtonState extends State<ChromeMenuButton> {
         final active = widget.streamActive?.call() ?? false;
         return [
           if (showMod)
-            const PopupMenuItem(
-              value: 'modview',
-              child: Row(
-                children: [
-                  Icon(Icons.shield_outlined, size: 20),
-                  SizedBox(width: 12),
-                  Text('Mod view'),
-                ],
-              ),
-            ),
-          if (showMod) const PopupMenuDivider(),
+            const PopupMenuItem(value: 'modview', child: Text('Mod view')),
+          const PopupMenuItem(value: 'search', child: Text('Search')),
           const PopupMenuItem(
             value: 'fullscreen',
             child: Text('Toggle fullscreen'),

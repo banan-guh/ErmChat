@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../composer/composer_controller.dart';
 import '../models/twitch_message.dart';
+import '../panels/search.dart';
 import '../panels/threads.dart';
 import '../services/chat_store.dart';
 import '../services/link_whitelist.dart';
@@ -50,6 +51,7 @@ class ChannelPanels {
     required this.userSheets,
     required this.menus,
     required this.threads,
+    required this.search,
     required this.composer,
     required this.broadcastWidgets,
     required this.homeAppBar,
@@ -68,6 +70,7 @@ class ChannelPanels {
   final UserSheets userSheets;
   final MessageMenus menus;
   final ThreadPanels threads;
+  final SearchPanels search;
   final ComposerController composer;
   final BroadcastWidgets broadcastWidgets;
   final HomeAppBar homeAppBar;
@@ -137,11 +140,20 @@ class ChannelPanels {
                   pageBuilder: (_, i) {
                     final channel = chatStore.channels[i];
                     return ListenableBuilder(
-                      listenable: host.versionNotifier(channel),
+                      // messageNotifier drives new rows and text edits;
+                      // search bumps only its own channel on keystrokes.
+                      listenable: Listenable.merge([
+                        host.versionNotifier(channel),
+                        host.messageNotifier(channel),
+                        search.channelVersion(channel),
+                      ]),
                       builder: (_, _) => ChatView(
                         channel: channel,
-                        messages: chatStore.channelMessages[channel] ?? [],
+                        messages: search.visibleMessages(channel),
                         tileCache: tileCache,
+                        isDimmed: search.dimPredicate(channel),
+                        emptyText:
+                            search.emptyText(channel) ?? 'No messages yet',
                         atBottomNotifier: host.atBottomNotifier(channel),
                         messageNotifier: host.messageNotifier(channel),
                         scrollController: host.scrollCtrl(channel),

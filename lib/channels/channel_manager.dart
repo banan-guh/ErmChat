@@ -43,6 +43,7 @@ abstract class ChannelManagerHost extends ShellState {
   ValueNotifier<bool> atBottomNotifier(String channel);
   void disposeChannelNotifiers(String channel);
   void forgetAtBottomNotifier(String channel);
+  void forgetSearch(String channel);
 }
 
 // Channel membership, history backfill, and selection: the join/leave
@@ -521,6 +522,8 @@ class ChannelManager {
           selectedTabIndex.value = chatStore.channels.length - 1;
         }
       }
+      // After reselect so the search field syncs to the new channel.
+      host.forgetSearch(channel);
     });
     // Notifier disposal must land after the widgets listening to them have
     // actually unmounted (the frame the mutate above schedules); disposing

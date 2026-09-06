@@ -65,6 +65,9 @@ class ChatView extends StatefulWidget {
   /// Link whitelist for system-message parser. Null = use messageBuilder's.
   final LinkWhitelist? linkWhitelist;
 
+  /// Null = no dimming; true fades the row (search dim mode).
+  final bool Function(TwitchMessage)? isDimmed;
+
   const ChatView({
     super.key,
     required this.channel,
@@ -95,6 +98,7 @@ class ChatView extends StatefulWidget {
     this.paintService,
     this.keyboardDismissBehavior = ScrollViewKeyboardDismissBehavior.manual,
     this.linkWhitelist,
+    this.isDimmed,
   });
 
   @override
@@ -312,8 +316,10 @@ class _ChatViewState extends State<ChatView>
     final tileChannel = msg.channel ?? widget.channel;
 
     // DankChat-style: parity assigned once per message via global counter, cached.
+    // Cache holds the undimmed tile; dim wraps per build so queries never
+    // poison it.
     final cached = cache?[msg.messageId];
-    if (cached != null) return cached;
+    if (cached != null) return _maybeDim(cached, msg);
     final parity = doCheckered ? (++ChatView._checkerSeq).isEven : i.isEven;
 
     final Widget body;
@@ -397,6 +403,14 @@ class _ChatViewState extends State<ChatView>
         }
         cache.remove(stale ?? cache.keys.first);
       }
+    }
+    return _maybeDim(tile, msg);
+  }
+
+  // Search dim mode only; same alpha as the shared-chat fade.
+  Widget _maybeDim(Widget tile, TwitchMessage msg) {
+    if (widget.isDimmed?.call(msg) ?? false) {
+      return Opacity(opacity: 0.55, child: tile);
     }
     return tile;
   }

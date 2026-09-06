@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '../panels/search.dart';
 import '../widgets/message_input.dart';
 import 'composer_controller.dart';
 
@@ -14,10 +15,12 @@ class ComposerBar extends StatelessWidget {
     super.key,
     required this.controller,
     required this.selectedTabIndex,
+    required this.search,
   });
 
   final ComposerController controller;
   final ValueListenable<int> selectedTabIndex;
+  final SearchPanels search;
 
   @override
   Widget build(BuildContext context) {
@@ -33,6 +36,25 @@ class ComposerBar extends StatelessWidget {
               controller.chatConn.connectionStateNotifier,
             ]),
             builder: (context, _) {
+              // Search borrows the input box: same field, own controllers.
+              // Reads the live channel per event so tab flips never leak.
+              if (search.open && search.host.selectedChannel != null) {
+                return MessageInput(
+                  controller: search.field,
+                  focusNode: search.focusNode,
+                  onSend: () {},
+                  onChanged: (q) {
+                    final channel = search.host.selectedChannel;
+                    if (channel != null) search.setQuery(channel, q);
+                  },
+                  onSubmitted: (_) => search.focusNode.unfocus(),
+                  enabled: true,
+                  hintText: 'Search...',
+                  searchMode: true,
+                  prefixOverride: search.closeButton(),
+                  suffixOverride: search.filterButton(),
+                );
+              }
               return MessageInput(
                 controller: controller.messageController,
                 focusNode: controller.focusNode,
@@ -47,10 +69,13 @@ class ComposerBar extends StatelessWidget {
               );
             },
           ),
-          _StatusRow(
-            controller: controller,
-            selectedTabIndex: selectedTabIndex,
-          ),
+          if (search.open && search.host.selectedChannel != null)
+            const SizedBox.shrink()
+          else
+            _StatusRow(
+              controller: controller,
+              selectedTabIndex: selectedTabIndex,
+            ),
         ],
       ),
     );

@@ -46,6 +46,7 @@ import 'package:url_launcher_platform_interface/link.dart';
 import 'package:url_launcher_platform_interface/url_launcher_platform_interface.dart';
 import 'package:ermchat/widgets/emote_sheet.dart';
 import 'package:ermchat/widgets/message_input.dart';
+import 'package:ermchat/widgets/chrome_menu_button.dart';
 import 'package:ermchat/widgets/user_profile_sheet.dart';
 import 'package:ermchat/widgets/image_embed_viewer.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -6416,6 +6417,56 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('dialog'), findsOneWidget);
       expect(find.text('behind dialog'), findsOneWidget);
+    });
+  });
+
+  group('chrome menu entries', () {
+    Widget chromeMenuHarness({
+      bool showMod = false,
+      VoidCallback? onMod,
+      VoidCallback? onSearch,
+    }) => MaterialApp(
+      home: Scaffold(
+        body: ChromeMenuButton(
+          onToggleFullscreen: () {},
+          onToggleInput: () {},
+          onShowModView: onMod,
+          showModView: () => showMod,
+          onToggleSearch: onSearch,
+        ),
+      ),
+    );
+
+    Future<void> openChromeMenu(WidgetTester tester) async {
+      await tester.tap(find.byIcon(Icons.expand_more));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('shows Mod view only when gated on', (tester) async {
+      var opened = false;
+      await tester.pumpWidget(
+        chromeMenuHarness(showMod: true, onMod: () => opened = true),
+      );
+      await openChromeMenu(tester);
+      await tester.tap(find.text('Mod view'));
+      await tester.pumpAndSettle();
+      expect(opened, isTrue);
+
+      await tester.pumpWidget(chromeMenuHarness(showMod: false));
+      await openChromeMenu(tester);
+      expect(find.text('Mod view'), findsNothing);
+    });
+
+    testWidgets('Search is always shown and fires', (tester) async {
+      var toggled = false;
+      await tester.pumpWidget(
+        chromeMenuHarness(onSearch: () => toggled = true),
+      );
+      await openChromeMenu(tester);
+      expect(find.text('Search'), findsOneWidget);
+      await tester.tap(find.text('Search'));
+      await tester.pumpAndSettle();
+      expect(toggled, isTrue);
     });
   });
 }

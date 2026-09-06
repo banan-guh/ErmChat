@@ -8,6 +8,7 @@ import 'package:ermchat/color_utils.dart';
 import 'package:ermchat/services/suggestion.dart';
 import 'package:ermchat/models/twitch_badge.dart';
 import 'package:ermchat/models/twitch_message.dart';
+import 'package:ermchat/panels/search.dart';
 import 'package:ermchat/services/twitch_auth.dart';
 import 'package:ermchat/util/mention.dart';
 import 'package:ermchat/util/duration_format.dart';
@@ -1225,6 +1226,49 @@ void main() {
       expect(target(0.8, 1000), cardExtent);
       expect(target(cardExtent, 1000), minExtent);
       expect(target(0.3, 1000), minExtent);
+    });
+  });
+
+  group('chat search matching', () {
+    TwitchMessage searchMsg(
+      String text, {
+      String login = 'xqc',
+      String? displayName,
+      bool isSystem = false,
+    }) => TwitchMessage(
+      login: login,
+      displayName: displayName ?? login,
+      text: text,
+      channel: 'test',
+      isSystem: isSystem,
+    );
+
+    test('system rows never match a real query', () {
+      const f = ChatSearchFilter(query: 'sys');
+      expect(searchMatches(searchMsg('sys', isSystem: true), f), isFalse);
+    });
+
+    test('messages scope ignores the sender', () {
+      const f = ChatSearchFilter(query: 'bob', scope: ChatSearchScope.messages);
+      expect(searchMatches(searchMsg('hi bob'), f), isTrue);
+      expect(searchMatches(searchMsg('hi', login: 'bob'), f), isFalse);
+    });
+
+    test('chatters scope ignores the text', () {
+      const f = ChatSearchFilter(query: 'bob', scope: ChatSearchScope.chatters);
+      expect(searchMatches(searchMsg('hi', login: 'bob'), f), isTrue);
+      expect(searchMatches(searchMsg('hi bob'), f), isFalse);
+    });
+
+    test('chatters scope matches display names case-insensitively', () {
+      const f = ChatSearchFilter(
+        query: 'kappa',
+        scope: ChatSearchScope.chatters,
+      );
+      expect(
+        searchMatches(searchMsg('hi', displayName: 'KappaKid'), f),
+        isTrue,
+      );
     });
   });
 }

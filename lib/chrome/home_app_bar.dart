@@ -29,6 +29,7 @@ abstract class HomeAppBarHost extends ShellState {
   void toggleFullscreen();
   void toggleInput();
   void toggleStream();
+  void toggleSearch();
   void reloadEmotes();
   void reconnect();
   void openSettings();
@@ -95,6 +96,7 @@ class HomeAppBar {
       showModView: () =>
           host.selectedChannel != null &&
           chatConn.isModerationActive(host.selectedChannel!),
+      onToggleSearch: host.toggleSearch,
     );
   }
 
@@ -164,6 +166,9 @@ class HomeAppBar {
                     ),
                   ),
                   PopupMenuButton<String>(
+                    // Keeps the keyboard up: the route never steals focus.
+                    // Settings unfocuses explicitly on open.
+                    requestFocus: false,
                     popUpAnimationStyle: const AnimationStyle(
                       duration: Duration(milliseconds: 175),
                     ),
