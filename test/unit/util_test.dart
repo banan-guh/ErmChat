@@ -915,6 +915,81 @@ void main() {
       expect(urls.single.url, 'https://example.com/x');
       expect(urls.single.text, 'example.com/x');
     });
+
+    test(
+      'whitelist linkifier leaves scheme URLs contiguous for stock linkify',
+      () {
+        final elements = runLinkifier('visit https://example.com/a today', [
+          'com',
+        ]);
+        expect(elements, hasLength(1));
+        expect(elements.single, isA<TextElement>());
+        expect(elements.single.text, 'visit https://example.com/a today');
+      },
+    );
+
+    test('prod pipeline highlights the scheme of posted links', () {
+      const humanized = LinkifyOptions(
+        humanize: true,
+        looseUrl: true,
+        defaultToHttps: true,
+      );
+      List<LinkifyElement> runProd(String text, List<String> whitelist) =>
+          linkify(
+            text,
+            options: humanized,
+            linkifiers: [
+              const SafeEmailLinkifier(),
+              const SingleCharDomainLinkifier(),
+              WhitelistLinkifier(whitelist),
+              const UrlLinkifier(),
+            ],
+          );
+      for (final entry in [
+        ('visit https://example.com/a today', ['com']),
+        ('visit https://kappa.lol/ABCDE now', ['kappa.lol']),
+        ('visit https://user@host.com/x now', ['com']),
+      ]) {
+        final elements = runProd(entry.$1, entry.$2);
+        final urls = elements.whereType<UrlElement>().toList();
+        expect(urls, hasLength(1), reason: entry.$1);
+        expect(
+          urls.single.originText,
+          contains('https://'),
+          reason: '${entry.$1}: originText keeps the scheme for highlighting',
+        );
+        expect(
+          elements.whereType<TextElement>().any(
+            (e) => e.text.contains('https://'),
+          ),
+          isFalse,
+          reason: '${entry.$1}: scheme must not leak into plain text',
+        );
+      }
+    });
+
+    test('prod pipeline links bare domains alongside scheme URLs', () {
+      const humanized = LinkifyOptions(
+        humanize: true,
+        looseUrl: true,
+        defaultToHttps: true,
+      );
+      final elements = linkify(
+        'see example.com/a and https://example.com/b',
+        options: humanized,
+        linkifiers: [
+          const SafeEmailLinkifier(),
+          const SingleCharDomainLinkifier(),
+          WhitelistLinkifier(const ['com']),
+          const UrlLinkifier(),
+        ],
+      );
+      final urls = elements.whereType<UrlElement>().toList();
+      expect(urls, hasLength(2));
+      expect(urls[0].url, 'https://example.com/a');
+      expect(urls[1].url, 'https://example.com/b');
+      expect(urls[1].originText, 'https://example.com/b');
+    });
   });
 
   group('SingleCharDomainLinkifier', () {
@@ -958,6 +1033,21 @@ void main() {
       expect(urls, hasLength(1));
       expect(urls.single.url, 'https://x.com/a');
       expect(urls.single.text, 'https://x.com/a');
+    });
+
+    test('claims uppercase scheme URLs whole', () {
+      final elements = const SingleCharDomainLinkifier().parse([
+        TextElement('visit HTTPS://X.COM/A today'),
+      ], options);
+      final urls = elements.whereType<UrlElement>().toList();
+      expect(urls, hasLength(1));
+      expect(urls.single.originText, 'HTTPS://X.COM/A');
+      expect(
+        elements.whereType<TextElement>().any(
+          (e) => e.text.contains('HTTPS://'),
+        ),
+        isFalse,
+      );
     });
 
     test('keeps trailing sentence periods out of the link', () {

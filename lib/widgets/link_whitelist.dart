@@ -75,18 +75,14 @@ class WhitelistLinkifier extends Linkifier {
     }
     var lastEnd = 0;
     for (final m in matches) {
-      if (m.start > lastEnd) {
-        out.add(TextElement(text.substring(lastEnd, m.start)));
-      }
       final raw = m.group(1)!;
       final fractured = _hasSpace.hasMatch(raw);
       if (!raw.contains('.') ||
           _gluedToLink(text, m.start) ||
           (fractured && !fractures)) {
         // Plain word, part of an email/scheme URL, or fracture detection
-        // is off: leave it to stock linkify.
-        out.add(TextElement(raw));
-        lastEnd = m.end;
+        // is off: skip without splitting so stock linkify still sees the
+        // surrounding text whole.
         continue;
       }
 
@@ -106,8 +102,12 @@ class WhitelistLinkifier extends Linkifier {
 
       if (!isWhitelisted || (needsPath && !normalized.contains('/'))) {
         // Not opted in: leave the text as-is.
-        out.add(TextElement(raw));
-      } else if (fractured) {
+        continue;
+      }
+      if (m.start > lastEnd) {
+        out.add(TextElement(text.substring(lastEnd, m.start)));
+      }
+      if (fractured) {
         out.add(UrlElement('https://$normalized', raw));
       } else {
         // Bare links show without the scheme, like humanized stock links.
@@ -136,6 +136,7 @@ class SingleCharDomainLinkifier extends Linkifier {
   // a scheme, so scheme URLs are claimed here too.
   static final _regex = RegExp(
     r'(?<![A-Za-z0-9@:.])((?:https?://)?[A-Za-z0-9]\.[A-Za-z]{2,}(?:\/[^\s]*)?)',
+    caseSensitive: false,
   );
   static final _trailingPunct = RegExp(r'[.,;:!?)]+$');
   static final _schemePrefix = RegExp(r'^https?://', caseSensitive: false);
