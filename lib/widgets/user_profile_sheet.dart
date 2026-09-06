@@ -106,10 +106,10 @@ class UserProfileSheetState extends State<UserProfileSheet> {
   double? _naturalCardH;
   bool _measureDirty = true;
   final _cardMeasureKey = GlobalKey();
-  // Max offset our programmatic pin last set. While the offset still sits
-  // there, card growth (profile landing, measure settling) moves the
-  // goalposts, so later frames re-pin; a user scroll away disables it.
-  double _pinnedMax = -1;
+  // True while the history sits on the latest message. Sheet resizes then
+  // keep it pinned (garage door); scrolling up toward older rows clears
+  // it until the list returns to the bottom.
+  bool _stickToBottom = true;
 
   ScrollController get _scrollController =>
       widget.scrollController ?? (_fallbackController ??= ScrollController());
@@ -139,6 +139,11 @@ class UserProfileSheetState extends State<UserProfileSheet> {
   // only while scrolled up toward older messages.
   void _onScrollPixels(double pixels, double maxExtent) {
     final away = pixels < maxExtent - 4;
+    if (away) {
+      _stickToBottom = false;
+    } else {
+      _stickToBottom = true;
+    }
     if (away != _arrowVisible && mounted) {
       setState(() => _arrowVisible = away);
     }
@@ -147,7 +152,21 @@ class UserProfileSheetState extends State<UserProfileSheet> {
   void _onArrowTap() {
     if (!_scrollController.hasClients) return;
     iosHaptic(HapticFeedback.lightImpact);
-    _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
+    _scrollController.animateTo(
+      _scrollController.position.maxScrollExtent,
+      duration: const Duration(milliseconds: 250),
+      curve: Curves.easeOut,
+    );
+  }
+
+  // Re-pins a stuck list after a sheet resize moved the bottom edge.
+  // No-op unless stale, so idle frames schedule nothing.
+  void _pinToBottom() {
+    if (!mounted || !_stickToBottom || !_scrollController.hasClients) return;
+    final position = _scrollController.position;
+    if (position.pixels < position.maxScrollExtent - 4) {
+      _scrollController.jumpTo(position.maxScrollExtent);
+    }
   }
 
   // Card drags resize the sheet; release settles via the sheet detents.
@@ -260,7 +279,8 @@ class UserProfileSheetState extends State<UserProfileSheet> {
         theme.colorScheme.surfaceContainerLow;
     // Card takes its natural height first; the history gets whatever is
     // left (possibly nothing at the card detent) and is revealed by
-    // expanding the sheet.
+    // expanding the sheet. A stuck list re-pins to the bottom on every
+    // sheet tick, so resizes reveal it in place like a garage door.
     Widget sheetBody(double sheetH) {
       final avail = sheetH.isFinite ? sheetH : media.height;
       if (avail <= 0) return const SizedBox.shrink();
@@ -290,7 +310,10 @@ class UserProfileSheetState extends State<UserProfileSheet> {
           ),
           if (widget.messageRowBuilder != null) ...[
             Expanded(
-              child: widget.userMessages.isEmpty
+              // Hidden while loading so no row flashes before the card.
+              child: _loading
+                  ? const SizedBox.shrink()
+                  : widget.userMessages.isEmpty
                   ? _buildHistoryEmpty(theme)
                   : NotificationListener<ScrollUpdateNotification>(
                       onNotification: (notification) {
@@ -316,25 +339,23 @@ class UserProfileSheetState extends State<UserProfileSheet> {
     }
 
     WidgetsBinding.instance.addPostFrameCallback((_) => _syncMeasure());
-    // First paints with history land on the latest. Post-frame runs before
-    // the paint, so there is no visible flash.
-    if (_hasHistory) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted || !_scrollController.hasClients) return;
-        final position = _scrollController.position;
-        if (position.pixels < position.maxScrollExtent - 4 &&
-            position.pixels >= _pinnedMax - 4) {
-          _pinnedMax = position.maxScrollExtent;
-          _scrollController.jumpTo(position.maxScrollExtent);
-        } else if (position.pixels >= position.maxScrollExtent - 4) {
-          _pinnedMax = position.maxScrollExtent;
+    // Ticks with the sheet (or the list standalone) so a stuck history
+    // re-pins right after the resize lays out. Staleness is judged
+    // post-frame, when metrics are fresh; idle frames schedule nothing.
+    final sheet = AnimatedBuilder(
+      animation: widget.sheetController ?? _scrollController,
+      builder: (_, _) {
+        if (_stickToBottom) {
+          WidgetsBinding.instance.addPostFrameCallback((_) => _pinToBottom());
         }
-      });
-    }
-    final sheet = LayoutBuilder(
-      builder: (_, constraints) => sheetBody(
-        constraints.maxHeight.isFinite ? constraints.maxHeight : media.height,
-      ),
+        return LayoutBuilder(
+          builder: (_, constraints) => sheetBody(
+            constraints.maxHeight.isFinite
+                ? constraints.maxHeight
+                : media.height,
+          ),
+        );
+      },
     );
     return Stack(
       children: [

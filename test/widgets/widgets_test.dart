@@ -5828,6 +5828,50 @@ void main() {
       await tester.pumpAndSettle();
       expect(sheetController.size, closeTo(settled, 0.03));
 
+      // Same sheet, second expand: the history must stay bottom-anchored,
+      // so the garage-door reveal repeats instead of moving with the panel.
+      await tester.flingFrom(
+        const Offset(400, 450),
+        const Offset(0, -300),
+        1500,
+      );
+      await tester.pumpAndSettle();
+      expect(sheetController.size, maxExtent);
+      expect(find.text('row:m29'), findsOneWidget);
+      expect(arrowOpacity(tester), 0);
+
+      // Stepping the sheet back down must not drag the latest row with
+      // it: the row stays glued to the viewport bottom as the card lifts.
+      final yFull = tester.getTopLeft(find.text('row:m29')).dy;
+      sheetController.jumpTo((settled + maxExtent) / 2);
+      // Two frames: the resize lays out, then the post-frame pin lands.
+      await tester.pump();
+      await tester.pump();
+      expect(find.text('row:m29'), findsOneWidget);
+      expect(
+        tester.getTopLeft(find.text('row:m29')).dy,
+        moreOrLessEquals(yFull, epsilon: 1.0),
+      );
+      expect(arrowOpacity(tester), 0);
+
+      // Bottom overscroll never drags the sheet: pushing up past the
+      // latest row leaves the size alone and settles back to full.
+      sheetController.jumpTo(maxExtent);
+      await tester.pumpAndSettle();
+      final bottomDrag = await tester.startGesture(
+        tester.getCenter(find.text('row:m29')),
+      );
+      await bottomDrag.moveBy(const Offset(0, -20));
+      await tester.pump();
+      await bottomDrag.moveBy(const Offset(0, -60));
+      await tester.pump();
+      expect(sheetController.size, maxExtent);
+      await bottomDrag.up();
+      await tester.pumpAndSettle();
+      expect(sheetController.size, maxExtent);
+      expect(find.text('row:m29'), findsOneWidget);
+      expect(arrowOpacity(tester), 0);
+
       // Fresh card, upward fling eases directly to full height.
       await openSheet();
       await tester.flingFrom(
