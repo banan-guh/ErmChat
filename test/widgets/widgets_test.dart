@@ -5191,7 +5191,7 @@ void main() {
         await tester.pumpWidget(wrapUserProfile(createApi()));
         await tester.pumpAndSettle();
 
-        await tester.tap(find.text('Report', skipOffstage: false));
+        await tester.tap(find.text('Report'));
         await tester.pumpAndSettle();
 
         expect(profileLauncher.lastUrl, 'https://twitch.tv/testuser/report');
@@ -5205,7 +5205,7 @@ void main() {
         await tester.pumpWidget(wrapUserProfile(createApi()));
         await tester.pumpAndSettle();
 
-        await tester.tap(find.text('Report', skipOffstage: false));
+        await tester.tap(find.text('Report'));
         await tester.pumpAndSettle();
 
         expect(
@@ -5240,38 +5240,81 @@ void main() {
       );
     }
 
-    testWidgets('User profile renders history rows with a floating arrow', (
+    // The jump arrow is always in the tree (faded via AnimatedOpacity), so
+    // visibility is asserted on opacity, not presence.
+    double arrowOpacity(WidgetTester tester) {
+      final fade = find.ancestor(
+        of: find.byIcon(Icons.keyboard_arrow_down),
+        matching: find.byType(AnimatedOpacity),
+      );
+      return tester.widget<AnimatedOpacity>(fade).opacity;
+    }
+
+    testWidgets('User profile opens pinned to the latest message', (
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(
         wrapUserProfileWithHistory(createApi(), [
-          TwitchMessage(
-            login: 'testuser',
-            text: 'hello',
-            channel: 'somechannel',
-          ),
-          TwitchMessage(
-            login: 'testuser',
-            text: 'world',
-            channel: 'somechannel',
-          ),
+          // Oldest first, like production: the latest lands at the bottom.
+          for (var i = 0; i < 30; i++)
+            TwitchMessage(
+              login: 'testuser',
+              text: 'm$i',
+              channel: 'somechannel',
+            ),
         ]),
       );
       await tester.pumpAndSettle();
 
-      // Rows render below the fold; the arrow floats with no header text.
-      expect(find.text('row:hello', skipOffstage: false), findsOneWidget);
-      expect(find.text('row:world', skipOffstage: false), findsOneWidget);
-      expect(find.textContaining('Recent messages'), findsNothing);
-      expect(find.byIcon(Icons.keyboard_arrow_down), findsOneWidget);
-
-      // No sheet controller here, so tapping the arrow is a safe no-op.
-      await tester.tap(find.byIcon(Icons.keyboard_arrow_down));
-      await tester.pumpAndSettle();
-      expect(find.text('row:hello', skipOffstage: false), findsOneWidget);
+      // Chronological rows, but the sheet lands on the latest (m29) with the
+      // card pinned above it: the oldest row is offscreen, arrow hidden.
+      expect(find.text('row:m29'), findsOneWidget);
+      expect(find.text('row:m0'), findsNothing);
+      expect(find.text('TestUser'), findsOneWidget);
+      // The pinned card paints opaquely so rows scrolling beneath it never
+      // bleed through.
+      final cardMaterials = find.ancestor(
+        of: find.text('TestUser'),
+        matching: find.byWidgetPredicate(
+          (w) => w is Material && w.borderRadius != null,
+        ),
+      );
+      expect(cardMaterials, findsOneWidget);
+      expect(arrowOpacity(tester), 0);
     });
 
-    testWidgets('User profile arrow flips up when history is scrolled', (
+    testWidgets('User profile arrow jumps back to the latest message', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        wrapUserProfileWithHistory(createApi(), [
+          // Oldest first, like production: the latest lands at the bottom.
+          for (var i = 0; i < 30; i++)
+            TwitchMessage(
+              login: 'testuser',
+              text: 'm$i',
+              channel: 'somechannel',
+            ),
+        ]),
+      );
+      await tester.pumpAndSettle();
+
+      // Drag down toward older messages: the card stays pinned, the jump
+      // arrow appears, and the latest row leaves the viewport.
+      await tester.drag(find.text('row:m29'), const Offset(0, 300));
+      await tester.pumpAndSettle();
+      expect(find.text('TestUser'), findsOneWidget);
+      expect(find.text('row:m29'), findsNothing);
+      expect(arrowOpacity(tester), 1);
+
+      // Tapping it glides back to the latest and hides again.
+      await tester.tap(find.byIcon(Icons.keyboard_arrow_down));
+      await tester.pumpAndSettle();
+      expect(find.text('row:m29'), findsOneWidget);
+      expect(arrowOpacity(tester), 0);
+    });
+
+    testWidgets('User profile hides history until the card loads', (
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(
@@ -5284,185 +5327,273 @@ void main() {
             ),
         ]),
       );
-      await tester.pumpAndSettle();
 
-      expect(find.byIcon(Icons.keyboard_arrow_down), findsOneWidget);
+      // Spinner only: no rows flash before the card fills in. No extra pump
+      // here: any rebuild would already show the loaded profile.
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      expect(find.text('row:m29', skipOffstage: false), findsNothing);
 
-      await tester.drag(find.text('row:m0'), const Offset(0, -300));
       await tester.pumpAndSettle();
-      expect(find.byIcon(Icons.keyboard_arrow_up), findsOneWidget);
-
-      // Tapping the up arrow glides back to the top.
-      await tester.tap(find.byIcon(Icons.keyboard_arrow_up));
-      await tester.pumpAndSettle();
-      expect(find.byIcon(Icons.keyboard_arrow_down), findsOneWidget);
+      expect(find.text('row:m29'), findsOneWidget);
     });
 
-    testWidgets(
-      'User profile sheet expands on arrow tap, dismisses in one fling',
-      (WidgetTester tester) async {
-        // Test env has no status bar, so max extent is the full height.
-        const maxExtent = 1.0;
-        var sheetController = DraggableScrollableController();
-        Future<void> openSheet() async {
-          sheetController = DraggableScrollableController();
-          await tester.pumpWidget(
-            MaterialApp(
-              key: UniqueKey(),
-              home: Scaffold(
-                body: Builder(
-                  builder: (context) {
-                    return TextButton(
-                      onPressed: () {
-                        showModalBottomSheet(
-                          context: context,
-                          isScrollControlled: true,
-                          builder: (ctx) {
-                            // Mirrors production wiring (immediate eased settle).
-                            var tracker = VelocityTracker.withKind(
-                              PointerDeviceKind.touch,
-                            );
-                            var sizeAtDown = 0.4;
-                            return Listener(
-                              onPointerDown: (e) {
-                                sizeAtDown = sheetController.isAttached
-                                    ? sheetController.size
-                                    : 0.4;
-                                tracker = VelocityTracker.withKind(
-                                  PointerDeviceKind.touch,
-                                );
-                                tracker.addPosition(e.timeStamp, e.position);
-                              },
-                              onPointerMove: (e) =>
-                                  tracker.addPosition(e.timeStamp, e.position),
-                              onPointerUp: (_) {
-                                if (!sheetController.isAttached) return;
-                                final size = sheetController.size;
-                                if ((size - sizeAtDown).abs() <= 0.001) return;
-                                final target = userSheetTargetDetent(
-                                  size,
-                                  minExtent: 0.25,
-                                  cardExtent: 0.4,
-                                  maxExtent: maxExtent,
-                                  velocityDy: tracker
-                                      .getVelocity()
-                                      .pixelsPerSecond
-                                      .dy,
-                                );
-                                if (target == 0.25) {
-                                  sheetController.jumpTo(size);
-                                  if (ModalRoute.of(ctx)?.isCurrent ?? false) {
-                                    Navigator.pop(ctx);
-                                  }
-                                  return;
+    testWidgets('User profile card keeps rounded top corners', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        wrapUserProfileWithHistory(createApi(), [
+          TwitchMessage(
+            login: 'testuser',
+            text: 'hello',
+            channel: 'somechannel',
+          ),
+        ]),
+      );
+      await tester.pumpAndSettle();
+
+      final cardMaterial = find.ancestor(
+        of: find.text('TestUser'),
+        matching: find.byWidgetPredicate(
+          (w) => w is Material && w.borderRadius != null,
+        ),
+      );
+      expect(cardMaterial, findsOneWidget);
+      final radius =
+          tester.widget<Material>(cardMaterial).borderRadius as BorderRadius;
+      expect(radius.topLeft.x, 28.0);
+      expect(radius.bottomLeft, Radius.zero);
+    });
+
+    testWidgets('User profile never overflows a short screen', (
+      WidgetTester tester,
+    ) async {
+      tester.view.physicalSize = const Size(800, 400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(
+        wrapUserProfileWithHistory(createApi(), [
+          for (var i = 0; i < 30; i++)
+            TwitchMessage(
+              login: 'testuser',
+              text: 'm$i',
+              channel: 'somechannel',
+            ),
+        ]),
+      );
+      await tester.pumpAndSettle();
+
+      // Clipped, never striped: identity and latest stay visible.
+      expect(tester.takeException(), isNull);
+      expect(find.text('TestUser'), findsOneWidget);
+      expect(find.text('row:m29'), findsOneWidget);
+    });
+
+    testWidgets('User profile sheet keeps detents, arrow jumps to latest', (
+      WidgetTester tester,
+    ) async {
+      // Test env has no status bar, so max extent is the full height.
+      const maxExtent = 1.0;
+      // Default test viewport height; the settle math divides by it.
+      const screenH = 600.0;
+      var sheetController = DraggableScrollableController();
+      // Mirrors production: detents track the measured card size.
+      var cardExtent = 0.4;
+      Future<void> openSheet() async {
+        sheetController = DraggableScrollableController();
+        cardExtent = 0.4;
+        await tester.pumpWidget(
+          MaterialApp(
+            key: UniqueKey(),
+            home: Scaffold(
+              body: Builder(
+                builder: (context) {
+                  return TextButton(
+                    onPressed: () {
+                      showModalBottomSheet(
+                        context: context,
+                        isScrollControlled: true,
+                        builder: (ctx) {
+                          // Mirrors production wiring (immediate eased settle).
+                          var tracker = VelocityTracker.withKind(
+                            PointerDeviceKind.touch,
+                          );
+                          var sizeAtDown = 0.4;
+                          return Listener(
+                            onPointerDown: (e) {
+                              sizeAtDown = sheetController.isAttached
+                                  ? sheetController.size
+                                  : 0.4;
+                              tracker = VelocityTracker.withKind(
+                                PointerDeviceKind.touch,
+                              );
+                              tracker.addPosition(e.timeStamp, e.position);
+                            },
+                            onPointerMove: (e) =>
+                                tracker.addPosition(e.timeStamp, e.position),
+                            onPointerUp: (_) {
+                              if (!sheetController.isAttached) return;
+                              final size = sheetController.size;
+                              if ((size - sizeAtDown).abs() <= 0.001) return;
+                              final target = userSheetTargetDetent(
+                                size,
+                                minExtent: 0.25,
+                                cardExtent: cardExtent,
+                                maxExtent: maxExtent,
+                                velocityDy: tracker
+                                    .getVelocity()
+                                    .pixelsPerSecond
+                                    .dy,
+                              );
+                              if (target == 0.25) {
+                                sheetController.jumpTo(size);
+                                if (ModalRoute.of(ctx)?.isCurrent ?? false) {
+                                  Navigator.pop(ctx);
                                 }
-                                if ((target - size).abs() <= 0.02) return;
-                                sheetController.animateTo(
-                                  target,
-                                  duration: const Duration(milliseconds: 250),
-                                  curve: Curves.easeOutCubic,
-                                );
-                              },
-                              child: DraggableScrollableSheet(
-                                controller: sheetController,
-                                initialChildSize: 0.4,
-                                minChildSize: 0.25,
-                                maxChildSize: maxExtent,
-                                expand: false,
-                                snap: false,
-                                builder: (_, scrollController) =>
-                                    UserProfileSheet(
-                                      username: 'testuser',
-                                      userId: '123',
-                                      displayName: 'TestUser',
-                                      twitchApi: createApi(),
-                                      twitchAuth: TwitchAuth()
-                                        ..accessToken = 'test-token',
-                                      messageController:
-                                          TextEditingController(),
-                                      focusNode: FocusNode(),
-                                      onClose: () => Navigator.pop(ctx),
-                                      scrollController: scrollController,
-                                      sheetController: sheetController,
-                                      sheetCollapsedExtent: 0.4,
-                                      userMessages: [
-                                        for (var i = 0; i < 30; i++)
-                                          TwitchMessage(
-                                            login: 'testuser',
-                                            text: 'm$i',
-                                            channel: 'somechannel',
+                                return;
+                              }
+                              if ((target - size).abs() <= 0.02) return;
+                              sheetController.animateTo(
+                                target,
+                                duration: const Duration(milliseconds: 250),
+                                curve: Curves.easeOutCubic,
+                              );
+                            },
+                            child: DraggableScrollableSheet(
+                              controller: sheetController,
+                              initialChildSize: 0.4,
+                              minChildSize: 0.25,
+                              maxChildSize: maxExtent,
+                              expand: false,
+                              snap: false,
+                              builder: (_, scrollController) =>
+                                  UserProfileSheet(
+                                    username: 'testuser',
+                                    userId: '123',
+                                    displayName: 'TestUser',
+                                    twitchApi: createApi(),
+                                    twitchAuth: TwitchAuth()
+                                      ..accessToken = 'test-token',
+                                    messageController: TextEditingController(),
+                                    focusNode: FocusNode(),
+                                    onClose: () => Navigator.pop(ctx),
+                                    scrollController: scrollController,
+                                    sheetController: sheetController,
+                                    sheetMinExtent: 0.25,
+                                    onCardMeasured: (naturalH) {
+                                      cardExtent =
+                                          ((naturalH +
+                                                      UserProfileSheet
+                                                          .dividerBlock +
+                                                      UserProfileSheet
+                                                          .historyPeek) /
+                                                  screenH)
+                                              .clamp(0.25, maxExtent)
+                                              .toDouble();
+                                      if (!sheetController.isAttached) return;
+                                      if ((sheetController.size - cardExtent)
+                                              .abs() >
+                                          0.02) {
+                                        sheetController.animateTo(
+                                          cardExtent,
+                                          duration: const Duration(
+                                            milliseconds: 250,
                                           ),
-                                      ],
-                                      messageRowBuilder: (context, msg) =>
-                                          Text('row:${msg.text}'),
-                                    ),
-                              ),
-                            );
-                          },
-                        ).whenComplete(sheetController.dispose);
-                      },
-                      child: const Text('open-card'),
-                    );
-                  },
-                ),
+                                          curve: Curves.easeOutCubic,
+                                        );
+                                      }
+                                    },
+                                    userMessages: [
+                                      // Oldest first, like production.
+                                      for (var i = 0; i < 30; i++)
+                                        TwitchMessage(
+                                          login: 'testuser',
+                                          text: 'm$i',
+                                          channel: 'somechannel',
+                                        ),
+                                    ],
+                                    messageRowBuilder: (context, msg) =>
+                                        Text('row:${msg.text}'),
+                                  ),
+                            ),
+                          );
+                        },
+                      ).whenComplete(sheetController.dispose);
+                    },
+                    child: const Text('open-card'),
+                  );
+                },
               ),
             ),
-          );
-          await tester.tap(find.text('open-card'));
-          await tester.pumpAndSettle();
-        }
-
-        // Arrow tap grows the sheet to full height.
-        await openSheet();
-        expect(sheetController.size, 0.4);
-        await tester.tap(find.byIcon(Icons.keyboard_arrow_down));
-        await tester.pumpAndSettle();
-        expect(sheetController.size, maxExtent);
-        expect(find.text('row:m0', skipOffstage: false), findsOneWidget);
-
-        // Scrolling the history list does not move the full sheet.
-        await tester.dragFrom(const Offset(400, 300), const Offset(0, -200));
-        await tester.pumpAndSettle();
-        expect(find.byIcon(Icons.keyboard_arrow_up), findsOneWidget);
-        await tester.dragFrom(const Offset(400, 300), const Offset(0, 200));
-        await tester.pumpAndSettle();
-        expect(sheetController.size, maxExtent);
-
-        // Fast downward fling eases directly back to the card.
-        await tester.flingFrom(
-          const Offset(400, 300),
-          const Offset(0, 250),
-          1500,
+          ),
         );
+        await tester.tap(find.text('open-card'));
         await tester.pumpAndSettle();
-        expect(sheetController.size, closeTo(0.4, 0.02));
+      }
 
-        // Release between detents eases back to the card.
-        await tester.dragFrom(const Offset(400, 300), const Offset(0, 250));
-        await tester.pumpAndSettle();
-        expect(sheetController.size, closeTo(0.4, 0.02));
+      // Opens settled onto the measured card: full card plus history peek,
+      // latest message visible, jump arrow hidden.
+      await openSheet();
+      final settled = sheetController.size;
+      expect(settled, greaterThan(0.5));
+      expect(find.text('TestUser'), findsOneWidget);
+      expect(find.text('Report'), findsOneWidget);
+      expect(find.text('row:m29'), findsOneWidget);
+      expect(find.text('row:m0'), findsNothing);
+      expect(arrowOpacity(tester), 0);
 
-        // Fresh card, upward fling eases directly to full height.
-        await openSheet();
-        await tester.flingFrom(
-          const Offset(400, 450),
-          const Offset(0, -300),
-          1500,
-        );
-        await tester.pumpAndSettle();
-        expect(sheetController.size, maxExtent);
+      // Scrolling down toward older messages reveals the jump arrow, and
+      // tapping it glides back to the latest without moving the sheet.
+      await tester.dragFrom(const Offset(400, 560), const Offset(0, 100));
+      await tester.pumpAndSettle();
+      expect(sheetController.size, settled);
+      expect(arrowOpacity(tester), 1);
+      await tester.tap(find.byIcon(Icons.keyboard_arrow_down));
+      await tester.pumpAndSettle();
+      expect(find.text('row:m29'), findsOneWidget);
+      expect(sheetController.size, settled);
+      expect(arrowOpacity(tester), 0);
 
-        // Fresh card, downward fling dismisses in one gesture, no mid stop.
-        await openSheet();
-        await tester.flingFrom(
-          const Offset(400, 450),
-          const Offset(0, 200),
-          1500,
-        );
-        await tester.pumpAndSettle();
-        expect(find.text('row:m0'), findsNothing);
-      },
-    );
+      // Card drags resize the sheet and settle back onto the card.
+      final cardDrag = await tester.startGesture(const Offset(400, 350));
+      await cardDrag.moveBy(const Offset(0, -100));
+      await tester.pump();
+      expect(sheetController.size, greaterThan(settled + 0.05));
+      await cardDrag.up();
+      await tester.pumpAndSettle();
+      expect(sheetController.size, closeTo(settled, 0.02));
+
+      // Upward fling grows to full height.
+      await tester.flingFrom(
+        const Offset(400, 450),
+        const Offset(0, -300),
+        1500,
+      );
+      await tester.pumpAndSettle();
+      expect(sheetController.size, maxExtent);
+
+      // Slow downward drag on the card eases back to the measured card.
+      await tester.dragFrom(const Offset(400, 350), const Offset(0, 150));
+      await tester.pumpAndSettle();
+      expect(sheetController.size, closeTo(settled, 0.02));
+
+      // Fresh card, upward fling eases directly to full height.
+      await openSheet();
+      await tester.flingFrom(
+        const Offset(400, 450),
+        const Offset(0, -300),
+        1500,
+      );
+      await tester.pumpAndSettle();
+      expect(sheetController.size, maxExtent);
+
+      // Fresh card, dragging the card past the minimum dismisses in one
+      // gesture, no mid stop.
+      await openSheet();
+      await tester.dragFrom(const Offset(400, 350), const Offset(0, 400));
+      await tester.pumpAndSettle();
+      expect(find.text('row:m0'), findsNothing);
+    });
 
     testWidgets('User profile shows empty history placeholder', (
       WidgetTester tester,
@@ -5472,7 +5603,6 @@ void main() {
 
       expect(find.textContaining('Recent messages'), findsNothing);
       expect(find.byIcon(Icons.keyboard_arrow_down), findsNothing);
-      expect(find.byIcon(Icons.keyboard_arrow_up), findsNothing);
       expect(
         find.text(
           'No recent messages from this user here yet',

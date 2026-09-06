@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -10,6 +12,11 @@ import 'app_snack.dart';
 import 'mod_view.dart';
 
 class UserProfileSheet extends StatefulWidget {
+  /// History peek the open sheet reserves below the card, in logical px.
+  static const double historyPeek = 96;
+
+  /// Divider block height between the card and the history.
+  static const double dividerBlock = 13;
   final String username;
   final String? userId;
   final String displayName;
@@ -30,18 +37,21 @@ class UserProfileSheet extends StatefulWidget {
   /// True for your own card; mod rows never apply to yourself.
   final bool isSelf;
 
-  /// Scroll controller from the wrapping DraggableScrollableSheet. A local
-  /// one is used when null (e.g. tests embedding the sheet directly).
+  /// Scroll controller from the wrapping DraggableScrollableSheet. The
+  /// history list uses it so its drags coordinate with sheet resizing. A
+  /// local one is used when null (tests embedding the sheet directly).
   final ScrollController? scrollController;
 
-  /// Sheet controller for the wrapping DraggableScrollableSheet. Drives the
-  /// expand arrow (tap jumps to full, arrow hides once revealed). Null in
-  /// tests, where the arrow is shown but inert.
+  /// Sheet controller for the wrapping DraggableScrollableSheet. Card drags
+  /// resize the sheet through it; null in tests, where the card is static.
   final DraggableScrollableController? sheetController;
 
-  /// Sheet extent the card opens at. The arrow shows while the sheet is at
-  /// or below this size and the history is unscrolled.
-  final double sheetCollapsedExtent;
+  /// Minimum sheet extent. Card drags clamp here; releasing at it dismisses.
+  final double sheetMinExtent;
+
+  /// Card natural height in logical px, reported post-frame whenever it
+  /// changes. The sheet sizes its detents off it.
+  final ValueChanged<double>? onCardMeasured;
 
   /// Snapshot of this user's buffered messages, oldest first. Rendered
   /// read-only below the fold; empty shows a placeholder row instead.
@@ -69,7 +79,8 @@ class UserProfileSheet extends StatefulWidget {
     this.isSelf = false,
     this.scrollController,
     this.sheetController,
-    this.sheetCollapsedExtent = 0.5,
+    this.sheetMinExtent = 0.25,
+    this.onCardMeasured,
     this.userMessages = const [],
     this.messageRowBuilder,
   });
@@ -83,9 +94,18 @@ class UserProfileSheetState extends State<UserProfileSheet> {
   bool _loading = true;
   String? _error;
   bool _anonymous = false;
-  bool _arrowVisible = true;
-  bool _arrowUp = false;
+  bool _arrowVisible = false;
   ScrollController? _fallbackController;
+  // Natural card height from the offstage measure copy. Null until the
+  // first post-frame read; _measureDirty forces a re-read after content or
+  // text-scale changes.
+  double? _naturalCardH;
+  bool _measureDirty = true;
+  final _cardMeasureKey = GlobalKey();
+  // Max offset our programmatic pin last set. While the offset still sits
+  // there, card growth (profile landing, measure settling) moves the
+  // goalposts, so later frames re-pin; a user scroll away disables it.
+  double _pinnedMax = -1;
 
   ScrollController get _scrollController =>
       widget.scrollController ?? (_fallbackController ??= ScrollController());
@@ -96,61 +116,65 @@ class UserProfileSheetState extends State<UserProfileSheet> {
   @override
   void initState() {
     super.initState();
-    widget.sheetController?.addListener(_refreshArrow);
     _fetchProfile();
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _measureDirty = true;
+  }
+
+  @override
   void dispose() {
-    widget.sheetController?.removeListener(_refreshArrow);
     _fallbackController?.dispose();
     super.dispose();
   }
 
-  // The floating arrow hints at below-fold history. Scrolled, it flips up
-  // and glides back to the top. It hides once the sheet grows past opening.
-  void _onScrollPixels(double pixels) {
-    final up = pixels > 4;
-    if (up != _arrowUp && mounted) setState(() => _arrowUp = up);
-    _refreshArrow();
-  }
-
-  void _refreshArrow() {
-    if (!mounted) return;
-    final controller = widget.sheetController;
-    final extent = controller != null && controller.isAttached
-        ? controller.size
-        : null;
-    final visible =
-        _hasHistory &&
-        (_arrowUp ||
-            extent == null ||
-            extent <= widget.sheetCollapsedExtent + 0.05);
-    if (visible != _arrowVisible) setState(() => _arrowVisible = visible);
+  // Chronological history with the latest at the bottom: the arrow shows
+  // only while scrolled up toward older messages.
+  void _onScrollPixels(double pixels, double maxExtent) {
+    final away = pixels < maxExtent - 4;
+    if (away != _arrowVisible && mounted) {
+      setState(() => _arrowVisible = away);
+    }
   }
 
   void _onArrowTap() {
-    // Scrolled: glide back to the top instead of fighting the sheet.
-    if (_arrowUp) {
-      _scrollController.animateTo(
-        0,
-        duration: const Duration(milliseconds: 250),
-        curve: Curves.easeOut,
-      );
-      return;
-    }
-    _expandSheet();
-  }
-
-  void _expandSheet() {
-    final controller = widget.sheetController;
-    if (controller == null || !controller.isAttached) return;
-    // Clamps to maxChildSize automatically.
-    controller.animateTo(
-      1,
+    if (!_scrollController.hasClients) return;
+    _scrollController.animateTo(
+      _scrollController.position.maxScrollExtent,
       duration: const Duration(milliseconds: 250),
       curve: Curves.easeOut,
     );
+  }
+
+  // Card drags resize the sheet; release settles via the sheet detents.
+  // The card holds no scrollable, so its touches never reach the history.
+  void _onCardDrag(DragUpdateDetails details) {
+    final controller = widget.sheetController;
+    if (controller == null || !controller.isAttached) return;
+    final dy = details.primaryDelta;
+    if (dy == null || dy == 0) return;
+    final fullH = MediaQuery.sizeOf(context).height;
+    if (fullH <= 0) return;
+    controller.jumpTo(
+      (controller.size - dy / fullH)
+          .clamp(widget.sheetMinExtent, 1.0)
+          .toDouble(),
+    );
+  }
+
+  // Reads the offstage card height; reports and rebuilds only on change.
+  void _syncMeasure() {
+    if (!_measureDirty) return;
+    final h = _cardMeasureKey.currentContext?.size?.height;
+    if (h == null) return;
+    _measureDirty = false;
+    if (h == _naturalCardH) return;
+    if (!mounted) return;
+    setState(() => _naturalCardH = h);
+    widget.onCardMeasured?.call(h);
   }
 
   String get _formattedDisplayName {
@@ -167,6 +191,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
         _anonymous = true;
         _loading = false;
       });
+      _measureDirty = true;
       return;
     }
     try {
@@ -193,6 +218,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
         _loading = false;
       });
     }
+    _measureDirty = true;
   }
 
   String _formatDate(String iso) {
@@ -205,92 +231,128 @@ class UserProfileSheetState extends State<UserProfileSheet> {
     }
   }
 
+  // Top rounding follows the sheet theme; falls back to the M3 default.
+  BorderRadius _topRadius(ThemeData theme) {
+    const fallback = BorderRadius.vertical(top: Radius.circular(28));
+    final shape = theme.bottomSheetTheme.shape;
+    if (shape is RoundedRectangleBorder) {
+      final resolved = shape.borderRadius.resolve(Directionality.of(context));
+      return BorderRadius.only(
+        topLeft: resolved.topLeft,
+        topRight: resolved.topRight,
+      );
+    }
+    return fallback;
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final actions = _profile != null ? _buildActionTiles() : const <Widget>[];
-
-    return Stack(
-      children: [
-        NotificationListener<ScrollUpdateNotification>(
-          onNotification: (notification) {
-            _onScrollPixels(notification.metrics.pixels);
-            return false;
-          },
-          child: CustomScrollView(
-            controller: _scrollController,
-            slivers: [
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.only(top: 16),
-                  child: Center(
-                    child: Container(
-                      width: 32,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: Colors.grey[400],
-                        borderRadius: BorderRadius.circular(2),
-                      ),
-                    ),
+    final media = MediaQuery.sizeOf(context);
+    final measureW = media.width - MediaQuery.paddingOf(context).horizontal;
+    // Opaque card surface (a Material, so tile ink still renders) with the
+    // sheet's top rounding; rows can never bleed through or poke past it.
+    final surface =
+        theme.bottomSheetTheme.modalBackgroundColor ??
+        theme.bottomSheetTheme.backgroundColor ??
+        theme.colorScheme.surfaceContainerLow;
+    // Card takes its natural height first; the history keeps the rest with
+    // a peek so its presence is always discoverable.
+    Widget sheetBody(double sheetH) {
+      final avail = sheetH.isFinite ? sheetH : media.height;
+      if (avail <= 0) return const SizedBox.shrink();
+      final natural = _naturalCardH;
+      final reserved =
+          UserProfileSheet.dividerBlock + UserProfileSheet.historyPeek;
+      final cardH = natural == null
+          ? avail
+          : min(natural, max(0.0, avail - reserved));
+      return Column(
+        children: [
+          SizedBox(
+            height: cardH,
+            child: ClipRect(
+              clipper: const _BoxClipper(),
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onVerticalDragUpdate: _onCardDrag,
+                child: OverflowBox(
+                  maxHeight: double.infinity,
+                  alignment: Alignment.topCenter,
+                  child: Material(
+                    color: surface,
+                    borderRadius: _topRadius(theme),
+                    clipBehavior: Clip.antiAlias,
+                    child: _buildCard(theme, actions),
                   ),
                 ),
               ),
-              const SliverToBoxAdapter(child: SizedBox(height: 16)),
-              if (_loading) ...[
-                const SliverToBoxAdapter(
-                  child: Center(
-                    child: Padding(
-                      padding: EdgeInsets.all(24),
-                      child: CircularProgressIndicator(),
-                    ),
-                  ),
-                ),
-              ] else if (_error != null) ...[
-                SliverToBoxAdapter(
-                  child: Center(
-                    child: Text(
-                      _error!,
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ),
-                ),
-              ] else ...[
-                SliverPadding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  sliver: SliverToBoxAdapter(child: _buildProfileHeader(theme)),
-                ),
-                if (_profile != null)
-                  SliverList.builder(
-                    itemCount: actions.length,
-                    itemBuilder: (context, i) => actions[i],
-                  ),
-                // History is buffer-local, so it shows for anonymous too.
-                // Rows live below the fold; the floating arrow hints at them.
-                if (widget.messageRowBuilder != null) ...[
-                  const SliverToBoxAdapter(
-                    child: Padding(
-                      padding: EdgeInsets.only(bottom: 12),
-                      child: Divider(height: 1),
-                    ),
-                  ),
-                  if (widget.userMessages.isEmpty)
-                    SliverToBoxAdapter(child: _buildHistoryEmpty(theme))
-                  else
-                    SliverList.builder(
-                      itemCount: widget.userMessages.length,
-                      itemBuilder: (context, i) => widget.messageRowBuilder!(
-                        context,
-                        widget.userMessages[i],
-                      ),
-                    ),
-                ],
-              ],
-              const SliverToBoxAdapter(child: SizedBox(height: 24)),
-            ],
+            ),
           ),
-        ),
+          if (widget.messageRowBuilder != null) ...[
+            Expanded(
+              child: widget.userMessages.isEmpty
+                  ? _buildHistoryEmpty(theme)
+                  : NotificationListener<ScrollUpdateNotification>(
+                      onNotification: (notification) {
+                        _onScrollPixels(
+                          notification.metrics.pixels,
+                          notification.metrics.maxScrollExtent,
+                        );
+                        return false;
+                      },
+                      child: ListView.builder(
+                        controller: _scrollController,
+                        itemCount: widget.userMessages.length,
+                        itemBuilder: (context, i) => widget.messageRowBuilder!(
+                          context,
+                          widget.userMessages[i],
+                        ),
+                      ),
+                    ),
+            ),
+          ],
+        ],
+      );
+    }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) => _syncMeasure());
+    // First paints with history land on the latest. Post-frame runs before
+    // the paint, so there is no visible flash.
+    if (_hasHistory) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || !_scrollController.hasClients) return;
+        final position = _scrollController.position;
+        if (position.pixels < position.maxScrollExtent - 4 &&
+            position.pixels >= _pinnedMax - 4) {
+          _pinnedMax = position.maxScrollExtent;
+          _scrollController.jumpTo(position.maxScrollExtent);
+        } else if (position.pixels >= position.maxScrollExtent - 4) {
+          _pinnedMax = position.maxScrollExtent;
+        }
+      });
+    }
+    final sheet = LayoutBuilder(
+      builder: (_, constraints) => sheetBody(
+        constraints.maxHeight.isFinite ? constraints.maxHeight : media.height,
+      ),
+    );
+    return Stack(
+      children: [
+        sheet,
+        // Natural-height measure copy, mounted only while unread. Same
+        // width as the sheet so wrapped text measures identically.
+        if (_measureDirty)
+          Offstage(
+            child: SizedBox(
+              width: measureW,
+              child: KeyedSubtree(
+                key: _cardMeasureKey,
+                child: _buildCard(theme, actions),
+              ),
+            ),
+          ),
         if (_hasHistory)
           Positioned(
             bottom: 16 + MediaQuery.paddingOf(context).bottom,
@@ -314,16 +376,65 @@ class UserProfileSheetState extends State<UserProfileSheet> {
     );
   }
 
+  Widget _buildCard(ThemeData theme, List<Widget> actions) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(top: 16),
+          child: Center(
+            child: Container(
+              width: 32,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey[400],
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+        if (_loading)
+          const Center(
+            child: Padding(
+              padding: EdgeInsets.all(24),
+              child: CircularProgressIndicator(),
+            ),
+          )
+        else if (_error != null)
+          Center(
+            child: Text(
+              _error!,
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+          )
+        else ...[
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: _buildProfileHeader(theme),
+          ),
+          if (_profile != null) ...actions,
+        ],
+        // Pins with the card, separating it from the scrolling history.
+        const Padding(
+          padding: EdgeInsets.only(bottom: 12),
+          child: Divider(height: 1),
+        ),
+      ],
+    );
+  }
+
   Widget _buildHistoryArrow(ThemeData theme) {
     return Material(
       shape: const CircleBorder(),
       elevation: 3,
       color: theme.colorScheme.surfaceContainerHighest,
       child: IconButton(
-        tooltip: _arrowUp ? 'Back to top' : 'Show recent messages',
-        icon: Icon(
-          _arrowUp ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
-        ),
+        tooltip: 'Jump to latest',
+        icon: const Icon(Icons.keyboard_arrow_down),
         color: theme.colorScheme.onSurfaceVariant,
         onPressed: _onArrowTap,
       ),
@@ -642,4 +753,16 @@ class UserProfileSheetState extends State<UserProfileSheet> {
       ),
     ];
   }
+}
+
+// Clips paint and hit testing to the box, so clipped-away card buttons can
+// neither show nor fire.
+class _BoxClipper extends CustomClipper<Rect> {
+  const _BoxClipper();
+
+  @override
+  Rect getClip(Size size) => Offset.zero & size;
+
+  @override
+  bool shouldReclip(_BoxClipper oldClipper) => false;
 }

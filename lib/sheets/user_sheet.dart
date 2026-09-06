@@ -78,7 +78,7 @@ abstract class UserSheetHost extends ShellState {
 
 // User card modal with history, plus the per-message emote list sheet.
 class UserSheets {
-  const UserSheets({
+  UserSheets({
     required this.chatStore,
     required this.chatConn,
     required this.twitchApi,
@@ -102,6 +102,11 @@ class UserSheets {
   final MessageMenus menus;
   final UserSheetHost host;
 
+  // Card detent in sheet fractions, derived from the measured card height
+  // (card plus divider plus history peek). Starts at the hand-tuned guess
+  // until the first measurement lands.
+  double _cardExtent = 0.5;
+
   void showUserProfile(
     BuildContext context,
     String username,
@@ -110,6 +115,7 @@ class UserSheets {
   }) {
     final channel = host.selectedChannel;
     // Buffer snapshot oldest-first like chat; short-lived, no subscription.
+    // The sheet opens pinned to the latest message.
     final history = channel == null
         ? const <TwitchMessage>[]
         : chatStore.recentMessagesFromUser(channel, username).reversed.toList();
@@ -119,14 +125,38 @@ class UserSheets {
     final sheetController = DraggableScrollableController();
     // Compact card: history reveals by scrolling. Settle releases only when
     // the gesture moved the sheet, so list scrolling cannot collapse it.
-    // Dismiss through the route for one continuous exit motion. Mod rows add
-    // four tiles, so the card opens taller to reach the same history cutoff.
+    // Dismiss through the route for one continuous exit motion.
     final canModerate = channel != null && chatConn.isModerationActive(channel);
     final login = host.sessionLogin;
     final isSelf =
         login != null && username.toLowerCase() == login.toLowerCase();
-    final initialChildSize = canModerate && !isSelf ? 0.675 : 0.43;
+    final screenH = MediaQuery.sizeOf(context).height;
     const minExtent = 0.25;
+    // First measurement settles the sheet onto the real card size, so every
+    // screen and text scale opens on card plus history peek. Later measures
+    // only retarget the detents.
+    void onCardMeasured(double naturalH) {
+      final target =
+          ((naturalH +
+                      UserProfileSheet.dividerBlock +
+                      UserProfileSheet.historyPeek) /
+                  screenH)
+              .clamp(minExtent, maxChildSize)
+              .toDouble();
+      _cardExtent = target;
+      if (sheetController.isAttached &&
+          (sheetController.size - target).abs() > 0.02) {
+        sheetController.animateTo(
+          target,
+          duration: PanelManager.sheetAnimDuration,
+          curve: Curves.easeOutCubic,
+        );
+      }
+    }
+
+    // Opening estimates until the first measurement lands and settles the
+    // sheet onto the real card size.
+    final initialChildSize = canModerate && !isSelf ? 0.675 : 0.43;
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -154,7 +184,7 @@ class UserSheets {
               final target = userSheetTargetDetent(
                 size,
                 minExtent: minExtent,
-                cardExtent: initialChildSize,
+                cardExtent: _cardExtent,
                 maxExtent: maxChildSize,
                 velocityDy: tracker.getVelocity().pixelsPerSecond.dy,
               );
@@ -196,7 +226,8 @@ class UserSheets {
                 onWhisperUser: () => host.showWhispersForUser(username),
                 scrollController: scrollController,
                 sheetController: sheetController,
-                sheetCollapsedExtent: initialChildSize,
+                sheetMinExtent: minExtent,
+                onCardMeasured: onCardMeasured,
                 userMessages: history,
                 messageRowBuilder: (ctx, msg) => userHistoryRow(ctx, msg),
               ),
