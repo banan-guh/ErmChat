@@ -2,6 +2,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
 import '../models/generic_emote.dart';
+import '../models/twitch_badge.dart';
 import '../models/twitch_message.dart';
 import '../composer/composer_controller.dart';
 import '../services/chat_connection_manager.dart';
@@ -121,6 +122,18 @@ class UserSheets {
     final history = channel == null
         ? const <TwitchMessage>[]
         : chatStore.recentMessagesFromUser(channel, username).reversed.toList();
+    // Badges active in this channel, newest message first. Empty when the
+    // user has no buffered messages or nothing resolves.
+    var cardBadges = const <CardBadge>[];
+    if (channel != null) {
+      for (var i = history.length - 1; i >= 0; i--) {
+        final resolved = messageBuilder.resolveCardBadges(channel, history[i]);
+        if (resolved.isNotEmpty) {
+          cardBadges = resolved;
+          break;
+        }
+      }
+    }
     // useSafeArea already insets to the status bar; a full fraction lands
     // on the same edge the thread/mention panels top out at.
     const maxChildSize = 1.0;
@@ -258,6 +271,7 @@ class UserSheets {
                   sheetController: sheetController,
                   sheetMinExtent: minExtent,
                   onCardMeasured: onCardMeasured,
+                  cardBadges: cardBadges,
                   userMessages: history,
                   messageRowBuilder: (ctx, msg) => userHistoryRow(ctx, msg),
                 );

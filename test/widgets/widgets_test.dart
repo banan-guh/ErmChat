@@ -25,6 +25,7 @@ import 'package:ermchat/services/twitch_eventsub.dart';
 import 'package:ermchat/services/twitch_irc.dart';
 import 'package:ermchat/services/recent_messages.dart';
 import 'package:ermchat/services/twitch_auth.dart';
+import 'package:ermchat/models/twitch_badge.dart';
 import 'package:ermchat/models/twitch_message.dart';
 import 'package:ermchat/services/suggestion.dart';
 import 'package:ermchat/widgets/app_snack.dart';
@@ -5501,6 +5502,45 @@ void main() {
 
       await tester.pumpAndSettle();
       expect(find.text('row:m29'), findsOneWidget);
+    });
+
+    testWidgets('User profile card shows channel badges', (
+      WidgetTester tester,
+    ) async {
+      Widget wrap(List<CardBadge> badges) {
+        return MaterialApp(
+          key: UniqueKey(),
+          home: Scaffold(
+            body: UserProfileSheet(
+              username: 'testuser',
+              userId: '123',
+              displayName: 'TestUser',
+              twitchApi: createApi(),
+              twitchAuth: TwitchAuth()..accessToken = 'test-token',
+              messageController: TextEditingController(),
+              focusNode: FocusNode(),
+              onClose: () {},
+              cardBadges: badges,
+            ),
+          ),
+        );
+      }
+
+      Finder badgeImage(String url) => find.byWidgetPredicate(
+        (w) => w is CachedNetworkImage && w.imageUrl == url,
+      );
+
+      await tester.pumpWidget(
+        wrap(const [
+          CardBadge(url: 'https://example.com/mod.png', label: 'moderator'),
+        ]),
+      );
+      await tester.pumpAndSettle();
+      expect(badgeImage('https://example.com/mod.png'), findsOneWidget);
+
+      await tester.pumpWidget(wrap(const []));
+      await tester.pumpAndSettle();
+      expect(badgeImage('https://example.com/mod.png'), findsNothing);
     });
 
     testWidgets('User profile card keeps rounded top corners', (

@@ -1,10 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:linkify/linkify.dart';
 import 'package:ermchat/color_utils.dart';
 import 'package:ermchat/services/suggestion.dart';
+import 'package:ermchat/models/twitch_badge.dart';
 import 'package:ermchat/models/twitch_message.dart';
+import 'package:ermchat/services/twitch_auth.dart';
 import 'package:ermchat/util/mention.dart';
 import 'package:ermchat/util/duration_format.dart';
 import 'package:ermchat/util/text_bypass.dart';
@@ -535,6 +539,43 @@ void main() {
     for (final s in plain) {
       expect(s.style?.color, isNot(Colors.blue), reason: '/me tint applies');
     }
+  });
+
+  test('card badges are empty with no badge data', () {
+    final msg = makeMsg();
+    expect(makeBuilder(EmoteManager()).resolveCardBadges('test', msg), isEmpty);
+  });
+
+  test('card badges resolve global sets and drop unknown', () async {
+    final badgeService = TwitchBadgeService(
+      client: MockClient(
+        (_) async => http.Response(
+          '{"data": [{"set_id": "moderator", "versions": [{"id": "1", "image_url_4x": "https://example.com/mod.png"}]}]}',
+          200,
+        ),
+      ),
+    );
+    await badgeService.fetchGlobalBadges(TwitchAuth()..accessToken = 't');
+    final builder = MessageBuilder(
+      emoteManager: EmoteManager(),
+      badgeService: badgeService,
+      thirdPartyBadgeService: ThirdPartyBadgeService(),
+      onShowEmoteSheet: (_) {},
+    );
+    final msg = TwitchMessage(
+      login: 'user',
+      text: 'hi',
+      badges: const [
+        MessageBadge(setId: 'moderator', versionId: '1'),
+        MessageBadge(setId: 'nosuchset', versionId: '1'),
+        MessageBadge(setId: 'moderator', versionId: '9'),
+      ],
+    );
+    final resolved = builder.resolveCardBadges('test', msg);
+    expect(resolved, hasLength(1));
+    expect(resolved.single.url, 'https://example.com/mod.png');
+    expect(resolved.single.label, 'moderator');
+    expect(resolved.single.circular, isFalse);
   });
 
   test('giphy toggle off falls back to plain text', () {

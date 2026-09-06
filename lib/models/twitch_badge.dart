@@ -16,3 +16,18 @@ class MessageBadge {
 
   const MessageBadge({required this.setId, required this.versionId});
 }
+
+/// Badge resolved for non-chat surfaces (user card). Same order and
+/// fallback rules as the chat row: shared-chat avatar, Twitch sets in tag
+/// order, one third-party badge.
+class CardBadge {
+  final String url;
+  final String label;
+  final bool circular;
+
+  const CardBadge({
+    required this.url,
+    required this.label,
+    this.circular = false,
+  });
+}

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../color_utils.dart';
 import '../models/generic_emote.dart';
+import '../models/twitch_badge.dart';
 import '../models/twitch_message.dart';
 import '../util/constants.dart';
 import '../services/emote_manager.dart';
@@ -228,53 +229,29 @@ class MessageBuilder {
     return msg.cachedBadgeSpans!;
   }
 
-  List<WidgetSpan> _computeBadgeSpans(
-    String channel,
-    TwitchMessage msg,
-    int cacheVersion,
-    double badgeScale,
-  ) {
-    final badgeSize = 18.0 * badgeScale;
-    final spans = <WidgetSpan>[];
-
+  /// Channel-active badges for one message, newest resolution wins. Shared
+  /// chat avatar first, Twitch sets in tag order (unresolvable skipped),
+  /// then one third-party badge.
+  List<CardBadge> resolveCardBadges(String channel, TwitchMessage msg) {
+    final out = <CardBadge>[];
     if (msg.sourceBroadcasterId != null) {
       final avatarUrl = badgeService.resolveChannelAvatar(
         msg.sourceBroadcasterId!,
       );
       if (avatarUrl != null) {
-        spans.add(
-          WidgetSpan(
-            alignment: PlaceholderAlignment.middle,
-            child: Semantics(
-              label:
-                  badgeService.resolveChannelDisplayName(
-                    msg.sourceBroadcasterId!,
-                  ) ??
-                  'shared chat',
-              child: Padding(
-                padding: const EdgeInsets.only(right: 2),
-                child: ClipOval(
-                  child: CachedNetworkImage(
-                    imageUrl: avatarUrl,
-                    width: badgeSize,
-                    height: badgeSize,
-                    fit: BoxFit.cover,
-                    fadeInDuration: Duration.zero,
-                    placeholder: (_, _) =>
-                        SizedBox(width: badgeSize, height: badgeSize),
-                    errorWidget: (_, url, error) {
-                      logDebug('Shared chat badge image failed: $url - $error');
-                      return SizedBox(width: badgeSize, height: badgeSize);
-                    },
-                  ),
-                ),
-              ),
-            ),
+        out.add(
+          CardBadge(
+            url: avatarUrl,
+            label:
+                badgeService.resolveChannelDisplayName(
+                  msg.sourceBroadcasterId!,
+                ) ??
+                'shared chat',
+            circular: true,
           ),
         );
       }
     }
-
     final badges = msg.badges;
     if (badges != null) {
       for (final badge in badges) {
@@ -284,64 +261,54 @@ class MessageBuilder {
           badge.versionId,
         );
         if (url == null) continue;
-        spans.add(
-          WidgetSpan(
-            alignment: PlaceholderAlignment.middle,
-            child: Semantics(
-              label: badge.setId,
-              child: Padding(
-                padding: const EdgeInsets.only(right: 2),
-                child: CachedNetworkImage(
-                  imageUrl: url,
-                  width: badgeSize,
-                  height: badgeSize,
-                  fit: BoxFit.contain,
-                  fadeInDuration: Duration.zero,
-                  placeholder: (_, _) =>
-                      SizedBox(width: badgeSize, height: badgeSize),
-                  errorWidget: (_, url, error) {
-                    logDebug('Badge image load failed: $url - $error');
-                    return SizedBox(width: badgeSize, height: badgeSize);
-                  },
-                ),
-              ),
-            ),
-          ),
-        );
+        out.add(CardBadge(url: url, label: badge.setId));
       }
     }
-
     if (msg.userId != null) {
       final tpBadgeUrl =
           thirdPartyBadgeService.resolveFfzBadgeUrl(msg.userId!) ??
           thirdPartyBadgeService.resolveBttvBadgeUrl(msg.userId!) ??
           thirdPartyBadgeService.resolveSevenTvBadgeUrl(msg.userId!);
       if (tpBadgeUrl != null) {
-        spans.add(
-          WidgetSpan(
-            alignment: PlaceholderAlignment.middle,
-            child: Semantics(
-              label: 'third-party badge',
-              child: Padding(
-                padding: const EdgeInsets.only(right: 2),
-                child: CachedNetworkImage(
-                  imageUrl: tpBadgeUrl,
-                  width: badgeSize,
-                  height: badgeSize,
-                  fit: BoxFit.contain,
-                  fadeInDuration: Duration.zero,
-                  placeholder: (_, _) =>
-                      SizedBox(width: badgeSize, height: badgeSize),
-                  errorWidget: (_, url, error) {
-                    logDebug('Third-party badge load failed: $url - $error');
-                    return SizedBox(width: badgeSize, height: badgeSize);
-                  },
-                ),
-              ),
+        out.add(CardBadge(url: tpBadgeUrl, label: 'third-party badge'));
+      }
+    }
+    return out;
+  }
+
+  List<WidgetSpan> _computeBadgeSpans(
+    String channel,
+    TwitchMessage msg,
+    int cacheVersion,
+    double badgeScale,
+  ) {
+    final badgeSize = 18.0 * badgeScale;
+    final spans = <WidgetSpan>[];
+    for (final badge in resolveCardBadges(channel, msg)) {
+      final image = CachedNetworkImage(
+        imageUrl: badge.url,
+        width: badgeSize,
+        height: badgeSize,
+        fit: badge.circular ? BoxFit.cover : BoxFit.contain,
+        fadeInDuration: Duration.zero,
+        placeholder: (_, _) => SizedBox(width: badgeSize, height: badgeSize),
+        errorWidget: (_, url, error) {
+          logDebug('Badge image load failed: $url - $error');
+          return SizedBox(width: badgeSize, height: badgeSize);
+        },
+      );
+      spans.add(
+        WidgetSpan(
+          alignment: PlaceholderAlignment.middle,
+          child: Semantics(
+            label: badge.label,
+            child: Padding(
+              padding: const EdgeInsets.only(right: 2),
+              child: badge.circular ? ClipOval(child: image) : image,
             ),
           ),
-        );
-      }
+        ),
+      );
     }
 
     msg.cachedBadgeSpansVersion = cacheVersion;

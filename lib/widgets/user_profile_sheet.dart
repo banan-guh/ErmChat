@@ -2,8 +2,10 @@ import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show HapticFeedback;
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../models/twitch_badge.dart';
 import '../models/twitch_message.dart';
 import '../services/mod_actions.dart';
 import '../services/twitch_api.dart';
@@ -50,6 +52,10 @@ class UserProfileSheet extends StatefulWidget {
   /// changes. The sheet sizes its detents off it.
   final ValueChanged<double>? onCardMeasured;
 
+  /// Badges active in this channel, resolved by the opener from buffered
+  /// messages. Empty hides the row.
+  final List<CardBadge> cardBadges;
+
   /// Snapshot of this user's buffered messages, oldest first. Rendered
   /// read-only below the fold; empty shows a placeholder row instead.
   final List<TwitchMessage> userMessages;
@@ -78,6 +84,7 @@ class UserProfileSheet extends StatefulWidget {
     this.sheetController,
     this.sheetMinExtent = 0.25,
     this.onCardMeasured,
+    this.cardBadges = const [],
     this.userMessages = const [],
     this.messageRowBuilder,
   });
@@ -533,6 +540,20 @@ class UserProfileSheetState extends State<UserProfileSheet> {
                       color: theme.colorScheme.onSurfaceVariant,
                     ),
                   ),
+                  if (widget.cardBadges.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 4,
+                      runSpacing: 4,
+                      children: [
+                        for (final badge in widget.cardBadges)
+                          Semantics(
+                            label: badge.label,
+                            child: _cardBadgeImage(badge),
+                          ),
+                      ],
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -541,6 +562,25 @@ class UserProfileSheetState extends State<UserProfileSheet> {
         const SizedBox(height: 12),
       ],
     );
+  }
+
+  static const _cardBadgeSize = 24.0;
+
+  Widget _cardBadgeImage(CardBadge badge) {
+    final image = CachedNetworkImage(
+      imageUrl: badge.url,
+      width: _cardBadgeSize,
+      height: _cardBadgeSize,
+      fit: badge.circular ? BoxFit.cover : BoxFit.contain,
+      fadeInDuration: Duration.zero,
+      placeholder: (_, _) =>
+          const SizedBox(width: _cardBadgeSize, height: _cardBadgeSize),
+      errorWidget: (_, url, error) {
+        logDebug('User card badge image failed: $url - $error');
+        return const SizedBox(width: _cardBadgeSize, height: _cardBadgeSize);
+      },
+    );
+    return badge.circular ? ClipOval(child: image) : image;
   }
 
   String? get _targetUserId => widget.userId ?? _profile?['id'] as String?;
