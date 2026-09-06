@@ -197,26 +197,21 @@ class HomeAppBar {
                         ),
                       ),
                       const PopupMenuDivider(),
-                      if (host.selectedChannel != null)
-                        const PopupMenuItem(
-                          value: 'modview',
-                          child: Row(
-                            children: [
-                              Icon(Icons.shield_outlined, size: 20),
-                              SizedBox(width: 12),
-                              Text('Mod view'),
-                            ],
-                          ),
-                        ),
+                      // Release: mod view hidden until mature.
+                      // if (host.selectedChannel != null)
+                      //   const PopupMenuItem(
+                      //     value: 'modview',
+                      //     child: Row(
+                      //       children: [
+                      //         Icon(Icons.shield_outlined, size: 20),
+                      //         SizedBox(width: 12),
+                      //         Text('Mod view'),
+                      //       ],
+                      //     ),
+                      //   ),
                       const PopupMenuItem(
                         value: 'threads',
-                        child: Row(
-                          children: [
-                            Icon(Icons.forum, size: 20),
-                            SizedBox(width: 12),
-                            Text('Threads'),
-                          ],
-                        ),
+                        child: Text('Threads'),
                       ),
                       const PopupMenuItem(
                         value: 'upload',
