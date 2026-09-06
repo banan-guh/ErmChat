@@ -448,6 +448,7 @@ class _HomeScreenState extends State<HomeScreen>
     emoteManager: _emoteManager,
     messageBuilder: _messageBuilder,
     composer: _composer,
+    menus: _menus,
     host: this,
   );
 

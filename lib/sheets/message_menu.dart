@@ -40,7 +40,6 @@ class MessageMenus {
     iosHaptic(HapticFeedback.mediumImpact);
     final threadRoot = host.findThreadRoot(msg);
     final hasThread = threadRoot != null;
-    final threadSaved = hasThread && host.isThreadSaved(threadRoot);
     showModalBottomSheet(
       context: context,
       builder: (ctx) => SafeArea(
@@ -63,17 +62,6 @@ class MessageMenus {
                   onTap: () {
                     Navigator.pop(ctx);
                     unawaited(host.showThreadView(threadRoot));
-                  },
-                ),
-              if (hasThread)
-                ListTile(
-                  leading: Icon(
-                    threadSaved ? Icons.bookmark : Icons.bookmark_border,
-                  ),
-                  title: Text(threadSaved ? 'Unsave thread' : 'Save thread'),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    host.toggleSaveThread(threadRoot);
                   },
                 ),
               ListTile(

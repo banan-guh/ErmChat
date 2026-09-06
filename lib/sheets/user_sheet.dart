@@ -16,6 +16,7 @@ import '../widgets/emote_sheet.dart';
 import '../widgets/message_builder.dart';
 import '../widgets/panel_manager.dart';
 import '../widgets/user_profile_sheet.dart';
+import 'message_menu.dart';
 
 // Speed above which release direction overrides distance when choosing the
 // user-card target. Mirrors the framework's dismiss-fling scale.
@@ -86,6 +87,7 @@ class UserSheets {
     required this.emoteManager,
     required this.messageBuilder,
     required this.composer,
+    required this.menus,
     required this.host,
   });
 
@@ -97,6 +99,7 @@ class UserSheets {
   final EmoteManager emoteManager;
   final MessageBuilder messageBuilder;
   final ComposerController composer;
+  final MessageMenus menus;
   final UserSheetHost host;
 
   void showUserProfile(
@@ -110,10 +113,9 @@ class UserSheets {
     final history = channel == null
         ? const <TwitchMessage>[]
         : chatStore.recentMessagesFromUser(channel, username).reversed.toList();
-    // Threads panels top out below the status bar; match that edge here.
-    final screenH = MediaQuery.sizeOf(context).height;
-    final maxChildSize =
-        (screenH - MediaQuery.paddingOf(context).top) / screenH;
+    // useSafeArea already insets to the status bar; a full fraction lands
+    // on the same edge the thread/mention panels top out at.
+    const maxChildSize = 1.0;
     final sheetController = DraggableScrollableController();
     // Compact card: history reveals by scrolling. Settle releases only when
     // the gesture moved the sheet, so list scrolling cannot collapse it.
@@ -123,7 +125,7 @@ class UserSheets {
     final login = host.sessionLogin;
     final isSelf =
         login != null && username.toLowerCase() == login.toLowerCase();
-    final initialChildSize = canModerate && !isSelf ? 0.65 : 0.4;
+    final initialChildSize = canModerate && !isSelf ? 0.675 : 0.43;
     const minExtent = 0.25;
     showModalBottomSheet(
       context: context,
@@ -206,7 +208,8 @@ class UserSheets {
   }
 
   // Read-only history row for the user card: full chat styling, but no
-  // profile recursion, menus, or reply affordances. Double-tap copies.
+  // profile recursion or reply affordances. Long-press shows the panel
+  // menu (copy + more); double-tap copies.
   Widget userHistoryRow(BuildContext context, TwitchMessage msg) {
     final theme = Theme.of(context);
     // Same background the modal sheet paints, so rows blend into the card.
@@ -226,6 +229,7 @@ class UserSheets {
         buildBadgeSpans: messageBuilder.buildBadgeSpans,
         buildMessageSpans: messageBuilder.buildMessageSpans,
         onDoubleTap: () => host.copyMessage(msg),
+        onLongPress: () => menus.showPanelMessageMenu(context, msg),
         showTimestamp: host.showTimestamps,
         showImages: messageBuilder.showImages,
         imageHeight: messageBuilder.imageHeight,
