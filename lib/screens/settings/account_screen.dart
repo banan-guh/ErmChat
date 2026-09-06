@@ -7,6 +7,7 @@ import '../../services/twitch_api.dart';
 import '../../services/twitch_auth.dart';
 import '../../services/twitch_oauth.dart';
 import '../../twitch_config.dart';
+import 'settings_page.dart';
 
 enum _AuthState { idle, waiting, success, error, needsSetup, pasteToken }
 
@@ -185,8 +186,8 @@ class _AccountScreenState extends State<AccountScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Account')),
+    return SettingsPage(
+      title: const Text('Account'),
       body: ListView(
         children: [
           if (widget.twitchAuth.accounts.isNotEmpty) _buildAccountSection(),

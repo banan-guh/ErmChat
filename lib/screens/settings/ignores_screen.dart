@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../services/ignore_manager.dart';
+import 'settings_page.dart';
 
 class IgnoresScreen extends StatefulWidget {
   const IgnoresScreen({super.key});
@@ -16,15 +17,13 @@ class _IgnoresScreenState extends State<IgnoresScreen> {
   Widget build(BuildContext context) {
     return DefaultTabController(
       length: 2,
-      child: Scaffold(
-        appBar: AppBar(
-          title: const Text('Ignores'),
-          bottom: const TabBar(
-            tabs: [
-              Tab(text: 'Users'),
-              Tab(text: 'Keywords'),
-            ],
-          ),
+      child: SettingsPage(
+        title: const Text('Ignores'),
+        bottom: const TabBar(
+          tabs: [
+            Tab(text: 'Users'),
+            Tab(text: 'Keywords'),
+          ],
         ),
         // The FAB needs the selected tab; look it up from a context INSIDE
         // the DefaultTabController. The state's own context sits above it,

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../services/link_whitelist.dart';
+import 'settings_page.dart';
 
 /// Lets the user manage the link-whitelist used to linkify bare/short domains
 /// (e.g. `kappa.lol`) that stock linkify skips. Entries are auto-classified as
@@ -44,17 +45,15 @@ class _LinkWhitelistSettingsScreenState
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Split link whitelist'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.restore),
-            tooltip: 'Restore defaults',
-            onPressed: () => _confirmRestore(context),
-          ),
-        ],
-      ),
+    return SettingsPage(
+      title: const Text('Split link whitelist'),
+      actions: [
+        IconButton(
+          icon: const Icon(Icons.restore),
+          tooltip: 'Restore defaults',
+          onPressed: () => _confirmRestore(context),
+        ),
+      ],
       floatingActionButton: FloatingActionButton(
         onPressed: LinkWhitelist.instance.enabled
             ? () => showDialog(

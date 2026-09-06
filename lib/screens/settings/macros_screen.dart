@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../services/command_macros.dart';
 import '../../services/twitch_auth.dart';
+import 'settings_page.dart';
 
 /// Per-account command macros: trigger word + body, expanded on send.
 class MacrosScreen extends StatefulWidget {
@@ -62,8 +63,8 @@ class _MacrosScreenState extends State<MacrosScreen> {
   @override
   Widget build(BuildContext context) {
     final anonymous = _login == null;
-    return Scaffold(
-      appBar: AppBar(title: const Text('Command macros')),
+    return SettingsPage(
+      title: const Text('Command macros'),
       floatingActionButton: anonymous
           ? null
           : FloatingActionButton(

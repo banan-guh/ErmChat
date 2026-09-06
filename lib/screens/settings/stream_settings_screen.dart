@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../services/stream_player_controller.dart';
+import 'settings_page.dart';
 
 class StreamSettingsScreen extends StatefulWidget {
   final ValueChanged<bool>? onShowExtensionsChanged;
@@ -47,8 +48,8 @@ class _StreamSettingsScreenState extends State<StreamSettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Livestreams')),
+    return SettingsPage(
+      title: const Text('Livestreams'),
       body: ListView(
         children: [
           SwitchListTile(

@@ -128,70 +128,76 @@ class UserSheets {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      useSafeArea: true,
       builder: (ctx) {
         var tracker = VelocityTracker.withKind(PointerDeviceKind.touch);
         var sizeAtDown = initialChildSize;
-        return Listener(
-          onPointerDown: (e) {
-            sizeAtDown = sheetController.isAttached
-                ? sheetController.size
-                : initialChildSize;
-            tracker = VelocityTracker.withKind(PointerDeviceKind.touch);
-            tracker.addPosition(e.timeStamp, e.position);
-          },
-          onPointerMove: (e) => tracker.addPosition(e.timeStamp, e.position),
-          onPointerUp: (_) {
-            if (!sheetController.isAttached) return;
-            final size = sheetController.size;
-            if ((size - sizeAtDown).abs() <= 0.001) return;
-            final target = userSheetTargetDetent(
-              size,
-              minExtent: minExtent,
-              cardExtent: initialChildSize,
-              maxExtent: maxChildSize,
-              velocityDy: tracker.getVelocity().pixelsPerSecond.dy,
-            );
-            if (target == minExtent) {
-              sheetController.jumpTo(size);
-              if (ModalRoute.of(ctx)?.isCurrent ?? false) {
-                Navigator.pop(ctx);
+        // Route-level SafeArea clears the nav bar; useSafeArea skips bottom.
+        return SafeArea(
+          top: false,
+          bottom: true,
+          child: Listener(
+            onPointerDown: (e) {
+              sizeAtDown = sheetController.isAttached
+                  ? sheetController.size
+                  : initialChildSize;
+              tracker = VelocityTracker.withKind(PointerDeviceKind.touch);
+              tracker.addPosition(e.timeStamp, e.position);
+            },
+            onPointerMove: (e) => tracker.addPosition(e.timeStamp, e.position),
+            onPointerUp: (_) {
+              if (!sheetController.isAttached) return;
+              final size = sheetController.size;
+              if ((size - sizeAtDown).abs() <= 0.001) return;
+              final target = userSheetTargetDetent(
+                size,
+                minExtent: minExtent,
+                cardExtent: initialChildSize,
+                maxExtent: maxChildSize,
+                velocityDy: tracker.getVelocity().pixelsPerSecond.dy,
+              );
+              if (target == minExtent) {
+                sheetController.jumpTo(size);
+                if (ModalRoute.of(ctx)?.isCurrent ?? false) {
+                  Navigator.pop(ctx);
+                }
+                return;
               }
-              return;
-            }
-            if ((target - size).abs() <= 0.02) return;
-            sheetController.animateTo(
-              target,
-              duration: PanelManager.sheetAnimDuration,
-              curve: Curves.easeOutCubic,
-            );
-          },
-          child: DraggableScrollableSheet(
-            controller: sheetController,
-            initialChildSize: initialChildSize,
-            minChildSize: minExtent,
-            maxChildSize: maxChildSize,
-            expand: false,
-            snap: false,
-            builder: (_, scrollController) => UserProfileSheet(
-              username: username,
-              displayName: displayName ?? username,
-              userId: userId,
-              twitchApi: twitchApi,
-              twitchAuth: twitchAuth,
-              modActions: modActions,
-              channel: channel,
-              canModerate: canModerate,
-              isSelf: isSelf,
-              messageController: composer.messageController,
-              focusNode: composer.focusNode,
-              onClose: () => Navigator.pop(ctx),
-              onUserBlocked: host.onUserBlocked,
-              onWhisperUser: () => host.showWhispersForUser(username),
-              scrollController: scrollController,
-              sheetController: sheetController,
-              sheetCollapsedExtent: initialChildSize,
-              userMessages: history,
-              messageRowBuilder: (ctx, msg) => userHistoryRow(ctx, msg),
+              if ((target - size).abs() <= 0.02) return;
+              sheetController.animateTo(
+                target,
+                duration: PanelManager.sheetAnimDuration,
+                curve: Curves.easeOutCubic,
+              );
+            },
+            child: DraggableScrollableSheet(
+              controller: sheetController,
+              initialChildSize: initialChildSize,
+              minChildSize: minExtent,
+              maxChildSize: maxChildSize,
+              expand: false,
+              snap: false,
+              builder: (_, scrollController) => UserProfileSheet(
+                username: username,
+                displayName: displayName ?? username,
+                userId: userId,
+                twitchApi: twitchApi,
+                twitchAuth: twitchAuth,
+                modActions: modActions,
+                channel: channel,
+                canModerate: canModerate,
+                isSelf: isSelf,
+                messageController: composer.messageController,
+                focusNode: composer.focusNode,
+                onClose: () => Navigator.pop(ctx),
+                onUserBlocked: host.onUserBlocked,
+                onWhisperUser: () => host.showWhispersForUser(username),
+                scrollController: scrollController,
+                sheetController: sheetController,
+                sheetCollapsedExtent: initialChildSize,
+                userMessages: history,
+                messageRowBuilder: (ctx, msg) => userHistoryRow(ctx, msg),
+              ),
             ),
           ),
         );
@@ -236,12 +242,17 @@ class UserSheets {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      builder: (ctx) => EmoteSheet(
-        emotes: emotes,
-        messageController: composer.messageController,
-        focusNode: composer.focusNode,
-        onClose: () => Navigator.pop(ctx),
-        onUseEmote: emoteManager.markEmoteUsed,
+      useSafeArea: true,
+      builder: (ctx) => SafeArea(
+        top: false,
+        bottom: true,
+        child: EmoteSheet(
+          emotes: emotes,
+          messageController: composer.messageController,
+          focusNode: composer.focusNode,
+          onClose: () => Navigator.pop(ctx),
+          onUseEmote: emoteManager.markEmoteUsed,
+        ),
       ),
     );
   }

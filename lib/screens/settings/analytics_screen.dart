@@ -5,6 +5,7 @@ import '../../widgets/emote_image.dart';
 import '../../widgets/tabbed_layout.dart';
 import '../../models/generic_emote.dart';
 import '../../services/analytics_service.dart';
+import 'settings_page.dart';
 
 /// Formats the elapsed tracking time (e.g. `1h 5m`, `3m 2s`, `12s`).
 String formatAnalyticsElapsed(DateTime start) {
@@ -135,32 +136,30 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Analytics'),
-        actions: [
-          if (_channel != null)
-            PopupMenuButton<String>(
-              icon: const Icon(Icons.refresh),
-              tooltip: 'Reset stats',
-              onSelected: (value) {
-                final service = widget.analyticsService;
-                if (value == 'channel') {
-                  service.resetChannel(_channel!);
-                } else if (value == 'all') {
-                  service.resetAll();
-                }
-              },
-              itemBuilder: (_) => const [
-                PopupMenuItem(
-                  value: 'channel',
-                  child: Text('Reset this channel'),
-                ),
-                PopupMenuItem(value: 'all', child: Text('Reset all channels')),
-              ],
-            ),
-        ],
-      ),
+    return SettingsPage(
+      title: const Text('Analytics'),
+      actions: [
+        if (_channel != null)
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.refresh),
+            tooltip: 'Reset stats',
+            onSelected: (value) {
+              final service = widget.analyticsService;
+              if (value == 'channel') {
+                service.resetChannel(_channel!);
+              } else if (value == 'all') {
+                service.resetAll();
+              }
+            },
+            itemBuilder: (_) => const [
+              PopupMenuItem(
+                value: 'channel',
+                child: Text('Reset this channel'),
+              ),
+              PopupMenuItem(value: 'all', child: Text('Reset all channels')),
+            ],
+          ),
+      ],
       body: widget.channels.isEmpty
           ? const Center(child: Text('Join a channel to start tracking stats'))
           : TabbedLayout(

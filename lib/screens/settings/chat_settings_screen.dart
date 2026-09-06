@@ -9,6 +9,7 @@ import '../../util/timestamp_formatter.dart';
 import 'macros_screen.dart';
 import 'pings_screen.dart';
 import 'ignores_screen.dart';
+import 'settings_page.dart';
 
 class ChatSettingsScreen extends StatefulWidget {
   final TwitchAuth? twitchAuth;
@@ -198,8 +199,8 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Chat')),
+    return SettingsPage(
+      title: const Text('Chat'),
       body: ListView(
         children: [
           _sectionHeader('Messages'),
@@ -335,7 +336,9 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
           SwitchListTile(
             secondary: const Icon(Icons.format_paint),
             title: const Text('7TV name paints'),
-            subtitle: const Text('Gradient username colors for 7TV subscribers'),
+            subtitle: const Text(
+              'Gradient username colors for 7TV subscribers',
+            ),
             value: _namePaints,
             onChanged: (value) async {
               final prefs = await SharedPreferences.getInstance();
@@ -347,7 +350,9 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
           SwitchListTile(
             secondary: const Icon(Icons.sentiment_very_satisfied),
             title: const Text('Prefer emote suggestions'),
-            subtitle: const Text('Emote priority over usernames in autocomplete'),
+            subtitle: const Text(
+              'Emote priority over usernames in autocomplete',
+            ),
             value: _preferEmotesFirst,
             onChanged: (value) async {
               final prefs = await SharedPreferences.getInstance();
@@ -398,7 +403,9 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
           SwitchListTile(
             secondary: const Icon(Icons.wifi_tethering),
             title: const Text('Keep chat alive in background'),
-            subtitle: const Text('Foreground notification to not reconnect every time'),
+            subtitle: const Text(
+              'Foreground notification to not reconnect every time',
+            ),
             value: _backgroundService,
             onChanged: (value) async {
               final prefs = await SharedPreferences.getInstance();

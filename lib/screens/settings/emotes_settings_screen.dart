@@ -6,6 +6,7 @@ import '../../models/emote_fetch_tier.dart';
 import '../../models/generic_emote.dart';
 import '../../services/emote_cache_manager.dart';
 import '../../services/emote_manager.dart';
+import 'settings_page.dart';
 
 class EmotesSettingsScreen extends StatefulWidget {
   final ValueChanged<int>? onEmoteTierChanged;
@@ -214,8 +215,8 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
   Widget build(BuildContext context) {
     final tier = EmoteFetchTier.values[_tier];
     final autoOn = _autoMode != EmoteFetchAutoMode.off;
-    return Scaffold(
-      appBar: AppBar(title: const Text('Emotes')),
+    return SettingsPage(
+      title: const Text('Emotes'),
       body: widget.mobileNotifier == null
           ? _buildList(context, tier, autoOn, isMobile: false)
           : ValueListenableBuilder<bool>(
@@ -468,7 +469,9 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
                     SwitchListTile(
                       secondary: const Icon(Icons.speed),
                       title: const Text('Adaptive throttling'),
-                      subtitle: const Text('Lower emote FPS when the UI stutters'),
+                      subtitle: const Text(
+                        'Lower emote FPS when the UI stutters',
+                      ),
                       value: _adaptiveThrottle && _emoteFpsCap > 0,
                       onChanged: _emoteFpsCap == 0
                           ? null

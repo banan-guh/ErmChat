@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import '../../util/log.dart';
 import 'dev_settings_screen.dart';
+import 'settings_page.dart';
 
 class AboutScreen extends StatefulWidget {
   final ValueChanged<bool>? onTestWidgetsChanged;
@@ -52,8 +53,8 @@ class _AboutScreenState extends State<AboutScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('About')),
+    return SettingsPage(
+      title: const Text('About'),
       body: Column(
         children: [
           Expanded(

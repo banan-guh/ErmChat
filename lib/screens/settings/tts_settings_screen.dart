@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../services/tts_controller.dart';
+import 'settings_page.dart';
 import 'tts_user_ignore_list_screen.dart';
 
 class TtsSettingsScreen extends StatefulWidget {
@@ -187,8 +188,8 @@ class _TtsSettingsScreenState extends State<TtsSettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Text-to-speech')),
+    return SettingsPage(
+      title: const Text('Text-to-speech'),
       body: ListView(
         children: [
           SwitchListTile(

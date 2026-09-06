@@ -11,6 +11,7 @@ import '../../services/data_usage.dart';
 import '../../util/webp_anim.dart';
 import '../../widgets/emote_image.dart';
 import '../../widgets/welcome_dialog.dart';
+import 'settings_page.dart';
 
 class DevSettingsScreen extends StatefulWidget {
   final ValueChanged<bool>? onTestWidgetsChanged;
@@ -96,7 +97,9 @@ class _DevSettingsScreenState extends State<DevSettingsScreen> {
         '($frameCount frames, ${frames.totalDuration.inMilliseconds}ms total, $dims)',
       );
       if (frameCount == 0) {
-        log('WARNING: production decode produced 0 frames - result is meaningless.');
+        log(
+          'WARNING: production decode produced 0 frames - result is meaningless.',
+        );
       }
       // Frames are GPU-resident ui.Images. Dispose them so repeated runs don't
       // exhaust GPU memory and skew later timings (or fail outright).
@@ -182,8 +185,8 @@ class _DevSettingsScreenState extends State<DevSettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Dev settings')),
+    return SettingsPage(
+      title: const Text('Dev settings'),
       body: ListView(
         children: [
           SwitchListTile(
@@ -365,8 +368,9 @@ class _DecodeDiagScreenState extends State<_DecodeDiagScreen> {
     try {
       codec = await ui.instantiateImageCodec(bytes);
       for (var i = 0; i < codec.frameCount; i++) {
-        final f =
-            await codec.getNextFrame().timeout(const Duration(seconds: 3));
+        final f = await codec.getNextFrame().timeout(
+          const Duration(seconds: 3),
+        );
         frames.add(f.image);
         durations.add(f.duration);
       }
@@ -422,8 +426,8 @@ class _DecodeDiagScreenState extends State<_DecodeDiagScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Decode diagnosis (engine-only)')),
+    return SettingsPage(
+      title: const Text('Decode diagnosis (engine-only)'),
       body: ListView(
         children: [
           Padding(
@@ -483,30 +487,27 @@ class _DecodeDiagScreenState extends State<_DecodeDiagScreen> {
   }
 
   Widget _pane(_Variant v) => Card(
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.all(6),
-              child: Text(
-                v.label,
-                style: const TextStyle(fontWeight: FontWeight.bold),
-              ),
-            ),
-            if (v.error != null)
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8),
-                child: Text(
-                  v.error!,
-                  style: const TextStyle(
-                    fontSize: 11,
-                    color: Colors.red,
-                  ),
-                ),
-              ),
-            SizedBox(height: 160, child: _FramePlayer(v.frames, v.durations)),
-          ],
+    child: Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(6),
+          child: Text(
+            v.label,
+            style: const TextStyle(fontWeight: FontWeight.bold),
+          ),
         ),
-      );
+        if (v.error != null)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: Text(
+              v.error!,
+              style: const TextStyle(fontSize: 11, color: Colors.red),
+            ),
+          ),
+        SizedBox(height: 160, child: _FramePlayer(v.frames, v.durations)),
+      ],
+    ),
+  );
 }
 
 class _Variant {
@@ -551,14 +552,11 @@ class _FramePlayerState extends State<_FramePlayer> {
   void _schedule() {
     if (widget.frames.isEmpty) return;
     final d = widget.durations[_i];
-    _t = Timer(
-      d > Duration.zero ? d : const Duration(milliseconds: 40),
-      () {
-        if (!mounted) return;
-        setState(() => _i = (_i + 1) % widget.frames.length);
-        _schedule();
-      },
-    );
+    _t = Timer(d > Duration.zero ? d : const Duration(milliseconds: 40), () {
+      if (!mounted) return;
+      setState(() => _i = (_i + 1) % widget.frames.length);
+      _schedule();
+    });
   }
 
   @override
@@ -638,17 +636,15 @@ class _PerfLogScreenState extends State<_PerfLogScreen> {
   @override
   Widget build(BuildContext context) {
     final current = PerfLog.I.entries().reversed.toList();
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Performance log'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.copy),
-            tooltip: 'Copy all',
-            onPressed: _copyAll,
-          ),
-        ],
-      ),
+    return SettingsPage(
+      title: const Text('Performance log'),
+      actions: [
+        IconButton(
+          icon: const Icon(Icons.copy),
+          tooltip: 'Copy all',
+          onPressed: _copyAll,
+        ),
+      ],
       body: Column(
         children: [
           Padding(

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../services/tts_controller.dart';
+import 'settings_page.dart';
 
 class TtsUserIgnoreListScreen extends StatefulWidget {
   final TtsController? ttsController;
@@ -47,8 +48,8 @@ class _TtsUserIgnoreListScreenState extends State<TtsUserIgnoreListScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('TTS user ignore list')),
+    return SettingsPage(
+      title: const Text('TTS user ignore list'),
       body: Column(
         children: [
           Padding(

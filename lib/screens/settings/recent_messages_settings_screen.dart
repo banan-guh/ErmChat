@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../services/recent_messages.dart';
+import 'settings_page.dart';
 
 class RecentMessagesSettingsScreen extends StatefulWidget {
   final ValueChanged<RecentMessagesConfig>? onChanged;
@@ -60,8 +61,8 @@ class _RecentMessagesSettingsScreenState
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Recent messages')),
+    return SettingsPage(
+      title: const Text('Recent messages'),
       body: RadioGroup<RecentMessagesMode>(
         groupValue: _mode,
         onChanged: (mode) {

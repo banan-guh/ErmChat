@@ -2,6 +2,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import '../../util/constants.dart';
 import '../../widgets/join_channel_dialog.dart';
+import 'settings_page.dart';
 
 class ChannelSettingsScreen extends StatefulWidget {
   final ValueNotifier<List<String>> channelNotifier;
@@ -46,8 +47,8 @@ class _ChannelSettingsScreenState extends State<ChannelSettingsScreen> {
   Widget build(BuildContext context) {
     final channels = widget.channelNotifier.value;
 
-    return Scaffold(
-      appBar: AppBar(title: const Text('Channels')),
+    return SettingsPage(
+      title: const Text('Channels'),
       body: ListView(
         children: [
           if (channels.isEmpty)

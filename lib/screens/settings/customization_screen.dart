@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../theme_colors.dart';
+import 'settings_page.dart';
 
 class CustomizationScreen extends StatefulWidget {
   final ValueChanged<ThemeMode> onThemeChanged;
@@ -74,7 +75,12 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
     final mode = await showModalBottomSheet<ThemeMode>(
       context: context,
       showDragHandle: false,
-      builder: (_) => _ThemePickerSheet(current: _themeMode),
+      useSafeArea: true,
+      builder: (_) => SafeArea(
+        top: false,
+        bottom: true,
+        child: _ThemePickerSheet(current: _themeMode),
+      ),
     );
     if (mode == null || !mounted || mode == _themeMode) return;
     setState(() => _themeMode = mode);
@@ -136,8 +142,8 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    return Scaffold(
-      appBar: AppBar(title: const Text('Customization')),
+    return SettingsPage(
+      title: const Text('Customization'),
       body: ListView(
         children: [
           ListTile(

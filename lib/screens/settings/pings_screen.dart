@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../models/ping_rule.dart';
 import '../../services/ping_manager.dart';
+import 'settings_page.dart';
 
 class PingsScreen extends StatefulWidget {
   const PingsScreen({super.key});
@@ -40,32 +41,30 @@ class _PingsScreenState extends State<PingsScreen> {
     final visibleTabs = _visibleTabs;
     return DefaultTabController(
       length: visibleTabs.length,
-      child: Scaffold(
-        appBar: AppBar(
-          title: const Text('Pings'),
-          actions: [
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(_simpleMode ? 'Simple' : 'Advanced'),
-                  const SizedBox(width: 8),
-                  Switch(value: !_simpleMode, onChanged: (_) => _toggleMode()),
-                ],
-              ),
+      child: SettingsPage(
+        title: const Text('Pings'),
+        actions: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(_simpleMode ? 'Simple' : 'Advanced'),
+                const SizedBox(width: 8),
+                Switch(value: !_simpleMode, onChanged: (_) => _toggleMode()),
+              ],
             ),
-          ],
-          bottom: TabBar(
-            labelColor: Theme.of(context).colorScheme.primary,
-            unselectedLabelColor: Theme.of(
-              context,
-            ).colorScheme.onSurface.withValues(alpha: 0.55),
-            indicatorColor: Theme.of(context).colorScheme.primary,
-            labelStyle: const TextStyle(fontSize: 13),
-            labelPadding: const EdgeInsets.symmetric(horizontal: 8),
-            tabs: [for (final t in visibleTabs) Tab(text: t.label)],
           ),
+        ],
+        bottom: TabBar(
+          labelColor: Theme.of(context).colorScheme.primary,
+          unselectedLabelColor: Theme.of(
+            context,
+          ).colorScheme.onSurface.withValues(alpha: 0.55),
+          indicatorColor: Theme.of(context).colorScheme.primary,
+          labelStyle: const TextStyle(fontSize: 13),
+          labelPadding: const EdgeInsets.symmetric(horizontal: 8),
+          tabs: [for (final t in visibleTabs) Tab(text: t.label)],
         ),
         // The FAB needs the selected tab; look it up from a context INSIDE
         // the DefaultTabController at press time so swipes count too (an
@@ -261,6 +260,7 @@ class _PingsScreenState extends State<PingsScreen> {
     final result = await showModalBottomSheet<_PingRuleSheetResult>(
       context: context,
       isScrollControlled: true,
+      useSafeArea: true,
       builder: (ctx) => _PingRuleSheet(
         rule: rule,
         isNew: isNew,
@@ -416,7 +416,11 @@ class _PingRuleSheetState extends State<_PingRuleSheet> {
         left: 16,
         right: 16,
         top: 16,
-        bottom: MediaQuery.viewInsetsOf(context).bottom + 16,
+        // Keyboard lift plus nav clearance; useSafeArea skips bottom.
+        bottom:
+            MediaQuery.viewInsetsOf(context).bottom +
+            MediaQuery.paddingOf(context).bottom +
+            16,
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,

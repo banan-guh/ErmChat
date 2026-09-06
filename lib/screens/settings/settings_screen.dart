@@ -11,6 +11,7 @@ import 'channel_settings_screen.dart';
 import 'chat_settings_screen.dart';
 import 'customization_screen.dart';
 import 'emotes_settings_screen.dart';
+import 'settings_page.dart';
 import 'stream_settings_screen.dart';
 import 'tools_settings_screen.dart';
 import '../../services/recent_messages.dart';
@@ -113,8 +114,8 @@ class SettingsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Settings')),
+    return SettingsPage(
+      title: const Text('Settings'),
       body: ListView(
         children: [
           _buildTile(

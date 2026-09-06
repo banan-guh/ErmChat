@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../services/media_uploader.dart';
 import '../../util/timestamp_formatter.dart';
+import 'settings_page.dart';
 
 class RecentUploadsScreen extends StatefulWidget {
   const RecentUploadsScreen({super.key});
@@ -70,18 +71,16 @@ class _RecentUploadsScreenState extends State<RecentUploadsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Recent uploads'),
-        actions: [
-          if (_uploads.isNotEmpty)
-            IconButton(
-              icon: const Icon(Icons.delete_sweep),
-              tooltip: 'Clear all',
-              onPressed: _clearAll,
-            ),
-        ],
-      ),
+    return SettingsPage(
+      title: const Text('Recent uploads'),
+      actions: [
+        if (_uploads.isNotEmpty)
+          IconButton(
+            icon: const Icon(Icons.delete_sweep),
+            tooltip: 'Clear all',
+            onPressed: _clearAll,
+          ),
+      ],
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _uploads.isEmpty

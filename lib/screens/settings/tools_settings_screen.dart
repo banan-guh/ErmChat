@@ -6,6 +6,7 @@ import 'analytics_screen.dart';
 import 'link_whitelist_screen.dart';
 import 'recent_messages_settings_screen.dart';
 import 'recent_uploads_screen.dart';
+import 'settings_page.dart';
 import 'uploader_settings_screen.dart';
 import 'tts_settings_screen.dart';
 
@@ -25,8 +26,8 @@ class ToolsSettingsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Tools')),
+    return SettingsPage(
+      title: const Text('Tools'),
       body: ListView(
         children: [
           _buildTile(
