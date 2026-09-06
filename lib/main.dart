@@ -3,6 +3,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
@@ -20,6 +21,10 @@ import 'widgets/tabbed_layout.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Edge-to-edge: draw behind the system bars and take manual ownership
+  // of insets (bars via viewPadding, keyboard via viewInsets). The engine
+  // flips the window flags; themes declare transparent bars + icon style.
+  SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   // Surface framework and async errors in release instead of silently
   // dropping them; a backend can be plugged via [crashReporter]. Details the
   // framework flagged silent (expected, already handled) are skipped.
@@ -88,26 +93,41 @@ Widget _edgeExclusionWrapper(BuildContext context, Widget? child) {
   final mq = MediaQuery.of(context);
   final left = mq.systemGestureInsets.left;
   final right = mq.systemGestureInsets.right;
-  return Stack(
-    children: [
-      child!,
-      if (left > 0)
-        Positioned(
-          left: 0,
-          top: 0,
-          bottom: 0,
-          width: left,
-          child: const EdgeExclusionZone(),
-        ),
-      if (right > 0)
-        Positioned(
-          right: 0,
-          top: 0,
-          bottom: 0,
-          width: right,
-          child: const EdgeExclusionZone(),
-        ),
-    ],
+  // Bar icon contrast follows the resolved theme; transparent bars let
+  // content show through underneath. Rebuilt with the app on theme change.
+  final dark = Theme.of(context).brightness == Brightness.dark;
+  final overlay = SystemUiOverlayStyle(
+    statusBarColor: Colors.transparent,
+    systemNavigationBarColor: Colors.transparent,
+    statusBarIconBrightness: dark ? Brightness.light : Brightness.dark,
+    statusBarBrightness: dark ? Brightness.dark : Brightness.light,
+    systemNavigationBarIconBrightness: dark
+        ? Brightness.light
+        : Brightness.dark,
+  );
+  return AnnotatedRegion<SystemUiOverlayStyle>(
+    value: overlay,
+    child: Stack(
+      children: [
+        child!,
+        if (left > 0)
+          Positioned(
+            left: 0,
+            top: 0,
+            bottom: 0,
+            width: left,
+            child: const EdgeExclusionZone(),
+          ),
+        if (right > 0)
+          Positioned(
+            right: 0,
+            top: 0,
+            bottom: 0,
+            width: right,
+            child: const EdgeExclusionZone(),
+          ),
+      ],
+    ),
   );
 }
 

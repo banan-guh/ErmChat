@@ -28,6 +28,7 @@ import 'package:ermchat/services/twitch_auth.dart';
 import 'package:ermchat/models/twitch_message.dart';
 import 'package:ermchat/services/suggestion.dart';
 import 'package:ermchat/widgets/autocomplete_dropdown.dart';
+import 'package:ermchat/widgets/chat_body.dart';
 import 'package:ermchat/widgets/chat_message_tile.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:ermchat/services/emote_cache_manager.dart';
@@ -5003,6 +5004,97 @@ void main() {
         // Let the toast auto-close timer fire so no Timer is pending at exit.
         await tester.pump(const Duration(seconds: 4));
       }
+    });
+
+    testWidgets('emote sheet keeps full-box canvas with keyboard open', (
+      WidgetTester tester,
+    ) async {
+      // The Scaffold strips viewInsets from its body subtree, so the true
+      // keyboard height arrives as a param (like HomeScreen passes it).
+      tester.view.physicalSize = const Size(1080, 2340);
+      tester.view.devicePixelRatio = 2.8125;
+      tester.view.viewInsets = FakeViewPadding(bottom: 0);
+      addTearDown(tester.view.reset);
+
+      double? seenH;
+      double? seenKbH;
+      final ctrl = DraggableScrollableController();
+      Widget body() {
+        final keyboardH =
+            tester.view.viewInsets.bottom / tester.view.devicePixelRatio;
+        return MaterialApp(
+          home: Scaffold(
+            resizeToAvoidBottomInset: true,
+            body: ChatBody(
+              bodyBuilder:
+                  (
+                    context, {
+                    required hideChromeForKeyboard,
+                    required maxWidth,
+                    required maxHeight,
+                    required keyboardH,
+                  }) {
+                    seenKbH = keyboardH;
+                    return const SizedBox.expand();
+                  },
+              threadPanel: const SizedBox.shrink(),
+              mentionsPanel: const SizedBox.shrink(),
+              modViewPanel: const SizedBox.shrink(),
+              emotePickerBuilder: (context, {required sheetBoxHeight}) {
+                seenH = sheetBoxHeight;
+                return Positioned(
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  height: sheetBoxHeight,
+                  child: DraggableScrollableSheet(
+                    controller: ctrl,
+                    initialChildSize: 0,
+                    minChildSize: 0,
+                    maxChildSize: 0.6,
+                    snap: true,
+                    builder: (context, scrollController) => ListView(
+                      key: const Key('sheet'),
+                      controller: scrollController,
+                      children: const [SizedBox(height: 2000)],
+                    ),
+                  ),
+                );
+              },
+              autocomplete: const SizedBox.shrink(),
+              emoteMaxFraction: 0.6,
+              keyboardH: keyboardH,
+              composer: const SizedBox(height: 56),
+            ),
+          ),
+        );
+      }
+
+      await tester.pumpWidget(body());
+      await tester.pumpAndSettle();
+      expect(seenKbH, 0);
+      expect(seenH, 776);
+
+      tester.view.viewInsets = FakeViewPadding(bottom: 298 * 2.8125);
+      await tester.pumpWidget(body());
+      await tester.pumpAndSettle();
+      expect(seenKbH, 298);
+      expect(seenH, 776);
+
+      ctrl.jumpTo(0.6);
+      await tester.pumpAndSettle();
+
+      final sheetSize = tester.getSize(find.byKey(const Key('sheet')));
+      final sheetBottomDy = tester
+          .getBottomLeft(find.byKey(const Key('sheet')))
+          .dy;
+      final stackBox =
+          tester.element(find.byType(Stack).first).renderObject! as RenderBox;
+      final stackBottom = stackBox.localToGlobal(
+        Offset(0, stackBox.size.height),
+      );
+      expect(sheetSize.height, moreOrLessEquals(465.6, epsilon: 1.0));
+      expect(sheetBottomDy, moreOrLessEquals(stackBottom.dy, epsilon: 1.0));
     });
   });
 

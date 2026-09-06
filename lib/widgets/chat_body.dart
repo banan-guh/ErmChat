@@ -45,6 +45,7 @@ class ChatBody extends StatefulWidget {
     required this.emotePickerBuilder,
     required this.autocomplete,
     required this.emoteMaxFraction,
+    required this.keyboardH,
     this.composer,
   });
 
@@ -57,6 +58,11 @@ class ChatBody extends StatefulWidget {
   final double emoteMaxFraction;
   final Widget? composer;
 
+  /// True keyboard overlap in dp, read ABOVE the Scaffold: the Scaffold
+  /// consumes viewInsets for its body, so reading them here is always 0
+  /// on the resize path and every keyboard-driven rule silently dies.
+  final double keyboardH;
+
   @override
   State<ChatBody> createState() => _ChatBodyState();
 }
@@ -66,8 +72,9 @@ class _ChatBodyState extends State<ChatBody> {
 
   @override
   Widget build(BuildContext context) {
-    // Single inset subscription for the whole layout, composer included.
-    final keyboardH = MediaQuery.viewInsetsOf(context).bottom;
+    // Keyboard overlap comes in as a param (see field docs): reading
+    // viewInsets here is always 0, the Scaffold consumed them resizing.
+    final keyboardH = widget.keyboardH;
     final bottomPad = MediaQuery.paddingOf(context).bottom;
     final composer = widget.composer;
     return Column(
@@ -81,9 +88,10 @@ class _ChatBodyState extends State<ChatBody> {
               }
               final fullBoxH =
                   (_fullBoxHeight ?? constraints.maxHeight) - statusBarH;
-              // Squash the box only when the keyboard is taller than the
-              // anticipated gap, so the sheet (emoteMaxFraction of the box)
-              // never extends past the top of the current Stack.
+              // Full-box canvas for the sheet: the Positioned box may run
+              // past the top of the shrunk Stack (clipped, harmless) so the
+              // Draggable fractions keep measuring against the full box and
+              // the sheet anchors to the bottom, above the keyboard.
               final maxFitBoxH =
                   (constraints.maxHeight - statusBarH) /
                   widget.emoteMaxFraction;
@@ -134,14 +142,14 @@ class _ChatBodyState extends State<ChatBody> {
             },
           ),
         ),
-        // No AnimatedSize: the composer rides the live inset, and filtering
-        // that through a fixed duration janks. The key stays on the padded
-        // box so snackbar and video sizing measure the same height as before.
+        // No manual keyboard lift: the Scaffold already shrank the body,
+        // so the composer sits above the keyboard at settled constraints.
+        // The key stays on the box so snackbar sizing measures as before.
         composer == null
             ? const SizedBox.shrink()
             : Padding(
                 key: inputBarKey,
-                padding: EdgeInsets.only(bottom: keyboardH + bottomPad),
+                padding: EdgeInsets.only(bottom: bottomPad),
                 child: composer,
               ),
       ],

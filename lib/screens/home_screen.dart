@@ -1575,9 +1575,16 @@ class _HomeScreenState extends State<HomeScreen>
         }
       },
       child: Scaffold(
-        resizeToAvoidBottomInset: false,
+        // Framework resize path: the Scaffold shrinks the body with the
+        // keyboard, so the surface tracks the animation natively while
+        // Dart lays out settled constraints. Never chase per-frame insets
+        // with padding here; it janks (see ChatBody sheet math).
+        resizeToAvoidBottomInset: true,
         body: ChatBody(
           emoteMaxFraction: _emoteMaxFraction,
+          // Read above the Scaffold: the body subtree sees viewInsets
+          // stripped to zero once the Scaffold consumes them resizing.
+          keyboardH: MediaQuery.viewInsetsOf(context).bottom,
           bodyBuilder:
               (
                 context, {

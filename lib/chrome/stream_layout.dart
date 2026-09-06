@@ -77,7 +77,9 @@ class StreamPanels {
         ? (inputBarKey.currentContext?.size?.height ?? 56)
         : 0;
     final streamH = maxWidth * 9 / 16;
-    return maxHeight - keyboardH - streamH - inputH >= host.chatFontSize * 9;
+    // Body constraints already exclude the keyboard (Scaffold resizes),
+    // so maxHeight is the visible room; never subtract keyboardH again.
+    return maxHeight - streamH - inputH >= host.chatFontSize * 9;
   }
 
   Widget playerView(

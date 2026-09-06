@@ -145,7 +145,7 @@ class PanelManager {
     required double maxSize,
     required VoidCallback onClose,
     required VoidCallback onSnap,
-    required BuildContext context,
+    required double sheetH,
     Widget? header,
   }) {
     return GestureDetector(
@@ -156,11 +156,9 @@ class PanelManager {
       },
       onVerticalDragUpdate: (details) {
         final cumulativeDelta = details.globalPosition.dy - panelDragStartY;
-        final height =
-            maxSize *
-            (MediaQuery.sizeOf(context).height -
-                MediaQuery.paddingOf(context).top -
-                MediaQuery.viewInsetsOf(context).bottom);
+        // Drag basis is the rendered sheet height, not screen math: the
+        // Scaffold strips viewInsets below it, so inset reads here lie.
+        final height = maxSize * sheetH;
         ratio.value = (panelDragStartRatio - cumulativeDelta / height).clamp(
           0.0,
           maxSize,
@@ -213,42 +211,46 @@ class PanelManager {
       bottom: 0,
       left: 0,
       right: 0,
-      child: Offstage(
-        offstage: offstage,
-        child: ScaleTransition(
-          scale: panelScaleCtrl,
-          alignment: Alignment.bottomCenter,
-          child: buildSheetPanel(
-            ratio: ratio,
-            child: RepaintBoundary(
-              child: Material(
-                color: Theme.of(context).scaffoldBackgroundColor,
-                clipBehavior: Clip.hardEdge,
-                child: Column(
-                  children: [
-                    ColoredBox(
-                      color: Theme.of(context).colorScheme.surfaceContainer,
-                      child: buildPanelDragHandle(
-                        ratio: ratio,
-                        maxSize: fullHeightFraction,
-                        onClose: closePanel,
-                        onSnap: () => animateRatio(
-                          ratio,
-                          ratio.value,
-                          fullHeightFraction,
-                          sheetAnimDuration,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          return Offstage(
+            offstage: offstage,
+            child: ScaleTransition(
+              scale: panelScaleCtrl,
+              alignment: Alignment.bottomCenter,
+              child: buildSheetPanel(
+                ratio: ratio,
+                child: RepaintBoundary(
+                  child: Material(
+                    color: Theme.of(context).scaffoldBackgroundColor,
+                    clipBehavior: Clip.hardEdge,
+                    child: Column(
+                      children: [
+                        ColoredBox(
+                          color: Theme.of(context).colorScheme.surfaceContainer,
+                          child: buildPanelDragHandle(
+                            ratio: ratio,
+                            maxSize: fullHeightFraction,
+                            onClose: closePanel,
+                            onSnap: () => animateRatio(
+                              ratio,
+                              ratio.value,
+                              fullHeightFraction,
+                              sheetAnimDuration,
+                            ),
+                            sheetH: constraints.maxHeight,
+                            header: header,
+                          ),
                         ),
-                        context: context,
-                        header: header,
-                      ),
+                        Expanded(child: body),
+                      ],
                     ),
-                    Expanded(child: body),
-                  ],
+                  ),
                 ),
               ),
             ),
-          ),
-        ),
+          );
+        },
       ),
     );
   }
