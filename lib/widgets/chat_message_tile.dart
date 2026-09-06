@@ -8,6 +8,7 @@ import '../util/constants.dart';
 import '../util/log.dart';
 import '../util/timestamp_formatter.dart';
 import 'emote_text.dart';
+import 'image_embed_viewer.dart';
 import 'painted_username_text.dart';
 
 class ChatMessageTile extends StatefulWidget {
@@ -157,16 +158,19 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
         alignment: Alignment.centerLeft,
         child: ConstrainedBox(
           constraints: BoxConstraints(maxWidth: 300 * s, maxHeight: maxH),
-          child: CachedNetworkImage(
-            imageUrl: url,
-            fit: BoxFit.contain,
-            alignment: Alignment.centerLeft,
-            fadeInDuration: Duration.zero,
-            placeholder: (_, _) => SizedBox(width: 300 * s, height: maxH),
-            errorWidget: (_, failedUrl, error) {
-              logDebug('Image embed load failed: $failedUrl - $error');
-              return const Icon(Icons.broken_image);
-            },
+          child: GestureDetector(
+            onTap: () => showImageEmbedViewer(context, url),
+            child: CachedNetworkImage(
+              imageUrl: url,
+              fit: BoxFit.contain,
+              alignment: Alignment.centerLeft,
+              fadeInDuration: Duration.zero,
+              placeholder: (_, _) => SizedBox(width: 300 * s, height: maxH),
+              errorWidget: (_, failedUrl, error) {
+                logDebug('Image embed load failed: $failedUrl - $error');
+                return const Icon(Icons.broken_image);
+              },
+            ),
           ),
         ),
       ),

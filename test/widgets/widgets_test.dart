@@ -44,6 +44,8 @@ import 'package:url_launcher_platform_interface/url_launcher_platform_interface.
 import 'package:ermchat/widgets/emote_sheet.dart';
 import 'package:ermchat/widgets/message_input.dart';
 import 'package:ermchat/widgets/user_profile_sheet.dart';
+import 'package:ermchat/widgets/image_embed_viewer.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
 class _FakeEventSubService extends EventSubService {
   final _statusCtrl = StreamController<EventSubStatus>.broadcast(sync: true);
@@ -621,6 +623,50 @@ void main() {
         findsOneWidget,
       );
     });
+
+    testWidgets(
+      'Image embed viewer opens over a scrim, closes via X or swipe',
+      (tester) async {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: Builder(
+                builder: (ctx) => TextButton(
+                  onPressed: () =>
+                      showImageEmbedViewer(ctx, 'https://example.com/a.png'),
+                  child: const Text('open'),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.tap(find.text('open'));
+        // No pumpAndSettle: the loading spinner animates until the fetch fails.
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 300));
+        expect(find.byType(CachedNetworkImage), findsOneWidget);
+        expect(find.byIcon(Icons.close), findsOneWidget);
+
+        await tester.tap(find.byIcon(Icons.close));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 300));
+        expect(find.byIcon(Icons.close), findsNothing);
+
+        // Swipe down pops at once, same speed as the X button.
+        await tester.tap(find.text('open'));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 300));
+        expect(find.byIcon(Icons.close), findsOneWidget);
+        await tester.fling(
+          find.byIcon(Icons.close),
+          const Offset(0, 400),
+          1000,
+        );
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 300));
+        expect(find.byIcon(Icons.close), findsNothing);
+      },
+    );
   });
 
   testWidgets('Notification bell opens mentions modal', (
