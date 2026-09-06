@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 
-// Dropdown for fullscreen, input, and stream toggles.
+// Dropdown for mod view plus fullscreen, input, and stream toggles.
 class ChromeMenuButton extends StatefulWidget {
   final VoidCallback onToggleFullscreen;
   final VoidCallback onToggleInput;
   final VoidCallback? onToggleStream;
   final bool Function()? showStreamToggle;
   final bool Function()? streamActive;
+  final VoidCallback? onShowModView;
+  final bool Function()? showModView;
 
   const ChromeMenuButton({
     super.key,
@@ -15,6 +17,8 @@ class ChromeMenuButton extends StatefulWidget {
     this.onToggleStream,
     this.showStreamToggle,
     this.streamActive,
+    this.onShowModView,
+    this.showModView,
   });
 
   @override
@@ -37,6 +41,9 @@ class ChromeMenuButtonState extends State<ChromeMenuButton> {
       onSelected: (value) {
         setState(() => _open = false);
         switch (value) {
+          case 'modview':
+            widget.onShowModView?.call();
+            break;
           case 'fullscreen':
             widget.onToggleFullscreen();
             break;
@@ -49,9 +56,22 @@ class ChromeMenuButtonState extends State<ChromeMenuButton> {
         }
       },
       itemBuilder: (_) {
+        final showMod = widget.showModView?.call() ?? false;
         final showStream = widget.showStreamToggle?.call() ?? false;
         final active = widget.streamActive?.call() ?? false;
         return [
+          if (showMod)
+            const PopupMenuItem(
+              value: 'modview',
+              child: Row(
+                children: [
+                  Icon(Icons.shield_outlined, size: 20),
+                  SizedBox(width: 12),
+                  Text('Mod view'),
+                ],
+              ),
+            ),
+          if (showMod) const PopupMenuDivider(),
           const PopupMenuItem(
             value: 'fullscreen',
             child: Text('Toggle fullscreen'),

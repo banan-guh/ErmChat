@@ -91,6 +91,10 @@ class HomeAppBar {
           (host.selectedChannel != null &&
               _isChannelLive(host.selectedChannel!)),
       streamActive: () => streamPlayer.isActive,
+      onShowModView: mod.showModView,
+      showModView: () =>
+          host.selectedChannel != null &&
+          chatConn.isModerationActive(host.selectedChannel!),
     );
   }
 
