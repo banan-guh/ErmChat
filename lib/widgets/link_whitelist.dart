@@ -130,12 +130,15 @@ class SingleCharDomainLinkifier extends Linkifier {
 
   static const domains = {'x.com', 't.co', 'q.com', 'z.com', 'a.co', 'x.org'};
 
-  // One label char + dot + TLD + glued path. Lookbehind keeps emails,
-  // scheme URLs, longer labels, and subdomains whole for other linkifiers.
+  // One label char + dot + TLD + glued path, with an optional scheme.
+  // Lookbehind keeps emails, longer labels, and subdomains whole for
+  // other linkifiers. Stock linkify misses single-char hosts even with
+  // a scheme, so scheme URLs are claimed here too.
   static final _regex = RegExp(
-    r'(?<![A-Za-z0-9@:/.])([A-Za-z0-9]\.[A-Za-z]{2,}(?:\/[^\s]*)?)',
+    r'(?<![A-Za-z0-9@:.])((?:https?://)?[A-Za-z0-9]\.[A-Za-z]{2,}(?:\/[^\s]*)?)',
   );
   static final _trailingPunct = RegExp(r'[.,;:!?)]+$');
+  static final _schemePrefix = RegExp(r'^https?://', caseSensitive: false);
 
   @override
   List<LinkifyElement> parse(elements, options) {
@@ -155,11 +158,13 @@ class SingleCharDomainLinkifier extends Linkifier {
     for (final m in _regex.allMatches(text)) {
       final raw = m.group(1)!;
       final shown = raw.replaceAll(_trailingPunct, '');
-      if (!domains.contains(shown.split('/').first.toLowerCase())) continue;
+      final bare = shown.replaceFirst(_schemePrefix, '');
+      if (!domains.contains(bare.split('/').first.toLowerCase())) continue;
       if (m.start > lastEnd) {
         out.add(TextElement(text.substring(lastEnd, m.start)));
       }
-      out.add(UrlElement('https://$shown', shown));
+      final url = shown.contains('://') ? shown : 'https://$shown';
+      out.add(UrlElement(url, shown));
       lastEnd = m.start + shown.length;
     }
     if (lastEnd < text.length) {

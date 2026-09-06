@@ -906,11 +906,17 @@ void main() {
       expect(runSingle('check ax.com/abc out'), isEmpty);
     });
 
-    test('leaves emails, schemes, and subdomains whole', () {
+    test('leaves emails and subdomains whole', () {
       expect(runSingle('mail foo@gmail.com today'), isEmpty);
-      expect(runSingle('visit https://x.com/a today'), isEmpty);
       expect(runSingle('visit www.x.com/a today'), isEmpty);
       expect(runSingle('visit sub.x.com/a today'), isEmpty);
+    });
+
+    test('links scheme URLs stock linkify misses', () {
+      final urls = runSingle('visit https://x.com/a today');
+      expect(urls, hasLength(1));
+      expect(urls.single.url, 'https://x.com/a');
+      expect(urls.single.text, 'https://x.com/a');
     });
 
     test('keeps trailing sentence periods out of the link', () {
