@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-import '../composer/composer_bar.dart';
 import '../services/chat_store.dart';
 import '../services/stream_player_controller.dart';
 import '../widgets/stream_player_view.dart';
@@ -21,9 +20,67 @@ abstract class StreamPanelsHost {
   void onChannelChanged(int index);
 }
 
-// Stream player layouts (stacked/theater/split), the body column router,
-// and the stream toggle/player-changed verbs.
+// Pure rule for the stacked player: hide video when the keyboard leaves
+// under 9 chat lines; audio keeps playing. Extracted so unit tests cover
+// the threshold without a widget tree.
+bool shouldShowStreamVideo({
+  required double maxWidth,
+  required double maxHeight,
+  required double keyboardH,
+  required double inputH,
+  required double chatFontSize,
+}) {
+  if (keyboardH <= 0) return true;
+  final streamH = maxWidth * 9 / 16;
+  // Body constraints already exclude the keyboard (Scaffold resizes),
+  // so maxHeight is the visible room; never subtract keyboardH again.
+  return maxHeight - streamH - inputH >= chatFontSize * 9;
+}
+
+// Stacked player assembly. The video element stays at the same tree
+// position in both branches (same wrapper types, only heights/flags
+// change) so its State (WebView) survives keyboard toggles. When hidden
+// the video keeps its full size inside a 1px clip (still composited, so
+// audio keeps playing and the PlatformView never resizes). Never use
+// Visibility/Offstage here: a PlatformView going offstage in the same
+// frame the Scaffold resizes for the keyboard red-screens the body.
+Widget buildStackedPlayer({
+  required bool show,
+  required Widget video,
+  required Widget audioBar,
+}) {
+  return LayoutBuilder(
+    builder: (context, constraints) {
+      final maxW = constraints.maxWidth;
+      final w = maxW.isFinite && maxW > 0
+          ? maxW
+          : MediaQuery.sizeOf(context).width;
+      final h = w * 9 / 16;
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox(
+            width: w,
+            height: show ? h : StreamPanels.hiddenVideoHeight,
+            child: ClipRect(
+              child: OverflowBox(
+                maxWidth: w,
+                maxHeight: h,
+                alignment: Alignment.topCenter,
+                child: SizedBox(width: w, height: h, child: video),
+              ),
+            ),
+          ),
+          if (!show) audioBar,
+        ],
+      );
+    },
+  );
+}
+
 class StreamPanels {
+  // Stream player layouts (stacked/theater/split), the body column router,
+  // and the stream toggle/player-changed verbs.
   StreamPanels({
     required this.streamPlayer,
     required this.chatStore,
@@ -33,6 +90,9 @@ class StreamPanels {
   });
 
   static const audioBarHeight = 56.0;
+
+  // Clipped-alive video strip when the keyboard hides the picture.
+  static const hiddenVideoHeight = 1.0;
 
   final StreamPlayerController streamPlayer;
   final ChatStore chatStore;
@@ -66,20 +126,23 @@ class StreamPanels {
   }
 
   // DankChat shouldShowStream: hide video when the keyboard leaves under
-  // 9 chat lines; audio keeps playing.
+  // 9 chat lines; audio keeps playing. inputH is the settled composer
+  // height measured post-layout by ChatBody, never read here: touching
+  // inputBarKey.size during build throws every frame (log spam + crash).
   bool showStreamVideo({
     required double maxWidth,
     required double maxHeight,
     required double keyboardH,
+    required double inputH,
   }) {
     if (keyboardH <= 0) return true;
-    final inputH = host.showInput
-        ? (inputBarKey.currentContext?.size?.height ?? 56)
-        : 0;
-    final streamH = maxWidth * 9 / 16;
-    // Body constraints already exclude the keyboard (Scaffold resizes),
-    // so maxHeight is the visible room; never subtract keyboardH again.
-    return maxHeight - streamH - inputH >= host.chatFontSize * 9;
+    return shouldShowStreamVideo(
+      maxWidth: maxWidth,
+      maxHeight: maxHeight,
+      keyboardH: keyboardH,
+      inputH: inputH,
+      chatFontSize: host.chatFontSize,
+    );
   }
 
   Widget playerView(
@@ -99,22 +162,17 @@ class StreamPanels {
 
   Widget stackedPlayer(String channel, bool showVideo) {
     final show = showVideo && !streamPlayer.isAudioOnly;
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Visibility(
-          visible: show,
-          maintainState: true,
-          maintainAnimation: true,
-          child: playerView(channel, visible: show),
-        ),
-        if (!show)
-          StreamAudioBar(
-            key: ValueKey('audio:$channel'),
-            controller: streamPlayer,
-            channel: channel,
-          ),
-      ],
+    // fillPane so the inner video is an exact w x h box in both branches;
+    // the wrapper only changes the outer clip height, never the WebView.
+    final video = playerView(channel, fillPane: true, visible: show);
+    return buildStackedPlayer(
+      show: show,
+      video: video,
+      audioBar: StreamAudioBar(
+        key: ValueKey('audio:$channel'),
+        controller: streamPlayer,
+        channel: channel,
+      ),
     );
   }
 
@@ -215,6 +273,7 @@ class StreamPanels {
     required double maxWidth,
     required double maxHeight,
     required double keyboardH,
+    required double composerH,
   }) {
     final channel = streamPlayer.currentChannel;
     final landscape =
@@ -236,6 +295,7 @@ class StreamPanels {
           maxWidth: maxWidth,
           maxHeight: maxHeight,
           keyboardH: keyboardH,
+          inputH: composerH,
         );
     final showPlayerVideo =
         showVideo && channel != null && !streamPlayer.isAudioOnly;
@@ -243,7 +303,7 @@ class StreamPanels {
         ? 0.0
         : showPlayerVideo
         ? maxWidth * 9 / 16
-        : audioBarHeight;
+        : audioBarHeight + hiddenVideoHeight;
     return Column(
       children: [
         AnimatedSize(

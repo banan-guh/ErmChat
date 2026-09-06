@@ -10,6 +10,7 @@ typedef ChatBodyBuilder =
       required double maxWidth,
       required double maxHeight,
       required double keyboardH,
+      required double composerH,
     });
 
 /// Builds the emote picker overlay for the computed sheet box height.
@@ -76,6 +77,18 @@ class ChatBody extends StatefulWidget {
 class _ChatBodyState extends State<ChatBody> {
   double? _fullBoxHeight;
 
+  // Settled composer height for keyboard-room math downstream. Measured
+  // post-layout: reading inputBarKey.size during build throws every frame.
+  double _composerH = 56.0;
+
+  void _cacheComposerH() {
+    if (!mounted || widget.composer == null) return;
+    final h = inputBarKey.currentContext?.size?.height;
+    if (h != null && (h - _composerH).abs() > 0.5) {
+      setState(() => _composerH = h);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     // Keyboard overlap comes in as a param (see field docs): reading
@@ -83,6 +96,12 @@ class _ChatBodyState extends State<ChatBody> {
     final keyboardH = widget.keyboardH;
     final bottomPad = MediaQuery.paddingOf(context).bottom;
     final composer = widget.composer;
+    // Cache the settled composer height after layout for keyboard-room
+    // math; converges after one extra frame on height changes.
+    if (composer != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _cacheComposerH());
+    }
+    final composerH = composer == null ? 0.0 : _composerH;
     return Column(
       children: [
         Expanded(
@@ -117,6 +136,7 @@ class _ChatBodyState extends State<ChatBody> {
                     maxWidth: constraints.maxWidth,
                     maxHeight: constraints.maxHeight,
                     keyboardH: keyboardH,
+                    composerH: composerH,
                   ),
                   widget.threadPanel,
                   widget.mentionsPanel,
@@ -160,7 +180,7 @@ class _ChatBodyState extends State<ChatBody> {
         ),
         // No manual keyboard lift: the Scaffold already shrank the body,
         // so the composer sits above the keyboard at settled constraints.
-        // The key stays on the box so video sizing measures as before.
+        // The key stays on the box for post-layout measuring above.
         composer == null
             ? const SizedBox.shrink()
             : Padding(

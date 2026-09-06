@@ -1665,6 +1665,7 @@ class _HomeScreenState extends State<HomeScreen>
                 required maxWidth,
                 required maxHeight,
                 required keyboardH,
+                required composerH,
               }) {
                 return ListenableBuilder(
                   listenable: _streamPlayer,
@@ -1674,6 +1675,7 @@ class _HomeScreenState extends State<HomeScreen>
                     maxWidth: maxWidth,
                     maxHeight: maxHeight,
                     keyboardH: keyboardH,
+                    composerH: composerH,
                   ),
                 );
               },

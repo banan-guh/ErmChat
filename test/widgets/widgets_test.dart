@@ -32,6 +32,8 @@ import 'package:ermchat/widgets/autocomplete_dropdown.dart';
 import 'package:ermchat/widgets/chat_body.dart';
 import 'package:ermchat/widgets/chat_message_tile.dart';
 import 'package:ermchat/widgets/chat_notice_bar.dart';
+import 'package:ermchat/chrome/stream_layout.dart';
+import 'package:ermchat/widgets/tabbed_layout.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:ermchat/services/emote_cache_manager.dart';
 import '../helpers/fake_cache_repo.dart';
@@ -578,6 +580,169 @@ void main() {
     expect(find.byType(ErrorWidget), findsNothing);
     expect(find.byType(MessageInput), findsNothing);
     expect(find.text('xqc', skipOffstage: false), findsWidgets);
+  });
+
+  group('stacked player with keyboard', () {
+    testWidgets('video shown without keyboard, audio hidden', (tester) async {
+      tester.view.physicalSize = const Size(1080, 2340);
+      tester.view.devicePixelRatio = 3.0;
+      tester.view.viewInsets = FakeViewPadding(bottom: 0);
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(
+        _stackedPlayerHarness(showVideo: true, keyboardH: 0),
+      );
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(find.byType(ErrorWidget), findsNothing);
+      // Default finders skip offstage: found means painted, not Offstage.
+      expect(find.byKey(_stackedVideoKey), findsOneWidget);
+      expect(find.byKey(_stackedAudioKey), findsNothing);
+      expect(
+        tester.getSize(find.byKey(_stackedVideoKey)).height,
+        moreOrLessEquals(202.5, epsilon: 1.0),
+      );
+    });
+
+    testWidgets('keyboard hides video but keeps it attached with audio', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(1080, 2340);
+      tester.view.devicePixelRatio = 3.0;
+      tester.view.viewInsets = FakeViewPadding(bottom: 0);
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(
+        _stackedPlayerHarness(showVideo: true, keyboardH: 0),
+      );
+      await tester.pumpAndSettle();
+      final before = tester.element(find.byKey(_stackedVideoKey));
+
+      // Stream enabled + keyboard opening in the same frame.
+      tester.view.viewInsets = FakeViewPadding(bottom: 300 * 3.0);
+      await tester.pumpWidget(
+        _stackedPlayerHarness(showVideo: false, keyboardH: 300),
+      );
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(find.byType(ErrorWidget), findsNothing);
+      // Default finders skip offstage: found means painted, not Offstage.
+      expect(find.byKey(_stackedVideoKey), findsOneWidget);
+      expect(find.byKey(_stackedAudioKey), findsOneWidget);
+      // Inner box keeps full 16:9 size while only a 1px clip shows.
+      expect(
+        tester.getSize(find.byKey(_stackedVideoKey)).height,
+        moreOrLessEquals(202.5, epsilon: 1.0),
+      );
+      // Same element: WebView state would survive the toggle.
+      expect(
+        identical(tester.element(find.byKey(_stackedVideoKey)), before),
+        isTrue,
+      );
+    });
+
+    testWidgets('rapid show/hide flapping never errors', (tester) async {
+      tester.view.physicalSize = const Size(1080, 2340);
+      tester.view.devicePixelRatio = 3.0;
+      tester.view.viewInsets = FakeViewPadding(bottom: 0);
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(
+        _stackedPlayerHarness(showVideo: true, keyboardH: 0),
+      );
+      await tester.pump();
+      await tester.pumpWidget(
+        _stackedPlayerHarness(showVideo: false, keyboardH: 300),
+      );
+      await tester.pump();
+      await tester.pumpWidget(
+        _stackedPlayerHarness(showVideo: true, keyboardH: 300),
+      );
+      await tester.pump();
+      await tester.pumpWidget(
+        _stackedPlayerHarness(showVideo: false, keyboardH: 300),
+      );
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(find.byType(ErrorWidget), findsNothing);
+      expect(find.byKey(_stackedVideoKey), findsOneWidget);
+      expect(find.byKey(_stackedAudioKey), findsOneWidget);
+    });
+
+    testWidgets('composer height arrives post-layout without size reads', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(1080, 2340);
+      tester.view.devicePixelRatio = 3.0;
+      tester.view.viewInsets = FakeViewPadding(bottom: 0);
+      addTearDown(tester.view.reset);
+
+      double? seenComposerH;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            resizeToAvoidBottomInset: true,
+            body: ChatBody(
+              bodyBuilder:
+                  (
+                    context, {
+                    required hideChromeForKeyboard,
+                    required maxWidth,
+                    required maxHeight,
+                    required keyboardH,
+                    required composerH,
+                  }) {
+                    seenComposerH = composerH;
+                    // The real decision path, with settled inputs only.
+                    final show = shouldShowStreamVideo(
+                      maxWidth: maxWidth,
+                      maxHeight: maxHeight,
+                      keyboardH: keyboardH,
+                      inputH: composerH,
+                      chatFontSize: 14,
+                    );
+                    return Column(
+                      children: [
+                        Expanded(
+                          child: TabbedLayout(
+                            tabs: const ['xqc'],
+                            selectedIndex: 0,
+                            onSelectedIndexChanged: (_) {},
+                            belowTabBar: buildStackedPlayer(
+                              show: show,
+                              video: _stackedStubVideo(),
+                              audioBar: _stackedStubAudio(),
+                            ),
+                            pageBuilder: (_, _) =>
+                                const ColoredBox(color: Colors.green),
+                          ),
+                        ),
+                      ],
+                    );
+                  },
+              threadPanel: const SizedBox.shrink(),
+              mentionsPanel: const SizedBox.shrink(),
+              modViewPanel: const SizedBox.shrink(),
+              emotePickerBuilder: (_, {required sheetBoxHeight}) =>
+                  const SizedBox.shrink(),
+              autocomplete: const SizedBox.shrink(),
+              emoteMaxFraction: 0.6,
+              keyboardH: 0,
+              composer: const SizedBox(height: 56),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(find.byType(ErrorWidget), findsNothing);
+      expect(seenComposerH, moreOrLessEquals(56.0, epsilon: 1.0));
+      expect(find.byKey(_stackedVideoKey), findsOneWidget);
+    });
   });
 
   group('ChatMessageTile deleted rows', () {
@@ -5082,6 +5247,7 @@ void main() {
                     required maxWidth,
                     required maxHeight,
                     required keyboardH,
+                    required composerH,
                   }) {
                     seenKbH = keyboardH;
                     return const SizedBox.expand();
@@ -6210,6 +6376,7 @@ Widget _noticeHarness(ChatNoticeController controller) {
               required maxWidth,
               required maxHeight,
               required keyboardH,
+              required composerH,
             }) => Container(key: const Key('notice-chat')),
         threadPanel: const SizedBox.shrink(),
         mentionsPanel: const SizedBox.shrink(),
@@ -6238,6 +6405,71 @@ Widget _snackHarness() {
             child: const Text('show snack'),
           ),
         ),
+      ),
+    ),
+  );
+}
+
+const _stackedVideoKey = Key('stub_video');
+const _stackedAudioKey = Key('stub_audio');
+
+Widget _stackedStubVideo() => const SizedBox(
+  key: _stackedVideoKey,
+  child: ColoredBox(color: Colors.red),
+);
+
+Widget _stackedStubAudio() => const SizedBox(key: _stackedAudioKey, height: 56);
+
+// Mimics the stacked portrait slot: tab strip, player dock, chat page.
+Widget _stackedPlayerHarness({
+  required bool showVideo,
+  required double keyboardH,
+}) {
+  return MaterialApp(
+    home: Scaffold(
+      resizeToAvoidBottomInset: true,
+      body: ChatBody(
+        bodyBuilder:
+            (
+              context, {
+              required hideChromeForKeyboard,
+              required maxWidth,
+              required maxHeight,
+              required keyboardH,
+              required composerH,
+            }) {
+              return Column(
+                children: [
+                  Expanded(
+                    child: TabbedLayout(
+                      tabs: const ['xqc'],
+                      selectedIndex: 0,
+                      onSelectedIndexChanged: (_) {},
+                      showTabBar: !hideChromeForKeyboard,
+                      tabBarAnimationDuration: hideChromeForKeyboard
+                          ? Duration.zero
+                          : const Duration(milliseconds: 200),
+                      belowTabBar: buildStackedPlayer(
+                        show: showVideo,
+                        video: _stackedStubVideo(),
+                        audioBar: _stackedStubAudio(),
+                      ),
+                      pageBuilder: (_, _) =>
+                          const ColoredBox(color: Colors.green),
+                    ),
+                  ),
+                ],
+              );
+            },
+        threadPanel: const SizedBox.shrink(),
+        mentionsPanel: const SizedBox.shrink(),
+        modViewPanel: const SizedBox.shrink(),
+        emotePickerBuilder: (_, {required sheetBoxHeight}) =>
+            const SizedBox.shrink(),
+        autocomplete: const SizedBox.shrink(),
+        emoteMaxFraction: 0.6,
+        keyboardH: keyboardH,
+        composer: const SizedBox(height: 56),
       ),
     ),
   );
