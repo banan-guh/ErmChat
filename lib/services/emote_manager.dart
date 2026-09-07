@@ -434,6 +434,8 @@ class EmoteManager extends ChangeNotifier {
   final _foreignPersonalSetContents = <String, List<GenericEmote>>{};
   final _foreignPersonalSetInflight = <String, Future<void>>{};
   final _foreignPersonalSets = <String, ChannelEmotes>{};
+  // Unmapped sets render for nobody; bound the contents map.
+  static const _maxForeignPersonalSets = 50;
   final _mergedCache = <String, ChannelEmotes?>{};
   String? _changedChannel;
   // Monotonic counter bumped on every notify; message span caches compare
@@ -847,11 +849,30 @@ class EmoteManager extends ChangeNotifier {
     final owners = _foreignPersonalSetOwners[setId];
     if (owners != null) {
       owners.removeAll(userTwitchIds);
-      if (owners.isEmpty) _foreignPersonalSetOwners.remove(setId);
+      if (owners.isEmpty) {
+        _foreignPersonalSetOwners.remove(setId);
+        _foreignPersonalSetContents.remove(setId);
+      }
     }
     if (changed) {
       _notify();
       unawaited(_savePersonalSets());
+    }
+  }
+
+  // Drops a set nobody references (revoked or over the cap).
+  void _evictForeignPersonalSet(String setId) {
+    _foreignPersonalSetOwners.remove(setId);
+    _foreignPersonalSetContents.remove(setId);
+    for (final userId in _foreignPersonalUserSets.keys.toList()) {
+      final sets = _foreignPersonalUserSets[userId]!;
+      if (!sets.remove(setId)) continue;
+      if (sets.isEmpty) {
+        _foreignPersonalUserSets.remove(userId);
+        _foreignPersonalSets.remove(userId);
+      } else {
+        _rebuildForeignPersonalUser(userId);
+      }
     }
   }
 
@@ -933,6 +954,9 @@ class EmoteManager extends ChangeNotifier {
       }
       if (fetched.isEmpty) return;
       _foreignPersonalSetContents[setId] = fetched;
+      while (_foreignPersonalSetContents.length > _maxForeignPersonalSets) {
+        _evictForeignPersonalSet(_foreignPersonalSetContents.keys.first);
+      }
       _rebuildForeignPersonalUsers(setId);
       _notify();
     });
@@ -2410,6 +2434,9 @@ class EmoteManager extends ChangeNotifier {
     if (channel == null) return _globalProviderEmotes[type.name]?.length ?? 0;
     return _channelProviderEmotes[channel]?[type.name]?.length ?? 0;
   }
+
+  @visibleForTesting
+  int foreignPersonalSetCountForTesting() => _foreignPersonalSetContents.length;
 
   /// Sync gate for fetch lambdas; callers must have awaited
   /// [_ensureProvidersLoaded] first.

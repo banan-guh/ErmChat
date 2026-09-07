@@ -4901,6 +4901,50 @@ void main() {
       );
     });
 
+    test('dropped grants free set contents, survivors keep theirs', () async {
+      SharedPreferences.setMockInitialValues({});
+      final manager = socketManager(
+        sets: {
+          'set-1': [personal('p1', 'Shared')],
+          'set-2': [personal('p2', 'Other')],
+        },
+      );
+      await manager.applySevenTvEntitlement(
+        grant('set-1', twitchUserIds: ['sender-1']),
+      );
+      await manager.applySevenTvEntitlement(
+        grant('set-2', twitchUserIds: ['sender-2']),
+      );
+      expect(manager.foreignPersonalSetCountForTesting(), 2);
+
+      await manager.applySevenTvEntitlement(
+        grant('set-1', kind: 'entitlement.delete', twitchUserIds: ['sender-1']),
+      );
+      expect(manager.foreignPersonalSetCountForTesting(), 1);
+      expect(
+        manager.byCodeForSender('ch', 'sender-2')!.byCode.keys,
+        contains('Other'),
+      );
+    });
+
+    test('foreign set contents stay capped, newest survives', () async {
+      SharedPreferences.setMockInitialValues({});
+      final manager = socketManager(
+        sets: {
+          for (var i = 0; i < 60; i++) 'set-$i': [personal('p$i', 'Code$i')],
+        },
+      );
+      for (var i = 0; i < 60; i++) {
+        await manager.trackForeignPersonalGrant(['sender-$i'], 'set-$i');
+      }
+      expect(manager.foreignPersonalSetCountForTesting(), 50);
+      expect(
+        manager.byCodeForSender('ch', 'sender-59')!.byCode.keys,
+        contains('Code59'),
+      );
+      expect(manager.byCodeForSender('ch', 'sender-0'), isNull);
+    });
+
     test('viewer grants never leak into foreign maps', () async {
       SharedPreferences.setMockInitialValues({});
       final manager = socketManager(
