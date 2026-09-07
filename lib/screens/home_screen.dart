@@ -709,7 +709,7 @@ class _HomeScreenState extends State<HomeScreen>
     _mentionsTabCtrl.addListener(_mentions.onMentionsTabChanged);
     _threadsTabCtrl = TabController(length: 3, vsync: this);
     _threadsTabCtrl.addListener(_threads.onThreadsTabChanged);
-    _modTabCtrl = TabController(length: 3, vsync: this);
+    _modTabCtrl = TabController(length: 4, vsync: this);
     _panelManager.emoteSheetCtrl.addListener(_panelManager.onSheetSizeChanged);
     _loadMaxMessages();
     unawaited(_threads.loadSaved());
@@ -1725,6 +1725,8 @@ class _HomeScreenState extends State<HomeScreen>
             context,
             overlaySheet: _buildOverlaySheet,
             closePanel: _closePanel,
+            onShowUser: (login) =>
+                _userSheets.showUserProfile(context, login, null),
           ),
           emotePickerBuilder: (context, {required sheetBoxHeight}) =>
               _buildEmotePicker(sheetBoxHeight: sheetBoxHeight),

@@ -842,5 +842,69 @@ void main() {
       expect(store.channelBans.containsKey('test'), isFalse);
       expect(store.modActivityVersion.value, version + 1);
     });
+
+    test('formatModActivity renders each action', () {
+      ModActivityEntry entry(
+        String action, {
+        String? target = 'spammer',
+        String? reason,
+        int? duration,
+        List<String> terms = const [],
+      }) => ModActivityEntry(
+        at: t0,
+        channel: 'test',
+        action: action,
+        moderator: 'moduser',
+        target: target,
+        reason: reason,
+        durationSeconds: duration,
+        terms: terms,
+      );
+      for (final (action, expected) in [
+        ('ban', 'moduser banned spammer.'),
+        ('untimeout', 'moduser unbanned spammer.'),
+        ('delete', 'moduser deleted a message from spammer.'),
+        ('clear', 'moduser cleared the chat.'),
+        ('mod', 'moduser modded spammer.'),
+        ('unvip', 'moduser removed spammer as a VIP.'),
+        ('warn_ack', 'spammer acknowledged a warning.'),
+        ('slow', 'moduser enabled slow mode.'),
+        ('followersoff', 'moduser disabled followers-only mode.'),
+        ('uniquechat', 'moduser enabled unique chat.'),
+        ('raid', 'moduser started a raid.'),
+        ('shield_on', 'moduser enabled Shield Mode.'),
+        ('shoutout', 'moduser shouted out spammer.'),
+      ]) {
+        expect(formatModActivity(entry(action)), expected, reason: action);
+      }
+      expect(
+        formatModActivity(entry('timeout', duration: 90)),
+        'moduser timed out spammer for 1m 30s.',
+      );
+      expect(
+        formatModActivity(entry('warn', reason: 'spam')),
+        'moduser warned spammer: "spam".',
+      );
+      expect(
+        formatModActivity(entry('deny_unban_request', reason: 'too soon')),
+        'moduser denied spammer\'s unban request: "too soon".',
+      );
+      expect(
+        formatModActivity(
+          entry('add_blocked_term', target: null, terms: ['bad word']),
+        ),
+        'moduser added blocked term "bad word".',
+      );
+      expect(
+        formatModActivity(
+          entry('remove_blocked_term', target: null, terms: ['a', 'b']),
+        ),
+        'moduser removed 2 blocked terms.',
+      );
+      expect(
+        formatModActivity(entry('some_future_action', target: null)),
+        'moduser did some future action.',
+      );
+    });
   });
 }

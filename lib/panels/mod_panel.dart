@@ -82,6 +82,7 @@ class ModPanels {
     })
     overlaySheet,
     required VoidCallback closePanel,
+    ValueChanged<String>? onShowUser,
   }) {
     final channel = host.selectedChannel ?? '';
     return overlaySheet(
@@ -115,14 +116,21 @@ class ModPanels {
           TabBar(
             controller: modTab(),
             padding: const EdgeInsets.fromLTRB(100.0, 0.0, 100.0, 0.0),
-            // Three tabs like the threads panel: center the strip and let
+            // Four tabs like the threads panel: center the strip and let
             // it scroll instead of clipping labels on narrow phones.
             isScrollable: true,
             tabAlignment: TabAlignment.center,
-            tabs: const [
-              Tab(text: 'Queue'),
-              Tab(text: 'Modes'),
-              Tab(text: 'Mods'),
+            tabs: [
+              ValueListenableBuilder<int>(
+                valueListenable: chatStore.heldVersion,
+                builder: (_, _, _) {
+                  final pending = chatStore.heldMessages[channel]?.length ?? 0;
+                  return Tab(text: pending > 0 ? 'Queue ($pending)' : 'Queue');
+                },
+              ),
+              const Tab(text: 'Activity'),
+              const Tab(text: 'Users'),
+              const Tab(text: 'Modes'),
             ],
           ),
           Divider(height: 1, color: Theme.of(context).dividerColor),
@@ -136,6 +144,7 @@ class ModPanels {
         tabController: modTab(),
         refresh: modPanelVersion,
         onNotice: host.showNotice,
+        onShowUser: onShowUser,
         isModerationActive: (c) =>
             c.isNotEmpty && chatConn.isModerationActive(c),
         isAutomodActive: (c) => c.isNotEmpty && chatConn.isAutomodActive(c),

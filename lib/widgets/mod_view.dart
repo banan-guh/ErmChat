@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../services/chat_store.dart';
 import '../services/mod_actions.dart';
 import '../services/twitch_auth.dart';
@@ -155,9 +156,9 @@ Future<String?> showModTextDialog(
   return pending;
 }
 
-/// Mod View panel body: Queue / Modes / Mods tabs. State arrives as channel
-/// lookups (not snapshots) so every [refresh] tick re-reads live values;
-/// the queue additionally listens to [ChatStore.heldVersion] itself.
+/// Mod View panel body: Queue / Activity / Users / Modes tabs. State arrives
+/// as channel lookups (not snapshots) so every [refresh] tick re-reads live
+/// values; the queue and feed additionally listen to their own versions.
 class ModViewPanel extends StatelessWidget {
   const ModViewPanel({
     super.key,
@@ -171,6 +172,7 @@ class ModViewPanel extends StatelessWidget {
     required this.isAutomodActive,
     required this.getRoomModes,
     required this.onNotice,
+    this.onShowUser,
   });
 
   final String channel;
@@ -185,6 +187,9 @@ class ModViewPanel extends StatelessWidget {
 
   /// Notice sink for failures; the shell routes these to the inline bar.
   final ValueChanged<String> onNotice;
+
+  /// Opens a user card (queue rows, feed-adjacent user lists).
+  final ValueChanged<String>? onShowUser;
 
   @override
   Widget build(BuildContext context) {
@@ -215,6 +220,16 @@ class ModViewPanel extends StatelessWidget {
               automodActive: automodActive,
               scopeReady: moderationActive,
               onNotice: onNotice,
+              onShowUser: onShowUser,
+            ),
+            _ActivityTab(channel: channel, store: store),
+            _UsersTab(
+              channel: channel,
+              store: store,
+              modActions: modActions,
+              auth: auth,
+              onNotice: onNotice,
+              onShowUser: onShowUser,
             ),
             _ModesTab(
               channel: channel,
@@ -222,12 +237,6 @@ class ModViewPanel extends StatelessWidget {
               auth: auth,
               roomModes: getRoomModes(channel),
               moderationActive: moderationActive,
-              onNotice: onNotice,
-            ),
-            _PeopleTab(
-              channel: channel,
-              modActions: modActions,
-              auth: auth,
               onNotice: onNotice,
             ),
           ],
@@ -246,6 +255,7 @@ class _QueueTab extends StatefulWidget {
     required this.automodActive,
     required this.scopeReady,
     required this.onNotice,
+    required this.onShowUser,
   });
 
   final String channel;
@@ -255,6 +265,7 @@ class _QueueTab extends StatefulWidget {
   final bool automodActive;
   final bool scopeReady;
   final ValueChanged<String> onNotice;
+  final ValueChanged<String>? onShowUser;
 
   @override
   State<_QueueTab> createState() => _QueueTabState();
@@ -262,6 +273,7 @@ class _QueueTab extends StatefulWidget {
 
 class _QueueTabState extends State<_QueueTab> {
   final _pending = <String>{};
+  String? _filter;
 
   Future<void> _decide(HeldMessage held, bool allow) async {
     if (!_pending.add(held.messageId)) return;
@@ -285,6 +297,66 @@ class _QueueTabState extends State<_QueueTab> {
     }
   }
 
+  Future<void> _timeout(HeldMessage held) async {
+    final picked = await showTimeoutDialog(context, held.userLogin);
+    if (picked == null || !mounted) return;
+    final result = await widget.modActions.timeoutUser(
+      widget.auth,
+      widget.channel,
+      login: held.userLogin,
+      duration: picked.seconds,
+      reason: picked.reason,
+    );
+    if (!mounted) return;
+    if (!result.ok) widget.onNotice(modErrorText(result));
+  }
+
+  Future<void> _ban(HeldMessage held) async {
+    final reason = await showModTextDialog(
+      context,
+      title: 'Ban ${held.userLogin}?',
+      label: 'Reason (optional)',
+      confirmLabel: 'Ban',
+    );
+    if (reason == null || !mounted) return;
+    final result = await widget.modActions.banUser(
+      widget.auth,
+      widget.channel,
+      login: held.userLogin,
+      reason: reason.isEmpty ? null : reason,
+    );
+    if (!mounted) return;
+    if (!result.ok) widget.onNotice(modErrorText(result));
+  }
+
+  Widget _filters(List<HeldMessage> queue) {
+    final cats = <String>{for (final h in queue) h.category}.toList()..sort();
+    if (cats.length < 2) return const SizedBox.shrink();
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      child: Row(
+        children: [
+          ChoiceChip(
+            label: const Text('All'),
+            selected: _filter == null,
+            onSelected: (_) => setState(() => _filter = null),
+          ),
+          for (final c in cats)
+            Padding(
+              padding: const EdgeInsets.only(left: 8),
+              child: ChoiceChip(
+                label: Text(c),
+                selected: _filter == c,
+                onSelected: (_) =>
+                    setState(() => _filter = _filter == c ? null : c),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (!widget.automodActive) {
@@ -303,52 +375,107 @@ class _QueueTabState extends State<_QueueTab> {
     return ValueListenableBuilder<int>(
       valueListenable: widget.store.heldVersion,
       builder: (_, _, _) {
-        final queue = widget.store.heldMessages[widget.channel] ?? const [];
-        if (queue.isEmpty) {
+        final all = widget.store.heldMessages[widget.channel] ?? const [];
+        if (all.isEmpty) {
           return const Center(child: Text('Queue is clear.'));
         }
-        return ListView.builder(
-          itemCount: queue.length,
-          itemBuilder: (_, i) {
-            final held = queue[i];
-            final busy = _pending.contains(held.messageId);
-            return ListTile(
-              title: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      held.userLogin,
-                      style: const TextStyle(fontWeight: FontWeight.w600),
+        final queue = _filter == null
+            ? all
+            : [
+                for (final h in all)
+                  if (h.category == _filter) h,
+              ];
+        return Column(
+          children: [
+            _filters(all),
+            Expanded(
+              child: queue.isEmpty
+                  ? const Center(child: Text('No matches.'))
+                  : ListView.builder(
+                      itemCount: queue.length,
+                      itemBuilder: (_, i) {
+                        final held = queue[i];
+                        final busy = _pending.contains(held.messageId);
+                        return ListTile(
+                          title: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  held.userLogin,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                              _CategoryChip(held.category),
+                            ],
+                          ),
+                          subtitle: Text(held.text, maxLines: 4),
+                          isThreeLine: true,
+                          onTap: () => widget.onShowUser?.call(held.userLogin),
+                          trailing: busy
+                              ? const SizedBox(
+                                  width: 24,
+                                  height: 24,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    IconButton(
+                                      icon: const Icon(Icons.check),
+                                      tooltip: 'Allow',
+                                      onPressed: () => _decide(held, true),
+                                    ),
+                                    IconButton(
+                                      icon: const Icon(Icons.close),
+                                      tooltip: 'Deny',
+                                      onPressed: () => _decide(held, false),
+                                    ),
+                                    PopupMenuButton<String>(
+                                      icon: const Icon(Icons.more_vert),
+                                      tooltip: 'More',
+                                      onSelected: (value) {
+                                        switch (value) {
+                                          case 'timeout':
+                                            _timeout(held);
+                                          case 'ban':
+                                            _ban(held);
+                                          case 'copy':
+                                            Clipboard.setData(
+                                              ClipboardData(
+                                                text: held.messageId,
+                                              ),
+                                            );
+                                            widget.onNotice(
+                                              'Message ID copied.',
+                                            );
+                                        }
+                                      },
+                                      itemBuilder: (_) => const [
+                                        PopupMenuItem(
+                                          value: 'timeout',
+                                          child: Text('Timeout...'),
+                                        ),
+                                        PopupMenuItem(
+                                          value: 'ban',
+                                          child: Text('Ban...'),
+                                        ),
+                                        PopupMenuItem(
+                                          value: 'copy',
+                                          child: Text('Copy message ID'),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                        );
+                      },
                     ),
-                  ),
-                  _CategoryChip(held.category),
-                ],
-              ),
-              subtitle: Text(held.text, maxLines: 4),
-              isThreeLine: true,
-              trailing: busy
-                  ? const SizedBox(
-                      width: 24,
-                      height: 24,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        IconButton(
-                          icon: const Icon(Icons.check),
-                          tooltip: 'Allow',
-                          onPressed: () => _decide(held, true),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.close),
-                          tooltip: 'Deny',
-                          onPressed: () => _decide(held, false),
-                        ),
-                      ],
-                    ),
-            );
-          },
+            ),
+          ],
         );
       },
     );
@@ -371,6 +498,233 @@ class _CategoryChip extends StatelessWidget {
       ),
       child: Text(category, style: theme.textTheme.labelSmall),
     );
+  }
+}
+
+String _feedTime(DateTime at) =>
+    '${at.hour.toString().padLeft(2, '0')}:${at.minute.toString().padLeft(2, '0')}';
+
+IconData _activityIcon(String action) {
+  switch (action) {
+    case 'ban':
+    case 'timeout':
+      return Icons.gavel;
+    case 'unban':
+    case 'untimeout':
+      return Icons.undo;
+    case 'delete':
+    case 'clear':
+      return Icons.delete_outline;
+    case 'warn':
+    case 'warn_ack':
+      return Icons.warning_amber;
+    case 'mod':
+    case 'vip':
+      return Icons.person_add;
+    case 'unmod':
+    case 'unvip':
+      return Icons.person_remove;
+    case 'shield_on':
+    case 'shield_off':
+      return Icons.shield;
+    case 'shoutout':
+      return Icons.campaign;
+    case 'raid':
+    case 'unraid':
+      return Icons.flight_takeoff;
+    case 'add_blocked_term':
+    case 'remove_blocked_term':
+    case 'add_permitted_term':
+    case 'remove_permitted_term':
+      return Icons.block;
+    case 'slow':
+    case 'slowoff':
+    case 'followers':
+    case 'followersoff':
+    case 'emoteonly':
+    case 'emoteonlyoff':
+    case 'subscribers':
+    case 'subscribersoff':
+    case 'uniquechat':
+    case 'uniquechatoff':
+      return Icons.tune;
+    default:
+      return Icons.info_outline;
+  }
+}
+
+class _ActivityTab extends StatelessWidget {
+  const _ActivityTab({required this.channel, required this.store});
+
+  final String channel;
+  final ChatStore store;
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<int>(
+      valueListenable: store.modActivityVersion,
+      builder: (_, _, _) {
+        final feed = store.modActivity[channel] ?? const [];
+        if (feed.isEmpty) {
+          return const Center(child: Text('No moderation activity yet.'));
+        }
+        return ListView.builder(
+          itemCount: feed.length,
+          itemBuilder: (_, i) {
+            final entry = feed[i];
+            return ListTile(
+              dense: true,
+              leading: Icon(_activityIcon(entry.action), size: 20),
+              title: Text(formatModActivity(entry)),
+              subtitle: Text('${entry.moderator} · ${_feedTime(entry.at)}'),
+            );
+          },
+        );
+      },
+    );
+  }
+}
+
+class _SectionHeader extends StatelessWidget {
+  const _SectionHeader(this.title);
+
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      child: Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
+    );
+  }
+}
+
+class _UsersTab extends StatefulWidget {
+  const _UsersTab({
+    required this.channel,
+    required this.store,
+    required this.modActions,
+    required this.auth,
+    required this.onNotice,
+    required this.onShowUser,
+  });
+
+  final String channel;
+  final ChatStore store;
+  final ModActions modActions;
+  final TwitchAuth auth;
+  final ValueChanged<String> onNotice;
+  final ValueChanged<String>? onShowUser;
+
+  @override
+  State<_UsersTab> createState() => _UsersTabState();
+}
+
+class _UsersTabState extends State<_UsersTab> {
+  final _pending = <String>{};
+
+  Future<void> _unban(String login) async {
+    final key = login.toLowerCase();
+    if (!_pending.add(key)) return;
+    setState(() {});
+    try {
+      final result = await widget.modActions.unbanUser(
+        widget.auth,
+        widget.channel,
+        login: login,
+      );
+      if (!mounted) return;
+      if (result.ok) {
+        widget.store.removeBan(widget.channel, login);
+      } else {
+        widget.onNotice(modErrorText(result));
+      }
+    } finally {
+      _pending.remove(key);
+      if (mounted) setState(() {});
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<int>(
+      valueListenable: widget.store.modActivityVersion,
+      builder: (_, _, _) {
+        final bans =
+            widget.store.channelBans[widget.channel]?.values.toList() ??
+            const [];
+        final warnings =
+            widget.store.channelWarnings[widget.channel] ?? const [];
+        final counts = <String, int>{};
+        final seen = <String>{};
+        final warned = <WarnEntry>[];
+        for (final w in warnings) {
+          final lower = w.target.toLowerCase();
+          counts[lower] = (counts[lower] ?? 0) + 1;
+          if (seen.add(lower)) warned.add(w);
+        }
+        return ListView(
+          children: [
+            _SectionHeader('Banned (${bans.length})'),
+            if (bans.isEmpty) const ListTile(dense: true, title: Text('None.')),
+            for (final ban in bans)
+              ListTile(
+                dense: true,
+                title: Text(ban.login),
+                subtitle: Text(_banSubtitle(ban)),
+                onTap: () => widget.onShowUser?.call(ban.login),
+                trailing: _pending.contains(ban.login.toLowerCase())
+                    ? const SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : IconButton(
+                        icon: const Icon(Icons.undo),
+                        tooltip: 'Unban',
+                        onPressed: () => _unban(ban.login),
+                      ),
+              ),
+            _SectionHeader('Warned (${warned.length})'),
+            if (warned.isEmpty)
+              const ListTile(dense: true, title: Text('None.')),
+            for (final w in warned)
+              ListTile(
+                dense: true,
+                title: Text(w.target),
+                subtitle: Text(
+                  _warnSubtitle(counts[w.target.toLowerCase()] ?? 1, w),
+                ),
+                onTap: () => widget.onShowUser?.call(w.target),
+              ),
+            _RosterSections(
+              channel: widget.channel,
+              modActions: widget.modActions,
+              auth: widget.auth,
+              onNotice: widget.onNotice,
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  String _banSubtitle(BanEntry ban) {
+    final head = ban.expiresAt == null
+        ? 'Banned'
+        : 'Timeout until ${_feedTime(ban.expiresAt!)}';
+    if (ban.reason != null && ban.reason!.isNotEmpty) {
+      return '$head · "${ban.reason}"';
+    }
+    return head;
+  }
+
+  String _warnSubtitle(int count, WarnEntry latest) {
+    final head = count == 1 ? '1 warning' : '$count warnings';
+    if (latest.reason != null && latest.reason!.isNotEmpty) {
+      return '$head · "${latest.reason}"';
+    }
+    return head;
   }
 }
 
@@ -642,8 +996,8 @@ class _ModesTabState extends State<_ModesTab> {
   }
 }
 
-class _PeopleTab extends StatefulWidget {
-  const _PeopleTab({
+class _RosterSections extends StatefulWidget {
+  const _RosterSections({
     required this.channel,
     required this.modActions,
     required this.auth,
@@ -656,10 +1010,10 @@ class _PeopleTab extends StatefulWidget {
   final ValueChanged<String> onNotice;
 
   @override
-  State<_PeopleTab> createState() => _PeopleTabState();
+  State<_RosterSections> createState() => _RosterSectionsState();
 }
 
-class _PeopleTabState extends State<_PeopleTab> {
+class _RosterSectionsState extends State<_RosterSections> {
   List<String>? _mods;
   List<String>? _vips;
   String? _error;
@@ -672,7 +1026,7 @@ class _PeopleTabState extends State<_PeopleTab> {
   }
 
   @override
-  void didUpdateWidget(covariant _PeopleTab oldWidget) {
+  void didUpdateWidget(covariant _RosterSections oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.channel != widget.channel) _load();
   }
@@ -768,20 +1122,27 @@ class _PeopleTabState extends State<_PeopleTab> {
   @override
   Widget build(BuildContext context) {
     if (_error != null) {
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(_error!),
-            TextButton(onPressed: _load, child: const Text('Retry')),
-          ],
-        ),
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+            child: Text(_error!),
+          ),
+          TextButton(onPressed: _load, child: const Text('Retry')),
+        ],
       );
     }
     if (_mods == null || _vips == null) {
-      return const Center(child: CircularProgressIndicator());
+      return const Padding(
+        padding: EdgeInsets.all(24),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [CircularProgressIndicator()],
+        ),
+      );
     }
-    return ListView(
+    return Column(
       children: [
         _PersonSection(
           title: 'Moderators (${_mods!.length})',
