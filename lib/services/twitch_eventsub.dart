@@ -102,6 +102,44 @@ class WarningEvent {
   });
 }
 
+/// An unban request event. [kind] is create or resolve.
+class UnbanRequestEvent {
+  final String channel;
+  final String kind;
+  final String userLogin;
+  final String moderatorName;
+  final String? resolutionText;
+
+  UnbanRequestEvent({
+    required this.channel,
+    required this.kind,
+    required this.userLogin,
+    required this.moderatorName,
+    this.resolutionText,
+  });
+}
+
+/// A public AutoMod terms change. Private-term changes never arrive.
+class AutomodTermsEvent {
+  final String channel;
+
+  /// add or remove.
+  final String action;
+
+  /// blocked or permitted.
+  final String list;
+  final List<String> terms;
+  final String moderatorName;
+
+  AutomodTermsEvent({
+    required this.channel,
+    required this.action,
+    required this.list,
+    required this.terms,
+    required this.moderatorName,
+  });
+}
+
 /// A hype train event. [kind] is begin, progress, or end.
 class HypeTrainEvent {
   final String channel;
@@ -235,6 +273,12 @@ class EventSubService {
   final _warningController = StreamController<WarningEvent>.broadcast(
     sync: true,
   );
+  final _unbanRequestController = StreamController<UnbanRequestEvent>.broadcast(
+    sync: true,
+  );
+  final _automodTermsController = StreamController<AutomodTermsEvent>.broadcast(
+    sync: true,
+  );
   final _statusController = StreamController<EventSubStatus>.broadcast(
     sync: true,
   );
@@ -267,6 +311,10 @@ class EventSubService {
   Stream<ShieldModeEvent> get onShieldMode => _shieldModeController.stream;
   Stream<ShoutoutEvent> get onShoutout => _shoutoutController.stream;
   Stream<WarningEvent> get onWarning => _warningController.stream;
+  Stream<UnbanRequestEvent> get onUnbanRequest =>
+      _unbanRequestController.stream;
+  Stream<AutomodTermsEvent> get onAutomodTerms =>
+      _automodTermsController.stream;
   Stream<EventSubStatus> get onStatus => _statusController.stream;
 
   void setChannelMapping(String broadcasterUserId, String channelName) {
@@ -490,6 +538,13 @@ class EventSubService {
         type == 'channel.warning.acknowledge') {
       if (channel == null) return;
       _emitWarning(channel, event, type.endsWith('.send'));
+    } else if (type == 'channel.unban_request.create' ||
+        type == 'channel.unban_request.resolve') {
+      if (channel == null) return;
+      _emitUnbanRequest(channel, event, type.endsWith('.create'));
+    } else if (type == 'automod.terms.update') {
+      if (channel == null) return;
+      _emitAutomodTerms(channel, event);
     } else if (type == 'automod.message.hold') {
       if (channel == null) return;
       _emitAutomodHeld(channel, event, 'held');
@@ -658,6 +713,37 @@ class EventSubService {
     );
   }
 
+  void _emitUnbanRequest(
+    String channel,
+    Map<String, dynamic> event,
+    bool created,
+  ) {
+    _unbanRequestController.add(
+      UnbanRequestEvent(
+        channel: channel,
+        kind: created ? 'create' : 'resolve',
+        userLogin: event['user_login'] as String? ?? '',
+        moderatorName: event['moderator_user_name'] as String? ?? 'A moderator',
+        resolutionText: event['resolution_text'] as String?,
+      ),
+    );
+  }
+
+  void _emitAutomodTerms(String channel, Map<String, dynamic> event) {
+    final rawTerms = event['terms'];
+    _automodTermsController.add(
+      AutomodTermsEvent(
+        channel: channel,
+        action: event['action'] as String? ?? 'add',
+        list: event['list'] as String? ?? 'blocked',
+        terms: rawTerms is List
+            ? rawTerms.whereType<String>().toList()
+            : const [],
+        moderatorName: event['moderator_user_name'] as String? ?? 'A moderator',
+      ),
+    );
+  }
+
   void _emitModeration(String? channel, Map<String, dynamic> event) {
     if (channel == null) return;
 
@@ -681,9 +767,7 @@ class EventSubService {
 
     final metaObj =
         event[baseAction] as Map<String, dynamic>? ??
-        (baseAction == action
-            ? null
-            : event[action] as Map<String, dynamic>?);
+        (baseAction == action ? null : event[action] as Map<String, dynamic>?);
     switch (baseAction) {
       case 'ban':
       case 'unban':
@@ -826,6 +910,8 @@ class EventSubService {
     _shieldModeController.close();
     _shoutoutController.close();
     _warningController.close();
+    _unbanRequestController.close();
+    _automodTermsController.close();
     _statusController.close();
   }
 }

@@ -2105,6 +2105,51 @@ void main() {
       expect(events[0].kind, 'acknowledge');
       expect(events[0].userLogin, 'spammer');
     });
+
+    test('unban request create carries user', () async {
+      final events = <UnbanRequestEvent>[];
+      service.onUnbanRequest.listen(events.add);
+      service.handleRawMessage(
+        topic('channel.unban_request.create', {'user_login': 'spammer'}),
+      );
+      expect(events, hasLength(1));
+      expect(events[0].kind, 'create');
+      expect(events[0].userLogin, 'spammer');
+    });
+
+    test('unban request resolve carries resolution', () async {
+      final events = <UnbanRequestEvent>[];
+      service.onUnbanRequest.listen(events.add);
+      service.handleRawMessage(
+        topic('channel.unban_request.resolve', {
+          'user_login': 'spammer',
+          'moderator_user_name': 'moduser',
+          'resolution_text': 'second chance',
+        }),
+      );
+      expect(events, hasLength(1));
+      expect(events[0].kind, 'resolve');
+      expect(events[0].userLogin, 'spammer');
+      expect(events[0].moderatorName, 'moduser');
+      expect(events[0].resolutionText, 'second chance');
+    });
+
+    test('automod terms update carries action, list, and terms', () async {
+      final events = <AutomodTermsEvent>[];
+      service.onAutomodTerms.listen(events.add);
+      service.handleRawMessage(
+        topic('automod.terms.update', {
+          'action': 'add',
+          'list': 'blocked',
+          'terms': ['bad word'],
+          'moderator_user_name': 'moduser',
+        }),
+      );
+      expect(events, hasLength(1));
+      expect(events[0].action, 'add');
+      expect(events[0].list, 'blocked');
+      expect(events[0].terms, ['bad word']);
+    });
   });
 
   group('notification (automod.message.hold/update)', () {

@@ -46,6 +46,12 @@ Future<http.Response> _handler(http.Request request) async {
   if (request.method == 'DELETE' && path.endsWith('moderation/bans')) {
     return http.Response('', 204);
   }
+  if (request.method == 'GET' && path.endsWith('moderation/unban_requests')) {
+    return http.Response('{"data":[],"pagination":{}}', 200);
+  }
+  if (request.method == 'GET' && path.endsWith('moderation/blocked_terms')) {
+    return http.Response('{"data":[],"pagination":{}}', 200);
+  }
   return http.Response('{"message":"unexpected $path"}', 404);
 }
 
@@ -134,7 +140,7 @@ void main() {
     );
 
     String? shownUser;
-    final tab = TabController(length: 4, vsync: const TestVSync());
+    final tab = TabController(length: 6, vsync: const TestVSync());
     addTearDown(tab.dispose);
     await tester.pumpWidget(
       MaterialApp(
@@ -174,6 +180,16 @@ void main() {
     await tester.tap(find.byIcon(Icons.undo));
     await tester.pumpAndSettle();
     expect(find.text('banneduser'), findsNothing);
+
+    // Requests tab loads the (empty) pending inbox.
+    tab.animateTo(4);
+    await tester.pumpAndSettle();
+    expect(find.text('No pending requests.'), findsOneWidget);
+
+    // Terms tab loads the (empty) public blocked list.
+    tab.animateTo(5);
+    await tester.pumpAndSettle();
+    expect(find.text('No blocked terms yet.'), findsOneWidget);
 
     // Modes tab builds without crashing.
     tab.animateTo(3);

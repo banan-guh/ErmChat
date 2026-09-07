@@ -45,8 +45,8 @@
 - [x] **Add unlimited fps option to emotes** - currently you can only choose a fixed setting, just let it run wild with unlimited
 - [+] **OS notifications + background** - background finished, notifs finished for android only, not apple.
 - [*] **Mod View v1 (Tiers 1+2)** - centralized ModActions service; mod rows in message menu + user card; chat mode toggles; mod/vip lists; AutoMod queue tab.
-- [ ] **Mod View Tier 3: unban request inbox** - list/approve/deny unban requests (needs moderator:manage:unban_requests).
-- [ ] **Mod View Tier 3: blocked/permitted terms manager** - view/add/remove (needs moderator:manage:blocked_terms; read scope already requested).
+- [x] **Mod View Tier 3: unban request inbox** - list/approve/deny unban requests with resolution text, live create/resolve feed.
+- [x] **Mod View Tier 3: blocked/permitted terms manager** - public list add/remove (private terms stay dashboard-only).
 - [*] **Mod View Tier 3: warnings log + mod activity feed** - parse switch extended for the dropped channel.moderate v2 actions; local feed, warn log, and ban roster in ChatStore; shield/shoutout/warning EventSub feed. UI tabs land with the Mod View shell.
 - [ ] **Mod View Tier 3: suspicious users + AutoMod settings editor** - needs moderator:read:suspicious_users.
 - [+] **Shared Chat** - mirror-only marking, sharedchatnotice unwrap/drop, source-channel emote scoping, lazy participant fetch, ping dedup

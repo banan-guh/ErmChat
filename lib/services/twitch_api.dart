@@ -5,6 +5,59 @@ import '../twitch_config.dart';
 import '../util/constants.dart';
 import 'twitch_auth.dart';
 
+/// One unban request in a channel's inbox.
+class UnbanRequest {
+  final String id;
+  final String userLogin;
+  final String text;
+  final String status;
+  final String createdAt;
+  final String? resolutionText;
+  final String? moderatorName;
+
+  const UnbanRequest({
+    required this.id,
+    required this.userLogin,
+    required this.text,
+    required this.status,
+    required this.createdAt,
+    this.resolutionText,
+    this.moderatorName,
+  });
+
+  factory UnbanRequest.fromJson(Map<String, dynamic> json) => UnbanRequest(
+    id: json['id'] as String? ?? '',
+    userLogin: json['user_login'] as String? ?? '',
+    text: json['text'] as String? ?? '',
+    status: json['status'] as String? ?? 'pending',
+    createdAt: json['created_at'] as String? ?? '',
+    resolutionText: json['resolution_text'] as String?,
+    moderatorName: json['moderator_name'] as String?,
+  );
+}
+
+/// One public blocked term. Private terms never come through Helix.
+class BlockedTerm {
+  final String id;
+  final String text;
+  final String createdAt;
+  final String? expiresAt;
+
+  const BlockedTerm({
+    required this.id,
+    required this.text,
+    required this.createdAt,
+    this.expiresAt,
+  });
+
+  factory BlockedTerm.fromJson(Map<String, dynamic> json) => BlockedTerm(
+    id: json['id'] as String? ?? '',
+    text: json['text'] as String? ?? '',
+    createdAt: json['created_at'] as String? ?? '',
+    expiresAt: json['expires_at'] as String?,
+  );
+}
+
 class TwitchApi {
   static const _base = 'https://api.twitch.tv/helix';
 
@@ -389,6 +442,146 @@ class TwitchApi {
     final res = await _client.delete(uri, headers: _headers(auth));
     if (res.statusCode == 204) return true;
     _setError('unbanUser', res);
+    return false;
+  }
+
+  /// Unban requests for a channel, newest first. Empty on failure. [status]
+  /// is pending/approved/denied/etc; null leaves the server default.
+  Future<List<UnbanRequest>> getUnbanRequests(
+    TwitchAuth auth, {
+    required String broadcasterId,
+    required String moderatorId,
+    String? status,
+  }) async {
+    _clearError();
+    final query = <String, String>{
+      'broadcaster_id': broadcasterId,
+      'moderator_id': moderatorId,
+    };
+    if (status != null && status.isNotEmpty) query['status'] = status;
+    final uri = Uri.parse(
+      '$_base/moderation/unban_requests',
+    ).replace(queryParameters: query);
+    final res = await _client.get(uri, headers: _headers(auth));
+    if (res.statusCode != 200) {
+      _setError('getUnbanRequests', res);
+      return const [];
+    }
+    try {
+      final data = jsonDecode(res.body) as Map;
+      return [
+        for (final item in data['data'] as List)
+          UnbanRequest.fromJson(item as Map<String, dynamic>),
+      ];
+    } catch (e) {
+      _setError('getUnbanRequests: bad response');
+      return const [];
+    }
+  }
+
+  /// Approves or denies one unban request. Resolution text is optional
+  /// (500 chars max). True on 200.
+  Future<bool> resolveUnbanRequest(
+    TwitchAuth auth, {
+    required String broadcasterId,
+    required String moderatorId,
+    required String requestId,
+    required bool approved,
+    String? resolutionText,
+  }) async {
+    _clearError();
+    final query = <String, String>{
+      'broadcaster_id': broadcasterId,
+      'moderator_id': moderatorId,
+      'unban_request_id': requestId,
+      'status': approved ? 'approved' : 'denied',
+    };
+    if (resolutionText != null && resolutionText.isNotEmpty) {
+      query['resolution_text'] = resolutionText;
+    }
+    final uri = Uri.parse(
+      '$_base/moderation/unban_requests',
+    ).replace(queryParameters: query);
+    final res = await _client.patch(uri, headers: _headers(auth));
+    if (res.statusCode == 200) return true;
+    _setError('resolveUnbanRequest', res);
+    return false;
+  }
+
+  /// Public blocked terms for a channel. Empty on failure. Private terms
+  /// are dashboard-only and never appear here.
+  Future<List<BlockedTerm>> getBlockedTerms(
+    TwitchAuth auth, {
+    required String broadcasterId,
+    required String moderatorId,
+  }) async {
+    _clearError();
+    final uri = Uri.parse(
+      '$_base/moderation/blocked_terms?broadcaster_id=$broadcasterId&moderator_id=$moderatorId',
+    );
+    final res = await _client.get(uri, headers: _headers(auth));
+    if (res.statusCode != 200) {
+      _setError('getBlockedTerms', res);
+      return const [];
+    }
+    try {
+      final data = jsonDecode(res.body) as Map;
+      return [
+        for (final item in data['data'] as List)
+          BlockedTerm.fromJson(item as Map<String, dynamic>),
+      ];
+    } catch (e) {
+      _setError('getBlockedTerms: bad response');
+      return const [];
+    }
+  }
+
+  /// Adds a public blocked term (2-500 chars, `*` wildcard at an edge).
+  /// Returns the created term, or null on failure.
+  Future<BlockedTerm?> addBlockedTerm(
+    TwitchAuth auth, {
+    required String broadcasterId,
+    required String moderatorId,
+    required String text,
+  }) async {
+    _clearError();
+    final uri = Uri.parse(
+      '$_base/moderation/blocked_terms?broadcaster_id=$broadcasterId&moderator_id=$moderatorId',
+    );
+    final res = await _client.post(
+      uri,
+      headers: _headers(auth),
+      body: jsonEncode({'text': text}),
+    );
+    if (res.statusCode != 200) {
+      _setError('addBlockedTerm', res);
+      return null;
+    }
+    try {
+      final data = jsonDecode(res.body) as Map;
+      final list = data['data'] as List;
+      if (list.isEmpty) return null;
+      return BlockedTerm.fromJson(list[0] as Map<String, dynamic>);
+    } catch (e) {
+      _setError('addBlockedTerm: bad response');
+      return null;
+    }
+  }
+
+  /// Removes a public blocked term by id. True on 204.
+  Future<bool> removeBlockedTerm(
+    TwitchAuth auth, {
+    required String broadcasterId,
+    required String moderatorId,
+    required String termId,
+  }) async {
+    _clearError();
+    final uri = Uri.parse(
+      '$_base/moderation/blocked_terms?broadcaster_id=$broadcasterId&moderator_id=$moderatorId&id=$termId',
+    );
+    final res = await _client.delete(uri, headers: _headers(auth));
+    if (res.statusCode == 204) return true;
+    _setError('removeBlockedTerm', res);
     return false;
   }
 

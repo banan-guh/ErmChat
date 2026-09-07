@@ -199,6 +199,8 @@ String formatModActivity(ModActivityEntry entry) {
       return '$mod approved $target\'s unban request$reason.';
     case 'deny_unban_request':
       return '$mod denied $target\'s unban request$reason.';
+    case 'unban_resolved':
+      return '$mod resolved $target\'s unban request$reason.';
     case 'add_blocked_term':
     case 'remove_blocked_term':
     case 'add_permitted_term':
@@ -363,6 +365,14 @@ class ChatStore {
 
   /// Bumped on any feed/warning/ban mutation so the Mod View rebuilds.
   final ValueNotifier<int> modActivityVersion = ValueNotifier(0);
+
+  /// Bumped when unban requests or public blocked terms change outside the
+  /// Mod View (EventSub create/resolve, term updates), so the inbox and
+  /// terms tabs reload. The lists themselves stay Helix-sourced.
+  final ValueNotifier<int> modInboxVersion = ValueNotifier(0);
+
+  /// Signals an external inbox/terms change.
+  void touchInbox() => modInboxVersion.value++;
 
   /// Per-channel feed bound; beyond it the oldest entries drop.
   static const maxActivityPerChannel = 200;
@@ -571,6 +581,7 @@ class ChatStore {
     loadFailedChannels.dispose();
     heldVersion.dispose();
     modActivityVersion.dispose();
+    modInboxVersion.dispose();
     _events.close();
     _notices.close();
   }

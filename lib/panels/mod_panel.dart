@@ -131,6 +131,8 @@ class ModPanels {
               const Tab(text: 'Activity'),
               const Tab(text: 'Users'),
               const Tab(text: 'Modes'),
+              const Tab(text: 'Requests'),
+              const Tab(text: 'Terms'),
             ],
           ),
           Divider(height: 1, color: Theme.of(context).dividerColor),

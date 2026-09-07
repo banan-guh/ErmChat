@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../services/chat_store.dart';
 import '../services/mod_actions.dart';
+import '../services/twitch_api.dart';
 import '../services/twitch_auth.dart';
 import 'app_snack.dart';
 
@@ -156,8 +157,8 @@ Future<String?> showModTextDialog(
   return pending;
 }
 
-/// Mod View panel body: Queue / Activity / Users / Modes tabs. State arrives
-/// as channel lookups (not snapshots) so every [refresh] tick re-reads live
+/// Mod View panel body: Queue / Activity / Users / Modes / Requests /
+/// Terms tabs. State arrives as channel lookups (not snapshots) so every [refresh] tick re-reads live
 /// values; the queue and feed additionally listen to their own versions.
 class ModViewPanel extends StatelessWidget {
   const ModViewPanel({
@@ -237,6 +238,20 @@ class ModViewPanel extends StatelessWidget {
               auth: auth,
               roomModes: getRoomModes(channel),
               moderationActive: moderationActive,
+              onNotice: onNotice,
+            ),
+            _RequestsTab(
+              channel: channel,
+              store: store,
+              modActions: modActions,
+              auth: auth,
+              onNotice: onNotice,
+            ),
+            _TermsTab(
+              channel: channel,
+              store: store,
+              modActions: modActions,
+              auth: auth,
               onNotice: onNotice,
             ),
           ],
@@ -725,6 +740,443 @@ class _UsersTabState extends State<_UsersTab> {
       return '$head · "${latest.reason}"';
     }
     return head;
+  }
+}
+
+String _shortDate(String iso) {
+  final dt = DateTime.tryParse(iso);
+  if (dt == null) return iso;
+  final local = dt.toLocal();
+  return '${local.year}-${local.month.toString().padLeft(2, '0')}-${local.day.toString().padLeft(2, '0')}';
+}
+
+class _RequestsTab extends StatefulWidget {
+  const _RequestsTab({
+    required this.channel,
+    required this.store,
+    required this.modActions,
+    required this.auth,
+    required this.onNotice,
+  });
+
+  final String channel;
+  final ChatStore store;
+  final ModActions modActions;
+  final TwitchAuth auth;
+  final ValueChanged<String> onNotice;
+
+  @override
+  State<_RequestsTab> createState() => _RequestsTabState();
+}
+
+class _RequestsTabState extends State<_RequestsTab> {
+  static const _statuses = ['pending', 'approved', 'denied'];
+
+  String _status = 'pending';
+  List<UnbanRequest>? _requests;
+  String? _error;
+  int _loadGen = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.store.modInboxVersion.addListener(_onInboxChanged);
+    _load();
+  }
+
+  @override
+  void didUpdateWidget(covariant _RequestsTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.channel != widget.channel) {
+      _status = 'pending';
+      _load();
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.store.modInboxVersion.removeListener(_onInboxChanged);
+    super.dispose();
+  }
+
+  void _onInboxChanged() => _load();
+
+  void _setStatus(String status) {
+    if (_status == status) return;
+    setState(() {
+      _status = status;
+      _requests = null;
+      _error = null;
+    });
+    _load();
+  }
+
+  Future<void> _load() async {
+    final gen = ++_loadGen;
+    final background = _requests != null;
+    List<UnbanRequest> requests = const [];
+    String? error;
+    try {
+      requests = await widget.modActions.getUnbanRequests(
+        widget.auth,
+        widget.channel,
+        status: _status,
+      );
+      if (widget.modActions.twitchApi.lastErrorStatus != null) {
+        error = widget.modActions.failureReason();
+      }
+    } catch (_) {
+      error = 'Could not load unban requests.';
+    }
+    if (!mounted || gen != _loadGen) return;
+    if (error != null && background) {
+      widget.onNotice(error);
+      return;
+    }
+    setState(() {
+      _error = error;
+      if (error == null) _requests = requests;
+    });
+  }
+
+  Future<void> _showDetail(UnbanRequest request) async {
+    final resolutionCtrl = TextEditingController();
+    final decision = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Request from ${request.userLogin}'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('"${request.text}"'),
+              const SizedBox(height: 8),
+              Text(
+                'Status: ${request.status} · ${_shortDate(request.createdAt)}',
+              ),
+              if (request.resolutionText != null &&
+                  request.resolutionText!.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text('Resolution: "${request.resolutionText}"'),
+                ),
+              if (request.status == 'pending') ...[
+                const SizedBox(height: 12),
+                TextField(
+                  controller: resolutionCtrl,
+                  maxLength: 500,
+                  maxLines: 2,
+                  decoration: const InputDecoration(
+                    labelText: 'Resolution message (optional)',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Close'),
+          ),
+          if (request.status == 'pending') ...[
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Deny'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Approve'),
+            ),
+          ],
+        ],
+      ),
+    );
+    final message = resolutionCtrl.text.trim();
+    resolutionCtrl.dispose();
+    if (decision == null || !mounted) return;
+    final result = await widget.modActions.resolveUnbanRequest(
+      widget.auth,
+      widget.channel,
+      requestId: request.id,
+      approved: decision,
+      resolutionText: message.isEmpty ? null : message,
+    );
+    if (!mounted) return;
+    if (result.ok) {
+      _load();
+    } else {
+      widget.onNotice(modErrorText(result));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+          child: Row(
+            children: [
+              for (final s in _statuses)
+                Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: ChoiceChip(
+                    label: Text(s[0].toUpperCase() + s.substring(1)),
+                    selected: _status == s,
+                    onSelected: (_) => _setStatus(s),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        Expanded(child: _body()),
+      ],
+    );
+  }
+
+  Widget _body() {
+    if (_error != null && _requests == null) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(_error!),
+            TextButton(onPressed: _load, child: const Text('Retry')),
+          ],
+        ),
+      );
+    }
+    final requests = _requests;
+    if (requests == null) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (requests.isEmpty) {
+      return Center(child: Text('No $_status requests.'));
+    }
+    return ListView.builder(
+      itemCount: requests.length,
+      itemBuilder: (_, i) {
+        final request = requests[i];
+        return ListTile(
+          title: Text(request.userLogin),
+          subtitle: Text(
+            '"${request.text}" · ${_shortDate(request.createdAt)}',
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+          onTap: () => _showDetail(request),
+        );
+      },
+    );
+  }
+}
+
+class _TermsTab extends StatefulWidget {
+  const _TermsTab({
+    required this.channel,
+    required this.store,
+    required this.modActions,
+    required this.auth,
+    required this.onNotice,
+  });
+
+  final String channel;
+  final ChatStore store;
+  final ModActions modActions;
+  final TwitchAuth auth;
+  final ValueChanged<String> onNotice;
+
+  @override
+  State<_TermsTab> createState() => _TermsTabState();
+}
+
+class _TermsTabState extends State<_TermsTab> {
+  List<BlockedTerm>? _terms;
+  String? _error;
+  int _loadGen = 0;
+  final _addCtrl = TextEditingController();
+  final _removing = <String>{};
+  bool _adding = false;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.store.modInboxVersion.addListener(_onInboxChanged);
+    _load();
+  }
+
+  @override
+  void didUpdateWidget(covariant _TermsTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.channel != widget.channel) _load();
+  }
+
+  @override
+  void dispose() {
+    widget.store.modInboxVersion.removeListener(_onInboxChanged);
+    _addCtrl.dispose();
+    super.dispose();
+  }
+
+  void _onInboxChanged() => _load();
+
+  Future<void> _load() async {
+    final gen = ++_loadGen;
+    final background = _terms != null;
+    List<BlockedTerm> terms = const [];
+    String? error;
+    try {
+      terms = await widget.modActions.getBlockedTerms(
+        widget.auth,
+        widget.channel,
+      );
+      if (widget.modActions.twitchApi.lastErrorStatus != null) {
+        error = widget.modActions.failureReason();
+      }
+    } catch (_) {
+      error = 'Could not load blocked terms.';
+    }
+    if (!mounted || gen != _loadGen) return;
+    if (error != null && background) {
+      widget.onNotice(error);
+      return;
+    }
+    setState(() {
+      _error = error;
+      if (error == null) _terms = terms;
+    });
+  }
+
+  Future<void> _add() async {
+    final text = _addCtrl.text.trim();
+    if (text.isEmpty || _adding) return;
+    if (text.length < 2 || text.length > 500) {
+      widget.onNotice('Terms must be 2-500 characters.');
+      return;
+    }
+    setState(() => _adding = true);
+    final result = await widget.modActions.addBlockedTerm(
+      widget.auth,
+      widget.channel,
+      text,
+    );
+    if (!mounted) return;
+    setState(() => _adding = false);
+    if (result.ok) {
+      _addCtrl.clear();
+      _load();
+    } else {
+      widget.onNotice(modErrorText(result));
+    }
+  }
+
+  Future<void> _remove(BlockedTerm term) async {
+    if (!_removing.add(term.id)) return;
+    setState(() {});
+    final result = await widget.modActions.removeBlockedTerm(
+      widget.auth,
+      widget.channel,
+      term.id,
+    );
+    if (!mounted) return;
+    _removing.remove(term.id);
+    if (result.ok) {
+      _load();
+    } else {
+      setState(() {});
+      widget.onNotice(modErrorText(result));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
+          child: Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _addCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Block a word or phrase',
+                    border: OutlineInputBorder(),
+                  ),
+                  onSubmitted: (_) => _add(),
+                ),
+              ),
+              const SizedBox(width: 8),
+              IconButton.filled(
+                icon: _adding
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.add),
+                tooltip: 'Add term',
+                onPressed: _adding ? null : _add,
+              ),
+            ],
+          ),
+        ),
+        const Padding(
+          padding: EdgeInsets.fromLTRB(16, 4, 16, 0),
+          child: Text(
+            'Public list only; private terms live in the dashboard. * works at an edge.',
+          ),
+        ),
+        Expanded(child: _body()),
+      ],
+    );
+  }
+
+  Widget _body() {
+    if (_error != null && _terms == null) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(_error!),
+            TextButton(onPressed: _load, child: const Text('Retry')),
+          ],
+        ),
+      );
+    }
+    final terms = _terms;
+    if (terms == null) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (terms.isEmpty) {
+      return const Center(child: Text('No blocked terms yet.'));
+    }
+    return ListView.builder(
+      itemCount: terms.length,
+      itemBuilder: (_, i) {
+        final term = terms[i];
+        return ListTile(
+          dense: true,
+          title: Text(term.text),
+          subtitle: Text('Added ${_shortDate(term.createdAt)}'),
+          trailing: _removing.contains(term.id)
+              ? const SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : IconButton(
+                  icon: const Icon(Icons.delete_outline),
+                  tooltip: 'Remove',
+                  onPressed: () => _remove(term),
+                ),
+        );
+      },
+    );
   }
 }
 

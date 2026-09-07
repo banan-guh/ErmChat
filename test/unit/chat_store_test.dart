@@ -843,6 +843,13 @@ void main() {
       expect(store.modActivityVersion.value, version + 1);
     });
 
+    test('touchInbox bumps the inbox version', () {
+      final store = _store();
+      final version = store.modInboxVersion.value;
+      store.touchInbox();
+      expect(store.modInboxVersion.value, version + 1);
+    });
+
     test('formatModActivity renders each action', () {
       ModActivityEntry entry(
         String action, {

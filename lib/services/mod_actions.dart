@@ -207,6 +207,90 @@ class ModActions {
     );
   }
 
+  /// Unban requests; empty on failure (check `twitchApi.lastErrorStatus`).
+  Future<List<UnbanRequest>> getUnbanRequests(
+    TwitchAuth auth,
+    String channel, {
+    String? status,
+  }) {
+    final ids = _ids(channel);
+    if (ids == null) return Future.value(const []);
+    return twitchApi.getUnbanRequests(
+      auth,
+      broadcasterId: ids.broadcasterId,
+      moderatorId: ids.moderatorId,
+      status: status,
+    );
+  }
+
+  Future<ModResult> resolveUnbanRequest(
+    TwitchAuth auth,
+    String channel, {
+    required String requestId,
+    required bool approved,
+    String? resolutionText,
+  }) async {
+    final ids = _ids(channel);
+    if (ids == null) return const ModResult.fail(ModFailure.notJoined);
+    return _run(
+      approved ? 'approve unban request' : 'deny unban request',
+      () => twitchApi.resolveUnbanRequest(
+        auth,
+        broadcasterId: ids.broadcasterId,
+        moderatorId: ids.moderatorId,
+        requestId: requestId,
+        approved: approved,
+        resolutionText: resolutionText,
+      ),
+    );
+  }
+
+  /// Public blocked terms; empty on failure (check lastErrorStatus).
+  Future<List<BlockedTerm>> getBlockedTerms(TwitchAuth auth, String channel) {
+    final ids = _ids(channel);
+    if (ids == null) return Future.value(const []);
+    return twitchApi.getBlockedTerms(
+      auth,
+      broadcasterId: ids.broadcasterId,
+      moderatorId: ids.moderatorId,
+    );
+  }
+
+  Future<ModResult> addBlockedTerm(
+    TwitchAuth auth,
+    String channel,
+    String text,
+  ) async {
+    final ids = _ids(channel);
+    if (ids == null) return const ModResult.fail(ModFailure.notJoined);
+    final created = await twitchApi.addBlockedTerm(
+      auth,
+      broadcasterId: ids.broadcasterId,
+      moderatorId: ids.moderatorId,
+      text: text,
+    );
+    if (created != null) return const ModResult.ok();
+    return ModResult.fail(ModFailure.apiError, failureReason());
+  }
+
+  Future<ModResult> removeBlockedTerm(
+    TwitchAuth auth,
+    String channel,
+    String termId,
+  ) async {
+    final ids = _ids(channel);
+    if (ids == null) return const ModResult.fail(ModFailure.notJoined);
+    return _run(
+      'remove blocked term',
+      () => twitchApi.removeBlockedTerm(
+        auth,
+        broadcasterId: ids.broadcasterId,
+        moderatorId: ids.moderatorId,
+        termId: termId,
+      ),
+    );
+  }
+
   Future<ModResult> warnUser(
     TwitchAuth auth,
     String channel, {

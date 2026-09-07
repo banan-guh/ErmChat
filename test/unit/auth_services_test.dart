@@ -11,6 +11,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:ermchat/services/command_handler.dart';
+import 'package:ermchat/services/mod_actions.dart';
 import 'package:ermchat/services/twitch_api.dart';
 import 'package:ermchat/services/twitch_irc.dart';
 
@@ -1589,12 +1590,7 @@ void main() {
         'slow_mode_wait_time',
         120,
       ),
-      (
-        'slow accepts unit durations',
-        '/slow 1m',
-        'slow_mode_wait_time',
-        60,
-      ),
+      ('slow accepts unit durations', '/slow 1m', 'slow_mode_wait_time', 60),
       ('slowoff disables slow mode', '/slowoff', 'slow_mode', false),
     ]) {
       test('/$name', () async {
@@ -2064,6 +2060,165 @@ void main() {
     });
   });
 
+  group('mod inbox api and actions', () {
+    MockClient inboxClient(List<http.Request> requests) => MockClient((
+      req,
+    ) async {
+      requests.add(req);
+      final path = req.url.path;
+      if (req.method == 'GET' && path.endsWith('moderation/unban_requests')) {
+        return http.Response(
+          '{"data":[{"id":"req1","user_login":"spammer","text":"sorry","status":"pending","created_at":"2026-01-02T03:04:05Z","resolution_text":null}],"pagination":{}}',
+          200,
+        );
+      }
+      if (req.method == 'PATCH' && path.endsWith('moderation/unban_requests')) {
+        return http.Response('{"data":[]}', 200);
+      }
+      if (req.method == 'GET' && path.endsWith('moderation/blocked_terms')) {
+        return http.Response(
+          '{"data":[{"id":"term1","text":"bad word","created_at":"2026-01-02T03:04:05Z"}],"pagination":{}}',
+          200,
+        );
+      }
+      if (req.method == 'POST' && path.endsWith('moderation/blocked_terms')) {
+        return http.Response(
+          '{"data":[{"id":"term2","text":"worse","created_at":"2026-01-02T03:04:05Z"}]}',
+          200,
+        );
+      }
+      if (req.method == 'DELETE' && path.endsWith('moderation/blocked_terms')) {
+        return http.Response('', 204);
+      }
+      return http.Response('{"message":"unexpected"}', 404);
+    });
+
+    ModActions inboxActions(TwitchApi api) => ModActions(
+      twitchApi: api,
+      getChannelUserIds: () => {'a': 'broad1'},
+      getCurrentUserId: () => 'mod1',
+    );
+
+    TwitchAuth inboxAuth() {
+      final auth = TwitchAuth();
+      auth.accessToken = 'tok';
+      return auth;
+    }
+
+    test('getUnbanRequests passes ids and status, parses list', () async {
+      final requests = <http.Request>[];
+      final api = TwitchApi(client: inboxClient(requests));
+      final list = await api.getUnbanRequests(
+        inboxAuth(),
+        broadcasterId: 'broad1',
+        moderatorId: 'mod1',
+        status: 'pending',
+      );
+      final query = requests.single.url.queryParameters;
+      expect(query['broadcaster_id'], 'broad1');
+      expect(query['moderator_id'], 'mod1');
+      expect(query['status'], 'pending');
+      expect(list, hasLength(1));
+      expect(list.first.id, 'req1');
+      expect(list.first.userLogin, 'spammer');
+      expect(list.first.text, 'sorry');
+    });
+
+    test('resolveUnbanRequest approves with resolution text', () async {
+      final requests = <http.Request>[];
+      final api = TwitchApi(client: inboxClient(requests));
+      final ok = await api.resolveUnbanRequest(
+        inboxAuth(),
+        broadcasterId: 'broad1',
+        moderatorId: 'mod1',
+        requestId: 'req1',
+        approved: true,
+        resolutionText: 'second chance',
+      );
+      expect(ok, isTrue);
+      final query = requests.single.url.queryParameters;
+      expect(requests.single.method, 'PATCH');
+      expect(query['unban_request_id'], 'req1');
+      expect(query['status'], 'approved');
+      expect(query['resolution_text'], 'second chance');
+    });
+
+    test('blocked terms get/add/remove hit the right shapes', () async {
+      final requests = <http.Request>[];
+      final api = TwitchApi(client: inboxClient(requests));
+      final auth = inboxAuth();
+
+      final terms = await api.getBlockedTerms(
+        auth,
+        broadcasterId: 'broad1',
+        moderatorId: 'mod1',
+      );
+      expect(terms.single.text, 'bad word');
+
+      final created = await api.addBlockedTerm(
+        auth,
+        broadcasterId: 'broad1',
+        moderatorId: 'mod1',
+        text: 'worse',
+      );
+      expect(created!.id, 'term2');
+      expect(jsonDecode(requests[1].body)['text'], 'worse');
+
+      final removed = await api.removeBlockedTerm(
+        auth,
+        broadcasterId: 'broad1',
+        moderatorId: 'mod1',
+        termId: 'term1',
+      );
+      expect(removed, isTrue);
+      expect(requests[2].url.queryParameters['id'], 'term1');
+    });
+
+    test(
+      'ModActions inbox wrappers resolve ids and report notJoined',
+      () async {
+        final requests = <http.Request>[];
+        final actions = inboxActions(TwitchApi(client: inboxClient(requests)));
+        final auth = inboxAuth();
+
+        final list = await actions.getUnbanRequests(
+          auth,
+          'a',
+          status: 'pending',
+        );
+        expect(list, hasLength(1));
+
+        final approved = await actions.resolveUnbanRequest(
+          auth,
+          'a',
+          requestId: 'req1',
+          approved: false,
+        );
+        expect(approved.ok, isTrue);
+        expect(requests[1].url.queryParameters['status'], 'denied');
+        expect(
+          requests[1].url.queryParameters.containsKey('resolution_text'),
+          isFalse,
+        );
+
+        expect(await actions.getUnbanRequests(auth, 'missing'), isEmpty);
+        final notJoined = await actions.resolveUnbanRequest(
+          auth,
+          'missing',
+          requestId: 'req1',
+          approved: true,
+        );
+        expect(notJoined.ok, isFalse);
+        expect(notJoined.failure, ModFailure.notJoined);
+
+        final added = await actions.addBlockedTerm(auth, 'a', 'worse');
+        expect(added.ok, isTrue);
+        final removed = await actions.removeBlockedTerm(auth, 'a', 'term1');
+        expect(removed.ok, isTrue);
+      },
+    );
+  });
+
   group('TwitchApi.getFollowDate', () {
     test('returns followed_at when following', () async {
       final client = MockClient((request) async {
@@ -2080,11 +2235,7 @@ void main() {
       auth.accessToken = 'tok';
 
       expect(
-        await api.getFollowDate(
-          auth,
-          broadcasterId: 'broad1',
-          userId: 'user9',
-        ),
+        await api.getFollowDate(auth, broadcasterId: 'broad1', userId: 'user9'),
         '2024-05-06T07:08:09Z',
       );
     });
@@ -2124,32 +2275,32 @@ void main() {
     });
   });
 
-    test('returns null on auth failure and network error', () async {
-      final unauthorized = MockClient((request) async {
-        return http.Response(
-          '{"status":401,"message":"invalid access token"}',
-          401,
-        );
-      });
-      final unauthorizedApi = TwitchApi(client: unauthorized);
-      final deadAuth = TwitchAuth();
-      deadAuth.accessToken = 'dead-token';
-
-      final unauthorizedResult = await unauthorizedApi.validateToken(deadAuth);
-      expect(unauthorizedResult, isNull);
-      expect(unauthorizedApi.lastErrorStatus, 401);
-
-      final flaky = MockClient((request) async {
-        throw Exception('network');
-      });
-      final flakyApi = TwitchApi(client: flaky);
-      final flakyAuth = TwitchAuth();
-      flakyAuth.accessToken = 'tok';
-
-      final flakyResult = await flakyApi.validateToken(flakyAuth);
-      expect(flakyResult, isNull);
-      expect(flakyApi.lastErrorStatus, isNull);
+  test('returns null on auth failure and network error', () async {
+    final unauthorized = MockClient((request) async {
+      return http.Response(
+        '{"status":401,"message":"invalid access token"}',
+        401,
+      );
     });
+    final unauthorizedApi = TwitchApi(client: unauthorized);
+    final deadAuth = TwitchAuth();
+    deadAuth.accessToken = 'dead-token';
+
+    final unauthorizedResult = await unauthorizedApi.validateToken(deadAuth);
+    expect(unauthorizedResult, isNull);
+    expect(unauthorizedApi.lastErrorStatus, 401);
+
+    final flaky = MockClient((request) async {
+      throw Exception('network');
+    });
+    final flakyApi = TwitchApi(client: flaky);
+    final flakyAuth = TwitchAuth();
+    flakyAuth.accessToken = 'tok';
+
+    final flakyResult = await flakyApi.validateToken(flakyAuth);
+    expect(flakyResult, isNull);
+    expect(flakyApi.lastErrorStatus, isNull);
+  });
 
   group('IrcService auth-failure NOTICE', () {
     test(

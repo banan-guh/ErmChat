@@ -330,6 +330,8 @@ class ChatConnectionManager {
   StreamSubscription<ShieldModeEvent>? shieldModeSub;
   StreamSubscription<ShoutoutEvent>? shoutoutSub;
   StreamSubscription<WarningEvent>? warningSub;
+  StreamSubscription<UnbanRequestEvent>? unbanRequestSub;
+  StreamSubscription<AutomodTermsEvent>? automodTermsSub;
   StreamSubscription<HypeTrainEvent>? hypeTrainSub;
   StreamSubscription<PollEvent>? pollSub;
   StreamSubscription<PredictionEvent>? predictionSub;
@@ -407,6 +409,8 @@ class ChatConnectionManager {
     shieldModeSub?.cancel();
     shoutoutSub?.cancel();
     warningSub?.cancel();
+    unbanRequestSub?.cancel();
+    automodTermsSub?.cancel();
     hypeTrainSub?.cancel();
     pollSub?.cancel();
     predictionSub?.cancel();
@@ -1397,6 +1401,8 @@ class ChatConnectionManager {
     shieldModeSub ??= eventSub.onShieldMode.listen(_onShieldModeEvent);
     shoutoutSub ??= eventSub.onShoutout.listen(_onShoutoutEvent);
     warningSub ??= eventSub.onWarning.listen(_onWarningEvent);
+    unbanRequestSub ??= eventSub.onUnbanRequest.listen(_onUnbanRequestEvent);
+    automodTermsSub ??= eventSub.onAutomodTerms.listen(_onAutomodTermsEvent);
 
     hypeTrainSub ??= eventSub.onHypeTrain.listen((event) {
       if (isDisposed) return;
@@ -1754,6 +1760,64 @@ class ChatConnectionManager {
     onSystemMessage(
       event.channel,
       '${event.moderatorName} warned $user$reason.',
+    );
+  }
+
+  // Inbox complements gated on the inbox subscriptions: unban request
+  // create/resolve refresh the inbox tab. Creates get a chat line (no feed
+  // row: feed rows always carry a moderator); resolves get both.
+  void _onUnbanRequestEvent(UnbanRequestEvent event) {
+    if (isDisposed) return;
+    if (!_channelSetup.isInboxActive(event.channel)) return;
+    store.touchInbox();
+    final user = event.userLogin;
+    if (event.kind == 'create') {
+      onSystemMessage(event.channel, '$user requested an unban.');
+      return;
+    }
+    final resolution =
+        (event.resolutionText != null && event.resolutionText!.isNotEmpty)
+        ? ': "${event.resolutionText}"'
+        : '';
+    store.addModActivity(
+      ModActivityEntry(
+        at: DateTime.now(),
+        channel: event.channel,
+        action: 'unban_resolved',
+        moderator: event.moderatorName,
+        target: user.isEmpty ? null : user,
+        reason: event.resolutionText,
+      ),
+    );
+    onSystemMessage(
+      event.channel,
+      '${event.moderatorName} resolved $user\'s unban request$resolution.',
+    );
+  }
+
+  // Public AutoMod term updates refresh the terms tab. Skipped while
+  // channel.moderate covers the same change (it carries the same terms).
+  void _onAutomodTermsEvent(AutomodTermsEvent event) {
+    if (isDisposed) return;
+    if (!_channelSetup.isInboxActive(event.channel)) return;
+    store.touchInbox();
+    if (_channelSetup.isModerationActive(event.channel)) return;
+    final adding = event.action != 'remove';
+    final permitted = event.list == 'permitted';
+    final action =
+        '${adding ? 'add' : 'remove'}_${permitted ? 'permitted' : 'blocked'}_term';
+    store.addModActivity(
+      ModActivityEntry(
+        at: DateTime.now(),
+        channel: event.channel,
+        action: action,
+        moderator: event.moderatorName,
+        terms: event.terms,
+      ),
+    );
+    onSystemMessage(
+      event.channel,
+      formatTermAction(event.moderatorName, action, event.terms),
     );
   }
 
