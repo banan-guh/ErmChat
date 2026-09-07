@@ -66,6 +66,9 @@ class EmoteCacheManager extends CacheManager {
   /// generous; only files that have certainly been consumed are evicted.
   static const _overflowGrace = Duration(seconds: 30);
 
+  /// Sequence disambiguating temp files created within the same microsecond.
+  static int _overflowSeq = 0;
+
   /// How long a repo object-count read is trusted. Bursts of fetches (e.g. an
   /// emote menu opening with dozens of cells) share one count within the TTL
   /// instead of re-scanning the repo per emote; [isFull] only gates soft
@@ -83,6 +86,17 @@ class EmoteCacheManager extends CacheManager {
   Future<int>? _countRead;
   int? _cachedCount;
   DateTime? _cachedCountAt;
+
+  /// Serializes check-and-reserve so concurrent writers cannot all pass on
+  /// the same stale count before any increments [_pendingWrites].
+  Future<void> _reserveTail = Future.value();
+
+  /// In-flight overflow downloads by URL. Concurrent renders of the same
+  /// uncached emote await one GET instead of starting their own. No cached
+  /// bytes are kept: completed downloads live on in shared image memory
+  /// (Flutter ImageCache plus the live completers), so there is no second
+  /// eviction policy to get wrong.
+  final Map<String, Future<Uint8List>> _overflowInflight = {};
 
   /// Temp files served while the cache was full. Evicted only once they're
   /// older than [_overflowGrace] (the consumer has certainly read them by
@@ -174,10 +188,32 @@ class EmoteCacheManager extends CacheManager {
 
   /// Reserves a write slot, or returns false when the cache is full. Callers
   /// must release the slot (via [_pendingWrites]-- ) after the write lands.
-  Future<bool> _tryReserve() async {
-    if (await isFull()) return false;
-    _pendingWrites++;
-    return true;
+  /// Serialized: concurrent callers queue so each sees the prior caller's
+  /// pending increment instead of all passing on one stale count.
+  Future<bool> _tryReserve() {
+    final prev = _reserveTail;
+    final done = Completer<void>();
+    _reserveTail = done.future;
+    return prev.then((_) async {
+      try {
+        if (await isFull()) return false;
+        _pendingWrites++;
+        return true;
+      } finally {
+        done.complete();
+      }
+    });
+  }
+
+  /// Accounts a landed disk write against the cached count. The cached count
+  /// is otherwise stale until [_countTtl] expires, so a burst of successful
+  /// writes would keep admitting against the pre-burst count and overshoot
+  /// the cap. Overcounts on row updates (safe: briefly serves temp files).
+  void _noteWriteInserted() {
+    if (_cachedCount != null) {
+      _cachedCount = _cachedCount! + 1;
+      _cachedCountAt = DateTime.now();
+    }
   }
 
   @override
@@ -200,7 +236,9 @@ class EmoteCacheManager extends CacheManager {
       throw StateError('emote cache full: $url');
     }
     try {
-      return await super.getSingleFile(url, key: key, headers: headers);
+      final file = await super.getSingleFile(url, key: key, headers: headers);
+      _noteWriteInserted();
+      return file;
     } finally {
       _pendingWrites--;
     }
@@ -232,6 +270,7 @@ class EmoteCacheManager extends CacheManager {
       )) {
         yield response;
       }
+      _noteWriteInserted();
     } finally {
       _pendingWrites--;
     }
@@ -268,7 +307,7 @@ class EmoteCacheManager extends CacheManager {
   Future<File> _nextOverflowFile() async {
     final dir = await getTemporaryDirectory();
     final file = const LocalFileSystem().file(
-      '${dir.path}/emote_overflow_${DateTime.now().microsecondsSinceEpoch}',
+      '${dir.path}/emote_overflow_${DateTime.now().microsecondsSinceEpoch}_${_overflowSeq++}',
     );
     await file.create();
     final now = DateTime.now();
@@ -289,8 +328,52 @@ class EmoteCacheManager extends CacheManager {
     return file;
   }
 
+  /// Bytes for [url] served while the disk cache is full. Concurrent callers
+  /// share one GET; the bytes are not retained after all callers finish
+  /// (decoded frames stay shared in image memory). Usage is recorded once
+  /// per actual download, not per caller.
+  Future<Uint8List> getOverflowBytes(
+    String url, [
+    Map<String, String>? headers,
+  ]) {
+    final existing = _overflowInflight[url];
+    if (existing != null) return existing;
+    final future = _downloadOverflowBytes(url, headers);
+    _overflowInflight[url] = future;
+    // The whenComplete copy must not report unhandled errors: callers handle
+    // the original future themselves.
+    future.whenComplete(() => _overflowInflight.remove(url)).ignore();
+    return future;
+  }
+
+  Future<Uint8List> _downloadOverflowBytes(
+    String url,
+    Map<String, String>? headers,
+  ) async {
+    final request = http.Request('GET', Uri.parse(url));
+    if (headers != null) request.headers.addAll(headers);
+    // Some CDNs 403 bare requests; match what the main fetch path sends.
+    request.headers.putIfAbsent('User-Agent', () => 'ermchat');
+    final response = await emoteFetchClient
+        .send(request)
+        .timeout(_downloadTimeout);
+    if (response.statusCode != 200) {
+      throw HttpExceptionWithStatus(
+        response.statusCode,
+        'Failed to download $url: ${response.statusCode}',
+        uri: Uri.parse(url),
+      );
+    }
+    final bytes = await response.stream.toBytes().timeout(_downloadTimeout);
+    DataUsageStats.I.recordEmoteDownload(bytes.length);
+    return bytes;
+  }
+
   /// Downloads the emote to a temp file outside the cache repo and streams it
   /// back as a [FileInfo], so renders work without growing the disk cache.
+  /// The network GET is shared across concurrent callers for the same URL;
+  /// each caller still gets its own temp file (existing lifecycle). No
+  /// per-chunk progress is emitted on the shared path.
   Stream<FileResponse> _serveFromMemory(
     String url,
     Map<String, String>? headers,
@@ -310,35 +393,9 @@ class EmoteCacheManager extends CacheManager {
         );
         return;
       }
-      final request = http.Request('GET', Uri.parse(url));
-      if (headers != null) request.headers.addAll(headers);
-      // Some CDNs 403 bare requests; match what the main fetch path sends.
-      request.headers.putIfAbsent('User-Agent', () => 'ermchat');
-      final response = await emoteFetchClient
-          .send(request)
-          .timeout(_downloadTimeout);
-      if (response.statusCode != 200) {
-        throw HttpExceptionWithStatus(
-          response.statusCode,
-          'Failed to download $url: ${response.statusCode}',
-          uri: Uri.parse(url),
-        );
-      }
+      final bytes = await getOverflowBytes(url, headers);
       file = await _nextOverflowFile();
-      final sink = file.openWrite();
-      var received = 0;
-      try {
-        await for (final chunk in response.stream.timeout(_downloadTimeout)) {
-          received += chunk.length;
-          if (withProgress) {
-            yield DownloadProgress(url, response.contentLength, received);
-          }
-          sink.add(chunk);
-        }
-      } finally {
-        await sink.close();
-      }
-      DataUsageStats.I.recordEmoteDownload(received);
+      await file.writeAsBytes(bytes);
       yield FileInfo(
         file,
         FileSource.Online,
@@ -434,6 +491,7 @@ class EmoteCacheManager extends CacheManager {
           // A missing file or a racing removal is fine - it's already gone.
         }
       }
+      _invalidateCount();
     } catch (_) {
       // Enumeration can fail (e.g. db closed); the next pass retries.
     }
