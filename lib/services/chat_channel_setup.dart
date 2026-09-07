@@ -160,6 +160,12 @@ class ChatChannelSetup {
   /// surfaced instead of being dropped as unsolicited.
   bool isWidgetActive(String channel) => _widgetChannels.contains(channel);
 
+  /// Whether the session user owns this channel. Broadcaster-only widgets
+  /// and the Channel tab gate on this, not on moderator status.
+  bool isBroadcaster(String channel) =>
+      store.session.userId != null &&
+      store.session.userId == store.channelUserIds[channel];
+
   /// Whether a join-failure notice was already displayed for the channel
   /// (Twitch's raw refusal NOTICE is suppressed as a duplicate then).
   bool isJoinFailureNotified(String channel) =>

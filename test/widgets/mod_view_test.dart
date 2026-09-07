@@ -71,6 +71,16 @@ Future<http.Response> _handler(http.Request request) async {
       path.endsWith('moderation/suspicious_users')) {
     return http.Response('{"data":[]}', 200);
   }
+  if (request.method == 'GET' && path.endsWith('moderation/banned')) {
+    return http.Response(
+      '{"data":[{"user_id":"u1","user_login":"bannedlogin","user_name":"BannedLogin","expires_at":"","reason":"spam","moderator_id":"mod1","moderator_login":"rosmod","moderator_name":"Rosmod"}],"pagination":{}}',
+      200,
+    );
+  }
+  if (request.method == 'GET' &&
+      (path.endsWith('/polls') || path.endsWith('/predictions'))) {
+    return http.Response('{"data":[],"pagination":{}}', 200);
+  }
   return http.Response('{"message":"unexpected $path"}', 404);
 }
 
@@ -83,6 +93,7 @@ class _Harness extends StatelessWidget {
     required this.auth,
     required this.tab,
     required this.onUser,
+    this.broadcaster = false,
   });
 
   final ChatStore store;
@@ -90,6 +101,7 @@ class _Harness extends StatelessWidget {
   final TwitchAuth auth;
   final TabController tab;
   final ValueChanged<String> onUser;
+  final bool broadcaster;
 
   @override
   Widget build(BuildContext context) {
@@ -105,6 +117,7 @@ class _Harness extends StatelessWidget {
       getRoomModes: (_) => const {},
       onNotice: (_) {},
       onShowUser: onUser,
+      isBroadcaster: broadcaster,
     );
   }
 }
@@ -173,7 +186,7 @@ void main() {
 
     String? shownUser;
     recordedRequests.clear();
-    final tab = TabController(length: 7, vsync: const TestVSync());
+    final tab = TabController(length: 8, vsync: const TestVSync());
     addTearDown(tab.dispose);
     await tester.pumpWidget(
       MaterialApp(
@@ -245,6 +258,38 @@ void main() {
 
     // Modes tab builds without crashing.
     tab.animateTo(3);
+    await tester.pumpAndSettle();
+
+    // Channel tab gates on the broadcaster.
+    tab.animateTo(7);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Only the broadcaster'), findsOneWidget);
+
+    // As the broadcaster the rosters and stream tools render.
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: _Harness(
+            store: store,
+            actions: actions,
+            auth: auth,
+            tab: tab,
+            onUser: (login) => shownUser = login,
+            broadcaster: true,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Only the broadcaster'), findsNothing);
+    expect(find.text('bannedlogin'), findsOneWidget);
+    expect(find.text('rosmod'), findsOneWidget);
+    expect(find.text('No active poll. Create one with /poll.'), findsOneWidget);
+    expect(
+      find.text('No active poll. Create one with /poll.'),
+      findsOneWidget,
+    );
+    // Sections load concurrently; one more settle for stragglers.
     await tester.pumpAndSettle();
   });
 }

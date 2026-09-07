@@ -2217,6 +2217,35 @@ void main() {
         expect(removed.ok, isTrue);
       },
     );
+
+    test('getBannedUsers parses bans and timeouts', () async {
+      final requests = <http.Request>[];
+      final api = TwitchApi(
+        client: MockClient((req) async {
+          requests.add(req);
+          return http.Response(
+            '{"data":['
+            '{"user_login":"permaban","expires_at":"","reason":"hate","moderator_name":"moduser"},'
+            '{"user_login":"timeoutguy","expires_at":"2026-02-01T00:10:00Z","reason":"","moderator_name":"moduser"}'
+            '],"pagination":{}}',
+            200,
+          );
+        }),
+      );
+      final auth = inboxAuth();
+      final list = await api.getBannedUsers(auth, 'broad1');
+      expect(requests.single.url.queryParameters['broadcaster_id'], 'broad1');
+      expect(list, hasLength(2));
+      expect(list[0].userLogin, 'permaban');
+      expect(list[0].expiresAt, isNull);
+      expect(list[0].reason, 'hate');
+      expect(list[1].userLogin, 'timeoutguy');
+      expect(list[1].expiresAt, '2026-02-01T00:10:00Z');
+      expect(list[1].reason, isNull);
+
+      final actions = inboxActions(api);
+      expect(await actions.getBannedUsers(auth, 'missing'), isEmpty);
+    });
   });
 
   group('mod automod settings and suspicious api', () {

@@ -493,6 +493,9 @@ class ChatConnectionManager {
   bool isAutomodActive(String channel) =>
       _channelSetup.isAutomodActive(channel);
 
+  /// Whether the session user owns [channel] (Channel tab gate).
+  bool isBroadcaster(String channel) => _channelSetup.isBroadcaster(channel);
+
   /// Merged ROOMSTATE tags for the mode toggles.
   Map<String, String> roomStateTags(String channel) =>
       _channelSetup.roomStateTags(channel);

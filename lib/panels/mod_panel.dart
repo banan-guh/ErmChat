@@ -134,6 +134,7 @@ class ModPanels {
               const Tab(text: 'Requests'),
               const Tab(text: 'Terms'),
               const Tab(text: 'Setup'),
+              const Tab(text: 'Channel'),
             ],
           ),
           Divider(height: 1, color: Theme.of(context).dividerColor),
@@ -148,6 +149,7 @@ class ModPanels {
         refresh: modPanelVersion,
         onNotice: host.showNotice,
         onShowUser: onShowUser,
+        isBroadcaster: channel.isNotEmpty && chatConn.isBroadcaster(channel),
         isModerationActive: (c) =>
             c.isNotEmpty && chatConn.isModerationActive(c),
         isAutomodActive: (c) => c.isNotEmpty && chatConn.isAutomodActive(c),

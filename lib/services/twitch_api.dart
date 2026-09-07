@@ -5,6 +5,33 @@ import '../twitch_config.dart';
 import '../util/constants.dart';
 import 'twitch_auth.dart';
 
+/// One banned or timed-out user from the broadcaster-only list.
+/// [expiresAt] is null for permanent bans.
+class BannedUser {
+  final String userLogin;
+  final String? expiresAt;
+  final String? reason;
+  final String? moderatorName;
+
+  const BannedUser({
+    required this.userLogin,
+    this.expiresAt,
+    this.reason,
+    this.moderatorName,
+  });
+
+  factory BannedUser.fromJson(Map<String, dynamic> json) {
+    final expires = json['expires_at'] as String?;
+    final reason = json['reason'] as String?;
+    return BannedUser(
+      userLogin: json['user_login'] as String? ?? '',
+      expiresAt: (expires == null || expires.isEmpty) ? null : expires,
+      reason: (reason == null || reason.isEmpty) ? null : reason,
+      moderatorName: json['moderator_name'] as String?,
+    );
+  }
+}
+
 /// One unban request in a channel's inbox.
 class UnbanRequest {
   final String id;
@@ -58,8 +85,7 @@ class BlockedTerm {
   );
 }
 
-/// Broadcaster AutoMod settings. Levels are 0-4 per category; [overallLevel]
-/// is null when the broadcaster customized individual categories.
+/// Broadcaster AutoMod settings. Levels are 0-4 per category; [overallLevel]/// is null when the broadcaster customized individual categories.
 class AutoModSettings {
   static const List<String> categories = [
     'disability',
@@ -475,6 +501,43 @@ class TwitchApi {
     if (res.statusCode == 204) return true;
     _setError('unbanUser', res);
     return false;
+  }
+
+  /// Broadcaster-only banned/timeout list (broadcaster_id must match the
+  /// token). Paginated; empty on failure.
+  Future<List<BannedUser>> getBannedUsers(
+    TwitchAuth auth,
+    String broadcasterId,
+  ) async {
+    _clearError();
+    final out = <BannedUser>[];
+    String? cursor;
+    while (true) {
+      final query = <String, String>{
+        'broadcaster_id': broadcasterId,
+        'first': '100',
+      };
+      if (cursor != null) query['after'] = cursor;
+      final uri = Uri.parse(
+        '$_base/moderation/banned',
+      ).replace(queryParameters: query);
+      final res = await _client.get(uri, headers: _headers(auth));
+      if (res.statusCode != 200) {
+        _setError('getBannedUsers', res);
+        return out;
+      }
+      try {
+        final data = jsonDecode(res.body) as Map;
+        for (final item in data['data'] as List) {
+          out.add(BannedUser.fromJson(item as Map<String, dynamic>));
+        }
+        cursor = ((data['pagination'] as Map?)?['cursor']) as String?;
+      } catch (e) {
+        _setError('getBannedUsers: bad response');
+        return out;
+      }
+      if (cursor == null || cursor.isEmpty) return out;
+    }
   }
 
   /// Unban requests for a channel, newest first. Empty on failure. [status]

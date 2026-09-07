@@ -709,7 +709,7 @@ class _HomeScreenState extends State<HomeScreen>
     _mentionsTabCtrl.addListener(_mentions.onMentionsTabChanged);
     _threadsTabCtrl = TabController(length: 3, vsync: this);
     _threadsTabCtrl.addListener(_threads.onThreadsTabChanged);
-    _modTabCtrl = TabController(length: 7, vsync: this);
+    _modTabCtrl = TabController(length: 8, vsync: this);
     _panelManager.emoteSheetCtrl.addListener(_panelManager.onSheetSizeChanged);
     _loadMaxMessages();
     unawaited(_threads.loadSaved());

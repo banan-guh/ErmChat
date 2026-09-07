@@ -158,8 +158,9 @@ Future<String?> showModTextDialog(
 }
 
 /// Mod View panel body: Queue / Activity / Users / Modes / Requests /
-/// Terms / Setup tabs. State arrives as channel lookups (not snapshots) so every [refresh] tick re-reads live
-/// values; the queue and feed additionally listen to their own versions.
+/// Terms / Setup / Channel tabs. State arrives as channel lookups (not
+/// snapshots) so every [refresh] tick re-reads live values; the queue and
+/// feed additionally listen to their own versions.
 class ModViewPanel extends StatelessWidget {
   const ModViewPanel({
     super.key,
@@ -174,6 +175,7 @@ class ModViewPanel extends StatelessWidget {
     required this.getRoomModes,
     required this.onNotice,
     this.onShowUser,
+    this.isBroadcaster = false,
   });
 
   final String channel;
@@ -191,6 +193,9 @@ class ModViewPanel extends StatelessWidget {
 
   /// Opens a user card (queue rows, feed-adjacent user lists).
   final ValueChanged<String>? onShowUser;
+
+  /// Whether the session user owns the channel (Channel tab gate).
+  final bool isBroadcaster;
 
   @override
   Widget build(BuildContext context) {
@@ -260,6 +265,13 @@ class ModViewPanel extends StatelessWidget {
               modActions: modActions,
               auth: auth,
               onNotice: onNotice,
+            ),
+            _ChannelTab(
+              channel: channel,
+              modActions: modActions,
+              auth: auth,
+              onNotice: onNotice,
+              isBroadcaster: isBroadcaster,
             ),
           ],
         );
@@ -1462,6 +1474,683 @@ class _SetupTabState extends State<_SetupTab> {
               : const Text('Save changes'),
         ),
       ],
+    );
+  }
+}
+
+class _ChannelTab extends StatelessWidget {
+  const _ChannelTab({
+    required this.channel,
+    required this.modActions,
+    required this.auth,
+    required this.onNotice,
+    required this.isBroadcaster,
+  });
+
+  final String channel;
+  final ModActions modActions;
+  final TwitchAuth auth;
+  final ValueChanged<String> onNotice;
+  final bool isBroadcaster;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!isBroadcaster) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.symmetric(horizontal: 24),
+          child: Text(
+            'Only the broadcaster can use these tools here. '
+            'Log in as the broadcaster to manage rosters, polls, and the stream.',
+            textAlign: TextAlign.center,
+          ),
+        ),
+      );
+    }
+    return ListView(
+      children: [
+        _BannedManager(
+          channel: channel,
+          modActions: modActions,
+          auth: auth,
+          onNotice: onNotice,
+        ),
+        _RosterSections(
+          channel: channel,
+          modActions: modActions,
+          auth: auth,
+          onNotice: onNotice,
+        ),
+        const _SectionHeader('Stream'),
+        _StreamActions(
+          channel: channel,
+          modActions: modActions,
+          auth: auth,
+          onNotice: onNotice,
+        ),
+        const _SectionHeader('Polls'),
+        _PollsSection(
+          channel: channel,
+          modActions: modActions,
+          auth: auth,
+          onNotice: onNotice,
+        ),
+        const _SectionHeader('Predictions'),
+        _PredictionsSection(
+          channel: channel,
+          modActions: modActions,
+          auth: auth,
+          onNotice: onNotice,
+        ),
+      ],
+    );
+  }
+}
+
+class _BannedManager extends StatefulWidget {
+  const _BannedManager({
+    required this.channel,
+    required this.modActions,
+    required this.auth,
+    required this.onNotice,
+  });
+
+  final String channel;
+  final ModActions modActions;
+  final TwitchAuth auth;
+  final ValueChanged<String> onNotice;
+
+  @override
+  State<_BannedManager> createState() => _BannedManagerState();
+}
+
+class _BannedManagerState extends State<_BannedManager> {
+  List<BannedUser>? _banned;
+  String? _error;
+  int _loadGen = 0;
+  final _pending = <String>{};
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void didUpdateWidget(covariant _BannedManager oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.channel != widget.channel) _load();
+  }
+
+  Future<void> _load() async {
+    final gen = ++_loadGen;
+    List<BannedUser> banned = const [];
+    String? error;
+    try {
+      banned = await widget.modActions.getBannedUsers(
+        widget.auth,
+        widget.channel,
+      );
+      if (widget.modActions.twitchApi.lastErrorStatus != null) {
+        error = widget.modActions.failureReason();
+      }
+    } catch (_) {
+      error = 'Could not load the banned list.';
+    }
+    if (!mounted || gen != _loadGen) return;
+    setState(() {
+      _error = error;
+      if (error == null) _banned = banned;
+    });
+  }
+
+  Future<void> _unban(String login) async {
+    final key = login.toLowerCase();
+    if (!_pending.add(key)) return;
+    setState(() {});
+    try {
+      final result = await widget.modActions.unbanUser(
+        widget.auth,
+        widget.channel,
+        login: login,
+      );
+      if (!mounted) return;
+      if (result.ok) {
+        _load();
+      } else {
+        widget.onNotice(modErrorText(result));
+      }
+    } finally {
+      _pending.remove(key);
+      if (mounted) setState(() {});
+    }
+  }
+
+  String _subtitle(BannedUser ban) {
+    var head = 'Banned';
+    final expires = ban.expiresAt;
+    if (expires != null) {
+      final dt = DateTime.tryParse(expires)?.toLocal();
+      head = dt == null ? 'Timed out' : 'Timeout until ${_feedTime(dt)}';
+    }
+    final parts = [head];
+    if (ban.reason != null && ban.reason!.isNotEmpty) {
+      parts.add('"${ban.reason}"');
+    }
+    if (ban.moderatorName != null && ban.moderatorName!.isNotEmpty) {
+      parts.add('by ${ban.moderatorName}');
+    }
+    return parts.join(' · ');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final banned = _banned;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _SectionHeader('Banned (${banned?.length ?? 0})'),
+        if (_error != null && banned == null)
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
+                child: Text(_error!),
+              ),
+              TextButton(onPressed: _load, child: const Text('Retry')),
+            ],
+          )
+        else if (banned == null)
+          const Padding(
+            padding: EdgeInsets.all(24),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [CircularProgressIndicator()],
+            ),
+          )
+        else if (banned.isEmpty)
+          const ListTile(dense: true, title: Text('None.'))
+        else
+          for (final ban in banned)
+            ListTile(
+              dense: true,
+              title: Text(ban.userLogin),
+              subtitle: Text(_subtitle(ban)),
+              trailing: _pending.contains(ban.userLogin.toLowerCase())
+                  ? const SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : IconButton(
+                      icon: const Icon(Icons.undo),
+                      tooltip: 'Unban',
+                      onPressed: () => _unban(ban.userLogin),
+                    ),
+            ),
+      ],
+    );
+  }
+}
+
+class _StreamActions extends StatelessWidget {
+  const _StreamActions({
+    required this.channel,
+    required this.modActions,
+    required this.auth,
+    required this.onNotice,
+  });
+
+  final String channel;
+  final ModActions modActions;
+  final TwitchAuth auth;
+  final ValueChanged<String> onNotice;
+
+  Future<void> _raid(BuildContext context) async {
+    final login = await showModTextDialog(
+      context,
+      title: 'Raid a channel?',
+      label: 'Username',
+      confirmLabel: 'Raid',
+    );
+    if (login == null || !context.mounted) return;
+    if (login.isEmpty) {
+      onNotice('Enter a username.');
+      return;
+    }
+    final result = await modActions.startRaid(auth, channel, login: login);
+    if (!context.mounted) return;
+    onNotice(result.ok ? 'Raid started.' : modErrorText(result));
+  }
+
+  Future<void> _commercial(BuildContext context) async {
+    const lengths = [30, 60, 90, 120, 150, 180];
+    final length = await showDialog<int>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: const Text('Commercial length'),
+        children: [
+          for (final seconds in lengths)
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(ctx, seconds),
+              child: Text('${seconds}s'),
+            ),
+        ],
+      ),
+    );
+    if (length == null || !context.mounted) return;
+    final result = await modActions.startCommercial(
+      auth,
+      channel,
+      length: length,
+    );
+    if (!context.mounted) return;
+    onNotice(result.ok ? 'Commercial running.' : modErrorText(result));
+  }
+
+  Future<void> _marker(BuildContext context) async {
+    final description = await showModTextDialog(
+      context,
+      title: 'Add stream marker',
+      label: 'Description (optional)',
+      confirmLabel: 'Add',
+    );
+    if (description == null || !context.mounted) return;
+    final result = await modActions.createMarker(
+      auth,
+      channel,
+      description: description.isEmpty ? null : description,
+    );
+    if (!context.mounted) return;
+    onNotice(result.ok ? 'Marker added.' : modErrorText(result));
+  }
+
+  Future<void> _unraid(BuildContext context) async {
+    final result = await modActions.cancelRaid(auth, channel);
+    if (!context.mounted) return;
+    onNotice(result.ok ? 'Raid cancelled.' : modErrorText(result));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        ListTile(
+          dense: true,
+          leading: const Icon(Icons.flight_takeoff_outlined),
+          title: const Text('Start raid...'),
+          onTap: () => _raid(context),
+        ),
+        ListTile(
+          dense: true,
+          leading: const Icon(Icons.flight_land_outlined),
+          title: const Text('Cancel raid'),
+          onTap: () => _unraid(context),
+        ),
+        ListTile(
+          dense: true,
+          leading: const Icon(Icons.monetization_on_outlined),
+          title: const Text('Run commercial...'),
+          onTap: () => _commercial(context),
+        ),
+        ListTile(
+          dense: true,
+          leading: const Icon(Icons.bookmark_add_outlined),
+          title: const Text('Add marker...'),
+          onTap: () => _marker(context),
+        ),
+      ],
+    );
+  }
+}
+
+class _PollsSection extends StatefulWidget {
+  const _PollsSection({
+    required this.channel,
+    required this.modActions,
+    required this.auth,
+    required this.onNotice,
+  });
+
+  final String channel;
+  final ModActions modActions;
+  final TwitchAuth auth;
+  final ValueChanged<String> onNotice;
+
+  @override
+  State<_PollsSection> createState() => _PollsSectionState();
+}
+
+class _PollsSectionState extends State<_PollsSection> {
+  List<Map<String, dynamic>>? _polls;
+  String? _error;
+  int _loadGen = 0;
+  bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void didUpdateWidget(covariant _PollsSection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.channel != widget.channel) _load();
+  }
+
+  String? get _broadcasterId =>
+      widget.modActions.getChannelUserIds()[widget.channel];
+
+  Future<void> _load() async {
+    final gen = ++_loadGen;
+    List<Map<String, dynamic>> polls = const [];
+    String? error;
+    try {
+      final broadcasterId = _broadcasterId;
+      if (broadcasterId == null) {
+        error = 'Channel not joined.';
+      } else {
+        polls = await widget.modActions.twitchApi.getPolls(
+          widget.auth,
+          broadcasterId,
+        );
+        if (widget.modActions.twitchApi.lastErrorStatus != null) {
+          error = widget.modActions.failureReason();
+        }
+      }
+    } catch (_) {
+      error = 'Could not load polls.';
+    }
+    if (!mounted || gen != _loadGen) return;
+    setState(() {
+      _error = error;
+      if (error == null) _polls = polls;
+    });
+  }
+
+  Future<void> _end(String pollId, bool archive) async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      final broadcasterId = _broadcasterId;
+      final ok =
+          broadcasterId != null &&
+          await widget.modActions.twitchApi.endPoll(
+            widget.auth,
+            broadcasterId: broadcasterId,
+            pollId: pollId,
+            archive: archive,
+          );
+      if (!mounted) return;
+      if (ok) {
+        _load();
+      } else {
+        widget.onNotice(
+          widget.modActions.twitchApi.lastErrorStatus != null
+              ? widget.modActions.failureReason()
+              : 'Could not end the poll.',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final polls = _polls;
+    if (_error != null && polls == null) {
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
+            child: Text(_error!),
+          ),
+          TextButton(onPressed: _load, child: const Text('Retry')),
+        ],
+      );
+    }
+    if (polls == null) {
+      return const Padding(
+        padding: EdgeInsets.all(24),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [CircularProgressIndicator()],
+        ),
+      );
+    }
+    Map<String, dynamic>? active;
+    for (final poll in polls) {
+      if (poll['status'] == 'ACTIVE') {
+        active = poll;
+        break;
+      }
+    }
+    if (active == null) {
+      return const ListTile(
+        dense: true,
+        title: Text('No active poll. Create one with /poll.'),
+      );
+    }
+    final pollId = active['id'] as String? ?? '';
+    return ListTile(
+      title: Text(active['title'] as String? ?? 'Poll'),
+      subtitle: Text(
+        '${(active['choices'] as List? ?? const []).length} choices',
+      ),
+      trailing: _busy
+          ? const SizedBox(
+              width: 24,
+              height: 24,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          : Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextButton(
+                  onPressed: () => _end(pollId, false),
+                  child: const Text('End'),
+                ),
+                TextButton(
+                  onPressed: () => _end(pollId, true),
+                  child: const Text('Cancel'),
+                ),
+              ],
+            ),
+    );
+  }
+}
+
+class _PredictionsSection extends StatefulWidget {
+  const _PredictionsSection({
+    required this.channel,
+    required this.modActions,
+    required this.auth,
+    required this.onNotice,
+  });
+
+  final String channel;
+  final ModActions modActions;
+  final TwitchAuth auth;
+  final ValueChanged<String> onNotice;
+
+  @override
+  State<_PredictionsSection> createState() => _PredictionsSectionState();
+}
+
+class _PredictionsSectionState extends State<_PredictionsSection> {
+  List<Map<String, dynamic>>? _predictions;
+  String? _error;
+  int _loadGen = 0;
+  bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void didUpdateWidget(covariant _PredictionsSection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.channel != widget.channel) _load();
+  }
+
+  String? get _broadcasterId =>
+      widget.modActions.getChannelUserIds()[widget.channel];
+
+  Future<void> _load() async {
+    final gen = ++_loadGen;
+    List<Map<String, dynamic>> predictions = const [];
+    String? error;
+    try {
+      final broadcasterId = _broadcasterId;
+      if (broadcasterId == null) {
+        error = 'Channel not joined.';
+      } else {
+        predictions = await widget.modActions.twitchApi.getPredictions(
+          widget.auth,
+          broadcasterId,
+        );
+        if (widget.modActions.twitchApi.lastErrorStatus != null) {
+          error = widget.modActions.failureReason();
+        }
+      }
+    } catch (_) {
+      error = 'Could not load predictions.';
+    }
+    if (!mounted || gen != _loadGen) return;
+    setState(() {
+      _error = error;
+      if (error == null) _predictions = predictions;
+    });
+  }
+
+  Future<void> _end(
+    String predictionId,
+    String status, [
+    String? winningOutcomeId,
+  ]) async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      final broadcasterId = _broadcasterId;
+      final ok =
+          broadcasterId != null &&
+          await widget.modActions.twitchApi.endPrediction(
+            widget.auth,
+            broadcasterId: broadcasterId,
+            predictionId: predictionId,
+            status: status,
+            winningOutcomeId: winningOutcomeId,
+          );
+      if (!mounted) return;
+      if (ok) {
+        _load();
+      } else {
+        widget.onNotice(
+          widget.modActions.twitchApi.lastErrorStatus != null
+              ? widget.modActions.failureReason()
+              : 'Could not update the prediction.',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _resolve(Map<String, dynamic> prediction) async {
+    final outcomes = (prediction['outcomes'] as List? ?? const []).cast<Map>();
+    final winningId = await showDialog<String>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: const Text('Winning outcome'),
+        children: [
+          for (final outcome in outcomes)
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(ctx, outcome['id'] as String?),
+              child: Text('${outcome['title']}'),
+            ),
+        ],
+      ),
+    );
+    if (winningId == null || winningId.isEmpty || !mounted) return;
+    await _end(prediction['id'] as String? ?? '', 'RESOLVED', winningId);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final predictions = _predictions;
+    if (_error != null && predictions == null) {
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
+            child: Text(_error!),
+          ),
+          TextButton(onPressed: _load, child: const Text('Retry')),
+        ],
+      );
+    }
+    if (predictions == null) {
+      return const Padding(
+        padding: EdgeInsets.all(24),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [CircularProgressIndicator()],
+        ),
+      );
+    }
+    Map<String, dynamic>? open;
+    for (final prediction in predictions) {
+      if (prediction['status'] == 'ACTIVE' ||
+          prediction['status'] == 'LOCKED') {
+        open = prediction;
+        break;
+      }
+    }
+    if (open == null) {
+      return const ListTile(
+        dense: true,
+        title: Text('No open prediction. Create one with /prediction.'),
+      );
+    }
+    final predictionId = open['id'] as String? ?? '';
+    final locked = open['status'] == 'LOCKED';
+    return ListTile(
+      title: Text(open['title'] as String? ?? 'Prediction'),
+      subtitle: Text(
+        '${(open['outcomes'] as List? ?? const []).length} outcomes'
+        '${locked ? ' · locked' : ''}',
+      ),
+      trailing: _busy
+          ? const SizedBox(
+              width: 24,
+              height: 24,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          : Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (!locked)
+                  TextButton(
+                    onPressed: () => _end(predictionId, 'LOCKED'),
+                    child: const Text('Lock'),
+                  ),
+                TextButton(
+                  onPressed: () => _resolve(open!),
+                  child: const Text('Resolve'),
+                ),
+                TextButton(
+                  onPressed: () => _end(predictionId, 'CANCELED'),
+                  child: const Text('Cancel'),
+                ),
+              ],
+            ),
     );
   }
 }

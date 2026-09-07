@@ -548,6 +548,14 @@ class ModActions {
     return twitchApi.getModerators(auth, broadcasterId);
   }
 
+  /// Broadcaster-only banned/timeout list; empty on failure (check
+  /// `twitchApi.lastErrorStatus`).
+  Future<List<BannedUser>> getBannedUsers(TwitchAuth auth, String channel) {
+    final broadcasterId = getChannelUserIds()[channel];
+    if (broadcasterId == null) return Future.value(const []);
+    return twitchApi.getBannedUsers(auth, broadcasterId);
+  }
+
   Future<ModResult> setVip(
     TwitchAuth auth,
     String channel, {
