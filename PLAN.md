@@ -75,261 +75,180 @@ launches with each locale set; runtime language switch via Settings applies with
 restart; services render translated system messages; chat content and Twitch
 `system-msg` remain untranslated.
 
-# Performance: medium-tier backlog
+---
 
-Carried over from the full audit. Each is practical, self-contained, and worth doing
-when touching the file anyway.
+# Mod View parity plan (2026-09-07)
 
-## P1. PaintedUsernameText rebuild scope (painted_username_text.dart)
+Goal: near full parity with the official Twitch app Mod View using only documented
+Helix + EventSub + IRC surfaces. No GQL, no scraping, no token sharing.
 
-The `ListenableBuilder` listening to `SevenTvPaintService` rebuilds every visible
-username when any paint resolves. Fix: compare `service.lookup(userId)` against the
-previous paint before rebuilding; short-circuit when unchanged.
+## A. Audit snapshot (where we are)
 
-## P2. InlineEmoteView theme lookup (inline_emote_view.dart:209)
+Mod View v1 (Tiers 1+2) is done. `TODO.md:47-50` tracks Tier 3 as open.
 
-`Theme.of(context).colorScheme.surfaceContainerHighest` is resolved per emote in
-every chat tile (hundreds of InheritedWidget walks per build). Fix: pass the
-highlight color down from the parent tile as a constructor parameter.
+| Area | Status | Key files |
+|---|---|---|
+| Shell, 3 tabs Queue/Modes/Mods | Done, needs expansion | `lib/widgets/mod_view.dart:161-238`, `lib/panels/mod_panel.dart:56-73`, `lib/chrome/home_app_bar.dart:84-101` (overflow entry commented out at `:209-220`) |
+| Execution layer | Done | `lib/services/mod_actions.dart:29-566` Helix only: timeout/ban/unban/warn/delete/clear, chat settings, shield, mod/vip, announce/shoutout/commercial/raid/marker, automod allow/deny |
+| Message menu, user card | Partial | `lib/sheets/message_menu.dart:39-124` (panel variant `:128-157` has zero mod verbs); `lib/widgets/user_profile_sheet.dart:682-805`; opener `lib/sheets/user_sheet.dart:113-284` requires Live at `:148-149` so offline tools hide |
+| Slash commands | Done, widest surface | `lib/services/command_handler.dart:273-1128`; only path today for announce/shoutout/commercial/raid/marker/clear/poll/prediction |
+| Kernel queue | Done, narrow | `lib/services/chat_store.dart:163-206` `heldMessages` + `heldVersion` only (cap 200, dedupe by id); deletes are `deleted=true` tombstones; no banned roster, warn log, activity list, or structured room state (room tags live in `lib/services/chat_channel_setup.dart:100-101`) |
+| EventSub intake | Partial | `channel.moderate` v2 + `automod.message.hold/update` in `chat_channel_setup.dart:384-497`, `twitch_eventsub.dart:537-606`, `chat_connection_manager.dart:1415-1524`. Dropped v2 actions (slow/followers/emote/subs/unique/raid/shoutout/announce/commercial, automod_terms, unban decisions) have no case, and room-mode NOTICEs are suppressed when moderate is active, so mode changes leave no line until the next ROOMSTATE |
+| Tier 3 inbox/settings | Missing | Unban inbox, blocked terms manager, warnings log + activity feed, suspicious users + AutoMod settings editor |
+| Channel actions UI | Missing UI, verbs exist | Raid/commercial/marker/shoutout/announce/poll/prediction are slash only; viewer cards read-only (`chat_widget_cutout.dart:267,347`) |
+| Poll/prediction/raid/commercial as mod via API | Not possible | Broadcaster-match only per Helix auth; keep slash + broadcaster-gated buttons |
+| Points | Missing, broadcaster only | See section E |
 
-## P3. Stacked Opacity compositing (chat_message_tile.dart:246-261)
+## B. Gate model
 
-Up to three independent `Opacity` widgets stack for deleted + backfill + shared-chat
-fading, each allocating an offscreen buffer. Fix: compute a single combined alpha
-and apply once.
-
-## P4. Action message span allocation (message_builder.dart:49-68)
-
-Every `/me` message allocates a fresh `TextSpan` list via `.map().toList()` to
-re-color non-link spans. Fix: cache the colored variant alongside the base spans
-when the version matches.
-
-## P5. Emote menu recent-emotes debounce (emote_menu_panel.dart:85-89)
-
-Every `EmoteManager` notification (7TV live deltas) triggers an async DB query
-for recent emotes. Fix: debounce `_loadRecentEmotes` to coalesce rapid-fire
-notifications.
-
-## P6. ChatView idToIndex rebuild (chat_view.dart:159-168)
-
-Inside the `ValueListenableBuilder` (fires on every new message), a
-`Map<String, int>` is rebuilt by scanning the full message list against pending
-tile-cache keys — O(n*m). Fix: maintain incrementally on add/remove.
-
-## P7. SevenTvEventClient dispose order (seven_tv_event_client.dart:667-682)
-
-`dispose()` nulls `_channel`, `_heartbeatTimer`, etc. before calling
-`_disconnect()`, so the disconnect path can't cancel the still-live
-subscriptions/timers. Fix: call `_disconnect()` first, then null remaining fields.
-Also track the reconnect timer in a field and cancel it on dispose.
-
-## P8. SevenTvEventClient reconnect timer tracking (seven_tv_event_client.dart:602-607)
-
-The reconnect `Timer(delay, ...)` is fire-and-forget. If `dispose()` runs during
-backoff, the timer leaks until it fires. Fix: store the timer in a field and
-cancel in `_disconnect()`/`dispose()`.
-
-## P9. NativeEmoteCodec sequential frame decode (native_emote_codec.dart:155-161)
-
-`ui.decodeImageFromPixels` is awaited sequentially per frame. Fix: fire all
-`decodeImageFromPixels` concurrently and collect results.
-
-## P10. EmoteManager _removeFromSuggestions O(n) (emote_manager.dart:1326-1444)
-
-Each 7TV delta (add/rename/remove) calls `_removeFromSuggestions` which does a
-linear `indexWhere` scan. For batch deltas this is quadratic. Fix: rebuild the
-suggestions list once at the end of `updateSevenTvEmotes` instead of
-inserting/removing per operation.
-
-## P11. EmoteManager _isEmoteUsedElsewhere scan (emote_manager.dart:1446-1451)
-
-Per removed emote, scans every channel's `byCode.values` linearly —
-O(removed * channels * avg_emotes). Fix: maintain a `_globalIdUsageCount:
-Map<String, int>` reference counter (increment on add, decrement on remove) for
-O(1) lookups.
-
-## P12. ChatStore truncation passes (chat_store.dart:591-681)
-
-`truncateChannel` does 5 passes over the full message list: parentOf, thread
-grouping, active-thread identification, keep-indices, retained-list. Fix: collapse
-phases 1+2+3 into a single pass.
-
-## P13. NotificationService sequential show (notification_service.dart:139-141)
-
-Each mention notification `await`s the platform `show()` call, serializing rapid
-pings. Fix: fire `show()` without await; debounce `_updateSummary()`. Also cap
-`_summaryOrder` at ~50 entries and clear `_idsByChannel` on channel-less clear-all.
-
-## P14. EmoteMetaStore migrateFromPrefs batch (emote_meta_store.dart:71-92)
-
-Migration calls `prefs.getString(key)` and `prefs.remove(key)` in a loop — each a
-separate platform channel call. Fix: batch with `prefs.getStringList` or collect all
-keys first, then batch-remove.
-
-## P15. suggestion.dart emote list flatten (home_screen.dart:1042-1049)
-
-`_cachedAutocompleteEmotes` is invalidated on every `_onEmotesChanged` but the
-flatten itself (`expand((e) => e)`) still creates a new list when the cache is
-missed. Fix: cache the flattened list across channels, not just per invalidation.
-
-## P16. systemBodyBuilder parseTextWithLinks leak (chat_view.dart:271)
-
-`systemBodyBuilder` calls `parseTextWithLinks` on every tile rebuild for system
-messages. System messages have no stable `messageId`, so the tile cache skips them.
-Each call creates `RegExp`, runs `linkify()`, and allocates `TapGestureRecognizer`
-objects that are never disposed. Fix: cache parsed spans on the `TwitchMessage`
-object (same `cachedSpans` pattern as regular messages). Use a
-`GestureRecognizerFactory` or dispose recognizers on span reuse.
-
-## P17. RegExp per-message in _mergeHistoryIntoChannel (home_screen.dart:871)
-
-A new `RegExp(RegExp.escape(msg.login), caseSensitive: false)` is compiled for
-every system message during history merge. RegExp compilation is expensive. Fix:
-cache compiled regexps in a `Map<String, RegExp>` (login is the key) scoped to the
-merge call, or use `String.toLowerCase()` comparison instead.
-
-## P18. addRepaintBoundaries disabled (chat_view.dart:198)
-
-`addRepaintBoundaries: false` means a paint in ANY visible message forces
-repainting ALL visible messages. The original comment says it's for performance, but
-the net effect is worse: one changed emote frame repaints the entire visible list.
-Fix: re-enable `addRepaintBoundaries: true` (or verify the manual
-`RepaintBoundary` wrapping in `_buildTile` at line 314 is sufficient and remove the
-`addRepaintBoundaries: false` override).
-
-## P19. 7TV subscriptions never unsubscribed on channel leave
-
-`subscribeEmoteSet`/`subscribeUser`/`subscribeTwitchChannel` are called in
-`chat_channel_setup.dart:476-478` but the corresponding `unsubscribe*` methods on
-`SevenTvEventClient` (lines 236-262) are never called. Stale subscriptions mean 7TV
-sends events for channels no longer viewed. Fix: call `unsubscribe*` in the channel
-removal path (`_removeChannel` in home_screen.dart).
-
-## P20. AnimatedBuilder over-scoped in widget cutout dots (chat_widget_cutout.dart:59)
-
-One `AnimatedBuilder` per page dot, all listening to the same `PageController`
-animation. Every scroll tick rebuilds ALL dots, but only 2 change. Fix: use a single
-`AnimatedBuilder` wrapping the entire `Row` of dots, or scope each dot's listener to
-only fire when its index is adjacent to the active page.
-
-
-# Mod View
-
-Parity wishlist with twitch.tv mod view. Land the wishlist in TODO first,
-then implement one item at a time. V1 starts with M1.
-
-## M0. Wishlist
-
-1. AutoMod queue (hold/allow/deny) as first tab.
-2. Quick actions on user/message: timeout picker + reason, ban/unban, delete, warn, clear.
-3. Chat mode controls: slow/followers/emoteonly/subs/r9k/shield/commercial/raid/shoutout.
-4. Mod/vip list manager (view/add/remove).
-5. Unban request inbox.
-6. Blocked/permitted terms manager.
-7. Warnings log + mod activity feed.
-8. Suspicious users + AutoMod settings editor.
-
-## M1. AutoMod queue (first tab)
-
-- Problem: moderation today is slash commands plus a read-only event feed.
-  No queue, no approve/deny UI. Missing Helix verbs
-  (`manageHeldAutoModMessages`, `getAutoModSettings`, `getBlockedTerms`,
-  `getBannedUsers`, `getWarnings`) and scopes
-  (`moderator:manage:automod`, `moderator:read:automod_settings`,
-  `moderator:manage:unban_requests`, `moderator:read:suspicious_users`).
-- Solution:
-  - Add Helix verbs to `TwitchApi` plus the missing scopes in `twitch_oauth.dart`.
-  - Subscribe `automod.message.held` + `automod.message.updated` per modded
-    channel in `chat_channel_setup.dart` next to `channel.moderate` v2.
-  - New `heldMessages` collection in `ChatStore` with kernel verbs
-    (add/resolve/expire), unit tests in `chat_store_test.dart`.
-  - UI: `ModView` screen or `OverlayPanel.modQueue` tab; entry from app bar
-    3 dots, user profile sheet, and message long press (both currently have
-    no mod rows).
-
-## Verification
-
-Held message appears in queue; allow releases to chat; deny drops it;
-403 non-mod hides the entry.
-
-# Webview video player (DankChat port)
-
-## V1. Per-channel player above chat
-
-- Problem: no in-app video. Chat only, links open externally.
-- Solution (copies `~/dankchat/app/.../stream/`):
-  - New dep `webview_flutter`. New `StreamPlayerController` (current channel,
-    audio-only, theater flags) plus `StreamPlayerView` (16:9 box above
-    `ChatView` with close/audio-only/theater overlay).
-  - URL: `https://player.twitch.tv/?channel=$channel&enableExtensions=$flag&muted=false&parent=twitch.tv`
-    (`StreamViewModel.kt:148-156`). JS on, `mediaPlaybackRequiresUserGesture=false`,
-    `domStorageEnabled=true` (`StreamWebView.kt:9-24`).
-  - `WebViewClient` allowlist: `about:blank`, `https://id.twitch.tv/`,
-    `https://www.twitch.tv/passport-callback`, `https://player.twitch.tv/`;
-    block rest (`StreamView.kt:448-509`). Handle render-process death with a
-    generation counter; cache WebView behind a retain setting; switch URL per
-    channel via `setStream(channel)`; resume after config change with
-    `document.querySelector('video')?.play()`.
-  - Toggle from channel header or 3 dots menu. Settings: retain webview, show
-    extensions, audio-only default.
-- Boundary: chat stays the source of truth; player is view-only.
-
-## Verification
-
-Channel A plays; switch to B loads B; close stops; audio-only hides video;
-rotation/theater keeps playback; `parent=twitch.tv` verified on Android
-WebView and iOS WKWebView.
-
-# Native Twitch GIFs
-
-Generic `.gif` link embeds stay future work (`TODO.md:56`). This spec covers
-only native T2/T3 GIPHY messages. Chatterino7 does not have this feature;
-standard Chatterino has link previews plus image uploader only, and open
-issue `chatterino2#7186` tracks the same gap.
-
-## G1. Render T2/T3 GIF messages
-
-- Problem: wire format unknown. Chatterino note says GIFs "work essentially
-  as emotes but there is no list and they need to be loaded after the message
-  is received." Twitch docs: single standalone message, 30s cooldown, PG
-  default (G optional), respects AutoMod/emote-only/shield/timeout, fallback
-  is GIF name text, static preview if animations disabled.
-- Solution:
-  - Investigative step: capture raw IRC tags plus EventSub
-    `channel.chat.message` fragments for a T2/T3 GIF message.
-  - Parse into new `TwitchMessage` fields (`gifUrl` + fallback text) in
-    `twitch_irc.dart` and `twitch_eventsub.dart`, preserving emote offset logic.
-  - Render via `CachedNetworkImage` in `message_builder.dart`/`emote_text.dart`,
-    reusing `InlineEmoteView` sizing and the unlimited-fps setting. New chat
-    appearance pref for disable-animations (static preview).
-  - `ChatStore` needs no new laws; GIF is message content like emotes.
-
-## Verification
-
-T2 GIF renders animated; non-sub sees fallback text; delete/timeout removes
-it; disable-animations shows static; cooldown and moderation behavior match
-Twitch.
-
-# Threads dashboard
-
-## T1. Active + Saved tabbed panel (like mentions)
-
-- Problem: threads exist in kernel (`ChatStore` threads, `threadFor`,
-  `computeThreadMessages`) with single-thread view only. No overview, no
-  saved threads.
-- Solution:
-  - Extend `OverlayPanel` in `home_screen.dart:62` with a threads dashboard
-    using a TabBar: Active / Saved. Reuse `_buildMentionsPanel` /
-    `_buildThreadPanel` patterns and `PanelManager.computeThreadMessages`.
-  - Active tab: derive from store threads sorted by `lastActivity`, unread
-    via `PingManager` participation.
-  - Saved tab: bookmark action in `_showMessageMenu` ("Save thread") plus
-    unsave; persist `channel -> [rootIds]` in prefs (cap ~50).
-  - Tap row opens existing `_showThreadView`; reply via main input bar
-    (`_replyToMsg` + focus) since panels stay copy-only. Entry in app bar
-    3 dots next to mentions.
-
-## Verification
-
-Active list updates live; save persists across restart; tap navigates to
-thread; reply from dashboard posts to the correct thread root.
+* `isModerationActive(channel)` (existing): `channel.moderate` v2 sub active. Shows mod tools.
+* `isBroadcaster(channel)` (new): `session.userId == channelUserId`, same pattern as the hype/poll/prediction widget gate at `chat_channel_setup.dart:510`. Shows the broadcaster-only section, hidden from pure mods with a short hint. Helix 401/403 mapped via `ModActions.failureReason()` stays as backstop.
+* Fix: drop the `&& isLive` requirement in `user_sheet.dart:148-149` so offline mod tools work; restore the overflow Mod View entry currently commented out.
+
+## C. Scopes to add (Phase 0, forces re-auth)
+
+Add to `lib/services/twitch_oauth.dart:93-106` and update
+`test/unit/auth_services_test.dart:375`:
+
+* Mod: `moderator:manage:blocked_terms`, `moderator:manage:unban_requests`, `moderator:read:warnings`, `moderator:manage:automod_settings`, `moderator:read:chat_settings`, `moderator:read:suspicious_users` (+ manage if editable), `moderator:read:chatters`, `moderator:read:followers`, `user:read:moderated_channels`.
+* Broadcaster section: `channel:read:redemptions`, `channel:manage:redemptions` (Points); optionally `channel:read:ads`, `channel:manage:ads` (deferred by default).
+* Note: `channel.moderate` v2 subscribes need the read-or-manage set for blocked_terms, chat_settings, unban_requests, banned_users, chat_messages, warnings, plus `moderator:read:moderators` and `moderator:read:vips`, or the sub 403s.
+
+## D. API + EventSub to add
+
+Helix (`lib/services/twitch_api.dart`, wrapped in `lib/services/mod_actions.dart`):
+
+* Mod: `GET/PATCH unban_requests`, `GET/POST/DELETE blocked_terms` (public list only), `GET/PUT automod/settings`, `GET/POST/DELETE suspicious_users`, `GET chat/settings` (read), `GET chatters`, channel followers read, `GET moderated_channels`. Pin/unpin via existing `moderator:manage:chat_messages` scope.
+* Broadcaster: `GET bans` (broadcaster-match only), paginated + searchable `getModerators/getVips`, `GET markers`, `GET clips` if wanted, Points verbs `getCustomRewards`, `create/update/deleteCustomReward`, `getRedemptions(UNFULFILLED)`, `updateRedemptionStatus(FULFILLED/CANCELED)`.
+* No list endpoint exists for warnings history; build a local append-only log instead.
+
+EventSub (`lib/services/chat_channel_setup.dart`, parse in `lib/services/twitch_eventsub.dart`, handle in `lib/services/chat_connection_manager.dart`):
+
+* Extend the `_emitModeration` switch past ban/timeout/delete/clear/warn/mod/vip: slow/slowoff, followers, emoteonly, subs, uniquechat, raid/unraid, shoutout, announcement, commercial, automod_terms add/remove, unban approve/deny, shared_chat variants.
+* Add subs: `channel.ban/unban`, `channel.moderator.add/remove`, `channel.vip.add/remove`, `channel.warning.send/acknowledge`, `channel.chat.clear/clear_user/message_delete`, `channel.chat.notification`, `channel.chat_settings.update`, `channel.shield_mode.begin/end`, `channel.shoutout.create/receive`, `channel.unban_request.create/resolve`, `automod.settings.update`, `automod.terms.update` (public only), `channel.suspicious_user.message/update`.
+* Broadcaster only: `custom_reward.add/update/remove`, `redemption.add/update`, `automatic_reward_redemption.add` v1/v2, poll/prediction progress/end (already wired read-only), `channel.raid`, ad break events if ads scope is taken.
+
+## E. Store laws (kernel first per AGENTS.md)
+
+Put rules in `ChatStore`, consume from pipeline/UI. Tests in
+`test/unit/chat_store_test.dart`, parsing in `test/data/parsing_test.dart`.
+
+* `ModActivityEntry{at, moderator, action, target, reason, duration}` ring buffer per channel (200 suggested) with `addModActivity` verb; feed emits via `store.events`.
+* Per-user `warnLog` (append from `warn` + `warning.send/acknowledge`; no server list).
+* Banned/timeout roster with `expires_at` so timeouts can unmark instead of leaving permanent tombstones.
+* Keep `heldMessages` semantics (dedupe by id, cap, `heldVersion` bumps); queue rows gain tap-to-profile and inline actions in UI only, not in the kernel.
+* Cache `pointRewards` (max 50/channel) + `pointRedemptions` map for the broadcaster tab; enrich thin `.add` payloads from the cache.
+* Do not move role sets or room tags into the store unless a second consumer needs them; `ModViewPanel` can keep reading `roomStateTags` + live `getModerators/getVips` with pagination until the feed invalidates them.
+
+## F. UI plan
+
+* Shell: tabs `Queue / Activity / Users / Requests / Terms / Settings` plus a broadcaster-gated section (rosters, polls/predictions management, raid/commercial buttons, Points tab, markers/clips). Queue rows: tap to profile, inline timeout/ban/delete, copy ID, category filter, unread badge, push on new hold.
+* Card + menu: panel/history message menu gains mod verbs; add Unban/Untimeout, Clear-user-messages, Shoutout, Mod/VIP toggle to menu and card; card adds Delete-message, follow age, prior record from local logs, shared-ban context from suspicious events. Fix `/slow` int-only vs duration parser and the `/untimeout` "unbanned" copy in `command_handler.dart`.
+* Points tab (broadcaster only): rewards list with manageable badge ("created elsewhere: read-only"), redemptions queue with Fulfill/Refund, pause toggle. Pure mods see a hint pointing at `/requests` in the official app. Points needs a monetized channel and only rewards created by our own `client_id` are manageable.
+* Polls/predictions: keep viewer cards read-only; broadcaster tab gets create/end/lock/resolve using existing verbs.
+
+## G. TOS boundaries (hard max)
+
+Source: Twitch Developer Services Agreement, ToS xi, forum `21811`.
+Only documented `dev.twitch.tv` surfaces. No GQL, no dashboard scraping, no reverse
+engineering, no token sharing, respect Helix (~800/min) and EventSub (10k cost cap)
+limits, honor `user.authorization.revoke` and keep tokens in secure storage.
+
+* Cannot ship: private blocked terms, permitted-terms CRUD, private-term triggers, Points as mod, managing other-client rewards, full chat history search, `/requests` or dashboard scraping, whisper inbox scraping, mass automation past reasonable volume. These need new public scopes from Twitch.
+* Warnings/activity history stays local by design.
+
+## H. Phases + acceptance
+
+* Phase 0 scopes + re-auth notice. Accept: new scope list in code + test, old logins prompted once.
+* Phase 1 activity feed + warn log (section D intake + section E store). Accept: every listed v2 action renders an attributed feed row; warns append to per-user log; tests green.
+* Phase 2 shell + queue + gates (section B + F shell). Accept: new tabs render, offline mod tools work, queue actions work inline.
+* Phase 3 card + menu (section F). Accept: history rows expose mod verbs; unban/untimeout, clear-user, shoutout, mod/vip toggle work from card/menu.
+* Phase 4 unban inbox + public blocked terms. Accept: list/approve/deny with resolution text; terms add/remove with public-only note.
+* Phase 5 suspicious + AutoMod settings editor. Accept: monitored/restricted lists, evasion signals, per-category 0-4 levels save.
+* Phase 6 broadcaster section + Points (sections C broadcaster scopes, D broadcaster verbs, F). Accept: rosters paginated, polls/predictions managed, raid/commercial show cooldowns, Points queue fulfills/refunds own-client rewards and marks others read-only.
+* Phase 7 polish: prefs, badges, QA across mod and broadcaster accounts, `flutter analyze`, `flutter test`, format only touched files, update `TODO.md:47-50` + README.
+
+
+
+
+
+
+
+### Emote audit: what actually matters ###
+We ran 16 auditors over the whole emote system, then 8 verifiers that threw out false alarms. About 105 issues survived. Here is the readable version.
+Critical: emotes show wrong, go missing, or never update
+These are the ones users will notice.
+Switching 7TV sets leaves the old set on screen
+When a streamer switches their active 7TV set from A to B, we subscribe to B but never download B. Channel keeps showing A until restart. Worse, the next refresh can paste A back on top of B.
+chat_connection_manager.dart:602-615
+FFZ globals include emotes you should not have
+We load every set from /v1/set/global but ignore default_sets and the allowlist. So gated effect emotes like ffzRainbow appear for everyone, globally.
+ffz_emotes.dart:23-33
+FFZ animated emotes always show as static
+We check item['animated'] == true, but the real API sends a map or null, never a boolean. So the flag is always false.
+ffz_emotes.dart:99
+All 7TV emotes marked animated, even static ones
+Inside the file loop we set isAnimated = true for any WEBP file. Most 7TV stills are WEBP, so they are all mislabeled. Harmless today because playback sniffs bytes, but the stored data is wrong and any future code that trusts the flag will misbehave.
+seven_tv_emotes.dart:169-181
+Old Twitch emote wins over the new one in chat
+Tag rendering looks up by code: byCode[code] ?? fallback. If the cache has an old Kappa id and the message carries a new Kappa id, we render the old image. Same problem lets a BTTV or 7TV emote with the same code steal a Twitch sub render.
+emote_manager.dart:593-600
+BTTV animated webp shown as static
+We only treat imageType == gif as animated. The API also has a separate animated: true flag, so webp + animated:true is misclassified.
+bttv_emotes.dart:85
+Usage ranking is broken, favorites get evicted
+The 24h histogram always writes to bucket 0 and wipes the prior hour on advance. So entropy is always 0 and the steady-use bonus never builds. Repeat views of the same emote are also ignored after the first one in a session. Net effect: hot emotes look like one-offs and can be evicted first.
+emote_manager.dart:118, 3016
+Serious: battery, data, hangs, and silent failures
+GIFs ignore the FPS cap and Pause
+Normal chat GIFs without a cached alternate take the engine path, where _frames stays null. All the throttle code early-returns on null, so cap, pause, and adaptive throttle do nothing for them. Setting Pause still animates.
+emote_image_provider.dart:449-455
+Chat can hang forever on bad network
+Almost all Helix calls have no timeout. Only validateToken has one. If the network stalls, join and moderation calls wait forever. Emote providers do have timeouts, Helix does not.
+twitch_api.dart:38-889
+Joining many channels fires a request storm
+subscribeAll fires all joins at once without waiting. Each channel then fetches the 7TV user twice (once for live setup, once for emotes), plus badges. On a big join this is hundreds of requests and invites 429s.
+chat_channel_setup.dart:374, 604-607 + emote_manager.dart:2704-2720
+Full cache causes repeat downloads
+When the cache is full, every on-screen copy of the same new emote triggers its own HTTP GET. 20 tiles with the same emote means 20 downloads. No in-flight sharing.
+emote_cache_manager.dart:294-358
+Cap accounting is optimistic
+The object count is cached for 1.5s and successful writes do not invalidate it. Bursts inside that window can overshoot the cap. Concurrent writers can also both pass the check before either reserves a slot.
+emote_cache_manager.dart:240-256
+Thread reply cycle can hang the UI
+Truncation walks parentOf chains with no visited set. Two messages pointing at each other as parents loop forever on the UI thread. Needs corrupt or malicious reply ids, unlikely from Twitch directly but possible via history or proxy.
+chat_store.dart:819-833
+Bad timestamp tag kills a whole batch
+tmi-sent-ts uses int.parse. One malformed tag throws and aborts every other line in the same batch because there is no per-line guard.
+twitch_irc.dart:722-727
+7TV socket leaks on leave and on dispose
+Leaving a channel never unsubscribes 7TV, so pending subs grow and we keep getting updates for dead channels. dispose() also nulls the socket before closing it, so close never runs and the timer and subscription leak.
+channel_manager.dart:482-504, seven_tv_event_client.dart:695-713
+No recovery after reconnect
+Reconnect resubscribes but never diffs against REST. Anything added, removed, renamed, or switched while offline stays wrong until restart or rejoin.
+seven_tv_event_client.dart:326-336
+Medium: visible papercuts
+Each of these is one or two sentences.
+- Channel fetch timestamp is set before the fetch succeeds, so a failed fetch looks fresh and blocks retry. emote_manager.dart:2064
+- Live 7TV add rules disagree with full-fetch rules, so the same code resolves differently depending on arrival path. emote_manager.dart:2394 vs 2565
+- Reapplying live 7TV after a fetch can resurrect emotes the fresh fetch just removed. emote_manager.dart:2121-2139
+- Empty fetch returns retained stash with no failure signal, so total outages look like success and extend TTL. emote_manager.dart:2646
+- Anon Twitch 401 returns empty with no error, so picker is empty but UI says reloaded. twitch_emotes.dart:66-72
+- USERNOTICE trim shifts emote indices by the trimmed whitespace, so leading-space subs can lose emotes live but not from history. chat_connection_manager.dart:1277, 1316
+- Own sent messages bypass the store ingest verb, so future mention/unread law changes will diverge. chat_ingestion.dart:455-467
+- Per-message foreign merge copies and sorts the whole list even though render only needs the map. Mostly hits senders with foreign grants. emote_manager.dart:793-812
+- Turning on image embeds disables the span cache for every message, so scrolling re-parses everything. Tradeoff for correctness, but costly. message_builder.dart:72-81
+- Toggling fractured-links never invalidates cached spans because the key omits the toggle and the renderer reads a singleton. Old rows stay stale. message_builder.dart:54-60, emote_text.dart:352-355
+- Changing OS font size reuses pixel-sized tiles because the tile cache ignores the new scale. chat_view.dart:117-322
+- Broken chat images shimmer forever instead of showing the broken icon that panels show. Intentional today, confusing. inline_emote_view.dart:36-387
+- Image previews ignore Animate GIFs off and bypass the emote cache. Intentional but contradicts settings text. chat_message_tile.dart:149-177
+- WebP decode has no frame count cap and does per-frame work that can jank on huge 7TV anims. emote_image.dart:151-180
+- Keyword rewrite shifts emote positions but not GIF positions, so GIFs land in the wrong place after a block replacement. ignore_manager.dart:287-320
+- Shared-hide mode starves source emote fetches, so switching back to spotlight shows text until the next foreign message. chat_ingestion.dart:178-186
+- Ban-fold edit changes text without bumping the span key, so folded rows can show old spans. chat_store.dart:801-811
+- Truncate coalescing uses one global timestamp for all channels, so a hot channel can delay truncation for quiet ones. chat_store.dart:815, 967-984
+Low: small bugs and rough edges, grouped
+Panels, composer, autocomplete: emote detail appends at end instead of cursor; panel insert ignores selection range, drops focus, can double spaces; mid-word accept merges without space; recents load has no channel guard; open dropdown stays stale across live adds; panel cell cache ignores renames (same id, new code); always-animate needs reopen to take effect; no keyboard selection in dropdown; provider summary flashes all-enabled on open.
+Cache details: zero cap can still persist one file via evict-then-write; enforceNow ignores grace and read-protect and can delete mid-read; score-less new emotes always evict even favorites; streaming reads never mark read-protect; read-protect map grows while under cap; full-branch download skips data-usage accounting; failed overflow leaves dead list entry; temp names have no entropy.
+Parser details: empty emote id accepted; overlapping ranges mis-slice; lone surrogate off by one; Twitch fallback always dark 3.0; anon room-id 10s timeout aborts silently; Twitch theme picks first-listed not dark; single-scale url3x duplicates url; FFZ owner shows numeric id; FFZ url1x/url3x ignore tier; FFZ hidden ignored; 7TV file order assumed sorted; AVIF-only dropped; accessToken shared across concurrent fetches; tier read late so mixed resolutions in one build.
+Models and store details: unknown type silently becomes twitch; unknown scope becomes global; wrong-typed JSON throws TypeError not FormatException; empty id/code accepted; scales accept NaN/negative/zero; tier stored by index so enum reorder breaks cache; aggressive actually fetches less than balanced; meta store swallows all errors, non-atomic write without flush, migrated flag set early, bad keys go memory-only, dir failure sticky, every miss hits SharedPreferences; USERSTATE dropped with no replay; tmi-sent-ts covered above; zombie ping can force-reconnect healthy socket; join limiter completes on send not confirm; notifier never disposed.
