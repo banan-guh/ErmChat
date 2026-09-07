@@ -133,6 +133,7 @@ class ModPanels {
               const Tab(text: 'Modes'),
               const Tab(text: 'Requests'),
               const Tab(text: 'Terms'),
+              const Tab(text: 'Setup'),
             ],
           ),
           Divider(height: 1, color: Theme.of(context).dividerColor),

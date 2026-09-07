@@ -291,6 +291,79 @@ class ModActions {
     );
   }
 
+  /// AutoMod settings, or null when the channel is unknown or Helix fails
+  /// (check `twitchApi.lastErrorStatus`).
+  Future<AutoModSettings?> getAutoModSettings(TwitchAuth auth, String channel) {
+    final ids = _ids(channel);
+    if (ids == null) return Future.value(null);
+    return twitchApi.getAutoModSettings(
+      auth,
+      broadcasterId: ids.broadcasterId,
+      moderatorId: ids.moderatorId,
+    );
+  }
+
+  Future<ModResult> updateAutoModSettings(
+    TwitchAuth auth,
+    String channel,
+    Map<String, int> levels,
+  ) async {
+    final ids = _ids(channel);
+    if (ids == null) return const ModResult.fail(ModFailure.notJoined);
+    final applied = await twitchApi.updateAutoModSettings(
+      auth,
+      broadcasterId: ids.broadcasterId,
+      moderatorId: ids.moderatorId,
+      levels: levels,
+    );
+    if (applied != null) return const ModResult.ok();
+    return ModResult.fail(ModFailure.apiError, failureReason());
+  }
+
+  Future<ModResult> setSuspiciousStatus(
+    TwitchAuth auth,
+    String channel, {
+    String? login,
+    String? userId,
+    required bool restricted,
+  }) async {
+    final ids = _ids(channel);
+    if (ids == null) return const ModResult.fail(ModFailure.notJoined);
+    final t = await _target(auth, login: login, userId: userId);
+    if (t.error != null) return t.error!;
+    return _run(
+      restricted ? 'restrict user' : 'monitor user',
+      () => twitchApi.addSuspiciousStatus(
+        auth,
+        broadcasterId: ids.broadcasterId,
+        moderatorId: ids.moderatorId,
+        userId: t.userId!,
+        restricted: restricted,
+      ),
+    );
+  }
+
+  Future<ModResult> clearSuspiciousStatus(
+    TwitchAuth auth,
+    String channel, {
+    String? login,
+    String? userId,
+  }) async {
+    final ids = _ids(channel);
+    if (ids == null) return const ModResult.fail(ModFailure.notJoined);
+    final t = await _target(auth, login: login, userId: userId);
+    if (t.error != null) return t.error!;
+    return _run(
+      'clear suspicious status',
+      () => twitchApi.removeSuspiciousStatus(
+        auth,
+        broadcasterId: ids.broadcasterId,
+        moderatorId: ids.moderatorId,
+        userId: t.userId!,
+      ),
+    );
+  }
+
   Future<ModResult> warnUser(
     TwitchAuth auth,
     String channel, {

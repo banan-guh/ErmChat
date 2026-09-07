@@ -96,6 +96,10 @@ class ChatChannelSetup {
   // term updates): drives inbox/terms tab reloads.
   final _inboxChannels = <String>{};
   final _inboxSkippedChannels = <String>{};
+  // Same pair for trust (AutoMod settings updates, suspicious user
+  // message/update): drives the Setup tab and the flagged-user context.
+  final _trustChannels = <String>{};
+  final _trustSkippedChannels = <String>{};
   // Channels with an active hype train / poll / prediction widget subscription
   // (broadcaster-only; see _subscribeWidgets). Same lifecycle as
   // _moderationChannels: cleared when the EventSub session dies.
@@ -148,6 +152,9 @@ class ChatChannelSetup {
   /// Whether the inbox subscriptions are active for a channel.
   bool isInboxActive(String channel) => _inboxChannels.contains(channel);
 
+  /// Whether the trust subscriptions are active for a channel.
+  bool isTrustActive(String channel) => _trustChannels.contains(channel);
+
   /// Whether the broadcaster-only widget subscriptions are active for a
   /// channel; while they are, EventSub hype train/poll/prediction events are
   /// surfaced instead of being dropped as unsolicited.
@@ -174,6 +181,7 @@ class ChatChannelSetup {
     _automodChannels.clear();
     _feedChannels.clear();
     _inboxChannels.clear();
+    _trustChannels.clear();
     _widgetChannels.clear();
   }
 
@@ -185,6 +193,7 @@ class ChatChannelSetup {
     _automodSkippedChannels.clear();
     _feedSkippedChannels.clear();
     _inboxSkippedChannels.clear();
+    _trustSkippedChannels.clear();
     _widgetSkippedChannels.clear();
   }
 
@@ -195,6 +204,7 @@ class ChatChannelSetup {
     _automodChannels.remove(channel);
     _feedChannels.remove(channel);
     _inboxChannels.remove(channel);
+    _trustChannels.remove(channel);
     _widgetChannels.remove(channel);
   }
 
@@ -379,6 +389,9 @@ class ChatChannelSetup {
         }
         if (!_inboxChannels.contains(channelName)) {
           unawaited(_subscribeInbox(channelName, channelUserId));
+        }
+        if (!_trustChannels.contains(channelName)) {
+          unawaited(_subscribeTrust(channelName, channelUserId));
         }
         unawaited(_subscribeWidgets(channelName, channelUserId));
       }
@@ -641,6 +654,63 @@ class ChatChannelSetup {
     }
   }
 
+  // Trust: AutoMod settings updates plus suspicious user message/update.
+  // Same one-attempt shape as _subscribeInbox.
+  Future<void> _subscribeTrust(String channelName, String channelUserId) async {
+    try {
+      final auth = twitchAuth;
+      if (!auth.isConfigured || store.session.userId == null) return;
+      if (_trustSkippedChannels.contains(channelName)) return;
+      for (int attempt = 0; attempt < 3; attempt++) {
+        final sessionId = eventSub.sessionId;
+        if (sessionId == null) {
+          await Future.delayed(const Duration(seconds: 1));
+          continue;
+        }
+        if (attempt > 0) await Future.delayed(const Duration(seconds: 1));
+        const types = [
+          ('automod.settings.update', '1'),
+          ('channel.suspicious_user.message', '1'),
+          ('channel.suspicious_user.update', '1'),
+        ];
+        var subscribed = 0;
+        for (final (type, version) in types) {
+          // A 403 on one dooms the rest; skip the doomed calls.
+          if (_trustSkippedChannels.contains(channelName)) break;
+          final ok = await twitchApi.createEventSubSubscription(
+            auth: auth,
+            sessionId: sessionId,
+            type: type,
+            version: version,
+            condition: {
+              'broadcaster_user_id': channelUserId,
+              'moderator_user_id': store.session.userId!,
+            },
+          );
+          if (ok) {
+            subscribed++;
+            continue;
+          }
+          if (twitchApi.lastErrorStatus == 403) {
+            _trustSkippedChannels.add(channelName);
+          } else {
+            logDebug(
+              '[ChatConn] $type subscription failed for $channelName (${twitchApi.lastError ?? "unknown"})',
+            );
+          }
+        }
+        if (subscribed > 0) {
+          _trustChannels.add(channelName);
+          // Same wake-up as moderation subs (see _subscribeModeration).
+          store.touchChannel(channelName);
+        }
+        return;
+      }
+    } catch (_) {
+      logDebug('[ChatConn] subscribeTrust failed for $channelName');
+    }
+  }
+
   // Hype train / poll / prediction widgets are broadcaster-only: the EventSub
   // subscription types require channel:read:hype_train/polls/predictions, which
   // Twitch only issues to the channel owner. Skip every other channel up front
@@ -727,6 +797,9 @@ class ChatChannelSetup {
       }
       if (!_inboxChannels.contains(channel)) {
         unawaited(_subscribeInbox(channel, channelUserId));
+      }
+      if (!_trustChannels.contains(channel)) {
+        unawaited(_subscribeTrust(channel, channelUserId));
       }
       if (uid == channelUserId && !_widgetChannels.contains(channel)) {
         unawaited(_subscribeWidgets(channel, channelUserId));

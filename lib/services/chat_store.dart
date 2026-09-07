@@ -130,6 +130,31 @@ class BanEntry {
   });
 }
 
+/// Last-seen suspicious-user context for one chatter. There is no Helix list
+/// endpoint, so sightings accumulate from suspicious_user events; flag
+/// changes apply through [noteSuspicious]/[removeSuspicious].
+class SuspiciousInfo {
+  final DateTime at;
+  final String channel;
+  final String login;
+
+  /// monitored or restricted (lowercased).
+  final String status;
+  final List<String> types;
+  final String? banEvasion;
+  final List<String> sharedBanChannelIds;
+
+  const SuspiciousInfo({
+    required this.at,
+    required this.channel,
+    required this.login,
+    required this.status,
+    this.types = const [],
+    this.banEvasion,
+    this.sharedBanChannelIds = const [],
+  });
+}
+
 /// One-line summary of a feed entry for the Activity tab. Pure data-to-text
 /// (no widgets); the chat pipeline keeps its own self-worded copies.
 String formatModActivity(ModActivityEntry entry) {
@@ -201,6 +226,10 @@ String formatModActivity(ModActivityEntry entry) {
       return '$mod denied $target\'s unban request$reason.';
     case 'unban_resolved':
       return '$mod resolved $target\'s unban request$reason.';
+    case 'automod_settings':
+      return '$mod updated AutoMod settings.';
+    case 'suspicious_flag':
+      return '$mod flagged $target$reason.';
     case 'add_blocked_term':
     case 'remove_blocked_term':
     case 'add_permitted_term':
@@ -444,6 +473,31 @@ class ChatStore {
   BanEntry? banFor(String channel, String login) =>
       channelBans[channel]?[login.toLowerCase()];
 
+  /// Last-seen suspicious context per channel by lowercase login.
+  final Map<String, Map<String, SuspiciousInfo>> suspiciousUsers = {};
+
+  /// Records a sighting or flag change (upserts by user).
+  void noteSuspicious(SuspiciousInfo info) {
+    final flagged = suspiciousUsers.putIfAbsent(info.channel, () => {});
+    flagged[info.login.toLowerCase()] = info;
+    modActivityVersion.value++;
+  }
+
+  /// Drops a flag (status cleared). False when already gone.
+  bool removeSuspicious(String channel, String login) {
+    final flagged = suspiciousUsers[channel];
+    if (flagged == null) return false;
+    final removed = flagged.remove(login.toLowerCase()) != null;
+    if (!removed) return false;
+    if (flagged.isEmpty) suspiciousUsers.remove(channel);
+    modActivityVersion.value++;
+    return true;
+  }
+
+  /// Last-seen suspicious context for one user, or null.
+  SuspiciousInfo? suspiciousFor(String channel, String login) =>
+      suspiciousUsers[channel]?[login.toLowerCase()];
+
   /// Channels with unseen messages (drives tab unread markers).
   final Set<String> channelsWithUnread;
 
@@ -566,6 +620,7 @@ class ChatStore {
     if (modActivity.remove(channel) != null) feedTouched = true;
     if (channelWarnings.remove(channel) != null) feedTouched = true;
     if (channelBans.remove(channel) != null) feedTouched = true;
+    if (suspiciousUsers.remove(channel) != null) feedTouched = true;
     if (feedTouched) modActivityVersion.value++;
   }
 

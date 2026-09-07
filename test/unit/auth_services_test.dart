@@ -2219,6 +2219,151 @@ void main() {
     );
   });
 
+  group('mod automod settings and suspicious api', () {
+    const settingsJson =
+        '{"data":[{"broadcaster_id":"broad1","moderator_id":"mod1","overall_level":null,"disability":3,"aggression":4,"sexuality_sex_or_gender":3,"misogyny":3,"bullying":4,"swearing":1,"race_ethnicity_or_religion":3,"sex_based_terms":2}]}';
+
+    MockClient settingsClient(List<http.Request> requests) => MockClient((
+      req,
+    ) async {
+      requests.add(req);
+      final path = req.url.path;
+      if (req.method == 'GET' && path.endsWith('moderation/automod/settings')) {
+        return http.Response(settingsJson, 200);
+      }
+      if (req.method == 'PUT' && path.endsWith('moderation/automod/settings')) {
+        return http.Response(settingsJson, 200);
+      }
+      if (req.method == 'POST' &&
+          path.endsWith('moderation/suspicious_users')) {
+        return http.Response('{"data":[]}', 200);
+      }
+      if (req.method == 'DELETE' &&
+          path.endsWith('moderation/suspicious_users')) {
+        return http.Response('', 204);
+      }
+      if (req.url.path == '/helix/users') {
+        return http.Response('{"data":[{"id":"u9","login":"spammer"}]}', 200);
+      }
+      return http.Response('{"message":"unexpected"}', 404);
+    });
+
+    ModActions trustActions(TwitchApi api) => ModActions(
+      twitchApi: api,
+      getChannelUserIds: () => {'a': 'broad1'},
+      getCurrentUserId: () => 'mod1',
+    );
+
+    TwitchAuth trustAuth() {
+      final auth = TwitchAuth();
+      auth.accessToken = 'tok';
+      return auth;
+    }
+
+    test('getAutoModSettings parses levels and null overall', () async {
+      final requests = <http.Request>[];
+      final api = TwitchApi(client: settingsClient(requests));
+      final settings = await api.getAutoModSettings(
+        trustAuth(),
+        broadcasterId: 'broad1',
+        moderatorId: 'mod1',
+      );
+      expect(settings, isNotNull);
+      expect(settings!.overallLevel, isNull);
+      expect(settings.levels['bullying'], 4);
+      expect(settings.levels['swearing'], 1);
+      expect(settings.levels, hasLength(8));
+    });
+
+    test('updateAutoModSettings puts levels and parses applied', () async {
+      final requests = <http.Request>[];
+      final api = TwitchApi(client: settingsClient(requests));
+      final applied = await api.updateAutoModSettings(
+        trustAuth(),
+        broadcasterId: 'broad1',
+        moderatorId: 'mod1',
+        levels: const {'overall_level': 3},
+      );
+      expect(requests.single.method, 'PUT');
+      expect(jsonDecode(requests.single.body), {'overall_level': 3});
+      expect(applied, isNotNull);
+    });
+
+    test('suspicious add/remove hit the right shapes', () async {
+      final requests = <http.Request>[];
+      final api = TwitchApi(client: settingsClient(requests));
+      final auth = trustAuth();
+
+      final added = await api.addSuspiciousStatus(
+        auth,
+        broadcasterId: 'broad1',
+        moderatorId: 'mod1',
+        userId: 'u9',
+        restricted: true,
+      );
+      expect(added, isTrue);
+      expect(jsonDecode(requests[0].body), {
+        'user_id': 'u9',
+        'status': 'RESTRICTED',
+      });
+
+      final monitored = await api.addSuspiciousStatus(
+        auth,
+        broadcasterId: 'broad1',
+        moderatorId: 'mod1',
+        userId: 'u9',
+        restricted: false,
+      );
+      expect(monitored, isTrue);
+      expect(jsonDecode(requests[1].body)['status'], 'ACTIVE_MONITORING');
+
+      final cleared = await api.removeSuspiciousStatus(
+        auth,
+        broadcasterId: 'broad1',
+        moderatorId: 'mod1',
+        userId: 'u9',
+      );
+      expect(cleared, isTrue);
+      expect(requests[2].url.queryParameters['user_id'], 'u9');
+    });
+
+    test('ModActions trust wrappers resolve users and report', () async {
+      final requests = <http.Request>[];
+      final actions = trustActions(TwitchApi(client: settingsClient(requests)));
+      final auth = trustAuth();
+
+      final settings = await actions.getAutoModSettings(auth, 'a');
+      expect(settings, isNotNull);
+      expect(await actions.getAutoModSettings(auth, 'missing'), isNull);
+
+      final saved = await actions.updateAutoModSettings(auth, 'a', const {
+        'bullying': 4,
+      });
+      expect(saved.ok, isTrue);
+      final notJoined = await actions.updateAutoModSettings(
+        auth,
+        'missing',
+        const {'bullying': 4},
+      );
+      expect(notJoined.ok, isFalse);
+      expect(notJoined.failure, ModFailure.notJoined);
+
+      final restricted = await actions.setSuspiciousStatus(
+        auth,
+        'a',
+        login: 'spammer',
+        restricted: true,
+      );
+      expect(restricted.ok, isTrue);
+      final cleared = await actions.clearSuspiciousStatus(
+        auth,
+        'a',
+        login: 'spammer',
+      );
+      expect(cleared.ok, isTrue);
+    });
+  });
+
   group('TwitchApi.getFollowDate', () {
     test('returns followed_at when following', () async {
       final client = MockClient((request) async {

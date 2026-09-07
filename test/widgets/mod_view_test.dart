@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -23,6 +25,7 @@ ChatStore _store() => ChatStore(
 );
 
 Future<http.Response> _handler(http.Request request) async {
+  recordedRequests.add(request);
   final path = request.url.path;
   if (request.method == 'GET' && path.endsWith('moderation/moderators')) {
     return http.Response(
@@ -52,8 +55,26 @@ Future<http.Response> _handler(http.Request request) async {
   if (request.method == 'GET' && path.endsWith('moderation/blocked_terms')) {
     return http.Response('{"data":[],"pagination":{}}', 200);
   }
+  if (request.method == 'GET' && path.endsWith('moderation/automod/settings')) {
+    return http.Response(
+      '{"data":[{"broadcaster_id":"broad1","moderator_id":"mod1","overall_level":2,"disability":2,"aggression":2,"sexuality_sex_or_gender":2,"misogyny":2,"bullying":2,"swearing":2,"race_ethnicity_or_religion":2,"sex_based_terms":2}]}',
+      200,
+    );
+  }
+  if (request.method == 'PUT' && path.endsWith('moderation/automod/settings')) {
+    return http.Response(
+      '{"data":[{"broadcaster_id":"broad1","moderator_id":"mod1","overall_level":4,"disability":4,"aggression":4,"sexuality_sex_or_gender":4,"misogyny":4,"bullying":4,"swearing":4,"race_ethnicity_or_religion":4,"sex_based_terms":4}]}',
+      200,
+    );
+  }
+  if (request.method == 'DELETE' &&
+      path.endsWith('moderation/suspicious_users')) {
+    return http.Response('{"data":[]}', 200);
+  }
   return http.Response('{"message":"unexpected $path"}', 404);
 }
+
+final recordedRequests = <http.Request>[];
 
 class _Harness extends StatelessWidget {
   const _Harness({
@@ -130,6 +151,17 @@ void main() {
         moderator: 'moduser',
       ),
     );
+    store.noteSuspicious(
+      SuspiciousInfo(
+        at: t0,
+        channel: 'testchannel',
+        login: 'flaggeduser',
+        status: 'restricted',
+        types: const ['manually_added'],
+        banEvasion: 'possible',
+        sharedBanChannelIds: const ['111'],
+      ),
+    );
 
     final auth = TwitchAuth();
     auth.accessToken = 'tok';
@@ -140,7 +172,8 @@ void main() {
     );
 
     String? shownUser;
-    final tab = TabController(length: 6, vsync: const TestVSync());
+    recordedRequests.clear();
+    final tab = TabController(length: 7, vsync: const TestVSync());
     addTearDown(tab.dispose);
     await tester.pumpWidget(
       MaterialApp(
@@ -168,11 +201,12 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('moduser banned feeduser: "spam".'), findsOneWidget);
 
-    // Users tab shows bans, warnings, and the mod/vip rosters.
+    // Users tab shows bans, warnings, flags, and the mod/vip rosters.
     tab.animateTo(2);
     await tester.pumpAndSettle();
     expect(find.text('banneduser'), findsOneWidget);
     expect(find.text('warneduser'), findsOneWidget);
+    expect(find.text('flaggeduser'), findsOneWidget);
     expect(find.text('rosmod'), findsOneWidget);
     expect(find.text('rosvip'), findsOneWidget);
 
@@ -180,6 +214,11 @@ void main() {
     await tester.tap(find.byIcon(Icons.undo));
     await tester.pumpAndSettle();
     expect(find.text('banneduser'), findsNothing);
+
+    // Clearing a flag drops the flagged row.
+    await tester.tap(find.byIcon(Icons.visibility_off_outlined));
+    await tester.pumpAndSettle();
+    expect(find.text('flaggeduser'), findsNothing);
 
     // Requests tab loads the (empty) pending inbox.
     tab.animateTo(4);
@@ -190,6 +229,19 @@ void main() {
     tab.animateTo(5);
     await tester.pumpAndSettle();
     expect(find.text('No blocked terms yet.'), findsOneWidget);
+
+    // Setup tab loads levels; saving a preset puts overall_level.
+    tab.animateTo(6);
+    await tester.pumpAndSettle();
+    expect(find.text('Swearing'), findsOneWidget);
+    await tester.tap(find.text('Max'));
+    await tester.pump();
+    await tester.tap(find.text('Save changes'));
+    await tester.pumpAndSettle();
+    final put = recordedRequests.lastWhere(
+      (r) => r.method == 'PUT' && r.url.path.endsWith('automod/settings'),
+    );
+    expect(jsonDecode(put.body), {'overall_level': 4});
 
     // Modes tab builds without crashing.
     tab.animateTo(3);

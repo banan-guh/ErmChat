@@ -58,6 +58,38 @@ class BlockedTerm {
   );
 }
 
+/// Broadcaster AutoMod settings. Levels are 0-4 per category; [overallLevel]
+/// is null when the broadcaster customized individual categories.
+class AutoModSettings {
+  static const List<String> categories = [
+    'disability',
+    'aggression',
+    'sexuality_sex_or_gender',
+    'misogyny',
+    'bullying',
+    'swearing',
+    'race_ethnicity_or_religion',
+    'sex_based_terms',
+  ];
+
+  final int? overallLevel;
+  final Map<String, int> levels;
+
+  const AutoModSettings({required this.overallLevel, required this.levels});
+
+  factory AutoModSettings.fromJson(Map<String, dynamic> json) {
+    final levels = <String, int>{};
+    for (final key in categories) {
+      final value = json[key];
+      if (value is int) levels[key] = value.clamp(0, 4);
+    }
+    return AutoModSettings(
+      overallLevel: json['overall_level'] as int?,
+      levels: levels,
+    );
+  }
+}
+
 class TwitchApi {
   static const _base = 'https://api.twitch.tv/helix';
 
@@ -582,6 +614,107 @@ class TwitchApi {
     final res = await _client.delete(uri, headers: _headers(auth));
     if (res.statusCode == 204) return true;
     _setError('removeBlockedTerm', res);
+    return false;
+  }
+
+  /// Broadcaster AutoMod settings, or null on failure.
+  Future<AutoModSettings?> getAutoModSettings(
+    TwitchAuth auth, {
+    required String broadcasterId,
+    required String moderatorId,
+  }) async {
+    _clearError();
+    final uri = Uri.parse(
+      '$_base/moderation/automod/settings?broadcaster_id=$broadcasterId&moderator_id=$moderatorId',
+    );
+    final res = await _client.get(uri, headers: _headers(auth));
+    if (res.statusCode != 200) {
+      _setError('getAutoModSettings', res);
+      return null;
+    }
+    try {
+      final data = jsonDecode(res.body) as Map;
+      final list = data['data'] as List;
+      if (list.isEmpty) return null;
+      return AutoModSettings.fromJson(list[0] as Map<String, dynamic>);
+    } catch (e) {
+      _setError('getAutoModSettings: bad response');
+      return null;
+    }
+  }
+
+  /// Updates AutoMod settings. Either `{'overall_level': n}` (preset, resets
+  /// every category to the preset defaults) or individual category levels
+  /// 0-4, never both. Returns the applied settings, or null on failure.
+  Future<AutoModSettings?> updateAutoModSettings(
+    TwitchAuth auth, {
+    required String broadcasterId,
+    required String moderatorId,
+    required Map<String, int> levels,
+  }) async {
+    _clearError();
+    final uri = Uri.parse(
+      '$_base/moderation/automod/settings?broadcaster_id=$broadcasterId&moderator_id=$moderatorId',
+    );
+    final res = await _client.put(
+      uri,
+      headers: _headers(auth),
+      body: jsonEncode(levels),
+    );
+    if (res.statusCode != 200) {
+      _setError('updateAutoModSettings', res);
+      return null;
+    }
+    try {
+      final data = jsonDecode(res.body) as Map;
+      final list = data['data'] as List;
+      if (list.isEmpty) return null;
+      return AutoModSettings.fromJson(list[0] as Map<String, dynamic>);
+    } catch (e) {
+      _setError('updateAutoModSettings: bad response');
+      return null;
+    }
+  }
+
+  /// Flags a chatter as monitored or restricted. True on 200.
+  Future<bool> addSuspiciousStatus(
+    TwitchAuth auth, {
+    required String broadcasterId,
+    required String moderatorId,
+    required String userId,
+    required bool restricted,
+  }) async {
+    _clearError();
+    final uri = Uri.parse(
+      '$_base/moderation/suspicious_users?broadcaster_id=$broadcasterId&moderator_id=$moderatorId',
+    );
+    final res = await _client.post(
+      uri,
+      headers: _headers(auth),
+      body: jsonEncode({
+        'user_id': userId,
+        'status': restricted ? 'RESTRICTED' : 'ACTIVE_MONITORING',
+      }),
+    );
+    if (res.statusCode == 200) return true;
+    _setError('addSuspiciousStatus', res);
+    return false;
+  }
+
+  /// Clears a chatter's suspicious flag. True on 200/204.
+  Future<bool> removeSuspiciousStatus(
+    TwitchAuth auth, {
+    required String broadcasterId,
+    required String moderatorId,
+    required String userId,
+  }) async {
+    _clearError();
+    final uri = Uri.parse(
+      '$_base/moderation/suspicious_users?broadcaster_id=$broadcasterId&moderator_id=$moderatorId&user_id=$userId',
+    );
+    final res = await _client.delete(uri, headers: _headers(auth));
+    if (res.statusCode == 200 || res.statusCode == 204) return true;
+    _setError('removeSuspiciousStatus', res);
     return false;
   }
 

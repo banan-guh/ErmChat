@@ -48,7 +48,7 @@
 - [x] **Mod View Tier 3: unban request inbox** - list/approve/deny unban requests with resolution text, live create/resolve feed.
 - [x] **Mod View Tier 3: blocked/permitted terms manager** - public list add/remove (private terms stay dashboard-only).
 - [*] **Mod View Tier 3: warnings log + mod activity feed** - parse switch extended for the dropped channel.moderate v2 actions; local feed, warn log, and ban roster in ChatStore; shield/shoutout/warning EventSub feed. UI tabs land with the Mod View shell.
-- [ ] **Mod View Tier 3: suspicious users + AutoMod settings editor** - needs moderator:read:suspicious_users.
+- [x] **Mod View Tier 3: suspicious users + AutoMod settings editor** - per-user Monitor/Restrict/Clear on the card, flagged list with shared-ban context, per-category 0-4 editor. No Helix list endpoint exists, so no full roster; restricted-message chat display still open.
 - [+] **Shared Chat** - mirror-only marking, sharedchatnotice unwrap/drop, source-channel emote scoping, lazy participant fetch, ping dedup
 - [+] **Spotlight** - global 3-way setting (spotlight/fade/hide) for shared-chat foreign messages; fade dims at 55% opacity, hide drops at ingestion
 - [ ] **VOD / clip chat replay** - past broadcasts + clips with synced read-only chat.

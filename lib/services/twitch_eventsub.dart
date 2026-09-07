@@ -140,6 +140,37 @@ class AutomodTermsEvent {
   });
 }
 
+/// An AutoMod settings change.
+class AutomodSettingsEvent {
+  final String channel;
+  final String moderatorName;
+
+  AutomodSettingsEvent({required this.channel, required this.moderatorName});
+}
+
+/// A suspicious-user sighting or flag change. [kind] is message or update.
+class SuspiciousUserEvent {
+  final String channel;
+  final String kind;
+  final String userLogin;
+  final String status;
+  final List<String> types;
+  final String? banEvasion;
+  final List<String> sharedBanChannelIds;
+  final String moderatorName;
+
+  SuspiciousUserEvent({
+    required this.channel,
+    required this.kind,
+    required this.userLogin,
+    required this.status,
+    this.types = const [],
+    this.banEvasion,
+    this.sharedBanChannelIds = const [],
+    required this.moderatorName,
+  });
+}
+
 /// A hype train event. [kind] is begin, progress, or end.
 class HypeTrainEvent {
   final String channel;
@@ -279,6 +310,10 @@ class EventSubService {
   final _automodTermsController = StreamController<AutomodTermsEvent>.broadcast(
     sync: true,
   );
+  final _automodSettingsController =
+      StreamController<AutomodSettingsEvent>.broadcast(sync: true);
+  final _suspiciousUserController =
+      StreamController<SuspiciousUserEvent>.broadcast(sync: true);
   final _statusController = StreamController<EventSubStatus>.broadcast(
     sync: true,
   );
@@ -315,6 +350,10 @@ class EventSubService {
       _unbanRequestController.stream;
   Stream<AutomodTermsEvent> get onAutomodTerms =>
       _automodTermsController.stream;
+  Stream<AutomodSettingsEvent> get onAutomodSettings =>
+      _automodSettingsController.stream;
+  Stream<SuspiciousUserEvent> get onSuspiciousUser =>
+      _suspiciousUserController.stream;
   Stream<EventSubStatus> get onStatus => _statusController.stream;
 
   void setChannelMapping(String broadcasterUserId, String channelName) {
@@ -545,6 +584,13 @@ class EventSubService {
     } else if (type == 'automod.terms.update') {
       if (channel == null) return;
       _emitAutomodTerms(channel, event);
+    } else if (type == 'automod.settings.update') {
+      if (channel == null) return;
+      _emitAutomodSettings(channel, event);
+    } else if (type == 'channel.suspicious_user.message' ||
+        type == 'channel.suspicious_user.update') {
+      if (channel == null) return;
+      _emitSuspiciousUser(channel, event, type.endsWith('.message'));
     } else if (type == 'automod.message.hold') {
       if (channel == null) return;
       _emitAutomodHeld(channel, event, 'held');
@@ -744,6 +790,43 @@ class EventSubService {
     );
   }
 
+  void _emitAutomodSettings(String channel, Map<String, dynamic> event) {
+    _automodSettingsController.add(
+      AutomodSettingsEvent(
+        channel: channel,
+        moderatorName: event['moderator_user_name'] as String? ?? 'A moderator',
+      ),
+    );
+  }
+
+  void _emitSuspiciousUser(
+    String channel,
+    Map<String, dynamic> event,
+    bool messaged,
+  ) {
+    final rawTypes = event['types'];
+    final rawShared = event['shared_ban_channel_ids'];
+    _suspiciousUserController.add(
+      SuspiciousUserEvent(
+        channel: channel,
+        kind: messaged ? 'message' : 'update',
+        userLogin: event['user_login'] as String? ?? '',
+        status:
+            ((event['low_trust_status'] ?? event['status']) as String?)
+                ?.toLowerCase() ??
+            '',
+        types: rawTypes is List
+            ? rawTypes.whereType<String>().toList()
+            : const [],
+        banEvasion: event['ban_evasion_evaluation'] as String?,
+        sharedBanChannelIds: rawShared is List
+            ? rawShared.whereType<String>().toList()
+            : const [],
+        moderatorName: event['moderator_user_name'] as String? ?? 'A moderator',
+      ),
+    );
+  }
+
   void _emitModeration(String? channel, Map<String, dynamic> event) {
     if (channel == null) return;
 
@@ -912,6 +995,8 @@ class EventSubService {
     _warningController.close();
     _unbanRequestController.close();
     _automodTermsController.close();
+    _automodSettingsController.close();
+    _suspiciousUserController.close();
     _statusController.close();
   }
 }

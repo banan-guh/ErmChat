@@ -42,6 +42,9 @@ class UserProfileSheet extends StatefulWidget {
   final List<WarnEntry> userWarnings;
   final BanEntry? banEntry;
 
+  /// Last-seen suspicious context from the opener. Null hides the row.
+  final SuspiciousInfo? suspiciousInfo;
+
   /// True for your own card; mod rows never apply to yourself.
   final bool isSelf;
 
@@ -91,6 +94,7 @@ class UserProfileSheet extends StatefulWidget {
     this.broadcasterUserId,
     this.userWarnings = const [],
     this.banEntry,
+    this.suspiciousInfo,
     this.isSelf = false,
     this.scrollController,
     this.sheetController,
@@ -730,17 +734,63 @@ class UserProfileSheetState extends State<UserProfileSheet> {
     }
   }
 
+  Future<void> _modSuspicious(bool restricted) async {
+    final modActions = widget.modActions;
+    final channel = widget.channel;
+    if (modActions == null || channel == null) return;
+    final result = await modActions.setSuspiciousStatus(
+      widget.twitchAuth,
+      channel,
+      login: widget.username,
+      userId: _targetUserId,
+      restricted: restricted,
+    );
+    if (!mounted) return;
+    if (result.ok) {
+      AppSnack.show(
+        context,
+        restricted
+            ? 'Restricted ${widget.displayName}'
+            : 'Monitoring ${widget.displayName}',
+      );
+    } else {
+      showModError(context, result);
+    }
+  }
+
+  Future<void> _clearSuspicious() async {
+    final modActions = widget.modActions;
+    final channel = widget.channel;
+    if (modActions == null || channel == null) return;
+    final result = await modActions.clearSuspiciousStatus(
+      widget.twitchAuth,
+      channel,
+      login: widget.username,
+      userId: _targetUserId,
+    );
+    if (!mounted) return;
+    if (result.ok) {
+      AppSnack.show(context, 'Flag cleared for ${widget.displayName}');
+    } else {
+      showModError(context, result);
+    }
+  }
+
   String _recordSubtitle(String? reason, String moderator) {
     if (reason != null && reason.isNotEmpty) return '"$reason" · by $moderator';
     return 'by $moderator';
   }
 
   // Display-only moderation record: active ban/timeout, warning history,
-  // and follow age. Empty hides the whole block.
+  // suspicious context, and follow age. Empty hides the whole block.
   List<Widget> _recordTiles() {
     final ban = widget.banEntry;
     final warnings = widget.userWarnings;
-    if (ban == null && warnings.isEmpty && _followDate == null) {
+    final suspicious = widget.suspiciousInfo;
+    if (ban == null &&
+        warnings.isEmpty &&
+        suspicious == null &&
+        _followDate == null) {
       return const [];
     }
     return [
@@ -762,6 +812,13 @@ class UserProfileSheetState extends State<UserProfileSheet> {
             _recordSubtitle(warnings.first.reason, warnings.first.moderator),
           ),
         ),
+      if (suspicious != null)
+        ListTile(
+          dense: true,
+          leading: const Icon(Icons.shield_outlined),
+          title: Text(_suspiciousTitle(suspicious.status)),
+          subtitle: Text(_suspiciousSubtitle(suspicious)),
+        ),
       if (_followDate != null)
         ListTile(
           dense: true,
@@ -771,6 +828,31 @@ class UserProfileSheetState extends State<UserProfileSheet> {
         ),
       const Divider(height: 1),
     ];
+  }
+
+  String _suspiciousTitle(String status) {
+    final lower = status.toLowerCase();
+    if (lower.contains('restrict')) return 'Restricted user';
+    if (lower.contains('monitor')) return 'Monitored user';
+    if (lower.isEmpty) return 'Flagged user';
+    return 'Flagged user ($status)';
+  }
+
+  String _suspiciousSubtitle(SuspiciousInfo info) {
+    final parts = <String>[];
+    final evasion = info.banEvasion;
+    if (evasion != null && evasion.isNotEmpty && evasion != 'unknown') {
+      parts.add('$evasion ban evasion');
+    }
+    if (info.sharedBanChannelIds.isNotEmpty) {
+      final n = info.sharedBanChannelIds.length;
+      parts.add('banned in $n shared channel${n == 1 ? '' : 's'}');
+    }
+    if (info.types.isNotEmpty) {
+      parts.add(info.types.map((t) => t.replaceAll('_', ' ')).join(', '));
+    }
+    if (parts.isEmpty) return 'Flagged';
+    return parts.join(' · ');
   }
 
   List<Widget> _buildActionTiles() {
@@ -812,6 +894,25 @@ class UserProfileSheetState extends State<UserProfileSheet> {
           title: const Text('Shoutout'),
           onTap: _modShoutout,
         ),
+        ListTile(
+          dense: true,
+          leading: const Icon(Icons.visibility_outlined),
+          title: const Text('Monitor'),
+          onTap: () => _modSuspicious(false),
+        ),
+        ListTile(
+          dense: true,
+          leading: const Icon(Icons.shield_outlined),
+          title: const Text('Restrict'),
+          onTap: () => _modSuspicious(true),
+        ),
+        if (widget.suspiciousInfo != null)
+          ListTile(
+            dense: true,
+            leading: const Icon(Icons.visibility_off_outlined),
+            title: const Text('Clear flag'),
+            onTap: _clearSuspicious,
+          ),
         const Divider(height: 1),
       ],
       ListTile(

@@ -266,6 +266,9 @@ class UserSheets {
                   banEntry: channel == null
                       ? null
                       : chatStore.banFor(channel, username),
+                  suspiciousInfo: channel == null
+                      ? null
+                      : chatStore.suspiciousFor(channel, username),
                   isSelf: isSelf,
                   messageController: composer.messageController,
                   focusNode: composer.focusNode,

@@ -158,7 +158,7 @@ Future<String?> showModTextDialog(
 }
 
 /// Mod View panel body: Queue / Activity / Users / Modes / Requests /
-/// Terms tabs. State arrives as channel lookups (not snapshots) so every [refresh] tick re-reads live
+/// Terms / Setup tabs. State arrives as channel lookups (not snapshots) so every [refresh] tick re-reads live
 /// values; the queue and feed additionally listen to their own versions.
 class ModViewPanel extends StatelessWidget {
   const ModViewPanel({
@@ -248,6 +248,13 @@ class ModViewPanel extends StatelessWidget {
               onNotice: onNotice,
             ),
             _TermsTab(
+              channel: channel,
+              store: store,
+              modActions: modActions,
+              auth: auth,
+              onNotice: onNotice,
+            ),
+            _SetupTab(
               channel: channel,
               store: store,
               modActions: modActions,
@@ -541,7 +548,10 @@ IconData _activityIcon(String action) {
       return Icons.person_remove;
     case 'shield_on':
     case 'shield_off':
+    case 'suspicious_flag':
       return Icons.shield;
+    case 'automod_settings':
+      return Icons.auto_fix_high;
     case 'shoutout':
       return Icons.campaign;
     case 'raid':
@@ -660,6 +670,28 @@ class _UsersTabState extends State<_UsersTab> {
     }
   }
 
+  Future<void> _clearFlag(String login) async {
+    final key = login.toLowerCase();
+    if (!_pending.add(key)) return;
+    setState(() {});
+    try {
+      final result = await widget.modActions.clearSuspiciousStatus(
+        widget.auth,
+        widget.channel,
+        login: login,
+      );
+      if (!mounted) return;
+      if (result.ok) {
+        widget.store.removeSuspicious(widget.channel, login);
+      } else {
+        widget.onNotice(modErrorText(result));
+      }
+    } finally {
+      _pending.remove(key);
+      if (mounted) setState(() {});
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return ValueListenableBuilder<int>(
@@ -670,6 +702,9 @@ class _UsersTabState extends State<_UsersTab> {
             const [];
         final warnings =
             widget.store.channelWarnings[widget.channel] ?? const [];
+        final flagged =
+            widget.store.suspiciousUsers[widget.channel]?.values.toList() ??
+            const [];
         final counts = <String, int>{};
         final seen = <String>{};
         final warned = <WarnEntry>[];
@@ -712,6 +747,27 @@ class _UsersTabState extends State<_UsersTab> {
                 ),
                 onTap: () => widget.onShowUser?.call(w.target),
               ),
+            _SectionHeader('Flagged (${flagged.length})'),
+            if (flagged.isEmpty)
+              const ListTile(dense: true, title: Text('None.')),
+            for (final info in flagged)
+              ListTile(
+                dense: true,
+                title: Text(info.login),
+                subtitle: Text(_suspiciousSubtitle(info)),
+                onTap: () => widget.onShowUser?.call(info.login),
+                trailing: _pending.contains(info.login.toLowerCase())
+                    ? const SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : IconButton(
+                        icon: const Icon(Icons.visibility_off_outlined),
+                        tooltip: 'Clear flag',
+                        onPressed: () => _clearFlag(info.login),
+                      ),
+              ),
             _RosterSections(
               channel: widget.channel,
               modActions: widget.modActions,
@@ -740,6 +796,30 @@ class _UsersTabState extends State<_UsersTab> {
       return '$head · "${latest.reason}"';
     }
     return head;
+  }
+
+  String _suspiciousSubtitle(SuspiciousInfo info) {
+    final parts = <String>[_suspiciousTitle(info.status)];
+    final evasion = info.banEvasion;
+    if (evasion != null && evasion.isNotEmpty && evasion != 'unknown') {
+      parts.add('$evasion ban evasion');
+    }
+    if (info.sharedBanChannelIds.isNotEmpty) {
+      final n = info.sharedBanChannelIds.length;
+      parts.add('banned in $n shared channel${n == 1 ? '' : 's'}');
+    }
+    if (info.types.isNotEmpty) {
+      parts.add(info.types.map((t) => t.replaceAll('_', ' ')).join(', '));
+    }
+    return parts.join(' · ');
+  }
+
+  String _suspiciousTitle(String status) {
+    final lower = status.toLowerCase();
+    if (lower.contains('restrict')) return 'Restricted';
+    if (lower.contains('monitor')) return 'Monitored';
+    if (lower.isEmpty) return 'Flagged';
+    return lower[0].toUpperCase() + lower.substring(1);
   }
 }
 
@@ -1176,6 +1256,212 @@ class _TermsTabState extends State<_TermsTab> {
                 ),
         );
       },
+    );
+  }
+}
+
+class _SetupTab extends StatefulWidget {
+  const _SetupTab({
+    required this.channel,
+    required this.store,
+    required this.modActions,
+    required this.auth,
+    required this.onNotice,
+  });
+
+  final String channel;
+  final ChatStore store;
+  final ModActions modActions;
+  final TwitchAuth auth;
+  final ValueChanged<String> onNotice;
+
+  @override
+  State<_SetupTab> createState() => _SetupTabState();
+}
+
+class _SetupTabState extends State<_SetupTab> {
+  static const _cats = [
+    ('aggression', 'Aggression'),
+    ('bullying', 'Bullying'),
+    ('disability', 'Disability'),
+    ('misogyny', 'Misogyny'),
+    ('race_ethnicity_or_religion', 'Race, ethnicity, religion'),
+    ('sex_based_terms', 'Sex-based terms'),
+    ('sexuality_sex_or_gender', 'Sexuality, sex, gender'),
+    ('swearing', 'Swearing'),
+  ];
+  static const _presets = [
+    ('Off', 0),
+    ('Low', 1),
+    ('Medium', 2),
+    ('High', 3),
+    ('Max', 4),
+  ];
+
+  AutoModSettings? _settings;
+  Map<String, int>? _levels;
+  int? _overall;
+  String? _error;
+  int _loadGen = 0;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.store.modInboxVersion.addListener(_onInboxChanged);
+    _load();
+  }
+
+  @override
+  void didUpdateWidget(covariant _SetupTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.channel != widget.channel) _load();
+  }
+
+  @override
+  void dispose() {
+    widget.store.modInboxVersion.removeListener(_onInboxChanged);
+    super.dispose();
+  }
+
+  void _onInboxChanged() => _load();
+
+  Future<void> _load() async {
+    final gen = ++_loadGen;
+    final background = _settings != null;
+    AutoModSettings? settings;
+    String? error;
+    try {
+      settings = await widget.modActions.getAutoModSettings(
+        widget.auth,
+        widget.channel,
+      );
+      if (settings == null) {
+        error = widget.modActions.twitchApi.lastErrorStatus != null
+            ? widget.modActions.failureReason()
+            : 'Could not load AutoMod settings.';
+      }
+    } catch (_) {
+      error = 'Could not load AutoMod settings.';
+    }
+    if (!mounted || gen != _loadGen) return;
+    if (error != null && background) {
+      widget.onNotice(error);
+      return;
+    }
+    setState(() {
+      _error = error;
+      if (settings != null) {
+        _settings = settings;
+        _levels = Map.of(settings.levels);
+        _overall = settings.overallLevel;
+      }
+    });
+  }
+
+  bool get _dirty {
+    final saved = _settings;
+    final levels = _levels;
+    if (saved == null || levels == null) return false;
+    if (_overall != saved.overallLevel) return true;
+    if (levels.length != saved.levels.length) return true;
+    for (final entry in levels.entries) {
+      if (saved.levels[entry.key] != entry.value) return true;
+    }
+    return false;
+  }
+
+  Future<void> _save() async {
+    final levels = _levels;
+    if (levels == null || _saving || !_dirty) return;
+    setState(() => _saving = true);
+    final result = await widget.modActions.updateAutoModSettings(
+      widget.auth,
+      widget.channel,
+      _overall != null ? {'overall_level': _overall!} : levels,
+    );
+    if (!mounted) return;
+    setState(() => _saving = false);
+    if (result.ok) {
+      _load();
+    } else {
+      widget.onNotice(modErrorText(result));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_error != null && _settings == null) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(_error!),
+            TextButton(onPressed: _load, child: const Text('Retry')),
+          ],
+        ),
+      );
+    }
+    final levels = _levels;
+    if (levels == null) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+      children: [
+        const Text(
+          'Levels 0-4 per category. Saving a preset resets every category; moving a slider switches to custom.',
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          children: [
+            for (final (label, value) in _presets)
+              ChoiceChip(
+                label: Text(label),
+                selected: _overall == value,
+                onSelected: (_) => setState(() => _overall = value),
+              ),
+          ],
+        ),
+        if (_overall == null)
+          const Padding(
+            padding: EdgeInsets.only(top: 4),
+            child: Text('Custom levels.'),
+          ),
+        for (final (key, label) in _cats)
+          Row(
+            children: [
+              Expanded(child: Text(label)),
+              SizedBox(
+                width: 180,
+                child: Slider(
+                  value: (levels[key] ?? 0).toDouble(),
+                  min: 0,
+                  max: 4,
+                  divisions: 4,
+                  label: '${levels[key] ?? 0}',
+                  onChanged: (v) => setState(() {
+                    levels[key] = v.round();
+                    _overall = null;
+                  }),
+                ),
+              ),
+              SizedBox(width: 24, child: Text('${levels[key] ?? 0}')),
+            ],
+          ),
+        const SizedBox(height: 8),
+        FilledButton(
+          onPressed: _dirty && !_saving ? _save : null,
+          child: _saving
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Text('Save changes'),
+        ),
+      ],
     );
   }
 }

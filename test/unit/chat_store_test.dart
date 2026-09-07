@@ -835,12 +835,43 @@ void main() {
           moderator: 'moduser',
         ),
       );
+      store.noteSuspicious(
+        SuspiciousInfo(
+          at: t0,
+          channel: 'test',
+          login: 'spammer',
+          status: 'monitored',
+        ),
+      );
       final version = store.modActivityVersion.value;
       store.forgetChannel('test');
       expect(store.modActivity.containsKey('test'), isFalse);
       expect(store.channelWarnings.containsKey('test'), isFalse);
       expect(store.channelBans.containsKey('test'), isFalse);
+      expect(store.suspiciousUsers.containsKey('test'), isFalse);
       expect(store.modActivityVersion.value, version + 1);
+    });
+
+    test('suspicious sightings upsert, query, and clear', () {
+      final store = _store();
+      expect(store.suspiciousFor('test', 'spammer'), isNull);
+      store.noteSuspicious(
+        SuspiciousInfo(
+          at: t0,
+          channel: 'test',
+          login: 'Spammer',
+          status: 'restricted',
+          types: const ['manually_added'],
+          banEvasion: 'possible',
+          sharedBanChannelIds: const ['111'],
+        ),
+      );
+      final seen = store.suspiciousFor('test', 'spammer')!;
+      expect(seen.status, 'restricted');
+      expect(seen.sharedBanChannelIds, ['111']);
+      expect(store.removeSuspicious('test', 'SPAMMER'), isTrue);
+      expect(store.suspiciousFor('test', 'spammer'), isNull);
+      expect(store.removeSuspicious('test', 'spammer'), isFalse);
     });
 
     test('touchInbox bumps the inbox version', () {
@@ -881,6 +912,7 @@ void main() {
         ('raid', 'moduser started a raid.'),
         ('shield_on', 'moduser enabled Shield Mode.'),
         ('shoutout', 'moduser shouted out spammer.'),
+        ('automod_settings', 'moduser updated AutoMod settings.'),
       ]) {
         expect(formatModActivity(entry(action)), expected, reason: action);
       }
@@ -897,10 +929,12 @@ void main() {
         'moduser denied spammer\'s unban request: "too soon".',
       );
       expect(
-        formatModActivity(
-          entry('add_blocked_term', target: null, terms: ['bad word']),
-        ),
-        'moduser added blocked term "bad word".',
+        formatModActivity(entry('deny_unban_request', reason: 'too soon')),
+        'moduser denied spammer\'s unban request: "too soon".',
+      );
+      expect(
+        formatModActivity(entry('suspicious_flag', reason: 'restricted')),
+        'moduser flagged spammer: "restricted".',
       );
       expect(
         formatModActivity(

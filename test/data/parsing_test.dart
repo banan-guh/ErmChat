@@ -2150,6 +2150,54 @@ void main() {
       expect(events[0].list, 'blocked');
       expect(events[0].terms, ['bad word']);
     });
+
+    test('automod settings update carries moderator', () async {
+      final events = <AutomodSettingsEvent>[];
+      service.onAutomodSettings.listen(events.add);
+      service.handleRawMessage(
+        topic('automod.settings.update', {'moderator_user_name': 'moduser'}),
+      );
+      expect(events, hasLength(1));
+      expect(events[0].channel, 'testchannel');
+      expect(events[0].moderatorName, 'moduser');
+    });
+
+    test('suspicious message carries status and ban context', () async {
+      final events = <SuspiciousUserEvent>[];
+      service.onSuspiciousUser.listen(events.add);
+      service.handleRawMessage(
+        topic('channel.suspicious_user.message', {
+          'user_login': 'spammer',
+          'low_trust_status': 'restricted',
+          'types': ['manually_added'],
+          'ban_evasion_evaluation': 'possible',
+          'shared_ban_channel_ids': ['111', '222'],
+        }),
+      );
+      expect(events, hasLength(1));
+      expect(events[0].kind, 'message');
+      expect(events[0].userLogin, 'spammer');
+      expect(events[0].status, 'restricted');
+      expect(events[0].types, ['manually_added']);
+      expect(events[0].banEvasion, 'possible');
+      expect(events[0].sharedBanChannelIds, ['111', '222']);
+    });
+
+    test('suspicious update carries moderator', () async {
+      final events = <SuspiciousUserEvent>[];
+      service.onSuspiciousUser.listen(events.add);
+      service.handleRawMessage(
+        topic('channel.suspicious_user.update', {
+          'user_login': 'spammer',
+          'low_trust_status': 'monitored',
+          'moderator_user_name': 'moduser',
+        }),
+      );
+      expect(events, hasLength(1));
+      expect(events[0].kind, 'update');
+      expect(events[0].status, 'monitored');
+      expect(events[0].moderatorName, 'moduser');
+    });
   });
 
   group('notification (automod.message.hold/update)', () {

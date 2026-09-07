@@ -332,6 +332,8 @@ class ChatConnectionManager {
   StreamSubscription<WarningEvent>? warningSub;
   StreamSubscription<UnbanRequestEvent>? unbanRequestSub;
   StreamSubscription<AutomodTermsEvent>? automodTermsSub;
+  StreamSubscription<AutomodSettingsEvent>? automodSettingsSub;
+  StreamSubscription<SuspiciousUserEvent>? suspiciousUserSub;
   StreamSubscription<HypeTrainEvent>? hypeTrainSub;
   StreamSubscription<PollEvent>? pollSub;
   StreamSubscription<PredictionEvent>? predictionSub;
@@ -411,6 +413,8 @@ class ChatConnectionManager {
     warningSub?.cancel();
     unbanRequestSub?.cancel();
     automodTermsSub?.cancel();
+    automodSettingsSub?.cancel();
+    suspiciousUserSub?.cancel();
     hypeTrainSub?.cancel();
     pollSub?.cancel();
     predictionSub?.cancel();
@@ -1403,6 +1407,12 @@ class ChatConnectionManager {
     warningSub ??= eventSub.onWarning.listen(_onWarningEvent);
     unbanRequestSub ??= eventSub.onUnbanRequest.listen(_onUnbanRequestEvent);
     automodTermsSub ??= eventSub.onAutomodTerms.listen(_onAutomodTermsEvent);
+    automodSettingsSub ??= eventSub.onAutomodSettings.listen(
+      _onAutomodSettingsEvent,
+    );
+    suspiciousUserSub ??= eventSub.onSuspiciousUser.listen(
+      _onSuspiciousUserEvent,
+    );
 
     hypeTrainSub ??= eventSub.onHypeTrain.listen((event) {
       if (isDisposed) return;
@@ -1818,6 +1828,61 @@ class ChatConnectionManager {
     onSystemMessage(
       event.channel,
       formatTermAction(event.moderatorName, action, event.terms),
+    );
+  }
+
+  // AutoMod settings changes refresh the Setup tab and land in the feed.
+  void _onAutomodSettingsEvent(AutomodSettingsEvent event) {
+    if (isDisposed) return;
+    if (!_channelSetup.isTrustActive(event.channel)) return;
+    store.touchInbox();
+    store.addModActivity(
+      ModActivityEntry(
+        at: DateTime.now(),
+        channel: event.channel,
+        action: 'automod_settings',
+        moderator: event.moderatorName,
+      ),
+    );
+    onSystemMessage(
+      event.channel,
+      '${event.moderatorName} updated AutoMod settings.',
+    );
+  }
+
+  // Suspicious-user sightings build the per-user flag context (card, Users
+  // tab). Message events are silent by design (volume, no actor); status
+  // updates get a feed row and a chat line.
+  void _onSuspiciousUserEvent(SuspiciousUserEvent event) {
+    if (isDisposed) return;
+    if (!_channelSetup.isTrustActive(event.channel)) return;
+    final user = event.userLogin;
+    if (user.isEmpty) return;
+    store.noteSuspicious(
+      SuspiciousInfo(
+        at: DateTime.now(),
+        channel: event.channel,
+        login: user,
+        status: event.status,
+        types: event.types,
+        banEvasion: event.banEvasion,
+        sharedBanChannelIds: event.sharedBanChannelIds,
+      ),
+    );
+    if (event.kind == 'message') return;
+    store.addModActivity(
+      ModActivityEntry(
+        at: DateTime.now(),
+        channel: event.channel,
+        action: 'suspicious_flag',
+        moderator: event.moderatorName,
+        target: user,
+        reason: event.status.isEmpty ? null : event.status,
+      ),
+    );
+    onSystemMessage(
+      event.channel,
+      '${event.moderatorName} updated the suspicious status of $user.',
     );
   }
 
