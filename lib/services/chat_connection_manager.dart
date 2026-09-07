@@ -6,6 +6,7 @@ import '../util/log.dart';
 import '../models/twitch_message.dart';
 import '../services/twitch_api.dart';
 import '../services/twitch_auth.dart';
+import '../services/twitch_oauth.dart';
 import '../services/twitch_eventsub.dart';
 import '../services/twitch_irc.dart';
 import '../services/emote_manager.dart';
@@ -991,6 +992,13 @@ class ChatConnectionManager {
               // the 401 says nothing about the new token.
               if (auth.accessToken == validatedToken) {
                 _handleExpiredToken();
+              }
+            }
+            if (result != null && auth.accessToken == validatedToken) {
+              // Grant predates scopes added after login: prompt re-login
+              // instead of failing Tier 3 calls with 403s.
+              if (TwitchOAuth.missingScopes(result.scopes).isNotEmpty) {
+                auth.markScopeStale();
               }
             }
             // Only update _lastValidatedToken on definitive outcomes (success

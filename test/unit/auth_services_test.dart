@@ -452,6 +452,27 @@ void main() {
         <String>[],
       ),
       (
+        'requests Tier 3 moderation scopes',
+        [
+          'moderator:manage:blocked_terms',
+          'moderator:manage:unban_requests',
+          'moderator:read:warnings',
+          'moderator:manage:automod_settings',
+          'moderator:read:chat_settings',
+          'moderator:read:suspicious_users',
+          'moderator:manage:suspicious_users',
+          'moderator:read:chatters',
+          'moderator:read:followers',
+          'user:read:moderated_channels',
+        ],
+        <String>[],
+      ),
+      (
+        'requests broadcaster points scopes',
+        ['channel:read:redemptions', 'channel:manage:redemptions'],
+        <String>[],
+      ),
+      (
         'does not request EventSub-only scopes',
         <String>[],
         ['user:read:chat', 'channel:moderate'],
@@ -469,6 +490,32 @@ void main() {
         }
       });
     }
+
+    test('url covers the full requiredScopes list', () {
+      final urlInfo = TwitchOAuth.generateAuthUrl();
+      final scopes = Uri.parse(
+        urlInfo!.url,
+      ).queryParameters['scope']!.split(' ');
+      expect(scopes, containsAll(TwitchOAuth.requiredScopes));
+      expect(scopes.length, TwitchOAuth.requiredScopes.length);
+    });
+  });
+
+  group('TwitchOAuth.missingScopes', () {
+    test('empty when the grant covers everything', () {
+      expect(TwitchOAuth.missingScopes(TwitchOAuth.requiredScopes), isEmpty);
+    });
+
+    test('lists absent scopes, ignores extras', () {
+      final missing = TwitchOAuth.missingScopes([
+        'chat:read',
+        'chat:edit',
+        'some:future_scope',
+      ]);
+      expect(missing, contains('moderator:manage:blocked_terms'));
+      expect(missing, isNot(contains('chat:read')));
+      expect(missing, isNot(contains('some:future_scope')));
+    });
   });
 
   group('UserStore', () {
@@ -1931,13 +1978,39 @@ void main() {
       auth.setCredentials(accessToken: 'new-tok');
       expect(auth.isActiveExpired, isFalse);
     });
+
+    test('scopeStale is memory-only and clears on credential change', () async {
+      final auth = TwitchAuth();
+      await auth.load();
+      auth.accessToken = 'tok';
+      auth.login = 'testuser';
+      auth.accounts = [
+        TwitchAccount(login: 'testuser', userId: '123', accessToken: 'tok'),
+        TwitchAccount(login: 'other', userId: '456', accessToken: 'tok2'),
+      ];
+
+      expect(auth.scopeStale, isFalse);
+      auth.markScopeStale();
+      expect(auth.scopeStale, isTrue);
+
+      auth.setCredentials(accessToken: 'new-tok');
+      expect(auth.scopeStale, isFalse);
+
+      auth.markScopeStale();
+      await auth.switchTo('other');
+      expect(auth.scopeStale, isFalse);
+
+      auth.markScopeStale();
+      await auth.switchToAnonymous();
+      expect(auth.scopeStale, isFalse);
+    });
   });
 
   group('TwitchApi.validateToken', () {
-    test('returns login/userId/expiresIn on 200', () async {
+    test('returns login/userId/expiresIn/scopes on 200', () async {
       final client = MockClient((request) async {
         return http.Response(
-          '{"client_id":"cid","login":"testuser","scopes":[],"expires_in":50000,"user_id":"12345"}',
+          '{"client_id":"cid","login":"testuser","scopes":["chat:read","chat:edit"],"expires_in":50000,"user_id":"12345"}',
           200,
         );
       });
@@ -1951,6 +2024,24 @@ void main() {
       expect(result!.login, 'testuser');
       expect(result.userId, '12345');
       expect(result.expiresIn, 50000);
+      expect(result.scopes, ['chat:read', 'chat:edit']);
+    });
+
+    test('defaults scopes to empty when absent', () async {
+      final client = MockClient((request) async {
+        return http.Response(
+          '{"client_id":"cid","login":"testuser","scopes":[],"expires_in":50000,"user_id":"12345"}',
+          200,
+        );
+      });
+
+      final api = TwitchApi(client: client);
+      final auth = TwitchAuth();
+      auth.accessToken = 'valid-token';
+
+      final result = await api.validateToken(auth);
+      expect(result, isNotNull);
+      expect(result!.scopes, isEmpty);
     });
 
     test('returns null on auth failure and network error', () async {

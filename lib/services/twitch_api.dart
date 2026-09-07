@@ -894,11 +894,10 @@ class TwitchApi {
     'Content-Type': 'application/json',
   };
 
-  /// Validates the token. Returns login/userId/expiresIn on success. Null on
-  /// failure; check [lastErrorStatus] -- only 401 is definitive.
-  Future<({String login, String userId, int expiresIn})?> validateToken(
-    TwitchAuth auth,
-  ) async {
+  /// Validates the token. Returns login/userId/expiresIn/scopes on success.
+  /// Null on failure; check [lastErrorStatus] -- only 401 is definitive.
+  Future<({String login, String userId, int expiresIn, List<String> scopes})?>
+  validateToken(TwitchAuth auth) async {
     _clearError();
     final uri = Uri.parse('https://id.twitch.tv/oauth2/validate');
     try {
@@ -913,10 +912,14 @@ class TwitchApi {
         return null;
       }
       final data = jsonDecode(res.body) as Map<String, dynamic>;
+      final rawScopes = data['scopes'];
       return (
         login: data['login'] as String? ?? '',
         userId: data['user_id'] as String? ?? '',
         expiresIn: data['expires_in'] as int? ?? 0,
+        scopes: rawScopes is List
+            ? rawScopes.whereType<String>().toList()
+            : const <String>[],
       );
     } catch (e) {
       _lastError = 'validateToken: $e';
