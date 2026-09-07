@@ -27,6 +27,7 @@ import 'package:ermchat/widgets/message_builder.dart';
 import 'package:ermchat/widgets/emote_text.dart';
 import 'package:ermchat/widgets/link_whitelist.dart';
 import 'package:ermchat/util/constants.dart';
+import 'package:ermchat/util/thread_utils.dart';
 
 TwitchMessage _msg(String text, {String login = 'otheruser', String? replyTo}) {
   return TwitchMessage(
@@ -1269,6 +1270,17 @@ void main() {
         searchMatches(searchMsg('hi', displayName: 'KappaKid'), f),
         isTrue,
       );
+    });
+  });
+
+  group('resolveThreadRootId', () {
+    test('walks to the root', () {
+      expect(resolveThreadRootId('c', {'c': 'b', 'b': 'a'}), 'a');
+    });
+
+    test('cycle terminates instead of hanging', () {
+      expect(resolveThreadRootId('a', {'a': 'b', 'b': 'a'}), isNotEmpty);
+      expect(resolveThreadRootId('a', {'a': 'a'}), 'a');
     });
   });
 }
