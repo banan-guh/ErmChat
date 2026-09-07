@@ -178,7 +178,8 @@ class SevenTvEmoteProvider {
         if (multiplierStr == '2') best2x ??= fullUrl;
         final multiplier = int.tryParse(multiplierStr);
         if (multiplier != null && multiplier <= 3) lastLe3 = fullUrl;
-        isAnimated = true;
+        // Static emotes are WEBP too; only the payload flag marks animation.
+        isAnimated = data['animated'] == true;
         final fileWidth = file['width'] as int?;
         final fileHeight = file['height'] as int?;
         if (fileHeight != null) {
