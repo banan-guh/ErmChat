@@ -119,6 +119,8 @@ class _ChatViewState extends State<ChatView>
     final newScale = MediaQuery.textScalerOf(context).scale(1.0);
     if (newScale != _cachedSystemScale) {
       _cachedSystemScale = newScale;
+      // Pixel-sized tiles would otherwise survive the scale change.
+      widget.tileCache?.clear();
     }
   }
 

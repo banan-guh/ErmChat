@@ -54,6 +54,8 @@ class MessageBuilder {
   int get _spanCacheVersion {
     var v = emoteManager.version * 1000003 + badgeService.version;
     v += linkWhitelist.entries.fold<int>(0, (h, e) => h ^ e.hashCode * 31);
+    if (linkWhitelist.enabled) v += 30000031;
+    if (onEmailTap != null) v += 40000037;
     if (showGifs) v += 10000019 + (gifHeight * 13).toInt();
     if (showImages) v += 20000029;
     return v;
