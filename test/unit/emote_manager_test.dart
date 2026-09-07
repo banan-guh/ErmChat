@@ -1498,6 +1498,34 @@ void main() {
       }),
     };
 
+    test('reconcileSevenTvChannel pulls the new set after a switch', () async {
+      SharedPreferences.setMockInitialValues(cache([sevenTv('a', 'Alpha')]));
+      var switched = false;
+      final manager = EmoteManager(
+        fetchStagger: Duration.zero,
+        tier: EmoteFetchTier.medium,
+        removeCachedFile: (url) async {},
+        sevenTvChannelFetcher: (id, resolution) async => SevenTvChannelResponse(
+          emotes: switched ? [sevenTv('b', 'Bravo')] : [sevenTv('a', 'Alpha')],
+          emoteSetId: switched ? 'setB' : 'setA',
+          userId: 'u1',
+        ),
+      );
+
+      await manager.resolveEmotes('ch', 'b1');
+      await pumpEventQueue();
+      expect(manager.byCode('ch')!.suggestions.map((e) => e.code), ['Alpha']);
+
+      // Socket reports an active-set switch, then we reconcile.
+      switched = true;
+      manager.setSevenTvEmoteSetId('ch', 'setB');
+      await manager.reconcileSevenTvChannel('ch');
+      await pumpEventQueue();
+
+      expect(manager.byCode('ch')!.suggestions.map((e) => e.code), ['Bravo']);
+      expect(manager.getSevenTvEmoteSetId('ch'), 'setB');
+    });
+
     test('applies add/remove/rename deltas against the loaded cache', () async {
       SharedPreferences.setMockInitialValues(
         cache([
@@ -4047,6 +4075,28 @@ void main() {
       expect(emote!.url, 'https://cdn.7tv.app/emote/1/1x/1x.webp');
       expect(emote.url1x, isNull);
       expect(emote.url3x, 'https://cdn.7tv.app/emote/1/1x/1x.webp');
+    });
+
+    test('isAnimated follows the payload flag, not the file format', () {
+      Map<String, dynamic> item({required bool animated}) => {
+        'id': 'anim-1',
+        'name': 'Anim',
+        'data': {
+          'name': 'Anim',
+          'animated': animated,
+          'host': _host('1x.webp'),
+        },
+      };
+      expect(
+        SevenTvEmoteProvider.parseSingleEmote(
+          item(animated: false),
+        )!.isAnimated,
+        isFalse,
+      );
+      expect(
+        SevenTvEmoteProvider.parseSingleEmote(item(animated: true))!.isAnimated,
+        isTrue,
+      );
     });
 
     group('resolution tiers', () {

@@ -2209,6 +2209,15 @@ class EmoteManager extends ChangeNotifier {
     }
   }
 
+  /// Reconciles the channel's 7TV set against the server. Used when a live
+  /// `user.update` switches the active set: without it the old set keeps
+  /// rendering and the next full fetch resurrects it via the live list.
+  Future<void> reconcileSevenTvChannel(String channel) {
+    final broadcasterId = _channelBroadcasterIds[channel];
+    if (broadcasterId == null) return Future.value();
+    return _enqueueFetch(() => _reconcileSevenTv(channel, broadcasterId));
+  }
+
   // Diffs 7TV set against cache at startup (medium/high).
   Future<void> _reconcileSevenTv(String channel, String broadcasterId) async {
     if (_tier.index < EmoteFetchTier.medium.index) return;

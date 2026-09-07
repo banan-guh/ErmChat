@@ -609,6 +609,9 @@ class ChatConnectionManager {
     }
     sevenTvClient?.subscribeEmoteSet(event.newEmoteSetId);
     emoteManager.setSevenTvEmoteSetId(channel, event.newEmoteSetId);
+    // Pull the new set's contents: subscribing alone leaves the old set
+    // rendering until restart.
+    unawaited(emoteManager.reconcileSevenTvChannel(channel));
 
     final actor = event.actor ?? 'A user';
     onSystemMessage(channel, '$actor switched the active 7TV Emote Set.');
