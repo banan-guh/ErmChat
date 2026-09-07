@@ -16,7 +16,7 @@ Check [TODO.md](TODO.md) for the roadmap. Found a bug or want a feature? Open an
 - Messages over IRC
 - Reply threads with inline view (threads persist until last child goes over max msg threshold!! even when they disappear, you can see old threads)
 - Mentions / whispers panel
-- User profiles: tap a username for a bottom sheet with Mention / Whisper / Block / Report
+- User profiles: tap a username for a bottom sheet with mod actions, follow age, and warning/ban history where you moderate, plus Mention / Whisper / Block / Report
 - System messages for subs, cheers, raids, bans, timeouts, announcements (subs/bits/raids highlight with the accent)
 - Shared chat support with spotlight / fade / hide modes for foreign messages
 - Phrase muting and regex ping rules (hide or highlight by keyword)
@@ -43,6 +43,11 @@ Check [TODO.md](TODO.md) for the roadmap. Found a bug or want a feature? Open an
 
 **Broadcaster widgets**
 - Hype train, poll, and prediction cards rendered in a swipeable cutout above chat (for the broadcaster's own channels, read-only)
+
+**Mod view**
+- Queue (allow/deny with category filter and inline timeout/ban), Activity feed, Users (bans, warnings, flagged users, mod/vip rosters), Modes, unban Requests inbox, public blocked Terms, AutoMod Setup levels
+- Message long-press and user cards expose Timeout / Delete / Warn / Ban / Unban / Shoutout (offline-friendly where you moderate)
+- Channel tab for the broadcaster: banned list, raid/commercial/marker actions, poll/prediction controls, Channel Points queue (rewards this app created are manageable, others read-only)
 
 **Customization & settings**
 - Dark mode toggle, true-dark, accent color picker
