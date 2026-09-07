@@ -218,9 +218,7 @@ class _DevSettingsScreenState extends State<DevSettingsScreen> {
           ListTile(
             leading: const Icon(Icons.speed),
             title: const Text('Run WebP decode benchmark'),
-            subtitle: const Text(
-              'Compares production decoder (native/pure-Dart) vs engine codec',
-            ),
+            subtitle: const Text('Compares production decoder vs engine codec'),
             onTap: () => _runDecodeBenchmark(context),
           ),
           const Divider(),
@@ -229,7 +227,7 @@ class _DevSettingsScreenState extends State<DevSettingsScreen> {
             title: const Text('Decode diagnosis (engine-only)'),
             subtitle: const Text(
               'Engine baseline vs engine+ANMF-durations vs engine '
-              'per-frame composite. No libwebp. Use the two emote presets.',
+              'per-frame composite. Use the two emote presets.',
             ),
             onTap: () {
               Navigator.push(
@@ -328,7 +326,7 @@ class _DecodeDiagScreenState extends State<_DecodeDiagScreen> {
       );
 
       // Variant 3: engine per-frame still decode + spec compositing, at ANMF
-      // durations. Tests whether an engine-only path (no libwebp) is viable.
+      // durations.
       comp = await _decodeComposite(bytes, meta);
       sb.writeln(
         'Engine per-frame + composite: ${comp.frames.length} frames'

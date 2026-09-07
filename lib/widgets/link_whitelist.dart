@@ -39,6 +39,9 @@ class WhitelistLinkifier extends Linkifier {
   static final _sentenceDot = RegExp(r'\S\.\s');
   static final _hasSpace = RegExp(r'\s');
 
+  // Fractured host right after a scheme (https://example. com).
+  static final _schemeSuffix = RegExp(r'https?://$', caseSensitive: false);
+
   // True when the match runs straight into an email or scheme URL.
   static bool _gluedToLink(String text, int start) {
     if (start <= 0) return false;
@@ -77,12 +80,15 @@ class WhitelistLinkifier extends Linkifier {
     for (final m in matches) {
       final raw = m.group(1)!;
       final fractured = _hasSpace.hasMatch(raw);
+      final glued = _gluedToLink(text, m.start);
+      // Fractured host after a scheme belongs to that URL.
+      final schemeRaw = glued && fractured && fractures
+          ? _schemeSuffix.firstMatch(text.substring(0, m.start))?.group(0)
+          : null;
       if (!raw.contains('.') ||
-          _gluedToLink(text, m.start) ||
+          (glued && schemeRaw == null) ||
           (fractured && !fractures)) {
-        // Plain word, part of an email/scheme URL, or fracture detection
-        // is off: skip without splitting so stock linkify still sees the
-        // surrounding text whole.
+        // Plain word, email/contiguous scheme URL, or fractures off.
         continue;
       }
 
@@ -104,14 +110,24 @@ class WhitelistLinkifier extends Linkifier {
         // Not opted in: leave the text as-is.
         continue;
       }
-      if (m.start > lastEnd) {
-        out.add(TextElement(text.substring(lastEnd, m.start)));
+      // Fold the scheme into the link when fractured after one.
+      final schemeStart = schemeRaw == null
+          ? m.start
+          : m.start - schemeRaw.length;
+      if (schemeStart > lastEnd) {
+        out.add(TextElement(text.substring(lastEnd, schemeStart)));
       }
+      final display = schemeRaw == null
+          ? raw
+          : text.substring(schemeStart, m.end);
+      final url = schemeRaw == null
+          ? 'https://$normalized'
+          : '$schemeRaw$normalized';
       if (fractured) {
-        out.add(UrlElement('https://$normalized', raw));
+        out.add(UrlElement(url, display));
       } else {
         // Bare links show without the scheme, like humanized stock links.
-        out.add(UrlElement('https://$normalized', normalized, raw));
+        out.add(UrlElement(url, normalized, raw));
       }
       lastEnd = m.end;
     }
@@ -119,6 +135,34 @@ class WhitelistLinkifier extends Linkifier {
       out.add(TextElement(text.substring(lastEnd)));
     }
   }
+}
+
+/// Demotes loose matches with empty host labels (...can). Runs last.
+class LooseUrlGuardLinkifier extends Linkifier {
+  const LooseUrlGuardLinkifier();
+
+  @override
+  List<LinkifyElement> parse(elements, options) {
+    final out = <LinkifyElement>[];
+    for (final e in elements) {
+      if (e is UrlElement && !_validHost(e.url)) {
+        out.add(TextElement(e.originText));
+      } else {
+        out.add(e);
+      }
+    }
+    return out;
+  }
+}
+
+// Host has no empty labels.
+bool _validHost(String url) {
+  final host = Uri.tryParse(url)?.host ?? '';
+  if (!host.contains('.')) return false;
+  for (final label in host.split('.')) {
+    if (label.isEmpty) return false;
+  }
+  return true;
 }
 
 /// Links well-known single-char domains (x.com, t.co) stock linkify misses.

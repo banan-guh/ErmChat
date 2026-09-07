@@ -150,9 +150,7 @@ Map<String, dynamic> _emoteJson(String id, List<String> scales) {
 String _url(String id, String scale) =>
     'https://static-cdn.jtvnw.net/emoticons/v2/$id/static/light/$scale';
 
-/// Gated unit tests for the native libwebp decoder.
-///
-/// Requires the host-built shim: run `tool/build_native_linux.sh`, then
+/// FFZ/BTTV/Twitch emote URL resolution tests.
 void main() {
   tearDown(() => HttpOverrides.global = null);
 

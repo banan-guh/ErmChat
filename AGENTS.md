@@ -13,7 +13,7 @@ dart format .      # format all Dart files
 
 ## Setup
 
-- Clone with submodules (`git clone --recursive`); `third_party/libwebp` (pinned submodule) is required to build `libemote_codec`.
+- Clone normally; no submodules. Emote decode is engine + pure-Dart.
 - Set `clientId` in `lib/twitch_config.dart` and register the `redirectUri` (exact match) in the Twitch console.
 
 ## Architecture (know before editing)

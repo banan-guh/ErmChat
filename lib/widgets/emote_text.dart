@@ -354,6 +354,8 @@ List<LinkifyElement> _linkifyChat(
         fractures: LinkWhitelist.instance.enabled,
       ),
       const UrlLinkifier(),
+      // Drops loose matches with empty labels.
+      const LooseUrlGuardLinkifier(),
     ],
   );
 }
