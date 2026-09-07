@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../models/point_rewards.dart';
 import '../services/chat_store.dart';
 import '../services/mod_actions.dart';
 import '../services/twitch_api.dart';
@@ -268,6 +269,7 @@ class ModViewPanel extends StatelessWidget {
             ),
             _ChannelTab(
               channel: channel,
+              store: store,
               modActions: modActions,
               auth: auth,
               onNotice: onNotice,
@@ -1481,6 +1483,7 @@ class _SetupTabState extends State<_SetupTab> {
 class _ChannelTab extends StatelessWidget {
   const _ChannelTab({
     required this.channel,
+    required this.store,
     required this.modActions,
     required this.auth,
     required this.onNotice,
@@ -1488,6 +1491,7 @@ class _ChannelTab extends StatelessWidget {
   });
 
   final String channel;
+  final ChatStore store;
   final ModActions modActions;
   final TwitchAuth auth;
   final ValueChanged<String> onNotice;
@@ -1538,6 +1542,14 @@ class _ChannelTab extends StatelessWidget {
         const _SectionHeader('Predictions'),
         _PredictionsSection(
           channel: channel,
+          modActions: modActions,
+          auth: auth,
+          onNotice: onNotice,
+        ),
+        const _SectionHeader('Points'),
+        _PointsSection(
+          channel: channel,
+          store: store,
           modActions: modActions,
           auth: auth,
           onNotice: onNotice,
@@ -2151,6 +2163,323 @@ class _PredictionsSectionState extends State<_PredictionsSection> {
                 ),
               ],
             ),
+    );
+  }
+}
+
+class _PointsSection extends StatefulWidget {
+  const _PointsSection({
+    required this.channel,
+    required this.store,
+    required this.modActions,
+    required this.auth,
+    required this.onNotice,
+  });
+
+  final String channel;
+  final ChatStore store;
+  final ModActions modActions;
+  final TwitchAuth auth;
+  final ValueChanged<String> onNotice;
+
+  @override
+  State<_PointsSection> createState() => _PointsSectionState();
+}
+
+class _PointsSectionState extends State<_PointsSection> {
+  List<PointReward>? _rewards;
+  String? _error;
+  int _loadGen = 0;
+  String? _selectedRewardId;
+  List<PointRedemption>? _queue;
+  String? _queueError;
+  int _queueGen = 0;
+  final _busyRedemptions = <String>{};
+  final _toggling = <String>{};
+
+  @override
+  void initState() {
+    super.initState();
+    widget.store.pointVersion.addListener(_onPointsChanged);
+    _loadRewards();
+  }
+
+  @override
+  void didUpdateWidget(covariant _PointsSection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.channel != widget.channel) {
+      _selectedRewardId = null;
+      _queue = null;
+      _loadRewards();
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.store.pointVersion.removeListener(_onPointsChanged);
+    super.dispose();
+  }
+
+  void _onPointsChanged() {
+    _loadRewards();
+    if (_selectedRewardId != null) _loadQueue();
+  }
+
+  Future<void> _loadRewards() async {
+    final gen = ++_loadGen;
+    final background = _rewards != null;
+    List<PointReward> rewards = const [];
+    String? error;
+    try {
+      rewards = await widget.modActions.getPointRewards(
+        widget.auth,
+        widget.channel,
+      );
+      if (widget.modActions.twitchApi.lastErrorStatus != null) {
+        error = widget.modActions.failureReason();
+      }
+    } catch (_) {
+      error = 'Could not load rewards.';
+    }
+    if (!mounted || gen != _loadGen) return;
+    if (error != null && background) return;
+    setState(() {
+      _error = error;
+      if (error == null) {
+        _rewards = rewards;
+        if (_selectedRewardId != null &&
+            rewards.every((r) => r.id != _selectedRewardId)) {
+          _selectedRewardId = null;
+          _queue = null;
+          _queueError = null;
+        }
+      }
+    });
+  }
+
+  Future<void> _loadQueue() async {
+    final rewardId = _selectedRewardId;
+    if (rewardId == null) return;
+    final gen = ++_queueGen;
+    final background = _queue != null;
+    List<PointRedemption> queue = const [];
+    String? error;
+    try {
+      queue = await widget.modActions.getPointRedemptions(
+        widget.auth,
+        widget.channel,
+        rewardId,
+      );
+      if (widget.modActions.twitchApi.lastErrorStatus != null) {
+        error = widget.modActions.twitchApi.lastErrorStatus == 403
+            ? 'Redemptions for this reward are only visible '
+                  'to the app that created it.'
+            : widget.modActions.failureReason();
+      }
+    } catch (_) {
+      error = 'Could not load redemptions.';
+    }
+    if (!mounted || gen != _queueGen) return;
+    if (error != null && background) return;
+    setState(() {
+      _queueError = error;
+      if (error == null) _queue = queue;
+    });
+  }
+
+  void _select(String rewardId) {
+    if (_selectedRewardId == rewardId) return;
+    setState(() {
+      _selectedRewardId = rewardId;
+      _queue = null;
+      _queueError = null;
+    });
+    _loadQueue();
+  }
+
+  Future<void> _resolve(PointRedemption redemption, bool fulfilled) async {
+    if (!_busyRedemptions.add(redemption.id)) return;
+    setState(() {});
+    try {
+      final result = await widget.modActions.resolveRedemption(
+        widget.auth,
+        widget.channel,
+        redemption.rewardId,
+        redemption.id,
+        fulfilled,
+      );
+      if (!mounted) return;
+      if (result.ok) {
+        widget.store.resolvePointRedemption(widget.channel, redemption.id);
+        _loadQueue();
+      } else {
+        widget.onNotice(modErrorText(result));
+      }
+    } finally {
+      _busyRedemptions.remove(redemption.id);
+      if (mounted) setState(() {});
+    }
+  }
+
+  Future<void> _togglePause(PointReward reward) async {
+    if (!_toggling.add(reward.id)) return;
+    setState(() {});
+    try {
+      final result = await widget.modActions.setRewardPaused(
+        widget.auth,
+        widget.channel,
+        reward.id,
+        !reward.isPaused,
+      );
+      if (!mounted) return;
+      if (result.ok) {
+        _loadRewards();
+      } else {
+        widget.onNotice(modErrorText(result));
+      }
+    } finally {
+      _toggling.remove(reward.id);
+      if (mounted) setState(() {});
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final rewards = _rewards;
+    if (_error != null && rewards == null) {
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
+            child: Text(_error!),
+          ),
+          TextButton(onPressed: _loadRewards, child: const Text('Retry')),
+        ],
+      );
+    }
+    if (rewards == null) {
+      return const Padding(
+        padding: EdgeInsets.all(24),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [CircularProgressIndicator()],
+        ),
+      );
+    }
+    if (rewards.isEmpty) {
+      return const ListTile(
+        dense: true,
+        title: Text('No custom rewards. Create them in the dashboard.'),
+      );
+    }
+    final selected = _selectedRewardId == null
+        ? null
+        : rewards.where((r) => r.id == _selectedRewardId).firstOrNull;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Padding(
+          padding: EdgeInsets.fromLTRB(16, 0, 16, 0),
+          child: Text('Only rewards created by this app are manageable here.'),
+        ),
+        for (final reward in rewards)
+          ListTile(
+            dense: true,
+            selected: reward.id == _selectedRewardId,
+            title: Text(reward.title),
+            subtitle: Text(
+              '${reward.cost} pts · ${reward.isPaused
+                  ? 'Paused'
+                  : reward.isEnabled
+                  ? 'Enabled'
+                  : 'Disabled'}',
+            ),
+            onTap: () => _select(reward.id),
+            trailing: _toggling.contains(reward.id)
+                ? const SizedBox(
+                    width: 24,
+                    height: 24,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : IconButton(
+                    icon: Icon(
+                      reward.isPaused ? Icons.play_arrow : Icons.pause,
+                    ),
+                    tooltip: reward.isPaused ? 'Resume' : 'Pause',
+                    onPressed: () => _togglePause(reward),
+                  ),
+          ),
+        if (selected != null) ...[
+          _SectionHeader('Queue — ${selected.title}'),
+          _queueBody(selected),
+        ],
+      ],
+    );
+  }
+
+  Widget _queueBody(PointReward selected) {
+    if (_queueError != null && _queue == null) {
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
+            child: Text(_queueError!),
+          ),
+          TextButton(onPressed: _loadQueue, child: const Text('Retry')),
+        ],
+      );
+    }
+    final queue = _queue;
+    if (queue == null) {
+      return const Padding(
+        padding: EdgeInsets.all(24),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [CircularProgressIndicator()],
+        ),
+      );
+    }
+    if (queue.isEmpty) {
+      return const ListTile(dense: true, title: Text('Queue is clear.'));
+    }
+    return Column(
+      children: [
+        for (final redemption in queue)
+          ListTile(
+            dense: true,
+            title: Text(redemption.userLogin),
+            subtitle: redemption.userInput.isEmpty
+                ? null
+                : Text(
+                    '"${redemption.userInput}"',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+            trailing: _busyRedemptions.contains(redemption.id)
+                ? const SizedBox(
+                    width: 24,
+                    height: 24,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.check),
+                        tooltip: 'Fulfill',
+                        onPressed: () => _resolve(redemption, true),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close),
+                        tooltip: 'Refund',
+                        onPressed: () => _resolve(redemption, false),
+                      ),
+                    ],
+                  ),
+          ),
+      ],
     );
   }
 }

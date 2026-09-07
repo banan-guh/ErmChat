@@ -2393,6 +2393,129 @@ void main() {
     });
   });
 
+  group('mod points api and actions', () {
+    const rewardsJson =
+        '{"data":[{"id":"reward1","title":"Hydrate","cost":500,"is_enabled":true,"is_paused":false}],"pagination":{}}';
+    const redemptionsJson =
+        '{"data":[{"id":"red1","user_login":"fan","user_input":"do a flip","status":"UNFULFILLED","redeemed_at":"2026-01-02T03:04:05Z","reward":{"id":"reward1","title":"Hydrate","cost":500}}],"pagination":{}}';
+
+    MockClient pointsClient(List<http.Request> requests) => MockClient((
+      req,
+    ) async {
+      requests.add(req);
+      final path = req.url.path;
+      if (req.method == 'GET' &&
+          path.endsWith('channel_points/custom_rewards')) {
+        return http.Response(rewardsJson, 200);
+      }
+      if (req.method == 'PATCH' &&
+          path.endsWith('channel_points/custom_rewards')) {
+        return http.Response(rewardsJson, 200);
+      }
+      if (req.method == 'GET' && path.endsWith('custom_rewards/redemptions')) {
+        return http.Response(redemptionsJson, 200);
+      }
+      if (req.method == 'PATCH' &&
+          path.endsWith('custom_rewards/redemptions')) {
+        return http.Response('{"data":[]}', 200);
+      }
+      return http.Response('{"message":"unexpected"}', 404);
+    });
+
+    TwitchAuth pointsAuth() {
+      final auth = TwitchAuth();
+      auth.accessToken = 'tok';
+      return auth;
+    }
+
+    test('rewards and redemptions parse', () async {
+      final requests = <http.Request>[];
+      final api = TwitchApi(client: pointsClient(requests));
+      final auth = pointsAuth();
+
+      final rewards = await api.getCustomRewards(auth, broadcasterId: 'broad1');
+      expect(requests.single.url.queryParameters['broadcaster_id'], 'broad1');
+      expect(rewards.single.title, 'Hydrate');
+      expect(rewards.single.cost, 500);
+      expect(rewards.single.isPaused, isFalse);
+
+      final queue = await api.getRedemptions(
+        auth,
+        broadcasterId: 'broad1',
+        rewardId: 'reward1',
+      );
+      final query = requests[1].url.queryParameters;
+      expect(query['reward_id'], 'reward1');
+      expect(query['status'], 'UNFULFILLED');
+      expect(queue.single.userLogin, 'fan');
+      expect(queue.single.userInput, 'do a flip');
+    });
+
+    test('pause and fulfill hit the right shapes', () async {
+      final requests = <http.Request>[];
+      final api = TwitchApi(client: pointsClient(requests));
+      final auth = pointsAuth();
+
+      final paused = await api.setRewardPaused(
+        auth,
+        broadcasterId: 'broad1',
+        rewardId: 'reward1',
+        paused: true,
+      );
+      expect(paused, isTrue);
+      expect(requests.single.method, 'PATCH');
+      expect(requests.single.url.queryParameters['id'], 'reward1');
+      expect(jsonDecode(requests.single.body), {'is_paused': true});
+
+      final fulfilled = await api.updateRedemptionStatus(
+        auth,
+        broadcasterId: 'broad1',
+        rewardId: 'reward1',
+        redemptionId: 'red1',
+        fulfilled: false,
+      );
+      expect(fulfilled, isTrue);
+      expect(requests[1].url.queryParameters['id'], 'red1');
+      expect(jsonDecode(requests[1].body), {'status': 'CANCELED'});
+    });
+
+    test('ModActions points wrappers need a joined channel', () async {
+      final requests = <http.Request>[];
+      final actions = ModActions(
+        twitchApi: TwitchApi(client: pointsClient(requests)),
+        getChannelUserIds: () => {'a': 'broad1'},
+        getCurrentUserId: () => 'mod1',
+      );
+      final auth = pointsAuth();
+
+      expect(await actions.getPointRewards(auth, 'a'), hasLength(1));
+      expect(await actions.getPointRewards(auth, 'missing'), isEmpty);
+      expect(
+        await actions.getPointRedemptions(auth, 'a', 'reward1'),
+        hasLength(1),
+      );
+
+      final paused = await actions.setRewardPaused(auth, 'a', 'reward1', true);
+      expect(paused.ok, isTrue);
+      final notJoined = await actions.setRewardPaused(
+        auth,
+        'missing',
+        'reward1',
+        true,
+      );
+      expect(notJoined.ok, isFalse);
+
+      final fulfilled = await actions.resolveRedemption(
+        auth,
+        'a',
+        'reward1',
+        'red1',
+        true,
+      );
+      expect(fulfilled.ok, isTrue);
+    });
+  });
+
   group('TwitchApi.getFollowDate', () {
     test('returns followed_at when following', () async {
       final client = MockClient((request) async {

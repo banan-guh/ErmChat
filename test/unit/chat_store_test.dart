@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ermchat/models/highlight_state.dart';
+import 'package:ermchat/models/point_rewards.dart';
 import 'package:ermchat/models/twitch_message.dart';
 import 'package:ermchat/services/chat_store.dart';
 
@@ -879,6 +880,89 @@ void main() {
       final version = store.modInboxVersion.value;
       store.touchInbox();
       expect(store.modInboxVersion.value, version + 1);
+    });
+
+    test('points rewards set, redemptions queue oldest first', () {
+      final store = _store();
+      const reward = PointReward(
+        id: 'reward1',
+        title: 'Hydrate',
+        cost: 500,
+        isEnabled: true,
+        isPaused: false,
+      );
+      var version = store.pointVersion.value;
+      store.setPointRewards('test', const [reward]);
+      expect(store.pointRewards['test'], hasLength(1));
+      expect(store.pointVersion.value, version + 1);
+
+      PointRedemption redemption(String id, String at) => PointRedemption(
+        id: id,
+        userLogin: 'fan',
+        rewardId: 'reward1',
+        rewardTitle: 'Hydrate',
+        cost: 500,
+        userInput: '',
+        status: 'UNFULFILLED',
+        redeemedAt: at,
+      );
+      // Newest inserted first still reads oldest first.
+      store.upsertPointRedemption(
+        'test',
+        redemption('r2', '2026-01-02T00:01:00Z'),
+      );
+      store.upsertPointRedemption(
+        'test',
+        redemption('r1', '2026-01-02T00:00:00Z'),
+      );
+      expect(store.pointRedemptions['test']!.map((r) => r.id), ['r1', 'r2']);
+      // Re-upsert replaces in place.
+      store.upsertPointRedemption(
+        'test',
+        redemption('r1', '2026-01-02T00:00:00Z'),
+      );
+      expect(store.pointRedemptions['test'], hasLength(2));
+
+      expect(store.resolvePointRedemption('test', 'r1'), isTrue);
+      expect(store.pointRedemptions['test']!.map((r) => r.id), ['r2']);
+      expect(store.resolvePointRedemption('test', 'r1'), isFalse);
+      expect(store.resolvePointRedemption('test', 'r2'), isTrue);
+      expect(store.pointRedemptions.containsKey('test'), isFalse);
+    });
+
+    test('clearPoints and forgetChannel drop points state', () {
+      final store = _store();
+      const reward = PointReward(
+        id: 'reward1',
+        title: 'Hydrate',
+        cost: 500,
+        isEnabled: true,
+        isPaused: false,
+      );
+      store.setPointRewards('test', const [reward]);
+      store.upsertPointRedemption(
+        'test',
+        const PointRedemption(
+          id: 'r1',
+          userLogin: 'fan',
+          rewardId: 'reward1',
+          rewardTitle: 'Hydrate',
+          cost: 500,
+          userInput: '',
+          status: 'UNFULFILLED',
+          redeemedAt: '2026-01-02T00:00:00Z',
+        ),
+      );
+      final version = store.pointVersion.value;
+      store.clearPoints('missing');
+      expect(store.pointVersion.value, version, reason: 'no-op is quiet');
+      store.clearPoints('test');
+      expect(store.pointRewards.containsKey('test'), isFalse);
+      expect(store.pointRedemptions.containsKey('test'), isFalse);
+
+      store.setPointRewards('other', const [reward]);
+      store.forgetChannel('other');
+      expect(store.pointRewards.containsKey('other'), isFalse);
     });
 
     test('formatModActivity renders each action', () {

@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../twitch_config.dart';
 import '../util/constants.dart';
+import '../models/point_rewards.dart';
 import 'twitch_auth.dart';
 
 /// One banned or timed-out user from the broadcaster-only list.
@@ -778,6 +779,108 @@ class TwitchApi {
     final res = await _client.delete(uri, headers: _headers(auth));
     if (res.statusCode == 200 || res.statusCode == 204) return true;
     _setError('removeSuspiciousStatus', res);
+    return false;
+  }
+
+  /// Custom rewards for a broadcaster's channel. Rewards created by other
+  /// client ids are read-only (updates/redemptions 403). Empty on failure.
+  Future<List<PointReward>> getCustomRewards(
+    TwitchAuth auth, {
+    required String broadcasterId,
+  }) async {
+    _clearError();
+    final uri = Uri.parse(
+      '$_base/channel_points/custom_rewards?broadcaster_id=$broadcasterId',
+    );
+    final res = await _client.get(uri, headers: _headers(auth));
+    if (res.statusCode != 200) {
+      _setError('getCustomRewards', res);
+      return const [];
+    }
+    try {
+      final data = jsonDecode(res.body) as Map;
+      return [
+        for (final item in data['data'] as List)
+          PointReward.fromJson(item as Map<String, dynamic>),
+      ];
+    } catch (e) {
+      _setError('getCustomRewards: bad response');
+      return const [];
+    }
+  }
+
+  /// Pauses or resumes a custom reward. Only works for rewards this app's
+  /// client id created. True on 200.
+  Future<bool> setRewardPaused(
+    TwitchAuth auth, {
+    required String broadcasterId,
+    required String rewardId,
+    required bool paused,
+  }) async {
+    _clearError();
+    final uri = Uri.parse(
+      '$_base/channel_points/custom_rewards?broadcaster_id=$broadcasterId&id=$rewardId',
+    );
+    final res = await _client.patch(
+      uri,
+      headers: _headers(auth),
+      body: jsonEncode({'is_paused': paused}),
+    );
+    if (res.statusCode == 200) return true;
+    _setError('setRewardPaused', res);
+    return false;
+  }
+
+  /// UNFULFILLED redemptions for one reward, oldest first. Rewards created
+  /// by other client ids 403 here. Empty on failure.
+  Future<List<PointRedemption>> getRedemptions(
+    TwitchAuth auth, {
+    required String broadcasterId,
+    required String rewardId,
+  }) async {
+    _clearError();
+    final uri = Uri.parse(
+      '$_base/channel_points/custom_rewards/redemptions'
+      '?broadcaster_id=$broadcasterId&reward_id=$rewardId&status=UNFULFILLED',
+    );
+    final res = await _client.get(uri, headers: _headers(auth));
+    if (res.statusCode != 200) {
+      _setError('getRedemptions', res);
+      return const [];
+    }
+    try {
+      final data = jsonDecode(res.body) as Map;
+      return [
+        for (final item in data['data'] as List)
+          PointRedemption.fromJson(item as Map<String, dynamic>),
+      ];
+    } catch (e) {
+      _setError('getRedemptions: bad response');
+      return const [];
+    }
+  }
+
+  /// Fulfills or refunds (cancels) one redemption. Only works for rewards
+  /// this app's client id created. True on 200.
+  Future<bool> updateRedemptionStatus(
+    TwitchAuth auth, {
+    required String broadcasterId,
+    required String rewardId,
+    required String redemptionId,
+    required bool fulfilled,
+  }) async {
+    _clearError();
+    final uri = Uri.parse(
+      '$_base/channel_points/custom_rewards/redemptions'
+      '?broadcaster_id=$broadcasterId&reward_id=$rewardId&id=$redemptionId',
+    );
+    final res = await _client.patch(
+      uri,
+      headers: _headers(auth),
+      body: jsonEncode({'status': fulfilled ? 'FULFILLED' : 'CANCELED'}),
+    );
+    if (res.statusCode == 200) return true;
+    _setError('updateRedemptionStatus', res);
     return false;
   }
 

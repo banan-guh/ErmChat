@@ -6,6 +6,7 @@ import 'package:clock/clock.dart';
 import 'dart:ui' show Color;
 
 import '../models/twitch_message.dart';
+import '../models/point_rewards.dart';
 import '../util/duration_format.dart';
 import '../util/thread_utils.dart';
 
@@ -498,6 +499,55 @@ class ChatStore {
   SuspiciousInfo? suspiciousFor(String channel, String login) =>
       suspiciousUsers[channel]?[login.toLowerCase()];
 
+  // ---- Channel Points (broadcaster-only) -----------------------------------
+
+  /// Custom rewards per channel (Helix-sourced, refreshed on open and on
+  /// reward add/update/remove events).
+  final Map<String, List<PointReward>> pointRewards = {};
+
+  /// UNFULFILLED redemptions per channel, oldest first. Live-updated from
+  /// redemption add/update events; fulfilled/refunded entries drop.
+  final Map<String, List<PointRedemption>> pointRedemptions = {};
+
+  /// Bumped on any points mutation so the Channel tab rebuilds.
+  final ValueNotifier<int> pointVersion = ValueNotifier(0);
+
+  /// Replaces a channel's reward list (fetch or refresh).
+  void setPointRewards(String channel, List<PointReward> rewards) {
+    pointRewards[channel] = List.of(rewards);
+    pointVersion.value++;
+  }
+
+  /// Inserts or replaces one redemption, keeping oldest-first order.
+  void upsertPointRedemption(String channel, PointRedemption redemption) {
+    final list = pointRedemptions.putIfAbsent(channel, () => []);
+    list.removeWhere((r) => r.id == redemption.id);
+    list.add(redemption);
+    list.sort((a, b) => a.redeemedAt.compareTo(b.redeemedAt));
+    pointVersion.value++;
+  }
+
+  /// Drops a redemption (fulfilled, refunded, or updated elsewhere).
+  /// False when already gone.
+  bool resolvePointRedemption(String channel, String redemptionId) {
+    final list = pointRedemptions[channel];
+    if (list == null) return false;
+    final before = list.length;
+    list.removeWhere((r) => r.id == redemptionId);
+    if (list.length == before) return false;
+    if (list.isEmpty) pointRedemptions.remove(channel);
+    pointVersion.value++;
+    return true;
+  }
+
+  /// Drops a channel's points state (channel left).
+  void clearPoints(String channel) {
+    var touched = false;
+    if (pointRewards.remove(channel) != null) touched = true;
+    if (pointRedemptions.remove(channel) != null) touched = true;
+    if (touched) pointVersion.value++;
+  }
+
   /// Channels with unseen messages (drives tab unread markers).
   final Set<String> channelsWithUnread;
 
@@ -622,6 +672,7 @@ class ChatStore {
     if (channelBans.remove(channel) != null) feedTouched = true;
     if (suspiciousUsers.remove(channel) != null) feedTouched = true;
     if (feedTouched) modActivityVersion.value++;
+    clearPoints(channel);
   }
 
   void dispose() {
@@ -637,6 +688,7 @@ class ChatStore {
     heldVersion.dispose();
     modActivityVersion.dispose();
     modInboxVersion.dispose();
+    pointVersion.dispose();
     _events.close();
     _notices.close();
   }

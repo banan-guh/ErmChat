@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/widgets.dart';
 import '../models/generic_emote.dart';
+import '../models/point_rewards.dart';
 import '../util/duration_format.dart';
 import '../util/log.dart';
 import '../models/twitch_message.dart';
@@ -334,6 +335,8 @@ class ChatConnectionManager {
   StreamSubscription<AutomodTermsEvent>? automodTermsSub;
   StreamSubscription<AutomodSettingsEvent>? automodSettingsSub;
   StreamSubscription<SuspiciousUserEvent>? suspiciousUserSub;
+  StreamSubscription<PointRewardEvent>? pointRewardSub;
+  StreamSubscription<PointRedemptionEvent>? pointRedemptionSub;
   StreamSubscription<HypeTrainEvent>? hypeTrainSub;
   StreamSubscription<PollEvent>? pollSub;
   StreamSubscription<PredictionEvent>? predictionSub;
@@ -415,6 +418,8 @@ class ChatConnectionManager {
     automodTermsSub?.cancel();
     automodSettingsSub?.cancel();
     suspiciousUserSub?.cancel();
+    pointRewardSub?.cancel();
+    pointRedemptionSub?.cancel();
     hypeTrainSub?.cancel();
     pollSub?.cancel();
     predictionSub?.cancel();
@@ -1416,6 +1421,10 @@ class ChatConnectionManager {
     suspiciousUserSub ??= eventSub.onSuspiciousUser.listen(
       _onSuspiciousUserEvent,
     );
+    pointRewardSub ??= eventSub.onPointReward.listen(_onPointRewardEvent);
+    pointRedemptionSub ??= eventSub.onPointRedemption.listen(
+      _onPointRedemptionEvent,
+    );
 
     hypeTrainSub ??= eventSub.onHypeTrain.listen((event) {
       if (isDisposed) return;
@@ -1887,6 +1896,35 @@ class ChatConnectionManager {
       event.channel,
       '${event.moderatorName} updated the suspicious status of $user.',
     );
+  }
+
+  // Points complements gated on the points subscriptions. Reward edits
+  // refresh the reward list; redemption adds queue and updates resolve.
+  // Silent by design: redemptions are high-volume and reward edits carry
+  // no actor, so neither belongs in the chat or the mod feed.
+  void _onPointRewardEvent(PointRewardEvent event) {
+    if (isDisposed) return;
+    if (!_channelSetup.isPointsActive(event.channel)) return;
+    final rewards = List<PointReward>.of(
+      store.pointRewards[event.channel] ?? const <PointReward>[],
+    );
+    if (event.kind == 'remove') {
+      rewards.removeWhere((r) => r.id == event.reward.id);
+    } else {
+      rewards.removeWhere((r) => r.id == event.reward.id);
+      rewards.add(event.reward);
+    }
+    store.setPointRewards(event.channel, rewards);
+  }
+
+  void _onPointRedemptionEvent(PointRedemptionEvent event) {
+    if (isDisposed) return;
+    if (!_channelSetup.isPointsActive(event.channel)) return;
+    if (event.kind == 'add' && event.redemption.status == 'UNFULFILLED') {
+      store.upsertPointRedemption(event.channel, event.redemption);
+    } else {
+      store.resolvePointRedemption(event.channel, event.redemption.id);
+    }
   }
 
   // automod.message.hold/update v2 events: hold queues, any resolution

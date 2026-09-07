@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
+import '../models/point_rewards.dart';
 import 'connectivity_service.dart';
 import '../util/constants.dart';
 import '../util/log.dart';
@@ -171,6 +172,32 @@ class SuspiciousUserEvent {
   });
 }
 
+/// A custom reward change. [kind] is add, update, or remove.
+class PointRewardEvent {
+  final String channel;
+  final String kind;
+  final PointReward reward;
+
+  PointRewardEvent({
+    required this.channel,
+    required this.kind,
+    required this.reward,
+  });
+}
+
+/// A custom-reward redemption. [kind] is add or update.
+class PointRedemptionEvent {
+  final String channel;
+  final String kind;
+  final PointRedemption redemption;
+
+  PointRedemptionEvent({
+    required this.channel,
+    required this.kind,
+    required this.redemption,
+  });
+}
+
 /// A hype train event. [kind] is begin, progress, or end.
 class HypeTrainEvent {
   final String channel;
@@ -314,6 +341,11 @@ class EventSubService {
       StreamController<AutomodSettingsEvent>.broadcast(sync: true);
   final _suspiciousUserController =
       StreamController<SuspiciousUserEvent>.broadcast(sync: true);
+  final _pointRewardController = StreamController<PointRewardEvent>.broadcast(
+    sync: true,
+  );
+  final _pointRedemptionController =
+      StreamController<PointRedemptionEvent>.broadcast(sync: true);
   final _statusController = StreamController<EventSubStatus>.broadcast(
     sync: true,
   );
@@ -354,6 +386,9 @@ class EventSubService {
       _automodSettingsController.stream;
   Stream<SuspiciousUserEvent> get onSuspiciousUser =>
       _suspiciousUserController.stream;
+  Stream<PointRewardEvent> get onPointReward => _pointRewardController.stream;
+  Stream<PointRedemptionEvent> get onPointRedemption =>
+      _pointRedemptionController.stream;
   Stream<EventSubStatus> get onStatus => _statusController.stream;
 
   void setChannelMapping(String broadcasterUserId, String channelName) {
@@ -591,6 +626,15 @@ class EventSubService {
         type == 'channel.suspicious_user.update') {
       if (channel == null) return;
       _emitSuspiciousUser(channel, event, type.endsWith('.message'));
+    } else if (type == 'channel.channel_points_custom_reward.add' ||
+        type == 'channel.channel_points_custom_reward.update' ||
+        type == 'channel.channel_points_custom_reward.remove') {
+      if (channel == null) return;
+      _emitPointReward(channel, event, type.split('.').last);
+    } else if (type == 'channel.channel_points_custom_reward_redemption.add' ||
+        type == 'channel.channel_points_custom_reward_redemption.update') {
+      if (channel == null) return;
+      _emitPointRedemption(channel, event, type.endsWith('.add'));
     } else if (type == 'automod.message.hold') {
       if (channel == null) return;
       _emitAutomodHeld(channel, event, 'held');
@@ -827,6 +871,36 @@ class EventSubService {
     );
   }
 
+  void _emitPointReward(
+    String channel,
+    Map<String, dynamic> event,
+    String kind,
+  ) {
+    // add/update/remove carry the reward object, sometimes nested.
+    final rewardObj = event['reward'] as Map<String, dynamic>? ?? event;
+    _pointRewardController.add(
+      PointRewardEvent(
+        channel: channel,
+        kind: kind,
+        reward: PointReward.fromJson(rewardObj),
+      ),
+    );
+  }
+
+  void _emitPointRedemption(
+    String channel,
+    Map<String, dynamic> event,
+    bool added,
+  ) {
+    _pointRedemptionController.add(
+      PointRedemptionEvent(
+        channel: channel,
+        kind: added ? 'add' : 'update',
+        redemption: PointRedemption.fromJson(event),
+      ),
+    );
+  }
+
   void _emitModeration(String? channel, Map<String, dynamic> event) {
     if (channel == null) return;
 
@@ -997,6 +1071,8 @@ class EventSubService {
     _automodTermsController.close();
     _automodSettingsController.close();
     _suspiciousUserController.close();
+    _pointRewardController.close();
+    _pointRedemptionController.close();
     _statusController.close();
   }
 }

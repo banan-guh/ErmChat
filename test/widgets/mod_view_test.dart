@@ -81,10 +81,56 @@ Future<http.Response> _handler(http.Request request) async {
       (path.endsWith('/polls') || path.endsWith('/predictions'))) {
     return http.Response('{"data":[],"pagination":{}}', 200);
   }
+  if (request.method == 'GET' &&
+      path.endsWith('channel_points/custom_rewards')) {
+    final paused = pausedRewards.contains('reward1');
+    return http.Response(
+      '{"data":[{"id":"reward1","title":"Hydrate","cost":500,"is_enabled":true,"is_paused":$paused}],"pagination":{}}',
+      200,
+    );
+  }
+  if (request.method == 'PATCH' &&
+      path.endsWith('channel_points/custom_rewards')) {
+    try {
+      final body = jsonDecode(request.body) as Map<String, dynamic>;
+      if (body['is_paused'] == true) {
+        pausedRewards.add(request.url.queryParameters['id'] ?? 'reward1');
+      } else {
+        pausedRewards.remove(request.url.queryParameters['id']);
+      }
+    } catch (_) {
+      pausedRewards.add('reward1');
+    }
+    return http.Response(
+      '{"data":[{"id":"reward1","title":"Hydrate","cost":500,"is_enabled":true,"is_paused":true}]}',
+      200,
+    );
+  }
+  if (request.method == 'GET' && path.endsWith('custom_rewards/redemptions')) {
+    if (fulfilledRedemptions.contains('red1')) {
+      return http.Response('{"data":[],"pagination":{}}', 200);
+    }
+    return http.Response(
+      '{"data":[{"id":"red1","user_login":"fan","user_input":"do a flip","status":"UNFULFILLED","redeemed_at":"2026-01-02T03:04:05Z","reward":{"id":"reward1","title":"Hydrate","cost":500}}],"pagination":{}}',
+      200,
+    );
+  }
+  if (request.method == 'PATCH' &&
+      path.endsWith('custom_rewards/redemptions')) {
+    final id = request.url.queryParameters['id'];
+    if (id != null) fulfilledRedemptions.add(id);
+    return http.Response('{"data":[]}', 200);
+  }
   return http.Response('{"message":"unexpected $path"}', 404);
 }
 
 final recordedRequests = <http.Request>[];
+
+/// Redemption ids the mock treats as fulfilled (drops from the queue).
+final fulfilledRedemptions = <String>{};
+
+/// Reward ids the mock treats as paused.
+final pausedRewards = <String>{};
 
 class _Harness extends StatelessWidget {
   const _Harness({
@@ -186,6 +232,13 @@ void main() {
 
     String? shownUser;
     recordedRequests.clear();
+    fulfilledRedemptions.clear();
+    pausedRewards.clear();
+    // The Channel tab is taller than the default 600px viewport; a tall
+    // surface keeps every sliver built so no scrolling is needed.
+    tester.view.physicalSize = const Size(800, 2400);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
     final tab = TabController(length: 8, vsync: const TestVSync());
     addTearDown(tab.dispose);
     await tester.pumpWidget(
@@ -286,10 +339,26 @@ void main() {
     expect(find.text('rosmod'), findsOneWidget);
     expect(find.text('No active poll. Create one with /poll.'), findsOneWidget);
     expect(
-      find.text('No active poll. Create one with /poll.'),
+      find.text('No open prediction. Create one with /prediction.'),
       findsOneWidget,
     );
-    // Sections load concurrently; one more settle for stragglers.
+
+    // Points section loads rewards; selecting one loads its queue.
+    expect(find.text('Hydrate'), findsOneWidget);
+    await tester.tap(find.text('Hydrate'));
     await tester.pumpAndSettle();
+    expect(find.text('fan'), findsOneWidget);
+
+    // Fulfill drops the redemption row.
+    await tester.tap(find.byIcon(Icons.check));
+    await tester.pumpAndSettle();
+    await tester.pumpAndSettle();
+    expect(find.text('fan'), findsNothing);
+
+    // Pause toggles the reward status.
+    await tester.tap(find.byIcon(Icons.pause));
+    await tester.pumpAndSettle();
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Paused'), findsOneWidget);
   });
 }

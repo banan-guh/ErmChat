@@ -100,6 +100,12 @@ class ChatChannelSetup {
   // message/update): drives the Setup tab and the flagged-user context.
   final _trustChannels = <String>{};
   final _trustSkippedChannels = <String>{};
+  // Same pair for points (custom reward add/update/remove, redemption
+  // add/update): drives the Channel tab queue. Broadcaster-only and isolated
+  // from the widget subs: a non-monetized channel fails these without
+  // affecting hype train/poll/prediction.
+  final _pointsChannels = <String>{};
+  final _pointsSkippedChannels = <String>{};
   // Channels with an active hype train / poll / prediction widget subscription
   // (broadcaster-only; see _subscribeWidgets). Same lifecycle as
   // _moderationChannels: cleared when the EventSub session dies.
@@ -155,6 +161,9 @@ class ChatChannelSetup {
   /// Whether the trust subscriptions are active for a channel.
   bool isTrustActive(String channel) => _trustChannels.contains(channel);
 
+  /// Whether the points subscriptions are active for a channel.
+  bool isPointsActive(String channel) => _pointsChannels.contains(channel);
+
   /// Whether the broadcaster-only widget subscriptions are active for a
   /// channel; while they are, EventSub hype train/poll/prediction events are
   /// surfaced instead of being dropped as unsolicited.
@@ -188,6 +197,7 @@ class ChatChannelSetup {
     _feedChannels.clear();
     _inboxChannels.clear();
     _trustChannels.clear();
+    _pointsChannels.clear();
     _widgetChannels.clear();
   }
 
@@ -200,6 +210,7 @@ class ChatChannelSetup {
     _feedSkippedChannels.clear();
     _inboxSkippedChannels.clear();
     _trustSkippedChannels.clear();
+    _pointsSkippedChannels.clear();
     _widgetSkippedChannels.clear();
   }
 
@@ -211,6 +222,7 @@ class ChatChannelSetup {
     _feedChannels.remove(channel);
     _inboxChannels.remove(channel);
     _trustChannels.remove(channel);
+    _pointsChannels.remove(channel);
     _widgetChannels.remove(channel);
   }
 
@@ -398,6 +410,9 @@ class ChatChannelSetup {
         }
         if (!_trustChannels.contains(channelName)) {
           unawaited(_subscribeTrust(channelName, channelUserId));
+        }
+        if (!_pointsChannels.contains(channelName)) {
+          unawaited(_subscribePoints(channelName, channelUserId));
         }
         unawaited(_subscribeWidgets(channelName, channelUserId));
       }
@@ -717,6 +732,68 @@ class ChatChannelSetup {
     }
   }
 
+  // Points: custom reward and redemption events for the Channel tab
+  // queue. Broadcaster-only (like _subscribeWidgets) with its own skip set
+  // so a non-monetized channel fails here without touching the widgets.
+  // Automatic-reward redemptions are skipped: they need no mod action.
+  Future<void> _subscribePoints(
+    String channelName,
+    String channelUserId,
+  ) async {
+    try {
+      final auth = twitchAuth;
+      if (!auth.isConfigured || store.session.userId == null) return;
+      if (store.session.userId != channelUserId) return;
+      if (_pointsSkippedChannels.contains(channelName)) return;
+      for (int attempt = 0; attempt < 3; attempt++) {
+        final sessionId = eventSub.sessionId;
+        if (sessionId == null) {
+          await Future.delayed(const Duration(seconds: 1));
+          continue;
+        }
+        if (attempt > 0) await Future.delayed(const Duration(seconds: 1));
+        const types = [
+          ('channel.channel_points_custom_reward.add', '1'),
+          ('channel.channel_points_custom_reward.update', '1'),
+          ('channel.channel_points_custom_reward.remove', '1'),
+          ('channel.channel_points_custom_reward_redemption.add', '1'),
+          ('channel.channel_points_custom_reward_redemption.update', '1'),
+        ];
+        var subscribed = 0;
+        for (final (type, version) in types) {
+          // A 403 on one dooms the rest; skip the doomed calls.
+          if (_pointsSkippedChannels.contains(channelName)) break;
+          final ok = await twitchApi.createEventSubSubscription(
+            auth: auth,
+            sessionId: sessionId,
+            type: type,
+            version: version,
+            condition: {'broadcaster_user_id': channelUserId},
+          );
+          if (ok) {
+            subscribed++;
+            continue;
+          }
+          if (twitchApi.lastErrorStatus == 403) {
+            _pointsSkippedChannels.add(channelName);
+          } else {
+            logDebug(
+              '[ChatConn] $type subscription failed for $channelName (${twitchApi.lastError ?? "unknown"})',
+            );
+          }
+        }
+        if (subscribed > 0) {
+          _pointsChannels.add(channelName);
+          // Same wake-up as moderation subs (see _subscribeModeration).
+          store.touchChannel(channelName);
+        }
+        return;
+      }
+    } catch (_) {
+      logDebug('[ChatConn] subscribePoints failed for $channelName');
+    }
+  }
+
   // Hype train / poll / prediction widgets are broadcaster-only: the EventSub
   // subscription types require channel:read:hype_train/polls/predictions, which
   // Twitch only issues to the channel owner. Skip every other channel up front
@@ -806,6 +883,9 @@ class ChatChannelSetup {
       }
       if (!_trustChannels.contains(channel)) {
         unawaited(_subscribeTrust(channel, channelUserId));
+      }
+      if (!_pointsChannels.contains(channel)) {
+        unawaited(_subscribePoints(channel, channelUserId));
       }
       if (uid == channelUserId && !_widgetChannels.contains(channel)) {
         unawaited(_subscribeWidgets(channel, channelUserId));

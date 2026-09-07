@@ -1,3 +1,4 @@
+import '../models/point_rewards.dart';
 import '../services/twitch_api.dart';
 import '../services/twitch_auth.dart';
 import '../util/log.dart';
@@ -360,6 +361,74 @@ class ModActions {
         broadcasterId: ids.broadcasterId,
         moderatorId: ids.moderatorId,
         userId: t.userId!,
+      ),
+    );
+  }
+
+  /// Point rewards; empty on failure (check `twitchApi.lastErrorStatus`).
+  /// Broadcaster token only.
+  Future<List<PointReward>> getPointRewards(TwitchAuth auth, String channel) {
+    final broadcasterId = getChannelUserIds()[channel];
+    if (broadcasterId == null) return Future.value(const []);
+    return twitchApi.getCustomRewards(auth, broadcasterId: broadcasterId);
+  }
+
+  /// UNFULFILLED redemptions for one reward; empty on failure (check
+  /// lastErrorStatus). Rewards from other client ids 403 here.
+  Future<List<PointRedemption>> getPointRedemptions(
+    TwitchAuth auth,
+    String channel,
+    String rewardId,
+  ) {
+    final broadcasterId = getChannelUserIds()[channel];
+    if (broadcasterId == null) return Future.value(const []);
+    return twitchApi.getRedemptions(
+      auth,
+      broadcasterId: broadcasterId,
+      rewardId: rewardId,
+    );
+  }
+
+  Future<ModResult> setRewardPaused(
+    TwitchAuth auth,
+    String channel,
+    String rewardId,
+    bool paused,
+  ) async {
+    final broadcasterId = getChannelUserIds()[channel];
+    if (broadcasterId == null) {
+      return const ModResult.fail(ModFailure.notJoined);
+    }
+    return _run(
+      paused ? 'pause reward' : 'resume reward',
+      () => twitchApi.setRewardPaused(
+        auth,
+        broadcasterId: broadcasterId,
+        rewardId: rewardId,
+        paused: paused,
+      ),
+    );
+  }
+
+  Future<ModResult> resolveRedemption(
+    TwitchAuth auth,
+    String channel,
+    String rewardId,
+    String redemptionId,
+    bool fulfilled,
+  ) async {
+    final broadcasterId = getChannelUserIds()[channel];
+    if (broadcasterId == null) {
+      return const ModResult.fail(ModFailure.notJoined);
+    }
+    return _run(
+      fulfilled ? 'fulfill redemption' : 'refund redemption',
+      () => twitchApi.updateRedemptionStatus(
+        auth,
+        broadcasterId: broadcasterId,
+        rewardId: rewardId,
+        redemptionId: redemptionId,
+        fulfilled: fulfilled,
       ),
     );
   }

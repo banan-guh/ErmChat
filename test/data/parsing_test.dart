@@ -2198,6 +2198,62 @@ void main() {
       expect(events[0].status, 'monitored');
       expect(events[0].moderatorName, 'moduser');
     });
+
+    test('points reward add carries the reward', () async {
+      final events = <PointRewardEvent>[];
+      service.onPointReward.listen(events.add);
+      service.handleRawMessage(
+        topic('channel.channel_points_custom_reward.add', {
+          'id': 'reward1',
+          'title': 'Hydrate',
+          'cost': 500,
+          'is_enabled': true,
+          'is_paused': false,
+        }),
+      );
+      expect(events, hasLength(1));
+      expect(events[0].kind, 'add');
+      expect(events[0].reward.id, 'reward1');
+      expect(events[0].reward.title, 'Hydrate');
+      expect(events[0].reward.cost, 500);
+    });
+
+    test('points redemption add carries user and input', () async {
+      final events = <PointRedemptionEvent>[];
+      service.onPointRedemption.listen(events.add);
+      service.handleRawMessage(
+        topic('channel.channel_points_custom_reward_redemption.add', {
+          'id': 'red1',
+          'user_login': 'fan',
+          'user_input': 'do a flip',
+          'status': 'UNFULFILLED',
+          'redeemed_at': '2026-01-02T03:04:05Z',
+          'reward': {'id': 'reward1', 'title': 'Hydrate', 'cost': 500},
+        }),
+      );
+      expect(events, hasLength(1));
+      expect(events[0].kind, 'add');
+      expect(events[0].redemption.userLogin, 'fan');
+      expect(events[0].redemption.userInput, 'do a flip');
+      expect(events[0].redemption.rewardId, 'reward1');
+    });
+
+    test('points redemption update resolves by id', () async {
+      final events = <PointRedemptionEvent>[];
+      service.onPointRedemption.listen(events.add);
+      service.handleRawMessage(
+        topic('channel.channel_points_custom_reward_redemption.update', {
+          'id': 'red1',
+          'user_login': 'fan',
+          'status': 'FULFILLED',
+          'reward': {'id': 'reward1', 'title': 'Hydrate', 'cost': 500},
+        }),
+      );
+      expect(events, hasLength(1));
+      expect(events[0].kind, 'update');
+      expect(events[0].redemption.id, 'red1');
+      expect(events[0].redemption.status, 'FULFILLED');
+    });
   });
 
   group('notification (automod.message.hold/update)', () {
