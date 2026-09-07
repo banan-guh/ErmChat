@@ -4945,6 +4945,32 @@ void main() {
       expect(manager.byCodeForSender('ch', 'sender-0'), isNull);
     });
 
+    test('re-granted sets survive cap eviction first', () async {
+      SharedPreferences.setMockInitialValues({});
+      final manager = socketManager(
+        sets: {
+          for (var i = 0; i <= 50; i++) 'set-$i': [personal('p$i', 'Code$i')],
+        },
+      );
+      for (var i = 0; i < 50; i++) {
+        await manager.trackForeignPersonalGrant(['sender-$i'], 'set-$i');
+      }
+      // Touching set-0 moves it to the back; set-50 evicts set-1 instead.
+      await manager.trackForeignPersonalGrant(['sender-0'], 'set-0');
+      await manager.trackForeignPersonalGrant(['sender-50'], 'set-50');
+
+      expect(manager.foreignPersonalSetCountForTesting(), 50);
+      expect(
+        manager.byCodeForSender('ch', 'sender-0')!.byCode.keys,
+        contains('Code0'),
+      );
+      expect(
+        manager.byCodeForSender('ch', 'sender-50')!.byCode.keys,
+        contains('Code50'),
+      );
+      expect(manager.byCodeForSender('ch', 'sender-1'), isNull);
+    });
+
     test('viewer grants never leak into foreign maps', () async {
       SharedPreferences.setMockInitialValues({});
       final manager = socketManager(

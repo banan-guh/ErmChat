@@ -624,12 +624,17 @@ class ChatStore {
     if (isNewEntry) _enforceThreadCap(channel, threads);
   }
 
-  // Keeps the per-channel thread map bounded: oldest-touched non-saved
-  // entries fall off first. Saved threads never count toward the cap.
+  // Keeps the per-channel thread map bounded: oldest-touched non-saved,
+  // non-held entries fall off first. Saved and on-screen threads never
+  // count toward the cap.
   void _enforceThreadCap(String channel, Map<String, ThreadEntry> threads) {
     while (true) {
       final unsaved = threads.entries
-          .where((e) => !savedThreadKeys.contains('$channel:${e.key}'))
+          .where(
+            (e) =>
+                !savedThreadKeys.contains('$channel:${e.key}') &&
+                !_isThreadHeld(channel, e.key, threads),
+          )
           .toList();
       if (unsaved.length <= _maxTrackedThreadsPerChannel) break;
       unsaved.sort(
@@ -682,29 +687,40 @@ class ChatStore {
     return out;
   }
 
+  /// Whether the on-screen thread hold covers [rootId]'s entry: the key,
+  /// root, or any reply carries a pin.
+  bool _isThreadHeld(
+    String channel,
+    String rootId,
+    Map<String, ThreadEntry> threads,
+  ) {
+    if (pinnedThreadKeys.contains('$channel:$rootId')) return true;
+    final entry = threads[rootId];
+    if (entry == null) return false;
+    if (entry.root?.messageId != null &&
+        pinnedThreadKeys.contains('$channel:${entry.root!.messageId}')) {
+      return true;
+    }
+    return entry.replies.any(
+      (r) =>
+          r.messageId != null &&
+          pinnedThreadKeys.contains('$channel:${r.messageId}'),
+    );
+  }
+
   /// Decays evicted messages out of the thread map: replies that left the
-  /// channel buffer drop from their entry. Saved threads never decay, and
-  /// entries whose replies all decayed are reaped so they stop occupying a
-  /// cap slot. Pinned roots of unsaved threads survive for the single-thread
-  /// view but hide from the dashboard (see [activeThreads]).
+  /// channel buffer drop from their entry. Saved and held threads never
+  /// decay, and entries whose replies all decayed are reaped so they stop
+  /// occupying a cap slot. Pinned roots of unsaved threads survive for the
+  /// single-thread view but hide from the dashboard (see [activeThreads]).
   void decayEvicted(String channel, Iterable<TwitchMessage> evicted) {
     final threads = _channelThreads[channel];
     if (threads == null || threads.isEmpty) return;
     final heldRoots = <String, bool>{};
-    bool held(String rootId) => heldRoots.putIfAbsent(rootId, () {
-      if (pinnedThreadKeys.contains('$channel:$rootId')) return true;
-      final entry = threads[rootId];
-      if (entry == null) return false;
-      if (entry.root?.messageId != null &&
-          pinnedThreadKeys.contains('$channel:${entry.root!.messageId}')) {
-        return true;
-      }
-      return entry.replies.any(
-        (r) =>
-            r.messageId != null &&
-            pinnedThreadKeys.contains('$channel:${r.messageId}'),
-      );
-    });
+    bool held(String rootId) => heldRoots.putIfAbsent(
+      rootId,
+      () => _isThreadHeld(channel, rootId, threads),
+    );
     for (final msg in evicted) {
       final id = msg.messageId;
       if (id == null) continue;

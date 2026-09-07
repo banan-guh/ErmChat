@@ -557,6 +557,36 @@ void main() {
       expect(ids, isNot(contains('r1')));
       expect(store.threadFor('test', 'r1')!.first.messageId, 'r1');
     });
+
+    test('pinned open thread survives the thread map cap', () {
+      final store = tickingStore(DateTime(2026, 1, 1));
+      expect(store.ingestMessage(root('r0'), maxMessages: 10000), isTrue);
+      expect(
+        store.ingestMessage(reply('c0', 'r0'), maxMessages: 10000),
+        isTrue,
+      );
+      expect(
+        store.ingestMessage(reply('d0', 'r0'), maxMessages: 10000),
+        isTrue,
+      );
+      store.pinThread('test', 'r0');
+      for (var i = 1; i <= 65; i++) {
+        expect(store.ingestMessage(root('r$i'), maxMessages: 10000), isTrue);
+        expect(
+          store.ingestMessage(reply('c$i', 'r$i'), maxMessages: 10000),
+          isTrue,
+        );
+        expect(
+          store.ingestMessage(reply('d$i', 'r$i'), maxMessages: 10000),
+          isTrue,
+        );
+      }
+      // 66 threads, 65 unheld over the 64 cap: the pinned oldest survives
+      // outside the cap (like saved threads) and r1 falls off.
+      expect(store.threadFor('test', 'r0'), isNotNull);
+      expect(store.activeThreads('test').map((t) => t.rootId), contains('r0'));
+      expect(store.threadFor('test', 'r1'), isNull);
+    });
   });
 
   group('ChatStore.recentMessagesFromUser', () {

@@ -435,6 +435,8 @@ class EmoteManager extends ChangeNotifier {
   final _foreignPersonalSetInflight = <String, Future<void>>{};
   final _foreignPersonalSets = <String, ChannelEmotes>{};
   // Unmapped sets render for nobody; bound the contents map.
+  // Eviction is least-recently-touched first (insertion order doubles as
+  // recency: touches reinsert). Render lookups never touch; too hot.
   static const _maxForeignPersonalSets = 50;
   final _mergedCache = <String, ChannelEmotes?>{};
   String? _changedChannel;
@@ -819,6 +821,7 @@ class EmoteManager extends ChangeNotifier {
       }
       _foreignPersonalSetOwners.putIfAbsent(setId, () => {}).add(userId);
     }
+    _touchForeignPersonalSet(setId);
     if (_foreignPersonalSetContents.containsKey(setId)) {
       if (mappingChanged) {
         _rebuildForeignPersonalUsers(setId);
@@ -858,6 +861,15 @@ class EmoteManager extends ChangeNotifier {
       _notify();
       unawaited(_savePersonalSets());
     }
+  }
+
+  // Marks a live set recently used. Placeholders stay put; only live sets
+  // move, so untouched empties are evicted first.
+  void _touchForeignPersonalSet(String setId) {
+    final contents = _foreignPersonalSetContents[setId];
+    if (contents == null || contents.isEmpty) return;
+    _foreignPersonalSetContents.remove(setId);
+    _foreignPersonalSetContents[setId] = contents;
   }
 
   // Drops a set nobody references (revoked or over the cap).
@@ -932,6 +944,7 @@ class EmoteManager extends ChangeNotifier {
       changed = true;
     }
     if (!changed) return;
+    _touchForeignPersonalSet(setId);
     _rebuildForeignPersonalUsers(setId);
     _notify();
     unawaited(_savePersonalSets());
@@ -953,6 +966,7 @@ class EmoteManager extends ChangeNotifier {
         return;
       }
       if (fetched.isEmpty) return;
+      _foreignPersonalSetContents.remove(setId);
       _foreignPersonalSetContents[setId] = fetched;
       while (_foreignPersonalSetContents.length > _maxForeignPersonalSets) {
         _evictForeignPersonalSet(_foreignPersonalSetContents.keys.first);
