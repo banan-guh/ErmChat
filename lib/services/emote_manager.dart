@@ -2061,7 +2061,6 @@ class EmoteManager extends ChangeNotifier {
       // Hydrate stashes from persisted cache.
       _hydrateStashesFromCache(cached, channel: channel);
       _reapplyLiveSevenTv(channel);
-      _channelFetchTimes[channel] = DateTime.now();
       _notify(channel: channel);
       if (loaded.fresh || _registryFrozen || _tier == EmoteFetchTier.nothing) {
         // Fresh: render, background-refresh Twitch channel emotes.

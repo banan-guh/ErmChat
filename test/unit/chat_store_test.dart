@@ -716,4 +716,50 @@ void main() {
       expect(store.heldMessages.containsKey('other'), isFalse);
     });
   });
+
+  group('ChatStore.truncate coalescing', () {
+    ChatStore tickingStore(DateTime start) {
+      var t = start;
+      return ChatStore(
+        channels: ['a', 'b'],
+        channelMessages: {},
+        messageKeys: {},
+        chatStatus: {},
+        channelsWithUnread: {},
+        channelsWithUnreadMentions: {},
+        unreadMentionsPerChannel: {},
+        historyLoaded: {},
+        channelsEmotesResolved: {},
+        channelUserIds: {},
+        lastSentWireText: {},
+        now: () => t = t.add(const Duration(seconds: 1)),
+      );
+    }
+
+    TwitchMessage filler(String id, String channel) => TwitchMessage(
+      login: 'z',
+      text: 'filler $id',
+      messageId: id,
+      channel: channel,
+    );
+
+    test('coalesce window is per channel', () {
+      final store = tickingStore(DateTime(2026, 1, 1));
+      store.channelMessages['a'] = [
+        for (var i = 0; i < 10; i++) filler('a$i', 'a'),
+      ];
+      store.channelMessages['b'] = [
+        for (var i = 0; i < 10; i++) filler('b$i', 'b'),
+      ];
+      store.truncateWithCoalesce('a', maxMessages: 5);
+      expect(store.channelMessages['a']!.length, lessThanOrEqualTo(10));
+      // Same tick: b still gets its own pass instead of sharing a's timer.
+      store.truncateWithCoalesce('b', maxMessages: 5);
+      expect(store.channelMessages['b']!.length, lessThanOrEqualTo(10));
+      // Immediate repeat on a is coalesced away.
+      final len = store.channelMessages['a']!.length;
+      store.truncateWithCoalesce('a', maxMessages: 5);
+      expect(store.channelMessages['a']!.length, len);
+    });
+  });
 }

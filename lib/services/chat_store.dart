@@ -812,7 +812,7 @@ class ChatStore {
 
   // ---- Truncation ---------------------------------------------------------
 
-  DateTime? _lastTruncateAt;
+  final Map<String, DateTime> _lastTruncateAt = {};
   static const _truncateHardCapFactor = 2;
 
   /// Thread-aware buffer pruning: keeps complete reply threads intact even
@@ -822,7 +822,7 @@ class ChatStore {
     if (maxMessages <= 0) return;
     final msgs = channelMessages[channel];
     if (msgs == null || msgs.length <= maxMessages) return;
-    _lastTruncateAt = now();
+    _lastTruncateAt[channel] = now();
 
     // Phase 1: group messages by thread identity.
     final parentOf = <String, String>{};
@@ -970,16 +970,15 @@ class ChatStore {
     if (msgs == null || msgs.length <= maxMessages) return;
 
     final t = now();
-    final sinceLast = _lastTruncateAt == null
-        ? null
-        : t.difference(_lastTruncateAt!);
+    final last = _lastTruncateAt[channel];
+    final sinceLast = last == null ? null : t.difference(last);
     final overHardCap = msgs.length > maxMessages * _truncateHardCapFactor;
     if (sinceLast != null &&
         sinceLast < truncateCoalesceWindow &&
         !overHardCap) {
       return;
     }
-    _lastTruncateAt = t;
+    _lastTruncateAt[channel] = t;
     truncateChannel(channel, maxMessages: maxMessages);
   }
 }
