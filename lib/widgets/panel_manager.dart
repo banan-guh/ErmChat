@@ -26,7 +26,14 @@ class PanelManager {
 
   OverlayPanel activePanel = OverlayPanel.closed;
   bool emoteSheetOpen = false;
-  TwitchMessage? openThreadRoot;
+  TwitchMessage? _openThreadRoot;
+  TwitchMessage? get openThreadRoot => _openThreadRoot;
+  set openThreadRoot(TwitchMessage? root) {
+    _openThreadRoot = root;
+    onOpenThreadChanged?.call();
+  }
+
+  VoidCallback? onOpenThreadChanged;
   List<TwitchMessage> threadMessages = [];
   String? threadChannel;
 

@@ -49,7 +49,9 @@ class ThreadPanels {
     required this.userSheets,
     required this.menus,
     required this.host,
-  });
+  }) {
+    panelManager.onOpenThreadChanged = syncPinnedThread;
+  }
 
   final PanelManager panelManager;
   final ChatStore chatStore;
@@ -86,6 +88,16 @@ class ThreadPanels {
   // Clear the open thread without touching the panel (channel switches,
   // mentions/mod opens).
   void clearOpenThread() => panelManager.openThreadRoot = null;
+
+  // Holds the on-screen thread in the store; releases when none is open.
+  // Follows every openThreadRoot assignment via PanelManager.
+  void syncPinnedThread() {
+    chatStore.pinnedThreadKeys.clear();
+    final root = panelManager.openThreadRoot;
+    final channel = root?.channel;
+    final id = root == null ? null : (root.replyThreadRootId ?? root.messageId);
+    if (channel != null && id != null) chatStore.pinThread(channel, id);
+  }
 
   // Drop thread state pointing at a departed channel so the Thread tab
   // never renders one that is no longer joined. Saved bookmarks are
