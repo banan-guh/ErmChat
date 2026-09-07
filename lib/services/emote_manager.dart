@@ -1288,6 +1288,10 @@ class EmoteManager extends ChangeNotifier {
   }
 
   // Splits merged cache into per-provider stashes for toggle rebuilds.
+  // Never appends to a populated stash: the stash always holds same-or-newer
+  // data than disk (fetches write it directly), so a cache hit only fills
+  // providers a failed fetch left empty. Appending here duplicated the whole
+  // catalogue on every resolve.
   void _hydrateStashesFromCache(ChannelEmotes cache, {String? channel}) {
     final grouped = <String, List<GenericEmote>>{};
     for (final e in cache.suggestions) {
@@ -1295,15 +1299,15 @@ class EmoteManager extends ChangeNotifier {
     }
     if (channel == null) {
       for (final entry in grouped.entries) {
-        final existing = _globalProviderEmotes[entry.key];
-        _globalProviderEmotes[entry.key] = [...?existing, ...entry.value];
+        if (_globalProviderEmotes[entry.key]?.isNotEmpty ?? false) continue;
+        _globalProviderEmotes[entry.key] = entry.value;
       }
     } else {
       final map = _channelProviderEmotes[channel] ??=
           <String, List<GenericEmote>>{};
       for (final entry in grouped.entries) {
-        final existing = map[entry.key];
-        map[entry.key] = [...?existing, ...entry.value];
+        if (map[entry.key]?.isNotEmpty ?? false) continue;
+        map[entry.key] = entry.value;
       }
     }
   }
@@ -2400,6 +2404,12 @@ class EmoteManager extends ChangeNotifier {
 
   @visibleForTesting
   Future<void> flushUsageForTesting() => _flushUsage();
+
+  @visibleForTesting
+  int stashSizeForTesting({String? channel, required EmoteType type}) {
+    if (channel == null) return _globalProviderEmotes[type.name]?.length ?? 0;
+    return _channelProviderEmotes[channel]?[type.name]?.length ?? 0;
+  }
 
   /// Sync gate for fetch lambdas; callers must have awaited
   /// [_ensureProvidersLoaded] first.

@@ -2094,6 +2094,44 @@ void main() {
       expect(reloaded.byCode('ch')!.suggestions.map((e) => e.code), ['Alpha']);
     });
 
+    test(
+      'repeat channel resolves never duplicate the provider stash',
+      () async {
+        SharedPreferences.setMockInitialValues({});
+        await EmoteMetaStore.I.write(
+          'emotes3_ch',
+          jsonEncode({
+            'ts': DateTime.now().toIso8601String(),
+            'tier': EmoteFetchTier.low.index,
+            'emotes': [sevenTvOf('a', 'Alpha').toJson()],
+          }),
+        );
+        var fetches = 0;
+        final manager = EmoteManager(
+          fetchStagger: Duration.zero,
+          tier: EmoteFetchTier.low,
+          removeCachedFile: (url) async {},
+          sevenTvChannelFetcher: (id, resolution) async {
+            fetches++;
+            return SevenTvChannelResponse(emotes: [sevenTvOf('a', 'Alpha')]);
+          },
+        );
+
+        await manager.resolveEmotes('ch', 'b1');
+        await pumpEventQueue();
+        await manager.resolveEmotes('ch', 'b1');
+        await pumpEventQueue();
+
+        expect(fetches, 0, reason: 'low tier resolves from disk cache');
+        expect(
+          manager.stashSizeForTesting(channel: 'ch', type: EmoteType.sevenTv),
+          1,
+          reason: 'second resolve must not append the catalogue again',
+        );
+        expect(manager.byCode('ch')!.suggestions.map((e) => e.code), ['Alpha']);
+      },
+    );
+
     test('pruneStaleChannels drops dead channels and keeps global', () async {
       SharedPreferences.setMockInitialValues({});
       final store = EmoteMetaStore.I;
