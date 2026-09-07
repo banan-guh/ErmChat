@@ -1270,18 +1270,26 @@ class ChatConnectionManager {
         // Sub/resub with a user message render like announcements: the notice
         // stays the label and the user's text becomes a child chat message so
         // emotes and badges render. The IRC `emotes` tag positions are
-        // relative to that body text, so they pass through as-is.
+        // relative to the untrimmed body, so shift them by trimmed leading
+        // whitespace and drop any that fall out of range.
         if ((event.msgId == 'sub' || event.msgId == 'resub') &&
             (event.text?.trim().isNotEmpty ?? false)) {
+          final raw = event.text!;
+          final body = raw.trim();
+          final shift = raw.length - raw.trimLeft().length;
           onMessage(
             TwitchMessage(
               login: event.login,
               displayName: event.displayName,
-              text: event.text!.trim(),
+              text: body,
               color: event.color,
               userId: event.userId,
               badges: event.badges,
-              emotePositions: event.emotePositions,
+              emotePositions: _shiftEmotePositions(
+                event.emotePositions,
+                shift,
+                body.length,
+              ),
               messageId: event.messageId,
               channel: event.channel,
               systemAccent: accent,
@@ -1316,8 +1324,10 @@ class ChatConnectionManager {
         accent: accent,
         messageId: userNoticeLabelId(event.messageId),
       );
-      final text = event.text?.trim();
-      if (text == null || text.isEmpty) return;
+      final rawText = event.text ?? '';
+      final text = rawText.trim();
+      if (text.isEmpty) return;
+      final shift = rawText.length - rawText.trimLeft().length;
       onMessage(
         TwitchMessage(
           login: event.login,
@@ -1326,7 +1336,11 @@ class ChatConnectionManager {
           color: event.color,
           userId: event.userId,
           badges: event.badges,
-          emotePositions: event.emotePositions,
+          emotePositions: _shiftEmotePositions(
+            event.emotePositions,
+            shift,
+            text.length,
+          ),
           messageId: event.messageId,
           channel: event.channel,
           systemAccent: accent,
@@ -1644,4 +1658,30 @@ class ChatConnectionManager {
           .catchError((_) => store.recordLoadFailure(channel, 'emotes')),
     );
   }
+}
+
+/// Shifts IRC `emotes` tag positions after trimming leading whitespace.
+/// Positions outside the trimmed body are dropped.
+List<EmotePosition>? _shiftEmotePositions(
+  List<EmotePosition>? positions,
+  int shift,
+  int textLength,
+) {
+  if (positions == null || positions.isEmpty) return positions;
+  if (shift <= 0) return positions;
+  final kept = <EmotePosition>[];
+  for (final p in positions) {
+    final start = p.startIndex - shift;
+    final end = p.endIndex - shift;
+    if (start < 0 || end > textLength || start >= end) continue;
+    kept.add(
+      EmotePosition(
+        emoteId: p.emoteId,
+        startIndex: start,
+        endIndex: end,
+        emoteCode: p.emoteCode,
+      ),
+    );
+  }
+  return kept;
 }
