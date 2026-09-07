@@ -320,6 +320,7 @@ class ChatStore {
     _channelThreads.remove(channel);
     messageKeys.removeWhere((k) => k.startsWith('$channel:'));
     savedThreadKeys.removeWhere((k) => k.startsWith('$channel:'));
+    pinnedThreadKeys.removeWhere((k) => k.startsWith('$channel:'));
     clearHeldMessages(channel);
   }
 
@@ -341,6 +342,7 @@ class ChatStore {
   // ---- Threads (derived state) -------------------------------------------
 
   static const _maxTrackedThreadsPerChannel = 64;
+  static const _maxPinnedThreadMembers = 20;
   final _channelThreads = <String, Map<String, ThreadEntry>>{};
 
   /// Saved threads (`$channel:$rootId`, channel lowercased) are exempt from
@@ -348,6 +350,19 @@ class ChatStore {
   /// every message in memory and on disk forever. HomeScreen syncs this set
   /// from SavedThreadsStore after each toggle/load.
   final Set<String> savedThreadKeys = {};
+
+  /// On-screen thread holds (`$channel:$messageId`): the open thread keeps
+  /// its rows and map entry until saved or closed. Set by the threads panel.
+  final Set<String> pinnedThreadKeys = {};
+
+  void pinThread(String channel, String messageId) {
+    pinnedThreadKeys.add('$channel:$messageId');
+  }
+
+  void unpinChannelThreads(String channel) {
+    pinnedThreadKeys.removeWhere((k) => k.startsWith('$channel:'));
+  }
+
   int _nextSystemMessageId = 0;
 
   /// Inserts a system message at the top of [channel]'s buffer, applying the
@@ -675,6 +690,21 @@ class ChatStore {
   void decayEvicted(String channel, Iterable<TwitchMessage> evicted) {
     final threads = _channelThreads[channel];
     if (threads == null || threads.isEmpty) return;
+    final heldRoots = <String, bool>{};
+    bool held(String rootId) => heldRoots.putIfAbsent(rootId, () {
+      if (pinnedThreadKeys.contains('$channel:$rootId')) return true;
+      final entry = threads[rootId];
+      if (entry == null) return false;
+      if (entry.root?.messageId != null &&
+          pinnedThreadKeys.contains('$channel:${entry.root!.messageId}')) {
+        return true;
+      }
+      return entry.replies.any(
+        (r) =>
+            r.messageId != null &&
+            pinnedThreadKeys.contains('$channel:${r.messageId}'),
+      );
+    });
     for (final msg in evicted) {
       final id = msg.messageId;
       if (id == null) continue;
@@ -682,6 +712,7 @@ class ChatStore {
       // Roots stay pinned; only reply membership decays.
       if (rootId == null || rootId == id) continue;
       if (savedThreadKeys.contains('$channel:$rootId')) continue;
+      if (held(rootId)) continue;
       final entry = threads[rootId];
       if (entry == null) continue;
       entry.replies.removeWhere((r) => identical(r, msg) || r.messageId == id);
@@ -808,11 +839,11 @@ class ChatStore {
       }
     }
 
-    // Phase 3: collect every message id belonging to an active thread.
-    final threadIds = <String>{};
+    // Phase 3: map every active thread member to its root.
+    final activeThreadRoot = <String, String>{};
     for (final key in activeThreadKeys) {
       for (final m in threadGroups[key]!) {
-        if (m.messageId != null) threadIds.add(m.messageId!);
+        if (m.messageId != null) activeThreadRoot[m.messageId!] = key;
       }
     }
 
@@ -828,23 +859,54 @@ class ChatStore {
       }
     }
 
-    // Phase 4: collect indices to keep. System markers share the
-    // maxMessages budget with chat; only thread-pinned rows stay exempt.
+    // The on-screen thread holds every member while open, whatever the cap.
+    final openIds = <String>{};
+    if (pinnedThreadKeys.isNotEmpty) {
+      for (final entry in threadGroups.entries) {
+        var holds = false;
+        for (final m in entry.value) {
+          if (m.messageId != null &&
+              pinnedThreadKeys.contains('$channel:${m.messageId}')) {
+            holds = true;
+            break;
+          }
+        }
+        if (holds) {
+          for (final m in entry.value) {
+            if (m.messageId != null) openIds.add(m.messageId!);
+          }
+        }
+      }
+    }
+
+    // Phase 4: collect indices to keep. Saved and on-screen threads stay
+    // whole; other active threads pin their newest members up to the cap.
     final keepIndices = <int>{};
     int kept = 0;
+    final activeKept = <String, int>{};
     for (int i = 0; i < msgs.length; i++) {
       final m = msgs[i];
-      final isSavedThread =
-          m.messageId != null && savedIds.contains(m.messageId!);
-      final isActiveThread =
-          m.messageId != null && threadIds.contains(m.messageId!);
-      if (isSavedThread || isActiveThread) {
+      if (m.messageId != null &&
+          (savedIds.contains(m.messageId!) || openIds.contains(m.messageId!))) {
         keepIndices.add(i);
-      } else if (m.isSystem) {
+        continue;
+      }
+      final rootKey = m.messageId == null
+          ? null
+          : activeThreadRoot[m.messageId!];
+      if (rootKey != null &&
+          (activeKept[rootKey] ?? 0) < _maxPinnedThreadMembers) {
+        activeKept[rootKey] = (activeKept[rootKey] ?? 0) + 1;
+        keepIndices.add(i);
+        continue;
+      }
+      final isActiveThread = rootKey != null;
+      if (m.isSystem) {
         if (kept < maxMessages) {
           keepIndices.add(i);
           kept++;
         }
+        continue;
       } else {
         final key = threadKeyFor(m, parentOf);
         final isOrphanThread =

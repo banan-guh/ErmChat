@@ -2267,11 +2267,10 @@ void main() {
   );
 
   group('thread stress', () {
-    test('deeply nested chain preserves whole thread', () {
-      // 200-message reply chain (r199 → r198 → ... → r0).
-      // Latest 100 are non-thread filler, but the chain's leaf (r0) is within
-      // the first 50 non-thread slots. The entire 200-message chain must be
-      // preserved alongside the 50 non-thread messages.
+    test('deeply nested chain pins 20 newest members', () {
+      // 200-message reply chain (r199 → r198 → ... → r0) plus 50 fillers.
+      // The active chain pins its 20 newest members; older members spend the
+      // budget newest-first. Total: 20 pinned + 100 budget.
       const limit = 100;
       const chainLen = 200;
       const fillerCount = 50;
@@ -2290,24 +2289,21 @@ void main() {
       conn.store.truncateChannel('test', maxMessages: limit);
 
       final remaining = msgs['test']!;
-      expect(remaining.length, chainLen + fillerCount);
+      expect(remaining.length, 20 + limit);
 
-      // All chain messages are present
-      for (var i = 0; i < chainLen; i++) {
-        expect(
-          remaining.any((m) => m.messageId == 'r$i'),
-          true,
-          reason: 'chain message r$i missing',
-        );
+      bool present(String id) => remaining.any((m) => m.messageId == id);
+      // Pinned: 20 newest chain members.
+      for (var i = 180; i < chainLen; i++) {
+        expect(present('r$i'), true, reason: 'pinned chain message r$i');
       }
-      // All filler messages are present
-      for (var i = 0; i < fillerCount; i++) {
-        expect(
-          remaining.any((m) => m.messageId == 'f$i'),
-          true,
-          reason: 'filler f$i missing',
-        );
+      // Budget: next 100 newest.
+      for (var i = 80; i < 180; i++) {
+        expect(present('r$i'), true, reason: 'budget chain message r$i');
       }
+      // Older chain members and fillers fall off.
+      expect(present('r79'), false);
+      expect(present('r0'), false);
+      expect(present('f0'), false);
     });
 
     test('many small threads with leaves in window all preserved', () {

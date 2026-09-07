@@ -495,6 +495,68 @@ void main() {
       expect(ids, contains('r0'));
       expect(ids.length, lessThanOrEqualTo(65));
     });
+
+    test('pinned open thread survives truncation and decay', () {
+      final store = tickingStore(DateTime(2026, 1, 1));
+      final r = root('r1'), a = reply('c1', 'r1'), b = reply('c2', 'r1');
+      TwitchMessage filler(String id) => TwitchMessage(
+        login: 'z',
+        text: 'filler $id',
+        messageId: id,
+        channel: 'test',
+      );
+      store.channelMessages['test'] = [
+        for (var i = 0; i < 10; i++) filler('n$i'),
+        b,
+        a,
+        r,
+        for (var i = 0; i < 10; i++) filler('o$i'),
+      ];
+      store.indexMessages('test', [r, a, b]);
+      store.pinThread('test', 'c1');
+      store.truncateChannel('test', maxMessages: 5);
+
+      final ids = store.channelMessages['test']!
+          .map((m) => m.messageId)
+          .toSet();
+      expect(ids, containsAll(['r1', 'c1', 'c2']));
+      // Decay holds while pinned, releases on unpin.
+      store.decayEvicted('test', [a, b]);
+      expect(store.activeThreads('test').map((t) => t.rootId), contains('r1'));
+      store.unpinChannelThreads('test');
+      store.decayEvicted('test', [a, b]);
+      expect(store.activeThreads('test'), isEmpty);
+    });
+
+    test('active threads pin at most 20 members', () {
+      final store = tickingStore(DateTime(2026, 1, 1));
+      final r = root('r1');
+      final replies = [for (var i = 1; i <= 25; i++) reply('c$i', 'r1')];
+      TwitchMessage filler(String id) => TwitchMessage(
+        login: 'z',
+        text: 'filler $id',
+        messageId: id,
+        channel: 'test',
+      );
+      store.channelMessages['test'] = [
+        replies.last,
+        for (var i = 0; i < 4; i++) filler('n$i'),
+        ...replies.reversed.skip(1),
+        r,
+        for (var i = 0; i < 10; i++) filler('o$i'),
+      ];
+      store.indexMessages('test', [r, ...replies]);
+      store.truncateChannel('test', maxMessages: 5);
+
+      final ids = store.channelMessages['test']!
+          .map((m) => m.messageId)
+          .toSet();
+      expect(ids, contains('c6'));
+      expect(ids, contains('c5'));
+      expect(ids, isNot(contains('c4')));
+      expect(ids, isNot(contains('r1')));
+      expect(store.threadFor('test', 'r1')!.first.messageId, 'r1');
+    });
   });
 
   group('ChatStore.recentMessagesFromUser', () {
