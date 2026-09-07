@@ -62,10 +62,17 @@ class TwitchAuth extends ChangeNotifier {
   String? userId;
   String? profileImageUrl;
   bool _activeExpired = false;
+  // Memory-only: set when validate shows the grant predates requiredScopes.
+  // Recomputed on every validation; never persisted.
+  bool _scopeStale = false;
 
   /// True when the token is confirmed dead (401 / IRC NOTICE). Cleared by
   /// [setCredentials] / [setUser].
   bool get isActiveExpired => _activeExpired;
+
+  /// True when the active grant lacks scopes added after login. The user
+  /// stays logged in; the account screen prompts a re-login instead.
+  bool get scopeStale => _scopeStale;
 
   /// All saved accounts. The active one is what [accessToken]/[login] expose.
   List<TwitchAccount> accounts = [];
@@ -228,6 +235,7 @@ class TwitchAuth extends ChangeNotifier {
     userId = null;
     profileImageUrl = null;
     _activeExpired = false;
+    _scopeStale = false;
     // Persist as pending until setUser resolves the account identity.
     _writeKey(_kPendingToken, accessToken);
     _writeKey(_kPendingRefresh, refreshToken ?? '');
@@ -281,6 +289,15 @@ class TwitchAuth extends ChangeNotifier {
     }
   }
 
+  /// Marks the active grant stale (predates requiredScopes). The verdict
+  /// belongs to the current token; cleared on credential/account change.
+  /// Memory-only; validation recomputes it.
+  void markScopeStale() {
+    if (_scopeStale) return;
+    _scopeStale = true;
+    notifyListeners();
+  }
+
   /// Marks the token expired. Persists in registry for the UI; cleared by
   /// [setCredentials] / [setUser].
   void markActiveExpired() {
@@ -311,6 +328,7 @@ class TwitchAuth extends ChangeNotifier {
     final account = _byLogin(login);
     if (account == null) return;
     _applyAccount(account);
+    _scopeStale = false;
     await _writeKey(_kActiveLogin, login);
     notifyListeners();
   }
@@ -324,6 +342,7 @@ class TwitchAuth extends ChangeNotifier {
     userId = null;
     profileImageUrl = null;
     _activeExpired = false;
+    _scopeStale = false;
     await _deleteKey(_kPendingToken);
     await _deleteKey(_kPendingRefresh);
     await _writeKey(_kActiveLogin, _kAnonymousLogin);

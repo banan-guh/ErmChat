@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../twitch_config.dart';
 import '../util/constants.dart';
+import '../models/point_rewards.dart';
 import 'twitch_auth.dart';
 
 /// Applies [httpTimeout] to every Helix call. A stalled request throws
@@ -20,6 +21,117 @@ class _TimeoutClient extends http.BaseClient {
 
   @override
   void close() => _inner.close();
+}
+
+/// One banned or timed-out user from the broadcaster-only list.
+/// [expiresAt] is null for permanent bans.
+class BannedUser {
+  final String userLogin;
+  final String? expiresAt;
+  final String? reason;
+  final String? moderatorName;
+
+  const BannedUser({
+    required this.userLogin,
+    this.expiresAt,
+    this.reason,
+    this.moderatorName,
+  });
+
+  factory BannedUser.fromJson(Map<String, dynamic> json) {
+    final expires = json['expires_at'] as String?;
+    final reason = json['reason'] as String?;
+    return BannedUser(
+      userLogin: json['user_login'] as String? ?? '',
+      expiresAt: (expires == null || expires.isEmpty) ? null : expires,
+      reason: (reason == null || reason.isEmpty) ? null : reason,
+      moderatorName: json['moderator_name'] as String?,
+    );
+  }
+}
+
+/// One unban request in a channel's inbox.
+class UnbanRequest {
+  final String id;
+  final String userLogin;
+  final String text;
+  final String status;
+  final String createdAt;
+  final String? resolutionText;
+  final String? moderatorName;
+
+  const UnbanRequest({
+    required this.id,
+    required this.userLogin,
+    required this.text,
+    required this.status,
+    required this.createdAt,
+    this.resolutionText,
+    this.moderatorName,
+  });
+
+  factory UnbanRequest.fromJson(Map<String, dynamic> json) => UnbanRequest(
+    id: json['id'] as String? ?? '',
+    userLogin: json['user_login'] as String? ?? '',
+    text: json['text'] as String? ?? '',
+    status: json['status'] as String? ?? 'pending',
+    createdAt: json['created_at'] as String? ?? '',
+    resolutionText: json['resolution_text'] as String?,
+    moderatorName: json['moderator_name'] as String?,
+  );
+}
+
+/// One public blocked term. Private terms never come through Helix.
+class BlockedTerm {
+  final String id;
+  final String text;
+  final String createdAt;
+  final String? expiresAt;
+
+  const BlockedTerm({
+    required this.id,
+    required this.text,
+    required this.createdAt,
+    this.expiresAt,
+  });
+
+  factory BlockedTerm.fromJson(Map<String, dynamic> json) => BlockedTerm(
+    id: json['id'] as String? ?? '',
+    text: json['text'] as String? ?? '',
+    createdAt: json['created_at'] as String? ?? '',
+    expiresAt: json['expires_at'] as String?,
+  );
+}
+
+/// Broadcaster AutoMod settings. Levels are 0-4 per category; [overallLevel]/// is null when the broadcaster customized individual categories.
+class AutoModSettings {
+  static const List<String> categories = [
+    'disability',
+    'aggression',
+    'sexuality_sex_or_gender',
+    'misogyny',
+    'bullying',
+    'swearing',
+    'race_ethnicity_or_religion',
+    'sex_based_terms',
+  ];
+
+  final int? overallLevel;
+  final Map<String, int> levels;
+
+  const AutoModSettings({required this.overallLevel, required this.levels});
+
+  factory AutoModSettings.fromJson(Map<String, dynamic> json) {
+    final levels = <String, int>{};
+    for (final key in categories) {
+      final value = json[key];
+      if (value is int) levels[key] = value.clamp(0, 4);
+    }
+    return AutoModSettings(
+      overallLevel: json['overall_level'] as int?,
+      levels: levels,
+    );
+  }
 }
 
 class TwitchApi {
@@ -239,6 +351,33 @@ class TwitchApi {
     }
   }
 
+  /// Follow date (ISO 8601) of a user in a channel, or null when not
+  /// following or on failure. Needs moderator:read:followers.
+  Future<String?> getFollowDate(
+    TwitchAuth auth, {
+    required String broadcasterId,
+    required String userId,
+  }) async {
+    _clearError();
+    final uri = Uri.parse(
+      '$_base/channels/followers?broadcaster_id=$broadcasterId&user_id=$userId',
+    );
+    final res = await _client.get(uri, headers: _headers(auth));
+    if (res.statusCode != 200) {
+      _setError('getFollowDate', res);
+      return null;
+    }
+    try {
+      final data = jsonDecode(res.body) as Map;
+      final list = data['data'] as List;
+      if (list.isEmpty) return null;
+      return (list[0] as Map)['followed_at'] as String?;
+    } catch (e) {
+      _setError('getFollowDate: bad response');
+      return null;
+    }
+  }
+
   Future<bool> blockUser(TwitchAuth auth, String targetUserId) async {
     _clearError();
     final uri = Uri.parse('$_base/users/blocks?target_user_id=$targetUserId');
@@ -378,6 +517,386 @@ class TwitchApi {
     final res = await _client.delete(uri, headers: _headers(auth));
     if (res.statusCode == 204) return true;
     _setError('unbanUser', res);
+    return false;
+  }
+
+  /// Broadcaster-only banned/timeout list (broadcaster_id must match the
+  /// token). Paginated; empty on failure.
+  Future<List<BannedUser>> getBannedUsers(
+    TwitchAuth auth,
+    String broadcasterId,
+  ) async {
+    _clearError();
+    final out = <BannedUser>[];
+    String? cursor;
+    while (true) {
+      final query = <String, String>{
+        'broadcaster_id': broadcasterId,
+        'first': '100',
+      };
+      if (cursor != null) query['after'] = cursor;
+      final uri = Uri.parse(
+        '$_base/moderation/banned',
+      ).replace(queryParameters: query);
+      final res = await _client.get(uri, headers: _headers(auth));
+      if (res.statusCode != 200) {
+        _setError('getBannedUsers', res);
+        return out;
+      }
+      try {
+        final data = jsonDecode(res.body) as Map;
+        for (final item in data['data'] as List) {
+          out.add(BannedUser.fromJson(item as Map<String, dynamic>));
+        }
+        cursor = ((data['pagination'] as Map?)?['cursor']) as String?;
+      } catch (e) {
+        _setError('getBannedUsers: bad response');
+        return out;
+      }
+      if (cursor == null || cursor.isEmpty) return out;
+    }
+  }
+
+  /// Unban requests for a channel, newest first. Empty on failure. [status]
+  /// is pending/approved/denied/etc; null leaves the server default.
+  Future<List<UnbanRequest>> getUnbanRequests(
+    TwitchAuth auth, {
+    required String broadcasterId,
+    required String moderatorId,
+    String? status,
+  }) async {
+    _clearError();
+    final query = <String, String>{
+      'broadcaster_id': broadcasterId,
+      'moderator_id': moderatorId,
+    };
+    if (status != null && status.isNotEmpty) query['status'] = status;
+    final uri = Uri.parse(
+      '$_base/moderation/unban_requests',
+    ).replace(queryParameters: query);
+    final res = await _client.get(uri, headers: _headers(auth));
+    if (res.statusCode != 200) {
+      _setError('getUnbanRequests', res);
+      return const [];
+    }
+    try {
+      final data = jsonDecode(res.body) as Map;
+      return [
+        for (final item in data['data'] as List)
+          UnbanRequest.fromJson(item as Map<String, dynamic>),
+      ];
+    } catch (e) {
+      _setError('getUnbanRequests: bad response');
+      return const [];
+    }
+  }
+
+  /// Approves or denies one unban request. Resolution text is optional
+  /// (500 chars max). True on 200.
+  Future<bool> resolveUnbanRequest(
+    TwitchAuth auth, {
+    required String broadcasterId,
+    required String moderatorId,
+    required String requestId,
+    required bool approved,
+    String? resolutionText,
+  }) async {
+    _clearError();
+    final query = <String, String>{
+      'broadcaster_id': broadcasterId,
+      'moderator_id': moderatorId,
+      'unban_request_id': requestId,
+      'status': approved ? 'approved' : 'denied',
+    };
+    if (resolutionText != null && resolutionText.isNotEmpty) {
+      query['resolution_text'] = resolutionText;
+    }
+    final uri = Uri.parse(
+      '$_base/moderation/unban_requests',
+    ).replace(queryParameters: query);
+    final res = await _client.patch(uri, headers: _headers(auth));
+    if (res.statusCode == 200) return true;
+    _setError('resolveUnbanRequest', res);
+    return false;
+  }
+
+  /// Public blocked terms for a channel. Empty on failure. Private terms
+  /// are dashboard-only and never appear here.
+  Future<List<BlockedTerm>> getBlockedTerms(
+    TwitchAuth auth, {
+    required String broadcasterId,
+    required String moderatorId,
+  }) async {
+    _clearError();
+    final uri = Uri.parse(
+      '$_base/moderation/blocked_terms?broadcaster_id=$broadcasterId&moderator_id=$moderatorId',
+    );
+    final res = await _client.get(uri, headers: _headers(auth));
+    if (res.statusCode != 200) {
+      _setError('getBlockedTerms', res);
+      return const [];
+    }
+    try {
+      final data = jsonDecode(res.body) as Map;
+      return [
+        for (final item in data['data'] as List)
+          BlockedTerm.fromJson(item as Map<String, dynamic>),
+      ];
+    } catch (e) {
+      _setError('getBlockedTerms: bad response');
+      return const [];
+    }
+  }
+
+  /// Adds a public blocked term (2-500 chars, `*` wildcard at an edge).
+  /// Returns the created term, or null on failure.
+  Future<BlockedTerm?> addBlockedTerm(
+    TwitchAuth auth, {
+    required String broadcasterId,
+    required String moderatorId,
+    required String text,
+  }) async {
+    _clearError();
+    final uri = Uri.parse(
+      '$_base/moderation/blocked_terms?broadcaster_id=$broadcasterId&moderator_id=$moderatorId',
+    );
+    final res = await _client.post(
+      uri,
+      headers: _headers(auth),
+      body: jsonEncode({'text': text}),
+    );
+    if (res.statusCode != 200) {
+      _setError('addBlockedTerm', res);
+      return null;
+    }
+    try {
+      final data = jsonDecode(res.body) as Map;
+      final list = data['data'] as List;
+      if (list.isEmpty) return null;
+      return BlockedTerm.fromJson(list[0] as Map<String, dynamic>);
+    } catch (e) {
+      _setError('addBlockedTerm: bad response');
+      return null;
+    }
+  }
+
+  /// Removes a public blocked term by id. True on 204.
+  Future<bool> removeBlockedTerm(
+    TwitchAuth auth, {
+    required String broadcasterId,
+    required String moderatorId,
+    required String termId,
+  }) async {
+    _clearError();
+    final uri = Uri.parse(
+      '$_base/moderation/blocked_terms?broadcaster_id=$broadcasterId&moderator_id=$moderatorId&id=$termId',
+    );
+    final res = await _client.delete(uri, headers: _headers(auth));
+    if (res.statusCode == 204) return true;
+    _setError('removeBlockedTerm', res);
+    return false;
+  }
+
+  /// Broadcaster AutoMod settings, or null on failure.
+  Future<AutoModSettings?> getAutoModSettings(
+    TwitchAuth auth, {
+    required String broadcasterId,
+    required String moderatorId,
+  }) async {
+    _clearError();
+    final uri = Uri.parse(
+      '$_base/moderation/automod/settings?broadcaster_id=$broadcasterId&moderator_id=$moderatorId',
+    );
+    final res = await _client.get(uri, headers: _headers(auth));
+    if (res.statusCode != 200) {
+      _setError('getAutoModSettings', res);
+      return null;
+    }
+    try {
+      final data = jsonDecode(res.body) as Map;
+      final list = data['data'] as List;
+      if (list.isEmpty) return null;
+      return AutoModSettings.fromJson(list[0] as Map<String, dynamic>);
+    } catch (e) {
+      _setError('getAutoModSettings: bad response');
+      return null;
+    }
+  }
+
+  /// Updates AutoMod settings. Either `{'overall_level': n}` (preset, resets
+  /// every category to the preset defaults) or individual category levels
+  /// 0-4, never both. Returns the applied settings, or null on failure.
+  Future<AutoModSettings?> updateAutoModSettings(
+    TwitchAuth auth, {
+    required String broadcasterId,
+    required String moderatorId,
+    required Map<String, int> levels,
+  }) async {
+    _clearError();
+    final uri = Uri.parse(
+      '$_base/moderation/automod/settings?broadcaster_id=$broadcasterId&moderator_id=$moderatorId',
+    );
+    final res = await _client.put(
+      uri,
+      headers: _headers(auth),
+      body: jsonEncode(levels),
+    );
+    if (res.statusCode != 200) {
+      _setError('updateAutoModSettings', res);
+      return null;
+    }
+    try {
+      final data = jsonDecode(res.body) as Map;
+      final list = data['data'] as List;
+      if (list.isEmpty) return null;
+      return AutoModSettings.fromJson(list[0] as Map<String, dynamic>);
+    } catch (e) {
+      _setError('updateAutoModSettings: bad response');
+      return null;
+    }
+  }
+
+  /// Flags a chatter as monitored or restricted. True on 200.
+  Future<bool> addSuspiciousStatus(
+    TwitchAuth auth, {
+    required String broadcasterId,
+    required String moderatorId,
+    required String userId,
+    required bool restricted,
+  }) async {
+    _clearError();
+    final uri = Uri.parse(
+      '$_base/moderation/suspicious_users?broadcaster_id=$broadcasterId&moderator_id=$moderatorId',
+    );
+    final res = await _client.post(
+      uri,
+      headers: _headers(auth),
+      body: jsonEncode({
+        'user_id': userId,
+        'status': restricted ? 'RESTRICTED' : 'ACTIVE_MONITORING',
+      }),
+    );
+    if (res.statusCode == 200) return true;
+    _setError('addSuspiciousStatus', res);
+    return false;
+  }
+
+  /// Clears a chatter's suspicious flag. True on 200/204.
+  Future<bool> removeSuspiciousStatus(
+    TwitchAuth auth, {
+    required String broadcasterId,
+    required String moderatorId,
+    required String userId,
+  }) async {
+    _clearError();
+    final uri = Uri.parse(
+      '$_base/moderation/suspicious_users?broadcaster_id=$broadcasterId&moderator_id=$moderatorId&user_id=$userId',
+    );
+    final res = await _client.delete(uri, headers: _headers(auth));
+    if (res.statusCode == 200 || res.statusCode == 204) return true;
+    _setError('removeSuspiciousStatus', res);
+    return false;
+  }
+
+  /// Custom rewards for a broadcaster's channel. Rewards created by other
+  /// client ids are read-only (updates/redemptions 403). Empty on failure.
+  Future<List<PointReward>> getCustomRewards(
+    TwitchAuth auth, {
+    required String broadcasterId,
+  }) async {
+    _clearError();
+    final uri = Uri.parse(
+      '$_base/channel_points/custom_rewards?broadcaster_id=$broadcasterId',
+    );
+    final res = await _client.get(uri, headers: _headers(auth));
+    if (res.statusCode != 200) {
+      _setError('getCustomRewards', res);
+      return const [];
+    }
+    try {
+      final data = jsonDecode(res.body) as Map;
+      return [
+        for (final item in data['data'] as List)
+          PointReward.fromJson(item as Map<String, dynamic>),
+      ];
+    } catch (e) {
+      _setError('getCustomRewards: bad response');
+      return const [];
+    }
+  }
+
+  /// Pauses or resumes a custom reward. Only works for rewards this app's
+  /// client id created. True on 200.
+  Future<bool> setRewardPaused(
+    TwitchAuth auth, {
+    required String broadcasterId,
+    required String rewardId,
+    required bool paused,
+  }) async {
+    _clearError();
+    final uri = Uri.parse(
+      '$_base/channel_points/custom_rewards?broadcaster_id=$broadcasterId&id=$rewardId',
+    );
+    final res = await _client.patch(
+      uri,
+      headers: _headers(auth),
+      body: jsonEncode({'is_paused': paused}),
+    );
+    if (res.statusCode == 200) return true;
+    _setError('setRewardPaused', res);
+    return false;
+  }
+
+  /// UNFULFILLED redemptions for one reward, oldest first. Rewards created
+  /// by other client ids 403 here. Empty on failure.
+  Future<List<PointRedemption>> getRedemptions(
+    TwitchAuth auth, {
+    required String broadcasterId,
+    required String rewardId,
+  }) async {
+    _clearError();
+    final uri = Uri.parse(
+      '$_base/channel_points/custom_rewards/redemptions'
+      '?broadcaster_id=$broadcasterId&reward_id=$rewardId&status=UNFULFILLED',
+    );
+    final res = await _client.get(uri, headers: _headers(auth));
+    if (res.statusCode != 200) {
+      _setError('getRedemptions', res);
+      return const [];
+    }
+    try {
+      final data = jsonDecode(res.body) as Map;
+      return [
+        for (final item in data['data'] as List)
+          PointRedemption.fromJson(item as Map<String, dynamic>),
+      ];
+    } catch (e) {
+      _setError('getRedemptions: bad response');
+      return const [];
+    }
+  }
+
+  /// Fulfills or refunds (cancels) one redemption. Only works for rewards
+  /// this app's client id created. True on 200.
+  Future<bool> updateRedemptionStatus(
+    TwitchAuth auth, {
+    required String broadcasterId,
+    required String rewardId,
+    required String redemptionId,
+    required bool fulfilled,
+  }) async {
+    _clearError();
+    final uri = Uri.parse(
+      '$_base/channel_points/custom_rewards/redemptions'
+      '?broadcaster_id=$broadcasterId&reward_id=$rewardId&id=$redemptionId',
+    );
+    final res = await _client.patch(
+      uri,
+      headers: _headers(auth),
+      body: jsonEncode({'status': fulfilled ? 'FULFILLED' : 'CANCELED'}),
+    );
+    if (res.statusCode == 200) return true;
+    _setError('updateRedemptionStatus', res);
     return false;
   }
 
@@ -910,11 +1429,10 @@ class TwitchApi {
     'Content-Type': 'application/json',
   };
 
-  /// Validates the token. Returns login/userId/expiresIn on success. Null on
-  /// failure; check [lastErrorStatus] -- only 401 is definitive.
-  Future<({String login, String userId, int expiresIn})?> validateToken(
-    TwitchAuth auth,
-  ) async {
+  /// Validates the token. Returns login/userId/expiresIn/scopes on success.
+  /// Null on failure; check [lastErrorStatus] -- only 401 is definitive.
+  Future<({String login, String userId, int expiresIn, List<String> scopes})?>
+  validateToken(TwitchAuth auth) async {
     _clearError();
     final uri = Uri.parse('https://id.twitch.tv/oauth2/validate');
     try {
@@ -929,10 +1447,14 @@ class TwitchApi {
         return null;
       }
       final data = jsonDecode(res.body) as Map<String, dynamic>;
+      final rawScopes = data['scopes'];
       return (
         login: data['login'] as String? ?? '',
         userId: data['user_id'] as String? ?? '',
         expiresIn: data['expires_in'] as int? ?? 0,
+        scopes: rawScopes is List
+            ? rawScopes.whereType<String>().toList()
+            : const <String>[],
       );
     } catch (e) {
       _lastError = 'validateToken: $e';

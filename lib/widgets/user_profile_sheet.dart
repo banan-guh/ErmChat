@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/twitch_badge.dart';
 import '../models/twitch_message.dart';
+import '../services/chat_store.dart';
 import '../services/mod_actions.dart';
 import '../services/twitch_api.dart';
 import '../services/twitch_auth.dart';
@@ -32,6 +33,17 @@ class UserProfileSheet extends StatefulWidget {
   final ModActions? modActions;
   final String? channel;
   final bool canModerate;
+
+  /// Broadcaster user id for the follow-age lookup. Null hides the row.
+  final String? broadcasterUserId;
+
+  /// Local moderation record snapshot from the opener (warn log + active
+  /// ban/timeout). Empty/absent hides the record rows.
+  final List<WarnEntry> userWarnings;
+  final BanEntry? banEntry;
+
+  /// Last-seen suspicious context from the opener. Null hides the row.
+  final SuspiciousInfo? suspiciousInfo;
 
   /// True for your own card; mod rows never apply to yourself.
   final bool isSelf;
@@ -79,6 +91,10 @@ class UserProfileSheet extends StatefulWidget {
     this.modActions,
     this.channel,
     this.canModerate = false,
+    this.broadcasterUserId,
+    this.userWarnings = const [],
+    this.banEntry,
+    this.suspiciousInfo,
     this.isSelf = false,
     this.scrollController,
     this.sheetController,
@@ -97,6 +113,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
   Map<String, dynamic>? _profile;
   bool _loading = true;
   String? _error;
+  String? _followDate;
   bool _anonymous = false;
   bool _arrowVisible = false;
   ScrollController? _fallbackController;
@@ -225,6 +242,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
           _profile = profile;
           _loading = false;
         });
+        await _fetchFollowAge();
       } else {
         setState(() {
           _error = widget.twitchApi.lastError ?? 'User not found';
@@ -237,6 +255,25 @@ class UserProfileSheetState extends State<UserProfileSheet> {
         _error = e.toString();
         _loading = false;
       });
+    }
+    _measureDirty = true;
+  }
+
+  // Follow age is a nicety; a failed lookup hides the row.
+  Future<void> _fetchFollowAge() async {
+    final broadcasterId = widget.broadcasterUserId;
+    final userId = _targetUserId;
+    if (broadcasterId == null || userId == null) return;
+    try {
+      final date = await widget.twitchApi.getFollowDate(
+        widget.twitchAuth,
+        broadcasterId: broadcasterId,
+        userId: userId,
+      );
+      if (!mounted || date == null) return;
+      setState(() => _followDate = date);
+    } catch (_) {
+      // Row stays hidden.
     }
     _measureDirty = true;
   }
@@ -679,6 +716,145 @@ class UserProfileSheetState extends State<UserProfileSheet> {
     showModError(context, result);
   }
 
+  Future<void> _modShoutout() async {
+    final modActions = widget.modActions;
+    final channel = widget.channel;
+    if (modActions == null || channel == null) return;
+    final result = await modActions.sendShoutout(
+      widget.twitchAuth,
+      channel,
+      login: widget.username,
+      userId: _targetUserId,
+    );
+    if (!mounted) return;
+    if (result.ok) {
+      AppSnack.show(context, 'Shoutout sent to ${widget.displayName}');
+    } else {
+      showModError(context, result);
+    }
+  }
+
+  Future<void> _modSuspicious(bool restricted) async {
+    final modActions = widget.modActions;
+    final channel = widget.channel;
+    if (modActions == null || channel == null) return;
+    final result = await modActions.setSuspiciousStatus(
+      widget.twitchAuth,
+      channel,
+      login: widget.username,
+      userId: _targetUserId,
+      restricted: restricted,
+    );
+    if (!mounted) return;
+    if (result.ok) {
+      AppSnack.show(
+        context,
+        restricted
+            ? 'Restricted ${widget.displayName}'
+            : 'Monitoring ${widget.displayName}',
+      );
+    } else {
+      showModError(context, result);
+    }
+  }
+
+  Future<void> _clearSuspicious() async {
+    final modActions = widget.modActions;
+    final channel = widget.channel;
+    if (modActions == null || channel == null) return;
+    final result = await modActions.clearSuspiciousStatus(
+      widget.twitchAuth,
+      channel,
+      login: widget.username,
+      userId: _targetUserId,
+    );
+    if (!mounted) return;
+    if (result.ok) {
+      AppSnack.show(context, 'Flag cleared for ${widget.displayName}');
+    } else {
+      showModError(context, result);
+    }
+  }
+
+  String _recordSubtitle(String? reason, String moderator) {
+    if (reason != null && reason.isNotEmpty) return '"$reason" · by $moderator';
+    return 'by $moderator';
+  }
+
+  // Display-only moderation record: active ban/timeout, warning history,
+  // suspicious context, and follow age. Empty hides the whole block.
+  List<Widget> _recordTiles() {
+    final ban = widget.banEntry;
+    final warnings = widget.userWarnings;
+    final suspicious = widget.suspiciousInfo;
+    if (ban == null &&
+        warnings.isEmpty &&
+        suspicious == null &&
+        _followDate == null) {
+      return const [];
+    }
+    return [
+      if (ban != null)
+        ListTile(
+          dense: true,
+          leading: const Icon(Icons.gavel_outlined),
+          title: Text(ban.expiresAt == null ? 'Banned' : 'Timed out'),
+          subtitle: Text(_recordSubtitle(ban.reason, ban.moderator)),
+        ),
+      if (warnings.isNotEmpty)
+        ListTile(
+          dense: true,
+          leading: const Icon(Icons.warning_amber_outlined),
+          title: Text(
+            warnings.length == 1 ? '1 warning' : '${warnings.length} warnings',
+          ),
+          subtitle: Text(
+            _recordSubtitle(warnings.first.reason, warnings.first.moderator),
+          ),
+        ),
+      if (suspicious != null)
+        ListTile(
+          dense: true,
+          leading: const Icon(Icons.shield_outlined),
+          title: Text(_suspiciousTitle(suspicious.status)),
+          subtitle: Text(_suspiciousSubtitle(suspicious)),
+        ),
+      if (_followDate != null)
+        ListTile(
+          dense: true,
+          leading: const Icon(Icons.favorite_outline),
+          title: const Text('Following'),
+          subtitle: Text('Since ${_formatDate(_followDate!)}'),
+        ),
+      const Divider(height: 1),
+    ];
+  }
+
+  String _suspiciousTitle(String status) {
+    final lower = status.toLowerCase();
+    if (lower.contains('restrict')) return 'Restricted user';
+    if (lower.contains('monitor')) return 'Monitored user';
+    if (lower.isEmpty) return 'Flagged user';
+    return 'Flagged user ($status)';
+  }
+
+  String _suspiciousSubtitle(SuspiciousInfo info) {
+    final parts = <String>[];
+    final evasion = info.banEvasion;
+    if (evasion != null && evasion.isNotEmpty && evasion != 'unknown') {
+      parts.add('$evasion ban evasion');
+    }
+    if (info.sharedBanChannelIds.isNotEmpty) {
+      final n = info.sharedBanChannelIds.length;
+      parts.add('banned in $n shared channel${n == 1 ? '' : 's'}');
+    }
+    if (info.types.isNotEmpty) {
+      parts.add(info.types.map((t) => t.replaceAll('_', ' ')).join(', '));
+    }
+    if (parts.isEmpty) return 'Flagged';
+    return parts.join(' · ');
+  }
+
   List<Widget> _buildActionTiles() {
     final showMod =
         widget.canModerate &&
@@ -687,6 +863,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
         widget.channel != null;
     return [
       if (showMod) ...[
+        ..._recordTiles(),
         ListTile(
           dense: true,
           leading: const Icon(Icons.timer_outlined),
@@ -711,6 +888,31 @@ class UserProfileSheetState extends State<UserProfileSheet> {
           title: const Text('Warn'),
           onTap: _modWarn,
         ),
+        ListTile(
+          dense: true,
+          leading: const Icon(Icons.campaign_outlined),
+          title: const Text('Shoutout'),
+          onTap: _modShoutout,
+        ),
+        ListTile(
+          dense: true,
+          leading: const Icon(Icons.visibility_outlined),
+          title: const Text('Monitor'),
+          onTap: () => _modSuspicious(false),
+        ),
+        ListTile(
+          dense: true,
+          leading: const Icon(Icons.shield_outlined),
+          title: const Text('Restrict'),
+          onTap: () => _modSuspicious(true),
+        ),
+        if (widget.suspiciousInfo != null)
+          ListTile(
+            dense: true,
+            leading: const Icon(Icons.visibility_off_outlined),
+            title: const Text('Clear flag'),
+            onTap: _clearSuspicious,
+          ),
         const Divider(height: 1),
       ],
       ListTile(

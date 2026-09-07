@@ -206,18 +206,18 @@ class HomeAppBar {
                         ),
                       ),
                       const PopupMenuDivider(),
-                      // Release: mod view hidden until mature.
-                      // if (host.selectedChannel != null)
-                      //   const PopupMenuItem(
-                      //     value: 'modview',
-                      //     child: Row(
-                      //       children: [
-                      //         Icon(Icons.shield_outlined, size: 20),
-                      //         SizedBox(width: 12),
-                      //         Text('Mod view'),
-                      //       ],
-                      //     ),
-                      //   ),
+                      if (host.selectedChannel != null &&
+                          chatConn.isModerationActive(host.selectedChannel!))
+                        const PopupMenuItem(
+                          value: 'modview',
+                          child: Row(
+                            children: [
+                              Icon(Icons.shield_outlined, size: 20),
+                              SizedBox(width: 12),
+                              Text('Mod view'),
+                            ],
+                          ),
+                        ),
                       const PopupMenuItem(
                         value: 'threads',
                         child: Text('Threads'),

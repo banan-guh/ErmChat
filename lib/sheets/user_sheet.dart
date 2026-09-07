@@ -141,12 +141,8 @@ class UserSheets {
     // Compact card: history reveals by scrolling. Settle releases only when
     // the gesture moved the sheet, so list scrolling cannot collapse it.
     // Dismiss through the route for one continuous exit motion. Mod rows
-    // show only while live (same Live check as the app bar chrome).
-    final isLive =
-        channel != null &&
-        (chatStore.chatStatus[channel] ?? '').contains('Live');
-    final canModerate =
-        channel != null && chatConn.isModerationActive(channel) && isLive;
+    // show wherever the user moderates (EventSub-gated, works offline).
+    final canModerate = channel != null && chatConn.isModerationActive(channel);
     final login = host.sessionLogin;
     final isSelf =
         login != null && username.toLowerCase() == login.toLowerCase();
@@ -261,6 +257,18 @@ class UserSheets {
                   modActions: modActions,
                   channel: channel,
                   canModerate: canModerate,
+                  broadcasterUserId: channel == null
+                      ? null
+                      : chatStore.channelUserIds[channel],
+                  userWarnings: channel == null
+                      ? const []
+                      : chatStore.warningsFor(channel, username),
+                  banEntry: channel == null
+                      ? null
+                      : chatStore.banFor(channel, username),
+                  suspiciousInfo: channel == null
+                      ? null
+                      : chatStore.suspiciousFor(channel, username),
                   isSelf: isSelf,
                   messageController: composer.messageController,
                   focusNode: composer.focusNode,
@@ -285,7 +293,7 @@ class UserSheets {
 
   // Read-only history row for the user card: full chat styling, but no
   // profile recursion or reply affordances. Long-press shows the panel
-  // menu (copy + more); double-tap copies.
+  // menu (copy + mod actions + more); double-tap copies.
   Widget userHistoryRow(BuildContext context, TwitchMessage msg) {
     final theme = Theme.of(context);
     // Same background the modal sheet paints, so rows blend into the card.

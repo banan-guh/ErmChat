@@ -73,39 +73,7 @@ class MessageMenus {
                 },
               ),
               if (_canModerate(msg)) ...[
-                ListTile(
-                  leading: const Icon(Icons.timer_outlined),
-                  title: const Text('Timeout'),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    unawaited(modTimeout(context, msg));
-                  },
-                ),
-                if (msg.messageId != null)
-                  ListTile(
-                    leading: const Icon(Icons.delete_outline),
-                    title: const Text('Delete'),
-                    onTap: () {
-                      Navigator.pop(ctx);
-                      unawaited(modDelete(context, msg));
-                    },
-                  ),
-                ListTile(
-                  leading: const Icon(Icons.warning_amber_outlined),
-                  title: const Text('Warn'),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    unawaited(modWarn(context, msg));
-                  },
-                ),
-                ListTile(
-                  leading: const Icon(Icons.gavel_outlined),
-                  title: const Text('Ban'),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    unawaited(modBan(context, msg));
-                  },
-                ),
+                ..._modTiles(context, ctx, msg),
                 const Divider(height: 1),
               ],
               ListTile(
@@ -123,8 +91,68 @@ class MessageMenus {
     );
   }
 
-  // Panels (thread, mentions, whispers): copy + more menu. No reply (the
-  // input bar belongs to the main chat) and no thread navigation.
+  // Panel rows (thread, mentions, user history): the same mod verbs as the
+  // main menu, minus Reply (the input bar belongs to the main chat).
+  // [context] is the outer context for dialogs (the sheet's [sheetCtx] is
+  // already popped when an action runs).
+  List<Widget> _modTiles(
+    BuildContext context,
+    BuildContext sheetCtx,
+    TwitchMessage msg,
+  ) => [
+    ListTile(
+      leading: const Icon(Icons.timer_outlined),
+      title: const Text('Timeout'),
+      onTap: () {
+        Navigator.pop(sheetCtx);
+        unawaited(modTimeout(context, msg));
+      },
+    ),
+    if (msg.messageId != null)
+      ListTile(
+        leading: const Icon(Icons.delete_outline),
+        title: const Text('Delete'),
+        onTap: () {
+          Navigator.pop(sheetCtx);
+          unawaited(modDelete(context, msg));
+        },
+      ),
+    ListTile(
+      leading: const Icon(Icons.warning_amber_outlined),
+      title: const Text('Warn'),
+      onTap: () {
+        Navigator.pop(sheetCtx);
+        unawaited(modWarn(context, msg));
+      },
+    ),
+    ListTile(
+      leading: const Icon(Icons.gavel_outlined),
+      title: const Text('Ban'),
+      onTap: () {
+        Navigator.pop(sheetCtx);
+        unawaited(modBan(context, msg));
+      },
+    ),
+    ListTile(
+      leading: const Icon(Icons.undo_outlined),
+      title: const Text('Unban'),
+      onTap: () {
+        Navigator.pop(sheetCtx);
+        unawaited(modUnban(context, msg));
+      },
+    ),
+    ListTile(
+      leading: const Icon(Icons.campaign_outlined),
+      title: const Text('Shoutout'),
+      onTap: () {
+        Navigator.pop(sheetCtx);
+        unawaited(modShoutout(context, msg));
+      },
+    ),
+  ];
+
+  // Panels (thread, mentions, whispers): copy + mod verbs + more menu. No
+  // reply (the input bar belongs to the main chat) and no thread navigation.
   void showPanelMessageMenu(BuildContext context, TwitchMessage msg) {
     showModalBottomSheet(
       context: context,
@@ -141,6 +169,10 @@ class MessageMenus {
                   Navigator.pop(ctx);
                 },
               ),
+              if (_canModerate(msg)) ...[
+                ..._modTiles(context, ctx, msg),
+                const Divider(height: 1),
+              ],
               ListTile(
                 leading: const Icon(Icons.more_horiz),
                 title: const Text('More...'),
@@ -273,5 +305,35 @@ class MessageMenus {
     );
     if (!context.mounted) return;
     if (!banResult.ok) host.showNotice(modErrorText(banResult));
+  }
+
+  Future<void> modUnban(BuildContext context, TwitchMessage msg) async {
+    final channel = msg.channel;
+    if (channel == null) return;
+    final unbanResult = await modActions.unbanUser(
+      twitchAuth,
+      channel,
+      login: msg.login,
+      userId: msg.userId,
+    );
+    if (!context.mounted) return;
+    if (!unbanResult.ok) host.showNotice(modErrorText(unbanResult));
+  }
+
+  Future<void> modShoutout(BuildContext context, TwitchMessage msg) async {
+    final channel = msg.channel;
+    if (channel == null) return;
+    final shoutResult = await modActions.sendShoutout(
+      twitchAuth,
+      channel,
+      login: msg.login,
+      userId: msg.userId,
+    );
+    if (!context.mounted) return;
+    host.showNotice(
+      shoutResult.ok
+          ? 'Shoutout sent to ${msg.login}.'
+          : modErrorText(shoutResult),
+    );
   }
 }

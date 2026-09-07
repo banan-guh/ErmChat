@@ -6,6 +6,8 @@ import 'package:clock/clock.dart';
 import 'dart:ui' show Color;
 
 import '../models/twitch_message.dart';
+import '../models/point_rewards.dart';
+import '../util/duration_format.dart';
 import '../util/thread_utils.dart';
 
 /// The account the chat pipeline currently acts as.
@@ -67,6 +69,185 @@ class HeldMessage {
     required this.text,
     required this.category,
   });
+}
+
+/// One moderation action for the per-channel activity feed.
+class ModActivityEntry {
+  final DateTime at;
+  final String channel;
+  final String action;
+  final String moderator;
+  final String? target;
+  final String? reason;
+  final int? durationSeconds;
+  final List<String> terms;
+
+  const ModActivityEntry({
+    required this.at,
+    required this.channel,
+    required this.action,
+    required this.moderator,
+    this.target,
+    this.reason,
+    this.durationSeconds,
+    this.terms = const [],
+  });
+}
+
+/// One warning sent to a chatter. No Helix list endpoint exists, so the log
+/// is local and session-scoped.
+class WarnEntry {
+  final DateTime at;
+  final String channel;
+  final String target;
+  final String moderator;
+  final String? reason;
+
+  const WarnEntry({
+    required this.at,
+    required this.channel,
+    required this.target,
+    required this.moderator,
+    this.reason,
+  });
+}
+
+/// One active ban or timeout. Timeouts carry [expiresAt]; bans are permanent.
+class BanEntry {
+  final DateTime at;
+  final String channel;
+  final String login;
+  final DateTime? expiresAt;
+  final String? reason;
+  final String moderator;
+
+  const BanEntry({
+    required this.at,
+    required this.channel,
+    required this.login,
+    this.expiresAt,
+    this.reason,
+    required this.moderator,
+  });
+}
+
+/// Last-seen suspicious-user context for one chatter. There is no Helix list
+/// endpoint, so sightings accumulate from suspicious_user events; flag
+/// changes apply through [noteSuspicious]/[removeSuspicious].
+class SuspiciousInfo {
+  final DateTime at;
+  final String channel;
+  final String login;
+
+  /// monitored or restricted (lowercased).
+  final String status;
+  final List<String> types;
+  final String? banEvasion;
+  final List<String> sharedBanChannelIds;
+
+  const SuspiciousInfo({
+    required this.at,
+    required this.channel,
+    required this.login,
+    required this.status,
+    this.types = const [],
+    this.banEvasion,
+    this.sharedBanChannelIds = const [],
+  });
+}
+
+/// One-line summary of a feed entry for the Activity tab. Pure data-to-text
+/// (no widgets); the chat pipeline keeps its own self-worded copies.
+String formatModActivity(ModActivityEntry entry) {
+  final mod = entry.moderator;
+  final target = entry.target ?? 'someone';
+  final reason = (entry.reason != null && entry.reason!.isNotEmpty)
+      ? ': "${entry.reason}"'
+      : '';
+  final duration = entry.durationSeconds != null
+      ? ' for ${formatSeconds(entry.durationSeconds!)}'
+      : '';
+  switch (entry.action) {
+    case 'ban':
+      return '$mod banned $target$reason.';
+    case 'timeout':
+      return '$mod timed out $target$duration$reason.';
+    case 'unban':
+    case 'untimeout':
+      return '$mod unbanned $target.';
+    case 'delete':
+      return '$mod deleted a message from $target.';
+    case 'clear':
+      return '$mod cleared the chat.';
+    case 'mod':
+      return '$mod modded $target.';
+    case 'unmod':
+      return '$mod unmodded $target.';
+    case 'vip':
+      return '$mod added $target as a VIP.';
+    case 'unvip':
+      return '$mod removed $target as a VIP.';
+    case 'warn':
+      return '$mod warned $target$reason.';
+    case 'warn_ack':
+      return '$target acknowledged a warning.';
+    case 'slow':
+      return '$mod enabled slow mode.';
+    case 'slowoff':
+      return '$mod disabled slow mode.';
+    case 'followers':
+      return '$mod enabled followers-only mode.';
+    case 'followersoff':
+      return '$mod disabled followers-only mode.';
+    case 'emoteonly':
+      return '$mod enabled emote-only mode.';
+    case 'emoteonlyoff':
+      return '$mod disabled emote-only mode.';
+    case 'subscribers':
+      return '$mod enabled subscribers-only mode.';
+    case 'subscribersoff':
+      return '$mod disabled subscribers-only mode.';
+    case 'uniquechat':
+      return '$mod enabled unique chat.';
+    case 'uniquechatoff':
+      return '$mod disabled unique chat.';
+    case 'raid':
+      return '$mod started a raid.';
+    case 'unraid':
+      return '$mod cancelled the raid.';
+    case 'shield_on':
+      return '$mod enabled Shield Mode.';
+    case 'shield_off':
+      return '$mod disabled Shield Mode.';
+    case 'shoutout':
+      return '$mod shouted out $target.';
+    case 'approve_unban_request':
+      return '$mod approved $target\'s unban request$reason.';
+    case 'deny_unban_request':
+      return '$mod denied $target\'s unban request$reason.';
+    case 'unban_resolved':
+      return '$mod resolved $target\'s unban request$reason.';
+    case 'automod_settings':
+      return '$mod updated AutoMod settings.';
+    case 'suspicious_flag':
+      return '$mod flagged $target$reason.';
+    case 'add_blocked_term':
+    case 'remove_blocked_term':
+    case 'add_permitted_term':
+    case 'remove_permitted_term':
+      return formatTermAction(mod, entry.action, entry.terms);
+    default:
+      return '$mod did ${entry.action.replaceAll('_', ' ')}.';
+  }
+}
+
+/// One-line summary of a blocked/permitted-term decision.
+String formatTermAction(String mod, String action, List<String> terms) {
+  final kind = action.contains('permitted') ? 'permitted term' : 'blocked term';
+  final verb = action.startsWith('add') ? 'added' : 'removed';
+  if (terms.length == 1) return '$mod $verb $kind "${terms.first}".';
+  if (terms.length > 1) return '$mod $verb ${terms.length} ${kind}s.';
+  return '$mod $verb a $kind.';
 }
 
 /// Read-only summary of one tracked thread for the threads dashboard. The
@@ -205,6 +386,168 @@ class ChatStore {
     heldVersion.value++;
   }
 
+  // ---- Moderation feed -----------------------------------------------------
+
+  /// Activity entries per channel, newest first. The feed UI reads these
+  /// live; [modActivityVersion] ticks on every moderation-list mutation
+  /// (feed, warnings, bans alike) so one listener covers all three.
+  final Map<String, List<ModActivityEntry>> modActivity = {};
+
+  /// Bumped on any feed/warning/ban mutation so the Mod View rebuilds.
+  final ValueNotifier<int> modActivityVersion = ValueNotifier(0);
+
+  /// Bumped when unban requests or public blocked terms change outside the
+  /// Mod View (EventSub create/resolve, term updates), so the inbox and
+  /// terms tabs reload. The lists themselves stay Helix-sourced.
+  final ValueNotifier<int> modInboxVersion = ValueNotifier(0);
+
+  /// Signals an external inbox/terms change.
+  void touchInbox() => modInboxVersion.value++;
+
+  /// Per-channel feed bound; beyond it the oldest entries drop.
+  static const maxActivityPerChannel = 200;
+
+  /// Logs a moderation action to the channel feed.
+  void addModActivity(ModActivityEntry entry) {
+    final list = modActivity.putIfAbsent(entry.channel, () => []);
+    list.insert(0, entry);
+    if (list.length > maxActivityPerChannel) {
+      list.removeRange(maxActivityPerChannel, list.length);
+    }
+    modActivityVersion.value++;
+  }
+
+  /// Drops a channel's whole feed (channel left).
+  void clearModActivity(String channel) {
+    if (modActivity.remove(channel) != null) modActivityVersion.value++;
+  }
+
+  /// Local warnings log per channel, newest first.
+  final Map<String, List<WarnEntry>> channelWarnings = {};
+
+  /// Per-channel warnings bound; beyond it the oldest warnings drop.
+  static const maxWarningsPerChannel = 200;
+
+  /// Logs a warning; duplicate deliveries of the same event are the
+  /// caller's problem (moderate warn and warning.send never both run).
+  void addWarning(WarnEntry warning) {
+    final list = channelWarnings.putIfAbsent(warning.channel, () => []);
+    list.insert(0, warning);
+    if (list.length > maxWarningsPerChannel) {
+      list.removeRange(maxWarningsPerChannel, list.length);
+    }
+    modActivityVersion.value++;
+  }
+
+  /// Warnings for one user in a channel, newest first.
+  List<WarnEntry> warningsFor(String channel, String login) {
+    final needle = login.toLowerCase();
+    return [
+      for (final w in channelWarnings[channel] ?? const <WarnEntry>[])
+        if (w.target.toLowerCase() == needle) w,
+    ];
+  }
+
+  /// Active bans/timeouts per channel by lowercase login.
+  final Map<String, Map<String, BanEntry>> channelBans = {};
+
+  /// Records a ban or timeout, replacing any previous entry for the user
+  /// (re-timeouts extend or shorten; bans overwrite timeouts).
+  void putBan(BanEntry ban) {
+    final bans = channelBans.putIfAbsent(ban.channel, () => {});
+    bans[ban.login.toLowerCase()] = ban;
+    modActivityVersion.value++;
+  }
+
+  /// Drops a ban/timeout (unban/untimeout). False when already gone.
+  bool removeBan(String channel, String login) {
+    final bans = channelBans[channel];
+    if (bans == null) return false;
+    final removed = bans.remove(login.toLowerCase()) != null;
+    if (!removed) return false;
+    if (bans.isEmpty) channelBans.remove(channel);
+    modActivityVersion.value++;
+    return true;
+  }
+
+  /// Active ban/timeout for one user, or null.
+  BanEntry? banFor(String channel, String login) =>
+      channelBans[channel]?[login.toLowerCase()];
+
+  /// Last-seen suspicious context per channel by lowercase login.
+  final Map<String, Map<String, SuspiciousInfo>> suspiciousUsers = {};
+
+  /// Records a sighting or flag change (upserts by user).
+  void noteSuspicious(SuspiciousInfo info) {
+    final flagged = suspiciousUsers.putIfAbsent(info.channel, () => {});
+    flagged[info.login.toLowerCase()] = info;
+    modActivityVersion.value++;
+  }
+
+  /// Drops a flag (status cleared). False when already gone.
+  bool removeSuspicious(String channel, String login) {
+    final flagged = suspiciousUsers[channel];
+    if (flagged == null) return false;
+    final removed = flagged.remove(login.toLowerCase()) != null;
+    if (!removed) return false;
+    if (flagged.isEmpty) suspiciousUsers.remove(channel);
+    modActivityVersion.value++;
+    return true;
+  }
+
+  /// Last-seen suspicious context for one user, or null.
+  SuspiciousInfo? suspiciousFor(String channel, String login) =>
+      suspiciousUsers[channel]?[login.toLowerCase()];
+
+  // ---- Channel Points (broadcaster-only) -----------------------------------
+
+  /// Custom rewards per channel (Helix-sourced, refreshed on open and on
+  /// reward add/update/remove events).
+  final Map<String, List<PointReward>> pointRewards = {};
+
+  /// UNFULFILLED redemptions per channel, oldest first. Live-updated from
+  /// redemption add/update events; fulfilled/refunded entries drop.
+  final Map<String, List<PointRedemption>> pointRedemptions = {};
+
+  /// Bumped on any points mutation so the Channel tab rebuilds.
+  final ValueNotifier<int> pointVersion = ValueNotifier(0);
+
+  /// Replaces a channel's reward list (fetch or refresh).
+  void setPointRewards(String channel, List<PointReward> rewards) {
+    pointRewards[channel] = List.of(rewards);
+    pointVersion.value++;
+  }
+
+  /// Inserts or replaces one redemption, keeping oldest-first order.
+  void upsertPointRedemption(String channel, PointRedemption redemption) {
+    final list = pointRedemptions.putIfAbsent(channel, () => []);
+    list.removeWhere((r) => r.id == redemption.id);
+    list.add(redemption);
+    list.sort((a, b) => a.redeemedAt.compareTo(b.redeemedAt));
+    pointVersion.value++;
+  }
+
+  /// Drops a redemption (fulfilled, refunded, or updated elsewhere).
+  /// False when already gone.
+  bool resolvePointRedemption(String channel, String redemptionId) {
+    final list = pointRedemptions[channel];
+    if (list == null) return false;
+    final before = list.length;
+    list.removeWhere((r) => r.id == redemptionId);
+    if (list.length == before) return false;
+    if (list.isEmpty) pointRedemptions.remove(channel);
+    pointVersion.value++;
+    return true;
+  }
+
+  /// Drops a channel's points state (channel left).
+  void clearPoints(String channel) {
+    var touched = false;
+    if (pointRewards.remove(channel) != null) touched = true;
+    if (pointRedemptions.remove(channel) != null) touched = true;
+    if (touched) pointVersion.value++;
+  }
+
   /// Channels with unseen messages (drives tab unread markers).
   final Set<String> channelsWithUnread;
 
@@ -322,6 +665,14 @@ class ChatStore {
     savedThreadKeys.removeWhere((k) => k.startsWith('$channel:'));
     pinnedThreadKeys.removeWhere((k) => k.startsWith('$channel:'));
     clearHeldMessages(channel);
+    // One bump for the whole feed batch.
+    var feedTouched = false;
+    if (modActivity.remove(channel) != null) feedTouched = true;
+    if (channelWarnings.remove(channel) != null) feedTouched = true;
+    if (channelBans.remove(channel) != null) feedTouched = true;
+    if (suspiciousUsers.remove(channel) != null) feedTouched = true;
+    if (feedTouched) modActivityVersion.value++;
+    clearPoints(channel);
   }
 
   void dispose() {
@@ -335,6 +686,9 @@ class ChatStore {
     unreadVersion.dispose();
     loadFailedChannels.dispose();
     heldVersion.dispose();
+    modActivityVersion.dispose();
+    modInboxVersion.dispose();
+    pointVersion.dispose();
     _events.close();
     _notices.close();
   }

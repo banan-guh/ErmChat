@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ermchat/models/highlight_state.dart';
+import 'package:ermchat/models/point_rewards.dart';
 import 'package:ermchat/models/twitch_message.dart';
 import 'package:ermchat/services/chat_store.dart';
 
@@ -714,6 +715,321 @@ void main() {
       expect(store.heldMessages.containsKey('other'), isTrue);
       store.forgetChannel('other');
       expect(store.heldMessages.containsKey('other'), isFalse);
+    });
+  });
+
+  group('ChatStore mod feed', () {
+    final t0 = DateTime(2026, 1, 1);
+    ModActivityEntry activity(
+      String action, {
+      String channel = 'test',
+      String? target,
+      String? reason,
+      List<String> terms = const [],
+    }) => ModActivityEntry(
+      at: t0,
+      channel: channel,
+      action: action,
+      moderator: 'moduser',
+      target: target,
+      reason: reason,
+      terms: terms,
+    );
+
+    test('logs newest first and caps per channel', () {
+      final store = _store();
+      store.addModActivity(activity('ban', target: 'a'));
+      store.addModActivity(activity('timeout', target: 'b'));
+      expect(store.modActivity['test']!.map((e) => e.target), ['b', 'a']);
+      for (var i = 0; i < ChatStore.maxActivityPerChannel + 10; i++) {
+        store.addModActivity(activity('slow', target: 'u$i'));
+      }
+      final feed = store.modActivity['test']!;
+      expect(feed, hasLength(ChatStore.maxActivityPerChannel));
+      expect(feed.first.target, 'u209');
+    });
+
+    test('clearModActivity is quiet on missing channels', () {
+      final store = _store();
+      final version = store.modActivityVersion.value;
+      store.clearModActivity('missing');
+      expect(store.modActivityVersion.value, version);
+      store.addModActivity(activity('ban'));
+      store.clearModActivity('test');
+      expect(store.modActivity.containsKey('test'), isFalse);
+    });
+
+    test('warnings filter case-insensitively per user', () {
+      final store = _store();
+      store.addWarning(
+        WarnEntry(
+          at: t0,
+          channel: 'test',
+          target: 'Spammer',
+          moderator: 'moduser',
+          reason: 'spam',
+        ),
+      );
+      store.addWarning(
+        WarnEntry(
+          at: t0,
+          channel: 'test',
+          target: 'other',
+          moderator: 'moduser',
+        ),
+      );
+      final found = store.warningsFor('test', 'spammer');
+      expect(found, hasLength(1));
+      expect(found.first.reason, 'spam');
+      expect(store.warningsFor('test', 'missing'), isEmpty);
+      expect(store.warningsFor('missing', 'spammer'), isEmpty);
+    });
+
+    test('ban roster puts, queries, and removes case-insensitively', () {
+      final store = _store();
+      expect(store.banFor('test', 'Spammer'), isNull);
+      store.putBan(
+        BanEntry(
+          at: t0,
+          channel: 'test',
+          login: 'Spammer',
+          moderator: 'moduser',
+        ),
+      );
+      expect(store.banFor('test', 'spammer')!.expiresAt, isNull);
+      // A timeout overwrites the ban entry.
+      store.putBan(
+        BanEntry(
+          at: t0,
+          channel: 'test',
+          login: 'SPAMMER',
+          expiresAt: t0.add(const Duration(seconds: 600)),
+          moderator: 'moduser',
+        ),
+      );
+      expect(
+        store.banFor('test', 'spammer')!.expiresAt,
+        t0.add(const Duration(seconds: 600)),
+      );
+      expect(store.removeBan('test', 'Spammer'), isTrue);
+      expect(store.banFor('test', 'spammer'), isNull);
+      expect(store.removeBan('test', 'spammer'), isFalse);
+      expect(store.removeBan('missing', 'spammer'), isFalse);
+    });
+
+    test('forgetChannel clears feed, warnings, and bans in one bump', () {
+      final store = _store();
+      store.addModActivity(activity('ban'));
+      store.addWarning(
+        WarnEntry(
+          at: t0,
+          channel: 'test',
+          target: 'spammer',
+          moderator: 'moduser',
+        ),
+      );
+      store.putBan(
+        BanEntry(
+          at: t0,
+          channel: 'test',
+          login: 'spammer',
+          moderator: 'moduser',
+        ),
+      );
+      store.noteSuspicious(
+        SuspiciousInfo(
+          at: t0,
+          channel: 'test',
+          login: 'spammer',
+          status: 'monitored',
+        ),
+      );
+      final version = store.modActivityVersion.value;
+      store.forgetChannel('test');
+      expect(store.modActivity.containsKey('test'), isFalse);
+      expect(store.channelWarnings.containsKey('test'), isFalse);
+      expect(store.channelBans.containsKey('test'), isFalse);
+      expect(store.suspiciousUsers.containsKey('test'), isFalse);
+      expect(store.modActivityVersion.value, version + 1);
+    });
+
+    test('suspicious sightings upsert, query, and clear', () {
+      final store = _store();
+      expect(store.suspiciousFor('test', 'spammer'), isNull);
+      store.noteSuspicious(
+        SuspiciousInfo(
+          at: t0,
+          channel: 'test',
+          login: 'Spammer',
+          status: 'restricted',
+          types: const ['manually_added'],
+          banEvasion: 'possible',
+          sharedBanChannelIds: const ['111'],
+        ),
+      );
+      final seen = store.suspiciousFor('test', 'spammer')!;
+      expect(seen.status, 'restricted');
+      expect(seen.sharedBanChannelIds, ['111']);
+      expect(store.removeSuspicious('test', 'SPAMMER'), isTrue);
+      expect(store.suspiciousFor('test', 'spammer'), isNull);
+      expect(store.removeSuspicious('test', 'spammer'), isFalse);
+    });
+
+    test('touchInbox bumps the inbox version', () {
+      final store = _store();
+      final version = store.modInboxVersion.value;
+      store.touchInbox();
+      expect(store.modInboxVersion.value, version + 1);
+    });
+
+    test('points rewards set, redemptions queue oldest first', () {
+      final store = _store();
+      const reward = PointReward(
+        id: 'reward1',
+        title: 'Hydrate',
+        cost: 500,
+        isEnabled: true,
+        isPaused: false,
+      );
+      var version = store.pointVersion.value;
+      store.setPointRewards('test', const [reward]);
+      expect(store.pointRewards['test'], hasLength(1));
+      expect(store.pointVersion.value, version + 1);
+
+      PointRedemption redemption(String id, String at) => PointRedemption(
+        id: id,
+        userLogin: 'fan',
+        rewardId: 'reward1',
+        rewardTitle: 'Hydrate',
+        cost: 500,
+        userInput: '',
+        status: 'UNFULFILLED',
+        redeemedAt: at,
+      );
+      // Newest inserted first still reads oldest first.
+      store.upsertPointRedemption(
+        'test',
+        redemption('r2', '2026-01-02T00:01:00Z'),
+      );
+      store.upsertPointRedemption(
+        'test',
+        redemption('r1', '2026-01-02T00:00:00Z'),
+      );
+      expect(store.pointRedemptions['test']!.map((r) => r.id), ['r1', 'r2']);
+      // Re-upsert replaces in place.
+      store.upsertPointRedemption(
+        'test',
+        redemption('r1', '2026-01-02T00:00:00Z'),
+      );
+      expect(store.pointRedemptions['test'], hasLength(2));
+
+      expect(store.resolvePointRedemption('test', 'r1'), isTrue);
+      expect(store.pointRedemptions['test']!.map((r) => r.id), ['r2']);
+      expect(store.resolvePointRedemption('test', 'r1'), isFalse);
+      expect(store.resolvePointRedemption('test', 'r2'), isTrue);
+      expect(store.pointRedemptions.containsKey('test'), isFalse);
+    });
+
+    test('clearPoints and forgetChannel drop points state', () {
+      final store = _store();
+      const reward = PointReward(
+        id: 'reward1',
+        title: 'Hydrate',
+        cost: 500,
+        isEnabled: true,
+        isPaused: false,
+      );
+      store.setPointRewards('test', const [reward]);
+      store.upsertPointRedemption(
+        'test',
+        const PointRedemption(
+          id: 'r1',
+          userLogin: 'fan',
+          rewardId: 'reward1',
+          rewardTitle: 'Hydrate',
+          cost: 500,
+          userInput: '',
+          status: 'UNFULFILLED',
+          redeemedAt: '2026-01-02T00:00:00Z',
+        ),
+      );
+      final version = store.pointVersion.value;
+      store.clearPoints('missing');
+      expect(store.pointVersion.value, version, reason: 'no-op is quiet');
+      store.clearPoints('test');
+      expect(store.pointRewards.containsKey('test'), isFalse);
+      expect(store.pointRedemptions.containsKey('test'), isFalse);
+
+      store.setPointRewards('other', const [reward]);
+      store.forgetChannel('other');
+      expect(store.pointRewards.containsKey('other'), isFalse);
+    });
+
+    test('formatModActivity renders each action', () {
+      ModActivityEntry entry(
+        String action, {
+        String? target = 'spammer',
+        String? reason,
+        int? duration,
+        List<String> terms = const [],
+      }) => ModActivityEntry(
+        at: t0,
+        channel: 'test',
+        action: action,
+        moderator: 'moduser',
+        target: target,
+        reason: reason,
+        durationSeconds: duration,
+        terms: terms,
+      );
+      for (final (action, expected) in [
+        ('ban', 'moduser banned spammer.'),
+        ('untimeout', 'moduser unbanned spammer.'),
+        ('delete', 'moduser deleted a message from spammer.'),
+        ('clear', 'moduser cleared the chat.'),
+        ('mod', 'moduser modded spammer.'),
+        ('unvip', 'moduser removed spammer as a VIP.'),
+        ('warn_ack', 'spammer acknowledged a warning.'),
+        ('slow', 'moduser enabled slow mode.'),
+        ('followersoff', 'moduser disabled followers-only mode.'),
+        ('uniquechat', 'moduser enabled unique chat.'),
+        ('raid', 'moduser started a raid.'),
+        ('shield_on', 'moduser enabled Shield Mode.'),
+        ('shoutout', 'moduser shouted out spammer.'),
+        ('automod_settings', 'moduser updated AutoMod settings.'),
+      ]) {
+        expect(formatModActivity(entry(action)), expected, reason: action);
+      }
+      expect(
+        formatModActivity(entry('timeout', duration: 90)),
+        'moduser timed out spammer for 1m 30s.',
+      );
+      expect(
+        formatModActivity(entry('warn', reason: 'spam')),
+        'moduser warned spammer: "spam".',
+      );
+      expect(
+        formatModActivity(entry('deny_unban_request', reason: 'too soon')),
+        'moduser denied spammer\'s unban request: "too soon".',
+      );
+      expect(
+        formatModActivity(entry('deny_unban_request', reason: 'too soon')),
+        'moduser denied spammer\'s unban request: "too soon".',
+      );
+      expect(
+        formatModActivity(entry('suspicious_flag', reason: 'restricted')),
+        'moduser flagged spammer: "restricted".',
+      );
+      expect(
+        formatModActivity(
+          entry('remove_blocked_term', target: null, terms: ['a', 'b']),
+        ),
+        'moduser removed 2 blocked terms.',
+      );
+      expect(
+        formatModActivity(entry('some_future_action', target: null)),
+        'moduser did some future action.',
+      );
     });
   });
 

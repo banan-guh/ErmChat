@@ -3,11 +3,14 @@ import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
+import '../models/point_rewards.dart';
 import 'connectivity_service.dart';
 import '../util/constants.dart';
 import '../util/log.dart';
 
 /// A channel.moderate v2 event. `action` is ban, timeout, delete, mod, etc.
+/// Mode toggles (slow, followers, ...) and term decisions carry no target;
+/// term actions carry [terms]; everything else follows the old fields.
 class ModerationEvent {
   final String channel;
   final String action;
@@ -17,6 +20,7 @@ class ModerationEvent {
   final int? durationSeconds;
   final String? messageId;
   final String? messageBody;
+  final List<String> terms;
 
   ModerationEvent({
     required this.channel,
@@ -27,6 +31,7 @@ class ModerationEvent {
     this.durationSeconds,
     this.messageId,
     this.messageBody,
+    this.terms = const [],
   });
 }
 
@@ -47,6 +52,149 @@ class AutomodHeldEvent {
     required this.text,
     required this.category,
     required this.status,
+  });
+}
+
+/// A shield mode toggle. [active] is true on begin, false on end.
+class ShieldModeEvent {
+  final String channel;
+  final bool active;
+  final String moderatorName;
+
+  ShieldModeEvent({
+    required this.channel,
+    required this.active,
+    required this.moderatorName,
+  });
+}
+
+/// A shoutout. [kind] is create (this channel shouted someone out) or
+/// receive (this channel was shouted out).
+class ShoutoutEvent {
+  final String channel;
+  final String kind;
+  final String fromLogin;
+  final String toLogin;
+  final String moderatorName;
+
+  ShoutoutEvent({
+    required this.channel,
+    required this.kind,
+    required this.fromLogin,
+    required this.toLogin,
+    required this.moderatorName,
+  });
+}
+
+/// A warning lifecycle event. [kind] is send or acknowledge.
+class WarningEvent {
+  final String channel;
+  final String kind;
+  final String moderatorName;
+  final String userLogin;
+  final String? reason;
+
+  WarningEvent({
+    required this.channel,
+    required this.kind,
+    required this.moderatorName,
+    required this.userLogin,
+    this.reason,
+  });
+}
+
+/// An unban request event. [kind] is create or resolve.
+class UnbanRequestEvent {
+  final String channel;
+  final String kind;
+  final String userLogin;
+  final String moderatorName;
+  final String? resolutionText;
+
+  UnbanRequestEvent({
+    required this.channel,
+    required this.kind,
+    required this.userLogin,
+    required this.moderatorName,
+    this.resolutionText,
+  });
+}
+
+/// A public AutoMod terms change. Private-term changes never arrive.
+class AutomodTermsEvent {
+  final String channel;
+
+  /// add or remove.
+  final String action;
+
+  /// blocked or permitted.
+  final String list;
+  final List<String> terms;
+  final String moderatorName;
+
+  AutomodTermsEvent({
+    required this.channel,
+    required this.action,
+    required this.list,
+    required this.terms,
+    required this.moderatorName,
+  });
+}
+
+/// An AutoMod settings change.
+class AutomodSettingsEvent {
+  final String channel;
+  final String moderatorName;
+
+  AutomodSettingsEvent({required this.channel, required this.moderatorName});
+}
+
+/// A suspicious-user sighting or flag change. [kind] is message or update.
+class SuspiciousUserEvent {
+  final String channel;
+  final String kind;
+  final String userLogin;
+  final String status;
+  final List<String> types;
+  final String? banEvasion;
+  final List<String> sharedBanChannelIds;
+  final String moderatorName;
+
+  SuspiciousUserEvent({
+    required this.channel,
+    required this.kind,
+    required this.userLogin,
+    required this.status,
+    this.types = const [],
+    this.banEvasion,
+    this.sharedBanChannelIds = const [],
+    required this.moderatorName,
+  });
+}
+
+/// A custom reward change. [kind] is add, update, or remove.
+class PointRewardEvent {
+  final String channel;
+  final String kind;
+  final PointReward reward;
+
+  PointRewardEvent({
+    required this.channel,
+    required this.kind,
+    required this.reward,
+  });
+}
+
+/// A custom-reward redemption. [kind] is add or update.
+class PointRedemptionEvent {
+  final String channel;
+  final String kind;
+  final PointRedemption redemption;
+
+  PointRedemptionEvent({
+    required this.channel,
+    required this.kind,
+    required this.redemption,
   });
 }
 
@@ -174,6 +322,30 @@ class EventSubService {
   final _predictionController = StreamController<PredictionEvent>.broadcast(
     sync: true,
   );
+  final _shieldModeController = StreamController<ShieldModeEvent>.broadcast(
+    sync: true,
+  );
+  final _shoutoutController = StreamController<ShoutoutEvent>.broadcast(
+    sync: true,
+  );
+  final _warningController = StreamController<WarningEvent>.broadcast(
+    sync: true,
+  );
+  final _unbanRequestController = StreamController<UnbanRequestEvent>.broadcast(
+    sync: true,
+  );
+  final _automodTermsController = StreamController<AutomodTermsEvent>.broadcast(
+    sync: true,
+  );
+  final _automodSettingsController =
+      StreamController<AutomodSettingsEvent>.broadcast(sync: true);
+  final _suspiciousUserController =
+      StreamController<SuspiciousUserEvent>.broadcast(sync: true);
+  final _pointRewardController = StreamController<PointRewardEvent>.broadcast(
+    sync: true,
+  );
+  final _pointRedemptionController =
+      StreamController<PointRedemptionEvent>.broadcast(sync: true);
   final _statusController = StreamController<EventSubStatus>.broadcast(
     sync: true,
   );
@@ -203,6 +375,20 @@ class EventSubService {
   Stream<HypeTrainEvent> get onHypeTrain => _hypeTrainController.stream;
   Stream<PollEvent> get onPoll => _pollController.stream;
   Stream<PredictionEvent> get onPrediction => _predictionController.stream;
+  Stream<ShieldModeEvent> get onShieldMode => _shieldModeController.stream;
+  Stream<ShoutoutEvent> get onShoutout => _shoutoutController.stream;
+  Stream<WarningEvent> get onWarning => _warningController.stream;
+  Stream<UnbanRequestEvent> get onUnbanRequest =>
+      _unbanRequestController.stream;
+  Stream<AutomodTermsEvent> get onAutomodTerms =>
+      _automodTermsController.stream;
+  Stream<AutomodSettingsEvent> get onAutomodSettings =>
+      _automodSettingsController.stream;
+  Stream<SuspiciousUserEvent> get onSuspiciousUser =>
+      _suspiciousUserController.stream;
+  Stream<PointRewardEvent> get onPointReward => _pointRewardController.stream;
+  Stream<PointRedemptionEvent> get onPointRedemption =>
+      _pointRedemptionController.stream;
   Stream<EventSubStatus> get onStatus => _statusController.stream;
 
   void setChannelMapping(String broadcasterUserId, String channelName) {
@@ -414,6 +600,41 @@ class EventSubService {
       );
     } else if (type == 'channel.moderate') {
       _emitModeration(channel, event);
+    } else if (type == 'channel.shield_mode.begin' ||
+        type == 'channel.shield_mode.end') {
+      if (channel == null) return;
+      _emitShieldMode(channel, event, type.endsWith('.begin'));
+    } else if (type == 'channel.shoutout.create' ||
+        type == 'channel.shoutout.receive') {
+      if (channel == null) return;
+      _emitShoutout(channel, event, type.endsWith('.create'));
+    } else if (type == 'channel.warning.send' ||
+        type == 'channel.warning.acknowledge') {
+      if (channel == null) return;
+      _emitWarning(channel, event, type.endsWith('.send'));
+    } else if (type == 'channel.unban_request.create' ||
+        type == 'channel.unban_request.resolve') {
+      if (channel == null) return;
+      _emitUnbanRequest(channel, event, type.endsWith('.create'));
+    } else if (type == 'automod.terms.update') {
+      if (channel == null) return;
+      _emitAutomodTerms(channel, event);
+    } else if (type == 'automod.settings.update') {
+      if (channel == null) return;
+      _emitAutomodSettings(channel, event);
+    } else if (type == 'channel.suspicious_user.message' ||
+        type == 'channel.suspicious_user.update') {
+      if (channel == null) return;
+      _emitSuspiciousUser(channel, event, type.endsWith('.message'));
+    } else if (type == 'channel.channel_points_custom_reward.add' ||
+        type == 'channel.channel_points_custom_reward.update' ||
+        type == 'channel.channel_points_custom_reward.remove') {
+      if (channel == null) return;
+      _emitPointReward(channel, event, type.split('.').last);
+    } else if (type == 'channel.channel_points_custom_reward_redemption.add' ||
+        type == 'channel.channel_points_custom_reward_redemption.update') {
+      if (channel == null) return;
+      _emitPointRedemption(channel, event, type.endsWith('.add'));
     } else if (type == 'automod.message.hold') {
       if (channel == null) return;
       _emitAutomodHeld(channel, event, 'held');
@@ -534,6 +755,152 @@ class EventSubService {
     );
   }
 
+  void _emitShieldMode(
+    String channel,
+    Map<String, dynamic> event,
+    bool active,
+  ) {
+    _shieldModeController.add(
+      ShieldModeEvent(
+        channel: channel,
+        active: active,
+        moderatorName: event['moderator_user_name'] as String? ?? 'A moderator',
+      ),
+    );
+  }
+
+  void _emitShoutout(String channel, Map<String, dynamic> event, bool created) {
+    // Create fires on the sender's channel (broadcaster -> to_broadcaster);
+    // receive fires on the target's channel (from_broadcaster -> broadcaster).
+    final from =
+        event['from_broadcaster_user_login'] as String? ??
+        event['broadcaster_user_login'] as String? ??
+        '';
+    final to =
+        event['to_broadcaster_user_login'] as String? ??
+        event['broadcaster_user_login'] as String? ??
+        '';
+    _shoutoutController.add(
+      ShoutoutEvent(
+        channel: channel,
+        kind: created ? 'create' : 'receive',
+        fromLogin: from,
+        toLogin: to,
+        moderatorName: event['moderator_user_name'] as String? ?? 'A moderator',
+      ),
+    );
+  }
+
+  void _emitWarning(String channel, Map<String, dynamic> event, bool sent) {
+    _warningController.add(
+      WarningEvent(
+        channel: channel,
+        kind: sent ? 'send' : 'acknowledge',
+        moderatorName: event['moderator_user_name'] as String? ?? 'A moderator',
+        userLogin: event['user_login'] as String? ?? '',
+        reason: event['reason'] as String?,
+      ),
+    );
+  }
+
+  void _emitUnbanRequest(
+    String channel,
+    Map<String, dynamic> event,
+    bool created,
+  ) {
+    _unbanRequestController.add(
+      UnbanRequestEvent(
+        channel: channel,
+        kind: created ? 'create' : 'resolve',
+        userLogin: event['user_login'] as String? ?? '',
+        moderatorName: event['moderator_user_name'] as String? ?? 'A moderator',
+        resolutionText: event['resolution_text'] as String?,
+      ),
+    );
+  }
+
+  void _emitAutomodTerms(String channel, Map<String, dynamic> event) {
+    final rawTerms = event['terms'];
+    _automodTermsController.add(
+      AutomodTermsEvent(
+        channel: channel,
+        action: event['action'] as String? ?? 'add',
+        list: event['list'] as String? ?? 'blocked',
+        terms: rawTerms is List
+            ? rawTerms.whereType<String>().toList()
+            : const [],
+        moderatorName: event['moderator_user_name'] as String? ?? 'A moderator',
+      ),
+    );
+  }
+
+  void _emitAutomodSettings(String channel, Map<String, dynamic> event) {
+    _automodSettingsController.add(
+      AutomodSettingsEvent(
+        channel: channel,
+        moderatorName: event['moderator_user_name'] as String? ?? 'A moderator',
+      ),
+    );
+  }
+
+  void _emitSuspiciousUser(
+    String channel,
+    Map<String, dynamic> event,
+    bool messaged,
+  ) {
+    final rawTypes = event['types'];
+    final rawShared = event['shared_ban_channel_ids'];
+    _suspiciousUserController.add(
+      SuspiciousUserEvent(
+        channel: channel,
+        kind: messaged ? 'message' : 'update',
+        userLogin: event['user_login'] as String? ?? '',
+        status:
+            ((event['low_trust_status'] ?? event['status']) as String?)
+                ?.toLowerCase() ??
+            '',
+        types: rawTypes is List
+            ? rawTypes.whereType<String>().toList()
+            : const [],
+        banEvasion: event['ban_evasion_evaluation'] as String?,
+        sharedBanChannelIds: rawShared is List
+            ? rawShared.whereType<String>().toList()
+            : const [],
+        moderatorName: event['moderator_user_name'] as String? ?? 'A moderator',
+      ),
+    );
+  }
+
+  void _emitPointReward(
+    String channel,
+    Map<String, dynamic> event,
+    String kind,
+  ) {
+    // add/update/remove carry the reward object, sometimes nested.
+    final rewardObj = event['reward'] as Map<String, dynamic>? ?? event;
+    _pointRewardController.add(
+      PointRewardEvent(
+        channel: channel,
+        kind: kind,
+        reward: PointReward.fromJson(rewardObj),
+      ),
+    );
+  }
+
+  void _emitPointRedemption(
+    String channel,
+    Map<String, dynamic> event,
+    bool added,
+  ) {
+    _pointRedemptionController.add(
+      PointRedemptionEvent(
+        channel: channel,
+        kind: added ? 'add' : 'update',
+        redemption: PointRedemption.fromJson(event),
+      ),
+    );
+  }
+
   void _emitModeration(String? channel, Map<String, dynamic> event) {
     if (channel == null) return;
 
@@ -553,8 +920,11 @@ class EventSubService {
     int? durationSeconds;
     String? messageId;
     String? messageBody;
+    var terms = const <String>[];
 
-    final metaObj = event[baseAction] as Map<String, dynamic>?;
+    final metaObj =
+        event[baseAction] as Map<String, dynamic>? ??
+        (baseAction == action ? null : event[action] as Map<String, dynamic>?);
     switch (baseAction) {
       case 'ban':
       case 'unban':
@@ -589,6 +959,39 @@ class EventSubService {
         messageId = metaObj?['message_id'] as String?;
         messageBody = metaObj?['message_body'] as String?;
         break;
+      case 'add_blocked_term':
+      case 'remove_blocked_term':
+      case 'add_permitted_term':
+      case 'remove_permitted_term':
+        // Term decisions nest under automod_terms, not under the action.
+        final termsObj = event['automod_terms'] as Map<String, dynamic>?;
+        final rawTerms = termsObj?['terms'];
+        if (rawTerms is List) terms = rawTerms.whereType<String>().toList();
+        break;
+      case 'approve_unban_request':
+      case 'deny_unban_request':
+        final requestObj =
+            event['unban_request'] as Map<String, dynamic>? ?? metaObj;
+        targetName = requestObj?['user_name'] as String?;
+        reason =
+            requestObj?['resolution_text'] as String? ??
+            requestObj?['reason'] as String?;
+        break;
+      case 'slow':
+      case 'slowoff':
+      case 'followers':
+      case 'followersoff':
+      case 'emoteonly':
+      case 'emoteonlyoff':
+      case 'subscribers':
+      case 'subscribersoff':
+      case 'uniquechat':
+      case 'uniquechatoff':
+      case 'raid':
+      case 'unraid':
+      case 'clear':
+        // Bare actions: no payload fields, the action is the whole story.
+        break;
     }
 
     _moderationController.add(
@@ -601,6 +1004,7 @@ class EventSubService {
         durationSeconds: durationSeconds,
         messageId: messageId,
         messageBody: messageBody,
+        terms: terms,
       ),
     );
   }
@@ -660,6 +1064,15 @@ class EventSubService {
     _hypeTrainController.close();
     _pollController.close();
     _predictionController.close();
+    _shieldModeController.close();
+    _shoutoutController.close();
+    _warningController.close();
+    _unbanRequestController.close();
+    _automodTermsController.close();
+    _automodSettingsController.close();
+    _suspiciousUserController.close();
+    _pointRewardController.close();
+    _pointRedemptionController.close();
     _statusController.close();
   }
 }

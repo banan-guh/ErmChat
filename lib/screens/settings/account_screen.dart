@@ -220,11 +220,14 @@ class _AccountScreenState extends State<AccountScreen> {
                   final isActive =
                       account.login.toLowerCase() == auth.login?.toLowerCase();
                   final isExpired = account.expired;
+                  final needsReauth = isActive && !isExpired && auth.scopeStale;
                   final tile = ListTile(
                     leading: _AccountAvatar(account: account),
                     title: Text(account.login),
                     subtitle: isExpired
                         ? const Text('Expired - log in again')
+                        : needsReauth
+                        ? const Text('New permissions - log in again')
                         : isActive
                         ? const Text('Active')
                         : null,
@@ -252,9 +255,7 @@ class _AccountScreenState extends State<AccountScreen> {
                     ),
                   ),
                   title: const Text('Anonymous'),
-                  subtitle: isActive
-                      ? const Text('Active')
-                      : null,
+                  subtitle: isActive ? const Text('Active') : null,
                   trailing: isActive
                       ? Icon(Icons.check, color: theme.colorScheme.primary)
                       : null,
@@ -476,14 +477,42 @@ class _AccountScreenState extends State<AccountScreen> {
                     );
                   },
                 ),
+                ListenableBuilder(
+                  listenable: widget.twitchAuth,
+                  builder: (context, _) {
+                    if (!widget.twitchAuth.scopeStale) {
+                      return const SizedBox.shrink();
+                    }
+                    return Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Text(
+                        'New mod features need extra permissions. '
+                        'Log in again to grant them.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                      ),
+                    );
+                  },
+                ),
                 const SizedBox(height: 16),
                 Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    OutlinedButton.icon(
-                      onPressed: () => _startOAuth(ephemeral: true),
-                      icon: const Icon(Icons.person_add),
-                      label: const Text('Add account'),
+                    ListenableBuilder(
+                      listenable: widget.twitchAuth,
+                      builder: (context, _) {
+                        return OutlinedButton.icon(
+                          onPressed: () => _startOAuth(ephemeral: true),
+                          icon: const Icon(Icons.person_add),
+                          label: Text(
+                            widget.twitchAuth.scopeStale
+                                ? 'Log in again'
+                                : 'Add account',
+                          ),
+                        );
+                      },
                     ),
                     const SizedBox(width: 12),
                     TextButton.icon(

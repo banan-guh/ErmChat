@@ -1,3 +1,4 @@
+import '../models/point_rewards.dart';
 import '../services/twitch_api.dart';
 import '../services/twitch_auth.dart';
 import '../util/log.dart';
@@ -207,6 +208,231 @@ class ModActions {
     );
   }
 
+  /// Unban requests; empty on failure (check `twitchApi.lastErrorStatus`).
+  Future<List<UnbanRequest>> getUnbanRequests(
+    TwitchAuth auth,
+    String channel, {
+    String? status,
+  }) {
+    final ids = _ids(channel);
+    if (ids == null) return Future.value(const []);
+    return twitchApi.getUnbanRequests(
+      auth,
+      broadcasterId: ids.broadcasterId,
+      moderatorId: ids.moderatorId,
+      status: status,
+    );
+  }
+
+  Future<ModResult> resolveUnbanRequest(
+    TwitchAuth auth,
+    String channel, {
+    required String requestId,
+    required bool approved,
+    String? resolutionText,
+  }) async {
+    final ids = _ids(channel);
+    if (ids == null) return const ModResult.fail(ModFailure.notJoined);
+    return _run(
+      approved ? 'approve unban request' : 'deny unban request',
+      () => twitchApi.resolveUnbanRequest(
+        auth,
+        broadcasterId: ids.broadcasterId,
+        moderatorId: ids.moderatorId,
+        requestId: requestId,
+        approved: approved,
+        resolutionText: resolutionText,
+      ),
+    );
+  }
+
+  /// Public blocked terms; empty on failure (check lastErrorStatus).
+  Future<List<BlockedTerm>> getBlockedTerms(TwitchAuth auth, String channel) {
+    final ids = _ids(channel);
+    if (ids == null) return Future.value(const []);
+    return twitchApi.getBlockedTerms(
+      auth,
+      broadcasterId: ids.broadcasterId,
+      moderatorId: ids.moderatorId,
+    );
+  }
+
+  Future<ModResult> addBlockedTerm(
+    TwitchAuth auth,
+    String channel,
+    String text,
+  ) async {
+    final ids = _ids(channel);
+    if (ids == null) return const ModResult.fail(ModFailure.notJoined);
+    final created = await twitchApi.addBlockedTerm(
+      auth,
+      broadcasterId: ids.broadcasterId,
+      moderatorId: ids.moderatorId,
+      text: text,
+    );
+    if (created != null) return const ModResult.ok();
+    return ModResult.fail(ModFailure.apiError, failureReason());
+  }
+
+  Future<ModResult> removeBlockedTerm(
+    TwitchAuth auth,
+    String channel,
+    String termId,
+  ) async {
+    final ids = _ids(channel);
+    if (ids == null) return const ModResult.fail(ModFailure.notJoined);
+    return _run(
+      'remove blocked term',
+      () => twitchApi.removeBlockedTerm(
+        auth,
+        broadcasterId: ids.broadcasterId,
+        moderatorId: ids.moderatorId,
+        termId: termId,
+      ),
+    );
+  }
+
+  /// AutoMod settings, or null when the channel is unknown or Helix fails
+  /// (check `twitchApi.lastErrorStatus`).
+  Future<AutoModSettings?> getAutoModSettings(TwitchAuth auth, String channel) {
+    final ids = _ids(channel);
+    if (ids == null) return Future.value(null);
+    return twitchApi.getAutoModSettings(
+      auth,
+      broadcasterId: ids.broadcasterId,
+      moderatorId: ids.moderatorId,
+    );
+  }
+
+  Future<ModResult> updateAutoModSettings(
+    TwitchAuth auth,
+    String channel,
+    Map<String, int> levels,
+  ) async {
+    final ids = _ids(channel);
+    if (ids == null) return const ModResult.fail(ModFailure.notJoined);
+    final applied = await twitchApi.updateAutoModSettings(
+      auth,
+      broadcasterId: ids.broadcasterId,
+      moderatorId: ids.moderatorId,
+      levels: levels,
+    );
+    if (applied != null) return const ModResult.ok();
+    return ModResult.fail(ModFailure.apiError, failureReason());
+  }
+
+  Future<ModResult> setSuspiciousStatus(
+    TwitchAuth auth,
+    String channel, {
+    String? login,
+    String? userId,
+    required bool restricted,
+  }) async {
+    final ids = _ids(channel);
+    if (ids == null) return const ModResult.fail(ModFailure.notJoined);
+    final t = await _target(auth, login: login, userId: userId);
+    if (t.error != null) return t.error!;
+    return _run(
+      restricted ? 'restrict user' : 'monitor user',
+      () => twitchApi.addSuspiciousStatus(
+        auth,
+        broadcasterId: ids.broadcasterId,
+        moderatorId: ids.moderatorId,
+        userId: t.userId!,
+        restricted: restricted,
+      ),
+    );
+  }
+
+  Future<ModResult> clearSuspiciousStatus(
+    TwitchAuth auth,
+    String channel, {
+    String? login,
+    String? userId,
+  }) async {
+    final ids = _ids(channel);
+    if (ids == null) return const ModResult.fail(ModFailure.notJoined);
+    final t = await _target(auth, login: login, userId: userId);
+    if (t.error != null) return t.error!;
+    return _run(
+      'clear suspicious status',
+      () => twitchApi.removeSuspiciousStatus(
+        auth,
+        broadcasterId: ids.broadcasterId,
+        moderatorId: ids.moderatorId,
+        userId: t.userId!,
+      ),
+    );
+  }
+
+  /// Point rewards; empty on failure (check `twitchApi.lastErrorStatus`).
+  /// Broadcaster token only.
+  Future<List<PointReward>> getPointRewards(TwitchAuth auth, String channel) {
+    final broadcasterId = getChannelUserIds()[channel];
+    if (broadcasterId == null) return Future.value(const []);
+    return twitchApi.getCustomRewards(auth, broadcasterId: broadcasterId);
+  }
+
+  /// UNFULFILLED redemptions for one reward; empty on failure (check
+  /// lastErrorStatus). Rewards from other client ids 403 here.
+  Future<List<PointRedemption>> getPointRedemptions(
+    TwitchAuth auth,
+    String channel,
+    String rewardId,
+  ) {
+    final broadcasterId = getChannelUserIds()[channel];
+    if (broadcasterId == null) return Future.value(const []);
+    return twitchApi.getRedemptions(
+      auth,
+      broadcasterId: broadcasterId,
+      rewardId: rewardId,
+    );
+  }
+
+  Future<ModResult> setRewardPaused(
+    TwitchAuth auth,
+    String channel,
+    String rewardId,
+    bool paused,
+  ) async {
+    final broadcasterId = getChannelUserIds()[channel];
+    if (broadcasterId == null) {
+      return const ModResult.fail(ModFailure.notJoined);
+    }
+    return _run(
+      paused ? 'pause reward' : 'resume reward',
+      () => twitchApi.setRewardPaused(
+        auth,
+        broadcasterId: broadcasterId,
+        rewardId: rewardId,
+        paused: paused,
+      ),
+    );
+  }
+
+  Future<ModResult> resolveRedemption(
+    TwitchAuth auth,
+    String channel,
+    String rewardId,
+    String redemptionId,
+    bool fulfilled,
+  ) async {
+    final broadcasterId = getChannelUserIds()[channel];
+    if (broadcasterId == null) {
+      return const ModResult.fail(ModFailure.notJoined);
+    }
+    return _run(
+      fulfilled ? 'fulfill redemption' : 'refund redemption',
+      () => twitchApi.updateRedemptionStatus(
+        auth,
+        broadcasterId: broadcasterId,
+        rewardId: rewardId,
+        redemptionId: redemptionId,
+        fulfilled: fulfilled,
+      ),
+    );
+  }
+
   Future<ModResult> warnUser(
     TwitchAuth auth,
     String channel, {
@@ -389,6 +615,14 @@ class ModActions {
     final broadcasterId = getChannelUserIds()[channel];
     if (broadcasterId == null) return Future.value(const []);
     return twitchApi.getModerators(auth, broadcasterId);
+  }
+
+  /// Broadcaster-only banned/timeout list; empty on failure (check
+  /// `twitchApi.lastErrorStatus`).
+  Future<List<BannedUser>> getBannedUsers(TwitchAuth auth, String channel) {
+    final broadcasterId = getChannelUserIds()[channel];
+    if (broadcasterId == null) return Future.value(const []);
+    return twitchApi.getBannedUsers(auth, broadcasterId);
   }
 
   Future<ModResult> setVip(

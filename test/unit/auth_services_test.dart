@@ -11,6 +11,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:ermchat/services/command_handler.dart';
+import 'package:ermchat/services/mod_actions.dart';
 import 'package:ermchat/services/twitch_api.dart';
 import 'package:ermchat/services/twitch_irc.dart';
 
@@ -452,6 +453,27 @@ void main() {
         <String>[],
       ),
       (
+        'requests Tier 3 moderation scopes',
+        [
+          'moderator:manage:blocked_terms',
+          'moderator:manage:unban_requests',
+          'moderator:read:warnings',
+          'moderator:manage:automod_settings',
+          'moderator:read:chat_settings',
+          'moderator:read:suspicious_users',
+          'moderator:manage:suspicious_users',
+          'moderator:read:chatters',
+          'moderator:read:followers',
+          'user:read:moderated_channels',
+        ],
+        <String>[],
+      ),
+      (
+        'requests broadcaster points scopes',
+        ['channel:read:redemptions', 'channel:manage:redemptions'],
+        <String>[],
+      ),
+      (
         'does not request EventSub-only scopes',
         <String>[],
         ['user:read:chat', 'channel:moderate'],
@@ -469,6 +491,32 @@ void main() {
         }
       });
     }
+
+    test('url covers the full requiredScopes list', () {
+      final urlInfo = TwitchOAuth.generateAuthUrl();
+      final scopes = Uri.parse(
+        urlInfo!.url,
+      ).queryParameters['scope']!.split(' ');
+      expect(scopes, containsAll(TwitchOAuth.requiredScopes));
+      expect(scopes.length, TwitchOAuth.requiredScopes.length);
+    });
+  });
+
+  group('TwitchOAuth.missingScopes', () {
+    test('empty when the grant covers everything', () {
+      expect(TwitchOAuth.missingScopes(TwitchOAuth.requiredScopes), isEmpty);
+    });
+
+    test('lists absent scopes, ignores extras', () {
+      final missing = TwitchOAuth.missingScopes([
+        'chat:read',
+        'chat:edit',
+        'some:future_scope',
+      ]);
+      expect(missing, contains('moderator:manage:blocked_terms'));
+      expect(missing, isNot(contains('chat:read')));
+      expect(missing, isNot(contains('some:future_scope')));
+    });
   });
 
   group('UserStore', () {
@@ -995,6 +1043,19 @@ void main() {
       );
       expect(req.method, 'DELETE');
       expect(req.url.queryParameters['user_id'], '999');
+    });
+
+    test('/untimeout success reports untimed out', () async {
+      final handler = createHandler(
+        MockClient((req) async {
+          if (req.url.path == '/helix/users') return userFound();
+          return http.Response('', 204);
+        }),
+      );
+
+      await handler.handle('/untimeout foo', 'a', auth);
+
+      expect(systemMessages, ['foo has been untimed out.']);
     });
   });
 
@@ -1529,6 +1590,7 @@ void main() {
         'slow_mode_wait_time',
         120,
       ),
+      ('slow accepts unit durations', '/slow 1m', 'slow_mode_wait_time', 60),
       ('slowoff disables slow mode', '/slowoff', 'slow_mode', false),
     ]) {
       test('/$name', () async {
@@ -1931,13 +1993,39 @@ void main() {
       auth.setCredentials(accessToken: 'new-tok');
       expect(auth.isActiveExpired, isFalse);
     });
+
+    test('scopeStale is memory-only and clears on credential change', () async {
+      final auth = TwitchAuth();
+      await auth.load();
+      auth.accessToken = 'tok';
+      auth.login = 'testuser';
+      auth.accounts = [
+        TwitchAccount(login: 'testuser', userId: '123', accessToken: 'tok'),
+        TwitchAccount(login: 'other', userId: '456', accessToken: 'tok2'),
+      ];
+
+      expect(auth.scopeStale, isFalse);
+      auth.markScopeStale();
+      expect(auth.scopeStale, isTrue);
+
+      auth.setCredentials(accessToken: 'new-tok');
+      expect(auth.scopeStale, isFalse);
+
+      auth.markScopeStale();
+      await auth.switchTo('other');
+      expect(auth.scopeStale, isFalse);
+
+      auth.markScopeStale();
+      await auth.switchToAnonymous();
+      expect(auth.scopeStale, isFalse);
+    });
   });
 
   group('TwitchApi.validateToken', () {
-    test('returns login/userId/expiresIn on 200', () async {
+    test('returns login/userId/expiresIn/scopes on 200', () async {
       final client = MockClient((request) async {
         return http.Response(
-          '{"client_id":"cid","login":"testuser","scopes":[],"expires_in":50000,"user_id":"12345"}',
+          '{"client_id":"cid","login":"testuser","scopes":["chat:read","chat:edit"],"expires_in":50000,"user_id":"12345"}',
           200,
         );
       });
@@ -1951,34 +2039,564 @@ void main() {
       expect(result!.login, 'testuser');
       expect(result.userId, '12345');
       expect(result.expiresIn, 50000);
+      expect(result.scopes, ['chat:read', 'chat:edit']);
     });
 
-    test('returns null on auth failure and network error', () async {
-      final unauthorized = MockClient((request) async {
+    test('defaults scopes to empty when absent', () async {
+      final client = MockClient((request) async {
         return http.Response(
-          '{"status":401,"message":"invalid access token"}',
-          401,
+          '{"client_id":"cid","login":"testuser","scopes":[],"expires_in":50000,"user_id":"12345"}',
+          200,
         );
       });
-      final unauthorizedApi = TwitchApi(client: unauthorized);
-      final deadAuth = TwitchAuth();
-      deadAuth.accessToken = 'dead-token';
 
-      final unauthorizedResult = await unauthorizedApi.validateToken(deadAuth);
-      expect(unauthorizedResult, isNull);
-      expect(unauthorizedApi.lastErrorStatus, 401);
+      final api = TwitchApi(client: client);
+      final auth = TwitchAuth();
+      auth.accessToken = 'valid-token';
 
-      final flaky = MockClient((request) async {
-        throw Exception('network');
-      });
-      final flakyApi = TwitchApi(client: flaky);
-      final flakyAuth = TwitchAuth();
-      flakyAuth.accessToken = 'tok';
-
-      final flakyResult = await flakyApi.validateToken(flakyAuth);
-      expect(flakyResult, isNull);
-      expect(flakyApi.lastErrorStatus, isNull);
+      final result = await api.validateToken(auth);
+      expect(result, isNotNull);
+      expect(result!.scopes, isEmpty);
     });
+  });
+
+  group('mod inbox api and actions', () {
+    MockClient inboxClient(List<http.Request> requests) => MockClient((
+      req,
+    ) async {
+      requests.add(req);
+      final path = req.url.path;
+      if (req.method == 'GET' && path.endsWith('moderation/unban_requests')) {
+        return http.Response(
+          '{"data":[{"id":"req1","user_login":"spammer","text":"sorry","status":"pending","created_at":"2026-01-02T03:04:05Z","resolution_text":null}],"pagination":{}}',
+          200,
+        );
+      }
+      if (req.method == 'PATCH' && path.endsWith('moderation/unban_requests')) {
+        return http.Response('{"data":[]}', 200);
+      }
+      if (req.method == 'GET' && path.endsWith('moderation/blocked_terms')) {
+        return http.Response(
+          '{"data":[{"id":"term1","text":"bad word","created_at":"2026-01-02T03:04:05Z"}],"pagination":{}}',
+          200,
+        );
+      }
+      if (req.method == 'POST' && path.endsWith('moderation/blocked_terms')) {
+        return http.Response(
+          '{"data":[{"id":"term2","text":"worse","created_at":"2026-01-02T03:04:05Z"}]}',
+          200,
+        );
+      }
+      if (req.method == 'DELETE' && path.endsWith('moderation/blocked_terms')) {
+        return http.Response('', 204);
+      }
+      return http.Response('{"message":"unexpected"}', 404);
+    });
+
+    ModActions inboxActions(TwitchApi api) => ModActions(
+      twitchApi: api,
+      getChannelUserIds: () => {'a': 'broad1'},
+      getCurrentUserId: () => 'mod1',
+    );
+
+    TwitchAuth inboxAuth() {
+      final auth = TwitchAuth();
+      auth.accessToken = 'tok';
+      return auth;
+    }
+
+    test('getUnbanRequests passes ids and status, parses list', () async {
+      final requests = <http.Request>[];
+      final api = TwitchApi(client: inboxClient(requests));
+      final list = await api.getUnbanRequests(
+        inboxAuth(),
+        broadcasterId: 'broad1',
+        moderatorId: 'mod1',
+        status: 'pending',
+      );
+      final query = requests.single.url.queryParameters;
+      expect(query['broadcaster_id'], 'broad1');
+      expect(query['moderator_id'], 'mod1');
+      expect(query['status'], 'pending');
+      expect(list, hasLength(1));
+      expect(list.first.id, 'req1');
+      expect(list.first.userLogin, 'spammer');
+      expect(list.first.text, 'sorry');
+    });
+
+    test('resolveUnbanRequest approves with resolution text', () async {
+      final requests = <http.Request>[];
+      final api = TwitchApi(client: inboxClient(requests));
+      final ok = await api.resolveUnbanRequest(
+        inboxAuth(),
+        broadcasterId: 'broad1',
+        moderatorId: 'mod1',
+        requestId: 'req1',
+        approved: true,
+        resolutionText: 'second chance',
+      );
+      expect(ok, isTrue);
+      final query = requests.single.url.queryParameters;
+      expect(requests.single.method, 'PATCH');
+      expect(query['unban_request_id'], 'req1');
+      expect(query['status'], 'approved');
+      expect(query['resolution_text'], 'second chance');
+    });
+
+    test('blocked terms get/add/remove hit the right shapes', () async {
+      final requests = <http.Request>[];
+      final api = TwitchApi(client: inboxClient(requests));
+      final auth = inboxAuth();
+
+      final terms = await api.getBlockedTerms(
+        auth,
+        broadcasterId: 'broad1',
+        moderatorId: 'mod1',
+      );
+      expect(terms.single.text, 'bad word');
+
+      final created = await api.addBlockedTerm(
+        auth,
+        broadcasterId: 'broad1',
+        moderatorId: 'mod1',
+        text: 'worse',
+      );
+      expect(created!.id, 'term2');
+      expect(jsonDecode(requests[1].body)['text'], 'worse');
+
+      final removed = await api.removeBlockedTerm(
+        auth,
+        broadcasterId: 'broad1',
+        moderatorId: 'mod1',
+        termId: 'term1',
+      );
+      expect(removed, isTrue);
+      expect(requests[2].url.queryParameters['id'], 'term1');
+    });
+
+    test(
+      'ModActions inbox wrappers resolve ids and report notJoined',
+      () async {
+        final requests = <http.Request>[];
+        final actions = inboxActions(TwitchApi(client: inboxClient(requests)));
+        final auth = inboxAuth();
+
+        final list = await actions.getUnbanRequests(
+          auth,
+          'a',
+          status: 'pending',
+        );
+        expect(list, hasLength(1));
+
+        final approved = await actions.resolveUnbanRequest(
+          auth,
+          'a',
+          requestId: 'req1',
+          approved: false,
+        );
+        expect(approved.ok, isTrue);
+        expect(requests[1].url.queryParameters['status'], 'denied');
+        expect(
+          requests[1].url.queryParameters.containsKey('resolution_text'),
+          isFalse,
+        );
+
+        expect(await actions.getUnbanRequests(auth, 'missing'), isEmpty);
+        final notJoined = await actions.resolveUnbanRequest(
+          auth,
+          'missing',
+          requestId: 'req1',
+          approved: true,
+        );
+        expect(notJoined.ok, isFalse);
+        expect(notJoined.failure, ModFailure.notJoined);
+
+        final added = await actions.addBlockedTerm(auth, 'a', 'worse');
+        expect(added.ok, isTrue);
+        final removed = await actions.removeBlockedTerm(auth, 'a', 'term1');
+        expect(removed.ok, isTrue);
+      },
+    );
+
+    test('getBannedUsers parses bans and timeouts', () async {
+      final requests = <http.Request>[];
+      final api = TwitchApi(
+        client: MockClient((req) async {
+          requests.add(req);
+          return http.Response(
+            '{"data":['
+            '{"user_login":"permaban","expires_at":"","reason":"hate","moderator_name":"moduser"},'
+            '{"user_login":"timeoutguy","expires_at":"2026-02-01T00:10:00Z","reason":"","moderator_name":"moduser"}'
+            '],"pagination":{}}',
+            200,
+          );
+        }),
+      );
+      final auth = inboxAuth();
+      final list = await api.getBannedUsers(auth, 'broad1');
+      expect(requests.single.url.queryParameters['broadcaster_id'], 'broad1');
+      expect(list, hasLength(2));
+      expect(list[0].userLogin, 'permaban');
+      expect(list[0].expiresAt, isNull);
+      expect(list[0].reason, 'hate');
+      expect(list[1].userLogin, 'timeoutguy');
+      expect(list[1].expiresAt, '2026-02-01T00:10:00Z');
+      expect(list[1].reason, isNull);
+
+      final actions = inboxActions(api);
+      expect(await actions.getBannedUsers(auth, 'missing'), isEmpty);
+    });
+  });
+
+  group('mod automod settings and suspicious api', () {
+    const settingsJson =
+        '{"data":[{"broadcaster_id":"broad1","moderator_id":"mod1","overall_level":null,"disability":3,"aggression":4,"sexuality_sex_or_gender":3,"misogyny":3,"bullying":4,"swearing":1,"race_ethnicity_or_religion":3,"sex_based_terms":2}]}';
+
+    MockClient settingsClient(List<http.Request> requests) => MockClient((
+      req,
+    ) async {
+      requests.add(req);
+      final path = req.url.path;
+      if (req.method == 'GET' && path.endsWith('moderation/automod/settings')) {
+        return http.Response(settingsJson, 200);
+      }
+      if (req.method == 'PUT' && path.endsWith('moderation/automod/settings')) {
+        return http.Response(settingsJson, 200);
+      }
+      if (req.method == 'POST' &&
+          path.endsWith('moderation/suspicious_users')) {
+        return http.Response('{"data":[]}', 200);
+      }
+      if (req.method == 'DELETE' &&
+          path.endsWith('moderation/suspicious_users')) {
+        return http.Response('', 204);
+      }
+      if (req.url.path == '/helix/users') {
+        return http.Response('{"data":[{"id":"u9","login":"spammer"}]}', 200);
+      }
+      return http.Response('{"message":"unexpected"}', 404);
+    });
+
+    ModActions trustActions(TwitchApi api) => ModActions(
+      twitchApi: api,
+      getChannelUserIds: () => {'a': 'broad1'},
+      getCurrentUserId: () => 'mod1',
+    );
+
+    TwitchAuth trustAuth() {
+      final auth = TwitchAuth();
+      auth.accessToken = 'tok';
+      return auth;
+    }
+
+    test('getAutoModSettings parses levels and null overall', () async {
+      final requests = <http.Request>[];
+      final api = TwitchApi(client: settingsClient(requests));
+      final settings = await api.getAutoModSettings(
+        trustAuth(),
+        broadcasterId: 'broad1',
+        moderatorId: 'mod1',
+      );
+      expect(settings, isNotNull);
+      expect(settings!.overallLevel, isNull);
+      expect(settings.levels['bullying'], 4);
+      expect(settings.levels['swearing'], 1);
+      expect(settings.levels, hasLength(8));
+    });
+
+    test('updateAutoModSettings puts levels and parses applied', () async {
+      final requests = <http.Request>[];
+      final api = TwitchApi(client: settingsClient(requests));
+      final applied = await api.updateAutoModSettings(
+        trustAuth(),
+        broadcasterId: 'broad1',
+        moderatorId: 'mod1',
+        levels: const {'overall_level': 3},
+      );
+      expect(requests.single.method, 'PUT');
+      expect(jsonDecode(requests.single.body), {'overall_level': 3});
+      expect(applied, isNotNull);
+    });
+
+    test('suspicious add/remove hit the right shapes', () async {
+      final requests = <http.Request>[];
+      final api = TwitchApi(client: settingsClient(requests));
+      final auth = trustAuth();
+
+      final added = await api.addSuspiciousStatus(
+        auth,
+        broadcasterId: 'broad1',
+        moderatorId: 'mod1',
+        userId: 'u9',
+        restricted: true,
+      );
+      expect(added, isTrue);
+      expect(jsonDecode(requests[0].body), {
+        'user_id': 'u9',
+        'status': 'RESTRICTED',
+      });
+
+      final monitored = await api.addSuspiciousStatus(
+        auth,
+        broadcasterId: 'broad1',
+        moderatorId: 'mod1',
+        userId: 'u9',
+        restricted: false,
+      );
+      expect(monitored, isTrue);
+      expect(jsonDecode(requests[1].body)['status'], 'ACTIVE_MONITORING');
+
+      final cleared = await api.removeSuspiciousStatus(
+        auth,
+        broadcasterId: 'broad1',
+        moderatorId: 'mod1',
+        userId: 'u9',
+      );
+      expect(cleared, isTrue);
+      expect(requests[2].url.queryParameters['user_id'], 'u9');
+    });
+
+    test('ModActions trust wrappers resolve users and report', () async {
+      final requests = <http.Request>[];
+      final actions = trustActions(TwitchApi(client: settingsClient(requests)));
+      final auth = trustAuth();
+
+      final settings = await actions.getAutoModSettings(auth, 'a');
+      expect(settings, isNotNull);
+      expect(await actions.getAutoModSettings(auth, 'missing'), isNull);
+
+      final saved = await actions.updateAutoModSettings(auth, 'a', const {
+        'bullying': 4,
+      });
+      expect(saved.ok, isTrue);
+      final notJoined = await actions.updateAutoModSettings(
+        auth,
+        'missing',
+        const {'bullying': 4},
+      );
+      expect(notJoined.ok, isFalse);
+      expect(notJoined.failure, ModFailure.notJoined);
+
+      final restricted = await actions.setSuspiciousStatus(
+        auth,
+        'a',
+        login: 'spammer',
+        restricted: true,
+      );
+      expect(restricted.ok, isTrue);
+      final cleared = await actions.clearSuspiciousStatus(
+        auth,
+        'a',
+        login: 'spammer',
+      );
+      expect(cleared.ok, isTrue);
+    });
+  });
+
+  group('mod points api and actions', () {
+    const rewardsJson =
+        '{"data":[{"id":"reward1","title":"Hydrate","cost":500,"is_enabled":true,"is_paused":false}],"pagination":{}}';
+    const redemptionsJson =
+        '{"data":[{"id":"red1","user_login":"fan","user_input":"do a flip","status":"UNFULFILLED","redeemed_at":"2026-01-02T03:04:05Z","reward":{"id":"reward1","title":"Hydrate","cost":500}}],"pagination":{}}';
+
+    MockClient pointsClient(List<http.Request> requests) => MockClient((
+      req,
+    ) async {
+      requests.add(req);
+      final path = req.url.path;
+      if (req.method == 'GET' &&
+          path.endsWith('channel_points/custom_rewards')) {
+        return http.Response(rewardsJson, 200);
+      }
+      if (req.method == 'PATCH' &&
+          path.endsWith('channel_points/custom_rewards')) {
+        return http.Response(rewardsJson, 200);
+      }
+      if (req.method == 'GET' && path.endsWith('custom_rewards/redemptions')) {
+        return http.Response(redemptionsJson, 200);
+      }
+      if (req.method == 'PATCH' &&
+          path.endsWith('custom_rewards/redemptions')) {
+        return http.Response('{"data":[]}', 200);
+      }
+      return http.Response('{"message":"unexpected"}', 404);
+    });
+
+    TwitchAuth pointsAuth() {
+      final auth = TwitchAuth();
+      auth.accessToken = 'tok';
+      return auth;
+    }
+
+    test('rewards and redemptions parse', () async {
+      final requests = <http.Request>[];
+      final api = TwitchApi(client: pointsClient(requests));
+      final auth = pointsAuth();
+
+      final rewards = await api.getCustomRewards(auth, broadcasterId: 'broad1');
+      expect(requests.single.url.queryParameters['broadcaster_id'], 'broad1');
+      expect(rewards.single.title, 'Hydrate');
+      expect(rewards.single.cost, 500);
+      expect(rewards.single.isPaused, isFalse);
+
+      final queue = await api.getRedemptions(
+        auth,
+        broadcasterId: 'broad1',
+        rewardId: 'reward1',
+      );
+      final query = requests[1].url.queryParameters;
+      expect(query['reward_id'], 'reward1');
+      expect(query['status'], 'UNFULFILLED');
+      expect(queue.single.userLogin, 'fan');
+      expect(queue.single.userInput, 'do a flip');
+    });
+
+    test('pause and fulfill hit the right shapes', () async {
+      final requests = <http.Request>[];
+      final api = TwitchApi(client: pointsClient(requests));
+      final auth = pointsAuth();
+
+      final paused = await api.setRewardPaused(
+        auth,
+        broadcasterId: 'broad1',
+        rewardId: 'reward1',
+        paused: true,
+      );
+      expect(paused, isTrue);
+      expect(requests.single.method, 'PATCH');
+      expect(requests.single.url.queryParameters['id'], 'reward1');
+      expect(jsonDecode(requests.single.body), {'is_paused': true});
+
+      final fulfilled = await api.updateRedemptionStatus(
+        auth,
+        broadcasterId: 'broad1',
+        rewardId: 'reward1',
+        redemptionId: 'red1',
+        fulfilled: false,
+      );
+      expect(fulfilled, isTrue);
+      expect(requests[1].url.queryParameters['id'], 'red1');
+      expect(jsonDecode(requests[1].body), {'status': 'CANCELED'});
+    });
+
+    test('ModActions points wrappers need a joined channel', () async {
+      final requests = <http.Request>[];
+      final actions = ModActions(
+        twitchApi: TwitchApi(client: pointsClient(requests)),
+        getChannelUserIds: () => {'a': 'broad1'},
+        getCurrentUserId: () => 'mod1',
+      );
+      final auth = pointsAuth();
+
+      expect(await actions.getPointRewards(auth, 'a'), hasLength(1));
+      expect(await actions.getPointRewards(auth, 'missing'), isEmpty);
+      expect(
+        await actions.getPointRedemptions(auth, 'a', 'reward1'),
+        hasLength(1),
+      );
+
+      final paused = await actions.setRewardPaused(auth, 'a', 'reward1', true);
+      expect(paused.ok, isTrue);
+      final notJoined = await actions.setRewardPaused(
+        auth,
+        'missing',
+        'reward1',
+        true,
+      );
+      expect(notJoined.ok, isFalse);
+
+      final fulfilled = await actions.resolveRedemption(
+        auth,
+        'a',
+        'reward1',
+        'red1',
+        true,
+      );
+      expect(fulfilled.ok, isTrue);
+    });
+  });
+
+  group('TwitchApi.getFollowDate', () {
+    test('returns followed_at when following', () async {
+      final client = MockClient((request) async {
+        expect(request.url.queryParameters['broadcaster_id'], 'broad1');
+        expect(request.url.queryParameters['user_id'], 'user9');
+        return http.Response(
+          '{"total":1,"data":[{"user_id":"user9","followed_at":"2024-05-06T07:08:09Z"}],"pagination":{}}',
+          200,
+        );
+      });
+
+      final api = TwitchApi(client: client);
+      final auth = TwitchAuth();
+      auth.accessToken = 'tok';
+
+      expect(
+        await api.getFollowDate(auth, broadcasterId: 'broad1', userId: 'user9'),
+        '2024-05-06T07:08:09Z',
+      );
+    });
+
+    test('returns null when not following or on failure', () async {
+      final empty = TwitchApi(
+        client: MockClient(
+          (request) async =>
+              http.Response('{"total":0,"data":[],"pagination":{}}', 200),
+        ),
+      );
+      final auth = TwitchAuth();
+      auth.accessToken = 'tok';
+      expect(
+        await empty.getFollowDate(
+          auth,
+          broadcasterId: 'broad1',
+          userId: 'user9',
+        ),
+        isNull,
+      );
+
+      final failing = TwitchApi(
+        client: MockClient(
+          (request) async => http.Response('{"message":"forbidden"}', 403),
+        ),
+      );
+      expect(
+        await failing.getFollowDate(
+          auth,
+          broadcasterId: 'broad1',
+          userId: 'user9',
+        ),
+        isNull,
+      );
+      expect(failing.lastErrorStatus, 403);
+    });
+  });
+
+  test('returns null on auth failure and network error', () async {
+    final unauthorized = MockClient((request) async {
+      return http.Response(
+        '{"status":401,"message":"invalid access token"}',
+        401,
+      );
+    });
+    final unauthorizedApi = TwitchApi(client: unauthorized);
+    final deadAuth = TwitchAuth();
+    deadAuth.accessToken = 'dead-token';
+
+    final unauthorizedResult = await unauthorizedApi.validateToken(deadAuth);
+    expect(unauthorizedResult, isNull);
+    expect(unauthorizedApi.lastErrorStatus, 401);
+
+    final flaky = MockClient((request) async {
+      throw Exception('network');
+    });
+    final flakyApi = TwitchApi(client: flaky);
+    final flakyAuth = TwitchAuth();
+    flakyAuth.accessToken = 'tok';
+
+    final flakyResult = await flakyApi.validateToken(flakyAuth);
+    expect(flakyResult, isNull);
+    expect(flakyApi.lastErrorStatus, isNull);
   });
 
   group('IrcService auth-failure NOTICE', () {

@@ -15,6 +15,68 @@ class TwitchOAuth {
   static const _authorizeUrl = 'https://id.twitch.tv/oauth2/authorize';
   static const _channel = MethodChannel('ermchat/oauth');
 
+  /// Every scope a fresh login grants. Single source of truth for the auth
+  /// URL; [missingScopes] diffs it against validate output for the re-auth
+  /// prompt. Add future scopes here so old grants are detected, not silent.
+  static const List<String> requiredScopes = [
+    'chat:read',
+    'chat:edit',
+    'user:write:chat',
+    'user:manage:chat_color',
+    'moderator:manage:banned_users',
+    'moderator:manage:chat_messages',
+    'moderator:manage:announcements',
+    'moderator:manage:shoutouts',
+    'moderator:manage:warnings',
+    'moderator:read:moderators',
+    'moderator:read:vips',
+    'user:manage:blocked_users',
+    'user:read:blocked_users',
+    'moderator:manage:chat_settings',
+    'channel:manage:moderators',
+    'channel:manage:vips',
+    'channel:edit:commercial',
+    'channel:manage:raids',
+    'moderator:manage:shield_mode',
+    'channel:manage:broadcast',
+    'user:manage:whispers',
+    'channel:read:hype_train',
+    'channel:read:polls',
+    'channel:read:predictions',
+    'channel:manage:polls',
+    'channel:manage:predictions',
+    // EventSub channel.moderate v2 requires these:
+    'moderator:read:blocked_terms',
+    'moderator:read:unban_requests',
+    // AutoMod queue (hold/update subs + allow/deny) needs manage.
+    'moderator:manage:automod',
+    // Tier 3 mod view: inbox, terms, warnings log, automod editor,
+    // suspicious users, chatters/followers, moderated-channels picker.
+    'moderator:read:automod_settings',
+    'moderator:manage:automod_settings',
+    'moderator:manage:blocked_terms',
+    'moderator:manage:unban_requests',
+    'moderator:read:warnings',
+    'moderator:read:chat_settings',
+    'moderator:read:suspicious_users',
+    'moderator:manage:suspicious_users',
+    'moderator:read:chatters',
+    'moderator:read:followers',
+    'user:read:moderated_channels',
+    // Broadcaster-only channel points tab.
+    'channel:read:redemptions',
+    'channel:manage:redemptions',
+  ];
+
+  /// Required scopes absent from a validate [granted] list.
+  static List<String> missingScopes(Iterable<String> granted) {
+    final have = granted.toSet();
+    return [
+      for (final s in requiredScopes)
+        if (!have.contains(s)) s,
+    ];
+  }
+
   static String? lastError;
   static bool _flowInProgress = false;
 
@@ -90,20 +152,7 @@ class TwitchOAuth {
         '?client_id=${TwitchConfig.clientId}'
         '&redirect_uri=${Uri.encodeQueryComponent(TwitchConfig.redirectUri)}'
         '&response_type=token'
-        '&scope=chat:read+chat:edit+user:write:chat+user:manage:chat_color+'
-        'moderator:manage:banned_users+moderator:manage:chat_messages+moderator:manage:announcements+'
-        'moderator:manage:shoutouts+moderator:manage:warnings+moderator:read:moderators+'
-        'moderator:read:vips+user:manage:blocked_users+user:read:blocked_users+moderator:manage:chat_settings+'
-        'channel:manage:moderators+channel:manage:vips+channel:edit:commercial+channel:manage:raids+'
-        'moderator:manage:shield_mode+channel:manage:broadcast+user:manage:whispers+'
-        'channel:read:hype_train+channel:read:polls+channel:read:predictions+'
-        'channel:manage:polls+channel:manage:predictions+'
-        // EventSub channel.moderate v2 requires these:
-        'moderator:read:blocked_terms+moderator:read:unban_requests+'
-        // AutoMod queue (hold/update subs + allow/deny) needs manage;
-        // read:automod_settings rides along so the later settings editor
-        // does not force a second re-auth.
-        'moderator:manage:automod+moderator:read:automod_settings'
+        '&scope=${requiredScopes.join('+')}'
         '&state=$state'
         '&force_verify=true';
     return (url: url, state: state);

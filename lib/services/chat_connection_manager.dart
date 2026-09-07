@@ -1,11 +1,13 @@
 import 'dart:async';
 import 'package:flutter/widgets.dart';
 import '../models/generic_emote.dart';
+import '../models/point_rewards.dart';
 import '../util/duration_format.dart';
 import '../util/log.dart';
 import '../models/twitch_message.dart';
 import '../services/twitch_api.dart';
 import '../services/twitch_auth.dart';
+import '../services/twitch_oauth.dart';
 import '../services/twitch_eventsub.dart';
 import '../services/twitch_irc.dart';
 import '../services/emote_manager.dart';
@@ -326,6 +328,15 @@ class ChatConnectionManager {
   StreamSubscription<(String?, List<String>)>? emoteSetsSub;
   StreamSubscription<ModerationEvent>? moderationSub;
   StreamSubscription<AutomodHeldEvent>? automodHeldSub;
+  StreamSubscription<ShieldModeEvent>? shieldModeSub;
+  StreamSubscription<ShoutoutEvent>? shoutoutSub;
+  StreamSubscription<WarningEvent>? warningSub;
+  StreamSubscription<UnbanRequestEvent>? unbanRequestSub;
+  StreamSubscription<AutomodTermsEvent>? automodTermsSub;
+  StreamSubscription<AutomodSettingsEvent>? automodSettingsSub;
+  StreamSubscription<SuspiciousUserEvent>? suspiciousUserSub;
+  StreamSubscription<PointRewardEvent>? pointRewardSub;
+  StreamSubscription<PointRedemptionEvent>? pointRedemptionSub;
   StreamSubscription<HypeTrainEvent>? hypeTrainSub;
   StreamSubscription<PollEvent>? pollSub;
   StreamSubscription<PredictionEvent>? predictionSub;
@@ -400,6 +411,15 @@ class ChatConnectionManager {
     emoteSetsSub?.cancel();
     moderationSub?.cancel();
     automodHeldSub?.cancel();
+    shieldModeSub?.cancel();
+    shoutoutSub?.cancel();
+    warningSub?.cancel();
+    unbanRequestSub?.cancel();
+    automodTermsSub?.cancel();
+    automodSettingsSub?.cancel();
+    suspiciousUserSub?.cancel();
+    pointRewardSub?.cancel();
+    pointRedemptionSub?.cancel();
     hypeTrainSub?.cancel();
     pollSub?.cancel();
     predictionSub?.cancel();
@@ -477,6 +497,9 @@ class ChatConnectionManager {
   /// Whether the AutoMod queue subscriptions are up.
   bool isAutomodActive(String channel) =>
       _channelSetup.isAutomodActive(channel);
+
+  /// Whether the session user owns [channel] (Channel tab gate).
+  bool isBroadcaster(String channel) => _channelSetup.isBroadcaster(channel);
 
   /// Merged ROOMSTATE tags for the mode toggles.
   Map<String, String> roomStateTags(String channel) =>
@@ -996,6 +1019,13 @@ class ChatConnectionManager {
                 _handleExpiredToken();
               }
             }
+            if (result != null && auth.accessToken == validatedToken) {
+              // Grant predates scopes added after login: prompt re-login
+              // instead of failing Tier 3 calls with 403s.
+              if (TwitchOAuth.missingScopes(result.scopes).isNotEmpty) {
+                auth.markScopeStale();
+              }
+            }
             // Only update _lastValidatedToken on definitive outcomes (success
             // or 401). Network errors re-trigger validation next time.
             if (result != null || twitchApi.lastErrorStatus == 401) {
@@ -1397,6 +1427,22 @@ class ChatConnectionManager {
 
     automodHeldSub ??= eventSub.onAutomodHeld.listen(_onAutomodHeld);
 
+    shieldModeSub ??= eventSub.onShieldMode.listen(_onShieldModeEvent);
+    shoutoutSub ??= eventSub.onShoutout.listen(_onShoutoutEvent);
+    warningSub ??= eventSub.onWarning.listen(_onWarningEvent);
+    unbanRequestSub ??= eventSub.onUnbanRequest.listen(_onUnbanRequestEvent);
+    automodTermsSub ??= eventSub.onAutomodTerms.listen(_onAutomodTermsEvent);
+    automodSettingsSub ??= eventSub.onAutomodSettings.listen(
+      _onAutomodSettingsEvent,
+    );
+    suspiciousUserSub ??= eventSub.onSuspiciousUser.listen(
+      _onSuspiciousUserEvent,
+    );
+    pointRewardSub ??= eventSub.onPointReward.listen(_onPointRewardEvent);
+    pointRedemptionSub ??= eventSub.onPointRedemption.listen(
+      _onPointRedemptionEvent,
+    );
+
     hypeTrainSub ??= eventSub.onHypeTrain.listen((event) {
       if (isDisposed) return;
       if (!_channelSetup.isWidgetActive(event.channel)) return;
@@ -1428,7 +1474,8 @@ class ChatConnectionManager {
   }
 
   // channel.moderate v2 events in channels with an active subscription:
-  // renders moderation system messages and applies message deletions.
+  // renders moderation system messages, applies message deletions, tracks
+  // the ban roster and warn log, and logs every action to the feed.
   void _onModerationEvent(ModerationEvent event) {
     if (isDisposed) return;
     if (!_channelSetup.isModerationActive(event.channel)) return;
@@ -1440,6 +1487,22 @@ class ChatConnectionManager {
         target != null &&
         selfLogin != null &&
         target.toLowerCase() == selfLogin;
+    final reason = (event.reason != null && event.reason!.isNotEmpty)
+        ? ': "${event.reason}"'
+        : '';
+
+    void feed() => store.addModActivity(
+      ModActivityEntry(
+        at: DateTime.now(),
+        channel: event.channel,
+        action: event.action,
+        moderator: mod,
+        target: target,
+        reason: event.reason,
+        durationSeconds: event.durationSeconds,
+        terms: event.terms,
+      ),
+    );
 
     switch (event.action) {
       case 'delete':
@@ -1454,17 +1517,34 @@ class ChatConnectionManager {
           event.channel,
           '$mod deleted a message from $target$body.',
         );
+        feed();
         break;
       case 'clear':
         store.markAllMessagesDeleted(event.channel);
         store.touchChannel(event.channel);
         onSystemMessage(event.channel, '$mod cleared the chat.');
+        feed();
         break;
       case 'ban':
       case 'timeout':
         onAnalyticsModeration?.call(event.channel, event.action == 'timeout');
         if (target != null) {
           store.markUserMessagesDeleted(event.channel, target);
+          store.putBan(
+            BanEntry(
+              at: DateTime.now(),
+              channel: event.channel,
+              login: target,
+              expiresAt:
+                  event.action == 'timeout' && event.durationSeconds != null
+                  ? DateTime.now().add(
+                      Duration(seconds: event.durationSeconds!),
+                    )
+                  : null,
+              reason: event.reason,
+              moderator: mod,
+            ),
+          );
         }
         final duration = event.durationSeconds != null
             ? ' for ${formatSeconds(event.durationSeconds!)}'
@@ -1478,44 +1558,389 @@ class ChatConnectionManager {
             Duration(seconds: event.durationSeconds!),
           );
         }
-        final reason = (event.reason != null && event.reason!.isNotEmpty)
-            ? ': "${event.reason}"'
-            : '';
         onSystemMessage(
           event.channel,
           isSelfTarget
               ? 'You were ${event.action == 'timeout' ? 'timed out$duration' : 'banned'}$reason by $mod.'
               : '$mod ${event.action == 'timeout' ? 'timed out' : 'banned'} $target$duration$reason.',
         );
+        feed();
         break;
       case 'unban':
       case 'untimeout':
         if (isSelfTarget) _selfTimeoutUntil.remove(event.channel);
+        if (target != null) store.removeBan(event.channel, target);
         onSystemMessage(
           event.channel,
           isSelfTarget
               ? 'You were unbanned by $mod.'
               : '$mod unbanned $target.',
         );
+        feed();
         break;
       case 'mod':
         onSystemMessage(event.channel, '$mod modded $target.');
+        feed();
         break;
       case 'unmod':
         onSystemMessage(event.channel, '$mod unmodded $target.');
+        feed();
         break;
       case 'vip':
         onSystemMessage(event.channel, '$mod added $target as a VIP.');
+        feed();
         break;
       case 'unvip':
         onSystemMessage(event.channel, '$mod removed $target as a VIP.');
+        feed();
         break;
       case 'warn':
-        final reason = (event.reason != null && event.reason!.isNotEmpty)
-            ? ': "${event.reason}"'
-            : '';
+        if (target != null && target.isNotEmpty) {
+          store.addWarning(
+            WarnEntry(
+              at: DateTime.now(),
+              channel: event.channel,
+              target: target,
+              moderator: mod,
+              reason: event.reason,
+            ),
+          );
+        }
         onSystemMessage(event.channel, '$mod warned $target$reason.');
+        feed();
         break;
+      case 'slow':
+      case 'slowoff':
+        feed();
+        onSystemMessage(
+          event.channel,
+          event.action == 'slow'
+              ? '$mod enabled slow mode.'
+              : '$mod disabled slow mode.',
+        );
+        break;
+      case 'followers':
+      case 'followersoff':
+        feed();
+        onSystemMessage(
+          event.channel,
+          event.action == 'followers'
+              ? '$mod enabled followers-only mode.'
+              : '$mod disabled followers-only mode.',
+        );
+        break;
+      case 'emoteonly':
+      case 'emoteonlyoff':
+        feed();
+        onSystemMessage(
+          event.channel,
+          event.action == 'emoteonly'
+              ? '$mod enabled emote-only mode.'
+              : '$mod disabled emote-only mode.',
+        );
+        break;
+      case 'subscribers':
+      case 'subscribersoff':
+        feed();
+        onSystemMessage(
+          event.channel,
+          event.action == 'subscribers'
+              ? '$mod enabled subscribers-only mode.'
+              : '$mod disabled subscribers-only mode.',
+        );
+        break;
+      case 'uniquechat':
+      case 'uniquechatoff':
+        feed();
+        onSystemMessage(
+          event.channel,
+          event.action == 'uniquechat'
+              ? '$mod enabled unique chat.'
+              : '$mod disabled unique chat.',
+        );
+        break;
+      case 'raid':
+        feed();
+        onSystemMessage(event.channel, '$mod started a raid.');
+        break;
+      case 'unraid':
+        feed();
+        onSystemMessage(event.channel, '$mod cancelled the raid.');
+        break;
+      case 'add_blocked_term':
+      case 'remove_blocked_term':
+      case 'add_permitted_term':
+      case 'remove_permitted_term':
+        feed();
+        onSystemMessage(
+          event.channel,
+          _termLine(mod, event.action, event.terms),
+        );
+        break;
+      case 'approve_unban_request':
+      case 'deny_unban_request':
+        feed();
+        final verb = event.action == 'approve_unban_request'
+            ? 'approved'
+            : 'denied';
+        onSystemMessage(
+          event.channel,
+          target != null && target.isNotEmpty
+              ? '$mod $verb $target\'s unban request$reason.'
+              : '$mod $verb an unban request$reason.',
+        );
+        break;
+      default:
+        // Future or unknown actions still land in the feed; no chat line.
+        feed();
+        break;
+    }
+  }
+
+  String _termLine(String mod, String action, List<String> terms) {
+    final kind = action.contains('permitted')
+        ? 'permitted term'
+        : 'blocked term';
+    final verb = action.startsWith('add') ? 'added' : 'removed';
+    if (terms.length == 1) return '$mod $verb $kind "${terms.first}".';
+    if (terms.length > 1) return '$mod $verb ${terms.length} ${kind}s.';
+    return '$mod $verb a $kind.';
+  }
+
+  // Mod-feed complements gated on the feed subscriptions: shield toggles,
+  // shoutouts, and warning lifecycle have no channel.moderate equivalent.
+  // warning.send is skipped while moderate covers it, to avoid doubles.
+  void _onShieldModeEvent(ShieldModeEvent event) {
+    if (isDisposed) return;
+    if (!_channelSetup.isFeedActive(event.channel)) return;
+    store.addModActivity(
+      ModActivityEntry(
+        at: DateTime.now(),
+        channel: event.channel,
+        action: event.active ? 'shield_on' : 'shield_off',
+        moderator: event.moderatorName,
+      ),
+    );
+    onSystemMessage(
+      event.channel,
+      event.active
+          ? '${event.moderatorName} enabled Shield Mode.'
+          : '${event.moderatorName} disabled Shield Mode.',
+    );
+  }
+
+  void _onShoutoutEvent(ShoutoutEvent event) {
+    if (isDisposed) return;
+    if (!_channelSetup.isFeedActive(event.channel)) return;
+    final created = event.kind == 'create';
+    store.addModActivity(
+      ModActivityEntry(
+        at: DateTime.now(),
+        channel: event.channel,
+        action: 'shoutout',
+        moderator: event.moderatorName,
+        target: created ? event.toLogin : event.fromLogin,
+      ),
+    );
+    onSystemMessage(
+      event.channel,
+      created
+          ? '${event.moderatorName} shouted out ${event.toLogin}.'
+          : '${event.fromLogin} shouted out this channel.',
+    );
+  }
+
+  void _onWarningEvent(WarningEvent event) {
+    if (isDisposed) return;
+    if (!_channelSetup.isFeedActive(event.channel)) return;
+    if (event.kind == 'acknowledge') {
+      store.addModActivity(
+        ModActivityEntry(
+          at: DateTime.now(),
+          channel: event.channel,
+          action: 'warn_ack',
+          moderator: event.moderatorName,
+          target: event.userLogin,
+        ),
+      );
+      onSystemMessage(
+        event.channel,
+        '${event.userLogin} acknowledged a warning.',
+      );
+      return;
+    }
+    // channel.moderate already reported this warn with the same data.
+    if (_channelSetup.isModerationActive(event.channel)) return;
+    final user = event.userLogin;
+    final reason = (event.reason != null && event.reason!.isNotEmpty)
+        ? ': "${event.reason}"'
+        : '';
+    if (user.isNotEmpty) {
+      store.addWarning(
+        WarnEntry(
+          at: DateTime.now(),
+          channel: event.channel,
+          target: user,
+          moderator: event.moderatorName,
+          reason: event.reason,
+        ),
+      );
+    }
+    store.addModActivity(
+      ModActivityEntry(
+        at: DateTime.now(),
+        channel: event.channel,
+        action: 'warn',
+        moderator: event.moderatorName,
+        target: user.isEmpty ? null : user,
+        reason: event.reason,
+      ),
+    );
+    onSystemMessage(
+      event.channel,
+      '${event.moderatorName} warned $user$reason.',
+    );
+  }
+
+  // Inbox complements gated on the inbox subscriptions: unban request
+  // create/resolve refresh the inbox tab. Creates get a chat line (no feed
+  // row: feed rows always carry a moderator); resolves get both.
+  void _onUnbanRequestEvent(UnbanRequestEvent event) {
+    if (isDisposed) return;
+    if (!_channelSetup.isInboxActive(event.channel)) return;
+    store.touchInbox();
+    final user = event.userLogin;
+    if (event.kind == 'create') {
+      onSystemMessage(event.channel, '$user requested an unban.');
+      return;
+    }
+    final resolution =
+        (event.resolutionText != null && event.resolutionText!.isNotEmpty)
+        ? ': "${event.resolutionText}"'
+        : '';
+    store.addModActivity(
+      ModActivityEntry(
+        at: DateTime.now(),
+        channel: event.channel,
+        action: 'unban_resolved',
+        moderator: event.moderatorName,
+        target: user.isEmpty ? null : user,
+        reason: event.resolutionText,
+      ),
+    );
+    onSystemMessage(
+      event.channel,
+      '${event.moderatorName} resolved $user\'s unban request$resolution.',
+    );
+  }
+
+  // Public AutoMod term updates refresh the terms tab. Skipped while
+  // channel.moderate covers the same change (it carries the same terms).
+  void _onAutomodTermsEvent(AutomodTermsEvent event) {
+    if (isDisposed) return;
+    if (!_channelSetup.isInboxActive(event.channel)) return;
+    store.touchInbox();
+    if (_channelSetup.isModerationActive(event.channel)) return;
+    final adding = event.action != 'remove';
+    final permitted = event.list == 'permitted';
+    final action =
+        '${adding ? 'add' : 'remove'}_${permitted ? 'permitted' : 'blocked'}_term';
+    store.addModActivity(
+      ModActivityEntry(
+        at: DateTime.now(),
+        channel: event.channel,
+        action: action,
+        moderator: event.moderatorName,
+        terms: event.terms,
+      ),
+    );
+    onSystemMessage(
+      event.channel,
+      formatTermAction(event.moderatorName, action, event.terms),
+    );
+  }
+
+  // AutoMod settings changes refresh the Setup tab and land in the feed.
+  void _onAutomodSettingsEvent(AutomodSettingsEvent event) {
+    if (isDisposed) return;
+    if (!_channelSetup.isTrustActive(event.channel)) return;
+    store.touchInbox();
+    store.addModActivity(
+      ModActivityEntry(
+        at: DateTime.now(),
+        channel: event.channel,
+        action: 'automod_settings',
+        moderator: event.moderatorName,
+      ),
+    );
+    onSystemMessage(
+      event.channel,
+      '${event.moderatorName} updated AutoMod settings.',
+    );
+  }
+
+  // Suspicious-user sightings build the per-user flag context (card, Users
+  // tab). Message events are silent by design (volume, no actor); status
+  // updates get a feed row and a chat line.
+  void _onSuspiciousUserEvent(SuspiciousUserEvent event) {
+    if (isDisposed) return;
+    if (!_channelSetup.isTrustActive(event.channel)) return;
+    final user = event.userLogin;
+    if (user.isEmpty) return;
+    store.noteSuspicious(
+      SuspiciousInfo(
+        at: DateTime.now(),
+        channel: event.channel,
+        login: user,
+        status: event.status,
+        types: event.types,
+        banEvasion: event.banEvasion,
+        sharedBanChannelIds: event.sharedBanChannelIds,
+      ),
+    );
+    if (event.kind == 'message') return;
+    store.addModActivity(
+      ModActivityEntry(
+        at: DateTime.now(),
+        channel: event.channel,
+        action: 'suspicious_flag',
+        moderator: event.moderatorName,
+        target: user,
+        reason: event.status.isEmpty ? null : event.status,
+      ),
+    );
+    onSystemMessage(
+      event.channel,
+      '${event.moderatorName} updated the suspicious status of $user.',
+    );
+  }
+
+  // Points complements gated on the points subscriptions. Reward edits
+  // refresh the reward list; redemption adds queue and updates resolve.
+  // Silent by design: redemptions are high-volume and reward edits carry
+  // no actor, so neither belongs in the chat or the mod feed.
+  void _onPointRewardEvent(PointRewardEvent event) {
+    if (isDisposed) return;
+    if (!_channelSetup.isPointsActive(event.channel)) return;
+    final rewards = List<PointReward>.of(
+      store.pointRewards[event.channel] ?? const <PointReward>[],
+    );
+    if (event.kind == 'remove') {
+      rewards.removeWhere((r) => r.id == event.reward.id);
+    } else {
+      rewards.removeWhere((r) => r.id == event.reward.id);
+      rewards.add(event.reward);
+    }
+    store.setPointRewards(event.channel, rewards);
+  }
+
+  void _onPointRedemptionEvent(PointRedemptionEvent event) {
+    if (isDisposed) return;
+    if (!_channelSetup.isPointsActive(event.channel)) return;
+    if (event.kind == 'add' && event.redemption.status == 'UNFULFILLED') {
+      store.upsertPointRedemption(event.channel, event.redemption);
+    } else {
+      store.resolvePointRedemption(event.channel, event.redemption.id);
     }
   }
 
