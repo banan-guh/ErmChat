@@ -189,23 +189,18 @@ class _AccountScreenState extends State<AccountScreen> {
   Widget build(BuildContext context) {
     return SettingsPage(
       title: const Text('Account'),
-      body: ListView(
-        children: [
-          if (widget.twitchAuth.accounts.isNotEmpty) _buildAccountSection(),
-          _buildBody(),
-        ],
-      ),
+      body: ListView(children: [_buildAccountSection(), _buildBody()]),
     );
   }
 
-  // Saved accounts: tap to switch, long-press to remove (with confirmation).
+  // Account switcher, always visible: saved accounts plus an Anonymous row
+  // at the bottom. Tap to switch, long-press a saved account to remove it.
   Widget _buildAccountSection() {
     final auth = widget.twitchAuth;
     return ListenableBuilder(
       listenable: auth,
       builder: (context, _) {
         final accounts = auth.accounts;
-        if (accounts.isEmpty) return const SizedBox.shrink();
         final theme = Theme.of(context);
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -236,17 +231,61 @@ class _AccountScreenState extends State<AccountScreen> {
                     trailing: isActive && !isExpired
                         ? Icon(Icons.check, color: theme.colorScheme.primary)
                         : null,
-                    onTap: () => auth.switchTo(account.login),
+                    onTap: () =>
+                        _switchAccount(() => auth.switchTo(account.login)),
                     onLongPress: () => _confirmRemove(account),
                   );
                   return isExpired ? Opacity(opacity: 0.5, child: tile) : tile;
                 },
               ),
             ],
+            Builder(
+              builder: (context) {
+                final isActive = auth.isAnonymous;
+                return ListTile(
+                  leading: CircleAvatar(
+                    radius: 18,
+                    backgroundColor: theme.colorScheme.surfaceContainerHighest,
+                    child: Icon(
+                      Icons.person_outline,
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  title: const Text('Anonymous'),
+                  subtitle: isActive
+                      ? const Text('Active')
+                      : null,
+                  trailing: isActive
+                      ? Icon(Icons.check, color: theme.colorScheme.primary)
+                      : null,
+                  onTap: () => _switchAccount(auth.switchToAnonymous),
+                );
+              },
+            ),
           ],
         );
       },
     );
+  }
+
+  // Account/anonymous taps leave a stale _authState behind (e.g. success UI
+  // while anonymous), so sync it back to the auth state when no login flow
+  // is in progress.
+  Future<void> _switchAccount(Future<void> Function() switchOp) async {
+    await switchOp();
+    if (!mounted) return;
+    if (_authState == _AuthState.idle || _authState == _AuthState.success) {
+      setState(() {
+        _authState = widget.twitchAuth.isConfigured
+            ? _AuthState.success
+            : _AuthState.idle;
+        _authError = null;
+        _connectedLogin = null;
+      });
+    }
+    if (widget.twitchAuth.isConfigured) {
+      _loadConnectedLogin();
+    }
   }
 
   Future<void> _confirmRemove(TwitchAccount account) async {

@@ -34,6 +34,9 @@ class ComposerBar extends StatelessWidget {
             listenable: Listenable.merge([
               controller.cooldownLabel,
               controller.chatConn.connectionStateNotifier,
+              // Auth switches must re-render immediately (anon to user and
+              // back), not wait for the next connection-state bump.
+              controller.twitchAuth,
             ]),
             builder: (context, _) {
               // Search borrows the input box: same field, own controllers.

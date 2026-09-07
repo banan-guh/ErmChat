@@ -1890,9 +1890,16 @@ void main() {
   ) async {
     final fakeEventSub = _FakeEventSubService();
     final fakeIrc = _FakeIrcService();
+    final fakeIrcRead = _FakeIrcReadService();
 
     SharedPreferences.setMockInitialValues({'access_token': 'test_token'});
-    FlutterSecureStorage.setMockInitialValues({'access_token': 'test_token'});
+    // Resolved identity so the session fast path applies. The test is about
+    // JOIN gating; identity resolution now locks the input on its own.
+    FlutterSecureStorage.setMockInitialValues({
+      'accounts':
+          '[{"login":"me","user_id":"42","access_token":"test_token"}]',
+      'active_login': 'me',
+    });
 
     await tester.pumpWidget(
       TwitchChatApp(
@@ -1900,6 +1907,7 @@ void main() {
         eventSubService: fakeEventSub,
         recentMessagesService: _FakeRecentMessagesService(),
         ircService: fakeIrc,
+        ircReadService: fakeIrcRead,
       ),
     );
     await tester.pump();
@@ -1910,8 +1918,9 @@ void main() {
     await tester.tap(find.text('Join', skipOffstage: false));
     await tester.pumpAndSettle();
 
-    // Socket up but JOIN not confirmed yet: input locked with a hint.
+    // Sockets up but JOIN not confirmed yet: input locked with a hint.
     fakeIrc.triggerConnect();
+    fakeIrcRead.triggerConnect();
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 600));
     await tester.pump();
@@ -1924,8 +1933,9 @@ void main() {
     expect(inputEnabled(), isFalse);
     expect(find.text('Disconnected'), findsOneWidget);
 
-    // JOIN confirms: input unlocks and the hint goes away.
+    // JOIN confirms on both sockets: input unlocks and the hint goes away.
     fakeIrc.triggerJoin('testchannel');
+    fakeIrcRead.triggerJoin('testchannel');
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 600));
     await tester.pump();
@@ -2549,16 +2559,22 @@ void main() {
       }
       {
         SharedPreferences.setMockInitialValues({'access_token': 'test_token'});
+        // Resolved identity: the emote sheet toggle needs an enabled
+        // composer, which now requires the session user (not just a token).
         FlutterSecureStorage.setMockInitialValues({
-          'access_token': 'test_token',
+          'accounts':
+              '[{"login":"me","user_id":"42","access_token":"test_token"}]',
+          'active_login': 'me',
         });
         final irc = _FakeIrcService();
+        final ircRead = _FakeIrcReadService();
         await tester.pumpWidget(
           TwitchChatApp(
             key: UniqueKey(),
             eventSubService: _FakeEventSubService(),
             recentMessagesService: _ConfigurableRecentMessagesService(const []),
             ircService: irc,
+            ircReadService: ircRead,
           ),
         );
         await tester.pump();
@@ -2569,6 +2585,7 @@ void main() {
         await tester.pump();
         await tester.pump();
         irc.triggerConnect(joinChannel: 'testchannel');
+        ircRead.triggerConnect(joinChannel: 'testchannel');
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 600));
         await tester.pump();
@@ -4312,7 +4329,13 @@ void main() {
       WidgetTester tester,
     ) async {
       SharedPreferences.setMockInitialValues({'access_token': 'test_token'});
-      FlutterSecureStorage.setMockInitialValues({'access_token': 'test_token'});
+      // Resolved identity: typing needs an enabled composer, which now
+      // requires the session user (not just a token).
+      FlutterSecureStorage.setMockInitialValues({
+        'accounts':
+            '[{"login":"me","user_id":"42","access_token":"test_token"}]',
+        'active_login': 'me',
+      });
       final eventSub = _FakeEventSubService();
       final irc = _FakeIrcService();
       final ircRead = _FakeIrcReadService();
@@ -4371,7 +4394,13 @@ void main() {
       WidgetTester tester,
     ) async {
       SharedPreferences.setMockInitialValues({'access_token': 'test_token'});
-      FlutterSecureStorage.setMockInitialValues({'access_token': 'test_token'});
+      // Resolved identity: typing needs an enabled composer, which now
+      // requires the session user (not just a token).
+      FlutterSecureStorage.setMockInitialValues({
+        'accounts':
+            '[{"login":"me","user_id":"42","access_token":"test_token"}]',
+        'active_login': 'me',
+      });
       final eventSub = _FakeEventSubService();
       final irc = _FakeIrcService();
       final ircRead = _FakeIrcReadService();
@@ -4407,6 +4436,7 @@ void main() {
       await tester.pump();
 
       irc.triggerConnect(joinChannel: 'xqc');
+      ircRead.triggerConnect(joinChannel: 'xqc');
       await tester.pump();
 
       // Type @Us to trigger autocomplete for user UserOne.
@@ -4444,7 +4474,13 @@ void main() {
       WidgetTester tester,
     ) async {
       SharedPreferences.setMockInitialValues({'access_token': 'test_token'});
-      FlutterSecureStorage.setMockInitialValues({'access_token': 'test_token'});
+      // Resolved identity: typing needs an enabled composer, which now
+      // requires the session user (not just a token).
+      FlutterSecureStorage.setMockInitialValues({
+        'accounts':
+            '[{"login":"me","user_id":"42","access_token":"test_token"}]',
+        'active_login': 'me',
+      });
       final eventSub = _FakeEventSubService();
       final irc = _FakeIrcService();
       final ircRead = _FakeIrcReadService();
@@ -4467,6 +4503,10 @@ void main() {
       await tester.tap(find.text('Join', skipOffstage: false));
       await tester.pump();
 
+      irc.triggerConnect(joinChannel: 'xqc');
+      ircRead.triggerConnect(joinChannel: 'xqc');
+      await tester.pump();
+
       ircRead.emitMessage(
         TwitchMessage(
           login: 'UserOne',
@@ -4487,9 +4527,16 @@ void main() {
       WidgetTester tester,
     ) async {
       SharedPreferences.setMockInitialValues({'access_token': 'test_token'});
-      FlutterSecureStorage.setMockInitialValues({'access_token': 'test_token'});
+      // Resolved identity: typing needs an enabled composer, which now
+      // requires the session user (not just a token).
+      FlutterSecureStorage.setMockInitialValues({
+        'accounts':
+            '[{"login":"me","user_id":"42","access_token":"test_token"}]',
+        'active_login': 'me',
+      });
       final eventSub = _FakeEventSubService();
       final irc = _FakeIrcService();
+      final ircRead = _FakeIrcReadService();
       final recent = _FakeRecentMessagesService();
 
       await tester.pumpWidget(
@@ -4497,6 +4544,7 @@ void main() {
           key: UniqueKey(),
           eventSubService: eventSub,
           ircService: irc,
+          ircReadService: ircRead,
           recentMessagesService: recent,
         ),
       );
@@ -4509,6 +4557,7 @@ void main() {
       await tester.pump();
 
       irc.triggerConnect(joinChannel: 'xqc');
+      ircRead.triggerConnect(joinChannel: 'xqc');
       await tester.pump();
 
       await tester.enterText(find.byKey(const Key('message_input')), '/');
@@ -4620,6 +4669,47 @@ void main() {
       }
     },
   );
+
+  testWidgets('Anonymous row is present and selected with no accounts', (
+    WidgetTester tester,
+  ) async {
+    final auth = TwitchAuth();
+    await tester.pumpWidget(wrapAccountScreen(auth));
+    await tester.pump();
+
+    expect(find.text('Accounts', skipOffstage: false), findsOneWidget);
+    expect(find.text('Anonymous', skipOffstage: false), findsOneWidget);
+    expect(find.text('Active', skipOffstage: false), findsOneWidget);
+    expect(find.byIcon(Icons.check), findsOneWidget);
+    expect(find.text('Login', skipOffstage: false), findsOneWidget);
+  });
+
+  testWidgets('Anonymous row switches to and from saved accounts', (
+    WidgetTester tester,
+  ) async {
+    final auth = twoAccounts();
+    await tester.pumpWidget(wrapAccountScreen(auth));
+    await tester.pump();
+    expect(auth.login, 'bob');
+    expect(find.text('Anonymous', skipOffstage: false), findsOneWidget);
+    expect(find.text('Active', skipOffstage: false), findsOneWidget);
+    expect(find.byIcon(Icons.check), findsOneWidget);
+
+    await tester.tap(find.text('Anonymous', skipOffstage: false));
+    await tester.pumpAndSettle();
+    expect(auth.isAnonymous, isTrue);
+    expect(auth.accessToken, isNull);
+    // The registry is kept, so switching back restores the token.
+    expect(auth.accounts.length, 2);
+    expect(find.text('Active', skipOffstage: false), findsOneWidget);
+    expect(find.byIcon(Icons.check), findsOneWidget);
+    expect(find.text('Login', skipOffstage: false), findsOneWidget);
+
+    await tester.tap(find.text('alice', skipOffstage: false));
+    await tester.pumpAndSettle();
+    expect(auth.login, 'alice');
+    expect(auth.accessToken, 'token_a');
+  });
 
   testWidgets(
     'Saved account removal asks for confirmation and falls back to login',

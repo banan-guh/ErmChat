@@ -410,6 +410,9 @@ class ComposerController {
       (host.activePanel != OverlayPanel.mentions || host.isWhispersTabActive) &&
       (host.activePanel != OverlayPanel.thread || host.threadsTabIndex == 0) &&
       twitchAuth.isConfigured &&
+      // Token without a session user means the identity is still resolving
+      // (account switch, fresh login): the pipeline would drop the send.
+      chatStore.session.login != null &&
       chatConn.isChatPipeConnected &&
       (host.isWhispersTabActive || host.channelChatReady);
 

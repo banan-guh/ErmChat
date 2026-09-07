@@ -239,6 +239,82 @@ void main() {
           expect(auth.accessToken, 'token_b');
         },
       ),
+      (
+        'switchToAnonymous clears the active account but keeps the registry',
+        () async {
+          final auth = TwitchAuth();
+          auth.setCredentials(accessToken: 'token_a');
+          auth.setUser('alice', '111');
+          auth.setCredentials(accessToken: 'token_b');
+          auth.setUser('bob', '222');
+          await auth.switchToAnonymous();
+          expect(auth.isAnonymous, isTrue);
+          expect(auth.accessToken, isNull);
+          expect(auth.login, isNull);
+          expect(auth.isConfigured, isFalse);
+          expect(
+            auth.accounts.map((a) => a.login),
+            containsAll(['alice', 'bob']),
+          );
+        },
+      ),
+      (
+        'anonymous selection persists across load',
+        () async {
+          final auth = TwitchAuth();
+          auth.setCredentials(accessToken: 'token_a');
+          auth.setUser('alice', '111');
+          auth.setCredentials(accessToken: 'token_b');
+          auth.setUser('bob', '222');
+          await auth.switchToAnonymous();
+          final reloaded = TwitchAuth();
+          await reloaded.load();
+          expect(reloaded.isAnonymous, isTrue);
+          expect(reloaded.accounts.length, 2);
+        },
+      ),
+      (
+        'switchTo restores the account after anonymous',
+        () async {
+          final auth = TwitchAuth();
+          auth.setCredentials(accessToken: 'token_a');
+          auth.setUser('alice', '111');
+          auth.setCredentials(accessToken: 'token_b');
+          auth.setUser('bob', '222');
+          await auth.switchToAnonymous();
+          await auth.switchTo('alice');
+          expect(auth.isAnonymous, isFalse);
+          expect(auth.login, 'alice');
+          expect(auth.accessToken, 'token_a');
+          final reloaded = TwitchAuth();
+          await reloaded.load();
+          expect(reloaded.login, 'alice');
+        },
+      ),
+      (
+        'removeAccount while anonymous stays anonymous',
+        () async {
+          final auth = TwitchAuth();
+          auth.setCredentials(accessToken: 'token_a');
+          auth.setUser('alice', '111');
+          auth.setCredentials(accessToken: 'token_b');
+          auth.setUser('bob', '222');
+          await auth.switchToAnonymous();
+          await auth.removeAccount('alice');
+          expect(auth.isAnonymous, isTrue);
+          expect(auth.accounts.length, 1);
+          expect(auth.accounts.single.login, 'bob');
+        },
+      ),
+      (
+        'a fresh install with no accounts is anonymous',
+        () async {
+          final auth = TwitchAuth();
+          await auth.load();
+          expect(auth.isAnonymous, isTrue);
+          expect(auth.accounts, isEmpty);
+        },
+      ),
     ]) {
       test(name, () async {
         await run();

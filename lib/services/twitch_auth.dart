@@ -44,6 +44,9 @@ class TwitchAccount {
 class TwitchAuth extends ChangeNotifier {
   static const _kAccounts = 'accounts';
   static const _kActiveLogin = 'active_login';
+  // Stored as the active login when the user picks Anonymous. It must not
+  // collide with a real Twitch login (alphanumerics/underscores only).
+  static const _kAnonymousLogin = '__anonymous__';
   static const _kPendingToken = 'pending_token';
   static const _kPendingRefresh = 'pending_refresh_token';
   // Legacy single-account keys (pre multi-account), migrated on load.
@@ -75,6 +78,10 @@ class TwitchAuth extends ChangeNotifier {
     : _storage = storage ?? const FlutterSecureStorage();
 
   bool get isConfigured => TwitchConfig.isConfigured && accessToken != null;
+
+  /// True when no account is active (read-only mode). Anonymous keeps the
+  /// saved registry; only the active credentials are cleared.
+  bool get isAnonymous => accessToken == null;
 
   TwitchAccount? get activeAccount {
     final active = login;
@@ -180,6 +187,16 @@ class TwitchAuth extends ChangeNotifier {
 
     if (accounts.isNotEmpty) {
       final activeLogin = await _readKey(_kActiveLogin);
+      if (activeLogin == _kAnonymousLogin) {
+        // Explicit anonymous choice: stay logged out, keep the registry.
+        accessToken = null;
+        refreshToken = null;
+        login = null;
+        userId = null;
+        profileImageUrl = null;
+        _activeExpired = false;
+        return;
+      }
       var active = (activeLogin != null && activeLogin.isNotEmpty)
           ? _byLogin(activeLogin)
           : null;
@@ -295,6 +312,21 @@ class TwitchAuth extends ChangeNotifier {
     if (account == null) return;
     _applyAccount(account);
     await _writeKey(_kActiveLogin, login);
+    notifyListeners();
+  }
+
+  /// Deselects the active account without deleting saved credentials.
+  Future<void> switchToAnonymous() async {
+    if (accessToken == null) return;
+    accessToken = null;
+    refreshToken = null;
+    login = null;
+    userId = null;
+    profileImageUrl = null;
+    _activeExpired = false;
+    await _deleteKey(_kPendingToken);
+    await _deleteKey(_kPendingRefresh);
+    await _writeKey(_kActiveLogin, _kAnonymousLogin);
     notifyListeners();
   }
 
