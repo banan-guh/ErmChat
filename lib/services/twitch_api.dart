@@ -5,9 +5,25 @@ import '../twitch_config.dart';
 import '../util/constants.dart';
 import 'twitch_auth.dart';
 
+/// Applies [httpTimeout] to every Helix call. A stalled request throws
+/// [TimeoutException], the same shape callers already get from an offline
+/// [SocketException], instead of hanging the join/moderation path forever.
+class _TimeoutClient extends http.BaseClient {
+  _TimeoutClient(http.Client inner) : _inner = inner;
+
+  final http.Client _inner;
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) {
+    return _inner.send(request).timeout(httpTimeout);
+  }
+
+  @override
+  void close() => _inner.close();
+}
+
 class TwitchApi {
   static const _base = 'https://api.twitch.tv/helix';
-
   String? _lastError;
   int? _lastErrorStatus;
   String? _lastHelixMessage;
@@ -23,11 +39,11 @@ class TwitchApi {
   late http.Client _client;
 
   TwitchApi({http.Client? client}) {
-    _client = client ?? http.Client();
+    _client = _TimeoutClient(client ?? http.Client());
   }
 
   @visibleForTesting
-  set client(http.Client c) => _client = c;
+  set client(http.Client c) => _client = _TimeoutClient(c);
 
   void _clearError() {
     _lastError = null;
