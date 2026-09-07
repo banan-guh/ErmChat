@@ -113,7 +113,6 @@ class MessageInput extends StatelessWidget {
             enabled: enabled,
             minLines: 1,
             maxLines: searchMode ? 1 : 6,
-            textInputAction: searchMode ? TextInputAction.search : null,
             decoration: InputDecoration(
               labelText: effectiveHint,
               border: const OutlineInputBorder(),
