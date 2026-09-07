@@ -22,9 +22,15 @@ class FfzEmoteProvider {
     return Isolate.run(() {
       final data = jsonDecode(res.body) as Map<String, dynamic>;
       final sets = data['sets'] as Map<String, dynamic>? ?? {};
+      // Only default sets are usable by everyone; other sets are allowlisted
+      // per user (FFZ `users` map) and must not leak into the global list.
+      // Missing field keeps old behavior so an API change cannot wipe globals.
+      final defaultSets = data['default_sets'] as List<dynamic>?;
+      final allowed = defaultSets?.map((e) => e.toString()).toSet();
       final emotes = <GenericEmote>[];
-      for (final setEntry in sets.values) {
-        final setMap = setEntry as Map<String, dynamic>;
+      for (final setEntry in sets.entries) {
+        if (allowed != null && !allowed.contains(setEntry.key)) continue;
+        final setMap = setEntry.value as Map<String, dynamic>;
         final items = setMap['emoticons'] as List<dynamic>? ?? [];
         for (final item in items) {
           final parsed = _parseEmote(item, resolution);
@@ -79,7 +85,16 @@ class FfzEmoteProvider {
     final id = item['id']?.toString();
     final name = item['name'] as String?;
     if (id == null || name == null) return null;
-    final urls = item['urls'] as Map<String, dynamic>?;
+    // `animated` is a per-scale URL map when the emote animates, null
+    // otherwise (never a bool on live data). Prefer animated art when set.
+    final animatedUrls = item['animated'] is Map
+        ? Map<String, dynamic>.from(item['animated'] as Map)
+        : null;
+    final urls =
+        (animatedUrls != null && animatedUrls.isNotEmpty
+                ? animatedUrls
+                : item['urls'])
+            as Map<String, dynamic>?;
     // Low=1x, medium/high=2x. 4x used as sheet/menu high-res.
     final url1 = urls?['1'] as String?;
     final url2 = urls?['2'] as String?;
@@ -96,7 +111,7 @@ class FfzEmoteProvider {
     }
     if (urlPart == null) return null;
     String abs(String url) => url.startsWith('http') ? url : 'https:$url';
-    final isAnimated = item['animated'] == true;
+    final isAnimated = animatedUrls != null && animatedUrls.isNotEmpty;
     // FFZ modifier flag = zero-width overlay (offsets ignored).
     final isZeroWidth = item['modifier'] == true;
     return GenericEmote(

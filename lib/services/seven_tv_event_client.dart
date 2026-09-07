@@ -700,9 +700,8 @@ class SevenTvEventClient {
     final listener = _connectivityListener;
     if (listener != null) _connectivityService?.removeListener(listener);
     _connectivityListener = null;
-    _channel = null;
-    _heartbeatTimer = null;
-    _streamSub = null;
+    // Disconnect first: it cancels timers and closes the socket. Nulling
+    // the fields beforehand would make every step a no-op and leak them.
     _disconnect();
     _emoteSetUpdateCtrl.close();
     _userUpdateCtrl.close();

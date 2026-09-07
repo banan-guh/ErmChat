@@ -723,7 +723,11 @@ TwitchMessage parseIrcChatMessage(
   final effectiveTimestamp =
       timestamp ??
       (tsMs != null
-          ? DateTime.fromMillisecondsSinceEpoch(int.parse(tsMs), isUtc: true)
+          ? DateTime.fromMillisecondsSinceEpoch(
+              int.tryParse(tsMs) ??
+                  DateTime.now().toUtc().millisecondsSinceEpoch,
+              isUtc: true,
+            )
           : DateTime.now().toUtc());
 
   final userId = ircMsg.tags['user-id'] ?? defaultUserId;

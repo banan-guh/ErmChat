@@ -284,10 +284,27 @@ class IgnoreManager extends ChangeNotifier {
 }
 
 /// Rewrites text and realigns emote positions; overlapping emotes dropped.
+/// GIF ranges only shift (never dropped): the image stays valid whatever the
+/// covered text rewrites to, and the replacement hides underneath it.
 void rewriteMessageKeywords(TwitchMessage msg, IgnoreManager manager) {
   final result = manager.applyKeywordReplacements(msg.text);
   if (!result.changed) return;
   msg.text = result.text;
+  final gifs = msg.gifAttachments;
+  if (gifs != null && gifs.isNotEmpty) {
+    final shifted = <GifAttachment>[
+      for (final g in gifs)
+        GifAttachment(
+          gifId: g.gifId,
+          url: g.url,
+          startIndex: _shiftIndex(g.startIndex, result.edits),
+          endIndex: _shiftIndex(g.endIndex, result.edits),
+        ),
+    ];
+    gifs
+      ..clear()
+      ..addAll(shifted);
+  }
   final positions = msg.emotePositions;
   if (positions == null || positions.isEmpty) return;
   final kept = <EmotePosition>[];
@@ -317,4 +334,20 @@ void rewriteMessageKeywords(TwitchMessage msg, IgnoreManager manager) {
   positions
     ..clear()
     ..addAll(kept);
+}
+
+/// Maps an original-coordinate index through sorted [edits]. Indices inside
+/// a replaced region snap to the end of its replacement; nothing is dropped.
+int _shiftIndex(int index, List<TextEdit> edits) {
+  var result = index;
+  for (final edit in edits) {
+    if (edit.end <= index) {
+      result += edit.delta;
+    } else if (edit.start < index) {
+      result = edit.start + edit.replacementLength;
+    } else {
+      break;
+    }
+  }
+  return result;
 }

@@ -183,6 +183,44 @@ void main() {
       expect(msg.emotePositions!.first.startIndex, 4);
       expect(msg.emotePositions!.first.endIndex, 7);
     });
+
+    test('gif ranges shift but are never dropped', () async {
+      SharedPreferences.setMockInitialValues({});
+      final m = IgnoreManager();
+      await m.load();
+      m.upsertKeyword(
+        const IgnoreEntry(id: 'e3', pattern: 'verylongword', replacement: 'x'),
+      );
+      final msg = TwitchMessage(
+        login: 'a',
+        text: 'verylongword hi',
+        gifAttachments: [
+          const GifAttachment(gifId: 'g1', url: 'u', startIndex: 13, endIndex: 15),
+        ],
+      );
+      rewriteMessageKeywords(msg, m);
+      expect(msg.text, 'x hi');
+      expect(msg.gifAttachments, hasLength(1));
+      expect(msg.gifAttachments!.single.startIndex, 2);
+      expect(msg.gifAttachments!.single.endIndex, 4);
+    });
+
+    test('gif overlapped by a replacement is kept, not dropped', () async {
+      SharedPreferences.setMockInitialValues({});
+      final m = IgnoreManager();
+      await m.load();
+      m.upsertKeyword(const IgnoreEntry(id: 'e4', pattern: 'hide this'));
+      final msg = TwitchMessage(
+        login: 'a',
+        text: 'hide this now',
+        gifAttachments: [
+          const GifAttachment(gifId: 'g1', url: 'u', startIndex: 0, endIndex: 13),
+        ],
+      );
+      rewriteMessageKeywords(msg, m);
+      expect(msg.text, '*** now');
+      expect(msg.gifAttachments, hasLength(1));
+    });
   });
 
   group('persistence', () {

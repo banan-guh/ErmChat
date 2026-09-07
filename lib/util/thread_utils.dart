@@ -2,8 +2,11 @@ import '../models/twitch_message.dart';
 
 String resolveThreadRootId(String messageId, Map<String, String> parentOf) {
   var cur = messageId;
+  final seen = <String>{cur};
   while (parentOf.containsKey(cur)) {
     cur = parentOf[cur]!;
+    // Corrupt inputs can cycle; stop instead of hanging the UI isolate.
+    if (!seen.add(cur)) break;
   }
   return cur;
 }

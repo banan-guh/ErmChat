@@ -9,8 +9,6 @@ import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import '../services/emote_cache_manager.dart';
 import 'emote_image.dart';
 
-const _emoteDownloadTimeout = Duration(seconds: 10);
-
 /// Caps concurrent decodes to avoid spawning too many isolates.
 const int _maxConcurrentDecodes = 10;
 final _DecodeSemaphore _decodeGate = _DecodeSemaphore(_maxConcurrentDecodes);
@@ -26,22 +24,14 @@ Future<Uint8List> fetchEmoteBytes(String url) async {
     }
     throw StateError('no emote bytes for $url');
   }
-  // Full cache: try disk cache, then network.
+  // Full cache: try disk cache, then one shared network download.
   final cached = await EmoteCacheManager().getCachedFile(url);
   if (cached != null) {
     return cached.readAsBytes();
   }
-  final resp = await emoteFetchClient
-      .get(Uri.parse(url), headers: const {'User-Agent': 'ermchat'})
-      .timeout(_emoteDownloadTimeout);
-  if (resp.statusCode != 200) {
-    throw HttpExceptionWithStatus(
-      resp.statusCode,
-      'Failed to download $url',
-      uri: Uri.parse(url),
-    );
-  }
-  return resp.bodyBytes;
+  return EmoteCacheManager().getOverflowBytes(url, const {
+    'User-Agent': 'ermchat',
+  });
 }
 
 /// Adaptive perf governor: slow loop over the strain ratio (fraction of

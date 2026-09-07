@@ -201,6 +201,59 @@ void main() {
       expect(result, isEmpty);
     });
 
+    test('global keeps only default sets', () async {
+      HttpOverrides.global = _FakeHttpOverrides({
+        globalUrl: jsonEncode({
+          'default_sets': [1],
+          'sets': {
+            '1': {
+              'emoticons': [
+                {
+                  'id': 1,
+                  'name': 'Open',
+                  'urls': {'1': '$base/1', '2': '$base/2'},
+                },
+              ],
+            },
+            '2': {
+              'emoticons': [
+                {
+                  'id': 2,
+                  'name': 'Gated',
+                  'urls': {'1': '$base/1', '2': '$base/2'},
+                },
+              ],
+            },
+          },
+        }),
+      });
+      final result = await FfzEmoteProvider.fetchGlobal();
+      expect(result.map((e) => e.code), ['Open']);
+    });
+
+    test('animated map marks animated and prefers animated art', () async {
+      const animBase = 'https://cdn.frankerfacez.com/emote/999';
+      HttpOverrides.global = _FakeHttpOverrides({
+        globalUrl: jsonEncode({
+          'sets': {
+            '1': {
+              'emoticons': [
+                {
+                  'id': 999,
+                  'name': 'Dance',
+                  'animated': {'1': '$animBase/1', '2': '$animBase/2'},
+                  'urls': {'1': '$base/1', '2': '$base/2'},
+                },
+              ],
+            },
+          },
+        }),
+      });
+      final result = await FfzEmoteProvider.fetchGlobal();
+      expect(result.single.isAnimated, isTrue);
+      expect(result.single.url, '$animBase/2');
+    });
+
     test('fetchChannel hits the numeric room id endpoint', () async {
       const channelId = '71092938';
       const url = 'https://api.frankerfacez.com/v1/room/id/$channelId';

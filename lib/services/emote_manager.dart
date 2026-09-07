@@ -2061,7 +2061,6 @@ class EmoteManager extends ChangeNotifier {
       // Hydrate stashes from persisted cache.
       _hydrateStashesFromCache(cached, channel: channel);
       _reapplyLiveSevenTv(channel);
-      _channelFetchTimes[channel] = DateTime.now();
       _notify(channel: channel);
       if (loaded.fresh || _registryFrozen || _tier == EmoteFetchTier.nothing) {
         // Fresh: render, background-refresh Twitch channel emotes.
@@ -2207,6 +2206,15 @@ class EmoteManager extends ChangeNotifier {
     } catch (e) {
       logDebug('[EmoteManager] twitch global refresh failed: $e');
     }
+  }
+
+  /// Reconciles the channel's 7TV set against the server. Used when a live
+  /// `user.update` switches the active set: without it the old set keeps
+  /// rendering and the next full fetch resurrects it via the live list.
+  Future<void> reconcileSevenTvChannel(String channel) {
+    final broadcasterId = _channelBroadcasterIds[channel];
+    if (broadcasterId == null) return Future.value();
+    return _enqueueFetch(() => _reconcileSevenTv(channel, broadcasterId));
   }
 
   // Diffs 7TV set against cache at startup (medium/high).
