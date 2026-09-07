@@ -74,6 +74,11 @@ class ChatChannelSetup {
   bool _disposed = false;
   final _httpClient = http.Client();
 
+  /// In-flight 7TV ID lookups by Twitch channel id. Concurrent joins for the
+  /// same channel share one GET instead of each firing their own.
+  final _sevenTvIdInflight =
+      <String, Future<({String userId, String emoteSetId})?>>{};
+
   // Channels with an active channel.moderate v2 subscription. While present,
   // moderation system messages come from EventSub (richer data) instead of
   // IRC CLEARCHAT/CLEARMSG.
@@ -600,24 +605,24 @@ class ChatChannelSetup {
       finalEmoteSetId = cachedEmoteSetId;
       finalUserId = cachedUserId;
     } else {
-      try {
-        final uri = Uri.parse(
-          'https://7tv.io/v3/users/twitch/$twitchChannelId',
-        );
-        final res = await _httpClient.get(uri).timeout(httpTimeout);
-        if (res.statusCode != 200) return;
-        final data = jsonDecode(res.body) as Map<String, dynamic>;
-        final userId =
-            (data['user'] as Map<String, dynamic>?)?['id'] as String?;
-        final emoteSetId =
-            (data['emote_set'] as Map<String, dynamic>?)?['id'] as String?;
-        if (userId == null || emoteSetId == null) return;
-        emoteManager.setSevenTvEmoteSetId(channelName, emoteSetId);
-        finalUserId = userId;
-        finalEmoteSetId = emoteSetId;
-      } catch (_) {
-        return;
+      // Coalesce concurrent lookups for one channel into a single GET.
+      final inflight = _sevenTvIdInflight[twitchChannelId];
+      final Future<({String userId, String emoteSetId})?> lookup;
+      if (inflight != null) {
+        lookup = inflight;
+      } else {
+        final future = _fetchSevenTvIds(channelName, twitchChannelId);
+        _sevenTvIdInflight[twitchChannelId] = future;
+        // The copy must not report unhandled errors; awaiters use the original.
+        future
+            .whenComplete(() => _sevenTvIdInflight.remove(twitchChannelId))
+            .ignore();
+        lookup = future;
       }
+      final ids = await lookup;
+      if (ids == null) return;
+      finalEmoteSetId = ids.emoteSetId;
+      finalUserId = ids.userId;
     }
 
     sevenTvClient!.subscribeEmoteSet(finalEmoteSetId);
@@ -626,6 +631,26 @@ class ChatChannelSetup {
     logDebug(
       '[7TV] subscribed channel=$channelName emoteSetId=$finalEmoteSetId userId=$finalUserId',
     );
+  }
+
+  Future<({String userId, String emoteSetId})?> _fetchSevenTvIds(
+    String channelName,
+    String twitchChannelId,
+  ) async {
+    try {
+      final uri = Uri.parse('https://7tv.io/v3/users/twitch/$twitchChannelId');
+      final res = await _httpClient.get(uri).timeout(httpTimeout);
+      if (res.statusCode != 200) return null;
+      final data = jsonDecode(res.body) as Map<String, dynamic>;
+      final userId = (data['user'] as Map<String, dynamic>?)?['id'] as String?;
+      final emoteSetId =
+          (data['emote_set'] as Map<String, dynamic>?)?['id'] as String?;
+      if (userId == null || emoteSetId == null) return null;
+      emoteManager.setSevenTvEmoteSetId(channelName, emoteSetId);
+      return (userId: userId, emoteSetId: emoteSetId);
+    } catch (_) {
+      return null;
+    }
   }
 
   // Anonymous fallback for the channel user ID: ROOMSTATE carries a room-id
