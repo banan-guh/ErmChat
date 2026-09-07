@@ -47,7 +47,7 @@
 - [*] **Mod View v1 (Tiers 1+2)** - centralized ModActions service; mod rows in message menu + user card; chat mode toggles; mod/vip lists; AutoMod queue tab.
 - [ ] **Mod View Tier 3: unban request inbox** - list/approve/deny unban requests (needs moderator:manage:unban_requests).
 - [ ] **Mod View Tier 3: blocked/permitted terms manager** - view/add/remove (needs moderator:manage:blocked_terms; read scope already requested).
-- [ ] **Mod View Tier 3: warnings log + mod activity feed** - extend the ModerationEvent parse switch for the dropped channel.moderate v2 actions.
+- [*] **Mod View Tier 3: warnings log + mod activity feed** - parse switch extended for the dropped channel.moderate v2 actions; local feed, warn log, and ban roster in ChatStore; shield/shoutout/warning EventSub feed. UI tabs land with the Mod View shell.
 - [ ] **Mod View Tier 3: suspicious users + AutoMod settings editor** - needs moderator:read:suspicious_users.
 - [+] **Shared Chat** - mirror-only marking, sharedchatnotice unwrap/drop, source-channel emote scoping, lazy participant fetch, ping dedup
 - [+] **Spotlight** - global 3-way setting (spotlight/fade/hide) for shared-chat foreign messages; fade dims at 55% opacity, hide drops at ingestion

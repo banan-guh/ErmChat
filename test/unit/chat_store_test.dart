@@ -716,4 +716,131 @@ void main() {
       expect(store.heldMessages.containsKey('other'), isFalse);
     });
   });
+
+  group('ChatStore mod feed', () {
+    final t0 = DateTime(2026, 1, 1);
+    ModActivityEntry activity(
+      String action, {
+      String channel = 'test',
+      String? target,
+      String? reason,
+      List<String> terms = const [],
+    }) => ModActivityEntry(
+      at: t0,
+      channel: channel,
+      action: action,
+      moderator: 'moduser',
+      target: target,
+      reason: reason,
+      terms: terms,
+    );
+
+    test('logs newest first and caps per channel', () {
+      final store = _store();
+      store.addModActivity(activity('ban', target: 'a'));
+      store.addModActivity(activity('timeout', target: 'b'));
+      expect(store.modActivity['test']!.map((e) => e.target), ['b', 'a']);
+      for (var i = 0; i < ChatStore.maxActivityPerChannel + 10; i++) {
+        store.addModActivity(activity('slow', target: 'u$i'));
+      }
+      final feed = store.modActivity['test']!;
+      expect(feed, hasLength(ChatStore.maxActivityPerChannel));
+      expect(feed.first.target, 'u209');
+    });
+
+    test('clearModActivity is quiet on missing channels', () {
+      final store = _store();
+      final version = store.modActivityVersion.value;
+      store.clearModActivity('missing');
+      expect(store.modActivityVersion.value, version);
+      store.addModActivity(activity('ban'));
+      store.clearModActivity('test');
+      expect(store.modActivity.containsKey('test'), isFalse);
+    });
+
+    test('warnings filter case-insensitively per user', () {
+      final store = _store();
+      store.addWarning(
+        WarnEntry(
+          at: t0,
+          channel: 'test',
+          target: 'Spammer',
+          moderator: 'moduser',
+          reason: 'spam',
+        ),
+      );
+      store.addWarning(
+        WarnEntry(
+          at: t0,
+          channel: 'test',
+          target: 'other',
+          moderator: 'moduser',
+        ),
+      );
+      final found = store.warningsFor('test', 'spammer');
+      expect(found, hasLength(1));
+      expect(found.first.reason, 'spam');
+      expect(store.warningsFor('test', 'missing'), isEmpty);
+      expect(store.warningsFor('missing', 'spammer'), isEmpty);
+    });
+
+    test('ban roster puts, queries, and removes case-insensitively', () {
+      final store = _store();
+      expect(store.banFor('test', 'Spammer'), isNull);
+      store.putBan(
+        BanEntry(
+          at: t0,
+          channel: 'test',
+          login: 'Spammer',
+          moderator: 'moduser',
+        ),
+      );
+      expect(store.banFor('test', 'spammer')!.expiresAt, isNull);
+      // A timeout overwrites the ban entry.
+      store.putBan(
+        BanEntry(
+          at: t0,
+          channel: 'test',
+          login: 'SPAMMER',
+          expiresAt: t0.add(const Duration(seconds: 600)),
+          moderator: 'moduser',
+        ),
+      );
+      expect(
+        store.banFor('test', 'spammer')!.expiresAt,
+        t0.add(const Duration(seconds: 600)),
+      );
+      expect(store.removeBan('test', 'Spammer'), isTrue);
+      expect(store.banFor('test', 'spammer'), isNull);
+      expect(store.removeBan('test', 'spammer'), isFalse);
+      expect(store.removeBan('missing', 'spammer'), isFalse);
+    });
+
+    test('forgetChannel clears feed, warnings, and bans in one bump', () {
+      final store = _store();
+      store.addModActivity(activity('ban'));
+      store.addWarning(
+        WarnEntry(
+          at: t0,
+          channel: 'test',
+          target: 'spammer',
+          moderator: 'moduser',
+        ),
+      );
+      store.putBan(
+        BanEntry(
+          at: t0,
+          channel: 'test',
+          login: 'spammer',
+          moderator: 'moduser',
+        ),
+      );
+      final version = store.modActivityVersion.value;
+      store.forgetChannel('test');
+      expect(store.modActivity.containsKey('test'), isFalse);
+      expect(store.channelWarnings.containsKey('test'), isFalse);
+      expect(store.channelBans.containsKey('test'), isFalse);
+      expect(store.modActivityVersion.value, version + 1);
+    });
+  });
 }

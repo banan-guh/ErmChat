@@ -69,6 +69,66 @@ class HeldMessage {
   });
 }
 
+/// One moderation action for the per-channel activity feed.
+class ModActivityEntry {
+  final DateTime at;
+  final String channel;
+  final String action;
+  final String moderator;
+  final String? target;
+  final String? reason;
+  final int? durationSeconds;
+  final List<String> terms;
+
+  const ModActivityEntry({
+    required this.at,
+    required this.channel,
+    required this.action,
+    required this.moderator,
+    this.target,
+    this.reason,
+    this.durationSeconds,
+    this.terms = const [],
+  });
+}
+
+/// One warning sent to a chatter. No Helix list endpoint exists, so the log
+/// is local and session-scoped.
+class WarnEntry {
+  final DateTime at;
+  final String channel;
+  final String target;
+  final String moderator;
+  final String? reason;
+
+  const WarnEntry({
+    required this.at,
+    required this.channel,
+    required this.target,
+    required this.moderator,
+    this.reason,
+  });
+}
+
+/// One active ban or timeout. Timeouts carry [expiresAt]; bans are permanent.
+class BanEntry {
+  final DateTime at;
+  final String channel;
+  final String login;
+  final DateTime? expiresAt;
+  final String? reason;
+  final String moderator;
+
+  const BanEntry({
+    required this.at,
+    required this.channel,
+    required this.login,
+    this.expiresAt,
+    this.reason,
+    required this.moderator,
+  });
+}
+
 /// Read-only summary of one tracked thread for the threads dashboard. The
 /// dashboard is per-channel and sorted by [lastActivity] (newest first).
 class ThreadSummary {
@@ -205,6 +265,86 @@ class ChatStore {
     heldVersion.value++;
   }
 
+  // ---- Moderation feed -----------------------------------------------------
+
+  /// Activity entries per channel, newest first. The feed UI reads these
+  /// live; [modActivityVersion] ticks on every moderation-list mutation
+  /// (feed, warnings, bans alike) so one listener covers all three.
+  final Map<String, List<ModActivityEntry>> modActivity = {};
+
+  /// Bumped on any feed/warning/ban mutation so the Mod View rebuilds.
+  final ValueNotifier<int> modActivityVersion = ValueNotifier(0);
+
+  /// Per-channel feed bound; beyond it the oldest entries drop.
+  static const maxActivityPerChannel = 200;
+
+  /// Logs a moderation action to the channel feed.
+  void addModActivity(ModActivityEntry entry) {
+    final list = modActivity.putIfAbsent(entry.channel, () => []);
+    list.insert(0, entry);
+    if (list.length > maxActivityPerChannel) {
+      list.removeRange(maxActivityPerChannel, list.length);
+    }
+    modActivityVersion.value++;
+  }
+
+  /// Drops a channel's whole feed (channel left).
+  void clearModActivity(String channel) {
+    if (modActivity.remove(channel) != null) modActivityVersion.value++;
+  }
+
+  /// Local warnings log per channel, newest first.
+  final Map<String, List<WarnEntry>> channelWarnings = {};
+
+  /// Per-channel warnings bound; beyond it the oldest warnings drop.
+  static const maxWarningsPerChannel = 200;
+
+  /// Logs a warning; duplicate deliveries of the same event are the
+  /// caller's problem (moderate warn and warning.send never both run).
+  void addWarning(WarnEntry warning) {
+    final list = channelWarnings.putIfAbsent(warning.channel, () => []);
+    list.insert(0, warning);
+    if (list.length > maxWarningsPerChannel) {
+      list.removeRange(maxWarningsPerChannel, list.length);
+    }
+    modActivityVersion.value++;
+  }
+
+  /// Warnings for one user in a channel, newest first.
+  List<WarnEntry> warningsFor(String channel, String login) {
+    final needle = login.toLowerCase();
+    return [
+      for (final w in channelWarnings[channel] ?? const <WarnEntry>[])
+        if (w.target.toLowerCase() == needle) w,
+    ];
+  }
+
+  /// Active bans/timeouts per channel by lowercase login.
+  final Map<String, Map<String, BanEntry>> channelBans = {};
+
+  /// Records a ban or timeout, replacing any previous entry for the user
+  /// (re-timeouts extend or shorten; bans overwrite timeouts).
+  void putBan(BanEntry ban) {
+    final bans = channelBans.putIfAbsent(ban.channel, () => {});
+    bans[ban.login.toLowerCase()] = ban;
+    modActivityVersion.value++;
+  }
+
+  /// Drops a ban/timeout (unban/untimeout). False when already gone.
+  bool removeBan(String channel, String login) {
+    final bans = channelBans[channel];
+    if (bans == null) return false;
+    final removed = bans.remove(login.toLowerCase()) != null;
+    if (!removed) return false;
+    if (bans.isEmpty) channelBans.remove(channel);
+    modActivityVersion.value++;
+    return true;
+  }
+
+  /// Active ban/timeout for one user, or null.
+  BanEntry? banFor(String channel, String login) =>
+      channelBans[channel]?[login.toLowerCase()];
+
   /// Channels with unseen messages (drives tab unread markers).
   final Set<String> channelsWithUnread;
 
@@ -322,6 +462,12 @@ class ChatStore {
     savedThreadKeys.removeWhere((k) => k.startsWith('$channel:'));
     pinnedThreadKeys.removeWhere((k) => k.startsWith('$channel:'));
     clearHeldMessages(channel);
+    // One bump for the whole feed batch.
+    var feedTouched = false;
+    if (modActivity.remove(channel) != null) feedTouched = true;
+    if (channelWarnings.remove(channel) != null) feedTouched = true;
+    if (channelBans.remove(channel) != null) feedTouched = true;
+    if (feedTouched) modActivityVersion.value++;
   }
 
   void dispose() {
@@ -335,6 +481,7 @@ class ChatStore {
     unreadVersion.dispose();
     loadFailedChannels.dispose();
     heldVersion.dispose();
+    modActivityVersion.dispose();
     _events.close();
     _notices.close();
   }

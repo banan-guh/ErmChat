@@ -8,6 +8,8 @@ import '../util/constants.dart';
 import '../util/log.dart';
 
 /// A channel.moderate v2 event. `action` is ban, timeout, delete, mod, etc.
+/// Mode toggles (slow, followers, ...) and term decisions carry no target;
+/// term actions carry [terms]; everything else follows the old fields.
 class ModerationEvent {
   final String channel;
   final String action;
@@ -17,6 +19,7 @@ class ModerationEvent {
   final int? durationSeconds;
   final String? messageId;
   final String? messageBody;
+  final List<String> terms;
 
   ModerationEvent({
     required this.channel,
@@ -27,6 +30,7 @@ class ModerationEvent {
     this.durationSeconds,
     this.messageId,
     this.messageBody,
+    this.terms = const [],
   });
 }
 
@@ -47,6 +51,54 @@ class AutomodHeldEvent {
     required this.text,
     required this.category,
     required this.status,
+  });
+}
+
+/// A shield mode toggle. [active] is true on begin, false on end.
+class ShieldModeEvent {
+  final String channel;
+  final bool active;
+  final String moderatorName;
+
+  ShieldModeEvent({
+    required this.channel,
+    required this.active,
+    required this.moderatorName,
+  });
+}
+
+/// A shoutout. [kind] is create (this channel shouted someone out) or
+/// receive (this channel was shouted out).
+class ShoutoutEvent {
+  final String channel;
+  final String kind;
+  final String fromLogin;
+  final String toLogin;
+  final String moderatorName;
+
+  ShoutoutEvent({
+    required this.channel,
+    required this.kind,
+    required this.fromLogin,
+    required this.toLogin,
+    required this.moderatorName,
+  });
+}
+
+/// A warning lifecycle event. [kind] is send or acknowledge.
+class WarningEvent {
+  final String channel;
+  final String kind;
+  final String moderatorName;
+  final String userLogin;
+  final String? reason;
+
+  WarningEvent({
+    required this.channel,
+    required this.kind,
+    required this.moderatorName,
+    required this.userLogin,
+    this.reason,
   });
 }
 
@@ -174,6 +226,15 @@ class EventSubService {
   final _predictionController = StreamController<PredictionEvent>.broadcast(
     sync: true,
   );
+  final _shieldModeController = StreamController<ShieldModeEvent>.broadcast(
+    sync: true,
+  );
+  final _shoutoutController = StreamController<ShoutoutEvent>.broadcast(
+    sync: true,
+  );
+  final _warningController = StreamController<WarningEvent>.broadcast(
+    sync: true,
+  );
   final _statusController = StreamController<EventSubStatus>.broadcast(
     sync: true,
   );
@@ -203,6 +264,9 @@ class EventSubService {
   Stream<HypeTrainEvent> get onHypeTrain => _hypeTrainController.stream;
   Stream<PollEvent> get onPoll => _pollController.stream;
   Stream<PredictionEvent> get onPrediction => _predictionController.stream;
+  Stream<ShieldModeEvent> get onShieldMode => _shieldModeController.stream;
+  Stream<ShoutoutEvent> get onShoutout => _shoutoutController.stream;
+  Stream<WarningEvent> get onWarning => _warningController.stream;
   Stream<EventSubStatus> get onStatus => _statusController.stream;
 
   void setChannelMapping(String broadcasterUserId, String channelName) {
@@ -414,6 +478,18 @@ class EventSubService {
       );
     } else if (type == 'channel.moderate') {
       _emitModeration(channel, event);
+    } else if (type == 'channel.shield_mode.begin' ||
+        type == 'channel.shield_mode.end') {
+      if (channel == null) return;
+      _emitShieldMode(channel, event, type.endsWith('.begin'));
+    } else if (type == 'channel.shoutout.create' ||
+        type == 'channel.shoutout.receive') {
+      if (channel == null) return;
+      _emitShoutout(channel, event, type.endsWith('.create'));
+    } else if (type == 'channel.warning.send' ||
+        type == 'channel.warning.acknowledge') {
+      if (channel == null) return;
+      _emitWarning(channel, event, type.endsWith('.send'));
     } else if (type == 'automod.message.hold') {
       if (channel == null) return;
       _emitAutomodHeld(channel, event, 'held');
@@ -534,6 +610,54 @@ class EventSubService {
     );
   }
 
+  void _emitShieldMode(
+    String channel,
+    Map<String, dynamic> event,
+    bool active,
+  ) {
+    _shieldModeController.add(
+      ShieldModeEvent(
+        channel: channel,
+        active: active,
+        moderatorName: event['moderator_user_name'] as String? ?? 'A moderator',
+      ),
+    );
+  }
+
+  void _emitShoutout(String channel, Map<String, dynamic> event, bool created) {
+    // Create fires on the sender's channel (broadcaster -> to_broadcaster);
+    // receive fires on the target's channel (from_broadcaster -> broadcaster).
+    final from =
+        event['from_broadcaster_user_login'] as String? ??
+        event['broadcaster_user_login'] as String? ??
+        '';
+    final to =
+        event['to_broadcaster_user_login'] as String? ??
+        event['broadcaster_user_login'] as String? ??
+        '';
+    _shoutoutController.add(
+      ShoutoutEvent(
+        channel: channel,
+        kind: created ? 'create' : 'receive',
+        fromLogin: from,
+        toLogin: to,
+        moderatorName: event['moderator_user_name'] as String? ?? 'A moderator',
+      ),
+    );
+  }
+
+  void _emitWarning(String channel, Map<String, dynamic> event, bool sent) {
+    _warningController.add(
+      WarningEvent(
+        channel: channel,
+        kind: sent ? 'send' : 'acknowledge',
+        moderatorName: event['moderator_user_name'] as String? ?? 'A moderator',
+        userLogin: event['user_login'] as String? ?? '',
+        reason: event['reason'] as String?,
+      ),
+    );
+  }
+
   void _emitModeration(String? channel, Map<String, dynamic> event) {
     if (channel == null) return;
 
@@ -553,8 +677,13 @@ class EventSubService {
     int? durationSeconds;
     String? messageId;
     String? messageBody;
+    var terms = const <String>[];
 
-    final metaObj = event[baseAction] as Map<String, dynamic>?;
+    final metaObj =
+        event[baseAction] as Map<String, dynamic>? ??
+        (baseAction == action
+            ? null
+            : event[action] as Map<String, dynamic>?);
     switch (baseAction) {
       case 'ban':
       case 'unban':
@@ -589,6 +718,39 @@ class EventSubService {
         messageId = metaObj?['message_id'] as String?;
         messageBody = metaObj?['message_body'] as String?;
         break;
+      case 'add_blocked_term':
+      case 'remove_blocked_term':
+      case 'add_permitted_term':
+      case 'remove_permitted_term':
+        // Term decisions nest under automod_terms, not under the action.
+        final termsObj = event['automod_terms'] as Map<String, dynamic>?;
+        final rawTerms = termsObj?['terms'];
+        if (rawTerms is List) terms = rawTerms.whereType<String>().toList();
+        break;
+      case 'approve_unban_request':
+      case 'deny_unban_request':
+        final requestObj =
+            event['unban_request'] as Map<String, dynamic>? ?? metaObj;
+        targetName = requestObj?['user_name'] as String?;
+        reason =
+            requestObj?['resolution_text'] as String? ??
+            requestObj?['reason'] as String?;
+        break;
+      case 'slow':
+      case 'slowoff':
+      case 'followers':
+      case 'followersoff':
+      case 'emoteonly':
+      case 'emoteonlyoff':
+      case 'subscribers':
+      case 'subscribersoff':
+      case 'uniquechat':
+      case 'uniquechatoff':
+      case 'raid':
+      case 'unraid':
+      case 'clear':
+        // Bare actions: no payload fields, the action is the whole story.
+        break;
     }
 
     _moderationController.add(
@@ -601,6 +763,7 @@ class EventSubService {
         durationSeconds: durationSeconds,
         messageId: messageId,
         messageBody: messageBody,
+        terms: terms,
       ),
     );
   }
@@ -660,6 +823,9 @@ class EventSubService {
     _hypeTrainController.close();
     _pollController.close();
     _predictionController.close();
+    _shieldModeController.close();
+    _shoutoutController.close();
+    _warningController.close();
     _statusController.close();
   }
 }

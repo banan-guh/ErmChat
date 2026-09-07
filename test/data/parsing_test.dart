@@ -1877,6 +1877,24 @@ void main() {
         <String, dynamic>{},
         'clear',
       ),
+      (
+        'slow emits bare action without target',
+        'slow',
+        <String, dynamic>{},
+        'slow',
+      ),
+      (
+        'followersoff emits bare action',
+        'followersoff',
+        <String, dynamic>{},
+        'followersoff',
+      ),
+      (
+        'unknown future actions still emit for the feed',
+        'some_future_action',
+        <String, dynamic>{},
+        'some_future_action',
+      ),
     ]) {
       test(name, () async {
         final events = <ModerationEvent>[];
@@ -1893,6 +1911,72 @@ void main() {
         }
       });
     }
+
+    test('add_blocked_term carries terms from automod_terms', () async {
+      final events = <ModerationEvent>[];
+      service.onModeration.listen(events.add);
+      service.handleRawMessage(
+        _moderate(
+          action: 'add_blocked_term',
+          meta: {
+            'automod_terms': {
+              'action': 'add',
+              'list': 'blocked',
+              'terms': ['bad word', 'worse*'],
+              'from_automod': false,
+            },
+          },
+        ),
+      );
+      expect(events, hasLength(1));
+      expect(events[0].action, 'add_blocked_term');
+      expect(events[0].terms, ['bad word', 'worse*']);
+      expect(events[0].targetName, isNull);
+    });
+
+    test('approve_unban_request carries target and resolution', () async {
+      final events = <ModerationEvent>[];
+      service.onModeration.listen(events.add);
+      service.handleRawMessage(
+        _moderate(
+          action: 'approve_unban_request',
+          meta: {
+            'unban_request': {
+              'user_name': 'spammer',
+              'resolution_text': 'second chance',
+            },
+          },
+        ),
+      );
+      expect(events, hasLength(1));
+      expect(events[0].action, 'approve_unban_request');
+      expect(events[0].targetName, 'spammer');
+      expect(events[0].reason, 'second chance');
+    });
+
+    test('shared_chat_timeout maps to timeout with duration', () async {
+      final events = <ModerationEvent>[];
+      service.onModeration.listen(events.add);
+      final expiresAt = DateTime.now()
+          .toUtc()
+          .add(const Duration(seconds: 300))
+          .toIso8601String();
+      service.handleRawMessage(
+        _moderate(
+          action: 'shared_chat_timeout',
+          meta: {
+            'shared_chat_timeout': {
+              'user_name': 'spammer',
+              'expires_at': expiresAt,
+            },
+          },
+        ),
+      );
+      expect(events, hasLength(1));
+      expect(events[0].action, 'timeout');
+      expect(events[0].targetName, 'spammer');
+      expect(events[0].durationSeconds, closeTo(300, 10));
+    });
 
     for (final (name, type, broadcaster) in [
       (
@@ -1926,6 +2010,101 @@ void main() {
         expect(events, isEmpty, reason: name);
       });
     }
+  });
+
+  group('notification (shield/shoutout/warning feed)', () {
+    Map<String, dynamic> topic(
+      String type,
+      Map<String, dynamic> event,
+    ) => <String, dynamic>{
+      'metadata': <String, dynamic>{
+        'message_type': 'notification',
+        'subscription_type': type,
+      },
+      'payload': <String, dynamic>{
+        'subscription': <String, dynamic>{
+          'condition': <String, dynamic>{'broadcaster_user_id': 'broadcaster1'},
+        },
+        'event': event,
+      },
+    };
+
+    test('shield begin/end toggle active', () async {
+      final events = <ShieldModeEvent>[];
+      service.onShieldMode.listen(events.add);
+      service.handleRawMessage(
+        topic('channel.shield_mode.begin', {'moderator_user_name': 'moduser'}),
+      );
+      service.handleRawMessage(
+        topic('channel.shield_mode.end', {'moderator_user_name': 'moduser'}),
+      );
+      expect(events, hasLength(2));
+      expect(events[0].channel, 'testchannel');
+      expect(events[0].active, isTrue);
+      expect(events[1].active, isFalse);
+    });
+
+    test('shoutout create maps sender and target', () async {
+      final events = <ShoutoutEvent>[];
+      service.onShoutout.listen(events.add);
+      service.handleRawMessage(
+        topic('channel.shoutout.create', {
+          'broadcaster_user_login': 'streamer',
+          'to_broadcaster_user_login': 'friend',
+          'moderator_user_name': 'moduser',
+        }),
+      );
+      expect(events, hasLength(1));
+      expect(events[0].kind, 'create');
+      expect(events[0].fromLogin, 'streamer');
+      expect(events[0].toLogin, 'friend');
+    });
+
+    test('shoutout receive maps sender and target', () async {
+      final events = <ShoutoutEvent>[];
+      service.onShoutout.listen(events.add);
+      service.handleRawMessage(
+        topic('channel.shoutout.receive', {
+          'broadcaster_user_login': 'streamer',
+          'from_broadcaster_user_login': 'friend',
+          'moderator_user_name': 'moduser',
+        }),
+      );
+      expect(events, hasLength(1));
+      expect(events[0].kind, 'receive');
+      expect(events[0].fromLogin, 'friend');
+      expect(events[0].toLogin, 'streamer');
+    });
+
+    test('warning send carries user and reason', () async {
+      final events = <WarningEvent>[];
+      service.onWarning.listen(events.add);
+      service.handleRawMessage(
+        topic('channel.warning.send', {
+          'moderator_user_name': 'moduser',
+          'user_login': 'spammer',
+          'reason': 'spam',
+        }),
+      );
+      expect(events, hasLength(1));
+      expect(events[0].kind, 'send');
+      expect(events[0].userLogin, 'spammer');
+      expect(events[0].reason, 'spam');
+    });
+
+    test('warning acknowledge carries user', () async {
+      final events = <WarningEvent>[];
+      service.onWarning.listen(events.add);
+      service.handleRawMessage(
+        topic('channel.warning.acknowledge', {
+          'moderator_user_name': 'moduser',
+          'user_login': 'spammer',
+        }),
+      );
+      expect(events, hasLength(1));
+      expect(events[0].kind, 'acknowledge');
+      expect(events[0].userLogin, 'spammer');
+    });
   });
 
   group('notification (automod.message.hold/update)', () {
