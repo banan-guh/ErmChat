@@ -1043,6 +1043,19 @@ void main() {
       expect(req.method, 'DELETE');
       expect(req.url.queryParameters['user_id'], '999');
     });
+
+    test('/untimeout success reports untimed out', () async {
+      final handler = createHandler(
+        MockClient((req) async {
+          if (req.url.path == '/helix/users') return userFound();
+          return http.Response('', 204);
+        }),
+      );
+
+      await handler.handle('/untimeout foo', 'a', auth);
+
+      expect(systemMessages, ['foo has been untimed out.']);
+    });
   });
 
   group('warn', () {
@@ -1576,6 +1589,12 @@ void main() {
         'slow_mode_wait_time',
         120,
       ),
+      (
+        'slow accepts unit durations',
+        '/slow 1m',
+        'slow_mode_wait_time',
+        60,
+      ),
       ('slowoff disables slow mode', '/slowoff', 'slow_mode', false),
     ]) {
       test('/$name', () async {
@@ -2043,6 +2062,67 @@ void main() {
       expect(result, isNotNull);
       expect(result!.scopes, isEmpty);
     });
+  });
+
+  group('TwitchApi.getFollowDate', () {
+    test('returns followed_at when following', () async {
+      final client = MockClient((request) async {
+        expect(request.url.queryParameters['broadcaster_id'], 'broad1');
+        expect(request.url.queryParameters['user_id'], 'user9');
+        return http.Response(
+          '{"total":1,"data":[{"user_id":"user9","followed_at":"2024-05-06T07:08:09Z"}],"pagination":{}}',
+          200,
+        );
+      });
+
+      final api = TwitchApi(client: client);
+      final auth = TwitchAuth();
+      auth.accessToken = 'tok';
+
+      expect(
+        await api.getFollowDate(
+          auth,
+          broadcasterId: 'broad1',
+          userId: 'user9',
+        ),
+        '2024-05-06T07:08:09Z',
+      );
+    });
+
+    test('returns null when not following or on failure', () async {
+      final empty = TwitchApi(
+        client: MockClient(
+          (request) async =>
+              http.Response('{"total":0,"data":[],"pagination":{}}', 200),
+        ),
+      );
+      final auth = TwitchAuth();
+      auth.accessToken = 'tok';
+      expect(
+        await empty.getFollowDate(
+          auth,
+          broadcasterId: 'broad1',
+          userId: 'user9',
+        ),
+        isNull,
+      );
+
+      final failing = TwitchApi(
+        client: MockClient(
+          (request) async => http.Response('{"message":"forbidden"}', 403),
+        ),
+      );
+      expect(
+        await failing.getFollowDate(
+          auth,
+          broadcasterId: 'broad1',
+          userId: 'user9',
+        ),
+        isNull,
+      );
+      expect(failing.lastErrorStatus, 403);
+    });
+  });
 
     test('returns null on auth failure and network error', () async {
       final unauthorized = MockClient((request) async {
@@ -2070,7 +2150,6 @@ void main() {
       expect(flakyResult, isNull);
       expect(flakyApi.lastErrorStatus, isNull);
     });
-  });
 
   group('IrcService auth-failure NOTICE', () {
     test(

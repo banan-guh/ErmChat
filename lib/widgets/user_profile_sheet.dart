@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/twitch_badge.dart';
 import '../models/twitch_message.dart';
+import '../services/chat_store.dart';
 import '../services/mod_actions.dart';
 import '../services/twitch_api.dart';
 import '../services/twitch_auth.dart';
@@ -32,6 +33,14 @@ class UserProfileSheet extends StatefulWidget {
   final ModActions? modActions;
   final String? channel;
   final bool canModerate;
+
+  /// Broadcaster user id for the follow-age lookup. Null hides the row.
+  final String? broadcasterUserId;
+
+  /// Local moderation record snapshot from the opener (warn log + active
+  /// ban/timeout). Empty/absent hides the record rows.
+  final List<WarnEntry> userWarnings;
+  final BanEntry? banEntry;
 
   /// True for your own card; mod rows never apply to yourself.
   final bool isSelf;
@@ -79,6 +88,9 @@ class UserProfileSheet extends StatefulWidget {
     this.modActions,
     this.channel,
     this.canModerate = false,
+    this.broadcasterUserId,
+    this.userWarnings = const [],
+    this.banEntry,
     this.isSelf = false,
     this.scrollController,
     this.sheetController,
@@ -97,6 +109,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
   Map<String, dynamic>? _profile;
   bool _loading = true;
   String? _error;
+  String? _followDate;
   bool _anonymous = false;
   bool _arrowVisible = false;
   ScrollController? _fallbackController;
@@ -225,6 +238,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
           _profile = profile;
           _loading = false;
         });
+        await _fetchFollowAge();
       } else {
         setState(() {
           _error = widget.twitchApi.lastError ?? 'User not found';
@@ -237,6 +251,25 @@ class UserProfileSheetState extends State<UserProfileSheet> {
         _error = e.toString();
         _loading = false;
       });
+    }
+    _measureDirty = true;
+  }
+
+  // Follow age is a nicety; a failed lookup hides the row.
+  Future<void> _fetchFollowAge() async {
+    final broadcasterId = widget.broadcasterUserId;
+    final userId = _targetUserId;
+    if (broadcasterId == null || userId == null) return;
+    try {
+      final date = await widget.twitchApi.getFollowDate(
+        widget.twitchAuth,
+        broadcasterId: broadcasterId,
+        userId: userId,
+      );
+      if (!mounted || date == null) return;
+      setState(() => _followDate = date);
+    } catch (_) {
+      // Row stays hidden.
     }
     _measureDirty = true;
   }
@@ -679,6 +712,67 @@ class UserProfileSheetState extends State<UserProfileSheet> {
     showModError(context, result);
   }
 
+  Future<void> _modShoutout() async {
+    final modActions = widget.modActions;
+    final channel = widget.channel;
+    if (modActions == null || channel == null) return;
+    final result = await modActions.sendShoutout(
+      widget.twitchAuth,
+      channel,
+      login: widget.username,
+      userId: _targetUserId,
+    );
+    if (!mounted) return;
+    if (result.ok) {
+      AppSnack.show(context, 'Shoutout sent to ${widget.displayName}');
+    } else {
+      showModError(context, result);
+    }
+  }
+
+  String _recordSubtitle(String? reason, String moderator) {
+    if (reason != null && reason.isNotEmpty) return '"$reason" · by $moderator';
+    return 'by $moderator';
+  }
+
+  // Display-only moderation record: active ban/timeout, warning history,
+  // and follow age. Empty hides the whole block.
+  List<Widget> _recordTiles() {
+    final ban = widget.banEntry;
+    final warnings = widget.userWarnings;
+    if (ban == null && warnings.isEmpty && _followDate == null) {
+      return const [];
+    }
+    return [
+      if (ban != null)
+        ListTile(
+          dense: true,
+          leading: const Icon(Icons.gavel_outlined),
+          title: Text(ban.expiresAt == null ? 'Banned' : 'Timed out'),
+          subtitle: Text(_recordSubtitle(ban.reason, ban.moderator)),
+        ),
+      if (warnings.isNotEmpty)
+        ListTile(
+          dense: true,
+          leading: const Icon(Icons.warning_amber_outlined),
+          title: Text(
+            warnings.length == 1 ? '1 warning' : '${warnings.length} warnings',
+          ),
+          subtitle: Text(
+            _recordSubtitle(warnings.first.reason, warnings.first.moderator),
+          ),
+        ),
+      if (_followDate != null)
+        ListTile(
+          dense: true,
+          leading: const Icon(Icons.favorite_outline),
+          title: const Text('Following'),
+          subtitle: Text('Since ${_formatDate(_followDate!)}'),
+        ),
+      const Divider(height: 1),
+    ];
+  }
+
   List<Widget> _buildActionTiles() {
     final showMod =
         widget.canModerate &&
@@ -687,6 +781,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
         widget.channel != null;
     return [
       if (showMod) ...[
+        ..._recordTiles(),
         ListTile(
           dense: true,
           leading: const Icon(Icons.timer_outlined),
@@ -710,6 +805,12 @@ class UserProfileSheetState extends State<UserProfileSheet> {
           leading: const Icon(Icons.warning_amber_outlined),
           title: const Text('Warn'),
           onTap: _modWarn,
+        ),
+        ListTile(
+          dense: true,
+          leading: const Icon(Icons.campaign_outlined),
+          title: const Text('Shoutout'),
+          onTap: _modShoutout,
         ),
         const Divider(height: 1),
       ],

@@ -368,7 +368,12 @@ class CommandHandler {
             login: args[0],
           );
           if (unbanResult.ok) {
-            addSystemMessage(channel, '${args[0]} has been unbanned.');
+            addSystemMessage(
+              channel,
+              cmd == '/untimeout'
+                  ? '${args[0]} has been untimed out.'
+                  : '${args[0]} has been unbanned.',
+            );
           } else {
             addSystemMessage(channel, _modCopy('unban user', '', unbanResult));
           }
@@ -639,11 +644,13 @@ class CommandHandler {
             }
             return;
           }
-          final slowSeconds = args.isEmpty ? 30 : int.tryParse(args[0]);
+          final slowSeconds = args.isEmpty
+              ? 30
+              : _parseDurationSeconds(args.join(' '));
           if (slowSeconds == null || slowSeconds <= 0 || slowSeconds > 120) {
             addSystemMessage(
               channel,
-              'Usage: /slow [seconds] - Duration (default: 30) must be a positive number of seconds; maximum is 120.',
+              'Usage: /slow [duration] - Duration (default: 30s, e.g. 45, 2m) must be 1-120 seconds.',
             );
             return;
           }

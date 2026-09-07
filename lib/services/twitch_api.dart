@@ -223,6 +223,33 @@ class TwitchApi {
     }
   }
 
+  /// Follow date (ISO 8601) of a user in a channel, or null when not
+  /// following or on failure. Needs moderator:read:followers.
+  Future<String?> getFollowDate(
+    TwitchAuth auth, {
+    required String broadcasterId,
+    required String userId,
+  }) async {
+    _clearError();
+    final uri = Uri.parse(
+      '$_base/channels/followers?broadcaster_id=$broadcasterId&user_id=$userId',
+    );
+    final res = await _client.get(uri, headers: _headers(auth));
+    if (res.statusCode != 200) {
+      _setError('getFollowDate', res);
+      return null;
+    }
+    try {
+      final data = jsonDecode(res.body) as Map;
+      final list = data['data'] as List;
+      if (list.isEmpty) return null;
+      return (list[0] as Map)['followed_at'] as String?;
+    } catch (e) {
+      _setError('getFollowDate: bad response');
+      return null;
+    }
+  }
+
   Future<bool> blockUser(TwitchAuth auth, String targetUserId) async {
     _clearError();
     final uri = Uri.parse('$_base/users/blocks?target_user_id=$targetUserId');
