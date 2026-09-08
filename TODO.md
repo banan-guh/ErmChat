@@ -79,17 +79,14 @@
 
 ## SMALL bugs
 
-- [x] **Scroll-to-bottom FAB sticks after channel switch** - `atBottomNotifier` isn't reset when the `FlutterListView` rebuilds with a new channel key. `ScrollEndNotification` handler partially fixes it (fling settling at bottom), but switching away and back still shows a stale FAB. Need to invalidate `atBottomNotifier` on channel change upstream in `HomeScreen`.
 - borders flicker white when tabbing in
-- size emote menu better
-- dedup spaces in reply string X
+- dedup spaces in reply string
 - style bug, add stretch for tab bar channels
-- notifs don't matter if no foreground in android (ios push notifs, change if server)
-- greedy split links - `kappa.lol/ tests` (space after slash) only links `kappa.lol/`; optionally extend the path to the next word, at the cost of eating prose after `/` (`x.com/ for details`)
+- notifs don't matter if no foreground in android (ios push notifs, change if server) - DO NOT do, adding server soon
 - fast swipe default
 - double connected msg ios
 - anon -> acc = nothing to show it's connecting + check weirdly long connect time?
-- still duping sys msgs in robotty msgs
+- still duping sys msgs in robotty msgs (I think maybe, idk if it's true anymore)
 - emotes don't pick max quality after low -> high
 - test emotes on low / high
 - user panel janky with msgs

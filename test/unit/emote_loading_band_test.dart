@@ -1,6 +1,4 @@
-import 'package:ermchat/widgets/emote_loading_band.dart';
 import 'package:ermchat/widgets/emote_probe_memo.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -76,50 +74,6 @@ void main() {
 
       fail = false;
       expect(await memo.probe('u', (_) async => true), isTrue);
-    });
-  });
-
-  group('EmoteLoadingClock', () {
-    testWidgets('placeholders share one clock lifecycle with refcounting', (
-      tester,
-    ) async {
-      late ValueNotifier<double> phase;
-      await tester.pumpWidget(
-        const MaterialApp(home: LoadingBand(width: 28, height: 28)),
-      );
-      expect(EmoteLoadingClock.isActive, isTrue);
-      phase = EmoteLoadingClock.phase;
-
-      await tester.pump(const Duration(milliseconds: 300));
-      final first = phase.value;
-      expect(first, greaterThan(0));
-
-      await tester.pump(const Duration(milliseconds: 300));
-      expect(phase.value, isNot(first));
-
-      await tester.pumpWidget(
-        const MaterialApp(
-          home: Column(
-            children: [LoadingBand(width: 28, height: 28), LoadingBand()],
-          ),
-        ),
-      );
-      expect(EmoteLoadingClock.isActive, isTrue);
-
-      await tester.pumpWidget(
-        const MaterialApp(home: Column(children: [LoadingBand()])),
-      );
-      expect(EmoteLoadingClock.isActive, isTrue);
-
-      await tester.pumpWidget(const SizedBox.shrink());
-      expect(EmoteLoadingClock.isActive, isFalse);
-
-      await tester.pumpWidget(
-        const MaterialApp(home: LoadingBand(width: 28, height: 28)),
-      );
-      expect(EmoteLoadingClock.isActive, isTrue);
-      await tester.pumpWidget(const SizedBox.shrink());
-      expect(EmoteLoadingClock.isActive, isFalse);
     });
   });
 }

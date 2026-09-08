@@ -396,6 +396,11 @@ class EmoteManager extends ChangeNotifier {
   /// Set ids currently in flight; dropped on failure so the next event retries.
   final Set<String> _inflightEmoteSetIds = {};
 
+  /// Whether a subscriber-emote fetch is currently in flight. The subs tab
+  /// shows a spinner (not the empty text) while true, so a slow fetch never
+  /// reads as "no subscriber emotes".
+  bool get subEmoteFetchInFlight => _inflightEmoteSetIds.isNotEmpty;
+
   /// owner id -> login, built up across resolves and reused between reconnects.
   final Map<String, String> _emoteOwnerLogins = {};
 
@@ -1835,6 +1840,8 @@ class EmoteManager extends ChangeNotifier {
       return;
     }
     _inflightEmoteSetIds.addAll(newSetIds);
+    // Subs tab spins (not empty-text) while the fetch below is in flight.
+    _notify();
     try {
       final byOwner = await _fetchUserEmoteSets(
         newSetIds,

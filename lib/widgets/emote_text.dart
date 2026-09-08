@@ -242,16 +242,16 @@ class EmoteText {
         height: height,
         fit: BoxFit.contain,
         gaplessPlayback: true,
-        // Static box while bytes load: no clock, no per-tick repaints.
-        // Neutral gray (not themed: spans outlive theme switches).
+        // Static shared-gray box while bytes load: no clock, no per-tick
+        // repaints. Same look as every other placeholder app-wide.
         loadingBuilder: (_, child, progress) => progress == null
             ? child
             : Container(
                 width: width,
                 height: height,
                 decoration: BoxDecoration(
-                  color: const Color(0x33808080),
-                  borderRadius: BorderRadius.circular(4),
+                  color: kEmotePlaceholderGray,
+                  borderRadius: BorderRadius.circular(kEmotePlaceholderRadius),
                 ),
               ),
         errorBuilder: (_, _, _) => SizedBox(width: width, height: height),

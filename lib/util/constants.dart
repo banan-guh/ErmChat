@@ -1,7 +1,17 @@
 import 'dart:io';
 import 'dart:math';
 
+import 'package:flutter/material.dart';
+
 const httpTimeout = Duration(seconds: 10);
+
+/// The one emote loading look app-wide: neutral gray (unthemed, cached
+/// spans outlive theme switches), shared by chat spans, Giphy previews,
+/// menu, sheet, and panel placeholders.
+const Color kEmotePlaceholderGray = Color(0x33808080);
+
+/// Corner radius for emote loading boxes.
+const double kEmotePlaceholderRadius = 4.0;
 
 /// User-whitelisted link suffixes for rejoining fractured (spaced) domains like "kappa .lol".
 const String kLinkWhitelistPrefKey = 'link_whitelist_v1';

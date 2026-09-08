@@ -11,9 +11,9 @@ import 'package:image/image.dart' as img;
 
 import '../models/generic_emote.dart';
 import '../services/emote_cache_manager.dart';
+import '../util/constants.dart';
 import '../util/webp_anim.dart';
 import 'emote_image_provider.dart';
-import 'emote_loading_band.dart';
 import 'emote_probe_memo.dart';
 
 /// Decoded emote frames with per-frame durations. Owned by the shared completer; renderers must not dispose.
@@ -539,7 +539,33 @@ class EmoteImage extends StatefulWidget {
   State<EmoteImage> createState() => _EmoteImageState();
 }
 
-/// Transparent loading placeholder with a shared-clock sweep band.
+/// Static loading placeholder: gray box, no clock, no per-tick repaints.
+/// Only consumer is [EmoteImage]'s shell (menu/sheet/panel); chat paints
+/// the same gray directly. Name kept for the existing widget tests.
+class LoadingBand extends StatelessWidget {
+  const LoadingBand({super.key, this.width, this.height, this.opacity = 1.0});
+
+  final double? width;
+  final double? height;
+
+  /// Fill opacity. Below 1 = subtle hint over existing content.
+  final double opacity;
+
+  @override
+  Widget build(BuildContext context) {
+    final alpha = (0x33 * opacity).round().clamp(0, 255);
+    return Container(
+      width: width,
+      height: height,
+      decoration: BoxDecoration(
+        color: Color.fromARGB(alpha, 0x80, 0x80, 0x80),
+        borderRadius: BorderRadius.circular(kEmotePlaceholderRadius),
+      ),
+    );
+  }
+}
+
+/// Static loading placeholder box. Kept as a named widget for tests.
 class EmoteLoadingPlaceholder extends StatelessWidget {
   const EmoteLoadingPlaceholder({super.key, this.width, this.height});
 

@@ -251,6 +251,14 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
       pinnedChannel: widget.selectedChannel,
     );
     if (byChannel.isEmpty) {
+      // Fetch in flight reads as loading, not as "none". Anything else
+      // empty here is genuinely empty (anon, sub-less, post-switch reset).
+      if (widget.emoteManager.subEmoteFetchInFlight) {
+        return _buildEmoteEmptyState(
+          scrollController,
+          const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+        );
+      }
       return _buildEmoteEmptyState(
         scrollController,
         const Center(child: Text('No subscriber emotes available')),

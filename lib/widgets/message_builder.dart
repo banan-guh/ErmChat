@@ -226,6 +226,19 @@ class MessageBuilder {
           height: height,
           fit: BoxFit.contain,
           gaplessPlayback: true,
+          // Same static gray as every other placeholder app-wide.
+          loadingBuilder: (_, child, progress) => progress == null
+              ? child
+              : Container(
+                  width: width,
+                  height: height,
+                  decoration: BoxDecoration(
+                    color: kEmotePlaceholderGray,
+                    borderRadius: BorderRadius.circular(
+                      kEmotePlaceholderRadius,
+                    ),
+                  ),
+                ),
           errorBuilder: (_, _, _) => SizedBox(width: width, height: height),
         ),
       ),

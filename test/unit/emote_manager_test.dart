@@ -8,7 +8,6 @@ import 'dart:math';
 import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:ermchat/widgets/emote_loading_band.dart';
 import 'package:ermchat/widgets/emote_image.dart';
 import 'package:ermchat/widgets/emote_probe_memo.dart';
 import 'package:ermchat/widgets/emote_image_provider.dart';

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'emote_image_provider.dart';
-import 'emote_loading_band.dart';
+import '../util/constants.dart';
 
 /// Lean chat-span emote renderer. Subscribes to [EmoteUrlProvider] completer directly; animation tick = set field + markNeedsPaint.
 class InlineEmoteView extends StatefulWidget {
@@ -100,11 +100,9 @@ class _InlineEmoteViewState extends State<InlineEmoteView> {
 
   @override
   Widget build(BuildContext context) {
-    final highlight = Theme.of(context).colorScheme.surfaceContainerHighest;
     return _LeafEmoteBox(
       width: widget.width,
       height: widget.height,
-      highlight: highlight,
       initialImage: _takeBufferedMain(),
     );
   }
@@ -114,20 +112,18 @@ class _LeafEmoteBox extends LeafRenderObjectWidget {
   const _LeafEmoteBox({
     required this.width,
     required this.height,
-    required this.highlight,
     this.initialImage,
   });
 
   final double width;
   final double height;
-  final Color highlight;
 
   /// Consumed once at creation; later rebuilds never touch frame ownership.
   final ImageInfo? initialImage;
 
   @override
   RenderObject createRenderObject(BuildContext context) =>
-      RenderInlineEmote(width, height, highlight, image: initialImage);
+      RenderInlineEmote(width, height, image: initialImage);
 
   @override
   void updateRenderObject(
@@ -136,26 +132,19 @@ class _LeafEmoteBox extends LeafRenderObjectWidget {
   ) {
     renderObject
       ..width = width
-      ..height = height
-      ..highlight = highlight;
+      ..height = height;
   }
 }
 
-/// Render box for one emote frame. Owns its [ImageInfo]. Paints a static
-/// loading band while frameless: no clock, no per-tick repaints.
+/// Render box for one emote frame. Owns its [ImageInfo]. Paints the shared
+/// static placeholder gray while frameless: no clock, no per-tick repaints.
 class RenderInlineEmote extends RenderBox {
-  RenderInlineEmote(
-    this._width,
-    this._height,
-    this._highlight, {
-    ImageInfo? image,
-  }) {
+  RenderInlineEmote(this._width, this._height, {ImageInfo? image}) {
     _image = image;
   }
 
   double _width;
   double _height;
-  Color _highlight;
   ImageInfo? _image;
 
   /// Image paints since last reset. Test telemetry only.
@@ -179,12 +168,6 @@ class RenderInlineEmote extends RenderBox {
     if (_height == value) return;
     _height = value;
     markNeedsLayout();
-  }
-
-  set highlight(Color value) {
-    if (_highlight == value) return;
-    _highlight = value;
-    markNeedsPaint();
   }
 
   ImageInfo? get image => _image;
@@ -226,12 +209,15 @@ class RenderInlineEmote extends RenderBox {
       );
       return;
     }
-    // Static band at fixed phase: reads as loading with no ticker.
-    canvas
-      ..save()
-      ..translate(offset.dx, offset.dy);
-    paintLoadingBand(canvas, size, _highlight, 0.0);
-    canvas.restore();
+    // Static placeholder gray shared app-wide: no clock, no per-tick work.
+    final paint = Paint()..color = kEmotePlaceholderGray;
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        offset & size,
+        const Radius.circular(kEmotePlaceholderRadius),
+      ),
+      paint,
+    );
   }
 
   @override
