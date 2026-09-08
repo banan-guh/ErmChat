@@ -6,6 +6,7 @@ import 'package:flutter/painting.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 
+import '../models/generic_emote.dart';
 import '../services/emote_cache_manager.dart';
 import 'emote_image.dart';
 
@@ -185,6 +186,16 @@ class _PerfSample {
   final DateTime time;
 }
 
+/// Whether [emote] renders through the custom completer loop. True for
+/// animated non-Twitch emotes (the engine mis-composites animated WebP
+/// transparency, so only our decoder is correct) and for frozen animated
+/// emotes (first-frame still). Everything else (statics of any provider,
+/// playing Twitch GIFs) resolves through the stock provider: one shared
+/// engine decode per URL with no wrapper, no extra completer, no registry
+/// entry. Shared routing rule for chat, menu, sheet, and panel.
+bool emoteUsesCustomLoop(GenericEmote emote, {required bool animateGifs}) =>
+    emote.isAnimated && (!animateGifs || emote.type != EmoteType.twitch);
+
 /// ImageProvider for emote URLs. Keyed by [url] for shared decode/playback. Animated WebP via reinforced decoder; rest via engine codec.
 class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
   EmoteUrlProvider(this.url);
@@ -338,29 +349,10 @@ class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
     return ((targetUs + gridUs - 1) ~/ gridUs) * gridUs;
   }
 
-  /// Whether an engine-driven frame arriving at [nowUs] (DateTime
-  /// microseconds) may forward under [cap]. Pure for tests. Uncapped (60+)
-  /// always forwards; cap 0 freezes; below 60 forwards at grid instants so
-  /// scattered GIF clocks coalesce instead of waking raster one by one.
-  @visibleForTesting
-  static bool engineForwardAllowed(int nowUs, int cap, int nextAllowedUs) {
-    if (cap <= 0) return false;
-    if (cap >= 60) return true;
-    return nowUs >= nextAllowedUs;
-  }
-
-  /// Engine forwards and drops since reset. Test telemetry only.
-  static int debugEngineForwards = 0;
-  static int debugEngineDrops = 0;
-
-  /// Resets engine telemetry. Exposed for tests.
-  @visibleForTesting
-  static void debugResetEngineCounters() {
-    debugEngineForwards = 0;
-    debugEngineDrops = 0;
-  }
-
-  /// Live completers by URL. Authoritative source (ImageCache may drop pending completers).
+  /// Live custom-loop completers by URL (animated WebP, playing GIFs,
+  /// frozen stills). Engine-routable bytes never enter: they resolve through
+  /// the stock provider at call sites, so this map no longer decides
+  /// lifetime for the hot path. Entries leave on dispose (zero listeners).
   static final Map<String, _EmoteImageCompleter> _liveByUrl = {};
 
   /// Emissions via [_EmoteImageCompleter._emitFrame]. Test telemetry only.
@@ -438,7 +430,7 @@ class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
   String toString() => 'EmoteUrlProvider($url)';
 }
 
-/// Streams emote frames to listeners (one completer per URL, shared via ImageCache). Animated WebP self-driven; non-animated forwarded from engine completer.
+/// Streams emote frames to listeners (one completer per URL, shared via ImageCache). Custom loop only: animated WebP, playing GIFs, frozen GIFs (still), and stray statics (still). Engine-routable bytes (Twitch PNG/GIF, static WebP) resolve through the stock provider at call sites and never reach this completer; if they do (probe alts, tests), they render as a single static frame with no loop, no wrapper, no extra completer.
 class _EmoteImageCompleter extends ImageStreamCompleter {
   _EmoteImageCompleter({required this.url, required this._engineDecode}) {
     // Pick up seed queued before this completer existed.
@@ -475,23 +467,9 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
 
   /// Last advanced timestamp. Null after stop (re-anchor on resume). Set during freeze (gap applied in one step).
   Duration? _shownTimestamp;
-  ImageStreamCompleter? _engineCompleter;
-  ImageStreamListener? _engineListener;
-
-  /// Engine codec; mirrors private frame counter via [_engineFramesDelivered].
-  ui.Codec? _engineCodec;
-
-  /// Forwarded frame count (sync frames dropped).
-  int _engineFramesDelivered = 0;
 
   /// Source URL for playback seed (cached smaller scale).
   String? _seedFromUrl;
-
-  /// Next grid instant an engine frame may forward (DateTime micros).
-  int _nextEngineForwardUs = 0;
-
-  /// Keeps engine completer alive. Prevents addListener-on-disposed throw after cache hit.
-  ImageStreamCompleterHandle? _engineHandle;
 
   Future<void> _load() async {
     try {
@@ -500,12 +478,13 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
       if (_disposed) return;
       final format = sniffEmoteFormat(bytes);
       final isWebpAnim = format == EmoteFormat.webp && webpIsAnimated(bytes);
-      final seeded = _seedFromUrl != null;
       final gifAnimated =
           format == EmoteFormat.gif && EmoteUrlProvider.gifsEnabled;
       _isAnimatedGif = format == EmoteFormat.gif;
-      if (isWebpAnim || (gifAnimated && seeded)) {
-        // Animated WebP: our decoder. Animated GIF with seed: also our decoder (needs our clock).
+      if (isWebpAnim || gifAnimated) {
+        // Animated WebP: our decoder (engine mis-composites transparency).
+        // Playing GIFs: our loop too (shared clock + fps cap instead of one
+        // unsynchronized engine clock per URL). Seed applies when present.
         final frames = await _decodeGate.withPermit(
           () =>
               (EmoteUrlProvider.debugDecodeOverride ?? decodeEmoteBytes)(bytes),
@@ -539,82 +518,25 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
         _frames = EmoteFrameData(frames: [image], durations: [frame.duration]);
         _emitFrame(0);
       } else {
-        // Everything else goes through the stock engine codec.
+        // Stray engine-routable bytes (static PNG/WebP via direct use or
+        // probe alts): single static frame, no loop, no wrapper completer.
+        // Call sites route these through the stock provider; this branch
+        // only keeps direct uses rendering instead of stalling.
         final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
         if (_disposed) {
           buffer.dispose();
           return;
         }
-        final codecFuture = _engineDecode(buffer);
-        codecFuture.then(
-          (codec) {
-            if (!_disposed) {
-              _engineCodec = codec;
-              // Engine-path animations are GIFs only (telemetry).
-              _playbackCapable = codec.frameCount > 1;
-            }
-          },
-          onError: (_) {
-            // The engine completer reports the error itself.
-          },
-        );
-        final inner = MultiFrameImageStreamCompleter(
-          codec: codecFuture,
-          scale: 1.0,
-          debugLabel: 'emote-$url',
-        );
-        final listener = ImageStreamListener(
-          (info, syncCall) {
-            // The framework hands each listener an owned ImageInfo clone.
-            // setImage takes ownership of `info`; dispose on early returns.
-            if (_disposed) {
-              info.dispose();
-              return;
-            }
-            // Synchronous re-delivery on re-attach: the inner completer's
-            // _currentImage already holds this frame and re-pushes it to new
-            // listeners. Rebroadcasting here would setState during build.
-            if (syncCall) {
-              info.dispose();
-              return;
-            }
-            _engineFramesDelivered++;
-            // Engine GIFs run on their own unsynchronized clocks and used to
-            // bypass the fps cap entirely. Gate them onto the shared grid so
-            // dozens of GIFs cannot wake raster one by one at native rate.
-            // Static engine images forward untouched (single frame).
-            if (_isAnimatedGif) {
-              final cap = _effectiveFpsCap;
-              final nowUs = DateTime.now().microsecondsSinceEpoch;
-              if (!EmoteUrlProvider.engineForwardAllowed(
-                nowUs,
-                cap,
-                _nextEngineForwardUs,
-              )) {
-                EmoteUrlProvider.debugEngineDrops++;
-                info.dispose();
-                return;
-              }
-              if (cap > 0 && cap < 60) {
-                _nextEngineForwardUs = EmoteUrlProvider.alignWakeUsToGrid(
-                  nowUs + 1,
-                  1000000 ~/ cap,
-                );
-              }
-              EmoteUrlProvider.debugEngineForwards++;
-            }
-            setImage(info);
-          },
-          onError: (error, stack) {
-            if (_disposed) return;
-            _reportQuietly(error, stack);
-            PaintingBinding.instance.imageCache.evict(EmoteUrlProvider(url));
-          },
-        );
-        _engineCompleter = inner;
-        _engineListener = listener;
-        _engineHandle = inner.keepAlive();
-        inner.addListener(listener);
+        final codec = await _engineDecode(buffer);
+        if (_disposed) {
+          codec.dispose();
+          return;
+        }
+        final frame = await codec.getNextFrame();
+        final image = frame.image.clone();
+        codec.dispose();
+        _frames = EmoteFrameData(frames: [image], durations: [frame.duration]);
+        _emitFrame(0);
       }
     } on Object catch (error, stack) {
       _reportQuietly(error, stack);
@@ -678,14 +600,11 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
   bool get _isPlaying =>
       _frameCallbackId != null || (_frameTimer?.isActive ?? false);
 
-  /// Current frame index (self-driven or engine-mirrored, 0 when not loaded).
+  /// Current frame index (self-driven, 0 when not loaded).
   int get currentFrameIndex {
     final frames = _frames;
     if (frames != null) return _frameIndex;
-    final codec = _engineCodec;
-    final delivered = _engineFramesDelivered;
-    if (codec == null || delivered == 0 || codec.frameCount == 0) return 0;
-    return (delivered - 1) % codec.frameCount;
+    return 0;
   }
 
   /// Emits frame [index] as a clone. [setImage] clones again per listener and
@@ -743,19 +662,10 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
   }
 
   /// Re-evaluates after gifsEnabled flip: freezes/resumes animated GIFs only.
+  /// Span rebuilds (cache key includes the toggle) move frozen GIFs to the
+  /// still branch; this only pauses/resumes live loops in place.
   void _refreshForGifs() {
     if (_disposed || !_isAnimatedGif) return;
-    final inner = _engineCompleter;
-    final listener = _engineListener;
-    if (inner != null && listener != null) {
-      // Engine GIF: detach freezes, re-attach resumes. Sync delivery dropped.
-      if (!EmoteUrlProvider.gifsEnabled) {
-        inner.removeListener(listener);
-      } else if (hasListeners) {
-        inner.addListener(listener);
-      }
-      return;
-    }
     if (_frames == null || !hasListeners) return;
     if (!EmoteUrlProvider.gifsEnabled || _effectiveFpsCap == 0) {
       if (_isPlaying) _stopPlayback();
@@ -874,14 +784,6 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
       // Resume animated playback when a listener returns.
       _startPlayback();
     }
-    final inner = _engineCompleter;
-    final innerListener = _engineListener;
-    if (inner != null && innerListener != null) {
-      // A frozen GIF (animate-gifs off) must not restart via re-attach.
-      if (!_isAnimatedGif || EmoteUrlProvider.gifsEnabled) {
-        inner.addListener(innerListener);
-      }
-    }
   }
 
   @override
@@ -890,13 +792,8 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
     if (_listenerCount > 0) _listenerCount--;
     _noteAdaptiveInput();
     if (hasListeners) return;
-    // Pause playback and detach engine completer (stops decoding idle frames).
+    // Pause playback; the loop restarts on re-attach.
     _stopPlayback();
-    final inner = _engineCompleter;
-    final innerListener = _engineListener;
-    if (inner != null && innerListener != null) {
-      inner.removeListener(innerListener);
-    }
   }
 
   /// Telemetry hook. The governor reacts to frame strain, so listener
@@ -912,17 +809,6 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
     }
     _playbackCapable = false;
     _stopPlayback();
-    final inner = _engineCompleter;
-    final innerListener = _engineListener;
-    if (inner != null && innerListener != null) {
-      inner.removeListener(innerListener);
-    }
-    // Releases the engine completer now that no one can re-attach to it.
-    _engineHandle?.dispose();
-    _engineHandle = null;
-    _engineCompleter = null;
-    _engineListener = null;
-    _engineCodec = null;
     _seedFromUrl = null;
     final frames = _frames;
     _frames = null;

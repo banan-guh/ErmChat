@@ -3,9 +3,12 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:linkify/linkify.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../services/emote_cache_manager.dart';
 import '../util/constants.dart';
+import 'emote_image_provider.dart';
 import '../util/log.dart';
 import 'inline_emote_view.dart';
 import '../services/link_whitelist.dart';
@@ -32,6 +35,7 @@ class EmoteText {
     void Function(String email)? onEmailTap,
     bool showImages = false,
     void Function(String url)? onImageTap,
+    bool animateGifs = true,
   }) {
     try {
       return _buildUnsafe(
@@ -44,6 +48,7 @@ class EmoteText {
         onEmailTap: onEmailTap,
         showImages: showImages,
         onImageTap: onImageTap,
+        animateGifs: animateGifs,
       );
     } catch (e, stack) {
       logDebug('[EmoteText.build] error: $e');
@@ -70,6 +75,7 @@ class EmoteText {
     void Function(String email)? onEmailTap,
     bool showImages = false,
     void Function(String url)? onImageTap,
+    bool animateGifs = true,
   }) {
     if (channelEmotes == null) {
       return parseTextWithLinks(
@@ -123,7 +129,12 @@ class EmoteText {
       // Emit emote before trailing text to preserve source order.
       if (currentBase != null) {
         spans.add(
-          _buildEmoteSpan(currentBase!, onEmoteTap: onEmoteTap, scale: scale),
+          _buildEmoteSpan(
+            currentBase!,
+            onEmoteTap: onEmoteTap,
+            scale: scale,
+            animateGifs: animateGifs,
+          ),
         );
         currentBase = null;
         currentBaseEnd = null;
@@ -211,9 +222,43 @@ class EmoteText {
     return Size(s * emote.aspectRatio, s);
   }
 
-  static Widget _emoteImage(String url, double width, double height) {
+  static Widget _emoteImage(
+    GenericEmote emote,
+    double width,
+    double height, {
+    required bool animateGifs,
+  }) {
+    // Engine-routable emotes (statics, playing Twitch GIFs) use the stock
+    // provider: one shared decode per URL, no per-copy fan-out. See
+    // [emoteUsesCustomLoop] for the single routing rule.
+    if (!emoteUsesCustomLoop(emote, animateGifs: animateGifs)) {
+      return Image(
+        key: ValueKey(emote.url),
+        image: CachedNetworkImageProvider(
+          emote.url,
+          cacheManager: EmoteCacheManager(),
+        ),
+        width: width,
+        height: height,
+        fit: BoxFit.contain,
+        gaplessPlayback: true,
+        // Static box while bytes load: no clock, no per-tick repaints.
+        // Neutral gray (not themed: spans outlive theme switches).
+        loadingBuilder: (_, child, progress) => progress == null
+            ? child
+            : Container(
+                width: width,
+                height: height,
+                decoration: BoxDecoration(
+                  color: const Color(0x33808080),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+              ),
+        errorBuilder: (_, _, _) => SizedBox(width: width, height: height),
+      );
+    }
     // Lean renderer: one render box, shared completer. Lower per-copy cost than EmoteImage.
-    return InlineEmoteView(url: url, width: width, height: height);
+    return InlineEmoteView(url: emote.url, width: width, height: height);
   }
 
   // Bounding box across overlays; center each image. Clip.none for overflow.
@@ -221,6 +266,7 @@ class EmoteText {
     _EmoteSpanData data, {
     void Function(List<GenericEmote>)? onEmoteTap,
     double scale = 1.0,
+    bool animateGifs = true,
   }) {
     final baseSize = _emoteSize(data.base, scale);
     var maxW = baseSize.width;
@@ -235,7 +281,12 @@ class EmoteText {
       Positioned(
         left: (maxW - baseSize.width) / 2,
         top: (maxH - baseSize.height) / 2,
-        child: _emoteImage(data.base.url, baseSize.width, baseSize.height),
+        child: _emoteImage(
+          data.base,
+          baseSize.width,
+          baseSize.height,
+          animateGifs: animateGifs,
+        ),
       ),
     ];
     for (final overlay in data.overlays) {
@@ -246,7 +297,12 @@ class EmoteText {
           top: (maxH - o.height) / 2,
           width: o.width,
           height: o.height,
-          child: _emoteImage(overlay.url, o.width, o.height),
+          child: _emoteImage(
+            overlay,
+            o.width,
+            o.height,
+            animateGifs: animateGifs,
+          ),
         ),
       );
     }
@@ -256,7 +312,12 @@ class EmoteText {
       emoteWidget = SizedBox(
         width: baseSize.width,
         height: baseSize.height,
-        child: _emoteImage(data.base.url, baseSize.width, baseSize.height),
+        child: _emoteImage(
+          data.base,
+          baseSize.width,
+          baseSize.height,
+          animateGifs: animateGifs,
+        ),
       );
     } else {
       emoteWidget = SizedBox(

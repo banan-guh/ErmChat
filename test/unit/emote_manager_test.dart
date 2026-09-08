@@ -1104,14 +1104,6 @@ void main() {
         expect(EmoteUrlProvider.alignWakeUsToGrid(70000, -5), 70000);
       });
 
-      test('engine gate freezes at 0, passes uncapped, grids below 60', () {
-        expect(EmoteUrlProvider.engineForwardAllowed(100, 0, 0), isFalse);
-        expect(EmoteUrlProvider.engineForwardAllowed(100, 60, 999), isTrue);
-        expect(EmoteUrlProvider.engineForwardAllowed(100, 61, 999), isTrue);
-        expect(EmoteUrlProvider.engineForwardAllowed(100, 30, 90), isTrue);
-        expect(EmoteUrlProvider.engineForwardAllowed(89, 30, 90), isFalse);
-      });
-
       Future<void> pumpCappedEmote(
         WidgetTester tester, {
         required bool uncapped,
@@ -1183,37 +1175,6 @@ void main() {
           EmoteUrlProvider.currentFrame('https://example.com/capped.webp'),
           greaterThan(0),
         );
-      });
-
-      testWidgets('a zero cap freezes engine GIFs until raised', (
-        tester,
-      ) async {
-        final gif = File('test/fixtures/7tv_kiss_2x.gif').readAsBytesSync();
-        EmoteUrlProvider.debugFetchOverride = (url) async => gif;
-        EmoteUrlProvider.debugResetEngineCounters();
-        EmoteUrlProvider.applyAdaptiveThrottle(false);
-        const url = 'https://example.com/gated-engine.gif';
-        await tester.pumpWidget(
-          MaterialApp(
-            home: Scaffold(body: EmoteImage(url: url, width: 28, height: 28)),
-          ),
-        );
-        await tester.pump();
-        await tester.runAsync(
-          () => Future<void>.delayed(const Duration(milliseconds: 200)),
-        );
-        await tester.pump(const Duration(milliseconds: 500));
-        await tester.pump(const Duration(milliseconds: 500));
-        expect(EmoteUrlProvider.debugEngineForwards, greaterThan(0));
-
-        EmoteUrlProvider.applyFpsCap(0);
-        final frozen = EmoteUrlProvider.debugEngineForwards;
-        await tester.pump(const Duration(milliseconds: 500));
-        await tester.pump(const Duration(milliseconds: 500));
-        expect(EmoteUrlProvider.debugEngineForwards, frozen);
-
-        EmoteUrlProvider.applyFpsCap(60);
-        EmoteUrlProvider.applyAdaptiveThrottle(true);
       });
     });
   });

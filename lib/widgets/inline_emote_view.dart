@@ -1,9 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
 
-import '../services/emote_cache_manager.dart';
 import 'emote_image_provider.dart';
-import 'emote_probe_memo.dart';
 import 'emote_loading_band.dart';
 
 /// Lean chat-span emote renderer. Subscribes to [EmoteUrlProvider] completer directly; animation tick = set field + markNeedsPaint.
@@ -13,15 +10,11 @@ class InlineEmoteView extends StatefulWidget {
     required this.url,
     required this.width,
     required this.height,
-    this.alternateUrls,
   });
 
   final String url;
   final double width;
   final double height;
-
-  /// Smaller-scale URLs for cached placeholder while [url] loads.
-  final List<String>? alternateUrls;
 
   @override
   State<InlineEmoteView> createState() => _InlineEmoteViewState();
@@ -29,25 +22,15 @@ class InlineEmoteView extends StatefulWidget {
 
 class _InlineEmoteViewState extends State<InlineEmoteView> {
   ImageStream? _mainStream;
-  ImageStream? _altStream;
 
-  // Reused listeners (one pair per state; completer deduplicates removals).
   // Emote failures are expected (bad URLs, engine quirks); swallow silently.
   late final ImageStreamListener _mainListener = ImageStreamListener(
     _onMainFrame,
     onError: (_, _) {},
   );
-  late final ImageStreamListener _altListener = ImageStreamListener(
-    _onAltFrame,
-    onError: (_, _) {},
-  );
 
-  /// Buffered frames before render object exists. Ownership transfers on first build.
+  /// Buffered frame before render object exists. Ownership transfers on first build.
   ImageInfo? _bufferedMain;
-  ImageInfo? _bufferedAlt;
-
-  /// Invalidates in-flight alternate probes across url changes.
-  Object? _probeToken;
 
   RenderInlineEmote? get _render {
     if (!mounted) return null;
@@ -66,7 +49,6 @@ class _InlineEmoteViewState extends State<InlineEmoteView> {
     // First dependencies ready: start resolving (MediaQuery illegal in initState).
     if (_mainStream == null) {
       _resolveMain();
-      _probeAlternates();
     }
   }
 
@@ -76,17 +58,13 @@ class _InlineEmoteViewState extends State<InlineEmoteView> {
     if (widget.url != oldWidget.url) {
       _resetFrames();
       _resolveMain();
-      _probeAlternates();
     }
   }
 
   @override
   void dispose() {
-    _probeToken = Object();
     _mainStream?.removeListener(_mainListener);
-    _altStream?.removeListener(_altListener);
     _bufferedMain?.dispose();
-    _bufferedAlt?.dispose();
     super.dispose();
   }
 
@@ -97,18 +75,11 @@ class _InlineEmoteViewState extends State<InlineEmoteView> {
   }
 
   void _resetFrames() {
-    _probeToken = Object();
     _mainStream?.removeListener(_mainListener);
     _mainStream = null;
-    _altStream?.removeListener(_altListener);
-    _altStream = null;
     _bufferedMain?.dispose();
     _bufferedMain = null;
-    _bufferedAlt?.dispose();
-    _bufferedAlt = null;
-    _render
-      ?..image = null
-      ..altImage = null;
+    _render?.image = null;
   }
 
   void _onMainFrame(ImageInfo info, bool synchronousCall) {
@@ -118,81 +89,12 @@ class _InlineEmoteViewState extends State<InlineEmoteView> {
       _bufferedMain = info;
       return;
     }
-    // The real frame replaces any placeholder scale; stop listening to it.
-    if (_altStream != null) _detachAlt();
     ro.image = info;
-  }
-
-  void _onAltFrame(ImageInfo info, bool synchronousCall) {
-    final ro = _render;
-    if (ro == null) {
-      _bufferedAlt?.dispose();
-      _bufferedAlt = info;
-      return;
-    }
-    ro.altImage = info;
-  }
-
-  void _detachAlt() {
-    _altStream?.removeListener(_altListener);
-    _altStream = null;
-    _render?.altImage = null;
-  }
-
-  /// Probes alternate scales for cached placeholder. Disk lookups shared via [EmoteProbeMemo].
-  Future<void> _probeAlternates() async {
-    final alternates = widget.alternateUrls;
-    if (alternates == null || alternates.isEmpty) return;
-    // Main already has frames: no placeholder needed, skip probe and alt.
-    if (EmoteUrlProvider.hasFrames(widget.url)) {
-      return;
-    }
-    final token = Object();
-    _probeToken = token;
-    for (final altUrl in alternates) {
-      if (!mounted || _probeToken != token) return;
-      if (altUrl == widget.url) continue;
-      if (PaintingBinding.instance.imageCache.containsKey(
-        EmoteUrlProvider(altUrl),
-      )) {
-        _attachAlt(altUrl);
-        // Continue the animation clock in phase on the swap to full res.
-        EmoteUrlProvider.seedPlayback(widget.url, altUrl);
-        return;
-      }
-      final bool cached;
-      try {
-        cached = await EmoteProbeMemo.instance.probe(altUrl, _isAltOnDisk);
-      } on Object {
-        continue;
-      }
-      if (!mounted || _probeToken != token) return;
-      if (cached) {
-        _attachAlt(altUrl);
-        EmoteUrlProvider.seedPlayback(widget.url, altUrl);
-        return;
-      }
-    }
-  }
-
-  static Future<bool> _isAltOnDisk(String url) async =>
-      await EmoteCacheManager().getFileFromCache(url) != null;
-
-  void _attachAlt(String altUrl) {
-    _altStream?.removeListener(_altListener);
-    _altStream = EmoteUrlProvider(altUrl).resolve(_configuration)
-      ..addListener(_altListener);
   }
 
   ImageInfo? _takeBufferedMain() {
     final info = _bufferedMain;
     _bufferedMain = null;
-    return info;
-  }
-
-  ImageInfo? _takeBufferedAlt() {
-    final info = _bufferedAlt;
-    _bufferedAlt = null;
     return info;
   }
 
@@ -204,7 +106,6 @@ class _InlineEmoteViewState extends State<InlineEmoteView> {
       height: widget.height,
       highlight: highlight,
       initialImage: _takeBufferedMain(),
-      initialAltImage: _takeBufferedAlt(),
     );
   }
 }
@@ -215,7 +116,6 @@ class _LeafEmoteBox extends LeafRenderObjectWidget {
     required this.height,
     required this.highlight,
     this.initialImage,
-    this.initialAltImage,
   });
 
   final double width;
@@ -224,16 +124,10 @@ class _LeafEmoteBox extends LeafRenderObjectWidget {
 
   /// Consumed once at creation; later rebuilds never touch frame ownership.
   final ImageInfo? initialImage;
-  final ImageInfo? initialAltImage;
 
   @override
-  RenderObject createRenderObject(BuildContext context) => RenderInlineEmote(
-    width,
-    height,
-    highlight,
-    image: initialImage,
-    altImage: initialAltImage,
-  );
+  RenderObject createRenderObject(BuildContext context) =>
+      RenderInlineEmote(width, height, highlight, image: initialImage);
 
   @override
   void updateRenderObject(
@@ -247,25 +141,22 @@ class _LeafEmoteBox extends LeafRenderObjectWidget {
   }
 }
 
-/// Render box for one emote frame. Owns [ImageInfo]s; listens to loading clock when frameless.
+/// Render box for one emote frame. Owns its [ImageInfo]. Paints a static
+/// loading band while frameless: no clock, no per-tick repaints.
 class RenderInlineEmote extends RenderBox {
   RenderInlineEmote(
     this._width,
     this._height,
     this._highlight, {
     ImageInfo? image,
-    ImageInfo? altImage,
   }) {
     _image = image;
-    _altImage = altImage;
   }
 
   double _width;
   double _height;
   Color _highlight;
   ImageInfo? _image;
-  ImageInfo? _altImage;
-  bool _clockSubscribed = false;
 
   /// Image paints since last reset. Test telemetry only.
   static int debugPaintCount = 0;
@@ -302,15 +193,6 @@ class RenderInlineEmote extends RenderBox {
     _image?.dispose();
     _image = value;
     markNeedsPaint();
-    _updateClockSubscription();
-  }
-
-  ImageInfo? get altImage => _altImage;
-  set altImage(ImageInfo? value) {
-    if (identical(_altImage, value)) return;
-    _altImage?.dispose();
-    _altImage = value;
-    markNeedsPaint();
   }
 
   @visibleForTesting
@@ -318,9 +200,6 @@ class RenderInlineEmote extends RenderBox {
 
   @visibleForTesting
   ImageInfo? get debugFrame => _image;
-
-  @visibleForTesting
-  ImageInfo? get debugAltFrame => _altImage;
 
   @override
   void performLayout() {
@@ -331,83 +210,34 @@ class RenderInlineEmote extends RenderBox {
   bool hitTestSelf(Offset position) => true;
 
   @override
-  void attach(PipelineOwner owner) {
-    super.attach(owner);
-    _updateClockSubscription();
-  }
-
-  @override
-  void detach() {
-    _unsubscribeClock();
-    super.detach();
-  }
-
-  void _updateClockSubscription() {
-    final shouldListen = attached && _image == null;
-    if (shouldListen == _clockSubscribed) return;
-    _clockSubscribed = shouldListen;
-    // Render box holds a clock slot, keeping sweep running without [LoadingBand] widgets.
-    if (shouldListen) {
-      EmoteLoadingClock.acquire();
-      EmoteLoadingClock.phase.addListener(markNeedsPaint);
-    } else {
-      EmoteLoadingClock.phase.removeListener(markNeedsPaint);
-      EmoteLoadingClock.release();
-    }
-  }
-
-  void _unsubscribeClock() {
-    if (!_clockSubscribed) return;
-    _clockSubscribed = false;
-    EmoteLoadingClock.phase.removeListener(markNeedsPaint);
-    EmoteLoadingClock.release();
-  }
-
-  @override
   void paint(PaintingContext context, Offset offset) {
     final canvas = context.canvas;
-    final main = _image;
-    final alt = _altImage;
-    final info = main ?? alt;
+    final info = _image;
     if (info != null) {
       debugPaintCount++;
       // Contain-fit: emote textures rarely match layout size; inscribe would overflow.
-      final img = info.image;
       paintImage(
         canvas: canvas,
         rect: offset & size,
-        image: img,
+        image: info.image,
         scale: info.scale,
         alignment: Alignment.center,
         fit: BoxFit.contain,
       );
-      if (main != null) return;
-      // Cached smaller scale showing; faint band hints at higher-res incoming.
-      canvas.save();
-      canvas.translate(offset.dx, offset.dy);
-      paintLoadingBand(
-        canvas,
-        size,
-        _highlight.withValues(alpha: 0.25),
-        EmoteLoadingClock.phase.value,
-      );
-      canvas.restore();
       return;
     }
+    // Static band at fixed phase: reads as loading with no ticker.
     canvas
       ..save()
       ..translate(offset.dx, offset.dy);
-    paintLoadingBand(canvas, size, _highlight, EmoteLoadingClock.phase.value);
+    paintLoadingBand(canvas, size, _highlight, 0.0);
     canvas.restore();
   }
 
   @override
   void dispose() {
-    _unsubscribeClock();
     _image?.dispose();
     _image = null;
-    _altImage?.dispose();
-    _altImage = null;
     super.dispose();
   }
 }

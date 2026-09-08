@@ -11,7 +11,6 @@ import '../services/third_party_badge_service.dart';
 import '../services/twitch_badge_service.dart';
 import '../util/log.dart';
 import 'emote_text.dart';
-import 'inline_emote_view.dart';
 
 class MessageBuilder {
   final EmoteManager emoteManager;
@@ -30,6 +29,11 @@ class MessageBuilder {
   /// cached spans (tile column), so only the icon joins the cache key.
   bool showImages;
 
+  /// Whether animated Twitch emotes play. Off renders them frozen through
+  /// the custom pipeline; on renders them via the stock image provider.
+  /// Joins the cache key so flips recompute spans lazily.
+  bool animateGifs;
+
   /// Inline image preview max height at textScale 1.0.
   double imageHeight;
 
@@ -46,6 +50,7 @@ class MessageBuilder {
     this.gifHeight = kGiphyInlineHeightDefault,
     this.showImages = kImageEmbedEnabledDefault,
     this.imageHeight = kImageEmbedHeightDefault,
+    this.animateGifs = true,
   }) : linkWhitelist = linkWhitelist ?? LinkWhitelist.instance;
 
   /// Composite cache key for message spans. Prime multiplier avoids collisions.
@@ -58,6 +63,7 @@ class MessageBuilder {
     if (onEmailTap != null) v += 40000037;
     if (showGifs) v += 10000019 + (gifHeight * 13).toInt();
     if (showImages) v += 20000029;
+    if (!animateGifs) v += 50000051;
     return v;
   }
 
@@ -147,6 +153,7 @@ class MessageBuilder {
         onEmailTap: onEmailTap,
         showImages: showImages,
         onImageTap: onImageTap,
+        animateGifs: animateGifs,
       );
     }
     // GIF messages: splice inline GIF images over their text ranges; GIF wins
@@ -182,6 +189,7 @@ class MessageBuilder {
           onEmailTap: onEmailTap,
           showImages: showImages,
           onImageTap: onImageTap,
+          animateGifs: animateGifs,
         ),
       );
     }
@@ -199,8 +207,11 @@ class MessageBuilder {
     return spans;
   }
 
-  /// Inline chat GIF. Fixed box with contain fit; animation, caching, and the
-  /// animate_gifs freeze all come from the shared emote image pipeline.
+  /// Inline chat GIF. Fixed box with contain fit. Memory-only stock provider
+  /// ([NetworkImage], no disk): Giphy GIFs are sparse one-offs, so they must
+  /// not consume emote disk slots or init disk I/O during span build.
+  /// Always animates (ignores the animate_gifs freeze, same as before) and
+  /// shares one engine decode per URL within the session.
   WidgetSpan _buildGifSpan(String url, double scale) {
     final height = gifHeight * scale;
     final width = gifHeight * 1.5 * scale;
@@ -208,7 +219,15 @@ class MessageBuilder {
       alignment: PlaceholderAlignment.middle,
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 2),
-        child: InlineEmoteView(url: url, width: width, height: height),
+        child: Image(
+          key: ValueKey(url),
+          image: NetworkImage(url),
+          width: width,
+          height: height,
+          fit: BoxFit.contain,
+          gaplessPlayback: true,
+          errorBuilder: (_, _, _) => SizedBox(width: width, height: height),
+        ),
       ),
     );
   }

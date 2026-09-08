@@ -241,6 +241,7 @@ class _HomeScreenState extends State<HomeScreen>
     gifHeight: _gifHeight,
     showImages: _showImages,
     imageHeight: _imageHeight,
+    animateGifs: _animateGifs,
   );
   late final _modActions = ModActions(
     twitchApi: _twitchApi,
@@ -328,6 +329,10 @@ class _HomeScreenState extends State<HomeScreen>
   double _gifHeight = kGiphyInlineHeightDefault;
   bool _showImages = kImageEmbedEnabledDefault;
   double _imageHeight = kImageEmbedHeightDefault;
+
+  /// Animated emotes play (default on; toggled in Emotes settings). Mirrored
+  /// into the message builder so frozen Twitch GIFs swap render paths.
+  bool _animateGifs = true;
 
   /// Hidden-chrome mode: drops the ErmChat header (title, join, mentions,
   /// overflow) and the channel tab bar so the chat fills the screen. Transient
@@ -986,6 +991,17 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
+  void _setAnimateGifs(bool value) {
+    EmoteUrlProvider.applyGifsEnabled(value);
+    if (_animateGifs == value) return;
+    setState(() => _animateGifs = value);
+    _messageBuilder.animateGifs = value;
+    _tileCache.clear();
+    for (final channel in List.of(_chatStore.channels)) {
+      _chatStore.touchChannel(channel);
+    }
+  }
+
   void _setGifHeight(double value) {
     final clamped = value.clamp(kGiphyInlineHeightMin, kGiphyInlineHeightMax);
     if (_gifHeight == clamped) return;
@@ -1322,10 +1338,12 @@ class _HomeScreenState extends State<HomeScreen>
                   kImageEmbedHeightDefault)
               .clamp(kImageEmbedHeightMin, kImageEmbedHeightMax);
       _showInput = prefs.getBool('show_input') ?? true;
+      _animateGifs = prefs.getBool('animate_gifs') ?? true;
       _messageBuilder.showGifs = _showGifs;
       _messageBuilder.gifHeight = _gifHeight;
       _messageBuilder.showImages = _showImages;
       _messageBuilder.imageHeight = _imageHeight;
+      _messageBuilder.animateGifs = _animateGifs;
       // Prefs load async; tiles built with defaults before this returns
       // would keep stale spans, so evict them like the live setters do.
       _tileCache.clear();
@@ -1505,7 +1523,7 @@ class _HomeScreenState extends State<HomeScreen>
           onTimestampFormatChanged: _setTimestampFormat,
           onChatFontScaleChanged: _setChatFontScale,
           onEmoteFpsCapChanged: EmoteUrlProvider.applyFpsCap,
-          onAnimateGifsChanged: EmoteUrlProvider.applyGifsEnabled,
+          onAnimateGifsChanged: _setAnimateGifs,
           onAdaptiveThrottleChanged: EmoteUrlProvider.applyAdaptiveThrottle,
           onAlwaysAnimatePanelChanged: (value) =>
               EmoteUrlProvider.alwaysAnimatePanel = value,

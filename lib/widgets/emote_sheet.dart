@@ -145,6 +145,7 @@ class _EmoteSheetState extends State<EmoteSheet>
                       url: previewUrl,
                       alternateUrls: alternateUrls,
                       fit: BoxFit.contain,
+                      emote: emote,
                       errorWidget: Container(
                         color: theme.colorScheme.surfaceContainerHighest,
                         child: Icon(

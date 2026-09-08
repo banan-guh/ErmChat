@@ -6,8 +6,10 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:image/image.dart' as img;
 
+import '../models/generic_emote.dart';
 import '../services/emote_cache_manager.dart';
 import '../util/webp_anim.dart';
 import 'emote_image_provider.dart';
@@ -497,7 +499,11 @@ Future<ui.Image> _imageFromRgba(ByteBuffer rgba, int width, int height) {
   return completer.future;
 }
 
-/// Emote renderer using [EmoteUrlProvider]'s shared completer. Animated WebP via reinforced decoder; GIFs/static via engine codec.
+/// Emote renderer with placeholder + shimmer shell. Provider routes by the
+/// single [emoteUsesCustomLoop] rule: engine-routable bytes through the
+/// stock provider (shared with chat, one decode per URL), animated WebP and
+/// frozen stills through the custom completer. Null [emote] keeps legacy
+/// custom behavior (tests, raw URLs).
 class EmoteImage extends StatefulWidget {
   const EmoteImage({
     super.key,
@@ -509,6 +515,7 @@ class EmoteImage extends StatefulWidget {
     this.errorWidget,
     this.alternateUrls,
     this.uncapped = false,
+    this.emote,
   });
 
   final String url;
@@ -522,7 +529,11 @@ class EmoteImage extends StatefulWidget {
   final List<String>? alternateUrls;
 
   /// Plays at native rate regardless of FPS cap. Used by emote panel.
+  /// No-op for stock-routed emotes (engine always plays native).
   final bool uncapped;
+
+  /// Routing metadata for [emoteUsesCustomLoop]. Null forces custom.
+  final GenericEmote? emote;
 
   @override
   State<EmoteImage> createState() => _EmoteImageState();
@@ -556,8 +567,31 @@ class _EmoteImageState extends State<EmoteImage> {
     _probePlaceholder();
   }
 
+  /// Whether this cell rides the custom completer. Engine-routed cells
+  /// share chat's decoded pixels and skip uncapped/seeding (no-ops there).
+  bool get _custom {
+    final emote = widget.emote;
+    if (emote == null) return true;
+    return emoteUsesCustomLoop(
+      emote,
+      animateGifs: EmoteUrlProvider.gifsEnabled,
+    );
+  }
+
+  /// Provider honoring the routing rule. Alt scales share the main's route.
+  ImageProvider _providerFor(String url) => _custom
+      ? EmoteUrlProvider(url)
+      : CachedNetworkImageProvider(url, cacheManager: EmoteCacheManager());
+
   /// Syncs uncapped registrations with the desired set.
   void _syncUncappedRegistrations() {
+    if (!_custom) {
+      for (final url in _uncappedUrls) {
+        EmoteUrlProvider.removeUncapped(url);
+      }
+      _uncappedUrls.clear();
+      return;
+    }
     final desired = <String>{
       if (widget.uncapped) widget.url,
       if (widget.uncapped && _placeholderUrl != null) _placeholderUrl!,
@@ -583,12 +617,13 @@ class _EmoteImageState extends State<EmoteImage> {
       if (!mounted || _loadToken != token) return;
       if (altUrl == widget.url) continue;
       // Memory hits resolve sync (first frame); disk via memoized probe.
+      // Keys follow the routing rule so stock cells hit chat's entries.
       if (PaintingBinding.instance.imageCache.containsKey(
-        EmoteUrlProvider(altUrl),
+        _providerFor(altUrl),
       )) {
         _setPlaceholder(altUrl, token);
-        // Seed playback so the swap continues in phase.
-        EmoteUrlProvider.seedPlayback(widget.url, altUrl);
+        // Seed playback so the swap continues in phase (custom only).
+        if (_custom) EmoteUrlProvider.seedPlayback(widget.url, altUrl);
         return;
       }
       final bool cached;
@@ -601,7 +636,7 @@ class _EmoteImageState extends State<EmoteImage> {
       if (!mounted || _loadToken != token) return;
       if (cached) {
         _setPlaceholder(altUrl, token);
-        EmoteUrlProvider.seedPlayback(widget.url, altUrl);
+        if (_custom) EmoteUrlProvider.seedPlayback(widget.url, altUrl);
         return;
       }
     }
@@ -640,7 +675,10 @@ class _EmoteImageState extends State<EmoteImage> {
       _placeholderUrl = null;
       _probePlaceholder();
     }
-    if (widget.uncapped != oldWidget.uncapped || widget.url != oldWidget.url) {
+    if (widget.uncapped != oldWidget.uncapped ||
+        widget.url != oldWidget.url ||
+        widget.emote?.isAnimated != oldWidget.emote?.isAnimated ||
+        widget.emote?.type != oldWidget.emote?.type) {
       _syncUncappedRegistrations();
     }
   }
@@ -688,7 +726,7 @@ class _EmoteImageState extends State<EmoteImage> {
     return Image(
       // Key by URL: recycled widgets must not show stale frames during load.
       key: ValueKey(widget.url),
-      image: EmoteUrlProvider(widget.url),
+      image: _providerFor(widget.url),
       width: widget.width,
       height: widget.height,
       fit: widget.fit,
@@ -702,7 +740,7 @@ class _EmoteImageState extends State<EmoteImage> {
           overlay = _loadingStack(
             Image(
               key: ValueKey('ph-$altUrl'),
-              image: EmoteUrlProvider(altUrl),
+              image: _providerFor(altUrl),
               fit: widget.fit,
               gaplessPlayback: true,
             ),

@@ -4,7 +4,6 @@ import 'dart:typed_data';
 import 'package:ermchat/models/generic_emote.dart';
 import 'package:ermchat/services/emote_manager.dart';
 import 'package:ermchat/widgets/emote_image_provider.dart';
-import 'package:ermchat/widgets/emote_loading_band.dart';
 import 'package:ermchat/widgets/emote_text.dart';
 import 'package:ermchat/widgets/inline_emote_view.dart';
 import 'package:flutter/material.dart';
@@ -43,9 +42,7 @@ void main() {
     EmoteUrlProvider.debugDecodeOverride = null;
   });
 
-  testWidgets('shows the band while loading and releases it after', (
-    tester,
-  ) async {
+  testWidgets('shows the band while loading, frame after', (tester) async {
     final gate = Completer<Uint8List>();
     EmoteUrlProvider.debugFetchOverride = (_) => gate.future;
     const url = 'https://inline.test/gated.png';
@@ -57,60 +54,13 @@ void main() {
     final ro = _renderOf(tester);
     expect(ro.debugFrame, isNull);
     expect(ro.debugShowsBand, isTrue);
-    expect(EmoteLoadingClock.isActive, isTrue);
 
     gate.complete(_pngBytes());
     await tester.pump();
     await _pumpUntilLoaded(tester);
 
     expect(ro.debugFrame, isNotNull);
-    // The only consumer unhooked when the frame landed.
-    expect(EmoteLoadingClock.isActive, isFalse);
-  });
-
-  testWidgets('a cached alternate shows under the faint band and clears', (
-    tester,
-  ) async {
-    final altPng = _pngBytes();
-    final altUrl = 'https://inline.test/small.png';
-    final mainUrl = 'https://inline.test/big.png';
-    // Warm the memory cache with the alternate (like a previously rendered
-    // smaller scale).
-    EmoteUrlProvider.debugFetchOverride = (_) async => altPng;
-    await tester.pumpWidget(
-      MaterialApp(home: InlineEmoteView(url: altUrl, width: 28, height: 28)),
-    );
-    await _pumpUntilLoaded(tester);
-    await tester.pumpWidget(const SizedBox.shrink());
-    await tester.pump();
-
-    final mainGate = Completer<Uint8List>();
-    EmoteUrlProvider.debugFetchOverride = (url) =>
-        url == altUrl ? Future.value(altPng) : mainGate.future;
-    await tester.pumpWidget(
-      MaterialApp(
-        home: InlineEmoteView(
-          url: mainUrl,
-          width: 28,
-          height: 28,
-          alternateUrls: [altUrl],
-        ),
-      ),
-    );
-    await tester.pump();
-
-    final ro = _renderOf(tester);
-    expect(ro.debugAltFrame, isNotNull);
-    expect(ro.debugFrame, isNull);
-    expect(EmoteLoadingClock.isActive, isTrue);
-
-    mainGate.complete(_pngBytes());
-    await tester.pump();
-    await _pumpUntilLoaded(tester);
-
-    expect(ro.debugFrame, isNotNull);
-    expect(ro.debugAltFrame, isNull);
-    expect(EmoteLoadingClock.isActive, isFalse);
+    expect(ro.debugShowsBand, isFalse);
   });
 
   testWidgets('a url change drops the old frame and resolves anew', (
@@ -148,8 +98,11 @@ void main() {
     final emote = GenericEmote(
       id: 'kt',
       code: code,
-      type: EmoteType.twitch,
+      // Animated non-Twitch routes to the custom pipeline (statics of any
+      // provider render stock); bytes stay PNG so the still path applies.
+      type: EmoteType.sevenTv,
       url: 'https://inline.test/tap.png',
+      isAnimated: true,
     );
     final channelEmotes = ChannelEmotes(byCode: {code: emote}, suggestions: []);
     final tapped = <List<GenericEmote>>[];

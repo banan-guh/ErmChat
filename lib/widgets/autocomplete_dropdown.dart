@@ -120,6 +120,7 @@ class _AutocompleteDropdownState extends State<AutocompleteDropdown> {
                           suggestion.emote.url1x!,
                       ],
                       errorWidget: const Icon(Icons.image, size: 16),
+                      emote: suggestion.emote,
                     ),
                   ),
                   CommandSuggestion() => Icon(

@@ -29,8 +29,9 @@ class EmoteCacheStats {
 }
 
 /// Dedicated disk cache for emote images. Every emote render (chat, emote
-/// menu, sheet, autocomplete, analytics) goes through this cache via
-/// [CachedNetworkImageProvider.defaultCacheManager].
+/// menu, sheet, autocomplete, analytics) shares this store: the custom loop
+/// via [fetchEmoteBytes], stock cells via [CachedNetworkImageProvider] with
+/// this manager. Chat Giphy GIFs are the exception (memory-only).
 ///
 /// The cache never exceeds [maxObjects]: a write is only accepted while the
 /// repo count (plus in-flight writes) is below the cap, so a burst of new
