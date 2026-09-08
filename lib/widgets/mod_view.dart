@@ -130,29 +130,57 @@ Future<String?> showModTextDialog(
   required String title,
   String? label,
   required String confirmLabel,
+  bool allowEmpty = false,
 }) {
   final ctrl = TextEditingController();
   final pending = showDialog<String>(
     context: context,
-    builder: (ctx) => AlertDialog(
-      title: Text(title),
-      content: TextField(
-        controller: ctrl,
-        autofocus: true,
-        decoration: InputDecoration(labelText: label),
-        onSubmitted: (_) => Navigator.pop(ctx, ctrl.text.trim()),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(ctx),
-          child: const Text('Cancel'),
+    builder: (ctx) {
+      var error = '';
+      return StatefulBuilder(
+        builder: (ctx, setLocal) => AlertDialog(
+          title: Text(title),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: ctrl,
+                autofocus: true,
+                decoration: InputDecoration(
+                  labelText: label,
+                  errorText: error.isEmpty ? null : error,
+                ),
+                onSubmitted: (_) {
+                  final value = ctrl.text.trim();
+                  if (value.isEmpty && !allowEmpty) {
+                    setLocal(() => error = 'Enter a value.');
+                    return;
+                  }
+                  Navigator.pop(ctx, value);
+                },
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final value = ctrl.text.trim();
+                if (value.isEmpty && !allowEmpty) {
+                  setLocal(() => error = 'Enter a value.');
+                  return;
+                }
+                Navigator.pop(ctx, value);
+              },
+              child: Text(confirmLabel),
+            ),
+          ],
         ),
-        FilledButton(
-          onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
-          child: Text(confirmLabel),
-        ),
-      ],
-    ),
+      );
+    },
   );
   pending.whenComplete(ctrl.dispose);
   return pending;
@@ -353,7 +381,11 @@ class _QueueTabState extends State<_QueueTab> {
       reason: picked.reason,
     );
     if (!mounted) return;
-    if (!result.ok) widget.onNotice(modErrorText(result));
+    if (result.ok) {
+      widget.onNotice('Timed out ${held.userLogin}.');
+    } else {
+      widget.onNotice(modErrorText(result));
+    }
   }
 
   Future<void> _ban(HeldMessage held) async {
@@ -362,6 +394,7 @@ class _QueueTabState extends State<_QueueTab> {
       title: 'Ban ${held.userLogin}?',
       label: 'Reason (optional)',
       confirmLabel: 'Ban',
+      allowEmpty: true,
     );
     if (reason == null || !mounted) return;
     final result = await widget.modActions.banUser(
@@ -371,7 +404,11 @@ class _QueueTabState extends State<_QueueTab> {
       reason: reason.isEmpty ? null : reason,
     );
     if (!mounted) return;
-    if (!result.ok) widget.onNotice(modErrorText(result));
+    if (result.ok) {
+      widget.onNotice('Banned ${held.userLogin}.');
+    } else {
+      widget.onNotice(modErrorText(result));
+    }
   }
 
   Widget _filters(List<HeldMessage> queue) {
@@ -680,11 +717,18 @@ class _UsersTab extends StatefulWidget {
 }
 
 class _UsersTabState extends State<_UsersTab> {
-  final _pending = <String>{};
+  final _unbanPending = <String>{};
+  final _flagPending = <String>{};
+
+  Future<void> _dismissWarnings(String login) async {
+    widget.store.dismissWarningsFor(widget.channel, login);
+    setState(() {});
+    widget.onNotice('Dismissed warnings for $login.');
+  }
 
   Future<void> _unban(String login) async {
     final key = login.toLowerCase();
-    if (!_pending.add(key)) return;
+    if (!_unbanPending.add(key)) return;
     setState(() {});
     bool unbannedOk = false;
     try {
@@ -695,9 +739,13 @@ class _UsersTabState extends State<_UsersTab> {
       );
       unbannedOk = result.ok;
       if (!mounted) return;
-      if (!result.ok) widget.onNotice(modErrorText(result));
+      if (result.ok) {
+        widget.onNotice('Unbanned $login.');
+      } else {
+        widget.onNotice(modErrorText(result));
+      }
     } finally {
-      _pending.remove(key);
+      _unbanPending.remove(key);
       if (mounted) setState(() {});
     }
     if (unbannedOk) widget.store.removeBan(widget.channel, login);
@@ -705,7 +753,7 @@ class _UsersTabState extends State<_UsersTab> {
 
   Future<void> _clearFlag(String login) async {
     final key = login.toLowerCase();
-    if (!_pending.add(key)) return;
+    if (!_flagPending.add(key)) return;
     setState(() {});
     bool clearedOk = false;
     try {
@@ -716,9 +764,13 @@ class _UsersTabState extends State<_UsersTab> {
       );
       clearedOk = result.ok;
       if (!mounted) return;
-      if (!result.ok) widget.onNotice(modErrorText(result));
+      if (result.ok) {
+        widget.onNotice('Cleared flag for $login.');
+      } else {
+        widget.onNotice(modErrorText(result));
+      }
     } finally {
-      _pending.remove(key);
+      _flagPending.remove(key);
       if (mounted) setState(() {});
     }
     if (clearedOk) widget.store.removeSuspicious(widget.channel, login);
@@ -738,13 +790,14 @@ class _UsersTabState extends State<_UsersTab> {
             widget.store.suspiciousUsers[widget.channel]?.values.toList() ??
             const [];
         final counts = <String, int>{};
-        final seen = <String>{};
-        final warned = <WarnEntry>[];
+        final latestByUser = widget.store.warnedLatest(widget.channel);
         for (final w in warnings) {
           final lower = w.target.toLowerCase();
           counts[lower] = (counts[lower] ?? 0) + 1;
-          if (seen.add(lower)) warned.add(w);
         }
+        final warned = latestByUser.values.toList()
+          ..sort((a, b) => b.at.compareTo(a.at));
+        widget.store.pruneExpiredBans(widget.channel);
         return ListView(
           children: [
             _SectionHeader('Banned (${bans.length})'),
@@ -754,8 +807,12 @@ class _UsersTabState extends State<_UsersTab> {
                 dense: true,
                 title: Text(ban.login),
                 subtitle: Text(_banSubtitle(ban)),
-                onTap: () => widget.onShowUser?.call(ban.login),
-                trailing: _pending.contains(ban.login.toLowerCase())
+                onTap:
+                    widget.onShowUser == null ||
+                        _unbanPending.contains(ban.login.toLowerCase())
+                    ? null
+                    : () => widget.onShowUser!.call(ban.login),
+                trailing: _unbanPending.contains(ban.login.toLowerCase())
                     ? const SizedBox(
                         width: 24,
                         height: 24,
@@ -777,7 +834,14 @@ class _UsersTabState extends State<_UsersTab> {
                 subtitle: Text(
                   _warnSubtitle(counts[w.target.toLowerCase()] ?? 1, w),
                 ),
-                onTap: () => widget.onShowUser?.call(w.target),
+                onTap: widget.onShowUser == null
+                    ? null
+                    : () => widget.onShowUser!.call(w.target),
+                trailing: IconButton(
+                  icon: const Icon(Icons.clear),
+                  tooltip: 'Dismiss warnings',
+                  onPressed: () => _dismissWarnings(w.target),
+                ),
               ),
             _SectionHeader('Flagged (${flagged.length})'),
             if (flagged.isEmpty)
@@ -787,8 +851,12 @@ class _UsersTabState extends State<_UsersTab> {
                 dense: true,
                 title: Text(info.login),
                 subtitle: Text(_suspiciousSubtitle(info)),
-                onTap: () => widget.onShowUser?.call(info.login),
-                trailing: _pending.contains(info.login.toLowerCase())
+                onTap:
+                    widget.onShowUser == null ||
+                        _flagPending.contains(info.login.toLowerCase())
+                    ? null
+                    : () => widget.onShowUser!.call(info.login),
+                trailing: _flagPending.contains(info.login.toLowerCase())
                     ? const SizedBox(
                         width: 24,
                         height: 24,
@@ -957,7 +1025,8 @@ class _RequestsTabState extends State<_RequestsTab> {
 
   Future<void> _showDetail(UnbanRequest request) async {
     final resolutionCtrl = TextEditingController();
-    final decision = await showDialog<bool>(
+    var resolutionDraft = '';
+    final pending = showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text('Request from ${request.userLogin}'),
@@ -987,6 +1056,7 @@ class _RequestsTabState extends State<_RequestsTab> {
                     labelText: 'Resolution message (optional)',
                     border: OutlineInputBorder(),
                   ),
+                  onChanged: (v) => resolutionDraft = v,
                 ),
               ],
             ],
@@ -1010,18 +1080,21 @@ class _RequestsTabState extends State<_RequestsTab> {
         ],
       ),
     );
-    final message = resolutionCtrl.text.trim();
-    resolutionCtrl.dispose();
+    pending.whenComplete(resolutionCtrl.dispose);
+    final decision = await pending;
     if (decision == null || !mounted) return;
+    final message = resolutionDraft.trim();
+    final trimmed = message.length > 500 ? message.substring(0, 500) : message;
     final result = await widget.modActions.resolveUnbanRequest(
       widget.auth,
       widget.channel,
       requestId: request.id,
       approved: decision,
-      resolutionText: message.isEmpty ? null : message,
+      resolutionText: trimmed.isEmpty ? null : trimmed,
     );
     if (!mounted) return;
     if (result.ok) {
+      widget.onNotice(decision ? 'Request approved.' : 'Request denied.');
       _load();
     } else {
       widget.onNotice(modErrorText(result));
@@ -1181,18 +1254,22 @@ class _TermsTabState extends State<_TermsTab> {
       return;
     }
     setState(() => _adding = true);
-    final result = await widget.modActions.addBlockedTerm(
-      widget.auth,
-      widget.channel,
-      text,
-    );
-    if (!mounted) return;
-    setState(() => _adding = false);
-    if (result.ok) {
-      _addCtrl.clear();
-      _load();
-    } else {
-      widget.onNotice(modErrorText(result));
+    try {
+      final result = await widget.modActions.addBlockedTerm(
+        widget.auth,
+        widget.channel,
+        text,
+      );
+      if (!mounted) return;
+      if (result.ok) {
+        _addCtrl.clear();
+        widget.onNotice('Blocked term added.');
+        _load();
+      } else {
+        widget.onNotice(modErrorText(result));
+      }
+    } finally {
+      if (mounted) setState(() => _adding = false);
     }
   }
 
@@ -1418,17 +1495,21 @@ class _SetupTabState extends State<_SetupTab> {
     final levels = _levels;
     if (levels == null || _saving || !_dirty) return;
     setState(() => _saving = true);
-    final result = await widget.modActions.updateAutoModSettings(
-      widget.auth,
-      widget.channel,
-      _overall != null ? {'overall_level': _overall!} : levels,
-    );
-    if (!mounted) return;
-    setState(() => _saving = false);
-    if (result.ok) {
-      _load();
-    } else {
-      widget.onNotice(modErrorText(result));
+    try {
+      final result = await widget.modActions.updateAutoModSettings(
+        widget.auth,
+        widget.channel,
+        _overall != null ? {'overall_level': _overall!} : levels,
+      );
+      if (!mounted) return;
+      if (result.ok) {
+        widget.onNotice('AutoMod settings saved.');
+        await _load(force: true);
+      } else {
+        widget.onNotice(modErrorText(result));
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
     }
   }
 
@@ -1463,7 +1544,9 @@ class _SetupTabState extends State<_SetupTab> {
               ChoiceChip(
                 label: Text(label),
                 selected: _overall == value,
-                onSelected: (_) => setState(() => _overall = value),
+                onSelected: _saving
+                    ? null
+                    : (_) => setState(() => _overall = value),
               ),
           ],
         ),
@@ -1484,10 +1567,12 @@ class _SetupTabState extends State<_SetupTab> {
                   max: 4,
                   divisions: 4,
                   label: '${levels[key] ?? 0}',
-                  onChanged: (v) => setState(() {
-                    levels[key] = v.round();
-                    _overall = null;
-                  }),
+                  onChanged: _saving
+                      ? null
+                      : (v) => setState(() {
+                          levels[key] = v.round();
+                          _overall = null;
+                        }),
                 ),
               ),
               SizedBox(width: 24, child: Text('${levels[key] ?? 0}')),
@@ -1753,7 +1838,7 @@ class _BannedManagerState extends State<_BannedManager> {
   }
 }
 
-class _StreamActions extends StatelessWidget {
+class _StreamActions extends StatefulWidget {
   const _StreamActions({
     required this.channel,
     required this.modActions,
@@ -1765,6 +1850,39 @@ class _StreamActions extends StatelessWidget {
   final ModActions modActions;
   final TwitchAuth auth;
   final ValueChanged<String> onNotice;
+
+  @override
+  State<_StreamActions> createState() => _StreamActionsState();
+}
+
+class _StreamActionsState extends State<_StreamActions> {
+  String? _busy;
+
+  ModActions get modActions => widget.modActions;
+  TwitchAuth get auth => widget.auth;
+  String get channel => widget.channel;
+  ValueChanged<String> get onNotice => widget.onNotice;
+
+  Future<bool> _confirm(String title, String body) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title),
+        content: Text(body),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Confirm'),
+          ),
+        ],
+      ),
+    );
+    return ok == true;
+  }
 
   Future<void> _raid(BuildContext context) async {
     final login = await showModTextDialog(
@@ -1814,6 +1932,7 @@ class _StreamActions extends StatelessWidget {
       title: 'Add stream marker',
       label: 'Description (optional)',
       confirmLabel: 'Add',
+      allowEmpty: true,
     );
     if (description == null || !context.mounted) return;
     final result = await modActions.createMarker(
@@ -1826,9 +1945,19 @@ class _StreamActions extends StatelessWidget {
   }
 
   Future<void> _unraid(BuildContext context) async {
-    final result = await modActions.cancelRaid(auth, channel);
+    if (_busy != null) return;
+    if (!await _confirm('Cancel raid?', 'This cancels the pending raid.')) {
+      return;
+    }
     if (!context.mounted) return;
-    onNotice(result.ok ? 'Raid cancelled.' : modErrorText(result));
+    setState(() => _busy = 'unraid');
+    try {
+      final result = await modActions.cancelRaid(auth, channel);
+      if (!context.mounted) return;
+      onNotice(result.ok ? 'Raid cancelled.' : modErrorText(result));
+    } finally {
+      if (mounted) setState(() => _busy = null);
+    }
   }
 
   @override
@@ -1845,7 +1974,15 @@ class _StreamActions extends StatelessWidget {
           dense: true,
           leading: const Icon(Icons.flight_land_outlined),
           title: const Text('Cancel raid'),
-          onTap: () => _unraid(context),
+          enabled: _busy == null,
+          onTap: _busy != null ? null : () => _unraid(context),
+          trailing: _busy == 'unraid'
+              ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : null,
         ),
         ListTile(
           dense: true,
@@ -1885,7 +2022,7 @@ class _PollsSectionState extends State<_PollsSection> {
   List<Map<String, dynamic>>? _polls;
   String? _error;
   int _loadGen = 0;
-  bool _busy = false;
+  String? _busyKey;
 
   @override
   void initState() {
@@ -1941,8 +2078,35 @@ class _PollsSectionState extends State<_PollsSection> {
   }
 
   Future<void> _end(String pollId, bool archive) async {
-    if (_busy) return;
-    setState(() => _busy = true);
+    final key = archive ? 'cancel' : 'end';
+    if (_busyKey != null) return;
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(archive ? 'Cancel poll?' : 'End poll now?'),
+        content: Text(
+          archive
+              ? 'This archives the poll without showing results.'
+              : 'This ends the poll and shows the results (TERMINATED).',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Back'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(archive ? 'Cancel poll' : 'End poll'),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true || !mounted) return;
+    if (pollId.isEmpty) {
+      widget.onNotice('Poll id is missing; reload and try again.');
+      return;
+    }
+    setState(() => _busyKey = key);
     try {
       final broadcasterId = _broadcasterId;
       final ok =
@@ -1955,6 +2119,7 @@ class _PollsSectionState extends State<_PollsSection> {
           );
       if (!mounted) return;
       if (ok) {
+        widget.onNotice(archive ? 'Poll cancelled.' : 'Poll ended.');
         _load();
       } else {
         widget.onNotice(
@@ -1964,7 +2129,7 @@ class _PollsSectionState extends State<_PollsSection> {
         );
       }
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted) setState(() => _busyKey = null);
     }
   }
 
@@ -2006,12 +2171,13 @@ class _PollsSectionState extends State<_PollsSection> {
       );
     }
     final pollId = active['id'] as String? ?? '';
+    final busy = _busyKey != null;
     return ListTile(
       title: Text(active['title'] as String? ?? 'Poll'),
       subtitle: Text(
         '${(active['choices'] as List? ?? const []).length} choices',
       ),
-      trailing: _busy
+      trailing: busy
           ? const SizedBox(
               width: 24,
               height: 24,
@@ -2021,12 +2187,14 @@ class _PollsSectionState extends State<_PollsSection> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 TextButton(
-                  onPressed: () => _end(pollId, false),
-                  child: const Text('End'),
+                  onPressed: _busyKey != null
+                      ? null
+                      : () => _end(pollId, false),
+                  child: const Text('End results'),
                 ),
                 TextButton(
-                  onPressed: () => _end(pollId, true),
-                  child: const Text('Cancel'),
+                  onPressed: _busyKey != null ? null : () => _end(pollId, true),
+                  child: const Text('Archive'),
                 ),
               ],
             ),
@@ -2116,6 +2284,30 @@ class _PredictionsSectionState extends State<_PredictionsSection> {
     String? winningOutcomeId,
   ]) async {
     if (_busy) return;
+    if (status == 'CANCELED') {
+      final confirm = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Cancel prediction?'),
+          content: const Text('Points are refunded to predictors.'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Back'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Cancel prediction'),
+            ),
+          ],
+        ),
+      );
+      if (confirm != true || !mounted) return;
+    }
+    if (predictionId.isEmpty) {
+      widget.onNotice('Prediction id is missing; reload and try again.');
+      return;
+    }
     setState(() => _busy = true);
     try {
       final broadcasterId = _broadcasterId;
@@ -2130,6 +2322,13 @@ class _PredictionsSectionState extends State<_PredictionsSection> {
           );
       if (!mounted) return;
       if (ok) {
+        widget.onNotice(
+          status == 'LOCKED'
+              ? 'Prediction locked.'
+              : status == 'CANCELED'
+              ? 'Prediction cancelled.'
+              : 'Prediction resolved.',
+        );
         _load();
       } else {
         widget.onNotice(
@@ -2143,6 +2342,17 @@ class _PredictionsSectionState extends State<_PredictionsSection> {
     }
   }
 
+  String _outcomeLabel(Map outcome) {
+    final title = '${outcome['title'] ?? 'Outcome'}';
+    final points = outcome['channel_points'];
+    final users = outcome['users'];
+    final detail = [
+      if (points != null) '$points pts',
+      if (users != null) '$users predictors',
+    ].join(' · ');
+    return detail.isEmpty ? title : '$title ($detail)';
+  }
+
   Future<void> _resolve(Map<String, dynamic> prediction) async {
     final outcomes = (prediction['outcomes'] as List? ?? const []).cast<Map>();
     final winningId = await showDialog<String>(
@@ -2153,7 +2363,7 @@ class _PredictionsSectionState extends State<_PredictionsSection> {
           for (final outcome in outcomes)
             SimpleDialogOption(
               onPressed: () => Navigator.pop(ctx, outcome['id'] as String?),
-              child: Text('${outcome['title']}'),
+              child: Text(_outcomeLabel(outcome)),
             ),
         ],
       ),
@@ -2378,6 +2588,28 @@ class _PointsSectionState extends State<_PointsSection> {
   }
 
   Future<void> _resolve(PointRedemption redemption, bool fulfilled) async {
+    if (!fulfilled) {
+      final confirm = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Refund redemption?'),
+          content: Text(
+            'Refund ${redemption.cost} pts to ${redemption.userLogin}?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Back'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Refund'),
+            ),
+          ],
+        ),
+      );
+      if (confirm != true || !mounted) return;
+    }
     if (!_busyRedemptions.add(redemption.id)) return;
     setState(() {});
     try {
@@ -2391,6 +2623,9 @@ class _PointsSectionState extends State<_PointsSection> {
       if (!mounted) return;
       if (result.ok) {
         widget.store.resolvePointRedemption(widget.channel, redemption.id);
+        widget.onNotice(
+          fulfilled ? 'Redemption fulfilled.' : 'Redemption refunded.',
+        );
         _loadQueue();
       } else {
         widget.onNotice(modErrorText(result));
@@ -2587,7 +2822,9 @@ class _ModesTab extends StatefulWidget {
 
 class _ModesTabState extends State<_ModesTab> {
   bool? _shield;
-  bool _busy = false;
+  String? _shieldError;
+  bool _shieldLoading = true;
+  final _busyKeys = <String>{};
 
   @override
   void initState() {
@@ -2599,7 +2836,11 @@ class _ModesTabState extends State<_ModesTab> {
   void didUpdateWidget(covariant _ModesTab oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.channel != widget.channel) {
-      setState(() => _shield = null);
+      setState(() {
+        _shield = null;
+        _shieldError = null;
+        _shieldLoading = true;
+      });
       _loadShield();
     }
   }
@@ -2608,28 +2849,55 @@ class _ModesTabState extends State<_ModesTab> {
 
   Future<void> _loadShield() async {
     final gen = ++_shieldGen;
+    final background = !_shieldLoading && _shield != null;
+    if (!background) {
+      setState(() {
+        _shieldLoading = true;
+        _shieldError = null;
+      });
+    }
     bool? active;
+    String? error;
     try {
       active = await widget.modActions.getShieldMode(
         widget.auth,
         widget.channel,
       );
+      if (active == null) error = 'Could not load Shield status.';
     } catch (_) {
-      active = null;
+      error = 'Could not load Shield status.';
     }
-    if (mounted && gen == _shieldGen) setState(() => _shield = active);
+    if (!mounted || gen != _shieldGen) return;
+    if (error != null && background) {
+      widget.onNotice(error);
+      return;
+    }
+    setState(() {
+      _shieldLoading = false;
+      if (error == null) {
+        _shield = active;
+        _shieldError = null;
+      } else if (_shield == null) {
+        _shieldError = error;
+      }
+    });
   }
 
-  Future<void> _apply(Future<ModResult> Function() call) async {
-    if (_busy) return;
-    setState(() => _busy = true);
+  Future<bool> _apply(String key, Future<ModResult> Function() call) async {
+    if (!_busyKeys.add(key)) return false;
+    setState(() {});
     try {
       final result = await call();
-      // Modes refresh off the ROOMSTATE echo; shield refetches directly.
-      if (!mounted) return;
-      if (!result.ok) widget.onNotice(modErrorText(result));
+      if (!mounted) return result.ok;
+      if (result.ok) {
+        widget.onNotice('Chat mode updated.');
+      } else {
+        widget.onNotice(modErrorText(result));
+      }
+      return result.ok;
     } finally {
-      if (mounted) setState(() => _busy = false);
+      _busyKeys.remove(key);
+      if (mounted) setState(() {});
     }
   }
 
@@ -2664,20 +2932,21 @@ class _ModesTabState extends State<_ModesTab> {
     final slow = int.tryParse(tags['slow'] ?? '') ?? 0;
     final followers = tags['followers-only'];
     final followersOn = followers != null && followers != '-1';
-    // Without the moderate subscription every toggle 403s; disable with a
-    // hint instead of failing noisily.
-    final enabled = widget.moderationActive && !_busy;
+    bool enabledFor(String key) =>
+        widget.moderationActive && !_busyKeys.contains(key);
+    bool anyBusy = _busyKeys.isNotEmpty;
     return ListView(
       children: [
         if (!widget.moderationActive)
           const ListTile(
             title: Text('Chat modes need moderator status in this channel.'),
           ),
+        if (anyBusy) const LinearProgressIndicator(minHeight: 2),
         SwitchListTile(
           title: const Text('Slow mode'),
           subtitle: Text(slow > 0 ? '${slow}s' : 'Off'),
           value: slow > 0,
-          onChanged: !enabled
+          onChanged: !enabledFor('slow')
               ? null
               : (on) async {
                   if (on) {
@@ -2688,6 +2957,7 @@ class _ModesTabState extends State<_ModesTab> {
                     ]);
                     if (picked == null || !mounted) return;
                     await _apply(
+                      'slow',
                       () => widget.modActions.setSlowMode(
                         widget.auth,
                         widget.channel,
@@ -2697,6 +2967,7 @@ class _ModesTabState extends State<_ModesTab> {
                     );
                   } else {
                     await _apply(
+                      'slow',
                       () => widget.modActions.setSlowMode(
                         widget.auth,
                         widget.channel,
@@ -2716,7 +2987,7 @@ class _ModesTabState extends State<_ModesTab> {
                 : 'Following for ${followers}m',
           ),
           value: followersOn,
-          onChanged: !enabled
+          onChanged: !enabledFor('followers')
               ? null
               : (on) async {
                   if (on) {
@@ -2730,6 +3001,7 @@ class _ModesTabState extends State<_ModesTab> {
                     ]);
                     if (picked == null || !mounted) return;
                     await _apply(
+                      'followers',
                       () => widget.modActions.setFollowersMode(
                         widget.auth,
                         widget.channel,
@@ -2739,6 +3011,7 @@ class _ModesTabState extends State<_ModesTab> {
                     );
                   } else {
                     await _apply(
+                      'followers',
                       () => widget.modActions.setFollowersMode(
                         widget.auth,
                         widget.channel,
@@ -2748,84 +3021,79 @@ class _ModesTabState extends State<_ModesTab> {
                   }
                 },
         ),
-        for (final (label, modeOn, set) in [
+        for (final (label, key, modeOn, set) in [
           (
             'Emote-only',
+            'emote',
             tags['emote-only'] == '1',
             widget.modActions.setEmoteOnly,
           ),
           (
             'Subscribers-only',
+            'subs',
             tags['subs-only'] == '1',
             widget.modActions.setSubscribersOnly,
           ),
-          ('Unique chat', tags['r9k'] == '1', widget.modActions.setUniqueChat),
+          (
+            'Unique chat',
+            'unique',
+            tags['r9k'] == '1',
+            widget.modActions.setUniqueChat,
+          ),
         ])
           SwitchListTile(
             title: Text(label),
             value: modeOn,
-            onChanged: !enabled
+            onChanged: !enabledFor(key)
                 ? null
                 : (on) => _apply(
+                    key,
                     () => set(widget.auth, widget.channel, enabled: on),
                   ),
           ),
-        if (_shield != null)
+        if (_shieldError != null && _shield == null)
+          ListTile(
+            title: const Text('Shield mode'),
+            subtitle: Text(_shieldError!),
+            trailing: TextButton(
+              onPressed: _loadShield,
+              child: const Text('Retry'),
+            ),
+          )
+        else if (_shield != null)
           SwitchListTile(
             title: const Text('Shield mode'),
             value: _shield!,
-            onChanged: !enabled
+            onChanged: !enabledFor('shield') || _shieldLoading
                 ? null
                 : (on) async {
-                    await _apply(
+                    final ok = await _apply(
+                      'shield',
                       () => widget.modActions.setShieldMode(
                         widget.auth,
                         widget.channel,
                         active: on,
                       ),
                     );
-                    if (mounted) _loadShield();
+                    if (ok && mounted) _loadShield();
                   },
           )
         else
           ListTile(
             title: const Text('Shield mode'),
-            subtitle: const Text('Status unknown'),
+            subtitle: const Text('Loading Shield status...'),
             trailing: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                TextButton(
-                  onPressed: !enabled
-                      ? null
-                      : () async {
-                          await _apply(
-                            () => widget.modActions.setShieldMode(
-                              widget.auth,
-                              widget.channel,
-                              active: true,
-                            ),
-                          );
-                          if (mounted) _loadShield();
-                        },
-                  child: const Text('Enable'),
-                ),
-                TextButton(
-                  onPressed: !enabled
-                      ? null
-                      : () async {
-                          await _apply(
-                            () => widget.modActions.setShieldMode(
-                              widget.auth,
-                              widget.channel,
-                              active: false,
-                            ),
-                          );
-                          if (mounted) _loadShield();
-                        },
-                  child: const Text('Disable'),
-                ),
+                TextButton(onPressed: null, child: const Text('Enable')),
+                TextButton(onPressed: null, child: const Text('Disable')),
               ],
             ),
+          ),
+        if (_shield != null && _shieldLoading)
+          const ListTile(
+            dense: true,
+            title: Text('Refreshing Shield status...'),
           ),
       ],
     );
@@ -2852,8 +3120,10 @@ class _RosterSections extends StatefulWidget {
 class _RosterSectionsState extends State<_RosterSections> {
   List<String>? _mods;
   List<String>? _vips;
-  String? _error;
+  String? _modsError;
+  String? _vipsError;
   int _loadGen = 0;
+  final _removing = <String>{};
 
   @override
   void initState() {
@@ -2872,31 +3142,35 @@ class _RosterSectionsState extends State<_RosterSections> {
     setState(() {
       _mods = null;
       _vips = null;
-      _error = null;
+      _modsError = null;
+      _vipsError = null;
     });
     List<String> mods = const [];
     List<String> vips = const [];
-    String? error;
+    String? modsError;
+    String? vipsError;
     try {
       mods = await widget.modActions.getModerators(widget.auth, widget.channel);
-      // Read synchronously per call: getVips clears the mods error below.
       if (widget.modActions.twitchApi.lastErrorStatus != null) {
-        error = widget.modActions.failureReason();
+        modsError = widget.modActions.failureReason();
       }
-      vips = await widget.modActions.getVips(widget.auth, widget.channel);
-      error ??= widget.modActions.twitchApi.lastErrorStatus != null
-          ? widget.modActions.failureReason()
-          : null;
     } catch (_) {
-      error = 'Could not load the lists.';
+      modsError = 'Could not load moderators.';
+    }
+    try {
+      vips = await widget.modActions.getVips(widget.auth, widget.channel);
+      if (widget.modActions.twitchApi.lastErrorStatus != null) {
+        vipsError = widget.modActions.failureReason();
+      }
+    } catch (_) {
+      vipsError = 'Could not load VIPs.';
     }
     if (!mounted || gen != _loadGen) return;
     setState(() {
-      _error = error;
-      if (error == null) {
-        _mods = mods;
-        _vips = vips;
-      }
+      _modsError = modsError;
+      _vipsError = vipsError;
+      if (modsError == null) _mods = mods;
+      if (vipsError == null) _vips = vips;
     });
   }
 
@@ -2934,36 +3208,72 @@ class _RosterSectionsState extends State<_RosterSections> {
   }
 
   Future<void> _remove(String login, bool moderator) async {
-    final result = moderator
-        ? await widget.modActions.setModerator(
-            widget.auth,
-            widget.channel,
-            login: login,
-            add: false,
-          )
-        : await widget.modActions.setVip(
-            widget.auth,
-            widget.channel,
-            login: login,
-            add: false,
-          );
-    if (!mounted) return;
-    if (result.ok) {
-      _load();
-    } else {
-      widget.onNotice(modErrorText(result));
+    final key = '${moderator ? 'mod' : 'vip'}:${login.toLowerCase()}';
+    if (!_removing.add(key)) return;
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Remove $login?'),
+        content: Text(
+          moderator
+              ? 'This removes moderator status from $login.'
+              : 'This removes VIP status from $login.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Back'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true || !mounted) {
+      _removing.remove(key);
+      return;
+    }
+    setState(() {});
+    try {
+      final result = moderator
+          ? await widget.modActions.setModerator(
+              widget.auth,
+              widget.channel,
+              login: login,
+              add: false,
+            )
+          : await widget.modActions.setVip(
+              widget.auth,
+              widget.channel,
+              login: login,
+              add: false,
+            );
+      if (!mounted) return;
+      if (result.ok) {
+        widget.onNotice('Removed $login.');
+        _load();
+      } else {
+        widget.onNotice(modErrorText(result));
+      }
+    } finally {
+      _removing.remove(key);
+      if (mounted) setState(() {});
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_error != null) {
+    if (_mods == null &&
+        _vips == null &&
+        (_modsError != null || _vipsError != null)) {
       return Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-            child: Text(_error!),
+            child: Text(_modsError ?? _vipsError ?? 'Could not load.'),
           ),
           TextButton(onPressed: _load, child: const Text('Retry')),
         ],
@@ -2983,12 +3293,20 @@ class _RosterSectionsState extends State<_RosterSections> {
         _PersonSection(
           title: 'Moderators (${_mods!.length})',
           logins: _mods!,
+          error: _modsError,
+          onRetry: _load,
+          removing: _removing,
+          prefix: 'mod',
           onAdd: () => _add(true),
           onRemove: (login) => _remove(login, true),
         ),
         _PersonSection(
           title: 'VIPs (${_vips!.length})',
           logins: _vips!,
+          error: _vipsError,
+          onRetry: _load,
+          removing: _removing,
+          prefix: 'vip',
           onAdd: () => _add(false),
           onRemove: (login) => _remove(login, false),
         ),
@@ -3003,12 +3321,20 @@ class _PersonSection extends StatelessWidget {
     required this.logins,
     required this.onAdd,
     required this.onRemove,
+    this.error,
+    this.onRetry,
+    this.removing = const {},
+    this.prefix = '',
   });
 
   final String title;
   final List<String> logins;
   final VoidCallback onAdd;
   final void Function(String login) onRemove;
+  final String? error;
+  final VoidCallback? onRetry;
+  final Set<String> removing;
+  final String prefix;
 
   @override
   Widget build(BuildContext context) {
@@ -3026,16 +3352,32 @@ class _PersonSection extends StatelessWidget {
             onPressed: onAdd,
           ),
         ),
-        if (logins.isEmpty) const ListTile(title: Text('None yet.')),
+        if (error != null)
+          ListTile(
+            dense: true,
+            title: Text(error!),
+            trailing: TextButton(
+              onPressed: onRetry,
+              child: const Text('Retry'),
+            ),
+          ),
+        if (logins.isEmpty && error == null)
+          const ListTile(title: Text('None yet.')),
         for (final login in logins)
           ListTile(
             dense: true,
             title: Text(login),
-            trailing: IconButton(
-              icon: const Icon(Icons.remove_circle_outline),
-              tooltip: 'Remove',
-              onPressed: () => onRemove(login),
-            ),
+            trailing: removing.contains('$prefix:${login.toLowerCase()}')
+                ? const SizedBox(
+                    width: 24,
+                    height: 24,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : IconButton(
+                    icon: const Icon(Icons.remove_circle_outline),
+                    tooltip: 'Remove',
+                    onPressed: () => onRemove(login),
+                  ),
           ),
       ],
     );
