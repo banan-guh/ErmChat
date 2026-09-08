@@ -186,8 +186,8 @@ Future<String?> showModTextDialog(
   return pending;
 }
 
-/// Mod View panel body: Queue / Activity / Users / Modes / Requests /
-/// Terms / Setup / Channel tabs. State arrives as channel lookups (not
+/// Mod View panel body: Queue / Activity / Modes / Channel / Users /
+/// Requests / Terms / Setup tabs. State arrives as channel lookups (not
 /// snapshots) so every [refresh] tick re-reads live values; the queue and
 /// feed additionally listen to their own versions.
 class ModViewPanel extends StatelessWidget {
@@ -259,14 +259,6 @@ class ModViewPanel extends StatelessWidget {
               onShowUser: onShowUser,
             ),
             _ActivityTab(channel: channel, store: store),
-            _UsersTab(
-              channel: channel,
-              store: store,
-              modActions: modActions,
-              auth: auth,
-              onNotice: onNotice,
-              onShowUser: onShowUser,
-            ),
             _ModesTab(
               channel: channel,
               modActions: modActions,
@@ -274,6 +266,23 @@ class ModViewPanel extends StatelessWidget {
               roomModes: getRoomModes(channel),
               moderationActive: moderationActive,
               onNotice: onNotice,
+            ),
+            _ChannelTab(
+              channel: channel,
+              store: store,
+              modActions: modActions,
+              auth: auth,
+              onNotice: onNotice,
+              isBroadcaster: isBroadcaster,
+              isModerationActive: moderationActive,
+            ),
+            _UsersTab(
+              channel: channel,
+              store: store,
+              modActions: modActions,
+              auth: auth,
+              onNotice: onNotice,
+              onShowUser: onShowUser,
             ),
             _RequestsTab(
               channel: channel,
@@ -295,15 +304,6 @@ class ModViewPanel extends StatelessWidget {
               modActions: modActions,
               auth: auth,
               onNotice: onNotice,
-            ),
-            _ChannelTab(
-              channel: channel,
-              store: store,
-              modActions: modActions,
-              auth: auth,
-              onNotice: onNotice,
-              isBroadcaster: isBroadcaster,
-              isModerationActive: moderationActive,
             ),
           ],
         );
@@ -449,10 +449,16 @@ class _QueueTabState extends State<_QueueTab> {
       final needsScope = widget.scopeReady || widget.scopeStale;
       return Center(
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24),
+          padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              Icon(
+                Icons.shield_outlined,
+                size: 48,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+              const SizedBox(height: 12),
               Text(
                 needsScope
                     ? 'AutoMod queue needs the moderator:manage:automod scope. '
@@ -477,7 +483,11 @@ class _QueueTabState extends State<_QueueTab> {
       builder: (_, _, _) {
         final all = widget.store.heldMessages[widget.channel] ?? const [];
         if (all.isEmpty) {
-          return const Center(child: Text('Queue is clear.'));
+          return const _ModEmpty(
+            icon: Icons.shield_outlined,
+            title: 'Queue is clear.',
+            subtitle: 'Held messages will appear here for review.',
+          );
         }
         final queue = _filter == null
             ? all
@@ -494,6 +504,14 @@ class _QueueTabState extends State<_QueueTab> {
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
+                          Icon(
+                            Icons.filter_list_off_outlined,
+                            size: 48,
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.onSurfaceVariant,
+                          ),
+                          const SizedBox(height: 12),
                           const Text('No matches for this filter.'),
                           TextButton(
                             onPressed: () => setState(() => _filter = null),
@@ -503,85 +521,130 @@ class _QueueTabState extends State<_QueueTab> {
                       ),
                     )
                   : ListView.builder(
+                      padding: const EdgeInsets.fromLTRB(8, 4, 8, 16),
                       itemCount: queue.length,
                       itemBuilder: (_, i) {
                         final held = queue[i];
                         final busy = _pending.contains(held.messageId);
-                        return ListTile(
-                          title: Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  held.userLogin,
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ),
-                              _CategoryChip(held.category),
-                            ],
+                        return Card(
+                          margin: const EdgeInsets.symmetric(
+                            horizontal: 4,
+                            vertical: 6,
                           ),
-                          subtitle: Text(held.text, maxLines: 4),
-                          isThreeLine: true,
-                          onTap: () => widget.onShowUser?.call(held.userLogin),
-                          trailing: busy
-                              ? const SizedBox(
-                                  width: 24,
-                                  height: 24,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
+                          child: Padding(
+                            padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                ListTile(
+                                  contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
                                   ),
-                                )
-                              : Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    IconButton(
-                                      icon: const Icon(Icons.check),
-                                      tooltip: 'Allow',
-                                      onPressed: () => _decide(held, true),
-                                    ),
-                                    IconButton(
-                                      icon: const Icon(Icons.close),
-                                      tooltip: 'Deny',
-                                      onPressed: () => _decide(held, false),
-                                    ),
-                                    PopupMenuButton<String>(
-                                      icon: const Icon(Icons.more_vert),
-                                      tooltip: 'More',
-                                      onSelected: (value) {
-                                        switch (value) {
-                                          case 'timeout':
-                                            _timeout(held);
-                                          case 'ban':
-                                            _ban(held);
-                                          case 'copy':
-                                            Clipboard.setData(
-                                              ClipboardData(
-                                                text: held.messageId,
-                                              ),
-                                            );
-                                            widget.onNotice(
-                                              'Message ID copied.',
-                                            );
-                                        }
-                                      },
-                                      itemBuilder: (_) => const [
-                                        PopupMenuItem(
-                                          value: 'timeout',
-                                          child: Text('Timeout...'),
+                                  title: Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          held.userLogin,
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w600,
+                                          ),
                                         ),
-                                        PopupMenuItem(
-                                          value: 'ban',
-                                          child: Text('Ban...'),
+                                      ),
+                                      _CategoryChip(held.category),
+                                    ],
+                                  ),
+                                  subtitle: Padding(
+                                    padding: const EdgeInsets.only(top: 4),
+                                    child: Text(held.text, maxLines: 4),
+                                  ),
+                                  onTap: () =>
+                                      widget.onShowUser?.call(held.userLogin),
+                                ),
+                                if (busy)
+                                  const Padding(
+                                    padding: EdgeInsets.all(8),
+                                    child: SizedBox(
+                                      width: 24,
+                                      height: 24,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    ),
+                                  )
+                                else
+                                  Padding(
+                                    padding: const EdgeInsets.fromLTRB(
+                                      8,
+                                      0,
+                                      8,
+                                      0,
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Expanded(
+                                          child: FilledButton.icon(
+                                            onPressed: () =>
+                                                _decide(held, true),
+                                            icon: const Icon(
+                                              Icons.check,
+                                              size: 18,
+                                            ),
+                                            label: const Text('Allow'),
+                                          ),
                                         ),
-                                        PopupMenuItem(
-                                          value: 'copy',
-                                          child: Text('Copy message ID'),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: OutlinedButton.icon(
+                                            onPressed: () =>
+                                                _decide(held, false),
+                                            icon: const Icon(
+                                              Icons.close,
+                                              size: 18,
+                                            ),
+                                            label: const Text('Deny'),
+                                          ),
+                                        ),
+                                        PopupMenuButton<String>(
+                                          icon: const Icon(Icons.more_vert),
+                                          tooltip: 'More',
+                                          onSelected: (value) {
+                                            switch (value) {
+                                              case 'timeout':
+                                                _timeout(held);
+                                              case 'ban':
+                                                _ban(held);
+                                              case 'copy':
+                                                Clipboard.setData(
+                                                  ClipboardData(
+                                                    text: held.messageId,
+                                                  ),
+                                                );
+                                                widget.onNotice(
+                                                  'Message ID copied.',
+                                                );
+                                            }
+                                          },
+                                          itemBuilder: (_) => const [
+                                            PopupMenuItem(
+                                              value: 'timeout',
+                                              child: Text('Timeout...'),
+                                            ),
+                                            PopupMenuItem(
+                                              value: 'ban',
+                                              child: Text('Ban...'),
+                                            ),
+                                            PopupMenuItem(
+                                              value: 'copy',
+                                              child: Text('Copy message ID'),
+                                            ),
+                                          ],
                                         ),
                                       ],
                                     ),
-                                  ],
-                                ),
+                                  ),
+                              ],
+                            ),
+                          ),
                         );
                       },
                     ),
@@ -617,6 +680,21 @@ String _feedTime(DateTime at) =>
 
 String _feedDateTime(DateTime at) =>
     '${at.year}-${at.month.toString().padLeft(2, '0')}-${at.day.toString().padLeft(2, '0')} ${_feedTime(at)}';
+
+String _relativeAgo(DateTime at) {
+  final diff = DateTime.now().difference(at);
+  if (diff.inMinutes < 1) return 'just now';
+  if (diff.inHours < 1) return '${diff.inMinutes}m ago';
+  if (diff.inDays < 1) return '${diff.inHours}h ago';
+  if (diff.inDays < 30) return '${diff.inDays}d ago';
+  return '${at.year}-${at.month.toString().padLeft(2, '0')}-${at.day.toString().padLeft(2, '0')}';
+}
+
+String _relativeShortDate(String iso) {
+  final dt = DateTime.tryParse(iso);
+  if (dt == null) return iso;
+  return _relativeAgo(dt.toLocal());
+}
 
 String _capitalizeToken(String token) {
   final words = token.replaceAll('_', ' ').split(' ');
@@ -697,17 +775,38 @@ class _ActivityTab extends StatelessWidget {
       builder: (_, _, _) {
         final feed = store.modActivity[channel] ?? const [];
         if (feed.isEmpty) {
-          return const Center(child: Text('No moderation activity yet.'));
+          return const _ModEmpty(
+            icon: Icons.auto_awesome_outlined,
+            title: 'No moderation activity yet.',
+            subtitle: 'Bans, timeouts and mod actions will show here.',
+          );
         }
         return ListView.builder(
+          padding: const EdgeInsets.fromLTRB(8, 4, 8, 16),
           itemCount: feed.length,
-          itemBuilder: (_, i) {
+          itemBuilder: (context, i) {
             final entry = feed[i];
+            final scheme = Theme.of(context).colorScheme;
             return ListTile(
-              dense: true,
-              leading: Icon(_activityIcon(entry.action), size: 20),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 8,
+              ),
+              leading: Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: scheme.surfaceContainerHighest,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  _activityIcon(entry.action),
+                  size: 22,
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
               title: Text(formatModActivity(entry)),
-              subtitle: Text('${entry.moderator} · ${_feedDateTime(entry.at)}'),
+              subtitle: Text('${entry.moderator} · ${_relativeAgo(entry.at)}'),
             );
           },
         );
@@ -723,9 +822,85 @@ class _SectionHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-      child: Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+      child: Text(
+        title.toUpperCase(),
+        style: TextStyle(
+          fontWeight: FontWeight.w600,
+          fontSize: 12,
+          letterSpacing: 0.8,
+          color: scheme.onSurfaceVariant,
+        ),
+      ),
+    );
+  }
+}
+
+/// Centered empty state: large icon plus bold title and grey subtitle.
+class _ModEmpty extends StatelessWidget {
+  const _ModEmpty({required this.icon, required this.title, this.subtitle});
+
+  final IconData icon;
+  final String title;
+  final String? subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 48, color: theme.colorScheme.onSurfaceVariant),
+            const SizedBox(height: 12),
+            Text(
+              title,
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+              textAlign: TextAlign.center,
+            ),
+            if (subtitle != null) ...[
+              const SizedBox(height: 4),
+              Text(
+                subtitle!,
+                style: TextStyle(
+                  fontSize: 14,
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Centered error state with retry.
+class _ModError extends StatelessWidget {
+  const _ModError({required this.message, required this.onRetry});
+
+  final String message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(message, textAlign: TextAlign.center),
+            const SizedBox(height: 4),
+            TextButton(onPressed: onRetry, child: const Text('Retry')),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -834,13 +1009,16 @@ class _UsersTabState extends State<_UsersTab> {
           ..sort((a, b) => b.at.compareTo(a.at));
         widget.store.pruneExpiredBans(widget.channel);
         return ListView(
+          padding: const EdgeInsets.fromLTRB(0, 4, 0, 24),
           children: [
             _SectionHeader('Banned (${bans.length})'),
-            if (bans.isEmpty)
-              const ListTile(dense: true, title: Text('No bans yet.')),
+            if (bans.isEmpty) const ListTile(title: Text('No bans yet.')),
             for (final ban in bans)
               ListTile(
-                dense: true,
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 4,
+                ),
                 title: Text(ban.login),
                 subtitle: Text(_banSubtitle(ban)),
                 onTap:
@@ -854,18 +1032,19 @@ class _UsersTabState extends State<_UsersTab> {
                         height: 24,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : IconButton(
-                        icon: const Icon(Icons.undo),
-                        tooltip: 'Unban',
+                    : OutlinedButton(
                         onPressed: () => _unban(ban.login),
+                        child: const Text('Unban'),
                       ),
               ),
             _SectionHeader('Warned (${warned.length})'),
-            if (warned.isEmpty)
-              const ListTile(dense: true, title: Text('No warnings yet.')),
+            if (warned.isEmpty) const ListTile(title: Text('No warnings yet.')),
             for (final w in warned)
               ListTile(
-                dense: true,
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 4,
+                ),
                 title: Text(w.target),
                 subtitle: Text(
                   _warnSubtitle(counts[w.target.toLowerCase()] ?? 1, w),
@@ -873,18 +1052,20 @@ class _UsersTabState extends State<_UsersTab> {
                 onTap: widget.onShowUser == null
                     ? null
                     : () => widget.onShowUser!.call(w.target),
-                trailing: IconButton(
-                  icon: const Icon(Icons.clear),
-                  tooltip: 'Dismiss warnings',
+                trailing: TextButton(
                   onPressed: () => _dismissWarnings(w.target),
+                  child: const Text('Dismiss'),
                 ),
               ),
             _SectionHeader('Flagged (${flagged.length})'),
             if (flagged.isEmpty)
-              const ListTile(dense: true, title: Text('No flagged users.')),
+              const ListTile(title: Text('No flagged users.')),
             for (final info in flagged)
               ListTile(
-                dense: true,
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 4,
+                ),
                 title: Text(info.login),
                 subtitle: Text(_suspiciousSubtitle(info)),
                 onTap:
@@ -898,10 +1079,9 @@ class _UsersTabState extends State<_UsersTab> {
                         height: 24,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : IconButton(
-                        icon: const Icon(Icons.visibility_off_outlined),
-                        tooltip: 'Clear flag',
+                    : OutlinedButton(
                         onPressed: () => _clearFlag(info.login),
+                        child: const Text('Clear'),
                       ),
               ),
             _RosterSections(
@@ -959,13 +1139,6 @@ class _UsersTabState extends State<_UsersTab> {
     if (lower.isEmpty) return 'Flagged';
     return lower[0].toUpperCase() + lower.substring(1);
   }
-}
-
-String _shortDate(String iso) {
-  final dt = DateTime.tryParse(iso);
-  if (dt == null) return iso;
-  final local = dt.toLocal();
-  return '${local.year}-${local.month.toString().padLeft(2, '0')}-${local.day.toString().padLeft(2, '0')}';
 }
 
 class _RequestsTab extends StatefulWidget {
@@ -1076,7 +1249,7 @@ class _RequestsTabState extends State<_RequestsTab> {
               Text('"${request.text}"'),
               const SizedBox(height: 8),
               Text(
-                'Status: ${request.status} · ${_shortDate(request.createdAt)}',
+                'Status: ${request.status} · ${_relativeShortDate(request.createdAt)}',
               ),
               if (request.resolutionText != null &&
                   request.resolutionText!.isNotEmpty)
@@ -1145,14 +1318,20 @@ class _RequestsTabState extends State<_RequestsTab> {
       children: [
         SingleChildScrollView(
           scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           child: Row(
             children: [
               for (final s in _statuses)
                 Padding(
                   padding: const EdgeInsets.only(right: 8),
                   child: ChoiceChip(
-                    label: Text(s[0].toUpperCase() + s.substring(1)),
+                    label: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 4,
+                        vertical: 4,
+                      ),
+                      child: Text(s[0].toUpperCase() + s.substring(1)),
+                    ),
                     selected: _status == s,
                     onSelected: (_) => _setStatus(s),
                   ),
@@ -1167,35 +1346,41 @@ class _RequestsTabState extends State<_RequestsTab> {
 
   Widget _body() {
     if (_error != null && _requests == null) {
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(_error!),
-            TextButton(onPressed: _load, child: const Text('Retry')),
-          ],
-        ),
-      );
+      return _ModError(message: _error!, onRetry: _load);
     }
     final requests = _requests;
     if (requests == null) {
       return const Center(child: CircularProgressIndicator());
     }
     if (requests.isEmpty) {
-      return Center(child: Text('No $_status requests.'));
+      return _ModEmpty(
+        icon: Icons.mark_email_read_outlined,
+        title: 'No $_status requests.',
+        subtitle: _status == 'pending'
+            ? 'New unban requests will appear here.'
+            : null,
+      );
     }
     return ListView.builder(
+      padding: const EdgeInsets.fromLTRB(8, 4, 8, 16),
       itemCount: requests.length,
       itemBuilder: (_, i) {
         final request = requests[i];
-        return ListTile(
-          title: Text(request.userLogin),
-          subtitle: Text(
-            '"${request.text}" · ${_shortDate(request.createdAt)}',
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
+        return Card(
+          margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+          child: ListTile(
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 8,
+            ),
+            title: Text(request.userLogin),
+            subtitle: Text(
+              '"${request.text}" · ${_relativeShortDate(request.createdAt)}',
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+            onTap: () => _showDetail(request),
           ),
-          onTap: () => _showDetail(request),
         );
       },
     );
@@ -1331,10 +1516,11 @@ class _TermsTabState extends State<_TermsTab> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return Column(
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
           child: Row(
             children: [
               Expanded(
@@ -1348,25 +1534,30 @@ class _TermsTabState extends State<_TermsTab> {
                 ),
               ),
               const SizedBox(width: 8),
-              IconButton.filled(
+              FilledButton.icon(
+                onPressed: _adding ? null : _add,
                 icon: _adding
                     ? const SizedBox(
                         width: 18,
                         height: 18,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : const Icon(Icons.add),
-                tooltip: 'Add term',
-                onPressed: _adding ? null : _add,
+                    : const Icon(Icons.add, size: 18),
+                label: const Text('Add'),
+                style: FilledButton.styleFrom(minimumSize: const Size(96, 56)),
               ),
             ],
           ),
         ),
-        const Padding(
-          padding: EdgeInsets.fromLTRB(16, 4, 16, 0),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
           child: Text(
-            'Only moderators can see this list. Public terms only; private terms live in the dashboard. '
-            'A * wildcard is allowed at the start or the end, not both and not inside.',
+            'Only moderators can see this list. Public terms only; '
+            'private terms live in the dashboard.',
+            style: TextStyle(
+              fontSize: 12,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
           ),
         ),
         Expanded(child: _body()),
@@ -1376,31 +1567,31 @@ class _TermsTabState extends State<_TermsTab> {
 
   Widget _body() {
     if (_error != null && _terms == null) {
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(_error!),
-            TextButton(onPressed: _load, child: const Text('Retry')),
-          ],
-        ),
-      );
+      return _ModError(message: _error!, onRetry: _load);
     }
     final terms = _terms;
     if (terms == null) {
       return const Center(child: CircularProgressIndicator());
     }
     if (terms.isEmpty) {
-      return const Center(child: Text('No blocked terms yet.'));
+      return const _ModEmpty(
+        icon: Icons.block_outlined,
+        title: 'No blocked terms yet.',
+        subtitle: 'A * wildcard is allowed at the start or the end.',
+      );
     }
     return ListView.builder(
+      padding: const EdgeInsets.fromLTRB(8, 4, 8, 16),
       itemCount: terms.length,
       itemBuilder: (_, i) {
         final term = terms[i];
         return ListTile(
-          dense: true,
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 4,
+          ),
           title: Text(term.text),
-          subtitle: Text('Added ${_shortDate(term.createdAt)}'),
+          subtitle: Text('Added ${_relativeShortDate(term.createdAt)}'),
           trailing: _removing.contains(term.id)
               ? const SizedBox(
                   width: 24,
@@ -1530,7 +1721,8 @@ class _SetupTabState extends State<_SetupTab> {
     final saved = _settings;
     final levels = _levels;
     if (saved == null || levels == null) return false;
-    if (_overall != saved.overallLevel) return true;
+    // Levels-only delta: dragging a slider and back is not a change,
+    // even though _overall flips to null (custom) on any slider move.
     if (levels.length != saved.levels.length) return true;
     for (final entry in levels.entries) {
       if (saved.levels[entry.key] != entry.value) return true;
@@ -1538,15 +1730,34 @@ class _SetupTabState extends State<_SetupTab> {
     return false;
   }
 
+  /// Preset to display: all-equal levels read as that preset, else custom.
+  int? get _displayOverall {
+    final levels = _levels;
+    if (levels == null || levels.isEmpty) return _overall;
+    final first = levels.values.first;
+    if (levels.values.every((v) => v == first)) return first;
+    return null;
+  }
+
+  void _reset() {
+    final saved = _settings;
+    if (saved == null) return;
+    setState(() {
+      _levels = Map.of(saved.levels);
+      _overall = saved.overallLevel;
+    });
+  }
+
   Future<void> _save() async {
     final levels = _levels;
     if (levels == null || _saving || !_dirty) return;
     setState(() => _saving = true);
     try {
+      final effective = _displayOverall;
       final result = await widget.modActions.updateAutoModSettings(
         widget.auth,
         widget.channel,
-        _overall != null ? {'overall_level': _overall!} : levels,
+        effective != null ? {'overall_level': effective} : levels,
       );
       if (!mounted) return;
       if (result.ok) {
@@ -1563,34 +1774,39 @@ class _SetupTabState extends State<_SetupTab> {
   @override
   Widget build(BuildContext context) {
     if (_error != null && _settings == null) {
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(_error!),
-            TextButton(onPressed: _load, child: const Text('Retry')),
-          ],
-        ),
-      );
+      return _ModError(message: _error!, onRetry: _load);
     }
     final levels = _levels;
     if (levels == null) {
       return const Center(child: CircularProgressIndicator());
     }
+    final theme = Theme.of(context);
+    final displayOverall = _displayOverall;
     return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
       children: [
-        const Text(
-          'Levels 0-4 per category. Saving a preset resets every category; moving a slider switches to custom.',
+        Text(
+          'Presets set every category. Moving a slider switches to custom.',
+          style: TextStyle(
+            fontSize: 12,
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
         ),
         const SizedBox(height: 8),
         Wrap(
           spacing: 8,
+          runSpacing: 8,
           children: [
             for (final (label, value) in _presets)
               ChoiceChip(
-                label: Text(label),
-                selected: _overall == value,
+                label: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 4,
+                    vertical: 4,
+                  ),
+                  child: Text(label),
+                ),
+                selected: displayOverall == value,
                 onSelected: _saving
                     ? null
                     : (_) => setState(() {
@@ -1602,44 +1818,72 @@ class _SetupTabState extends State<_SetupTab> {
               ),
           ],
         ),
-        if (_overall == null)
+        if (displayOverall == null)
           const Padding(
-            padding: EdgeInsets.only(top: 4),
+            padding: EdgeInsets.only(top: 8),
             child: Text('Custom levels.'),
           ),
-        for (final (key, label) in _cats)
-          Row(
-            children: [
-              Expanded(child: Text(label)),
-              SizedBox(
-                width: 180,
-                child: Slider(
-                  value: (levels[key] ?? 0).toDouble(),
-                  min: 0,
-                  max: 4,
-                  divisions: 4,
-                  label: _levelName(levels[key] ?? 0),
-                  onChanged: _saving
-                      ? null
-                      : (v) => setState(() {
-                          levels[key] = v.round();
-                          _overall = null;
-                        }),
-                ),
-              ),
-              SizedBox(width: 52, child: Text(_levelName(levels[key] ?? 0))),
-            ],
-          ),
         const SizedBox(height: 8),
-        FilledButton(
-          onPressed: _dirty && !_saving ? _save : null,
-          child: _saving
-              ? const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Text('Save changes'),
+        for (final (key, label) in _cats)
+          Card(
+            margin: const EdgeInsets.symmetric(vertical: 6),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(child: Text(label)),
+                      Text(
+                        _levelName(levels[key] ?? 0),
+                        style: TextStyle(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                  Slider(
+                    value: (levels[key] ?? 0).toDouble(),
+                    min: 0,
+                    max: 4,
+                    divisions: 4,
+                    label: _levelName(levels[key] ?? 0),
+                    onChanged: _saving
+                        ? null
+                        : (v) => setState(() {
+                            levels[key] = v.round();
+                            _overall = null;
+                          }),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton(
+                onPressed: _dirty && !_saving ? _reset : null,
+                child: const Text('Reset'),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              flex: 2,
+              child: FilledButton(
+                onPressed: _dirty && !_saving ? _save : null,
+                child: _saving
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text('Save changes'),
+              ),
+            ),
+          ],
         ),
       ],
     );
@@ -1668,18 +1912,14 @@ class _ChannelTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (!isBroadcaster && !isModerationActive) {
-      return const Center(
-        child: Padding(
-          padding: EdgeInsets.symmetric(horizontal: 24),
-          child: Text(
-            'Only the broadcaster can use these tools here. '
-            'Log in as the broadcaster to manage rosters, polls, and the stream.',
-            textAlign: TextAlign.center,
-          ),
-        ),
+      return const _ModEmpty(
+        icon: Icons.shield_outlined,
+        title: 'Only the broadcaster can use these tools here.',
+        subtitle: 'Log in as the broadcaster to manage rosters and stream.',
       );
     }
     return ListView(
+      padding: const EdgeInsets.fromLTRB(8, 4, 8, 24),
       children: [
         if (isBroadcaster) ...[
           _BannedManager(
@@ -1857,16 +2097,7 @@ class _BannedManagerState extends State<_BannedManager> {
       children: [
         _SectionHeader('Banned (${banned?.length ?? 0})'),
         if (_error != null && banned == null)
-          Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
-                child: Text(_error!),
-              ),
-              TextButton(onPressed: _load, child: const Text('Retry')),
-            ],
-          )
+          _ModError(message: _error!, onRetry: _load)
         else if (banned == null)
           const Padding(
             padding: EdgeInsets.all(24),
@@ -1876,11 +2107,14 @@ class _BannedManagerState extends State<_BannedManager> {
             ),
           )
         else if (banned.isEmpty)
-          const ListTile(dense: true, title: Text('No bans yet.'))
+          const ListTile(title: Text('No bans yet.'))
         else
           for (final ban in banned)
             ListTile(
-              dense: true,
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 4,
+              ),
               title: Text(ban.userLogin),
               subtitle: Text(_subtitle(ban)),
               trailing: _pending.contains(ban.userLogin.toLowerCase())
@@ -1889,10 +2123,9 @@ class _BannedManagerState extends State<_BannedManager> {
                       height: 24,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                  : IconButton(
-                      icon: const Icon(Icons.undo),
-                      tooltip: 'Unban',
+                  : OutlinedButton(
                       onPressed: () => _unban(ban.userLogin),
+                      child: const Text('Unban'),
                     ),
             ),
       ],
@@ -2082,62 +2315,107 @@ class _StreamActionsState extends State<_StreamActions> {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        ListTile(
-          dense: true,
-          leading: const Icon(Icons.flight_takeoff_outlined),
-          title: const Text('Start raid...'),
-          onTap: () => _raid(context),
-        ),
-        ListTile(
-          dense: true,
-          leading: const Icon(Icons.flight_land_outlined),
-          title: const Text('Cancel raid'),
-          enabled: _busy == null,
-          onTap: _busy != null ? null : () => _unraid(context),
-          trailing: _busy == 'unraid'
-              ? const SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : null,
-        ),
-        ListTile(
-          dense: true,
-          leading: const Icon(Icons.monetization_on_outlined),
-          title: const Text('Run commercial...'),
-          onTap: () => _commercial(context),
-        ),
-        ListTile(
-          dense: true,
-          leading: const Icon(Icons.bookmark_add_outlined),
-          title: const Text('Add marker...'),
-          onTap: () => _marker(context),
-        ),
-        ListTile(
-          dense: true,
-          leading: const Icon(Icons.campaign_outlined),
-          title: const Text('Send announcement...'),
-          enabled: _busy == null,
-          onTap: _busy != null ? null : () => _announce(context),
-        ),
-        ListTile(
-          dense: true,
-          leading: const Icon(Icons.delete_sweep_outlined),
-          title: const Text('Clear chat'),
-          enabled: _busy == null,
-          onTap: _busy != null ? null : () => _clear(context),
-        ),
-        ListTile(
-          dense: true,
-          leading: const Icon(Icons.record_voice_over_outlined),
-          title: const Text('Send shoutout...'),
-          enabled: _busy == null,
-          onTap: _busy != null ? null : () => _shoutout(context),
-        ),
-      ],
+    final busy = _busy != null;
+    final actions = [
+      (
+        'Start raid',
+        Icons.flight_takeoff_outlined,
+        busy ? null : () => _raid(context),
+        false,
+      ),
+      (
+        'Cancel raid',
+        Icons.flight_land_outlined,
+        busy ? null : () => _unraid(context),
+        _busy == 'unraid',
+      ),
+      (
+        'Commercial',
+        Icons.monetization_on_outlined,
+        busy ? null : () => _commercial(context),
+        false,
+      ),
+      (
+        'Add marker',
+        Icons.bookmark_add_outlined,
+        busy ? null : () => _marker(context),
+        false,
+      ),
+      (
+        'Announce',
+        Icons.campaign_outlined,
+        busy ? null : () => _announce(context),
+        _busy == 'announce',
+      ),
+      (
+        'Clear chat',
+        Icons.delete_sweep_outlined,
+        busy ? null : () => _clear(context),
+        _busy == 'clear',
+      ),
+      (
+        'Shoutout',
+        Icons.record_voice_over_outlined,
+        busy ? null : () => _shoutout(context),
+        _busy == 'shoutout',
+      ),
+    ];
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(4, 4, 4, 8),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 3,
+        mainAxisSpacing: 8,
+        crossAxisSpacing: 8,
+        childAspectRatio: 0.92,
+      ),
+      itemCount: actions.length,
+      itemBuilder: (_, i) {
+        final a = actions[i];
+        final scheme = Theme.of(context).colorScheme;
+        return Opacity(
+          opacity: a.$3 == null ? 0.55 : 1.0,
+          child: Material(
+            color: scheme.surfaceContainerHigh,
+            borderRadius: BorderRadius.circular(12),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: a.$3,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 8,
+                  vertical: 12,
+                ),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    if (a.$4)
+                      const SizedBox(
+                        width: 28,
+                        height: 28,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    else
+                      Icon(a.$2, size: 28, color: scheme.onSurfaceVariant),
+                    const SizedBox(height: 8),
+                    Text(
+                      a.$1,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                      textAlign: TextAlign.center,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }
@@ -2260,16 +2538,7 @@ class _PollsSectionState extends State<_PollsSection> {
   Widget build(BuildContext context) {
     final polls = _polls;
     if (_error != null && polls == null) {
-      return Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
-            child: Text(_error!),
-          ),
-          TextButton(onPressed: _load, child: const Text('Retry')),
-        ],
-      );
+      return _ModError(message: _error!, onRetry: _load);
     }
     if (polls == null) {
       return const Padding(
@@ -2304,8 +2573,11 @@ class _PollsSectionState extends State<_PollsSection> {
       totalVotes += (c['votes'] as num?)?.toInt() ?? 0;
     }
     final endsAt = active['ends_at'] as String?;
-    final ends = endsAt == null || endsAt.isEmpty ? null : _shortDate(endsAt);
+    final ends = endsAt == null || endsAt.isEmpty
+        ? null
+        : _relativeShortDate(endsAt);
     return ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       title: Text(active['title'] as String? ?? 'Poll'),
       subtitle: Text(
         [
@@ -2320,14 +2592,14 @@ class _PollsSectionState extends State<_PollsSection> {
               height: 24,
               child: CircularProgressIndicator(strokeWidth: 2),
             )
-          : Row(
-              mainAxisSize: MainAxisSize.min,
+          : Wrap(
+              spacing: 8,
               children: [
-                TextButton(
+                OutlinedButton(
                   onPressed: _busyKey != null
                       ? null
                       : () => _end(pollId, false),
-                  child: const Text('End results'),
+                  child: const Text('End'),
                 ),
                 TextButton(
                   onPressed: _busyKey != null ? null : () => _end(pollId, true),
@@ -2626,16 +2898,7 @@ class _PredictionsSectionState extends State<_PredictionsSection> {
   Widget build(BuildContext context) {
     final predictions = _predictions;
     if (_error != null && predictions == null) {
-      return Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
-            child: Text(_error!),
-          ),
-          TextButton(onPressed: _load, child: const Text('Retry')),
-        ],
-      );
+      return _ModError(message: _error!, onRetry: _load);
     }
     if (predictions == null) {
       return const Padding(
@@ -2656,13 +2919,13 @@ class _PredictionsSectionState extends State<_PredictionsSection> {
     }
     if (open == null) {
       return const ListTile(
-        dense: true,
         title: Text('No open prediction. Create one with /prediction.'),
       );
     }
     final predictionId = open['id'] as String? ?? '';
     final locked = open['status'] == 'LOCKED';
     return ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       title: Text(open['title'] as String? ?? 'Prediction'),
       subtitle: Text(
         '${(open['outcomes'] as List? ?? const []).length} outcomes'
@@ -2674,15 +2937,15 @@ class _PredictionsSectionState extends State<_PredictionsSection> {
               height: 24,
               child: CircularProgressIndicator(strokeWidth: 2),
             )
-          : Row(
-              mainAxisSize: MainAxisSize.min,
+          : Wrap(
+              spacing: 8,
               children: [
                 if (!locked)
-                  TextButton(
+                  OutlinedButton(
                     onPressed: () => _end(predictionId, 'LOCKED'),
                     child: const Text('Lock'),
                   ),
-                TextButton(
+                FilledButton(
                   onPressed: () => _resolve(open!),
                   child: const Text('Resolve'),
                 ),
@@ -2915,16 +3178,7 @@ class _PointsSectionState extends State<_PointsSection> {
   Widget build(BuildContext context) {
     final rewards = _rewards;
     if (_error != null && rewards == null) {
-      return Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
-            child: Text(_error!),
-          ),
-          TextButton(onPressed: _loadRewards, child: const Text('Retry')),
-        ],
-      );
+      return _ModError(message: _error!, onRetry: _loadRewards);
     }
     if (rewards == null) {
       return const Padding(
@@ -2937,23 +3191,32 @@ class _PointsSectionState extends State<_PointsSection> {
     }
     if (rewards.isEmpty) {
       return const ListTile(
-        dense: true,
         title: Text('No custom rewards. Create them in the dashboard.'),
       );
     }
     final selected = _selectedRewardId == null
         ? null
         : rewards.where((r) => r.id == _selectedRewardId).firstOrNull;
+    final theme = Theme.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Padding(
-          padding: EdgeInsets.fromLTRB(16, 0, 16, 0),
-          child: Text('Only rewards created by this app are manageable here.'),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
+          child: Text(
+            'Only rewards created by this app are manageable here.',
+            style: TextStyle(
+              fontSize: 12,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
         ),
         for (final reward in rewards)
           ListTile(
-            dense: true,
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 4,
+            ),
             selected: reward.id == _selectedRewardId,
             title: Text(reward.title),
             subtitle: Text(
@@ -2988,16 +3251,7 @@ class _PointsSectionState extends State<_PointsSection> {
 
   Widget _queueBody(PointReward selected) {
     if (_queueError != null && _queue == null) {
-      return Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
-            child: Text(_queueError!),
-          ),
-          TextButton(onPressed: _loadQueue, child: const Text('Retry')),
-        ],
-      );
+      return _ModError(message: _queueError!, onRetry: _loadQueue);
     }
     final queue = _queue;
     if (queue == null) {
@@ -3010,19 +3264,22 @@ class _PointsSectionState extends State<_PointsSection> {
       );
     }
     if (queue.isEmpty) {
-      return const ListTile(dense: true, title: Text('Queue is clear.'));
+      return const ListTile(title: Text('Queue is clear.'));
     }
     return Column(
       children: [
         for (final redemption in queue)
           ListTile(
-            dense: true,
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 4,
+            ),
             title: Text(redemption.userLogin),
             subtitle: Text(
               [
                 '${redemption.cost} pts',
                 if (redemption.redeemedAt.isNotEmpty)
-                  'redeemed ${_shortDate(redemption.redeemedAt)}',
+                  'redeemed ${_relativeShortDate(redemption.redeemedAt)}',
                 if (redemption.userInput.isNotEmpty)
                   '"${redemption.userInput}"',
               ].join(' · '),
@@ -3035,18 +3292,18 @@ class _PointsSectionState extends State<_PointsSection> {
                     height: 24,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                : Row(
-                    mainAxisSize: MainAxisSize.min,
+                : Wrap(
+                    spacing: 8,
                     children: [
-                      IconButton(
-                        icon: const Icon(Icons.check),
-                        tooltip: 'Fulfill',
+                      FilledButton.icon(
                         onPressed: () => _resolve(redemption, true),
+                        icon: const Icon(Icons.check, size: 18),
+                        label: const Text('Fulfill'),
                       ),
-                      IconButton(
-                        icon: const Icon(Icons.close),
-                        tooltip: 'Refund',
+                      OutlinedButton.icon(
                         onPressed: () => _resolve(redemption, false),
+                        icon: const Icon(Icons.close, size: 18),
+                        label: const Text('Refund'),
                       ),
                     ],
                   ),
@@ -3158,6 +3415,87 @@ class _ModesTabState extends State<_ModesTab> {
     }
   }
 
+  Future<void> _toggleSlow(bool on, int slow) async {
+    if (on) {
+      var picked = await _pick('Slow mode delay', const [
+        ('30 seconds', 30),
+        ('60 seconds', 60),
+        ('120 seconds', 120),
+        ('Custom...', -1),
+      ]);
+      if (picked == null || !mounted) return;
+      if (picked < 0) {
+        picked = await _pickCustomInt(
+          title: 'Slow mode delay',
+          label: 'Seconds (3-120)',
+          min: 3,
+          max: 120,
+        );
+      }
+      if (picked == null || !mounted) return;
+      await _apply(
+        'slow',
+        () => widget.modActions.setSlowMode(
+          widget.auth,
+          widget.channel,
+          enabled: true,
+          seconds: picked!,
+        ),
+      );
+    } else {
+      await _apply(
+        'slow',
+        () => widget.modActions.setSlowMode(
+          widget.auth,
+          widget.channel,
+          enabled: false,
+        ),
+      );
+    }
+  }
+
+  Future<void> _toggleFollowers(bool on) async {
+    if (on) {
+      var picked = await _pick('Minimum follow age', const [
+        ('No minimum', -1),
+        ('10 minutes', 10),
+        ('30 minutes', 30),
+        ('1 hour', 60),
+        ('1 day', 1440),
+        ('1 week', 10080),
+        ('Custom...', -2),
+      ]);
+      if (picked == null || !mounted) return;
+      if (picked == -2) {
+        picked = await _pickCustomInt(
+          title: 'Minimum follow age',
+          label: 'Minutes (1-10080)',
+          min: 1,
+          max: 10080,
+        );
+      }
+      if (picked == null || !mounted) return;
+      await _apply(
+        'followers',
+        () => widget.modActions.setFollowersMode(
+          widget.auth,
+          widget.channel,
+          enabled: true,
+          minutes: picked! < 0 ? null : picked,
+        ),
+      );
+    } else {
+      await _apply(
+        'followers',
+        () => widget.modActions.setFollowersMode(
+          widget.auth,
+          widget.channel,
+          enabled: false,
+        ),
+      );
+    }
+  }
+
   bool _picking = false;
 
   // Second taps while a picker is open no-op instead of stacking dialogs.
@@ -3240,189 +3578,209 @@ class _ModesTabState extends State<_ModesTab> {
     bool enabledFor(String key) =>
         widget.moderationActive && !_busyKeys.contains(key);
     bool anyBusy = _busyKeys.isNotEmpty;
+    final shieldBusy = _busyKeys.contains('shield') || _shieldLoading;
+    final modes = [
+      (
+        'Slow mode',
+        Icons.hourglass_bottom_outlined,
+        slow > 0 ? '${slow}s' : 'Off',
+        slow > 0,
+        enabledFor('slow'),
+        (bool on) => _toggleSlow(on, slow),
+      ),
+      (
+        'Followers',
+        Icons.favorite_outline,
+        !followersOn
+            ? 'Off'
+            : followers == '0'
+            ? 'No minimum'
+            : 'Following ${followers}m',
+        followersOn,
+        enabledFor('followers'),
+        _toggleFollowers,
+      ),
+      (
+        'Emote-only',
+        Icons.emoji_emotions_outlined,
+        tags['emote-only'] == '1' ? 'On' : 'Off',
+        tags['emote-only'] == '1',
+        enabledFor('emote'),
+        (bool on) => _apply(
+          'emote',
+          () => widget.modActions.setEmoteOnly(
+            widget.auth,
+            widget.channel,
+            enabled: on,
+          ),
+        ),
+      ),
+      (
+        'Subscribers',
+        Icons.star_outline,
+        tags['subs-only'] == '1' ? 'On' : 'Off',
+        tags['subs-only'] == '1',
+        enabledFor('subs'),
+        (bool on) => _apply(
+          'subs',
+          () => widget.modActions.setSubscribersOnly(
+            widget.auth,
+            widget.channel,
+            enabled: on,
+          ),
+        ),
+      ),
+      (
+        'Unique chat',
+        Icons.person_outline,
+        tags['r9k'] == '1' ? 'On' : 'Off',
+        tags['r9k'] == '1',
+        enabledFor('unique'),
+        (bool on) => _apply(
+          'unique',
+          () => widget.modActions.setUniqueChat(
+            widget.auth,
+            widget.channel,
+            enabled: on,
+          ),
+        ),
+      ),
+      (
+        'Shield mode',
+        Icons.shield_outlined,
+        _shield == null ? '...' : (_shield! ? 'On' : 'Off'),
+        _shield ?? false,
+        enabledFor('shield') && !_shieldLoading && _shield != null,
+        (bool on) async {
+          final ok = await _apply(
+            'shield',
+            () => widget.modActions.setShieldMode(
+              widget.auth,
+              widget.channel,
+              active: on,
+            ),
+          );
+          if (ok && mounted) _loadShield();
+        },
+      ),
+    ];
     return ListView(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
       children: [
         if (!widget.moderationActive)
           const ListTile(
+            contentPadding: EdgeInsets.symmetric(horizontal: 4),
             title: Text('Chat modes need moderator status in this channel.'),
           ),
         if (anyBusy) const LinearProgressIndicator(minHeight: 2),
-        SwitchListTile(
-          title: const Text('Slow mode'),
-          subtitle: Text(slow > 0 ? '${slow}s' : 'Off'),
-          value: slow > 0,
-          onChanged: !enabledFor('slow')
-              ? null
-              : (on) async {
-                  if (on) {
-                    var picked = await _pick('Slow mode delay', const [
-                      ('30 seconds', 30),
-                      ('60 seconds', 60),
-                      ('120 seconds', 120),
-                      ('Custom...', -1),
-                    ]);
-                    if (picked == null || !mounted) return;
-                    if (picked < 0) {
-                      picked = await _pickCustomInt(
-                        title: 'Slow mode delay',
-                        label: 'Seconds (3-120)',
-                        min: 3,
-                        max: 120,
-                      );
-                    }
-                    if (picked == null || !mounted) return;
-                    await _apply(
-                      'slow',
-                      () => widget.modActions.setSlowMode(
-                        widget.auth,
-                        widget.channel,
-                        enabled: true,
-                        seconds: picked!,
-                      ),
-                    );
-                  } else {
-                    await _apply(
-                      'slow',
-                      () => widget.modActions.setSlowMode(
-                        widget.auth,
-                        widget.channel,
-                        enabled: false,
-                      ),
-                    );
-                  }
-                },
-        ),
-        SwitchListTile(
-          title: const Text('Followers-only'),
-          subtitle: Text(
-            !followersOn
-                ? 'Off'
-                : followers == '0'
-                ? 'No minimum follow age'
-                : 'Following for ${followers}m',
-          ),
-          value: followersOn,
-          onChanged: !enabledFor('followers')
-              ? null
-              : (on) async {
-                  if (on) {
-                    // -1 encodes "no minimum"; null is a dismissed dialog.
-                    // -2 encodes the custom entry below.
-                    var picked = await _pick('Minimum follow age', const [
-                      ('No minimum', -1),
-                      ('10 minutes', 10),
-                      ('30 minutes', 30),
-                      ('1 hour', 60),
-                      ('1 day', 1440),
-                      ('1 week', 10080),
-                      ('Custom...', -2),
-                    ]);
-                    if (picked == null || !mounted) return;
-                    if (picked == -2) {
-                      picked = await _pickCustomInt(
-                        title: 'Minimum follow age',
-                        label: 'Minutes (1-10080)',
-                        min: 1,
-                        max: 10080,
-                      );
-                    }
-                    if (picked == null || !mounted) return;
-                    await _apply(
-                      'followers',
-                      () => widget.modActions.setFollowersMode(
-                        widget.auth,
-                        widget.channel,
-                        enabled: true,
-                        minutes: picked! < 0 ? null : picked,
-                      ),
-                    );
-                  } else {
-                    await _apply(
-                      'followers',
-                      () => widget.modActions.setFollowersMode(
-                        widget.auth,
-                        widget.channel,
-                        enabled: false,
-                      ),
-                    );
-                  }
-                },
-        ),
-        for (final (label, key, modeOn, set) in [
-          (
-            'Emote-only',
-            'emote',
-            tags['emote-only'] == '1',
-            widget.modActions.setEmoteOnly,
-          ),
-          (
-            'Subscribers-only',
-            'subs',
-            tags['subs-only'] == '1',
-            widget.modActions.setSubscribersOnly,
-          ),
-          (
-            'Unique chat',
-            'unique',
-            tags['r9k'] == '1',
-            widget.modActions.setUniqueChat,
-          ),
-        ])
-          SwitchListTile(
-            title: Text(label),
-            value: modeOn,
-            onChanged: !enabledFor(key)
-                ? null
-                : (on) => _apply(
-                    key,
-                    () => set(widget.auth, widget.channel, enabled: on),
-                  ),
-          ),
         if (_shieldError != null && _shield == null)
           ListTile(
-            title: const Text('Shield mode'),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+            title: const Text('Shield mode failed to load'),
             subtitle: Text(_shieldError!),
             trailing: TextButton(
               onPressed: _loadShield,
               child: const Text('Retry'),
             ),
-          )
-        else if (_shield != null)
-          SwitchListTile(
-            title: const Text('Shield mode'),
-            value: _shield!,
-            onChanged: !enabledFor('shield') || _shieldLoading
-                ? null
-                : (on) async {
-                    final ok = await _apply(
-                      'shield',
-                      () => widget.modActions.setShieldMode(
-                        widget.auth,
-                        widget.channel,
-                        active: on,
-                      ),
-                    );
-                    if (ok && mounted) _loadShield();
-                  },
-          )
-        else
-          ListTile(
-            title: const Text('Shield mode'),
-            subtitle: const Text('Loading Shield status...'),
-            trailing: Row(
-              mainAxisSize: MainAxisSize.min,
+          ),
+        GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 3,
+            mainAxisSpacing: 8,
+            crossAxisSpacing: 8,
+            childAspectRatio: 0.86,
+          ),
+          itemCount: modes.length,
+          itemBuilder: (_, i) {
+            final m = modes[i];
+            return _ModeCard(
+              label: m.$1,
+              icon: m.$2,
+              status: m.$3,
+              value: m.$4,
+              enabled: m.$5,
+              busy: i == 5 && shieldBusy,
+              onToggle: m.$6,
+            );
+          },
+        ),
+      ],
+    );
+  }
+}
+
+class _ModeCard extends StatelessWidget {
+  const _ModeCard({
+    required this.label,
+    required this.icon,
+    required this.status,
+    required this.value,
+    required this.enabled,
+    required this.onToggle,
+    this.busy = false,
+  });
+
+  final String label;
+  final IconData icon;
+  final String status;
+  final bool value;
+  final bool enabled;
+  final ValueChanged<bool> onToggle;
+  final bool busy;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final bg = value ? scheme.primaryContainer : scheme.surfaceContainerHigh;
+    final fg = value ? scheme.onPrimaryContainer : scheme.onSurfaceVariant;
+    return Opacity(
+      opacity: enabled ? 1.0 : 0.55,
+      child: Material(
+        color: bg,
+        borderRadius: BorderRadius.circular(12),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: !enabled || busy ? null : () => onToggle(!value),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                TextButton(onPressed: null, child: const Text('Enable')),
-                TextButton(onPressed: null, child: const Text('Disable')),
+                if (busy)
+                  const SizedBox(
+                    width: 28,
+                    height: 28,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                else
+                  Icon(icon, size: 28, color: fg),
+                const SizedBox(height: 8),
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: fg,
+                  ),
+                  textAlign: TextAlign.center,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  status,
+                  style: TextStyle(fontSize: 11, color: fg),
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
               ],
             ),
           ),
-        if (_shield != null && _shieldLoading)
-          const ListTile(
-            dense: true,
-            title: Text('Refreshing Shield status...'),
-          ),
-      ],
+        ),
+      ),
     );
   }
 }
@@ -3595,15 +3953,9 @@ class _RosterSectionsState extends State<_RosterSections> {
     if (_mods == null &&
         _vips == null &&
         (_modsError != null || _vipsError != null)) {
-      return Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-            child: Text(_modsError ?? _vipsError ?? 'Could not load.'),
-          ),
-          TextButton(onPressed: _load, child: const Text('Retry')),
-        ],
+      return _ModError(
+        message: _modsError ?? _vipsError ?? 'Could not load.',
+        onRetry: _load,
       );
     }
     if (_mods == null || _vips == null) {
@@ -3669,14 +4021,20 @@ class _PersonSection extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         ListTile(
+          contentPadding: const EdgeInsets.symmetric(horizontal: 16),
           title: Text(
-            title,
-            style: const TextStyle(fontWeight: FontWeight.w600),
+            title.toUpperCase(),
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              fontSize: 12,
+              letterSpacing: 0.8,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
           ),
-          trailing: IconButton(
-            icon: const Icon(Icons.person_add),
-            tooltip: 'Add',
+          trailing: FilledButton.icon(
             onPressed: onAdd,
+            icon: const Icon(Icons.person_add, size: 18),
+            label: const Text('Add'),
           ),
         ),
         if (error != null)
@@ -3692,7 +4050,10 @@ class _PersonSection extends StatelessWidget {
           const ListTile(title: Text('None yet.')),
         for (final login in logins)
           ListTile(
-            dense: true,
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 2,
+            ),
             title: Text(login),
             trailing: removing.contains('$prefix:${login.toLowerCase()}')
                 ? const SizedBox(

@@ -177,9 +177,6 @@ class HomeAppBar {
                     ),
                     onSelected: (value) {
                       switch (value) {
-                        case 'modview':
-                          mod.showModView();
-                          break;
                         case 'threads':
                           threads.showThreadsDashboard(tab: 1);
                           break;
@@ -209,19 +206,6 @@ class HomeAppBar {
                         ),
                       ),
                       const PopupMenuDivider(),
-                      if (host.selectedChannel != null &&
-                          (chatConn.isModerationActive(host.selectedChannel!) ||
-                              chatConn.isAutomodActive(host.selectedChannel!)))
-                        const PopupMenuItem(
-                          value: 'modview',
-                          child: Row(
-                            children: [
-                              Icon(Icons.shield_outlined, size: 20),
-                              SizedBox(width: 12),
-                              Text('Mod view'),
-                            ],
-                          ),
-                        ),
                       const PopupMenuItem(
                         value: 'threads',
                         child: Text('Threads'),

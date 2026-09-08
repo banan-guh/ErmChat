@@ -328,8 +328,10 @@ class ComposerController {
     }
 
     // Mentions tab stays read-only, as do the threads dashboard lists:
-    // replies are composed from the Thread tab only.
+    // replies are composed from the Thread tab only. Mod view keeps its
+    // own inline fields and dialogs, so the global box stays greyed out.
     if (host.activePanel == OverlayPanel.mentions) return;
+    if (host.activePanel == OverlayPanel.modView) return;
     if (host.activePanel == OverlayPanel.thread && host.threadsTabIndex != 0) {
       return;
     }
@@ -407,6 +409,7 @@ class ComposerController {
   void refreshCooldown() => cooldownLabel.value = cooldownText();
 
   bool get enabled =>
+      host.activePanel != OverlayPanel.modView &&
       (host.activePanel != OverlayPanel.mentions || host.isWhispersTabActive) &&
       (host.activePanel != OverlayPanel.thread || host.threadsTabIndex == 0) &&
       twitchAuth.isConfigured &&
@@ -434,6 +437,7 @@ class ComposerController {
               (_, OverlayPanel.thread, _, _) when host.threadsTabIndex == 0 =>
                 'Reply to thread...',
               (_, OverlayPanel.thread, _, _) => 'Select a thread to reply...',
+              (_, OverlayPanel.modView, _, _) => 'Mod view open',
               (_, _, true, _) =>
                 host.whisperTarget != null
                     ? 'Whisper to ${host.whisperTarget}...'

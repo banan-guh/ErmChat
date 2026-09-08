@@ -50,6 +50,7 @@
 - [x] **Mod View Tier 3: warnings log + mod activity feed** - parse switch extended for the dropped channel.moderate v2 actions; local feed, warn log, and ban roster in ChatStore; shield/shoutout/warning EventSub feed; Activity tab in the Mod View shell.
 - [x] **Mod View Tier 3: suspicious users + AutoMod settings editor** - per-user Monitor/Restrict/Clear on the card, flagged list with shared-ban context, per-category 0-4 editor. No Helix list endpoint exists, so no full roster; restricted-message chat display still open.
 - [x] **Mod View: Channel tab (broadcaster-only)** - server banned list with unban, mod/vip rosters, raid/commercial/marker actions, poll/prediction end/lock/resolve, Channel Points rewards queue (fulfill/refund, pause).
+- [ ] **Mod View: Channel Points reward CRUD** - create/edit/delete UI plus new TwitchApi write verbs (PATCH title/cost, POST create, DELETE). Read-only hardening already landed (cost/age rows, refund confirm, foreign 403 copy, pause notice).
 - [+] **Shared Chat** - mirror-only marking, sharedchatnotice unwrap/drop, source-channel emote scoping, lazy participant fetch, ping dedup
 - [+] **Spotlight** - global 3-way setting (spotlight/fade/hide) for shared-chat foreign messages; fade dims at 55% opacity, hide drops at ingestion
 - [ ] **VOD / clip chat replay** - past broadcasts + clips with synced read-only chat.
@@ -86,3 +87,7 @@
 - notifs don't matter if no foreground in android (ios push notifs, change if server)
 - greedy split links - `kappa.lol/ tests` (space after slash) only links `kappa.lol/`; optionally extend the path to the next word, at the cost of eating prose after `/` (`x.com/ for details`)
 - fast swipe default
+- double connected msg ios
+- anon -> acc = nothing to show it's connecting + check weirdly long connect time?
+- still duping sys msgs in robotty msgs
+- 

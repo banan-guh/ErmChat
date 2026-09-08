@@ -281,7 +281,7 @@ void main() {
     expect(find.text('moduser banned feeduser: "spam".'), findsOneWidget);
 
     // Users tab shows bans, warnings, flags, and the mod/vip rosters.
-    tab.animateTo(2);
+    tab.animateTo(4);
     await tester.pumpAndSettle();
     expect(find.text('banneduser'), findsOneWidget);
     expect(find.text('warneduser'), findsOneWidget);
@@ -290,27 +290,27 @@ void main() {
     expect(find.text('rosvip'), findsOneWidget);
 
     // Unban works end to end and drops the roster row.
-    await tester.tap(find.byIcon(Icons.undo));
+    await tester.tap(find.widgetWithText(OutlinedButton, 'Unban').first);
     await tester.pumpAndSettle();
     expect(find.text('banneduser'), findsNothing);
 
     // Clearing a flag drops the flagged row.
-    await tester.tap(find.byIcon(Icons.visibility_off_outlined));
+    await tester.tap(find.widgetWithText(OutlinedButton, 'Clear').first);
     await tester.pumpAndSettle();
     expect(find.text('flaggeduser'), findsNothing);
 
     // Requests tab loads the (empty) pending inbox.
-    tab.animateTo(4);
+    tab.animateTo(5);
     await tester.pumpAndSettle();
     expect(find.text('No pending requests.'), findsOneWidget);
 
     // Terms tab loads the (empty) public blocked list.
-    tab.animateTo(5);
+    tab.animateTo(6);
     await tester.pumpAndSettle();
     expect(find.text('No blocked terms yet.'), findsOneWidget);
 
     // Setup tab loads levels; saving a preset puts overall_level.
-    tab.animateTo(6);
+    tab.animateTo(7);
     await tester.pumpAndSettle();
     expect(find.text('Swearing'), findsOneWidget);
     await tester.tap(find.text('Max'));
@@ -323,14 +323,14 @@ void main() {
     expect(jsonDecode(put.body), {'overall_level': 4});
 
     // Modes tab builds without crashing.
-    tab.animateTo(3);
+    tab.animateTo(2);
     await tester.pumpAndSettle();
 
     // Channel tab shows stream tools to moderators; rosters stay
     // broadcaster-only.
-    tab.animateTo(7);
+    tab.animateTo(3);
     await tester.pumpAndSettle();
-    expect(find.text('Start raid...'), findsOneWidget);
+    expect(find.text('Start raid'), findsOneWidget);
     expect(find.textContaining('Only the broadcaster'), findsNothing);
 
     // As the broadcaster the rosters and stream tools render.
@@ -446,7 +446,7 @@ void main() {
     await tester.tap(find.widgetWithText(ChoiceChip, 'spam'));
     await tester.pump();
     expect(find.text('allowuser'), findsOneWidget);
-    await tester.tap(find.byTooltip('Allow').at(2));
+    await tester.tap(find.widgetWithText(FilledButton, 'Allow').at(2));
     await tester.pumpAndSettle();
     expect(find.text('allowuser'), findsNothing);
     final allow = recordedRequests.lastWhere(
@@ -489,11 +489,11 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    tab.animateTo(3);
+    tab.animateTo(2);
     await tester.pumpAndSettle();
-    final tile = find.widgetWithText(SwitchListTile, 'Emote-only');
-    expect(tile, findsOneWidget);
-    await tester.tap(tile);
+    final card = find.text('Emote-only');
+    expect(card, findsOneWidget);
+    await tester.tap(card);
     await tester.pumpAndSettle();
     final patch = recordedRequests.lastWhere(
       (r) => r.url.path.endsWith('chat/settings'),

@@ -58,6 +58,10 @@ class ModPanels {
     await panelManager.closePanel();
     if (!host.isMounted()) return;
     composer.unfocus();
+    // Always enter on Queue so a reorder never lands on the wrong tab.
+    try {
+      modTab().index = 0;
+    } catch (_) {}
     panelManager.activePanel = OverlayPanel.modView;
     panelManager.openThreadRoot = null;
     host.markDirty();
@@ -114,29 +118,44 @@ class ModPanels {
               ],
             ),
           ),
-          TabBar(
-            controller: modTab(),
-            padding: const EdgeInsets.fromLTRB(100.0, 0.0, 100.0, 0.0),
-            // Eight tabs: center the strip and let it scroll instead of
-            // clipping labels on narrow phones.
-            isScrollable: true,
-            tabAlignment: TabAlignment.center,
-            tabs: [
-              ValueListenableBuilder<int>(
-                valueListenable: chatStore.heldVersion,
-                builder: (_, _, _) {
-                  final pending = chatStore.heldMessages[channel]?.length ?? 0;
-                  return Tab(text: pending > 0 ? 'Queue ($pending)' : 'Queue');
-                },
+          // Stream-first order: live work before people, settings last.
+          // Matches ModViewPanel children in mod_view.dart; keep Queue at 0.
+          SizedBox(
+            height: 40,
+            child: TabBar(
+              controller: modTab(),
+              isScrollable: true,
+              tabAlignment: TabAlignment.start,
+              labelPadding: const EdgeInsets.symmetric(horizontal: 12),
+              indicator: BoxDecoration(
+                border: Border(
+                  bottom: BorderSide(
+                    color: Theme.of(context).colorScheme.primary,
+                    width: 2,
+                  ),
+                ),
               ),
-              const Tab(text: 'Activity'),
-              const Tab(text: 'Users'),
-              const Tab(text: 'Modes'),
-              const Tab(text: 'Requests'),
-              const Tab(text: 'Terms'),
-              const Tab(text: 'Setup'),
-              const Tab(text: 'Channel'),
-            ],
+              indicatorSize: TabBarIndicatorSize.label,
+              tabs: [
+                ValueListenableBuilder<int>(
+                  valueListenable: chatStore.heldVersion,
+                  builder: (_, _, _) {
+                    final pending =
+                        chatStore.heldMessages[channel]?.length ?? 0;
+                    return Tab(
+                      text: pending > 0 ? 'Queue ($pending)' : 'Queue',
+                    );
+                  },
+                ),
+                const Tab(text: 'Activity'),
+                const Tab(text: 'Modes'),
+                const Tab(text: 'Channel'),
+                const Tab(text: 'Users'),
+                const Tab(text: 'Requests'),
+                const Tab(text: 'Terms'),
+                const Tab(text: 'Setup'),
+              ],
+            ),
           ),
           Divider(height: 1, color: Theme.of(context).dividerColor),
         ],
