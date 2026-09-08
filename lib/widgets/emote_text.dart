@@ -211,19 +211,9 @@ class EmoteText {
     return Size(s * emote.aspectRatio, s);
   }
 
-  static Widget _emoteImage(
-    String url,
-    double width,
-    double height, {
-    List<String>? alternateUrls,
-  }) {
+  static Widget _emoteImage(String url, double width, double height) {
     // Lean renderer: one render box, shared completer. Lower per-copy cost than EmoteImage.
-    return InlineEmoteView(
-      url: url,
-      width: width,
-      height: height,
-      alternateUrls: alternateUrls,
-    );
+    return InlineEmoteView(url: url, width: width, height: height);
   }
 
   // Bounding box across overlays; center each image. Clip.none for overflow.
@@ -245,12 +235,7 @@ class EmoteText {
       Positioned(
         left: (maxW - baseSize.width) / 2,
         top: (maxH - baseSize.height) / 2,
-        child: _emoteImage(
-          data.base.url,
-          baseSize.width,
-          baseSize.height,
-          alternateUrls: [if (data.base.url1x != null) data.base.url1x!],
-        ),
+        child: _emoteImage(data.base.url, baseSize.width, baseSize.height),
       ),
     ];
     for (final overlay in data.overlays) {
@@ -261,12 +246,7 @@ class EmoteText {
           top: (maxH - o.height) / 2,
           width: o.width,
           height: o.height,
-          child: _emoteImage(
-            overlay.url,
-            o.width,
-            o.height,
-            alternateUrls: [if (overlay.url1x != null) overlay.url1x!],
-          ),
+          child: _emoteImage(overlay.url, o.width, o.height),
         ),
       );
     }
@@ -276,12 +256,7 @@ class EmoteText {
       emoteWidget = SizedBox(
         width: baseSize.width,
         height: baseSize.height,
-        child: _emoteImage(
-          data.base.url,
-          baseSize.width,
-          baseSize.height,
-          alternateUrls: [if (data.base.url1x != null) data.base.url1x!],
-        ),
+        child: _emoteImage(data.base.url, baseSize.width, baseSize.height),
       );
     } else {
       emoteWidget = SizedBox(
