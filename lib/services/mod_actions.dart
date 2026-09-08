@@ -264,14 +264,15 @@ class ModActions {
   ) async {
     final ids = _ids(channel);
     if (ids == null) return const ModResult.fail(ModFailure.notJoined);
-    final created = await twitchApi.addBlockedTerm(
-      auth,
-      broadcasterId: ids.broadcasterId,
-      moderatorId: ids.moderatorId,
-      text: text,
-    );
-    if (created != null) return const ModResult.ok();
-    return ModResult.fail(ModFailure.apiError, failureReason());
+    return _run('add blocked term', () async {
+      final created = await twitchApi.addBlockedTerm(
+        auth,
+        broadcasterId: ids.broadcasterId,
+        moderatorId: ids.moderatorId,
+        text: text,
+      );
+      return created != null;
+    });
   }
 
   Future<ModResult> removeBlockedTerm(
@@ -311,14 +312,15 @@ class ModActions {
   ) async {
     final ids = _ids(channel);
     if (ids == null) return const ModResult.fail(ModFailure.notJoined);
-    final applied = await twitchApi.updateAutoModSettings(
-      auth,
-      broadcasterId: ids.broadcasterId,
-      moderatorId: ids.moderatorId,
-      levels: levels,
-    );
-    if (applied != null) return const ModResult.ok();
-    return ModResult.fail(ModFailure.apiError, failureReason());
+    return _run('update automod settings', () async {
+      final applied = await twitchApi.updateAutoModSettings(
+        auth,
+        broadcasterId: ids.broadcasterId,
+        moderatorId: ids.moderatorId,
+        levels: levels,
+      );
+      return applied != null;
+    });
   }
 
   Future<ModResult> setSuspiciousStatus(

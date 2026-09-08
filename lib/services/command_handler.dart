@@ -958,7 +958,7 @@ class CommandHandler {
         case '/prediction':
           const predictionUsage =
               'Usage: /prediction [window] <title> | <outcome 1> | <outcome 2> [| more] - '
-              'Window (default: 60s) must be 10-2592000 seconds; 2-11 outcomes.';
+              'Window (default: 60s) must be 30-1800 seconds; 2-10 outcomes.';
           if (args.isEmpty) {
             addSystemMessage(channel, predictionUsage);
             return;
@@ -968,10 +968,10 @@ class CommandHandler {
             defaultDuration: 60,
           );
           if (parsedPrediction == null ||
-              parsedPrediction.duration < 10 ||
-              parsedPrediction.duration > 2592000 ||
+              parsedPrediction.duration < 30 ||
+              parsedPrediction.duration > 1800 ||
               parsedPrediction.options.length < 2 ||
-              parsedPrediction.options.length > 11) {
+              parsedPrediction.options.length > 10) {
             addSystemMessage(channel, predictionUsage);
             return;
           }
@@ -1008,8 +1008,12 @@ class CommandHandler {
             return;
           }
           Map<String, dynamic>? open;
+          final wantLocked = cmd == '/lockprediction';
           for (final p in predictions) {
-            if (p['status'] == 'OPEN') {
+            final status = p['status'];
+            if (wantLocked
+                ? status == 'ACTIVE'
+                : status == 'ACTIVE' || status == 'LOCKED') {
               open = p;
               break;
             }

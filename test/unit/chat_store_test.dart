@@ -1033,6 +1033,78 @@ void main() {
     });
   });
 
+  group('ChatStore.warning verbs', () {
+    WarnEntry warn(String target, DateTime at) =>
+        WarnEntry(at: at, channel: 'test', target: target, moderator: 'mod');
+
+    test('warnedLatest picks newest regardless of order', () {
+      final store = _store();
+      store.channelWarnings['test'] = [
+        warn('Spammer', DateTime(2026, 1, 2)),
+        warn('spammer', DateTime(2026, 1, 1)),
+        warn('other', DateTime(2026, 1, 3)),
+      ];
+      final latest = store.warnedLatest('test');
+      expect(latest['spammer']!.at, DateTime(2026, 1, 2));
+      expect(latest['other']!.at, DateTime(2026, 1, 3));
+    });
+
+    test('dismissWarningsFor drops one user case-insensitively', () {
+      final store = _store();
+      store.addWarning(warn('Spammer', DateTime(2026, 1, 1)));
+      store.addWarning(warn('other', DateTime(2026, 1, 2)));
+      expect(store.dismissWarningsFor('test', 'SPAMMER'), isTrue);
+      expect(store.warningsFor('test', 'spammer'), isEmpty);
+      expect(store.warningsFor('test', 'other'), hasLength(1));
+      expect(store.dismissWarningsFor('test', 'spammer'), isFalse);
+    });
+  });
+
+  group('ChatStore.pruneExpiredBans', () {
+    test('drops expired timeouts, keeps bans and live timeouts', () {
+      final store = _store();
+      store.putBan(
+        BanEntry(
+          at: DateTime(2026, 1, 1),
+          channel: 'test',
+          login: 'gone',
+          expiresAt: DateTime(2026, 1, 2),
+          moderator: 'mod',
+        ),
+      );
+      store.putBan(
+        BanEntry(
+          at: DateTime(2026, 1, 1),
+          channel: 'test',
+          login: 'live',
+          expiresAt: DateTime(2026, 1, 5),
+          moderator: 'mod',
+        ),
+      );
+      store.putBan(
+        BanEntry(
+          at: DateTime(2026, 1, 1),
+          channel: 'test',
+          login: 'perm',
+          moderator: 'mod',
+        ),
+      );
+      expect(store.pruneExpiredBans('test', now: DateTime(2026, 1, 3)), 1);
+      expect(store.banFor('test', 'gone'), isNull);
+      expect(store.banFor('test', 'live'), isNotNull);
+      expect(store.banFor('test', 'perm'), isNotNull);
+    });
+  });
+
+  group('ChatStore.modSettingsVersion', () {
+    test('settings bumps do not touch inbox version', () {
+      final store = _store();
+      final inbox = store.modInboxVersion.value;
+      store.touchSettings();
+      expect(store.modSettingsVersion.value, inbox + 1);
+      expect(store.modInboxVersion.value, inbox);
+    });
+  });
   group('ChatStore.truncate coalescing', () {
     ChatStore tickingStore(DateTime start) {
       var t = start;

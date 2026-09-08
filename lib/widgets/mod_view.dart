@@ -314,6 +314,7 @@ class _QueueTabState extends State<_QueueTab> {
   Future<void> _decide(HeldMessage held, bool allow) async {
     if (!_pending.add(held.messageId)) return;
     setState(() {});
+    bool decidedOk = false;
     try {
       final result = await widget.modActions.decideHeldMessage(
         widget.auth,
@@ -321,15 +322,15 @@ class _QueueTabState extends State<_QueueTab> {
         messageId: held.messageId,
         allow: allow,
       );
+      decidedOk = result.ok;
       if (!mounted) return;
-      if (result.ok) {
-        widget.store.resolveHeldMessage(widget.channel, held.messageId);
-      } else {
-        widget.onNotice(modErrorText(result));
-      }
+      if (!result.ok) widget.onNotice(modErrorText(result));
     } finally {
       _pending.remove(held.messageId);
       if (mounted) setState(() {});
+    }
+    if (decidedOk) {
+      widget.store.resolveHeldMessage(widget.channel, held.messageId);
     }
   }
 
@@ -666,44 +667,42 @@ class _UsersTabState extends State<_UsersTab> {
     final key = login.toLowerCase();
     if (!_pending.add(key)) return;
     setState(() {});
+    bool unbannedOk = false;
     try {
       final result = await widget.modActions.unbanUser(
         widget.auth,
         widget.channel,
         login: login,
       );
+      unbannedOk = result.ok;
       if (!mounted) return;
-      if (result.ok) {
-        widget.store.removeBan(widget.channel, login);
-      } else {
-        widget.onNotice(modErrorText(result));
-      }
+      if (!result.ok) widget.onNotice(modErrorText(result));
     } finally {
       _pending.remove(key);
       if (mounted) setState(() {});
     }
+    if (unbannedOk) widget.store.removeBan(widget.channel, login);
   }
 
   Future<void> _clearFlag(String login) async {
     final key = login.toLowerCase();
     if (!_pending.add(key)) return;
     setState(() {});
+    bool clearedOk = false;
     try {
       final result = await widget.modActions.clearSuspiciousStatus(
         widget.auth,
         widget.channel,
         login: login,
       );
+      clearedOk = result.ok;
       if (!mounted) return;
-      if (result.ok) {
-        widget.store.removeSuspicious(widget.channel, login);
-      } else {
-        widget.onNotice(modErrorText(result));
-      }
+      if (!result.ok) widget.onNotice(modErrorText(result));
     } finally {
       _pending.remove(key);
       if (mounted) setState(() {});
     }
+    if (clearedOk) widget.store.removeSuspicious(widget.channel, login);
   }
 
   @override
@@ -1322,25 +1321,25 @@ class _SetupTabState extends State<_SetupTab> {
   @override
   void initState() {
     super.initState();
-    widget.store.modInboxVersion.addListener(_onInboxChanged);
+    widget.store.modSettingsVersion.addListener(_onInboxChanged);
     _load();
   }
 
   @override
   void didUpdateWidget(covariant _SetupTab oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.channel != widget.channel) _load();
+    if (oldWidget.channel != widget.channel) _load(force: true);
   }
 
   @override
   void dispose() {
-    widget.store.modInboxVersion.removeListener(_onInboxChanged);
+    widget.store.modSettingsVersion.removeListener(_onInboxChanged);
     super.dispose();
   }
 
   void _onInboxChanged() => _load();
 
-  Future<void> _load() async {
+  Future<void> _load({bool force = false}) async {
     final gen = ++_loadGen;
     final background = _settings != null;
     AutoModSettings? settings;
@@ -1363,6 +1362,7 @@ class _SetupTabState extends State<_SetupTab> {
       widget.onNotice(error);
       return;
     }
+    if (!force && background && _dirty && settings != null) return;
     setState(() {
       _error = error;
       if (settings != null) {

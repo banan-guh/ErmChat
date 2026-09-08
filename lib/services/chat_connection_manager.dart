@@ -1754,6 +1754,7 @@ class ChatConnectionManager {
     if (isDisposed) return;
     if (!_channelSetup.isFeedActive(event.channel)) return;
     if (event.kind == 'acknowledge') {
+      store.dismissWarningsFor(event.channel, event.userLogin);
       store.addModActivity(
         ModActivityEntry(
           at: DateTime.now(),
@@ -1864,7 +1865,7 @@ class ChatConnectionManager {
   void _onAutomodSettingsEvent(AutomodSettingsEvent event) {
     if (isDisposed) return;
     if (!_channelSetup.isTrustActive(event.channel)) return;
-    store.touchInbox();
+    store.touchSettings();
     store.addModActivity(
       ModActivityEntry(
         at: DateTime.now(),

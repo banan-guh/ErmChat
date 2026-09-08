@@ -401,8 +401,15 @@ class ChatStore {
   /// terms tabs reload. The lists themselves stay Helix-sourced.
   final ValueNotifier<int> modInboxVersion = ValueNotifier(0);
 
+  /// Bumped only when AutoMod settings change elsewhere, so the Setup tab
+  /// reloads without unrelated inbox/terms traffic clobbering edits.
+  final ValueNotifier<int> modSettingsVersion = ValueNotifier(0);
+
   /// Signals an external inbox/terms change.
   void touchInbox() => modInboxVersion.value++;
+
+  /// Signals an external AutoMod settings change.
+  void touchSettings() => modSettingsVersion.value++;
 
   /// Per-channel feed bound; beyond it the oldest entries drop.
   static const maxActivityPerChannel = 200;
@@ -446,6 +453,52 @@ class ChatStore {
       for (final w in channelWarnings[channel] ?? const <WarnEntry>[])
         if (w.target.toLowerCase() == needle) w,
     ];
+  }
+
+  /// Latest warning per user in a channel, keyed by lowercase login.
+  /// Max-by-[at] so callers do not depend on list order.
+  Map<String, WarnEntry> warnedLatest(String channel) {
+    final out = <String, WarnEntry>{};
+    for (final w in channelWarnings[channel] ?? const <WarnEntry>[]) {
+      final key = w.target.toLowerCase();
+      final prev = out[key];
+      if (prev == null || w.at.isAfter(prev.at)) out[key] = w;
+    }
+    return out;
+  }
+
+  /// Drops all warnings for one user (dismiss). False when none existed.
+  bool dismissWarningsFor(String channel, String login) {
+    final list = channelWarnings[channel];
+    if (list == null) return false;
+    final needle = login.toLowerCase();
+    final before = list.length;
+    list.removeWhere((w) => w.target.toLowerCase() == needle);
+    if (list.length == before) return false;
+    if (list.isEmpty) channelWarnings.remove(channel);
+    modActivityVersion.value++;
+    return true;
+  }
+
+  /// Drops expired timeouts in a channel. Permanent bans stay.
+  /// Returns the number removed.
+  int pruneExpiredBans(String channel, {DateTime? now}) {
+    final bans = channelBans[channel];
+    if (bans == null || bans.isEmpty) return 0;
+    final at = now ?? this.now();
+    final expired = <String>[];
+    for (final entry in bans.entries) {
+      final expires = entry.value.expiresAt;
+      if (expires != null && !expires.isAfter(at)) expired.add(entry.key);
+    }
+    for (final key in expired) {
+      bans.remove(key);
+    }
+    if (expired.isNotEmpty) {
+      if (bans.isEmpty) channelBans.remove(channel);
+      modActivityVersion.value++;
+    }
+    return expired.length;
   }
 
   /// Active bans/timeouts per channel by lowercase login.
@@ -688,6 +741,7 @@ class ChatStore {
     heldVersion.dispose();
     modActivityVersion.dispose();
     modInboxVersion.dispose();
+    modSettingsVersion.dispose();
     pointVersion.dispose();
     _events.close();
     _notices.close();

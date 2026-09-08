@@ -1334,7 +1334,7 @@ class TwitchApi {
     }
   }
 
-  /// Creates a prediction (2-11 outcomes; window in seconds).
+  /// Creates a prediction (2-10 outcomes; window 30-1800 seconds).
   Future<bool> createPrediction(
     TwitchAuth auth, {
     required String broadcasterId,
