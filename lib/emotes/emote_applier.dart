@@ -172,6 +172,17 @@ class EmoteApplier {
             force: needsDiff,
           );
         }
+        if (needsDiff) {
+          // Sub sets and personal sets are keyed by fetched id, so the
+          // force fetch above skips them; re-pull at the new resolution.
+          unawaited(
+            emoteManager.reloadUserEmoteSets(
+              twitchAuth,
+              chatStore.channelUserIds,
+            ),
+          );
+          unawaited(emoteManager.loadViewerPersonalSevenTvSets(force: true));
+        }
         if (host.isMounted()) host.markDirty();
       }
     } catch (e) {

@@ -718,12 +718,16 @@ class EmoteManager extends ChangeNotifier {
 
   /// Bootstrap: fetch the viewer's owned 7TV sets and their emotes.
   /// Restores the persisted seed first so known sets skip the network.
-  Future<void> loadViewerPersonalSevenTvSets() async {
+  Future<void> loadViewerPersonalSevenTvSets({bool force = false}) async {
     await loadPersistedPersonalSets();
     final viewerId = _viewerTwitchId;
     if (viewerId == null || viewerId.isEmpty) return;
     if (_tier == EmoteFetchTier.nothing) return;
     if (!_isProviderOn(EmoteType.sevenTv)) return;
+    // Tier upgrade: known set ids would skip the refetch below and keep
+    // the old resolution, so forget them and re-pull. Map entries stay
+    // until replaced, so a failed fetch keeps the old URLs.
+    if (force) _personalSevenTvSetIds.clear();
     List<String> setIds;
     try {
       setIds = await _sevenTvOwnedSetIds(viewerId);
