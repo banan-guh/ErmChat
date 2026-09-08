@@ -93,9 +93,12 @@ class HomeAppBar {
               _isChannelLive(host.selectedChannel!)),
       streamActive: () => streamPlayer.isActive,
       onShowModView: mod.showModView,
-      showModView: () =>
-          host.selectedChannel != null &&
-          chatConn.isModerationActive(host.selectedChannel!),
+      showModView: () {
+        final channel = host.selectedChannel;
+        if (channel == null) return false;
+        return chatConn.isModerationActive(channel) ||
+            chatConn.isAutomodActive(channel);
+      },
       onToggleSearch: host.toggleSearch,
     );
   }
@@ -207,7 +210,8 @@ class HomeAppBar {
                       ),
                       const PopupMenuDivider(),
                       if (host.selectedChannel != null &&
-                          chatConn.isModerationActive(host.selectedChannel!))
+                          (chatConn.isModerationActive(host.selectedChannel!) ||
+                              chatConn.isAutomodActive(host.selectedChannel!)))
                         const PopupMenuItem(
                           value: 'modview',
                           child: Row(

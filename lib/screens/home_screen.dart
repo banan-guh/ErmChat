@@ -709,7 +709,7 @@ class _HomeScreenState extends State<HomeScreen>
     _mentionsTabCtrl.addListener(_mentions.onMentionsTabChanged);
     _threadsTabCtrl = TabController(length: 3, vsync: this);
     _threadsTabCtrl.addListener(_threads.onThreadsTabChanged);
-    _modTabCtrl = TabController(length: 8, vsync: this);
+    _modTabCtrl = TabController(length: ModPanels.tabCount, vsync: this);
     _panelManager.emoteSheetCtrl.addListener(_panelManager.onSheetSizeChanged);
     _loadMaxMessages();
     unawaited(_threads.loadSaved());
@@ -754,6 +754,7 @@ class _HomeScreenState extends State<HomeScreen>
     unawaited(_thirdPartyBadgeService.fetchFfzBadges());
     unawaited(_thirdPartyBadgeService.fetchBttvBadges());
     widget.twitchAuth.addListener(_onAuthChanged);
+    _chatConn.connectionStateNotifier.addListener(_onConnectionChanged);
     WidgetsBinding.instance.addObserver(this);
     _predictiveBackHandler = PanelPredictiveBackHandler(
       isPanelOpen: () => _activePanel != OverlayPanel.closed || _emoteSheetOpen,
@@ -1202,6 +1203,7 @@ class _HomeScreenState extends State<HomeScreen>
   void _onAuthChanged() {
     _emoteManager.accessToken = widget.twitchAuth.accessToken;
     _emotes.refreshAfterAuth();
+    _mod.refreshOnData(null);
     if (_chatStore.session.login?.toLowerCase() !=
         widget.twitchAuth.login?.toLowerCase()) {
       // Account switched (or signed out): drop the cached user so the manager
@@ -1270,6 +1272,12 @@ class _HomeScreenState extends State<HomeScreen>
       if (!_chatConn.isChannelChatReady(channel)) return true;
     }
     return false;
+  }
+
+  // Connection phase changes can flip moderation/room state; refresh the
+  // open mod panel so gating and room modes do not go stale.
+  void _onConnectionChanged() {
+    if (_activePanel == OverlayPanel.modView) _mod.refreshOnData(null);
   }
 
   // Loads the account's subscriber emotes from the IRC emote-sets tag
@@ -1360,6 +1368,7 @@ class _HomeScreenState extends State<HomeScreen>
     _streamPlayer.dispose();
     _emoteManager.dispose();
     widget.twitchAuth.removeListener(_onAuthChanged);
+    _chatConn.connectionStateNotifier.removeListener(_onConnectionChanged);
     _mentionsTabCtrl.removeListener(_mentions.onMentionsTabChanged);
     _mentionsTabCtrl.dispose();
     _threadsTabCtrl.removeListener(_threads.onThreadsTabChanged);

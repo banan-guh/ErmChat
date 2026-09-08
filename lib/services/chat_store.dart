@@ -396,6 +396,10 @@ class ChatStore {
   /// Bumped on any feed/warning/ban mutation so the Mod View rebuilds.
   final ValueNotifier<int> modActivityVersion = ValueNotifier(0);
 
+  /// Bumped only on feed mutations, so the Activity tab skips rebuilds
+  /// for Users-only warning/ban/flag ticks.
+  final ValueNotifier<int> modFeedVersion = ValueNotifier(0);
+
   /// Bumped when unban requests or public blocked terms change outside the
   /// Mod View (EventSub create/resolve, term updates), so the inbox and
   /// terms tabs reload. The lists themselves stay Helix-sourced.
@@ -421,12 +425,16 @@ class ChatStore {
     if (list.length > maxActivityPerChannel) {
       list.removeRange(maxActivityPerChannel, list.length);
     }
+    modFeedVersion.value++;
     modActivityVersion.value++;
   }
 
   /// Drops a channel's whole feed (channel left).
   void clearModActivity(String channel) {
-    if (modActivity.remove(channel) != null) modActivityVersion.value++;
+    if (modActivity.remove(channel) != null) {
+      modFeedVersion.value++;
+      modActivityVersion.value++;
+    }
   }
 
   /// Local warnings log per channel, newest first.
@@ -740,6 +748,7 @@ class ChatStore {
     loadFailedChannels.dispose();
     heldVersion.dispose();
     modActivityVersion.dispose();
+    modFeedVersion.dispose();
     modInboxVersion.dispose();
     modSettingsVersion.dispose();
     pointVersion.dispose();

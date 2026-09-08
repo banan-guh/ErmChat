@@ -1156,7 +1156,7 @@ void main() {
           MockClient((req) async {
             if (req.url.path == '/helix/predictions' && req.method == 'GET') {
               return http.Response(
-                '{"data":[{"id":"pr1","status":"OPEN","outcomes":[{"id":"o1","title":"Blue"}]}]}',
+                '{"data":[{"id":"pr1","status":"ACTIVE","outcomes":[{"id":"o1","title":"Blue"}]}]}',
                 200,
               );
             }
@@ -1247,7 +1247,7 @@ void main() {
           requests.add(req);
           if (req.url.path == '/helix/predictions' && req.method == 'GET') {
             return http.Response(
-              '{"data":[{"id":"pr1","status":"OPEN","outcomes":['
+              '{"data":[{"id":"pr1","status":"ACTIVE","outcomes":['
               '{"id":"o1","title":"Blue"},{"id":"o2","title":"Red"}]}]}',
               200,
             );
@@ -1272,7 +1272,7 @@ void main() {
           requests.add(req);
           if (req.url.path == '/helix/predictions' && req.method == 'GET') {
             return http.Response(
-              '{"data":[{"id":"pr1","status":"OPEN","outcomes":['
+              '{"data":[{"id":"pr1","status":"ACTIVE","outcomes":['
               '{"id":"o1","title":"Blue"},{"id":"o2","title":"Red"}]}]}',
               200,
             );
@@ -1295,7 +1295,7 @@ void main() {
           requests.add(req);
           if (req.url.path == '/helix/predictions' && req.method == 'GET') {
             return http.Response(
-              '{"data":[{"id":"pr1","status":"OPEN","outcomes":[]}]}',
+              '{"data":[{"id":"pr1","status":"ACTIVE","outcomes":[]}]}',
               200,
             );
           }
@@ -1319,7 +1319,7 @@ void main() {
           requests.add(req);
           if (req.url.path == '/helix/predictions' && req.method == 'GET') {
             return http.Response(
-              '{"data":[{"id":"pr1","status":"OPEN","outcomes":[]}]}',
+              '{"data":[{"id":"pr1","status":"ACTIVE","outcomes":[]}]}',
               200,
             );
           }

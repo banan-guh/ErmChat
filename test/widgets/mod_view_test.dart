@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:ermchat/services/chat_store.dart';
+import 'package:ermchat/panels/mod_panel.dart';
 import 'package:ermchat/services/mod_actions.dart';
 import 'package:ermchat/services/twitch_api.dart';
 import 'package:ermchat/services/twitch_auth.dart';
@@ -119,6 +120,15 @@ Future<http.Response> _handler(http.Request request) async {
       path.endsWith('custom_rewards/redemptions')) {
     final id = request.url.queryParameters['id'];
     if (id != null) fulfilledRedemptions.add(id);
+    return http.Response('{"data":[]}', 200);
+  }
+  if (request.method == 'POST' && path.endsWith('moderation/automod/message')) {
+    return http.Response('', 204);
+  }
+  if (request.method == 'PATCH' && path.endsWith('chat/settings')) {
+    return http.Response('{"data":[]}', 200);
+  }
+  if (request.method == 'PUT' && path.endsWith('moderation/shield_mode')) {
     return http.Response('{"data":[]}', 200);
   }
   return http.Response('{"message":"unexpected $path"}', 404);
@@ -239,7 +249,10 @@ void main() {
     tester.view.physicalSize = const Size(800, 2400);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.resetPhysicalSize);
-    final tab = TabController(length: 8, vsync: const TestVSync());
+    final tab = TabController(
+      length: ModPanels.tabCount,
+      vsync: const TestVSync(),
+    );
     addTearDown(tab.dispose);
     await tester.pumpWidget(
       MaterialApp(
@@ -363,5 +376,128 @@ void main() {
     await tester.pumpAndSettle();
     await tester.pumpAndSettle();
     expect(find.textContaining('Paused'), findsOneWidget);
+  });
+
+  testWidgets('queue allow drops the row and filters reset', (tester) async {
+    final store = _store();
+    store.addHeldMessage(
+      const HeldMessage(
+        messageId: 'h-allow',
+        channel: 'testchannel',
+        userLogin: 'allowuser',
+        text: 'flagged one',
+        category: 'bullying',
+      ),
+    );
+    store.addHeldMessage(
+      const HeldMessage(
+        messageId: 'h-other',
+        channel: 'testchannel',
+        userLogin: 'otheruser',
+        text: 'flagged two',
+        category: 'spam',
+      ),
+    );
+    store.addHeldMessage(
+      const HeldMessage(
+        messageId: 'h-third',
+        channel: 'testchannel',
+        userLogin: 'thirduser',
+        text: 'flagged three',
+        category: 'bullying',
+      ),
+    );
+    final auth = TwitchAuth();
+    auth.accessToken = 'tok';
+    final actions = ModActions(
+      twitchApi: TwitchApi(client: MockClient(_handler)),
+      getChannelUserIds: () => {'testchannel': 'broad1'},
+      getCurrentUserId: () => 'mod1',
+    );
+    recordedRequests.clear();
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    final tab = TabController(
+      length: ModPanels.tabCount,
+      vsync: const TestVSync(),
+    );
+    addTearDown(tab.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: _Harness(
+            store: store,
+            actions: actions,
+            auth: auth,
+            tab: tab,
+            onUser: (_) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('allowuser'), findsOneWidget);
+    expect(find.text('otheruser'), findsOneWidget);
+    await tester.tap(find.widgetWithText(ChoiceChip, 'spam'));
+    await tester.pump();
+    expect(find.text('otheruser'), findsOneWidget);
+    expect(find.text('allowuser'), findsNothing);
+    await tester.tap(find.widgetWithText(ChoiceChip, 'spam'));
+    await tester.pump();
+    expect(find.text('allowuser'), findsOneWidget);
+    await tester.tap(find.byTooltip('Allow').at(2));
+    await tester.pumpAndSettle();
+    expect(find.text('allowuser'), findsNothing);
+    final allow = recordedRequests.lastWhere(
+      (r) => r.url.path.endsWith('moderation/automod/message'),
+    );
+    expect(jsonDecode(allow.body)['action'], 'ALLOW');
+    expect(find.text('otheruser'), findsOneWidget);
+    expect(find.text('thirduser'), findsOneWidget);
+  });
+
+  testWidgets('modes emote toggle sends chat settings', (tester) async {
+    final store = _store();
+    final auth = TwitchAuth();
+    auth.accessToken = 'tok';
+    final actions = ModActions(
+      twitchApi: TwitchApi(client: MockClient(_handler)),
+      getChannelUserIds: () => {'testchannel': 'broad1'},
+      getCurrentUserId: () => 'mod1',
+    );
+    recordedRequests.clear();
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    final tab = TabController(
+      length: ModPanels.tabCount,
+      vsync: const TestVSync(),
+    );
+    addTearDown(tab.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: _Harness(
+            store: store,
+            actions: actions,
+            auth: auth,
+            tab: tab,
+            onUser: (_) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    tab.animateTo(3);
+    await tester.pumpAndSettle();
+    final tile = find.widgetWithText(SwitchListTile, 'Emote-only');
+    expect(tile, findsOneWidget);
+    await tester.tap(tile);
+    await tester.pumpAndSettle();
+    final patch = recordedRequests.lastWhere(
+      (r) => r.url.path.endsWith('chat/settings'),
+    );
+    expect(jsonDecode(patch.body)['emote_mode'], isTrue);
   });
 }

@@ -1105,6 +1105,32 @@ void main() {
       expect(store.modInboxVersion.value, inbox);
     });
   });
+
+  group('ChatStore.modFeedVersion', () {
+    test('feed ticks skip users-only mutations', () {
+      final store = _store();
+      final feed = store.modFeedVersion.value;
+      store.addWarning(
+        WarnEntry(
+          at: DateTime(2026, 1, 1),
+          channel: 'test',
+          target: 'spammer',
+          moderator: 'mod',
+        ),
+      );
+      expect(store.modFeedVersion.value, feed);
+      store.addModActivity(
+        ModActivityEntry(
+          at: DateTime(2026, 1, 1),
+          channel: 'test',
+          action: 'ban',
+          moderator: 'mod',
+          target: 'spammer',
+        ),
+      );
+      expect(store.modFeedVersion.value, feed + 1);
+    });
+  });
   group('ChatStore.truncate coalescing', () {
     ChatStore tickingStore(DateTime start) {
       var t = start;

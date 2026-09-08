@@ -640,6 +640,12 @@ IconData _activityIcon(String action) {
     case 'warn':
     case 'warn_ack':
       return Icons.warning_amber;
+    case 'approve_unban_request':
+      return Icons.check_circle_outline;
+    case 'deny_unban_request':
+      return Icons.cancel_outlined;
+    case 'unban_resolved':
+      return Icons.mark_email_read_outlined;
     case 'mod':
     case 'vip':
       return Icons.person_add;
@@ -687,7 +693,7 @@ class _ActivityTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ValueListenableBuilder<int>(
-      valueListenable: store.modActivityVersion,
+      valueListenable: store.modFeedVersion,
       builder: (_, _, _) {
         final feed = store.modActivity[channel] ?? const [];
         if (feed.isEmpty) {
@@ -701,7 +707,7 @@ class _ActivityTab extends StatelessWidget {
               dense: true,
               leading: Icon(_activityIcon(entry.action), size: 20),
               title: Text(formatModActivity(entry)),
-              subtitle: Text('${entry.moderator} · ${_feedTime(entry.at)}'),
+              subtitle: Text('${entry.moderator} · ${_feedDateTime(entry.at)}'),
             );
           },
         );

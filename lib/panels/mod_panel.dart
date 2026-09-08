@@ -17,6 +17,7 @@ abstract class ModPanelsHost extends ShellState {
 
 // Moderation panel and its show verb.
 class ModPanels {
+  static const tabCount = 8;
   ModPanels({
     required this.panelManager,
     required this.chatStore,
@@ -116,8 +117,8 @@ class ModPanels {
           TabBar(
             controller: modTab(),
             padding: const EdgeInsets.fromLTRB(100.0, 0.0, 100.0, 0.0),
-            // Four tabs like the threads panel: center the strip and let
-            // it scroll instead of clipping labels on narrow phones.
+            // Eight tabs: center the strip and let it scroll instead of
+            // clipping labels on narrow phones.
             isScrollable: true,
             tabAlignment: TabAlignment.center,
             tabs: [
