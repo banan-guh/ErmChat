@@ -311,6 +311,14 @@ class _QueueTabState extends State<_QueueTab> {
   final _pending = <String>{};
   String? _filter;
 
+  @override
+  void didUpdateWidget(covariant _QueueTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.channel != widget.channel && _filter != null) {
+      setState(() => _filter = null);
+    }
+  }
+
   Future<void> _decide(HeldMessage held, bool allow) async {
     if (!_pending.add(held.messageId)) return;
     setState(() {});
@@ -427,7 +435,18 @@ class _QueueTabState extends State<_QueueTab> {
             _filters(all),
             Expanded(
               child: queue.isEmpty
-                  ? const Center(child: Text('No matches.'))
+                  ? Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Text('No matches for this filter.'),
+                          TextButton(
+                            onPressed: () => setState(() => _filter = null),
+                            child: const Text('Clear filter'),
+                          ),
+                        ],
+                      ),
+                    )
                   : ListView.builder(
                       itemCount: queue.length,
                       itemBuilder: (_, i) {
@@ -881,7 +900,11 @@ class _RequestsTabState extends State<_RequestsTab> {
   void didUpdateWidget(covariant _RequestsTab oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.channel != widget.channel) {
-      _status = 'pending';
+      setState(() {
+        _status = 'pending';
+        _requests = null;
+        _error = null;
+      });
       _load();
     }
   }
@@ -1105,7 +1128,13 @@ class _TermsTabState extends State<_TermsTab> {
   @override
   void didUpdateWidget(covariant _TermsTab oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.channel != widget.channel) _load();
+    if (oldWidget.channel != widget.channel) {
+      setState(() {
+        _terms = null;
+        _error = null;
+      });
+      _load();
+    }
   }
 
   @override
@@ -1591,11 +1620,18 @@ class _BannedManagerState extends State<_BannedManager> {
   @override
   void didUpdateWidget(covariant _BannedManager oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.channel != widget.channel) _load();
+    if (oldWidget.channel != widget.channel) {
+      setState(() {
+        _banned = null;
+        _error = null;
+      });
+      _load();
+    }
   }
 
   Future<void> _load() async {
     final gen = ++_loadGen;
+    final background = _banned != null;
     List<BannedUser> banned = const [];
     String? error;
     try {
@@ -1610,6 +1646,10 @@ class _BannedManagerState extends State<_BannedManager> {
       error = 'Could not load the banned list.';
     }
     if (!mounted || gen != _loadGen) return;
+    if (error != null && background) {
+      widget.onNotice(error);
+      return;
+    }
     setState(() {
       _error = error;
       if (error == null) _banned = banned;
@@ -1628,6 +1668,13 @@ class _BannedManagerState extends State<_BannedManager> {
       );
       if (!mounted) return;
       if (result.ok) {
+        setState(() {
+          _banned = [
+            for (final ban in _banned ?? const <BannedUser>[])
+              if (ban.userLogin.toLowerCase() != key) ban,
+          ];
+        });
+        widget.onNotice('Unbanned $login.');
         _load();
       } else {
         widget.onNotice(modErrorText(result));
@@ -1849,7 +1896,13 @@ class _PollsSectionState extends State<_PollsSection> {
   @override
   void didUpdateWidget(covariant _PollsSection oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.channel != widget.channel) _load();
+    if (oldWidget.channel != widget.channel) {
+      setState(() {
+        _polls = null;
+        _error = null;
+      });
+      _load();
+    }
   }
 
   String? get _broadcasterId =>
@@ -1857,6 +1910,7 @@ class _PollsSectionState extends State<_PollsSection> {
 
   Future<void> _load() async {
     final gen = ++_loadGen;
+    final background = _polls != null;
     List<Map<String, dynamic>> polls = const [];
     String? error;
     try {
@@ -1876,6 +1930,10 @@ class _PollsSectionState extends State<_PollsSection> {
       error = 'Could not load polls.';
     }
     if (!mounted || gen != _loadGen) return;
+    if (error != null && background) {
+      widget.onNotice(error);
+      return;
+    }
     setState(() {
       _error = error;
       if (error == null) _polls = polls;
@@ -2008,7 +2066,13 @@ class _PredictionsSectionState extends State<_PredictionsSection> {
   @override
   void didUpdateWidget(covariant _PredictionsSection oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.channel != widget.channel) _load();
+    if (oldWidget.channel != widget.channel) {
+      setState(() {
+        _predictions = null;
+        _error = null;
+      });
+      _load();
+    }
   }
 
   String? get _broadcasterId =>
@@ -2016,6 +2080,7 @@ class _PredictionsSectionState extends State<_PredictionsSection> {
 
   Future<void> _load() async {
     final gen = ++_loadGen;
+    final background = _predictions != null;
     List<Map<String, dynamic>> predictions = const [];
     String? error;
     try {
@@ -2035,6 +2100,10 @@ class _PredictionsSectionState extends State<_PredictionsSection> {
       error = 'Could not load predictions.';
     }
     if (!mounted || gen != _loadGen) return;
+    if (error != null && background) {
+      widget.onNotice(error);
+      return;
+    }
     setState(() {
       _error = error;
       if (error == null) _predictions = predictions;
@@ -2208,8 +2277,13 @@ class _PointsSectionState extends State<_PointsSection> {
   void didUpdateWidget(covariant _PointsSection oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.channel != widget.channel) {
-      _selectedRewardId = null;
-      _queue = null;
+      setState(() {
+        _rewards = null;
+        _error = null;
+        _selectedRewardId = null;
+        _queue = null;
+        _queueError = null;
+      });
       _loadRewards();
     }
   }
@@ -2242,7 +2316,10 @@ class _PointsSectionState extends State<_PointsSection> {
       error = 'Could not load rewards.';
     }
     if (!mounted || gen != _loadGen) return;
-    if (error != null && background) return;
+    if (error != null && background) {
+      widget.onNotice(error);
+      return;
+    }
     setState(() {
       _error = error;
       if (error == null) {
@@ -2280,7 +2357,10 @@ class _PointsSectionState extends State<_PointsSection> {
       error = 'Could not load redemptions.';
     }
     if (!mounted || gen != _queueGen) return;
-    if (error != null && background) return;
+    if (error != null && background) {
+      widget.onNotice(error);
+      return;
+    }
     setState(() {
       _queueError = error;
       if (error == null) _queue = queue;
