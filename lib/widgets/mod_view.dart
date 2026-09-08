@@ -254,6 +254,7 @@ class ModViewPanel extends StatelessWidget {
               auth: auth,
               automodActive: automodActive,
               scopeReady: moderationActive,
+              scopeStale: auth.scopeStale,
               onNotice: onNotice,
               onShowUser: onShowUser,
             ),
@@ -319,6 +320,7 @@ class _QueueTab extends StatefulWidget {
     required this.auth,
     required this.automodActive,
     required this.scopeReady,
+    required this.scopeStale,
     required this.onNotice,
     required this.onShowUser,
   });
@@ -329,6 +331,7 @@ class _QueueTab extends StatefulWidget {
   final TwitchAuth auth;
   final bool automodActive;
   final bool scopeReady;
+  final bool scopeStale;
   final ValueChanged<String> onNotice;
   final ValueChanged<String>? onShowUser;
 
@@ -443,14 +446,28 @@ class _QueueTabState extends State<_QueueTab> {
   @override
   Widget build(BuildContext context) {
     if (!widget.automodActive) {
+      final needsScope = widget.scopeReady || widget.scopeStale;
       return Center(
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 24),
-          child: Text(
-            widget.scopeReady
-                ? 'AutoMod queue needs the moderator:manage:automod scope. Re-login to pick it up.'
-                : 'AutoMod queue is unavailable here.',
-            textAlign: TextAlign.center,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                needsScope
+                    ? 'AutoMod queue needs the moderator:manage:automod scope. '
+                          'Your login predates it.'
+                    : 'AutoMod queue is unavailable here.',
+                textAlign: TextAlign.center,
+              ),
+              if (needsScope)
+                TextButton(
+                  onPressed: () => widget.onNotice(
+                    'Open Settings > Account > Log in again to grant moderator:manage:automod.',
+                  ),
+                  child: const Text('How to re-login'),
+                ),
+            ],
           ),
         ),
       );
@@ -597,6 +614,17 @@ class _CategoryChip extends StatelessWidget {
 
 String _feedTime(DateTime at) =>
     '${at.hour.toString().padLeft(2, '0')}:${at.minute.toString().padLeft(2, '0')}';
+
+String _feedDateTime(DateTime at) =>
+    '${at.year}-${at.month.toString().padLeft(2, '0')}-${at.day.toString().padLeft(2, '0')} ${_feedTime(at)}';
+
+String _capitalizeToken(String token) {
+  final words = token.replaceAll('_', ' ').split(' ');
+  return [
+    for (final w in words)
+      if (w.isNotEmpty) '${w[0].toUpperCase()}${w.substring(1)}',
+  ].join(' ');
+}
 
 IconData _activityIcon(String action) {
   switch (action) {
@@ -802,7 +830,8 @@ class _UsersTabState extends State<_UsersTab> {
         return ListView(
           children: [
             _SectionHeader('Banned (${bans.length})'),
-            if (bans.isEmpty) const ListTile(dense: true, title: Text('None.')),
+            if (bans.isEmpty)
+              const ListTile(dense: true, title: Text('No bans yet.')),
             for (final ban in bans)
               ListTile(
                 dense: true,
@@ -827,7 +856,7 @@ class _UsersTabState extends State<_UsersTab> {
               ),
             _SectionHeader('Warned (${warned.length})'),
             if (warned.isEmpty)
-              const ListTile(dense: true, title: Text('None.')),
+              const ListTile(dense: true, title: Text('No warnings yet.')),
             for (final w in warned)
               ListTile(
                 dense: true,
@@ -846,7 +875,7 @@ class _UsersTabState extends State<_UsersTab> {
               ),
             _SectionHeader('Flagged (${flagged.length})'),
             if (flagged.isEmpty)
-              const ListTile(dense: true, title: Text('None.')),
+              const ListTile(dense: true, title: Text('No flagged users.')),
             for (final info in flagged)
               ListTile(
                 dense: true,
@@ -884,11 +913,13 @@ class _UsersTabState extends State<_UsersTab> {
   String _banSubtitle(BanEntry ban) {
     final head = ban.expiresAt == null
         ? 'Banned'
-        : 'Timeout until ${_feedTime(ban.expiresAt!)}';
+        : 'Timeout until ${_feedDateTime(ban.expiresAt!)}';
+    final parts = [head];
     if (ban.reason != null && ban.reason!.isNotEmpty) {
-      return '$head · "${ban.reason}"';
+      parts.add('"${ban.reason}"');
     }
-    return head;
+    if (ban.moderator.isNotEmpty) parts.add('by ${ban.moderator}');
+    return parts.join(' · ');
   }
 
   String _warnSubtitle(int count, WarnEntry latest) {
@@ -902,15 +933,15 @@ class _UsersTabState extends State<_UsersTab> {
   String _suspiciousSubtitle(SuspiciousInfo info) {
     final parts = <String>[_suspiciousTitle(info.status)];
     final evasion = info.banEvasion;
-    if (evasion != null && evasion.isNotEmpty && evasion != 'unknown') {
-      parts.add('$evasion ban evasion');
+    if (evasion != null && evasion.isNotEmpty) {
+      parts.add('$evasion ban evasion likelihood');
     }
     if (info.sharedBanChannelIds.isNotEmpty) {
       final n = info.sharedBanChannelIds.length;
-      parts.add('banned in $n shared channel${n == 1 ? '' : 's'}');
+      parts.add('shared bans in $n channel${n == 1 ? '' : 's'}');
     }
     if (info.types.isNotEmpty) {
-      parts.add(info.types.map((t) => t.replaceAll('_', ' ')).join(', '));
+      parts.add(info.types.map(_capitalizeToken).join(', '));
     }
     return parts.join(' · ');
   }
@@ -1328,7 +1359,8 @@ class _TermsTabState extends State<_TermsTab> {
         const Padding(
           padding: EdgeInsets.fromLTRB(16, 4, 16, 0),
           child: Text(
-            'Public list only; private terms live in the dashboard. * works at an edge.',
+            'Only moderators can see this list. Public terms only; private terms live in the dashboard. '
+            'A * wildcard is allowed at the start or the end, not both and not inside.',
           ),
         ),
         Expanded(child: _body()),
@@ -1480,6 +1512,14 @@ class _SetupTabState extends State<_SetupTab> {
     });
   }
 
+  static String _levelName(int level) => switch (level) {
+    0 => 'Off',
+    1 => 'Low',
+    2 => 'Medium',
+    3 => 'High',
+    _ => 'Max',
+  };
+
   bool get _dirty {
     final saved = _settings;
     final levels = _levels;
@@ -1547,7 +1587,12 @@ class _SetupTabState extends State<_SetupTab> {
                 selected: _overall == value,
                 onSelected: _saving
                     ? null
-                    : (_) => setState(() => _overall = value),
+                    : (_) => setState(() {
+                        _overall = value;
+                        for (final key in levels.keys) {
+                          levels[key] = value;
+                        }
+                      }),
               ),
           ],
         ),
@@ -1567,7 +1612,7 @@ class _SetupTabState extends State<_SetupTab> {
                   min: 0,
                   max: 4,
                   divisions: 4,
-                  label: '${levels[key] ?? 0}',
+                  label: _levelName(levels[key] ?? 0),
                   onChanged: _saving
                       ? null
                       : (v) => setState(() {
@@ -1576,7 +1621,7 @@ class _SetupTabState extends State<_SetupTab> {
                         }),
                 ),
               ),
-              SizedBox(width: 24, child: Text('${levels[key] ?? 0}')),
+              SizedBox(width: 52, child: Text(_levelName(levels[key] ?? 0))),
             ],
           ),
         const SizedBox(height: 8),
@@ -1784,7 +1829,9 @@ class _BannedManagerState extends State<_BannedManager> {
     final expires = ban.expiresAt;
     if (expires != null) {
       final dt = DateTime.tryParse(expires)?.toLocal();
-      head = dt == null ? 'Timed out' : 'Timeout until ${_feedTime(dt)}';
+      head = dt == null
+          ? 'Timed out (expiry unknown)'
+          : 'Timeout until ${_feedDateTime(dt)}';
     }
     final parts = [head];
     if (ban.reason != null && ban.reason!.isNotEmpty) {
@@ -1823,7 +1870,7 @@ class _BannedManagerState extends State<_BannedManager> {
             ),
           )
         else if (banned.isEmpty)
-          const ListTile(dense: true, title: Text('None.'))
+          const ListTile(dense: true, title: Text('No bans yet.'))
         else
           for (final ban in banned)
             ListTile(
@@ -2245,10 +2292,21 @@ class _PollsSectionState extends State<_PollsSection> {
     }
     final pollId = active['id'] as String? ?? '';
     final busy = _busyKey != null;
+    final choices = (active['choices'] as List? ?? const []).cast<Map>();
+    var totalVotes = 0;
+    for (final c in choices) {
+      totalVotes += (c['votes'] as num?)?.toInt() ?? 0;
+    }
+    final endsAt = active['ends_at'] as String?;
+    final ends = endsAt == null || endsAt.isEmpty ? null : _shortDate(endsAt);
     return ListTile(
       title: Text(active['title'] as String? ?? 'Poll'),
       subtitle: Text(
-        '${(active['choices'] as List? ?? const []).length} choices',
+        [
+          '${choices.length} choices',
+          '$totalVotes votes',
+          if (ends != null) 'ends $ends',
+        ].join(' · '),
       ),
       trailing: busy
           ? const SizedBox(
