@@ -819,6 +819,27 @@ class ChatStore {
       }
       final top = msgs.isEmpty ? null : msgs.first;
       if (text == 'Reconnected') {
+        // Recovery is reported twice (read socket + JOIN confirm); keep a
+        // single line even when history rows landed between. A newer outage
+        // marker means a fresh outage, so that recovery still lands.
+        var newestRecovery = -1;
+        var newestOutage = -1;
+        for (var i = 0; i < msgs.length; i++) {
+          final m = msgs[i];
+          if (!m.isSystem) continue;
+          if (newestRecovery == -1 && m.text == 'Reconnected') {
+            newestRecovery = i;
+          }
+          if (newestOutage == -1 &&
+              (m.text == 'Disconnected' || m.text == 'Chat reconnecting...')) {
+            newestOutage = i;
+          }
+          if (newestRecovery != -1 && newestOutage != -1) break;
+        }
+        if (newestRecovery != -1 &&
+            (newestOutage == -1 || newestOutage > newestRecovery)) {
+          return false;
+        }
         // The outage ended: fold the transient markers into this line rather
         // than leaving a bogus outage entry behind.
         msgs.removeWhere(
@@ -826,12 +847,6 @@ class ChatStore {
               m.isSystem &&
               (m.text == 'Disconnected' || m.text == 'Chat reconnecting...'),
         );
-        // The write and read sockets both report the recovery; keep a single
-        // line instead of stacking duplicates.
-        final newTop = msgs.isEmpty ? null : msgs.first;
-        if (newTop != null && newTop.isSystem && newTop.text == 'Reconnected') {
-          return false;
-        }
       } else if (text == 'Disconnected' || text == 'Chat reconnecting...') {
         // "Disconnected" is the dominant outage marker: it describes the whole
         // app being down, so "Chat reconnecting..." never replaces it.

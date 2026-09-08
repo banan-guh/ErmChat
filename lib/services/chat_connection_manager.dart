@@ -931,12 +931,17 @@ class ChatConnectionManager {
         if (status == IrcConnectionStatus.connected && _wasReadDisconnected) {
           _wasReadDisconnected = false;
           for (final channel in channels) {
-            onSystemMessage(channel, 'Reconnected');
+            // Same ack as the JOIN-confirm path below: a flapping write
+            // socket reports the same recovery, keep one line.
+            if (_connectedAcked.add(channel)) {
+              onSystemMessage(channel, 'Reconnected');
+            }
           }
           connectionStateNotifier.value++;
         } else if (status == IrcConnectionStatus.disconnected &&
             !_wasReadDisconnected) {
           _wasReadDisconnected = true;
+          _connectedAcked.clear();
           _readJoinedChannels.clear();
           _joinFailed.clear();
           connectionStateNotifier.value++;
