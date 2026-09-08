@@ -733,12 +733,8 @@ class _HomeScreenState extends State<HomeScreen>
     _broadcastWidgets.loadTestWidgets();
     _storeEventsSub = _chatStore.events.listen(_onStoreEvent);
     _noticesSub = _chatStore.notices.listen(_onStoreNotice);
-    _chatConn.connect();
     _chatConn.onWhisper = _mentions.onWhisper;
-    _emoteManager.accessToken = widget.twitchAuth.accessToken;
-    _emoteManager.viewerTwitchId = widget.twitchAuth.userId;
-    _emoteManager.preloadGlobalEmotes();
-    unawaited(_emoteManager.loadViewerPersonalSevenTvSets());
+    _startChatPipe();
     _emoteManager.startCacheGc();
     _emoteManager.addListener(_onEmotesChanged);
     _connectivityService.init();
@@ -1216,9 +1212,17 @@ class _HomeScreenState extends State<HomeScreen>
     _mod.refreshOnData(changedChannel);
   }
 
-  void _onAuthChanged() {
+  // Cold-start pipe shared with account switch: IRC connect and emote
+  // priming run together so neither gates the other.
+  void _startChatPipe() {
+    _chatConn.connect();
     _emoteManager.accessToken = widget.twitchAuth.accessToken;
-    _emotes.refreshAfterAuth();
+    _emoteManager.viewerTwitchId = widget.twitchAuth.userId;
+    _emoteManager.preloadGlobalEmotes();
+    unawaited(_emoteManager.loadViewerPersonalSevenTvSets());
+  }
+
+  void _onAuthChanged() {
     _mod.refreshOnData(null);
     if (_chatStore.session.login?.toLowerCase() !=
         widget.twitchAuth.login?.toLowerCase()) {
@@ -1250,10 +1254,10 @@ class _HomeScreenState extends State<HomeScreen>
       _channelManager.scanHistoryForMentions();
       unawaited(_ensureBlockedUsersLoaded());
     }
-    // Re-resolve emotes with the new account's token BEFORE reconnecting so
-    // sub emote sets fetch under the right auth; connect()'s GLOBALUSERSTATE
-    // then layers the fresh sub emotes on top.
-    unawaited(_emotes.refreshAfterAuth().then((_) => _chatConn.connect()));
+    // Same pipe as cold start: connect now so the indicator flips at once;
+    // the full re-resolve runs alongside instead of gating the reconnect.
+    _startChatPipe();
+    unawaited(_emotes.refreshAfterAuth());
   }
 
   // Reads the persisted manual tier, auto mode, and disk-cache cap, then
