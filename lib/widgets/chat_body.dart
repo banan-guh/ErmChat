@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../composer/composer_bar.dart';
 
@@ -33,9 +36,11 @@ bool collapseChromeForKeyboard({
 
 /// Layout assembly for the chat screen: body stack plus composer.
 ///
-/// Owns the single keyboard-inset subscription for the chat layout and the
-/// full-height capture used to size the emote picker. All content comes in
-/// as builders/widgets so this file holds geometry only, no chat logic.
+/// Geometry rides the stock Scaffold resize, which replays the system ticks
+/// directly with no second animator to cross them. The debounced lift below
+/// feeds discrete decisions only (chrome collapse, video hide), so those
+/// flip once per gesture instead of mid-animation. All content comes in as
+/// builders/widgets so this file holds geometry only, no chat logic.
 class ChatBody extends StatefulWidget {
   const ChatBody({
     super.key,
@@ -81,6 +86,90 @@ class _ChatBodyState extends State<ChatBody> {
   // post-layout: reading inputBarKey.size during build throws every frame.
   double _composerH = 56.0;
 
+  // Debounced lift for decisions only. Raw ticks are smooth on their own;
+  // replaying each one into chrome/video/sheet rules makes those flip
+  // mid-gesture, so rules read this once-per-gesture value instead.
+  double _liftH = 0;
+  double _settledKeyboardH = 0;
+  double _persistedKeyboardH = 0;
+  double _lastRawH = 0;
+  Timer? _settleTimer;
+
+  // Last learned open height, persisted so decisions start right even on a
+  // cold start. Re-learned every session, so a stale value self-corrects.
+  static const String settledPrefsKey = 'keyboard_settled_h';
+
+  void _loadSettledHeight() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final v = prefs.getDouble(settledPrefsKey) ?? 0;
+      if (v > 50 && v < 1500) {
+        _settledKeyboardH = v;
+        _persistedKeyboardH = v;
+      }
+    } catch (_) {}
+  }
+
+  void _saveSettledHeight(double v) {
+    if (v <= 50 || v >= 1500) return;
+    if ((v - _persistedKeyboardH).abs() < 10) return;
+    _persistedKeyboardH = v;
+    try {
+      SharedPreferences.getInstance().then(
+        (prefs) => prefs.setDouble(settledPrefsKey, v),
+      );
+    } catch (_) {}
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSettledHeight();
+    _lastRawH = widget.keyboardH;
+    if (widget.keyboardH > 0) {
+      _liftH = widget.keyboardH;
+      _settledKeyboardH = widget.keyboardH;
+    }
+  }
+
+  @override
+  void didUpdateWidget(ChatBody oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _handleRawKeyboardH(widget.keyboardH);
+  }
+
+  @override
+  void dispose() {
+    _settleTimer?.cancel();
+    super.dispose();
+  }
+
+  void _handleRawKeyboardH(double raw) {
+    if ((raw - _lastRawH).abs() < 0.5) return;
+    final wasClosed = _lastRawH <= 0.5;
+    _lastRawH = raw;
+    if (raw <= 0.5) {
+      _settleTimer?.cancel();
+      if (_liftH != 0) setState(() => _liftH = 0);
+      return;
+    }
+    if (wasClosed) {
+      // Opening: commit the learned height at once so rules decide on the
+      // final geometry from the first frame instead of flapping mid-gesture.
+      final target = _settledKeyboardH > 0 ? _settledKeyboardH : raw;
+      if ((_liftH - target).abs() > 0.5) setState(() => _liftH = target);
+    }
+    _settleTimer?.cancel();
+    _settleTimer = Timer(const Duration(milliseconds: 120), () {
+      if (!mounted) return;
+      final stable = _lastRawH;
+      if (stable <= 0.5) return;
+      _settledKeyboardH = stable;
+      _saveSettledHeight(stable);
+      if ((_liftH - stable).abs() > 0.5) setState(() => _liftH = stable);
+    });
+  }
+
   void _cacheComposerH() {
     if (!mounted || widget.composer == null) return;
     final h = inputBarKey.currentContext?.size?.height;
@@ -91,9 +180,10 @@ class _ChatBodyState extends State<ChatBody> {
 
   @override
   Widget build(BuildContext context) {
-    // Keyboard overlap comes in as a param (see field docs): reading
-    // viewInsets here is always 0, the Scaffold consumed them resizing.
-    final keyboardH = widget.keyboardH;
+    // Decisions read the debounced lift; geometry comes from the resized
+    // constraints below, which already track the keyboard tick by tick.
+    final keyboardH = _liftH;
+    final rawH = widget.keyboardH;
     final bottomPad = MediaQuery.paddingOf(context).bottom;
     final composer = widget.composer;
     // Cache the settled composer height after layout for keyboard-room
@@ -102,13 +192,16 @@ class _ChatBodyState extends State<ChatBody> {
       WidgetsBinding.instance.addPostFrameCallback((_) => _cacheComposerH());
     }
     final composerH = composer == null ? 0.0 : _composerH;
+    // No manual lift: the Scaffold shrank the body, so the composer sits
+    // above the keyboard at settled constraints with no second animator
+    // to cross the system motion. The key stays for post-layout measuring.
     return Column(
       children: [
         Expanded(
           child: LayoutBuilder(
             builder: (context, constraints) {
               final statusBarH = MediaQuery.paddingOf(context).top;
-              if (keyboardH == 0) {
+              if (rawH <= 0.5) {
                 _fullBoxHeight = constraints.maxHeight;
               }
               final fullBoxH =
@@ -178,9 +271,6 @@ class _ChatBodyState extends State<ChatBody> {
             },
           ),
         ),
-        // No manual keyboard lift: the Scaffold already shrank the body,
-        // so the composer sits above the keyboard at settled constraints.
-        // The key stays on the box for post-layout measuring above.
         composer == null
             ? const SizedBox.shrink()
             : Padding(

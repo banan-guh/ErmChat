@@ -1689,10 +1689,11 @@ class _HomeScreenState extends State<HomeScreen>
         }
       },
       child: Scaffold(
-        // Framework resize path: the Scaffold shrinks the body with the
-        // keyboard, so the surface tracks the animation natively while
-        // Dart lays out settled constraints. Never chase per-frame insets
-        // with padding here; it janks (see ChatBody sheet math).
+        // Stock resize path: the Scaffold shrinks the body with the
+        // keyboard, replaying the system ticks directly. No manual lift and
+        // no second animator: Dart curves of a different duration only cross
+        // the system motion (behind-ahead-behind). Discrete rules read the
+        // debounced lift in ChatBody so they flip once per gesture.
         resizeToAvoidBottomInset: true,
         body: ChatBody(
           emoteMaxFraction: _emoteMaxFraction,

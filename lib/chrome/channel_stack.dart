@@ -76,9 +76,72 @@ class ChannelPanels {
   final HomeAppBar homeAppBar;
   final ChannelPanelsHost host;
 
-  final _tabMergeCache = <int, Listenable>{};
+  late final Listenable _tabSharedMerge = Listenable.merge([
+    selectedTabIndex,
+    chatStore.unreadVersion,
+  ]);
   String? _welcomeMessagesKey;
   List<TwitchMessage>? _welcomeMessages;
+
+  // Stable per-channel widgets: identical instances short-circuit element
+  // updates, so keyboard ticks skip these subtrees instead of rebuilding
+  // every tab and page. Safe because all live content inside flows through
+  // channel listenables (version/message/search), which keep firing through
+  // the cached widgets. Keyed by name; cleared whenever the channel list
+  // changes in length, order, or membership, so reorder and same-length
+  // part plus join can never serve stale pages or tabs.
+  final _pageCache = <String, _CachedPage>{};
+  final _tabCache = <String, Widget>{};
+  List<String> _cachedChannels = const [];
+
+  void _dropStaleCaches() {
+    final channels = chatStore.channels;
+    var same = channels.length == _cachedChannels.length;
+    if (same) {
+      for (var i = 0; i < channels.length; i++) {
+        if (channels[i] != _cachedChannels[i]) {
+          same = false;
+          break;
+        }
+      }
+    }
+    if (!same) {
+      _pageCache.clear();
+      _tabCache.clear();
+      _cachedChannels = List.of(channels);
+    }
+  }
+
+  // Search mode and appearance settings change page inputs without bumping
+  // channel listenables, so they join the validity check. Everything else
+  // the page reads is either listenable-driven (messages, edits, dim, query
+  // via version/message/search) or a session-long object. Settings setters
+  // that change tile content must also touchChannel plus clear tileCache
+  // (see HomeScreen _setPref rerenderChannels); theme and text scale reach
+  // tiles through inherited widgets, and late paints self-update inside
+  // their own ListenableBuilder, so they need no token entry.
+  String _pageToken() =>
+      '${search.open}|${host.showTimestamps}|${host.timestampFormat}|'
+      '${host.chatFontSize}|${host.checkeredMessages}|${host.highlightOpacity}|'
+      '${host.lineSeparator}|${host.sharedChatMode}|${host.showNamePaints}';
+
+  /// Drop cached pages and tabs, forcing rebuild on next channelStack.
+  /// Use for future settings that change tile content without a channel
+  /// version bump.
+  void invalidateCaches() {
+    _pageCache.clear();
+    _tabCache.clear();
+    _cachedChannels = List.of(chatStore.channels);
+  }
+
+  Widget _cachedPage(BuildContext context, String channel) {
+    final token = _pageToken();
+    final cached = _pageCache[channel];
+    if (cached != null && cached.token == token) return cached.widget;
+    final page = _buildPage(context, channel);
+    _pageCache[channel] = _CachedPage(page, token);
+    return page;
+  }
 
   void onChannelFocusChanged(int index) {
     host.commitChannelSelection(index, rebuild: false);
@@ -86,6 +149,105 @@ class ChannelPanels {
 
   void onChannelChanged(int index) {
     host.commitChannelSelection(index, rebuild: true);
+  }
+
+  /// Page for [channel], stable across rebuilds (see [_pageCache]).
+  /// Everything live inside is listenable-driven, so a cached instance
+  /// still shows fresh rows, edits and search filtering. The captured
+  /// [context] is channelStack's own long-lived build context.
+  Widget _buildPage(BuildContext context, String channel) {
+    return ListenableBuilder(
+      // messageNotifier drives new rows and text edits;
+      // search bumps only its own channel on keystrokes.
+      listenable: Listenable.merge([
+        host.versionNotifier(channel),
+        host.messageNotifier(channel),
+        search.channelVersion(channel),
+      ]),
+      builder: (_, _) => ChatView(
+        channel: channel,
+        messages: search.visibleMessages(channel),
+        tileCache: tileCache,
+        isDimmed: search.dimPredicate(channel),
+        emptyText: search.emptyText(channel) ?? 'No messages yet',
+        atBottomNotifier: host.atBottomNotifier(channel),
+        messageNotifier: host.messageNotifier(channel),
+        scrollController: host.scrollCtrl(channel),
+        messageBuilder: messageBuilder,
+        linkWhitelist: linkWhitelist,
+        showTimestamp: host.showTimestamps,
+        timestampFormat: host.timestampFormat,
+        chatFontScale: host.chatFontSize / 14.0,
+        checkeredMessages: host.checkeredMessages,
+        highlightOpacity: host.highlightOpacity,
+        lineSeparator: host.lineSeparator,
+        sharedChatMode: host.sharedChatMode,
+        paintService: host.showNamePaints ? paintService : null,
+        onShowUserProfile: (login, userId, {displayName}) => userSheets
+            .showUserProfile(context, login, userId, displayName: displayName),
+        onShowMessageMenu: (msg) => menus.showMessageMenu(context, msg),
+        onCopyMessage: host.copyMessage,
+        onNewMessage: chatStore.noteNewMessage,
+        onFindThreadRoot: threads.findThreadRoot,
+        onShowThreadView: (msg) => threads.showThreadView(msg),
+        keyboardDismissBehavior: (!kIsWeb && Platform.isIOS)
+            ? ScrollViewKeyboardDismissBehavior.onDrag
+            : ScrollViewKeyboardDismissBehavior.manual,
+      ),
+    );
+  }
+
+  /// Tab label for [channel], stable across rebuilds (see [_tabCache]).
+  /// Selection and unread state stay live inside the merged listenable.
+  /// The focused index resolves live from the channel list, so reorder
+  /// with the same length can never leave a stale highlight behind.
+  Widget _buildTab(String channel) {
+    return ListenableBuilder(
+      listenable: _tabSharedMerge,
+      builder: (ctx, _) {
+        final focused =
+            chatStore.channels.indexOf(channel) == selectedTabIndex.value;
+        final selected = focused || channel == host.selectedChannel;
+        final hasUnreadMention = chatStore.channelsWithUnreadMentions.contains(
+          channel,
+        );
+        final theme = Theme.of(ctx);
+        return Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Text(
+              channel,
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight:
+                    selected || chatStore.channelsWithUnread.contains(channel)
+                    ? FontWeight.w600
+                    : FontWeight.normal,
+                color: selected
+                    ? theme.colorScheme.primary
+                    : chatStore.channelsWithUnread.contains(channel)
+                    ? theme.colorScheme.onSurface
+                    : null,
+              ),
+            ),
+            if (hasUnreadMention && !selected)
+              Positioned(
+                top: -2,
+                right: -4,
+                child: Container(
+                  key: const Key('unread_mention_dot'),
+                  width: 6,
+                  height: 6,
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.error,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
+    );
   }
 
   Widget channelTabs(
@@ -110,6 +272,7 @@ class ChannelPanels {
     required double overlayTop,
     Widget? belowTabBar,
   }) {
+    _dropStaleCaches();
     return Stack(
       children: [
         Listener(
@@ -139,114 +302,17 @@ class ChannelPanels {
                   belowTabBar: belowTabBar,
                   pageBuilder: (_, i) {
                     final channel = chatStore.channels[i];
-                    return ListenableBuilder(
-                      // messageNotifier drives new rows and text edits;
-                      // search bumps only its own channel on keystrokes.
-                      listenable: Listenable.merge([
-                        host.versionNotifier(channel),
-                        host.messageNotifier(channel),
-                        search.channelVersion(channel),
-                      ]),
-                      builder: (_, _) => ChatView(
-                        channel: channel,
-                        messages: search.visibleMessages(channel),
-                        tileCache: tileCache,
-                        isDimmed: search.dimPredicate(channel),
-                        emptyText:
-                            search.emptyText(channel) ?? 'No messages yet',
-                        atBottomNotifier: host.atBottomNotifier(channel),
-                        messageNotifier: host.messageNotifier(channel),
-                        scrollController: host.scrollCtrl(channel),
-                        messageBuilder: messageBuilder,
-                        linkWhitelist: linkWhitelist,
-                        showTimestamp: host.showTimestamps,
-                        timestampFormat: host.timestampFormat,
-                        chatFontScale: host.chatFontSize / 14.0,
-                        checkeredMessages: host.checkeredMessages,
-                        highlightOpacity: host.highlightOpacity,
-                        lineSeparator: host.lineSeparator,
-                        sharedChatMode: host.sharedChatMode,
-                        paintService: host.showNamePaints ? paintService : null,
-                        onShowUserProfile: (login, userId, {displayName}) =>
-                            userSheets.showUserProfile(
-                              context,
-                              login,
-                              userId,
-                              displayName: displayName,
-                            ),
-                        onShowMessageMenu: (msg) =>
-                            menus.showMessageMenu(context, msg),
-                        onCopyMessage: host.copyMessage,
-                        onNewMessage: chatStore.noteNewMessage,
-                        onFindThreadRoot: threads.findThreadRoot,
-                        onShowThreadView: (msg) => threads.showThreadView(msg),
-                        keyboardDismissBehavior: (!kIsWeb && Platform.isIOS)
-                            ? ScrollViewKeyboardDismissBehavior.onDrag
-                            : ScrollViewKeyboardDismissBehavior.manual,
-                      ),
-                    );
+                    return _cachedPage(context, channel);
                   },
                   focusOnHalfDrag: true,
                   fastSnap: host.fastSnap,
                   tabBuilder: (_, i) {
                     final channel = chatStore.channels[i];
-                    return ListenableBuilder(
-                      listenable: _tabMergeCache.putIfAbsent(
-                        i,
-                        () => Listenable.merge([
-                          selectedTabIndex,
-                          chatStore.unreadVersion,
-                        ]),
-                      ),
-                      builder: (ctx, _) {
-                        final focused = i == selectedTabIndex.value;
-                        final selected =
-                            focused || channel == host.selectedChannel;
-                        final hasUnreadMention = chatStore
-                            .channelsWithUnreadMentions
-                            .contains(channel);
-                        final theme = Theme.of(ctx);
-                        return Stack(
-                          clipBehavior: Clip.none,
-                          children: [
-                            Text(
-                              channel,
-                              style: TextStyle(
-                                fontSize: 14,
-                                fontWeight:
-                                    selected ||
-                                        chatStore.channelsWithUnread.contains(
-                                          channel,
-                                        )
-                                    ? FontWeight.w600
-                                    : FontWeight.normal,
-                                color: selected
-                                    ? theme.colorScheme.primary
-                                    : chatStore.channelsWithUnread.contains(
-                                        channel,
-                                      )
-                                    ? theme.colorScheme.onSurface
-                                    : null,
-                              ),
-                            ),
-                            if (hasUnreadMention && !selected)
-                              Positioned(
-                                top: -2,
-                                right: -4,
-                                child: Container(
-                                  key: const Key('unread_mention_dot'),
-                                  width: 6,
-                                  height: 6,
-                                  decoration: BoxDecoration(
-                                    color: theme.colorScheme.error,
-                                    shape: BoxShape.circle,
-                                  ),
-                                ),
-                              ),
-                          ],
-                        );
-                      },
-                    );
+                    final cached = _tabCache[channel];
+                    if (cached != null) return cached;
+                    final tab = _buildTab(channel);
+                    _tabCache[channel] = tab;
+                    return tab;
                   },
                 )
               : welcomeChatView(context),
@@ -330,4 +396,12 @@ class ChannelPanels {
           : ScrollViewKeyboardDismissBehavior.manual,
     );
   }
+}
+
+/// Cached page plus the config token it was built under.
+class _CachedPage {
+  const _CachedPage(this.widget, this.token);
+
+  final Widget widget;
+  final String token;
 }

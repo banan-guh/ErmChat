@@ -747,6 +747,186 @@ void main() {
     });
   });
 
+  group('keyboard tick rebuild stability', () {
+    late DateTime now;
+
+    setUp(() {
+      SharedPreferences.setMockInitialValues({});
+      FlutterSecureStorage.setMockInitialValues({});
+      now = DateTime.now();
+    });
+
+    // Rapid inset ticks (a keyboard gesture) must keep showing cached rows,
+    // and rows arriving mid-gesture must still appear despite the page, tab
+    // and delegate caches. Guards the stable-identity rebuild skipping.
+    testWidgets('ticks keep rows live and new rows arrive mid-gesture', (
+      WidgetTester tester,
+    ) async {
+      const channel = 'testchannel';
+      tester.view.physicalSize = const Size(1080, 2340);
+      tester.view.devicePixelRatio = 3.0;
+      tester.view.viewInsets = FakeViewPadding(bottom: 0);
+      addTearDown(tester.view.reset);
+
+      final ircRead = _FakeIrcReadService();
+      await tester.pumpWidget(
+        TwitchChatApp(
+          key: UniqueKey(),
+          eventSubService: _FakeEventSubService(),
+          recentMessagesService: _ConfigurableRecentMessagesService([
+            TwitchMessage(
+              login: 'alice',
+              text: 'cached rows stay live',
+              messageId: 'k1',
+              timestamp: now.subtract(const Duration(minutes: 5)),
+              isHistory: true,
+              channel: channel,
+            ),
+          ]),
+          ircService: _FakeIrcService(),
+          ircReadService: ircRead,
+        ),
+      );
+      await tester.pump();
+      await tester.tap(find.byIcon(Icons.add));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).last, channel);
+      await tester.tap(find.text('Join', skipOffstage: false).last);
+      await tester.pump();
+      await tester.pump();
+
+      expect(
+        find.textContaining('cached rows stay live', skipOffstage: false),
+        findsWidgets,
+      );
+
+      // Keyboard opening ramp: one pump per tick, like the real gesture.
+      for (final h in [100.0, 200.0, 300.0]) {
+        tester.view.viewInsets = FakeViewPadding(bottom: h * 3.0);
+        await tester.pump();
+        expect(
+          find.textContaining('cached rows stay live', skipOffstage: false),
+          findsWidgets,
+        );
+      }
+
+      // A live row landing mid-gesture still appears: the delegate recreates
+      // on data change even with warm caches everywhere.
+      ircRead.emitMessage(
+        TwitchMessage(
+          login: 'bob',
+          text: 'live row arrives mid gesture',
+          messageId: 'k2',
+          channel: channel,
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+      expect(
+        find.textContaining(
+          'live row arrives mid gesture',
+          skipOffstage: false,
+        ),
+        findsWidgets,
+      );
+      expect(
+        find.textContaining('cached rows stay live', skipOffstage: false),
+        findsWidgets,
+      );
+
+      // And back down without errors, composer parked above the keyboard.
+      for (final h in [200.0, 100.0, 0.0]) {
+        tester.view.viewInsets = FakeViewPadding(bottom: h * 3.0);
+        await tester.pump();
+      }
+      expect(tester.takeException(), isNull);
+      expect(find.byKey(const Key('message_input')), findsOneWidget);
+    });
+  });
+
+  group('search toggle page freshness', () {
+    setUp(() {
+      SharedPreferences.setMockInitialValues({});
+      FlutterSecureStorage.setMockInitialValues({});
+    });
+
+    // Opening search filters rows and closing restores them, even though
+    // pages are cached: search mode joins the cache validity check.
+    testWidgets('open filters rows, close restores them', (
+      WidgetTester tester,
+    ) async {
+      const channel = 'testchannel';
+      tester.view.physicalSize = const Size(1080, 2340);
+      tester.view.devicePixelRatio = 3.0;
+      tester.view.viewInsets = FakeViewPadding(bottom: 0);
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(
+        TwitchChatApp(
+          key: UniqueKey(),
+          eventSubService: _FakeEventSubService(),
+          recentMessagesService: _ConfigurableRecentMessagesService([
+            TwitchMessage(
+              login: 'alice',
+              text: 'visible apple',
+              messageId: 's1',
+              timestamp: DateTime.now().subtract(const Duration(minutes: 5)),
+              isHistory: true,
+              channel: channel,
+            ),
+          ]),
+          ircService: _FakeIrcService(),
+          ircReadService: _FakeIrcReadService(),
+        ),
+      );
+      await tester.pump();
+      await tester.tap(find.byIcon(Icons.add));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).last, channel);
+      await tester.tap(find.text('Join', skipOffstage: false).last);
+      await tester.pump();
+      await tester.pump();
+
+      expect(
+        find.textContaining('visible apple', skipOffstage: false),
+        findsWidgets,
+      );
+
+      await tester.tap(find.byIcon(Icons.expand_more));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Search'));
+      await tester.pumpAndSettle();
+      expect(find.text('Search...'), findsOneWidget);
+
+      await tester.enterText(
+        find.byKey(const Key('message_input')),
+        'zzz-no-match',
+      );
+      await tester.pump();
+      await tester.pump();
+      await tester.pumpAndSettle();
+      expect(
+        find.textContaining('visible apple', skipOffstage: false),
+        findsNothing,
+      );
+      expect(
+        find.textContaining('No matches', skipOffstage: false),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.byIcon(Icons.expand_more));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Search'));
+      await tester.pumpAndSettle();
+      expect(
+        find.textContaining('visible apple', skipOffstage: false),
+        findsWidgets,
+      );
+      expect(find.byKey(const Key('message_input')), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  });
+
   group('ChatMessageTile deleted rows', () {
     TwitchMessage deletedMsg() => TwitchMessage(
       login: 'alice',
@@ -1896,8 +2076,7 @@ void main() {
     // Resolved identity so the session fast path applies. The test is about
     // JOIN gating; identity resolution now locks the input on its own.
     FlutterSecureStorage.setMockInitialValues({
-      'accounts':
-          '[{"login":"me","user_id":"42","access_token":"test_token"}]',
+      'accounts': '[{"login":"me","user_id":"42","access_token":"test_token"}]',
       'active_login': 'me',
     });
 

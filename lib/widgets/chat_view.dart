@@ -112,6 +112,16 @@ class _ChatViewState extends State<ChatView>
   double _cachedSystemScale = 1.0;
   int _lastMsgLen = -1;
   Map<String, int> _idToIndex = const {};
+  String? _endsFirst;
+  String? _endsLast;
+
+  // Stable row builders: plain methods, so the list delegate below keeps
+  // its identity across ticks and the fork skips its O(buffered messages)
+  // invalidation. All data is read live from widget.messages at call time,
+  // so freshness never depends on rebuilds.
+  FlutterListViewDelegate? _delegate;
+  int? _delegateLen;
+  String? _delegateChannel;
 
   @override
   void didChangeDependencies() {
@@ -137,7 +147,6 @@ class _ChatViewState extends State<ChatView>
     super.build(context);
     final surface = Theme.of(context).scaffoldBackgroundColor;
     final s = widget.chatFontScale * _cachedSystemScale;
-
     return Stack(
       clipBehavior: Clip.hardEdge,
       children: [
@@ -173,6 +182,8 @@ class _ChatViewState extends State<ChatView>
                 if (msgs.isEmpty) {
                   _lastMsgLen = 0;
                   _idToIndex = const {};
+                  _endsFirst = null;
+                  _endsLast = null;
                   final emptyMsg = TwitchMessage(
                     login: '',
                     text: widget.emptyText,
@@ -182,7 +193,11 @@ class _ChatViewState extends State<ChatView>
                   return Padding(
                     padding: const EdgeInsets.only(bottom: 8),
                     child: FlutterListView(
-                      key: ValueKey(widget.channel),
+                      // Distinct key from the content list below: the fork
+                      // reuses row elements across delegate swaps with the
+                      // same list key, which grafts the last content tile
+                      // onto the empty state (search hide-to-empty).
+                      key: ValueKey('${widget.channel}:empty'),
                       controller: widget.scrollController,
                       reverse: true,
                       physics: widget.physics,
@@ -214,8 +229,12 @@ class _ChatViewState extends State<ChatView>
                   () => <String?, Widget>{},
                 );
 
-                if (msgs.length != _lastMsgLen) {
+                if (msgs.length != _lastMsgLen ||
+                    _rowKey(msgs.first) != _endsFirst ||
+                    _rowKey(msgs.last) != _endsLast) {
                   _lastMsgLen = msgs.length;
+                  _endsFirst = _rowKey(msgs.first);
+                  _endsLast = _rowKey(msgs.last);
                   final idToIndex = <String, int>{};
                   if (cache != null) {
                     final pending = cache.keys.whereType<String>().toSet();
@@ -241,29 +260,7 @@ class _ChatViewState extends State<ChatView>
                     reverse: true,
                     physics: widget.physics,
                     keyboardDismissBehavior: widget.keyboardDismissBehavior,
-                    delegate: FlutterListViewDelegate(
-                      (_, i) => _buildTile(
-                        msgs,
-                        cache,
-                        _idToIndex,
-                        i,
-                        surface,
-                        s,
-                        context,
-                        widget.checkeredMessages,
-                      ),
-                      childCount: msgs.length,
-                      onItemKey: (i) {
-                        final id = msgs[i].messageId;
-                        if (id != null) return 'msg-$id';
-                        final m = msgs[i];
-                        return 'anon-${m.timestamp.microsecondsSinceEpoch}-${m.login}-${m.text.hashCode}';
-                      },
-                      keepPosition: true,
-                      keepPositionOffset: 0.5,
-                      addAutomaticKeepAlives: false,
-                      addRepaintBoundaries: false,
-                    ),
+                    delegate: _effectiveDelegate(msgs),
                   ),
                 );
               },
@@ -301,6 +298,50 @@ class _ChatViewState extends State<ChatView>
         ),
       ],
     );
+  }
+
+  FlutterListViewDelegate _effectiveDelegate(List<TwitchMessage> msgs) {
+    if (_delegate == null ||
+        _delegateChannel != widget.channel ||
+        _delegateLen != msgs.length) {
+      _delegate = FlutterListViewDelegate(
+        _buildTileAt,
+        childCount: msgs.length,
+        onItemKey: _itemKeyAt,
+        keepPosition: true,
+        keepPositionOffset: 0.5,
+        addAutomaticKeepAlives: false,
+        addRepaintBoundaries: false,
+      );
+      _delegateChannel = widget.channel;
+      _delegateLen = msgs.length;
+    }
+    return _delegate!;
+  }
+
+  Widget _buildTileAt(BuildContext ctx, int i) {
+    final msgs = widget.messages;
+    if (i < 0 || i >= msgs.length) return const SizedBox.shrink();
+    final cache = widget.tileCache?.putIfAbsent(
+      widget.channel,
+      () => <String?, Widget>{},
+    );
+    return _buildTile(
+      msgs,
+      cache,
+      _idToIndex,
+      i,
+      Theme.of(ctx).scaffoldBackgroundColor,
+      widget.chatFontScale * _cachedSystemScale,
+      ctx,
+      widget.checkeredMessages,
+    );
+  }
+
+  String _itemKeyAt(int i) {
+    final msgs = widget.messages;
+    if (i < 0 || i >= msgs.length) return 'oob-$i';
+    return _rowKey(msgs[i]);
   }
 
   Widget _buildTile(
@@ -424,6 +465,15 @@ class _ChatViewState extends State<ChatView>
     return ValueKey<String>(
       'anon-${msg.timestamp.microsecondsSinceEpoch}-${msg.login}-${msg.text.hashCode}',
     );
+  }
+
+  // Stable row identity for end markers. Mirrors the onItemKey logic so a
+  // capped buffer with steady length still refreshes its eviction index
+  // when the oldest or newest row turns over.
+  String _rowKey(TwitchMessage msg) {
+    final id = msg.messageId;
+    if (id != null) return 'msg-$id';
+    return 'anon-${msg.timestamp.microsecondsSinceEpoch}-${msg.login}-${msg.text.hashCode}';
   }
 
   Widget _buildReplyIndicator(BuildContext context, TwitchMessage msg) {
