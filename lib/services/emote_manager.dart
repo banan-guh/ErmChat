@@ -670,13 +670,14 @@ class EmoteManager extends ChangeNotifier {
     return {pinnedChannel!: pinned, ...grouped};
   }
 
-  /// Channel picker tab: third-party channel emotes plus non-sub Twitch
-  /// channel emotes, sorted by code. Sender-proof follower/bitstier emotes
-  /// stay listed: they are sendable and render via the IRC tag after send.
+  /// Channel picker tab: third-party channel emotes plus unlocked Twitch
+  /// channel emotes, sorted by code. Status-gated Twitch emotes (subs,
+  /// followers, bitstier) live in the subs tab instead: they only render
+  /// from the IRC tag, so listing them here implies anyone can use them.
   List<GenericEmote> channelTabEmotes(String channel) {
     final cached = _filterVisible(_channelCaches[channel]);
     if (cached == null) return [];
-    final result = cached.suggestions.where((e) => !_isTwitchSub(e)).toList();
+    final result = cached.suggestions.where((e) => !isTwitchLocked(e)).toList();
     result.sort((a, b) => a.code.compareTo(b.code));
     return result;
   }
@@ -1187,7 +1188,8 @@ class EmoteManager extends ChangeNotifier {
     if (!_isProviderOn(EmoteType.twitch)) return {};
     final cached = _subsByChannelCache;
     if (cached != null) return cached;
-    // Group subs by ownerChannel (or ownerId), dedup by id.
+    // Group status-gated emotes (subs, followers, bitstier) by
+    // ownerChannel (or ownerId), dedup by id.
     final byOwner = <String, GenericEmote>{};
     final ownerOf = <String, String>{};
     final keys = _channelTwitchEmotes.keys.toList()..sort();
@@ -1195,7 +1197,7 @@ class EmoteManager extends ChangeNotifier {
       final raw = _channelTwitchEmotes[channel];
       if (raw == null) continue;
       for (final e in raw) {
-        if (!_isTwitchSub(e)) continue;
+        if (!isTwitchLocked(e)) continue;
         final key = e.id.isNotEmpty
             ? e.id
             : '${e.code}|${e.ownerChannel ?? channel}';
