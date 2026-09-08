@@ -143,6 +143,10 @@ class _InlineEmoteViewState extends State<InlineEmoteView> {
   Future<void> _probeAlternates() async {
     final alternates = widget.alternateUrls;
     if (alternates == null || alternates.isEmpty) return;
+    // Main already has frames: no placeholder needed, skip probe and alt.
+    if (EmoteUrlProvider.hasFrames(widget.url)) {
+      return;
+    }
     final token = Object();
     _probeToken = token;
     for (final altUrl in alternates) {
@@ -263,6 +267,15 @@ class RenderInlineEmote extends RenderBox {
   ImageInfo? _altImage;
   bool _clockSubscribed = false;
 
+  /// Image paints since last reset. Test telemetry only.
+  static int debugPaintCount = 0;
+
+  /// Resets paint telemetry. Exposed for tests.
+  @visibleForTesting
+  static void debugResetPaintCounter() {
+    debugPaintCount = 0;
+  }
+
   double get width => _width;
   set width(double value) {
     if (_width == value) return;
@@ -357,6 +370,7 @@ class RenderInlineEmote extends RenderBox {
     final alt = _altImage;
     final info = main ?? alt;
     if (info != null) {
+      debugPaintCount++;
       // Contain-fit: emote textures rarely match layout size; inscribe would overflow.
       final img = info.image;
       paintImage(

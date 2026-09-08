@@ -341,10 +341,39 @@ class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
   /// Live completers by URL. Authoritative source (ImageCache may drop pending completers).
   static final Map<String, _EmoteImageCompleter> _liveByUrl = {};
 
+  /// Emissions via [_EmoteImageCompleter._emitFrame]. Test telemetry only.
+  static int debugEmissionCount = 0;
+
+  /// Pre-clones guarding the frame store (one per emission). Test telemetry.
+  static int debugPreCloneCount = 0;
+
+  /// Sum of listener counts across emissions. Test telemetry only.
+  static int debugFanoutDeliveries = 0;
+
+  /// Resets emission telemetry. Exposed for tests.
+  @visibleForTesting
+  static void debugResetEmoteCounters() {
+    debugEmissionCount = 0;
+    debugPreCloneCount = 0;
+    debugFanoutDeliveries = 0;
+  }
+
   /// Seeds [url]'s playback from [sourceUrl]'s current frame for in-phase swap.
   static void seedPlayback(String url, String sourceUrl) {
+    if (url == sourceUrl) return;
+    final live = _liveByUrl[url];
+    if (live != null && !live._disposed) {
+      if (live._isPlaying) {
+        if (_pendingSeeds[url] == sourceUrl) _pendingSeeds.remove(url);
+        if (live._seedFromUrl == sourceUrl) live._seedFromUrl = null;
+        return;
+      }
+      if (_pendingSeeds[url] == sourceUrl && live._seedFromUrl == sourceUrl) {
+        return;
+      }
+    }
     _pendingSeeds[url] = sourceUrl;
-    _completerFor(url)?.seedFrom(sourceUrl);
+    _liveByUrl[url]?.seedFrom(sourceUrl);
   }
 
   /// Current frame index for [url] (0 when not loaded). Exposed for tests.
@@ -355,6 +384,14 @@ class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
   /// Effective FPS cap for [url] (-1 when absent). Exposed for tests.
   static int debugEffectiveCap(String url) =>
       _liveByUrl[url]?._effectiveFpsCap ?? -1;
+
+  /// Whether [url] has decoded frames ready. No completer creation.
+  static bool hasFrames(String url) {
+    final live = _liveByUrl[url];
+    if (live == null || live._disposed) return false;
+    final frames = live._frames;
+    return frames != null && frames.frames.isNotEmpty;
+  }
 
   /// Shared completer for [url], created on demand.
   static _EmoteImageCompleter? _completerFor(String url) {
@@ -546,6 +583,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
   /// Seeds from [sourceUrl]'s current frame. Applied when frames land; ignored if already playing.
   void seedFrom(String? sourceUrl) {
     if (_disposed || sourceUrl == null || sourceUrl == url) return;
+    if (_isPlaying) return;
     _seedFromUrl = sourceUrl;
     if (_frames != null) _applySeed();
   }
@@ -616,6 +654,9 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
       _stopPlayback();
       return;
     }
+    EmoteUrlProvider.debugEmissionCount++;
+    EmoteUrlProvider.debugPreCloneCount++;
+    EmoteUrlProvider.debugFanoutDeliveries += _listenerCount;
     setImage(ImageInfo(image: clone, scale: 1.0, debugLabel: 'emote-$url'));
   }
 
@@ -639,13 +680,6 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
     if (_uncappedCount > 0) return 60;
     if (!EmoteUrlProvider.adaptiveThrottle) return EmoteUrlProvider.fpsCap;
     return EmoteUrlProvider._governor.capFor(EmoteUrlProvider.fpsCap);
-  }
-
-  /// Wake alignment grid in microseconds. 0 or uncapped = no alignment.
-  int get _wakeGridUs {
-    final cap = _effectiveFpsCap;
-    if (cap <= 0 || cap >= 60) return 0;
-    return 1000000 ~/ cap;
   }
 
   /// Re-evaluates loop after cap/panel change: stop at pause, restart when unpaused.
@@ -735,9 +769,11 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
     _shownTimestamp = timeStamp;
 
     // Schedule next tick at frame window end, aligned to FPS-cap grid.
+    // Cached per tick: the cap scans governor samples, so read it once.
     if (_frameTimer != null) return;
-    final gridUs = _wakeGridUs;
-    if (_effectiveFpsCap == 0) return; // Paused: stop the loop.
+    final cap = _effectiveFpsCap;
+    if (cap == 0) return; // Paused: stop the loop.
+    final gridUs = cap <= 0 || cap >= 60 ? 0 : 1000000 ~/ cap;
     var remainingUs = _frameEndUs(frames, _frameIndex) - posUs;
     if (remainingUs <= 0) {
       remainingUs = 16000; // Zero-duration guard: next vsync.

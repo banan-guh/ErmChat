@@ -90,4 +90,6 @@
 - double connected msg ios
 - anon -> acc = nothing to show it's connecting + check weirdly long connect time?
 - still duping sys msgs in robotty msgs
-- 
+- emotes don't pick max quality after low -> high
+- test emotes on low / high
+- user panel janky with msgs
