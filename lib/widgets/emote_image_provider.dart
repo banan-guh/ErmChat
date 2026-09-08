@@ -338,6 +338,28 @@ class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
     return ((targetUs + gridUs - 1) ~/ gridUs) * gridUs;
   }
 
+  /// Whether an engine-driven frame arriving at [nowUs] (DateTime
+  /// microseconds) may forward under [cap]. Pure for tests. Uncapped (60+)
+  /// always forwards; cap 0 freezes; below 60 forwards at grid instants so
+  /// scattered GIF clocks coalesce instead of waking raster one by one.
+  @visibleForTesting
+  static bool engineForwardAllowed(int nowUs, int cap, int nextAllowedUs) {
+    if (cap <= 0) return false;
+    if (cap >= 60) return true;
+    return nowUs >= nextAllowedUs;
+  }
+
+  /// Engine forwards and drops since reset. Test telemetry only.
+  static int debugEngineForwards = 0;
+  static int debugEngineDrops = 0;
+
+  /// Resets engine telemetry. Exposed for tests.
+  @visibleForTesting
+  static void debugResetEngineCounters() {
+    debugEngineForwards = 0;
+    debugEngineDrops = 0;
+  }
+
   /// Live completers by URL. Authoritative source (ImageCache may drop pending completers).
   static final Map<String, _EmoteImageCompleter> _liveByUrl = {};
 
@@ -465,6 +487,9 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
   /// Source URL for playback seed (cached smaller scale).
   String? _seedFromUrl;
 
+  /// Next grid instant an engine frame may forward (DateTime micros).
+  int _nextEngineForwardUs = 0;
+
   /// Keeps engine completer alive. Prevents addListener-on-disposed throw after cache hit.
   ImageStreamCompleterHandle? _engineHandle;
 
@@ -554,6 +579,30 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
               return;
             }
             _engineFramesDelivered++;
+            // Engine GIFs run on their own unsynchronized clocks and used to
+            // bypass the fps cap entirely. Gate them onto the shared grid so
+            // dozens of GIFs cannot wake raster one by one at native rate.
+            // Static engine images forward untouched (single frame).
+            if (_isAnimatedGif) {
+              final cap = _effectiveFpsCap;
+              final nowUs = DateTime.now().microsecondsSinceEpoch;
+              if (!EmoteUrlProvider.engineForwardAllowed(
+                nowUs,
+                cap,
+                _nextEngineForwardUs,
+              )) {
+                EmoteUrlProvider.debugEngineDrops++;
+                info.dispose();
+                return;
+              }
+              if (cap > 0 && cap < 60) {
+                _nextEngineForwardUs = EmoteUrlProvider.alignWakeUsToGrid(
+                  nowUs + 1,
+                  1000000 ~/ cap,
+                );
+              }
+              EmoteUrlProvider.debugEngineForwards++;
+            }
             setImage(info);
           },
           onError: (error, stack) {

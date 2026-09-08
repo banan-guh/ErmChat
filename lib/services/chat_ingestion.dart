@@ -205,11 +205,14 @@ class ChatIngestion {
     // Feed the emote usage registry from live chat: the emotes people are
     // actually staring at get cache priority. History/backfill are skipped
     // (they would re-touch old messages on every reconnect and skew the
-    // 24-hour histograms).
+    // 24-hour histograms). Batched by id: spam repeats one emote dozens of
+    // times per message but needs a single touch and flush schedule.
     if (!msg.isHistory && !msg.isSystem) {
       final positions = msg.emotePositions;
       if (positions != null && positions.isNotEmpty) {
+        final seenIds = <String>{};
         for (final position in positions) {
+          if (!seenIds.add(position.emoteId)) continue;
           final emote = emoteManager.emoteById(position.emoteId);
           if (emote != null) emoteManager.markEmoteViewed(emote);
         }

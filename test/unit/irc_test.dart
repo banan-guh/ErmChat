@@ -3864,7 +3864,8 @@ void main() {
       );
       conn.onMessage(msg);
 
-      expect(emoteManager.viewedIds, ['e1', 'e1']);
+      // Batched by id: repeats of one emote touch the registry once.
+      expect(emoteManager.viewedIds, ['e1']);
       conn.dispose();
     });
 

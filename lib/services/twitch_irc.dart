@@ -156,7 +156,7 @@ List<EmotePosition>? parseIrcEmotePositions(
       originalText.startsWith('\x01ACTION ') && originalText.endsWith('\x01')
       ? originalText.substring(8)
       : originalText;
-  final positions = <EmotePosition>[];
+  final raw = <({String id, int startCp, int endCp})>[];
   for (final emoteEntry in emotesTag.split('/')) {
     final colonIdx = emoteEntry.indexOf(':');
     if (colonIdx == -1) continue;
@@ -168,22 +168,29 @@ List<EmotePosition>? parseIrcEmotePositions(
       final start = int.tryParse(posStr.substring(0, dashIdx));
       final end = int.tryParse(posStr.substring(dashIdx + 1));
       if (start == null || end == null) continue;
-      final utf16Start = _tagToUtf16(baseText, start);
-      final utf16End = _tagToUtf16(baseText, end + 1);
-      if (utf16Start < 0 || utf16End > baseText.length) continue;
-      final emoteCode = baseText.substring(utf16Start, utf16End);
-      final adjStart = utf16Start - prefixLen;
-      final adjEnd = utf16End - prefixLen;
-      if (adjStart < 0 || adjEnd > strippedText.length) continue;
-      positions.add(
-        EmotePosition(
-          emoteId: emoteId,
-          startIndex: adjStart,
-          endIndex: adjEnd,
-          emoteCode: emoteCode,
-        ),
-      );
+      raw.add((id: emoteId, startCp: start, endCp: end + 1));
     }
+  }
+  if (raw.isEmpty) return null;
+  final conv = _cpToUtf16Table(baseText);
+  int lookup(int cp) => cp >= 0 && cp < conv.length ? conv[cp] : -1;
+  final positions = <EmotePosition>[];
+  for (final entry in raw) {
+    final utf16Start = lookup(entry.startCp);
+    final utf16End = lookup(entry.endCp);
+    if (utf16Start < 0 || utf16End > baseText.length) continue;
+    final emoteCode = baseText.substring(utf16Start, utf16End);
+    final adjStart = utf16Start - prefixLen;
+    final adjEnd = utf16End - prefixLen;
+    if (adjStart < 0 || adjEnd > strippedText.length) continue;
+    positions.add(
+      EmotePosition(
+        emoteId: entry.id,
+        startIndex: adjStart,
+        endIndex: adjEnd,
+        emoteCode: emoteCode,
+      ),
+    );
   }
   if (positions.isNotEmpty) {
     positions.sort((a, b) => a.startIndex.compareTo(b.startIndex));
@@ -208,8 +215,12 @@ List<GifAttachment>? parseIrcGifPositions(
       : originalText;
   // Regex scan instead of comma-split: URLs could legally contain commas.
   final entryRe = RegExp(r'(\d+)-(\d+)\|([^|]+)\|(.+?)(?=,\d+-\d+\||$)');
+  final matches = entryRe.allMatches(gifsTag).toList();
+  if (matches.isEmpty) return null;
+  final conv = _cpToUtf16Table(baseText);
+  int lookup(int cp) => cp >= 0 && cp < conv.length ? conv[cp] : -1;
   final attachments = <GifAttachment>[];
-  for (final m in entryRe.allMatches(gifsTag)) {
+  for (final m in matches) {
     final start = int.tryParse(m.group(1)!);
     final end = int.tryParse(m.group(2)!);
     final gifId = m.group(3)!;
@@ -218,8 +229,8 @@ List<GifAttachment>? parseIrcGifPositions(
       continue;
     }
     if (!url.startsWith('https://')) continue;
-    final utf16Start = _tagToUtf16(baseText, start);
-    final utf16End = _tagToUtf16(baseText, end + 1);
+    final utf16Start = lookup(start);
+    final utf16End = lookup(end + 1);
     if (utf16Start < 0 || utf16End > baseText.length) continue;
     final adjStart = utf16Start - prefixLen;
     final adjEnd = utf16End - prefixLen;
@@ -239,20 +250,20 @@ List<GifAttachment>? parseIrcGifPositions(
   return attachments.isEmpty ? null : attachments;
 }
 
-/// Converts an IRC emote-tag codepoint offset to a UTF-16 index in [text].
-/// Returns -1 if out of bounds.
-int _tagToUtf16(String text, int tagOffset) {
-  if (tagOffset <= 0) return tagOffset;
-  var utf16 = 0;
-  var codePoints = 0;
-  while (utf16 < text.length && codePoints < tagOffset) {
-    final unit = text.codeUnitAt(utf16);
-    codePoints++;
-    utf16++;
+/// One-pass table of UTF-16 indices by codepoint offset. Index `cp` holds
+/// the UTF-16 index after `cp` code points, so `table[0] == 0` and lookups
+/// past the end are out of bounds.
+List<int> _cpToUtf16Table(String text) {
+  final table = <int>[0];
+  var i = 0;
+  while (i < text.length) {
+    final unit = text.codeUnitAt(i);
+    i++;
     // High surrogate: this supplementary character occupies two UTF-16 units.
-    if (unit >= 0xD800 && unit <= 0xDBFF) utf16++;
+    if (unit >= 0xD800 && unit <= 0xDBFF && i < text.length) i++;
+    table.add(i);
   }
-  return codePoints == tagOffset ? utf16 : -1;
+  return table;
 }
 
 /// Parses the IRC `badges` tag into [MessageBadge]s.

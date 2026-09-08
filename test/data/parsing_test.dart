@@ -2671,6 +2671,29 @@ void main() {
       );
     });
 
+    test('handles 100 repeated positions past supplementary chars', () {
+      final text = '🙂 ${List.filled(100, 'K').join(' ')}';
+      final ranges = List.generate(100, (i) {
+        final start = 2 + i * 2;
+        return '$start-$start';
+      }).join(',');
+      final positions = parseIrcEmotePositions(
+        '25:$ranges',
+        originalText: text,
+        strippedText: text,
+      );
+      expect(positions, hasLength(100));
+      expect(positions!.first.startIndex, 3);
+      expect(positions.first.emoteCode, 'K');
+      expect(positions.last.emoteCode, 'K');
+      for (var i = 1; i < positions.length; i++) {
+        expect(
+          positions[i].startIndex,
+          greaterThan(positions[i - 1].startIndex),
+        );
+      }
+    });
+
     for (final (name, tag, original, stripped, prefix, start, end) in [
       (
         'ACTION messages use body-relative positions',
