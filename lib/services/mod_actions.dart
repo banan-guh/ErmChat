@@ -495,6 +495,88 @@ class ModActions {
     );
   }
 
+  Future<List<Map<String, dynamic>>> getPolls(TwitchAuth auth, String channel) {
+    final broadcasterId = getChannelUserIds()[channel];
+    if (broadcasterId == null) return Future.value(const []);
+    return twitchApi.getPolls(auth, broadcasterId);
+  }
+
+  Future<ModResult> createPoll(
+    TwitchAuth auth,
+    String channel, {
+    required String title,
+    required List<String> choices,
+    required int durationSeconds,
+  }) async {
+    final broadcasterId = getChannelUserIds()[channel];
+    if (broadcasterId == null) {
+      return const ModResult.fail(ModFailure.notJoined);
+    }
+    return _run(
+      'create poll',
+      () => twitchApi.createPoll(
+        auth,
+        broadcasterId: broadcasterId,
+        title: title,
+        choices: choices,
+        durationSeconds: durationSeconds,
+      ),
+    );
+  }
+
+  Future<ModResult> endPoll(
+    TwitchAuth auth,
+    String channel, {
+    required String pollId,
+    required bool archive,
+  }) async {
+    final broadcasterId = getChannelUserIds()[channel];
+    if (broadcasterId == null) {
+      return const ModResult.fail(ModFailure.notJoined);
+    }
+    return _run(
+      archive ? 'cancel the poll' : 'end the poll',
+      () => twitchApi.endPoll(
+        auth,
+        broadcasterId: broadcasterId,
+        pollId: pollId,
+        archive: archive,
+      ),
+    );
+  }
+
+  Future<List<Map<String, dynamic>>> getPredictions(
+    TwitchAuth auth,
+    String channel,
+  ) {
+    final broadcasterId = getChannelUserIds()[channel];
+    if (broadcasterId == null) return Future.value(const []);
+    return twitchApi.getPredictions(auth, broadcasterId);
+  }
+
+  Future<ModResult> endPrediction(
+    TwitchAuth auth,
+    String channel, {
+    required String predictionId,
+    required String status,
+    String? winningOutcomeId,
+  }) async {
+    final broadcasterId = getChannelUserIds()[channel];
+    if (broadcasterId == null) {
+      return const ModResult.fail(ModFailure.notJoined);
+    }
+    return _run(
+      'end the prediction',
+      () => twitchApi.endPrediction(
+        auth,
+        broadcasterId: broadcasterId,
+        predictionId: predictionId,
+        status: status,
+        winningOutcomeId: winningOutcomeId,
+      ),
+    );
+  }
+
   Future<ModResult> _updateChatSettings(
     TwitchAuth auth,
     String channel,

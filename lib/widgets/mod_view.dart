@@ -302,6 +302,7 @@ class ModViewPanel extends StatelessWidget {
               auth: auth,
               onNotice: onNotice,
               isBroadcaster: isBroadcaster,
+              isModerationActive: moderationActive,
             ),
           ],
         );
@@ -1602,6 +1603,7 @@ class _ChannelTab extends StatelessWidget {
     required this.auth,
     required this.onNotice,
     required this.isBroadcaster,
+    required this.isModerationActive,
   });
 
   final String channel;
@@ -1610,10 +1612,11 @@ class _ChannelTab extends StatelessWidget {
   final TwitchAuth auth;
   final ValueChanged<String> onNotice;
   final bool isBroadcaster;
+  final bool isModerationActive;
 
   @override
   Widget build(BuildContext context) {
-    if (!isBroadcaster) {
+    if (!isBroadcaster && !isModerationActive) {
       return const Center(
         child: Padding(
           padding: EdgeInsets.symmetric(horizontal: 24),
@@ -1627,47 +1630,53 @@ class _ChannelTab extends StatelessWidget {
     }
     return ListView(
       children: [
-        _BannedManager(
-          channel: channel,
-          modActions: modActions,
-          auth: auth,
-          onNotice: onNotice,
-        ),
-        _RosterSections(
-          channel: channel,
-          modActions: modActions,
-          auth: auth,
-          onNotice: onNotice,
-        ),
-        const _SectionHeader('Stream'),
-        _StreamActions(
-          channel: channel,
-          modActions: modActions,
-          auth: auth,
-          onNotice: onNotice,
-        ),
-        const _SectionHeader('Polls'),
-        _PollsSection(
-          channel: channel,
-          modActions: modActions,
-          auth: auth,
-          onNotice: onNotice,
-        ),
-        const _SectionHeader('Predictions'),
-        _PredictionsSection(
-          channel: channel,
-          modActions: modActions,
-          auth: auth,
-          onNotice: onNotice,
-        ),
-        const _SectionHeader('Points'),
-        _PointsSection(
-          channel: channel,
-          store: store,
-          modActions: modActions,
-          auth: auth,
-          onNotice: onNotice,
-        ),
+        if (isBroadcaster) ...[
+          _BannedManager(
+            channel: channel,
+            modActions: modActions,
+            auth: auth,
+            onNotice: onNotice,
+          ),
+          _RosterSections(
+            channel: channel,
+            modActions: modActions,
+            auth: auth,
+            onNotice: onNotice,
+          ),
+        ],
+        if (isModerationActive || isBroadcaster) ...[
+          const _SectionHeader('Stream'),
+          _StreamActions(
+            channel: channel,
+            modActions: modActions,
+            auth: auth,
+            onNotice: onNotice,
+          ),
+        ],
+        if (isBroadcaster) ...[
+          const _SectionHeader('Polls'),
+          _PollsSection(
+            channel: channel,
+            modActions: modActions,
+            auth: auth,
+            onNotice: onNotice,
+          ),
+          const _SectionHeader('Predictions'),
+          _PredictionsSection(
+            channel: channel,
+            modActions: modActions,
+            auth: auth,
+            onNotice: onNotice,
+          ),
+          const _SectionHeader('Points'),
+          _PointsSection(
+            channel: channel,
+            store: store,
+            modActions: modActions,
+            auth: auth,
+            onNotice: onNotice,
+          ),
+        ],
       ],
     );
   }
@@ -1944,6 +1953,64 @@ class _StreamActionsState extends State<_StreamActions> {
     onNotice(result.ok ? 'Marker added.' : modErrorText(result));
   }
 
+  Future<void> _announce(BuildContext context) async {
+    final message = await showModTextDialog(
+      context,
+      title: 'Send announcement',
+      label: 'Message',
+      confirmLabel: 'Send',
+    );
+    if (message == null || !context.mounted) return;
+    if (_busy != null) return;
+    setState(() => _busy = 'announce');
+    try {
+      final result = await modActions.sendAnnouncement(
+        auth,
+        channel,
+        message: message,
+      );
+      if (!context.mounted) return;
+      onNotice(result.ok ? 'Announcement sent.' : modErrorText(result));
+    } finally {
+      if (mounted) setState(() => _busy = null);
+    }
+  }
+
+  Future<void> _clear(BuildContext context) async {
+    if (_busy != null) return;
+    if (!await _confirm('Clear chat?', 'This clears all chat messages.')) {
+      return;
+    }
+    if (!context.mounted) return;
+    setState(() => _busy = 'clear');
+    try {
+      final result = await modActions.clearChat(auth, channel);
+      if (!context.mounted) return;
+      onNotice(result.ok ? 'Chat cleared.' : modErrorText(result));
+    } finally {
+      if (mounted) setState(() => _busy = null);
+    }
+  }
+
+  Future<void> _shoutout(BuildContext context) async {
+    final login = await showModTextDialog(
+      context,
+      title: 'Shoutout a channel?',
+      label: 'Username',
+      confirmLabel: 'Shoutout',
+    );
+    if (login == null || !context.mounted) return;
+    if (_busy != null) return;
+    setState(() => _busy = 'shoutout');
+    try {
+      final result = await modActions.sendShoutout(auth, channel, login: login);
+      if (!context.mounted) return;
+      onNotice(result.ok ? 'Shoutout sent.' : modErrorText(result));
+    } finally {
+      if (mounted) setState(() => _busy = null);
+    }
+  }
+
   Future<void> _unraid(BuildContext context) async {
     if (_busy != null) return;
     if (!await _confirm('Cancel raid?', 'This cancels the pending raid.')) {
@@ -1996,6 +2063,27 @@ class _StreamActionsState extends State<_StreamActions> {
           title: const Text('Add marker...'),
           onTap: () => _marker(context),
         ),
+        ListTile(
+          dense: true,
+          leading: const Icon(Icons.campaign_outlined),
+          title: const Text('Send announcement...'),
+          enabled: _busy == null,
+          onTap: _busy != null ? null : () => _announce(context),
+        ),
+        ListTile(
+          dense: true,
+          leading: const Icon(Icons.delete_sweep_outlined),
+          title: const Text('Clear chat'),
+          enabled: _busy == null,
+          onTap: _busy != null ? null : () => _clear(context),
+        ),
+        ListTile(
+          dense: true,
+          leading: const Icon(Icons.record_voice_over_outlined),
+          title: const Text('Send shoutout...'),
+          enabled: _busy == null,
+          onTap: _busy != null ? null : () => _shoutout(context),
+        ),
       ],
     );
   }
@@ -2042,26 +2130,15 @@ class _PollsSectionState extends State<_PollsSection> {
     }
   }
 
-  String? get _broadcasterId =>
-      widget.modActions.getChannelUserIds()[widget.channel];
-
   Future<void> _load() async {
     final gen = ++_loadGen;
     final background = _polls != null;
     List<Map<String, dynamic>> polls = const [];
     String? error;
     try {
-      final broadcasterId = _broadcasterId;
-      if (broadcasterId == null) {
-        error = 'Channel not joined.';
-      } else {
-        polls = await widget.modActions.twitchApi.getPolls(
-          widget.auth,
-          broadcasterId,
-        );
-        if (widget.modActions.twitchApi.lastErrorStatus != null) {
-          error = widget.modActions.failureReason();
-        }
+      polls = await widget.modActions.getPolls(widget.auth, widget.channel);
+      if (widget.modActions.twitchApi.lastErrorStatus != null) {
+        error = widget.modActions.failureReason();
       }
     } catch (_) {
       error = 'Could not load polls.';
@@ -2108,25 +2185,18 @@ class _PollsSectionState extends State<_PollsSection> {
     }
     setState(() => _busyKey = key);
     try {
-      final broadcasterId = _broadcasterId;
-      final ok =
-          broadcasterId != null &&
-          await widget.modActions.twitchApi.endPoll(
-            widget.auth,
-            broadcasterId: broadcasterId,
-            pollId: pollId,
-            archive: archive,
-          );
+      final result = await widget.modActions.endPoll(
+        widget.auth,
+        widget.channel,
+        pollId: pollId,
+        archive: archive,
+      );
       if (!mounted) return;
-      if (ok) {
+      if (result.ok) {
         widget.onNotice(archive ? 'Poll cancelled.' : 'Poll ended.');
         _load();
       } else {
-        widget.onNotice(
-          widget.modActions.twitchApi.lastErrorStatus != null
-              ? widget.modActions.failureReason()
-              : 'Could not end the poll.',
-        );
+        widget.onNotice(modErrorText(result));
       }
     } finally {
       if (mounted) setState(() => _busyKey = null);
@@ -2165,9 +2235,12 @@ class _PollsSectionState extends State<_PollsSection> {
       }
     }
     if (active == null) {
-      return const ListTile(
-        dense: true,
-        title: Text('No active poll. Create one with /poll.'),
+      return _PollCreateForm(
+        channel: widget.channel,
+        modActions: widget.modActions,
+        auth: widget.auth,
+        onNotice: widget.onNotice,
+        onCreated: _load,
       );
     }
     final pollId = active['id'] as String? ?? '';
@@ -2198,6 +2271,134 @@ class _PollsSectionState extends State<_PollsSection> {
                 ),
               ],
             ),
+    );
+  }
+}
+
+class _PollCreateForm extends StatefulWidget {
+  const _PollCreateForm({
+    required this.channel,
+    required this.modActions,
+    required this.auth,
+    required this.onNotice,
+    required this.onCreated,
+  });
+
+  final String channel;
+  final ModActions modActions;
+  final TwitchAuth auth;
+  final ValueChanged<String> onNotice;
+  final VoidCallback onCreated;
+
+  @override
+  State<_PollCreateForm> createState() => _PollCreateFormState();
+}
+
+class _PollCreateFormState extends State<_PollCreateForm> {
+  final _titleCtrl = TextEditingController();
+  final _choiceCtrls = [TextEditingController(), TextEditingController()];
+  int _duration = 60;
+  bool _creating = false;
+
+  @override
+  void dispose() {
+    _titleCtrl.dispose();
+    for (final c in _choiceCtrls) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
+  Future<void> _create() async {
+    final title = _titleCtrl.text.trim();
+    final choices = [
+      for (final c in _choiceCtrls) c.text.trim(),
+    ].where((c) => c.isNotEmpty).toList();
+    if (title.isEmpty || choices.length < 2) {
+      widget.onNotice('Enter a title and at least 2 choices.');
+      return;
+    }
+    if (_creating) return;
+    setState(() => _creating = true);
+    try {
+      final result = await widget.modActions.createPoll(
+        widget.auth,
+        widget.channel,
+        title: title,
+        choices: choices,
+        durationSeconds: _duration,
+      );
+      if (!mounted) return;
+      if (result.ok) {
+        widget.onNotice('Poll started.');
+        widget.onCreated();
+      } else {
+        widget.onNotice(modErrorText(result));
+      }
+    } finally {
+      if (mounted) setState(() => _creating = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('No active poll.'),
+          TextField(
+            controller: _titleCtrl,
+            decoration: const InputDecoration(labelText: 'Poll title'),
+          ),
+          for (var i = 0; i < _choiceCtrls.length; i++)
+            TextField(
+              controller: _choiceCtrls[i],
+              decoration: InputDecoration(labelText: 'Choice ${i + 1}'),
+            ),
+          Row(
+            children: [
+              const Text('Duration:'),
+              const SizedBox(width: 8),
+              DropdownButton<int>(
+                value: _duration,
+                items: const [
+                  DropdownMenuItem(value: 15, child: Text('15s')),
+                  DropdownMenuItem(value: 60, child: Text('1m')),
+                  DropdownMenuItem(value: 120, child: Text('2m')),
+                  DropdownMenuItem(value: 300, child: Text('5m')),
+                  DropdownMenuItem(value: 600, child: Text('10m')),
+                  DropdownMenuItem(value: 1800, child: Text('30m')),
+                ],
+                onChanged: _creating
+                    ? null
+                    : (v) => setState(() => _duration = v ?? 60),
+              ),
+              const Spacer(),
+              if (_choiceCtrls.length < 5)
+                TextButton(
+                  onPressed: _creating
+                      ? null
+                      : () => setState(
+                          () => _choiceCtrls.add(TextEditingController()),
+                        ),
+                  child: const Text('Add choice'),
+                ),
+            ],
+          ),
+          FilledButton(
+            onPressed: _creating ? null : _create,
+            child: _creating
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Text('Start poll'),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -2243,26 +2444,18 @@ class _PredictionsSectionState extends State<_PredictionsSection> {
     }
   }
 
-  String? get _broadcasterId =>
-      widget.modActions.getChannelUserIds()[widget.channel];
-
   Future<void> _load() async {
     final gen = ++_loadGen;
     final background = _predictions != null;
     List<Map<String, dynamic>> predictions = const [];
     String? error;
     try {
-      final broadcasterId = _broadcasterId;
-      if (broadcasterId == null) {
-        error = 'Channel not joined.';
-      } else {
-        predictions = await widget.modActions.twitchApi.getPredictions(
-          widget.auth,
-          broadcasterId,
-        );
-        if (widget.modActions.twitchApi.lastErrorStatus != null) {
-          error = widget.modActions.failureReason();
-        }
+      predictions = await widget.modActions.getPredictions(
+        widget.auth,
+        widget.channel,
+      );
+      if (widget.modActions.twitchApi.lastErrorStatus != null) {
+        error = widget.modActions.failureReason();
       }
     } catch (_) {
       error = 'Could not load predictions.';
@@ -2310,18 +2503,15 @@ class _PredictionsSectionState extends State<_PredictionsSection> {
     }
     setState(() => _busy = true);
     try {
-      final broadcasterId = _broadcasterId;
-      final ok =
-          broadcasterId != null &&
-          await widget.modActions.twitchApi.endPrediction(
-            widget.auth,
-            broadcasterId: broadcasterId,
-            predictionId: predictionId,
-            status: status,
-            winningOutcomeId: winningOutcomeId,
-          );
+      final result = await widget.modActions.endPrediction(
+        widget.auth,
+        widget.channel,
+        predictionId: predictionId,
+        status: status,
+        winningOutcomeId: winningOutcomeId,
+      );
       if (!mounted) return;
-      if (ok) {
+      if (result.ok) {
         widget.onNotice(
           status == 'LOCKED'
               ? 'Prediction locked.'
@@ -2331,11 +2521,7 @@ class _PredictionsSectionState extends State<_PredictionsSection> {
         );
         _load();
       } else {
-        widget.onNotice(
-          widget.modActions.twitchApi.lastErrorStatus != null
-              ? widget.modActions.failureReason()
-              : 'Could not update the prediction.',
-        );
+        widget.onNotice(modErrorText(result));
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -2648,7 +2834,10 @@ class _PointsSectionState extends State<_PointsSection> {
       );
       if (!mounted) return;
       if (result.ok) {
+        widget.onNotice(reward.isPaused ? 'Reward resumed.' : 'Reward paused.');
         _loadRewards();
+      } else if (widget.modActions.twitchApi.lastErrorStatus == 403) {
+        widget.onNotice('Only rewards created by this app can be paused.');
       } else {
         widget.onNotice(modErrorText(result));
       }
@@ -2765,13 +2954,17 @@ class _PointsSectionState extends State<_PointsSection> {
           ListTile(
             dense: true,
             title: Text(redemption.userLogin),
-            subtitle: redemption.userInput.isEmpty
-                ? null
-                : Text(
-                    '"${redemption.userInput}"',
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
+            subtitle: Text(
+              [
+                '${redemption.cost} pts',
+                if (redemption.redeemedAt.isNotEmpty)
+                  'redeemed ${_shortDate(redemption.redeemedAt)}',
+                if (redemption.userInput.isNotEmpty)
+                  '"${redemption.userInput}"',
+              ].join(' · '),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
             trailing: _busyRedemptions.contains(redemption.id)
                 ? const SizedBox(
                     width: 24,
@@ -2926,6 +3119,54 @@ class _ModesTabState extends State<_ModesTab> {
     }
   }
 
+  Future<int?> _pickCustomInt({
+    required String title,
+    required String label,
+    required int min,
+    required int max,
+  }) async {
+    final ctrl = TextEditingController();
+    final pending = showDialog<int>(
+      context: context,
+      builder: (ctx) {
+        var error = '';
+        return StatefulBuilder(
+          builder: (ctx, setLocal) => AlertDialog(
+            title: Text(title),
+            content: TextField(
+              controller: ctrl,
+              keyboardType: TextInputType.number,
+              autofocus: true,
+              decoration: InputDecoration(
+                labelText: label,
+                errorText: error.isEmpty ? null : error,
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () {
+                  final parsed = int.tryParse(ctrl.text.trim());
+                  if (parsed == null || parsed < min || parsed > max) {
+                    setLocal(() => error = 'Enter $min-$max.');
+                    return;
+                  }
+                  Navigator.pop(ctx, parsed);
+                },
+                child: const Text('Use value'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+    pending.whenComplete(ctrl.dispose);
+    return pending;
+  }
+
   @override
   Widget build(BuildContext context) {
     final tags = widget.roomModes;
@@ -2950,11 +3191,21 @@ class _ModesTabState extends State<_ModesTab> {
               ? null
               : (on) async {
                   if (on) {
-                    final picked = await _pick('Slow mode delay', const [
+                    var picked = await _pick('Slow mode delay', const [
                       ('30 seconds', 30),
                       ('60 seconds', 60),
                       ('120 seconds', 120),
+                      ('Custom...', -1),
                     ]);
+                    if (picked == null || !mounted) return;
+                    if (picked < 0) {
+                      picked = await _pickCustomInt(
+                        title: 'Slow mode delay',
+                        label: 'Seconds (3-120)',
+                        min: 3,
+                        max: 120,
+                      );
+                    }
                     if (picked == null || !mounted) return;
                     await _apply(
                       'slow',
@@ -2962,7 +3213,7 @@ class _ModesTabState extends State<_ModesTab> {
                         widget.auth,
                         widget.channel,
                         enabled: true,
-                        seconds: picked,
+                        seconds: picked!,
                       ),
                     );
                   } else {
@@ -2992,13 +3243,25 @@ class _ModesTabState extends State<_ModesTab> {
               : (on) async {
                   if (on) {
                     // -1 encodes "no minimum"; null is a dismissed dialog.
-                    final picked = await _pick('Minimum follow age', const [
+                    // -2 encodes the custom entry below.
+                    var picked = await _pick('Minimum follow age', const [
                       ('No minimum', -1),
                       ('10 minutes', 10),
+                      ('30 minutes', 30),
                       ('1 hour', 60),
                       ('1 day', 1440),
                       ('1 week', 10080),
+                      ('Custom...', -2),
                     ]);
+                    if (picked == null || !mounted) return;
+                    if (picked == -2) {
+                      picked = await _pickCustomInt(
+                        title: 'Minimum follow age',
+                        label: 'Minutes (1-10080)',
+                        min: 1,
+                        max: 10080,
+                      );
+                    }
                     if (picked == null || !mounted) return;
                     await _apply(
                       'followers',
@@ -3006,7 +3269,7 @@ class _ModesTabState extends State<_ModesTab> {
                         widget.auth,
                         widget.channel,
                         enabled: true,
-                        minutes: picked < 0 ? null : picked,
+                        minutes: picked! < 0 ? null : picked,
                       ),
                     );
                   } else {

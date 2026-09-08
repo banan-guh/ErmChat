@@ -313,10 +313,12 @@ void main() {
     tab.animateTo(3);
     await tester.pumpAndSettle();
 
-    // Channel tab gates on the broadcaster.
+    // Channel tab shows stream tools to moderators; rosters stay
+    // broadcaster-only.
     tab.animateTo(7);
     await tester.pumpAndSettle();
-    expect(find.textContaining('Only the broadcaster'), findsOneWidget);
+    expect(find.text('Start raid...'), findsOneWidget);
+    expect(find.textContaining('Only the broadcaster'), findsNothing);
 
     // As the broadcaster the rosters and stream tools render.
     await tester.pumpWidget(
@@ -337,7 +339,8 @@ void main() {
     expect(find.textContaining('Only the broadcaster'), findsNothing);
     expect(find.text('bannedlogin'), findsOneWidget);
     expect(find.text('rosmod'), findsOneWidget);
-    expect(find.text('No active poll. Create one with /poll.'), findsOneWidget);
+    expect(find.text('No active poll.'), findsOneWidget);
+    expect(find.text('Start poll'), findsOneWidget);
     expect(
       find.text('No open prediction. Create one with /prediction.'),
       findsOneWidget,
