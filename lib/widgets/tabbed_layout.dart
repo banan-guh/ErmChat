@@ -375,31 +375,34 @@ class TabbedLayoutState extends State<TabbedLayout>
                   ),
                   child: SizedBox(
                     height: 40,
-                    child: TabBar(
-                      controller: _tabController,
-                      onTap: _onTabTap,
-                      isScrollable: true,
-                      tabAlignment: _resolveTabAlignment(),
-                      labelPadding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 0,
-                      ),
-                      indicator: BoxDecoration(
-                        border: Border(
-                          bottom: BorderSide(
-                            color: theme.colorScheme.primary,
-                            width: 2,
+                    child: ScrollConfiguration(
+                      behavior: const _SwipeScrollBehavior(),
+                      child: TabBar(
+                        controller: _tabController,
+                        onTap: _onTabTap,
+                        isScrollable: true,
+                        tabAlignment: _resolveTabAlignment(),
+                        labelPadding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 0,
+                        ),
+                        indicator: BoxDecoration(
+                          border: Border(
+                            bottom: BorderSide(
+                              color: theme.colorScheme.primary,
+                              width: 2,
+                            ),
                           ),
                         ),
+                        indicatorSize: TabBarIndicatorSize.label,
+                        tabs: List.generate(tabs.length, (i) {
+                          return Tab(
+                            child:
+                                widget.tabBuilder?.call(context, i) ??
+                                Text(tabs[i]),
+                          );
+                        }),
                       ),
-                      indicatorSize: TabBarIndicatorSize.label,
-                      tabs: List.generate(tabs.length, (i) {
-                        return Tab(
-                          child:
-                              widget.tabBuilder?.call(context, i) ??
-                              Text(tabs[i]),
-                        );
-                      }),
                     ),
                   ),
                 )
