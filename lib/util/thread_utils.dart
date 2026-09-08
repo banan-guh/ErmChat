@@ -1,5 +1,14 @@
 import '../models/twitch_message.dart';
 
+final _wsCollapseRe = RegExp(r'\s+');
+
+/// Single-line reply preview: trims, collapses runs, truncates.
+String formatReplyPreview(String text, {int maxLen = 60}) {
+  final collapsed = text.trim().replaceAll(_wsCollapseRe, ' ');
+  if (collapsed.length > maxLen) return '${collapsed.substring(0, maxLen)}...';
+  return collapsed;
+}
+
 String resolveThreadRootId(String messageId, Map<String, String> parentOf) {
   var cur = messageId;
   final seen = <String>{cur};

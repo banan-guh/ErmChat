@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show HapticFeedback;
 import '../third_party/flutter_list_view/flutter_list_view.dart';
 import '../models/twitch_message.dart';
+import '../util/thread_utils.dart';
 import '../services/seven_tv_paint_service.dart';
 import '../util/timestamp_formatter.dart';
 import '../util/haptics.dart';
@@ -477,10 +478,7 @@ class _ChatViewState extends State<ChatView>
   }
 
   Widget _buildReplyIndicator(BuildContext context, TwitchMessage msg) {
-    final replyPreview = (msg.replyToText ?? '').trimLeft();
-    final preview = replyPreview.length > 60
-        ? '${replyPreview.substring(0, 60)}...'
-        : replyPreview;
+    final preview = formatReplyPreview(msg.replyToText ?? '');
     final variant = Theme.of(context).colorScheme.onSurfaceVariant;
     return Padding(
       padding: const EdgeInsets.only(left: 12, top: 2),

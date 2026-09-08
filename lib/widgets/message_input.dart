@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../models/twitch_message.dart';
+import '../util/thread_utils.dart';
 
 class MessageInput extends StatelessWidget {
   final TextEditingController controller;
@@ -82,8 +83,7 @@ class MessageInput extends StatelessWidget {
                             ),
                           ),
                           TextSpan(
-                            text:
-                                ': ${replyToMsg!.text.trimLeft().length > 60 ? '${replyToMsg!.text.trimLeft().substring(0, 60)}...' : replyToMsg!.text.trimLeft()}',
+                            text: ': ${formatReplyPreview(replyToMsg!.text)}',
                             style: TextStyle(
                               fontSize: 12,
                               color: theme.colorScheme.onSurfaceVariant,
