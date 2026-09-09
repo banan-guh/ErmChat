@@ -127,29 +127,8 @@ class _DevSettingsScreenState extends State<DevSettingsScreen> {
       }
     }
 
-    // Test 1: Local boink fixture
-    try {
-      final assetData = await rootBundle.load(
-        'test/fixtures/7tv_boink_2x.webp',
-      );
-      await runTest(
-        'Local boink (190x64, animated WebP)',
-        assetData.buffer.asUint8List(),
-      );
-    } catch (e) {
-      log('Local boink test failed: $e');
-    }
-
-    // Test 2: Local kiss fixture
-    try {
-      final assetData = await rootBundle.load('test/fixtures/7tv_kiss_2x.webp');
-      await runTest(
-        'Local kiss (64x64, animated WebP)',
-        assetData.buffer.asUint8List(),
-      );
-    } catch (e) {
-      log('Local kiss test failed: $e');
-    }
+    // Local fixtures live under test/ and are not shipped as release assets,
+    // so the benchmark uses a remote emote instead.
 
     // Test 3: Fetch a real 7TV emote
     try {
