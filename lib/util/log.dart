@@ -5,7 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
 /// Whether debug logging is enabled. Tests set this to false.
-bool debugLogEnabled = true;
+bool debugLogEnabled = !kReleaseMode;
 
 /// App logging hook. Use instead of [debugPrint] so tests can silence noise.
 void logDebug(String? message, {int? wrapWidth}) {
