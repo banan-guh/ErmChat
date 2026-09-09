@@ -273,6 +273,7 @@ class MessageMenus {
       title: 'Warn ${msg.login}?',
       label: 'Reason (optional)',
       confirmLabel: 'Warn',
+      allowEmpty: true,
     );
     if (reason == null || !context.mounted) return;
     final warnResult = await modActions.warnUser(
@@ -294,6 +295,7 @@ class MessageMenus {
       title: 'Ban ${msg.login}?',
       label: 'Reason (optional)',
       confirmLabel: 'Ban',
+      allowEmpty: true,
     );
     if (reason == null || !context.mounted) return;
     final banResult = await modActions.banUser(

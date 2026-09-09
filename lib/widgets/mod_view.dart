@@ -128,6 +128,33 @@ Future<({int seconds, String? reason})?> showTimeoutDialog(
   return pending;
 }
 
+/// Simple destructive confirm. True means confirmed.
+Future<bool> showModConfirmDialog(
+  BuildContext context, {
+  required String title,
+  required String body,
+  required String confirmLabel,
+}) async {
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: Text(title),
+      content: Text(body),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, false),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(ctx, true),
+          child: Text(confirmLabel),
+        ),
+      ],
+    ),
+  );
+  return confirmed == true;
+}
+
 /// Single text field dialog (reasons, usernames). Null means cancelled.
 Future<String?> showModTextDialog(
   BuildContext context, {

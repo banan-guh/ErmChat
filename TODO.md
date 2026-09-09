@@ -56,7 +56,7 @@
 - [ ] **VOD / clip chat replay** - past broadcasts + clips with synced read-only chat.
 - [ ] **iOS mention push** - android works, apple server doesn't exist yet.
 - [ ] **Notification tuning** - quiet hours, per-channel mutes, sender cooldowns, collapse sub train bursts.
-- [ ] **Chat search** - search/filter messages while scrolled up.
+- [x] **Chat search** - search/filter messages while scrolled up.
 - [x] **Slow mode countdown** - countdown on the input box hint, ticks in place; timeouts too (CLEARCHAT ban-duration), mod/vip/sub badges bypass slow.
 - [-] **Emote favorites** - recents exist, favs don't.
 - [+] **EXIF strip before upload** - JPEGs re-encoded without metadata before upload, orientation baked in; other formats untouched.
@@ -90,3 +90,4 @@
 - emotes don't pick max quality after low -> high X
 - test emotes on low / high
 - user panel janky with msgs X
+- chat msg delta doesn't work with unrendered msgs

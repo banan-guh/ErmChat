@@ -646,6 +646,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
         title: 'Ban ${widget.username}?',
         label: 'Reason (optional)',
         confirmLabel: 'Ban',
+        allowEmpty: true,
       );
       if (reason == null || !mounted) return;
       final result = await modActions.banUser(
@@ -678,6 +679,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
       title: 'Warn ${widget.username}?',
       label: 'Reason (optional)',
       confirmLabel: 'Warn',
+      allowEmpty: true,
     );
     if (reason == null || !mounted) return;
     final result = await modActions.warnUser(
