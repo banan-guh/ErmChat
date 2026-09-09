@@ -68,16 +68,7 @@ class ChromeMenuButtonState extends State<ChromeMenuButton> {
         final active = widget.streamActive?.call() ?? false;
         return [
           if (showMod)
-            const PopupMenuItem(
-              value: 'modview',
-              child: Row(
-                children: [
-                  Icon(Icons.shield_outlined, size: 20),
-                  SizedBox(width: 12),
-                  Text('Mod view'),
-                ],
-              ),
-            ),
+            const PopupMenuItem(value: 'modview', child: Text('Mod view')),
           const PopupMenuItem(value: 'search', child: Text('Search')),
           const PopupMenuItem(
             value: 'fullscreen',
