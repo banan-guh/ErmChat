@@ -141,8 +141,11 @@ class UserSheets {
     // Compact card: history reveals by scrolling. Settle releases only when
     // the gesture moved the sheet, so list scrolling cannot collapse it.
     // Dismiss through the route for one continuous exit motion. Mod rows
-    // show wherever the user moderates (EventSub-gated, works offline).
-    final canModerate = channel != null && chatConn.isModerationActive(channel);
+    // show only when the channel is live and the user moderates it.
+    final canModerate =
+        channel != null &&
+        chatConn.isModerationActive(channel) &&
+        (chatStore.chatStatus[channel] ?? '').contains('Live');
     final login = host.sessionLogin;
     final isSelf =
         login != null && username.toLowerCase() == login.toLowerCase();
@@ -174,7 +177,7 @@ class UserSheets {
 
     // Opening estimates until the first measurement lands and settles the
     // sheet onto the real card size.
-    final initialChildSize = canModerate && !isSelf ? 0.675 : 0.43;
+    final initialChildSize = canModerate && !isSelf ? 0.6 : 0.43;
     _cardExtent = initialChildSize;
     _settledTarget = initialChildSize;
     showModalBottomSheet(

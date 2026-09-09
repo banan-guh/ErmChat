@@ -29,7 +29,8 @@ class UserProfileSheet extends StatefulWidget {
   final VoidCallback? onWhisperUser;
 
   /// Mod action executor plus the channel they apply to. Null (or
-  /// [canModerate] false) hides the Timeout/Ban/Unban/Warn rows.
+  /// [canModerate] false) hides the Timeout/Ban/Unban/Warn rows. The opener
+  /// gates [canModerate] on live plus moderator status.
   final ModActions? modActions;
   final String? channel;
   final bool canModerate;
@@ -693,48 +694,6 @@ class UserProfileSheetState extends State<UserProfileSheet> {
     showModError(context, result);
   }
 
-  Future<void> _modShoutout() async {
-    final modActions = widget.modActions;
-    final channel = widget.channel;
-    if (modActions == null || channel == null) return;
-    final result = await modActions.sendShoutout(
-      widget.twitchAuth,
-      channel,
-      login: widget.username,
-      userId: _targetUserId,
-    );
-    if (!mounted) return;
-    if (result.ok) {
-      AppSnack.show(context, 'Shoutout sent to ${widget.displayName}');
-    } else {
-      showModError(context, result);
-    }
-  }
-
-  Future<void> _modSuspicious(bool restricted) async {
-    final modActions = widget.modActions;
-    final channel = widget.channel;
-    if (modActions == null || channel == null) return;
-    final result = await modActions.setSuspiciousStatus(
-      widget.twitchAuth,
-      channel,
-      login: widget.username,
-      userId: _targetUserId,
-      restricted: restricted,
-    );
-    if (!mounted) return;
-    if (result.ok) {
-      AppSnack.show(
-        context,
-        restricted
-            ? 'Restricted ${widget.displayName}'
-            : 'Monitoring ${widget.displayName}',
-      );
-    } else {
-      showModError(context, result);
-    }
-  }
-
   Future<void> _clearSuspicious() async {
     final modActions = widget.modActions;
     final channel = widget.channel;
@@ -864,24 +823,6 @@ class UserProfileSheetState extends State<UserProfileSheet> {
           leading: const Icon(Icons.warning_amber_outlined),
           title: const Text('Warn'),
           onTap: _modWarn,
-        ),
-        ListTile(
-          dense: true,
-          leading: const Icon(Icons.campaign_outlined),
-          title: const Text('Shoutout'),
-          onTap: _modShoutout,
-        ),
-        ListTile(
-          dense: true,
-          leading: const Icon(Icons.visibility_outlined),
-          title: const Text('Monitor'),
-          onTap: () => _modSuspicious(false),
-        ),
-        ListTile(
-          dense: true,
-          leading: const Icon(Icons.shield_outlined),
-          title: const Text('Restrict'),
-          onTap: () => _modSuspicious(true),
         ),
         if (widget.suspiciousInfo != null)
           ListTile(
