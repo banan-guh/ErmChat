@@ -25,6 +25,7 @@ import '../services/link_whitelist.dart';
 import '../services/emote_manager.dart';
 import '../services/data_usage.dart';
 import '../services/stream_player_controller.dart';
+import '../services/pip_service.dart';
 import '../services/analytics_service.dart';
 import '../services/twitch_badge_service.dart';
 import '../services/third_party_badge_service.dart';
@@ -85,6 +86,7 @@ class HomeScreen extends StatefulWidget {
   final RecentMessagesService? recentMessagesService;
   final ConnectivityService? connectivityService;
   final TwitchBadgeService? badgeService;
+  final PipService? pipService;
   final String? initialCurrentUserLogin;
 
   const HomeScreen({
@@ -100,6 +102,7 @@ class HomeScreen extends StatefulWidget {
     this.recentMessagesService,
     this.connectivityService,
     this.badgeService,
+    this.pipService,
     this.initialCurrentUserLogin,
   });
 
@@ -283,6 +286,7 @@ class _HomeScreenState extends State<HomeScreen>
     probe: _connectivityService.checkConnectivity,
   );
   late final _badgeService = widget.badgeService ?? TwitchBadgeService();
+  late final _pipService = widget.pipService ?? PipService();
   late final _thirdPartyBadgeService = ThirdPartyBadgeService();
   late final _sevenTvPaintService = SevenTvPaintService();
   final _userStore = UserStore();
@@ -570,6 +574,7 @@ class _HomeScreenState extends State<HomeScreen>
 
   late final _stream = StreamPanels(
     streamPlayer: _streamPlayer,
+    pipService: _pipService,
     chatStore: _chatStore,
     channels: _channels,
     homeAppBar: _chrome,
@@ -755,6 +760,17 @@ class _HomeScreenState extends State<HomeScreen>
     unawaited(_ignoreManager.load());
     unawaited(_linkWhitelist.load());
     unawaited(_streamPlayer.loadPrefs());
+    _streamPlayer.pipService = _pipService;
+    _pipService.onPipChanged = (inPip) {
+      if (!mounted) return;
+      // No context here (channel callback), so dismiss globally. Covers
+      // the auto-enter path where no overlay button runs first.
+      if (inPip) FocusManager.instance.primaryFocus?.unfocus();
+      setState(() => _streamPlayer.setPipActive(inPip));
+    };
+    // PiP window taps land on the controller; the player view (which owns
+    // the WebView) consumes them via its controller listener.
+    _pipService.onPipAction = _streamPlayer.notifyPipAction;
     _streamPlayer.addListener(_stream.onStreamPlayerChanged);
     _linkWhitelist.addListener(_onLinkWhitelistChanged);
     _loadNotificationSettings();
@@ -1415,6 +1431,7 @@ class _HomeScreenState extends State<HomeScreen>
     _emoteManager.removeListener(_onEmotesChanged);
     _linkWhitelist.removeListener(_onLinkWhitelistChanged);
     _streamPlayer.removeListener(_stream.onStreamPlayerChanged);
+    _pipService.dispose();
     _streamPlayer.dispose();
     _emoteManager.dispose();
     widget.twitchAuth.removeListener(_onAuthChanged);
@@ -1586,6 +1603,7 @@ class _HomeScreenState extends State<HomeScreen>
           emoteManager: _emoteManager,
           onStreamExtensionsChanged: _streamPlayer.setShowExtensions,
           onRetainWebviewChanged: _streamPlayer.setRetainWebview,
+          onPipEnabledChanged: _streamPlayer.setPipEnabled,
           onTestWidgetsChanged: _broadcastWidgets.setTestWidgets,
         ),
       ),
@@ -1746,69 +1764,72 @@ class _HomeScreenState extends State<HomeScreen>
         // the system motion (behind-ahead-behind). Discrete rules read the
         // debounced lift in ChatBody so they flip once per gesture.
         resizeToAvoidBottomInset: true,
-        body: ChatBody(
-          emoteMaxFraction: _emoteMaxFraction,
-          // Read above the Scaffold: the body subtree sees viewInsets
-          // stripped to zero once the Scaffold consumes them resizing.
-          keyboardH: MediaQuery.viewInsetsOf(context).bottom,
-          bodyBuilder:
-              (
-                context, {
-                required hideChromeForKeyboard,
-                required maxWidth,
-                required maxHeight,
-                required keyboardH,
-                required composerH,
-              }) {
-                return ListenableBuilder(
-                  listenable: _streamPlayer,
-                  builder: (_, _) => _stream.bodyColumn(
+        body: ListenableBuilder(
+          listenable: _streamPlayer,
+          builder: (_, _) => ChatBody(
+            emoteMaxFraction: _emoteMaxFraction,
+            // Read above the Scaffold: the body subtree sees viewInsets
+            // stripped to zero once the Scaffold consumes them resizing.
+            keyboardH: MediaQuery.viewInsetsOf(context).bottom,
+            // System PiP collapses the whole body to video-only; ChatBody
+            // drops composer/panels/notice so the window shows the stream.
+            isInPip: _streamPlayer.isInPip,
+            bodyBuilder:
+                (
+                  context, {
+                  required hideChromeForKeyboard,
+                  required maxWidth,
+                  required maxHeight,
+                  required keyboardH,
+                  required composerH,
+                }) {
+                  return _stream.bodyColumn(
                     context,
                     hideChromeForKeyboard: hideChromeForKeyboard,
                     maxWidth: maxWidth,
                     maxHeight: maxHeight,
                     keyboardH: keyboardH,
                     composerH: composerH,
-                  ),
-                );
-              },
-          threadPanel: _threads.threadPanel(
-            context,
-            overlaySheet: _buildOverlaySheet,
-            closePanel: _closePanel,
-          ),
-          mentionsPanel: _mentions.mentionsPanel(
-            context,
-            overlaySheet: _buildOverlaySheet,
-            closePanel: _closePanel,
-          ),
-          modViewPanel: _mod.modViewPanel(
-            context,
-            overlaySheet: _buildOverlaySheet,
-            closePanel: _closePanel,
-            onShowUser: (login) =>
-                _userSheets.showUserProfile(context, login, null),
-          ),
-          emotePickerBuilder: (context, {required sheetBoxHeight}) =>
-              _buildEmotePicker(sheetBoxHeight: sheetBoxHeight),
-          autocomplete: ValueListenableBuilder<List<Suggestion>>(
-            valueListenable: _composer.suggestions,
-            builder: (_, suggestions, _) => AutocompleteDropdown(
-              suggestions: suggestions,
-              onSelect: _composer.selectSuggestion,
-              onEmoteViewed: _emoteManager.markEmoteViewed,
+                  );
+                },
+            threadPanel: _threads.threadPanel(
+              context,
+              overlaySheet: _buildOverlaySheet,
+              closePanel: _closePanel,
             ),
+            mentionsPanel: _mentions.mentionsPanel(
+              context,
+              overlaySheet: _buildOverlaySheet,
+              closePanel: _closePanel,
+            ),
+            modViewPanel: _mod.modViewPanel(
+              context,
+              overlaySheet: _buildOverlaySheet,
+              closePanel: _closePanel,
+              onShowUser: (login) =>
+                  _userSheets.showUserProfile(context, login, null),
+            ),
+            emotePickerBuilder: (context, {required sheetBoxHeight}) =>
+                _buildEmotePicker(sheetBoxHeight: sheetBoxHeight),
+            autocomplete: ValueListenableBuilder<List<Suggestion>>(
+              valueListenable: _composer.suggestions,
+              builder: (_, suggestions, _) => AutocompleteDropdown(
+                suggestions: suggestions,
+                onSelect: _composer.selectSuggestion,
+                onEmoteViewed: _emoteManager.markEmoteViewed,
+              ),
+            ),
+            composer: _showInput
+                ? ComposerBar(
+                    controller: _composer,
+                    selectedTabIndex: _selectedTabIndex,
+                    search: _search,
+                    mod: _mod,
+                    dragTick: _panelDragTick,
+                  )
+                : null,
+            notice: ChatNoticeBar(controller: _chatNotice),
           ),
-          composer: _showInput
-              ? ComposerBar(
-                  controller: _composer,
-                  selectedTabIndex: _selectedTabIndex,
-                  search: _search,
-                  mod: _mod,
-                  dragTick: _panelDragTick,
-                )
-              : null,
-          notice: ChatNoticeBar(controller: _chatNotice),
         ),
       ),
     );

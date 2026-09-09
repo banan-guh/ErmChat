@@ -6783,6 +6783,24 @@ void main() {
       expect(toggled, isTrue);
     });
   });
+
+  group('PiP body collapse', () {
+    testWidgets('video-only tree hides composer and panels', (tester) async {
+      await tester.pumpWidget(_pipCollapseHarness(isInPip: true));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('pip-video')), findsOneWidget);
+      expect(find.byKey(const Key('pip-composer')), findsNothing);
+      expect(find.byKey(const Key('pip-thread')), findsNothing);
+    });
+
+    testWidgets('normal tree keeps composer and panels', (tester) async {
+      await tester.pumpWidget(_pipCollapseHarness(isInPip: false));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('pip-video')), findsOneWidget);
+      expect(find.byKey(const Key('pip-composer')), findsOneWidget);
+      expect(find.byKey(const Key('pip-thread')), findsOneWidget);
+    });
+  });
 }
 
 // Bar over a fake composer through the real ChatBody, so overlay order and
@@ -6892,6 +6910,34 @@ Widget _stackedPlayerHarness({
         emoteMaxFraction: 0.6,
         keyboardH: keyboardH,
         composer: const SizedBox(height: 56),
+      ),
+    ),
+  );
+}
+
+Widget _pipCollapseHarness({required bool isInPip}) {
+  return MaterialApp(
+    home: Scaffold(
+      body: ChatBody(
+        bodyBuilder:
+            (
+              context, {
+              required hideChromeForKeyboard,
+              required maxWidth,
+              required maxHeight,
+              required keyboardH,
+              required composerH,
+            }) => Container(key: const Key('pip-video')),
+        threadPanel: const SizedBox(key: Key('pip-thread')),
+        mentionsPanel: const SizedBox.shrink(),
+        modViewPanel: const SizedBox.shrink(),
+        emotePickerBuilder: (context, {required sheetBoxHeight}) =>
+            const SizedBox.shrink(),
+        autocomplete: const SizedBox.shrink(),
+        emoteMaxFraction: 0.5,
+        keyboardH: 0,
+        isInPip: isInPip,
+        composer: const SizedBox(key: Key('pip-composer'), height: 56),
       ),
     ),
   );

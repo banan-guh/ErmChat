@@ -54,6 +54,7 @@ class ChatBody extends StatefulWidget {
     required this.keyboardH,
     this.composer,
     this.notice,
+    this.isInPip = false,
   });
 
   final ChatBodyBuilder bodyBuilder;
@@ -64,6 +65,11 @@ class ChatBody extends StatefulWidget {
   final Widget autocomplete;
   final double emoteMaxFraction;
   final Widget? composer;
+
+  /// System PiP mode: render the body builder output only. Composer,
+  /// panels, picker, autocomplete, and notice stay out of the tree so the
+  /// OS window shows just the video (the activity is what shrinks).
+  final bool isInPip;
 
   /// Inline notice bar floating over the chat, anchored above the composer.
   /// In the body stack (not the Scaffold overlay), so it tracks keyboard
@@ -200,6 +206,16 @@ class _ChatBodyState extends State<ChatBody> {
         Expanded(
           child: LayoutBuilder(
             builder: (context, constraints) {
+              if (widget.isInPip) {
+                return widget.bodyBuilder(
+                  context,
+                  hideChromeForKeyboard: false,
+                  maxWidth: constraints.maxWidth,
+                  maxHeight: constraints.maxHeight,
+                  keyboardH: 0,
+                  composerH: 0,
+                );
+              }
               final statusBarH = MediaQuery.paddingOf(context).top;
               if (rawH <= 0.5) {
                 _fullBoxHeight = constraints.maxHeight;
@@ -271,13 +287,14 @@ class _ChatBodyState extends State<ChatBody> {
             },
           ),
         ),
-        composer == null
-            ? const SizedBox.shrink()
-            : Padding(
-                key: inputBarKey,
-                padding: EdgeInsets.only(bottom: bottomPad),
-                child: composer,
-              ),
+        if (!widget.isInPip)
+          composer == null
+              ? const SizedBox.shrink()
+              : Padding(
+                  key: inputBarKey,
+                  padding: EdgeInsets.only(bottom: bottomPad),
+                  child: composer,
+                ),
       ],
     );
   }

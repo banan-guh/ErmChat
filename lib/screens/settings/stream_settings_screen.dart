@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -9,11 +10,13 @@ import 'settings_page.dart';
 class StreamSettingsScreen extends StatefulWidget {
   final ValueChanged<bool>? onShowExtensionsChanged;
   final ValueChanged<bool>? onRetainWebviewChanged;
+  final ValueChanged<bool>? onPipEnabledChanged;
 
   const StreamSettingsScreen({
     super.key,
     this.onShowExtensionsChanged,
     this.onRetainWebviewChanged,
+    this.onPipEnabledChanged,
   });
 
   @override
@@ -23,6 +26,7 @@ class StreamSettingsScreen extends StatefulWidget {
 class _StreamSettingsScreenState extends State<StreamSettingsScreen> {
   bool _showExtensions = false;
   bool _retainWebview = true;
+  bool _pipEnabled = false;
 
   @override
   void initState() {
@@ -38,6 +42,8 @@ class _StreamSettingsScreenState extends State<StreamSettingsScreen> {
           prefs.getBool(StreamPlayerController.showExtensionsKey) ?? false;
       _retainWebview =
           prefs.getBool(StreamPlayerController.retainWebviewKey) ?? true;
+      _pipEnabled =
+          prefs.getBool(StreamPlayerController.pipEnabledKey) ?? false;
     });
   }
 
@@ -80,6 +86,22 @@ class _StreamSettingsScreenState extends State<StreamSettingsScreen> {
               widget.onRetainWebviewChanged?.call(value);
             },
           ),
+          if (Platform.isAndroid)
+            SwitchListTile(
+              secondary: const Icon(Icons.picture_in_picture),
+              title: const Text('Picture-in-picture'),
+              subtitle: const Text(
+                'Float the stream over other apps (Android 12+, needs Retain player)',
+              ),
+              value: _pipEnabled,
+              onChanged: (value) {
+                setState(() => _pipEnabled = value);
+                unawaited(
+                  _setBool(StreamPlayerController.pipEnabledKey, value),
+                );
+                widget.onPipEnabledChanged?.call(value);
+              },
+            ),
         ],
       ),
     );

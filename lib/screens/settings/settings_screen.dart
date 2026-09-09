@@ -64,6 +64,7 @@ class SettingsScreen extends StatelessWidget {
   final EmoteManager? emoteManager;
   final ValueChanged<bool>? onStreamExtensionsChanged;
   final ValueChanged<bool>? onRetainWebviewChanged;
+  final ValueChanged<bool>? onPipEnabledChanged;
 
   /// Live hook for the dev-only test-widgets toggle (About > 7 taps).
   final ValueChanged<bool>? onTestWidgetsChanged;
@@ -117,6 +118,7 @@ class SettingsScreen extends StatelessWidget {
     this.emoteManager,
     this.onStreamExtensionsChanged,
     this.onRetainWebviewChanged,
+    this.onPipEnabledChanged,
     this.onTestWidgetsChanged,
   });
 
@@ -225,6 +227,7 @@ class SettingsScreen extends StatelessWidget {
                 builder: (_) => StreamSettingsScreen(
                   onShowExtensionsChanged: onStreamExtensionsChanged,
                   onRetainWebviewChanged: onRetainWebviewChanged,
+                  onPipEnabledChanged: onPipEnabledChanged,
                 ),
               ),
             ),

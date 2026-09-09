@@ -3,18 +3,37 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'pip_service.dart';
+
 /// Per-channel Twitch stream player state. Ports DankChat's StreamViewModel:
 /// one player instance, `toggleStream` flips per channel, closing on leave.
 class StreamPlayerController extends ChangeNotifier {
   static const showExtensionsKey = 'stream_show_extensions';
   static const retainWebviewKey = 'stream_retain_webview';
   static const splitFractionKey = 'stream_split_fraction';
+  static const pipEnabledKey = 'stream_pip_enabled';
+
+  /// Platform bridge for system Picture-in-Picture. Set by HomeScreen;
+  /// null in contexts without a host (unit tests until faked).
+  PipService? pipService;
 
   String? _currentChannel;
   bool _isAudioOnly = false;
   bool _isTheaterMode = false;
   bool _showExtensions = false;
   bool _retainWebview = true;
+  bool _pipEnabled = false;
+  bool _isInPip = false;
+
+  /// Last play state observed from the player page (null until known).
+  /// Drives the PiP window's play/pause action icon.
+  bool? _pipPlaying;
+  bool? get pipPlaying => _pipPlaying;
+
+  /// Action tapped in the PiP window (`play`/`pause`/`audio`), waiting for
+  /// the view (which owns the WebView) to consume it. Single slot: the
+  /// window only offers one tap at a time in practice.
+  String? _pendingPipAction;
   double _splitFraction = 0.5;
   int _generation = 0;
   bool hasEverAttached = false;
@@ -25,8 +44,20 @@ class StreamPlayerController extends ChangeNotifier {
   bool get isTheaterMode => _isTheaterMode;
   bool get showExtensions => _showExtensions;
   bool get retainWebview => _retainWebview;
+  bool get pipEnabled => _pipEnabled;
+  bool get isInPip => _isInPip;
   double get splitFraction => _splitFraction;
   int get generation => _generation;
+
+  /// PiP eligibility, manual and auto alike: an active video player with PiP
+  /// opted in. Audio-only never enters PiP (its audio already plays), and a
+  /// non-retained WebView would blank the window on channel switches.
+  bool get canPip =>
+      isActive &&
+      !isAudioOnly &&
+      _pipEnabled &&
+      _retainWebview &&
+      pipService != null;
 
   String playerUrl(String channel) {
     final encoded = Uri.encodeComponent(channel);
@@ -38,6 +69,7 @@ class StreamPlayerController extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     _showExtensions = prefs.getBool(showExtensionsKey) ?? false;
     _retainWebview = prefs.getBool(retainWebviewKey) ?? true;
+    _pipEnabled = prefs.getBool(pipEnabledKey) ?? false;
     _splitFraction = (prefs.getDouble(splitFractionKey) ?? 0.5).clamp(0.2, 0.8);
     notifyListeners();
   }
@@ -50,6 +82,7 @@ class StreamPlayerController extends ChangeNotifier {
     _currentChannel = channel;
     _isAudioOnly = false;
     _isTheaterMode = false;
+    _isInPip = false;
     notifyListeners();
   }
 
@@ -57,6 +90,7 @@ class StreamPlayerController extends ChangeNotifier {
     _currentChannel = null;
     _isAudioOnly = false;
     _isTheaterMode = false;
+    _isInPip = false;
     notifyListeners();
   }
 
@@ -91,6 +125,47 @@ class StreamPlayerController extends ChangeNotifier {
   void setRetainWebview(bool value) {
     _retainWebview = value;
     notifyListeners();
+  }
+
+  void setPipEnabled(bool value) {
+    _pipEnabled = value;
+    notifyListeners();
+  }
+
+  /// Manual PiP entry for the player overlay button. Guards on [canPip];
+  /// the actual mode change arrives via [setPipActive] from the host.
+  Future<void> enterPip() async {
+    if (!canPip) return;
+    await pipService?.enterPip();
+  }
+
+  /// Host callback when the OS PiP window opens or closes. Entering PiP
+  /// exits theater mode (theater is a fullscreen-layout concept).
+  void setPipActive(bool value) {
+    if (_isInPip == value) return;
+    _isInPip = value;
+    if (value) _isTheaterMode = false;
+    notifyListeners();
+  }
+
+  /// Records observed play state; notifies only on flips (icon sync).
+  void setPipPlaying(bool value) {
+    if (_pipPlaying == value) return;
+    _pipPlaying = value;
+    notifyListeners();
+  }
+
+  /// Queues a PiP window action tap for the view to consume.
+  void notifyPipAction(String action) {
+    _pendingPipAction = action;
+    notifyListeners();
+  }
+
+  /// Takes the queued action, if any. No notify: the consumer acts at once.
+  String? takePipAction() {
+    final action = _pendingPipAction;
+    _pendingPipAction = null;
+    return action;
   }
 
   void setSplitFraction(double value) {

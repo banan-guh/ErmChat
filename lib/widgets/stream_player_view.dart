@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -7,6 +8,7 @@ import 'package:webview_flutter_android/webview_flutter_android.dart';
 import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
 
 import '../services/stream_player_controller.dart';
+import '../util/log.dart';
 
 const _blankUrl = 'about:blank';
 
@@ -23,12 +25,17 @@ class StreamPlayerView extends StatefulWidget {
   final bool fillPane;
   final bool visible;
 
+  /// Hides the overlay controls and tap catcher. Used by the PiP-only
+  /// layout: the OS window is tiny and provides its own close.
+  final bool showControls;
+
   const StreamPlayerView({
     super.key,
     required this.controller,
     required this.channel,
     this.fillPane = false,
     this.visible = true,
+    this.showControls = true,
   });
 
   @override
@@ -48,10 +55,26 @@ class _StreamPlayerViewState extends State<StreamPlayerView> {
   @override
   void initState() {
     super.initState();
+    widget.controller.addListener(_consumePipAction);
     _webController =
         WebViewController.fromPlatformCreationParams(_creationParams())
           ..setJavaScriptMode(JavaScriptMode.unrestricted)
           ..setBackgroundColor(Colors.transparent)
+          // TEMP DIAG (buffering hunt): reports video stall lifecycle to
+          // logcat. The playing/pause events below double as the PiP
+          // window's play-state source; keep those when this goes away.
+          ..addJavaScriptChannel(
+            'StreamStall',
+            onMessageReceived: (message) {
+              logDebug('[StreamPlayer] video event: ${message.message}');
+              switch (message.message) {
+                case 'playing':
+                  widget.controller.setPipPlaying(true);
+                case 'pause':
+                  widget.controller.setPipPlaying(false);
+              }
+            },
+          )
           ..setNavigationDelegate(
             NavigationDelegate(
               onNavigationRequest: _onNavigationRequest,
@@ -60,6 +83,7 @@ class _StreamPlayerViewState extends State<StreamPlayerView> {
                 if (mounted) {
                   setState(() => _pageLoaded = true);
                   _revealOverlay();
+                  _hookStallEvents();
                 }
               },
               onWebResourceError: (error) {
@@ -74,9 +98,34 @@ class _StreamPlayerViewState extends State<StreamPlayerView> {
 
   @override
   void dispose() {
+    widget.controller.removeListener(_consumePipAction);
     _resumeTimer?.cancel();
     _overlayTimer?.cancel();
     super.dispose();
+  }
+
+  // PiP window action taps arrive via the controller (the WebView lives
+  // here). Play/pause run straight against the video element; audio flips
+  // the shared audio-only mode so the rest of the UI follows.
+  void _consumePipAction() {
+    final action = widget.controller.takePipAction();
+    if (action == null || !mounted) return;
+    switch (action) {
+      case 'play':
+        unawaited(
+          _webController
+              .runJavaScript("document.querySelector('video')?.play()")
+              .catchError((Object _) {}),
+        );
+      case 'pause':
+        unawaited(
+          _webController
+              .runJavaScript("document.querySelector('video')?.pause()")
+              .catchError((Object _) {}),
+        );
+      case 'audio':
+        widget.controller.toggleAudioOnly();
+    }
   }
 
   PlatformWebViewControllerCreationParams _creationParams() {
@@ -108,11 +157,44 @@ class _StreamPlayerViewState extends State<StreamPlayerView> {
   void _reload() {
     _lastUrl = widget.controller.playerUrl(widget.channel);
     _lastGeneration = widget.controller.generation;
+    logDebug(
+      '[StreamPlayer] reload channel=${widget.channel} '
+      'generation=$_lastGeneration',
+    );
     setState(() {
       _pageLoaded = false;
       _error = null;
     });
     unawaited(_webController.loadRequest(Uri.parse(_lastUrl!)));
+  }
+
+  // TEMP DIAG (buffering hunt): hooks video stall events. Idempotent per
+  // page load; remove with the StreamStall channel above.
+  void _hookStallEvents() {
+    unawaited(
+      _webController
+          .runJavaScript('''
+{
+  if (!window._ermStallHook) {
+    window._ermStallHook = true;
+    let tries = 0;
+    const hook = setInterval(() => {
+      const v = document.querySelector('video');
+      if (v && !v._ermHooked) {
+        v._ermHooked = true;
+        clearInterval(hook);
+        for (const e of ['waiting', 'playing', 'pause', 'stalled', 'suspend']) {
+          v.addEventListener(e, () => StreamStall.postMessage(e));
+        }
+      } else if (++tries > 40) {
+        clearInterval(hook);
+      }
+    }, 500);
+  }
+}
+''')
+          .catchError((Object _) {}),
+    );
   }
 
   @override
@@ -164,8 +246,15 @@ class _StreamPlayerViewState extends State<StreamPlayerView> {
       children: [
         framed,
         if (_error != null) _buildErrorOverlay(),
-        if (_pageLoaded && _error == null && _overlayVisible) _buildOverlay(),
-        if (_pageLoaded && _error == null && !_overlayVisible)
+        if (widget.showControls &&
+            _pageLoaded &&
+            _error == null &&
+            _overlayVisible)
+          _buildOverlay(),
+        if (widget.showControls &&
+            _pageLoaded &&
+            _error == null &&
+            !_overlayVisible)
           Positioned.fill(
             child: GestureDetector(
               behavior: HitTestBehavior.translucent,
@@ -213,6 +302,17 @@ class _StreamPlayerViewState extends State<StreamPlayerView> {
               onPressed: controller.toggleAudioOnly,
             ),
             const SizedBox(width: 6),
+            if (Platform.isAndroid && controller.canPip)
+              _overlayButton(
+                icon: Icons.picture_in_picture,
+                tooltip: 'Picture-in-picture',
+                onPressed: () {
+                  FocusScope.of(context).unfocus();
+                  unawaited(controller.enterPip());
+                },
+              ),
+            if (Platform.isAndroid && controller.canPip)
+              const SizedBox(width: 6),
             if (landscape)
               _overlayButton(
                 icon: controller.isTheaterMode

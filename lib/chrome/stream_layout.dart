@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../services/chat_store.dart';
+import '../services/pip_service.dart';
 import '../services/stream_player_controller.dart';
 import '../widgets/stream_player_view.dart';
 import 'channel_stack.dart';
@@ -83,6 +86,7 @@ class StreamPanels {
   // and the stream toggle/player-changed verbs.
   StreamPanels({
     required this.streamPlayer,
+    required this.pipService,
     required this.chatStore,
     required this.channels,
     required this.homeAppBar,
@@ -95,12 +99,15 @@ class StreamPanels {
   static const hiddenVideoHeight = 1.0;
 
   final StreamPlayerController streamPlayer;
+  final PipService pipService;
   final ChatStore chatStore;
   final ChannelPanels channels;
   final HomeAppBar homeAppBar;
   final StreamPanelsHost host;
 
   bool _wasTheaterMode = false;
+  bool? _lastAutoEnter;
+  bool? _lastPipPlaying;
 
   void toggleStreamForSelected() {
     if (streamPlayer.isActive) {
@@ -117,6 +124,21 @@ class StreamPanels {
     final enteringTheater = streamPlayer.isTheaterMode && !_wasTheaterMode;
     _wasTheaterMode = streamPlayer.isTheaterMode;
     host.markDirty();
+    // OS auto-enter follows eligibility (active video + opted in), sent
+    // only on flips to avoid channel spam. Mirrors DankChat's
+    // shouldEnablePictureInPictureAutoMode flow.
+    final autoEnter = streamPlayer.canPip;
+    if (autoEnter != _lastAutoEnter) {
+      _lastAutoEnter = autoEnter;
+      unawaited(pipService.setAutoEnter(autoEnter));
+    }
+    // Keeps the PiP window's play/pause icon truthful. The audio action
+    // icon is static, so audio-only flips need no native update.
+    final playing = streamPlayer.pipPlaying;
+    if (playing != null && playing != _lastPipPlaying) {
+      _lastPipPlaying = playing;
+      unawaited(pipService.updatePipActions(playing: playing));
+    }
     if (!enteringTheater) return;
     final channel = streamPlayer.currentChannel;
     if (channel == null) return;
@@ -149,6 +171,7 @@ class StreamPanels {
     String channel, {
     bool fillPane = false,
     bool visible = true,
+    bool showControls = true,
   }) {
     final key = streamPlayer.retainWebview ? 'stream' : 'stream:$channel';
     return StreamPlayerView(
@@ -157,6 +180,7 @@ class StreamPanels {
       channel: channel,
       fillPane: fillPane,
       visible: visible,
+      showControls: showControls,
     );
   }
 
@@ -278,6 +302,17 @@ class StreamPanels {
     final channel = streamPlayer.currentChannel;
     final landscape =
         MediaQuery.orientationOf(context) == Orientation.landscape;
+    // System PiP window shows the whole activity, so collapse to video-only
+    // (DankChat hides appbar/tabs/chat/input the same way).
+    if (channel != null && streamPlayer.isInPip) {
+      return Column(
+        children: [
+          Expanded(
+            child: playerView(channel, fillPane: true, showControls: false),
+          ),
+        ],
+      );
+    }
     if (channel != null &&
         !streamPlayer.isAudioOnly &&
         streamPlayer.isTheaterMode &&
