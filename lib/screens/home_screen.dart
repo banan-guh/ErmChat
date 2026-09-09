@@ -515,6 +515,8 @@ class _HomeScreenState extends State<HomeScreen>
     host: this,
   );
 
+  late final _search = SearchPanels(chatStore: _chatStore, host: this);
+
   late final _mod = ModPanels(
     panelManager: _panelManager,
     chatStore: _chatStore,
@@ -523,10 +525,9 @@ class _HomeScreenState extends State<HomeScreen>
     modActions: _modActions,
     modTab: () => _modTabCtrl,
     composer: _composer,
+    closeSearch: () => _search.closeSearch(),
     host: this,
   );
-
-  late final _search = SearchPanels(chatStore: _chatStore, host: this);
 
   late final _chrome = HomeAppBar(
     chatStore: _chatStore,
@@ -641,7 +642,11 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   void toggleStream() => _stream.toggleStreamForSelected();
   @override
-  void toggleSearch() => _search.toggleSearch();
+  void toggleSearch() {
+    if (_activePanel == OverlayPanel.modView) return;
+    _search.toggleSearch();
+  }
+
   @override
   void setShowInput(bool value) => _setShowInput(value);
   @override
@@ -652,6 +657,7 @@ class _HomeScreenState extends State<HomeScreen>
   void forgetSearch(String channel) {
     _search.forget(channel);
     _search.syncFieldTo(_selectedChannel);
+    _mod.syncTermsToSelected();
   }
 
   @override
@@ -664,6 +670,7 @@ class _HomeScreenState extends State<HomeScreen>
   void commitChannelSelection(int index, {required bool rebuild}) {
     _channelManager.commitChannelSelection(index, rebuild: rebuild);
     _search.syncFieldTo(_selectedChannel);
+    _mod.syncTermsToSelected();
   }
 
   @override
@@ -715,7 +722,9 @@ class _HomeScreenState extends State<HomeScreen>
     _threadsTabCtrl = TabController(length: 3, vsync: this);
     _threadsTabCtrl.addListener(_threads.onThreadsTabChanged);
     _modTabCtrl = TabController(length: ModPanels.tabCount, vsync: this);
+    _modTabCtrl.addListener(_mod.onModTabChanged);
     _panelManager.emoteSheetCtrl.addListener(_panelManager.onSheetSizeChanged);
+    _panelManager.onPanelClosed = _mod.onPanelClosed;
     _loadMaxMessages();
     unawaited(_threads.loadSaved());
     unawaited(
@@ -1395,6 +1404,7 @@ class _HomeScreenState extends State<HomeScreen>
     _mentionsTabCtrl.dispose();
     _threadsTabCtrl.removeListener(_threads.onThreadsTabChanged);
     _threadsTabCtrl.dispose();
+    _modTabCtrl.removeListener(_mod.onModTabChanged);
     _modTabCtrl.dispose();
     _threads.dispose();
     _mentions.dispose();
@@ -1775,6 +1785,7 @@ class _HomeScreenState extends State<HomeScreen>
                   controller: _composer,
                   selectedTabIndex: _selectedTabIndex,
                   search: _search,
+                  mod: _mod,
                 )
               : null,
           notice: ChatNoticeBar(controller: _chatNotice),

@@ -168,6 +168,7 @@ class _Harness extends StatelessWidget {
       auth: auth,
       tabController: tab,
       refresh: store.heldVersion,
+      termsVersion: ValueNotifier(0),
       isModerationActive: (_) => true,
       isAutomodActive: (_) => true,
       getRoomModes: (_) => const {},

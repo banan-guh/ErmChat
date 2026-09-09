@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '../panels/mod_panel.dart';
 import '../panels/search.dart';
 import '../widgets/message_input.dart';
 import 'composer_controller.dart';
@@ -16,11 +17,13 @@ class ComposerBar extends StatelessWidget {
     required this.controller,
     required this.selectedTabIndex,
     required this.search,
+    required this.mod,
   });
 
   final ComposerController controller;
   final ValueListenable<int> selectedTabIndex;
   final SearchPanels search;
+  final ModPanels mod;
 
   @override
   Widget build(BuildContext context) {
@@ -37,6 +40,7 @@ class ComposerBar extends StatelessWidget {
               // Auth switches must re-render immediately (anon to user and
               // back), not wait for the next connection-state bump.
               controller.twitchAuth,
+              mod.termsAdding,
             ]),
             builder: (context, _) {
               // Search borrows the input box: same field, own controllers.
@@ -58,6 +62,21 @@ class ComposerBar extends StatelessWidget {
                   suffixOverride: search.filterButton(),
                 );
               }
+              // Terms borrows the input box while its tab is open; every
+              // other mod tab keeps the greyed-out chat box below.
+              if (!search.open && mod.termsInputActive) {
+                return MessageInput(
+                  controller: mod.termsField,
+                  focusNode: mod.composer.focusNode,
+                  onSend: mod.submitTerms,
+                  onSubmitted: (_) => mod.submitTerms(),
+                  enabled: true,
+                  hintText: 'Block a word or phrase...',
+                  searchMode: true,
+                  prefixOverride: mod.termsPrefixSlot(),
+                  suffixOverride: mod.termsSubmitSlot(),
+                );
+              }
               return MessageInput(
                 controller: controller.messageController,
                 focusNode: controller.focusNode,
@@ -73,6 +92,8 @@ class ComposerBar extends StatelessWidget {
             },
           ),
           if (search.open && search.host.selectedChannel != null)
+            const SizedBox.shrink()
+          else if (mod.termsInputActive)
             const SizedBox.shrink()
           else
             _StatusRow(

@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../models/point_rewards.dart';
@@ -199,6 +200,7 @@ class ModViewPanel extends StatelessWidget {
     required this.auth,
     required this.tabController,
     required this.refresh,
+    required this.termsVersion,
     required this.isModerationActive,
     required this.isAutomodActive,
     required this.getRoomModes,
@@ -213,6 +215,9 @@ class ModViewPanel extends StatelessWidget {
   final TwitchAuth auth;
   final TabController tabController;
   final Listenable refresh;
+
+  /// Bumped when a blocked term is added via the borrowed composer input.
+  final ValueListenable<int> termsVersion;
   final bool Function(String channel) isModerationActive;
   final bool Function(String channel) isAutomodActive;
   final Map<String, String> Function(String channel) getRoomModes;
@@ -296,6 +301,7 @@ class ModViewPanel extends StatelessWidget {
               store: store,
               modActions: modActions,
               auth: auth,
+              termsVersion: termsVersion,
               onNotice: onNotice,
             ),
             _SetupTab(
@@ -1393,6 +1399,7 @@ class _TermsTab extends StatefulWidget {
     required this.store,
     required this.modActions,
     required this.auth,
+    required this.termsVersion,
     required this.onNotice,
   });
 
@@ -1400,6 +1407,7 @@ class _TermsTab extends StatefulWidget {
   final ChatStore store;
   final ModActions modActions;
   final TwitchAuth auth;
+  final ValueListenable<int> termsVersion;
   final ValueChanged<String> onNotice;
 
   @override
@@ -1410,14 +1418,13 @@ class _TermsTabState extends State<_TermsTab> {
   List<BlockedTerm>? _terms;
   String? _error;
   int _loadGen = 0;
-  final _addCtrl = TextEditingController();
   final _removing = <String>{};
-  bool _adding = false;
 
   @override
   void initState() {
     super.initState();
     widget.store.modInboxVersion.addListener(_onInboxChanged);
+    widget.termsVersion.addListener(_onInboxChanged);
     _load();
   }
 
@@ -1436,7 +1443,7 @@ class _TermsTabState extends State<_TermsTab> {
   @override
   void dispose() {
     widget.store.modInboxVersion.removeListener(_onInboxChanged);
-    _addCtrl.dispose();
+    widget.termsVersion.removeListener(_onInboxChanged);
     super.dispose();
   }
 
@@ -1469,33 +1476,6 @@ class _TermsTabState extends State<_TermsTab> {
     });
   }
 
-  Future<void> _add() async {
-    final text = _addCtrl.text.trim();
-    if (text.isEmpty || _adding) return;
-    if (text.length < 2 || text.length > 500) {
-      widget.onNotice('Terms must be 2-500 characters.');
-      return;
-    }
-    setState(() => _adding = true);
-    try {
-      final result = await widget.modActions.addBlockedTerm(
-        widget.auth,
-        widget.channel,
-        text,
-      );
-      if (!mounted) return;
-      if (result.ok) {
-        _addCtrl.clear();
-        widget.onNotice('Blocked term added.');
-        _load();
-      } else {
-        widget.onNotice(modErrorText(result));
-      }
-    } finally {
-      if (mounted) setState(() => _adding = false);
-    }
-  }
-
   Future<void> _remove(BlockedTerm term) async {
     if (!_removing.add(term.id)) return;
     setState(() {});
@@ -1520,40 +1500,11 @@ class _TermsTabState extends State<_TermsTab> {
     return Column(
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-          child: Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _addCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Block a word or phrase',
-                    border: OutlineInputBorder(),
-                  ),
-                  onSubmitted: (_) => _add(),
-                ),
-              ),
-              const SizedBox(width: 8),
-              FilledButton.icon(
-                onPressed: _adding ? null : _add,
-                icon: _adding
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.add, size: 18),
-                label: const Text('Add'),
-                style: FilledButton.styleFrom(minimumSize: const Size(96, 56)),
-              ),
-            ],
-          ),
-        ),
-        Padding(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
           child: Text(
             'Only moderators can see this list. Public terms only; '
-            'private terms live in the dashboard.',
+            'private terms live in the dashboard. '
+            'Type in the chat box below to add one.',
             style: TextStyle(
               fontSize: 12,
               color: theme.colorScheme.onSurfaceVariant,
@@ -1709,14 +1660,6 @@ class _SetupTabState extends State<_SetupTab> {
     });
   }
 
-  static String _levelName(int level) => switch (level) {
-    0 => 'Off',
-    1 => 'Low',
-    2 => 'Medium',
-    3 => 'High',
-    _ => 'Max',
-  };
-
   bool get _dirty {
     final saved = _settings;
     final levels = _levels;
@@ -1786,7 +1729,7 @@ class _SetupTabState extends State<_SetupTab> {
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
       children: [
         Text(
-          'Presets set every category. Moving a slider switches to custom.',
+          'Presets set every category. Changing one switches to custom.',
           style: TextStyle(
             fontSize: 12,
             color: theme.colorScheme.onSurfaceVariant,
@@ -1828,33 +1771,25 @@ class _SetupTabState extends State<_SetupTab> {
           Card(
             margin: const EdgeInsets.symmetric(vertical: 6),
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+              child: Row(
                 children: [
-                  Row(
-                    children: [
-                      Expanded(child: Text(label)),
-                      Text(
-                        _levelName(levels[key] ?? 0),
-                        style: TextStyle(
-                          color: theme.colorScheme.onSurfaceVariant,
-                        ),
-                      ),
+                  Expanded(child: Text(label)),
+                  DropdownButton<int>(
+                    value: levels[key] ?? 0,
+                    items: [
+                      for (final (itemLabel, value) in _presets)
+                        DropdownMenuItem(value: value, child: Text(itemLabel)),
                     ],
-                  ),
-                  Slider(
-                    value: (levels[key] ?? 0).toDouble(),
-                    min: 0,
-                    max: 4,
-                    divisions: 4,
-                    label: _levelName(levels[key] ?? 0),
                     onChanged: _saving
                         ? null
-                        : (v) => setState(() {
-                            levels[key] = v.round();
-                            _overall = null;
-                          }),
+                        : (v) {
+                            if (v == null) return;
+                            setState(() {
+                              levels[key] = v;
+                              _overall = null;
+                            });
+                          },
                   ),
                 ],
               ),

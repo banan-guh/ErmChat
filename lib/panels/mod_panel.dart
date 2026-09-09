@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../composer/composer_controller.dart';
@@ -13,11 +15,20 @@ abstract class ModPanelsHost extends ShellState {
   bool isMounted();
   void markDirty();
   void showNotice(String text);
+  bool get showInput;
+  void setShowInput(bool value);
+  bool get emoteSheetOpen;
+  Future<void> closeEmoteSheet();
+  void clearComposerSuggestions();
+  FocusNode get composerFocusNode;
 }
 
 // Moderation panel and its show verb.
 class ModPanels {
   static const tabCount = 8;
+
+  /// Terms tab index. The composer borrows its input while this tab is open.
+  static const termsTabIndex = 6;
   ModPanels({
     required this.panelManager,
     required this.chatStore,
@@ -26,6 +37,7 @@ class ModPanels {
     required this.modActions,
     required this.modTab,
     required this.composer,
+    required this.closeSearch,
     required this.host,
   });
 
@@ -36,12 +48,28 @@ class ModPanels {
   final ModActions modActions;
   final TabController Function() modTab;
   final ComposerController composer;
+  final VoidCallback closeSearch;
   final ModPanelsHost host;
 
   final modPanelVersion = ValueNotifier(0);
 
+  /// Shared blocked-term input. The Terms tab owns no field; the composer
+  /// borrows this controller while the Terms tab is open (search pattern).
+  final termsField = TextEditingController();
+  final termsAdding = ValueNotifier<bool>(false);
+
+  /// Bumped after a successful add so the Terms list reloads.
+  final termsVersion = ValueNotifier<int>(0);
+
+  bool _termsRestoredInput = false;
+  String? _termsChannel;
+  bool _termsWasActive = false;
+
   void dispose() {
     modPanelVersion.dispose();
+    termsField.dispose();
+    termsAdding.dispose();
+    termsVersion.dispose();
   }
 
   // Mod branch of panel data fan-out.
@@ -55,6 +83,7 @@ class ModPanels {
   }
 
   Future<void> showModView() async {
+    closeSearch();
     await panelManager.closePanel();
     if (!host.isMounted()) return;
     composer.unfocus();
@@ -75,6 +104,142 @@ class ModPanels {
         );
       }
     });
+  }
+
+  /// True while the composer should morph into the blocked-term input:
+  /// mod view open on the Terms tab. Other tabs keep the greyed-out box.
+  bool get termsInputActive =>
+      panelManager.activePanel == OverlayPanel.modView &&
+      host.selectedChannel != null &&
+      modTab().index == termsTabIndex;
+
+  /// Tab listener: unlock the borrowed input on enter, grey it out on
+  /// leave. Never grabs focus; the keyboard only comes up on user tap.
+  void onModTabChanged() {
+    final active = termsInputActive;
+    if (active == _termsWasActive) return;
+    _termsWasActive = active;
+    if (active) {
+      final channel = host.selectedChannel;
+      if (_termsChannel != channel) {
+        _termsChannel = channel;
+        termsField.clear();
+      }
+      if (!host.showInput) {
+        host.setShowInput(true);
+        _termsRestoredInput = true;
+      }
+      if (host.emoteSheetOpen) unawaited(host.closeEmoteSheet());
+      host.clearComposerSuggestions();
+      host.markDirty();
+    } else {
+      if (_termsRestoredInput) {
+        _termsRestoredInput = false;
+        host.setShowInput(false);
+      }
+      host.composerFocusNode.unfocus();
+      host.markDirty();
+    }
+  }
+
+  /// Channel switch: drafts belong to one channel, so drop them.
+  void syncTermsToSelected() {
+    final channel = host.selectedChannel;
+    if (_termsChannel == channel) return;
+    _termsChannel = channel;
+    termsField.clear();
+  }
+
+  /// Panel close hook: restore input visibility, drop the draft.
+  void onPanelClosed() {
+    final wasTerms = _termsWasActive;
+    _termsWasActive = false;
+    if (_termsRestoredInput) {
+      _termsRestoredInput = false;
+      host.setShowInput(false);
+    }
+    if (termsField.text.isNotEmpty) termsField.clear();
+    _termsChannel = null;
+    if (wasTerms) host.composerFocusNode.unfocus();
+  }
+
+  Future<void> submitTerms() async {
+    final channel = host.selectedChannel;
+    if (channel == null) return;
+    final text = termsField.text.trim();
+    if (text.isEmpty || termsAdding.value) return;
+    if (text.length < 2 || text.length > 500) {
+      host.showNotice('Terms must be 2-500 characters.');
+      return;
+    }
+    termsAdding.value = true;
+    try {
+      final result = await modActions.addBlockedTerm(twitchAuth, channel, text);
+      if (!host.isMounted()) return;
+      if (result.ok) {
+        termsField.clear();
+        host.showNotice('Blocked term added.');
+        termsVersion.value++;
+      } else {
+        host.showNotice(modErrorText(result));
+      }
+    } finally {
+      termsAdding.value = false;
+    }
+  }
+
+  Color _termsAccent(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return host.composerFocusNode.hasFocus
+        ? scheme.primary
+        : scheme.onSurfaceVariant;
+  }
+
+  // 48px prefix slot for the borrowed input: static block marker.
+  Widget termsPrefixSlot() {
+    return Builder(
+      builder: (context) => SizedBox(
+        width: 48,
+        height: 48,
+        child: ListenableBuilder(
+          listenable: host.composerFocusNode,
+          builder: (_, _) =>
+              Icon(Icons.block_outlined, color: _termsAccent(context)),
+        ),
+      ),
+    );
+  }
+
+  // 48px suffix slot for the borrowed input: add button with spinner.
+  Widget termsSubmitSlot() {
+    return Builder(
+      builder: (context) => SizedBox(
+        width: 48,
+        height: 48,
+        child: Material(
+          type: MaterialType.transparency,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(24),
+            onTap: submitTerms,
+            child: ListenableBuilder(
+              listenable: Listenable.merge([
+                termsAdding,
+                host.composerFocusNode,
+              ]),
+              builder: (_, _) {
+                if (termsAdding.value) {
+                  return const Padding(
+                    padding: EdgeInsets.all(14),
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  );
+                }
+                return Icon(Icons.add, color: _termsAccent(context));
+              },
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   Widget modViewPanel(
@@ -167,6 +332,7 @@ class ModPanels {
         auth: twitchAuth,
         tabController: modTab(),
         refresh: modPanelVersion,
+        termsVersion: termsVersion,
         onNotice: host.showNotice,
         onShowUser: onShowUser,
         isBroadcaster: channel.isNotEmpty && chatConn.isBroadcaster(channel),

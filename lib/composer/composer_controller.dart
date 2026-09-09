@@ -328,8 +328,8 @@ class ComposerController {
     }
 
     // Mentions tab stays read-only, as do the threads dashboard lists:
-    // replies are composed from the Thread tab only. Mod view keeps its
-    // own inline fields and dialogs, so the global box stays greyed out.
+    // replies are composed from the Thread tab only. Mod view greys out
+    // the global box, except the Terms tab which borrows it for new terms.
     if (host.activePanel == OverlayPanel.mentions) return;
     if (host.activePanel == OverlayPanel.modView) return;
     if (host.activePanel == OverlayPanel.thread && host.threadsTabIndex != 0) {
