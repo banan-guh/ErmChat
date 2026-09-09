@@ -93,12 +93,52 @@ class MessageBuilder {
         msg.cachedSpansVersion != spanVersion ||
         msg.cachedSpansScale != textScale;
     if (stale) {
-      msg.cachedSpans = _computeMessageSpans(msg, channel, scale: textScale);
+      _disposeSpanRecognizers(msg.cachedSpans);
+      final fresh = _computeMessageSpans(msg, channel, scale: textScale);
+      // Link and email spans own TapGestureRecognizers that have no dispose
+      // hook on message eviction, so never cache them. Link-heavy messages
+      // rebuild per tile instead of leaking recognizers per message.
+      if (_containsRecognizer(fresh)) {
+        msg.cachedSpans = null;
+        if (colored) return _recolor(fresh, msg, surface, textScale);
+        return fresh;
+      }
+      msg.cachedSpans = fresh;
       msg.cachedSpansVersion = spanVersion;
       msg.cachedSpansScale = textScale;
+    } else if (_containsRecognizer(msg.cachedSpans!)) {
+      // Lists cached before the no-cache rule still hold recognizers.
+      // Flush them once instead of reusing the leak.
+      _disposeSpanRecognizers(msg.cachedSpans);
+      msg.cachedSpans = null;
+      final fresh = _computeMessageSpans(msg, channel, scale: textScale);
+      if (colored) return _recolor(fresh, msg, surface, textScale);
+      return fresh;
     }
     if (colored) return _recolor(msg.cachedSpans!, msg, surface, textScale);
     return msg.cachedSpans!;
+  }
+
+  bool _containsRecognizer(List<InlineSpan> spans) {
+    for (final span in spans) {
+      if (span is TextSpan) {
+        if (span.recognizer != null) return true;
+        if (span.children != null && _containsRecognizer(span.children!)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  void _disposeSpanRecognizers(List<InlineSpan>? spans) {
+    if (spans == null) return;
+    for (final span in spans) {
+      if (span is TextSpan) {
+        span.recognizer?.dispose();
+        if (span.children != null) _disposeSpanRecognizers(span.children!);
+      }
+    }
   }
 
   List<InlineSpan> _recolor(

@@ -5,7 +5,7 @@ void showJoinChannelDialog(
   required void Function(String channel) onJoin,
 }) {
   final controller = TextEditingController();
-  showDialog(
+  final pending = showDialog(
     context: context,
     builder: (ctx) => AlertDialog(
       title: const Text('Join channel'),
@@ -38,4 +38,5 @@ void showJoinChannelDialog(
       ],
     ),
   );
+  pending.whenComplete(controller.dispose);
 }

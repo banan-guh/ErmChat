@@ -209,6 +209,10 @@ class ChatConnectionManager {
   // (and the input gate) requires it to stay up. Sessions where the read
   // socket never comes up are not blocked by it.
   bool _readEverConnected = false;
+  // Guards the one-shot read-connect waiter below: connect() re-runs on
+  // every auth change, and each call must not stack another broadcast
+  // listener while the read socket stays down.
+  bool _readConnectWaiterArmed = false;
   DateTime? _lastSubscribeAll;
   // Credentials the IRC sockets were last told to use. Compared against the
   // desired account on connect() so an account switch tears the sockets down
@@ -437,6 +441,7 @@ class ChatConnectionManager {
     whisperSub?.cancel();
     _watchdogTimer?.cancel();
     _watchdogTimer = null;
+    connectionStateNotifier.dispose();
   }
 
   void stopChatStatusTimer(String channel) {
@@ -953,18 +958,26 @@ class ChatConnectionManager {
 
       // Arm the read requirement on its very first connect (not just
       // recoveries), so the pipe gate covers this session from the start.
-      // The controller closing on dispose completes with an error; ignore.
-      unawaited(
-        ircRead.onStatus
-            .firstWhere((s) => s == IrcConnectionStatus.connected)
-            .then((_) {
-              if (!isDisposed && !_readEverConnected) {
-                _readEverConnected = true;
-                connectionStateNotifier.value++;
-              }
-            })
-            .catchError((_) {}),
-      );
+      // Armed once: connect() re-runs on every auth change and must not
+      // stack another waiter while the read socket stays down. The
+      // controller closing on dispose completes with an error; ignore.
+      if (!_readEverConnected && !_readConnectWaiterArmed) {
+        _readConnectWaiterArmed = true;
+        unawaited(
+          ircRead.onStatus
+              .firstWhere((s) => s == IrcConnectionStatus.connected)
+              .then((_) {
+                _readConnectWaiterArmed = false;
+                if (!isDisposed && !_readEverConnected) {
+                  _readEverConnected = true;
+                  connectionStateNotifier.value++;
+                }
+              })
+              .catchError((_) {
+                _readConnectWaiterArmed = false;
+              }),
+        );
+      }
 
       ircAuthFailedSub?.cancel();
       ircAuthFailedSub = irc.onAuthFailed.listen((_) {

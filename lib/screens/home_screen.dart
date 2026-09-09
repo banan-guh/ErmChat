@@ -1216,6 +1216,14 @@ class _HomeScreenState extends State<HomeScreen>
         if (!mounted) return;
         // Replace the current notice so identical/rapid info popups don't
         // queue up one after another (ChatNoticeController replaces).
+        if (notice.message == 'Login expired') {
+          _chatNotice.show(
+            'Login expired - reconnect your account',
+            actionLabel: 'Open Account',
+            onAction: () => unawaited(_openSettings()),
+          );
+          return;
+        }
         _chatNotice.show(notice.message ?? '');
       case ChatNoticeKind.focusInput:
         _composer.focus();
@@ -1414,6 +1422,7 @@ class _HomeScreenState extends State<HomeScreen>
     _connectivityListener = null;
     _isMobile.dispose();
     DataUsageStats.I.dispose();
+    _chatConn.connectionStateNotifier.removeListener(_onConnectionChanged);
     _chatConn.dispose();
     unawaited(_ttsController.shutdown());
     WidgetsBinding.instance.removeObserver(this);
@@ -1435,7 +1444,6 @@ class _HomeScreenState extends State<HomeScreen>
     _streamPlayer.dispose();
     _emoteManager.dispose();
     widget.twitchAuth.removeListener(_onAuthChanged);
-    _chatConn.connectionStateNotifier.removeListener(_onConnectionChanged);
     _mentionsTabCtrl.removeListener(_mentions.onMentionsTabChanged);
     _mentionsTabCtrl.dispose();
     _threadsTabCtrl.removeListener(_threads.onThreadsTabChanged);

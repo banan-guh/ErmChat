@@ -28,7 +28,7 @@ class EmoteSheet extends StatefulWidget {
 
 class _EmoteSheetState extends State<EmoteSheet>
     with SingleTickerProviderStateMixin {
-  late final TabController _tabCtrl;
+  late TabController _tabCtrl;
 
   @override
   void initState() {
@@ -37,6 +37,18 @@ class _EmoteSheetState extends State<EmoteSheet>
     _tabCtrl.addListener(() {
       if (!_tabCtrl.indexIsChanging) setState(() {});
     });
+  }
+
+  @override
+  void didUpdateWidget(EmoteSheet oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.emotes.length != _tabCtrl.length) {
+      _tabCtrl.dispose();
+      _tabCtrl = TabController(length: widget.emotes.length, vsync: this);
+      _tabCtrl.addListener(() {
+        if (!_tabCtrl.indexIsChanging) setState(() {});
+      });
+    }
   }
 
   @override

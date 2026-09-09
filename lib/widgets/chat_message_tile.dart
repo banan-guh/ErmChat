@@ -98,6 +98,27 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
   TapGestureRecognizer? _usernameRecognizer;
   DateTime? _lastTap;
 
+  /// Fresh link/email span lists built for this tile only. Cached span lists
+  /// are shared across tiles and hold no recognizers, so only tracked lists
+  /// are disposed here (on replace and on tile dispose).
+  List<InlineSpan>? _ownedBodySpans;
+
+  void _disposeSpans(List<InlineSpan>? spans) {
+    if (spans == null) return;
+    for (final span in spans) {
+      if (span is TextSpan) {
+        span.recognizer?.dispose();
+        if (span.children != null) _disposeSpans(span.children!);
+      }
+    }
+  }
+
+  void _trackBodySpans(List<InlineSpan> spans, bool shared) {
+    if (identical(spans, _ownedBodySpans)) return;
+    _disposeSpans(_ownedBodySpans);
+    _ownedBodySpans = shared ? null : spans;
+  }
+
   /// Expanded image preview URLs. Tile-local: cached tiles keep their own
   /// state, fresh tiles start collapsed. Never persisted.
   final _expandedEmbeds = <String>{};
@@ -179,6 +200,8 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
 
   @override
   void dispose() {
+    _disposeSpans(_ownedBodySpans);
+    _ownedBodySpans = null;
     _usernameRecognizer?.dispose();
     super.dispose();
   }
@@ -270,6 +293,7 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
           linkWhitelist: widget.linkWhitelist,
         ).take(kMaxImageEmbedsPerMessage).toList();
       }
+      _trackBodySpans(bodySpans, identical(bodySpans, msg.cachedSpans));
       children = [...badges, usernameSpan, ...bodySpans];
       semanticsLabel = msg.isHighlighted
           ? 'Mention: $ts ${msg.formattedUsername}: ${msg.text}'

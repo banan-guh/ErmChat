@@ -229,6 +229,17 @@ class ChatChannelSetup {
     _trustChannels.remove(channel);
     _pointsChannels.remove(channel);
     _widgetChannels.remove(channel);
+    // Parted channels must not keep server-side 7TV dispatches: lookups run
+    // before evictChannel and channelUserIds removal, so IDs are still here.
+    final sevenTv = sevenTvClient;
+    if (sevenTv != null) {
+      final emoteSetId = emoteManager.getSevenTvEmoteSetId(channel);
+      if (emoteSetId != null) sevenTv.unsubscribeEmoteSet(emoteSetId);
+      final userId = emoteManager.getSevenTvUserId(channel);
+      if (userId != null) sevenTv.unsubscribeUser(userId);
+      final twitchId = store.channelUserIds[channel];
+      if (twitchId != null) sevenTv.unsubscribeTwitchChannel(twitchId);
+    }
   }
 
   // ---- Status --------------------------------------------------------------

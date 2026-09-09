@@ -200,6 +200,10 @@ class _StreamPlayerViewState extends State<StreamPlayerView> {
   @override
   void didUpdateWidget(StreamPlayerView oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (widget.controller != oldWidget.controller) {
+      oldWidget.controller.removeListener(_consumePipAction);
+      widget.controller.addListener(_consumePipAction);
+    }
     final url = widget.controller.playerUrl(widget.channel);
     if (widget.channel != oldWidget.channel ||
         url != _lastUrl ||

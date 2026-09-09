@@ -542,6 +542,8 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
       _reportQuietly(error, stack);
       // Evict on error: ImageCache keeps stale errors forever otherwise.
       PaintingBinding.instance.imageCache.evict(EmoteUrlProvider(url));
+      // Drop the seed too: a target that never loads must not pin the map.
+      EmoteUrlProvider._pendingSeeds.remove(url);
     }
   }
 
@@ -810,6 +812,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
     _playbackCapable = false;
     _stopPlayback();
     _seedFromUrl = null;
+    EmoteUrlProvider._pendingSeeds.remove(url);
     final frames = _frames;
     _frames = null;
     if (frames != null) {
