@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -1898,6 +1900,7 @@ class _ChannelTab extends StatelessWidget {
             modActions: modActions,
             auth: auth,
             onNotice: onNotice,
+            isBroadcaster: isBroadcaster,
           ),
         ],
         if (isBroadcaster) ...[
@@ -2095,12 +2098,18 @@ class _StreamActions extends StatefulWidget {
     required this.modActions,
     required this.auth,
     required this.onNotice,
+    required this.isBroadcaster,
   });
 
   final String channel;
   final ModActions modActions;
   final TwitchAuth auth;
   final ValueChanged<String> onNotice;
+
+  /// Start/cancel raid and commercials are broadcaster-only Helix
+  /// (their broadcaster id must match the token), so mods get a
+  /// greyed tile that explains instead of a failing call.
+  final bool isBroadcaster;
 
   @override
   State<_StreamActions> createState() => _StreamActionsState();
@@ -2272,29 +2281,41 @@ class _StreamActionsState extends State<_StreamActions> {
   @override
   Widget build(BuildContext context) {
     final busy = _busy != null;
+    VoidCallback? gated(bool broadcasterOnly, VoidCallback action) {
+      if (busy) return null;
+      if (broadcasterOnly && !widget.isBroadcaster) {
+        return () => onNotice('Only broadcasters can use this.');
+      }
+      return action;
+    }
+
     final actions = [
       (
         'Start raid',
         Icons.flight_takeoff_outlined,
-        busy ? null : () => _raid(context),
+        gated(true, () => _raid(context)),
         false,
+        true,
       ),
       (
         'Cancel raid',
         Icons.flight_land_outlined,
-        busy ? null : () => _unraid(context),
+        gated(true, () => _unraid(context)),
         _busy == 'unraid',
+        true,
       ),
       (
         'Commercial',
         Icons.monetization_on_outlined,
-        busy ? null : () => _commercial(context),
+        gated(true, () => _commercial(context)),
         false,
+        true,
       ),
       (
         'Add marker',
         Icons.bookmark_add_outlined,
         busy ? null : () => _marker(context),
+        false,
         false,
       ),
       (
@@ -2302,18 +2323,21 @@ class _StreamActionsState extends State<_StreamActions> {
         Icons.campaign_outlined,
         busy ? null : () => _announce(context),
         _busy == 'announce',
+        false,
       ),
       (
         'Clear chat',
         Icons.delete_sweep_outlined,
         busy ? null : () => _clear(context),
         _busy == 'clear',
+        false,
       ),
       (
         'Shoutout',
         Icons.record_voice_over_outlined,
         busy ? null : () => _shoutout(context),
         _busy == 'shoutout',
+        false,
       ),
     ];
     return GridView.builder(
@@ -2330,8 +2354,9 @@ class _StreamActionsState extends State<_StreamActions> {
       itemBuilder: (_, i) {
         final a = actions[i];
         final scheme = Theme.of(context).colorScheme;
+        final greyed = a.$3 == null || (a.$5 && !widget.isBroadcaster);
         return Opacity(
-          opacity: a.$3 == null ? 0.55 : 1.0,
+          opacity: greyed ? 0.55 : 1.0,
           child: Material(
             color: scheme.surfaceContainerHigh,
             borderRadius: BorderRadius.circular(12),
@@ -3353,6 +3378,15 @@ class _ModesTabState extends State<_ModesTab> {
     });
   }
 
+  /// Late verification read after a toggle. Gives Twitch's GET time to
+  /// settle past the PUT; any intervening load cancels this one via [_shieldGen].
+  Future<void> _verifyShield() async {
+    final gen = _shieldGen;
+    await Future.delayed(const Duration(seconds: 2));
+    if (!mounted || gen != _shieldGen) return;
+    _loadShield();
+  }
+
   Future<bool> _apply(String key, Future<ModResult> Function() call) async {
     if (!_busyKeys.add(key)) return false;
     setState(() {});
@@ -3616,7 +3650,14 @@ class _ModesTabState extends State<_ModesTab> {
               active: on,
             ),
           );
-          if (ok && mounted) _loadShield();
+          if (!ok || !mounted) return;
+          // Optimistic flip: the status GET lags the PUT, so an immediate
+          // reload can return the stale value and snap the card back.
+          setState(() {
+            _shield = on;
+            _shieldError = null;
+          });
+          unawaited(_verifyShield());
         },
       ),
     ];

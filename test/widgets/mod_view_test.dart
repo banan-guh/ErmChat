@@ -151,6 +151,7 @@ class _Harness extends StatelessWidget {
     required this.tab,
     required this.onUser,
     this.broadcaster = false,
+    this.onNotice,
   });
 
   final ChatStore store;
@@ -159,6 +160,7 @@ class _Harness extends StatelessWidget {
   final TabController tab;
   final ValueChanged<String> onUser;
   final bool broadcaster;
+  final ValueChanged<String>? onNotice;
 
   @override
   Widget build(BuildContext context) {
@@ -174,7 +176,7 @@ class _Harness extends StatelessWidget {
       isModerationActive: (_) => true,
       isAutomodActive: (_) => true,
       getRoomModes: (_) => const {},
-      onNotice: (_) {},
+      onNotice: onNotice ?? (_) {},
       onShowUser: onUser,
       isBroadcaster: broadcaster,
     );
@@ -244,6 +246,7 @@ void main() {
     );
 
     String? shownUser;
+    final notices = <String>[];
     recordedRequests.clear();
     fulfilledRedemptions.clear();
     pausedRewards.clear();
@@ -266,6 +269,7 @@ void main() {
             auth: auth,
             tab: tab,
             onUser: (login) => shownUser = login,
+            onNotice: notices.add,
           ),
         ),
       ),
@@ -345,6 +349,21 @@ void main() {
     expect(find.text('Start raid'), findsOneWidget);
     expect(find.textContaining('Only the broadcaster'), findsNothing);
 
+    // Broadcaster-only tiles stay visible but greyed for mods: tapping
+    // explains instead of calling Helix.
+    await tester.tap(find.text('Start raid'));
+    await tester.pump();
+    expect(notices.last, 'Only broadcasters can use this.');
+    expect(find.text('Raid a channel?'), findsNothing);
+    await tester.tap(find.text('Commercial'));
+    await tester.pump();
+    expect(notices.last, 'Only broadcasters can use this.');
+    expect(find.text('Commercial length'), findsNothing);
+    expect(
+      recordedRequests.where((r) => r.url.path.endsWith('/raids')),
+      isEmpty,
+    );
+
     // As the broadcaster the rosters and stream tools render.
     await tester.pumpWidget(
       MaterialApp(
@@ -355,6 +374,7 @@ void main() {
             auth: auth,
             tab: tab,
             onUser: (login) => shownUser = login,
+            onNotice: notices.add,
             broadcaster: true,
           ),
         ),
@@ -369,6 +389,19 @@ void main() {
     expect(
       find.text('No open prediction. Create one with /prediction.'),
       findsOneWidget,
+    );
+
+    // As the broadcaster the commercial tile opens its dialog and posts.
+    await tester.tap(find.text('Commercial'));
+    await tester.pumpAndSettle();
+    expect(find.text('Commercial length'), findsOneWidget);
+    await tester.tap(find.text('30s'));
+    await tester.pumpAndSettle();
+    expect(
+      recordedRequests.where(
+        (r) => r.method == 'POST' && r.url.path.endsWith('channels/commercial'),
+      ),
+      isNotEmpty,
     );
 
     // As the broadcaster the Users tab also shows the mod/vip rosters.
