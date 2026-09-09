@@ -11,7 +11,7 @@ const httpTimeout = Duration(seconds: 10);
 const Color kEmotePlaceholderGray = Color(0x33808080);
 
 /// Corner radius for emote loading boxes.
-const double kEmotePlaceholderRadius = 4.0;
+const double kEmotePlaceholderRadius = 3.0;
 
 /// User-whitelisted link suffixes for rejoining fractured (spaced) domains like "kappa .lol".
 const String kLinkWhitelistPrefKey = 'link_whitelist_v1';

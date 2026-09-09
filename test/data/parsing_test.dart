@@ -375,6 +375,17 @@ void main() {
         }
       });
     }
+
+    test('NOTICE without rm-received-ts falls back to parse time', () {
+      final msg = RecentMessagesService.parseIrcLine(
+        '@msg-id=slow_on :tmi.twitch.tv NOTICE #xqc :This room is now in slow mode.',
+      );
+      expect(msg, isNotNull);
+      expect(
+        DateTime.now().difference(msg!.timestamp).abs(),
+        lessThan(const Duration(seconds: 5)),
+      );
+    });
   });
 
   group('parseAnnouncementChild', () {

@@ -782,6 +782,9 @@ class ChatStore {
 
   int _nextSystemMessageId = 0;
 
+  /// Window for folding identical id-less system rows, live and history.
+  static const _liveSystemDedupWindow = Duration(seconds: 10);
+
   /// Inserts a system message at the top of [channel]'s buffer, applying the
   /// status-marker folding rules: Connected/Disconnected/Reconnected lines
   /// replace or dedup each other instead of stacking on socket flaps.
@@ -862,6 +865,22 @@ class ChatStore {
           msgs.removeWhere(
             (m) => m.isSystem && m.text == 'Chat reconnecting...',
           );
+        }
+      }
+    }
+
+    // Id-less live rows (NOTICE/CLEARCHAT echoes) carry no event identity,
+    // yet the same delivery can arrive twice (both sockets, server resend).
+    // Fold like history overlap: identical text within a short window drops.
+    // Labeled rows (USERNOTICE, join countdowns) keep their id dedup above.
+    if (messageId == null && !statusTexts.contains(text)) {
+      final now = DateTime.now();
+      for (final m in msgs) {
+        if (!m.isSystem || m.text != text) continue;
+        final id = m.messageId;
+        if (id != null && !id.startsWith('sys_')) continue;
+        if (now.difference(m.timestamp).abs() <= _liveSystemDedupWindow) {
+          return false;
         }
       }
     }

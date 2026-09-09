@@ -1,8 +1,25 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:ermchat/channels/channel_manager.dart';
+import 'package:ermchat/composer/composer_controller.dart';
 import 'package:ermchat/models/highlight_state.dart';
 import 'package:ermchat/models/point_rewards.dart';
 import 'package:ermchat/models/twitch_message.dart';
+import 'package:ermchat/panels/threads.dart';
+import 'package:ermchat/services/analytics_service.dart';
+import 'package:ermchat/services/chat_connection_manager.dart';
 import 'package:ermchat/services/chat_store.dart';
+import 'package:ermchat/services/emote_manager.dart';
+import 'package:ermchat/services/ignore_manager.dart';
+import 'package:ermchat/services/notification_service.dart';
+import 'package:ermchat/services/ping_manager.dart';
+import 'package:ermchat/services/recent_messages.dart';
+import 'package:ermchat/services/stream_player_controller.dart';
+import 'package:ermchat/services/twitch_auth.dart';
+import 'package:ermchat/services/twitch_badge_service.dart';
+import 'package:ermchat/services/twitch_irc.dart';
+import 'package:ermchat/services/user_store.dart';
+import 'package:ermchat/widgets/broadcast_widgets.dart';
 
 ChatStore _store() => ChatStore(
   channels: ['test'],
@@ -19,6 +36,7 @@ ChatStore _store() => ChatStore(
 );
 
 void main() {
+  _channelManagerTests();
   group('ChatStore.upsertSystemMessage', () {
     test(
       'inserts when the id is new, updates in place afterwards and treats identical text as a no-op',
@@ -158,6 +176,30 @@ void main() {
         }
       },
     );
+
+    test('identical id-less text within the window inserts once', () {
+      final store = _store();
+      expect(
+        store.addSystemMessage('test', 'This room is now in slow mode.'),
+        isTrue,
+      );
+      // Same delivery arriving twice (both sockets, server resend).
+      expect(
+        store.addSystemMessage('test', 'This room is now in slow mode.'),
+        isFalse,
+      );
+      expect(store.channelMessages['test'], hasLength(1));
+      // Labeled rows keep their id dedup and still insert alongside.
+      expect(
+        store.addSystemMessage(
+          'test',
+          'This room is now in slow mode.',
+          messageId: 'n1:label',
+        ),
+        isTrue,
+      );
+      expect(store.channelMessages['test'], hasLength(2));
+    });
 
     test('label id never collides with the child message id', () {
       final store = _store();
@@ -1174,6 +1216,164 @@ void main() {
       final len = store.channelMessages['a']!.length;
       store.truncateWithCoalesce('a', maxMessages: 5);
       expect(store.channelMessages['a']!.length, len);
+    });
+  });
+}
+
+class _ChannelManagerHost implements ChannelManagerHost {
+  @override
+  String? selectedChannel = 'test';
+  @override
+  String? get sessionLogin => null;
+  @override
+  bool get showTimestamps => false;
+  @override
+  String get timestampFormat => 'HH:mm';
+  @override
+  bool isMounted() => true;
+  @override
+  void markDirty() {}
+  @override
+  void mutate(void Function() fn) => fn();
+  @override
+  Future<void> closePanel() async {}
+  @override
+  void addSystemMessage(String channel, String text) {}
+  @override
+  int get maxMessages => 500;
+  @override
+  int get recentMessagesLimit => 100;
+  @override
+  bool get mentionPush => false;
+  @override
+  ValueNotifier<int> versionNotifier(String channel) => ValueNotifier(0);
+  @override
+  ValueNotifier<int> messageNotifier(String channel) => ValueNotifier(0);
+  @override
+  ValueNotifier<bool> atBottomNotifier(String channel) => ValueNotifier(true);
+  @override
+  void disposeChannelNotifiers(String channel) {}
+  @override
+  void forgetAtBottomNotifier(String channel) {}
+  @override
+  void forgetSearch(String channel) {}
+}
+
+// Interface fakes for deps mergeHistoryIntoChannel never touches.
+class _FakeConn implements ChatConnectionManager {
+  @override
+  dynamic noSuchMethod(Invocation i) => null;
+}
+
+class _FakeEmotes implements EmoteManager {
+  @override
+  dynamic noSuchMethod(Invocation i) => null;
+}
+
+class _FakeAnalytics implements AnalyticsService {
+  @override
+  dynamic noSuchMethod(Invocation i) => null;
+}
+
+class _FakePlayer implements StreamPlayerController {
+  @override
+  dynamic noSuchMethod(Invocation i) => null;
+}
+
+class _FakeNotifs implements NotificationService {
+  @override
+  dynamic noSuchMethod(Invocation i) => null;
+}
+
+class _FakeThreads implements ThreadPanels {
+  @override
+  dynamic noSuchMethod(Invocation i) => null;
+}
+
+class _FakeComposer implements ComposerController {
+  @override
+  dynamic noSuchMethod(Invocation i) => null;
+}
+
+ChannelManager _channelManager(ChatStore store) => ChannelManager(
+  chatStore: store,
+  chatConn: _FakeConn(),
+  irc: IrcService(),
+  ircRead: IrcReadService(),
+  twitchAuth: TwitchAuth(),
+  emoteManager: _FakeEmotes(),
+  badgeService: TwitchBadgeService(),
+  analytics: _FakeAnalytics(),
+  streamPlayer: _FakePlayer(),
+  userStore: UserStore(),
+  pingManager: PingManager(),
+  ignoreManager: IgnoreManager(),
+  notificationService: _FakeNotifs(),
+  threads: _FakeThreads(),
+  composer: _FakeComposer(),
+  broadcastWidgets: BroadcastWidgets(selectedChannel: () => null),
+  tileCache: {},
+  channelNotifier: ValueNotifier(const ['test']),
+  selectedTabIndex: ValueNotifier(0),
+  recentMessagesService: null,
+  mentionsChannel: '@mentions',
+  host: _ChannelManagerHost(),
+);
+
+void _channelManagerTests() {
+  group('ChannelManager.mergeHistoryIntoChannel', () {
+    const noticeText = 'This room is now in slow mode.';
+
+    TwitchMessage historyNotice(int tsMs) => RecentMessagesService.parseIrcLine(
+      '@msg-id=slow_on;rm-received-ts=$tsMs :tmi.twitch.tv NOTICE #test :$noticeText',
+      channel: 'test',
+    )!;
+
+    int sysRows(ChatStore store, String text) => store.channelMessages['test']!
+        .where((m) => m.isSystem && m.text == text)
+        .length;
+
+    ChatStore mergeStore() => ChatStore(
+      channels: ['test'],
+      channelMessages: {'test': <TwitchMessage>[]},
+      messageKeys: {},
+      chatStatus: {},
+      channelsWithUnread: {},
+      channelsWithUnreadMentions: {},
+      unreadMentionsPerChannel: {},
+      historyLoaded: {},
+      channelsEmotesResolved: {},
+      channelUserIds: {},
+      lastSentWireText: {},
+    );
+
+    test('refetch overlap with identical text and timestamp folds', () {
+      final store = mergeStore();
+      final manager = _channelManager(store);
+      const t0 = 1767225600000;
+      manager.mergeHistoryIntoChannel('test', [historyNotice(t0)]);
+      manager.mergeHistoryIntoChannel('test', [historyNotice(t0)]);
+      expect(sysRows(store, noticeText), 1);
+    });
+
+    test('live row plus refetch overlap folds', () {
+      final store = mergeStore();
+      final manager = _channelManager(store);
+      final t0 = DateTime.now();
+      store.ingestMessage(
+        TwitchMessage(
+          login: '',
+          text: noticeText,
+          isSystem: true,
+          channel: 'test',
+          timestamp: t0,
+        ),
+        maxMessages: 500,
+      );
+      manager.mergeHistoryIntoChannel('test', [
+        historyNotice(t0.millisecondsSinceEpoch),
+      ]);
+      expect(sysRows(store, noticeText), 1);
     });
   });
 }
