@@ -283,14 +283,23 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('moduser banned feeduser: "spam".'), findsOneWidget);
 
-    // Users tab shows bans, warnings, flags, and the mod/vip rosters.
+    // Users tab shows bans, warnings, and flags to mods; the mod/vip
+    // rosters are broadcaster-only Helix and stay hidden (no error).
     tab.animateTo(4);
     await tester.pumpAndSettle();
     expect(find.text('banneduser'), findsOneWidget);
     expect(find.text('warneduser'), findsOneWidget);
     expect(find.text('flaggeduser'), findsOneWidget);
-    expect(find.text('rosmod'), findsOneWidget);
-    expect(find.text('rosvip'), findsOneWidget);
+    expect(find.text('rosmod'), findsNothing);
+    expect(find.text('rosvip'), findsNothing);
+    expect(
+      recordedRequests.where(
+        (r) =>
+            r.url.path.endsWith('moderation/moderators') ||
+            r.url.path.endsWith('channels/vips'),
+      ),
+      isEmpty,
+    );
 
     // Unban works end to end and drops the roster row.
     await tester.tap(find.widgetWithText(OutlinedButton, 'Unban').first);
@@ -361,6 +370,17 @@ void main() {
       find.text('No open prediction. Create one with /prediction.'),
       findsOneWidget,
     );
+
+    // As the broadcaster the Users tab also shows the mod/vip rosters.
+    tab.animateTo(4);
+    await tester.pumpAndSettle();
+    expect(find.text('warneduser'), findsOneWidget);
+    expect(find.text('rosmod'), findsOneWidget);
+    expect(find.text('rosvip'), findsOneWidget);
+
+    // Back to the Channel tab for the points section.
+    tab.animateTo(3);
+    await tester.pumpAndSettle();
 
     // Points section loads rewards; selecting one loads its queue.
     expect(find.text('Hydrate'), findsOneWidget);

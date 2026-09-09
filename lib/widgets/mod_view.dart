@@ -233,7 +233,7 @@ class ModViewPanel extends StatelessWidget {
   /// Opens a user card (queue rows, feed-adjacent user lists).
   final ValueChanged<String>? onShowUser;
 
-  /// Whether the session user owns the channel (Channel tab gate).
+  /// Whether the session user owns the channel (Channel and Users gates).
   final bool isBroadcaster;
 
   @override
@@ -301,6 +301,7 @@ class ModViewPanel extends StatelessWidget {
                 auth: auth,
                 onNotice: onNotice,
                 onShowUser: onShowUser,
+                isBroadcaster: isBroadcaster,
               ),
               _RequestsTab(
                 channel: channel,
@@ -933,6 +934,7 @@ class _UsersTab extends StatefulWidget {
     required this.auth,
     required this.onNotice,
     required this.onShowUser,
+    required this.isBroadcaster,
   });
 
   final String channel;
@@ -941,6 +943,10 @@ class _UsersTab extends StatefulWidget {
   final TwitchAuth auth;
   final ValueChanged<String> onNotice;
   final ValueChanged<String>? onShowUser;
+
+  /// Moderator and VIP rosters are broadcaster-only Helix (their GETs
+  /// require broadcaster_id to match the token), so mods never call them.
+  final bool isBroadcaster;
 
   @override
   State<_UsersTab> createState() => _UsersTabState();
@@ -1104,12 +1110,13 @@ class _UsersTabState extends State<_UsersTab> {
                         child: const Text('Clear'),
                       ),
               ),
-            _RosterSections(
-              channel: widget.channel,
-              modActions: widget.modActions,
-              auth: widget.auth,
-              onNotice: widget.onNotice,
-            ),
+            if (widget.isBroadcaster)
+              _RosterSections(
+                channel: widget.channel,
+                modActions: widget.modActions,
+                auth: widget.auth,
+                onNotice: widget.onNotice,
+              ),
           ],
         );
       },
