@@ -6123,8 +6123,9 @@ void main() {
       );
       expect(arrowOpacity(tester), 0);
 
-      // Bottom overscroll never drags the sheet: pushing up past the
-      // latest row leaves the size alone and settles back to full.
+      // Bottom overscroll drives the sheet in a reversed list: pushing up
+      // past the latest row collapses instead of bouncing, then the
+      // release settle springs back to full.
       sheetController.jumpTo(maxExtent);
       await tester.pumpAndSettle();
       final bottomDrag = await tester.startGesture(
@@ -6134,7 +6135,7 @@ void main() {
       await tester.pump();
       await bottomDrag.moveBy(const Offset(0, -60));
       await tester.pump();
-      expect(sheetController.size, maxExtent);
+      expect(sheetController.size, lessThan(maxExtent));
       await bottomDrag.up();
       await tester.pumpAndSettle();
       expect(sheetController.size, maxExtent);
