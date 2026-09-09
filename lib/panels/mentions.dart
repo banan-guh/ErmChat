@@ -16,6 +16,7 @@ import '../util/haptics.dart';
 import '../widgets/chat_view.dart';
 import '../widgets/message_builder.dart';
 import '../widgets/panel_manager.dart';
+import '../widgets/tab_drag_focus.dart';
 
 // Shell-owned state the mentions/whispers inbox reads but does not own.
 abstract class MentionsPanelsHost extends ShellState {
@@ -73,7 +74,15 @@ class MentionsPanels {
   final mentionsPanelScrollCtrl = FlutterListViewController();
   final whispersPanelScrollCtrl = FlutterListViewController();
 
+  /// Half-drag focus: crossings report at 50% via [_onMentionsFocus],
+  /// settle syncs through [onMentionsTabChanged].
+  late final tabDragFocus = TabDragFocus(
+    tab: mentionsTab,
+    onFocusChanged: _onMentionsFocus,
+  );
+
   void dispose() {
+    tabDragFocus.dispose();
     mentionsAtBottom.dispose();
     mentionsMsgCount.dispose();
     whispersAtBottom.dispose();
@@ -98,7 +107,10 @@ class MentionsPanels {
 
   bool get isWhispersTabActive =>
       panelManager.activePanel == OverlayPanel.mentions &&
-      mentionsTab().index == 1;
+      tabDragFocus.effectiveIndex == 1;
+
+  /// Panel close hook: drop a stranded drag focus.
+  void onMentionsClosed() => tabDragFocus.reset();
 
   // Mentions branch of panel data fan-out.
   void refreshOnData() {
@@ -109,6 +121,7 @@ class MentionsPanels {
   Future<void> showMentionsView() async {
     await panelManager.closePanel();
     if (!host.isMounted()) return;
+    tabDragFocus.reset();
     composer.unfocus();
     panelManager.activePanel = OverlayPanel.mentions;
     panelManager.openThreadRoot = null;
@@ -180,16 +193,22 @@ class MentionsPanels {
 
   void onMentionsTabChanged() {
     // TabController notifies on every animation tick while a swipe is in
-    // progress; rebuilding the whole screen per frame is wasted work.
+    // progress; the drag tracker owns crossings, this only settles.
     if (mentionsTab().indexIsChanging) return;
+    tabDragFocus.syncFromController();
+  }
+
+  void _onMentionsFocus(int index) {
     iosHaptic(HapticFeedback.selectionClick);
-    if (mentionsTab().index == 1 && unreadWhispers > 0) {
+    if (index == 1 && unreadWhispers > 0) {
       chatStore.unreadMentions -= unreadWhispers;
       if (chatStore.unreadMentions < 0) chatStore.unreadMentions = 0;
       unreadWhispers = 0;
       chatStore.mentionsBump.value++;
     }
-    host.markDirty();
+    // Live crossings rebuild through notifiers alone (badge, composer);
+    // settle keeps the full rebuild for tab-tap parity.
+    if (tabDragFocus.dragFocus.value == null) host.markDirty();
   }
 
   void showWhispersForUser(String login) {
@@ -255,71 +274,74 @@ class MentionsPanels {
           Divider(height: 1, color: Theme.of(context).dividerColor),
         ],
       ),
-      body: TabBarView(
-        controller: mentionsTab(),
-        children: [
-          ChatView(
-            key: const ValueKey('mentions_panel'),
-            channel: mentionsChannel,
-            messages: chatStore.channelMessages[mentionsChannel] ?? const [],
-            atBottomNotifier: mentionsAtBottom,
-            messageNotifier: mentionsMsgCount,
-            scrollController: mentionsPanelScrollCtrl,
-            messageBuilder: messageBuilder,
-            linkWhitelist: LinkWhitelist.instance,
-            showTimestamp: host.showTimestamps,
-            timestampFormat: host.timestampFormat,
-            chatFontScale: host.chatFontSize / 14.0,
-            checkeredMessages: host.checkeredMessages,
-            highlightOpacity: host.highlightOpacity,
-            lineSeparator: host.lineSeparator,
-            sharedChatMode: host.sharedChatMode,
-            physics: const ClampingScrollPhysics(),
-            onShowUserProfile: (login, userId, {displayName}) =>
-                userSheets.showUserProfile(
-                  context,
-                  login,
-                  userId,
-                  displayName: displayName,
-                ),
-            onShowMessageMenu: (msg) =>
-                menus.showPanelMessageMenu(context, msg),
-            onCopyMessage: host.copyMessage,
-            showReplyIndicators: false,
-            fadeDeleted: false,
-            emptyText: 'No mentions or whispers',
-          ),
-          ChatView(
-            key: const ValueKey('whispers_panel'),
-            channel: '@whispers',
-            messages: whispers,
-            atBottomNotifier: whispersAtBottom,
-            messageNotifier: whispersMsgCount,
-            scrollController: whispersPanelScrollCtrl,
-            messageBuilder: messageBuilder,
-            linkWhitelist: LinkWhitelist.instance,
-            showTimestamp: host.showTimestamps,
-            timestampFormat: host.timestampFormat,
-            chatFontScale: host.chatFontSize / 14.0,
-            checkeredMessages: host.checkeredMessages,
-            highlightOpacity: host.highlightOpacity,
-            lineSeparator: host.lineSeparator,
-            sharedChatMode: host.sharedChatMode,
-            physics: const ClampingScrollPhysics(),
-            onShowUserProfile: (login, userId, {displayName}) =>
-                userSheets.showUserProfile(
-                  context,
-                  login,
-                  userId,
-                  displayName: displayName,
-                ),
-            onShowMessageMenu: (msg) =>
-                menus.showPanelMessageMenu(context, msg),
-            onCopyMessage: host.copyMessage,
-            showReplyIndicators: false,
-            emptyText: 'No whispers',
-          ),
-        ],
+      body: NotificationListener<ScrollNotification>(
+        onNotification: tabDragFocus.onNotification,
+        child: TabBarView(
+          controller: mentionsTab(),
+          children: [
+            ChatView(
+              key: const ValueKey('mentions_panel'),
+              channel: mentionsChannel,
+              messages: chatStore.channelMessages[mentionsChannel] ?? const [],
+              atBottomNotifier: mentionsAtBottom,
+              messageNotifier: mentionsMsgCount,
+              scrollController: mentionsPanelScrollCtrl,
+              messageBuilder: messageBuilder,
+              linkWhitelist: LinkWhitelist.instance,
+              showTimestamp: host.showTimestamps,
+              timestampFormat: host.timestampFormat,
+              chatFontScale: host.chatFontSize / 14.0,
+              checkeredMessages: host.checkeredMessages,
+              highlightOpacity: host.highlightOpacity,
+              lineSeparator: host.lineSeparator,
+              sharedChatMode: host.sharedChatMode,
+              physics: const ClampingScrollPhysics(),
+              onShowUserProfile: (login, userId, {displayName}) =>
+                  userSheets.showUserProfile(
+                    context,
+                    login,
+                    userId,
+                    displayName: displayName,
+                  ),
+              onShowMessageMenu: (msg) =>
+                  menus.showPanelMessageMenu(context, msg),
+              onCopyMessage: host.copyMessage,
+              showReplyIndicators: false,
+              fadeDeleted: false,
+              emptyText: 'No mentions or whispers',
+            ),
+            ChatView(
+              key: const ValueKey('whispers_panel'),
+              channel: '@whispers',
+              messages: whispers,
+              atBottomNotifier: whispersAtBottom,
+              messageNotifier: whispersMsgCount,
+              scrollController: whispersPanelScrollCtrl,
+              messageBuilder: messageBuilder,
+              linkWhitelist: LinkWhitelist.instance,
+              showTimestamp: host.showTimestamps,
+              timestampFormat: host.timestampFormat,
+              chatFontScale: host.chatFontSize / 14.0,
+              checkeredMessages: host.checkeredMessages,
+              highlightOpacity: host.highlightOpacity,
+              lineSeparator: host.lineSeparator,
+              sharedChatMode: host.sharedChatMode,
+              physics: const ClampingScrollPhysics(),
+              onShowUserProfile: (login, userId, {displayName}) =>
+                  userSheets.showUserProfile(
+                    context,
+                    login,
+                    userId,
+                    displayName: displayName,
+                  ),
+              onShowMessageMenu: (msg) =>
+                  menus.showPanelMessageMenu(context, msg),
+              onCopyMessage: host.copyMessage,
+              showReplyIndicators: false,
+              emptyText: 'No whispers',
+            ),
+          ],
+        ),
       ),
     );
   }

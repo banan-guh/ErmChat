@@ -17,6 +17,7 @@ import '../util/timestamp_formatter.dart';
 import '../widgets/chat_view.dart';
 import '../widgets/message_builder.dart';
 import '../widgets/panel_manager.dart';
+import '../widgets/tab_drag_focus.dart';
 
 // Shell-owned state the thread panels read but do not own.
 abstract class ThreadPanelsHost extends ShellState {
@@ -69,7 +70,21 @@ class ThreadPanels {
   final threadAtBottom = ValueNotifier(true);
   final threadPanelScrollCtrl = FlutterListViewController();
 
+  /// Half-drag focus: crossings report at 50% via [_onThreadsFocus],
+  /// settle syncs through [onThreadsTabChanged].
+  late final tabDragFocus = TabDragFocus(
+    tab: threadsTab,
+    onFocusChanged: _onThreadsFocus,
+  );
+
+  /// Composer gating reads this so reply unlocks at the 50% crossing.
+  int get effectiveThreadsTab => tabDragFocus.effectiveIndex;
+
+  /// Panel close hook: drop a stranded drag focus.
+  void onThreadsClosed() => tabDragFocus.reset();
+
   void dispose() {
+    tabDragFocus.dispose();
     threadsListVersion.dispose();
     threadMsgCount.dispose();
     threadAtBottom.dispose();
@@ -125,6 +140,7 @@ class ThreadPanels {
     if (!host.isMounted()) {
       return;
     }
+    tabDragFocus.reset();
     if (switchChannel && host.selectedChannel != channel) {
       final idx = chatStore.channels.indexOf(channel);
       if (idx >= 0) host.switchChannelTo(idx);
@@ -143,7 +159,8 @@ class ThreadPanels {
     }
     // Jump, don't animate: the panel opens already on the Thread tab, so an
     // animateTo would flash the strip swiping over from Active/Saved.
-    threadsTab().index = 0;
+    // jumpTo (not a bare index set) so the warp swallows travel updates.
+    tabDragFocus.jumpTo(0);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (host.isMounted()) {
         panelManager.animateRatio(
@@ -165,6 +182,7 @@ class ThreadPanels {
     final prevChannel = panelManager.threadChannel;
     await panelManager.closePanel();
     if (!host.isMounted()) return;
+    tabDragFocus.reset();
     composer.unfocus();
     panelManager.activePanel = OverlayPanel.thread;
     host.markDirty();
@@ -176,8 +194,9 @@ class ThreadPanels {
     panelManager.threadChannel =
         prevRoot?.channel ?? prevChannel ?? host.selectedChannel;
     // Same no-flash jump as showThreadView: the sheet opens already on the
-    // requested tab.
-    threadsTab().index = tab.clamp(0, 2);
+    // requested tab. jumpTo (not a bare index set) so the warp swallows
+    // travel updates.
+    tabDragFocus.jumpTo(tab.clamp(0, 2));
     threadsListVersion.value++;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (host.isMounted()) {
@@ -254,7 +273,7 @@ class ThreadPanels {
       threadMsgCount.value++;
       // Watching the Thread tab marks it seen so the Active row does not
       // flip back to unread while you stare at it.
-      if (threadsTab().index == 0) {
+      if (effectiveThreadsTab == 0) {
         final channel = openRoot.channel;
         final rootId = openRoot.replyThreadRootId ?? openRoot.messageId;
         if (channel != null && rootId != null) {
@@ -449,10 +468,14 @@ class ThreadPanels {
 
   void onThreadsTabChanged() {
     if (threadsTab().indexIsChanging) return;
+    tabDragFocus.syncFromController();
+  }
+
+  void _onThreadsFocus(int index) {
     iosHaptic(HapticFeedback.selectionClick);
     // Returning to the Thread tab marks the open thread seen so its Active
     // row clears its unread highlight.
-    if (threadsTab().index == 0 && panelManager.openThreadRoot != null) {
+    if (index == 0 && panelManager.openThreadRoot != null) {
       final channel = panelManager.openThreadRoot!.channel;
       final rootId =
           panelManager.openThreadRoot!.replyThreadRootId ??
@@ -462,7 +485,9 @@ class ThreadPanels {
         threadsListVersion.value++;
       }
     }
-    host.markDirty();
+    // Live crossings rebuild through notifiers alone (list, composer);
+    // settle keeps the full rebuild for tab-tap parity.
+    if (tabDragFocus.dragFocus.value == null) host.markDirty();
   }
 
   bool isThreadUnread(String channel, ThreadSummary summary) {
@@ -527,41 +552,44 @@ class ThreadPanels {
           Divider(height: 1, color: Theme.of(context).dividerColor),
         ],
       ),
-      body: TabBarView(
-        controller: threadsTab(),
-        children: [
-          ChatView(
-            key: const ValueKey('thread_panel'),
-            channel: panelManager.threadChannel ?? '',
-            messages: panelManager.threadMessages,
-            atBottomNotifier: threadAtBottom,
-            messageNotifier: threadMsgCount,
-            scrollController: threadPanelScrollCtrl,
-            messageBuilder: messageBuilder,
-            showTimestamp: host.showTimestamps,
-            timestampFormat: host.timestampFormat,
-            chatFontScale: host.chatFontSize / 14.0,
-            checkeredMessages: host.checkeredMessages,
-            highlightOpacity: host.highlightOpacity,
-            lineSeparator: host.lineSeparator,
-            sharedChatMode: host.sharedChatMode,
-            paintService: host.namePaintService,
-            onShowUserProfile: (login, userId, {displayName}) =>
-                userSheets.showUserProfile(
-                  context,
-                  login,
-                  userId,
-                  displayName: displayName,
-                ),
-            onShowMessageMenu: (msg) =>
-                menus.showPanelMessageMenu(context, msg),
-            onCopyMessage: host.copyMessage,
-            showReplyIndicators: false,
-            emptyText: 'No messages found',
-          ),
-          _activeThreadsList(context),
-          _savedThreadsList(context),
-        ],
+      body: NotificationListener<ScrollNotification>(
+        onNotification: tabDragFocus.onNotification,
+        child: TabBarView(
+          controller: threadsTab(),
+          children: [
+            ChatView(
+              key: const ValueKey('thread_panel'),
+              channel: panelManager.threadChannel ?? '',
+              messages: panelManager.threadMessages,
+              atBottomNotifier: threadAtBottom,
+              messageNotifier: threadMsgCount,
+              scrollController: threadPanelScrollCtrl,
+              messageBuilder: messageBuilder,
+              showTimestamp: host.showTimestamps,
+              timestampFormat: host.timestampFormat,
+              chatFontScale: host.chatFontSize / 14.0,
+              checkeredMessages: host.checkeredMessages,
+              highlightOpacity: host.highlightOpacity,
+              lineSeparator: host.lineSeparator,
+              sharedChatMode: host.sharedChatMode,
+              paintService: host.namePaintService,
+              onShowUserProfile: (login, userId, {displayName}) =>
+                  userSheets.showUserProfile(
+                    context,
+                    login,
+                    userId,
+                    displayName: displayName,
+                  ),
+              onShowMessageMenu: (msg) =>
+                  menus.showPanelMessageMenu(context, msg),
+              onCopyMessage: host.copyMessage,
+              showReplyIndicators: false,
+              emptyText: 'No messages found',
+            ),
+            _activeThreadsList(context),
+            _savedThreadsList(context),
+          ],
+        ),
       ),
     );
   }

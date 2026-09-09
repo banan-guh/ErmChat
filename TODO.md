@@ -80,13 +80,13 @@
 ## SMALL bugs
 
 - borders flicker white when tabbing in
-- dedup spaces in reply string
+- dedup spaces in reply string X
 - style bug, add stretch for tab bar channels
 - notifs don't matter if no foreground in android (ios push notifs, change if server) - DO NOT do, adding server soon
-- fast swipe default
+- fast swipe default X
 - double connected msg ios
-- anon -> acc = nothing to show it's connecting + check weirdly long connect time?
-- still duping sys msgs in robotty msgs (I think maybe, idk if it's true anymore)
-- emotes don't pick max quality after low -> high
+- anon -> acc = nothing to show it's connecting + check weirdly long connect time? X
+- still duping sys msgs in robotty msgs (I think maybe, idk if it's true anymore) X
+- emotes don't pick max quality after low -> high X
 - test emotes on low / high
-- user panel janky with msgs
+- user panel janky with msgs X

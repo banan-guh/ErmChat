@@ -34,7 +34,7 @@ class PanelManager {
   }
 
   VoidCallback? onOpenThreadChanged;
-  VoidCallback? onPanelClosed;
+  void Function(OverlayPanel)? onPanelClosed;
   List<TwitchMessage> threadMessages = [];
   String? threadChannel;
 
@@ -120,7 +120,7 @@ class PanelManager {
       if (activePanel == panelToClose) {
         activePanel = OverlayPanel.closed;
         openThreadRoot = null;
-        onPanelClosed?.call();
+        onPanelClosed?.call(panelToClose);
       }
       panelScaleCtrl.value = 1.0;
       markDirty();

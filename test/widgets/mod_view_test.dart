@@ -10,6 +10,7 @@ import 'package:ermchat/services/mod_actions.dart';
 import 'package:ermchat/services/twitch_api.dart';
 import 'package:ermchat/services/twitch_auth.dart';
 import 'package:ermchat/widgets/mod_view.dart';
+import 'package:ermchat/widgets/tab_drag_focus.dart';
 
 ChatStore _store() => ChatStore(
   channels: ['testchannel'],
@@ -169,6 +170,7 @@ class _Harness extends StatelessWidget {
       tabController: tab,
       refresh: store.heldVersion,
       termsVersion: ValueNotifier(0),
+      dragFocus: TabDragFocus(tab: () => tab, onFocusChanged: (_) {}),
       isModerationActive: (_) => true,
       isAutomodActive: (_) => true,
       getRoomModes: (_) => const {},

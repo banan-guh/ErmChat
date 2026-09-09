@@ -391,7 +391,7 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   OverlayPanel get activePanel => _activePanel;
   @override
-  int get threadsTabIndex => _threadsTabCtrl.index;
+  int get threadsTabIndex => _threads.effectiveThreadsTab;
   @override
   TwitchMessage? get openThreadRoot => _panelManager.openThreadRoot;
   @override
@@ -528,6 +528,14 @@ class _HomeScreenState extends State<HomeScreen>
     closeSearch: () => _search.closeSearch(),
     host: this,
   );
+
+  /// Panel tab drag crossings, merged for ComposerBar so the morph tracks
+  /// 50% without a full rebuild per crossing.
+  late final _panelDragTick = Listenable.merge([
+    _mod.tabDragFocus.dragFocus,
+    _mentions.tabDragFocus.dragFocus,
+    _threads.tabDragFocus.dragFocus,
+  ]);
 
   late final _chrome = HomeAppBar(
     chatStore: _chatStore,
@@ -724,7 +732,18 @@ class _HomeScreenState extends State<HomeScreen>
     _modTabCtrl = TabController(length: ModPanels.tabCount, vsync: this);
     _modTabCtrl.addListener(_mod.onModTabChanged);
     _panelManager.emoteSheetCtrl.addListener(_panelManager.onSheetSizeChanged);
-    _panelManager.onPanelClosed = _mod.onPanelClosed;
+    _panelManager.onPanelClosed = (panel) {
+      switch (panel) {
+        case OverlayPanel.modView:
+          _mod.onPanelClosed();
+        case OverlayPanel.mentions:
+          _mentions.onMentionsClosed();
+        case OverlayPanel.thread:
+          _threads.onThreadsClosed();
+        case OverlayPanel.closed:
+          break;
+      }
+    };
     _loadMaxMessages();
     unawaited(_threads.loadSaved());
     unawaited(
@@ -1786,6 +1805,7 @@ class _HomeScreenState extends State<HomeScreen>
                   selectedTabIndex: _selectedTabIndex,
                   search: _search,
                   mod: _mod,
+                  dragTick: _panelDragTick,
                 )
               : null,
           notice: ChatNoticeBar(controller: _chatNotice),

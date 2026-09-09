@@ -9,6 +9,7 @@ import '../services/mod_actions.dart';
 import '../services/twitch_auth.dart';
 import '../widgets/mod_view.dart';
 import '../widgets/panel_manager.dart';
+import '../widgets/tab_drag_focus.dart';
 
 // Shell-owned state the mod view panel reads but does not own.
 abstract class ModPanelsHost extends ShellState {
@@ -65,8 +66,23 @@ class ModPanels {
   String? _termsChannel;
   bool _termsWasActive = false;
 
+  /// Layout work deferred from a live drag crossing to settle.
+  bool _termsLayoutPending = false;
+
+  /// Status-row hide follows only on settle; the input swap is live, and
+  /// resizing the composer mid-drag would feed back into the page.
+  bool _termsChromeActive = false;
+
+  /// Half-drag focus: crossings report at 50% via [_onModFocus], settle
+  /// syncs through [onModTabChanged].
+  late final tabDragFocus = TabDragFocus(
+    tab: modTab,
+    onFocusChanged: _onModFocus,
+  );
+
   void dispose() {
     modPanelVersion.dispose();
+    tabDragFocus.dispose();
     termsField.dispose();
     termsAdding.dispose();
     termsVersion.dispose();
@@ -88,8 +104,9 @@ class ModPanels {
     if (!host.isMounted()) return;
     composer.unfocus();
     // Always enter on Queue so a reorder never lands on the wrong tab.
+    // jumpTo (not a bare index set) so the warp swallows travel updates.
     try {
-      modTab().index = 0;
+      tabDragFocus.jumpTo(0);
     } catch (_) {}
     panelManager.activePanel = OverlayPanel.modView;
     panelManager.openThreadRoot = null;
@@ -107,18 +124,52 @@ class ModPanels {
   }
 
   /// True while the composer should morph into the blocked-term input:
-  /// mod view open on the Terms tab. Other tabs keep the greyed-out box.
+  /// mod view open on the Terms tab. Tracks drags live, so the box
+  /// unlocks at the 50% crossing instead of on settle.
   bool get termsInputActive =>
       panelManager.activePanel == OverlayPanel.modView &&
       host.selectedChannel != null &&
-      modTab().index == termsTabIndex;
+      tabDragFocus.effectiveIndex == termsTabIndex;
 
-  /// Tab listener: unlock the borrowed input on enter, grey it out on
-  /// leave. Never grabs focus; the keyboard only comes up on user tap.
+  /// Composer chrome follows only on settle; the input swap is live.
+  bool get termsChromeHidden =>
+      panelManager.activePanel == OverlayPanel.modView &&
+      host.selectedChannel != null &&
+      _termsChromeActive;
+
+  /// Settle path for the tab-controller listener. Crossings report live
+  /// through [_onModFocus]; this only catches what the drag did not.
+  /// Never grabs focus; the keyboard only comes up on user tap.
   void onModTabChanged() {
-    final active = termsInputActive;
-    if (active == _termsWasActive) return;
-    _termsWasActive = active;
+    if (modTab().indexIsChanging) return;
+    tabDragFocus.syncFromController();
+  }
+
+  void _onModFocus(int index) {
+    if (!host.isMounted()) return;
+    final active =
+        panelManager.activePanel == OverlayPanel.modView &&
+        host.selectedChannel != null &&
+        index == termsTabIndex;
+    if (tabDragFocus.dragFocus.value != null) {
+      // Live drag: the morph follows the finger through ComposerBar's
+      // drag subscription alone, no HomeScreen rebuild; keyboard and
+      // layout effects wait for settle so the viewport never shifts
+      // mid-gesture.
+      if (active == _termsWasActive) return;
+      _termsWasActive = active;
+      _termsLayoutPending = true;
+      return;
+    }
+    // Settle path (also covers tab taps): full effects, including any
+    // layout work deferred from the drag.
+    final layoutOnly = active == _termsWasActive && _termsLayoutPending;
+    _termsLayoutPending = false;
+    if (!layoutOnly) {
+      if (active == _termsWasActive) return;
+      _termsWasActive = active;
+    }
+    _termsChromeActive = active;
     if (active) {
       final channel = host.selectedChannel;
       if (_termsChannel != channel) {
@@ -152,6 +203,9 @@ class ModPanels {
 
   /// Panel close hook: restore input visibility, drop the draft.
   void onPanelClosed() {
+    tabDragFocus.reset();
+    _termsLayoutPending = false;
+    _termsChromeActive = false;
     final wasTerms = _termsWasActive;
     _termsWasActive = false;
     if (_termsRestoredInput) {
@@ -333,6 +387,7 @@ class ModPanels {
         tabController: modTab(),
         refresh: modPanelVersion,
         termsVersion: termsVersion,
+        dragFocus: tabDragFocus,
         onNotice: host.showNotice,
         onShowUser: onShowUser,
         isBroadcaster: channel.isNotEmpty && chatConn.isBroadcaster(channel),

@@ -7,6 +7,7 @@ import '../services/mod_actions.dart';
 import '../services/twitch_api.dart';
 import '../services/twitch_auth.dart';
 import 'app_snack.dart';
+import 'tab_drag_focus.dart';
 
 /// Snackbar copy for a failed mod action.
 String modErrorText(ModResult result) => switch (result.failure) {
@@ -201,6 +202,7 @@ class ModViewPanel extends StatelessWidget {
     required this.tabController,
     required this.refresh,
     required this.termsVersion,
+    required this.dragFocus,
     required this.isModerationActive,
     required this.isAutomodActive,
     required this.getRoomModes,
@@ -218,6 +220,9 @@ class ModViewPanel extends StatelessWidget {
 
   /// Bumped when a blocked term is added via the borrowed composer input.
   final ValueListenable<int> termsVersion;
+
+  /// Half-drag focus tracker; the composer morph follows 50% crossings.
+  final TabDragFocus dragFocus;
   final bool Function(String channel) isModerationActive;
   final bool Function(String channel) isAutomodActive;
   final Map<String, String> Function(String channel) getRoomModes;
@@ -239,6 +244,12 @@ class ModViewPanel extends StatelessWidget {
         final moderationActive = isModerationActive(channel);
         final automodActive = isAutomodActive(channel);
         if (!moderationActive && !automodActive) {
+          // Scope can flip while a drag is in flight, unmounting the
+          // TabBarView below without a ScrollEnd: drop the stranded focus
+          // post-frame so the composer gate reads honest state.
+          WidgetsBinding.instance.addPostFrameCallback(
+            (_) => dragFocus.reset(),
+          );
           return const Center(
             child: Padding(
               padding: EdgeInsets.symmetric(horizontal: 24),
@@ -249,69 +260,72 @@ class ModViewPanel extends StatelessWidget {
             ),
           );
         }
-        return TabBarView(
-          controller: tabController,
-          children: [
-            _QueueTab(
-              channel: channel,
-              store: store,
-              modActions: modActions,
-              auth: auth,
-              automodActive: automodActive,
-              scopeReady: moderationActive,
-              scopeStale: auth.scopeStale,
-              onNotice: onNotice,
-              onShowUser: onShowUser,
-            ),
-            _ActivityTab(channel: channel, store: store),
-            _ModesTab(
-              channel: channel,
-              modActions: modActions,
-              auth: auth,
-              roomModes: getRoomModes(channel),
-              moderationActive: moderationActive,
-              onNotice: onNotice,
-            ),
-            _ChannelTab(
-              channel: channel,
-              store: store,
-              modActions: modActions,
-              auth: auth,
-              onNotice: onNotice,
-              isBroadcaster: isBroadcaster,
-              isModerationActive: moderationActive,
-            ),
-            _UsersTab(
-              channel: channel,
-              store: store,
-              modActions: modActions,
-              auth: auth,
-              onNotice: onNotice,
-              onShowUser: onShowUser,
-            ),
-            _RequestsTab(
-              channel: channel,
-              store: store,
-              modActions: modActions,
-              auth: auth,
-              onNotice: onNotice,
-            ),
-            _TermsTab(
-              channel: channel,
-              store: store,
-              modActions: modActions,
-              auth: auth,
-              termsVersion: termsVersion,
-              onNotice: onNotice,
-            ),
-            _SetupTab(
-              channel: channel,
-              store: store,
-              modActions: modActions,
-              auth: auth,
-              onNotice: onNotice,
-            ),
-          ],
+        return NotificationListener<ScrollNotification>(
+          onNotification: dragFocus.onNotification,
+          child: TabBarView(
+            controller: tabController,
+            children: [
+              _QueueTab(
+                channel: channel,
+                store: store,
+                modActions: modActions,
+                auth: auth,
+                automodActive: automodActive,
+                scopeReady: moderationActive,
+                scopeStale: auth.scopeStale,
+                onNotice: onNotice,
+                onShowUser: onShowUser,
+              ),
+              _ActivityTab(channel: channel, store: store),
+              _ModesTab(
+                channel: channel,
+                modActions: modActions,
+                auth: auth,
+                roomModes: getRoomModes(channel),
+                moderationActive: moderationActive,
+                onNotice: onNotice,
+              ),
+              _ChannelTab(
+                channel: channel,
+                store: store,
+                modActions: modActions,
+                auth: auth,
+                onNotice: onNotice,
+                isBroadcaster: isBroadcaster,
+                isModerationActive: moderationActive,
+              ),
+              _UsersTab(
+                channel: channel,
+                store: store,
+                modActions: modActions,
+                auth: auth,
+                onNotice: onNotice,
+                onShowUser: onShowUser,
+              ),
+              _RequestsTab(
+                channel: channel,
+                store: store,
+                modActions: modActions,
+                auth: auth,
+                onNotice: onNotice,
+              ),
+              _TermsTab(
+                channel: channel,
+                store: store,
+                modActions: modActions,
+                auth: auth,
+                termsVersion: termsVersion,
+                onNotice: onNotice,
+              ),
+              _SetupTab(
+                channel: channel,
+                store: store,
+                modActions: modActions,
+                auth: auth,
+                onNotice: onNotice,
+              ),
+            ],
+          ),
         );
       },
     );

@@ -18,6 +18,7 @@ class ComposerBar extends StatelessWidget {
     required this.selectedTabIndex,
     required this.search,
     required this.mod,
+    required this.dragTick,
   });
 
   final ComposerController controller;
@@ -25,28 +26,39 @@ class ComposerBar extends StatelessWidget {
   final SearchPanels search;
   final ModPanels mod;
 
+  /// Panel tab drag crossings. The morph tracks 50% through this alone,
+  /// without a full HomeScreen rebuild per crossing (main chat's focus
+  /// path skips setState the same way); settle still marks dirty.
+  final Listenable dragTick;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return ColoredBox(
       color: theme.scaffoldBackgroundColor,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          ListenableBuilder(
-            listenable: Listenable.merge([
-              controller.cooldownLabel,
-              controller.chatConn.connectionStateNotifier,
-              // Auth switches must re-render immediately (anon to user and
-              // back), not wait for the next connection-state bump.
-              controller.twitchAuth,
-              mod.termsAdding,
-            ]),
-            builder: (context, _) {
-              // Search borrows the input box: same field, own controllers.
-              // Reads the live channel per event so tab flips never leak.
-              if (search.open && search.host.selectedChannel != null) {
-                return MessageInput(
+      child: ListenableBuilder(
+        listenable: Listenable.merge([
+          controller.cooldownLabel,
+          controller.chatConn.connectionStateNotifier,
+          // Auth switches must re-render immediately (anon to user and
+          // back), not wait for the next connection-state bump.
+          controller.twitchAuth,
+          mod.termsAdding,
+          dragTick,
+        ]),
+        builder: (context, _) {
+          // Search borrows the input box: same field, own controllers.
+          // Reads the live channel per event so tab flips never leak.
+          final searchBorrowed =
+              search.open && search.host.selectedChannel != null;
+          // Terms borrows the input box while its tab is open; every
+          // other mod tab keeps the greyed-out chat box below.
+          final termsBorrowed = !searchBorrowed && mod.termsInputActive;
+          return Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (searchBorrowed)
+                MessageInput(
                   controller: search.field,
                   focusNode: search.focusNode,
                   onSend: () {},
@@ -60,12 +72,9 @@ class ComposerBar extends StatelessWidget {
                   searchMode: true,
                   prefixOverride: search.closeButton(),
                   suffixOverride: search.filterButton(),
-                );
-              }
-              // Terms borrows the input box while its tab is open; every
-              // other mod tab keeps the greyed-out chat box below.
-              if (!search.open && mod.termsInputActive) {
-                return MessageInput(
+                )
+              else if (termsBorrowed)
+                MessageInput(
                   controller: mod.termsField,
                   focusNode: mod.composer.focusNode,
                   onSend: mod.submitTerms,
@@ -75,32 +84,30 @@ class ComposerBar extends StatelessWidget {
                   searchMode: true,
                   prefixOverride: mod.termsPrefixSlot(),
                   suffixOverride: mod.termsSubmitSlot(),
-                );
-              }
-              return MessageInput(
-                controller: controller.messageController,
-                focusNode: controller.focusNode,
-                onSend: controller.send,
-                onSendLongPress: controller.recallLastSent,
-                onTap: controller.onTapClearSuggestions,
-                onEmoteToggle: controller.toggleEmoteMenu,
-                replyToMsg: controller.replyToMsg,
-                onCancelReply: controller.clearReply,
-                enabled: controller.enabled,
-                hintText: controller.hintText,
-              );
-            },
-          ),
-          if (search.open && search.host.selectedChannel != null)
-            const SizedBox.shrink()
-          else if (mod.termsInputActive)
-            const SizedBox.shrink()
-          else
-            _StatusRow(
-              controller: controller,
-              selectedTabIndex: selectedTabIndex,
-            ),
-        ],
+                )
+              else
+                MessageInput(
+                  controller: controller.messageController,
+                  focusNode: controller.focusNode,
+                  onSend: controller.send,
+                  onSendLongPress: controller.recallLastSent,
+                  onTap: controller.onTapClearSuggestions,
+                  onEmoteToggle: controller.toggleEmoteMenu,
+                  replyToMsg: controller.replyToMsg,
+                  onCancelReply: controller.clearReply,
+                  enabled: controller.enabled,
+                  hintText: controller.hintText,
+                ),
+              if (searchBorrowed || mod.termsChromeHidden)
+                const SizedBox.shrink()
+              else
+                _StatusRow(
+                  controller: controller,
+                  selectedTabIndex: selectedTabIndex,
+                ),
+            ],
+          );
+        },
       ),
     );
   }
