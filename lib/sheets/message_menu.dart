@@ -72,10 +72,11 @@ class MessageMenus {
                   Navigator.pop(ctx);
                 },
               ),
-              if (_canModerate(msg)) ...[
-                ..._modTiles(context, ctx, msg),
-                const Divider(height: 1),
-              ],
+              // Mod actions removed from message UI.
+              // if (_canModerate(msg)) ...[
+              //   ..._modTiles(context, ctx, msg),
+              //   const Divider(height: 1),
+              // ],
               ListTile(
                 leading: const Icon(Icons.more_horiz),
                 title: const Text('More...'),
@@ -95,60 +96,67 @@ class MessageMenus {
   // main menu, minus Reply (the input bar belongs to the main chat).
   // [context] is the outer context for dialogs (the sheet's [sheetCtx] is
   // already popped when an action runs).
+  // ignore: unused_element
   List<Widget> _modTiles(
     BuildContext context,
     BuildContext sheetCtx,
     TwitchMessage msg,
   ) => [
-    ListTile(
-      leading: const Icon(Icons.timer_outlined),
-      title: const Text('Timeout'),
-      onTap: () {
-        Navigator.pop(sheetCtx);
-        unawaited(modTimeout(context, msg));
-      },
-    ),
-    if (msg.messageId != null)
-      ListTile(
-        leading: const Icon(Icons.delete_outline),
-        title: const Text('Delete'),
-        onTap: () {
-          Navigator.pop(sheetCtx);
-          unawaited(modDelete(context, msg));
-        },
-      ),
-    ListTile(
-      leading: const Icon(Icons.warning_amber_outlined),
-      title: const Text('Warn'),
-      onTap: () {
-        Navigator.pop(sheetCtx);
-        unawaited(modWarn(context, msg));
-      },
-    ),
-    ListTile(
-      leading: const Icon(Icons.gavel_outlined),
-      title: const Text('Ban'),
-      onTap: () {
-        Navigator.pop(sheetCtx);
-        unawaited(modBan(context, msg));
-      },
-    ),
-    ListTile(
-      leading: const Icon(Icons.undo_outlined),
-      title: const Text('Unban'),
-      onTap: () {
-        Navigator.pop(sheetCtx);
-        unawaited(modUnban(context, msg));
-      },
-    ),
-    ListTile(
-      leading: const Icon(Icons.campaign_outlined),
-      title: const Text('Shoutout'),
-      onTap: () {
-        Navigator.pop(sheetCtx);
-        unawaited(modShoutout(context, msg));
-      },
-    ),
+    // Timeout removed from message UI.
+    // ListTile(
+    //   leading: const Icon(Icons.timer_outlined),
+    //   title: const Text('Timeout'),
+    //   onTap: () {
+    //     Navigator.pop(sheetCtx);
+    //     unawaited(modTimeout(context, msg));
+    //   },
+    // ),
+    // Delete removed from message UI.
+    // if (msg.messageId != null)
+    //   ListTile(
+    //     leading: const Icon(Icons.delete_outline),
+    //     title: const Text('Delete'),
+    //     onTap: () {
+    //       Navigator.pop(sheetCtx);
+    //       unawaited(modDelete(context, msg));
+    //     },
+    //   ),
+    // Warn removed from message UI.
+    // ListTile(
+    //   leading: const Icon(Icons.warning_amber_outlined),
+    //   title: const Text('Warn'),
+    //   onTap: () {
+    //     Navigator.pop(sheetCtx);
+    //     unawaited(modWarn(context, msg));
+    //   },
+    // ),
+    // Ban removed from message UI.
+    // ListTile(
+    //   leading: const Icon(Icons.gavel_outlined),
+    //   title: const Text('Ban'),
+    //   onTap: () {
+    //     Navigator.pop(sheetCtx);
+    //     unawaited(modBan(context, msg));
+    //   },
+    // ),
+    // Unban removed from message UI.
+    // ListTile(
+    //   leading: const Icon(Icons.undo_outlined),
+    //   title: const Text('Unban'),
+    //   onTap: () {
+    //     Navigator.pop(sheetCtx);
+    //     unawaited(modUnban(context, msg));
+    //   },
+    // ),
+    // Shoutout removed from message UI.
+    // ListTile(
+    //   leading: const Icon(Icons.campaign_outlined),
+    //   title: const Text('Shoutout'),
+    //   onTap: () {
+    //     Navigator.pop(sheetCtx);
+    //     unawaited(modShoutout(context, msg));
+    //   },
+    // ),
   ];
 
   // Panels (thread, mentions, whispers): copy + mod verbs + more menu. No
@@ -169,10 +177,11 @@ class MessageMenus {
                   Navigator.pop(ctx);
                 },
               ),
-              if (_canModerate(msg)) ...[
-                ..._modTiles(context, ctx, msg),
-                const Divider(height: 1),
-              ],
+              // Mod actions removed from message UI.
+              // if (_canModerate(msg)) ...[
+              //   ..._modTiles(context, ctx, msg),
+              //   const Divider(height: 1),
+              // ],
               ListTile(
                 leading: const Icon(Icons.more_horiz),
                 title: const Text('More...'),
@@ -225,6 +234,7 @@ class MessageMenus {
     );
   }
 
+  // ignore: unused_element
   bool _canModerate(TwitchMessage msg) {
     final channel = msg.channel;
     // No mod actions on yourself; Twitch rejects them all.
