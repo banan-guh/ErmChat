@@ -5060,6 +5060,8 @@ void main() {
           await tester.pumpAndSettle();
 
           await tester.tap(find.byIcon(Icons.remove_circle_outline));
+          await tester.pumpAndSettle();
+          await tester.tap(find.text('Leave'));
           await tester.pump();
           await tester.pump();
           await tester.pump();
