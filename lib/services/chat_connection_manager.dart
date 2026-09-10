@@ -459,7 +459,7 @@ class ChatConnectionManager {
 
   void maybeAddConnected(String channel) {
     if (irc.isConnected &&
-        chat.historyLoaded(channel) &&
+        (chat.channelFor(channel)?.info.historyLoaded ?? false) &&
         _connectedAcked.add(channel)) {
       onSystemMessage(channel, 'Connected');
     }
@@ -2121,7 +2121,7 @@ class ChatConnectionManager {
   /// Re-runs the per-channel data loads (emotes, badges) that failed earlier,
   /// updating the retryable failure state. Driven by the UI retry affordance.
   void retryChannelData(String channel) {
-    final userId = chat.broadcasterId(channel);
+    final userId = chat.channelFor(channel)?.info.broadcasterId;
     if (userId == null) return;
     final auth = twitchAuth;
     unawaited(

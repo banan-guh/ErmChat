@@ -947,6 +947,7 @@ void main() {
           buildMessageSpans:
               (_, _, _, {colored = false, textScale = 1.0, onImageTap}) =>
                   <InlineSpan>[TextSpan(text: 'gone')],
+          bodyIsCached: (_, _) => false,
           fadeDeleted: fadeDeleted,
         ),
       ),

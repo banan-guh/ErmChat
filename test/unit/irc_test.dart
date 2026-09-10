@@ -449,11 +449,11 @@ ChatConnectionManager _makeReconnectConn({
   }
   for (final entry in (chatStatus ?? {}).entries) {
     effectiveChat.ensure(entry.key);
-    effectiveChat.setChatStatus(entry.key, entry.value);
+    effectiveChat.channelFor(entry.key)?.info.setStatus(entry.value);
   }
   for (final entry in (channelUserIds ?? {}).entries) {
     effectiveChat.ensure(entry.key);
-    effectiveChat.setBroadcasterId(entry.key, entry.value);
+    effectiveChat.channelFor(entry.key)?.info.setBroadcasterId(entry.value);
   }
   if (currentUserLogin != null) {
     effectiveChat.seedLogin(currentUserLogin);
@@ -2804,7 +2804,7 @@ void main() {
       final system = <String>[];
       final chat = Chat();
       chat.ensure('test');
-      chat.setBroadcasterId('test', '999');
+      chat.channelFor('test')?.info.setBroadcasterId('999');
       final readConn = _NoopIrcRead();
       final conn = _makeReconnectConn(
         eventSub: _NoopEventSub(),
@@ -2880,7 +2880,7 @@ void main() {
         final readConn = _NoopIrcRead();
         final chat = Chat();
         chat.ensure('test');
-        chat.setBroadcasterId('test', '999');
+        chat.channelFor('test')?.info.setBroadcasterId('999');
         final conn = _makeReconnectConn(
           eventSub: _NoopEventSub(),
           irc: irc,
@@ -2947,7 +2947,7 @@ void main() {
       final readConn = _NoopIrcRead();
       final chat = Chat();
       chat.ensure('test');
-      chat.setBroadcasterId('test', '999');
+      chat.channelFor('test')?.info.setBroadcasterId('999');
       final conn = _makeReconnectConn(
         eventSub: _NoopEventSub(),
         irc: irc,
@@ -2984,7 +2984,7 @@ void main() {
       final readConn = _NoopIrcRead();
       final chat = Chat();
       chat.ensure('test');
-      chat.setBroadcasterId('test', '999');
+      chat.channelFor('test')?.info.setBroadcasterId('999');
       final conn = _makeReconnectConn(
         eventSub: _NoopEventSub(),
         irc: irc,
@@ -3062,7 +3062,7 @@ void main() {
       final readConn = _NoopIrcRead();
       final chat = Chat();
       chat.ensure('test');
-      chat.setBroadcasterId('test', '999');
+      chat.channelFor('test')?.info.setBroadcasterId('999');
       final conn = _makeReconnectConn(
         eventSub: _NoopEventSub(),
         irc: irc,
@@ -3488,14 +3488,14 @@ void main() {
         ':tmi.twitch.tv ROOMSTATE #test',
       );
       expect(
-        conn.chat.chatStatus('test'),
+        conn.chat.channelFor('test')?.info.status ?? '',
         'Slow (10s) · Followers-only (30m) · Emote-only · Unique chat',
       );
 
       // Partial update: only slow mode changed.
       ircRead.handleLine('@room-id=1;slow=0 :tmi.twitch.tv ROOMSTATE #test');
       expect(
-        conn.chat.chatStatus('test'),
+        conn.chat.channelFor('test')?.info.status ?? '',
         'Followers-only (30m) · Emote-only · Unique chat',
       );
 

@@ -145,7 +145,7 @@ class UserSheets {
     final canModerate =
         channel != null &&
         chatConn.isModerationActive(channel) &&
-        chat.chatStatus(channel).contains('Live');
+        (chat.channelFor(channel)?.info.status ?? '').contains('Live');
     final login = host.sessionLogin;
     final isSelf =
         login != null && username.toLowerCase() == login.toLowerCase();
@@ -262,7 +262,7 @@ class UserSheets {
                   canModerate: canModerate,
                   broadcasterUserId: channel == null
                       ? null
-                      : chat.broadcasterId(channel),
+                      : chat.channelFor(channel)?.info.broadcasterId,
                   userWarnings: channel == null
                       ? const []
                       : chat
@@ -341,6 +341,7 @@ class UserSheets {
             14.0,
         buildBadgeSpans: messageBuilder.buildBadgeSpans,
         buildMessageSpans: messageBuilder.buildMessageSpans,
+        bodyIsCached: messageBuilder.bodyIsCached,
         onDoubleTap: () => host.copyMessage(msg),
         onLongPress: () => menus.showPanelMessageMenu(context, msg),
         showTimestamp: host.showTimestamps,

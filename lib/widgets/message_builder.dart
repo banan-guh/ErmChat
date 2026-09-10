@@ -53,6 +53,11 @@ class MessageBuilder {
     this.animateGifs = true,
   }) : linkWhitelist = linkWhitelist ?? LinkWhitelist.instance;
 
+  // Render memos live here, not on the messages: the buffer stays plain data,
+  // and a message dropping out of the buffer releases its spans with it.
+  final _bodyCache = Expando<_BodySpans>();
+  final _badgeCache = Expando<_BadgeSpans>();
+
   /// Composite cache key for message spans. Prime multiplier avoids collisions.
   /// Giphy prefs join the key (prime offset for the toggle, spread factor
   /// for the height) so changes recompute spans lazily.
@@ -88,35 +93,33 @@ class MessageBuilder {
       return fresh;
     }
     final spanVersion = _spanCacheVersion;
+    final cached = _bodyCache[msg];
     final stale =
-        msg.cachedSpans == null ||
-        msg.cachedSpansVersion != spanVersion ||
-        msg.cachedSpansScale != textScale;
-    if (stale) {
-      _disposeSpanRecognizers(msg.cachedSpans);
-      final fresh = _computeMessageSpans(msg, channel, scale: textScale);
-      // Link and email spans own TapGestureRecognizers that have no dispose
-      // hook on message eviction, so never cache them. Link-heavy messages
-      // rebuild per tile instead of leaking recognizers per message.
-      if (_containsRecognizer(fresh)) {
-        msg.cachedSpans = null;
-        if (colored) return _recolor(fresh, msg, surface, textScale);
-        return fresh;
-      }
-      msg.cachedSpans = fresh;
-      msg.cachedSpansVersion = spanVersion;
-      msg.cachedSpansScale = textScale;
-    } else if (_containsRecognizer(msg.cachedSpans!)) {
-      // Lists cached before the no-cache rule still hold recognizers.
-      // Flush them once instead of reusing the leak.
-      _disposeSpanRecognizers(msg.cachedSpans);
-      msg.cachedSpans = null;
-      final fresh = _computeMessageSpans(msg, channel, scale: textScale);
-      if (colored) return _recolor(fresh, msg, surface, textScale);
-      return fresh;
+        cached == null ||
+        cached.version != spanVersion ||
+        cached.scale != textScale;
+    if (!stale) {
+      return colored
+          ? _recolor(cached.spans, msg, surface, textScale)
+          : cached.spans;
     }
-    if (colored) return _recolor(msg.cachedSpans!, msg, surface, textScale);
-    return msg.cachedSpans!;
+    if (cached != null) _disposeSpanRecognizers(cached.spans);
+    final fresh = _computeMessageSpans(msg, channel, scale: textScale);
+    // Link and email spans own TapGestureRecognizers that have no dispose
+    // hook on message eviction, so never cache them. Link-heavy messages
+    // rebuild per tile instead of leaking recognizers per message.
+    if (!_containsRecognizer(fresh)) {
+      _bodyCache[msg] = _BodySpans(fresh, spanVersion, textScale);
+    }
+    if (colored) return _recolor(fresh, msg, surface, textScale);
+    return fresh;
+  }
+
+  /// Whether [spans] is the shared cached body list for [msg], so the tile
+  /// knows not to own (and dispose) it.
+  bool bodyIsCached(TwitchMessage msg, List<InlineSpan> spans) {
+    final cached = _bodyCache[msg];
+    return cached != null && identical(cached.spans, spans);
   }
 
   bool _containsRecognizer(List<InlineSpan> spans) {
@@ -293,14 +296,15 @@ class MessageBuilder {
     // Badge cache depends on third-party data, shared-chat lookup, and scale.
     final cacheVersion =
         thirdPartyBadgeService.version * 1000003 + badgeService.version;
+    final cached = _badgeCache[msg];
     final stale =
-        msg.cachedBadgeSpans == null ||
-        msg.cachedBadgeSpansVersion != cacheVersion ||
-        msg.cachedBadgeSpansScale != badgeScale;
-    if (stale) {
-      return _computeBadgeSpans(channel, msg, cacheVersion, badgeScale);
-    }
-    return msg.cachedBadgeSpans!;
+        cached == null ||
+        cached.version != cacheVersion ||
+        cached.scale != badgeScale;
+    if (!stale) return cached.spans;
+    final spans = _computeBadgeSpans(channel, msg, badgeScale);
+    _badgeCache[msg] = _BadgeSpans(spans, cacheVersion, badgeScale);
+    return spans;
   }
 
   /// Channel-active badges for one message, newest resolution wins. Shared
@@ -353,7 +357,6 @@ class MessageBuilder {
   List<WidgetSpan> _computeBadgeSpans(
     String channel,
     TwitchMessage msg,
-    int cacheVersion,
     double badgeScale,
   ) {
     final badgeSize = 18.0 * badgeScale;
@@ -385,8 +388,22 @@ class MessageBuilder {
       );
     }
 
-    msg.cachedBadgeSpansVersion = cacheVersion;
-    msg.cachedBadgeSpansScale = badgeScale;
-    return msg.cachedBadgeSpans = spans;
+    return spans;
   }
+}
+
+class _BodySpans {
+  _BodySpans(this.spans, this.version, this.scale);
+
+  final List<InlineSpan> spans;
+  final int version;
+  final double scale;
+}
+
+class _BadgeSpans {
+  _BadgeSpans(this.spans, this.version, this.scale);
+
+  final List<WidgetSpan> spans;
+  final int version;
+  final double scale;
 }

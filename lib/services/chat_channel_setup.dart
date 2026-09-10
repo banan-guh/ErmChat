@@ -178,7 +178,7 @@ class ChatChannelSetup {
   /// and the Channel tab gate on this, not on moderator status.
   bool isBroadcaster(String channel) =>
       chat.session.userId != null &&
-      chat.session.userId == chat.broadcasterId(channel);
+      chat.session.userId == chat.channelFor(channel)?.info.broadcasterId;
 
   /// Whether a join-failure notice was already displayed for the channel
   /// (Twitch's raw refusal NOTICE is suppressed as a duplicate then).
@@ -237,7 +237,7 @@ class ChatChannelSetup {
       if (emoteSetId != null) sevenTv.unsubscribeEmoteSet(emoteSetId);
       final userId = emoteManager.getSevenTvUserId(channel);
       if (userId != null) sevenTv.unsubscribeUser(userId);
-      final twitchId = chat.broadcasterId(channel);
+      final twitchId = chat.channelFor(channel)?.info.broadcasterId;
       if (twitchId != null) sevenTv.unsubscribeTwitchChannel(twitchId);
     }
   }
@@ -253,7 +253,7 @@ class ChatChannelSetup {
     final auth = twitchAuth;
     if (!auth.isConfigured) return;
 
-    final userId = chat.broadcasterId(channel);
+    final userId = chat.channelFor(channel)?.info.broadcasterId;
     if (userId == null || chat.session.userId == null) return;
 
     // Timer-driven: a network blip (or the client being closed in dispose)
@@ -273,7 +273,7 @@ class ChatChannelSetup {
     if (!auth.isConfigured) return;
     final ids = <String>[];
     for (final channel in _chatStatusChannels) {
-      final userId = chat.broadcasterId(channel);
+      final userId = chat.channelFor(channel)?.info.broadcasterId;
       if (userId != null) ids.add(userId);
     }
     if (ids.isEmpty) return;
@@ -285,7 +285,7 @@ class ChatChannelSetup {
       return;
     }
     for (final channel in _chatStatusChannels) {
-      final userId = chat.broadcasterId(channel);
+      final userId = chat.channelFor(channel)?.info.broadcasterId;
       _applyStreamStatus(channel, userId != null ? streams[userId] : null);
     }
   }
@@ -330,7 +330,7 @@ class ChatChannelSetup {
     }
     parts.addAll(_streamStatusParts[channel] ?? const []);
     final newStatus = parts.isNotEmpty ? parts.join(' · ') : '';
-    chat.setChatStatus(channel, newStatus);
+    chat.channelFor(channel)?.info.setStatus(newStatus);
   }
 
   void stopChatStatusTimer(String channel) {
@@ -362,7 +362,7 @@ class ChatChannelSetup {
       // emote providers and badge fetches).
       channelUserId ??= await _waitForRoomId(channelName);
       if (channelUserId == null) return;
-      chat.setBroadcasterId(channelName, channelUserId);
+      chat.channelFor(channelName)?.info.setBroadcasterId(channelUserId);
       // Map before any await below: a resubscribe completing in the gap
       // would otherwise deliver events with no channel and drop them.
       eventSub.setChannelMapping(channelUserId, channelName);
@@ -880,7 +880,7 @@ class ChatChannelSetup {
     final uid = chat.session.userId;
     if (uid == null) return;
     for (final channel in channels) {
-      final channelUserId = chat.broadcasterId(channel);
+      final channelUserId = chat.channelFor(channel)?.info.broadcasterId;
       if (channelUserId == null) continue;
       if (!_moderationChannels.contains(channel)) {
         unawaited(_subscribeModeration(channel, channelUserId));

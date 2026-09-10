@@ -135,7 +135,7 @@ class _StatusRow extends StatelessWidget {
       builder: (context, _) {
         final status = channel == null
             ? ''
-            : controller.chat.chatStatus(channel);
+            : (controller.chat.channelFor(channel)?.info.status ?? '');
         final hasStatus = status.isNotEmpty;
         final hasLoadFailure =
             channel != null &&

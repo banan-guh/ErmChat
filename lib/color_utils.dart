@@ -1,6 +1,8 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
 
+import 'models/highlight_state.dart';
+
 const officialColors = [
   '#FF0000',
   '#0000FF',
@@ -191,4 +193,32 @@ Color highlightAnchor(Color surface) {
     }
   }
   return best;
+}
+
+/// Row tint for [state]: the custom rule color wins, else the per-type palette
+/// entry. Every base is contrast-equalized to the vivid anchor so the blend
+/// reads with the same perceived contrast against [surface] at any [opacity].
+Color highlightRowColor(
+  HighlightState state,
+  Color surface, {
+  double opacity = 1.0,
+}) {
+  opacity = opacity.clamp(0.0, 1.0);
+  final isDark = surface.computeLuminance() < 0.5;
+  final palette = isDark ? highlightPaletteDark : highlightPaletteLight;
+  final anchor = highlightAnchor(surface);
+  final base =
+      state.customColor ??
+      switch (state.primary) {
+        HighlightType.username ||
+        HighlightType.reply ||
+        HighlightType.user ||
+        HighlightType.badge ||
+        HighlightType.custom => palette[0],
+        HighlightType.redemption => palette[1],
+        HighlightType.elevated => palette[2],
+        HighlightType.firstMsg => palette[3],
+      };
+  final tint = matchTintContrast(base, surface, anchor);
+  return Color.alphaBlend(tint.withValues(alpha: opacity), surface);
 }

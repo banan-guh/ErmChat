@@ -62,7 +62,7 @@ class HomeAppBar {
   final HomeAppBarHost host;
 
   bool _isChannelLive(String channel) =>
-      chat.chatStatus(channel).contains('Live');
+      (chat.channelFor(channel)?.info.status ?? '').contains('Live');
 
   void _onBellPressed() {
     chat.clearAllUnread();

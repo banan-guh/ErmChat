@@ -377,6 +377,7 @@ class _ChatViewState extends State<ChatView>
         timestampFormat: widget.timestampFormat,
         buildBadgeSpans: widget.messageBuilder.buildBadgeSpans,
         buildMessageSpans: widget.messageBuilder.buildMessageSpans,
+        bodyIsCached: widget.messageBuilder.bodyIsCached,
         systemBodyBuilder: (msg, scale) => parseTextWithLinks(
           msg.text,
           linkWhitelist: widget.linkWhitelist?.entries,
@@ -399,6 +400,7 @@ class _ChatViewState extends State<ChatView>
         timestampFormat: widget.timestampFormat,
         buildBadgeSpans: widget.messageBuilder.buildBadgeSpans,
         buildMessageSpans: widget.messageBuilder.buildMessageSpans,
+        bodyIsCached: widget.messageBuilder.bodyIsCached,
         onTapUser: (login, userId) => widget.onShowUserProfile(
           login,
           userId,

@@ -168,7 +168,7 @@ class EmoteApplier {
         for (final c in chat.names) {
           emoteManager.resolveEmotes(
             c,
-            chat.broadcasterId(c),
+            chat.channelFor(c)?.info.broadcasterId,
             force: needsDiff,
           );
         }
@@ -210,7 +210,7 @@ class EmoteApplier {
       for (final channel in chat.names) {
         final userId = await twitchApi.getUserId(twitchAuth, channel);
         if (userId != null) {
-          chat.setBroadcasterId(channel, userId);
+          chat.channelFor(channel)?.info.setBroadcasterId(userId);
         }
       }
       // No evict here: a force fetch replaces the caches wholesale and the
@@ -227,7 +227,7 @@ class EmoteApplier {
       badgeService.resetCaches();
       await badgeService.fetchGlobalBadges(twitchAuth);
       for (final channel in chat.names) {
-        final userId = chat.broadcasterId(channel);
+        final userId = chat.channelFor(channel)?.info.broadcasterId;
         if (userId != null) {
           badgeService.fetchChannelBadges(twitchAuth, userId, channel);
         }
@@ -236,7 +236,7 @@ class EmoteApplier {
         chat.names.map(
           (c) => emoteManager.resolveEmotes(
             c,
-            chat.broadcasterId(c),
+            chat.channelFor(c)?.info.broadcasterId,
             force: force,
           ),
         ),
@@ -313,7 +313,7 @@ class EmoteApplier {
   Map<String, String> _channelUserIds() {
     final out = <String, String>{};
     for (final c in chat.names) {
-      final id = chat.broadcasterId(c);
+      final id = chat.channelFor(c)?.info.broadcasterId;
       if (id != null) out[c] = id;
     }
     return out;

@@ -238,7 +238,7 @@ class _HomeScreenState extends State<HomeScreen>
   Map<String, String> _channelUserIds() {
     final out = <String, String>{};
     for (final name in _chat.names) {
-      final id = _chat.broadcasterId(name);
+      final id = _chat.channelFor(name)?.info.broadcasterId;
       if (id != null) out[name] = id;
     }
     return out;

@@ -31,6 +31,10 @@ class ChatMessageTile extends StatefulWidget {
     void Function(String url)? onImageTap,
   })
   buildMessageSpans;
+
+  /// Whether [buildMessageSpans] returned the shared cached list, so the tile
+  /// does not own (or dispose) it.
+  final bool Function(TwitchMessage msg, List<InlineSpan> spans) bodyIsCached;
   final List<InlineSpan> Function(TwitchMessage msg, double textScale)?
   systemBodyBuilder;
   final void Function(String login, String? userId)? onTapUser;
@@ -71,6 +75,7 @@ class ChatMessageTile extends StatefulWidget {
     required this.textScale,
     required this.buildBadgeSpans,
     required this.buildMessageSpans,
+    required this.bodyIsCached,
     this.systemBodyBuilder,
     this.onTapUser,
     this.onLongPress,
@@ -293,7 +298,7 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
           linkWhitelist: widget.linkWhitelist,
         ).take(kMaxImageEmbedsPerMessage).toList();
       }
-      _trackBodySpans(bodySpans, identical(bodySpans, msg.cachedSpans));
+      _trackBodySpans(bodySpans, widget.bodyIsCached(msg, bodySpans));
       children = [...badges, usernameSpan, ...bodySpans];
       semanticsLabel = msg.isHighlighted
           ? 'Mention: $ts ${msg.formattedUsername}: ${msg.text}'
@@ -411,7 +416,11 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
     }
     final highlight = msg.highlight;
     if (highlight != null) {
-      rowColor = highlight.rowColor(rowColor, opacity: widget.highlightOpacity);
+      rowColor = highlightRowColor(
+        highlight,
+        rowColor,
+        opacity: widget.highlightOpacity,
+      );
     }
     if (widget.checkeredMessages && widget.isAlternateBackground) {
       // Alternating row: inverseSurface at ~12% alpha (dankchat style).

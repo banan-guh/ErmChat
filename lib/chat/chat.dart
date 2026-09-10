@@ -46,19 +46,6 @@ class Chat {
   bool contains(String name) => _channels.containsKey(name);
   Channel? channelFor(String name) => _channels[name];
 
-  String? broadcasterId(String channel) =>
-      _channels[channel]?.info.broadcasterId;
-
-  void setBroadcasterId(String channel, String? id) {
-    _channels[channel]?.info.setBroadcasterId(id);
-  }
-
-  String chatStatus(String channel) => _channels[channel]?.info.status ?? '';
-
-  void setChatStatus(String channel, String status) {
-    _channels[channel]?.info.setStatus(status);
-  }
-
   void recordLoadFailure(String channel, String kind) {
     _channels[channel]?.info.recordLoadFailure(kind);
     rebuildLoadFailures();
@@ -67,13 +54,6 @@ class Chat {
   void clearLoadFailure(String channel, [String? kind]) {
     _channels[channel]?.info.clearLoadFailure(kind);
     rebuildLoadFailures();
-  }
-
-  bool historyLoaded(String channel) =>
-      _channels[channel]?.info.historyLoaded ?? false;
-
-  void setHistoryLoaded(String channel, bool loaded) {
-    _channels[channel]?.info.setHistoryLoaded(loaded);
   }
 
   void reorder(List<String> reordered) {

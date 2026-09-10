@@ -336,6 +336,7 @@ void main() {
               (_, _, _, {colored = false, textScale = 1.0, onImageTap}) => [
                 TextSpan(text: msg.text),
               ],
+          bodyIsCached: (_, _) => false,
           paintService: paints,
         );
 
