@@ -1,12 +1,12 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
+import '../chat/chat.dart';
 import '../models/generic_emote.dart';
 import '../models/twitch_badge.dart';
 import '../models/twitch_message.dart';
 import '../composer/composer_controller.dart';
 import '../services/chat_connection_manager.dart';
-import '../services/chat_store.dart';
 import '../services/emote_manager.dart';
 import '../services/mod_actions.dart';
 import '../services/seven_tv_paint_service.dart';
@@ -80,7 +80,7 @@ abstract class UserSheetHost extends ShellState {
 // User card modal with history, plus the per-message emote list sheet.
 class UserSheets {
   UserSheets({
-    required this.chatStore,
+    required this.chat,
     required this.chatConn,
     required this.twitchApi,
     required this.twitchAuth,
@@ -92,7 +92,7 @@ class UserSheets {
     required this.host,
   });
 
-  final ChatStore chatStore;
+  final Chat chat;
   final ChatConnectionManager chatConn;
   final TwitchApi twitchApi;
   final TwitchAuth twitchAuth;
@@ -121,7 +121,7 @@ class UserSheets {
     // The sheet opens pinned to the latest message.
     final history = channel == null
         ? const <TwitchMessage>[]
-        : chatStore.recentMessagesFromUser(channel, username).reversed.toList();
+        : _recentMessagesFromUser(channel, username).reversed.toList();
     // Badges active in this channel, newest message first. Empty when the
     // user has no buffered messages or nothing resolves.
     var cardBadges = const <CardBadge>[];
@@ -145,7 +145,7 @@ class UserSheets {
     final canModerate =
         channel != null &&
         chatConn.isModerationActive(channel) &&
-        (chatStore.chatStatus[channel] ?? '').contains('Live');
+        chat.chatStatus(channel).contains('Live');
     final login = host.sessionLogin;
     final isSelf =
         login != null && username.toLowerCase() == login.toLowerCase();
@@ -262,16 +262,23 @@ class UserSheets {
                   canModerate: canModerate,
                   broadcasterUserId: channel == null
                       ? null
-                      : chatStore.channelUserIds[channel],
+                      : chat.broadcasterId(channel),
                   userWarnings: channel == null
                       ? const []
-                      : chatStore.warningsFor(channel, username),
+                      : chat
+                                .channelFor(channel)
+                                ?.moderation
+                                .warningsFor(username) ??
+                            const [],
                   banEntry: channel == null
                       ? null
-                      : chatStore.banFor(channel, username),
+                      : chat.channelFor(channel)?.moderation.banFor(username),
                   suspiciousInfo: channel == null
                       ? null
-                      : chatStore.suspiciousFor(channel, username),
+                      : chat
+                            .channelFor(channel)
+                            ?.moderation
+                            .suspiciousFor(username),
                   isSelf: isSelf,
                   messageController: composer.messageController,
                   focusNode: composer.focusNode,
@@ -292,6 +299,25 @@ class UserSheets {
         );
       },
     ).whenComplete(sheetController.dispose);
+  }
+
+  // Newest-first non-system messages from login, like the old kernel verb.
+  List<TwitchMessage> _recentMessagesFromUser(
+    String channel,
+    String login, {
+    int limit = 50,
+  }) {
+    final want = login.toLowerCase();
+    if (want.isEmpty || limit <= 0) return [];
+    final msgs = chat.channelFor(channel)?.messages.items;
+    if (msgs == null) return [];
+    final out = <TwitchMessage>[];
+    for (final msg in msgs) {
+      if (out.length >= limit) break;
+      if (msg.isSystem || msg.login.toLowerCase() != want) continue;
+      out.add(msg);
+    }
+    return out;
   }
 
   // Read-only history row for the user card: full chat styling, but no

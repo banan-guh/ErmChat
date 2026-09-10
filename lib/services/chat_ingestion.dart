@@ -8,7 +8,7 @@ import '../util/duration_format.dart';
 import '../util/log.dart';
 import 'twitch_irc.dart' show IrcReadService;
 import '../util/text_bypass.dart';
-import 'chat_store.dart';
+import '../chat/chat.dart';
 import 'emote_manager.dart';
 import 'ignore_manager.dart';
 import 'ping_manager.dart';
@@ -40,18 +40,19 @@ class _BanMeta {
 
 /// The chat-content domain of the pipeline: turns incoming IRC traffic
 /// (PRIVMSG, CLEARMSG, CLEARCHAT, channel clears, own-message echoes) into
-/// [ChatStore] mutations and feature-sink calls. Pure translation: policy
+/// [Chat] mutations and feature-sink calls. Pure translation: policy
 /// lives behind the consulted predicates (pings, ignores, blocks) and every
-/// state law lives in the store.
+/// state law lives in the channel.
 class ChatIngestion {
   ChatIngestion({
     required this.irc,
     required this.ircRead,
-    required this.store,
+    required this.chat,
     required this.userStore,
     required this.emoteManager,
     required this.badgeService,
     required this.twitchAuth,
+    required this.lastSentWireText,
     this.ignoreManager,
     this.pingManager,
     required this.mentionsChannel,
@@ -72,11 +73,12 @@ class ChatIngestion {
 
   final IrcService irc;
   final IrcReadService ircRead;
-  final ChatStore store;
+  final Chat chat;
   final UserStore userStore;
   final EmoteManager emoteManager;
   final TwitchBadgeService badgeService;
   final TwitchAuth twitchAuth;
+  final Map<String, String> lastSentWireText;
   final IgnoreManager? ignoreManager;
   final PingManager? pingManager;
 
@@ -145,7 +147,7 @@ class ChatIngestion {
   // ---- PRIVMSG ------------------------------------------------------------
 
   /// Translates one live chat message under the pipeline policies (blocks,
-  /// ignores, pings, shared-chat mode) and hands it to the store.
+  /// ignores, pings, shared-chat mode) and hands it to the channel.
   void onMessage(TwitchMessage msg) {
     if (_disposed) return;
 
@@ -193,13 +195,25 @@ class ChatIngestion {
       userStore.addUser(channel, preferredName);
     }
 
-    if (!store.ingestMessage(
-      msg,
-      maxMessages: getMaxMessagesPerChannel(),
-      selectedChannel: getSelectedChannel(),
-      mentionsChannel: mentionsChannel,
-    )) {
-      return;
+    final selected = getSelectedChannel();
+    final result = chat
+        .ensure(channel)
+        .receive(
+          msg,
+          maxMessages: getMaxMessagesPerChannel(),
+          isSelected: channel == selected,
+          ownLogin: chat.session.login,
+        );
+    if (!result.inserted) return;
+
+    // Aggregates follow the verb's single decision; never re-decided here.
+    if (result.mentioned) {
+      chat.mentions.add([msg], maxMessages: getMaxMessagesPerChannel());
+    }
+    if (result.countMention) {
+      chat.noteMention();
+    } else if (result.countUnread) {
+      chat.noteUnread();
     }
 
     // Feed the emote usage registry from live chat: the emotes people are
@@ -225,9 +239,7 @@ class ChatIngestion {
       unawaited(_ensureSourceChannelData(msg.sourceBroadcasterId!));
     }
 
-    final login = store.session.login?.toLowerCase();
-    final state = msg.highlight;
-    if (state != null && state.hasMention && msg.login != login) {
+    if (result.mentioned) {
       onMention?.call(channel, msg);
     }
 
@@ -286,7 +298,8 @@ class ChatIngestion {
 
   void _onMessageDeleted(IrcMessageDeletedEvent event) {
     if (_disposed) return;
-    final found = store.markMessageDeleted(event.channel, event.messageId);
+    final channel = chat.channelFor(event.channel);
+    final found = channel?.messages.markDeleted(event.messageId) ?? false;
     // While the channel.moderate v2 subscription is active, deletions come
     // from EventSub (with moderator + message body) - skip the IRC copy.
     if (found && !isModerationActive(event.channel)) {
@@ -308,11 +321,11 @@ class ChatIngestion {
     );
     if (_disposed) return;
     onAnalyticsModeration?.call(channel, isTimeout);
-    store.markUserMessagesDeleted(channel, user);
+    chat.channelFor(channel)?.messages.markUserDeleted(user);
     // Track own timeouts for the input-box countdown. Runs before the
     // moderation-channel early return so the IRC and EventSub sources can't
     // double-count: both just re-arm the same expiry.
-    final selfLogin = store.session.login?.toLowerCase();
+    final selfLogin = chat.session.login?.toLowerCase();
     if (selfLogin != null && user.toLowerCase() == selfLogin) {
       // Zero-length timeouts are already spent - don't arm a gate for them.
       if (isTimeout && duration != null && duration > 0) {
@@ -326,7 +339,7 @@ class ChatIngestion {
     // messages come from EventSub (with reason/duration) - skip the IRC copy.
     if (isModerationActive(channel)) return;
     final result = _processBanInChannel(channel, user, isTimeout);
-    final isSelf = user.toLowerCase() == store.session.login?.toLowerCase();
+    final isSelf = user.toLowerCase() == chat.session.login?.toLowerCase();
     final base = isSelf
         ? (isTimeout
               ? 'You are timed out${duration != null ? ' for ${formatSeconds(duration)}' : ''}'
@@ -344,12 +357,15 @@ class ChatIngestion {
 
     if (result.stackCount > 1) {
       if (result.meta.firstMessageId != null) {
-        store.updateMessageText(channel, result.meta.firstMessageId!, text);
+        chat
+            .channelFor(channel)
+            ?.messages
+            .updateText(result.meta.firstMessageId!, text);
         return;
       }
     }
     onSystemMessage(channel, text);
-    final msgs = store.channelMessages[channel];
+    final msgs = chat.channelFor(channel)?.messages.items;
     result.meta.firstMessageId = msgs != null && msgs.isNotEmpty
         ? msgs.first.messageId
         : null;
@@ -390,8 +406,7 @@ class ChatIngestion {
     // With channel.moderate active, clears come from EventSub with the
     // moderator's name - skip the IRC copy.
     if (isModerationActive(event.channel)) return;
-    store.markAllMessagesDeleted(event.channel);
-    store.touchChannel(event.channel);
+    chat.channelFor(event.channel)?.messages.markAllDeleted();
     onSystemMessage(event.channel, 'Chat was cleared.');
   }
 
@@ -408,12 +423,12 @@ class ChatIngestion {
     // server modified the message (truncation, etc.). Skip commands since
     // they are never compared by the bypass logic.
     final original = ircMsg.trailing!;
-    final previous = store.lastSentWireText[channel];
+    final previous = lastSentWireText[channel];
     if (previous != null &&
         !previous.startsWith('.') &&
         !previous.startsWith('/')) {
       if (stripInvisibleSuffix(previous) != stripInvisibleSuffix(original)) {
-        store.lastSentWireText[channel] = original;
+        lastSentWireText[channel] = original;
       }
     }
 
@@ -424,8 +439,8 @@ class ChatIngestion {
     final msg = parseIrcChatMessage(
       ircMsg,
       channel: channel,
-      defaultLogin: store.session.login,
-      defaultUserId: store.session.userId,
+      defaultLogin: chat.session.login,
+      defaultUserId: chat.session.userId,
     );
 
     // Track our own message ids so replies chained onto them ping via
@@ -448,26 +463,17 @@ class ChatIngestion {
       userStore.addUser(channel, preferredName);
     }
 
-    if (msg.messageId != null &&
-        store.messageKeys.contains('$channel:${msg.messageId}')) {
-      return;
-    }
-
     onAnalyticsMessage?.call(channel, msg);
 
-    store.channelMessages.putIfAbsent(channel, () => []);
-    store.channelMessages[channel]!.insert(0, msg);
-    store.truncateWithCoalesce(
-      channel,
-      maxMessages: getMaxMessagesPerChannel(),
-    );
-
-    if (msg.messageId != null) {
-      store.messageKeys.add('$channel:${msg.messageId}');
-    }
-    store.indexMessages(channel, [msg]);
-
-    store.noteNewMessage(channel);
+    final result = chat
+        .ensure(channel)
+        .receive(
+          msg,
+          maxMessages: getMaxMessagesPerChannel(),
+          isSelected: channel == getSelectedChannel(),
+          ownLogin: chat.session.login,
+        );
+    if (!result.inserted) return;
     precacheMessageEmotes(msg, channel);
     // Own messages arrive on the read socket (not the channel echo), so they
     // would otherwise never be read aloud; surface them like any other chat

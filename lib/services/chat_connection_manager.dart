@@ -21,7 +21,9 @@ import '../services/ping_manager.dart';
 import '../services/ignore_manager.dart';
 import '../services/chat_ingestion.dart';
 import '../services/chat_channel_setup.dart';
-import '../services/chat_store.dart';
+import '../chat/channel/moderation.dart';
+import '../chat/chat.dart';
+import '../util/mod_activity_format.dart' show formatTermAction;
 import '../util/text_bypass.dart';
 
 /// Services the chat pipeline depends on. Constructed once per screen and
@@ -83,6 +85,8 @@ class ChatViewBridge {
     required this.getSelectedChannel,
     required this.getMaxMessagesPerChannel,
     this.onJoinProgress,
+    this.onBanner,
+    this.onFocusComposer,
   });
 
   final String mentionsChannel;
@@ -91,6 +95,8 @@ class ChatViewBridge {
   final String? Function() getSelectedChannel;
   final int Function() getMaxMessagesPerChannel;
   final void Function(String channel, JoinProgress? info)? onJoinProgress;
+  final void Function(String message)? onBanner;
+  final void Function()? onFocusComposer;
 }
 
 /// Feature integrations: commands, reply state, analytics, TTS, EventSub
@@ -135,13 +141,13 @@ class ChatSinks {
 class ChatConnectionConfig {
   ChatConnectionConfig({
     required this.services,
-    required this.store,
+    required this.chat,
     required this.bridge,
     required this.sinks,
   });
 
   final ChatServices services;
-  final ChatStore store;
+  final Chat chat;
   final ChatViewBridge bridge;
   final ChatSinks sinks;
 }
@@ -157,11 +163,8 @@ class ChatConnectionManager {
   final TwitchAuth twitchAuth;
   final EmoteManager emoteManager;
   final ActiveSession session;
-  final ChatStore store;
-  final List<String> channels;
-  final Set<String> historyLoaded;
-  final Map<String, String> channelUserIds;
-  final Map<String, String> lastSentWireText;
+  final Chat chat;
+  final Map<String, String> lastSentWireText = {};
   final String mentionsChannel;
 
   /// Bumped on connection-phase / channel-ready / reply-clear changes so the
@@ -193,6 +196,8 @@ class ChatConnectionManager {
   final void Function(String channel, TwitchMessage msg)? onChatMessage;
   final JoinRateLimiter? joinBudget;
   final void Function(String channel, JoinProgress? info)? onJoinProgress;
+  final void Function(String message)? onBanner;
+  final void Function()? onFocusComposer;
 
   bool _wasConnected = false;
   // Session latch backing [connectPhase]: true once any connect succeeded,
@@ -276,11 +281,12 @@ class ChatConnectionManager {
   late final ChatIngestion _ingestion = ChatIngestion(
     irc: irc,
     ircRead: ircRead,
-    store: store,
+    chat: chat,
     userStore: userStore,
     emoteManager: emoteManager,
     badgeService: badgeService,
     twitchAuth: twitchAuth,
+    lastSentWireText: lastSentWireText,
     ignoreManager: ignoreManager,
     pingManager: pingManager,
     mentionsChannel: mentionsChannel,
@@ -315,7 +321,7 @@ class ChatConnectionManager {
     emoteManager: emoteManager,
     twitchAuth: twitchAuth,
     userStore: userStore,
-    store: store,
+    chat: chat,
     onSystemMessage: onSystemMessage,
     connectionStateNotifier: connectionStateNotifier,
     onUserEmoteSets: onUserEmoteSets,
@@ -364,12 +370,8 @@ class ChatConnectionManager {
       badgeService = config.services.badgeService,
       userStore = config.services.userStore,
       twitchAuth = config.services.twitchAuth,
-      session = config.store.session,
-      store = config.store,
-      channels = config.store.channels,
-      historyLoaded = config.store.historyLoaded,
-      channelUserIds = config.store.channelUserIds,
-      lastSentWireText = config.store.lastSentWireText,
+      session = config.chat.session,
+      chat = config.chat,
       mentionsChannel = config.bridge.mentionsChannel,
       onSystemMessage = config.bridge.onSystemMessage,
       onUserEmoteSets = config.sinks.onUserEmoteSets,
@@ -392,7 +394,9 @@ class ChatConnectionManager {
       onPrediction = config.sinks.onPrediction,
       onChatMessage = config.sinks.onChatMessage,
       joinBudget = config.services.joinBudget,
-      onJoinProgress = config.bridge.onJoinProgress;
+      onJoinProgress = config.bridge.onJoinProgress,
+      onBanner = config.bridge.onBanner,
+      onFocusComposer = config.bridge.onFocusComposer;
 
   void dispose() {
     isDisposed = true;
@@ -455,7 +459,7 @@ class ChatConnectionManager {
 
   void maybeAddConnected(String channel) {
     if (irc.isConnected &&
-        historyLoaded.contains(channel) &&
+        chat.historyLoaded(channel) &&
         _connectedAcked.add(channel)) {
       onSystemMessage(channel, 'Connected');
     }
@@ -549,7 +553,7 @@ class ChatConnectionManager {
     await _channelSetup.subscribeChannel(channelName);
   }
 
-  void subscribeAll() => _channelSetup.subscribeAll(channels);
+  void subscribeAll() => _channelSetup.subscribeAll(chat.names);
 
   Future<Map<String, dynamic>?>? _currentUserFetch;
 
@@ -660,24 +664,24 @@ class ChatConnectionManager {
       final expanded = expandMacro(text, macros);
       if (expanded != null) {
         text = expanded;
-        store.requestComposerFocus();
+        onFocusComposer?.call();
       }
     }
 
     if (text.startsWith('/')) {
       onCommand(text, channel, auth);
-      store.requestComposerFocus();
+      onFocusComposer?.call();
       return;
     }
 
     if (isDisposed) return;
     setReplyToMsg(null);
     connectionStateNotifier.value++;
-    store.requestComposerFocus();
+    onFocusComposer?.call();
 
     final userLogin = session.login;
     if (userLogin == null) {
-      store.notifyInfo('Connect an account to chat');
+      onBanner?.call('Connect an account to chat');
       return;
     }
 
@@ -766,7 +770,7 @@ class ChatConnectionManager {
   void _tickJoinProgress() {
     final budget = joinBudget;
     if (budget == null || isDisposed) return;
-    for (final channel in channels) {
+    for (final channel in chat.names) {
       if (_joinFailed.contains(channel)) continue;
       if (isChannelChatReady(channel)) {
         _clearJoinWait(channel);
@@ -865,7 +869,7 @@ class ChatConnectionManager {
           // on the new session (subs are session-scoped and die with it).
           _channelSetup.clearSessionState();
         } else if (status == EventSubStatus.connected) {
-          _channelSetup.resubscribeEventSubChannels(channels);
+          _channelSetup.resubscribeEventSubChannels(chat.names);
         }
       });
 
@@ -918,7 +922,7 @@ class ChatConnectionManager {
           // own fast sweep, so it may legitimately fail (and re-announce)
           // again.
           _channelSetup.resetJoinFailureState();
-          for (final channel in channels) {
+          for (final channel in chat.names) {
             onSystemMessage(channel, 'Disconnected');
           }
         }
@@ -935,7 +939,7 @@ class ChatConnectionManager {
         if (isDisposed) return;
         if (status == IrcConnectionStatus.connected && _wasReadDisconnected) {
           _wasReadDisconnected = false;
-          for (final channel in channels) {
+          for (final channel in chat.names) {
             // Same ack as the JOIN-confirm path below: a flapping write
             // socket reports the same recovery, keep one line.
             if (_connectedAcked.add(channel)) {
@@ -950,7 +954,7 @@ class ChatConnectionManager {
           _readJoinedChannels.clear();
           _joinFailed.clear();
           connectionStateNotifier.value++;
-          for (final channel in channels) {
+          for (final channel in chat.names) {
             onSystemMessage(channel, 'Chat reconnecting...');
           }
         }
@@ -994,8 +998,7 @@ class ChatConnectionManager {
       // Use the cached account if available so cold start skips the Helix
       // user lookup entirely.
       if (session.login == null && auth.login != null && auth.userId != null) {
-        store.applyLogin(auth.login);
-        session.userId = auth.userId;
+        chat.applyLogin(auth.login, userId: auth.userId);
       }
 
       // Account-switch fast path (runs before any await): a different account
@@ -1098,8 +1101,7 @@ class ChatConnectionManager {
         }
       }
       if (currentUser != null) {
-        store.applyLogin(currentUser['login']);
-        session.userId = currentUser['id'];
+        chat.applyLogin(currentUser['login'], userId: currentUser['id']);
       }
 
       // Account switch: an already-connected socket would skip the reconnect
@@ -1138,9 +1140,11 @@ class ChatConnectionManager {
         ircRead.clearSelfBadges();
         _selfTimeoutUntil.clear();
         // The queue belongs to the old account's moderation scope.
-        store.clearAllHeldMessages();
+        for (final name in chat.names) {
+          chat.channelFor(name)?.moderation.clearHeld();
+        }
         _lastOwnMessageAt.clear();
-        store.lastSentWireText.clear();
+        lastSentWireText.clear();
         // Make the new socket take the full connect edge (history backfill,
         // Helix re-subscriptions, Connected lines) even though no user-facing
         // disconnected status was emitted for this deliberate swap. Only for
@@ -1217,19 +1221,20 @@ class ChatConnectionManager {
     if (_expiryHandled) return;
     _expiryHandled = true;
     twitchAuth.markActiveExpired();
-    store.applyLogin(null);
-    session.userId = null;
+    chat.applyLogin(null, userId: null);
     // Logged-out identity keeps no queue, and the dead token's subs will
     // not resolve it; IRC fallback resumes moderation echoes.
-    store.clearAllHeldMessages();
+    for (final name in chat.names) {
+      chat.channelFor(name)?.moderation.clearHeld();
+    }
     _channelSetup.clearSessionState();
-    for (final channel in channels) {
+    for (final channel in chat.names) {
       onSystemMessage(
         channel,
         'Login expired - reconnect your account in Settings',
       );
     }
-    store.notifyInfo('Login expired');
+    onBanner?.call('Login expired');
   }
 
   String _anonymousNick(int seed) {
@@ -1509,23 +1514,29 @@ class ChatConnectionManager {
         ? ': "${event.reason}"'
         : '';
 
-    void feed() => store.addModActivity(
-      ModActivityEntry(
-        at: DateTime.now(),
-        channel: event.channel,
-        action: event.action,
-        moderator: mod,
-        target: target,
-        reason: event.reason,
-        durationSeconds: event.durationSeconds,
-        terms: event.terms,
-      ),
-    );
+    void feed() => chat
+        .channelFor(event.channel)
+        ?.moderation
+        .addFeed(
+          ModActivityEntry(
+            at: DateTime.now(),
+            channel: event.channel,
+            action: event.action,
+            moderator: mod,
+            target: target,
+            reason: event.reason,
+            durationSeconds: event.durationSeconds,
+            terms: event.terms,
+          ),
+        );
 
     switch (event.action) {
       case 'delete':
         if (event.messageId != null) {
-          store.markMessageDeleted(event.channel, event.messageId!);
+          chat
+              .channelFor(event.channel)
+              ?.messages
+              .markDeleted(event.messageId!);
         }
         final body =
             (event.messageBody != null && event.messageBody!.isNotEmpty)
@@ -1538,8 +1549,7 @@ class ChatConnectionManager {
         feed();
         break;
       case 'clear':
-        store.markAllMessagesDeleted(event.channel);
-        store.touchChannel(event.channel);
+        chat.channelFor(event.channel)?.messages.markAllDeleted();
         onSystemMessage(event.channel, '$mod cleared the chat.');
         feed();
         break;
@@ -1547,22 +1557,25 @@ class ChatConnectionManager {
       case 'timeout':
         onAnalyticsModeration?.call(event.channel, event.action == 'timeout');
         if (target != null) {
-          store.markUserMessagesDeleted(event.channel, target);
-          store.putBan(
-            BanEntry(
-              at: DateTime.now(),
-              channel: event.channel,
-              login: target,
-              expiresAt:
-                  event.action == 'timeout' && event.durationSeconds != null
-                  ? DateTime.now().add(
-                      Duration(seconds: event.durationSeconds!),
-                    )
-                  : null,
-              reason: event.reason,
-              moderator: mod,
-            ),
-          );
+          chat.channelFor(event.channel)?.messages.markUserDeleted(target);
+          chat
+              .channelFor(event.channel)
+              ?.moderation
+              .putBan(
+                BanEntry(
+                  at: DateTime.now(),
+                  channel: event.channel,
+                  login: target,
+                  expiresAt:
+                      event.action == 'timeout' && event.durationSeconds != null
+                      ? DateTime.now().add(
+                          Duration(seconds: event.durationSeconds!),
+                        )
+                      : null,
+                  reason: event.reason,
+                  moderator: mod,
+                ),
+              );
         }
         final duration = event.durationSeconds != null
             ? ' for ${formatSeconds(event.durationSeconds!)}'
@@ -1587,7 +1600,9 @@ class ChatConnectionManager {
       case 'unban':
       case 'untimeout':
         if (isSelfTarget) _selfTimeoutUntil.remove(event.channel);
-        if (target != null) store.removeBan(event.channel, target);
+        if (target != null) {
+          chat.channelFor(event.channel)?.moderation.removeBan(target);
+        }
         onSystemMessage(
           event.channel,
           isSelfTarget
@@ -1614,15 +1629,18 @@ class ChatConnectionManager {
         break;
       case 'warn':
         if (target != null && target.isNotEmpty) {
-          store.addWarning(
-            WarnEntry(
-              at: DateTime.now(),
-              channel: event.channel,
-              target: target,
-              moderator: mod,
-              reason: event.reason,
-            ),
-          );
+          chat
+              .channelFor(event.channel)
+              ?.moderation
+              .addWarning(
+                WarnEntry(
+                  at: DateTime.now(),
+                  channel: event.channel,
+                  target: target,
+                  moderator: mod,
+                  reason: event.reason,
+                ),
+              );
         }
         onSystemMessage(event.channel, '$mod warned $target$reason.');
         feed();
@@ -1692,7 +1710,7 @@ class ChatConnectionManager {
         feed();
         onSystemMessage(
           event.channel,
-          _termLine(mod, event.action, event.terms),
+          formatTermAction(mod, event.action, event.terms),
         );
         break;
       case 'approve_unban_request':
@@ -1715,30 +1733,23 @@ class ChatConnectionManager {
     }
   }
 
-  String _termLine(String mod, String action, List<String> terms) {
-    final kind = action.contains('permitted')
-        ? 'permitted term'
-        : 'blocked term';
-    final verb = action.startsWith('add') ? 'added' : 'removed';
-    if (terms.length == 1) return '$mod $verb $kind "${terms.first}".';
-    if (terms.length > 1) return '$mod $verb ${terms.length} ${kind}s.';
-    return '$mod $verb a $kind.';
-  }
-
   // Mod-feed complements gated on the feed subscriptions: shield toggles,
   // shoutouts, and warning lifecycle have no channel.moderate equivalent.
   // warning.send is skipped while moderate covers it, to avoid doubles.
   void _onShieldModeEvent(ShieldModeEvent event) {
     if (isDisposed) return;
     if (!_channelSetup.isFeedActive(event.channel)) return;
-    store.addModActivity(
-      ModActivityEntry(
-        at: DateTime.now(),
-        channel: event.channel,
-        action: event.active ? 'shield_on' : 'shield_off',
-        moderator: event.moderatorName,
-      ),
-    );
+    chat
+        .channelFor(event.channel)
+        ?.moderation
+        .addFeed(
+          ModActivityEntry(
+            at: DateTime.now(),
+            channel: event.channel,
+            action: event.active ? 'shield_on' : 'shield_off',
+            moderator: event.moderatorName,
+          ),
+        );
     onSystemMessage(
       event.channel,
       event.active
@@ -1751,15 +1762,18 @@ class ChatConnectionManager {
     if (isDisposed) return;
     if (!_channelSetup.isFeedActive(event.channel)) return;
     final created = event.kind == 'create';
-    store.addModActivity(
-      ModActivityEntry(
-        at: DateTime.now(),
-        channel: event.channel,
-        action: 'shoutout',
-        moderator: event.moderatorName,
-        target: created ? event.toLogin : event.fromLogin,
-      ),
-    );
+    chat
+        .channelFor(event.channel)
+        ?.moderation
+        .addFeed(
+          ModActivityEntry(
+            at: DateTime.now(),
+            channel: event.channel,
+            action: 'shoutout',
+            moderator: event.moderatorName,
+            target: created ? event.toLogin : event.fromLogin,
+          ),
+        );
     onSystemMessage(
       event.channel,
       created
@@ -1772,8 +1786,9 @@ class ChatConnectionManager {
     if (isDisposed) return;
     if (!_channelSetup.isFeedActive(event.channel)) return;
     if (event.kind == 'acknowledge') {
-      store.dismissWarningsFor(event.channel, event.userLogin);
-      store.addModActivity(
+      final moderation = chat.channelFor(event.channel)?.moderation;
+      moderation?.dismissWarningsFor(event.userLogin);
+      moderation?.addFeed(
         ModActivityEntry(
           at: DateTime.now(),
           channel: event.channel,
@@ -1795,26 +1810,32 @@ class ChatConnectionManager {
         ? ': "${event.reason}"'
         : '';
     if (user.isNotEmpty) {
-      store.addWarning(
-        WarnEntry(
-          at: DateTime.now(),
-          channel: event.channel,
-          target: user,
-          moderator: event.moderatorName,
-          reason: event.reason,
-        ),
-      );
+      chat
+          .channelFor(event.channel)
+          ?.moderation
+          .addWarning(
+            WarnEntry(
+              at: DateTime.now(),
+              channel: event.channel,
+              target: user,
+              moderator: event.moderatorName,
+              reason: event.reason,
+            ),
+          );
     }
-    store.addModActivity(
-      ModActivityEntry(
-        at: DateTime.now(),
-        channel: event.channel,
-        action: 'warn',
-        moderator: event.moderatorName,
-        target: user.isEmpty ? null : user,
-        reason: event.reason,
-      ),
-    );
+    chat
+        .channelFor(event.channel)
+        ?.moderation
+        .addFeed(
+          ModActivityEntry(
+            at: DateTime.now(),
+            channel: event.channel,
+            action: 'warn',
+            moderator: event.moderatorName,
+            target: user.isEmpty ? null : user,
+            reason: event.reason,
+          ),
+        );
     onSystemMessage(
       event.channel,
       '${event.moderatorName} warned $user$reason.',
@@ -1827,7 +1848,7 @@ class ChatConnectionManager {
   void _onUnbanRequestEvent(UnbanRequestEvent event) {
     if (isDisposed) return;
     if (!_channelSetup.isInboxActive(event.channel)) return;
-    store.touchInbox();
+    chat.channelFor(event.channel)?.moderation.touchInbox();
     final user = event.userLogin;
     if (event.kind == 'create') {
       onSystemMessage(event.channel, '$user requested an unban.');
@@ -1837,16 +1858,19 @@ class ChatConnectionManager {
         (event.resolutionText != null && event.resolutionText!.isNotEmpty)
         ? ': "${event.resolutionText}"'
         : '';
-    store.addModActivity(
-      ModActivityEntry(
-        at: DateTime.now(),
-        channel: event.channel,
-        action: 'unban_resolved',
-        moderator: event.moderatorName,
-        target: user.isEmpty ? null : user,
-        reason: event.resolutionText,
-      ),
-    );
+    chat
+        .channelFor(event.channel)
+        ?.moderation
+        .addFeed(
+          ModActivityEntry(
+            at: DateTime.now(),
+            channel: event.channel,
+            action: 'unban_resolved',
+            moderator: event.moderatorName,
+            target: user.isEmpty ? null : user,
+            reason: event.resolutionText,
+          ),
+        );
     onSystemMessage(
       event.channel,
       '${event.moderatorName} resolved $user\'s unban request$resolution.',
@@ -1858,21 +1882,24 @@ class ChatConnectionManager {
   void _onAutomodTermsEvent(AutomodTermsEvent event) {
     if (isDisposed) return;
     if (!_channelSetup.isInboxActive(event.channel)) return;
-    store.touchInbox();
+    chat.channelFor(event.channel)?.moderation.touchInbox();
     if (_channelSetup.isModerationActive(event.channel)) return;
     final adding = event.action != 'remove';
     final permitted = event.list == 'permitted';
     final action =
         '${adding ? 'add' : 'remove'}_${permitted ? 'permitted' : 'blocked'}_term';
-    store.addModActivity(
-      ModActivityEntry(
-        at: DateTime.now(),
-        channel: event.channel,
-        action: action,
-        moderator: event.moderatorName,
-        terms: event.terms,
-      ),
-    );
+    chat
+        .channelFor(event.channel)
+        ?.moderation
+        .addFeed(
+          ModActivityEntry(
+            at: DateTime.now(),
+            channel: event.channel,
+            action: action,
+            moderator: event.moderatorName,
+            terms: event.terms,
+          ),
+        );
     onSystemMessage(
       event.channel,
       formatTermAction(event.moderatorName, action, event.terms),
@@ -1883,8 +1910,9 @@ class ChatConnectionManager {
   void _onAutomodSettingsEvent(AutomodSettingsEvent event) {
     if (isDisposed) return;
     if (!_channelSetup.isTrustActive(event.channel)) return;
-    store.touchSettings();
-    store.addModActivity(
+    final trustModeration = chat.channelFor(event.channel)?.moderation;
+    trustModeration?.touchSettings();
+    trustModeration?.addFeed(
       ModActivityEntry(
         at: DateTime.now(),
         channel: event.channel,
@@ -1906,7 +1934,8 @@ class ChatConnectionManager {
     if (!_channelSetup.isTrustActive(event.channel)) return;
     final user = event.userLogin;
     if (user.isEmpty) return;
-    store.noteSuspicious(
+    final suspiciousModeration = chat.channelFor(event.channel)?.moderation;
+    suspiciousModeration?.noteSuspicious(
       SuspiciousInfo(
         at: DateTime.now(),
         channel: event.channel,
@@ -1918,16 +1947,19 @@ class ChatConnectionManager {
       ),
     );
     if (event.kind == 'message') return;
-    store.addModActivity(
-      ModActivityEntry(
-        at: DateTime.now(),
-        channel: event.channel,
-        action: 'suspicious_flag',
-        moderator: event.moderatorName,
-        target: user,
-        reason: event.status.isEmpty ? null : event.status,
-      ),
-    );
+    chat
+        .channelFor(event.channel)
+        ?.moderation
+        .addFeed(
+          ModActivityEntry(
+            at: DateTime.now(),
+            channel: event.channel,
+            action: 'suspicious_flag',
+            moderator: event.moderatorName,
+            target: user,
+            reason: event.status.isEmpty ? null : event.status,
+          ),
+        );
     onSystemMessage(
       event.channel,
       '${event.moderatorName} updated the suspicious status of $user.',
@@ -1941,25 +1973,26 @@ class ChatConnectionManager {
   void _onPointRewardEvent(PointRewardEvent event) {
     if (isDisposed) return;
     if (!_channelSetup.isPointsActive(event.channel)) return;
-    final rewards = List<PointReward>.of(
-      store.pointRewards[event.channel] ?? const <PointReward>[],
-    );
+    final points = chat.channelFor(event.channel)?.points;
+    if (points == null) return;
+    final rewards = List<PointReward>.of(points.rewards);
     if (event.kind == 'remove') {
       rewards.removeWhere((r) => r.id == event.reward.id);
     } else {
       rewards.removeWhere((r) => r.id == event.reward.id);
       rewards.add(event.reward);
     }
-    store.setPointRewards(event.channel, rewards);
+    points.setRewards(rewards);
   }
 
   void _onPointRedemptionEvent(PointRedemptionEvent event) {
     if (isDisposed) return;
     if (!_channelSetup.isPointsActive(event.channel)) return;
+    final points = chat.channelFor(event.channel)?.points;
     if (event.kind == 'add' && event.redemption.status == 'UNFULFILLED') {
-      store.upsertPointRedemption(event.channel, event.redemption);
+      points?.upsertRedemption(event.redemption);
     } else {
-      store.resolvePointRedemption(event.channel, event.redemption.id);
+      points?.resolveRedemption(event.redemption.id);
     }
   }
 
@@ -1969,19 +2002,22 @@ class ChatConnectionManager {
   void _onAutomodHeld(AutomodHeldEvent event) {
     if (isDisposed) return;
     if (event.status != 'held') {
-      store.resolveHeldMessage(event.channel, event.messageId);
+      chat.channelFor(event.channel)?.moderation.resolveHeld(event.messageId);
       return;
     }
     if (!_channelSetup.isAutomodActive(event.channel)) return;
-    store.addHeldMessage(
-      HeldMessage(
-        messageId: event.messageId,
-        channel: event.channel,
-        userLogin: event.userLogin,
-        text: event.text,
-        category: event.category,
-      ),
-    );
+    chat
+        .channelFor(event.channel)
+        ?.moderation
+        .addHeld(
+          HeldMessage(
+            messageId: event.messageId,
+            channel: event.channel,
+            userLogin: event.userLogin,
+            text: event.text,
+            category: event.category,
+          ),
+        );
   }
 
   // Chat-content routing lives in [ChatIngestion]; kept as delegators so
@@ -2085,21 +2121,21 @@ class ChatConnectionManager {
   /// Re-runs the per-channel data loads (emotes, badges) that failed earlier,
   /// updating the retryable failure state. Driven by the UI retry affordance.
   void retryChannelData(String channel) {
-    final userId = store.channelUserIds[channel];
+    final userId = chat.broadcasterId(channel);
     if (userId == null) return;
     final auth = twitchAuth;
     unawaited(
       badgeService
           .fetchChannelBadges(auth, userId, channel)
-          .then((_) => store.clearLoadFailure(channel, 'badges'))
-          .catchError((_) => store.recordLoadFailure(channel, 'badges')),
+          .then((_) => chat.clearLoadFailure(channel, 'badges'))
+          .catchError((_) => chat.recordLoadFailure(channel, 'badges')),
     );
     emoteManager.accessToken = auth.accessToken;
     unawaited(
       emoteManager
           .resolveEmotes(channel, userId)
-          .then((_) => store.clearLoadFailure(channel, 'emotes'))
-          .catchError((_) => store.recordLoadFailure(channel, 'emotes')),
+          .then((_) => chat.clearLoadFailure(channel, 'emotes'))
+          .catchError((_) => chat.recordLoadFailure(channel, 'emotes')),
     );
   }
 }

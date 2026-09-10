@@ -371,6 +371,7 @@ class EmoteManager extends ChangeNotifier {
   final _channelCaches = <String, ChannelEmotes>{};
   final _channelFetchTimes = <String, DateTime>{};
   final _channelTwitchEmotes = <String, List<GenericEmote>>{};
+  final _emotesResolvedChannels = <String>{};
 
   /// Resolves sub-emote owner ids to logins (default: Helix /users). Injected
   /// for tests; the manager owns the cache so grouping never needs a parallel
@@ -1933,6 +1934,7 @@ class EmoteManager extends ChangeNotifier {
     _emoteOwnerLogins.clear();
     _fetchedSubEmotesByOwner.clear();
     _channelTwitchEmotes.clear();
+    _emotesResolvedChannels.clear();
     _subsByChannelCache = null;
     // Unlocks are per-account: drop them from the stash and the globals they
     // merged into. Matches by id, plus by code for empty-id entries, so a
@@ -2289,6 +2291,7 @@ class EmoteManager extends ChangeNotifier {
     _channelCaches.remove(channel);
     _channelFetchTimes.remove(channel);
     _channelTwitchEmotes.remove(channel);
+    _emotesResolvedChannels.remove(channel);
     _subsByChannelCache = null;
     _sevenTvEmoteSetIds.remove(channel);
     _sevenTvUserIds.remove(channel);
@@ -2307,6 +2310,13 @@ class EmoteManager extends ChangeNotifier {
     _mergedCache.clear();
     _emoteIndexDirty = true;
   }
+
+  void markEmotesResolved(String channel) {
+    _emotesResolvedChannels.add(channel);
+  }
+
+  bool emotesResolved(String channel) =>
+      _emotesResolvedChannels.contains(channel);
 
   /// Bumps the version and notifies listeners with the current (possibly
   /// empty) state, so cached message spans are discarded immediately.

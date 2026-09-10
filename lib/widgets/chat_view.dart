@@ -39,7 +39,7 @@ class ChatView extends StatefulWidget {
   final void Function(TwitchMessage)? onCopyMessage;
 
   /// Notified on scroll-state flips (main chat unread/jump bookkeeping).
-  final void Function(String)? onNewMessage;
+  final void Function(String)? onScrollActivity;
   final TwitchMessage? Function(TwitchMessage)? onFindThreadRoot;
   final void Function(TwitchMessage)? onShowThreadView;
 
@@ -81,7 +81,7 @@ class ChatView extends StatefulWidget {
     required this.onShowUserProfile,
     this.onShowMessageMenu,
     this.onCopyMessage,
-    this.onNewMessage,
+    this.onScrollActivity,
     this.onFindThreadRoot,
     this.onShowThreadView,
     this.showReplyIndicators = true,
@@ -158,16 +158,16 @@ class _ChatViewState extends State<ChatView>
               final atBottom = widget.atBottomNotifier.value;
               if (scrolledUp && atBottom) {
                 widget.atBottomNotifier.value = false;
-                widget.onNewMessage?.call(widget.channel);
+                widget.onScrollActivity?.call(widget.channel);
               } else if (!scrolledUp && !atBottom) {
                 widget.atBottomNotifier.value = true;
-                widget.onNewMessage?.call(widget.channel);
+                widget.onScrollActivity?.call(widget.channel);
               }
             } else if (notification is ScrollEndNotification) {
               if (notification.metrics.pixels <= 0.5 &&
                   !widget.atBottomNotifier.value) {
                 widget.atBottomNotifier.value = true;
-                widget.onNewMessage?.call(widget.channel);
+                widget.onScrollActivity?.call(widget.channel);
               }
             }
             return false;
@@ -289,7 +289,7 @@ class _ChatViewState extends State<ChatView>
                           iosHaptic(HapticFeedback.lightImpact);
                           widget.atBottomNotifier.value = true;
                           widget.scrollController.jumpTo(0);
-                          widget.onNewMessage?.call(widget.channel);
+                          widget.onScrollActivity?.call(widget.channel);
                         },
                         child: const Icon(Icons.keyboard_arrow_down),
                       ),

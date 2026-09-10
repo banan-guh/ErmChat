@@ -9,6 +9,9 @@ import 'composer_controller.dart';
 // Single key for measuring the composer (snackbar margin, video sizing).
 final inputBarKey = GlobalKey();
 
+// Fallback when the channel is gone; never bumps.
+final _emptyVersion = ValueNotifier<int>(0);
+
 // Message input plus connection status row. Bottom padding comes from
 // ChatBody, which owns the layout's single inset subscription.
 class ComposerBar extends StatelessWidget {
@@ -121,19 +124,22 @@ class _StatusRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final channel = controller.selectedChannel;
     return ListenableBuilder(
       listenable: Listenable.merge([
-        controller.chatStore.versionNotifier(controller.selectedChannel ?? ''),
+        controller.chat.channelFor(channel ?? '')?.info.version ??
+            _emptyVersion,
         selectedTabIndex,
-        controller.chatStore.loadFailedChannels,
+        controller.chat.loadFailedChannels,
       ]),
       builder: (context, _) {
-        final channel = controller.selectedChannel;
-        final status = controller.chatStore.chatStatus[channel];
-        final hasStatus = status != null && status.isNotEmpty;
+        final status = channel == null
+            ? ''
+            : controller.chat.chatStatus(channel);
+        final hasStatus = status.isNotEmpty;
         final hasLoadFailure =
             channel != null &&
-            controller.chatStore.loadFailedChannels.value.contains(channel);
+            controller.chat.loadFailedChannels.value.contains(channel);
         return AnimatedSize(
           duration: const Duration(milliseconds: 300),
           curve: Curves.easeInOut,

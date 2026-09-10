@@ -7,10 +7,10 @@ import 'dart:ui' show Color;
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
+import '../chat/chat.dart';
 import '../util/constants.dart';
 import '../util/log.dart';
 import 'base_irc_connection.dart' show IrcJoinFailureEvent, JoinFailureReason;
-import 'chat_store.dart';
 import 'emote_manager.dart';
 import 'seven_tv_event_client.dart';
 import 'twitch_api.dart';
@@ -38,7 +38,7 @@ class ChatChannelSetup {
     required this.emoteManager,
     required this.twitchAuth,
     required this.userStore,
-    required this.store,
+    required this.chat,
     required this.onSystemMessage,
     required this.connectionStateNotifier,
     this.onUserEmoteSets,
@@ -54,7 +54,7 @@ class ChatChannelSetup {
   final EmoteManager emoteManager;
   final TwitchAuth twitchAuth;
   final UserStore userStore;
-  final ChatStore store;
+  final Chat chat;
 
   final void Function(
     String channel,
@@ -177,8 +177,8 @@ class ChatChannelSetup {
   /// Whether the session user owns this channel. Broadcaster-only widgets
   /// and the Channel tab gate on this, not on moderator status.
   bool isBroadcaster(String channel) =>
-      store.session.userId != null &&
-      store.session.userId == store.channelUserIds[channel];
+      chat.session.userId != null &&
+      chat.session.userId == chat.broadcasterId(channel);
 
   /// Whether a join-failure notice was already displayed for the channel
   /// (Twitch's raw refusal NOTICE is suppressed as a duplicate then).
@@ -237,7 +237,7 @@ class ChatChannelSetup {
       if (emoteSetId != null) sevenTv.unsubscribeEmoteSet(emoteSetId);
       final userId = emoteManager.getSevenTvUserId(channel);
       if (userId != null) sevenTv.unsubscribeUser(userId);
-      final twitchId = store.channelUserIds[channel];
+      final twitchId = chat.broadcasterId(channel);
       if (twitchId != null) sevenTv.unsubscribeTwitchChannel(twitchId);
     }
   }
@@ -253,8 +253,8 @@ class ChatChannelSetup {
     final auth = twitchAuth;
     if (!auth.isConfigured) return;
 
-    final userId = store.channelUserIds[channel];
-    if (userId == null || store.session.userId == null) return;
+    final userId = chat.broadcasterId(channel);
+    if (userId == null || chat.session.userId == null) return;
 
     // Timer-driven: a network blip (or the client being closed in dispose)
     // must not surface as an unhandled async exception every 60s per channel.
@@ -273,7 +273,7 @@ class ChatChannelSetup {
     if (!auth.isConfigured) return;
     final ids = <String>[];
     for (final channel in _chatStatusChannels) {
-      final userId = store.channelUserIds[channel];
+      final userId = chat.broadcasterId(channel);
       if (userId != null) ids.add(userId);
     }
     if (ids.isEmpty) return;
@@ -285,7 +285,7 @@ class ChatChannelSetup {
       return;
     }
     for (final channel in _chatStatusChannels) {
-      final userId = store.channelUserIds[channel];
+      final userId = chat.broadcasterId(channel);
       _applyStreamStatus(channel, userId != null ? streams[userId] : null);
     }
   }
@@ -330,9 +330,7 @@ class ChatChannelSetup {
     }
     parts.addAll(_streamStatusParts[channel] ?? const []);
     final newStatus = parts.isNotEmpty ? parts.join(' · ') : '';
-    if (store.chatStatus[channel] == newStatus) return;
-    store.chatStatus[channel] = newStatus;
-    store.touchChannel(channel);
+    chat.setChatStatus(channel, newStatus);
   }
 
   void stopChatStatusTimer(String channel) {
@@ -364,16 +362,16 @@ class ChatChannelSetup {
       // emote providers and badge fetches).
       channelUserId ??= await _waitForRoomId(channelName);
       if (channelUserId == null) return;
-      store.channelUserIds[channelName] = channelUserId;
+      chat.setBroadcasterId(channelName, channelUserId);
       // Map before any await below: a resubscribe completing in the gap
       // would otherwise deliver events with no channel and drop them.
       eventSub.setChannelMapping(channelUserId, channelName);
       unawaited(
         badgeService
             .fetchChannelBadges(auth, channelUserId, channelName)
-            .then((_) => store.clearLoadFailure(channelName, 'badges'))
+            .then((_) => chat.clearLoadFailure(channelName, 'badges'))
             .catchError((_) {
-              store.recordLoadFailure(channelName, 'badges');
+              chat.recordLoadFailure(channelName, 'badges');
               logDebug('[ChatConn] fetchChannelBadges failed for $channelName');
             }),
       );
@@ -381,16 +379,16 @@ class ChatChannelSetup {
       emoteManager.accessToken = auth.accessToken;
       logDebug(
         'subscribeChannel $channelName userId=$channelUserId '
-        'hasToken=${auth.accessToken != null} resolved=${store.channelsEmotesResolved.contains(channelName)}',
+        'hasToken=${auth.accessToken != null} resolved=${emoteManager.emotesResolved(channelName)}',
       );
-      if (!store.channelsEmotesResolved.contains(channelName)) {
-        store.channelsEmotesResolved.add(channelName);
+      if (!emoteManager.emotesResolved(channelName)) {
+        emoteManager.markEmotesResolved(channelName);
         unawaited(
           emoteManager
               .resolveEmotes(channelName, channelUserId)
-              .then((_) => store.clearLoadFailure(channelName, 'emotes'))
+              .then((_) => chat.clearLoadFailure(channelName, 'emotes'))
               .catchError((e) {
-                store.recordLoadFailure(channelName, 'emotes');
+                chat.recordLoadFailure(channelName, 'emotes');
                 logDebug(
                   '[ChatConn] resolveEmotes failed for $channelName: $e',
                 );
@@ -400,15 +398,14 @@ class ChatChannelSetup {
 
       unawaited(_resolveSevenTvAndSubscribe(channelName, channelUserId));
 
-      if (store.session.login == null && auth.accessToken != null) {
+      if (chat.session.login == null && auth.accessToken != null) {
         final currentUser = await ensureCurrentUser(auth);
         if (currentUser != null) {
-          store.applyLogin(currentUser['login']);
-          store.session.userId = currentUser['id'];
+          chat.applyLogin(currentUser['login'], userId: currentUser['id']);
         }
       }
 
-      if (store.session.login != null && store.session.userId != null) {
+      if (chat.session.login != null && chat.session.userId != null) {
         // Guard like resubscribeEventSubChannels: a connected-edge resubscribe
         // racing this join must not double-subscribe (409s dedupe, but each
         // attempt costs Helix calls and a redundant touchChannel).
@@ -464,7 +461,7 @@ class ChatChannelSetup {
   ) async {
     try {
       final auth = twitchAuth;
-      if (!auth.isConfigured || store.session.userId == null) return;
+      if (!auth.isConfigured || chat.session.userId == null) return;
       // Already known to be rejected with 403 (not a moderator); skip so we
       // don't re-attempt and re-log on every reconnect.
       if (_moderationSkippedChannels.contains(channelName)) return;
@@ -485,14 +482,14 @@ class ChatChannelSetup {
           version: '2',
           condition: {
             'broadcaster_user_id': channelUserId,
-            'moderator_user_id': store.session.userId!,
+            'moderator_user_id': chat.session.userId!,
           },
         );
         if (ok) {
           _moderationChannels.add(channelName);
           // The Mod View snapshots mod state at build; wake it so the new
           // rows appear without waiting for the next chat event.
-          store.touchChannel(channelName);
+          chat.channelFor(channelName)?.moderation.noteSubscribed();
           return;
         }
         if (twitchApi.lastErrorStatus == 403) {
@@ -520,7 +517,7 @@ class ChatChannelSetup {
   ) async {
     try {
       final auth = twitchAuth;
-      if (!auth.isConfigured || store.session.userId == null) return;
+      if (!auth.isConfigured || chat.session.userId == null) return;
       if (_automodSkippedChannels.contains(channelName)) return;
       for (int attempt = 0; attempt < 3; attempt++) {
         final sessionId = eventSub.sessionId;
@@ -546,7 +543,7 @@ class ChatChannelSetup {
             version: version,
             condition: {
               'broadcaster_user_id': channelUserId,
-              'moderator_user_id': store.session.userId!,
+              'moderator_user_id': chat.session.userId!,
             },
           );
           if (ok) {
@@ -564,7 +561,7 @@ class ChatChannelSetup {
         if (subscribed == types.length) {
           _automodChannels.add(channelName);
           // Same wake-up as moderation subs (see _subscribeModeration).
-          store.touchChannel(channelName);
+          chat.channelFor(channelName)?.moderation.noteSubscribed();
         }
         return;
       }
@@ -579,7 +576,7 @@ class ChatChannelSetup {
   Future<void> _subscribeFeed(String channelName, String channelUserId) async {
     try {
       final auth = twitchAuth;
-      if (!auth.isConfigured || store.session.userId == null) return;
+      if (!auth.isConfigured || chat.session.userId == null) return;
       if (_feedSkippedChannels.contains(channelName)) return;
       for (int attempt = 0; attempt < 3; attempt++) {
         final sessionId = eventSub.sessionId;
@@ -607,7 +604,7 @@ class ChatChannelSetup {
             version: version,
             condition: {
               'broadcaster_user_id': channelUserId,
-              'moderator_user_id': store.session.userId!,
+              'moderator_user_id': chat.session.userId!,
             },
           );
           if (ok) {
@@ -625,7 +622,7 @@ class ChatChannelSetup {
         if (subscribed > 0) {
           _feedChannels.add(channelName);
           // Same wake-up as moderation subs (see _subscribeModeration).
-          store.touchChannel(channelName);
+          chat.channelFor(channelName)?.moderation.noteSubscribed();
         }
         return;
       }
@@ -639,7 +636,7 @@ class ChatChannelSetup {
   Future<void> _subscribeInbox(String channelName, String channelUserId) async {
     try {
       final auth = twitchAuth;
-      if (!auth.isConfigured || store.session.userId == null) return;
+      if (!auth.isConfigured || chat.session.userId == null) return;
       if (_inboxSkippedChannels.contains(channelName)) return;
       for (int attempt = 0; attempt < 3; attempt++) {
         final sessionId = eventSub.sessionId;
@@ -664,7 +661,7 @@ class ChatChannelSetup {
             version: version,
             condition: {
               'broadcaster_user_id': channelUserId,
-              'moderator_user_id': store.session.userId!,
+              'moderator_user_id': chat.session.userId!,
             },
           );
           if (ok) {
@@ -682,7 +679,7 @@ class ChatChannelSetup {
         if (subscribed > 0) {
           _inboxChannels.add(channelName);
           // Same wake-up as moderation subs (see _subscribeModeration).
-          store.touchChannel(channelName);
+          chat.channelFor(channelName)?.moderation.noteSubscribed();
         }
         return;
       }
@@ -696,7 +693,7 @@ class ChatChannelSetup {
   Future<void> _subscribeTrust(String channelName, String channelUserId) async {
     try {
       final auth = twitchAuth;
-      if (!auth.isConfigured || store.session.userId == null) return;
+      if (!auth.isConfigured || chat.session.userId == null) return;
       if (_trustSkippedChannels.contains(channelName)) return;
       for (int attempt = 0; attempt < 3; attempt++) {
         final sessionId = eventSub.sessionId;
@@ -721,7 +718,7 @@ class ChatChannelSetup {
             version: version,
             condition: {
               'broadcaster_user_id': channelUserId,
-              'moderator_user_id': store.session.userId!,
+              'moderator_user_id': chat.session.userId!,
             },
           );
           if (ok) {
@@ -739,7 +736,7 @@ class ChatChannelSetup {
         if (subscribed > 0) {
           _trustChannels.add(channelName);
           // Same wake-up as moderation subs (see _subscribeModeration).
-          store.touchChannel(channelName);
+          chat.channelFor(channelName)?.moderation.noteSubscribed();
         }
         return;
       }
@@ -758,8 +755,8 @@ class ChatChannelSetup {
   ) async {
     try {
       final auth = twitchAuth;
-      if (!auth.isConfigured || store.session.userId == null) return;
-      if (store.session.userId != channelUserId) return;
+      if (!auth.isConfigured || chat.session.userId == null) return;
+      if (chat.session.userId != channelUserId) return;
       if (_pointsSkippedChannels.contains(channelName)) return;
       for (int attempt = 0; attempt < 3; attempt++) {
         final sessionId = eventSub.sessionId;
@@ -801,7 +798,7 @@ class ChatChannelSetup {
         if (subscribed > 0) {
           _pointsChannels.add(channelName);
           // Same wake-up as moderation subs (see _subscribeModeration).
-          store.touchChannel(channelName);
+          chat.channelFor(channelName)?.moderation.noteSubscribed();
         }
         return;
       }
@@ -820,8 +817,8 @@ class ChatChannelSetup {
   ) async {
     try {
       final auth = twitchAuth;
-      if (!auth.isConfigured || store.session.userId == null) return;
-      if (store.session.userId != channelUserId) return;
+      if (!auth.isConfigured || chat.session.userId == null) return;
+      if (chat.session.userId != channelUserId) return;
       if (_widgetSkippedChannels.contains(channelName)) return;
       // Same shape as _subscribeModeration: one attempt max, the loop only
       // bounds the wait for the EventSub session.
@@ -880,10 +877,10 @@ class ChatChannelSetup {
   /// comes up (session_reconnect / keepalive reconnect). Skip sets and the
   /// already-subscribed sets are respected by the per-channel methods.
   void resubscribeEventSubChannels(List<String> channels) {
-    final uid = store.session.userId;
+    final uid = chat.session.userId;
     if (uid == null) return;
     for (final channel in channels) {
-      final channelUserId = store.channelUserIds[channel];
+      final channelUserId = chat.broadcasterId(channel);
       if (channelUserId == null) continue;
       if (!_moderationChannels.contains(channel)) {
         unawaited(_subscribeModeration(channel, channelUserId));

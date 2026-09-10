@@ -4,7 +4,9 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../models/point_rewards.dart';
-import '../services/chat_store.dart';
+import '../chat/chat.dart';
+import '../chat/channel/moderation.dart';
+import '../util/mod_activity_format.dart';
 import '../services/mod_actions.dart';
 import '../services/twitch_api.dart';
 import '../services/twitch_auth.dart';
@@ -225,7 +227,7 @@ class ModViewPanel extends StatelessWidget {
   const ModViewPanel({
     super.key,
     required this.channel,
-    required this.store,
+    required this.chat,
     required this.modActions,
     required this.auth,
     required this.tabController,
@@ -241,7 +243,7 @@ class ModViewPanel extends StatelessWidget {
   });
 
   final String channel;
-  final ChatStore store;
+  final Chat chat;
   final ModActions modActions;
   final TwitchAuth auth;
   final TabController tabController;
@@ -296,7 +298,7 @@ class ModViewPanel extends StatelessWidget {
             children: [
               _QueueTab(
                 channel: channel,
-                store: store,
+                chat: chat,
                 modActions: modActions,
                 auth: auth,
                 automodActive: automodActive,
@@ -305,7 +307,7 @@ class ModViewPanel extends StatelessWidget {
                 onNotice: onNotice,
                 onShowUser: onShowUser,
               ),
-              _ActivityTab(channel: channel, store: store),
+              _ActivityTab(channel: channel, chat: chat),
               _ModesTab(
                 channel: channel,
                 modActions: modActions,
@@ -316,7 +318,7 @@ class ModViewPanel extends StatelessWidget {
               ),
               _ChannelTab(
                 channel: channel,
-                store: store,
+                chat: chat,
                 modActions: modActions,
                 auth: auth,
                 onNotice: onNotice,
@@ -325,7 +327,7 @@ class ModViewPanel extends StatelessWidget {
               ),
               _UsersTab(
                 channel: channel,
-                store: store,
+                chat: chat,
                 modActions: modActions,
                 auth: auth,
                 onNotice: onNotice,
@@ -334,14 +336,14 @@ class ModViewPanel extends StatelessWidget {
               ),
               _RequestsTab(
                 channel: channel,
-                store: store,
+                chat: chat,
                 modActions: modActions,
                 auth: auth,
                 onNotice: onNotice,
               ),
               _TermsTab(
                 channel: channel,
-                store: store,
+                chat: chat,
                 modActions: modActions,
                 auth: auth,
                 termsVersion: termsVersion,
@@ -349,7 +351,7 @@ class ModViewPanel extends StatelessWidget {
               ),
               _SetupTab(
                 channel: channel,
-                store: store,
+                chat: chat,
                 modActions: modActions,
                 auth: auth,
                 onNotice: onNotice,
@@ -365,7 +367,7 @@ class ModViewPanel extends StatelessWidget {
 class _QueueTab extends StatefulWidget {
   const _QueueTab({
     required this.channel,
-    required this.store,
+    required this.chat,
     required this.modActions,
     required this.auth,
     required this.automodActive,
@@ -376,7 +378,7 @@ class _QueueTab extends StatefulWidget {
   });
 
   final String channel;
-  final ChatStore store;
+  final Chat chat;
   final ModActions modActions;
   final TwitchAuth auth;
   final bool automodActive;
@@ -420,7 +422,10 @@ class _QueueTabState extends State<_QueueTab> {
       if (mounted) setState(() {});
     }
     if (decidedOk) {
-      widget.store.resolveHeldMessage(widget.channel, held.messageId);
+      widget.chat
+          .channelFor(widget.channel)
+          ?.moderation
+          .resolveHeld(held.messageId);
     }
   }
 
@@ -528,10 +533,18 @@ class _QueueTabState extends State<_QueueTab> {
         ),
       );
     }
+    final mod = widget.chat.channelFor(widget.channel)?.moderation;
+    if (mod == null) {
+      return const _ModEmpty(
+        icon: Icons.shield_outlined,
+        title: 'Queue is clear.',
+        subtitle: 'Held messages will appear here for review.',
+      );
+    }
     return ValueListenableBuilder<int>(
-      valueListenable: widget.store.heldVersion,
+      valueListenable: mod.heldVersion,
       builder: (_, _, _) {
-        final all = widget.store.heldMessages[widget.channel] ?? const [];
+        final all = mod.held;
         if (all.isEmpty) {
           return const _ModEmpty(
             icon: Icons.shield_outlined,
@@ -813,17 +826,25 @@ IconData _activityIcon(String action) {
 }
 
 class _ActivityTab extends StatelessWidget {
-  const _ActivityTab({required this.channel, required this.store});
+  const _ActivityTab({required this.channel, required this.chat});
 
   final String channel;
-  final ChatStore store;
+  final Chat chat;
 
   @override
   Widget build(BuildContext context) {
+    final mod = chat.channelFor(channel)?.moderation;
+    if (mod == null) {
+      return const _ModEmpty(
+        icon: Icons.auto_awesome_outlined,
+        title: 'No moderation activity yet.',
+        subtitle: 'Bans, timeouts and mod actions will show here.',
+      );
+    }
     return ValueListenableBuilder<int>(
-      valueListenable: store.modFeedVersion,
+      valueListenable: mod.modFeedVersion,
       builder: (_, _, _) {
-        final feed = store.modActivity[channel] ?? const [];
+        final feed = mod.feed;
         if (feed.isEmpty) {
           return const _ModEmpty(
             icon: Icons.auto_awesome_outlined,
@@ -958,7 +979,7 @@ class _ModError extends StatelessWidget {
 class _UsersTab extends StatefulWidget {
   const _UsersTab({
     required this.channel,
-    required this.store,
+    required this.chat,
     required this.modActions,
     required this.auth,
     required this.onNotice,
@@ -967,7 +988,7 @@ class _UsersTab extends StatefulWidget {
   });
 
   final String channel;
-  final ChatStore store;
+  final Chat chat;
   final ModActions modActions;
   final TwitchAuth auth;
   final ValueChanged<String> onNotice;
@@ -986,7 +1007,10 @@ class _UsersTabState extends State<_UsersTab> {
   final _flagPending = <String>{};
 
   Future<void> _dismissWarnings(String login) async {
-    widget.store.dismissWarningsFor(widget.channel, login);
+    widget.chat
+        .channelFor(widget.channel)
+        ?.moderation
+        .dismissWarningsFor(login);
     setState(() {});
     widget.onNotice('Dismissed warnings for $login.');
   }
@@ -1013,7 +1037,9 @@ class _UsersTabState extends State<_UsersTab> {
       _unbanPending.remove(key);
       if (mounted) setState(() {});
     }
-    if (unbannedOk) widget.store.removeBan(widget.channel, login);
+    if (unbannedOk) {
+      widget.chat.channelFor(widget.channel)?.moderation.removeBan(login);
+    }
   }
 
   Future<void> _clearFlag(String login) async {
@@ -1038,31 +1064,32 @@ class _UsersTabState extends State<_UsersTab> {
       _flagPending.remove(key);
       if (mounted) setState(() {});
     }
-    if (clearedOk) widget.store.removeSuspicious(widget.channel, login);
+    if (clearedOk) {
+      widget.chat
+          .channelFor(widget.channel)
+          ?.moderation
+          .removeSuspicious(login);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    final mod = widget.chat.channelFor(widget.channel)?.moderation;
     return ValueListenableBuilder<int>(
-      valueListenable: widget.store.modActivityVersion,
+      valueListenable: mod?.modActivityVersion ?? ValueNotifier(0),
       builder: (_, _, _) {
-        final bans =
-            widget.store.channelBans[widget.channel]?.values.toList() ??
-            const [];
-        final warnings =
-            widget.store.channelWarnings[widget.channel] ?? const [];
-        final flagged =
-            widget.store.suspiciousUsers[widget.channel]?.values.toList() ??
-            const [];
+        final bans = mod?.bans.values.toList() ?? const [];
+        final warnings = mod?.warnings ?? const [];
+        final flagged = mod?.suspicious.values.toList() ?? const [];
         final counts = <String, int>{};
-        final latestByUser = widget.store.warnedLatest(widget.channel);
+        final latestByUser = mod?.warnedLatest() ?? const <String, WarnEntry>{};
         for (final w in warnings) {
           final lower = w.target.toLowerCase();
           counts[lower] = (counts[lower] ?? 0) + 1;
         }
         final warned = latestByUser.values.toList()
           ..sort((a, b) => b.at.compareTo(a.at));
-        widget.store.pruneExpiredBans(widget.channel);
+        mod?.pruneExpiredBans();
         return ListView(
           padding: const EdgeInsets.fromLTRB(0, 4, 0, 24),
           children: [
@@ -1200,14 +1227,14 @@ class _UsersTabState extends State<_UsersTab> {
 class _RequestsTab extends StatefulWidget {
   const _RequestsTab({
     required this.channel,
-    required this.store,
+    required this.chat,
     required this.modActions,
     required this.auth,
     required this.onNotice,
   });
 
   final String channel;
-  final ChatStore store;
+  final Chat chat;
   final ModActions modActions;
   final TwitchAuth auth;
   final ValueChanged<String> onNotice;
@@ -1223,18 +1250,34 @@ class _RequestsTabState extends State<_RequestsTab> {
   List<UnbanRequest>? _requests;
   String? _error;
   int _loadGen = 0;
+  ValueNotifier<int>? _inboxVersion;
 
   @override
   void initState() {
     super.initState();
-    widget.store.modInboxVersion.addListener(_onInboxChanged);
+    _subscribeInbox();
     _load();
+  }
+
+  void _subscribeInbox() {
+    _inboxVersion = widget.chat
+        .channelFor(widget.channel)
+        ?.moderation
+        .modInboxVersion;
+    _inboxVersion?.addListener(_onInboxChanged);
+  }
+
+  void _unsubscribeInbox() {
+    _inboxVersion?.removeListener(_onInboxChanged);
+    _inboxVersion = null;
   }
 
   @override
   void didUpdateWidget(covariant _RequestsTab oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.channel != widget.channel) {
+      _unsubscribeInbox();
+      _subscribeInbox();
       setState(() {
         _status = 'pending';
         _requests = null;
@@ -1246,7 +1289,7 @@ class _RequestsTabState extends State<_RequestsTab> {
 
   @override
   void dispose() {
-    widget.store.modInboxVersion.removeListener(_onInboxChanged);
+    _unsubscribeInbox();
     super.dispose();
   }
 
@@ -1446,7 +1489,7 @@ class _RequestsTabState extends State<_RequestsTab> {
 class _TermsTab extends StatefulWidget {
   const _TermsTab({
     required this.channel,
-    required this.store,
+    required this.chat,
     required this.modActions,
     required this.auth,
     required this.termsVersion,
@@ -1454,7 +1497,7 @@ class _TermsTab extends StatefulWidget {
   });
 
   final String channel;
-  final ChatStore store;
+  final Chat chat;
   final ModActions modActions;
   final TwitchAuth auth;
   final ValueListenable<int> termsVersion;
@@ -1469,19 +1512,35 @@ class _TermsTabState extends State<_TermsTab> {
   String? _error;
   int _loadGen = 0;
   final _removing = <String>{};
+  ValueNotifier<int>? _inboxVersion;
 
   @override
   void initState() {
     super.initState();
-    widget.store.modInboxVersion.addListener(_onInboxChanged);
+    _subscribeInbox();
     widget.termsVersion.addListener(_onInboxChanged);
     _load();
+  }
+
+  void _subscribeInbox() {
+    _inboxVersion = widget.chat
+        .channelFor(widget.channel)
+        ?.moderation
+        .modInboxVersion;
+    _inboxVersion?.addListener(_onInboxChanged);
+  }
+
+  void _unsubscribeInbox() {
+    _inboxVersion?.removeListener(_onInboxChanged);
+    _inboxVersion = null;
   }
 
   @override
   void didUpdateWidget(covariant _TermsTab oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.channel != widget.channel) {
+      _unsubscribeInbox();
+      _subscribeInbox();
       setState(() {
         _terms = null;
         _error = null;
@@ -1492,7 +1551,7 @@ class _TermsTabState extends State<_TermsTab> {
 
   @override
   void dispose() {
-    widget.store.modInboxVersion.removeListener(_onInboxChanged);
+    _unsubscribeInbox();
     widget.termsVersion.removeListener(_onInboxChanged);
     super.dispose();
   }
@@ -1613,14 +1672,14 @@ class _TermsTabState extends State<_TermsTab> {
 class _SetupTab extends StatefulWidget {
   const _SetupTab({
     required this.channel,
-    required this.store,
+    required this.chat,
     required this.modActions,
     required this.auth,
     required this.onNotice,
   });
 
   final String channel;
-  final ChatStore store;
+  final Chat chat;
   final ModActions modActions;
   final TwitchAuth auth;
   final ValueChanged<String> onNotice;
@@ -1654,23 +1713,41 @@ class _SetupTabState extends State<_SetupTab> {
   String? _error;
   int _loadGen = 0;
   bool _saving = false;
+  ValueNotifier<int>? _settingsVersion;
 
   @override
   void initState() {
     super.initState();
-    widget.store.modSettingsVersion.addListener(_onInboxChanged);
+    _subscribeSettings();
     _load();
+  }
+
+  void _subscribeSettings() {
+    _settingsVersion = widget.chat
+        .channelFor(widget.channel)
+        ?.moderation
+        .modSettingsVersion;
+    _settingsVersion?.addListener(_onInboxChanged);
+  }
+
+  void _unsubscribeSettings() {
+    _settingsVersion?.removeListener(_onInboxChanged);
+    _settingsVersion = null;
   }
 
   @override
   void didUpdateWidget(covariant _SetupTab oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.channel != widget.channel) _load(force: true);
+    if (oldWidget.channel != widget.channel) {
+      _unsubscribeSettings();
+      _subscribeSettings();
+      _load(force: true);
+    }
   }
 
   @override
   void dispose() {
-    widget.store.modSettingsVersion.removeListener(_onInboxChanged);
+    _unsubscribeSettings();
     super.dispose();
   }
 
@@ -1878,7 +1955,7 @@ class _SetupTabState extends State<_SetupTab> {
 class _ChannelTab extends StatelessWidget {
   const _ChannelTab({
     required this.channel,
-    required this.store,
+    required this.chat,
     required this.modActions,
     required this.auth,
     required this.onNotice,
@@ -1887,7 +1964,7 @@ class _ChannelTab extends StatelessWidget {
   });
 
   final String channel;
-  final ChatStore store;
+  final Chat chat;
   final ModActions modActions;
   final TwitchAuth auth;
   final ValueChanged<String> onNotice;
@@ -1948,7 +2025,7 @@ class _ChannelTab extends StatelessWidget {
           const _SectionHeader('Points'),
           _PointsSection(
             channel: channel,
-            store: store,
+            chat: chat,
             modActions: modActions,
             auth: auth,
             onNotice: onNotice,
@@ -2970,14 +3047,14 @@ class _PredictionsSectionState extends State<_PredictionsSection> {
 class _PointsSection extends StatefulWidget {
   const _PointsSection({
     required this.channel,
-    required this.store,
+    required this.chat,
     required this.modActions,
     required this.auth,
     required this.onNotice,
   });
 
   final String channel;
-  final ChatStore store;
+  final Chat chat;
   final ModActions modActions;
   final TwitchAuth auth;
   final ValueChanged<String> onNotice;
@@ -2996,18 +3073,31 @@ class _PointsSectionState extends State<_PointsSection> {
   int _queueGen = 0;
   final _busyRedemptions = <String>{};
   final _toggling = <String>{};
+  ValueNotifier<int>? _pointsVersion;
 
   @override
   void initState() {
     super.initState();
-    widget.store.pointVersion.addListener(_onPointsChanged);
+    _subscribePoints();
     _loadRewards();
+  }
+
+  void _subscribePoints() {
+    _pointsVersion = widget.chat.channelFor(widget.channel)?.points.version;
+    _pointsVersion?.addListener(_onPointsChanged);
+  }
+
+  void _unsubscribePoints() {
+    _pointsVersion?.removeListener(_onPointsChanged);
+    _pointsVersion = null;
   }
 
   @override
   void didUpdateWidget(covariant _PointsSection oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.channel != widget.channel) {
+      _unsubscribePoints();
+      _subscribePoints();
       setState(() {
         _rewards = null;
         _error = null;
@@ -3021,7 +3111,7 @@ class _PointsSectionState extends State<_PointsSection> {
 
   @override
   void dispose() {
-    widget.store.pointVersion.removeListener(_onPointsChanged);
+    _unsubscribePoints();
     super.dispose();
   }
 
@@ -3143,7 +3233,10 @@ class _PointsSectionState extends State<_PointsSection> {
       );
       if (!mounted) return;
       if (result.ok) {
-        widget.store.resolvePointRedemption(widget.channel, redemption.id);
+        widget.chat
+            .channelFor(widget.channel)
+            ?.points
+            .resolveRedemption(redemption.id);
         widget.onNotice(
           fulfilled ? 'Redemption fulfilled.' : 'Redemption refunded.',
         );
