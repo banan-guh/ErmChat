@@ -76,6 +76,9 @@
 - [ ] **Configurable user-card history limit** - setting for how many recent messages the user card shows (currently fixed at 50).
 - [ ] **Stream player battery saver** - currently streams drink battery like no other
 - [ ] **Extra search feats** - words to filter search
+- [ ] **Badge info**
+- [ ] **Gboard autocorrect overridden** - stops auto-undo, manual undo shouldn't be here.
+- [ ] **Keyboard should lose focus on dismiss**
 
 ## SMALL bugs
 

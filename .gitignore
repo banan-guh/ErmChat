@@ -31,6 +31,9 @@ doc/api/
 *.jks
 android/key.properties
 
+# Apple API keys - NEVER commit these
+*.p8
+
 # Flutter desktop auto-generated files
 linux/
 private.key
