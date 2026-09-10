@@ -1132,19 +1132,11 @@ class _HomeScreenState extends State<HomeScreen>
     for (final name in List.of(_chat.names)) {
       final channel = _chat.channelFor(name);
       if (channel == null) continue;
-      final doomed = <TwitchMessage>[];
-      for (final m in channel.messages.items) {
-        if (!m.isSystem && _blockedLogins.contains(m.login.toLowerCase())) {
-          doomed.add(m);
-        }
-      }
-      if (doomed.isEmpty) continue;
-      final ids = {for (final m in doomed) m.messageId};
-      channel.messages.removeWhere(
-        (m) => m.messageId != null && ids.contains(m.messageId),
+      // Blocked messages bypass truncation, so the verb decays them too.
+      final removed = channel.removeMessages(
+        (m) => !m.isSystem && _blockedLogins.contains(m.login.toLowerCase()),
       );
-      // Blocked messages bypass truncation, so decay them explicitly.
-      channel.threads.decay(doomed);
+      if (removed.isEmpty) continue;
       _tileCache.remove(name);
     }
   }

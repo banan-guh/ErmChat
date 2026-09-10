@@ -117,6 +117,17 @@ class Channel {
 
   bool moveConnectedToTop() => messages.moveConnectedToTop();
 
+  /// Removes every row matching [test] plus its thread index entries in one
+  /// step. Returns the removed rows. Blocked-message sweeps use this so a
+  /// caller cannot forget the decay.
+  List<TwitchMessage> removeMessages(bool Function(TwitchMessage) test) {
+    final removed = messages.items.where(test).toList();
+    if (removed.isEmpty) return const [];
+    messages.removeWhere(test);
+    threads.decay(removed);
+    return removed;
+  }
+
   /// Standalone prune outside ingest (settings cap change, join progress).
   /// Truncates plus decays in one step; bumps when rows fell off.
   void truncate(int maxMessages) {
