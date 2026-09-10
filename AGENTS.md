@@ -29,6 +29,7 @@ dart format .      # format all Dart files
 
 - `Chat` is the root: channel registry, session, cross-channel totals. `Channel` composes `Messages`/`Threads`/`Unread`/`Moderation`/`Points`/`ChannelInfo`.
 - Mutate only through verbs. Live path is `Channel.receive`, history path is `Channel.receiveHistory`. Both stay atomic: dedup, insert, truncate, index in one call.
+- `Channel` children are readable from anywhere, but only `Channel` verbs may mutate them. Exception: row-scoped moderation edits go through `Messages.markDeleted`/`markUserDeleted`/`markAllDeleted`.
 - Pipeline components (`ChatConnectionManager`) may gate/filter messages but must not re-implement state rules.
 - No generic bus. Owners expose typed notifiers (`Messages.version`, `ChannelInfo.version`, `Moderation` versions, `Chat` aggregates). UI subscribes to the owner it renders.
 - New chat-state features: put the rule in `lib/chat/`, add tests in `test/chat/`, then consume from pipeline/UI.
@@ -44,6 +45,7 @@ dart format .      # format all Dart files
 When you make a commit, ALWAYS read [RULES.md](RULES.md) first: short jab titles (4 words target, 8 hard max), body essentially never. RULES.md also holds code-consistency and subagent rules; follow those too. Read RULES.md on first init.
 IMPORTANT: NO em-dashes.
 If a comment is multiple lines long, see if you can rephrase it to be shorter. ALWAYS review a comment if you write one more than 3 lines long.
+Comments and doc comments state what the code does and why, in the present tense. Never narrate the change (no "previously", "used to", "moved from").
 NEVER `dart format .` as it creates extremely large diffs. Instead, specify the exact files to format.
 
 ## Notes

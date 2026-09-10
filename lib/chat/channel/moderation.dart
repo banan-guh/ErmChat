@@ -9,7 +9,7 @@ import '../../models/moderation_entries.dart';
 export '../../models/moderation_entries.dart';
 
 /// Per-channel moderation state: held queue, activity feed, warnings, bans,
-/// suspicious flags. Caps moved verbatim: 200 each.
+/// suspicious flags. Each list caps at 200.
 class Moderation {
   Moderation({DateTime Function()? now}) : now = now ?? DateTime.now;
 

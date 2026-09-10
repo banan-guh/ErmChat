@@ -28,8 +28,8 @@ class ThreadSummary {
   });
 }
 
-/// Per-channel reply index. Laws preserved verbatim: 64 thread
-/// cap, saved and on-screen holds exempt, decay on evict.
+/// Per-channel reply index. Tracks at most 64 unsaved threads; saved and
+/// on-screen holds are exempt; evicted replies decay out.
 class Threads {
   Threads({DateTime Function()? now}) : now = now ?? DateTime.now;
 

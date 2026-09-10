@@ -301,7 +301,7 @@ class UserSheets {
     ).whenComplete(sheetController.dispose);
   }
 
-  // Newest-first non-system messages from login, like the old kernel verb.
+  // Newest-first non-system messages from login.
   List<TwitchMessage> _recentMessagesFromUser(
     String channel,
     String login, {

@@ -1,5 +1,5 @@
-/// Per-channel unread state. Rules moved verbatim: mention counts only for
-/// mention-tier rows that are not history, not selected, not own.
+/// Per-channel unread state. A mention counts only for a mention-tier row
+/// that is not history, not selected, and not the account's own.
 class Unread {
   bool _hasUnread = false;
   bool _hasMention = false;

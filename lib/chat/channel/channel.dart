@@ -41,6 +41,11 @@ class Channel {
       info = ChannelInfo();
 
   final String name;
+
+  /// Read these freely. Mutate only through the [Channel] verbs ([receive],
+  /// [receiveHistory], [truncate], [removeMessages]); row-scoped moderation
+  /// edits may use the narrow `Messages` verbs. Mutating a child from outside
+  /// skips the dedup, decay, index, and unread steps those verbs guarantee.
   final Messages messages;
   final Threads threads;
   final Unread unread;
