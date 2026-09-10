@@ -28,7 +28,7 @@ class ThreadSummary {
   });
 }
 
-/// Per-channel reply index. Laws moved verbatim from ChatStore: 64 thread
+/// Per-channel reply index. Laws preserved verbatim: 64 thread
 /// cap, saved and on-screen holds exempt, decay on evict.
 class Threads {
   Threads({DateTime Function()? now}) : now = now ?? DateTime.now;

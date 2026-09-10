@@ -27,12 +27,12 @@ dart format .      # format all Dart files
 
 ## Chat kernel conventions
 
-- `ChatStore` is the kernel: it owns the chat state collections and the laws for mutating them.
-- Mutate only through store verbs (`addSystemMessage`, ingest-style operations, `truncateChannel`, `indexMessages`); never reach into the exposed collections directly.
+- `Chat` is the root: channel registry, session, cross-channel totals. `Channel` composes `Messages`/`Threads`/`Unread`/`Moderation`/`Points`/`ChannelInfo`.
+- Mutate only through verbs. Live path is `Channel.receive`, history path is `Channel.receiveHistory`. Both stay atomic: dedup, insert, truncate, index in one call.
 - Pipeline components (`ChatConnectionManager`) may gate/filter messages but must not re-implement state rules.
-- Kernels emit downward only: change events on `store.events` (per-channel notifiers) and UI-effect notices on `store.notices`; they never import Material widgets or call upward into screens. `HomeScreen` subscribes once and translates both.
-- New chat-state features: put the rule in `ChatStore`, add unit tests in `test/unit/chat_store_test.dart`, then consume from pipeline/UI.
-- View-only caches (tile caches, panel data) stay in `HomeScreen`, driven by `store.events`.
+- No generic bus. Owners expose typed notifiers (`Messages.version`, `ChannelInfo.version`, `Moderation` versions, `Chat` aggregates). UI subscribes to the owner it renders.
+- New chat-state features: put the rule in `lib/chat/`, add tests in `test/chat/`, then consume from pipeline/UI.
+- View-only caches (tile caches, panel data) stay in `HomeScreen`, driven by typed notifiers.
 
 ## Test conventions
 

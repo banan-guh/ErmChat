@@ -119,7 +119,7 @@ class ChannelPanels {
   // channel listenables, so they join the validity check. Everything else
   // the page reads is either listenable-driven (messages, edits, dim, query
   // via version/message/search) or a session-long object. Settings setters
-  // that change tile content must also touchChannel plus clear tileCache
+  // that change tile content must also call info.touch() plus clear tileCache
   // (see HomeScreen _setPref rerenderChannels); theme and text scale reach
   // tiles through inherited widgets, and late paints self-update inside
   // their own ListenableBuilder, so they need no token entry.

@@ -4,7 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:ermchat/services/chat_store.dart';
+import 'package:ermchat/chat/chat.dart';
+import 'package:ermchat/chat/channel/moderation.dart';
 import 'package:ermchat/panels/mod_panel.dart';
 import 'package:ermchat/services/mod_actions.dart';
 import 'package:ermchat/services/twitch_api.dart';
@@ -12,19 +13,11 @@ import 'package:ermchat/services/twitch_auth.dart';
 import 'package:ermchat/widgets/mod_view.dart';
 import 'package:ermchat/widgets/tab_drag_focus.dart';
 
-ChatStore _store() => ChatStore(
-  channels: ['testchannel'],
-  channelMessages: {},
-  messageKeys: {},
-  chatStatus: {},
-  channelsWithUnread: {},
-  channelsWithUnreadMentions: {},
-  unreadMentionsPerChannel: {},
-  historyLoaded: {},
-  channelsEmotesResolved: {},
-  channelUserIds: {},
-  lastSentWireText: {},
-);
+Chat _chat() {
+  final chat = Chat();
+  chat.ensure('testchannel');
+  return chat;
+}
 
 Future<http.Response> _handler(http.Request request) async {
   recordedRequests.add(request);
@@ -145,7 +138,7 @@ final pausedRewards = <String>{};
 
 class _Harness extends StatelessWidget {
   const _Harness({
-    required this.store,
+    required this.chat,
     required this.actions,
     required this.auth,
     required this.tab,
@@ -154,7 +147,7 @@ class _Harness extends StatelessWidget {
     this.onNotice,
   });
 
-  final ChatStore store;
+  final Chat chat;
   final ModActions actions;
   final TwitchAuth auth;
   final TabController tab;
@@ -166,11 +159,11 @@ class _Harness extends StatelessWidget {
   Widget build(BuildContext context) {
     return ModViewPanel(
       channel: 'testchannel',
-      store: store,
+      chat: chat,
       modActions: actions,
       auth: auth,
       tabController: tab,
-      refresh: store.heldVersion,
+      refresh: chat.channelFor('testchannel')!.moderation.heldVersion,
       termsVersion: ValueNotifier(0),
       dragFocus: TabDragFocus(tab: () => tab, onFocusChanged: (_) {}),
       isModerationActive: (_) => true,
@@ -188,8 +181,9 @@ void main() {
     tester,
   ) async {
     final t0 = DateTime(2026, 1, 1);
-    final store = _store();
-    store.addHeldMessage(
+    final chat = _chat();
+    final mod = chat.channelFor('testchannel')!.moderation;
+    mod.addHeld(
       const HeldMessage(
         messageId: 'h1',
         channel: 'testchannel',
@@ -198,7 +192,7 @@ void main() {
         category: 'bullying',
       ),
     );
-    store.addModActivity(
+    mod.addFeed(
       ModActivityEntry(
         at: t0,
         channel: 'testchannel',
@@ -208,7 +202,7 @@ void main() {
         reason: 'spam',
       ),
     );
-    store.putBan(
+    mod.putBan(
       BanEntry(
         at: t0,
         channel: 'testchannel',
@@ -217,7 +211,7 @@ void main() {
         moderator: 'moduser',
       ),
     );
-    store.addWarning(
+    mod.addWarning(
       WarnEntry(
         at: t0,
         channel: 'testchannel',
@@ -225,7 +219,7 @@ void main() {
         moderator: 'moduser',
       ),
     );
-    store.noteSuspicious(
+    mod.noteSuspicious(
       SuspiciousInfo(
         at: t0,
         channel: 'testchannel',
@@ -264,7 +258,7 @@ void main() {
       MaterialApp(
         home: Scaffold(
           body: _Harness(
-            store: store,
+            chat: chat,
             actions: actions,
             auth: auth,
             tab: tab,
@@ -369,7 +363,7 @@ void main() {
       MaterialApp(
         home: Scaffold(
           body: _Harness(
-            store: store,
+            chat: chat,
             actions: actions,
             auth: auth,
             tab: tab,
@@ -435,8 +429,9 @@ void main() {
   });
 
   testWidgets('queue allow drops the row and filters reset', (tester) async {
-    final store = _store();
-    store.addHeldMessage(
+    final chat = _chat();
+    final mod = chat.channelFor('testchannel')!.moderation;
+    mod.addHeld(
       const HeldMessage(
         messageId: 'h-allow',
         channel: 'testchannel',
@@ -445,7 +440,7 @@ void main() {
         category: 'bullying',
       ),
     );
-    store.addHeldMessage(
+    mod.addHeld(
       const HeldMessage(
         messageId: 'h-other',
         channel: 'testchannel',
@@ -454,7 +449,7 @@ void main() {
         category: 'spam',
       ),
     );
-    store.addHeldMessage(
+    mod.addHeld(
       const HeldMessage(
         messageId: 'h-third',
         channel: 'testchannel',
@@ -483,7 +478,7 @@ void main() {
       MaterialApp(
         home: Scaffold(
           body: _Harness(
-            store: store,
+            chat: chat,
             actions: actions,
             auth: auth,
             tab: tab,
@@ -514,7 +509,7 @@ void main() {
   });
 
   testWidgets('modes emote toggle sends chat settings', (tester) async {
-    final store = _store();
+    final chat = _chat();
     final auth = TwitchAuth();
     auth.accessToken = 'tok';
     final actions = ModActions(
@@ -535,7 +530,7 @@ void main() {
       MaterialApp(
         home: Scaffold(
           body: _Harness(
-            store: store,
+            chat: chat,
             actions: actions,
             auth: auth,
             tab: tab,

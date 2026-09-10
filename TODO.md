@@ -6,7 +6,8 @@
 - [x] **Timeout gate soft block + heal-on-send** - gate no longer hard-blocks; it's a hint in the input box (format "1h 1m 1s"). Cleared on account switch; healed when a sent message echoes back (proves Twitch accepted it); EventSub unban/untimeout clears it for mods. In-memory only, so a restart drops the hint - harmless since Twitch enforces the real block.
 - [ ] **Check for wasteful rebuilds** - MUCH-NEEDED optimization.
 - [ ] **Check for wasteful / unreadable code** - for other people who want to read the codebase.
-- [x] **50-channel hard cap** - `kMaxChannels = 50` in `constants.dart`; `_addChannel` (home_screen.dart:2071) guards new joins past the cap, and the HomeScreen FAB + channel-settings "Join channel" button disable at cap. Restore path (loading saved channels) stays exempt so existing >50 users keep theirs.
+- [x] **100-channel hard cap** - `kMaxChannels = 100` in `constants.dart`; `ChannelManager.addChannel` (channel_manager.dart:312) guards new joins past the cap, and the HomeScreen FAB + channel-settings "Join channel" button disable at cap. Restore path (loading saved channels) stays exempt so existing >100 users keep theirs.
+- [x] **Chat-state god-object split** - Chat/Channel tree landed with typed notifiers; chat-state tests live in test/chat/.
 - [x] **Token expiry handling** - expired tokens fail silently right now. Validate on startup, catch the login-failed NOTICE, prompt re-auth. Drop unused scopes while at it (%20 -> + too).
 - [+] **Third-party badges** - BTTV donor, FFZ mod/VIP/user, 7TV badges. Fetch + render next to twitch badges.
 - [+] **Emote visibility toggles** - per-provider switches in emotes settings; gates fetching + all rendering (chat, autocomplete, sheet).

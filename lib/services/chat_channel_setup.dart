@@ -408,7 +408,7 @@ class ChatChannelSetup {
       if (chat.session.login != null && chat.session.userId != null) {
         // Guard like resubscribeEventSubChannels: a connected-edge resubscribe
         // racing this join must not double-subscribe (409s dedupe, but each
-        // attempt costs Helix calls and a redundant touchChannel).
+        // attempt costs Helix calls and a redundant noteSubscribed).
         if (!_moderationChannels.contains(channelName)) {
           unawaited(_subscribeModeration(channelName, channelUserId));
         }

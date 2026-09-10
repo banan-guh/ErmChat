@@ -1,8 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ermchat/models/twitch_message.dart';
+import 'package:ermchat/chat/chat.dart';
 import 'package:ermchat/services/chat_ingestion.dart';
-import 'package:ermchat/services/chat_store.dart';
 import 'package:ermchat/services/emote_manager.dart';
 import 'package:ermchat/services/twitch_auth.dart';
 import 'package:ermchat/services/twitch_badge_service.dart';
@@ -14,23 +14,12 @@ void main() {
     return ChatIngestion(
       irc: IrcService(),
       ircRead: IrcReadService(),
-      store: ChatStore(
-        channels: [],
-        channelMessages: {},
-        messageKeys: {},
-        chatStatus: {},
-        channelsWithUnread: {},
-        channelsWithUnreadMentions: {},
-        unreadMentionsPerChannel: {},
-        historyLoaded: {},
-        channelsEmotesResolved: {},
-        channelUserIds: {},
-        lastSentWireText: {},
-      ),
+      chat: Chat(),
       userStore: UserStore(),
       emoteManager: emoteManager,
       badgeService: TwitchBadgeService(),
       twitchAuth: TwitchAuth(),
+      lastSentWireText: {},
       mentionsChannel: '@mentions',
       getMaxMessagesPerChannel: () => 500,
       getSelectedChannel: () => null,

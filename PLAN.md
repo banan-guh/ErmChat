@@ -126,6 +126,8 @@ Release wrap-up triage, kept short so 0.7.5 can ship and stop.
 
 # ChatStore / pipeline split (refactor slice 1)
 
+Status: LANDED. The split is done; this section is archived and no longer the live spec.
+
 This is the concrete plan for the "Far future" bullet "Split connection manager
 and store god objects. Private state with verbs only. Single ingest path." It is
 written for an agent with zero context. Read the whole section before touching
