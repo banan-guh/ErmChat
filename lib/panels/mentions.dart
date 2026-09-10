@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../chat/chat.dart';
+import '../client/session.dart';
 import '../composer/composer_controller.dart';
 import '../models/twitch_message.dart';
 import '../services/chat_connection_manager.dart';
@@ -41,6 +42,7 @@ class MentionsPanels {
   MentionsPanels({
     required this.panelManager,
     required this.chat,
+    required this.session,
     required this.chatConn,
     required this.twitchAuth,
     required this.mentionsTab,
@@ -53,6 +55,7 @@ class MentionsPanels {
   });
 
   final PanelManager panelManager;
+  final Session session;
   final Chat chat;
   final ChatConnectionManager chatConn;
   final TwitchAuth twitchAuth;
@@ -171,7 +174,7 @@ class MentionsPanels {
   }
 
   void onWhisperSent(String target, String message) {
-    final login = chat.session.login;
+    final login = session.login;
     if (login == null) return;
     whisperTarget = target;
     whispers.insert(

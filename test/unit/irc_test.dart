@@ -19,6 +19,7 @@ import 'package:ermchat/services/chat_connection_manager.dart';
 import 'package:ermchat/services/chat_channel_setup.dart';
 import 'package:ermchat/services/base_irc_connection.dart';
 import 'package:ermchat/chat/chat.dart';
+import 'package:ermchat/client/session.dart';
 import 'package:ermchat/services/emote_manager.dart';
 import 'package:ermchat/services/twitch_api.dart';
 import 'package:ermchat/services/twitch_auth.dart';
@@ -377,6 +378,7 @@ ChatConnectionManager _makeConn({
 }) {
   final api = TwitchApi(client: http.Client());
   final chat = Chat(now: truncateNow);
+  final session = Session();
   chat.ensure('test');
   for (final entry in channelMessages.entries) {
     final channel = chat.ensure(entry.key);
@@ -398,6 +400,7 @@ ChatConnectionManager _makeConn({
         joinBudget: joinBudget,
       ),
       chat: chat,
+      session: session,
       bridge: ChatViewBridge(
         mentionsChannel: '@mentions',
         onSystemMessage: (c, t, {Color? accent, String? messageId}) {},
@@ -438,6 +441,7 @@ ChatConnectionManager _makeReconnectConn({
     effectiveAuth.accessToken = 'test-token';
   }
   final effectiveChat = chat ?? Chat();
+  final effectiveSession = Session();
   for (final name in channels ?? []) {
     effectiveChat.ensure(name);
   }
@@ -456,7 +460,7 @@ ChatConnectionManager _makeReconnectConn({
     effectiveChat.channelFor(entry.key)?.info.setBroadcasterId(entry.value);
   }
   if (currentUserLogin != null) {
-    effectiveChat.seedLogin(currentUserLogin);
+    effectiveSession.seed(currentUserLogin);
   }
   return ChatConnectionManager(
     ChatConnectionConfig(
@@ -471,6 +475,7 @@ ChatConnectionManager _makeReconnectConn({
         twitchAuth: effectiveAuth,
       ),
       chat: effectiveChat,
+      session: effectiveSession,
       bridge: ChatViewBridge(
         mentionsChannel: '@mentions',
         onSystemMessage:
@@ -2838,7 +2843,8 @@ void main() {
       expect(irc.sent.single.$1, 'alice', reason: 'baseline send as alice');
 
       // Switch to bob the way HomeScreen drives it.
-      conn.chat.switchAccount(login: null);
+      conn.session.clear();
+      conn.chat.clearAccountScopedState();
       await auth.switchTo('bob');
       await conn.connect();
 
@@ -3027,6 +3033,7 @@ void main() {
         twitchAuth: TwitchAuth(),
         userStore: UserStore(),
         chat: Chat(),
+        session: Session(),
         onSystemMessage: (c, t, {Color? accent, String? messageId}) =>
             messages.add(t),
         connectionStateNotifier: ValueNotifier(0),

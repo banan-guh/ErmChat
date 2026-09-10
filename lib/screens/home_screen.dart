@@ -38,6 +38,7 @@ import '../widgets/panel_manager.dart';
 import '../widgets/welcome_dialog.dart';
 import '../services/user_store.dart';
 import '../chat/chat.dart';
+import '../client/session.dart';
 import '../services/suggestion.dart';
 import '../services/notification_service.dart';
 import '../services/tts_controller.dart';
@@ -162,14 +163,19 @@ class _HomeScreenState extends State<HomeScreen>
   );
   final _ttsController = TtsController();
 
-  late final Chat _chat = Chat()
-    ..onLoginApplied = (v) {
-      _pingManager.setAccount(v);
-      _channelManager.scanHistoryForMentions();
-      unawaited(_ensureBlockedUsersLoaded());
-      // Warm the macro cache so sends can read it synchronously.
-      if (v != null) unawaited(loadMacros(v));
-    };
+  late final Session _session = Session();
+  late final Chat _chat = Chat();
+
+  // Session announces pipeline-resolved identity; the app refreshes the
+  // account-scoped data it owns.
+  void _onSessionApplied() {
+    final login = _session.login;
+    _pingManager.setAccount(login);
+    _channelManager.scanHistoryForMentions();
+    unawaited(_ensureBlockedUsersLoaded());
+    // Warm the macro cache so sends can read it synchronously.
+    if (login != null) unawaited(loadMacros(login));
+  }
 
   late final ChatConnectionManager _chatConn = ChatConnectionManager(
     ChatConnectionConfig(
@@ -188,6 +194,7 @@ class _HomeScreenState extends State<HomeScreen>
         joinBudget: _joinBudget,
       ),
       chat: _chat,
+      session: _session,
       bridge: ChatViewBridge(
         mentionsChannel: _mentionsChannel,
         onSystemMessage: _addSystemMessage,
@@ -204,7 +211,7 @@ class _HomeScreenState extends State<HomeScreen>
         onUserEmoteSets: (ch, ids) => _emotes.loadUserEmoteSets(ch, ids),
         onReconnected: _onReconnected,
         getMacros: () {
-          final login = _chat.session.login;
+          final login = _session.login;
           if (login == null) return const {};
           return cachedMacroLookup(login) ?? const {};
         },
@@ -247,15 +254,15 @@ class _HomeScreenState extends State<HomeScreen>
   late final _modActions = ModActions(
     twitchApi: _twitchApi,
     getChannelUserIds: _channelUserIds,
-    getCurrentUserId: () => _chat.session.userId,
+    getCurrentUserId: () => _session.userId,
   );
   late final _commandHandler = CommandHandler(
     twitchApi: _twitchApi,
     irc: _irc,
     modActions: _modActions,
     getChannelUserIds: _channelUserIds,
-    getCurrentUserId: () => _chat.session.userId,
-    getCurrentUserLogin: () => _chat.session.login,
+    getCurrentUserId: () => _session.userId,
+    getCurrentUserLogin: () => _session.login,
     addSystemMessage: _addSystemMessage,
     whisperAddSystemMessage: (channel, text) =>
         _mentions.addWhisperSystemMessage(channel, text),
@@ -380,6 +387,7 @@ class _HomeScreenState extends State<HomeScreen>
     emoteManager: _emoteManager,
     userStore: _userStore,
     chat: _chat,
+    session: _session,
     host: this,
   );
 
@@ -434,7 +442,7 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   String get timestampFormat => _timestampFormat;
   @override
-  String? get sessionLogin => _chat.session.login;
+  String? get sessionLogin => _session.login;
   @override
   TwitchMessage? findThreadRoot(TwitchMessage msg) =>
       _threads.findThreadRoot(msg);
@@ -506,6 +514,7 @@ class _HomeScreenState extends State<HomeScreen>
   late final _mentions = MentionsPanels(
     panelManager: _panelManager,
     chat: _chat,
+    session: _session,
     chatConn: _chatConn,
     twitchAuth: widget.twitchAuth,
     mentionsTab: () => _mentionsTabCtrl,
@@ -581,6 +590,7 @@ class _HomeScreenState extends State<HomeScreen>
 
   late final _channelManager = ChannelManager(
     chat: _chat,
+    session: _session,
     chatConn: _chatConn,
     irc: _irc,
     ircRead: _ircRead,
@@ -727,7 +737,8 @@ class _HomeScreenState extends State<HomeScreen>
     unawaited(_ttsController.init());
     unawaited(PerfLog.I.init());
     DataUsageStats.I.start();
-    _chat.seedLogin(widget.initialCurrentUserLogin);
+    _session.seed(widget.initialCurrentUserLogin);
+    _session.version.addListener(_onSessionApplied);
     _pingManager.setAccount(widget.initialCurrentUserLogin);
     _emotes.loadPrefs();
     _mentionsTabCtrl = TabController(length: 2, vsync: this);
@@ -1342,12 +1353,12 @@ class _HomeScreenState extends State<HomeScreen>
 
   void _onAuthChanged() {
     _mod.refreshOnData(null);
-    if (_chat.session.login?.toLowerCase() !=
+    if (_session.login?.toLowerCase() !=
         widget.twitchAuth.login?.toLowerCase()) {
-      // Account switched (or signed out): the verb sets the login and
-      // clears account-scoped per-channel state; the rest stays a
-      // HomeScreen side effect at this call site.
-      _chat.switchAccount(login: null);
+      // Account switched (or signed out): drop identity and account-scoped
+      // chat state. The remaining resets are HomeScreen side effects.
+      _session.clear();
+      _chat.clearAccountScopedState();
       _pingManager.setAccount(null);
       // The emote-set / block / mention caches are per-account: reset them so
       // the new account's USERSTATE re-fetches its sub emotes (instead of the
@@ -1527,6 +1538,8 @@ class _HomeScreenState extends State<HomeScreen>
     _channelNotifier.removeListener(_syncChannelSubs);
     _chat.mentions.version.removeListener(_onMentionsContent);
     _dropChannelSubs();
+    _session.version.removeListener(_onSessionApplied);
+    _session.dispose();
     _chat.dispose();
     _notificationTapSub?.cancel();
     _notificationService.dispose();

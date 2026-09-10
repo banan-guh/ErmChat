@@ -23,6 +23,7 @@ import '../services/chat_ingestion.dart';
 import '../services/chat_channel_setup.dart';
 import '../chat/channel/moderation.dart';
 import '../chat/chat.dart';
+import '../client/session.dart';
 import '../util/mod_activity_format.dart' show formatTermAction;
 import '../util/text_bypass.dart';
 
@@ -142,12 +143,14 @@ class ChatConnectionConfig {
   ChatConnectionConfig({
     required this.services,
     required this.chat,
+    required this.session,
     required this.bridge,
     required this.sinks,
   });
 
   final ChatServices services;
   final Chat chat;
+  final Session session;
   final ChatViewBridge bridge;
   final ChatSinks sinks;
 }
@@ -162,7 +165,7 @@ class ChatConnectionManager {
   final UserStore userStore;
   final TwitchAuth twitchAuth;
   final EmoteManager emoteManager;
-  final ActiveSession session;
+  final Session session;
   final Chat chat;
   final Map<String, String> lastSentWireText = {};
   final String mentionsChannel;
@@ -282,6 +285,7 @@ class ChatConnectionManager {
     irc: irc,
     ircRead: ircRead,
     chat: chat,
+    session: session,
     userStore: userStore,
     emoteManager: emoteManager,
     badgeService: badgeService,
@@ -322,6 +326,7 @@ class ChatConnectionManager {
     twitchAuth: twitchAuth,
     userStore: userStore,
     chat: chat,
+    session: session,
     onSystemMessage: onSystemMessage,
     connectionStateNotifier: connectionStateNotifier,
     onUserEmoteSets: onUserEmoteSets,
@@ -370,7 +375,7 @@ class ChatConnectionManager {
       badgeService = config.services.badgeService,
       userStore = config.services.userStore,
       twitchAuth = config.services.twitchAuth,
-      session = config.chat.session,
+      session = config.session,
       chat = config.chat,
       mentionsChannel = config.bridge.mentionsChannel,
       onSystemMessage = config.bridge.onSystemMessage,
@@ -998,7 +1003,7 @@ class ChatConnectionManager {
       // Use the cached account if available so cold start skips the Helix
       // user lookup entirely.
       if (session.login == null && auth.login != null && auth.userId != null) {
-        chat.applyLogin(auth.login, userId: auth.userId);
+        session.apply(auth.login, userId: auth.userId);
       }
 
       // Account-switch fast path (runs before any await): a different account
@@ -1101,7 +1106,7 @@ class ChatConnectionManager {
         }
       }
       if (currentUser != null) {
-        chat.applyLogin(currentUser['login'], userId: currentUser['id']);
+        session.apply(currentUser['login'], userId: currentUser['id']);
       }
 
       // Account switch: an already-connected socket would skip the reconnect
@@ -1221,7 +1226,7 @@ class ChatConnectionManager {
     if (_expiryHandled) return;
     _expiryHandled = true;
     twitchAuth.markActiveExpired();
-    chat.applyLogin(null, userId: null);
+    session.apply(null);
     // Logged-out identity keeps no queue, and the dead token's subs will
     // not resolve it; IRC fallback resumes moderation echoes.
     for (final name in chat.names) {

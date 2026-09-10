@@ -7,6 +7,7 @@ import '../models/generic_emote.dart';
 import '../models/twitch_message.dart';
 import '../services/chat_connection_manager.dart';
 import '../chat/chat.dart';
+import '../client/session.dart';
 import '../services/command_handler.dart';
 import '../services/emote_manager.dart';
 import '../services/suggestion.dart';
@@ -54,6 +55,7 @@ class ComposerController {
     required this.emoteManager,
     required this.userStore,
     required this.chat,
+    required this.session,
     required this.host,
   }) {
     focusNode.addListener(_onInputFocusChanged);
@@ -69,6 +71,7 @@ class ComposerController {
   final TwitchAuth twitchAuth;
   final EmoteManager emoteManager;
   final UserStore userStore;
+  final Session session;
   final Chat chat;
   final ComposerHost host;
 
@@ -415,7 +418,7 @@ class ComposerController {
       twitchAuth.isConfigured &&
       // Token without a session user means the identity is still resolving
       // (account switch, fresh login): the pipeline would drop the send.
-      chat.session.login != null &&
+      session.login != null &&
       chatConn.isChatPipeConnected &&
       (host.isWhispersTabActive || host.channelChatReady);
 

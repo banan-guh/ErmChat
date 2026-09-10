@@ -3,19 +3,9 @@ import 'package:flutter/foundation.dart';
 import 'channel/channel.dart';
 import 'mentions.dart';
 
-/// The account the chat pipeline currently acts as. Read-only outside
-/// lib/chat: writes go through [Chat.applyLogin], [Chat.seedLogin], and
-/// [Chat.switchAccount].
-class ActiveSession {
-  String? _login;
-  String? _userId;
-
-  String? get login => _login;
-  String? get userId => _userId;
-}
-
-/// Cross-channel chat root: registry, session, and aggregate totals.
-/// Per-channel laws live in [Channel]; this owns ordering and drop paths.
+/// Cross-channel chat root: registry and aggregate totals. Per-channel laws
+/// live in [Channel]; this owns ordering and drop paths. Identity lives in
+/// `Session`, outside the kernel.
 class Chat {
   Chat({String mentionsChannel = '@mentions', DateTime Function()? now})
     : _now = now ?? DateTime.now,
@@ -25,10 +15,6 @@ class Chat {
 
   final Map<String, Channel> _channels = {};
   final List<String> _order = [];
-
-  final ActiveSession session = ActiveSession();
-
-  void Function(String? login)? onLoginApplied;
 
   final Mentions mentions;
 
@@ -69,21 +55,6 @@ class Chat {
     _channels[name] = channel;
     _order.add(name);
     return channel;
-  }
-
-  /// Pipeline-path login write: assigns and fires [onLoginApplied].
-  void applyLogin(String? login, {String? userId, bool keepUserId = false}) {
-    session._login = login;
-    if (!keepUserId) session._userId = userId;
-    onLoginApplied?.call(login);
-  }
-
-  /// Init-seed path only: assigns without firing [onLoginApplied].
-  /// initState seeds the cached account before the pipeline exists; the
-  /// connect that follows resolves and fires through [applyLogin].
-  void seedLogin(String? login, {String? userId}) {
-    session._login = login;
-    session._userId = userId;
   }
 
   void noteMention() {
@@ -145,11 +116,9 @@ class Chat {
     loadFailedChannels.value = next;
   }
 
-  /// Account switch reuses channels: clears account-scoped per-channel
-  /// state, keeps messages, threads, and saved bookmarks.
-  void switchAccount({String? login}) {
-    session._login = login;
-    if (login == null) session._userId = null;
+  /// Drops account-scoped per-channel state on an account switch. Keeps
+  /// messages, threads, and saved bookmarks; identity lives in `Session`.
+  void clearAccountScopedState() {
     for (final c in _channels.values) {
       c.clearForAccountSwitch();
     }

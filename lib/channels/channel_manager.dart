@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../chat/chat.dart';
+import '../client/session.dart';
 import '../composer/composer_controller.dart';
 import '../models/twitch_message.dart';
 import '../panels/threads.dart';
@@ -51,6 +52,7 @@ abstract class ChannelManagerHost extends ShellState {
 class ChannelManager {
   ChannelManager({
     required this.chat,
+    required this.session,
     required this.chatConn,
     required this.irc,
     required this.ircRead,
@@ -74,6 +76,7 @@ class ChannelManager {
     required this.host,
   });
 
+  final Session session;
   final Chat chat;
   final ChatConnectionManager chatConn;
   final IrcService irc;
@@ -190,8 +193,8 @@ class ChannelManager {
             : msg.login;
         userStore.addUser(channel, preferred);
       }
-      if (msg.isSystem && chat.session.login != null) {
-        final selfLogin = chat.session.login!.toLowerCase();
+      if (msg.isSystem && session.login != null) {
+        final selfLogin = session.login!.toLowerCase();
         if (msg.login.toLowerCase() == selfLogin) {
           msg.text = msg.text.replaceFirst(
             RegExp(RegExp.escape(msg.login), caseSensitive: false),
@@ -446,7 +449,7 @@ class ChannelManager {
   // mirrored through Mentions, which sorts newest-first regardless of the
   // (newest-first) channel-buffer iteration order.
   void scanHistoryForMentions() {
-    if (_mentionScanDone || chat.session.login == null) return;
+    if (_mentionScanDone || session.login == null) return;
     _mentionScanDone = true;
     final hits = <TwitchMessage>[];
     for (final name in chat.names) {

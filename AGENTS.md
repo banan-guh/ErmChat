@@ -27,7 +27,7 @@ dart format .      # format all Dart files
 
 ## Chat kernel conventions
 
-- `Chat` is the root: channel registry, session, cross-channel totals. `Channel` composes `Messages`/`Threads`/`Unread`/`Moderation`/`Points`/`ChannelInfo`.
+- `Chat` is the root: channel registry and cross-channel totals. `Channel` composes `Messages`/`Threads`/`Unread`/`Moderation`/`Points`/`ChannelInfo`. Account identity lives in `lib/client/Session`, outside the kernel; the app subscribes to `Session.version`.
 - Mutate only through verbs. Live path is `Channel.receive`, history path is `Channel.receiveHistory`. Both stay atomic: dedup, insert, truncate, index in one call.
 - `Channel` children are readable from anywhere, but only `Channel` verbs may mutate them. Exception: row-scoped moderation edits go through `Messages.markDeleted`/`markUserDeleted`/`markAllDeleted`.
 - Pipeline components (`ChatConnectionManager`) may gate/filter messages but must not re-implement state rules.

@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import '../chat/chat.dart';
+import '../client/session.dart';
 import '../util/constants.dart';
 import '../util/log.dart';
 import 'base_irc_connection.dart' show IrcJoinFailureEvent, JoinFailureReason;
@@ -38,6 +39,7 @@ class ChatChannelSetup {
     required this.emoteManager,
     required this.twitchAuth,
     required this.userStore,
+    required this.session,
     required this.chat,
     required this.onSystemMessage,
     required this.connectionStateNotifier,
@@ -54,6 +56,7 @@ class ChatChannelSetup {
   final EmoteManager emoteManager;
   final TwitchAuth twitchAuth;
   final UserStore userStore;
+  final Session session;
   final Chat chat;
 
   final void Function(
@@ -177,8 +180,8 @@ class ChatChannelSetup {
   /// Whether the session user owns this channel. Broadcaster-only widgets
   /// and the Channel tab gate on this, not on moderator status.
   bool isBroadcaster(String channel) =>
-      chat.session.userId != null &&
-      chat.session.userId == chat.channelFor(channel)?.info.broadcasterId;
+      session.userId != null &&
+      session.userId == chat.channelFor(channel)?.info.broadcasterId;
 
   /// Whether a join-failure notice was already displayed for the channel
   /// (Twitch's raw refusal NOTICE is suppressed as a duplicate then).
@@ -254,7 +257,7 @@ class ChatChannelSetup {
     if (!auth.isConfigured) return;
 
     final userId = chat.channelFor(channel)?.info.broadcasterId;
-    if (userId == null || chat.session.userId == null) return;
+    if (userId == null || session.userId == null) return;
 
     // Timer-driven: a network blip (or the client being closed in dispose)
     // must not surface as an unhandled async exception every 60s per channel.
@@ -398,14 +401,14 @@ class ChatChannelSetup {
 
       unawaited(_resolveSevenTvAndSubscribe(channelName, channelUserId));
 
-      if (chat.session.login == null && auth.accessToken != null) {
+      if (session.login == null && auth.accessToken != null) {
         final currentUser = await ensureCurrentUser(auth);
         if (currentUser != null) {
-          chat.applyLogin(currentUser['login'], userId: currentUser['id']);
+          session.apply(currentUser['login'], userId: currentUser['id']);
         }
       }
 
-      if (chat.session.login != null && chat.session.userId != null) {
+      if (session.login != null && session.userId != null) {
         // Guard like resubscribeEventSubChannels: a connected-edge resubscribe
         // racing this join must not double-subscribe (409s dedupe, but each
         // attempt costs Helix calls and a redundant noteSubscribed).
@@ -461,7 +464,7 @@ class ChatChannelSetup {
   ) async {
     try {
       final auth = twitchAuth;
-      if (!auth.isConfigured || chat.session.userId == null) return;
+      if (!auth.isConfigured || session.userId == null) return;
       // Already known to be rejected with 403 (not a moderator); skip so we
       // don't re-attempt and re-log on every reconnect.
       if (_moderationSkippedChannels.contains(channelName)) return;
@@ -482,7 +485,7 @@ class ChatChannelSetup {
           version: '2',
           condition: {
             'broadcaster_user_id': channelUserId,
-            'moderator_user_id': chat.session.userId!,
+            'moderator_user_id': session.userId!,
           },
         );
         if (ok) {
@@ -517,7 +520,7 @@ class ChatChannelSetup {
   ) async {
     try {
       final auth = twitchAuth;
-      if (!auth.isConfigured || chat.session.userId == null) return;
+      if (!auth.isConfigured || session.userId == null) return;
       if (_automodSkippedChannels.contains(channelName)) return;
       for (int attempt = 0; attempt < 3; attempt++) {
         final sessionId = eventSub.sessionId;
@@ -543,7 +546,7 @@ class ChatChannelSetup {
             version: version,
             condition: {
               'broadcaster_user_id': channelUserId,
-              'moderator_user_id': chat.session.userId!,
+              'moderator_user_id': session.userId!,
             },
           );
           if (ok) {
@@ -576,7 +579,7 @@ class ChatChannelSetup {
   Future<void> _subscribeFeed(String channelName, String channelUserId) async {
     try {
       final auth = twitchAuth;
-      if (!auth.isConfigured || chat.session.userId == null) return;
+      if (!auth.isConfigured || session.userId == null) return;
       if (_feedSkippedChannels.contains(channelName)) return;
       for (int attempt = 0; attempt < 3; attempt++) {
         final sessionId = eventSub.sessionId;
@@ -604,7 +607,7 @@ class ChatChannelSetup {
             version: version,
             condition: {
               'broadcaster_user_id': channelUserId,
-              'moderator_user_id': chat.session.userId!,
+              'moderator_user_id': session.userId!,
             },
           );
           if (ok) {
@@ -636,7 +639,7 @@ class ChatChannelSetup {
   Future<void> _subscribeInbox(String channelName, String channelUserId) async {
     try {
       final auth = twitchAuth;
-      if (!auth.isConfigured || chat.session.userId == null) return;
+      if (!auth.isConfigured || session.userId == null) return;
       if (_inboxSkippedChannels.contains(channelName)) return;
       for (int attempt = 0; attempt < 3; attempt++) {
         final sessionId = eventSub.sessionId;
@@ -661,7 +664,7 @@ class ChatChannelSetup {
             version: version,
             condition: {
               'broadcaster_user_id': channelUserId,
-              'moderator_user_id': chat.session.userId!,
+              'moderator_user_id': session.userId!,
             },
           );
           if (ok) {
@@ -693,7 +696,7 @@ class ChatChannelSetup {
   Future<void> _subscribeTrust(String channelName, String channelUserId) async {
     try {
       final auth = twitchAuth;
-      if (!auth.isConfigured || chat.session.userId == null) return;
+      if (!auth.isConfigured || session.userId == null) return;
       if (_trustSkippedChannels.contains(channelName)) return;
       for (int attempt = 0; attempt < 3; attempt++) {
         final sessionId = eventSub.sessionId;
@@ -718,7 +721,7 @@ class ChatChannelSetup {
             version: version,
             condition: {
               'broadcaster_user_id': channelUserId,
-              'moderator_user_id': chat.session.userId!,
+              'moderator_user_id': session.userId!,
             },
           );
           if (ok) {
@@ -755,8 +758,8 @@ class ChatChannelSetup {
   ) async {
     try {
       final auth = twitchAuth;
-      if (!auth.isConfigured || chat.session.userId == null) return;
-      if (chat.session.userId != channelUserId) return;
+      if (!auth.isConfigured || session.userId == null) return;
+      if (session.userId != channelUserId) return;
       if (_pointsSkippedChannels.contains(channelName)) return;
       for (int attempt = 0; attempt < 3; attempt++) {
         final sessionId = eventSub.sessionId;
@@ -817,8 +820,8 @@ class ChatChannelSetup {
   ) async {
     try {
       final auth = twitchAuth;
-      if (!auth.isConfigured || chat.session.userId == null) return;
-      if (chat.session.userId != channelUserId) return;
+      if (!auth.isConfigured || session.userId == null) return;
+      if (session.userId != channelUserId) return;
       if (_widgetSkippedChannels.contains(channelName)) return;
       // Same shape as _subscribeModeration: one attempt max, the loop only
       // bounds the wait for the EventSub session.
@@ -877,7 +880,7 @@ class ChatChannelSetup {
   /// comes up (session_reconnect / keepalive reconnect). Skip sets and the
   /// already-subscribed sets are respected by the per-channel methods.
   void resubscribeEventSubChannels(List<String> channels) {
-    final uid = chat.session.userId;
+    final uid = session.userId;
     if (uid == null) return;
     for (final channel in channels) {
       final channelUserId = chat.channelFor(channel)?.info.broadcasterId;

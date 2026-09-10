@@ -9,6 +9,7 @@ import '../util/log.dart';
 import 'twitch_irc.dart' show IrcReadService;
 import '../util/text_bypass.dart';
 import '../chat/chat.dart';
+import '../client/session.dart';
 import 'emote_manager.dart';
 import 'ignore_manager.dart';
 import 'ping_manager.dart';
@@ -48,6 +49,7 @@ class ChatIngestion {
     required this.irc,
     required this.ircRead,
     required this.chat,
+    required this.session,
     required this.userStore,
     required this.emoteManager,
     required this.badgeService,
@@ -73,6 +75,7 @@ class ChatIngestion {
 
   final IrcService irc;
   final IrcReadService ircRead;
+  final Session session;
   final Chat chat;
   final UserStore userStore;
   final EmoteManager emoteManager;
@@ -202,7 +205,7 @@ class ChatIngestion {
           msg,
           maxMessages: getMaxMessagesPerChannel(),
           isSelected: channel == selected,
-          ownLogin: chat.session.login,
+          ownLogin: session.login,
         );
     if (!result.inserted) return;
 
@@ -325,7 +328,7 @@ class ChatIngestion {
     // Track own timeouts for the input-box countdown. Runs before the
     // moderation-channel early return so the IRC and EventSub sources can't
     // double-count: both just re-arm the same expiry.
-    final selfLogin = chat.session.login?.toLowerCase();
+    final selfLogin = session.login?.toLowerCase();
     if (selfLogin != null && user.toLowerCase() == selfLogin) {
       // Zero-length timeouts are already spent - don't arm a gate for them.
       if (isTimeout && duration != null && duration > 0) {
@@ -339,7 +342,7 @@ class ChatIngestion {
     // messages come from EventSub (with reason/duration) - skip the IRC copy.
     if (isModerationActive(channel)) return;
     final result = _processBanInChannel(channel, user, isTimeout);
-    final isSelf = user.toLowerCase() == chat.session.login?.toLowerCase();
+    final isSelf = user.toLowerCase() == session.login?.toLowerCase();
     final base = isSelf
         ? (isTimeout
               ? 'You are timed out${duration != null ? ' for ${formatSeconds(duration)}' : ''}'
@@ -439,8 +442,8 @@ class ChatIngestion {
     final msg = parseIrcChatMessage(
       ircMsg,
       channel: channel,
-      defaultLogin: chat.session.login,
-      defaultUserId: chat.session.userId,
+      defaultLogin: session.login,
+      defaultUserId: session.userId,
     );
 
     // Track our own message ids so replies chained onto them ping via
@@ -471,7 +474,7 @@ class ChatIngestion {
           msg,
           maxMessages: getMaxMessagesPerChannel(),
           isSelected: channel == getSelectedChannel(),
-          ownLogin: chat.session.login,
+          ownLogin: session.login,
         );
     if (!result.inserted) return;
     precacheMessageEmotes(msg, channel);

@@ -1,5 +1,6 @@
 import 'package:ermchat/channels/channel_manager.dart';
 import 'package:ermchat/chat/chat.dart';
+import 'package:ermchat/client/session.dart';
 import 'package:ermchat/composer/composer_controller.dart';
 import 'package:ermchat/models/twitch_message.dart';
 import 'package:ermchat/panels/threads.dart';
@@ -80,6 +81,7 @@ class _FakeComposer with _Unimplemented implements ComposerController {}
 
 ChannelManager _channelManager(Chat chat) => ChannelManager(
   chat: chat,
+  session: Session(),
   chatConn: _FakeConn(),
   irc: IrcService(),
   ircRead: IrcReadService(),

@@ -41,7 +41,7 @@ void main() {
       expect(ticks, 1);
     });
 
-    test('switchAccount clears account state, keeps rows and threads', () {
+    test('clearAccountScopedState keeps rows and threads', () {
       final chat = Chat();
       addTearDown(chat.dispose);
       final channel = chat.ensure('test');
@@ -134,7 +134,7 @@ void main() {
         ),
       );
 
-      chat.switchAccount(login: null);
+      chat.clearAccountScopedState();
 
       expect(channel.messages.length, 5);
       expect(channel.threads.threadFor('r1'), hasLength(2));

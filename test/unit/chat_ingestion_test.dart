@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ermchat/models/twitch_message.dart';
 import 'package:ermchat/chat/chat.dart';
+import 'package:ermchat/client/session.dart';
 import 'package:ermchat/services/chat_ingestion.dart';
 import 'package:ermchat/services/emote_manager.dart';
 import 'package:ermchat/services/twitch_auth.dart';
@@ -15,6 +16,7 @@ void main() {
       irc: IrcService(),
       ircRead: IrcReadService(),
       chat: Chat(),
+      session: Session(),
       userStore: UserStore(),
       emoteManager: emoteManager,
       badgeService: TwitchBadgeService(),
