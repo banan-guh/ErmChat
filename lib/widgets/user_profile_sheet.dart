@@ -11,6 +11,7 @@ import '../models/twitch_message.dart';
 import '../services/mod_actions.dart';
 import '../services/twitch_api.dart';
 import '../services/twitch_auth.dart';
+import '../util/date_format.dart';
 import '../util/haptics.dart';
 import '../util/log.dart';
 import 'app_snack.dart';
@@ -262,7 +263,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
   String _formatDate(String iso) {
     try {
       final dt = DateTime.parse(iso);
-      return '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
+      return formatYmd(dt);
     } catch (_) {
       logDebug('[UserProfileSheet] failed to parse date: $iso');
       return iso;

@@ -212,18 +212,6 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
     widget.onSharedChatModeChanged?.call(selected);
   }
 
-  Widget _sectionHeader(String title) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
-      child: Text(
-        title,
-        style: Theme.of(
-          context,
-        ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
-      ),
-    );
-  }
-
   String get _inlineEmbedsSubtitle {
     final parts = <String>[];
     if (_showGifs) parts.add('Giphy on (${_gifHeight.round()}dp)');
@@ -238,7 +226,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
       title: const Text('Chat'),
       body: ListView(
         children: [
-          _sectionHeader('Messages'),
+          const SettingsSectionHeader('Messages'),
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -380,7 +368,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
                 );
               },
             ),
-          _sectionHeader('UI'),
+          const SettingsSectionHeader('UI'),
           SwitchListTile(
             secondary: const Icon(Icons.schedule),
             title: const Text('Show timestamps'),
@@ -427,7 +415,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
               widget.onPreferEmotesFirstChanged?.call(value);
             },
           ),
-          _sectionHeader('Notifications'),
+          const SettingsSectionHeader('Notifications'),
           ListTile(
             leading: const Icon(Icons.notifications),
             title: const Text('Pings'),
@@ -465,7 +453,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
               },
             ),
           ],
-          _sectionHeader('Connection'),
+          const SettingsSectionHeader('Connection'),
           SwitchListTile(
             secondary: const Icon(Icons.wifi_tethering),
             title: const Text('Keep chat alive in background'),

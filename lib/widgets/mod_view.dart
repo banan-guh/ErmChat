@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import '../models/point_rewards.dart';
 import '../chat/chat.dart';
 import '../chat/channel/moderation.dart';
+import '../util/date_format.dart';
 import '../util/mod_activity_format.dart';
 import '../services/mod_actions.dart';
 import '../services/twitch_api.dart';
@@ -128,33 +129,6 @@ Future<({int seconds, String? reason})?> showTimeoutDialog(
     reasonCtrl.dispose();
   });
   return pending;
-}
-
-/// Simple destructive confirm. True means confirmed.
-Future<bool> showModConfirmDialog(
-  BuildContext context, {
-  required String title,
-  required String body,
-  required String confirmLabel,
-}) async {
-  final confirmed = await showDialog<bool>(
-    context: context,
-    builder: (ctx) => AlertDialog(
-      title: Text(title),
-      content: Text(body),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(ctx, false),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.pop(ctx, true),
-          child: Text(confirmLabel),
-        ),
-      ],
-    ),
-  );
-  return confirmed == true;
 }
 
 /// Single text field dialog (reasons, usernames). Null means cancelled.
@@ -741,8 +715,7 @@ class _CategoryChip extends StatelessWidget {
 String _feedTime(DateTime at) =>
     '${at.hour.toString().padLeft(2, '0')}:${at.minute.toString().padLeft(2, '0')}';
 
-String _feedDateTime(DateTime at) =>
-    '${at.year}-${at.month.toString().padLeft(2, '0')}-${at.day.toString().padLeft(2, '0')} ${_feedTime(at)}';
+String _feedDateTime(DateTime at) => '${formatYmd(at)} ${_feedTime(at)}';
 
 String _relativeAgo(DateTime at) {
   final diff = DateTime.now().difference(at);
@@ -750,7 +723,7 @@ String _relativeAgo(DateTime at) {
   if (diff.inHours < 1) return '${diff.inMinutes}m ago';
   if (diff.inDays < 1) return '${diff.inHours}h ago';
   if (diff.inDays < 30) return '${diff.inDays}d ago';
-  return '${at.year}-${at.month.toString().padLeft(2, '0')}-${at.day.toString().padLeft(2, '0')}';
+  return formatYmd(at);
 }
 
 String _relativeShortDate(String iso) {

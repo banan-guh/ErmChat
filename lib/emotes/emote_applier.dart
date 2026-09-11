@@ -73,20 +73,7 @@ class EmoteApplier {
       final loadedCacheCap =
           prefs.getInt(emoteCacheMaxPrefsKey) ?? defaultEmoteCacheMax;
       applyCacheCap(loadedCacheCap);
-      final capEmoteFps = prefs.getBool('emote_cap_fps') ?? false;
-      if (capEmoteFps) {
-        EmoteUrlProvider.applyFpsCap(prefs.getInt('emote_fps_cap') ?? 30);
-        EmoteUrlProvider.applyAdaptiveThrottle(
-          prefs.getBool('emote_auto_throttle') ?? true,
-        );
-        EmoteUrlProvider.alwaysAnimatePanel =
-            prefs.getBool('always_animate_emote_panel') ?? true;
-      } else {
-        // Uncapped: 60 fps is effectively native on a 60 Hz display.
-        EmoteUrlProvider.applyFpsCap(60);
-        EmoteUrlProvider.applyAdaptiveThrottle(false);
-        EmoteUrlProvider.alwaysAnimatePanel = true;
-      }
+      _applyFpsPrefs(prefs);
       EmoteUrlProvider.applyGifsEnabled(prefs.getBool('animate_gifs') ?? true);
       await refreshConnectivity();
       reconcileTier();
@@ -99,20 +86,25 @@ class EmoteApplier {
   /// toggle changes.  When off, emotes run uncapped (fpsCap 60 ~= native 60 Hz)
   /// with adaptive throttling disabled; the three sub-settings are hidden.
   void setCapFps(bool enabled) {
-    SharedPreferences.getInstance().then((prefs) {
-      if (enabled) {
-        EmoteUrlProvider.applyFpsCap(prefs.getInt('emote_fps_cap') ?? 30);
-        EmoteUrlProvider.applyAdaptiveThrottle(
-          prefs.getBool('emote_auto_throttle') ?? true,
-        );
-        EmoteUrlProvider.alwaysAnimatePanel =
-            prefs.getBool('always_animate_emote_panel') ?? true;
-      } else {
-        EmoteUrlProvider.applyFpsCap(60);
-        EmoteUrlProvider.applyAdaptiveThrottle(false);
-        EmoteUrlProvider.alwaysAnimatePanel = true;
-      }
-    });
+    SharedPreferences.getInstance().then(_applyFpsPrefs);
+  }
+
+  // Applies the persisted FPS cap with its adaptive-throttle and panel state.
+  void _applyFpsPrefs(SharedPreferences prefs) {
+    final capEmoteFps = prefs.getBool('emote_cap_fps') ?? false;
+    if (capEmoteFps) {
+      EmoteUrlProvider.applyFpsCap(prefs.getInt('emote_fps_cap') ?? 30);
+      EmoteUrlProvider.applyAdaptiveThrottle(
+        prefs.getBool('emote_auto_throttle') ?? true,
+      );
+      EmoteUrlProvider.alwaysAnimatePanel =
+          prefs.getBool('always_animate_emote_panel') ?? true;
+    } else {
+      // Uncapped: 60 fps is effectively native on a 60 Hz display.
+      EmoteUrlProvider.applyFpsCap(60);
+      EmoteUrlProvider.applyAdaptiveThrottle(false);
+      EmoteUrlProvider.alwaysAnimatePanel = true;
+    }
   }
 
   Future<void> refreshConnectivity() async {

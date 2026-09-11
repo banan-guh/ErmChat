@@ -61,7 +61,7 @@ class _InlineEmbedsScreenState extends State<InlineEmbedsScreen> {
       title: const Text('Inline embeds'),
       body: ListView(
         children: [
-          _sectionHeader('Giphy'),
+          const SettingsSectionHeader('Giphy'),
           SwitchListTile(
             secondary: const Icon(Icons.gif_box),
             title: const Text('Show Giphy inline'),
@@ -118,7 +118,7 @@ class _InlineEmbedsScreenState extends State<InlineEmbedsScreen> {
               ),
             ),
           ),
-          _sectionHeader('Images'),
+          const SettingsSectionHeader('Images'),
           SwitchListTile(
             secondary: const Icon(Icons.image_outlined),
             title: const Text('Show images inline'),
@@ -179,18 +179,6 @@ class _InlineEmbedsScreenState extends State<InlineEmbedsScreen> {
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _sectionHeader(String title) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
-      child: Text(
-        title,
-        style: Theme.of(
-          context,
-        ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
       ),
     );
   }

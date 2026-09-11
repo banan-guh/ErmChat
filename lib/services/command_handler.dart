@@ -100,22 +100,6 @@ class CommandHandler {
   Future<String?> _resolveUserId(TwitchAuth auth, String login) =>
       modActions.resolveUserId(auth, login);
 
-  /// Human-readable reason for the last failed Helix call, in the style of
-  /// DankChat's system messages.
-  String _failureReason() {
-    switch (twitchApi.lastErrorStatus) {
-      case 401:
-        return 'Missing required scope. Re-login with your account and try again.';
-      case 403:
-        return "You don't have permission to perform that action.";
-      case 429:
-        return 'You are being rate-limited. Try again in a moment.';
-    }
-    final message = twitchApi.lastHelixMessage;
-    if (message != null && message.isNotEmpty) return message;
-    return 'An unknown error has occurred.';
-  }
-
   /// Runs a Helix moderation call. Returns true on success; on failure
   /// reports a clean notice. IRC slash commands were deprecated by Twitch
   /// (Feb 2023), so there is no IRC fallback - Helix is the only way to
@@ -136,7 +120,7 @@ class CommandHandler {
     _moderationMessage(
       action,
       channel,
-      'Failed to $action - ${_failureReason()}',
+      'Failed to $action - ${modActions.failureReason()}',
     );
     return false;
   }
@@ -333,7 +317,7 @@ class CommandHandler {
           } else {
             addSystemMessage(
               channel,
-              'Failed to change color to $color - ${_failureReason()}',
+              'Failed to change color to $color - ${modActions.failureReason()}',
             );
           }
 
@@ -569,7 +553,7 @@ class CommandHandler {
           if (twitchApi.lastErrorStatus != null) {
             addSystemMessage(
               channel,
-              'Failed to list moderators - ${_failureReason()}',
+              'Failed to list moderators - ${modActions.failureReason()}',
             );
           } else if (list.isEmpty) {
             addSystemMessage(
@@ -615,7 +599,7 @@ class CommandHandler {
           if (twitchApi.lastErrorStatus != null) {
             addSystemMessage(
               channel,
-              'Failed to list VIPs - ${_failureReason()}',
+              'Failed to list VIPs - ${modActions.failureReason()}',
             );
           } else if (list.isEmpty) {
             addSystemMessage(channel, 'This channel does not have any VIPs.');
@@ -923,7 +907,7 @@ class CommandHandler {
           if (twitchApi.lastErrorStatus != null) {
             addSystemMessage(
               channel,
-              'Failed to fetch polls - ${_failureReason()}',
+              'Failed to fetch polls - ${modActions.failureReason()}',
             );
             return;
           }
@@ -1003,7 +987,7 @@ class CommandHandler {
           if (twitchApi.lastErrorStatus != null) {
             addSystemMessage(
               channel,
-              'Failed to fetch predictions - ${_failureReason()}',
+              'Failed to fetch predictions - ${modActions.failureReason()}',
             );
             return;
           }
@@ -1134,7 +1118,10 @@ class CommandHandler {
       }
     } catch (e) {
       logDebug('[CommandHandler] $cmd failed: $e');
-      addSystemMessage(channel, 'Command failed: ${_failureReason()}');
+      addSystemMessage(
+        channel,
+        'Command failed: ${modActions.failureReason()}',
+      );
     }
   }
 

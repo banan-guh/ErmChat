@@ -26,3 +26,23 @@ class SettingsPage extends StatelessWidget {
     );
   }
 }
+
+/// Bold section title used to group settings rows.
+class SettingsSectionHeader extends StatelessWidget {
+  const SettingsSectionHeader(this.title, {super.key});
+
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+      child: Text(
+        title,
+        style: Theme.of(
+          context,
+        ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+      ),
+    );
+  }
+}

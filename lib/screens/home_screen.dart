@@ -359,12 +359,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     if (mounted) setState(() {});
   }
 
-  late final _menus = MessageMenus(
-    twitchAuth: _twitchAuth,
-    chatConn: _chatConn,
-    modActions: _modActions,
-    host: this,
-  );
+  late final _menus = MessageMenus(host: this);
 
   // MessageMenuHost: shell-owned state the menus read but do not own.
   @override
