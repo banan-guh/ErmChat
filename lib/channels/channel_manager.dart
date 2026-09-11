@@ -13,6 +13,7 @@ import '../services/analytics_service.dart';
 import '../services/chat_connection_manager.dart';
 import '../services/emote_manager.dart';
 import '../services/ignore_manager.dart';
+import '../services/message_policy.dart';
 import '../services/notification_service.dart';
 import '../services/ping_manager.dart';
 import '../services/recent_messages.dart';
@@ -106,6 +107,13 @@ class ChannelManager {
   final _generations = <String, int>{};
   bool _mentionScanDone = false;
 
+  late final ChatMessagePolicy _policy = ChatMessagePolicy(
+    ignoreManager: ignoreManager,
+    pingManager: pingManager,
+    userStore: userStore,
+    session: session,
+  );
+
   /// Re-arm the once-per-login mention scan after an account switch.
   void rearmMentionScan() => _mentionScanDone = false;
   late RecentMessagesService recentMessages;
@@ -186,30 +194,12 @@ class ChannelManager {
   void mergeHistory(String channel, List<TwitchMessage> history) {
     final prepared = <TwitchMessage>[];
     for (final msg in history) {
-      if (!msg.isSystem && ignoreManager.isIgnored(msg.login)) continue;
+      if (_policy.shouldDropForIgnore(msg)) continue;
       if (!msg.isSystem && msg.login.isNotEmpty) {
-        final preferred =
-            msg.displayName.toLowerCase() == msg.login.toLowerCase()
-            ? msg.displayName
-            : msg.login;
-        userStore.addUser(channel, preferred);
+        _policy.learnUser(channel, msg);
       }
-      if (msg.isSystem && session.login != null) {
-        final selfLogin = session.login!.toLowerCase();
-        if (msg.login.toLowerCase() == selfLogin) {
-          msg.text = msg.text.replaceFirst(
-            RegExp(RegExp.escape(msg.login), caseSensitive: false),
-            'You',
-          );
-          msg.text = msg.text.replaceFirst('was', 'were');
-        }
-      }
-      if (msg.highlight == null) {
-        final state = pingManager.evaluate(msg);
-        if (state != null && state.hasMention) {
-          msg.highlight = state;
-        }
-      }
+      _policy.applySelfRewrite(msg);
+      _policy.applyPingHighlight(msg, mentionOnly: true);
       prepared.add(msg);
     }
     final c = chat.ensure(channel);

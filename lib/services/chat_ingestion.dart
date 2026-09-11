@@ -20,6 +20,7 @@ import '../client/session.dart';
 import 'chat_sender.dart';
 import 'emote_manager.dart';
 import 'ignore_manager.dart';
+import 'message_policy.dart';
 import 'ping_manager.dart';
 import 'twitch_auth.dart';
 import 'twitch_badge_service.dart';
@@ -88,6 +89,13 @@ class ChatIngestion {
   final ChatSender sender;
   final IgnoreManager? ignoreManager;
   final PingManager? pingManager;
+
+  late final ChatMessagePolicy _policy = ChatMessagePolicy(
+    ignoreManager: ignoreManager,
+    pingManager: pingManager,
+    userStore: userStore,
+    session: session,
+  );
 
   final String mentionsChannel;
   final int Function() getMaxMessagesPerChannel;
@@ -220,19 +228,13 @@ class ChatIngestion {
     // rules in block mode drop the whole message, other keyword rules
     // rewrite the text (with emote position realignment) before ping
     // evaluation so rewritten messages can still highlight.
-    final ignores = ignoreManager;
-    if (!msg.isSystem && ignores != null) {
-      if (ignores.isIgnored(msg.login)) return;
-      if (ignores.isBlockedPhrase(msg.text)) return;
-      rewriteMessageKeywords(msg, ignores);
-    }
+    if (_policy.shouldDropForIgnore(msg)) return;
+    if (_policy.shouldDropForBlockedPhrase(msg)) return;
+    _policy.rewriteKeywords(msg);
 
     // Ping evaluation runs before the shared-chat 'hide' check so a fresh
     // mirrored mention survives hide mode (the native copy dedups later).
-    final highlightState = pingManager?.evaluate(msg);
-    if (highlightState != null) {
-      msg.highlight = highlightState;
-    }
+    _policy.applyPingHighlight(msg);
 
     // Shared-chat 'hide' mode: drop foreign messages entirely. Mentions and
     // system messages still flow through so the user doesn't miss pings.
@@ -245,11 +247,7 @@ class ChatIngestion {
     }
 
     if (!msg.isSystem && msg.login.isNotEmpty) {
-      final preferredName =
-          msg.displayName.toLowerCase() == msg.login.toLowerCase()
-          ? msg.displayName
-          : msg.login;
-      userStore.addUser(channel, preferredName);
+      _policy.learnUser(channel, msg);
     }
 
     final selected = getSelectedChannel();
@@ -608,13 +606,7 @@ class ChatIngestion {
     }
     pingManager?.setOwnDisplayName(msg.displayName);
 
-    final preferredName =
-        msg.displayName.toLowerCase() == msg.login.toLowerCase()
-        ? msg.displayName
-        : msg.login;
-    if (preferredName.isNotEmpty) {
-      userStore.addUser(channel, preferredName);
-    }
+    _policy.learnUser(channel, msg);
 
     onAnalyticsMessage?.call(channel, msg);
 
