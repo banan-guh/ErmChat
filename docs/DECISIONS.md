@@ -117,6 +117,9 @@ It is not scheduled.
 Reason: consistency is not worth a hot-path regression, and the engine is isolated
 behind one API and one bridge, so the door stays open.
 
+Status: Spike B (`docs/SPIKES.md`) puts the cheapest immutable path at 2.65x to 3.77x the
+mutable engine, so criterion 2 fails and the migration is not triggered. The engine stays.
+
 Accepted tradeoff: the one sanctioned exception may remain indefinitely.
 
 ## Why
