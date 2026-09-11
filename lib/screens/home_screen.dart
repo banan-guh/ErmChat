@@ -6,13 +6,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../third_party/flutter_list_view/flutter_list_view.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../providers/app_providers.dart';
+import '../providers/chat_pipeline.dart';
 import '../providers/feature_providers.dart';
+import '../providers/ui_state_providers.dart';
 import '../models/generic_emote.dart';
 import '../models/twitch_message.dart';
 import '../util/haptics.dart';
 import '../services/twitch_api.dart';
 import '../services/twitch_auth.dart';
-import '../irc/join_rate_limiter.dart';
 import '../services/command_macros.dart';
 import '../util/connectivity.dart';
 import '../services/seven_tv_event_client.dart';
@@ -120,7 +121,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   SevenTvEventClient get _sevenTvClient => ref.read(sevenTvClientProvider);
   TwitchApi get _twitchApi => ref.read(twitchApiProvider);
-  JoinRateLimiter get _joinBudget => ref.read(joinBudgetProvider);
   PingManager get _pingManager => ref.read(pingManagerProvider);
   IgnoreManager get _ignoreManager => ref.read(ignoreManagerProvider);
 
@@ -155,62 +155,23 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _channelManager.scanHistoryForMentions();
     unawaited(_ensureBlockedUsersLoaded());
     // Warm the macro cache so sends can read it synchronously.
-    if (login != null) unawaited(loadMacros(login));
+    if (login != null) {
+      unawaited(
+        loadMacros(login).then((_) {
+          if (mounted) ref.invalidate(macrosProvider);
+        }),
+      );
+    }
   }
 
-  late final ChatConnectionManager _chatConn = ChatConnectionManager(
-    ChatConnectionConfig(
-      services: ChatServices(
-        twitchApi: _twitchApi,
-        eventSub: ref.read(eventSubServiceProvider),
-        irc: ref.read(ircServiceProvider),
-        ircRead: ref.read(ircReadServiceProvider),
-        sevenTvClient: _sevenTvClient,
-        emoteManager: _emoteManager,
-        badgeService: _badgeService,
-        userStore: _userStore,
-        twitchAuth: _twitchAuth,
-        pingManager: _pingManager,
-        ignoreManager: _ignoreManager,
-        joinBudget: _joinBudget,
-      ),
-      chat: _chat,
-      session: _session,
-      bridge: ChatViewBridge(
-        mentionsChannel: _mentionsChannel,
-        onSystemMessage: _addSystemMessage,
-        onJoinProgress: (ch, info) => _channelManager.onJoinProgress(ch, info),
-        getSelectedChannel: () => _selectedChannel,
-        getMaxMessagesPerChannel: () => _maxMessagesPerChannel,
-        onBanner: _showBanner,
-        onFocusComposer: () => _composer.focus(),
-      ),
-      sinks: ChatSinks(
-        onCommand: _handleCommand,
-        getReplyToMsg: () => _composer.replyToMsg,
-        setReplyToMsg: (v) => _composer.replyTo = v,
-        onUserEmoteSets: (ch, ids) => _emotes.loadUserEmoteSets(ch, ids),
-        onReconnected: _onReconnected,
-        getMacros: () {
-          final login = _session.login;
-          if (login == null) return const {};
-          return cachedMacroLookup(login) ?? const {};
-        },
-        isChatReady: () => _blocksReady,
-        isBlocked: (login) => _blockedLogins.contains(login.toLowerCase()),
-        getSharedChatMode: () => _sharedChatMode,
-        onAnalyticsMessage: (channel, msg) =>
-            _analytics.recordMessage(channel, msg),
-        onAnalyticsModeration: (channel, isTimeout) =>
-            _analytics.recordModeration(channel, isTimeout),
-        onHypeTrain: _broadcastWidgets.onHypeTrain,
-        onPoll: _broadcastWidgets.onPoll,
-        onPrediction: _broadcastWidgets.onPrediction,
-        onChatMessage: (channel, msg) =>
-            _ttsController.handleMessage(channel, msg, _selectedChannel),
-      ),
-    ),
-  );
+  // Provider-owned pipeline, read once and cached. The provider owns
+  // teardown, so the screen only observes its notifiers.
+  ChatConnectionManager? _chatConnCache;
+  ChatConnectionManager get _chatConn {
+    _chatConnCache ??= ref.read(chatPipelineProvider);
+    return _chatConnCache!;
+  }
+
   late final MessageBuilder _messageBuilder = MessageBuilder(
     emoteManager: _emoteManager,
     badgeService: _badgeService,
@@ -280,16 +241,21 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   UserStore get _userStore => ref.read(userStoreProvider);
   final _channelNotifier = ValueNotifier<List<String>>([]);
   final _tileCache = <String, Map<String?, Widget>>{};
-  String? _selectedChannel;
-  final _blockedLogins = <String>{};
-  bool _blocksReady = false;
   bool _blocksFetched = false;
   final _scrollControllers = <String, FlutterListViewController>{};
   final _atBottomNotifiers = <String, ValueNotifier<bool>>{};
   ChatNoticeController get _chatNotice => ref.read(chatNoticeProvider);
 
+  ChatUiSignals? _signalsCache;
+  ChatUiSignals get _signals {
+    _signalsCache ??= ref.read(chatUiSignalsProvider);
+    return _signalsCache!;
+  }
+
+  final _signalUnsubs = <void Function()>[];
+
   late final _broadcastWidgets = BroadcastWidgets(
-    selectedChannel: () => _selectedChannel,
+    selectedChannel: () => ref.read(selectedChannelProvider),
   );
 
   // Appearance, stream, and panel prefs live here; composer-owned input
@@ -301,11 +267,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   // [_chatLoading] (driven by ChatConnectionManager.connectionStateNotifier),
   // so this only covers emote work that doesn't move the connection phase.
   final ValueNotifier<bool> _networkBusy = ValueNotifier(false);
-  int _maxMessagesPerChannel = kMaxMessagesPerChannelDefault;
   int _recentMessagesLimit = 100;
   bool _showTimestamps = true;
   String _timestampFormat = kDefaultTimestampFormat;
-  String _sharedChatMode = 'spotlight';
   double _chatFontSize = 14.0;
   double _highlightOpacity = 0.6;
   bool _checkeredMessages = false;
@@ -371,12 +335,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     userStore: _userStore,
     chat: _chat,
     session: _session,
+    getReplyTo: () => ref.read(replyToProvider),
+    setReplyTo: (value) => ref.read(replyToProvider.notifier).set(value),
     host: this,
   );
 
   // ComposerHost: shell-owned UI state the composer reads but does not own.
   @override
-  String? get selectedChannel => _selectedChannel;
+  String? get selectedChannel => ref.read(selectedChannelProvider);
   @override
   bool get isWhispersTabActive => _mentions.isWhispersTabActive;
   @override
@@ -464,7 +430,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   @override
   bool get lineSeparator => _lineSeparator;
   @override
-  String get sharedChatMode => _sharedChatMode;
+  String get sharedChatMode => ref.read(sharedChatModeProvider);
   @override
   SevenTvPaintService? get namePaintService =>
       _showNamePaints ? _sevenTvPaintService : null;
@@ -611,7 +577,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   // MentionsPanelsHost: shell-owned state the inbox reads but does not own.
   @override
-  int get maxMessages => _maxMessagesPerChannel;
+  int get maxMessages => ref.read(maxMessagesPerChannelProvider);
   @override
   void notifyWhisper(TwitchMessage msg) => _maybeNotifyWhisper(msg);
 
@@ -660,7 +626,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   @override
   void forgetSearch(String channel) {
     _search.forget(channel);
-    _search.syncFieldTo(_selectedChannel);
+    _search.syncFieldTo(selectedChannel);
     _mod.syncTermsToSelected();
   }
 
@@ -673,7 +639,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   @override
   void commitChannelSelection(int index, {required bool rebuild}) {
     _channelManager.commitChannelSelection(index, rebuild: rebuild);
-    _search.syncFieldTo(_selectedChannel);
+    _search.syncFieldTo(selectedChannel);
     _mod.syncTermsToSelected();
   }
 
@@ -693,7 +659,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   // ChannelManagerHost / EmoteApplierHost.
   @override
-  set selectedChannel(String? value) => _selectedChannel = value;
+  set selectedChannel(String? value) =>
+      ref.read(selectedChannelProvider.notifier).set(value);
   @override
   void mutate(void Function() fn) => setState(fn);
   @override
@@ -772,7 +739,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _channelNotifier.addListener(_syncChannelSubs);
     _chat.mentions.version.addListener(_onMentionsContent);
     _syncChannelSubs();
-    _chatConn.onWhisper = _mentions.onWhisper;
+    _subscribeSignals();
     _startChatPipe();
     _emoteManager.startCacheGc();
     _emoteManager.addListener(_onEmotesChanged);
@@ -851,7 +818,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       _navigateToChannel(pendingChannel);
     }
     _notificationService.clearMentionNotifications();
-    _chatConn.onMention = _onMentionNotification;
   }
 
   @override
@@ -915,8 +881,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   }
 
   void _setMaxMessagesPerChannel(int value) {
-    if (_maxMessagesPerChannel == value) return;
-    setState(() => _maxMessagesPerChannel = value);
+    if (ref.read(maxMessagesPerChannelProvider) == value) return;
+    setState(() => ref.read(maxMessagesPerChannelProvider.notifier).set(value));
     // Apply a lower cap immediately instead of waiting for the next incoming
     // message to hit the truncation path.
     for (final channel in List.of(_chat.names)) {
@@ -969,8 +935,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   );
 
   void _setSharedChatMode(String value) => _setPref(
-    () => _sharedChatMode,
-    (v) => _sharedChatMode = v,
+    () => ref.read(sharedChatModeProvider),
+    (v) => ref.read(sharedChatModeProvider.notifier).set(v),
     value,
     rerenderChannels: true,
   );
@@ -1102,33 +1068,35 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     if (_blocksFetched) return;
     final userId = _twitchAuth.userId;
     if (userId == null) {
-      _blocksReady = true;
+      ref.read(chatReadyProvider.notifier).set(true);
       _channelManager.loadChannels();
       return;
     }
     _blocksFetched = true;
+    var blocked = <String>{};
     try {
-      final blocked = await _twitchApi
+      blocked = await _twitchApi
           .getBlockedUsers(_twitchAuth)
           .timeout(const Duration(seconds: 5));
-      _blockedLogins.addAll(blocked);
     } catch (e) {
       logDebug('[HomeScreen] failed to fetch blocked users: $e');
     }
     if (!mounted) return;
-    _blocksReady = true;
+    ref.read(blockedLoginsProvider.notifier).addAll(blocked);
+    ref.read(chatReadyProvider.notifier).set(true);
     _sweepBlockedMessages();
     _channelManager.loadChannels();
     setState(() {});
   }
 
   void _sweepBlockedMessages() {
+    final blocked = ref.read(blockedLoginsProvider);
     for (final name in List.of(_chat.names)) {
       final channel = _chat.channelFor(name);
       if (channel == null) continue;
       // Blocked messages bypass truncation, so the verb decays them too.
       final removed = channel.removeMessages(
-        (m) => !m.isSystem && _blockedLogins.contains(m.login.toLowerCase()),
+        (m) => !m.isSystem && blocked.contains(m.login.toLowerCase()),
       );
       if (removed.isEmpty) continue;
       _tileCache.remove(name);
@@ -1136,12 +1104,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   }
 
   void _onUserBlocked(String login) {
-    _blockedLogins.add(login.toLowerCase());
+    ref.read(blockedLoginsProvider.notifier).add(login.toLowerCase());
     _sweepBlockedMessages();
   }
 
   void _onUserUnblocked(String login) {
-    _blockedLogins.remove(login.toLowerCase());
+    ref.read(blockedLoginsProvider.notifier).remove(login.toLowerCase());
   }
 
   void _onReconnected() {
@@ -1216,6 +1184,39 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     }
     _chatNotice.show(message);
   }
+
+  // ChatUiSignals forwarding: the pipeline pushes, the shell routes each
+  // signal to its existing UI owner. Dispose detaches every subscription.
+  void _subscribeSignals() {
+    final signals = _signals;
+    _signalUnsubs.addAll([
+      signals.focusComposer.add(_onFocusComposerSignal),
+      signals.banner.add(_showBanner),
+      signals.command.add(_onCommandSignal),
+      signals.reconnected.add(_onReconnected),
+      signals.joinProgress.add(_onJoinProgressSignal),
+      signals.mention.add(_onMentionSignal),
+      signals.whisper.add(_mentions.onWhisper),
+      signals.userEmoteSets.add(_onUserEmoteSetsSignal),
+      signals.hypeTrain.add(_broadcastWidgets.onHypeTrain),
+      signals.poll.add(_broadcastWidgets.onPoll),
+      signals.prediction.add(_broadcastWidgets.onPrediction),
+    ]);
+  }
+
+  void _onFocusComposerSignal() => _composer.focus();
+
+  void _onCommandSignal(CommandSignal signal) =>
+      unawaited(_handleCommand(signal.text, signal.channel, signal.auth));
+
+  void _onJoinProgressSignal(JoinProgressSignal signal) =>
+      _channelManager.onJoinProgress(signal.channel, signal.info);
+
+  void _onMentionSignal(MentionSignal signal) =>
+      _onMentionNotification(signal.channel, signal.message);
+
+  void _onUserEmoteSetsSignal(UserEmoteSetsSignal signal) =>
+      unawaited(_emotes.loadUserEmoteSets(signal.channel, signal.ids));
 
   void _onChannelContent(String channel) {
     _composer.refreshCooldown();
@@ -1351,10 +1352,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       _blocksFetched = false;
       // Fail closed until the new account's block list arrives; without this
       // chat unhides immediately and the old account's list briefly filters.
-      _blocksReady = false;
+      ref.read(chatReadyProvider.notifier).set(false);
       // The previous account's block list must not keep filtering the new
       // account's chat; the re-fetch below repopulates it.
-      _blockedLogins.clear();
+      ref.read(blockedLoginsProvider.notifier).clear();
       _channelManager.rearmMentionScan();
       // Whispers and the mentions feed belong to the previous account.
       _mentions.clearForAccountSwitch();
@@ -1418,9 +1419,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     final prefs = await SharedPreferences.getInstance();
     if (!mounted) return;
     setState(() {
-      _maxMessagesPerChannel =
-          prefs.getInt('max_messages_per_channel') ??
-          kMaxMessagesPerChannelDefault;
+      ref
+          .read(maxMessagesPerChannelProvider.notifier)
+          .set(
+            prefs.getInt('max_messages_per_channel') ??
+                kMaxMessagesPerChannelDefault,
+          );
       _recentMessagesLimit =
           prefs.getInt('recent_messages_limit') ?? kRecentMessagesLimitDefault;
       _replyToRoot = prefs.getBool('reply_to_thread_root') ?? false;
@@ -1433,7 +1437,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       _checkeredMessages = prefs.getBool('checkered_messages') ?? false;
       _lineSeparator = prefs.getBool('line_separator') ?? false;
       _fastSnap = prefs.getBool('fast_channel_snap') ?? true;
-      _sharedChatMode = prefs.getString('shared_chat_mode') ?? 'spotlight';
+      ref
+          .read(sharedChatModeProvider.notifier)
+          .set(prefs.getString('shared_chat_mode') ?? 'spotlight');
       _showNamePaints = prefs.getBool('seventv_name_paints') ?? false;
       _showGifs =
           prefs.getBool(kGiphyInlineEnabledPrefKey) ??
@@ -1478,7 +1484,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _isMobile.dispose();
     DataUsageStats.I.dispose();
     _chatConn.connectionStateNotifier.removeListener(_onConnectionChanged);
-    _chatConn.dispose();
+    for (final unsubscribe in _signalUnsubs) {
+      unsubscribe();
+    }
+    _signalUnsubs.clear();
     WidgetsBinding.instance.removeObserver(this);
     WidgetsBinding.instance.removeObserver(_predictiveBackHandler);
     _panelManager.dispose();
@@ -1658,6 +1667,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         ),
       ),
     );
+    if (mounted) ref.invalidate(macrosProvider);
     if (_nukePending) {
       _nukePending = false;
       if (!mounted) return;
@@ -1692,7 +1702,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   // (handles nested reply scenarios).
   void _showEmoteMenu() {
     _panelManager.showEmoteMenu(
-      selectedChannel: _selectedChannel,
+      selectedChannel: selectedChannel,
       emoteManager: _emoteManager,
       channelUserIds: _channelUserIds(),
     );
@@ -1888,9 +1898,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   /// Whether the selected channel's JOIN is confirmed on the write socket.
   /// Between socket-connect and join-confirm, PRIVMSGs would vanish - the
   /// input stays disabled for that window. Whispers are not channel-bound.
-  bool get _channelChatReady =>
-      _selectedChannel != null &&
-      _chatConn.isChannelChatReady(_selectedChannel!);
+  bool get _channelChatReady {
+    final channel = selectedChannel;
+    return channel != null && _chatConn.isChannelChatReady(channel);
+  }
 
   /// Stream layout selector (DankChat MainScreen): landscape theater first,
   /// then wide split, else the stacked portrait player above chat.
@@ -1923,7 +1934,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                       child: EmoteMenuPanelWidget(
                         key: const ValueKey('emote_panel'),
                         isActive: _emoteSheetOpen,
-                        selectedChannel: _selectedChannel,
+                        selectedChannel: selectedChannel,
                         onEmoteSelected: _onEmoteSelected,
                         onClose: _closeEmoteSheet,
                         emoteManager: _emoteManager,
