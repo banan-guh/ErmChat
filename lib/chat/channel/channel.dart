@@ -122,6 +122,12 @@ class Channel {
 
   bool moveConnectedToTop() => messages.moveConnectedToTop();
 
+  /// Single writer for the history-loaded flag.
+  void setHistoryLoaded(bool loaded) => info.setHistoryLoaded(loaded);
+
+  /// Single writer for the held-moderation queue (channel leave, account switch).
+  void clearHeldModeration() => moderation.clearHeld();
+
   /// Removes every row matching [test] plus its thread index entries in one
   /// step. Returns the removed rows. Blocked-message sweeps use this so a
   /// caller cannot forget the decay.

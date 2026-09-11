@@ -452,7 +452,7 @@ Observed departures from the stated "only `Channel` verbs mutate children" and "
 - `ChatChannelSetup` calls `chat.channelFor(channel).info.setBroadcasterId(...)` directly, and `ChatStatusComposer` calls `ChannelInfo.setStatus(...)` directly. `ChannelInfo` is a kernel child and has no `Channel` verb wrapper.
 - `EventSubConsumer` mutates `Moderation` (`addFeed`, `putBan`, `removeBan`, `addWarning`, `addHeld`, `noteSuspicious`, `touchInbox`, `touchSettings`), `Messages` (`markDeleted`, `markUserDeleted`, `markAllDeleted`), and `Points` (`setRewards`, `upsertRedemption`, `resolveRedemption`) directly from the pipeline.
 - `HomeScreen._addSystemMessage` calls `Messages.addSystem` directly, and `_onEmotesChanged` / settings setters call `ChannelInfo.touch()` directly.
-- `ChannelManager` calls `Messages.addSystem` / `removeSystem` / `upsertSystem` / `removeLoadingHistory` and `ChannelInfo.setHistoryLoaded` / `touch` directly.
+- `ChannelManager` calls `Messages.addSystem` / `removeSystem` / `upsertSystem` / `removeLoadingHistory` and `ChannelInfo.touch` directly.
 - `ChatIngestion` calls `Messages.markDeleted` / `markUserDeleted` / `markAllDeleted` and `Messages.updateText`; the row-scoped moderation edits are the documented exception, but `updateText` and the `ChannelInfo` writes are not wrapped in a `Channel` verb.
 
 These are all reads-and-writes against kernel children that are globally readable, so they do not violate the data-flow direction, but they do bypass the "verbs only" mutation boundary. A stale comment in `chat_sender.dart` says "the write socket also JOINs its channels": `IrcReadService` is documented as the sole JOINer, `IrcService` is join-free, and `ChatReadiness` notes the write JOIN set stays empty in production.
@@ -467,16 +467,16 @@ Most arrows in the diagrams are reads or constructor injection, which do not mak
 |---|---|---|
 | `ChannelInfo` | `setBroadcasterId` | `ChatChannelSetup` (`chat_channel_setup.dart:188`), `EmoteApplier` (`emote_applier.dart:213`) |
 | `ChannelInfo` | `setStatus` | `ChatStatusComposer` (`chat_status_composer.dart:154`) |
-| `ChannelInfo` | `setHistoryLoaded` | `ChannelManager` x4 (`channel_manager.dart:157,169,335,348`) |
+| `ChannelInfo` | `Channel.setHistoryLoaded` (verb) | `ChannelManager` x4 (`channel_manager.dart:157,169,335,348`) |
 | `ChannelInfo` | `touch()` (notify only) | `HomeScreen` x13, `ChannelManager` x1 |
 | `Messages` | `markDeleted` / `markUserDeleted` / `markAllDeleted` | `ChatIngestion` x3, `EventSubConsumer` x2 (documented exception) |
 | `Messages` | `addSystem` / `removeLoadingHistory` | `ChannelManager` (`channel_manager.dart:329,297`) |
-| `Moderation` | `clearHeld` | `ChannelManager` (`:377`), `ChatLifecycle` (`:512,594`) |
+| `Moderation` | `Channel.clearHeldModeration` (verb) | `ChannelManager` (`:377`), `ChatLifecycle` (`:512,594`) |
 | `Moderation` | `removeBan` | `EventSubConsumer` (`:205`), `ModView` (`mod_view.dart:1041`) |
 | `Moderation` | `touchInbox` | `EventSubConsumer` x2 (`:452,486`) |
 | `Moderation` | `resolveHeld` | `EventSubConsumer` (`:607`) |
 
-Every entry calls a public method on the child; none reaches into private state. The only real coordination gaps are `ChannelInfo.setHistoryLoaded` being written from four places in `ChannelManager`, the loading-history row, and `Moderation.clearHeld` having three writers. Those, not the arrow count, are the actionable worklist.
+Every entry calls a public method on the child; none reaches into private state. `ChannelInfo.setHistoryLoaded` and `Moderation.clearHeld` now funnel through the `Channel` verbs above, so each has a single writer path. The remaining coordination gap is the loading-history row (`Messages.addSystem` / `removeLoadingHistory` from `ChannelManager`), which a stable-id system line would close; the current fold renders several connection lines, so that change is deferred.
 
 ## Services table
 

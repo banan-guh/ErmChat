@@ -154,7 +154,7 @@ class ChannelManager {
           .fetchRecentPreferWarm(name, limit: host.recentMessagesLimit)
           .then((history) {
             if (!host.isMounted()) return;
-            chat.channelFor(name)?.info.setHistoryLoaded(true);
+            chat.channelFor(name)?.setHistoryLoaded(true);
             host.mutate(() {
               if (history.isEmpty) {
                 host.addSystemMessage(name, 'No chat history available');
@@ -166,7 +166,7 @@ class ChannelManager {
           })
           .catchError((e) {
             if (!host.isMounted()) return;
-            chat.channelFor(name)?.info.setHistoryLoaded(true);
+            chat.channelFor(name)?.setHistoryLoaded(true);
             host.addSystemMessage(
               name,
               e is RecentMessagesException
@@ -332,7 +332,7 @@ class ChannelManager {
         .fetchRecentPreferWarm(name, limit: host.recentMessagesLimit)
         .then((history) {
           if (!host.isMounted()) return;
-          chat.channelFor(name)?.info.setHistoryLoaded(true);
+          chat.channelFor(name)?.setHistoryLoaded(true);
           host.mutate(() {
             removeLoadingHistoryMessage(name);
             if (history.isEmpty) {
@@ -345,7 +345,7 @@ class ChannelManager {
         })
         .catchError((e) {
           if (!host.isMounted()) return;
-          chat.channelFor(name)?.info.setHistoryLoaded(true);
+          chat.channelFor(name)?.setHistoryLoaded(true);
           host.mutate(() {
             removeLoadingHistoryMessage(name);
             host.addSystemMessage(
@@ -374,7 +374,7 @@ class ChannelManager {
     ircRead.part(channel);
     emoteManager.evictChannel(channel);
     badgeService.clearChannel(channel);
-    chat.channelFor(channel)?.moderation.clearHeld();
+    chat.channelFor(channel)?.clearHeldModeration();
     broadcastWidgets.clearChannel(channel);
     // Same-frame cache clears first so no stale tile survives the unmount.
     tileCache.remove(channel);

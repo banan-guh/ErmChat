@@ -563,24 +563,8 @@ class ChatConnectionManager {
 
   void reconnectIfNecessary() => _lifecycle.reconnectIfNecessary();
 
-  /// Re-runs the per-channel data loads (emotes, badges) that failed earlier,
-  /// updating the retryable failure state. Driven by the UI retry affordance.
-  void retryChannelData(String channel) {
-    final userId = chat.channelFor(channel)?.info.broadcasterId;
-    if (userId == null) return;
-    final auth = twitchAuth;
-    unawaited(
-      badgeService
-          .fetchChannelBadges(auth, userId, channel)
-          .then((_) => chat.clearLoadFailure(channel, 'badges'))
-          .catchError((_) => chat.recordLoadFailure(channel, 'badges')),
-    );
-    emoteManager.accessToken = auth.accessToken;
-    unawaited(
-      emoteManager
-          .resolveEmotes(channel, userId)
-          .then((_) => chat.clearLoadFailure(channel, 'emotes'))
-          .catchError((_) => chat.recordLoadFailure(channel, 'emotes')),
-    );
-  }
+  /// Re-runs the per-channel data loads that failed earlier. Delegates to
+  /// [ChatChannelSetup], which owns the badge and emote retry path.
+  void retryChannelData(String channel) =>
+      _channelSetup.retryChannelData(channel);
 }

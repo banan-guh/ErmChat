@@ -242,6 +242,27 @@ class ChatChannelSetup {
     }
   }
 
+  /// Re-runs the per-channel data loads (badges, emotes) that failed earlier,
+  /// updating the retryable failure state. Driven by the UI retry affordance.
+  void retryChannelData(String channel) {
+    final userId = chat.channelFor(channel)?.info.broadcasterId;
+    if (userId == null) return;
+    final auth = twitchAuth;
+    unawaited(
+      badgeService
+          .fetchChannelBadges(auth, userId, channel)
+          .then((_) => chat.clearLoadFailure(channel, 'badges'))
+          .catchError((_) => chat.recordLoadFailure(channel, 'badges')),
+    );
+    emoteManager.accessToken = auth.accessToken;
+    unawaited(
+      emoteManager
+          .resolveEmotes(channel, userId)
+          .then((_) => chat.clearLoadFailure(channel, 'emotes'))
+          .catchError((_) => chat.recordLoadFailure(channel, 'emotes')),
+    );
+  }
+
   Future<void> _resolveSevenTvAndSubscribe(
     String channelName,
     String twitchChannelId,

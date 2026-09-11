@@ -509,7 +509,7 @@ class ChatLifecycle {
         sender.clearAccountScope();
         // The queue belongs to the old account's moderation scope.
         for (final name in chat.names) {
-          chat.channelFor(name)?.moderation.clearHeld();
+          chat.channelFor(name)?.clearHeldModeration();
         }
         // Make the new socket take the full connect edge (history backfill,
         // Helix re-subscriptions, Connected lines) even though no user-facing
@@ -591,7 +591,7 @@ class ChatLifecycle {
     // Logged-out identity keeps no queue, and the dead token's subs will
     // not resolve it; IRC fallback resumes moderation echoes.
     for (final name in chat.names) {
-      chat.channelFor(name)?.moderation.clearHeld();
+      chat.channelFor(name)?.clearHeldModeration();
     }
     eventSubTopics.clearSessionState();
     for (final channel in chat.names) {
