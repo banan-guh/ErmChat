@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import '../services/twitch_eventsub.dart';
+import '../eventsub/decode/events.dart';
 
 /// Fixed cutout for broadcaster widget cards (poll/prediction/hype train).
 class ChatWidgetCutout extends StatelessWidget {

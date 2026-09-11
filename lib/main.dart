@@ -9,7 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'screens/home_screen.dart';
 import 'services/twitch_auth.dart';
-import 'services/twitch_eventsub.dart';
+import 'eventsub/transport/connection.dart';
 import 'irc/transport/read.dart';
 import 'irc/transport/write.dart';
 import 'services/recent_messages.dart';

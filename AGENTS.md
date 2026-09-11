@@ -1,6 +1,6 @@
 # ermchat
 
-Twitch chat viewer (WIP). Single Flutter package. See [TODO.md](TODO.md) for the roadmap; [PLAN.md](PLAN.md) is the live IRC-reorg spec, with [I18N.md](I18N.md) and [BACKLOG.md](BACKLOG.md) alongside.
+Twitch chat viewer (WIP). Single Flutter package. See [TODO.md](TODO.md) for the roadmap; [PLAN.md](PLAN.md) is a scratchpad, with [I18N.md](I18N.md) and [BACKLOG.md](BACKLOG.md) as deferred plans.
 
 ## Commands
 

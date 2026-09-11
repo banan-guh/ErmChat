@@ -8,7 +8,10 @@ import '../models/twitch_message.dart';
 import '../services/twitch_api.dart';
 import '../services/twitch_auth.dart';
 import '../services/twitch_oauth.dart';
-import '../services/twitch_eventsub.dart';
+import '../eventsub/decode/decoder.dart';
+import '../eventsub/decode/events.dart';
+import '../eventsub/transport/connection.dart';
+import '../eventsub/transport/events.dart';
 import '../irc/decode/copy.dart'
     show buildUserNoticeText, userNoticeAccent, userNoticeLabelId;
 import '../irc/decode/decoder.dart' show IrcChatDecoder;
@@ -303,6 +306,11 @@ class ChatConnectionManager {
     isReadSocket: false,
   );
 
+  // EventSub decode layer: lifts typed events out of notification frames.
+  late final EventSubDecoder eventSubDecoder = EventSubDecoder(
+    eventSub.onNotification,
+  );
+
   // Chat-content routing (PRIVMSG/CLEARMSG/CLEARCHAT/clears/own echo).
   late final ChatIngestion _ingestion = ChatIngestion(
     irc: irc,
@@ -342,6 +350,7 @@ class ChatConnectionManager {
   late final ChatChannelSetup _channelSetup = ChatChannelSetup(
     twitchApi: twitchApi,
     eventSub: eventSub,
+    eventSubDecoder: eventSubDecoder,
     irc: irc,
     ircRead: ircRead,
     sevenTvClient: sevenTvClient,
@@ -443,6 +452,7 @@ class ChatConnectionManager {
     _channelSetup.dispose();
     readDecoder.dispose();
     writeDecoder.dispose();
+    eventSubDecoder.dispose();
     statusSub?.cancel();
     ircNoticeSub?.cancel();
     ircJtvSub?.cancel();
@@ -1477,37 +1487,43 @@ class ChatConnectionManager {
       unawaited(onUserEmoteSets!(channel, ids));
     });
 
-    moderationSub ??= eventSub.onModeration.listen(_onModerationEvent);
+    moderationSub ??= eventSubDecoder.onModeration.listen(_onModerationEvent);
 
-    automodHeldSub ??= eventSub.onAutomodHeld.listen(_onAutomodHeld);
+    automodHeldSub ??= eventSubDecoder.onAutomodHeld.listen(_onAutomodHeld);
 
-    shieldModeSub ??= eventSub.onShieldMode.listen(_onShieldModeEvent);
-    shoutoutSub ??= eventSub.onShoutout.listen(_onShoutoutEvent);
-    warningSub ??= eventSub.onWarning.listen(_onWarningEvent);
-    unbanRequestSub ??= eventSub.onUnbanRequest.listen(_onUnbanRequestEvent);
-    automodTermsSub ??= eventSub.onAutomodTerms.listen(_onAutomodTermsEvent);
-    automodSettingsSub ??= eventSub.onAutomodSettings.listen(
+    shieldModeSub ??= eventSubDecoder.onShieldMode.listen(_onShieldModeEvent);
+    shoutoutSub ??= eventSubDecoder.onShoutout.listen(_onShoutoutEvent);
+    warningSub ??= eventSubDecoder.onWarning.listen(_onWarningEvent);
+    unbanRequestSub ??= eventSubDecoder.onUnbanRequest.listen(
+      _onUnbanRequestEvent,
+    );
+    automodTermsSub ??= eventSubDecoder.onAutomodTerms.listen(
+      _onAutomodTermsEvent,
+    );
+    automodSettingsSub ??= eventSubDecoder.onAutomodSettings.listen(
       _onAutomodSettingsEvent,
     );
-    suspiciousUserSub ??= eventSub.onSuspiciousUser.listen(
+    suspiciousUserSub ??= eventSubDecoder.onSuspiciousUser.listen(
       _onSuspiciousUserEvent,
     );
-    pointRewardSub ??= eventSub.onPointReward.listen(_onPointRewardEvent);
-    pointRedemptionSub ??= eventSub.onPointRedemption.listen(
+    pointRewardSub ??= eventSubDecoder.onPointReward.listen(
+      _onPointRewardEvent,
+    );
+    pointRedemptionSub ??= eventSubDecoder.onPointRedemption.listen(
       _onPointRedemptionEvent,
     );
 
-    hypeTrainSub ??= eventSub.onHypeTrain.listen((event) {
+    hypeTrainSub ??= eventSubDecoder.onHypeTrain.listen((event) {
       if (isDisposed) return;
       if (!_channelSetup.isWidgetActive(event.channel)) return;
       onHypeTrain?.call(event);
     });
-    pollSub ??= eventSub.onPoll.listen((event) {
+    pollSub ??= eventSubDecoder.onPoll.listen((event) {
       if (isDisposed) return;
       if (!_channelSetup.isWidgetActive(event.channel)) return;
       onPoll?.call(event);
     });
-    predictionSub ??= eventSub.onPrediction.listen((event) {
+    predictionSub ??= eventSubDecoder.onPrediction.listen((event) {
       if (isDisposed) return;
       if (!_channelSetup.isWidgetActive(event.channel)) return;
       onPrediction?.call(event);

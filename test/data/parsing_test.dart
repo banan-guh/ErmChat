@@ -8,7 +8,8 @@ import 'package:ermchat/services/mod_actions.dart';
 import 'package:ermchat/services/twitch_api.dart';
 import 'package:ermchat/services/twitch_auth.dart';
 import 'package:ermchat/twitch_config.dart';
-import 'package:ermchat/services/twitch_eventsub.dart';
+import 'package:ermchat/eventsub/decode/decoder.dart';
+import 'package:ermchat/eventsub/decode/events.dart';
 import 'package:ermchat/irc/decode/codec.dart';
 import 'package:ermchat/irc/message.dart';
 
@@ -1803,10 +1804,10 @@ void main() {
     });
   });
 
-  late EventSubService service;
+  late EventSubDecoder service;
 
   setUp(() {
-    service = EventSubService();
+    service = EventSubDecoder(Stream<Map<String, dynamic>>.empty());
     service.setChannelMapping('broadcaster1', 'testchannel');
   });
 
@@ -1819,7 +1820,7 @@ void main() {
       final events = <ModerationEvent>[];
       service.onModeration.listen(events.add);
 
-      service.handleRawMessage(
+      service.feed(
         _moderate(
           action: 'ban',
           meta: {
@@ -1848,7 +1849,7 @@ void main() {
           .toUtc()
           .add(const Duration(seconds: 300))
           .toIso8601String();
-      service.handleRawMessage(
+      service.feed(
         _moderate(
           action: 'timeout',
           meta: {
@@ -1911,7 +1912,7 @@ void main() {
       test(name, () async {
         final events = <ModerationEvent>[];
         service.onModeration.listen(events.add);
-        service.handleRawMessage(_moderate(action: action, meta: meta));
+        service.feed(_moderate(action: action, meta: meta));
         expect(events, hasLength(1), reason: name);
         expect(events[0].action, expectedAction, reason: name);
         if (expectedAction == 'delete') {
@@ -1927,7 +1928,7 @@ void main() {
     test('add_blocked_term carries terms from automod_terms', () async {
       final events = <ModerationEvent>[];
       service.onModeration.listen(events.add);
-      service.handleRawMessage(
+      service.feed(
         _moderate(
           action: 'add_blocked_term',
           meta: {
@@ -1949,7 +1950,7 @@ void main() {
     test('approve_unban_request carries target and resolution', () async {
       final events = <ModerationEvent>[];
       service.onModeration.listen(events.add);
-      service.handleRawMessage(
+      service.feed(
         _moderate(
           action: 'approve_unban_request',
           meta: {
@@ -1973,7 +1974,7 @@ void main() {
           .toUtc()
           .add(const Duration(seconds: 300))
           .toIso8601String();
-      service.handleRawMessage(
+      service.feed(
         _moderate(
           action: 'shared_chat_timeout',
           meta: {
@@ -2005,7 +2006,7 @@ void main() {
       test(name, () async {
         final events = <ModerationEvent>[];
         service.onModeration.listen(events.add);
-        service.handleRawMessage(<String, dynamic>{
+        service.feed(<String, dynamic>{
           'metadata': <String, dynamic>{
             'message_type': 'notification',
             'subscription_type': type,
@@ -2044,10 +2045,10 @@ void main() {
     test('shield begin/end toggle active', () async {
       final events = <ShieldModeEvent>[];
       service.onShieldMode.listen(events.add);
-      service.handleRawMessage(
+      service.feed(
         topic('channel.shield_mode.begin', {'moderator_user_name': 'moduser'}),
       );
-      service.handleRawMessage(
+      service.feed(
         topic('channel.shield_mode.end', {'moderator_user_name': 'moduser'}),
       );
       expect(events, hasLength(2));
@@ -2059,7 +2060,7 @@ void main() {
     test('shoutout create maps sender and target', () async {
       final events = <ShoutoutEvent>[];
       service.onShoutout.listen(events.add);
-      service.handleRawMessage(
+      service.feed(
         topic('channel.shoutout.create', {
           'broadcaster_user_login': 'streamer',
           'to_broadcaster_user_login': 'friend',
@@ -2075,7 +2076,7 @@ void main() {
     test('shoutout receive maps sender and target', () async {
       final events = <ShoutoutEvent>[];
       service.onShoutout.listen(events.add);
-      service.handleRawMessage(
+      service.feed(
         topic('channel.shoutout.receive', {
           'broadcaster_user_login': 'streamer',
           'from_broadcaster_user_login': 'friend',
@@ -2091,7 +2092,7 @@ void main() {
     test('warning send carries user and reason', () async {
       final events = <WarningEvent>[];
       service.onWarning.listen(events.add);
-      service.handleRawMessage(
+      service.feed(
         topic('channel.warning.send', {
           'moderator_user_name': 'moduser',
           'user_login': 'spammer',
@@ -2107,7 +2108,7 @@ void main() {
     test('warning acknowledge carries user', () async {
       final events = <WarningEvent>[];
       service.onWarning.listen(events.add);
-      service.handleRawMessage(
+      service.feed(
         topic('channel.warning.acknowledge', {
           'moderator_user_name': 'moduser',
           'user_login': 'spammer',
@@ -2121,7 +2122,7 @@ void main() {
     test('unban request create carries user', () async {
       final events = <UnbanRequestEvent>[];
       service.onUnbanRequest.listen(events.add);
-      service.handleRawMessage(
+      service.feed(
         topic('channel.unban_request.create', {'user_login': 'spammer'}),
       );
       expect(events, hasLength(1));
@@ -2132,7 +2133,7 @@ void main() {
     test('unban request resolve carries resolution', () async {
       final events = <UnbanRequestEvent>[];
       service.onUnbanRequest.listen(events.add);
-      service.handleRawMessage(
+      service.feed(
         topic('channel.unban_request.resolve', {
           'user_login': 'spammer',
           'moderator_user_name': 'moduser',
@@ -2149,7 +2150,7 @@ void main() {
     test('automod terms update carries action, list, and terms', () async {
       final events = <AutomodTermsEvent>[];
       service.onAutomodTerms.listen(events.add);
-      service.handleRawMessage(
+      service.feed(
         topic('automod.terms.update', {
           'action': 'add',
           'list': 'blocked',
@@ -2166,7 +2167,7 @@ void main() {
     test('automod settings update carries moderator', () async {
       final events = <AutomodSettingsEvent>[];
       service.onAutomodSettings.listen(events.add);
-      service.handleRawMessage(
+      service.feed(
         topic('automod.settings.update', {'moderator_user_name': 'moduser'}),
       );
       expect(events, hasLength(1));
@@ -2177,7 +2178,7 @@ void main() {
     test('suspicious message carries status and ban context', () async {
       final events = <SuspiciousUserEvent>[];
       service.onSuspiciousUser.listen(events.add);
-      service.handleRawMessage(
+      service.feed(
         topic('channel.suspicious_user.message', {
           'user_login': 'spammer',
           'low_trust_status': 'restricted',
@@ -2198,7 +2199,7 @@ void main() {
     test('suspicious update carries moderator', () async {
       final events = <SuspiciousUserEvent>[];
       service.onSuspiciousUser.listen(events.add);
-      service.handleRawMessage(
+      service.feed(
         topic('channel.suspicious_user.update', {
           'user_login': 'spammer',
           'low_trust_status': 'monitored',
@@ -2214,7 +2215,7 @@ void main() {
     test('points reward add carries the reward', () async {
       final events = <PointRewardEvent>[];
       service.onPointReward.listen(events.add);
-      service.handleRawMessage(
+      service.feed(
         topic('channel.channel_points_custom_reward.add', {
           'id': 'reward1',
           'title': 'Hydrate',
@@ -2233,7 +2234,7 @@ void main() {
     test('points redemption add carries user and input', () async {
       final events = <PointRedemptionEvent>[];
       service.onPointRedemption.listen(events.add);
-      service.handleRawMessage(
+      service.feed(
         topic('channel.channel_points_custom_reward_redemption.add', {
           'id': 'red1',
           'user_login': 'fan',
@@ -2253,7 +2254,7 @@ void main() {
     test('points redemption update resolves by id', () async {
       final events = <PointRedemptionEvent>[];
       service.onPointRedemption.listen(events.add);
-      service.handleRawMessage(
+      service.feed(
         topic('channel.channel_points_custom_reward_redemption.update', {
           'id': 'red1',
           'user_login': 'fan',
@@ -2312,7 +2313,7 @@ void main() {
     test('hold queues with user, text, and category', () async {
       final events = <AutomodHeldEvent>[];
       service.onAutomodHeld.listen(events.add);
-      service.handleRawMessage(automod('automod.message.hold', heldEvent()));
+      service.feed(automod('automod.message.hold', heldEvent()));
       expect(events, hasLength(1));
       expect(events[0].channel, 'testchannel');
       expect(events[0].messageId, 'msg-1');
@@ -2326,7 +2327,7 @@ void main() {
       final events = <AutomodHeldEvent>[];
       service.onAutomodHeld.listen(events.add);
       final event = heldEvent(category: null)..['reason'] = 'blocked_term';
-      service.handleRawMessage(automod('automod.message.hold', event));
+      service.feed(automod('automod.message.hold', event));
       expect(events, hasLength(1));
       expect(events[0].category, 'blocked_term');
     });
@@ -2334,7 +2335,7 @@ void main() {
     test('v1 shape reads bare message string and top-level category', () async {
       final events = <AutomodHeldEvent>[];
       service.onAutomodHeld.listen(events.add);
-      service.handleRawMessage(
+      service.feed(
         automod('automod.message.hold', <String, dynamic>{
           'broadcaster_user_id': 'broadcaster1',
           'user_login': 'spammer',
@@ -2353,7 +2354,7 @@ void main() {
     test('update lowercases the resolution status', () async {
       final events = <AutomodHeldEvent>[];
       service.onAutomodHeld.listen(events.add);
-      service.handleRawMessage(
+      service.feed(
         automod('automod.message.update', heldEvent(status: 'Approved')),
       );
       expect(events, hasLength(1));
@@ -2363,10 +2364,8 @@ void main() {
     test('drops holds without a message id or channel mapping', () async {
       final events = <AutomodHeldEvent>[];
       service.onAutomodHeld.listen(events.add);
-      service.handleRawMessage(
-        automod('automod.message.hold', heldEvent(messageId: '')),
-      );
-      service.handleRawMessage(
+      service.feed(automod('automod.message.hold', heldEvent(messageId: '')));
+      service.feed(
         automod(
           'automod.message.hold',
           heldEvent(),
@@ -2542,7 +2541,7 @@ void main() {
         final events = <HypeTrainEvent>[];
         service.onHypeTrain.listen(events.add);
 
-        service.handleRawMessage(
+        service.feed(
           widget('channel.hype_train.begin', <String, dynamic>{
             'level': 2,
             'progress': 30,

@@ -14,7 +14,10 @@ import 'package:ermchat/irc/transport/read.dart';
 import 'package:ermchat/irc/transport/write.dart';
 import '../helpers/fake_web_socket.dart';
 import 'package:ermchat/models/twitch_message.dart';
-import 'package:ermchat/services/twitch_eventsub.dart';
+import 'package:ermchat/eventsub/decode/decoder.dart';
+import 'package:ermchat/eventsub/decode/events.dart';
+import 'package:ermchat/eventsub/transport/connection.dart';
+import 'package:ermchat/eventsub/transport/events.dart';
 import 'package:ermchat/services/seven_tv_event_client.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -3033,6 +3036,7 @@ void main() {
       final setup = ChatChannelSetup(
         twitchApi: TwitchApi(client: http.Client()),
         eventSub: EventSubService(),
+        eventSubDecoder: EventSubDecoder(Stream<Map<String, dynamic>>.empty()),
         irc: IrcService(),
         ircRead: IrcReadService(),
         badgeService: TwitchBadgeService(),

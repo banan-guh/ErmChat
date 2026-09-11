@@ -9,7 +9,7 @@ import '../models/twitch_message.dart';
 import '../util/haptics.dart';
 import '../services/twitch_api.dart';
 import '../services/twitch_auth.dart';
-import '../services/twitch_eventsub.dart';
+import '../eventsub/transport/connection.dart';
 import '../services/join_rate_limiter.dart';
 import '../irc/transport/read.dart';
 import '../irc/transport/write.dart';

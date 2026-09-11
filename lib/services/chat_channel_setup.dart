@@ -21,7 +21,8 @@ import 'seven_tv_event_client.dart';
 import 'twitch_api.dart';
 import 'twitch_auth.dart';
 import 'twitch_badge_service.dart';
-import 'twitch_eventsub.dart';
+import '../eventsub/decode/decoder.dart';
+import '../eventsub/transport/connection.dart';
 import 'user_store.dart';
 
 /// The channel-domain of the pipeline: joining channels and resolving their
@@ -35,6 +36,7 @@ class ChatChannelSetup {
   ChatChannelSetup({
     required this.twitchApi,
     required this.eventSub,
+    required this.eventSubDecoder,
     required this.irc,
     required this.ircRead,
     this.sevenTvClient,
@@ -52,6 +54,7 @@ class ChatChannelSetup {
 
   final TwitchApi twitchApi;
   final EventSubService eventSub;
+  final EventSubDecoder eventSubDecoder;
   final IrcService irc;
   final IrcReadService ircRead;
   final SevenTvEventClient? sevenTvClient;
@@ -371,7 +374,7 @@ class ChatChannelSetup {
       chat.channelFor(channelName)?.info.setBroadcasterId(channelUserId);
       // Map before any await below: a resubscribe completing in the gap
       // would otherwise deliver events with no channel and drop them.
-      eventSub.setChannelMapping(channelUserId, channelName);
+      eventSubDecoder.setChannelMapping(channelUserId, channelName);
       unawaited(
         badgeService
             .fetchChannelBadges(auth, channelUserId, channelName)

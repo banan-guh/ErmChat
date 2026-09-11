@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../services/twitch_eventsub.dart';
+import '../eventsub/decode/events.dart';
 import 'chat_widget_cutout.dart';
 
 // Chat overlay widgets (hype train, poll, prediction) plus test fakes.

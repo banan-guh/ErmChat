@@ -1,321 +1,311 @@
-# IRC reorg (realtime source slice 1)
+# EventSub reorg (realtime source slice 2)
 
 Status: FROZEN. Make the code match this document; only the user changes it. Do not
 open another design round.
 
-This is the concrete plan to reorganize the Twitch IRC layer so `lib/irc/` does only
-IRC/transport work, and a separate decode layer lifts data out of frames. It is
-written for an implementing agent with zero context. Read the whole document before
-touching code. Do not start commit 1 until the plan is approved.
+This is the concrete plan to give Twitch EventSub one home, make its event model fail
+hard instead of silent, and add the tests that do not exist today. It is written for an
+implementing agent with zero context. Read the whole document before touching code. Do
+not start a group until the previous group is green and reported.
 
-Behavior must not change. This is a structural refactor, not a feature.
+Stages 1 through 3 are owner extraction and pure moves. Stage 4 is the only model
+change. The rendered output must not change in any stage.
 
 ## Why
 
-`lib/services/base_irc_connection.dart` (921 lines) and `lib/services/twitch_irc.dart`
-(811 lines) fuse three concerns:
+EventSub is one subsystem with three owners:
 
-- **Transport**: `IrcConnection` (`base_irc_connection.dart:55`) owns the socket loop,
-  reconnect/backoff, keepalive, connectivity, join queue/sweep/retry, and the
-  connection-level commands (PING/PONG :570, RECONNECT :592, ROOMSTATE join-confirm
-  :601, `msg_channel_suspended` :613).
-- **Framing**: `parseIrcMessage` (`:823`) and `IrcMessage` (`:891`) are generic IRC but
-  live inside the transport file.
-- **Decode + copy**: the sockets are the real decoder. `IrcReadService.dispatchLine`
-  (`twitch_irc.dart:424`) switches 11 commands and emits typed streams
-  (`onMessage`, `onBan`, `onUserNotice`, `onMessageDeleted`, `onChannelClear`,
-  `onWhisper`, `onRoomState`, `onUserEmoteSets`, `onNotice`, `onJtvMessage`,
-  `onOwnMessage`). The same file holds the codec (`parseIrcChatMessage:684`,
-  `parseIrcEmotePositions:146`, `parseIrcGifPositions:205`, `parseIrcBadges:270`) and
-  user-facing copy (`userNoticeAccent:104`, `userNoticeLabelId:114`,
-  `buildUserNoticeText:121`, `buildBanText:133`).
+- **Protocol**: `lib/services/twitch_eventsub.dart` (1080) fuses the socket, session
+  handshake, keepalive, the JSON frame, the `subscription_type` switch, 14 typed
+  streams, and the event classes.
+- **Subscription lifecycle**: `lib/services/chat_channel_setup.dart` holds 14
+  active/skip sets, seven near-identical `_subscribeX` methods, the resubscribe path,
+  and the seven gate predicates.
+- **Consumption**: `lib/services/chat_connection_manager.dart:1530-2052` applies the
+  typed events to `Chat`/`Moderation`/`Points` and emits system lines.
 
-The socket is therefore the network owner, the Twitch command router, and the domain
-decoder at once. Consumers (`ChatIngestion`, `ChatChannelSetup`,
-`ChatConnectionManager`) subscribe to socket streams, and two of them re-decode
-(`chat_ingestion.dart:442`, `recent_messages.dart:235-548`). `twitch_eventsub.dart` has
-the analogous fusion on the JSON side; that is out of scope here.
+The seams between these owners cause the known hazards: session-scoped active sets
+versus account-scoped skip sets reset in a different object than the consumer,
+`isModerationActive` arbitration split from the code it gates, EventSub listeners bound
+with `??=` so they never rebind, `_channelUserIds` never cleared, and seven subscribe
+methods with divergent success rules and no tests.
 
-References agree on the fix. `~/chatsen` has `lib/irc/message.dart` (generic frame,
-zero deps) plus `lib/tmi/connection` (transport) and `lib/tmi/client` (decode).
-`~/dankchat` has `data/irc/IrcMessage.kt` plus `data/twitch/chat` (transport) and
-`data/twitch/message` (decode). Both isolate the wire frame and keep the transport
-emitting frames, not domain.
+EventSub itself is receive-only. Subscriptions go out over Helix
+(`TwitchApi.createEventSubSubscription`), notifications come in over the socket.
+Actions (ban, timeout, delete, warn, raid, poll, prediction, shield, shoutout) are
+Helix REST and already have a single owner, `ModActions`
+(`lib/services/mod_actions.dart:30`). They stay there. This plan does not move actions,
+and does not fold them into EventSub.
+
+The event model is also stringly-typed. `ModerationEvent.action`
+(`twitch_eventsub.dart:16`) and ten `String kind` fields
+(`:75,92,109,128,155,178,191,204,237,261`) are switched on string literals behind a
+silent `default:`. A typo or a new Twitch action is a runtime no-op. Enums turn that
+into a compile error.
 
 ## Ground rules (non-negotiable)
 
-1. `lib/irc/message.dart` imports only `lib/util/irc_utils.dart` and
-   `lib/util/log.dart` (`parseIrcMessage` calls `logDebug` on a malformed line). No
-   Flutter, no models, no chat.
-2. `lib/irc/transport/**` imports no `lib/chat/**`, no `lib/models/twitch_message.dart`,
-   no `lib/irc/decode/**`, and no `Session`. It emits `IrcMessage` and connection
-   events only.
-3. `lib/irc/decode/**` may import `lib/irc/message.dart`, `lib/models/**`,
-   `lib/client/session.dart`, and `lib/util/**`.
-4. No compatibility facade or barrel. Delete the `twitch_irc.dart` re-exports
-   (`twitch_irc.dart:11-19`). Update every call site; compile errors are the checklist.
-5. Pure moves are verbatim. Do not "improve" a function while relocating it.
-6. Format only touched files (`dart format <file> ...`), never `dart format .`. Keep
-   comments short and present-tense. No em-dashes. Do not commit unless told. Follow
-   `AGENTS.md` and `RULES.md`.
+1. `lib/eventsub/transport/**` imports no `lib/chat/**`, no `lib/models/**`, no
+   `lib/client/session.dart`, and no `lib/eventsub/decode/**`. It emits frames and
+   connection events only.
+2. `lib/eventsub/decode/**` may import `lib/models/**`, `lib/client/session.dart`, and
+   `lib/util/**`.
+3. `lib/eventsub/topics.dart` may import `TwitchApi`, `TwitchAuth`, `Session`, `Chat`,
+   the transport, and `lib/util/**` (it logs with `logDebug`).
+4. `lib/services/eventsub_consumer.dart` may import `Chat`, `Session`,
+   `EventSubTopics`, the decoder, and `lib/util/**`.
+5. No compatibility facade or barrel. `lib/services/twitch_eventsub.dart` is deleted at
+   the end of Stage 1. Update every call site; compile errors are the checklist.
+6. Stages 1 through 3 are pure moves or pure owner extraction. Do not improve behavior
+   while relocating it. Stage 4 is the only model change.
+7. Format only touched files (`dart format <file> ...`), never `dart format .`. Short
+   present-tense comments. No em-dashes. Do not commit unless told. Follow `AGENTS.md`
+   and `RULES.md`.
 
 ## Target tree
 
 ```
-lib/irc/
-  message.dart          IrcMessage + parseIrcMessage                  (pure frame)
+lib/eventsub/
   transport/
-    events.dart         IrcConnectionStatus, IrcSocketRole, JoinFailureReason,
-                        IrcJoinFailureEvent
-    connection.dart     IrcConnection                                  (transport)
-    read.dart           IrcReadService  -> onIrcMessage + onAuthFailed
-    write.dart          IrcService      -> onIrcMessage + onAuthFailed
+    events.dart      EventSubStatus
+    connection.dart  EventSubService (socket, reconnect, keepalive, session,
+                     connectivity) -> onNotification + onStatus + sessionId
   decode/
-    codec.dart          parseIrcChatMessage, parseIrcEmotePositions,
-                        parseIrcGifPositions, parseIrcBadges, _cpToUtf16Table
-    events.dart         UserNoticeEvent, IrcBanEvent, IrcNoticeEvent,
-                        IrcChannelClearEvent, IrcMessageDeletedEvent,
-                        IrcRoomStateEvent
-    decoder.dart        IrcChatDecoder                                 (the switch)
-    copy.dart           buildBanText, buildUserNoticeText, userNoticeAccent,
-                        userNoticeLabelId
+    events.dart      all typed event classes
+    decoder.dart     EventSubDecoder -> 14 typed streams, setChannelMapping,
+                     feed, dispose
+  topics.dart        EventSubTopics (14 sets, subscribe/resubscribe/reset/
+                     forget, 7 gate predicates, isBroadcaster)
+
+lib/services/
+  eventsub_consumer.dart   EventSubConsumer (typed events -> Chat/UI)
 ```
 
-`lib/irc/` means "the Twitch IRC subsystem", not a generic IRC library. The generic
-part is exactly `message.dart`, which stays a dependency-free leaf.
+`EventSubConsumer` stays in `lib/services/` because it mutates the chat kernel, exactly
+like `ChatIngestion` for IRC. `EventSubTopics` lives under `lib/eventsub/` because it is
+the EventSub client surface (subscribe/resubscribe), even though it talks to Helix and
+`Session`. The transport class keeps the name `EventSubService`; renaming it is out of
+scope.
 
 ## Ownership map (old to new)
 
 | Old symbol | Old site | New home |
 | --- | --- | --- |
-| `IrcMessage` | `base_irc_connection.dart:891` | `irc/message.dart` |
-| `parseIrcMessage` | `base_irc_connection.dart:823` | `irc/message.dart` |
-| `_loneLowSurrogateRe`, `_orphanedHighSurrogateRe` | `base_irc_connection.dart:42-43` | `irc/message.dart` (private) |
-| `IrcConnectionStatus` | `base_irc_connection.dart:14` | `irc/transport/events.dart` |
-| `IrcSocketRole` | `base_irc_connection.dart:40` | `irc/transport/events.dart` |
-| `JoinFailureReason` | `base_irc_connection.dart:17` | `irc/transport/events.dart` |
-| `IrcJoinFailureEvent` | `base_irc_connection.dart:28` | `irc/transport/events.dart` |
-| `IrcConnection`, `_DeathReason`, `_WakeReason`, `_AttemptOutcome` | `base_irc_connection.dart` | `irc/transport/connection.dart` |
-| `IrcService` | `twitch_irc.dart:285` | `irc/transport/write.dart` |
-| `IrcReadService` | `twitch_irc.dart:371` | `irc/transport/read.dart` |
-| `IrcRoomStateEvent` | `base_irc_connection.dart:907` | `irc/decode/events.dart` |
-| `IrcBanEvent` | `twitch_irc.dart:23` | `irc/decode/events.dart` |
-| `IrcNoticeEvent` | `twitch_irc.dart:39` | `irc/decode/events.dart` |
-| `IrcChannelClearEvent` | `twitch_irc.dart:48` | `irc/decode/events.dart` |
-| `IrcMessageDeletedEvent` | `twitch_irc.dart:56` | `irc/decode/events.dart` |
-| `UserNoticeEvent` | `twitch_irc.dart:72` | `irc/decode/events.dart` |
-| `parseIrcChatMessage` | `twitch_irc.dart:684` | `irc/decode/codec.dart` |
-| `parseIrcEmotePositions` | `twitch_irc.dart:146` | `irc/decode/codec.dart` |
-| `parseIrcGifPositions` | `twitch_irc.dart:205` | `irc/decode/codec.dart` |
-| `parseIrcBadges` | `twitch_irc.dart:270` | `irc/decode/codec.dart` |
-| `_cpToUtf16Table`, `_replyPrefixRe` | `twitch_irc.dart:256,21` | `irc/decode/codec.dart` (private) |
-| `buildUserNoticeText` | `twitch_irc.dart:121` | `irc/decode/copy.dart` |
-| `buildBanText` | `twitch_irc.dart:133` | `irc/decode/copy.dart` |
-| `userNoticeAccent` | `twitch_irc.dart:104` | `irc/decode/copy.dart` |
-| `userNoticeLabelId` | `twitch_irc.dart:114` | `irc/decode/copy.dart` |
-| socket typed streams + dispatch | `IrcReadService.dispatchLine` `twitch_irc.dart:424` | `irc/decode/decoder.dart` (`IrcChatDecoder`) |
-| `selfBadges` | `twitch_irc.dart:398` | read decoder |
-
-`lib/services/base_irc_connection.dart` and `lib/services/twitch_irc.dart` are
-deleted at the end.
+| event classes | `twitch_eventsub.dart:14-285` | `eventsub/decode/events.dart` |
+| `EventSubStatus` | `twitch_eventsub.dart:1080` | `eventsub/transport/events.dart` |
+| typed controllers + getters | `twitch_eventsub.dart:312-351,373-392` | `eventsub/decode/decoder.dart` |
+| `isConnected`/`sessionId`/`isStale`/`forceReconnect` | `twitch_eventsub.dart:353-369` | `eventsub/transport/connection.dart` |
+| `setChannelMapping`/`_channelFromPayload` | `twitch_eventsub.dart:394-405` | `eventsub/decode/decoder.dart` |
+| `waitForSession` | `twitch_eventsub.dart:407-411` | `eventsub/transport/connection.dart` |
+| `connect`/`_scheduleReconnect`/`_safeComplete`/`_waitForReady` | `twitch_eventsub.dart:413-514` | `eventsub/transport/connection.dart` |
+| `_handleMessage` (session arms, notification emit) | `twitch_eventsub.dart:516-537` | `eventsub/transport/connection.dart` |
+| `_onWelcome`/`_handleReconnect`/`_resetKeepalive` | `twitch_eventsub.dart:539-573` | `eventsub/transport/connection.dart` |
+| `_onNotification` + 14 builders | `twitch_eventsub.dart:577-1010` | `eventsub/decode/decoder.dart` |
+| `_ensureConnectivityListener`/`disconnect`/`handleRawMessage`/`emitConnected`/`dispose` | `twitch_eventsub.dart:1012-1077` | `eventsub/transport/connection.dart` |
+| subscription sets | `chat_channel_setup.dart:88-126` | `eventsub/topics.dart` |
+| gate predicates + `isBroadcaster` | `chat_channel_setup.dart:157-187` | `eventsub/topics.dart` |
+| `clearSessionState`/`resetAccountScope` | `chat_channel_setup.dart:205-226` | `eventsub/topics.dart` |
+| `forgetChannel` (EventSub half) | `chat_channel_setup.dart:230-237` | `eventsub/topics.dart` |
+| 7 `_subscribeX` | `chat_channel_setup.dart:464-880` | `eventsub/topics.dart` |
+| `resubscribeEventSubChannels` | `chat_channel_setup.dart:885-913` | `eventsub/topics.dart` |
+| 11 event handlers | `chat_connection_manager.dart:1533-2052` | `eventsub_consumer.dart` |
+| widget listeners | `chat_connection_manager.dart:1500-1514` | `eventsub_consumer.dart` |
+| EventSub subscription fields | `chat_connection_manager.dart:361-381` | `eventsub_consumer.dart` |
+| public delegators `isModerationActive`/`isAutomodActive`/`isBroadcaster` | `chat_connection_manager.dart:534-542` | re-point at `EventSubTopics` |
 
 ## The seam
 
-Transport parses one frame and, for anything it does not consume itself, emits the
-`IrcMessage` on a raw stream. Decode subscribes, switches on `command`, and produces
-the typed streams. Concretely:
+- `EventSubService` parses each JSON frame, consumes
+  `session_welcome`/`session_reconnect`/`revocation`, and emits every `notification`
+  frame on `Stream<Map<String, dynamic>> get onNotification`. It keeps `connect`,
+  `disconnect`, `forceReconnect`, `isConnected`, `isStale`, `sessionId`,
+  `waitForSession`, `onStatus`, `handleRawMessage`, `emitConnected`, `dispose`.
+- `EventSubDecoder(Stream<Map<String, dynamic>> source)` owns the 14 controllers,
+  `setChannelMapping`, `_channelFromPayload`, the `subscription_type` switch, the
+  builders, a `@visibleForTesting void feed(Map<String, dynamic> frame)`, and
+  `dispose`. The `subscription_type` router stays a string switch: it is protocol
+  dispatch, not a domain enum. An unrecognized type is dropped, and A2 adds the one
+  permitted non-move line, a `logDebug` naming the type so a silent miss is visible.
+- `EventSubTopics` owns the subscription lifecycle: `subscribeChannel(channel,
+  channelUserId)`, `resubscribeEventSubChannels(channels)`, `clearSessionState`,
+  `resetAccountScope`, `forgetChannel`, the seven gate predicates, and
+  `isBroadcaster`. It reads `eventSub.sessionId` for the handshake wait.
+- `EventSubConsumer.attach(EventSubDecoder)` subscribes the 14 streams and returns the
+  subscriptions; `dispose()` cancels them. The manager constructs it and re-points
+  `statusSub` at `eventSub.onStatus` only.
+- `ChatChannelSetup` shrinks to joins, Helix/emote/badge/7TV resolution, and chat-status
+  composition. `subscribeChannel` calls `eventSubTopics.subscribeChannel`;
+  `forgetChannel` splits into `eventSubTopics.forgetChannel` plus the existing 7TV
+  cleanup.
+- The manager keeps transport, lifecycle, readiness, send gates, ingestion, and the
+  public delegators, which re-point at `EventSubTopics`. UI call sites do not change.
 
-- `IrcReadService` and `IrcService` each expose `Stream<IrcMessage> get onIrcMessage`.
-- `IrcChatDecoder` is constructed per socket with that stream and the current nick,
-  exposes the typed streams the app consumes, and owns `selfBadges`.
-- `ChatConnectionManager` constructs `readDecoder`/`writeDecoder`, re-points its
-  subscriptions from `ircRead.onX`/`irc.onX` to the decoder, and `ChatIngestion`
-  attaches to the read decoder.
+Construction and wiring: the manager constructs `eventSubTopics` (it needs `TwitchApi`,
+`TwitchAuth`, `Session`, `Chat`, and the transport) and `eventSubDecoder` on
+`eventSub.onNotification`. It passes the same `eventSubTopics` instance to
+`ChatChannelSetup` and to `EventSubConsumer`, and the decoder to the consumer.
+`ChatChannelSetup` owns no EventSub state after Stage 2. The consumer attaches in
+`_setupSubscriptions`.
 
-Transport keeps deciding connection-level things because they are transport state:
-PING/PONG, RECONNECT, the ROOMSTATE JOIN confirmation, and the suspended-JOIN
-refusal. It also keeps fatal-auth detection (`signalFatalAuthFailure`) and
-`onAuthFailed`, since a dead token is a connection outcome.
+Ordering is safe: `_setupSubscriptions()` runs at `chat_connection_manager.dart:881`
+before `eventSub.connect()` at `:1110`, and it builds the decoder, so decode is
+listening first.
 
-ROOMSTATE is consumed twice by design after the seam: `IrcConnection._handleLine`
-uses it to track JOIN confirmation (pending/confirmed sets), and the decoder turns the
-same frame into `IrcRoomStateEvent`. Do not merge these. One is transport state, the
-other is a typed event.
+Dispose order inside the manager: `eventSubConsumer.dispose()` (cancel the 14 stream
+subscriptions), then `eventSubDecoder.dispose()` (cancel its `onNotification`
+subscription). The transport is disposed later by `HomeScreen` (`:1508`), after the
+manager (`:1500`), so the decoder unsubscribes before the transport closes its
+controllers. Pin this now: A2 adds only `eventSubDecoder.dispose()`, and C2 inserts the
+consumer dispose ahead of it.
 
-## Slices
+## Stages and grouping
 
-Each slice ends with `dart analyze lib test` clean and `flutter test` green, and is
-committed separately only when told. Slices IRC-1 through IRC-4 are pure moves; IRC-5
-is the seam and the only behavior-sensitive step.
+Execute the groups in order. Each group ends with `dart analyze lib test` clean and
+`flutter test` green, and is committed separately only when told.
 
-### IRC-1: frame leaf
+Commit one per group, at the STOP gate, not one per stage. Tests ride in their group's
+commit.
 
-- Create `lib/irc/message.dart` with `IrcMessage`, `parseIrcMessage`, and the two
-  surrogate regexes moved verbatim from `base_irc_connection.dart`. It imports
-  `../util/irc_utils.dart` for `unescapeIrcTag` and `../util/log.dart` for `logDebug`.
-- `base_irc_connection.dart` imports `message.dart`; `twitch_irc.dart` imports it and
-  drops `IrcMessage`/`parseIrcMessage` from its re-export.
-- Update importers: `chat_ingestion.dart` (shows `IrcMessage`), `recent_messages.dart`
-  (`parseIrcMessage`), `test/unit/irc_test.dart:3597`, and any others the compiler flags.
-- Gate: analyzer clean, tests green.
+| Group | Commit |
+| --- | --- |
+| plan doc | `chore: add eventsub reorg plan` |
+| A (Stages A1+A2) | `refactor: split eventsub transport decode` |
+| B (Stages B1+B2+B3) | `refactor: extract eventsub topics` |
+| C1+C2 | `refactor: extract eventsub consumer` |
+| C3 | `refactor: enum eventsub event fields` |
 
-### IRC-2: transport events
+C3 stays its own commit because it is the only model change; everything else is
+structural.
 
-- Create `lib/irc/transport/events.dart` with `IrcConnectionStatus`, `IrcSocketRole`,
-  `JoinFailureReason`, `IrcJoinFailureEvent`, moved verbatim.
-- `IrcRoomStateEvent` is **not** included here; it moves to decode (it is a decoded
-  ROOMSTATE frame, not a transport frame).
-- Update importers: `base_irc_connection.dart`, `join_rate_limiter.dart`
-  (`IrcSocketRole`), `chat_channel_setup.dart` (`IrcJoinFailureEvent`,
-  `JoinFailureReason`), tests.
-- Gate.
+### Group A: protocol home (Stage 1)
 
-### IRC-3: decode codec, events, copy
+Pure structure. Execute first, then STOP.
 
-- Create `lib/irc/decode/codec.dart`, `events.dart`, `copy.dart` and move the symbols
-  per the ownership map, verbatim. `IrcRoomStateEvent` joins `events.dart`.
-- `twitch_irc.dart` (still holding the sockets) imports these; the sockets keep their
-  current behavior for this slice.
-- Update importers: `chat_ingestion.dart` (`IrcChannelClearEvent`,
-  `IrcMessageDeletedEvent`, `buildBanText`, `parseIrcChatMessage`),
-  `chat_channel_setup.dart`, `chat_connection_manager.dart` (events + copy),
-  `recent_messages.dart` (`parseIrcChatMessage`, `parseIrcBadges`,
-  `parseIrcEmotePositions`), and tests.
-- Gate.
+- **A1 (pure move).** Create `eventsub/decode/events.dart` and
+  `eventsub/transport/events.dart`; move the classes verbatim; delete them from
+  `twitch_eventsub.dart`; update importers. No behavior change.
+- **A2 (the seam).** Add `onNotification`; create `EventSubDecoder`; strip and move the
+  transport to `eventsub/transport/connection.dart`; delete `twitch_eventsub.dart`.
+  Manager builds `eventSubDecoder` and re-points `:1480-1514` from `eventSub.onX` to
+  `eventSubDecoder.onX`; `statusSub` stays on the transport. `ChatChannelSetup` gets
+  `eventSubDecoder` and calls it at `:374`. Add `eventSubDecoder.dispose()` at manager
+  `:444`. Topics and consumption stay where they are.
+- **Gate**: `dart analyze lib test` clean and `flutter test` green.
 
-### IRC-4: relocate transport
+**STOP after A2.** Report the diff and the test count. Do not start Group B until told.
 
-- Move `IrcConnection` to `lib/irc/transport/connection.dart`, `IrcService` to
-  `write.dart`, `IrcReadService` to `read.dart`. Sockets are still fused (they keep
-  the typed streams) so this slice is a pure move. Ground rule 2 is not satisfied
-  until IRC-5; `read.dart`/`write.dart` still import `decode/` here by design.
-- Delete `lib/services/base_irc_connection.dart` and `lib/services/twitch_irc.dart`,
-  including the re-export barrel. Update every importer: `channel_manager.dart`,
-  `main.dart`, `home_screen.dart`, `chat_connection_manager.dart`,
-  `chat_channel_setup.dart`, `chat_ingestion.dart`, `command_handler.dart`,
-  `recent_messages.dart`, and tests.
-- Gate.
+### Group B: subscription home (Stage 2)
 
-### IRC-5: the seam
+- **B1 (characterization tests).** Add `test/unit/eventsub_topics_test.dart`, driven
+  through a `TwitchApi` fake: success sets the active set, 403 sets the skip set, each
+  family's success rule holds (moderation single, automod all, feed/inbox/trust/points
+  any, widgets all), the broadcaster gate holds for points/widgets, and clear vs reset
+  vs forget touch the right sets.
+- **B2 (extract).** Create `EventSubTopics` and move the sets, the seven `_subscribeX`,
+  `resubscribeEventSubChannels`, the resets, the EventSub half of `forgetChannel`, the
+  predicates, and `isBroadcaster`, verbatim. `ChatChannelSetup.subscribeChannel` calls
+  `eventSubTopics.subscribeChannel`. The manager calls `eventSubTopics` for
+  `clearSessionState` (`:901,1100,1261`), `resetAccountScope` (`:1108,1158`), and
+  `resubscribeEventSubChannels` (`:903`).
+- **B3 (collapse).** Replace the seven methods with a table of `(types, versions,
+  conditionBuilder, successRule, skipSet, activeSet)`. Each family keeps its exact
+  current success rule. Add tests for any rule the B1 tests do not already pin.
+- **Gate**: `dart analyze lib test` clean, `flutter test` green, and the new topics
+  tests green.
 
-- Create `lib/irc/decode/decoder.dart` with `IrcChatDecoder`. Move the command switch
-  and the typed streams out of the sockets.
-- `selfBadges` moves from `IrcReadService` to the read decoder. Update every
-  reader/writer: `chat_connection_manager.dart:458,497-498,1145`, and the tests that
-  set it directly (`test/unit/irc_test.dart:2840,2853,3538`).
-- Sockets expose `onIrcMessage` only (plus `sendMessage`, status, join-failed,
-  auth-failed inherited/kept). They construct no typed controllers and import no
-  models.
-- Own-echo is read-side only. Move it into the read decoder, comparing against the
-  transport's current nick via a `String? Function()` (pass `() => ircRead.username`).
-  `username` is already lowercased at connect (`base_irc_connection.dart:213`), so the
-  decoder must preserve `sender == username` verbatim and add no new casing. The write
-  decoder takes no nick provider.
-- `ChatConnectionManager` builds the decoders and re-points its subscriptions;
-  `ChatIngestion.attach()` listens to the read decoder instead of the socket.
-- Give `IrcChatDecoder` a `@visibleForTesting void feed(IrcMessage msg)` that calls the
-  exact same handler as the `onIrcMessage` stream listener, so the two paths cannot
-  diverge.
-- Preserve the raw-type details: `onOwnMessage` stays `Stream<IrcMessage>` (raw, not
-  `TwitchMessage`), and `selfBadges` stays `Map<String?, Set<String>>` (nullable key
-  for GLOBALUSERSTATE) with `clearSelfBadges()`.
-- The read-side `PerfLog.I.record('JOINQ', '[$debugPrefix] confirm #$channelName')`
-  (`twitch_irc.dart:570`) moves into the decoder's ROOMSTATE handler.
-- Port the tests: transport groups stay on the sockets and assert `onIrcMessage`;
-  decode tests feed `IrcChatDecoder.feed`. Replace all five helpers: `emitChatMessage`,
-  `emitOwnMessage`, `emitWhisper`, `emitUserNotice`, `emitRoomState` (used in
-  `test/unit/irc_test.dart` and `test/widgets/widgets_test.dart`).
-- Update `AGENTS.md:41`, whose test-conventions line still names
-  `IrcService.emitChatMessage`/`emitUserNotice`.
-- Gate: full `flutter test` green with every old test still meaningful.
+**STOP after B3.** Report. Do not start Group C until told.
 
-## Behavior to preserve (move verbatim, do not "improve")
+### Group C: consumption home and fail-hard model (Stages 3 and 4)
 
-- Frame parse: tags first, then prefix, then command, then params with a leading
-  `:` starting the trailing. Tag values are `unescapeIrcTag`-decoded, then lone low
-  surrogates and orphaned high surrogates are stripped (`base_irc_connection.dart:42-43`).
-- `_handleLine` order: split on `\r\n`, reset the reconnect attempt per line, handle
-  PING/PONG/RECONNECT before `dispatchLine`, and return early from the batch when a
-  fatal auth failure is flagged (`base_irc_connection.dart:627-632`).
-- ROOMSTATE confirm: strip `#`, remove from pending, add to confirmed, only for a
-  channel this socket joined (`:599-607`).
-- Suspended JOIN: `msg-id == msg_channel_suspended`, param starts with `#`, emit
-  `IrcJoinFailureEvent` once per channel per socket (`:609-625`).
-- `IrcService.dispatchLine`: ROOMSTATE, then NOTICE (auth-failed, else send rejection
-  as `IrcNoticeEvent` with `channel`, `message`, `msgId`) (`twitch_irc.dart:316-346`).
-- ROOMSTATE on both sockets: strip `#`, emit `IrcRoomStateEvent(channel, tags)`
-  (`twitch_irc.dart:565-575`, `:348-357`).
-- `IrcReadService.dispatchLine` command set and JTV routing: PRIVMSG whose prefix
-  contains `jtv.tmi.twitch.tv` goes to `onJtvMessage`, else `onChatMessage`
-  (`twitch_irc.dart:448-454`).
-- `CLEARCHAT`: no target means channel clear; with target, emit `IrcBanEvent` with
-  `ban-duration`/`target-user-id` (`:458-484`).
-- `CLEARMSG`: require `target-msg-id`, user from `login` or `unknown`, text from
-  trailing (`:486-505`).
-- NOTICE: param `*` or absent means auth-failed check only; otherwise emit
-  `IrcNoticeEvent` (`:507-530`).
-- USERSTATE/GLOBALUSERSTATE: return when both `emote-sets` and `badges` are absent;
-  emit emote-sets when present; set `selfBadges[channel]` from the badge set ids
-  (`:544-563`).
-- WHISPER: require a trailing; emit `parseIrcChatMessage(msg, channel: null)`
-  (`:642-645`).
-- USERNOTICE: `sharedchatnotice` with `source-msg-id == announcement` becomes
-  `announcement`; login from tags or prefix, lowercased; badges and emote positions
-  parsed (`:577-620`).
-- Own echo: emit on both `onChatMessage` and `onOwnMessage` when the prefix login
-  equals the socket nick, lowercased (`:634-639`).
-- `parseIrcChatMessage`: display-name/login resolution, id fallback
-  `id`/`message-id`, ACTION unwrap, reply `@user ` prefix trim with `prefixLen`
-  shift, timestamp from `tmi-sent-ts`, color fallback, `source-room-id` mirroring,
-  `source-id`, bits, and all tag pass-throughs (`twitch_irc.dart:684-811`).
-- Copy text exactly: `buildBanText` ("was timed out for X." / "was banned."),
-  `buildUserNoticeText` ("Announcement" for announcements, else `system-msg` or
-  "`displayName` `msgId`."), `userNoticeAccent`, `userNoticeLabelId`.
-- `ChatConnectionManager` suppression logic stays: moderation-active NOTICE
-  suppression, join-failure NOTICE dedup, write-socket send-rejection system messages,
-  sub/resub child chat message with shifted emote positions.
+- **C1 (characterization tests).** Add `test/unit/eventsub_consumer_test.dart`, driving
+  `EventSubDecoder.feed` and asserting `Chat` effects and system lines for
+  delete/clear, ban/timeout self-gate, feed gating per predicate, inbox/trust, points
+  reward merge and redemption resolve, and automod hold/resolve.
+- **C2 (extract).** Create `EventSubConsumer` and move the 11 handlers, the widget
+  listeners, and the subscription fields verbatim. It owns `attach(EventSubDecoder)` and
+  `dispose()`. The manager keeps construction, `attach`, `dispose`, and the public
+  delegators. This also removes the `??=` rebind model for EventSub.
+- **C3 (fail hard).** Replace `ModerationEvent.action` and the ten `kind` strings with
+  enums mapped once in the decoder. Each enum carries an `unknown` arm that preserves
+  the raw wire string for forward compatibility. Make the consumer switches exhaustive
+  and delete the silent `default:` fallthrough; the `unknown` arm handles the rest
+  explicitly. Convert back to the wire string at the consumer so `ModActivityEntry` and
+  the UI stay unchanged.
+- **Gate**: `dart analyze lib test` clean, `flutter test` green, and the new consumer
+  tests green.
+
+**STOP after C2.** Report. Do C3 as its own reviewed commit only when told.
+
+## Behavior to preserve (move verbatim)
+
+- Session: `session_welcome` sets `sessionId`, completes the waiter, reads
+  `keepalive_timeout_seconds`, resets keepalive, emits `connected`, resets the reconnect
+  attempt (`twitch_eventsub.dart:539-548`). `session_reconnect` reconnects to
+  `reconnect_url` (`:550-562`). `revocation` logs only (`:529-530`). Keepalive resets on
+  every frame and fires at 1.5x (`:565-573`).
+- Transport: backoff `min(2^(n-1), 30)` plus jitter, capped at 8 attempts and gated on
+  connectivity (`:464-482`). `_handleMessage` order: read `message_type`, route,
+  then `_resetKeepalive` (`:516-537`).
+- Decode: `_onNotification` routing on `subscription_type`, including the
+  `channel.hype_train.`/`channel.poll.`/`channel.prediction.` prefixes and the
+  `channel.suspicious_user.*`, `channel.channel_points_custom_reward*`, and
+  `automod.message.*` families (`:577-646`).
+- Builders: all field fallbacks and defaults exactly as written, including the automod
+  v1/v2 message and category shape (`:648-677`), the timeout duration clamp
+  (`:946-955`), `shared_chat_` action unwrap (`:912-916`), and the term/unban nesting
+  (`:966-979`).
+- Consumer: all system-line copy, the self-timeout gate arm and clear
+  (`chat_connection_manager.dart:1619,1633`), the feed rows, and the gating predicates
+  per handler.
+- Topics: each family's success rule and skip behavior, including that a 403 on one
+  automod/feed/inbox/trust/points type dooms the rest, widgets break on any failure,
+  and `noteSubscribed` fires on success except for widgets.
 
 ## Tests
 
-- `test/data/parsing_test.dart` (2877 lines) pins the codec functions. It changes only
-  by import once IRC-3 lands.
-- `test/unit/irc_test.dart` (4141 lines) is the main port in IRC-5. Keep every
-  assertion; change only how events are delivered. Transport tests drive `handleLine`
-  and assert `onIrcMessage`; decode tests feed the decoder.
-- `test/widgets/widgets_test.dart:4489` uses `parseIrcBadges`; update the import.
-- `test/unit/chat_ingestion_test.dart`, `test/unit/auth_services_test.dart`,
-  `test/chat/channel_manager_test.dart` update imports and any `IrcService` /
-  `IrcReadService` construction to the new homes.
-- No new behavior tests are required for the pure moves. For IRC-5, add fixture tests
-  for the decoder command set only where the old socket tests do not already cover it.
+- `test/data/parsing_test.dart` EventSub groups (`:1806-2570`) retarget from
+  `EventSubService` to `EventSubDecoder`: `setChannelMapping` and `handleRawMessage`
+  become decoder calls (`feed`). Assertions unchanged.
+- `test/unit/irc_test.dart` session lifecycle (`:1812-1873`) stays on the transport.
+  Subclass seams (`_NoopEventSub` `:156`, `_LiveEventSub` `:161`, `_StaleEventSub`
+  `:209`) and `_FakeEventSubService` (`test/widgets/widgets_test.dart:58`) keep
+  extending the transport. Import paths only.
+- New: `test/unit/eventsub_topics_test.dart` (Stage 2),
+  `test/unit/eventsub_consumer_test.dart` (Stage 3).
+- No new behavior tests for the pure moves beyond import changes.
 
 ## Verification
 
-- Per slice: `dart analyze lib test` clean; `flutter test` green.
-- End to end on two or three busy channels: chat renders, emotes/badges render,
-  reply prefixes, bans/timeouts/deletions, whispers, room-state changes, slow mode,
-  own-message echo and self-timeout heal, account switch, anonymous read-only.
-- Specifically verify the three drift-prone semantics: write-socket NOTICE send
-  rejection, own-echo comparison, and the `sharedchatnotice` announcement unwrap.
-- Confirm the import rule holds: `rg "import" lib/irc/transport` shows no `models`,
-  `chat`, `session`, or `decode` imports.
+- Per stage: `dart analyze lib test` clean; `flutter test` green.
+- Import rule: `rg "import" lib/eventsub/transport` shows no `models`, `chat`,
+  `session`, or `decode` imports.
+- Stage 3: every consumer switch is exhaustive; no `case` on a bare string where an
+  enum now exists.
+- End to end on two or three busy channels: moderation by another mod
+  (delete/ban/timeout/warn), shield, shoutout, unban request, AutoMod hold and resolve,
+  points reward edit and redemption, broadcaster hype train/poll/prediction, account
+  switch, and an EventSub reconnect that resubscribes.
 
 ## Out of scope
 
-- `ChatConnectionManager`, `ChatChannelSetup`, `ChatIngestion` internals. Only their
-  subscription source changes in IRC-5.
-- EventSub and 7TV. They get the same `transport/` + `decode/` treatment as separate
-  slices later.
-- Unifying `IrcService`/`IrcReadService` into one role-parameterized class, and
-  renaming the socket classes.
-- The broader pipeline concern split (SystemLines, JoinQueue, Outbox, EventSubTopics).
-- Any behavior change to parsing, filtering, or transport.
+- `ModActions` and all Helix action/query verbs. They are not EventSub.
+- Unifying the IRC moderation echoes (`ChatIngestion`) with the EventSub path into one
+  formatter. That is the later "single ingest path" item.
+- EventSub behavior changes: reconnect/session semantics and the manager's `??=` rebind
+  beyond what the consumer attach fixes. `_channelUserIds` moves to the decoder in A2
+  and is intentionally not cleared in this refactor; clearing it on `forgetChannel` or
+  `disconnect` is a separate change, so do not clear it mid-move.
+- The stringly-typed feed model: `ModActivityEntry.action` (`lib/models/moderation_entries.dart`),
+  `mod_activity_format.dart`, and `_activityIcon` in `mod_view.dart` stay string-based.
+  The consumer converts the enum back to the wire string.
+- 7TV, and renaming `EventSubService`.
 
 ## References
 
-- `~/dankchat` (Kotlin) and `~/chatsen` (Flutter): the shared principle is a
-  dependency-free protocol leaf plus a transport that emits frames and a decode layer
-  that produces domain events.
-- `~/ermchat`: the clean `main` reference for behavior.
-- `PLAN.md` is the live plan; `I18N.md` holds localization; `BACKLOG.md` holds
-  triage; `RULES.md` and `AGENTS.md` apply.
+- `lib/irc/`: the precedent for a pure protocol leaf, a transport that emits frames, and
+  a decode layer that produces domain events.
+- `lib/services/mod_actions.dart`: the single Helix action site, untouched.
+- `~/dankchat` and `~/chatsen`: the shared principle is a dependency-free protocol leaf
+  plus a transport that emits frames and a decode layer that produces domain events.
+- `PLAN.md` is the live plan; `I18N.md` holds localization; `BACKLOG.md` holds triage;
+  `RULES.md` and `AGENTS.md` apply.
