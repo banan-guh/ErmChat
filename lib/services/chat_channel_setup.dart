@@ -17,6 +17,7 @@ import '../irc/transport/events.dart'
 import '../irc/transport/read.dart' show IrcReadService;
 import '../irc/transport/write.dart' show IrcService;
 import 'emote_manager.dart';
+import 'chat_status_composer.dart';
 import 'seven_tv_event_client.dart';
 import 'twitch_api.dart';
 import 'twitch_auth.dart';
@@ -82,28 +83,26 @@ class ChatChannelSetup {
   bool _disposed = false;
   final _httpClient = http.Client();
 
+  // Chat status splash: ROOMSTATE mode tags plus periodic Helix stream info.
+  late final ChatStatusComposer _status = ChatStatusComposer(
+    twitchApi: twitchApi,
+    twitchAuth: twitchAuth,
+    chat: chat,
+    session: session,
+  );
+
   /// In-flight 7TV ID lookups by Twitch channel id. Concurrent joins for the
   /// same channel share one GET instead of each firing their own.
   final _sevenTvIdInflight =
       <String, Future<({String userId, String emoteSetId})?>>{};
 
-  // Room-mode tags per channel from ROOMSTATE (merged across partial
-  // updates); feeds the chat status splash. Stream info from the periodic
-  // Helix fetch is kept separately so ROOMSTATE recomposes don't lose it.
-  final _roomStateTags = <String, Map<String, String>>{};
-  final _streamStatusParts = <String, List<String>>{};
-  Timer? _chatStatusTimer;
-  final _chatStatusChannels = <String>{};
-  static const _chatStatusInterval = Duration(seconds: 30);
   // Channels a join-failure notice was displayed for. A later ROOMSTATE
   // confirmation clears the entry and announces the (late) success.
   final _joinFailureNotified = <String>{};
 
   void dispose() {
     _disposed = true;
-    _chatStatusTimer?.cancel();
-    _chatStatusTimer = null;
-    _chatStatusChannels.clear();
+    _status.dispose();
     // Release any anonymous channel-user-ID waiters so their timeout timers
     // don't outlive the manager (and don't trip widget-test teardown).
     for (final waiters in _roomIdWaiters.values) {
@@ -125,7 +124,7 @@ class ChatChannelSetup {
   /// Copy of the merged ROOMSTATE tags for a channel (slow, followers-only,
   /// emote-only, subs-only, r9k). Powers the Mod View mode toggles.
   Map<String, String> roomStateTags(String channel) =>
-      Map.of(_roomStateTags[channel] ?? const {});
+      _status.roomStateTags(channel);
 
   /// Failure state is per socket lifetime: the fresh socket runs its own fast
   /// sweep, so it may legitimately fail (and re-announce) again.
@@ -151,102 +150,9 @@ class ChatChannelSetup {
 
   /// Seconds of the channel's current slow mode from the merged ROOMSTATE
   /// tags; 0 when off (missing/empty/0 all mean off).
-  int slowModeSeconds(String channel) =>
-      int.tryParse(_roomStateTags[channel]?['slow'] ?? '') ?? 0;
+  int slowModeSeconds(String channel) => _status.slowModeSeconds(channel);
 
-  Future<void> fetchChatStatus(String channel) async {
-    final auth = twitchAuth;
-    if (!auth.isConfigured) return;
-
-    final userId = chat.channelFor(channel)?.info.broadcasterId;
-    if (userId == null || session.userId == null) return;
-
-    // Timer-driven: a network blip (or the client being closed in dispose)
-    // must not surface as an unhandled async exception every 60s per channel.
-    final Map<String, dynamic>? stream;
-    try {
-      stream = await twitchApi.getStreamInfo(auth, userId);
-    } catch (e) {
-      logDebug('[ChatConn] fetchChatStatus failed for $channel: $e');
-      return;
-    }
-    _applyStreamStatus(channel, stream);
-  }
-
-  Future<void> fetchAllChatStatus() async {
-    final auth = twitchAuth;
-    if (!auth.isConfigured) return;
-    final ids = <String>[];
-    for (final channel in _chatStatusChannels) {
-      final userId = chat.channelFor(channel)?.info.broadcasterId;
-      if (userId != null) ids.add(userId);
-    }
-    if (ids.isEmpty) return;
-    Map<String, Map<String, dynamic>> streams;
-    try {
-      streams = await twitchApi.getStreams(auth, ids);
-    } catch (e) {
-      logDebug('[ChatConn] fetchAllChatStatus failed: $e');
-      return;
-    }
-    for (final channel in _chatStatusChannels) {
-      final userId = chat.channelFor(channel)?.info.broadcasterId;
-      _applyStreamStatus(channel, userId != null ? streams[userId] : null);
-    }
-  }
-
-  void _applyStreamStatus(String channel, Map<String, dynamic>? stream) {
-    final parts = <String>[];
-    if (stream != null && stream['type'] == 'live') {
-      final viewers = stream['viewer_count'] ?? 0;
-      final started = stream['started_at'] as String?;
-      if (started != null) {
-        final dur = DateTime.now().difference(DateTime.parse(started));
-        final h = dur.inHours;
-        final m = dur.inMinutes.remainder(60);
-        parts.add('Live with $viewers viewers for ${h}h ${m}m');
-      } else {
-        parts.add('Live with $viewers viewers');
-      }
-    }
-    _streamStatusParts[channel] = parts;
-    _composeChatStatus(channel);
-  }
-
-  // Room modes come from ROOMSTATE (instant, broadcast to everyone on IRC);
-  // this replaces the old Helix getChatSettings polling.
-  void _composeChatStatus(String channel) {
-    final parts = <String>[];
-    final tags = _roomStateTags[channel];
-    if (tags != null) {
-      final slow = int.tryParse(tags['slow'] ?? '') ?? 0;
-      if (slow > 0) parts.add('Slow (${slow}s)');
-      final followers = tags['followers-only'];
-      if (followers != null && followers != '-1') {
-        parts.add(
-          followers == '0'
-              ? 'Followers-only'
-              : 'Followers-only (${followers}m)',
-        );
-      }
-      if (tags['emote-only'] == '1') parts.add('Emote-only');
-      if (tags['subs-only'] == '1') parts.add('Subscribers-only');
-      if (tags['r9k'] == '1') parts.add('Unique chat');
-    }
-    parts.addAll(_streamStatusParts[channel] ?? const []);
-    final newStatus = parts.isNotEmpty ? parts.join(' · ') : '';
-    chat.channelFor(channel)?.info.setStatus(newStatus);
-  }
-
-  void stopChatStatusTimer(String channel) {
-    _chatStatusChannels.remove(channel);
-    if (_chatStatusChannels.isEmpty) {
-      _chatStatusTimer?.cancel();
-      _chatStatusTimer = null;
-    }
-    _roomStateTags.remove(channel);
-    _streamStatusParts.remove(channel);
-  }
+  void stopChatStatusTimer(String channel) => _status.stopFor(channel);
 
   // ---- Subscriptions -------------------------------------------------------
 
@@ -315,16 +221,7 @@ class ChatChannelSetup {
       logDebug('[ChatConn] subscribeChannel failed for $channelName');
     }
     connectionStateNotifier.value++;
-    fetchChatStatus(channelName);
-    _chatStatusChannels.add(channelName);
-    _startChatStatusTimer();
-  }
-
-  void _startChatStatusTimer() {
-    _chatStatusTimer ??= Timer.periodic(
-      _chatStatusInterval,
-      (_) => fetchAllChatStatus(),
-    );
+    _status.startFor(channelName);
   }
 
   void subscribeAll(List<String> channels) {
@@ -407,7 +304,7 @@ class ChatChannelSetup {
     String channel, {
     Duration timeout = const Duration(seconds: 10),
   }) async {
-    final existing = _roomStateTags[channel]?['room-id'];
+    final existing = roomStateTags(channel)['room-id'];
     if (existing != null && existing.isNotEmpty) return existing;
     final completer = Completer<String?>();
     _roomIdWaiters.putIfAbsent(channel, () => []).add(completer);
@@ -434,12 +331,7 @@ class ChatChannelSetup {
     if (_joinFailureNotified.remove(event.channel)) {
       onSystemMessage(event.channel, 'Joined #${event.channel}.');
     }
-    // ROOMSTATE updates are partial (only the changed tags): merge with
-    // the previous state before recomposing the status splash.
-    _roomStateTags[event.channel] = {
-      ...?_roomStateTags[event.channel],
-      ...event.tags,
-    };
+    _status.onRoomState(event.channel, event.tags);
     final roomId = event.tags['room-id'];
     if (roomId != null && roomId.isNotEmpty) {
       final waiters = _roomIdWaiters.remove(event.channel);
@@ -449,7 +341,6 @@ class ChatChannelSetup {
         }
       }
     }
-    _composeChatStatus(event.channel);
     return true;
   }
 
