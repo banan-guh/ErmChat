@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../third_party/flutter_list_view/flutter_list_view.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../providers/app_providers.dart';
+import '../providers/feature_providers.dart';
 import '../models/generic_emote.dart';
 import '../models/twitch_message.dart';
 import '../util/haptics.dart';
@@ -75,7 +76,6 @@ class HomeScreen extends ConsumerStatefulWidget {
   // "connecting" state instead of hitting the gated spinner.
   static bool disableJoinSpinner = false;
 
-  final TwitchAuth twitchAuth;
   final ValueChanged<ThemeMode> onThemeChanged;
   final ValueChanged<bool>? onKeepScreenOnChanged;
   final ValueChanged<bool>? onTrueDarkChanged;
@@ -84,7 +84,6 @@ class HomeScreen extends ConsumerStatefulWidget {
 
   const HomeScreen({
     super.key,
-    required this.twitchAuth,
     required this.onThemeChanged,
     this.onKeepScreenOnChanged,
     this.onTrueDarkChanged,
@@ -127,11 +126,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   final _linkWhitelist = LinkWhitelist.instance;
 
-  late final _analytics = AnalyticsService(
-    emoteLookup: (channel, senderTwitchId) =>
-        _emoteManager.byCodeForSender(channel, senderTwitchId),
-  );
-  final _ttsController = TtsController();
+  AnalyticsService get _analytics => ref.read(analyticsServiceProvider);
+  TtsController get _ttsController => ref.read(ttsControllerProvider);
 
   Chat? _chatCache;
   Chat get _chat {
@@ -143,6 +139,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   Session get _session {
     _sessionCache ??= ref.read(sessionProvider);
     return _sessionCache!;
+  }
+
+  TwitchAuth? _twitchAuthCache;
+  TwitchAuth get _twitchAuth {
+    _twitchAuthCache ??= ref.read(twitchAuthProvider);
+    return _twitchAuthCache!;
   }
 
   // Session announces pipeline-resolved identity; the app refreshes the
@@ -167,7 +169,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         emoteManager: _emoteManager,
         badgeService: _badgeService,
         userStore: _userStore,
-        twitchAuth: widget.twitchAuth,
+        twitchAuth: _twitchAuth,
         pingManager: _pingManager,
         ignoreManager: _ignoreManager,
         joinBudget: _joinBudget,
@@ -230,11 +232,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     return out;
   }
 
-  late final _modActions = ModActions(
-    twitchApi: _twitchApi,
-    getChannelUserIds: _channelUserIds,
-    getCurrentUserId: () => _session.userId,
-  );
+  ModActions get _modActions => ref.read(modActionsProvider);
   late final _commandHandler = CommandHandler(
     twitchApi: _twitchApi,
     irc: ref.read(ircServiceProvider),
@@ -256,7 +254,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     onNotice: _chatNotice.show,
   );
 
-  final _notificationService = NotificationService();
+  NotificationService get _notificationService =>
+      ref.read(notificationServiceProvider);
   StreamSubscription<String>? _notificationTapSub;
   bool _backgroundService = false;
   bool _mentionPush = false;
@@ -287,7 +286,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   bool _blocksFetched = false;
   final _scrollControllers = <String, FlutterListViewController>{};
   final _atBottomNotifiers = <String, ValueNotifier<bool>>{};
-  final _chatNotice = ChatNoticeController();
+  ChatNoticeController get _chatNotice => ref.read(chatNoticeProvider);
 
   late final _broadcastWidgets = BroadcastWidgets(
     selectedChannel: () => _selectedChannel,
@@ -367,7 +366,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   late final ComposerController _composer = ComposerController(
     chatConn: _chatConn,
     commandHandler: _commandHandler,
-    twitchAuth: widget.twitchAuth,
+    twitchAuth: _twitchAuth,
     emoteManager: _emoteManager,
     userStore: _userStore,
     chat: _chat,
@@ -414,7 +413,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   }
 
   late final _menus = MessageMenus(
-    twitchAuth: widget.twitchAuth,
+    twitchAuth: _twitchAuth,
     chatConn: _chatConn,
     modActions: _modActions,
     host: this,
@@ -444,7 +443,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     chat: _chat,
     chatConn: _chatConn,
     twitchApi: _twitchApi,
-    twitchAuth: widget.twitchAuth,
+    twitchAuth: _twitchAuth,
     modActions: _modActions,
     emoteManager: _emoteManager,
     messageBuilder: _messageBuilder,
@@ -500,7 +499,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     chat: _chat,
     session: _session,
     chatConn: _chatConn,
-    twitchAuth: widget.twitchAuth,
+    twitchAuth: _twitchAuth,
     mentionsTab: () => _mentionsTabCtrl,
     composer: _composer,
     messageBuilder: _messageBuilder,
@@ -516,7 +515,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     panelManager: _panelManager,
     chat: _chat,
     chatConn: _chatConn,
-    twitchAuth: widget.twitchAuth,
+    twitchAuth: _twitchAuth,
     modActions: _modActions,
     modTab: () => _modTabCtrl,
     composer: _composer,
@@ -536,7 +535,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     chat: _chat,
     chatConn: _chatConn,
     networkBusy: _networkBusy,
-    twitchAuth: widget.twitchAuth,
+    twitchAuth: _twitchAuth,
     streamPlayer: _streamPlayer,
     uploadController: _uploadController,
     mentions: _mentions,
@@ -550,7 +549,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     tileCache: _tileCache,
     messageBuilder: _messageBuilder,
     linkWhitelist: _linkWhitelist,
-    twitchAuth: widget.twitchAuth,
+    twitchAuth: _twitchAuth,
     paintService: _sevenTvPaintService,
     selectedTabIndex: _selectedTabIndex,
     userSheets: _userSheets,
@@ -578,7 +577,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     chatConn: _chatConn,
     irc: ref.read(ircServiceProvider),
     ircRead: ref.read(ircReadServiceProvider),
-    twitchAuth: widget.twitchAuth,
+    twitchAuth: _twitchAuth,
     emoteManager: _emoteManager,
     badgeService: _badgeService,
     analytics: _analytics,
@@ -601,7 +600,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   late final _emotes = EmoteApplier(
     emoteManager: _emoteManager,
     twitchApi: _twitchApi,
-    twitchAuth: widget.twitchAuth,
+    twitchAuth: _twitchAuth,
     chat: _chat,
     badgeService: _badgeService,
     connectivityService: _connectivityService,
@@ -786,7 +785,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       _emotes.reconcileTier();
     };
     _connectivityService.addListener(_connectivityListener!);
-    _badgeService.fetchGlobalBadges(widget.twitchAuth);
+    _badgeService.fetchGlobalBadges(_twitchAuth);
     _thirdPartyBadgeService.bindSevenTvEvents(_sevenTvClient);
     _sevenTvPaintService.bindSevenTvEvents(_sevenTvClient);
     _sevenTvEntitlementSub = _sevenTvClient.onEntitlement.listen(
@@ -794,7 +793,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     );
     unawaited(_thirdPartyBadgeService.fetchFfzBadges());
     unawaited(_thirdPartyBadgeService.fetchBttvBadges());
-    widget.twitchAuth.addListener(_onAuthChanged);
+    _twitchAuth.addListener(_onAuthChanged);
     _chatConn.connectionStateNotifier.addListener(_onConnectionChanged);
     WidgetsBinding.instance.addObserver(this);
     _predictiveBackHandler = PanelPredictiveBackHandler(
@@ -1101,7 +1100,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   Future<void> _ensureBlockedUsersLoaded() async {
     if (_blocksFetched) return;
-    final userId = widget.twitchAuth.userId;
+    final userId = _twitchAuth.userId;
     if (userId == null) {
       _blocksReady = true;
       _channelManager.loadChannels();
@@ -1110,7 +1109,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _blocksFetched = true;
     try {
       final blocked = await _twitchApi
-          .getBlockedUsers(widget.twitchAuth)
+          .getBlockedUsers(_twitchAuth)
           .timeout(const Duration(seconds: 5));
       _blockedLogins.addAll(blocked);
     } catch (e) {
@@ -1329,16 +1328,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   // priming run together so neither gates the other.
   void _startChatPipe() {
     _chatConn.connect();
-    _emoteManager.accessToken = widget.twitchAuth.accessToken;
-    _emoteManager.viewerTwitchId = widget.twitchAuth.userId;
+    _emoteManager.accessToken = _twitchAuth.accessToken;
+    _emoteManager.viewerTwitchId = _twitchAuth.userId;
     _emoteManager.preloadGlobalEmotes();
     unawaited(_emoteManager.loadViewerPersonalSevenTvSets());
   }
 
   void _onAuthChanged() {
     _mod.refreshOnData(null);
-    if (_session.login?.toLowerCase() !=
-        widget.twitchAuth.login?.toLowerCase()) {
+    if (_session.login?.toLowerCase() != _twitchAuth.login?.toLowerCase()) {
       // Account switched (or signed out): drop identity and account-scoped
       // chat state. The remaining resets are HomeScreen side effects.
       _session.clear();
@@ -1481,7 +1479,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     DataUsageStats.I.dispose();
     _chatConn.connectionStateNotifier.removeListener(_onConnectionChanged);
     _chatConn.dispose();
-    unawaited(_ttsController.shutdown());
     WidgetsBinding.instance.removeObserver(this);
     WidgetsBinding.instance.removeObserver(_predictiveBackHandler);
     _panelManager.dispose();
@@ -1493,7 +1490,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _linkWhitelist.removeListener(_onLinkWhitelistChanged);
     _streamPlayer.removeListener(_stream.onStreamPlayerChanged);
     _streamPlayer.dispose();
-    widget.twitchAuth.removeListener(_onAuthChanged);
+    _twitchAuthCache?.removeListener(_onAuthChanged);
     _mentionsTabCtrl.removeListener(_mentions.onMentionsTabChanged);
     _mentionsTabCtrl.dispose();
     _threadsTabCtrl.removeListener(_threads.onThreadsTabChanged);
@@ -1510,14 +1507,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     for (final n in _atBottomNotifiers.values) {
       n.dispose();
     }
-    _chatNotice.dispose();
     _tileCache.clear();
     _channelNotifier.removeListener(_syncChannelSubs);
     _chat.mentions.version.removeListener(_onMentionsContent);
     _dropChannelSubs();
     _session.version.removeListener(_onSessionApplied);
     _notificationTapSub?.cancel();
-    _notificationService.dispose();
     super.dispose();
   }
 
@@ -1602,7 +1597,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       context,
       MaterialPageRoute(
         builder: (_) => SettingsScreen(
-          twitchAuth: widget.twitchAuth,
+          twitchAuth: _twitchAuth,
           onThemeChanged: (mode) {
             _tileCache.clear();
             widget.onThemeChanged(mode);

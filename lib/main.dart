@@ -10,6 +10,7 @@ import 'package:flutter_riverpod/misc.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'providers/app_providers.dart';
+import 'providers/feature_providers.dart';
 import 'screens/home_screen.dart';
 import 'services/twitch_auth.dart';
 import 'eventsub/transport/connection.dart';
@@ -233,6 +234,7 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
   /// Test seams: a non-null widget field swaps the matching provider for the
   /// supplied fake so widget tests wire the app without real sockets.
   List<Override> get _providerOverrides => [
+    twitchAuthProvider.overrideWithValue(_twitchAuth),
     if (widget.eventSubService != null)
       eventSubServiceProvider.overrideWithValue(widget.eventSubService!),
     if (widget.ircService != null)
@@ -277,7 +279,6 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
         scaffoldMessengerKey: rootScaffoldMessengerKey,
         navigatorObservers: [_snackPopObserver],
         home: HomeScreen(
-          twitchAuth: _twitchAuth,
           onThemeChanged: _setThemeMode,
           onKeepScreenOnChanged: _setKeepScreenOn,
           onTrueDarkChanged: _setTrueDark,
