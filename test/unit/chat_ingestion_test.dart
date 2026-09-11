@@ -4,6 +4,7 @@ import 'package:ermchat/models/twitch_message.dart';
 import 'package:ermchat/chat/chat.dart';
 import 'package:ermchat/client/session.dart';
 import 'package:ermchat/services/chat_ingestion.dart';
+import 'package:ermchat/services/chat_sender.dart';
 import 'package:ermchat/services/emote_manager.dart';
 import 'package:ermchat/services/twitch_auth.dart';
 import 'package:ermchat/services/twitch_badge_service.dart';
@@ -16,23 +17,34 @@ void main() {
   ChatIngestion makeIngestion(EmoteManager emoteManager) {
     final irc = IrcService();
     final ircRead = IrcReadService();
+    final session = Session();
+    final auth = TwitchAuth();
+    final sender = ChatSender(
+      irc: irc,
+      session: session,
+      twitchAuth: auth,
+      onCommand: (_, _, _) {},
+      getReplyToMsg: () => null,
+      setReplyToMsg: (_) {},
+      onSystemMessage: (_, _) {},
+      slowModeSeconds: (_) => 0,
+      selfBadges: (_) => const {},
+    );
     return ChatIngestion(
       irc: irc,
       ircRead: ircRead,
       readDecoder: IrcChatDecoder(ircRead.onIrcMessage),
       chat: Chat(),
-      session: Session(),
+      session: session,
       userStore: UserStore(),
       emoteManager: emoteManager,
       badgeService: TwitchBadgeService(),
-      twitchAuth: TwitchAuth(),
-      lastSentWireText: {},
+      twitchAuth: auth,
+      sender: sender,
       mentionsChannel: '@mentions',
       getMaxMessagesPerChannel: () => 500,
       getSelectedChannel: () => null,
       isModerationActive: (_) => false,
-      onSelfTimeoutArmed: (_, _) {},
-      onSelfTimeoutCleared: (_) {},
       onSystemMessage: (_, _, {accent, messageId}) {},
     );
   }

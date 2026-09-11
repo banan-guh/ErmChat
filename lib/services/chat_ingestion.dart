@@ -14,9 +14,9 @@ import '../irc/decode/events.dart'
 import '../irc/message.dart' show IrcMessage;
 import '../irc/transport/read.dart' show IrcReadService;
 import '../irc/transport/write.dart' show IrcService;
-import '../util/text_bypass.dart';
 import '../chat/chat.dart';
 import '../client/session.dart';
+import 'chat_sender.dart';
 import 'emote_manager.dart';
 import 'ignore_manager.dart';
 import 'ping_manager.dart';
@@ -54,7 +54,7 @@ class ChatIngestion {
     required this.emoteManager,
     required this.badgeService,
     required this.twitchAuth,
-    required this.lastSentWireText,
+    required this.sender,
     this.ignoreManager,
     this.pingManager,
     required this.mentionsChannel,
@@ -64,8 +64,6 @@ class ChatIngestion {
     this.isBlocked,
     this.getSharedChatMode,
     required this.isModerationActive,
-    required this.onSelfTimeoutArmed,
-    required this.onSelfTimeoutCleared,
     required this.onSystemMessage,
     this.onAnalyticsMessage,
     this.onAnalyticsModeration,
@@ -82,7 +80,7 @@ class ChatIngestion {
   final EmoteManager emoteManager;
   final TwitchBadgeService badgeService;
   final TwitchAuth twitchAuth;
-  final Map<String, String> lastSentWireText;
+  final ChatSender sender;
   final IgnoreManager? ignoreManager;
   final PingManager? pingManager;
 
@@ -97,15 +95,6 @@ class ChatIngestion {
   /// channel; when true, IRC moderation echoes are suppressed in favor of
   /// the richer EventSub copies.
   final bool Function(String channel) isModerationActive;
-
-  /// Own timeouts arm the input-box cooldown.
-  final void Function(String channel, DateTime until) onSelfTimeoutArmed;
-
-  /// A successfully echoed own message proves the send was accepted; clear
-  /// any stale self-timeout gate so the input box stops showing a countdown
-  /// for a timeout Twitch already lifted (non-mods get no untimeout signal,
-  /// so this echo is the only reliable heal).
-  final void Function(String channel) onSelfTimeoutCleared;
 
   final void Function(
     String channel,
@@ -333,7 +322,7 @@ class ChatIngestion {
     if (selfLogin != null && user.toLowerCase() == selfLogin) {
       // Zero-length timeouts are already spent - don't arm a gate for them.
       if (isTimeout && duration != null && duration > 0) {
-        onSelfTimeoutArmed(
+        sender.armTimeout(
           channel,
           DateTime.now().add(Duration(seconds: duration)),
         );
@@ -423,22 +412,13 @@ class ChatIngestion {
         : null;
     if (channel == null || ircMsg.trailing == null) return;
 
-    // Re-sync lastSentWireText from the echo so it doesn't drift if the
-    // server modified the message (truncation, etc.). Skip commands since
-    // they are never compared by the bypass logic.
-    final original = ircMsg.trailing!;
-    final previous = lastSentWireText[channel];
-    if (previous != null &&
-        !previous.startsWith('.') &&
-        !previous.startsWith('/')) {
-      if (stripInvisibleSuffix(previous) != stripInvisibleSuffix(original)) {
-        lastSentWireText[channel] = original;
-      }
-    }
+    // Re-sync the bypass memory from the echo so it doesn't drift if the
+    // server modified the message (truncation, etc.).
+    sender.resyncWireText(channel, ircMsg.trailing!);
 
     // A successful echo means Twitch accepted the send - any self-timeout
     // gate still armed was for a timeout Twitch has since lifted. Clear it.
-    onSelfTimeoutCleared(channel);
+    sender.clearTimeout(channel);
 
     final msg = parseIrcChatMessage(
       ircMsg,

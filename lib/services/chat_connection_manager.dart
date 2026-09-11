@@ -27,15 +27,14 @@ import '../services/emote_providers/seven_tv_emotes.dart';
 import '../services/seven_tv_event_client.dart';
 import '../services/twitch_badge_service.dart';
 import '../services/user_store.dart';
-import '../services/command_macros.dart';
 import '../services/ping_manager.dart';
 import '../services/ignore_manager.dart';
 import '../services/chat_ingestion.dart';
 import '../services/chat_channel_setup.dart';
+import '../services/chat_sender.dart';
 import '../services/eventsub_consumer.dart';
 import '../chat/chat.dart';
 import '../client/session.dart';
-import '../util/text_bypass.dart';
 
 /// Services the chat pipeline depends on. Constructed once per screen and
 /// injectable for tests.
@@ -177,7 +176,6 @@ class ChatConnectionManager {
   final EmoteManager emoteManager;
   final Session session;
   final Chat chat;
-  final Map<String, String> lastSentWireText = {};
   final String mentionsChannel;
 
   /// Bumped on connection-phase / channel-ready / reply-clear changes so the
@@ -309,6 +307,26 @@ class ChatConnectionManager {
     eventSub.onNotification,
   );
 
+  // Outbound send path and its send gates.
+  late final ChatSender _sender = ChatSender(
+    irc: irc,
+    session: session,
+    twitchAuth: twitchAuth,
+    onCommand: onCommand,
+    getReplyToMsg: getReplyToMsg,
+    setReplyToMsg: setReplyToMsg,
+    onSystemMessage: (channel, text) => onSystemMessage(channel, text),
+    slowModeSeconds: (channel) => _channelSetup.slowModeSeconds(channel),
+    selfBadges: (channel) =>
+        readDecoder.selfBadges[channel] ??
+        readDecoder.selfBadges[null] ??
+        const <String>{},
+    getMacros: getMacros,
+    onBanner: onBanner,
+    onFocusComposer: onFocusComposer,
+    onSendStateChanged: () => connectionStateNotifier.value++,
+  );
+
   // EventSub subscription lifecycle: active/skip sets, subscribe paths,
   // resubscribe, and the gate predicates.
   late final EventSubTopics eventSubTopics = EventSubTopics(
@@ -329,12 +347,8 @@ class ChatConnectionManager {
     onHypeTrain: onHypeTrain,
     onPoll: onPoll,
     onPrediction: onPrediction,
-    onSelfTimeoutArmed: (channel, until) {
-      _selfTimeoutUntil[channel] = until;
-    },
-    onSelfTimeoutCleared: (channel) {
-      _selfTimeoutUntil.remove(channel);
-    },
+    onSelfTimeoutArmed: _sender.armTimeout,
+    onSelfTimeoutCleared: _sender.clearTimeout,
   );
 
   // Chat-content routing (PRIVMSG/CLEARMSG/CLEARCHAT/clears/own echo).
@@ -348,7 +362,7 @@ class ChatConnectionManager {
     emoteManager: emoteManager,
     badgeService: badgeService,
     twitchAuth: twitchAuth,
-    lastSentWireText: lastSentWireText,
+    sender: _sender,
     ignoreManager: ignoreManager,
     pingManager: pingManager,
     mentionsChannel: mentionsChannel,
@@ -358,12 +372,6 @@ class ChatConnectionManager {
     isBlocked: isBlocked,
     getSharedChatMode: getSharedChatMode,
     isModerationActive: (channel) => eventSubTopics.isModerationActive(channel),
-    onSelfTimeoutArmed: (channel, until) {
-      _selfTimeoutUntil[channel] = until;
-    },
-    onSelfTimeoutCleared: (channel) {
-      _selfTimeoutUntil.remove(channel);
-    },
     onSystemMessage: onSystemMessage,
     onAnalyticsMessage: onAnalyticsMessage,
     onAnalyticsModeration: onAnalyticsModeration,
@@ -462,6 +470,7 @@ class ChatConnectionManager {
     _ingestionSubs.clear();
     _ingestion.dispose();
     _channelSetup.dispose();
+    _sender.dispose();
     readDecoder.dispose();
     writeDecoder.dispose();
     eventSubConsumer.dispose();
@@ -495,7 +504,15 @@ class ChatConnectionManager {
 
   /// Drops per-channel subscription state (channel left); the next join
   /// re-subscribes from scratch.
-  void forgetChannel(String channel) => _channelSetup.forgetChannel(channel);
+  void forgetChannel(String channel) {
+    _sender.forgetChannel(channel);
+    _channelSetup.forgetChannel(channel);
+  }
+
+  /// Outbound send owner. Exposed for tests and for callers that need the
+  /// send verbs without going through the manager's delegators.
+  @visibleForTesting
+  ChatSender get sender => _sender;
 
   void maybeAddConnected(String channel) {
     if (irc.isConnected &&
@@ -503,36 +520,6 @@ class ChatConnectionManager {
         _connectedAcked.add(channel)) {
       onSystemMessage(channel, 'Connected');
     }
-  }
-
-  // Self send-gates per channel: when your latest timeout there expires and
-  // when you last sent a message (the slow-mode cooldown anchor).
-  final _selfTimeoutUntil = <String, DateTime>{};
-  final _lastOwnMessageAt = <String, DateTime>{};
-
-  // Extra window padded onto both send-gates so a send never slips out while
-  // Twitch still considers you blocked: second-granularity countdowns plus
-  // local/server clock drift can otherwise expire the gate early.
-  static const _sendGrace = Duration(milliseconds: 500);
-
-  // Badge set-ids that bypass slow mode on Twitch.
-  static const _slowExemptBadges = {
-    'broadcaster',
-    'moderator',
-    'vip',
-    'subscriber',
-    'founder',
-    'staff',
-    'admin',
-    'global_mod',
-  };
-
-  bool _bypassesSlowMode(String channel) {
-    final badges =
-        readDecoder.selfBadges[channel] ??
-        readDecoder.selfBadges[null] ??
-        const <String>{};
-    return badges.intersection(_slowExemptBadges).isNotEmpty;
   }
 
   /// Seconds of the channel's current slow mode from the merged ROOMSTATE
@@ -555,35 +542,13 @@ class ChatConnectionManager {
       _channelSetup.roomStateTags(channel);
 
   /// Seconds left on your timeout in [channel], null when none is active.
-  /// Ceil-rounded over the padded window, so the display starts one second
-  /// high and the gate outlives the raw expiry by the send grace.
-  int? remainingSelfTimeout(String channel) {
-    final until = _selfTimeoutUntil[channel];
-    if (until == null) return null;
-    final left = until.add(_sendGrace).difference(DateTime.now());
-    if (left <= Duration.zero) {
-      _selfTimeoutUntil.remove(channel);
-      return null;
-    }
-    return (left.inMilliseconds / 1000).ceil();
-  }
+  int? remainingSelfTimeout(String channel) =>
+      _sender.remainingSelfTimeout(channel);
 
   /// Seconds left before you may send again in [channel] under slow mode,
-  /// measured from your own last message. Null when slow mode is off, your
-  /// badges bypass it, or the window has elapsed. Ceil-rounded like
-  /// [remainingSelfTimeout].
-  int? remainingSlowCooldown(String channel) {
-    final slow = slowModeSeconds(channel);
-    if (slow <= 0 || _bypassesSlowMode(channel)) return null;
-    final sentAt = _lastOwnMessageAt[channel];
-    if (sentAt == null) return null;
-    final left = sentAt
-        .add(Duration(seconds: slow))
-        .add(_sendGrace)
-        .difference(DateTime.now());
-    if (left <= Duration.zero) return null;
-    return (left.inMilliseconds / 1000).ceil();
-  }
+  /// null when none is active.
+  int? remainingSlowCooldown(String channel) =>
+      _sender.remainingSlowCooldown(channel);
 
   Future<void> subscribeChannel(String channelName) async {
     // Clear stale readiness so a re-subscribe re-earns its JOIN confirm.
@@ -693,62 +658,7 @@ class ChatConnectionManager {
     String text,
     String channel, {
     TwitchMessage? replyTo,
-  }) async {
-    final auth = twitchAuth;
-    final reply = replyTo ?? getReplyToMsg();
-
-    // Local macro triggers expand before anything else: a macro may resolve
-    // to a slash command or plain chat text alike.
-    final macros = getMacros?.call();
-    if (macros != null && macros.isNotEmpty) {
-      final expanded = expandMacro(text, macros);
-      if (expanded != null) {
-        text = expanded;
-        onFocusComposer?.call();
-      }
-    }
-
-    if (text.startsWith('/')) {
-      onCommand(text, channel, auth);
-      onFocusComposer?.call();
-      return;
-    }
-
-    if (isDisposed) return;
-    setReplyToMsg(null);
-    connectionStateNotifier.value++;
-    onFocusComposer?.call();
-
-    final userLogin = session.login;
-    if (userLogin == null) {
-      onBanner?.call('Connect an account to chat');
-      return;
-    }
-
-    // Twitch rejects duplicate messages. Mirror DankChat: when the text equals
-    // the last wire text we actually sent, toggle a trailing invisible-char
-    // suffix on/off so consecutive sends differ on the wire yet look identical.
-    // The suffix never accumulates.
-    final wireText = bypassTextDuplicate(text, lastSentWireText[channel]);
-    lastSentWireText[channel] = wireText;
-
-    // Send via the write IRC socket (mirror DankChat). The write socket also
-    // JOINs its channels (required to receive their traffic), but a PRIVMSG is
-    // valid the moment the socket is up, so there is no join window to gate
-    // sends on. The echo of our own message arrives on the read socket, not
-    // here. No Helix fallback: if the write socket is down the message cannot
-    // be sent, so we surface a notice instead of silently dropping it.
-    _lastOwnMessageAt[channel] = DateTime.now();
-    if (irc.isConnected) {
-      irc.sendMessage(
-        channel,
-        wireText,
-        replyParentMessageId: reply?.messageId,
-      );
-    } else {
-      onSystemMessage(channel, 'Not connected: message not sent');
-    }
-  }
+  }) => _sender.send(text, channel, replyTo: replyTo);
 
   /// Retires the channel's countdown line (if shown) via a null progress
   /// emit, so the UI removes the row.
@@ -1178,13 +1088,11 @@ class ChatConnectionManager {
         _connectedAcked.clear();
         _lastSubscribeAll = null;
         readDecoder.clearSelfBadges();
-        _selfTimeoutUntil.clear();
+        _sender.clearAccountScope();
         // The queue belongs to the old account's moderation scope.
         for (final name in chat.names) {
           chat.channelFor(name)?.moderation.clearHeld();
         }
-        _lastOwnMessageAt.clear();
-        lastSentWireText.clear();
         // Make the new socket take the full connect edge (history backfill,
         // Helix re-subscriptions, Connected lines) even though no user-facing
         // disconnected status was emitted for this deliberate swap. Only for

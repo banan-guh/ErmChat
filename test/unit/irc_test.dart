@@ -2849,7 +2849,7 @@ void main() {
       irc.handleLine('@room-id=1 :tmi.twitch.tv ROOMSTATE #test');
       await Future<void>.delayed(Duration.zero);
       conn.readDecoder.selfBadges['test'] = {'moderator'};
-      conn.lastSentWireText['test'] = 'seed';
+      conn.sender.seedWireText('test', 'seed');
       await conn.doSendMessage('hi', 'test');
       expect(irc.sent.single.$1, 'alice', reason: 'baseline send as alice');
 
@@ -2865,7 +2865,7 @@ void main() {
         isEmpty,
         reason: "alice's badges must not bypass bob's slow mode",
       );
-      expect(conn.lastSentWireText, isEmpty);
+      expect(conn.sender.hasWireText, isFalse);
 
       // The new socket is up but #test is not re-joined yet. The write socket
       // never JOINs, so a send rides it directly as bob (no Helix, no JOIN).

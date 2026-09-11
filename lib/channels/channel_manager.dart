@@ -375,7 +375,6 @@ class ChannelManager {
     emoteManager.evictChannel(channel);
     badgeService.clearChannel(channel);
     chat.channelFor(channel)?.moderation.clearHeld();
-    chatConn.lastSentWireText.remove(channel);
     broadcastWidgets.clearChannel(channel);
     // Same-frame cache clears first so no stale tile survives the unmount.
     tileCache.remove(channel);
