@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'package:flutter/widgets.dart';
-import '../models/generic_emote.dart';
 import '../util/log.dart';
 import '../models/twitch_message.dart';
 import '../services/twitch_api.dart';
@@ -23,7 +22,6 @@ import '../irc/transport/read.dart' show IrcReadService;
 import '../irc/transport/write.dart' show IrcService;
 import '../services/emote_manager.dart';
 import '../services/join_rate_limiter.dart';
-import '../services/emote_providers/seven_tv_emotes.dart';
 import '../services/seven_tv_event_client.dart';
 import '../services/twitch_badge_service.dart';
 import '../services/user_store.dart';
@@ -33,6 +31,7 @@ import '../services/chat_ingestion.dart';
 import '../services/chat_channel_setup.dart';
 import '../services/chat_sender.dart';
 import '../services/eventsub_consumer.dart';
+import '../services/seven_tv_consumer.dart';
 import '../chat/chat.dart';
 import '../client/session.dart';
 
@@ -351,6 +350,13 @@ class ChatConnectionManager {
     onSelfTimeoutCleared: _sender.clearTimeout,
   );
 
+  // 7TV event consumption: socket events applied to the emote manager.
+  late final SevenTvConsumer _sevenTvConsumer = SevenTvConsumer(
+    emoteManager: emoteManager,
+    sevenTvClient: sevenTvClient,
+    onSystemMessage: onSystemMessage,
+  );
+
   // Chat-content routing (PRIVMSG/CLEARMSG/CLEARCHAT/clears/own echo).
   late final ChatIngestion _ingestion = ChatIngestion(
     irc: irc,
@@ -408,9 +414,6 @@ class ChatConnectionManager {
   StreamSubscription<TwitchMessage>? whisperSub;
   StreamSubscription<UserNoticeEvent>? userNoticeSub;
   StreamSubscription<(String?, List<String>)>? emoteSetsSub;
-  StreamSubscription<SevenTvEmoteUpdateEvent>? sevenTvEmoteSub;
-  StreamSubscription<SevenTvUserUpdate>? sevenTvUserSub;
-  StreamSubscription<SevenTvPersonalSetEvent>? sevenTvPersonalSub;
   StreamSubscription<IrcConnectionStatus>? ircStatusSub;
   StreamSubscription<IrcConnectionStatus>? ircReadStatusSub;
   StreamSubscription<void>? ircAuthFailedSub;
@@ -474,15 +477,13 @@ class ChatConnectionManager {
     readDecoder.dispose();
     writeDecoder.dispose();
     eventSubConsumer.dispose();
+    _sevenTvConsumer.dispose();
     eventSubDecoder.dispose();
     statusSub?.cancel();
     ircNoticeSub?.cancel();
     ircJtvSub?.cancel();
     ircJoinFailedSub?.cancel();
     emoteSetsSub?.cancel();
-    sevenTvEmoteSub?.cancel();
-    sevenTvUserSub?.cancel();
-    sevenTvPersonalSub?.cancel();
     ircStatusSub?.cancel();
     ircReadStatusSub?.cancel();
     ircReadRoomStateSub?.cancel();
@@ -582,76 +583,6 @@ class ChatConnectionManager {
           })
           .whenComplete(() => _currentUserFetch = null);
     }();
-  }
-
-  void _onSevenTvEmoteSetUpdate(SevenTvEmoteUpdateEvent event) {
-    final channel = emoteManager.getChannelForSevenTvEmoteSet(event.emoteSetId);
-    if (channel == null) {
-      // Foreign personal set (or untracked): contents only matter with a
-      // grant mapping, which the manager checks before applying.
-      emoteManager.applyForeignPersonalSetUpdate(
-        setId: event.emoteSetId,
-        added: event.added
-            .map(
-              (e) =>
-                  SevenTvEmoteProvider.parseSingleEmote(e.raw, personal: true),
-            )
-            .whereType<GenericEmote>()
-            .toList(),
-        removedIds: event.removed.map((e) => e.id).toList(),
-        renamed: {for (final r in event.renamed) r.id: r.newName},
-      );
-      return;
-    }
-
-    final added = event.added
-        .map((e) => SevenTvEmoteProvider.parseSingleEmote(e.raw, channel: true))
-        .whereType<GenericEmote>()
-        .toList();
-    final removedIds = event.removed.map((e) => e.id).toList();
-    final renamed = <String, ({String newName, String oldName})>{};
-    for (final r in event.renamed) {
-      renamed[r.id] = (newName: r.newName, oldName: r.oldName);
-    }
-
-    emoteManager.updateSevenTvEmotes(
-      channel,
-      added: added,
-      removedIds: removedIds,
-      renamed: renamed,
-    );
-
-    final actor = event.actor ?? 'A user';
-    for (final e in event.added) {
-      onSystemMessage(channel, '$actor added 7TV Emote ${e.name}.');
-    }
-    for (final e in event.removed) {
-      onSystemMessage(channel, '$actor removed 7TV Emote ${e.name}.');
-    }
-    for (final e in event.renamed) {
-      onSystemMessage(
-        channel,
-        '$actor renamed 7TV Emote ${e.oldName} to ${e.newName}.',
-      );
-    }
-  }
-
-  void _onSevenTvUserUpdate(SevenTvUserUpdate event) {
-    final channel = emoteManager.getChannelForSevenTvEmoteSet(
-      event.oldEmoteSetId,
-    );
-    if (channel == null) return;
-    if (event.oldEmoteSetId.isNotEmpty) {
-      sevenTvClient?.unsubscribeEmoteSet(event.oldEmoteSetId);
-    }
-    sevenTvClient?.subscribeEmoteSet(event.newEmoteSetId);
-    emoteManager.setSevenTvEmoteSetId(channel, event.newEmoteSetId);
-    // Pull the new set's contents: subscribing alone leaves the old set
-    // rendering until restart.
-    unawaited(emoteManager.reconcileSevenTvChannel(channel));
-
-    final actor = event.actor ?? 'A user';
-    onSystemMessage(channel, '$actor switched the active 7TV Emote Set.');
   }
 
   Future<void> doSendMessage(
@@ -1396,18 +1327,7 @@ class ChatConnectionManager {
 
     eventSubConsumer.attach(eventSubDecoder);
 
-    if (sevenTvClient != null) {
-      sevenTvEmoteSub?.cancel();
-      sevenTvEmoteSub = sevenTvClient!.onEmoteSetUpdate.listen(
-        _onSevenTvEmoteSetUpdate,
-      );
-      sevenTvUserSub?.cancel();
-      sevenTvUserSub = sevenTvClient!.onUserUpdate.listen(_onSevenTvUserUpdate);
-      sevenTvPersonalSub?.cancel();
-      sevenTvPersonalSub = sevenTvClient!.onPersonalSet.listen(
-        (event) => emoteManager.trackForeignPersonalSet(event.setId),
-      );
-    }
+    _sevenTvConsumer.attach();
   }
 
   // Chat-content routing lives in [ChatIngestion]; kept as delegators so
