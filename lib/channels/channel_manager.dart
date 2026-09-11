@@ -284,7 +284,7 @@ class ChannelManager {
   }
 
   void removeLoadingHistoryMessage(String channel) {
-    chat.channelFor(channel)?.messages.removeLoadingHistory();
+    chat.channelFor(channel)?.removeLoadingHistory();
   }
 
   // "Connected" is emitted as soon as IRC is up, which is usually before
@@ -316,7 +316,7 @@ class ChannelManager {
     saveChannels();
     composer.focus();
 
-    chat.channelFor(name)?.messages.addSystem('Loading chat history...');
+    chat.channelFor(name)?.addLoadingHistory();
 
     recentMessages
         .fetchRecentPreferWarm(name, limit: host.recentMessagesLimit)

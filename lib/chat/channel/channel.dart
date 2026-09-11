@@ -124,6 +124,15 @@ class Channel {
 
   bool moveConnectedToTop() => messages.moveConnectedToTop();
 
+  /// Adds the loading-history line with a stable id so removal is exact.
+  void addLoadingHistory() => messages.addSystem(
+    'Loading chat history...',
+    messageId: Messages.loadingHistoryId,
+  );
+
+  /// Removes the loading-history line by its stable id.
+  bool removeLoadingHistory() => messages.removeLoadingHistory();
+
   /// Single writer for the history-loaded flag.
   void setHistoryLoaded(bool loaded) => info.setHistoryLoaded(loaded);
 

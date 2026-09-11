@@ -44,13 +44,14 @@ tests unless noted.
   `EmoteMenuPanelWidget` is a `ConsumerState` that reads `emoteManagerProvider`. Kernel
   leaf notifiers and per-widget controllers stay on the sanctioned `Listenable` path.
   `LinkWhitelist` and the screen-owned channel notifier are not provider-owned and stay.
-- **Phase 4 (chat cleanups): partial.** `Channel.setHistoryLoaded` and
+- **Phase 4 (chat cleanups): done.** `Channel.setHistoryLoaded` and
   `Channel.clearHeldModeration` funnel the two multi-writer states, and
-  `retryChannelData` moved to `ChatChannelSetup`. The connection-status stable-id rewrite
-  is deferred: the current fold renders several connection lines (the boot "Connected"
-  survives alongside "Reconnected"), so a single upserted line would change rendering and
-  break `widgets_test.dart` and `messages_test.dart`. A stable id for the loading-history
-  row is still safe. Moderation-copy unification is not started.
+  `retryChannelData` moved to `ChatChannelSetup`. The connection-status wart is fixed by
+  keying rows to stable `sys_conn:<state>` ids (and `sys_loading`) instead of matching
+  copy; the fold and row count are unchanged, so rendering is identical. Direct child
+  writes are gone: `Channel.addLoadingHistory`/`removeLoadingHistory`/`moveConnectedToTop`
+  are the kernel verbs. Moderation-copy unification is done (shared formatter used by the
+  IRC and EventSub paths).
 - **Phase 5 (ring buffer): not started.** Low priority given the mutable benchmark.
 - **Phase 6 (kernel re-evaluation): resolved as keep the engine.**
 - **This session (durability pass).** Providerized `BroadcastWidgets` and

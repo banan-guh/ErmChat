@@ -331,4 +331,28 @@ void main() {
       expect(a.items.length, 5);
     });
   });
+
+  group('status lines are id-keyed', () {
+    test('moveConnectedToTop finds a renamed connect row by id', () {
+      final chat = Chat();
+      addTearDown(chat.dispose);
+      final messages = chat.ensure('test').messages;
+      messages.addSystem('Connected');
+      messages.addSystem('hello');
+      // A copy change must not break the lookup: identity is the stable id.
+      messages.items.last.text = 'Renamed';
+      expect(messages.moveConnectedToTop(), isTrue);
+      expect(messages.items.first.text, 'Renamed');
+    });
+
+    test('removeLoadingHistory removes a renamed loading row by id', () {
+      final chat = Chat();
+      addTearDown(chat.dispose);
+      final channel = chat.ensure('test');
+      channel.addLoadingHistory();
+      channel.messages.items.first.text = 'Renamed';
+      expect(channel.removeLoadingHistory(), isTrue);
+      expect(channel.messages.items, isEmpty);
+    });
+  });
 }

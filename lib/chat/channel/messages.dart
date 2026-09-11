@@ -77,16 +77,25 @@ class Messages {
   /// Per-thread member cap applied during truncation.
   static const maxPinnedThreadMembers = 20;
 
-  static const _statusTexts = {
-    'Connected',
-    'Connected to IRC',
-    'Disconnected',
-    'Reconnected',
-    'Chat reconnecting...',
+  /// Connect-state rows carry a stable `sys_conn:<state>` id, so folding and
+  /// lookup never match on user-visible copy. The map keys the incoming status
+  /// text to its state.
+  static const _connIdPrefix = 'sys_conn:';
+  static const _statusStateByText = {
+    'Connected': 'connected',
+    'Connected to IRC': 'connected',
+    'Disconnected': 'disconnected',
+    'Reconnected': 'reconnected',
+    'Chat reconnecting...': 'reconnecting',
   };
 
-  static const _loadingHistoryText = 'Loading chat history...';
+  /// Stable id for the loading-history row.
+  static const loadingHistoryId = 'sys_loading';
   static const _gapNoteText = 'History: Not all messages retrieved';
+
+  static String _connId(String state) => '$_connIdPrefix$state';
+  static bool _isConnRow(TwitchMessage m) =>
+      m.isSystem && (m.messageId?.startsWith(_connIdPrefix) ?? false);
 
   // ---- Reads ---------------------------------------------------------------
 
@@ -227,25 +236,27 @@ class Messages {
       return false;
     }
 
-    if (_statusTexts.contains(text)) {
-      if (text == 'Connected' || text == 'Connected to IRC') {
-        final hasPriorStatus = _items.any(
-          (m) => m.isSystem && _statusTexts.contains(m.text),
-        );
+    final state = _statusStateByText[text];
+    if (state != null) {
+      var resolved = state;
+      if (resolved == 'connected') {
+        final hasPriorStatus = _items.any(_isConnRow);
+        resolved = hasPriorStatus ? 'reconnected' : 'connected';
         text = hasPriorStatus ? 'Reconnected' : 'Connected';
       }
       final top = _items.isEmpty ? null : _items.first;
-      if (text == 'Reconnected') {
+      if (resolved == 'reconnected') {
         var newestRecovery = -1;
         var newestOutage = -1;
         for (var i = 0; i < _items.length; i++) {
           final m = _items[i];
-          if (!m.isSystem) continue;
-          if (newestRecovery == -1 && m.text == 'Reconnected') {
+          if (!_isConnRow(m)) continue;
+          if (newestRecovery == -1 && m.messageId == _connId('reconnected')) {
             newestRecovery = i;
           }
           if (newestOutage == -1 &&
-              (m.text == 'Disconnected' || m.text == 'Chat reconnecting...')) {
+              (m.messageId == _connId('disconnected') ||
+                  m.messageId == _connId('reconnecting'))) {
             newestOutage = i;
           }
           if (newestRecovery != -1 && newestOutage != -1) break;
@@ -257,25 +268,31 @@ class Messages {
         _items.removeWhere(
           (m) =>
               m.isSystem &&
-              (m.text == 'Disconnected' || m.text == 'Chat reconnecting...'),
+              (m.messageId == _connId('disconnected') ||
+                  m.messageId == _connId('reconnecting')),
         );
-      } else if (text == 'Disconnected' || text == 'Chat reconnecting...') {
-        if (text == 'Chat reconnecting...') {
+      } else if (resolved == 'disconnected' || resolved == 'reconnecting') {
+        if (resolved == 'reconnecting') {
           final hasDisconnected = _items.any(
-            (m) => m.isSystem && m.text == 'Disconnected',
+            (m) => m.isSystem && m.messageId == _connId('disconnected'),
           );
           if (hasDisconnected) return false;
-          if (top != null && top.isSystem && top.text == text) return false;
+          if (top != null && top.messageId == _connId('reconnecting')) {
+            return false;
+          }
         } else {
-          if (top != null && top.isSystem && top.text == text) return false;
+          if (top != null && top.messageId == _connId('disconnected')) {
+            return false;
+          }
           _items.removeWhere(
-            (m) => m.isSystem && m.text == 'Chat reconnecting...',
+            (m) => m.isSystem && m.messageId == _connId('reconnecting'),
           );
         }
       }
+      messageId = _connId(resolved);
     }
 
-    if (messageId == null && !_statusTexts.contains(text)) {
+    if (messageId == null && state == null) {
       final at = now();
       for (final m in _items) {
         if (!m.isSystem || m.text != text) continue;
@@ -347,18 +364,17 @@ class Messages {
     return removed;
   }
 
-  bool removeLoadingHistory() =>
-      removeWhere((m) => m.isSystem && m.text == _loadingHistoryText) > 0;
+  bool removeLoadingHistory() => removeSystem(loadingHistoryId);
 
   /// Moves the newest connect-state system line back to the top.
   bool moveConnectedToTop() {
     if (_items.length < 2) return false;
-    var idx = _items.indexWhere((m) => m.isSystem && m.text == 'Reconnected');
+    var idx = _items.indexWhere(
+      (m) => m.isSystem && m.messageId == _connId('reconnected'),
+    );
     idx = idx < 0
         ? _items.indexWhere(
-            (m) =>
-                m.isSystem &&
-                (m.text == 'Connected' || m.text == 'Connected to IRC'),
+            (m) => m.isSystem && m.messageId == _connId('connected'),
           )
         : idx;
     if (idx <= 0) return false;
