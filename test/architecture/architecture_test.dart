@@ -89,15 +89,11 @@ void main() {
       'sheets/',
     ];
     const transports = ['irc/transport/', 'eventsub/transport/'];
-    // home_screen.dart remains the composition root until Phase 2 removes it.
-    const allowlist = {'screens/home_screen.dart'};
     _expectClean(
       rule: 'UI does not import transports',
       violations: directives.where(
         (d) =>
-            _isUnder(d.importer, importers) &&
-            !allowlist.contains(d.importer) &&
-            _isUnder(d.target, transports),
+            _isUnder(d.importer, importers) && _isUnder(d.target, transports),
       ),
     );
   });

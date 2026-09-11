@@ -11,10 +11,7 @@ import '../models/twitch_message.dart';
 import '../util/haptics.dart';
 import '../services/twitch_api.dart';
 import '../services/twitch_auth.dart';
-import '../eventsub/transport/connection.dart';
 import '../irc/join_rate_limiter.dart';
-import '../irc/transport/read.dart';
-import '../irc/transport/write.dart';
 import '../services/command_macros.dart';
 import '../util/connectivity.dart';
 import '../services/seven_tv_event_client.dart';
@@ -122,9 +119,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     return _connectivityServiceCache!;
   }
 
-  EventSubService get _eventSub => ref.read(eventSubServiceProvider);
-  IrcService get _irc => ref.read(ircServiceProvider);
-  IrcReadService get _ircRead => ref.read(ircReadServiceProvider);
   SevenTvEventClient get _sevenTvClient => ref.read(sevenTvClientProvider);
   TwitchApi get _twitchApi => ref.read(twitchApiProvider);
   JoinRateLimiter get _joinBudget => ref.read(joinBudgetProvider);
@@ -166,9 +160,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     ChatConnectionConfig(
       services: ChatServices(
         twitchApi: _twitchApi,
-        eventSub: _eventSub,
-        irc: _irc,
-        ircRead: _ircRead,
+        eventSub: ref.read(eventSubServiceProvider),
+        irc: ref.read(ircServiceProvider),
+        ircRead: ref.read(ircReadServiceProvider),
         sevenTvClient: _sevenTvClient,
         emoteManager: _emoteManager,
         badgeService: _badgeService,
@@ -243,7 +237,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   );
   late final _commandHandler = CommandHandler(
     twitchApi: _twitchApi,
-    irc: _irc,
+    irc: ref.read(ircServiceProvider),
     modActions: _modActions,
     getChannelUserIds: _channelUserIds,
     getCurrentUserId: () => _session.userId,
@@ -582,8 +576,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     chat: _chat,
     session: _session,
     chatConn: _chatConn,
-    irc: _irc,
-    ircRead: _ircRead,
+    irc: ref.read(ircServiceProvider),
+    ircRead: ref.read(ircReadServiceProvider),
     twitchAuth: widget.twitchAuth,
     emoteManager: _emoteManager,
     badgeService: _badgeService,
