@@ -1,6 +1,6 @@
 # ermchat
 
-Twitch chat viewer (WIP). Single Flutter package. See [TODO.md](TODO.md) for the roadmap; [PLAN.md](PLAN.md) covers the home_screen refactor (done).
+Twitch chat viewer (WIP). Single Flutter package. See [TODO.md](TODO.md) for the roadmap; [PLAN.md](PLAN.md) is the live IRC-reorg spec, with [I18N.md](I18N.md) and [BACKLOG.md](BACKLOG.md) alongside.
 
 ## Commands
 
@@ -38,7 +38,7 @@ dart format .      # format all Dart files
 ## Test conventions
 
 - Unit tests in `test/unit/<file>_test.dart`, data/IRC-parsing tests in `test/data/`, widget/integration tests in `test/widgets/`.
-- Injectable for tests: `TwitchApi.client`, `TwitchChatApp`/`HomeScreen` service params, `EventSubService.handleRawMessage`/`emitConnected`/`waitForSession`, `IrcService.emitChatMessage`/`emitUserNotice`, `OAuthStarter`, `AccountScreen.twitchApi`.
+- Injectable for tests: `TwitchApi.client`, `TwitchChatApp`/`HomeScreen` service params, `EventSubService.handleRawMessage`/`emitConnected`/`waitForSession`, `IrcChatDecoder.feed`, socket `handleLine`, `OAuthStarter`, `AccountScreen.twitchApi`.
 
 ## Rules
 
