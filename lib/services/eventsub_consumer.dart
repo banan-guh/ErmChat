@@ -8,7 +8,7 @@ import '../eventsub/decode/decoder.dart';
 import '../eventsub/decode/events.dart';
 import '../eventsub/topics.dart';
 import '../util/duration_format.dart';
-import '../util/mod_activity_format.dart' show formatTermAction;
+import '../util/mod_activity_format.dart' show formatModActivity;
 
 /// Applies typed EventSub events to the chat kernel: moderation system lines,
 /// feed rows, warn/ban/suspicious state, points, and the AutoMod queue.
@@ -110,21 +110,21 @@ class EventSubConsumer {
         ? ': "${event.reason}"'
         : '';
 
-    void feed() => chat
-        .channelFor(event.channel)
-        ?.moderation
-        .addFeed(
-          ModActivityEntry(
-            at: DateTime.now(),
-            channel: event.channel,
-            action: event.rawAction,
-            moderator: mod,
-            target: target,
-            reason: event.reason,
-            durationSeconds: event.durationSeconds,
-            terms: event.terms,
-          ),
-        );
+    final entry = ModActivityEntry(
+      at: DateTime.now(),
+      channel: event.channel,
+      action: event.rawAction,
+      moderator: mod,
+      target: target,
+      reason: event.reason,
+      durationSeconds: event.durationSeconds,
+      terms: event.terms,
+    );
+    final line = formatModActivity(entry);
+    // A malformed event can omit the target; the formatter's 'someone'
+    // fallback would replace the old literal "null", so keep that case.
+    String lineOr(String raw) => target == null ? raw : line;
+    void feed() => chat.channelFor(event.channel)?.moderation.addFeed(entry);
 
     switch (event.action) {
       case ModerationAction.delete:
@@ -146,7 +146,7 @@ class EventSubConsumer {
         break;
       case ModerationAction.clear:
         chat.channelFor(event.channel)?.messages.markAllDeleted();
-        onSystemMessage(event.channel, '$mod cleared the chat.');
+        onSystemMessage(event.channel, line);
         feed();
         break;
       case ModerationAction.ban:
@@ -194,7 +194,9 @@ class EventSubConsumer {
           event.channel,
           isSelfTarget
               ? 'You were ${event.action == ModerationAction.timeout ? 'timed out$duration' : 'banned'}$reason by $mod.'
-              : '$mod ${event.action == ModerationAction.timeout ? 'timed out' : 'banned'} $target$duration$reason.',
+              : lineOr(
+                  '$mod ${event.action == ModerationAction.timeout ? 'timed out' : 'banned'} $target$duration$reason.',
+                ),
         );
         feed();
         break;
@@ -208,24 +210,27 @@ class EventSubConsumer {
           event.channel,
           isSelfTarget
               ? 'You were unbanned by $mod.'
-              : '$mod unbanned $target.',
+              : lineOr('$mod unbanned $target.'),
         );
         feed();
         break;
       case ModerationAction.mod:
-        onSystemMessage(event.channel, '$mod modded $target.');
+        onSystemMessage(event.channel, lineOr('$mod modded $target.'));
         feed();
         break;
       case ModerationAction.unmod:
-        onSystemMessage(event.channel, '$mod unmodded $target.');
+        onSystemMessage(event.channel, lineOr('$mod unmodded $target.'));
         feed();
         break;
       case ModerationAction.vip:
-        onSystemMessage(event.channel, '$mod added $target as a VIP.');
+        onSystemMessage(event.channel, lineOr('$mod added $target as a VIP.'));
         feed();
         break;
       case ModerationAction.unvip:
-        onSystemMessage(event.channel, '$mod removed $target as a VIP.');
+        onSystemMessage(
+          event.channel,
+          lineOr('$mod removed $target as a VIP.'),
+        );
         feed();
         break;
       case ModerationAction.warn:
@@ -243,88 +248,39 @@ class EventSubConsumer {
                 ),
               );
         }
-        onSystemMessage(event.channel, '$mod warned $target$reason.');
+        onSystemMessage(event.channel, lineOr('$mod warned $target$reason.'));
         feed();
         break;
       case ModerationAction.slow:
       case ModerationAction.slowOff:
-        feed();
-        onSystemMessage(
-          event.channel,
-          event.action == ModerationAction.slow
-              ? '$mod enabled slow mode.'
-              : '$mod disabled slow mode.',
-        );
-        break;
       case ModerationAction.followers:
       case ModerationAction.followersOff:
-        feed();
-        onSystemMessage(
-          event.channel,
-          event.action == ModerationAction.followers
-              ? '$mod enabled followers-only mode.'
-              : '$mod disabled followers-only mode.',
-        );
-        break;
       case ModerationAction.emoteOnly:
       case ModerationAction.emoteOnlyOff:
-        feed();
-        onSystemMessage(
-          event.channel,
-          event.action == ModerationAction.emoteOnly
-              ? '$mod enabled emote-only mode.'
-              : '$mod disabled emote-only mode.',
-        );
-        break;
       case ModerationAction.subscribers:
       case ModerationAction.subscribersOff:
-        feed();
-        onSystemMessage(
-          event.channel,
-          event.action == ModerationAction.subscribers
-              ? '$mod enabled subscribers-only mode.'
-              : '$mod disabled subscribers-only mode.',
-        );
-        break;
       case ModerationAction.uniqueChat:
       case ModerationAction.uniqueChatOff:
-        feed();
-        onSystemMessage(
-          event.channel,
-          event.action == ModerationAction.uniqueChat
-              ? '$mod enabled unique chat.'
-              : '$mod disabled unique chat.',
-        );
-        break;
       case ModerationAction.raid:
-        feed();
-        onSystemMessage(event.channel, '$mod started a raid.');
-        break;
       case ModerationAction.unraid:
         feed();
-        onSystemMessage(event.channel, '$mod cancelled the raid.');
+        onSystemMessage(event.channel, line);
         break;
       case ModerationAction.addBlockedTerm:
       case ModerationAction.removeBlockedTerm:
       case ModerationAction.addPermittedTerm:
       case ModerationAction.removePermittedTerm:
         feed();
-        onSystemMessage(
-          event.channel,
-          formatTermAction(mod, event.rawAction, event.terms),
-        );
+        onSystemMessage(event.channel, line);
         break;
       case ModerationAction.approveUnbanRequest:
       case ModerationAction.denyUnbanRequest:
         feed();
-        final verb = event.action == ModerationAction.approveUnbanRequest
-            ? 'approved'
-            : 'denied';
         onSystemMessage(
           event.channel,
           target != null && target.isNotEmpty
-              ? '$mod $verb $target\'s unban request$reason.'
-              : '$mod $verb an unban request$reason.',
+              ? line
+              : '$mod ${event.action == ModerationAction.approveUnbanRequest ? 'approved' : 'denied'} an unban request$reason.',
         );
         break;
       case ModerationAction.unknown:
@@ -340,45 +296,32 @@ class EventSubConsumer {
   void _onShieldModeEvent(ShieldModeEvent event) {
     if (_disposed) return;
     if (!topics.isFeedActive(event.channel)) return;
-    chat
-        .channelFor(event.channel)
-        ?.moderation
-        .addFeed(
-          ModActivityEntry(
-            at: DateTime.now(),
-            channel: event.channel,
-            action: event.active ? 'shield_on' : 'shield_off',
-            moderator: event.moderatorName,
-          ),
-        );
-    onSystemMessage(
-      event.channel,
-      event.active
-          ? '${event.moderatorName} enabled Shield Mode.'
-          : '${event.moderatorName} disabled Shield Mode.',
+    final entry = ModActivityEntry(
+      at: DateTime.now(),
+      channel: event.channel,
+      action: event.active ? 'shield_on' : 'shield_off',
+      moderator: event.moderatorName,
     );
+    chat.channelFor(event.channel)?.moderation.addFeed(entry);
+    onSystemMessage(event.channel, formatModActivity(entry));
   }
 
   void _onShoutoutEvent(ShoutoutEvent event) {
     if (_disposed) return;
     if (!topics.isFeedActive(event.channel)) return;
     final created = event.kind == ShoutoutKind.create;
-    chat
-        .channelFor(event.channel)
-        ?.moderation
-        .addFeed(
-          ModActivityEntry(
-            at: DateTime.now(),
-            channel: event.channel,
-            action: 'shoutout',
-            moderator: event.moderatorName,
-            target: created ? event.toLogin : event.fromLogin,
-          ),
-        );
+    final entry = ModActivityEntry(
+      at: DateTime.now(),
+      channel: event.channel,
+      action: 'shoutout',
+      moderator: event.moderatorName,
+      target: created ? event.toLogin : event.fromLogin,
+    );
+    chat.channelFor(event.channel)?.moderation.addFeed(entry);
     onSystemMessage(
       event.channel,
       created
-          ? '${event.moderatorName} shouted out ${event.toLogin}.'
+          ? formatModActivity(entry)
           : '${event.fromLogin} shouted out this channel.',
     );
   }
@@ -389,19 +332,15 @@ class EventSubConsumer {
     if (event.kind == WarningKind.acknowledge) {
       final moderation = chat.channelFor(event.channel)?.moderation;
       moderation?.dismissWarningsFor(event.userLogin);
-      moderation?.addFeed(
-        ModActivityEntry(
-          at: DateTime.now(),
-          channel: event.channel,
-          action: 'warn_ack',
-          moderator: event.moderatorName,
-          target: event.userLogin,
-        ),
+      final entry = ModActivityEntry(
+        at: DateTime.now(),
+        channel: event.channel,
+        action: 'warn_ack',
+        moderator: event.moderatorName,
+        target: event.userLogin,
       );
-      onSystemMessage(
-        event.channel,
-        '${event.userLogin} acknowledged a warning.',
-      );
+      moderation?.addFeed(entry);
+      onSystemMessage(event.channel, formatModActivity(entry));
       return;
     }
     // channel.moderate already reported this warn with the same data.
@@ -424,22 +363,20 @@ class EventSubConsumer {
             ),
           );
     }
-    chat
-        .channelFor(event.channel)
-        ?.moderation
-        .addFeed(
-          ModActivityEntry(
-            at: DateTime.now(),
-            channel: event.channel,
-            action: 'warn',
-            moderator: event.moderatorName,
-            target: user.isEmpty ? null : user,
-            reason: event.reason,
-          ),
-        );
+    final entry = ModActivityEntry(
+      at: DateTime.now(),
+      channel: event.channel,
+      action: 'warn',
+      moderator: event.moderatorName,
+      target: user.isEmpty ? null : user,
+      reason: event.reason,
+    );
+    chat.channelFor(event.channel)?.moderation.addFeed(entry);
     onSystemMessage(
       event.channel,
-      '${event.moderatorName} warned $user$reason.',
+      user.isEmpty
+          ? '${event.moderatorName} warned $user$reason.'
+          : formatModActivity(entry),
     );
   }
 
@@ -459,22 +396,20 @@ class EventSubConsumer {
         (event.resolutionText != null && event.resolutionText!.isNotEmpty)
         ? ': "${event.resolutionText}"'
         : '';
-    chat
-        .channelFor(event.channel)
-        ?.moderation
-        .addFeed(
-          ModActivityEntry(
-            at: DateTime.now(),
-            channel: event.channel,
-            action: 'unban_resolved',
-            moderator: event.moderatorName,
-            target: user.isEmpty ? null : user,
-            reason: event.resolutionText,
-          ),
-        );
+    final entry = ModActivityEntry(
+      at: DateTime.now(),
+      channel: event.channel,
+      action: 'unban_resolved',
+      moderator: event.moderatorName,
+      target: user.isEmpty ? null : user,
+      reason: event.resolutionText,
+    );
+    chat.channelFor(event.channel)?.moderation.addFeed(entry);
     onSystemMessage(
       event.channel,
-      '${event.moderatorName} resolved $user\'s unban request$resolution.',
+      user.isEmpty
+          ? '${event.moderatorName} resolved $user\'s unban request$resolution.'
+          : formatModActivity(entry),
     );
   }
 
@@ -489,22 +424,15 @@ class EventSubConsumer {
     final permitted = event.list == 'permitted';
     final action =
         '${adding ? 'add' : 'remove'}_${permitted ? 'permitted' : 'blocked'}_term';
-    chat
-        .channelFor(event.channel)
-        ?.moderation
-        .addFeed(
-          ModActivityEntry(
-            at: DateTime.now(),
-            channel: event.channel,
-            action: action,
-            moderator: event.moderatorName,
-            terms: event.terms,
-          ),
-        );
-    onSystemMessage(
-      event.channel,
-      formatTermAction(event.moderatorName, action, event.terms),
+    final entry = ModActivityEntry(
+      at: DateTime.now(),
+      channel: event.channel,
+      action: action,
+      moderator: event.moderatorName,
+      terms: event.terms,
     );
+    chat.channelFor(event.channel)?.moderation.addFeed(entry);
+    onSystemMessage(event.channel, formatModActivity(entry));
   }
 
   // AutoMod settings changes refresh the Setup tab and land in the feed.
@@ -513,18 +441,14 @@ class EventSubConsumer {
     if (!topics.isTrustActive(event.channel)) return;
     final trustModeration = chat.channelFor(event.channel)?.moderation;
     trustModeration?.touchSettings();
-    trustModeration?.addFeed(
-      ModActivityEntry(
-        at: DateTime.now(),
-        channel: event.channel,
-        action: 'automod_settings',
-        moderator: event.moderatorName,
-      ),
+    final entry = ModActivityEntry(
+      at: DateTime.now(),
+      channel: event.channel,
+      action: 'automod_settings',
+      moderator: event.moderatorName,
     );
-    onSystemMessage(
-      event.channel,
-      '${event.moderatorName} updated AutoMod settings.',
-    );
+    trustModeration?.addFeed(entry);
+    onSystemMessage(event.channel, formatModActivity(entry));
   }
 
   // Suspicious-user sightings build the per-user flag context (card, Users

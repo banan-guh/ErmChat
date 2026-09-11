@@ -252,13 +252,13 @@ const _providerOwnedTypes = <String>[
 ];
 
 /// Constructor declarations and test seams that are not UI constructions,
-/// keyed `lib-relative path:line`. Keep this list narrow; fix the source first.
+/// keyed `lib-relative path:type`. Keep this list narrow; fix the source first.
 const _constructionAllowlist = <String>{
   // BroadcastWidgets declares its own constructor in this file.
-  'widgets/broadcast_widgets.dart:11',
+  'widgets/broadcast_widgets.dart:BroadcastWidgets',
   // Test seam: AccountScreen accepts an optional TwitchApi and falls back to
   // constructing one when the caller does not supply it.
-  'screens/settings/account_screen.dart:40',
+  'screens/settings/account_screen.dart:TwitchApi',
 };
 
 class _Construction {
@@ -291,7 +291,7 @@ List<_Construction> _scanUiConstructions() {
         if (!re.hasMatch(line)) {
           continue;
         }
-        if (_constructionAllowlist.contains('$importer:${i + 1}')) {
+        if (_constructionAllowlist.contains('$importer:$type')) {
           continue;
         }
         result.add(_Construction(importer, i + 1, type));

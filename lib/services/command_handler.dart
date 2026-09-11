@@ -882,28 +882,26 @@ class CommandHandler {
             addSystemMessage(channel, pollUsage);
             return;
           }
-          final ok = await _moderate(
-            'create poll',
+          final pollResult = await modActions.createPoll(
+            auth,
             channel,
-            () => twitchApi.createPoll(
-              auth,
-              broadcasterId: broadcasterId,
-              title: parsedPoll.title,
-              choices: parsedPoll.options,
-              durationSeconds: parsedPoll.duration,
-            ),
+            title: parsedPoll.title,
+            choices: parsedPoll.options,
+            durationSeconds: parsedPoll.duration,
           );
-          if (ok) {
+          if (pollResult.ok) {
             addSystemMessage(
               channel,
               'Poll started (${parsedPoll.duration}s).',
             );
+          } else {
+            addSystemMessage(channel, _modCopy('create poll', '', pollResult));
           }
 
         case '/cancelpoll':
         case '/endpoll':
           final archivePoll = cmd == '/cancelpoll';
-          final polls = await twitchApi.getPolls(auth, broadcasterId);
+          final polls = await modActions.getPolls(auth, channel);
           if (twitchApi.lastErrorStatus != null) {
             addSystemMessage(
               channel,
@@ -922,21 +920,20 @@ class CommandHandler {
             addSystemMessage(channel, 'No poll is currently running.');
             return;
           }
-          final ok = await _moderate(
-            archivePoll ? 'cancel the poll' : 'end the poll',
+          final pollAction = archivePoll ? 'cancel the poll' : 'end the poll';
+          final endPollResult = await modActions.endPoll(
+            auth,
             channel,
-            () => twitchApi.endPoll(
-              auth,
-              broadcasterId: broadcasterId,
-              pollId: activePoll!['id'] as String,
-              archive: archivePoll,
-            ),
+            pollId: activePoll['id'] as String,
+            archive: archivePoll,
           );
-          if (ok) {
+          if (endPollResult.ok) {
             addSystemMessage(
               channel,
               archivePoll ? 'The poll was cancelled.' : 'The poll has ended.',
             );
+          } else {
+            addSystemMessage(channel, _modCopy(pollAction, '', endPollResult));
           }
 
         case '/prediction':
@@ -980,10 +977,7 @@ class CommandHandler {
         case '/lockprediction':
         case '/cancelprediction':
         case '/resolveprediction':
-          final predictions = await twitchApi.getPredictions(
-            auth,
-            broadcasterId,
-          );
+          final predictions = await modActions.getPredictions(auth, channel);
           if (twitchApi.lastErrorStatus != null) {
             addSystemMessage(
               channel,
@@ -1062,19 +1056,20 @@ class CommandHandler {
             successMsg =
                 'The prediction was resolved${matchTitle != null ? ': $matchTitle' : ''}.';
           }
-          final ok = await _moderate(
-            'end the prediction',
+          final endPredictionResult = await modActions.endPrediction(
+            auth,
             channel,
-            () => twitchApi.endPrediction(
-              auth,
-              broadcasterId: broadcasterId,
-              predictionId: open!['id'] as String,
-              status: status,
-              winningOutcomeId: winningOutcomeId,
-            ),
+            predictionId: open['id'] as String,
+            status: status,
+            winningOutcomeId: winningOutcomeId,
           );
-          if (ok) {
+          if (endPredictionResult.ok) {
             addSystemMessage(channel, successMsg);
+          } else {
+            addSystemMessage(
+              channel,
+              _modCopy('end the prediction', '', endPredictionResult),
+            );
           }
 
         case '/block':
