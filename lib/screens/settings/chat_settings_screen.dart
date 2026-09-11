@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../services/twitch_auth.dart';
 import '../../util/constants.dart';
 import '../../util/timestamp_formatter.dart';
+import '../../widgets/dialogs.dart';
 import 'macros_screen.dart';
 import 'pings_screen.dart';
 import 'ignores_screen.dart';
@@ -131,33 +132,15 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
 
   Future<void> _pickTimestampFormat() async {
     final now = DateTime.now();
-    final selected = await showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Timestamp format'),
-        contentPadding: const EdgeInsets.symmetric(vertical: 8),
-        content: SizedBox(
-          width: 360,
-          height: 420,
-          child: RadioGroup<String>(
-            groupValue: _timestampFormat,
-            onChanged: (v) {
-              if (v != null) Navigator.pop(ctx, v);
-            },
-            child: ListView(
-              shrinkWrap: true,
-              children: [
-                for (final fmt in kTimestampFormats)
-                  RadioListTile<String>(
-                    value: fmt,
-                    title: Text(fmt),
-                    subtitle: Text('e.g. ${formatTimestamp(now, fmt)}'),
-                  ),
-              ],
-            ),
-          ),
-        ),
-      ),
+    final selected = await showChoiceDialog<String>(
+      context,
+      title: 'Timestamp format',
+      value: _timestampFormat,
+      height: 420,
+      options: [
+        for (final fmt in kTimestampFormats)
+          (fmt, fmt, 'e.g. ${formatTimestamp(now, fmt)}'),
+      ],
     );
     if (selected == null || selected == _timestampFormat) return;
     final prefs = await SharedPreferences.getInstance();
@@ -303,17 +286,15 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
               widget.onReplyToRootChanged?.call(value);
             },
           ),
-          ListTile(
-            leading: const Icon(Icons.merge_type),
-            title: const Text('Shared chat messages'),
-            subtitle: Text(_sharedChatModeLabel),
-            trailing: const Icon(Icons.chevron_right),
+          SettingsNavTile(
+            icon: Icons.merge_type,
+            title: 'Shared chat messages',
+            subtitle: _sharedChatModeLabel,
             onTap: _pickSharedChatMode,
           ),
-          ListTile(
-            leading: const Icon(Icons.visibility_off),
-            title: const Text('Ignores'),
-            trailing: const Icon(Icons.chevron_right),
+          SettingsNavTile(
+            icon: Icons.visibility_off,
+            title: 'Ignores',
             onTap: () {
               Navigator.push(
                 context,
@@ -321,11 +302,10 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
               );
             },
           ),
-          ListTile(
-            leading: const Icon(Icons.gif_box),
-            title: const Text('Inline embeds'),
-            subtitle: Text(_inlineEmbedsSubtitle),
-            trailing: const Icon(Icons.chevron_right),
+          SettingsNavTile(
+            icon: Icons.gif_box,
+            title: 'Inline embeds',
+            subtitle: _inlineEmbedsSubtitle,
             onTap: () {
               Navigator.push(
                 context,
@@ -354,10 +334,9 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
           ),
           const _MentionFormatTile(),
           if (widget.twitchAuth != null)
-            ListTile(
-              leading: const Icon(Icons.bolt),
-              title: const Text('Command macros'),
-              trailing: const Icon(Icons.chevron_right),
+            SettingsNavTile(
+              icon: Icons.bolt,
+              title: 'Command macros',
               onTap: () {
                 Navigator.push(
                   context,
@@ -380,11 +359,10 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
               widget.onShowTimestampsChanged?.call(value);
             },
           ),
-          ListTile(
-            leading: const Icon(Icons.access_time),
-            title: const Text('Timestamp format'),
-            subtitle: Text(_timestampFormat),
-            trailing: const Icon(Icons.chevron_right),
+          SettingsNavTile(
+            icon: Icons.access_time,
+            title: 'Timestamp format',
+            subtitle: _timestampFormat,
             onTap: _pickTimestampFormat,
           ),
           SwitchListTile(
@@ -416,10 +394,9 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
             },
           ),
           const SettingsSectionHeader('Notifications'),
-          ListTile(
-            leading: const Icon(Icons.notifications),
-            title: const Text('Pings'),
-            trailing: const Icon(Icons.chevron_right),
+          SettingsNavTile(
+            icon: Icons.notifications,
+            title: 'Pings',
             onTap: () {
               Navigator.push(
                 context,
@@ -532,13 +509,11 @@ class _MentionFormatTileState extends State<_MentionFormatTile> {
 
   @override
   Widget build(BuildContext context) {
-    return ListTile(
-      leading: const Icon(Icons.text_format),
-      title: const Text('Mention format'),
-      subtitle: Text(
-        'How tapping "Mention user" inserts the name: ${formats[_format]}',
-      ),
-      trailing: const Icon(Icons.chevron_right),
+    return SettingsNavTile(
+      icon: Icons.text_format,
+      title: 'Mention format',
+      subtitle:
+          'How tapping "Mention user" inserts the name: ${formats[_format]}',
       onTap: _pick,
     );
   }

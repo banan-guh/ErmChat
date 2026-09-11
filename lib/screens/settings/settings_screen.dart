@@ -128,8 +128,7 @@ class SettingsScreen extends StatelessWidget {
       title: const Text('Settings'),
       body: ListView(
         children: [
-          _buildTile(
-            context,
+          SettingsNavTile(
             icon: Icons.tag,
             title: 'Channels',
             onTap: () => Navigator.push(
@@ -144,8 +143,7 @@ class SettingsScreen extends StatelessWidget {
               ),
             ),
           ),
-          _buildTile(
-            context,
+          SettingsNavTile(
             icon: Icons.palette,
             title: 'Customization',
             onTap: () => Navigator.push(
@@ -165,8 +163,7 @@ class SettingsScreen extends StatelessWidget {
               ),
             ),
           ),
-          _buildTile(
-            context,
+          SettingsNavTile(
             icon: Icons.chat_bubble,
             title: 'Chat',
             onTap: () => Navigator.push(
@@ -194,8 +191,7 @@ class SettingsScreen extends StatelessWidget {
               ),
             ),
           ),
-          _buildTile(
-            context,
+          SettingsNavTile(
             icon: Icons.emoji_emotions,
             title: 'Emotes',
             onTap: () => Navigator.push(
@@ -217,8 +213,7 @@ class SettingsScreen extends StatelessWidget {
               ),
             ),
           ),
-          _buildTile(
-            context,
+          SettingsNavTile(
             icon: Icons.play_arrow,
             title: 'Livestreams',
             onTap: () => Navigator.push(
@@ -233,8 +228,7 @@ class SettingsScreen extends StatelessWidget {
             ),
           ),
           if (analyticsService != null && channels != null)
-            _buildTile(
-              context,
+            SettingsNavTile(
               icon: Icons.handyman,
               title: 'Tools',
               onTap: () => Navigator.push(
@@ -249,8 +243,7 @@ class SettingsScreen extends StatelessWidget {
                 ),
               ),
             ),
-          _buildTile(
-            context,
+          SettingsNavTile(
             icon: Icons.person,
             title: 'Account',
             onTap: () => Navigator.push(
@@ -263,8 +256,7 @@ class SettingsScreen extends StatelessWidget {
               ),
             ),
           ),
-          _buildTile(
-            context,
+          SettingsNavTile(
             icon: Icons.info,
             title: 'About',
             onTap: () => Navigator.push(
@@ -277,20 +269,6 @@ class SettingsScreen extends StatelessWidget {
           ),
         ],
       ),
-    );
-  }
-
-  Widget _buildTile(
-    BuildContext context, {
-    required IconData icon,
-    required String title,
-    required VoidCallback onTap,
-  }) {
-    return ListTile(
-      leading: Icon(icon),
-      title: Text(title),
-      trailing: const Icon(Icons.chevron_right),
-      onTap: onTap,
     );
   }
 }

@@ -6,6 +6,7 @@ import '../../models/emote_fetch_tier.dart';
 import '../../models/generic_emote.dart';
 import '../../services/emote_cache_manager.dart';
 import '../../services/emote_manager.dart';
+import '../../widgets/dialogs.dart';
 import 'settings_page.dart';
 
 class EmotesSettingsScreen extends StatefulWidget {
@@ -378,26 +379,14 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
                 child: FilledButton(
                   key: const Key('emote_nuke'),
                   onPressed: () async {
-                    final confirm = await showDialog<bool>(
-                      context: context,
-                      builder: (_) => AlertDialog(
-                        title: const Text('Are you sure?'),
-                        content: const Text(
-                          'This will wipe all cached emotes and refetch.',
-                        ),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Navigator.pop(context, false),
-                            child: const Text('No'),
-                          ),
-                          TextButton(
-                            onPressed: () => Navigator.pop(context, true),
-                            child: const Text('Erm the nuke'),
-                          ),
-                        ],
-                      ),
+                    final confirm = await confirmDialog(
+                      context,
+                      title: 'Are you sure?',
+                      message: 'This will wipe all cached emotes and refetch.',
+                      confirmLabel: 'Erm the nuke',
+                      cancelLabel: 'No',
                     );
-                    if (confirm == true) widget.onNukeEmotes?.call();
+                    if (confirm) widget.onNukeEmotes?.call();
                   },
                   child: const Text('Nuke emotes'),
                 ),
@@ -521,12 +510,11 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
                 },
         ),
         if (widget.emoteManager != null) ...[
-          ListTile(
+          SettingsNavTile(
             key: const Key('providers_tile'),
-            leading: const Icon(Icons.extension),
-            title: const Text('Providers'),
-            subtitle: Text(_providersSummary()),
-            trailing: const Icon(Icons.chevron_right),
+            icon: Icons.extension,
+            title: 'Providers',
+            subtitle: _providersSummary(),
             onTap: _showProviderSheet,
           ),
           SwitchListTile(

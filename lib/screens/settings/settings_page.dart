@@ -46,3 +46,33 @@ class SettingsSectionHeader extends StatelessWidget {
     );
   }
 }
+
+/// Navigation row with a leading icon and a trailing chevron.
+class SettingsNavTile extends StatelessWidget {
+  const SettingsNavTile({
+    super.key,
+    required this.icon,
+    required this.title,
+    this.subtitle,
+    this.enabled = true,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String? subtitle;
+  final bool enabled;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      leading: Icon(icon),
+      title: Text(title),
+      subtitle: subtitle == null ? null : Text(subtitle!),
+      trailing: const Icon(Icons.chevron_right),
+      enabled: enabled,
+      onTap: onTap,
+    );
+  }
+}

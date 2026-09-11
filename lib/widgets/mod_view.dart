@@ -12,6 +12,7 @@ import '../services/mod_actions.dart';
 import '../services/twitch_api.dart';
 import '../services/twitch_auth.dart';
 import 'app_snack.dart';
+import 'dialogs.dart';
 import 'tab_drag_focus.dart';
 
 /// Snackbar copy for a failed mod action.
@@ -2200,27 +2201,6 @@ class _StreamActionsState extends State<_StreamActions> {
   String get channel => widget.channel;
   ValueChanged<String> get onNotice => widget.onNotice;
 
-  Future<bool> _confirm(String title, String body) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(title),
-        content: Text(body),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Confirm'),
-          ),
-        ],
-      ),
-    );
-    return ok == true;
-  }
-
   Future<void> _raid(BuildContext context) async {
     final login = await showModTextDialog(
       context,
@@ -2306,9 +2286,14 @@ class _StreamActionsState extends State<_StreamActions> {
 
   Future<void> _clear(BuildContext context) async {
     if (_busy != null) return;
-    if (!await _confirm('Clear chat?', 'This clears all chat messages.')) {
-      return;
-    }
+    final confirmed = await confirmDialog(
+      context,
+      title: 'Clear chat?',
+      message: 'This clears all chat messages.',
+      confirmLabel: 'Confirm',
+      destructive: true,
+    );
+    if (!confirmed) return;
     if (!context.mounted) return;
     setState(() => _busy = 'clear');
     try {
@@ -2341,9 +2326,14 @@ class _StreamActionsState extends State<_StreamActions> {
 
   Future<void> _unraid(BuildContext context) async {
     if (_busy != null) return;
-    if (!await _confirm('Cancel raid?', 'This cancels the pending raid.')) {
-      return;
-    }
+    final confirmed = await confirmDialog(
+      context,
+      title: 'Cancel raid?',
+      message: 'This cancels the pending raid.',
+      confirmLabel: 'Confirm',
+      destructive: true,
+    );
+    if (!confirmed) return;
     if (!context.mounted) return;
     setState(() => _busy = 'unraid');
     try {
@@ -2546,28 +2536,17 @@ class _PollsSectionState extends State<_PollsSection> {
   Future<void> _end(String pollId, bool archive) async {
     final key = archive ? 'cancel' : 'end';
     if (_busyKey != null) return;
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(archive ? 'Cancel poll?' : 'End poll now?'),
-        content: Text(
-          archive
-              ? 'This archives the poll without showing results.'
-              : 'This ends the poll and shows the results (TERMINATED).',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Back'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: Text(archive ? 'Cancel poll' : 'End poll'),
-          ),
-        ],
-      ),
+    final confirm = await confirmDialog(
+      context,
+      title: archive ? 'Cancel poll?' : 'End poll now?',
+      message: archive
+          ? 'This archives the poll without showing results.'
+          : 'This ends the poll and shows the results (TERMINATED).',
+      confirmLabel: archive ? 'Cancel poll' : 'End poll',
+      cancelLabel: 'Back',
+      destructive: true,
     );
-    if (confirm != true || !mounted) return;
+    if (!confirm || !mounted) return;
     if (pollId.isEmpty) {
       widget.onNotice('Poll id is missing; reload and try again.');
       return;
@@ -2872,24 +2851,15 @@ class _PredictionsSectionState extends State<_PredictionsSection> {
   ]) async {
     if (_busy) return;
     if (status == 'CANCELED') {
-      final confirm = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Cancel prediction?'),
-          content: const Text('Points are refunded to predictors.'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Back'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Cancel prediction'),
-            ),
-          ],
-        ),
+      final confirm = await confirmDialog(
+        context,
+        title: 'Cancel prediction?',
+        message: 'Points are refunded to predictors.',
+        confirmLabel: 'Cancel prediction',
+        cancelLabel: 'Back',
+        destructive: true,
       );
-      if (confirm != true || !mounted) return;
+      if (!confirm || !mounted) return;
     }
     if (predictionId.isEmpty) {
       widget.onNotice('Prediction id is missing; reload and try again.');
@@ -3173,26 +3143,15 @@ class _PointsSectionState extends State<_PointsSection> {
 
   Future<void> _resolve(PointRedemption redemption, bool fulfilled) async {
     if (!fulfilled) {
-      final confirm = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Refund redemption?'),
-          content: Text(
-            'Refund ${redemption.cost} pts to ${redemption.userLogin}?',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Back'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Refund'),
-            ),
-          ],
-        ),
+      final confirm = await confirmDialog(
+        context,
+        title: 'Refund redemption?',
+        message: 'Refund ${redemption.cost} pts to ${redemption.userLogin}?',
+        confirmLabel: 'Refund',
+        cancelLabel: 'Back',
+        destructive: true,
       );
-      if (confirm != true || !mounted) return;
+      if (!confirm || !mounted) return;
     }
     if (!_busyRedemptions.add(redemption.id)) return;
     setState(() {});
@@ -3985,28 +3944,17 @@ class _RosterSectionsState extends State<_RosterSections> {
   Future<void> _remove(String login, bool moderator) async {
     final key = '${moderator ? 'mod' : 'vip'}:${login.toLowerCase()}';
     if (!_removing.add(key)) return;
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('Remove $login?'),
-        content: Text(
-          moderator
-              ? 'This removes moderator status from $login.'
-              : 'This removes VIP status from $login.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Back'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Remove'),
-          ),
-        ],
-      ),
+    final confirm = await confirmDialog(
+      context,
+      title: 'Remove $login?',
+      message: moderator
+          ? 'This removes moderator status from $login.'
+          : 'This removes VIP status from $login.',
+      confirmLabel: 'Remove',
+      cancelLabel: 'Back',
+      destructive: true,
     );
-    if (confirm != true || !mounted) {
+    if (!confirm || !mounted) {
       _removing.remove(key);
       return;
     }

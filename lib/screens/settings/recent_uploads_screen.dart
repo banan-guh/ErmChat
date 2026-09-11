@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import '../../services/media_uploader.dart';
 import '../../util/timestamp_formatter.dart';
 import '../../widgets/app_snack.dart';
+import '../../widgets/dialogs.dart';
 import 'settings_page.dart';
 
 class RecentUploadsScreen extends StatefulWidget {
@@ -45,24 +46,13 @@ class _RecentUploadsScreenState extends State<RecentUploadsScreen> {
   }
 
   Future<void> _clearAll() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Clear recent uploads'),
-        content: const Text('This only clears the local history of uploads.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Clear'),
-          ),
-        ],
-      ),
+    final confirmed = await confirmDialog(
+      context,
+      title: 'Clear recent uploads',
+      message: 'This only clears the local history of uploads.',
+      confirmLabel: 'Clear',
     );
-    if (confirmed != true) return;
+    if (!confirmed) return;
     await _mediaUploader.clearRecents();
     if (!mounted) return;
     setState(() => _uploads = []);

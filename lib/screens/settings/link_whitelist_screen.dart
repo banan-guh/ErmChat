@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../services/link_whitelist.dart';
+import '../../widgets/dialogs.dart';
 import 'settings_page.dart';
 
 /// Lets the user manage the link-whitelist used to linkify bare/short domains
@@ -175,29 +176,15 @@ class _LinkWhitelistSettingsScreenState
   }
 
   Future<void> _confirmRestore(BuildContext context) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Restore defaults?'),
-        content: const Text(
+    final confirmed = await confirmDialog(
+      context,
+      title: 'Restore defaults?',
+      message:
           'This replaces your whitelist with the built-in defaults, '
           'and removes any entries you added.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context, true);
-            },
-            child: const Text('Restore'),
-          ),
-        ],
-      ),
+      confirmLabel: 'Restore',
     );
-    if (confirmed == true) LinkWhitelist.instance.restoreDefaults();
+    if (confirmed) LinkWhitelist.instance.restoreDefaults();
   }
 }
 

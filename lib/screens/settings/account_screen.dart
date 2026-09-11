@@ -8,6 +8,7 @@ import '../../services/twitch_auth.dart';
 import '../../services/twitch_oauth.dart';
 import '../../twitch_config.dart';
 import '../../widgets/app_snack.dart';
+import '../../widgets/dialogs.dart';
 import 'settings_page.dart';
 
 enum _AuthState { idle, waiting, success, error, needsSetup, pasteToken }
@@ -36,7 +37,6 @@ class _AccountScreenState extends State<AccountScreen> {
   String? _connectedLogin;
   final _pasteController = TextEditingController();
   TwitchApi? _ownApi;
-
   TwitchApi get _twitchApi => _ownApi ??= widget.twitchApi ?? TwitchApi();
 
   @override
@@ -290,24 +290,14 @@ class _AccountScreenState extends State<AccountScreen> {
   }
 
   Future<void> _confirmRemove(TwitchAccount account) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Remove account?'),
-        content: Text('Are you sure you want to remove @${account.login}?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Remove'),
-          ),
-        ],
-      ),
+    final confirmed = await confirmDialog(
+      context,
+      title: 'Remove account?',
+      message: 'Are you sure you want to remove @${account.login}?',
+      confirmLabel: 'Remove',
+      destructive: true,
     );
-    if (confirmed != true || !mounted) return;
+    if (!confirmed || !mounted) return;
     await widget.twitchAuth.removeAccount(account.login);
     if (!mounted) return;
     setState(() {
