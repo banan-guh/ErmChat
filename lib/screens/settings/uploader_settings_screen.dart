@@ -94,6 +94,7 @@ class _UploaderSettingsScreenState extends State<UploaderSettingsScreen> {
 
   @override
   void dispose() {
+    _mediaUploader.close();
     _uploadUrl.dispose();
     _formField.dispose();
     _headers.dispose();

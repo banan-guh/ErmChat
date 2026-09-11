@@ -1450,6 +1450,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     WidgetsBinding.instance.removeObserver(_predictiveBackHandler);
     _panelManager.dispose();
     _composer.dispose();
+    _uploadController.dispose();
     _networkBusy.dispose();
     _sevenTvEntitlementSub?.cancel();
     _linkWhitelist.removeListener(_onLinkWhitelistChanged);

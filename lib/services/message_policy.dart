@@ -8,6 +8,13 @@ import 'user_store.dart';
 /// ignores, keyword rules, ping highlighting, user learning, and the
 /// self-authored history rewrite. The live and history callers apply these in
 /// their own order and keep the steps that differ between them.
+///
+/// Preserved differences (not aligned; decide separately):
+/// - live applies blocked-phrase drop and keyword rewrite; history does not.
+/// - live overwrites any ping highlight; history only backfills mention ones.
+/// - live gates on chat-ready/blocked and shared-chat hide; history does not.
+/// - history applies the self-authored You/were rewrite; live does not.
+/// - live pings then learns users; history learns, rewrites, then pings.
 class ChatMessagePolicy {
   ChatMessagePolicy({
     required this.ignoreManager,

@@ -116,6 +116,10 @@ class MediaUploader {
 
   MediaUploader({http.Client? client}) : _client = client ?? http.Client();
 
+  /// Closes the underlying HTTP client. The caller that built this uploader
+  /// owns teardown.
+  void close() => _client.close();
+
   Future<UploaderConfig> loadConfig() async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(_configPrefKey);

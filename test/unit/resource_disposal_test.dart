@@ -1,3 +1,4 @@
+import 'package:ermchat/services/media_uploader.dart';
 import 'package:ermchat/services/twitch_api.dart';
 import 'package:ermchat/services/twitch_badge_service.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -25,6 +26,12 @@ void main() {
   test('TwitchBadgeService.close closes the injected client', () {
     final client = _RecordingClient();
     TwitchBadgeService(client: client).close();
+    expect(client.closed, isTrue);
+  });
+
+  test('MediaUploader.close closes the injected client', () {
+    final client = _RecordingClient();
+    MediaUploader(client: client).close();
     expect(client.closed, isTrue);
   });
 }

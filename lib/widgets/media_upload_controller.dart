@@ -31,6 +31,10 @@ class MediaUploadController {
 
   bool _isUploading = false;
 
+  /// Releases the uploader's HTTP client. The owning screen calls this in its
+  /// own dispose.
+  void dispose() => _uploader.close();
+
   Future<void> pickAndUpload(BuildContext context) async {
     if (_isUploading) return;
     final source = await showModalBottomSheet<ImageSource>(

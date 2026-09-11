@@ -12,9 +12,9 @@ import '../models/emote_fetch_tier.dart';
 import '../util/log.dart';
 import '../util/data_usage.dart';
 
-/// Shared HTTP client for the cache-full fallback path, reused across calls so
-/// a burst of overflow downloads doesn't spin up a connection per emote.
-/// Also used by the emote image loader's full-cache direct fetch.
+/// Shared HTTP client for the cache-full fallback path plus the emote image
+/// loader's full-cache direct fetch, reused across a burst of overflow
+/// downloads. Process lifetime by design: the cache singleton never tears down.
 final http.Client emoteFetchClient = http.Client();
 
 /// Snapshot of the emote image disk cache.

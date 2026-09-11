@@ -69,6 +69,12 @@ class _RecentUploadsScreenState extends State<RecentUploadsScreen> {
   }
 
   @override
+  void dispose() {
+    _mediaUploader.close();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return SettingsPage(
       title: const Text('Recent uploads'),
