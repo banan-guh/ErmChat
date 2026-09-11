@@ -105,6 +105,8 @@ class ChatSinks {
     required this.setReplyToMsg,
     this.onUserEmoteSets,
     this.onReconnected,
+    this.onMention,
+    this.onWhisper,
     this.getMacros,
     this.isChatReady,
     this.isBlocked,
@@ -122,6 +124,8 @@ class ChatSinks {
   final void Function(TwitchMessage?) setReplyToMsg;
   final Future<void> Function(String?, List<String>)? onUserEmoteSets;
   final VoidCallback? onReconnected;
+  final void Function(String channel, TwitchMessage msg)? onMention;
+  final void Function(TwitchMessage msg)? onWhisper;
   final Map<String, String> Function()? getMacros;
   final bool Function()? isChatReady;
   final bool Function(String login)? isBlocked;
@@ -170,8 +174,8 @@ class ChatConnectionManager {
 
   final void Function(String, String, {Color? accent, String? messageId})
   onSystemMessage;
-  void Function(String channel, TwitchMessage msg)? onMention;
-  void Function(TwitchMessage msg)? onWhisper;
+  final void Function(String channel, TwitchMessage msg)? onMention;
+  final void Function(TwitchMessage msg)? onWhisper;
   final Future<void> Function(String?, List<String>)? onUserEmoteSets;
   final VoidCallback? onReconnected;
   final int Function() getMaxMessagesPerChannel;
@@ -339,8 +343,8 @@ class ChatConnectionManager {
     onAnalyticsMessage: onAnalyticsMessage,
     onAnalyticsModeration: onAnalyticsModeration,
     onChatMessage: onChatMessage,
-    onMention: (channel, msg) => onMention?.call(channel, msg),
-    onWhisper: (msg) => onWhisper?.call(msg),
+    onMention: onMention,
+    onWhisper: onWhisper,
   );
 
   // Channel-domain wiring (joins, Helix/emote/badge resolution, EventSub
@@ -382,6 +386,8 @@ class ChatConnectionManager {
       onSystemMessage = config.bridge.onSystemMessage,
       onUserEmoteSets = config.sinks.onUserEmoteSets,
       onReconnected = config.sinks.onReconnected,
+      onMention = config.sinks.onMention,
+      onWhisper = config.sinks.onWhisper,
       getMaxMessagesPerChannel = config.bridge.getMaxMessagesPerChannel,
       getSelectedChannel = config.bridge.getSelectedChannel,
       onCommand = config.sinks.onCommand,

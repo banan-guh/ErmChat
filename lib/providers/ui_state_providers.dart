@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/twitch_message.dart';
 import '../services/command_macros.dart';
@@ -90,3 +93,39 @@ final macrosProvider = Provider<Map<String, String>>((ref) {
   if (login == null) return const {};
   return cachedMacroLookup(login) ?? const {};
 });
+
+/// Whether mention push notifications are enabled. Persists under the same
+/// key the settings screen writes so the value survives restarts.
+class MentionPushNotifier extends Notifier<bool> {
+  static const _prefKey = 'mention_push';
+
+  @override
+  bool build() => false;
+
+  void set(bool value) {
+    if (state == value) return;
+    state = value;
+    unawaited(
+      SharedPreferences.getInstance().then(
+        (prefs) => prefs.setBool(_prefKey, value),
+      ),
+    );
+  }
+}
+
+final mentionPushProvider = NotifierProvider<MentionPushNotifier, bool>(
+  MentionPushNotifier.new,
+);
+
+/// Whether the app is currently backgrounded. The mention notifier reads it
+/// to avoid buzzing while the user is already looking at chat.
+class BackgroundedNotifier extends Notifier<bool> {
+  @override
+  bool build() => false;
+
+  void set(bool value) => state = value;
+}
+
+final backgroundedProvider = NotifierProvider<BackgroundedNotifier, bool>(
+  BackgroundedNotifier.new,
+);

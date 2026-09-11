@@ -165,8 +165,11 @@ Accepted tradeoff: the one sanctioned exception may remain indefinitely.
   `AnalyticsService`, `NotificationService`, `TtsController`, `ModActions`,
   `ChatNoticeController`, `BroadcastWidgets`, `CommandHandler`), the read-state the
   pipeline consumes (selected channel, max messages, reply-to, blocked logins,
-  shared-chat mode, chat readiness, macros), and the chat pipeline
-  (`ChatConnectionManager` plus `ChatUiSignals` and the connection-state bridge).
+  shared-chat mode, chat readiness, macros), the mention notifier and its push /
+  backgrounded flags, and the chat pipeline (`ChatConnectionManager` plus the
+  reduced `ChatUiSignals` for composer focus, banner, join progress, reconnect,
+  whisper and emote-set output, and one `ChangeNotifierTick` adaptor serving all
+  provider-owned notifiers including the connection-state port).
 - `HomeScreen` is a `ConsumerState` that consumes providers, forwards `ChatUiSignals`
   to its panels, and keeps only view-only UI state plus the UI-adjacent owners
   (composer, panels, chrome, message builder, emote applier, media upload, panel
@@ -185,9 +188,10 @@ Accepted tradeoff: the one sanctioned exception may remain indefinitely.
 - The mutable kernel stays the one non-Riverpod observation path, observed through
   Flutter `Listenable` builders.
 - Provider-owned `ChangeNotifier`s (`EmoteManager`, `TwitchAuth`, `ConnectivityService`)
-  and the pipeline connection port are bridged to Riverpod tick/state providers so
-  widgets use `ref.listen`; the singleton overrides (`twitchAuthProvider`) and the
-  Spike A bridge stay intact instead of switching to legacy `ChangeNotifierProvider`.
+  and the pipeline connection port are bridged to Riverpod tick providers through
+  the single `ChangeNotifierTick` adaptor so widgets use `ref.listen`; the
+  singleton overrides (`twitchAuthProvider`) and the Spike A bridge stay intact
+  instead of switching to legacy `ChangeNotifierProvider`.
 - The strangler period keeps a temporary adaptor layer and, for a while, both the
   provider path and legacy service params.
 - UI-adjacent owners (composer, panels, chrome, message builder, emote applier, media

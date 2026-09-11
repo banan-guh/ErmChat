@@ -205,9 +205,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       ref.read(notificationServiceProvider);
   StreamSubscription<String>? _notificationTapSub;
   bool _backgroundService = false;
-  bool _mentionPush = false;
   bool _whisperNotify = true;
-  var _isBackgrounded = false;
 
   final _isMobile = ValueNotifier<bool>(false);
 
@@ -418,7 +416,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   SevenTvPaintService? get namePaintService =>
       _showNamePaints ? _sevenTvPaintService : null;
   @override
-  void onUserBlocked(String login) => _onUserBlocked(login);
+  void onUserBlocked(String login) =>
+      _commandHandler.notifyUserBlockChanged(login, blocked: true);
   @override
   void showWhispersForUser(String login) =>
       _mentions.showWhispersForUser(login);
@@ -652,7 +651,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   @override
   int get recentMessagesLimit => _recentMessagesLimit;
   @override
-  bool get mentionPush => _mentionPush;
+  bool get mentionPush => ref.read(mentionPushProvider);
   @override
   void disposeChannelNotifiers(String channel) =>
       _scrollControllers.remove(channel)?.dispose();
@@ -766,9 +765,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     final mentionPush = prefs.getBool('mention_push') ?? false;
     final whisperNotify = prefs.getBool('whisper_notifications') ?? false;
     if (!mounted) return;
+    ref.read(mentionPushProvider.notifier).set(mentionPush);
     setState(() {
       _backgroundService = backgroundService;
-      _mentionPush = mentionPush;
       _whisperNotify = whisperNotify;
     });
     if (!Platform.isAndroid) return;
@@ -818,8 +817,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   }
 
   void _setMentionPush(bool value) {
-    if (_mentionPush == value) return;
-    setState(() => _mentionPush = value);
+    if (ref.read(mentionPushProvider) == value) return;
+    ref.read(mentionPushProvider.notifier).set(value);
+    setState(() {});
     if (!Platform.isAndroid) return;
     if (value) {
       requestForegroundPermissions();
@@ -842,7 +842,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   }
 
   void _maybeNotifyWhisper(TwitchMessage msg) {
-    if (!_whisperNotify || !_isBackgrounded) return;
+    if (!_whisperNotify || !ref.read(backgroundedProvider)) return;
     if (_notificationTapSub == null || _mentions.isWhispersTabActive) return;
     unawaited(
       _notificationService.showWhisperNotification(
@@ -1014,9 +1014,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    _isBackgrounded =
+    final backgrounded =
         state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive;
+    ref.read(backgroundedProvider.notifier).set(backgrounded);
     if (Platform.isAndroid) {
       if (state == AppLifecycleState.paused) {
         if (_backgroundService) {
@@ -1026,7 +1027,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         if (_backgroundService) {
           stopForegroundService();
         }
-        if (_mentionPush) {
+        if (ref.read(mentionPushProvider)) {
           _notificationService.clearMentionNotifications();
         }
       }
@@ -1073,15 +1074,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       if (removed.isEmpty) continue;
       _tileCache.remove(name);
     }
-  }
-
-  void _onUserBlocked(String login) {
-    ref.read(blockedLoginsProvider.notifier).add(login.toLowerCase());
-    _sweepBlockedMessages();
-  }
-
-  void _onUserUnblocked(String login) {
-    ref.read(blockedLoginsProvider.notifier).remove(login.toLowerCase());
   }
 
   void _onReconnected() {
@@ -1172,10 +1164,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _signalUnsubs.addAll([
       signals.focusComposer.add(_onFocusComposerSignal),
       signals.banner.add(_showBanner),
-      signals.command.add(_onCommandSignal),
       signals.reconnected.add(_onReconnected),
       signals.joinProgress.add(_onJoinProgressSignal),
-      signals.mention.add(_onMentionSignal),
       signals.whisper.add(_mentions.onWhisper),
       signals.userEmoteSets.add(_onUserEmoteSetsSignal),
       signals.whisperSystem.add(
@@ -1184,25 +1174,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       signals.whisperSent.add(
         (s) => _mentions.onWhisperSent(s.target, s.message),
       ),
-      signals.blockedUser.add(
-        (s) => s.blocked ? _onUserBlocked(s.login) : _onUserUnblocked(s.login),
-      ),
-      signals.hypeTrain.add(_broadcastWidgets.onHypeTrain),
-      signals.poll.add(_broadcastWidgets.onPoll),
-      signals.prediction.add(_broadcastWidgets.onPrediction),
     ]);
   }
 
   void _onFocusComposerSignal() => _composer.focus();
 
-  void _onCommandSignal(CommandSignal signal) =>
-      unawaited(_handleCommand(signal.text, signal.channel, signal.auth));
-
   void _onJoinProgressSignal(JoinProgressSignal signal) =>
       _channelManager.onJoinProgress(signal.channel, signal.info);
-
-  void _onMentionSignal(MentionSignal signal) =>
-      _onMentionNotification(signal.channel, signal.message);
 
   void _onUserEmoteSetsSignal(UserEmoteSetsSignal signal) =>
       unawaited(_emotes.loadUserEmoteSets(signal.channel, signal.ids));
@@ -1658,20 +1636,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     }
   }
 
-  /// Handles slash commands by routing to the appropriate Twitch API endpoint.
-  Future<void> _handleCommand(
-    String text,
-    String channel,
-    TwitchAuth auth,
-  ) async {
-    try {
-      await _commandHandler.handle(text, channel, auth);
-    } catch (e) {
-      logDebug('[HomeScreen] command failed: $e');
-      _addSystemMessage(channel, 'Command failed: $e');
-    }
-  }
-
   FlutterListViewController _scrollCtrl(String channel) {
     return _scrollControllers.putIfAbsent(
       channel,
@@ -1727,31 +1691,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     maxSize: maxSize,
     child: child,
   );
-
-  // Push-dedup for shared chat: a message you're joined to both sides of
-  // arrives once natively and once mirrored, with different room-local `id`s
-  // but the same stable `source-id`. Key on that to notify exactly once.
-  final _recentMentionPings = <String>{};
-
-  void _onMentionNotification(String channel, TwitchMessage msg) {
-    if (!_mentionPush) return;
-    if (!_isBackgrounded) return;
-    if (msg.isHistory) return;
-    // Per-rule opt-in: only rules with "notify" enabled may buzz.
-    if (!(msg.highlight?.notify ?? false)) return;
-    final pingKey = msg.sourceMessageId ?? msg.messageId;
-    if (pingKey != null) {
-      if (!_recentMentionPings.add(pingKey)) return;
-      while (_recentMentionPings.length > 64) {
-        _recentMentionPings.remove(_recentMentionPings.first);
-      }
-    }
-    _notificationService.showMentionNotification(
-      channel: channel,
-      userName: msg.displayName,
-      message: msg.text,
-    );
-  }
 
   void _onNotificationTap(String channel) {
     _navigateToChannel(channel);

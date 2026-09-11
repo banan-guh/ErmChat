@@ -1,3 +1,5 @@
+import 'dart:ui' show Color;
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../services/chat_connection_manager.dart';
@@ -15,6 +17,22 @@ final chatPipelineProvider = Provider<ChatConnectionManager>((ref) {
   final chat = ref.read(chatProvider);
   final session = ref.read(sessionProvider);
   final signals = ref.read(chatUiSignalsProvider);
+
+  // Kernel system-line write plus truncate, shared by every system sink so
+  // there is one copy of the add-then-truncate body.
+  void writeSystem(
+    String channel,
+    String text, {
+    Color? accent,
+    String? messageId,
+  }) {
+    final messages = chat.channelFor(channel)?.messages;
+    if (messages == null) return;
+    if (!messages.addSystem(text, accent: accent, messageId: messageId)) {
+      return;
+    }
+    chat.channelFor(channel)?.truncate(ref.read(maxMessagesPerChannelProvider));
+  }
 
   final manager = ChatConnectionManager(
     ChatConnectionConfig(
@@ -38,29 +56,29 @@ final chatPipelineProvider = Provider<ChatConnectionManager>((ref) {
         mentionsChannel: '@mentions',
         getSelectedChannel: () => ref.read(selectedChannelProvider),
         getMaxMessagesPerChannel: () => ref.read(maxMessagesPerChannelProvider),
-        onSystemMessage: (channel, text, {accent, messageId}) {
-          final messages = chat.channelFor(channel)?.messages;
-          if (messages == null) return;
-          if (!messages.addSystem(text, accent: accent, messageId: messageId)) {
-            return;
-          }
-          chat
-              .channelFor(channel)
-              ?.truncate(ref.read(maxMessagesPerChannelProvider));
-        },
+        onSystemMessage: (channel, text, {accent, messageId}) =>
+            writeSystem(channel, text, accent: accent, messageId: messageId),
         onJoinProgress: (channel, info) =>
             signals.joinProgress.emit((channel: channel, info: info)),
         onBanner: signals.banner.emit,
         onFocusComposer: signals.focusComposer.emit,
       ),
       sinks: ChatSinks(
-        onCommand: (text, channel, auth) =>
-            signals.command.emit((text: text, channel: channel, auth: auth)),
+        onCommand: (text, channel, auth) async {
+          try {
+            await ref.read(commandHandlerProvider).handle(text, channel, auth);
+          } catch (e) {
+            writeSystem(channel, 'Command failed: $e');
+          }
+        },
         getReplyToMsg: () => ref.read(replyToProvider),
         setReplyToMsg: (value) => ref.read(replyToProvider.notifier).set(value),
         onUserEmoteSets: (channel, ids) async =>
             signals.userEmoteSets.emit((channel: channel, ids: ids)),
         onReconnected: signals.reconnected.emit,
+        onMention: (channel, msg) =>
+            ref.read(mentionNotifierProvider).handle(channel, msg),
+        onWhisper: signals.whisper.emit,
         getMacros: () => ref.read(macrosProvider),
         isChatReady: () => ref.read(chatReadyProvider),
         isBlocked: (login) =>
@@ -71,37 +89,25 @@ final chatPipelineProvider = Provider<ChatConnectionManager>((ref) {
         onAnalyticsModeration: (channel, isTimeout) => ref
             .read(analyticsServiceProvider)
             .recordModeration(channel, isTimeout),
-        onHypeTrain: signals.hypeTrain.emit,
-        onPoll: signals.poll.emit,
-        onPrediction: signals.prediction.emit,
+        onHypeTrain: (event) =>
+            ref.read(broadcastWidgetsProvider).onHypeTrain(event),
+        onPoll: (event) => ref.read(broadcastWidgetsProvider).onPoll(event),
+        onPrediction: (event) =>
+            ref.read(broadcastWidgetsProvider).onPrediction(event),
         onChatMessage: (channel, msg) => ref
             .read(ttsControllerProvider)
             .handleMessage(channel, msg, ref.read(selectedChannelProvider)),
       ),
     ),
   );
-  // These two live as mutable manager fields, not config ports, so the
-  // adapter wires them to the signal sink directly.
-  manager.onMention = (channel, msg) =>
-      signals.mention.emit((channel: channel, message: msg));
-  manager.onWhisper = signals.whisper.emit;
   ref.onDispose(manager.dispose);
   return manager;
 });
 
 /// Mirrors the pipeline connection-state port as Riverpod state so the shell
 /// observes it with [ref.listen] instead of a manual listener.
-class ConnectionStateBridge extends Notifier<int> {
-  @override
-  int build() {
-    final notifier = ref.watch(chatPipelineProvider).connectionStateNotifier;
-    void onChange() => state = notifier.value;
-    notifier.addListener(onChange);
-    ref.onDispose(() => notifier.removeListener(onChange));
-    return notifier.value;
-  }
-}
-
-final connectionStateProvider = NotifierProvider<ConnectionStateBridge, int>(
-  ConnectionStateBridge.new,
+final connectionStateProvider = NotifierProvider<ChangeNotifierTick, int>(
+  () => ChangeNotifierTick(
+    (ref) => ref.watch(chatPipelineProvider).connectionStateNotifier,
+  ),
 );

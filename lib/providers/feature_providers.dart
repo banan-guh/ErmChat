@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../models/twitch_message.dart';
 import '../services/analytics_service.dart';
 import '../services/command_handler.dart';
 import '../services/mod_actions.dart';
@@ -78,12 +79,25 @@ final broadcastWidgetsProvider = Provider<BroadcastWidgets>((ref) {
   return widgets;
 });
 
-/// Slash-command handler. It owns no resources; its chat feedback and whisper
-/// routing emit [ChatUiSignals] so it never holds a screen reference.
+/// Slash-command handler. It owns no resources; whisper routing emits
+/// [ChatUiSignals] so it never holds a screen reference.
 final commandHandlerProvider = Provider<CommandHandler>((ref) {
   final chat = ref.read(chatProvider);
   final session = ref.read(sessionProvider);
   final signals = ref.read(chatUiSignalsProvider);
+
+  // Blocked rows bypass truncation, so the verb decays them too.
+  void sweepBlockedMessages() {
+    final blocked = ref.read(blockedLoginsProvider);
+    for (final name in List.of(chat.names)) {
+      final channel = chat.channelFor(name);
+      if (channel == null) continue;
+      channel.removeMessages(
+        (m) => !m.isSystem && blocked.contains(m.login.toLowerCase()),
+      );
+    }
+  }
+
   return CommandHandler(
     twitchApi: ref.read(twitchApiProvider),
     irc: ref.read(ircServiceProvider),
@@ -110,15 +124,58 @@ final commandHandlerProvider = Provider<CommandHandler>((ref) {
         signals.whisperSystem.emit((channel: channel, text: text)),
     onWhisperSent: (target, message) =>
         signals.whisperSent.emit((target: target, message: message)),
-    onUserBlocked: (login) =>
-        signals.blockedUser.emit((login: login, blocked: true)),
+    onUserBlocked: (login) {
+      ref.read(blockedLoginsProvider.notifier).add(login.toLowerCase());
+      sweepBlockedMessages();
+    },
     onUserUnblocked: (login) =>
-        signals.blockedUser.emit((login: login, blocked: false)),
+        ref.read(blockedLoginsProvider.notifier).remove(login.toLowerCase()),
   );
 });
 
-/// Bridges a provider-owned [ChangeNotifier] to Riverpod so widgets observe it
-/// with `ref.listen` instead of a manual listener.
+/// Routes a mention ping to the notification service when mention push is on
+/// and the app is backgrounded. Owns the ping dedup set (shared-chat mirrors a
+/// message under a different room-local id but the same source id).
+class MentionNotifier {
+  MentionNotifier(this._ref);
+
+  final Ref _ref;
+  final _recentMentionPings = <String>{};
+
+  void handle(String channel, TwitchMessage msg) {
+    if (!_ref.read(mentionPushProvider)) return;
+    if (!_ref.read(backgroundedProvider)) return;
+    if (msg.isHistory) return;
+    // Per-rule opt-in: only rules with "notify" enabled may buzz.
+    if (!(msg.highlight?.notify ?? false)) return;
+    final pingKey = msg.sourceMessageId ?? msg.messageId;
+    if (pingKey != null) {
+      if (!_recentMentionPings.add(pingKey)) return;
+      while (_recentMentionPings.length > 64) {
+        _recentMentionPings.remove(_recentMentionPings.first);
+      }
+    }
+    _ref
+        .read(notificationServiceProvider)
+        .showMentionNotification(
+          channel: channel,
+          userName: msg.displayName,
+          message: msg.text,
+        );
+  }
+
+  void dispose() => _recentMentionPings.clear();
+}
+
+final mentionNotifierProvider = Provider<MentionNotifier>((ref) {
+  final notifier = MentionNotifier(ref);
+  ref.onDispose(notifier.dispose);
+  return notifier;
+});
+
+/// Bridges any provider-owned [ChangeNotifier] to Riverpod so widgets observe
+/// it with `ref.listen` instead of a manual listener. A [ValueNotifier] is a
+/// [ChangeNotifier], so this also serves the pipeline connection-state port.
 class ChangeNotifierTick extends Notifier<int> {
   ChangeNotifierTick(this._select);
 

@@ -1137,4 +1137,15 @@ class CommandHandler {
       addSystemMessage(channel, 'Command failed: ${_failureReason()}');
     }
   }
+
+  /// Applies a block change made outside the slash-command path (the user
+  /// profile sheet) through the same callbacks the /block and /unblock
+  /// commands use, so the registry and kernel sweep have one owner.
+  void notifyUserBlockChanged(String login, {required bool blocked}) {
+    if (blocked) {
+      onUserBlocked?.call(login);
+    } else {
+      onUserUnblocked?.call(login);
+    }
+  }
 }
