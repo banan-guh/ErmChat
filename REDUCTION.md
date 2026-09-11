@@ -8,6 +8,22 @@ where a preexisting library can replace bespoke infrastructure. It is the output
 feature budget pass, three code-reduction passes (emotes, settings/UI, moderation and
 commands), and a library survey.
 
+## Status (applied so far)
+
+- **1a dead code: done.** Removed the dead mod section in `message_menu.dart`,
+  `showModConfirmDialog`, `decodeWebpPureDart`, and the superseded pure-Dart WebP
+  decoder; `isMention`/`isMentionOf` kept because tests use them.
+- **1b duplication: done** for the high-confidence rows (semaphores, date helpers,
+  `SettingsSectionHeader`, `failureReason`, stash hydration, twitch-sub predicate, 7TV
+  sub pairs, FPS prefs).
+- **1c: partly done.** Landed `SettingsNavTile`, `confirmDialog`, `showChoiceDialog`,
+  the shared IRC/EventSub moderation-copy formatter, `TwitchApi._send`,
+  `ModActions` guards, and the `mod_view` guarded-load scaffold. Skipped as stale or
+  not identical: `PatternRuleFields`, `_ModEmpty`/`_ModError`, `ModActionPrompter`,
+  `EmoteType` tables. Remaining: prefs facade, `SettingsCallbacks`, badge fetch
+  skeletons, RIFF/WebP chunk walking, `GenericEmote` rebuild, unlock/override merge.
+- **Track 2 (libraries/codegen): deferred** to a separate fork.
+
 ## Invariants
 
 - No feature loss. Personal emotes, the emote cache, the broken-emote shim, and the

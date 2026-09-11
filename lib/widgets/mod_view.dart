@@ -950,6 +950,43 @@ class _ModError extends StatelessWidget {
   }
 }
 
+/// Shared async load scaffold for the Mod View tabs: last Helix status to
+/// error copy, generation guard, and backgrounded-failure notices.
+mixin _ModTabLoad<T extends StatefulWidget> on State<T> {
+  ModActions get modActions;
+  ValueChanged<String> get onNotice;
+
+  /// Runs [request] behind the tab load guards. Null means the caller must
+  /// stop: either a newer load won the generation, or a failed background
+  /// refresh was already surfaced as a notice.
+  Future<({V? value, String? error})?> guardedLoad<V>({
+    required int gen,
+    required int currentGen,
+    required bool background,
+    required Future<V> Function() request,
+    required String fallbackError,
+    String? Function(int status)? statusError,
+  }) async {
+    V? value;
+    String? error;
+    try {
+      value = await request();
+      final status = modActions.twitchApi.lastErrorStatus;
+      if (status != null) {
+        error = statusError?.call(status) ?? modActions.failureReason();
+      }
+    } catch (_) {
+      error = fallbackError;
+    }
+    if (!mounted || gen != currentGen) return null;
+    if (error != null && background) {
+      onNotice(error);
+      return null;
+    }
+    return (value: value, error: error);
+  }
+}
+
 class _UsersTab extends StatefulWidget {
   const _UsersTab({
     required this.channel,
@@ -1217,8 +1254,14 @@ class _RequestsTab extends StatefulWidget {
   State<_RequestsTab> createState() => _RequestsTabState();
 }
 
-class _RequestsTabState extends State<_RequestsTab> {
+class _RequestsTabState extends State<_RequestsTab>
+    with _ModTabLoad<_RequestsTab> {
   static const _statuses = ['pending', 'approved', 'denied'];
+
+  @override
+  ModActions get modActions => widget.modActions;
+  @override
+  ValueChanged<String> get onNotice => widget.onNotice;
 
   String _status = 'pending';
   List<UnbanRequest>? _requests;
@@ -1281,29 +1324,21 @@ class _RequestsTabState extends State<_RequestsTab> {
 
   Future<void> _load() async {
     final gen = ++_loadGen;
-    final background = _requests != null;
-    List<UnbanRequest> requests = const [];
-    String? error;
-    try {
-      requests = await widget.modActions.getUnbanRequests(
+    final outcome = await guardedLoad<List<UnbanRequest>>(
+      gen: gen,
+      currentGen: _loadGen,
+      background: _requests != null,
+      request: () => widget.modActions.getUnbanRequests(
         widget.auth,
         widget.channel,
         status: _status,
-      );
-      if (widget.modActions.twitchApi.lastErrorStatus != null) {
-        error = widget.modActions.failureReason();
-      }
-    } catch (_) {
-      error = 'Could not load unban requests.';
-    }
-    if (!mounted || gen != _loadGen) return;
-    if (error != null && background) {
-      widget.onNotice(error);
-      return;
-    }
+      ),
+      fallbackError: 'Could not load unban requests.',
+    );
+    if (outcome == null) return;
     setState(() {
-      _error = error;
-      if (error == null) _requests = requests;
+      _error = outcome.error;
+      if (outcome.error == null) _requests = outcome.value;
     });
   }
 
@@ -1481,7 +1516,12 @@ class _TermsTab extends StatefulWidget {
   State<_TermsTab> createState() => _TermsTabState();
 }
 
-class _TermsTabState extends State<_TermsTab> {
+class _TermsTabState extends State<_TermsTab> with _ModTabLoad<_TermsTab> {
+  @override
+  ModActions get modActions => widget.modActions;
+  @override
+  ValueChanged<String> get onNotice => widget.onNotice;
+
   List<BlockedTerm>? _terms;
   String? _error;
   int _loadGen = 0;
@@ -1534,28 +1574,18 @@ class _TermsTabState extends State<_TermsTab> {
 
   Future<void> _load() async {
     final gen = ++_loadGen;
-    final background = _terms != null;
-    List<BlockedTerm> terms = const [];
-    String? error;
-    try {
-      terms = await widget.modActions.getBlockedTerms(
-        widget.auth,
-        widget.channel,
-      );
-      if (widget.modActions.twitchApi.lastErrorStatus != null) {
-        error = widget.modActions.failureReason();
-      }
-    } catch (_) {
-      error = 'Could not load blocked terms.';
-    }
-    if (!mounted || gen != _loadGen) return;
-    if (error != null && background) {
-      widget.onNotice(error);
-      return;
-    }
+    final outcome = await guardedLoad<List<BlockedTerm>>(
+      gen: gen,
+      currentGen: _loadGen,
+      background: _terms != null,
+      request: () =>
+          widget.modActions.getBlockedTerms(widget.auth, widget.channel),
+      fallbackError: 'Could not load blocked terms.',
+    );
+    if (outcome == null) return;
     setState(() {
-      _error = error;
-      if (error == null) _terms = terms;
+      _error = outcome.error;
+      if (outcome.error == null) _terms = outcome.value;
     });
   }
 
@@ -2027,7 +2057,13 @@ class _BannedManager extends StatefulWidget {
   State<_BannedManager> createState() => _BannedManagerState();
 }
 
-class _BannedManagerState extends State<_BannedManager> {
+class _BannedManagerState extends State<_BannedManager>
+    with _ModTabLoad<_BannedManager> {
+  @override
+  ModActions get modActions => widget.modActions;
+  @override
+  ValueChanged<String> get onNotice => widget.onNotice;
+
   List<BannedUser>? _banned;
   String? _error;
   int _loadGen = 0;
@@ -2053,28 +2089,18 @@ class _BannedManagerState extends State<_BannedManager> {
 
   Future<void> _load() async {
     final gen = ++_loadGen;
-    final background = _banned != null;
-    List<BannedUser> banned = const [];
-    String? error;
-    try {
-      banned = await widget.modActions.getBannedUsers(
-        widget.auth,
-        widget.channel,
-      );
-      if (widget.modActions.twitchApi.lastErrorStatus != null) {
-        error = widget.modActions.failureReason();
-      }
-    } catch (_) {
-      error = 'Could not load the banned list.';
-    }
-    if (!mounted || gen != _loadGen) return;
-    if (error != null && background) {
-      widget.onNotice(error);
-      return;
-    }
+    final outcome = await guardedLoad<List<BannedUser>>(
+      gen: gen,
+      currentGen: _loadGen,
+      background: _banned != null,
+      request: () =>
+          widget.modActions.getBannedUsers(widget.auth, widget.channel),
+      fallbackError: 'Could not load the banned list.',
+    );
+    if (outcome == null) return;
     setState(() {
-      _error = error;
-      if (error == null) _banned = banned;
+      _error = outcome.error;
+      if (outcome.error == null) _banned = outcome.value;
     });
   }
 
@@ -2485,7 +2511,13 @@ class _PollsSection extends StatefulWidget {
   State<_PollsSection> createState() => _PollsSectionState();
 }
 
-class _PollsSectionState extends State<_PollsSection> {
+class _PollsSectionState extends State<_PollsSection>
+    with _ModTabLoad<_PollsSection> {
+  @override
+  ModActions get modActions => widget.modActions;
+  @override
+  ValueChanged<String> get onNotice => widget.onNotice;
+
   List<Map<String, dynamic>>? _polls;
   String? _error;
   int _loadGen = 0;
@@ -2511,25 +2543,17 @@ class _PollsSectionState extends State<_PollsSection> {
 
   Future<void> _load() async {
     final gen = ++_loadGen;
-    final background = _polls != null;
-    List<Map<String, dynamic>> polls = const [];
-    String? error;
-    try {
-      polls = await widget.modActions.getPolls(widget.auth, widget.channel);
-      if (widget.modActions.twitchApi.lastErrorStatus != null) {
-        error = widget.modActions.failureReason();
-      }
-    } catch (_) {
-      error = 'Could not load polls.';
-    }
-    if (!mounted || gen != _loadGen) return;
-    if (error != null && background) {
-      widget.onNotice(error);
-      return;
-    }
+    final outcome = await guardedLoad<List<Map<String, dynamic>>>(
+      gen: gen,
+      currentGen: _loadGen,
+      background: _polls != null,
+      request: () => widget.modActions.getPolls(widget.auth, widget.channel),
+      fallbackError: 'Could not load polls.',
+    );
+    if (outcome == null) return;
     setState(() {
-      _error = error;
-      if (error == null) _polls = polls;
+      _error = outcome.error;
+      if (outcome.error == null) _polls = outcome.value;
     });
   }
 
@@ -2793,7 +2817,13 @@ class _PredictionsSection extends StatefulWidget {
   State<_PredictionsSection> createState() => _PredictionsSectionState();
 }
 
-class _PredictionsSectionState extends State<_PredictionsSection> {
+class _PredictionsSectionState extends State<_PredictionsSection>
+    with _ModTabLoad<_PredictionsSection> {
+  @override
+  ModActions get modActions => widget.modActions;
+  @override
+  ValueChanged<String> get onNotice => widget.onNotice;
+
   List<Map<String, dynamic>>? _predictions;
   String? _error;
   int _loadGen = 0;
@@ -2819,28 +2849,18 @@ class _PredictionsSectionState extends State<_PredictionsSection> {
 
   Future<void> _load() async {
     final gen = ++_loadGen;
-    final background = _predictions != null;
-    List<Map<String, dynamic>> predictions = const [];
-    String? error;
-    try {
-      predictions = await widget.modActions.getPredictions(
-        widget.auth,
-        widget.channel,
-      );
-      if (widget.modActions.twitchApi.lastErrorStatus != null) {
-        error = widget.modActions.failureReason();
-      }
-    } catch (_) {
-      error = 'Could not load predictions.';
-    }
-    if (!mounted || gen != _loadGen) return;
-    if (error != null && background) {
-      widget.onNotice(error);
-      return;
-    }
+    final outcome = await guardedLoad<List<Map<String, dynamic>>>(
+      gen: gen,
+      currentGen: _loadGen,
+      background: _predictions != null,
+      request: () =>
+          widget.modActions.getPredictions(widget.auth, widget.channel),
+      fallbackError: 'Could not load predictions.',
+    );
+    if (outcome == null) return;
     setState(() {
-      _error = error;
-      if (error == null) _predictions = predictions;
+      _error = outcome.error;
+      if (outcome.error == null) _predictions = outcome.value;
     });
   }
 
@@ -3006,7 +3026,13 @@ class _PointsSection extends StatefulWidget {
   State<_PointsSection> createState() => _PointsSectionState();
 }
 
-class _PointsSectionState extends State<_PointsSection> {
+class _PointsSectionState extends State<_PointsSection>
+    with _ModTabLoad<_PointsSection> {
+  @override
+  ModActions get modActions => widget.modActions;
+  @override
+  ValueChanged<String> get onNotice => widget.onNotice;
+
   List<PointReward>? _rewards;
   String? _error;
   int _loadGen = 0;
@@ -3065,28 +3091,19 @@ class _PointsSectionState extends State<_PointsSection> {
 
   Future<void> _loadRewards() async {
     final gen = ++_loadGen;
-    final background = _rewards != null;
-    List<PointReward> rewards = const [];
-    String? error;
-    try {
-      rewards = await widget.modActions.getPointRewards(
-        widget.auth,
-        widget.channel,
-      );
-      if (widget.modActions.twitchApi.lastErrorStatus != null) {
-        error = widget.modActions.failureReason();
-      }
-    } catch (_) {
-      error = 'Could not load rewards.';
-    }
-    if (!mounted || gen != _loadGen) return;
-    if (error != null && background) {
-      widget.onNotice(error);
-      return;
-    }
+    final outcome = await guardedLoad<List<PointReward>>(
+      gen: gen,
+      currentGen: _loadGen,
+      background: _rewards != null,
+      request: () =>
+          widget.modActions.getPointRewards(widget.auth, widget.channel),
+      fallbackError: 'Could not load rewards.',
+    );
+    if (outcome == null) return;
     setState(() {
-      _error = error;
-      if (error == null) {
+      _error = outcome.error;
+      if (outcome.error == null) {
+        final rewards = outcome.value ?? const <PointReward>[];
         _rewards = rewards;
         if (_selectedRewardId != null &&
             rewards.every((r) => r.id != _selectedRewardId)) {
@@ -3102,32 +3119,25 @@ class _PointsSectionState extends State<_PointsSection> {
     final rewardId = _selectedRewardId;
     if (rewardId == null) return;
     final gen = ++_queueGen;
-    final background = _queue != null;
-    List<PointRedemption> queue = const [];
-    String? error;
-    try {
-      queue = await widget.modActions.getPointRedemptions(
+    final outcome = await guardedLoad<List<PointRedemption>>(
+      gen: gen,
+      currentGen: _queueGen,
+      background: _queue != null,
+      request: () => widget.modActions.getPointRedemptions(
         widget.auth,
         widget.channel,
         rewardId,
-      );
-      if (widget.modActions.twitchApi.lastErrorStatus != null) {
-        error = widget.modActions.twitchApi.lastErrorStatus == 403
-            ? 'Redemptions for this reward are only visible '
-                  'to the app that created it.'
-            : widget.modActions.failureReason();
-      }
-    } catch (_) {
-      error = 'Could not load redemptions.';
-    }
-    if (!mounted || gen != _queueGen) return;
-    if (error != null && background) {
-      widget.onNotice(error);
-      return;
-    }
+      ),
+      fallbackError: 'Could not load redemptions.',
+      statusError: (status) => status == 403
+          ? 'Redemptions for this reward are only visible '
+                'to the app that created it.'
+          : null,
+    );
+    if (outcome == null) return;
     setState(() {
-      _queueError = error;
-      if (error == null) _queue = queue;
+      _queueError = outcome.error;
+      if (outcome.error == null) _queue = outcome.value;
     });
   }
 
