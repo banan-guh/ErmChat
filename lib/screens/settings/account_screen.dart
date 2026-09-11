@@ -1,12 +1,12 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../services/twitch_api.dart';
 import '../../services/twitch_auth.dart';
 import '../../services/twitch_oauth.dart';
 import '../../twitch_config.dart';
+import '../../util/prefs.dart';
 import '../../widgets/app_snack.dart';
 import '../../widgets/dialogs.dart';
 import 'settings_page.dart';
@@ -91,8 +91,8 @@ class _AccountScreenState extends State<AccountScreen> {
       return;
     }
 
-    final prefs = await SharedPreferences.getInstance();
-    final useBrowserOAuth = prefs.getBool('use_browser_oauth') ?? false;
+    final prefs = await Prefs.load();
+    final useBrowserOAuth = prefs.useBrowserOAuth;
     if (useBrowserOAuth) {
       _startBrowserOAuth();
     } else {

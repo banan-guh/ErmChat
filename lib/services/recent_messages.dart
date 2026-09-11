@@ -2,8 +2,8 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart';
 import '../util/constants.dart';
+import '../util/prefs.dart';
 import '../models/twitch_message.dart';
 import '../color_utils.dart';
 import '../util/log.dart';
@@ -62,13 +62,13 @@ class RecentMessagesConfig {
     }
   }
 
-  static RecentMessagesConfig fromPrefs(SharedPreferences prefs) {
-    final modeStr = prefs.getString('recent_messages_mode') ?? 'auto';
+  static RecentMessagesConfig fromPrefs(Prefs prefs) {
+    final modeStr = prefs.recentMessagesModeName;
     final mode = RecentMessagesMode.values.firstWhere(
       (e) => e.name == modeStr,
       orElse: () => RecentMessagesMode.auto,
     );
-    final customUrl = prefs.getString('recent_messages_custom_url');
+    final customUrl = prefs.recentMessagesCustomUrl;
     if (mode == RecentMessagesMode.custom ||
         customUrl == null ||
         customUrl.isEmpty) {
@@ -77,12 +77,12 @@ class RecentMessagesConfig {
     return RecentMessagesConfig(mode: mode, customUrl: customUrl);
   }
 
-  Future<void> toPrefs(SharedPreferences prefs) async {
-    await prefs.setString('recent_messages_mode', mode.name);
+  Future<void> toPrefs(Prefs prefs) async {
+    await prefs.setRecentMessagesModeName(mode.name);
     if (customUrl != null && customUrl!.isNotEmpty) {
-      await prefs.setString('recent_messages_custom_url', customUrl!);
+      await prefs.setRecentMessagesCustomUrl(customUrl!);
     } else {
-      await prefs.remove('recent_messages_custom_url');
+      await prefs.removeRecentMessagesCustomUrl();
     }
   }
 }

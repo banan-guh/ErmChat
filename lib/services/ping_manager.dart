@@ -1,16 +1,13 @@
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/highlight_state.dart';
 import '../models/ping_rule.dart';
 import '../models/twitch_message.dart';
 import '../util/mention.dart';
+import '../util/prefs.dart';
 
 /// Evaluates highlight rules (DankChat-style): skip self/system, blacklist, then rules.
 class PingManager extends ChangeNotifier {
-  static const _prefKey = 'ping_rules_v1';
-  static const _legacyAltPingsKey = 'alt_pings';
-
   /// Shared instance; tests construct fresh ones.
   static final PingManager instance = PingManager();
 
@@ -67,15 +64,15 @@ class PingManager extends ChangeNotifier {
   }
 
   Future<void> load() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await Prefs.load();
     // Legacy: remove old alt_pings key.
-    if (prefs.containsKey(_legacyAltPingsKey)) {
-      await prefs.remove(_legacyAltPingsKey);
+    if (prefs.hasLegacyAltPings) {
+      await prefs.removeLegacyAltPings();
     }
-    final raw = prefs.getString(_prefKey);
+    final raw = prefs.pingRules;
     if (raw == null) {
       _rules = _seedDefaults();
-      await prefs.setString(_prefKey, encodeRules(_rules));
+      await prefs.setPingRules(encodeRules(_rules));
     } else {
       _rules = decodeRules(raw);
     }
@@ -85,8 +82,8 @@ class PingManager extends ChangeNotifier {
   }
 
   Future<void> save() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_prefKey, encodeRules(_rules));
+    final prefs = await Prefs.load();
+    await prefs.setPingRules(encodeRules(_rules));
     _regexCache.clear();
     notifyListeners();
   }
@@ -152,7 +149,8 @@ class PingManager extends ChangeNotifier {
   HighlightState? evaluate(TwitchMessage msg) {
     if (!_loaded || msg.isSystem) return null;
     final selfLogin = _login;
-    final isSelf = selfLogin != null &&
+    final isSelf =
+        selfLogin != null &&
         selfLogin.isNotEmpty &&
         msg.login.toLowerCase() == selfLogin;
     if (_isBlacklisted(msg.login)) return null;

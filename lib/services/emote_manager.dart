@@ -5,13 +5,13 @@ import 'dart:math' as math;
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../models/emote_fetch_tier.dart';
 import '../models/generic_emote.dart';
 import '../models/twitch_message.dart';
 import '../services/twitch_api.dart';
 import '../services/twitch_auth.dart';
 import '../util/log.dart';
+import '../util/prefs.dart';
 import '../util/semaphore.dart';
 import 'emote_cache_manager.dart';
 import 'emote_meta_store.dart';
@@ -218,10 +218,7 @@ class EmoteManager extends ChangeNotifier {
   // least-recently-used extras once it grows past maxObjects). This manager
   // only owns the usage registry that feeds that priority, plus the one-time
   // migrations from the old cache layouts.
-  static const _usageKey = 'emote_usage';
   static const _usageMinEntries = 300;
-  static const _migrationKey = 'emote_gc_migrated_v1';
-  static const _migrationKeyV2 = 'emote_gc_migrated_v2';
 
   EmoteFetchTier _tier = EmoteFetchTier.high;
   int _cacheCap = defaultEmoteCacheMax;
@@ -1227,26 +1224,23 @@ class EmoteManager extends ChangeNotifier {
     return _subsByChannelCache = result;
   }
 
-  static const _recentKey = 'recent_emotes';
   static const _maxRecent = 100;
   List<String> _recentIds = [];
   bool _recentLoaded = false;
-  SharedPreferences? _prefs;
+  Prefs? _prefs;
 
   // ── Provider visibility toggles ─────────────────────────────────────
-  static const _disabledProvidersKey = 'emote_providers_disabled';
   final Set<EmoteType> _disabledProviders = {};
   bool _providersLoaded = false;
 
   // Whether unlisted 7TV emotes render. Fetch-only; flip rebuilds caches.
-  static const _allowUnlisted7tvKey = 'emote_7tv_allow_unlisted';
   bool _allowUnlisted7tv = false;
 
   Future<void> _ensureProvidersLoaded() async {
     if (_providersLoaded) return;
     _providersLoaded = true;
     final prefs = await _getPrefs();
-    final raw = prefs.getStringList(_disabledProvidersKey);
+    final raw = prefs.emoteProvidersDisabled;
     var migrated = false;
     if (raw != null) {
       for (final t in EmoteType.values) {
@@ -1255,10 +1249,9 @@ class EmoteManager extends ChangeNotifier {
       // Migrate: Twitch is no longer toggleable.
       if (_disabledProviders.remove(EmoteType.twitch)) migrated = true;
     }
-    _allowUnlisted7tv = prefs.getBool(_allowUnlisted7tvKey) ?? false;
+    _allowUnlisted7tv = prefs.emoteAllowUnlisted7tv;
     if (!migrated) return;
-    await prefs.setStringList(
-      _disabledProvidersKey,
+    await prefs.setEmoteProvidersDisabled(
       _disabledProviders.map((t) => t.name).toList(),
     );
   }
@@ -1285,8 +1278,7 @@ class EmoteManager extends ChangeNotifier {
         : _disabledProviders.add(type);
     if (!changed) return;
     final prefs = await _getPrefs();
-    await prefs.setStringList(
-      _disabledProvidersKey,
+    await prefs.setEmoteProvidersDisabled(
       _disabledProviders.map((t) => t.name).toList(),
     );
     _rebuildCachesForProviderToggles();
@@ -1303,7 +1295,7 @@ class EmoteManager extends ChangeNotifier {
     if (allowed == _allowUnlisted7tv) return;
     _allowUnlisted7tv = allowed;
     final prefs = await _getPrefs();
-    await prefs.setBool(_allowUnlisted7tvKey, allowed);
+    await prefs.setEmoteAllowUnlisted7tv(allowed);
     _rebuildCachesForProviderToggles();
   }
 
@@ -1491,8 +1483,8 @@ class EmoteManager extends ChangeNotifier {
     }
   }
 
-  Future<SharedPreferences> _getPrefs() async {
-    _prefs ??= await SharedPreferences.getInstance();
+  Future<Prefs> _getPrefs() async {
+    _prefs ??= await Prefs.load();
     return _prefs!;
   }
 
@@ -1500,7 +1492,7 @@ class EmoteManager extends ChangeNotifier {
     if (_recentLoaded) return;
     _recentLoaded = true;
     final prefs = await _getPrefs();
-    final raw = prefs.getString(_recentKey);
+    final raw = prefs.recentEmotes;
     if (raw == null) return;
     try {
       _recentIds = (jsonDecode(raw) as List<dynamic>).cast<String>();
@@ -1511,7 +1503,7 @@ class EmoteManager extends ChangeNotifier {
 
   Future<void> _saveRecent() async {
     final prefs = await _getPrefs();
-    await prefs.setString(_recentKey, jsonEncode(_recentIds));
+    await prefs.setRecentEmotes(jsonEncode(_recentIds));
   }
 
   /// Recently used emote ids (most recent first), used to boost autocomplete
@@ -2749,7 +2741,7 @@ class EmoteManager extends ChangeNotifier {
     DateTime? fetchTime,
   }) async {
     final prefs = await _getPrefs();
-    await _metaStore.migrateFromPrefs(prefs);
+    await _metaStore.migrateFromPrefs(prefs.raw);
     final raw = await _metaStore.read(key);
     if (raw == null) return (cached: null, fresh: false);
     try {
@@ -2882,7 +2874,7 @@ class EmoteManager extends ChangeNotifier {
     if (_usageLoaded) return;
     _usageLoaded = true;
     final prefs = await _getPrefs();
-    final raw = prefs.getString(_usageKey);
+    final raw = prefs.emoteUsage;
     if (raw != null) {
       try {
         final data = jsonDecode(raw) as Map<String, dynamic>;
@@ -2938,7 +2930,7 @@ class EmoteManager extends ChangeNotifier {
       },
     };
     final encoded = await Isolate.run(() => jsonEncode(data));
-    await prefs.setString(_usageKey, encoded);
+    await prefs.setEmoteUsage(encoded);
   }
 
   /// Debounced flush for high-frequency view tracking.
@@ -2970,7 +2962,7 @@ class EmoteManager extends ChangeNotifier {
     cache.lastUsedAt = (url) => _emoteUsage[url]?.lastUsedAt;
     if (!_migrationRan) {
       final prefs = await _getPrefs();
-      if (prefs.getBool(_migrationKey) ?? false) {
+      if (prefs.emoteGcMigratedV1) {
         _migrationRan = true;
       } else {
         // First launch after GC: clear old cache (untracked by usage registry).
@@ -2980,12 +2972,12 @@ class EmoteManager extends ChangeNotifier {
           logDebug('[EmoteManager] cache migration emptyCache failed');
         }
         _migrationRan = true;
-        await prefs.setBool(_migrationKey, true);
+        await prefs.setEmoteGcMigratedV1(true);
       }
     }
     if (!_migrationRanV2) {
       final prefs = await _getPrefs();
-      if (prefs.getBool(_migrationKeyV2) ?? false) {
+      if (prefs.emoteGcMigratedV2) {
         _migrationRanV2 = true;
       } else {
         // v2 migration: clear v1 DefaultCacheManager leftovers.
@@ -2995,7 +2987,7 @@ class EmoteManager extends ChangeNotifier {
           logDebug('[EmoteManager] cache v2 migration emptyCache failed');
         }
         _migrationRanV2 = true;
-        await prefs.setBool(_migrationKeyV2, true);
+        await prefs.setEmoteGcMigratedV2(true);
       }
     }
     await cache.enforceNow();

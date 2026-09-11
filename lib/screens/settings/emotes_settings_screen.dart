@@ -1,11 +1,11 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../../models/emote_fetch_tier.dart';
 import '../../models/generic_emote.dart';
 import '../../services/emote_cache_manager.dart';
 import '../../services/emote_manager.dart';
+import '../../util/prefs.dart';
 import '../../widgets/dialogs.dart';
 import 'settings_page.dart';
 
@@ -137,27 +137,22 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
   }
 
   Future<void> _loadPrefs() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await Prefs.load();
     if (mounted) {
       setState(() {
-        _tier =
-            prefs.getInt(emoteFetchTierPrefsKey) ?? EmoteFetchTier.high.index;
-        final autoIndex =
-            prefs.getInt(emoteFetchAutoPrefsKey) ??
-            defaultEmoteFetchAutoMode.index;
+        _tier = prefs.emoteFetchTier;
+        final autoIndex = prefs.emoteFetchAuto;
         _autoMode =
             autoIndex >= 0 && autoIndex < EmoteFetchAutoMode.values.length
             ? EmoteFetchAutoMode.values[autoIndex]
             : defaultEmoteFetchAutoMode;
-        _appliedCacheMax =
-            prefs.getInt(emoteCacheMaxPrefsKey) ?? defaultEmoteCacheMax;
+        _appliedCacheMax = prefs.emoteCacheMax;
         _draftCacheMax = _appliedCacheMax;
-        _animateGifs = prefs.getBool('animate_gifs') ?? true;
-        _emoteFpsCap = prefs.getInt('emote_fps_cap') ?? 30;
-        _adaptiveThrottle = prefs.getBool('emote_auto_throttle') ?? true;
-        _alwaysAnimatePanel =
-            prefs.getBool('always_animate_emote_panel') ?? true;
-        _capEmoteFps = prefs.getBool('emote_cap_fps') ?? false;
+        _animateGifs = prefs.animateGifs;
+        _emoteFpsCap = prefs.emoteFpsCap;
+        _adaptiveThrottle = prefs.emoteAutoThrottle;
+        _alwaysAnimatePanel = prefs.alwaysAnimateEmotePanel;
+        _capEmoteFps = prefs.emoteCapFps;
       });
     }
   }
@@ -185,23 +180,23 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
 
   Future<void> _onTierChanged(double value) async {
     final v = value.toInt();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt(emoteFetchTierPrefsKey, v);
+    final prefs = await Prefs.load();
+    await prefs.setEmoteFetchTier(v);
     if (mounted) setState(() => _tier = v);
     widget.onEmoteTierChanged?.call(v);
   }
 
   Future<void> _onAutoModeChanged(EmoteFetchAutoMode mode) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt(emoteFetchAutoPrefsKey, mode.index);
+    final prefs = await Prefs.load();
+    await prefs.setEmoteFetchAuto(mode.index);
     if (mounted) setState(() => _autoMode = mode);
     widget.onEmoteAutoModeChanged?.call(mode);
   }
 
   Future<void> _applyCacheMax() async {
     final cache = widget.cacheManager ?? EmoteCacheManager();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt(emoteCacheMaxPrefsKey, _draftCacheMax);
+    final prefs = await Prefs.load();
+    await prefs.setEmoteCacheMax(_draftCacheMax);
     widget.onEmoteCacheMaxChanged?.call(_draftCacheMax);
     // Evict now so the footer reflects the new cap immediately, not just on
     // the next emote fetch.
@@ -402,8 +397,8 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
           value: _capEmoteFps,
           onChanged: (value) async {
             setState(() => _capEmoteFps = value);
-            final prefs = await SharedPreferences.getInstance();
-            await prefs.setBool('emote_cap_fps', value);
+            final prefs = await Prefs.load();
+            await prefs.setEmoteCapFps(value);
             _applyCapState();
             widget.onCapEmoteFpsChanged?.call(value);
           },
@@ -443,16 +438,14 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
                         widget.onEmoteFpsCapChanged?.call(v);
                         if (gifsChanged) {
                           widget.onAnimateGifsChanged?.call(gifsOn);
-                          SharedPreferences.getInstance().then(
-                            (prefs) => prefs.setBool('animate_gifs', gifsOn),
+                          Prefs.load().then(
+                            (prefs) => prefs.setAnimateGifs(gifsOn),
                           );
                         }
                       },
                       onChangeEnd: (value) {
                         final v = value.toInt();
-                        SharedPreferences.getInstance().then(
-                          (prefs) => prefs.setInt('emote_fps_cap', v),
-                        );
+                        Prefs.load().then((prefs) => prefs.setEmoteFpsCap(v));
                       },
                     ),
                     SwitchListTile(
@@ -465,9 +458,8 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
                       onChanged: _emoteFpsCap == 0
                           ? null
                           : (value) async {
-                              final prefs =
-                                  await SharedPreferences.getInstance();
-                              await prefs.setBool('emote_auto_throttle', value);
+                              final prefs = await Prefs.load();
+                              await prefs.setEmoteAutoThrottle(value);
                               if (mounted) {
                                 setState(() => _adaptiveThrottle = value);
                               }
@@ -480,11 +472,8 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
                       subtitle: const Text('Ignore FPS cap for emote preview'),
                       value: _alwaysAnimatePanel,
                       onChanged: (value) async {
-                        final prefs = await SharedPreferences.getInstance();
-                        await prefs.setBool(
-                          'always_animate_emote_panel',
-                          value,
-                        );
+                        final prefs = await Prefs.load();
+                        await prefs.setAlwaysAnimateEmotePanel(value);
                         if (mounted) {
                           setState(() => _alwaysAnimatePanel = value);
                         }
@@ -503,8 +492,8 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
           onChanged: (_capEmoteFps && _emoteFpsCap == 0)
               ? null
               : (value) async {
-                  final prefs = await SharedPreferences.getInstance();
-                  await prefs.setBool('animate_gifs', value);
+                  final prefs = await Prefs.load();
+                  await prefs.setAnimateGifs(value);
                   if (mounted) setState(() => _animateGifs = value);
                   widget.onAnimateGifsChanged?.call(value);
                 },

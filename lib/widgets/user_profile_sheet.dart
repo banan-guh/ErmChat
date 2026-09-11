@@ -3,7 +3,6 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show HapticFeedback;
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/moderation_entries.dart';
 import '../models/twitch_badge.dart';
@@ -14,6 +13,7 @@ import '../services/twitch_auth.dart';
 import '../util/date_format.dart';
 import '../util/haptics.dart';
 import '../util/log.dart';
+import '../util/prefs.dart';
 import 'app_snack.dart';
 import 'mod_view.dart';
 
@@ -840,10 +840,10 @@ class UserProfileSheetState extends State<UserProfileSheet> {
         title: const Text('Mention user'),
         onTap: () async {
           widget.onClose();
-          final prefs = await SharedPreferences.getInstance();
+          final prefs = await Prefs.load();
           final username = widget.username;
           // Mention format preference: how name is inserted into compose box.
-          final prefix = switch (prefs.getString('mention_format') ?? '@name') {
+          final prefix = switch (prefs.mentionFormat) {
             'name' => '$username ',
             'name,' => '$username, ',
             '@name,' => '@$username, ',

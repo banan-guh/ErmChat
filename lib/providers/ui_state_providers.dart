@@ -1,11 +1,11 @@
 import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/twitch_message.dart';
 import '../services/command_macros.dart';
 import '../util/constants.dart';
+import '../util/prefs.dart';
 import 'app_providers.dart';
 
 /// Pipeline-visible shell state. The chat pipeline reads these synchronously
@@ -97,19 +97,13 @@ final macrosProvider = Provider<Map<String, String>>((ref) {
 /// Whether mention push notifications are enabled. Persists under the same
 /// key the settings screen writes so the value survives restarts.
 class MentionPushNotifier extends Notifier<bool> {
-  static const _prefKey = 'mention_push';
-
   @override
   bool build() => false;
 
   void set(bool value) {
     if (state == value) return;
     state = value;
-    unawaited(
-      SharedPreferences.getInstance().then(
-        (prefs) => prefs.setBool(_prefKey, value),
-      ),
-    );
+    unawaited(Prefs.load().then((prefs) => prefs.setMentionPush(value)));
   }
 }
 

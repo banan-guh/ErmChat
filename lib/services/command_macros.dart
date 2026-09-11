@@ -1,6 +1,6 @@
 import 'dart:convert';
 
-import 'package:shared_preferences/shared_preferences.dart';
+import '../util/prefs.dart';
 
 /// A locally-defined chat macro: a trigger word plus a body that replaces it
 /// on send. The body may reference positional args with {1}, {2} ... and
@@ -20,8 +20,6 @@ class CommandMacro {
 final _whitespaceRe = RegExp(r'\s+');
 final _placeholderRe = RegExp(r'\{(\d+\+?)\}');
 
-String _prefsKey(String login) => 'macros_${login.toLowerCase()}';
-
 // Per-account in-memory mirror of what is on disk. Populated by [loadMacros]
 // and kept fresh by [saveMacros], so send-path reads never need to await I/O.
 final _cache = <String, List<CommandMacro>>{};
@@ -32,8 +30,8 @@ Future<List<CommandMacro>> loadMacros(String login) async {
   final key = login.toLowerCase();
   final cached = _cache[key];
   if (cached != null) return List.of(cached);
-  final prefs = await SharedPreferences.getInstance();
-  final raw = prefs.getStringList(_prefsKey(login)) ?? const [];
+  final prefs = await Prefs.load();
+  final raw = prefs.macroEntries(login);
   final macros = raw
       .map((entry) {
         try {
@@ -53,8 +51,8 @@ Future<List<CommandMacro>> loadMacros(String login) async {
 /// Persists this account's macros and refreshes the in-memory mirror.
 Future<void> saveMacros(String login, List<CommandMacro> macros) async {
   final key = login.toLowerCase();
-  final prefs = await SharedPreferences.getInstance();
-  await prefs.setStringList(_prefsKey(login), [
+  final prefs = await Prefs.load();
+  await prefs.setMacroEntries(login, [
     for (final m in macros) jsonEncode(m.toJson()),
   ]);
   _cache[key] = List.of(macros);

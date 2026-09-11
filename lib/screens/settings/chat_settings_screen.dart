@@ -2,9 +2,9 @@ import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../../services/twitch_auth.dart';
 import '../../util/constants.dart';
+import '../../util/prefs.dart';
 import '../../util/timestamp_formatter.dart';
 import '../../widgets/dialogs.dart';
 import 'macros_screen.dart';
@@ -79,40 +79,32 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
   }
 
   Future<void> _loadPrefs() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await Prefs.load();
     if (mounted) {
       setState(() {
         _maxMessagesPerChannel = snapToMaxMessagesStep(
-          prefs.getInt('max_messages_per_channel') ??
-              kMaxMessagesPerChannelDefault,
+          prefs.maxMessagesPerChannel,
         );
-        _recentMessagesCount =
-            prefs.getInt('recent_messages_limit') ??
-            kRecentMessagesLimitDefault;
-        _replyToRoot = prefs.getBool('reply_to_thread_root') ?? false;
-        _backgroundService = prefs.getBool('background_service') ?? false;
-        _mentionPush = prefs.getBool('mention_push') ?? false;
-        _whisperNotify = prefs.getBool('whisper_notifications') ?? false;
-        _preferEmotesFirst = prefs.getBool('prefer_emotes_first') ?? false;
-        _showTimestamps = prefs.getBool(kShowTimestampsPrefKey) ?? true;
-        _timestampFormat =
-            prefs.getString(kTimestampFormatPrefKey) ?? kDefaultTimestampFormat;
-        _sharedChatMode = prefs.getString('shared_chat_mode') ?? 'spotlight';
-        _namePaints = prefs.getBool('seventv_name_paints') ?? false;
-        _showGifs =
-            prefs.getBool(kGiphyInlineEnabledPrefKey) ??
-            kGiphyInlineEnabledDefault;
-        _gifHeight =
-            (prefs.getDouble(kGiphyInlineHeightPrefKey) ??
-                    kGiphyInlineHeightDefault)
-                .clamp(kGiphyInlineHeightMin, kGiphyInlineHeightMax);
-        _showImages =
-            prefs.getBool(kImageEmbedEnabledPrefKey) ??
-            kImageEmbedEnabledDefault;
-        _imageHeight =
-            (prefs.getDouble(kImageEmbedHeightPrefKey) ??
-                    kImageEmbedHeightDefault)
-                .clamp(kImageEmbedHeightMin, kImageEmbedHeightMax);
+        _recentMessagesCount = prefs.recentMessagesLimit;
+        _replyToRoot = prefs.replyToThreadRoot;
+        _backgroundService = prefs.backgroundService;
+        _mentionPush = prefs.mentionPush;
+        _whisperNotify = prefs.whisperNotifications;
+        _preferEmotesFirst = prefs.preferEmotesFirst;
+        _showTimestamps = prefs.showTimestamps;
+        _timestampFormat = prefs.timestampFormat;
+        _sharedChatMode = prefs.sharedChatMode;
+        _namePaints = prefs.seventvNamePaints;
+        _showGifs = prefs.giphyInlineEnabled;
+        _gifHeight = prefs.giphyInlineHeight.clamp(
+          kGiphyInlineHeightMin,
+          kGiphyInlineHeightMax,
+        );
+        _showImages = prefs.imageEmbedEnabled;
+        _imageHeight = prefs.imageEmbedHeight.clamp(
+          kImageEmbedHeightMin,
+          kImageEmbedHeightMax,
+        );
       });
     }
   }
@@ -143,8 +135,8 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
       ],
     );
     if (selected == null || selected == _timestampFormat) return;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(kTimestampFormatPrefKey, selected);
+    final prefs = await Prefs.load();
+    await prefs.setTimestampFormat(selected);
     if (mounted) setState(() => _timestampFormat = selected);
     widget.onTimestampFormatChanged?.call(selected);
   }
@@ -189,8 +181,8 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
       ),
     );
     if (selected == null || selected == _sharedChatMode) return;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('shared_chat_mode', selected);
+    final prefs = await Prefs.load();
+    await prefs.setSharedChatMode(selected);
     if (mounted) setState(() => _sharedChatMode = selected);
     widget.onSharedChatModeChanged?.call(selected);
   }
@@ -235,8 +227,8 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
                 },
                 onChangeEnd: (value) {
                   final v = kMaxMessagesPerChannelValues[value.round()];
-                  SharedPreferences.getInstance().then(
-                    (prefs) => prefs.setInt('max_messages_per_channel', v),
+                  Prefs.load().then(
+                    (prefs) => prefs.setMaxMessagesPerChannel(v),
                   );
                 },
               ),
@@ -265,9 +257,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
                 },
                 onChangeEnd: (value) {
                   final v = value.toInt();
-                  SharedPreferences.getInstance().then(
-                    (prefs) => prefs.setInt('recent_messages_limit', v),
-                  );
+                  Prefs.load().then((prefs) => prefs.setRecentMessagesLimit(v));
                 },
               ),
             ],
@@ -280,8 +270,8 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
             ),
             value: _replyToRoot,
             onChanged: (value) async {
-              final prefs = await SharedPreferences.getInstance();
-              await prefs.setBool('reply_to_thread_root', value);
+              final prefs = await Prefs.load();
+              await prefs.setReplyToThreadRoot(value);
               if (mounted) setState(() => _replyToRoot = value);
               widget.onReplyToRootChanged?.call(value);
             },
@@ -353,8 +343,8 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
             title: const Text('Show timestamps'),
             value: _showTimestamps,
             onChanged: (value) async {
-              final prefs = await SharedPreferences.getInstance();
-              await prefs.setBool(kShowTimestampsPrefKey, value);
+              final prefs = await Prefs.load();
+              await prefs.setShowTimestamps(value);
               if (mounted) setState(() => _showTimestamps = value);
               widget.onShowTimestampsChanged?.call(value);
             },
@@ -373,8 +363,8 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
             ),
             value: _namePaints,
             onChanged: (value) async {
-              final prefs = await SharedPreferences.getInstance();
-              await prefs.setBool('seventv_name_paints', value);
+              final prefs = await Prefs.load();
+              await prefs.setSeventvNamePaints(value);
               if (mounted) setState(() => _namePaints = value);
               widget.onNamePaintsChanged?.call(value);
             },
@@ -387,8 +377,8 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
             ),
             value: _preferEmotesFirst,
             onChanged: (value) async {
-              final prefs = await SharedPreferences.getInstance();
-              await prefs.setBool('prefer_emotes_first', value);
+              final prefs = await Prefs.load();
+              await prefs.setPreferEmotesFirst(value);
               if (mounted) setState(() => _preferEmotesFirst = value);
               widget.onPreferEmotesFirstChanged?.call(value);
             },
@@ -412,8 +402,8 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
               title: const Text('Mention notifications'),
               value: _mentionPush,
               onChanged: (value) async {
-                final prefs = await SharedPreferences.getInstance();
-                await prefs.setBool('mention_push', value);
+                final prefs = await Prefs.load();
+                await prefs.setMentionPush(value);
                 if (mounted) setState(() => _mentionPush = value);
                 widget.onMentionPushChanged?.call(value);
               },
@@ -423,8 +413,8 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
               title: const Text('Whisper notifications'),
               value: _whisperNotify,
               onChanged: (value) async {
-                final prefs = await SharedPreferences.getInstance();
-                await prefs.setBool('whisper_notifications', value);
+                final prefs = await Prefs.load();
+                await prefs.setWhisperNotifications(value);
                 if (mounted) setState(() => _whisperNotify = value);
                 widget.onWhisperNotifyChanged?.call(value);
               },
@@ -439,8 +429,8 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
             ),
             value: _backgroundService,
             onChanged: (value) async {
-              final prefs = await SharedPreferences.getInstance();
-              await prefs.setBool('background_service', value);
+              final prefs = await Prefs.load();
+              await prefs.setBackgroundService(value);
               if (mounted) setState(() => _backgroundService = value);
               widget.onBackgroundServiceChanged?.call(value);
             },
@@ -470,9 +460,9 @@ class _MentionFormatTileState extends State<_MentionFormatTile> {
   @override
   void initState() {
     super.initState();
-    SharedPreferences.getInstance().then((prefs) {
+    Prefs.load().then((prefs) {
       if (mounted) {
-        setState(() => _format = prefs.getString('mention_format') ?? '@name');
+        setState(() => _format = prefs.mentionFormat);
       }
     });
   }
@@ -502,8 +492,8 @@ class _MentionFormatTileState extends State<_MentionFormatTile> {
       ),
     );
     if (selected == null || selected == _format) return;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('mention_format', selected);
+    final prefs = await Prefs.load();
+    await prefs.setMentionFormat(selected);
     if (mounted) setState(() => _format = selected);
   }
 

@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../third_party/flutter_list_view/flutter_list_view.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../providers/app_providers.dart';
 import '../providers/chat_pipeline.dart';
 import '../providers/feature_providers.dart';
@@ -33,6 +32,7 @@ import '../services/third_party_badge_service.dart';
 import '../services/seven_tv_paint_service.dart';
 import '../util/log.dart';
 import '../util/constants.dart';
+import '../util/prefs.dart';
 import '../util/timestamp_formatter.dart';
 import '../screens/settings/settings_screen.dart';
 import '../widgets/panel_manager.dart';
@@ -747,18 +747,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   Future<void> _maybeShowWelcomeDialog() async {
     if (!Platform.isAndroid) return;
-    final prefs = await SharedPreferences.getInstance();
-    if (prefs.getBool('welcome_seen') ?? false) return;
-    await prefs.setBool('welcome_seen', true);
+    final prefs = await Prefs.load();
+    if (prefs.welcomeSeen) return;
+    await prefs.setWelcomeSeen(true);
     if (!mounted) return;
     showWelcomeDialog(context);
   }
 
   Future<void> _loadNotificationSettings() async {
-    final prefs = await SharedPreferences.getInstance();
-    final backgroundService = prefs.getBool('background_service') ?? false;
-    final mentionPush = prefs.getBool('mention_push') ?? false;
-    final whisperNotify = prefs.getBool('whisper_notifications') ?? false;
+    final prefs = await Prefs.load();
+    final backgroundService = prefs.backgroundService;
+    final mentionPush = prefs.mentionPush;
+    final whisperNotify = prefs.whisperNotifications;
     if (!mounted) return;
     ref.read(mentionPushProvider.notifier).set(mentionPush);
     setState(() {
@@ -1378,46 +1378,36 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   // resolution, and per-channel storage all live in EmoteManager (the emote
   // daemon); this is a thin forwarder so HomeScreen stays out of emote state.
   void _loadMaxMessages() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await Prefs.load();
     if (!mounted) return;
     setState(() {
       ref
           .read(maxMessagesPerChannelProvider.notifier)
-          .set(
-            prefs.getInt('max_messages_per_channel') ??
-                kMaxMessagesPerChannelDefault,
-          );
-      _recentMessagesLimit =
-          prefs.getInt('recent_messages_limit') ?? kRecentMessagesLimitDefault;
-      _replyToRoot = prefs.getBool('reply_to_thread_root') ?? false;
-      _preferEmotesFirst = prefs.getBool('prefer_emotes_first') ?? false;
-      _showTimestamps = prefs.getBool(kShowTimestampsPrefKey) ?? true;
-      _timestampFormat =
-          prefs.getString(kTimestampFormatPrefKey) ?? kDefaultTimestampFormat;
-      _chatFontSize = prefs.getDouble('chat_font_size') ?? 14.0;
-      _highlightOpacity = prefs.getDouble('highlight_opacity') ?? 0.6;
-      _checkeredMessages = prefs.getBool('checkered_messages') ?? false;
-      _lineSeparator = prefs.getBool('line_separator') ?? false;
-      _fastSnap = prefs.getBool('fast_channel_snap') ?? true;
-      ref
-          .read(sharedChatModeProvider.notifier)
-          .set(prefs.getString('shared_chat_mode') ?? 'spotlight');
-      _showNamePaints = prefs.getBool('seventv_name_paints') ?? false;
-      _showGifs =
-          prefs.getBool(kGiphyInlineEnabledPrefKey) ??
-          kGiphyInlineEnabledDefault;
-      _gifHeight =
-          (prefs.getDouble(kGiphyInlineHeightPrefKey) ??
-                  kGiphyInlineHeightDefault)
-              .clamp(kGiphyInlineHeightMin, kGiphyInlineHeightMax);
-      _showImages =
-          prefs.getBool(kImageEmbedEnabledPrefKey) ?? kImageEmbedEnabledDefault;
-      _imageHeight =
-          (prefs.getDouble(kImageEmbedHeightPrefKey) ??
-                  kImageEmbedHeightDefault)
-              .clamp(kImageEmbedHeightMin, kImageEmbedHeightMax);
-      _showInput = prefs.getBool('show_input') ?? true;
-      _animateGifs = prefs.getBool('animate_gifs') ?? true;
+          .set(prefs.maxMessagesPerChannel);
+      _recentMessagesLimit = prefs.recentMessagesLimit;
+      _replyToRoot = prefs.replyToThreadRoot;
+      _preferEmotesFirst = prefs.preferEmotesFirst;
+      _showTimestamps = prefs.showTimestamps;
+      _timestampFormat = prefs.timestampFormat;
+      _chatFontSize = prefs.chatFontSize;
+      _highlightOpacity = prefs.highlightOpacity;
+      _checkeredMessages = prefs.checkeredMessages;
+      _lineSeparator = prefs.lineSeparator;
+      _fastSnap = prefs.fastChannelSnap;
+      ref.read(sharedChatModeProvider.notifier).set(prefs.sharedChatMode);
+      _showNamePaints = prefs.seventvNamePaints;
+      _showGifs = prefs.giphyInlineEnabled;
+      _gifHeight = prefs.giphyInlineHeight.clamp(
+        kGiphyInlineHeightMin,
+        kGiphyInlineHeightMax,
+      );
+      _showImages = prefs.imageEmbedEnabled;
+      _imageHeight = prefs.imageEmbedHeight.clamp(
+        kImageEmbedHeightMin,
+        kImageEmbedHeightMax,
+      );
+      _showInput = prefs.showInput;
+      _animateGifs = prefs.animateGifs;
       _messageBuilder.showGifs = _showGifs;
       _messageBuilder.gifHeight = _gifHeight;
       _messageBuilder.showImages = _showImages;
@@ -1506,11 +1496,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   void _setShowInput(bool value) {
     if (_showInput == value) return;
     setState(() => _showInput = value);
-    unawaited(
-      SharedPreferences.getInstance().then(
-        (prefs) => prefs.setBool('show_input', value),
-      ),
-    );
+    unawaited(Prefs.load().then((prefs) => prefs.setShowInput(value)));
   }
 
   /// Translates join-queue progress into a live countdown system line

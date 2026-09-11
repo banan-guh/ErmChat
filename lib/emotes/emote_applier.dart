@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../composer/composer_controller.dart';
 import '../models/emote_fetch_tier.dart';
@@ -9,6 +8,7 @@ import '../models/generic_emote.dart';
 import '../chat/chat.dart';
 import '../util/connectivity.dart';
 import '../util/data_usage.dart';
+import '../util/prefs.dart';
 import '../services/emote_cache_manager.dart';
 import '../services/emote_manager.dart';
 import '../services/twitch_api.dart';
@@ -59,22 +59,17 @@ class EmoteApplier {
   // fetched at the default.
   Future<void> loadPrefs() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      manualTierIndex =
-          prefs.getInt(emoteFetchTierPrefsKey) ?? EmoteFetchTier.high.index;
-      final autoIndex =
-          prefs.getInt(emoteFetchAutoPrefsKey) ??
-          defaultEmoteFetchAutoMode.index;
+      final prefs = await Prefs.load();
+      manualTierIndex = prefs.emoteFetchTier;
+      final autoIndex = prefs.emoteFetchAuto;
       // A corrupt/out-of-range persisted index would throw RangeError at
       // startup; fall back to the default instead.
       autoMode = autoIndex >= 0 && autoIndex < EmoteFetchAutoMode.values.length
           ? EmoteFetchAutoMode.values[autoIndex]
           : defaultEmoteFetchAutoMode;
-      final loadedCacheCap =
-          prefs.getInt(emoteCacheMaxPrefsKey) ?? defaultEmoteCacheMax;
-      applyCacheCap(loadedCacheCap);
+      applyCacheCap(prefs.emoteCacheMax);
       _applyFpsPrefs(prefs);
-      EmoteUrlProvider.applyGifsEnabled(prefs.getBool('animate_gifs') ?? true);
+      EmoteUrlProvider.applyGifsEnabled(prefs.animateGifs);
       await refreshConnectivity();
       reconcileTier();
     } catch (e) {
@@ -86,19 +81,16 @@ class EmoteApplier {
   /// toggle changes.  When off, emotes run uncapped (fpsCap 60 ~= native 60 Hz)
   /// with adaptive throttling disabled; the three sub-settings are hidden.
   void setCapFps(bool enabled) {
-    SharedPreferences.getInstance().then(_applyFpsPrefs);
+    Prefs.load().then(_applyFpsPrefs);
   }
 
   // Applies the persisted FPS cap with its adaptive-throttle and panel state.
-  void _applyFpsPrefs(SharedPreferences prefs) {
-    final capEmoteFps = prefs.getBool('emote_cap_fps') ?? false;
+  void _applyFpsPrefs(Prefs prefs) {
+    final capEmoteFps = prefs.emoteCapFps;
     if (capEmoteFps) {
-      EmoteUrlProvider.applyFpsCap(prefs.getInt('emote_fps_cap') ?? 30);
-      EmoteUrlProvider.applyAdaptiveThrottle(
-        prefs.getBool('emote_auto_throttle') ?? true,
-      );
-      EmoteUrlProvider.alwaysAnimatePanel =
-          prefs.getBool('always_animate_emote_panel') ?? true;
+      EmoteUrlProvider.applyFpsCap(prefs.emoteFpsCap);
+      EmoteUrlProvider.applyAdaptiveThrottle(prefs.emoteAutoThrottle);
+      EmoteUrlProvider.alwaysAnimatePanel = prefs.alwaysAnimateEmotePanel;
     } else {
       // Uncapped: 60 fps is effectively native on a 60 Hz display.
       EmoteUrlProvider.applyFpsCap(60);

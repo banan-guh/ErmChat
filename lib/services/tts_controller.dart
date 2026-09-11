@@ -4,18 +4,8 @@ import 'dart:io';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_tts/flutter_tts.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../models/twitch_message.dart';
-
-const kTtsEnabledKey = 'tts_enabled';
-const kTtsQueueModeKey = 'tts_queue_mode';
-const kTtsFormatModeKey = 'tts_format_mode';
-const kTtsIgnoreUrlsKey = 'tts_ignore_urls';
-const kTtsIgnoreEmotesKey = 'tts_ignore_emotes';
-const kTtsForceEnglishKey = 'tts_force_english';
-const kTtsUserIgnoreListKey = 'tts_user_ignore_list';
-const kTtsVoiceIdKey = 'tts_voice_id';
-const kTtsVoiceRawKey = 'tts_voice_raw';
+import '../util/prefs.dart';
 
 enum TtsQueueMode { queue, newest }
 
@@ -226,21 +216,17 @@ class TtsController {
 
   /// Seeds the in-memory settings from persisted preferences.
   Future<void> loadFromPrefs() async {
-    final prefs = await SharedPreferences.getInstance();
-    _enabled = prefs.getBool(kTtsEnabledKey) ?? false;
-    _queueMode = TtsQueueMode.values.byName(
-      prefs.getString(kTtsQueueModeKey) ?? 'queue',
-    );
-    _formatMode = TtsFormatMode.values.byName(
-      prefs.getString(kTtsFormatModeKey) ?? 'userAndMessage',
-    );
-    _ignoreUrls = prefs.getBool(kTtsIgnoreUrlsKey) ?? true;
-    _ignoreEmotes = prefs.getBool(kTtsIgnoreEmotesKey) ?? true;
-    _forceEnglish = prefs.getBool(kTtsForceEnglishKey) ?? false;
+    final prefs = await Prefs.load();
+    _enabled = prefs.ttsEnabled;
+    _queueMode = TtsQueueMode.values.byName(prefs.ttsQueueMode);
+    _formatMode = TtsFormatMode.values.byName(prefs.ttsFormatMode);
+    _ignoreUrls = prefs.ttsIgnoreUrls;
+    _ignoreEmotes = prefs.ttsIgnoreEmotes;
+    _forceEnglish = prefs.ttsForceEnglish;
     _userIgnoreList.clear();
-    _userIgnoreList.addAll(prefs.getStringList(kTtsUserIgnoreListKey) ?? []);
-    final voiceId = prefs.getString(kTtsVoiceIdKey);
-    final voiceRaw = prefs.getString(kTtsVoiceRawKey);
+    _userIgnoreList.addAll(prefs.ttsUserIgnoreList);
+    final voiceId = prefs.ttsVoiceId;
+    final voiceRaw = prefs.ttsVoiceRaw;
     if (voiceId != null && voiceRaw != null) {
       try {
         _selectedOption = TtsOption(
@@ -257,9 +243,9 @@ class TtsController {
   }
 
   Future<void> _persistOption(TtsOption option) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(kTtsVoiceIdKey, option.id);
-    await prefs.setString(kTtsVoiceRawKey, jsonEncode(option.raw));
+    final prefs = await Prefs.load();
+    await prefs.setTtsVoiceId(option.id);
+    await prefs.setTtsVoiceRaw(jsonEncode(option.raw));
   }
 
   Future<void> shutdown() async {

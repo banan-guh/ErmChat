@@ -40,9 +40,6 @@ extension EmoteFetchTierX on EmoteFetchTier {
   };
 }
 
-const emoteFetchTierPrefsKey = 'emote_fetch_tier';
-const emoteCacheMaxPrefsKey = 'emote_cache_max';
-const emoteFetchAutoPrefsKey = 'emote_fetch_auto';
 const defaultEmoteCacheMax = 500;
 const minEmoteCacheMax = 0;
 const maxEmoteCacheMax = 2000;

@@ -1,10 +1,10 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../../widgets/emote_image.dart';
 import '../../widgets/tabbed_layout.dart';
 import '../../models/generic_emote.dart';
 import '../../services/analytics_service.dart';
+import '../../util/prefs.dart';
 import 'settings_page.dart';
 
 /// Formats the elapsed tracking time (e.g. `1h 5m`, `3m 2s`, `12s`).
@@ -91,8 +91,6 @@ class AnalyticsScreen extends StatefulWidget {
 }
 
 class _AnalyticsScreenState extends State<AnalyticsScreen> {
-  static const _stopwordsPrefKey = 'analytics_filter_stopwords';
-
   String? _selectedChannel;
   bool _useStopwords = false;
 
@@ -103,15 +101,15 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   }
 
   Future<void> _loadPrefs() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await Prefs.load();
     if (!mounted) return;
-    setState(() => _useStopwords = prefs.getBool(_stopwordsPrefKey) ?? false);
+    setState(() => _useStopwords = prefs.analyticsFilterStopwords);
   }
 
   Future<void> _setStopwords(bool value) async {
     setState(() => _useStopwords = value);
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_stopwordsPrefKey, value);
+    final prefs = await Prefs.load();
+    await prefs.setAnalyticsFilterStopwords(value);
   }
 
   String? get _channel {

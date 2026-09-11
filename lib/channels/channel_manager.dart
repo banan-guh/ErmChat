@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../chat/chat.dart';
 import '../client/session.dart';
@@ -26,6 +25,7 @@ import '../services/user_store.dart';
 import '../util/constants.dart';
 import '../util/haptics.dart';
 import '../util/log.dart';
+import '../util/prefs.dart';
 import '../widgets/broadcast_widgets.dart';
 
 // Shell-owned state the channel manager reads but does not own.
@@ -124,8 +124,8 @@ class ChannelManager {
   }
 
   Future<void> saveChannels([List<String>? names]) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setStringList('channels', List.of(names ?? chat.names));
+    final prefs = await Prefs.load();
+    await prefs.setChannels(List.of(names ?? chat.names));
   }
 
   void reorderChannels(List<String> reordered) {
@@ -142,11 +142,11 @@ class ChannelManager {
   Future<void> loadChannels() async {
     if (_channelsLoaded) return;
     _channelsLoaded = true;
-    final prefs = await SharedPreferences.getInstance();
-    final saved = prefs.getStringList('channels');
+    final prefs = await Prefs.load();
+    final saved = prefs.channels;
     // Registry files outlive joins; sweep ones whose channel is gone.
-    unawaited(emoteManager.pruneStaleChannels(saved?.toSet() ?? const {}));
-    if (saved == null || saved.isEmpty) return;
+    unawaited(emoteManager.pruneStaleChannels(saved.toSet()));
+    if (saved.isEmpty) return;
     for (final name in saved) {
       if (chat.contains(name)) continue;
       chat.ensure(name);
@@ -465,7 +465,7 @@ class ChannelManager {
       return;
     }
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await Prefs.load();
       recentMessagesConfig = RecentMessagesConfig.fromPrefs(prefs);
     } catch (e) {
       logDebug('Failed to load recent-messages config: $e');
@@ -478,8 +478,6 @@ class ChannelManager {
     recentMessagesConfig = config;
     host.markDirty();
     recentMessages = RecentMessagesService(config: config);
-    unawaited(
-      SharedPreferences.getInstance().then((prefs) => config.toPrefs(prefs)),
-    );
+    unawaited(Prefs.load().then((prefs) => config.toPrefs(prefs)));
   }
 }

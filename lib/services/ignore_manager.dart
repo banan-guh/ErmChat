@@ -1,9 +1,9 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/twitch_message.dart';
+import '../util/prefs.dart';
 
 /// Local ignore: null replacement deletes; with replacement rewrites; block drops whole message.
 class IgnoreEntry {
@@ -83,9 +83,6 @@ class RewriteResult {
 
 /// Local ignores: user deletes, keyword rewrites (default "***").
 class IgnoreManager extends ChangeNotifier {
-  static const _usersKey = 'local_ignores_v1';
-  static const _keywordsKey = 'keyword_replacements_v1';
-
   /// Shared instance; tests construct fresh ones.
   static final IgnoreManager instance = IgnoreManager();
 
@@ -103,9 +100,9 @@ class IgnoreManager extends ChangeNotifier {
   List<IgnoreEntry> get keywords => List.unmodifiable(_keywords);
 
   Future<void> load() async {
-    final prefs = await SharedPreferences.getInstance();
-    _users = decodeEntries(prefs.getString(_usersKey) ?? '');
-    _keywords = decodeEntries(prefs.getString(_keywordsKey) ?? '');
+    final prefs = await Prefs.load();
+    _users = decodeEntries(prefs.localIgnores);
+    _keywords = decodeEntries(prefs.keywordReplacements);
     _regexCache.clear();
     _rebuildLiteralSets();
     _loaded = true;
@@ -113,13 +110,11 @@ class IgnoreManager extends ChangeNotifier {
   }
 
   Future<void> save() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(
-      _usersKey,
+    final prefs = await Prefs.load();
+    await prefs.setLocalIgnores(
       jsonEncode([for (final u in _users) u.toJson()]),
     );
-    await prefs.setString(
-      _keywordsKey,
+    await prefs.setKeywordReplacements(
       jsonEncode([for (final k in _keywords) k.toJson()]),
     );
     _regexCache.clear();

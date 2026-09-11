@@ -2,8 +2,8 @@ import 'dart:async';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../../util/log.dart';
+import '../../util/prefs.dart';
 import '../../models/emote_fetch_tier.dart';
 import '../../util/data_usage.dart';
 import '../../widgets/app_snack.dart';
@@ -31,36 +31,34 @@ class _DevSettingsScreenState extends State<DevSettingsScreen> {
   }
 
   Future<void> _loadTestWidgetsPref() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await Prefs.load();
     if (!mounted) return;
-    setState(() => _testWidgets = prefs.getBool('test_chat_widgets') ?? false);
+    setState(() => _testWidgets = prefs.testChatWidgets);
   }
 
   Future<void> _setTestWidgets(bool value) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('test_chat_widgets', value);
+    final prefs = await Prefs.load();
+    await prefs.setTestChatWidgets(value);
     if (mounted) setState(() => _testWidgets = value);
     widget.onTestWidgetsChanged?.call(value);
   }
 
   Future<void> _loadOAuthMode() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await Prefs.load();
     if (!mounted) return;
-    setState(
-      () => _useBrowserOAuth = prefs.getBool('use_browser_oauth') ?? false,
-    );
+    setState(() => _useBrowserOAuth = prefs.useBrowserOAuth);
   }
 
   Future<void> _setOAuthMode(bool value) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('use_browser_oauth', value);
+    final prefs = await Prefs.load();
+    await prefs.setUseBrowserOAuth(value);
     if (mounted) setState(() => _useBrowserOAuth = value);
   }
 
   Future<void> _replayWelcomeScreen(BuildContext context) async {
     if (kIsWeb) return;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('welcome_seen', false);
+    final prefs = await Prefs.load();
+    await prefs.setWelcomeSeen(false);
     if (!context.mounted) return;
     showWelcomeDialog(context);
   }

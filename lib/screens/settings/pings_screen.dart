@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../models/ping_rule.dart';
 import '../../services/ping_manager.dart';
+import '../../util/prefs.dart';
 import 'settings_page.dart';
 
 class PingsScreen extends StatefulWidget {
@@ -19,9 +19,9 @@ class _PingsScreenState extends State<PingsScreen> {
   @override
   void initState() {
     super.initState();
-    SharedPreferences.getInstance().then((prefs) {
+    Prefs.load().then((prefs) {
       if (mounted) {
-        setState(() => _simpleMode = prefs.getBool('ping_simple_mode') ?? true);
+        setState(() => _simpleMode = prefs.pingSimpleMode);
       }
     });
   }
@@ -32,8 +32,8 @@ class _PingsScreenState extends State<PingsScreen> {
   void _toggleMode() async {
     final next = !_simpleMode;
     setState(() => _simpleMode = next);
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('ping_simple_mode', next);
+    final prefs = await Prefs.load();
+    await prefs.setPingSimpleMode(next);
   }
 
   @override

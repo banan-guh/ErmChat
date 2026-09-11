@@ -7,7 +7,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'providers/app_providers.dart';
 import 'providers/feature_providers.dart';
@@ -19,8 +18,8 @@ import 'irc/transport/write.dart';
 import 'services/recent_messages.dart';
 import 'services/twitch_badge_service.dart';
 import 'theme_colors.dart';
-import 'util/constants.dart';
 import 'util/log.dart';
+import 'util/prefs.dart';
 import 'util/crash_report.dart';
 import 'widgets/app_snack.dart';
 import 'widgets/tabbed_layout.dart';
@@ -54,14 +53,12 @@ void main() async {
 /// Pre-warms chat history during boot, concurrent with storage and first frame.
 Future<void> _warmHistory() async {
   try {
-    final prefs = await SharedPreferences.getInstance();
-    final channels = prefs.getStringList('channels') ?? const [];
+    final prefs = await Prefs.load();
+    final channels = prefs.channels;
     if (channels.isNotEmpty) {
       RecentMessagesService.warm(
         channels,
-        limit:
-            prefs.getInt('recent_messages_limit') ??
-            kRecentMessagesLimitDefault,
+        limit: prefs.recentMessagesLimit,
         config: RecentMessagesConfig.fromPrefs(prefs),
       );
     }
@@ -178,18 +175,12 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
 
   Future<void> _loadPreferences() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final saved = prefs.getString('themeMode');
-      if (saved != null) {
-        _themeMode = ThemeMode.values.firstWhere(
-          (e) => e.name == saved,
-          orElse: () => ThemeMode.system,
-        );
-      }
-      _keepScreenOn = prefs.getBool('keep_screen_on') ?? true;
+      final prefs = await Prefs.load();
+      _themeMode = prefs.themeMode;
+      _keepScreenOn = prefs.keepScreenOn;
       WakelockPlus.toggle(enable: _keepScreenOn).ignore();
-      _trueDark = prefs.getBool('true_dark') ?? false;
-      _accentKey = prefs.getString('accent_color') ?? kDefaultAccent;
+      _trueDark = prefs.trueDark;
+      _accentKey = prefs.accentColor;
     } catch (e) {
       logDebug('Failed to load preferences: $e');
     }
@@ -204,31 +195,23 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
 
   void _setThemeMode(ThemeMode mode) {
     setState(() => _themeMode = mode);
-    SharedPreferences.getInstance().then((prefs) {
-      prefs.setString('themeMode', mode.name);
-    });
+    Prefs.load().then((prefs) => prefs.setThemeMode(mode));
   }
 
   void _setKeepScreenOn(bool value) {
     setState(() => _keepScreenOn = value);
     WakelockPlus.toggle(enable: value).ignore();
-    SharedPreferences.getInstance().then((prefs) {
-      prefs.setBool('keep_screen_on', value);
-    });
+    Prefs.load().then((prefs) => prefs.setKeepScreenOn(value));
   }
 
   void _setTrueDark(bool value) {
     setState(() => _trueDark = value);
-    SharedPreferences.getInstance().then((prefs) {
-      prefs.setBool('true_dark', value);
-    });
+    Prefs.load().then((prefs) => prefs.setTrueDark(value));
   }
 
   void _setAccentColor(String key) {
     setState(() => _accentKey = key);
-    SharedPreferences.getInstance().then((prefs) {
-      prefs.setString('accent_color', key);
-    });
+    Prefs.load().then((prefs) => prefs.setAccentColor(key));
   }
 
   /// Test seams: a non-null widget field swaps the matching provider for the

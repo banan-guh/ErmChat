@@ -1,8 +1,8 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../../services/recent_messages.dart';
+import '../../util/prefs.dart';
 import 'settings_page.dart';
 
 class RecentMessagesSettingsScreen extends StatefulWidget {
@@ -27,7 +27,7 @@ class _RecentMessagesSettingsScreenState
   }
 
   Future<void> _load() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await Prefs.load();
     final config = RecentMessagesConfig.fromPrefs(prefs);
     if (!mounted) return;
     setState(() {
@@ -48,7 +48,7 @@ class _RecentMessagesSettingsScreenState
 
   Future<void> _commit() async {
     final config = _currentConfig;
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await Prefs.load();
     await config.toPrefs(prefs);
     widget.onChanged?.call(config);
   }

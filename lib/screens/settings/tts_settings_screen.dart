@@ -1,8 +1,8 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../../services/tts_controller.dart';
+import '../../util/prefs.dart';
 import '../../widgets/app_snack.dart';
 import '../../widgets/dialogs.dart';
 import 'settings_page.dart';
@@ -53,13 +53,9 @@ class _TtsSettingsScreenState extends State<TtsSettingsScreen> {
     }
   }
 
-  Future<void> _persist(String key, Object value) async {
-    final prefs = await SharedPreferences.getInstance();
-    if (value is bool) {
-      await prefs.setBool(key, value);
-    } else if (value is String) {
-      await prefs.setString(key, value);
-    }
+  Future<void> _persist(Future<void> Function(Prefs) write) async {
+    final prefs = await Prefs.load();
+    await write(prefs);
   }
 
   Future<void> _setEnabled(bool value) async {
@@ -82,25 +78,25 @@ class _TtsSettingsScreenState extends State<TtsSettingsScreen> {
     }
     setState(() => _enabled = value);
     widget.ttsController?.setEnabled(value);
-    unawaited(_persist(kTtsEnabledKey, value));
+    unawaited(_persist((p) => p.setTtsEnabled(value)));
   }
 
   void _setIgnoreUrls(bool value) {
     setState(() => _ignoreUrls = value);
     widget.ttsController?.setIgnoreUrls(value);
-    unawaited(_persist(kTtsIgnoreUrlsKey, value));
+    unawaited(_persist((p) => p.setTtsIgnoreUrls(value)));
   }
 
   void _setIgnoreEmotes(bool value) {
     setState(() => _ignoreEmotes = value);
     widget.ttsController?.setIgnoreEmotes(value);
-    unawaited(_persist(kTtsIgnoreEmotesKey, value));
+    unawaited(_persist((p) => p.setTtsIgnoreEmotes(value)));
   }
 
   void _setForceEnglish(bool value) {
     setState(() => _forceEnglish = value);
     widget.ttsController?.setForceEnglish(value);
-    unawaited(_persist(kTtsForceEnglishKey, value));
+    unawaited(_persist((p) => p.setTtsForceEnglish(value)));
   }
 
   Future<void> _pickQueueMode() async {
@@ -116,7 +112,7 @@ class _TtsSettingsScreenState extends State<TtsSettingsScreen> {
     if (chosen == null || chosen == _queueMode) return;
     setState(() => _queueMode = chosen);
     widget.ttsController?.setQueueMode(chosen);
-    unawaited(_persist(kTtsQueueModeKey, chosen.name));
+    unawaited(_persist((p) => p.setTtsQueueMode(chosen.name)));
   }
 
   Future<void> _pickFormatMode() async {
@@ -140,7 +136,7 @@ class _TtsSettingsScreenState extends State<TtsSettingsScreen> {
     if (chosen == null || chosen == _formatMode) return;
     setState(() => _formatMode = chosen);
     widget.ttsController?.setFormatMode(chosen);
-    unawaited(_persist(kTtsFormatModeKey, chosen.name));
+    unawaited(_persist((p) => p.setTtsFormatMode(chosen.name)));
   }
 
   Future<void> _pickVoice() async {

@@ -1,9 +1,9 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../eventsub/decode/events.dart';
+import '../util/prefs.dart';
 import 'chat_widget_cutout.dart';
 
 // Chat overlay widgets (hype train, poll, prediction) plus test fakes.
@@ -73,9 +73,9 @@ class BroadcastWidgets {
   }
 
   Future<void> loadTestWidgets() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await Prefs.load();
     if (!mounted) return;
-    applyTestWidgets(prefs.getBool('test_chat_widgets') ?? false);
+    applyTestWidgets(prefs.testChatWidgets);
   }
 
   void setTestWidgets(bool value) {

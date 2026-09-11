@@ -4,9 +4,9 @@ import 'dart:isolate';
 import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 import 'package:image/image.dart' as img;
-import 'package:shared_preferences/shared_preferences.dart';
 import '../util/constants.dart';
 import '../util/log.dart';
+import '../util/prefs.dart';
 
 /// Image uploader config (default: kappa.lol, DankChat/Chatterino compatible).
 class UploaderConfig {
@@ -109,9 +109,6 @@ class RecentUpload {
 }
 
 class MediaUploader {
-  static const _configPrefKey = 'uploader_config';
-  static const _recentsPrefKey = 'recent_uploads';
-
   final http.Client _client;
 
   MediaUploader({http.Client? client}) : _client = client ?? http.Client();
@@ -121,8 +118,8 @@ class MediaUploader {
   void close() => _client.close();
 
   Future<UploaderConfig> loadConfig() async {
-    final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_configPrefKey);
+    final prefs = await Prefs.load();
+    final raw = prefs.uploaderConfig;
     if (raw == null) return UploaderConfig.defaultConfig;
     try {
       return UploaderConfig.fromJson(jsonDecode(raw) as Map<String, Object?>);
@@ -133,8 +130,8 @@ class MediaUploader {
   }
 
   Future<void> saveConfig(UploaderConfig config) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_configPrefKey, jsonEncode(config.toJson()));
+    final prefs = await Prefs.load();
+    await prefs.setUploaderConfig(jsonEncode(config.toJson()));
   }
 
   Future<void> resetConfig() => saveConfig(UploaderConfig.defaultConfig);
@@ -239,8 +236,8 @@ class MediaUploader {
   }
 
   Future<List<RecentUpload>> recentUploads() async {
-    final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_recentsPrefKey);
+    final prefs = await Prefs.load();
+    final raw = prefs.recentUploadsRaw;
     if (raw == null) return [];
     try {
       final list = jsonDecode(raw) as List<dynamic>;
@@ -265,9 +262,8 @@ class MediaUploader {
     );
     // Cap list to keep pref small.
     final trimmed = uploads.take(50).toList();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(
-      _recentsPrefKey,
+    final prefs = await Prefs.load();
+    await prefs.setRecentUploadsRaw(
       jsonEncode(trimmed.map((e) => e.toJson()).toList()),
     );
   }
@@ -276,15 +272,14 @@ class MediaUploader {
     final uploads = await recentUploads();
     if (index < 0 || index >= uploads.length) return;
     uploads.removeAt(index);
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(
-      _recentsPrefKey,
+    final prefs = await Prefs.load();
+    await prefs.setRecentUploadsRaw(
       jsonEncode(uploads.map((e) => e.toJson()).toList()),
     );
   }
 
   Future<void> clearRecents() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_recentsPrefKey);
+    final prefs = await Prefs.load();
+    await prefs.removeRecentUploads();
   }
 }

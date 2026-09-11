@@ -4,6 +4,8 @@ import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../util/prefs.dart';
+
 /// File-backed persistence for MB-scale emote metadata blobs.
 class EmoteMetaStore {
   EmoteMetaStore._();
@@ -140,8 +142,8 @@ class EmoteMetaStore {
 
   Future<String?> _legacyRead(String key) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      return prefs.getString(key);
+      final prefs = await Prefs.load();
+      return prefs.rawGetString(key);
     } catch (_) {
       return null;
     }
