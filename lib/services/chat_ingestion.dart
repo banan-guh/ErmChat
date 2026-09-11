@@ -6,7 +6,14 @@ import '../models/emote_fetch_tier.dart';
 import '../models/twitch_message.dart';
 import '../util/duration_format.dart';
 import '../util/log.dart';
-import 'twitch_irc.dart' show IrcReadService;
+import '../irc/decode/codec.dart' show parseIrcChatMessage;
+import '../irc/decode/copy.dart' show buildBanText;
+import '../irc/decode/decoder.dart' show IrcChatDecoder;
+import '../irc/decode/events.dart'
+    show IrcChannelClearEvent, IrcMessageDeletedEvent;
+import '../irc/message.dart' show IrcMessage;
+import '../irc/transport/read.dart' show IrcReadService;
+import '../irc/transport/write.dart' show IrcService;
 import '../util/text_bypass.dart';
 import '../chat/chat.dart';
 import '../client/session.dart';
@@ -15,14 +22,6 @@ import 'ignore_manager.dart';
 import 'ping_manager.dart';
 import 'twitch_auth.dart';
 import 'twitch_badge_service.dart';
-import 'twitch_irc.dart'
-    show
-        IrcChannelClearEvent,
-        IrcMessage,
-        IrcMessageDeletedEvent,
-        IrcService,
-        buildBanText,
-        parseIrcChatMessage;
 import 'user_store.dart';
 
 /// One IRC ban/timeout, tracked for stack folding: repeated identical
@@ -48,6 +47,7 @@ class ChatIngestion {
   ChatIngestion({
     required this.irc,
     required this.ircRead,
+    required this.readDecoder,
     required this.chat,
     required this.session,
     required this.userStore,
@@ -75,6 +75,7 @@ class ChatIngestion {
 
   final IrcService irc;
   final IrcReadService ircRead;
+  final IrcChatDecoder readDecoder;
   final Session session;
   final Chat chat;
   final UserStore userStore;
@@ -128,9 +129,9 @@ class ChatIngestion {
   /// caller's dispose bookkeeping.
   List<StreamSubscription<void>> attach() {
     return [
-      ircRead.onMessage.listen(onMessage),
-      ircRead.onMessageDeleted.listen(_onMessageDeleted),
-      ircRead.onBan.listen(
+      readDecoder.onMessage.listen(onMessage),
+      readDecoder.onMessageDeleted.listen(_onMessageDeleted),
+      readDecoder.onBan.listen(
         (event) => _handleBanEvent(
           channel: event.channel,
           user: event.user,
@@ -138,8 +139,8 @@ class ChatIngestion {
           duration: event.duration,
         ),
       ),
-      ircRead.onChannelClear.listen(_onChannelClear),
-      ircRead.onOwnMessage.listen(onOwnIrcMessage),
+      readDecoder.onChannelClear.listen(_onChannelClear),
+      readDecoder.onOwnMessage.listen(onOwnIrcMessage),
     ];
   }
 

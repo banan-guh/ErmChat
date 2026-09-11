@@ -9,7 +9,16 @@ import '../services/twitch_api.dart';
 import '../services/twitch_auth.dart';
 import '../services/twitch_oauth.dart';
 import '../services/twitch_eventsub.dart';
-import '../services/twitch_irc.dart';
+import '../irc/decode/copy.dart'
+    show buildUserNoticeText, userNoticeAccent, userNoticeLabelId;
+import '../irc/decode/decoder.dart' show IrcChatDecoder;
+import '../irc/decode/events.dart'
+    show IrcNoticeEvent, IrcRoomStateEvent, UserNoticeEvent;
+import '../irc/message.dart' show IrcMessage;
+import '../irc/transport/events.dart'
+    show IrcConnectionStatus, IrcJoinFailureEvent;
+import '../irc/transport/read.dart' show IrcReadService;
+import '../irc/transport/write.dart' show IrcService;
 import '../services/emote_manager.dart';
 import '../services/join_rate_limiter.dart';
 import '../services/emote_providers/seven_tv_emotes.dart';
@@ -280,10 +289,25 @@ class ChatConnectionManager {
   bool _lastIrcAnonymous = true;
   String? _lastValidatedToken;
 
+  // Decode layer: lifts typed events out of each socket's raw frames. The
+  // read decoder watches own echoes via the read socket's nick.
+  late final IrcChatDecoder readDecoder = IrcChatDecoder(
+    ircRead.onIrcMessage,
+    nickProvider: () => ircRead.username,
+    debugPrefix: 'IRC read',
+    isReadSocket: true,
+  );
+  late final IrcChatDecoder writeDecoder = IrcChatDecoder(
+    irc.onIrcMessage,
+    debugPrefix: 'IRC',
+    isReadSocket: false,
+  );
+
   // Chat-content routing (PRIVMSG/CLEARMSG/CLEARCHAT/clears/own echo).
   late final ChatIngestion _ingestion = ChatIngestion(
     irc: irc,
     ircRead: ircRead,
+    readDecoder: readDecoder,
     chat: chat,
     session: session,
     userStore: userStore,
@@ -417,6 +441,8 @@ class ChatConnectionManager {
     _ingestionSubs.clear();
     _ingestion.dispose();
     _channelSetup.dispose();
+    readDecoder.dispose();
+    writeDecoder.dispose();
     statusSub?.cancel();
     ircNoticeSub?.cancel();
     ircJtvSub?.cancel();
@@ -455,7 +481,7 @@ class ChatConnectionManager {
 
   void stopChatStatusTimer(String channel) {
     _channelSetup.stopChatStatusTimer(channel);
-    ircRead.selfBadges.remove(channel);
+    readDecoder.selfBadges.remove(channel);
   }
 
   /// Drops per-channel subscription state (channel left); the next join
@@ -494,8 +520,8 @@ class ChatConnectionManager {
 
   bool _bypassesSlowMode(String channel) {
     final badges =
-        ircRead.selfBadges[channel] ??
-        ircRead.selfBadges[null] ??
+        readDecoder.selfBadges[channel] ??
+        readDecoder.selfBadges[null] ??
         const <String>{};
     return badges.intersection(_slowExemptBadges).isNotEmpty;
   }
@@ -1142,7 +1168,7 @@ class ChatConnectionManager {
         _joinedChannels.clear();
         _connectedAcked.clear();
         _lastSubscribeAll = null;
-        ircRead.clearSelfBadges();
+        readDecoder.clearSelfBadges();
         _selfTimeoutUntil.clear();
         // The queue belongs to the old account's moderation scope.
         for (final name in chat.names) {
@@ -1257,7 +1283,7 @@ class ChatConnectionManager {
       ..addAll(_ingestion.attach());
 
     ircNoticeSub?.cancel();
-    ircNoticeSub = ircRead.onNotice.listen((event) {
+    ircNoticeSub = readDecoder.onNotice.listen((event) {
       if (isDisposed) return;
       // With channel.moderate active, room-state changes come from EventSub
       // with structured data - suppress the redundant IRC NOTICE.
@@ -1277,7 +1303,7 @@ class ChatConnectionManager {
     });
 
     ircJtvSub?.cancel();
-    ircJtvSub = ircRead.onJtvMessage.listen((event) {
+    ircJtvSub = readDecoder.onJtvMessage.listen((event) {
       if (isDisposed) return;
       onSystemMessage(event.channel, event.message);
     });
@@ -1285,7 +1311,7 @@ class ChatConnectionManager {
     // Send rejections (slow-mode, banned, msg-too-long, ...) come back on the
     // write socket; surface them as system messages instead of dropping them.
     ircWriteNoticeSub?.cancel();
-    ircWriteNoticeSub = irc.onNotice.listen((event) {
+    ircWriteNoticeSub = writeDecoder.onNotice.listen((event) {
       if (isDisposed) return;
       onSystemMessage(event.channel, event.message);
     });
@@ -1303,10 +1329,10 @@ class ChatConnectionManager {
     });
 
     whisperSub?.cancel();
-    whisperSub = ircRead.onWhisper.listen(onWhisperEvent);
+    whisperSub = readDecoder.onWhisper.listen(onWhisperEvent);
 
     userNoticeSub?.cancel();
-    userNoticeSub = ircRead.onUserNotice.listen((event) {
+    userNoticeSub = readDecoder.onUserNotice.listen((event) {
       if (isDisposed) return;
       final isAnnouncement = event.msgId == 'announcement';
       if (!isAnnouncement) {
@@ -1410,7 +1436,7 @@ class ChatConnectionManager {
     // (slow mode, followers-only, ...), confirms the JOIN, and drives
     // readiness.
     ircReadRoomStateSub?.cancel();
-    ircReadRoomStateSub = ircRead.onRoomState.listen((event) {
+    ircReadRoomStateSub = readDecoder.onRoomState.listen((event) {
       if (isDisposed) return;
       if (_channelSetup.handleRoomState(event)) {
         final isNew = _readJoinedChannels.add(event.channel);
@@ -1432,7 +1458,7 @@ class ChatConnectionManager {
     // sessions this also triggers the second half of the "both sockets
     // confirmed" check.
     ircWriteRoomStateSub?.cancel();
-    ircWriteRoomStateSub = irc.onRoomState.listen((event) {
+    ircWriteRoomStateSub = writeDecoder.onRoomState.listen((event) {
       if (isDisposed) return;
       _channelSetup.handleRoomState(event);
       final isNew = _joinedChannels.add(event.channel);
@@ -1445,7 +1471,7 @@ class ChatConnectionManager {
     });
 
     emoteSetsSub?.cancel();
-    emoteSetsSub = ircRead.onUserEmoteSets.listen((event) {
+    emoteSetsSub = readDecoder.onUserEmoteSets.listen((event) {
       if (isDisposed || onUserEmoteSets == null) return;
       final (channel, ids) = event;
       unawaited(onUserEmoteSets!(channel, ids));

@@ -11,14 +11,17 @@ import '../chat/chat.dart';
 import '../client/session.dart';
 import '../util/constants.dart';
 import '../util/log.dart';
-import 'base_irc_connection.dart' show IrcJoinFailureEvent, JoinFailureReason;
+import '../irc/decode/events.dart' show IrcRoomStateEvent;
+import '../irc/transport/events.dart'
+    show IrcJoinFailureEvent, JoinFailureReason;
+import '../irc/transport/read.dart' show IrcReadService;
+import '../irc/transport/write.dart' show IrcService;
 import 'emote_manager.dart';
 import 'seven_tv_event_client.dart';
 import 'twitch_api.dart';
 import 'twitch_auth.dart';
 import 'twitch_badge_service.dart';
 import 'twitch_eventsub.dart';
-import 'twitch_irc.dart' show IrcReadService, IrcRoomStateEvent, IrcService;
 import 'user_store.dart';
 
 /// The channel-domain of the pipeline: joining channels and resolving their

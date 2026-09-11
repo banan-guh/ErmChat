@@ -4,43 +4,13 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
-import '../util/constants.dart';
-import '../util/irc_utils.dart';
-import 'connectivity_service.dart';
-import 'data_usage.dart';
-import 'join_rate_limiter.dart';
-import '../util/log.dart';
-
-enum IrcConnectionStatus { disconnected, connecting, connected }
-
-/// Why a channel JOIN never completed.
-enum JoinFailureReason {
-  /// The server sent NOTICE msg-id=msg_channel_suspended: the channel is
-  /// suspended or deleted. Permanent for this socket; no point re-JOINing.
-  suspended,
-
-  /// The server never confirmed the JOIN (no ROOMSTATE) and the fast rejoin
-  /// sweep gave up: usually a nonexistent channel, whose JOINs Twitch silently
-  /// drops, or persistent burst loss.
-  noResponse,
-}
-
-class IrcJoinFailureEvent {
-  final String channel;
-  final JoinFailureReason reason;
-
-  IrcJoinFailureEvent({required this.channel, required this.reason});
-}
-
-/// Which socket this connection is: the chat write socket or the read-only
-/// socket. Mirrors DankChat's ChatConnectionType: the connection loop,
-/// keepalive, JOIN handling and backoff are identical for both; only the
-/// message semantics differ (the write socket sends PRIVMSG, the read socket
-/// only watches for own echoes).
-enum IrcSocketRole { read, write }
-
-final _loneLowSurrogateRe = RegExp(r'[\uDC00-\uDFFF]');
-final _orphanedHighSurrogateRe = RegExp(r'[\uD800-\uDBFF](?![\uDC00-\uDFFF])');
+import '../../services/connectivity_service.dart';
+import '../../services/data_usage.dart';
+import '../../services/join_rate_limiter.dart';
+import '../../util/constants.dart';
+import '../../util/log.dart';
+import '../message.dart';
+import 'events.dart';
 
 /// A single Twitch IRC connection. One instance per socket (write + read);
 /// both share this class and differ only in [role].
@@ -171,6 +141,20 @@ abstract class IrcConnection {
   /// after the fast sweep exhausted its rounds. Emitted once per channel per
   /// socket lifetime; a later ROOMSTATE confirmation supersedes it.
   Stream<IrcJoinFailureEvent> get onJoinFailed => _joinFailedController.stream;
+
+  final _ircMessageController = StreamController<IrcMessage>.broadcast(
+    sync: true,
+  );
+
+  /// Raw frames the transport does not consume itself. The decode layer
+  /// subscribes and lifts typed events out of them.
+  Stream<IrcMessage> get onIrcMessage => _ircMessageController.stream;
+
+  final _authFailedController = StreamController<void>.broadcast();
+
+  /// Emits when Twitch rejects the login (dead token). A connection outcome,
+  /// so it stays on the transport alongside [signalFatalAuthFailure].
+  Stream<void> get onAuthFailed => _authFailedController.stream;
 
   String get debugPrefix;
 
@@ -610,6 +594,9 @@ abstract class IrcConnection {
       // explicit NOTICE (msg-id=msg_channel_suspended) and never a ROOMSTATE.
       // Remember the refusal so sweeps and retries stop re-JOINing (each
       // retry would only repeat the notice) and surface it exactly once.
+      // A dead login is a connection outcome: flag it here so the loop stops
+      // instead of retrying a token Twitch will never accept. Neither frame
+      // is decoded further; everything else flows to the raw stream.
       if (cmd == 'NOTICE') {
         if (msg.tags['msg-id'] == 'msg_channel_suspended' &&
             msg.params.isNotEmpty &&
@@ -622,12 +609,21 @@ abstract class IrcConnection {
             _emitJoinFailed(channel, JoinFailureReason.suspended);
           }
         }
+        if (msg.trailing != null &&
+            msg.trailing!.contains('Login authentication failed')) {
+          if (!_disposed) _authFailedController.add(null);
+          signalFatalAuthFailure();
+          // Without a serving socket there is nothing to kill; keep the
+          // batch going like the old per-socket dispatch did.
+          if (_fatalAuth) return;
+          continue;
+        }
       }
 
-      dispatchLine(msg);
+      if (!_disposed) _ircMessageController.add(msg);
 
-      // If the subclass flagged a fatal auth error during dispatch, stop
-      // processing any remaining lines in this batch.
+      // If a fatal auth failure was flagged during this batch, stop
+      // processing any remaining lines.
       if (_fatalAuth) return;
     }
   }
@@ -635,9 +631,8 @@ abstract class IrcConnection {
   @visibleForTesting
   void handleLine(String raw) => _handleLine(raw);
 
-  /// Called by subclass [dispatchLine] when a fatal auth failure is detected
-  /// (e.g. Twitch NOTICE * :Login authentication failed). Signals the death
-  /// of this socket and prevents any further reconnect attempts.
+  /// Flags a dead login: the serving socket dies as auth-failed and the loop
+  /// stops retrying. No-op without a serving socket.
   @protected
   void signalFatalAuthFailure() {
     if (_fatalAuth || _socketDeath == null) return;
@@ -651,8 +646,6 @@ abstract class IrcConnection {
 
   @visibleForTesting
   set awaitingPong(bool value) => _awaitingPong = value;
-
-  void dispatchLine(IrcMessage msg);
 
   void join(String channel) {
     logDebug('[$debugPrefix] join channel=$channel');
@@ -816,102 +809,9 @@ abstract class IrcConnection {
     _connectivityListener = null;
     _statusController.close();
     _joinFailedController.close();
+    _ircMessageController.close();
+    _authFailedController.close();
   }
-}
-
-/// The read-only socket: joins channels and watches for the current user's own
-IrcMessage? parseIrcMessage(String line) {
-  try {
-    String? tags;
-    String? prefix;
-    String command;
-    List<String> params = [];
-    String? trailing;
-
-    int pos = 0;
-
-    if (line.startsWith('@')) {
-      final end = line.indexOf(' ');
-      if (end == -1) return null;
-      tags = line.substring(1, end);
-      pos = end + 1;
-    }
-
-    if (pos < line.length && line[pos] == ':') {
-      final end = line.indexOf(' ', pos);
-      if (end == -1) return null;
-      prefix = line.substring(pos + 1, end);
-      pos = end + 1;
-    }
-
-    final rest = line.substring(pos);
-    final parts = rest.split(' ');
-    command = parts[0];
-
-    int i = 1;
-    while (i < parts.length) {
-      if (parts[i].startsWith(':')) {
-        trailing = parts.sublist(i).join(' ').substring(1);
-        break;
-      }
-      params.add(parts[i]);
-      i++;
-    }
-
-    final tagMap = <String, String>{};
-    if (tags != null) {
-      for (final tag in tags.split(';')) {
-        final eq = tag.indexOf('=');
-        if (eq != -1) {
-          // Twitch IRCv3 tags are backslash-escaped, not percent-encoded.
-          String decoded = unescapeIrcTag(tag.substring(eq + 1));
-          // Strip orphaned UTF-16 surrogates: low surrogates alone or high
-          // surrogates not followed by low (Flutter's text engine crashes on
-          // isolated surrogates from malformed Twitch IRC data).
-          decoded = decoded.replaceAll(_loneLowSurrogateRe, '');
-          decoded = decoded.replaceAll(_orphanedHighSurrogateRe, '');
-          tagMap[tag.substring(0, eq)] = decoded;
-        }
-      }
-    }
-
-    return IrcMessage(
-      tags: tagMap,
-      prefix: prefix,
-      command: command,
-      params: params,
-      trailing: trailing,
-    );
-  } catch (_) {
-    logDebug('[parseIrcMessage] failed to parse line: $line');
-    return null;
-  }
-}
-
-class IrcMessage {
-  final Map<String, String> tags;
-  final String? prefix;
-  final String command;
-  final List<String> params;
-  final String? trailing;
-
-  IrcMessage({
-    required this.tags,
-    this.prefix,
-    required this.command,
-    required this.params,
-    this.trailing,
-  });
-}
-
-class IrcRoomStateEvent {
-  final String channel;
-
-  /// Raw tag map; updates are partial (only changed tags), so callers that
-  /// need the full state must merge with the previous event.
-  final Map<String, String> tags;
-
-  IrcRoomStateEvent({required this.channel, required this.tags});
 }
 
 enum _DeathReason { error, closed, reconnect, authFailed }

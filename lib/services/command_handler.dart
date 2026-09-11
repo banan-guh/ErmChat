@@ -2,7 +2,7 @@ import '../models/twitch_command.dart';
 import '../services/mod_actions.dart';
 import '../services/twitch_api.dart';
 import '../services/twitch_auth.dart';
-import '../services/twitch_irc.dart';
+import '../irc/transport/write.dart';
 import '../util/duration_format.dart';
 import '../util/log.dart';
 

@@ -7,7 +7,11 @@ import '../util/constants.dart';
 import '../models/twitch_message.dart';
 import '../color_utils.dart';
 import '../util/log.dart';
-import 'twitch_irc.dart';
+import '../irc/decode/codec.dart'
+    show parseIrcBadges, parseIrcChatMessage, parseIrcEmotePositions;
+import '../irc/decode/copy.dart'
+    show buildBanText, buildUserNoticeText, userNoticeAccent, userNoticeLabelId;
+import '../irc/message.dart' show IrcMessage, parseIrcMessage;
 
 /// Fetch failure. [definitive] = per-channel, no failover helps.
 class RecentMessagesException implements Exception {

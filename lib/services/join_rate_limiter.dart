@@ -4,9 +4,9 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 
 import '../util/log.dart';
-import 'base_irc_connection.dart' show IrcSocketRole;
+import '../irc/transport/events.dart';
 
-export 'base_irc_connection.dart' show IrcSocketRole;
+export '../irc/transport/events.dart' show IrcSocketRole;
 
 /// Account-wide JOIN pacing: 20 commands/10.5s, token bucket, single read-socket
 /// per channel. Each tick sends one batched `JOIN #a,#b,…` line (up to
