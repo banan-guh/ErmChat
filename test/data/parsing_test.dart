@@ -9,7 +9,8 @@ import 'package:ermchat/services/twitch_api.dart';
 import 'package:ermchat/services/twitch_auth.dart';
 import 'package:ermchat/twitch_config.dart';
 import 'package:ermchat/services/twitch_eventsub.dart';
-import 'package:ermchat/services/twitch_irc.dart';
+import 'package:ermchat/irc/decode/codec.dart';
+import 'package:ermchat/irc/message.dart';
 
 import 'package:http/http.dart' as http;
 

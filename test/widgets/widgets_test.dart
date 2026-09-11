@@ -22,7 +22,11 @@ import 'package:ermchat/services/analytics_service.dart';
 import 'package:ermchat/models/emote_fetch_tier.dart';
 import 'package:ermchat/services/twitch_api.dart';
 import 'package:ermchat/services/twitch_eventsub.dart';
-import 'package:ermchat/services/twitch_irc.dart';
+import 'package:ermchat/irc/decode/codec.dart';
+import 'package:ermchat/irc/decode/events.dart';
+import 'package:ermchat/irc/transport/events.dart';
+import 'package:ermchat/irc/transport/read.dart';
+import 'package:ermchat/irc/transport/write.dart';
 import 'package:ermchat/services/recent_messages.dart';
 import 'package:ermchat/services/twitch_auth.dart';
 import 'package:ermchat/models/twitch_badge.dart';
@@ -156,15 +160,8 @@ class _FakeIrcService extends IrcService {
   @override
   bool get isConnected => _fakeConnected;
 
-  final _roomStateCtrl = StreamController<IrcRoomStateEvent>.broadcast(
-    sync: true,
-  );
-
-  @override
-  Stream<IrcRoomStateEvent> get onRoomState => _roomStateCtrl.stream;
-
   void triggerJoin(String channel) {
-    _roomStateCtrl.add(IrcRoomStateEvent(channel: channel, tags: const {}));
+    handleLine(':tmi.twitch.tv ROOMSTATE #$channel');
   }
 
   void triggerConnect({String? joinChannel}) {
@@ -181,21 +178,12 @@ class _FakeIrcService extends IrcService {
   @override
   void dispose() {
     _statusCtrl.close();
-    _roomStateCtrl.close();
     super.dispose();
   }
 }
 
 class _FakeIrcReadService extends IrcReadService {
-  final _banCtrl = StreamController<IrcBanEvent>.broadcast(sync: true);
-  final _noticeCtrl = StreamController<IrcNoticeEvent>.broadcast(sync: true);
-  final _deleteCtrl = StreamController<IrcMessageDeletedEvent>.broadcast(
-    sync: true,
-  );
   final _statusCtrl = StreamController<IrcConnectionStatus>.broadcast(
-    sync: true,
-  );
-  final _roomStateCtrl = StreamController<IrcRoomStateEvent>.broadcast(
     sync: true,
   );
 
@@ -206,19 +194,7 @@ class _FakeIrcReadService extends IrcReadService {
   }) async {}
 
   @override
-  Stream<IrcBanEvent> get onBan => _banCtrl.stream;
-
-  @override
-  Stream<IrcNoticeEvent> get onNotice => _noticeCtrl.stream;
-
-  @override
-  Stream<IrcMessageDeletedEvent> get onMessageDeleted => _deleteCtrl.stream;
-
-  @override
   Stream<IrcConnectionStatus> get onStatus => _statusCtrl.stream;
-
-  @override
-  Stream<IrcRoomStateEvent> get onRoomState => _roomStateCtrl.stream;
 
   bool _fakeConnected = false;
 
@@ -226,7 +202,7 @@ class _FakeIrcReadService extends IrcReadService {
   bool get isConnected => _fakeConnected;
 
   void triggerJoin(String channel) {
-    _roomStateCtrl.add(IrcRoomStateEvent(channel: channel, tags: const {}));
+    handleLine(':tmi.twitch.tv ROOMSTATE #$channel');
   }
 
   void triggerConnect({String? joinChannel}) {
@@ -240,7 +216,74 @@ class _FakeIrcReadService extends IrcReadService {
     _statusCtrl.add(IrcConnectionStatus.disconnected);
   }
 
-  void emitMessage(TwitchMessage msg) => emitChatMessage(msg);
+  /// Delivers a chat message through the real socket decode path so the app
+  /// sees it exactly like production traffic. System rows arrive as channel
+  /// notices, like the real NOTICE path.
+  void emitMessage(TwitchMessage msg) {
+    if (msg.isSystem) {
+      handleLine(':tmi.twitch.tv NOTICE #${msg.channel} :${msg.text}');
+      return;
+    }
+    final login = msg.login.isEmpty ? 'user' : msg.login;
+    final tags = <String>[
+      'display-name=${_escapeTag(msg.displayName)}',
+      if (msg.messageId != null) 'id=${_escapeTag(msg.messageId!)}',
+      if (msg.userId != null) 'user-id=${_escapeTag(msg.userId!)}',
+      if (msg.color != null) 'color=${_escapeTag(msg.color!)}',
+      'tmi-sent-ts=${msg.timestamp.millisecondsSinceEpoch}',
+      if (msg.badges != null && msg.badges!.isNotEmpty)
+        'badges=${msg.badges!.map((b) => '${b.setId}/${b.versionId}').join(',')}',
+      if (msg.emotePositions != null && msg.emotePositions!.isNotEmpty)
+        'emotes=${_encodeEmotePositions(msg.emotePositions!)}',
+      if (msg.replyToParentId != null)
+        'reply-parent-msg-id=${_escapeTag(msg.replyToParentId!)}',
+      if (msg.replyToUser != null)
+        'reply-parent-display-name=${_escapeTag(msg.replyToUser!)}',
+      if (msg.replyToText != null)
+        'reply-parent-msg-body=${_escapeTag(msg.replyToText!)}',
+    ];
+    handleLine(
+      '@${tags.join(';')} '
+      ':$login!$login@$login.tmi.twitch.tv PRIVMSG #${msg.channel} :${msg.text}',
+    );
+  }
+
+  void emitWhisper(TwitchMessage msg) {
+    final login = msg.login.isEmpty ? 'user' : msg.login;
+    final displayName = msg.displayName.isEmpty ? login : msg.displayName;
+    final tags = <String>[
+      'display-name=${_escapeTag(displayName)}',
+      if (msg.messageId != null) 'id=${_escapeTag(msg.messageId!)}',
+      if (msg.userId != null) 'user-id=${_escapeTag(msg.userId!)}',
+      if (msg.color != null) 'color=${_escapeTag(msg.color!)}',
+    ];
+    handleLine(
+      '@${tags.join(';')} '
+      ':$login!$login@$login.tmi.twitch.tv WHISPER me :${msg.text}',
+    );
+  }
+
+  void emitUserNotice(UserNoticeEvent event) {
+    final tags = <String>[
+      'msg-id=${_escapeTag(event.msgId)}',
+      'login=${_escapeTag(event.login)}',
+      'display-name=${_escapeTag(event.displayName)}',
+      if (event.systemMsg != null) 'system-msg=${_escapeTag(event.systemMsg!)}',
+      if (event.announcementColor != null)
+        'msg-param-color=${_escapeTag(event.announcementColor!)}',
+      if (event.userId != null) 'user-id=${_escapeTag(event.userId!)}',
+      if (event.messageId != null) 'id=${_escapeTag(event.messageId!)}',
+      if (event.color != null) 'color=${_escapeTag(event.color!)}',
+      if (event.badges != null && event.badges!.isNotEmpty)
+        'badges=${event.badges!.map((b) => '${b.setId}/${b.versionId}').join(',')}',
+      if (event.emotePositions != null && event.emotePositions!.isNotEmpty)
+        'emotes=${_encodeEmotePositions(event.emotePositions!)}',
+    ];
+    final trailing = event.text != null ? ' :${event.text}' : '';
+    handleLine(
+      '@${tags.join(';')} :tmi.twitch.tv USERNOTICE #${event.channel}$trailing',
+    );
+  }
 
   void emitBan(
     String user, {
@@ -248,18 +291,16 @@ class _FakeIrcReadService extends IrcReadService {
     int? durationSeconds,
     String channel = '',
   }) {
-    _banCtrl.add(
-      IrcBanEvent(
-        user: user,
-        isTimeout: isTimeout,
-        duration: durationSeconds,
-        channel: channel,
-      ),
-    );
+    // An empty ban-duration reads back as a duration-less timeout, which raw
+    // IRC cannot otherwise express.
+    final tags = isTimeout
+        ? '@ban-duration=${durationSeconds?.toString() ?? ''} '
+        : '';
+    handleLine('$tags:tmi.twitch.tv CLEARCHAT #$channel :$user');
   }
 
   void emitNotice(String channel, String message) {
-    _noticeCtrl.add(IrcNoticeEvent(channel: channel, message: message));
+    handleLine(':tmi.twitch.tv NOTICE #$channel :$message');
   }
 
   void emitDeleted(
@@ -268,25 +309,42 @@ class _FakeIrcReadService extends IrcReadService {
     String user = 'unknown',
     String deletedMessageText = '',
   }) {
-    _deleteCtrl.add(
-      IrcMessageDeletedEvent(
-        channel: channel,
-        messageId: messageId,
-        user: user,
-        deletedMessageText: deletedMessageText,
-      ),
+    handleLine(
+      '@login=${_escapeTag(user)};target-msg-id=${_escapeTag(messageId)} '
+      ':tmi.twitch.tv CLEARMSG #$channel :$deletedMessageText',
     );
   }
 
   @override
   void dispose() {
-    _banCtrl.close();
-    _noticeCtrl.close();
-    _deleteCtrl.close();
     _statusCtrl.close();
-    _roomStateCtrl.close();
     super.dispose();
   }
+}
+
+/// Escapes a tag value the way Twitch IRCv3 requires (spaces, semicolons,
+/// backslashes, CR/LF); the frame parser would otherwise end the tag block
+/// at the first space.
+String _escapeTag(String value) => value
+    .replaceAll(r'\', r'\\')
+    .replaceAll(' ', r'\s')
+    .replaceAll(';', r'\:')
+    .replaceAll('\r', r'\r')
+    .replaceAll('\n', r'\n');
+
+/// Encodes parsed emote positions back into an `emotes` tag value. Wire ends
+/// are inclusive while [EmotePosition.endIndex] is exclusive.
+String _encodeEmotePositions(List<EmotePosition> positions) {
+  final byId = <String, List<EmotePosition>>{};
+  for (final p in positions) {
+    byId.putIfAbsent(p.emoteId, () => []).add(p);
+  }
+  return byId.entries
+      .map(
+        (e) =>
+            '${e.key}:${e.value.map((p) => '${p.startIndex}-${p.endIndex - 1}').join(',')}',
+      )
+      .join('/');
 }
 
 class _ConfigurableRecentMessagesService extends RecentMessagesService {
@@ -2197,6 +2255,8 @@ void main() {
       durationSeconds: 300,
       channel: 'xqc',
     );
+    // Socket decode delivers asynchronously; the first pump flushes it.
+    await tester.pump();
     await tester.pump();
     expect(
       find.textContaining(dupBanText, skipOffstage: false),
@@ -4352,14 +4412,18 @@ void main() {
         await tester.pump();
 
         const accent = Color(0xFF1F69FF);
-        final announcement = TwitchMessage(
-          login: '',
-          text: 'Announcement: Test announcement text',
-          isSystem: true,
-          systemAccent: accent,
-          channel: 'testchannel',
+        // Announcements ride USERNOTICE in production; the banner color and
+        // the message text land on the rendered child row.
+        fakeIrcRead.emitUserNotice(
+          UserNoticeEvent(
+            channel: 'testchannel',
+            msgId: 'announcement',
+            login: '',
+            displayName: '',
+            text: 'Announcement: Test announcement text',
+            announcementColor: 'BLUE',
+          ),
         );
-        fakeIrcRead.emitMessage(announcement);
         await tester.pump();
 
         expect(

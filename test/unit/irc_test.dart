@@ -6,7 +6,12 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:ermchat/services/connectivity_service.dart';
 import 'package:ermchat/services/join_rate_limiter.dart';
-import 'package:ermchat/services/twitch_irc.dart';
+import 'package:ermchat/irc/decode/decoder.dart';
+import 'package:ermchat/irc/decode/events.dart';
+import 'package:ermchat/irc/message.dart';
+import 'package:ermchat/irc/transport/events.dart';
+import 'package:ermchat/irc/transport/read.dart';
+import 'package:ermchat/irc/transport/write.dart';
 import '../helpers/fake_web_socket.dart';
 import 'package:ermchat/models/twitch_message.dart';
 import 'package:ermchat/services/twitch_eventsub.dart';
@@ -17,7 +22,6 @@ import 'package:ermchat/models/emote_fetch_tier.dart';
 import 'package:ermchat/models/generic_emote.dart';
 import 'package:ermchat/services/chat_connection_manager.dart';
 import 'package:ermchat/services/chat_channel_setup.dart';
-import 'package:ermchat/services/base_irc_connection.dart';
 import 'package:ermchat/chat/chat.dart';
 import 'package:ermchat/client/session.dart';
 import 'package:ermchat/services/emote_manager.dart';
@@ -1028,7 +1032,7 @@ void main() {
             isNotEmpty,
             reason: 'a queued channel shows a countdown',
           );
-          ircRead.emitRoomState('test', {'room-id': '1'});
+          ircRead.confirmJoin('test');
           fakeNow = fakeNow.add(const Duration(seconds: 1));
           async.elapse(const Duration(milliseconds: 3100));
           expect(events.last.$1, 'test');
@@ -1502,12 +1506,15 @@ void main() {
   });
 
   late IrcReadService service;
+  late IrcChatDecoder decoder;
 
   setUp(() {
     service = IrcReadService();
+    decoder = IrcChatDecoder(service.onIrcMessage);
   });
 
   tearDown(() {
+    decoder.dispose();
     service.dispose();
   });
 
@@ -1535,7 +1542,7 @@ void main() {
 
     test('emits delete event with messageId, user, and deleted text', () async {
       final events = <IrcMessageDeletedEvent>[];
-      service.onMessageDeleted.listen(events.add);
+      decoder.onMessageDeleted.listen(events.add);
 
       service.handleLine(
         '@login=forsen;target-msg-id=abc-123 :tmi.twitch.tv CLEARMSG #xqc :bad message',
@@ -1563,7 +1570,7 @@ void main() {
     ]) {
       test(name, () async {
         final events = <IrcMessageDeletedEvent>[];
-        service.onMessageDeleted.listen(events.add);
+        decoder.onMessageDeleted.listen(events.add);
         service.handleLine(line);
         await flush();
         if (user == null) {
@@ -1595,7 +1602,7 @@ void main() {
     ]) {
       test(name, () async {
         final events = <IrcBanEvent>[];
-        service.onBan.listen(events.add);
+        decoder.onBan.listen(events.add);
         service.handleLine(line);
         await flush();
         expect(events, hasLength(1), reason: name);
@@ -1608,8 +1615,8 @@ void main() {
     test('emits channel clear for full room clear (no target user)', () async {
       final bans = <IrcBanEvent>[];
       final clears = <IrcChannelClearEvent>[];
-      service.onBan.listen(bans.add);
-      service.onChannelClear.listen(clears.add);
+      decoder.onBan.listen(bans.add);
+      decoder.onChannelClear.listen(clears.add);
 
       service.handleLine(':tmi.twitch.tv CLEARCHAT #xqc');
       await flush();
@@ -1625,7 +1632,7 @@ void main() {
 
     test('parses full room state', () async {
       final states = <IrcRoomStateEvent>[];
-      service.onRoomState.listen(states.add);
+      decoder.onRoomState.listen(states.add);
 
       service.handleLine(
         '@emote-only=0;followers-only=30;r9k=1;room-id=1;slow=10;subs-only=1 '
@@ -1648,7 +1655,7 @@ void main() {
 
     test('lines are safely ignored', () async {
       var messageCount = 0;
-      service.onMessage.listen((_) => messageCount++);
+      decoder.onMessage.listen((_) => messageCount++);
 
       service.handleLine(
         '@badges=moderator/1,vip/1;user-id=123 '
@@ -1682,7 +1689,7 @@ void main() {
     ]) {
       test(name, () async {
         final sets = <(String?, List<String>)>[];
-        service.onUserEmoteSets.listen(sets.add);
+        decoder.onUserEmoteSets.listen(sets.add);
         service.handleLine(line);
         await flush();
         if (channel == 'missing') {
@@ -1704,8 +1711,8 @@ void main() {
       () async {
         final notices = <IrcNoticeEvent>[];
         final userNotices = <UserNoticeEvent>[];
-        service.onNotice.listen(notices.add);
-        service.onUserNotice.listen(userNotices.add);
+        decoder.onNotice.listen(notices.add);
+        decoder.onUserNotice.listen(userNotices.add);
 
         service.handleLine(
           '@msg-id=announcement;msg-param-color=PRIMARY;login=mm2pl;'
@@ -1741,7 +1748,7 @@ void main() {
       test(name, () async {
         if (name.startsWith('parses')) {
           final userNotices = <UserNoticeEvent>[];
-          service.onUserNotice.listen(userNotices.add);
+          decoder.onUserNotice.listen(userNotices.add);
           service.handleLine(line);
           await flush();
           expect(userNotices, hasLength(1), reason: name);
@@ -1752,7 +1759,7 @@ void main() {
           );
         } else {
           final notices = <IrcNoticeEvent>[];
-          service.onNotice.listen(notices.add);
+          decoder.onNotice.listen(notices.add);
           service.handleLine(line);
           await flush();
           expect(notices, hasLength(1), reason: name);
@@ -1767,7 +1774,7 @@ void main() {
 
     test('emits a TwitchMessage via onWhisper', () async {
       final whispers = <TwitchMessage>[];
-      service.onWhisper.listen(whispers.add);
+      decoder.onWhisper.listen(whispers.add);
 
       service.handleLine(
         '@badges=;color=#FF0000;display-name=SomeUser;emotes=25:0-4;message-id=whisper-1;thread-id=abc;turbo=0;user-id=999;user-type= :someuser!someuser@someuser.tmi.twitch.tv WHISPER recipient :hey there',
@@ -2837,7 +2844,7 @@ void main() {
       // Alice's session state accrues.
       irc.handleLine('@room-id=1 :tmi.twitch.tv ROOMSTATE #test');
       await Future<void>.delayed(Duration.zero);
-      readConn.selfBadges['test'] = {'moderator'};
+      conn.readDecoder.selfBadges['test'] = {'moderator'};
       conn.lastSentWireText['test'] = 'seed';
       await conn.doSendMessage('hi', 'test');
       expect(irc.sent.single.$1, 'alice', reason: 'baseline send as alice');
@@ -2850,7 +2857,7 @@ void main() {
 
       expect(irc.username, 'bob');
       expect(
-        readConn.selfBadges,
+        conn.readDecoder.selfBadges,
         isEmpty,
         reason: "alice's badges must not bypass bob's slow mode",
       );
@@ -3535,7 +3542,7 @@ void main() {
         final (conn, ircRead) = await makeConn();
         ircRead.handleLine('@room-id=1;slow=30 :tmi.twitch.tv ROOMSTATE #test');
         if (badge != null) {
-          ircRead.selfBadges['test'] = {badge};
+          conn.readDecoder.selfBadges['test'] = {badge};
         }
         await conn.doSendMessage('hi', 'test');
         if (expectCooldown) {
@@ -3593,10 +3600,9 @@ void main() {
       );
       await Future<void>.delayed(Duration.zero);
       expect(conn.remainingSelfTimeout('test'), isNotNull);
-      ircRead.emitOwnMessage(
-        parseIrcMessage(
-          ':viewer!viewer@viewer.tmi.twitch.tv PRIVMSG #test :hello',
-        )!,
+      ircRead.username = 'viewer';
+      ircRead.handleLine(
+        ':viewer!viewer@viewer.tmi.twitch.tv PRIVMSG #test :hello',
       );
       await Future<void>.delayed(Duration.zero);
       expect(conn.remainingSelfTimeout('test'), isNull);

@@ -7,14 +7,19 @@ import 'package:ermchat/services/chat_ingestion.dart';
 import 'package:ermchat/services/emote_manager.dart';
 import 'package:ermchat/services/twitch_auth.dart';
 import 'package:ermchat/services/twitch_badge_service.dart';
-import 'package:ermchat/services/twitch_irc.dart';
+import 'package:ermchat/irc/decode/decoder.dart';
+import 'package:ermchat/irc/transport/read.dart';
+import 'package:ermchat/irc/transport/write.dart';
 import 'package:ermchat/services/user_store.dart';
 
 void main() {
   ChatIngestion makeIngestion(EmoteManager emoteManager) {
+    final irc = IrcService();
+    final ircRead = IrcReadService();
     return ChatIngestion(
-      irc: IrcService(),
-      ircRead: IrcReadService(),
+      irc: irc,
+      ircRead: ircRead,
+      readDecoder: IrcChatDecoder(ircRead.onIrcMessage),
       chat: Chat(),
       session: Session(),
       userStore: UserStore(),
