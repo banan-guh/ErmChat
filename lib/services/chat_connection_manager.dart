@@ -155,153 +155,116 @@ class ChatConnectionConfig {
 }
 
 class ChatConnectionManager {
-  final TwitchApi twitchApi;
-  final EventSubService eventSub;
-  final IrcService irc;
-  final IrcReadService ircRead;
-  final SevenTvEventClient? sevenTvClient;
-  final TwitchBadgeService badgeService;
-  final UserStore userStore;
-  final TwitchAuth twitchAuth;
-  final EmoteManager emoteManager;
-  final Session session;
-  final Chat chat;
-  final String mentionsChannel;
+  ChatConnectionManager(this.config);
+
+  final ChatConnectionConfig config;
 
   /// Bumped on connection-phase / channel-ready / reply-clear changes so the
   /// composer can rebuild without forcing a full HomeScreen setState.
   final ValueNotifier<int> connectionStateNotifier = ValueNotifier(0);
 
-  final void Function(String, String, {Color? accent, String? messageId})
-  onSystemMessage;
-  final void Function(String channel, TwitchMessage msg)? onMention;
-  final void Function(TwitchMessage msg)? onWhisper;
-  final Future<void> Function(String?, List<String>)? onUserEmoteSets;
-  final VoidCallback? onReconnected;
-  final int Function() getMaxMessagesPerChannel;
-  final String? Function() getSelectedChannel;
-  final void Function(String, String, TwitchAuth) onCommand;
-  final TwitchMessage? Function() getReplyToMsg;
-  final void Function(TwitchMessage?) setReplyToMsg;
-  final PingManager? pingManager;
-  final IgnoreManager? ignoreManager;
-  final Map<String, String> Function()? getMacros;
-  final bool Function()? isChatReady;
-  final bool Function(String login)? isBlocked;
-  final String Function()? getSharedChatMode;
-  final void Function(String channel, TwitchMessage msg)? onAnalyticsMessage;
-  final void Function(String channel, bool isTimeout)? onAnalyticsModeration;
-  final void Function(HypeTrainEvent event)? onHypeTrain;
-  final void Function(PollEvent event)? onPoll;
-  final void Function(PredictionEvent event)? onPrediction;
-  final void Function(String channel, TwitchMessage msg)? onChatMessage;
-  final JoinRateLimiter? joinBudget;
-  final void Function(String channel, JoinProgress? info)? onJoinProgress;
-  final void Function(String message)? onBanner;
-  final void Function()? onFocusComposer;
-
-  bool isDisposed = false;
-
   // Decode layer: lifts typed events out of each socket's raw frames. The
   // read decoder watches own echoes via the read socket's nick.
+  @visibleForTesting
   late final IrcChatDecoder readDecoder = IrcChatDecoder(
-    ircRead.onIrcMessage,
-    nickProvider: () => ircRead.username,
+    config.services.ircRead.onIrcMessage,
+    nickProvider: () => config.services.ircRead.username,
     debugPrefix: 'IRC read',
     isReadSocket: true,
   );
   late final IrcChatDecoder writeDecoder = IrcChatDecoder(
-    irc.onIrcMessage,
+    config.services.irc.onIrcMessage,
     debugPrefix: 'IRC',
     isReadSocket: false,
   );
 
   // EventSub decode layer: lifts typed events out of notification frames.
   late final EventSubDecoder eventSubDecoder = EventSubDecoder(
-    eventSub.onNotification,
+    config.services.eventSub.onNotification,
   );
 
   // Outbound send path and its send gates.
   late final ChatSender _sender = ChatSender(
-    irc: irc,
-    session: session,
-    twitchAuth: twitchAuth,
-    onCommand: onCommand,
-    getReplyToMsg: getReplyToMsg,
-    setReplyToMsg: setReplyToMsg,
-    onSystemMessage: (channel, text) => onSystemMessage(channel, text),
+    irc: config.services.irc,
+    session: config.session,
+    twitchAuth: config.services.twitchAuth,
+    onCommand: config.sinks.onCommand,
+    getReplyToMsg: config.sinks.getReplyToMsg,
+    setReplyToMsg: config.sinks.setReplyToMsg,
+    onSystemMessage: config.bridge.onSystemMessage,
     slowModeSeconds: (channel) => _channelSetup.slowModeSeconds(channel),
     selfBadges: (channel) =>
         readDecoder.selfBadges[channel] ??
         readDecoder.selfBadges[null] ??
         const <String>{},
-    getMacros: getMacros,
-    onBanner: onBanner,
-    onFocusComposer: onFocusComposer,
+    getMacros: config.sinks.getMacros,
+    onBanner: config.bridge.onBanner,
+    onFocusComposer: config.bridge.onFocusComposer,
     onSendStateChanged: () => connectionStateNotifier.value++,
   );
 
   // EventSub subscription lifecycle: active/skip sets, subscribe paths,
   // resubscribe, and the gate predicates.
   late final EventSubTopics eventSubTopics = EventSubTopics(
-    twitchApi: twitchApi,
-    twitchAuth: twitchAuth,
-    session: session,
-    chat: chat,
-    eventSub: eventSub,
+    twitchApi: config.services.twitchApi,
+    twitchAuth: config.services.twitchAuth,
+    session: config.session,
+    chat: config.chat,
+    eventSub: config.services.eventSub,
   );
 
   // EventSub consumption: typed decoder events applied to the chat kernel.
   late final EventSubConsumer eventSubConsumer = EventSubConsumer(
-    chat: chat,
-    session: session,
+    chat: config.chat,
+    session: config.session,
     topics: eventSubTopics,
-    onSystemMessage: onSystemMessage,
-    onAnalyticsModeration: onAnalyticsModeration,
-    onHypeTrain: onHypeTrain,
-    onPoll: onPoll,
-    onPrediction: onPrediction,
+    onSystemMessage: config.bridge.onSystemMessage,
+    onAnalyticsModeration: config.sinks.onAnalyticsModeration,
+    onHypeTrain: config.sinks.onHypeTrain,
+    onPoll: config.sinks.onPoll,
+    onPrediction: config.sinks.onPrediction,
     onSelfTimeoutArmed: _sender.armTimeout,
     onSelfTimeoutCleared: _sender.clearTimeout,
   );
 
   // 7TV event consumption: socket events applied to the emote manager.
   late final SevenTvConsumer _sevenTvConsumer = SevenTvConsumer(
-    emoteManager: emoteManager,
-    sevenTvClient: sevenTvClient,
-    onSystemMessage: onSystemMessage,
+    emoteManager: config.services.emoteManager,
+    sevenTvClient: config.services.sevenTvClient,
+    onSystemMessage: config.bridge.onSystemMessage,
   );
 
   // Join-confirmation and read-socket-health state behind the readiness
   // queries.
   late final ChatReadiness _readiness = ChatReadiness(
-    writeConnected: () => irc.isConnected,
-    readConnected: () => ircRead.isConnected,
+    writeConnected: () => config.services.irc.isConnected,
+    readConnected: () => config.services.ircRead.isConnected,
     readExpected: () => _lifecycle.readExpected,
   );
 
   // Join-queue progress surfaced to the UI while channels wait in the budget.
   late final JoinProgressTracker _joinProgress = JoinProgressTracker(
-    joinBudget: joinBudget,
-    channelNames: () => chat.names,
+    joinBudget: config.services.joinBudget,
+    channelNames: () => config.chat.names,
     isReady: isChannelChatReady,
     isFailed: (channel) => _readiness.isJoinFailed(channel),
-    onProgress: (channel, info) => onJoinProgress?.call(channel, info),
+    onProgress: (channel, info) =>
+        config.bridge.onJoinProgress?.call(channel, info),
   );
 
   // Connection lifecycle: connect orchestration, socket status listeners,
   // watchdog, reconnect, token expiry and identity resolution.
   late final ChatLifecycle _lifecycle = ChatLifecycle(
-    irc: irc,
-    ircRead: ircRead,
+    irc: config.services.irc,
+    ircRead: config.services.ircRead,
     readDecoder: readDecoder,
     writeDecoder: writeDecoder,
-    eventSub: eventSub,
-    sevenTvClient: sevenTvClient,
-    twitchApi: twitchApi,
-    twitchAuth: twitchAuth,
-    session: session,
-    chat: chat,
+    eventSub: config.services.eventSub,
+    sevenTvClient: config.services.sevenTvClient,
+    twitchApi: config.services.twitchApi,
+    twitchAuth: config.services.twitchAuth,
+    session: config.session,
+    chat: config.chat,
     readiness: _readiness,
     joinProgress: _joinProgress,
     eventSubTopics: eventSubTopics,
@@ -309,115 +272,74 @@ class ChatConnectionManager {
     channelSetup: _channelSetup,
     connectionStateNotifier: connectionStateNotifier,
     setupSubscriptions: _setupSubscriptions,
-    subscribeAll: subscribeAll,
+    subscribeAll: _subscribeAll,
     clearSelfBadges: readDecoder.clearSelfBadges,
-    onSystemMessage: onSystemMessage,
-    onBanner: onBanner,
-    onReconnected: onReconnected,
+    onSystemMessage: config.bridge.onSystemMessage,
+    onBanner: config.bridge.onBanner,
+    onReconnected: config.sinks.onReconnected,
   );
 
   // Chat-content routing (PRIVMSG/CLEARMSG/CLEARCHAT/clears/own echo).
   late final ChatIngestion _ingestion = ChatIngestion(
-    irc: irc,
-    ircRead: ircRead,
+    irc: config.services.irc,
+    ircRead: config.services.ircRead,
     readDecoder: readDecoder,
     writeDecoder: writeDecoder,
-    chat: chat,
-    session: session,
-    userStore: userStore,
-    emoteManager: emoteManager,
-    badgeService: badgeService,
-    twitchAuth: twitchAuth,
+    chat: config.chat,
+    session: config.session,
+    userStore: config.services.userStore,
+    emoteManager: config.services.emoteManager,
+    badgeService: config.services.badgeService,
+    twitchAuth: config.services.twitchAuth,
     sender: _sender,
-    ignoreManager: ignoreManager,
-    pingManager: pingManager,
-    mentionsChannel: mentionsChannel,
-    getMaxMessagesPerChannel: getMaxMessagesPerChannel,
-    getSelectedChannel: getSelectedChannel,
-    isChatReady: isChatReady,
-    isBlocked: isBlocked,
-    getSharedChatMode: getSharedChatMode,
+    ignoreManager: config.services.ignoreManager,
+    pingManager: config.services.pingManager,
+    mentionsChannel: config.bridge.mentionsChannel,
+    getMaxMessagesPerChannel: config.bridge.getMaxMessagesPerChannel,
+    getSelectedChannel: config.bridge.getSelectedChannel,
+    isChatReady: config.sinks.isChatReady,
+    isBlocked: config.sinks.isBlocked,
+    getSharedChatMode: config.sinks.getSharedChatMode,
     isModerationActive: (channel) => eventSubTopics.isModerationActive(channel),
     isJoinFailureNotified: _channelSetup.isJoinFailureNotified,
-    onSystemMessage: onSystemMessage,
-    onAnalyticsMessage: onAnalyticsMessage,
-    onAnalyticsModeration: onAnalyticsModeration,
-    onChatMessage: onChatMessage,
-    onMention: onMention,
-    onWhisper: onWhisper,
+    onSystemMessage: config.bridge.onSystemMessage,
+    onAnalyticsMessage: config.sinks.onAnalyticsMessage,
+    onAnalyticsModeration: config.sinks.onAnalyticsModeration,
+    onChatMessage: config.sinks.onChatMessage,
+    onMention: config.sinks.onMention,
+    onWhisper: config.sinks.onWhisper,
   );
 
   // Channel-domain wiring (joins, Helix/emote/badge resolution, EventSub
   // topic subscriptions, status composition).
   late final ChatChannelSetup _channelSetup = ChatChannelSetup(
-    twitchApi: twitchApi,
+    twitchApi: config.services.twitchApi,
     eventSubDecoder: eventSubDecoder,
     eventSubTopics: eventSubTopics,
-    irc: irc,
-    ircRead: ircRead,
+    irc: config.services.irc,
+    ircRead: config.services.ircRead,
     readDecoder: readDecoder,
-    sevenTvClient: sevenTvClient,
-    badgeService: badgeService,
-    emoteManager: emoteManager,
-    twitchAuth: twitchAuth,
-    userStore: userStore,
-    chat: chat,
-    session: session,
-    onSystemMessage: onSystemMessage,
+    sevenTvClient: config.services.sevenTvClient,
+    badgeService: config.services.badgeService,
+    emoteManager: config.services.emoteManager,
+    twitchAuth: config.services.twitchAuth,
+    userStore: config.services.userStore,
+    chat: config.chat,
+    session: config.session,
+    onSystemMessage: config.bridge.onSystemMessage,
     connectionStateNotifier: connectionStateNotifier,
-    onUserEmoteSets: onUserEmoteSets,
+    onUserEmoteSets: config.sinks.onUserEmoteSets,
     ensureCurrentUser: (auth) => _lifecycle.ensureCurrentUser(auth),
   );
   final _ingestionSubs = <StreamSubscription<void>>[];
 
-  ChatConnectionManager(ChatConnectionConfig config)
-    : twitchApi = config.services.twitchApi,
-      eventSub = config.services.eventSub,
-      irc = config.services.irc,
-      ircRead = config.services.ircRead,
-      sevenTvClient = config.services.sevenTvClient,
-      emoteManager = config.services.emoteManager,
-      badgeService = config.services.badgeService,
-      userStore = config.services.userStore,
-      twitchAuth = config.services.twitchAuth,
-      session = config.session,
-      chat = config.chat,
-      mentionsChannel = config.bridge.mentionsChannel,
-      onSystemMessage = config.bridge.onSystemMessage,
-      onUserEmoteSets = config.sinks.onUserEmoteSets,
-      onReconnected = config.sinks.onReconnected,
-      onMention = config.sinks.onMention,
-      onWhisper = config.sinks.onWhisper,
-      getMaxMessagesPerChannel = config.bridge.getMaxMessagesPerChannel,
-      getSelectedChannel = config.bridge.getSelectedChannel,
-      onCommand = config.sinks.onCommand,
-      getReplyToMsg = config.sinks.getReplyToMsg,
-      setReplyToMsg = config.sinks.setReplyToMsg,
-      pingManager = config.services.pingManager,
-      ignoreManager = config.services.ignoreManager,
-      getMacros = config.sinks.getMacros,
-      isChatReady = config.sinks.isChatReady,
-      isBlocked = config.sinks.isBlocked,
-      getSharedChatMode = config.sinks.getSharedChatMode,
-      onAnalyticsMessage = config.sinks.onAnalyticsMessage,
-      onAnalyticsModeration = config.sinks.onAnalyticsModeration,
-      onHypeTrain = config.sinks.onHypeTrain,
-      onPoll = config.sinks.onPoll,
-      onPrediction = config.sinks.onPrediction,
-      onChatMessage = config.sinks.onChatMessage,
-      joinBudget = config.services.joinBudget,
-      onJoinProgress = config.bridge.onJoinProgress,
-      onBanner = config.bridge.onBanner,
-      onFocusComposer = config.bridge.onFocusComposer;
-
   void dispose() {
-    isDisposed = true;
     _joinProgress.dispose();
     _lifecycle.dispose();
     // This manager owned the session's join demand; drop its queued units so
     // the shared bucket's pump timer can wind down instead of ticking on
     // dead sockets forever.
-    joinBudget?.clear();
+    config.services.joinBudget?.clear();
     for (final sub in _ingestionSubs) {
       sub.cancel();
     }
@@ -449,17 +371,17 @@ class ChatConnectionManager {
   @visibleForTesting
   ChatSender get sender => _sender;
 
+  /// Chat kernel root, exposed for tests.
+  @visibleForTesting
+  Chat get chat => config.chat;
+
   void maybeAddConnected(String channel) {
-    if (irc.isConnected &&
-        (chat.channelFor(channel)?.info.historyLoaded ?? false) &&
+    if (config.services.irc.isConnected &&
+        (config.chat.channelFor(channel)?.info.historyLoaded ?? false) &&
         _readiness.acknowledgeConnected(channel)) {
-      onSystemMessage(channel, 'Connected');
+      config.bridge.onSystemMessage(channel, 'Connected');
     }
   }
-
-  /// Seconds of the channel's current slow mode from the merged ROOMSTATE
-  /// tags; 0 when off (missing/empty/0 all mean off).
-  int slowModeSeconds(String channel) => _channelSetup.slowModeSeconds(channel);
 
   /// Whether event-driven moderation (and its Mod View rows) is up.
   bool isModerationActive(String channel) =>
@@ -492,7 +414,7 @@ class ChatConnectionManager {
     await _channelSetup.subscribeChannel(channelName);
   }
 
-  void subscribeAll() => _channelSetup.subscribeAll(chat.names);
+  void _subscribeAll() => _channelSetup.subscribeAll(config.chat.names);
 
   Future<void> doSendMessage(
     String text,
@@ -547,17 +469,16 @@ class ChatConnectionManager {
 
   // Chat-content routing lives in [ChatIngestion]; kept as delegators so
   // tests can feed synthetic messages through the same policy gates.
+  @visibleForTesting
   void onMessage(TwitchMessage msg) => _ingestion.onMessage(msg);
 
+  @visibleForTesting
   void onOwnIrcMessage(IrcMessage ircMsg) => _ingestion.onOwnIrcMessage(ircMsg);
-
-  void precacheMessageEmotes(TwitchMessage msg, String channel) =>
-      _ingestion.precacheMessageEmotes(msg, channel);
 
   /// Bumps [channel] to the front of the JOIN queue so the next pump tick
   /// dispatches it first. No-op if not queued.
   void focusChannel(String channel) {
-    joinBudget?.bumpToFront(channel);
+    config.services.joinBudget?.bumpToFront(channel);
   }
 
   /// Brute-force teardown + reconnect of every socket (manual "Reconnect"

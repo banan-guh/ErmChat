@@ -2854,7 +2854,7 @@ void main() {
       expect(irc.sent.single.$1, 'alice', reason: 'baseline send as alice');
 
       // Switch to bob the way HomeScreen drives it.
-      conn.session.clear();
+      conn.config.session.clear();
       conn.chat.clearAccountScopedState();
       await auth.switchTo('bob');
       await conn.connect();
