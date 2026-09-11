@@ -33,6 +33,7 @@ import '../services/chat_sender.dart';
 import '../services/eventsub_consumer.dart';
 import '../services/seven_tv_consumer.dart';
 import '../services/join_progress_tracker.dart';
+import '../services/chat_readiness.dart';
 import '../chat/chat.dart';
 import '../client/session.dart';
 
@@ -204,20 +205,7 @@ class ChatConnectionManager {
   final void Function()? onFocusComposer;
 
   bool _wasConnected = false;
-  // Session latch backing [connectPhase]: true once any connect succeeded,
-  // never reset. NOT the same question as [_wasConnected] (edge tracking for
-  // reconnect backfill) or the read-arm latch in [isChatPipeConnected]
-  // (whether the read socket participates at all).
-  bool _everConnected = false;
   bool _wasDisconnected = false;
-  // Read-socket outage tracking: the read socket dying alone (e.g. a DNS
-  // error) must still surface as a visible "Chat reconnecting..." instead of
-  // silently freezing chat.
-  bool _wasReadDisconnected = false;
-  // Arms the first time the read socket connects: from then on the pipe
-  // (and the input gate) requires it to stay up. Sessions where the read
-  // socket never comes up are not blocked by it.
-  bool _readEverConnected = false;
   // Guards the one-shot read-connect waiter below: connect() re-runs on
   // every auth change, and each call must not stack another broadcast
   // listener while the read socket stays down.
@@ -228,17 +216,6 @@ class ChatConnectionManager {
   // (an already-connected socket otherwise skips the reconnect).
   String? _lastIrcUsername;
   String? _lastIrcToken;
-  final _connectedAcked = <String>{};
-  // Write-socket JOIN confirmations. In production the write socket never
-  // JOINs, so this stays empty; it exists so tests that drive ROOMSTATE
-  // through the write socket still resolve readiness. The read socket's JOIN
-  // (below) is the real production signal.
-  final _joinedChannels = <String>{};
-  // Channels the read socket has JOINed (confirmed by ROOMSTATE). The write
-  // socket never JOINs, so this is the authoritative readiness source: a
-  // fresh or reconnected read socket may not have processed its JOINs yet,
-  // and the local echo of our own messages rides it.
-  final _readJoinedChannels = <String>{};
   StreamSubscription<IrcRoomStateEvent>? ircReadRoomStateSub;
   StreamSubscription<IrcRoomStateEvent>? ircWriteRoomStateSub;
 
@@ -247,7 +224,6 @@ class ChatConnectionManager {
   /// start, including their handshake windows), no for anonymous read-only
   /// sessions where there is nothing to echo.
   bool get _readExpected => !_lastIrcAnonymous;
-  final _joinFailed = <String>{};
   static const _roomStateNoticeIds = {
     'followers_on_zero',
     'followers_on',
@@ -344,12 +320,20 @@ class ChatConnectionManager {
     onSystemMessage: onSystemMessage,
   );
 
+  // Join-confirmation and read-socket-health state behind the readiness
+  // queries.
+  late final ChatReadiness _readiness = ChatReadiness(
+    writeConnected: () => irc.isConnected,
+    readConnected: () => ircRead.isConnected,
+    readExpected: () => _readExpected,
+  );
+
   // Join-queue progress surfaced to the UI while channels wait in the budget.
   late final JoinProgressTracker _joinProgress = JoinProgressTracker(
     joinBudget: joinBudget,
     channelNames: () => chat.names,
     isReady: isChannelChatReady,
-    isFailed: (channel) => _joinFailed.contains(channel),
+    isFailed: (channel) => _readiness.isJoinFailed(channel),
     onProgress: (channel, info) => onJoinProgress?.call(channel, info),
   );
 
@@ -513,7 +497,7 @@ class ChatConnectionManager {
   void maybeAddConnected(String channel) {
     if (irc.isConnected &&
         (chat.channelFor(channel)?.info.historyLoaded ?? false) &&
-        _connectedAcked.add(channel)) {
+        _readiness.acknowledgeConnected(channel)) {
       onSystemMessage(channel, 'Connected');
     }
   }
@@ -548,8 +532,7 @@ class ChatConnectionManager {
 
   Future<void> subscribeChannel(String channelName) async {
     // Clear stale readiness so a re-subscribe re-earns its JOIN confirm.
-    _joinedChannels.remove(channelName);
-    _readJoinedChannels.remove(channelName);
+    _readiness.forgetChannel(channelName);
     connectionStateNotifier.value++;
     await _channelSetup.subscribeChannel(channelName);
   }
@@ -590,15 +573,16 @@ class ChatConnectionManager {
   /// PRIVMSG, but without the read socket the local echo has no ride. The
   /// read side only counts once it has connected at least once this session,
   /// so environments without a read socket keep working.
-  bool get isChatPipeConnected =>
-      irc.isConnected && (!_readEverConnected || ircRead.isConnected);
+  bool get isChatPipeConnected => _readiness.pipeUp;
 
   /// [ChatPhase] for the current session: connecting on a first boot,
   /// reconnecting after any successful connect dropped, online otherwise.
   /// Per-channel readiness ([isChannelChatReady]) layers on top in the view.
   ChatPhase get connectPhase {
-    if (!isChatPipeConnected) {
-      return _everConnected ? ChatPhase.reconnecting : ChatPhase.connecting;
+    if (!_readiness.pipeUp) {
+      return _readiness.everConnected
+          ? ChatPhase.reconnecting
+          : ChatPhase.connecting;
     }
     return ChatPhase.online;
   }
@@ -609,23 +593,13 @@ class ChatConnectionManager {
   /// vanish. The read side gates whenever it is expected (authenticated
   /// session, including its handshake window) or currently live; sessions
   /// that genuinely have no read socket never block on it.
-  bool isChannelChatReady(String channel) {
-    // Readiness gates the input (send) side. Authenticated sessions have a
-    // live read socket whose JOIN confirms the channel is usable; anonymous
-    // sessions have no read socket, so readiness there is the write socket
-    // being up AND having received the channel's ROOMSTATE (the write socket
-    // JOINs and gets ROOMSTATE too).
-    if (!_readExpected && !ircRead.isConnected) {
-      return irc.isConnected && _joinedChannels.contains(channel);
-    }
-    return _readJoinedChannels.contains(channel);
-  }
+  bool isChannelChatReady(String channel) => _readiness.isChannelReady(channel);
 
   /// Posts the per-channel "Connected" once, when the channel becomes fully
   /// usable. Called from whichever JOIN confirmation completes readiness.
   void _announceConnected(String channel) {
     if (!isChannelChatReady(channel)) return;
-    if (_connectedAcked.add(channel)) {
+    if (_readiness.acknowledgeConnected(channel)) {
       onSystemMessage(channel, 'Connected');
     }
   }
@@ -671,7 +645,7 @@ class ChatConnectionManager {
         if (isDisposed) return;
         connectionStateNotifier.value++;
         if (status == IrcConnectionStatus.connected && irc.isConnected) {
-          _everConnected = true;
+          _readiness.noteWriteSocketConnected();
           // Edge-triggered: subscribeAll once per connect with 30s throttle.
           // The 500ms settle delay only applies on reconnect - the sockets
           // rejoin channels themselves on reconnect.
@@ -705,9 +679,8 @@ class ChatConnectionManager {
         if (status == IrcConnectionStatus.disconnected && !_wasDisconnected) {
           _wasDisconnected = true;
           _wasConnected = false;
-          _connectedAcked.clear();
+          _readiness.resetForWriteDisconnect();
           _lastSubscribeAll = null;
-          _joinedChannels.clear();
           _joinProgress.clearAllWaits();
           // Failure state is per socket lifetime: the fresh socket runs its
           // own fast sweep, so it may legitimately fail (and re-announce)
@@ -728,22 +701,18 @@ class ChatConnectionManager {
       ircReadStatusSub?.cancel();
       ircReadStatusSub = ircRead.onStatus.listen((status) {
         if (isDisposed) return;
-        if (status == IrcConnectionStatus.connected && _wasReadDisconnected) {
-          _wasReadDisconnected = false;
+        if (status == IrcConnectionStatus.connected &&
+            _readiness.noteReadSocketRecovered()) {
           for (final channel in chat.names) {
             // Same ack as the JOIN-confirm path below: a flapping write
             // socket reports the same recovery, keep one line.
-            if (_connectedAcked.add(channel)) {
+            if (_readiness.acknowledgeConnected(channel)) {
               onSystemMessage(channel, 'Reconnected');
             }
           }
           connectionStateNotifier.value++;
         } else if (status == IrcConnectionStatus.disconnected &&
-            !_wasReadDisconnected) {
-          _wasReadDisconnected = true;
-          _connectedAcked.clear();
-          _readJoinedChannels.clear();
-          _joinFailed.clear();
+            _readiness.noteReadSocketDisconnected()) {
           connectionStateNotifier.value++;
           for (final channel in chat.names) {
             onSystemMessage(channel, 'Chat reconnecting...');
@@ -756,15 +725,15 @@ class ChatConnectionManager {
       // Armed once: connect() re-runs on every auth change and must not
       // stack another waiter while the read socket stays down. The
       // controller closing on dispose completes with an error; ignore.
-      if (!_readEverConnected && !_readConnectWaiterArmed) {
+      if (!_readiness.readEverConnected && !_readConnectWaiterArmed) {
         _readConnectWaiterArmed = true;
         unawaited(
           ircRead.onStatus
               .firstWhere((s) => s == IrcConnectionStatus.connected)
               .then((_) {
                 _readConnectWaiterArmed = false;
-                if (!isDisposed && !_readEverConnected) {
-                  _readEverConnected = true;
+                if (!isDisposed && !_readiness.readEverConnected) {
+                  _readiness.noteReadSocketEverConnected();
                   connectionStateNotifier.value++;
                 }
               })
@@ -925,8 +894,7 @@ class ChatConnectionManager {
         // JOIN confirmations must not gate sends, self badges and slow-mode/
         // timeout anchors belong to the old account, and duplicate-bypass
         // wire text must not carry across accounts.
-        _joinedChannels.clear();
-        _connectedAcked.clear();
+        _readiness.resetForAccountSwitch();
         _lastSubscribeAll = null;
         readDecoder.clearSelfBadges();
         _sender.clearAccountScope();
@@ -1082,7 +1050,7 @@ class ChatConnectionManager {
       _channelSetup.handleJoinFailed(event);
       // Stop the perpetual "still joining" marker; the channel is not ready
       // and the failure was already surfaced as a system message.
-      _joinFailed.add(event.channel);
+      _readiness.noteJoinFailed(event.channel);
       _joinProgress.clearWait(event.channel);
     });
 
@@ -1197,10 +1165,9 @@ class ChatConnectionManager {
     ircReadRoomStateSub = readDecoder.onRoomState.listen((event) {
       if (isDisposed) return;
       if (_channelSetup.handleRoomState(event)) {
-        final isNew = _readJoinedChannels.add(event.channel);
+        final isNew = _readiness.noteReadRoomState(event.channel);
         if (isNew) {
           PerfLog.I.record('JOINQ', 'read-confirm ${event.channel}');
-          _joinFailed.remove(event.channel);
           _joinProgress.clearWait(event.channel);
           if (isChannelChatReady(event.channel)) {
             _announceConnected(event.channel);
@@ -1210,16 +1177,14 @@ class ChatConnectionManager {
       }
     });
 
-    // The write socket also echoes ROOMSTATE after its own JOIN. Populate
-    // _joinedChannels so anonymous sessions (where the read socket is dead)
-    // can still resolve readiness via the fallback path. For authenticated
-    // sessions this also triggers the second half of the "both sockets
-    // confirmed" check.
+    // The write socket also echoes ROOMSTATE after its own JOIN. Its JOIN
+    // confirmations let anonymous sessions resolve readiness without a read
+    // socket, and complete the both-sockets check for authenticated ones.
     ircWriteRoomStateSub?.cancel();
     ircWriteRoomStateSub = writeDecoder.onRoomState.listen((event) {
       if (isDisposed) return;
       _channelSetup.handleRoomState(event);
-      final isNew = _joinedChannels.add(event.channel);
+      final isNew = _readiness.noteWriteRoomState(event.channel);
       if (isNew) {
         if (isChannelChatReady(event.channel)) {
           _announceConnected(event.channel);
