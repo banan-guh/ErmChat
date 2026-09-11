@@ -7,10 +7,11 @@ import '../models/twitch_message.dart';
 import '../util/duration_format.dart';
 import '../util/log.dart';
 import '../irc/decode/codec.dart' show parseIrcChatMessage;
-import '../irc/decode/copy.dart' show buildBanText;
+import '../irc/decode/copy.dart'
+    show buildBanText, buildUserNoticeText, userNoticeAccent, userNoticeLabelId;
 import '../irc/decode/decoder.dart' show IrcChatDecoder;
 import '../irc/decode/events.dart'
-    show IrcChannelClearEvent, IrcMessageDeletedEvent;
+    show IrcChannelClearEvent, IrcMessageDeletedEvent, UserNoticeEvent;
 import '../irc/message.dart' show IrcMessage;
 import '../irc/transport/read.dart' show IrcReadService;
 import '../irc/transport/write.dart' show IrcService;
@@ -287,6 +288,111 @@ class ChatIngestion {
     }
   }
 
+  // ---- USERNOTICE ---------------------------------------------------------
+
+  /// Renders a USERNOTICE: announcements as a label plus body, every other
+  /// notice as an accented system line, with sub/resub messages echoed as a
+  /// child chat message.
+  void onUserNotice(UserNoticeEvent event) {
+    if (_disposed) return;
+    final isAnnouncement = event.msgId == 'announcement';
+    if (!isAnnouncement) {
+      // Every non-announcement notice (subs, gift subs, watch streaks,
+      // bits badge tiers, raids, pay forwards, ...) highlights like a
+      // default (PRIMARY) purple announcement: the notice stays a system
+      // message but carries the accent.
+      final accent = userNoticeAccent(event.msgId);
+      onSystemMessage(
+        event.channel,
+        buildUserNoticeText(
+          msgId: event.msgId,
+          displayName: event.displayName,
+          systemMsg: event.systemMsg,
+        ),
+        accent: accent,
+        messageId: userNoticeLabelId(event.messageId),
+      );
+      // Sub/resub with a user message render like announcements: the notice
+      // stays the label and the user's text becomes a child chat message so
+      // emotes and badges render. The IRC `emotes` tag positions are
+      // relative to the untrimmed body, so shift them by trimmed leading
+      // whitespace and drop any that fall out of range.
+      if ((event.msgId == 'sub' || event.msgId == 'resub') &&
+          (event.text?.trim().isNotEmpty ?? false)) {
+        final raw = event.text!;
+        final body = raw.trim();
+        final shift = raw.length - raw.trimLeft().length;
+        onMessage(
+          TwitchMessage(
+            login: event.login,
+            displayName: event.displayName,
+            text: body,
+            color: event.color,
+            userId: event.userId,
+            badges: event.badges,
+            emotePositions: _shiftEmotePositions(
+              event.emotePositions,
+              shift,
+              body.length,
+            ),
+            messageId: event.messageId,
+            channel: event.channel,
+            systemAccent: accent,
+          ),
+        );
+      }
+      onChatMessage?.call(
+        event.channel,
+        TwitchMessage(
+          login: event.login,
+          displayName: event.displayName,
+          text: buildUserNoticeText(
+            msgId: event.msgId,
+            displayName: event.displayName,
+            systemMsg: event.systemMsg,
+          ),
+          channel: event.channel,
+          isSystem: true,
+        ),
+      );
+      return;
+    }
+    // DankChat-style: the "Announcement" label plus the announcement text
+    // rendered as a normal chat message, both on the announcement color.
+    final accent = userNoticeAccent(
+      'announcement',
+      announcementColorParam: event.announcementColor,
+    );
+    onSystemMessage(
+      event.channel,
+      'Announcement',
+      accent: accent,
+      messageId: userNoticeLabelId(event.messageId),
+    );
+    final rawText = event.text ?? '';
+    final text = rawText.trim();
+    if (text.isEmpty) return;
+    final shift = rawText.length - rawText.trimLeft().length;
+    onMessage(
+      TwitchMessage(
+        login: event.login,
+        displayName: event.displayName,
+        text: text,
+        color: event.color,
+        userId: event.userId,
+        badges: event.badges,
+        emotePositions: _shiftEmotePositions(
+          event.emotePositions,
+          shift,
+          text.length,
+        ),
+        messageId: event.messageId,
+        channel: event.channel,
+        systemAccent: accent,
+      ),
+    );
+  }
+
   // ---- Moderation echoes --------------------------------------------------
 
   void _onMessageDeleted(IrcMessageDeletedEvent event) {
@@ -464,4 +570,30 @@ class ChatIngestion {
     // message so TTS can speak them too.
     onChatMessage?.call(channel, msg);
   }
+}
+
+/// Shifts IRC `emotes` tag positions after trimming leading whitespace.
+/// Positions outside the trimmed body are dropped.
+List<EmotePosition>? _shiftEmotePositions(
+  List<EmotePosition>? positions,
+  int shift,
+  int textLength,
+) {
+  if (positions == null || positions.isEmpty) return positions;
+  if (shift <= 0) return positions;
+  final kept = <EmotePosition>[];
+  for (final p in positions) {
+    final start = p.startIndex - shift;
+    final end = p.endIndex - shift;
+    if (start < 0 || end > textLength || start >= end) continue;
+    kept.add(
+      EmotePosition(
+        emoteId: p.emoteId,
+        startIndex: start,
+        endIndex: end,
+        emoteCode: p.emoteCode,
+      ),
+    );
+  }
+  return kept;
 }
