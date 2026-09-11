@@ -5,8 +5,11 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
+import 'providers/app_providers.dart';
 import 'screens/home_screen.dart';
 import 'services/twitch_auth.dart';
 import 'eventsub/transport/connection.dart';
@@ -227,40 +230,60 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
     });
   }
 
+  /// Test seams: a non-null widget field swaps the matching provider for the
+  /// supplied fake so widget tests wire the app without real sockets.
+  List<Override> get _providerOverrides => [
+    if (widget.eventSubService != null)
+      eventSubServiceProvider.overrideWithValue(widget.eventSubService!),
+    if (widget.ircService != null)
+      ircServiceProvider.overrideWithValue(widget.ircService!),
+    if (widget.ircReadService != null)
+      ircReadServiceProvider.overrideWithValue(widget.ircReadService!),
+    if (widget.recentMessagesService != null)
+      recentMessagesServiceProvider.overrideWithValue(
+        widget.recentMessagesService!,
+      ),
+    if (widget.badgeService != null)
+      badgeServiceProvider.overrideWithValue(widget.badgeService!),
+  ];
+
   @override
   Widget build(BuildContext context) {
     if (!_loaded) {
-      return MaterialApp(
+      return ProviderScope(
+        overrides: _providerOverrides,
+        child: MaterialApp(
+          themeMode: _themeMode,
+          theme: buildLightTheme(seedColor: _seedColor),
+          darkTheme: buildDarkTheme(trueDark: _trueDark, seedColor: _seedColor),
+          builder: _edgeExclusionWrapper,
+          scaffoldMessengerKey: rootScaffoldMessengerKey,
+          navigatorObservers: [_snackPopObserver],
+          home: const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          ),
+        ),
+      );
+    }
+
+    return ProviderScope(
+      overrides: _providerOverrides,
+      child: MaterialApp(
+        title: 'ErmChat',
         themeMode: _themeMode,
         theme: buildLightTheme(seedColor: _seedColor),
         darkTheme: buildDarkTheme(trueDark: _trueDark, seedColor: _seedColor),
         builder: _edgeExclusionWrapper,
         scaffoldMessengerKey: rootScaffoldMessengerKey,
         navigatorObservers: [_snackPopObserver],
-        home: const Scaffold(body: Center(child: CircularProgressIndicator())),
-      );
-    }
-
-    return MaterialApp(
-      title: 'ErmChat',
-      themeMode: _themeMode,
-      theme: buildLightTheme(seedColor: _seedColor),
-      darkTheme: buildDarkTheme(trueDark: _trueDark, seedColor: _seedColor),
-      builder: _edgeExclusionWrapper,
-      scaffoldMessengerKey: rootScaffoldMessengerKey,
-      navigatorObservers: [_snackPopObserver],
-      home: HomeScreen(
-        twitchAuth: _twitchAuth,
-        onThemeChanged: _setThemeMode,
-        onKeepScreenOnChanged: _setKeepScreenOn,
-        onTrueDarkChanged: _setTrueDark,
-        onAccentColorChanged: _setAccentColor,
-        eventSubService: widget.eventSubService,
-        ircService: widget.ircService,
-        ircReadService: widget.ircReadService,
-        recentMessagesService: widget.recentMessagesService,
-        badgeService: widget.badgeService,
-        initialCurrentUserLogin: widget.initialCurrentUserLogin,
+        home: HomeScreen(
+          twitchAuth: _twitchAuth,
+          onThemeChanged: _setThemeMode,
+          onKeepScreenOnChanged: _setKeepScreenOn,
+          onTrueDarkChanged: _setTrueDark,
+          onAccentColorChanged: _setAccentColor,
+          initialCurrentUserLogin: widget.initialCurrentUserLogin,
+        ),
       ),
     );
   }

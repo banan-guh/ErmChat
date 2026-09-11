@@ -2,8 +2,10 @@ import 'dart:async';
 import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../third_party/flutter_list_view/flutter_list_view.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../providers/app_providers.dart';
 import '../models/generic_emote.dart';
 import '../models/twitch_message.dart';
 import '../util/haptics.dart';
@@ -15,7 +17,6 @@ import '../irc/transport/read.dart';
 import '../irc/transport/write.dart';
 import '../services/command_macros.dart';
 import '../util/connectivity.dart';
-import '../services/recent_messages.dart';
 import '../services/seven_tv_event_client.dart';
 import '../services/command_handler.dart';
 import '../services/mod_actions.dart';
@@ -70,7 +71,7 @@ import '../widgets/predictive_back_handler.dart';
 import '../widgets/join_channel_dialog.dart';
 import '../services/foreground_task.dart';
 
-class HomeScreen extends StatefulWidget {
+class HomeScreen extends ConsumerStatefulWidget {
   // Test seam: when true the join ("+") button never shows its loading spinner.
   // Tests that intentionally keep the app disconnected (un-faked TwitchChatApp)
   // flip this so they can still reach the button during the permanent
@@ -82,13 +83,6 @@ class HomeScreen extends StatefulWidget {
   final ValueChanged<bool>? onKeepScreenOnChanged;
   final ValueChanged<bool>? onTrueDarkChanged;
   final ValueChanged<String>? onAccentColorChanged;
-  final EventSubService? eventSubService;
-  final IrcService? ircService;
-  final IrcReadService? ircReadService;
-  final RecentMessagesService? recentMessagesService;
-  final ConnectivityService? connectivityService;
-  final TwitchBadgeService? badgeService;
-  final PipService? pipService;
   final String? initialCurrentUserLogin;
 
   const HomeScreen({
@@ -98,21 +92,14 @@ class HomeScreen extends StatefulWidget {
     this.onKeepScreenOnChanged,
     this.onTrueDarkChanged,
     this.onAccentColorChanged,
-    this.eventSubService,
-    this.ircService,
-    this.ircReadService,
-    this.recentMessagesService,
-    this.connectivityService,
-    this.badgeService,
-    this.pipService,
     this.initialCurrentUserLogin,
   });
 
   @override
-  State<HomeScreen> createState() => _HomeScreenState();
+  ConsumerState<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen>
+class _HomeScreenState extends ConsumerState<HomeScreen>
     with WidgetsBindingObserver, TickerProviderStateMixin
     implements
         ComposerHost,
@@ -129,43 +116,40 @@ class _HomeScreenState extends State<HomeScreen>
         EmoteApplierHost {
   static const _mentionsChannel = '@mentions';
 
-  late final _pingManager = PingManager.instance;
-  late final _ignoreManager = IgnoreManager.instance;
+  ConnectivityService? _connectivityServiceCache;
+  ConnectivityService get _connectivityService {
+    _connectivityServiceCache ??= ref.read(connectivityServiceProvider);
+    return _connectivityServiceCache!;
+  }
+
+  EventSubService get _eventSub => ref.read(eventSubServiceProvider);
+  IrcService get _irc => ref.read(ircServiceProvider);
+  IrcReadService get _ircRead => ref.read(ircReadServiceProvider);
+  SevenTvEventClient get _sevenTvClient => ref.read(sevenTvClientProvider);
+  TwitchApi get _twitchApi => ref.read(twitchApiProvider);
+  JoinRateLimiter get _joinBudget => ref.read(joinBudgetProvider);
+  PingManager get _pingManager => ref.read(pingManagerProvider);
+  IgnoreManager get _ignoreManager => ref.read(ignoreManagerProvider);
+
   final _linkWhitelist = LinkWhitelist.instance;
 
-  late final _connectivityService =
-      widget.connectivityService ?? ConnectivityService();
-  late final _eventSub =
-      widget.eventSubService ??
-      EventSubService(connectivityService: _connectivityService);
-  // One JOIN budget shared by both IRC sockets: their combined rate stays
-  // inside Twitch's ~20-commands-per-10s limit instead of each socket
-  // bursting independently.
-  final _joinBudget = JoinRateLimiter();
-  late final _irc =
-      widget.ircService ??
-      IrcService(
-        connectivityService: _connectivityService,
-        joinBudget: _joinBudget,
-      );
-  late final _ircRead =
-      widget.ircReadService ??
-      IrcReadService(
-        connectivityService: _connectivityService,
-        joinBudget: _joinBudget,
-      );
-  late final _sevenTvClient = SevenTvEventClient(
-    connectivityService: _connectivityService,
-  );
-  late final _twitchApi = TwitchApi();
   late final _analytics = AnalyticsService(
     emoteLookup: (channel, senderTwitchId) =>
         _emoteManager.byCodeForSender(channel, senderTwitchId),
   );
   final _ttsController = TtsController();
 
-  late final Session _session = Session();
-  late final Chat _chat = Chat();
+  Chat? _chatCache;
+  Chat get _chat {
+    _chatCache ??= ref.read(chatProvider);
+    return _chatCache!;
+  }
+
+  Session? _sessionCache;
+  Session get _session {
+    _sessionCache ??= ref.read(sessionProvider);
+    return _sessionCache!;
+  }
 
   // Session announces pipeline-resolved identity; the app refreshes the
   // account-scoped data it owns.
@@ -288,14 +272,19 @@ class _HomeScreenState extends State<HomeScreen>
   final _isMobile = ValueNotifier<bool>(false);
   VoidCallback? _connectivityListener;
 
-  late final _emoteManager = EmoteManager(
-    probe: _connectivityService.checkConnectivity,
-  );
-  late final _badgeService = widget.badgeService ?? TwitchBadgeService();
-  late final _pipService = widget.pipService ?? PipService();
-  late final _thirdPartyBadgeService = ThirdPartyBadgeService();
-  late final _sevenTvPaintService = SevenTvPaintService();
-  final _userStore = UserStore();
+  EmoteManager? _emoteManagerCache;
+  EmoteManager get _emoteManager {
+    _emoteManagerCache ??= ref.read(emoteManagerProvider);
+    return _emoteManagerCache!;
+  }
+
+  TwitchBadgeService get _badgeService => ref.read(badgeServiceProvider);
+  PipService get _pipService => ref.read(pipServiceProvider);
+  ThirdPartyBadgeService get _thirdPartyBadgeService =>
+      ref.read(thirdPartyBadgeServiceProvider);
+  SevenTvPaintService get _sevenTvPaintService =>
+      ref.read(sevenTvPaintServiceProvider);
+  UserStore get _userStore => ref.read(userStoreProvider);
   final _channelNotifier = ValueNotifier<List<String>>([]);
   final _tileCache = <String, Map<String?, Widget>>{};
   String? _selectedChannel;
@@ -610,7 +599,7 @@ class _HomeScreenState extends State<HomeScreen>
     tileCache: _tileCache,
     channelNotifier: _channelNotifier,
     selectedTabIndex: _selectedTabIndex,
-    recentMessagesService: widget.recentMessagesService,
+    recentMessagesService: ref.read(recentMessagesServiceProvider),
     mentionsChannel: _mentionsChannel,
     host: this,
   );
@@ -1505,18 +1494,11 @@ class _HomeScreenState extends State<HomeScreen>
     _broadcastWidgets.dispose();
     _composer.dispose();
     _networkBusy.dispose();
-    _eventSub.dispose();
-    _irc.dispose();
-    _ircRead.dispose();
-    _sevenTvClient.dispose();
     _sevenTvEntitlementSub?.cancel();
-    _thirdPartyBadgeService.dispose();
     _emoteManager.removeListener(_onEmotesChanged);
     _linkWhitelist.removeListener(_onLinkWhitelistChanged);
     _streamPlayer.removeListener(_stream.onStreamPlayerChanged);
-    _pipService.dispose();
     _streamPlayer.dispose();
-    _emoteManager.dispose();
     widget.twitchAuth.removeListener(_onAuthChanged);
     _mentionsTabCtrl.removeListener(_mentions.onMentionsTabChanged);
     _mentionsTabCtrl.dispose();
@@ -1540,8 +1522,6 @@ class _HomeScreenState extends State<HomeScreen>
     _chat.mentions.version.removeListener(_onMentionsContent);
     _dropChannelSubs();
     _session.version.removeListener(_onSessionApplied);
-    _session.dispose();
-    _chat.dispose();
     _notificationTapSub?.cancel();
     _notificationService.dispose();
     super.dispose();
