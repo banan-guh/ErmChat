@@ -10,6 +10,7 @@ import '../services/twitch_auth.dart';
 import '../services/twitch_oauth.dart';
 import '../eventsub/decode/decoder.dart';
 import '../eventsub/decode/events.dart';
+import '../eventsub/topics.dart';
 import '../eventsub/transport/connection.dart';
 import '../eventsub/transport/events.dart';
 import '../irc/decode/copy.dart'
@@ -311,6 +312,16 @@ class ChatConnectionManager {
     eventSub.onNotification,
   );
 
+  // EventSub subscription lifecycle: active/skip sets, subscribe paths,
+  // resubscribe, and the gate predicates.
+  late final EventSubTopics eventSubTopics = EventSubTopics(
+    twitchApi: twitchApi,
+    twitchAuth: twitchAuth,
+    session: session,
+    chat: chat,
+    eventSub: eventSub,
+  );
+
   // Chat-content routing (PRIVMSG/CLEARMSG/CLEARCHAT/clears/own echo).
   late final ChatIngestion _ingestion = ChatIngestion(
     irc: irc,
@@ -331,7 +342,7 @@ class ChatConnectionManager {
     isChatReady: isChatReady,
     isBlocked: isBlocked,
     getSharedChatMode: getSharedChatMode,
-    isModerationActive: (channel) => _channelSetup.isModerationActive(channel),
+    isModerationActive: (channel) => eventSubTopics.isModerationActive(channel),
     onSelfTimeoutArmed: (channel, until) {
       _selfTimeoutUntil[channel] = until;
     },
@@ -346,11 +357,11 @@ class ChatConnectionManager {
   );
 
   // Channel-domain wiring (joins, Helix/emote/badge resolution, EventSub
-  // moderation + widget subscriptions, status composition).
+  // topic subscriptions, status composition).
   late final ChatChannelSetup _channelSetup = ChatChannelSetup(
     twitchApi: twitchApi,
-    eventSub: eventSub,
     eventSubDecoder: eventSubDecoder,
+    eventSubTopics: eventSubTopics,
     irc: irc,
     ircRead: ircRead,
     sevenTvClient: sevenTvClient,
@@ -542,14 +553,14 @@ class ChatConnectionManager {
 
   /// Whether event-driven moderation (and its Mod View rows) is up.
   bool isModerationActive(String channel) =>
-      _channelSetup.isModerationActive(channel);
+      eventSubTopics.isModerationActive(channel);
 
   /// Whether the AutoMod queue subscriptions are up.
   bool isAutomodActive(String channel) =>
-      _channelSetup.isAutomodActive(channel);
+      eventSubTopics.isAutomodActive(channel);
 
   /// Whether the session user owns [channel] (Channel tab gate).
-  bool isBroadcaster(String channel) => _channelSetup.isBroadcaster(channel);
+  bool isBroadcaster(String channel) => eventSubTopics.isBroadcaster(channel);
 
   /// Merged ROOMSTATE tags for the mode toggles.
   Map<String, String> roomStateTags(String channel) =>
@@ -908,9 +919,9 @@ class ChatConnectionManager {
           // the session inside connect() without emitting disconnected, so
           // without this the stale active sets would skip every resubscribe
           // on the new session (subs are session-scoped and die with it).
-          _channelSetup.clearSessionState();
+          eventSubTopics.clearSessionState();
         } else if (status == EventSubStatus.connected) {
-          _channelSetup.resubscribeEventSubChannels(chat.names);
+          eventSubTopics.resubscribeEventSubChannels(chat.names);
         }
       });
 
@@ -1107,7 +1118,7 @@ class ChatConnectionManager {
         // this state. Clear it here so the new session's connected edge
         // resubscribes every channel instead of skipping "already
         // subscribed" ones.
-        _channelSetup.clearSessionState();
+        eventSubTopics.clearSessionState();
         // Skip sets reset here too when the identity already differs: the
         // post-lookup reset below runs after awaits, and a fast handshake
         // would otherwise resubscribe against the old account's rejections.
@@ -1115,7 +1126,7 @@ class ChatConnectionManager {
         final preUsername = (session.login ?? auth.login)?.toLowerCase();
         if (_lastIrcUsername != preUsername ||
             _lastIrcToken != (auth.accessToken ?? 'anonymous')) {
-          _channelSetup.resetAccountScope();
+          eventSubTopics.resetAccountScope();
         }
         eventSubFuture = eventSub.connect();
       } else {
@@ -1165,7 +1176,7 @@ class ChatConnectionManager {
         // 403 skip sets are account-scoped: a non-mod account's rejection
         // must not permanently disable moderation/widgets for a mod account
         // on the same channel after a switch.
-        _channelSetup.resetAccountScope();
+        eventSubTopics.resetAccountScope();
         _channelSetup.resetJoinFailureState();
         // New credentials re-arm expiry handling; without this a second dead
         // token after a mid-session re-auth would fail silently forever.
@@ -1268,7 +1279,7 @@ class ChatConnectionManager {
     for (final name in chat.names) {
       chat.channelFor(name)?.moderation.clearHeld();
     }
-    _channelSetup.clearSessionState();
+    eventSubTopics.clearSessionState();
     for (final channel in chat.names) {
       onSystemMessage(
         channel,
@@ -1297,7 +1308,7 @@ class ChatConnectionManager {
       if (isDisposed) return;
       // With channel.moderate active, room-state changes come from EventSub
       // with structured data - suppress the redundant IRC NOTICE.
-      if (_channelSetup.isModerationActive(event.channel) &&
+      if (eventSubTopics.isModerationActive(event.channel) &&
           _roomStateNoticeIds.contains(event.msgId)) {
         return;
       }
@@ -1515,17 +1526,17 @@ class ChatConnectionManager {
 
     hypeTrainSub ??= eventSubDecoder.onHypeTrain.listen((event) {
       if (isDisposed) return;
-      if (!_channelSetup.isWidgetActive(event.channel)) return;
+      if (!eventSubTopics.isWidgetActive(event.channel)) return;
       onHypeTrain?.call(event);
     });
     pollSub ??= eventSubDecoder.onPoll.listen((event) {
       if (isDisposed) return;
-      if (!_channelSetup.isWidgetActive(event.channel)) return;
+      if (!eventSubTopics.isWidgetActive(event.channel)) return;
       onPoll?.call(event);
     });
     predictionSub ??= eventSubDecoder.onPrediction.listen((event) {
       if (isDisposed) return;
-      if (!_channelSetup.isWidgetActive(event.channel)) return;
+      if (!eventSubTopics.isWidgetActive(event.channel)) return;
       onPrediction?.call(event);
     });
 
@@ -1548,7 +1559,7 @@ class ChatConnectionManager {
   // the ban roster and warn log, and logs every action to the feed.
   void _onModerationEvent(ModerationEvent event) {
     if (isDisposed) return;
-    if (!_channelSetup.isModerationActive(event.channel)) return;
+    if (!eventSubTopics.isModerationActive(event.channel)) return;
 
     final mod = event.moderatorName;
     final target = event.targetName;
@@ -1785,7 +1796,7 @@ class ChatConnectionManager {
   // warning.send is skipped while moderate covers it, to avoid doubles.
   void _onShieldModeEvent(ShieldModeEvent event) {
     if (isDisposed) return;
-    if (!_channelSetup.isFeedActive(event.channel)) return;
+    if (!eventSubTopics.isFeedActive(event.channel)) return;
     chat
         .channelFor(event.channel)
         ?.moderation
@@ -1807,7 +1818,7 @@ class ChatConnectionManager {
 
   void _onShoutoutEvent(ShoutoutEvent event) {
     if (isDisposed) return;
-    if (!_channelSetup.isFeedActive(event.channel)) return;
+    if (!eventSubTopics.isFeedActive(event.channel)) return;
     final created = event.kind == 'create';
     chat
         .channelFor(event.channel)
@@ -1831,7 +1842,7 @@ class ChatConnectionManager {
 
   void _onWarningEvent(WarningEvent event) {
     if (isDisposed) return;
-    if (!_channelSetup.isFeedActive(event.channel)) return;
+    if (!eventSubTopics.isFeedActive(event.channel)) return;
     if (event.kind == 'acknowledge') {
       final moderation = chat.channelFor(event.channel)?.moderation;
       moderation?.dismissWarningsFor(event.userLogin);
@@ -1851,7 +1862,7 @@ class ChatConnectionManager {
       return;
     }
     // channel.moderate already reported this warn with the same data.
-    if (_channelSetup.isModerationActive(event.channel)) return;
+    if (eventSubTopics.isModerationActive(event.channel)) return;
     final user = event.userLogin;
     final reason = (event.reason != null && event.reason!.isNotEmpty)
         ? ': "${event.reason}"'
@@ -1894,7 +1905,7 @@ class ChatConnectionManager {
   // row: feed rows always carry a moderator); resolves get both.
   void _onUnbanRequestEvent(UnbanRequestEvent event) {
     if (isDisposed) return;
-    if (!_channelSetup.isInboxActive(event.channel)) return;
+    if (!eventSubTopics.isInboxActive(event.channel)) return;
     chat.channelFor(event.channel)?.moderation.touchInbox();
     final user = event.userLogin;
     if (event.kind == 'create') {
@@ -1928,9 +1939,9 @@ class ChatConnectionManager {
   // channel.moderate covers the same change (it carries the same terms).
   void _onAutomodTermsEvent(AutomodTermsEvent event) {
     if (isDisposed) return;
-    if (!_channelSetup.isInboxActive(event.channel)) return;
+    if (!eventSubTopics.isInboxActive(event.channel)) return;
     chat.channelFor(event.channel)?.moderation.touchInbox();
-    if (_channelSetup.isModerationActive(event.channel)) return;
+    if (eventSubTopics.isModerationActive(event.channel)) return;
     final adding = event.action != 'remove';
     final permitted = event.list == 'permitted';
     final action =
@@ -1956,7 +1967,7 @@ class ChatConnectionManager {
   // AutoMod settings changes refresh the Setup tab and land in the feed.
   void _onAutomodSettingsEvent(AutomodSettingsEvent event) {
     if (isDisposed) return;
-    if (!_channelSetup.isTrustActive(event.channel)) return;
+    if (!eventSubTopics.isTrustActive(event.channel)) return;
     final trustModeration = chat.channelFor(event.channel)?.moderation;
     trustModeration?.touchSettings();
     trustModeration?.addFeed(
@@ -1978,7 +1989,7 @@ class ChatConnectionManager {
   // updates get a feed row and a chat line.
   void _onSuspiciousUserEvent(SuspiciousUserEvent event) {
     if (isDisposed) return;
-    if (!_channelSetup.isTrustActive(event.channel)) return;
+    if (!eventSubTopics.isTrustActive(event.channel)) return;
     final user = event.userLogin;
     if (user.isEmpty) return;
     final suspiciousModeration = chat.channelFor(event.channel)?.moderation;
@@ -2019,7 +2030,7 @@ class ChatConnectionManager {
   // no actor, so neither belongs in the chat or the mod feed.
   void _onPointRewardEvent(PointRewardEvent event) {
     if (isDisposed) return;
-    if (!_channelSetup.isPointsActive(event.channel)) return;
+    if (!eventSubTopics.isPointsActive(event.channel)) return;
     final points = chat.channelFor(event.channel)?.points;
     if (points == null) return;
     final rewards = List<PointReward>.of(points.rewards);
@@ -2034,7 +2045,7 @@ class ChatConnectionManager {
 
   void _onPointRedemptionEvent(PointRedemptionEvent event) {
     if (isDisposed) return;
-    if (!_channelSetup.isPointsActive(event.channel)) return;
+    if (!eventSubTopics.isPointsActive(event.channel)) return;
     final points = chat.channelFor(event.channel)?.points;
     if (event.kind == 'add' && event.redemption.status == 'UNFULFILLED') {
       points?.upsertRedemption(event.redemption);
@@ -2052,7 +2063,7 @@ class ChatConnectionManager {
       chat.channelFor(event.channel)?.moderation.resolveHeld(event.messageId);
       return;
     }
-    if (!_channelSetup.isAutomodActive(event.channel)) return;
+    if (!eventSubTopics.isAutomodActive(event.channel)) return;
     chat
         .channelFor(event.channel)
         ?.moderation

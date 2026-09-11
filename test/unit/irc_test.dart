@@ -16,6 +16,7 @@ import '../helpers/fake_web_socket.dart';
 import 'package:ermchat/models/twitch_message.dart';
 import 'package:ermchat/eventsub/decode/decoder.dart';
 import 'package:ermchat/eventsub/decode/events.dart';
+import 'package:ermchat/eventsub/topics.dart';
 import 'package:ermchat/eventsub/transport/connection.dart';
 import 'package:ermchat/eventsub/transport/events.dart';
 import 'package:ermchat/services/seven_tv_event_client.dart';
@@ -3033,10 +3034,17 @@ void main() {
 
     test('join failure wording never claims nonexistence', () {
       final messages = <String>[];
+      final eventSub = EventSubService();
       final setup = ChatChannelSetup(
         twitchApi: TwitchApi(client: http.Client()),
-        eventSub: EventSubService(),
         eventSubDecoder: EventSubDecoder(Stream<Map<String, dynamic>>.empty()),
+        eventSubTopics: EventSubTopics(
+          twitchApi: TwitchApi(client: http.Client()),
+          twitchAuth: TwitchAuth(),
+          session: Session(),
+          chat: Chat(),
+          eventSub: eventSub,
+        ),
         irc: IrcService(),
         ircRead: IrcReadService(),
         badgeService: TwitchBadgeService(),

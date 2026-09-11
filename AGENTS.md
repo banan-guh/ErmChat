@@ -38,7 +38,7 @@ dart format .      # format all Dart files
 ## Test conventions
 
 - Unit tests in `test/unit/<file>_test.dart`, data/IRC-parsing tests in `test/data/`, widget/integration tests in `test/widgets/`.
-- Injectable for tests: `TwitchApi.client`, `TwitchChatApp`/`HomeScreen` service params, `EventSubService.handleRawMessage`/`emitConnected`/`waitForSession`, `IrcChatDecoder.feed`, socket `handleLine`, `OAuthStarter`, `AccountScreen.twitchApi`.
+- Injectable for tests: `TwitchApi.client`, `TwitchChatApp`/`HomeScreen` service params, `EventSubService.handleRawMessage`/`emitConnected`/`waitForSession`, `EventSubDecoder.feed`, `IrcChatDecoder.feed`, socket `handleLine`, `OAuthStarter`, `AccountScreen.twitchApi`.
 
 ## Rules
 
