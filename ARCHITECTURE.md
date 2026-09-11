@@ -1,8 +1,8 @@
 # ermchat architecture
 
-ermchat is a single-package Flutter Twitch chat viewer. `HomeScreen` is the composition root: it constructs the chat kernel, the pipeline services, the transports, and every presentation panel, then wires them through constructor parameters and typed notifiers. Dependencies point inward and downward: raw transports feed decoders, decoders feed pipeline consumers, consumers mutate the `lib/chat/` kernel, and the UI reads kernel state and subscribes to the owner that emits changes. There is no global event bus; each owner exposes a typed `ValueNotifier` or `ChangeNotifier`.
+ermchat is a single-package Flutter Twitch chat viewer. `lib/providers` is the composition root: app-scope Riverpod providers construct and dispose the chat kernel (`Chat`), `Session`, the transports, the chat pipeline (`ChatConnectionManager`), the feature owners (`TwitchAuth`, `AnalyticsService`, `ModActions`, `CommandHandler`, `BroadcastWidgets`, and the rest), and the read-state the pipeline consumes. `HomeScreen` is a consumer: it reads providers, forwards UI signals to the presentation owners it still keeps (composer, panels, chrome, message builder, emote applier, media upload), and drives view-only caches with typed notifiers. Dependencies point inward and downward: raw transports feed decoders, decoders feed pipeline consumers, consumers mutate the `lib/chat/` kernel, and the UI reads kernel state and observes provider-owned objects through `ref.listen`/`ref.watch` or the sanctioned `Listenable` builders. There is no global event bus; each owner exposes a typed `ValueNotifier` or `ChangeNotifier`.
 
-Everything below is based on imports, constructor wiring in `main.dart`/`home_screen.dart`, and `attach()`/`addListener` registrations in the source. Arrows mean "depends on / feeds".
+Everything below is based on imports, provider wiring in `lib/providers/`, and the `attach()`/`Listenable` registrations in the source. Arrows mean "depends on / feeds". Provider-owned owners are still wired through constructors, but the construction site is a provider, not `HomeScreen`.
 
 ## Top-level overview
 
@@ -194,6 +194,8 @@ flowchart TD
   panels --> savedthreads
 ```
 
+The `home -->` edges into `ccm`, `chat`, `session`, `twitchauth`, `emoteman`, `notif`, and `foreground` are now reads through `lib/providers`; construction and teardown live in the provider graph.
+
 ## Chat data pipeline
 
 ```mermaid
@@ -375,20 +377,23 @@ flowchart TD
 ```mermaid
 %%{init: {"flowchart": {"useMaxWidth": true, "nodeSpacing": 20, "rankSpacing": 30, "padding": 6}, "themeVariables": {"fontSize": "14px"}}}%%
 flowchart TD
-  home["HomeScreen state"]
-  home -->|owns| caches["_tileCache, _channelNotifier, _selectedChannel, _atBottomNotifiers, _scrollControllers"]
+  providers["lib/providers composition root"]
+  home["HomeScreen ConsumerState"]
+  home -->|owns| caches["_tileCache, _channelNotifier, _atBottomNotifiers, _scrollControllers"]
   home -->|owns| pm["PanelManager overlay + emote sheet"]
   home -->|owns| composer["ComposerController"]
-  home -->|owns| managers["ChannelManager, ModActions, CommandHandler, ModPanels, MentionsPanels, ThreadPanels, SearchPanels, HomeAppBar, ChannelPanels, StreamPanels"]
+  home -->|owns| managers["ChannelManager, ModPanels, MentionsPanels, ThreadPanels, SearchPanels, HomeAppBar, ChannelPanels, StreamPanels, MessageBuilder, EmoteApplier, MediaUploadController"]
 
+  providers -->|owns| appscope["Chat, Session, transports, chat pipeline, EmoteManager, TwitchAuth, ConnectivityService, feature owners, read-state"]
+  providers -->|selectedChannel / maxMessages / replyTo / blocked / chatReady / macros| home
   session["Session.version"] -->|_onSessionApplied| home
-  auth["TwitchAuth listener"] -->|_onAuthChanged| home
-  conn["ChatConnectionManager.connectionStateNotifier"] --> home
+  auth["twitchAuthTickProvider"] -->|ref.listen _onAuthChanged| home
+  conn["connectionStateProvider"] --> home
   conn --> composerbar["ComposerBar / HomeAppBar"]
-  emoteman["EmoteManager ChangeNotifier"] -->|_onEmotesChanged| home
+  emoteman["emoteManagerTickProvider"] -->|ref.listen _onEmotesChanged| home
+  connstate["connectivityTickProvider"] -->|ref.listen _onConnectivityChanged| home
   linkwl["LinkWhitelist ChangeNotifier"] --> home
   stream["StreamPlayerController ChangeNotifier"] --> home
-  connstate["ConnectivityService ChangeNotifier"] --> home
 
   home -->|_syncChannelSubs| listener["per-channel listeners"]
   listener -->|messages.version| home
@@ -405,7 +410,7 @@ flowchart TD
   conn -->|connectPhase, remainingSelfTimeout, remainingSlowCooldown| composer
 ```
 
-Key typed notifiers: `Session.version`, `ChatConnectionManager.connectionStateNotifier`, `Chat.mentionsBump` / `unreadVersion` / `loadFailedChannels`, `Channel.messages.version`, `Channel.messages.mutations` (a synchronous listener set, not a `ValueNotifier`), `Channel.info.version`, `Channel.moderation.version` / `heldVersion` / `modActivityVersion` / `modFeedVersion` / `modInboxVersion` / `modSettingsVersion`, `Channel.points.version`, `EmoteManager.version`, `TwitchBadgeService.version`, `ThirdPartyBadgeService.version`, `LinkWhitelist`, `StreamPlayerController`, `ConnectivityService`, `PanelManager`. View-only caches (tile cache, panel data) stay in `HomeScreen` and are driven by these notifiers.
+Key typed notifiers: `Session.version`, `ChatConnectionManager.connectionStateNotifier`, `Chat.mentionsBump` / `unreadVersion` / `loadFailedChannels`, `Channel.messages.version`, `Channel.messages.mutations` (a synchronous listener set, not a `ValueNotifier`), `Channel.info.version`, `Channel.moderation.version` / `heldVersion` / `modActivityVersion` / `modFeedVersion` / `modInboxVersion` / `modSettingsVersion`, `Channel.points.version`, `EmoteManager.version`, `TwitchBadgeService.version`, `ThirdPartyBadgeService.version`, `LinkWhitelist`, `StreamPlayerController`, `ConnectivityService`, `PanelManager`. View-only caches (tile cache, panel data) stay in `HomeScreen` and are driven by these notifiers. Provider-owned `ChangeNotifier`s (`EmoteManager`, `TwitchAuth`, `ConnectivityService`) and the pipeline's `connectionStateNotifier` are bridged to Riverpod tick/state providers so the shell observes them with `ref.listen`; the kernel leaf `Listenable`s remain the one sanctioned direct-observation exception.
 
 ## Persistence
 
@@ -451,7 +456,7 @@ Observed departures from the stated "only `Channel` verbs mutate children" and "
 
 - `ChatChannelSetup` calls `chat.channelFor(channel).info.setBroadcasterId(...)` directly, and `ChatStatusComposer` calls `ChannelInfo.setStatus(...)` directly. `ChannelInfo` is a kernel child and has no `Channel` verb wrapper.
 - `EventSubConsumer` mutates `Moderation` (`addFeed`, `putBan`, `removeBan`, `addWarning`, `addHeld`, `noteSuspicious`, `touchInbox`, `touchSettings`), `Messages` (`markDeleted`, `markUserDeleted`, `markAllDeleted`), and `Points` (`setRewards`, `upsertRedemption`, `resolveRedemption`) directly from the pipeline.
-- `HomeScreen._addSystemMessage` calls `Messages.addSystem` directly, and `_onEmotesChanged` / settings setters call `ChannelInfo.touch()` directly.
+- `HomeScreen._addSystemMessage` calls `Messages.addSystem` directly, and `_onEmotesChanged` / settings setters call `ChannelInfo.touch()` directly. `commandHandlerProvider.addSystemMessage` does the same and then calls `Channel.truncate`, mirroring the pipeline bridge.
 - `ChannelManager` calls `Messages.addSystem` / `removeSystem` / `upsertSystem` / `removeLoadingHistory` and `ChannelInfo.touch` directly.
 - `ChatIngestion` calls `Messages.markDeleted` / `markUserDeleted` / `markAllDeleted` and `Messages.updateText`; the row-scoped moderation edits are the documented exception, but `updateText` and the `ChannelInfo` writes are not wrapped in a `Channel` verb.
 

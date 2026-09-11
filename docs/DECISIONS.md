@@ -151,8 +151,8 @@ Accepted tradeoff: the one sanctioned exception may remain indefinitely.
 
 ## Current state
 
-- `v0.8.0` and all extraction commits are on the tree. `lib/` is 54,997 lines and
-  `test/` is 31,452 lines, with 1,070 tests green and `dart analyze lib test` clean.
+- `v0.8.0` and the extraction plus provider-migration commits are on the tree.
+  `dart analyze lib test tool` is clean and 1,084 tests are green.
 - Eight chat-pipeline owner extractions have shipped: `ChatLifecycle` (683),
   `ChatIngestion` (662), `ChatChannelSetup` (378), `ChatSender` (227),
   `ChatStatusComposer` (163), `JoinProgressTracker` (132), `ChatReadiness` (97),
@@ -160,8 +160,23 @@ Accepted tradeoff: the one sanctioned exception may remain indefinitely.
 - `ChatConnectionManager` is a 586-line composition root and facade, down from 1,649
   lines. It builds and disposes the pipeline owners and exposes phase, readiness, send,
   and gating queries.
+- `lib/providers` is the composition root. App-scope providers own the transports, the
+  managers, the kernel (`Chat`), `Session`, the feature owners (`TwitchAuth`,
+  `AnalyticsService`, `NotificationService`, `TtsController`, `ModActions`,
+  `ChatNoticeController`, `BroadcastWidgets`, `CommandHandler`), the read-state the
+  pipeline consumes (selected channel, max messages, reply-to, blocked logins,
+  shared-chat mode, chat readiness, macros), and the chat pipeline
+  (`ChatConnectionManager` plus `ChatUiSignals` and the connection-state bridge).
+- `HomeScreen` is a `ConsumerState` that consumes providers, forwards `ChatUiSignals`
+  to its panels, and keeps only view-only UI state plus the UI-adjacent owners
+  (composer, panels, chrome, message builder, emote applier, media upload, panel
+  manager, link whitelist, channel notifier).
 - The kernel is the domain engine. It is framework-agnostic, reached through a bridge,
   and observes through typed notifiers.
+- The architecture test enforces six rules: the original four plus "the pipeline layer
+  does not import providers" and "the UI does not construct app objects", the latter
+  with a narrow commented allowlist (the `BroadcastWidgets` own constructor declaration
+  and the `AccountScreen` `TwitchApi` test seam).
 - `ARCHITECTURE.md` maps the whole app with Mermaid diagrams and a "who writes what"
   mutation map.
 
@@ -169,8 +184,15 @@ Accepted tradeoff: the one sanctioned exception may remain indefinitely.
 
 - The mutable kernel stays the one non-Riverpod observation path, observed through
   Flutter `Listenable` builders.
+- Provider-owned `ChangeNotifier`s (`EmoteManager`, `TwitchAuth`, `ConnectivityService`)
+  and the pipeline connection port are bridged to Riverpod tick/state providers so
+  widgets use `ref.listen`; the singleton overrides (`twitchAuthProvider`) and the
+  Spike A bridge stay intact instead of switching to legacy `ChangeNotifierProvider`.
 - The strangler period keeps a temporary adaptor layer and, for a while, both the
   provider path and legacy service params.
+- UI-adjacent owners (composer, panels, chrome, message builder, emote applier, media
+  upload, panel manager, link whitelist, channel notifier) still construct in
+  `HomeScreen`; moving them is deferred.
 - The ring buffer is deferred, so message prepend stays O(n) until its phase.
 - Codegen is deferred, so models and prefs keep hand-written serialization.
 - The leak audit is non-gating, so known leak debt remains.

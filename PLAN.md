@@ -27,13 +27,23 @@ tests unless noted.
 - **Phase 1 (spikes): done.** Riverpod 3.4.3 confirmed with the leaf-notifier bridge.
   The mutable engine beat copy-on-write 2.65x to 3.77x at 5000 messages, so D2 holds and
   Phase 6 criterion 2 fails. See `docs/SPIKES.md`.
-- **Phase 2 (framework introduction): partial.** `ProviderScope` plus app-scope providers
-  for connectivity, transports, sevenTv, emote manager, badges, user store, recent
-  messages, pip, ping, ignore, join budget, chat, and session. `HomeScreen` reads them
-  and no longer constructs or disposes them. The chat pipeline, panels, composer, menus,
-  sheets, and UI controllers still construct in `HomeScreen`, so "HomeScreen constructs
-  nothing shared" is not yet met.
-- **Phase 3 (observation migration): not started.**
+- **Phase 2 (framework introduction): essentially done.** `ProviderScope` plus
+  app-scope providers for connectivity, transports, sevenTv, emote manager, badges,
+  user store, recent messages, pip, ping, ignore, join budget, chat, session, the
+  feature owners (`TwitchAuth`, `AnalyticsService`, `NotificationService`,
+  `TtsController`, `ModActions`, `ChatNoticeController`), read-state (selected channel,
+  max messages, reply-to, blocked logins, shared-chat mode, chat readiness, macros),
+  the chat pipeline (`ChatConnectionManager`), `BroadcastWidgets`, and `CommandHandler`.
+  `HomeScreen` reads them and no longer constructs or disposes them. Only the
+  UI-adjacent owners (composer, panels, chrome, message builder, emote applier, media
+  upload, panel manager, link whitelist, channel notifier) still construct in
+  `HomeScreen`.
+- **Phase 3 (observation migration): started.** `HomeScreen` observes the
+  provider-owned `EmoteManager`, `TwitchAuth`, `ConnectivityService`, and the
+  connection-state port through Riverpod tick/state providers with `ref.listen`;
+  `EmoteMenuPanelWidget` is a `ConsumerState` that reads `emoteManagerProvider`. Kernel
+  leaf notifiers and per-widget controllers stay on the sanctioned `Listenable` path.
+  `LinkWhitelist` and the screen-owned channel notifier are not provider-owned and stay.
 - **Phase 4 (chat cleanups): partial.** `Channel.setHistoryLoaded` and
   `Channel.clearHeldModeration` funnel the two multi-writer states, and
   `retryChannelData` moved to `ChatChannelSetup`. The connection-status stable-id rewrite
@@ -43,6 +53,13 @@ tests unless noted.
   row is still safe. Moderation-copy unification is not started.
 - **Phase 5 (ring buffer): not started.** Low priority given the mutable benchmark.
 - **Phase 6 (kernel re-evaluation): resolved as keep the engine.**
+- **This session (durability pass).** Providerized `BroadcastWidgets` and
+  `CommandHandler`; added `whisperSystem`/`whisperSent`/`blockedUser` signals to
+  `ChatUiSignals`; added `emoteManagerTickProvider`, `twitchAuthTickProvider`,
+  `connectivityTickProvider`, and `connectionStateProvider`; removed the corresponding
+  `addListener`/`removeListener` pairs from `HomeScreen` and `EmoteMenuPanelWidget`;
+  extended the architecture test to six rules (pipeline imports plus UI constructions);
+  updated `ARCHITECTURE.md` and `docs/DECISIONS.md`. 1,084 tests green.
 
 ## Goal
 

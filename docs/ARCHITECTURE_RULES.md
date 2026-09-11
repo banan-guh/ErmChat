@@ -31,6 +31,10 @@ shared leaves        lib/models, lib/util, lib/client
   never imports transport directly.
 - Shared leaves (`lib/models`, `lib/util`, `lib/client`) are importable from every layer
   and import nothing upward themselves.
+- Providers (`lib/providers`) are the composition root. They construct the app-scope
+  owners, register teardown, bridge provider-owned `ChangeNotifier`s to Riverpod
+  observation, and wire the pipeline. Pipeline (`lib/services`) must not import them;
+  the architecture test enforces this direction.
 
 ## Hard rules (non-negotiable)
 
@@ -63,6 +67,14 @@ shared leaves        lib/models, lib/util, lib/client
 
 7. **The architecture test passes.** `test/architecture/architecture_test.dart` stays
    green, and new violations are fixed at the source, not by weakening the test.
+
+8. **Owner ports, not parent state.** An extracted owner exposes typed
+   notifiers/signals for what it produces and takes one explicit, minimal interface
+   for what it needs. Do: pass typed callbacks, a signal sink, or a small host
+   interface. Do not: store the parent `State`, take `host: this`, or otherwise reach
+   back into the screen. Providers (`lib/providers`) are the composition root;
+   `lib/services` never imports `lib/providers`, and the kernel's `Listenable` leaves
+   remain the one sanctioned non-Riverpod observation exception.
 
 ## Excusable rules (allowed, with a note)
 
