@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:ermchat/color_utils.dart';
 import 'package:ermchat/third_party/flutter_list_view.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -46,6 +47,7 @@ import '../helpers/fake_cache_repo.dart';
 import 'package:ermchat/screens/settings/analytics_screen.dart';
 import 'package:ermchat/models/generic_emote.dart';
 import 'package:ermchat/services/emote_manager.dart';
+import 'package:ermchat/providers/app_providers.dart';
 import 'package:ermchat/widgets/emote_menu_panel.dart';
 import 'package:url_launcher_platform_interface/link.dart';
 import 'package:url_launcher_platform_interface/url_launcher_platform_interface.dart';
@@ -5336,18 +5338,20 @@ void main() {
   );
 
   Widget wrapEmoteMenu(EmoteManager manager) {
-    return MaterialApp(
-      key: UniqueKey(),
-      home: Scaffold(
-        body: EmoteMenuPanelWidget(
-          isActive: true,
-          selectedChannel: 'ch',
-          onEmoteSelected: (_) {},
-          onClose: () {},
-          emoteManager: manager,
-          scrollController: ScrollController(),
-          sheetCtrl: DraggableScrollableController(),
-          emoteMaxFraction: 0.8,
+    return ProviderScope(
+      overrides: [emoteManagerProvider.overrideWithValue(manager)],
+      child: MaterialApp(
+        key: UniqueKey(),
+        home: Scaffold(
+          body: EmoteMenuPanelWidget(
+            isActive: true,
+            selectedChannel: 'ch',
+            onEmoteSelected: (_) {},
+            onClose: () {},
+            scrollController: ScrollController(),
+            sheetCtrl: DraggableScrollableController(),
+            emoteMaxFraction: 0.8,
+          ),
         ),
       ),
     );

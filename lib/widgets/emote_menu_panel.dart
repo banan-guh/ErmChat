@@ -1,18 +1,20 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/generic_emote.dart';
+import '../providers/app_providers.dart';
+import '../providers/feature_providers.dart';
 import '../services/emote_manager.dart';
 import '../util/sheet_drag.dart';
 import '../widgets/tabbed_layout.dart';
 import 'emote_image.dart';
 import 'emote_image_provider.dart';
 
-class EmoteMenuPanelWidget extends StatefulWidget {
+class EmoteMenuPanelWidget extends ConsumerStatefulWidget {
   final ScrollController scrollController;
   final bool isActive;
   final String? selectedChannel;
   final void Function(GenericEmote) onEmoteSelected;
   final VoidCallback onClose;
-  final EmoteManager emoteManager;
   final DraggableScrollableController sheetCtrl;
   final double emoteMaxFraction;
 
@@ -23,16 +25,18 @@ class EmoteMenuPanelWidget extends StatefulWidget {
     required this.selectedChannel,
     required this.onEmoteSelected,
     required this.onClose,
-    required this.emoteManager,
     required this.emoteMaxFraction,
     super.key,
   });
 
   @override
-  State<EmoteMenuPanelWidget> createState() => EmoteMenuPanelWidgetState();
+  ConsumerState<EmoteMenuPanelWidget> createState() =>
+      EmoteMenuPanelWidgetState();
 }
 
-class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
+class EmoteMenuPanelWidgetState extends ConsumerState<EmoteMenuPanelWidget> {
+  late final EmoteManager _emoteManager = ref.read(emoteManagerProvider);
+
   // Close threshold: 5% of screen height (sheet-size units).
   static const double _emoteCloseFraction = 0.05;
 
@@ -54,7 +58,6 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
   void initState() {
     super.initState();
     _loadRecentEmotes();
-    widget.emoteManager.addListener(_onEmoteManagerChanged);
   }
 
   @override
@@ -71,20 +74,8 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
     }
   }
 
-  @override
-  void dispose() {
-    widget.emoteManager.removeListener(_onEmoteManagerChanged);
-    super.dispose();
-  }
-
-  void _onEmoteManagerChanged() {
-    // Rebuild only while open; recents refresh on reopen.
-    if (!widget.isActive) return;
-    _loadRecentEmotes();
-  }
-
   Future<void> _loadRecentEmotes() async {
-    final recent = await widget.emoteManager.recentsForChannel(
+    final recent = await _emoteManager.recentsForChannel(
       widget.selectedChannel ?? '',
     );
     if (mounted) {
@@ -97,6 +88,11 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
 
   @override
   Widget build(BuildContext context) {
+    // Refresh recents while open; reopen handles the closed case.
+    ref.listen(emoteManagerTickProvider, (_, _) {
+      if (!widget.isActive) return;
+      _loadRecentEmotes();
+    });
     if (!widget.isActive) return const SizedBox.shrink();
     final width = _panelWidth;
     if (_lastPanelWidth != null && _lastPanelWidth != width) {
@@ -247,13 +243,13 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
   }
 
   Widget _buildEmoteSubsGrid(ScrollController? scrollController) {
-    final byChannel = widget.emoteManager.subsGrouped(
+    final byChannel = _emoteManager.subsGrouped(
       pinnedChannel: widget.selectedChannel,
     );
     if (byChannel.isEmpty) {
       // Fetch in flight reads as loading, not as "none". Anything else
       // empty here is genuinely empty (anon, sub-less, post-switch reset).
-      if (widget.emoteManager.subEmoteFetchInFlight) {
+      if (_emoteManager.subEmoteFetchInFlight) {
         return _buildEmoteEmptyState(
           scrollController,
           const Center(child: CircularProgressIndicator(strokeWidth: 2)),
@@ -269,7 +265,7 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
 
   Widget _buildEmoteChannelGrid(ScrollController? scrollController) {
     final channel = widget.selectedChannel ?? '';
-    final emotes = widget.emoteManager.channelTabEmotes(channel);
+    final emotes = _emoteManager.channelTabEmotes(channel);
     if (emotes.isEmpty) {
       return _buildEmoteEmptyState(
         scrollController,
@@ -280,7 +276,7 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
   }
 
   Widget _buildEmoteGlobalGrid(ScrollController? scrollController) {
-    final byProvider = widget.emoteManager.globalEmotesByProvider();
+    final byProvider = _emoteManager.globalEmotesByProvider();
     if (byProvider.isEmpty) {
       return _buildEmoteEmptyState(
         scrollController,
@@ -425,7 +421,7 @@ class EmoteMenuPanelWidgetState extends State<EmoteMenuPanelWidget> {
     }
     // Usage marks deferred via post-frame callback (side effect, must not run during build).
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) widget.emoteManager.markEmoteViewed(emote);
+      if (mounted) _emoteManager.markEmoteViewed(emote);
     });
     final cell = Material(
       key: ValueKey<String>(emote.id),

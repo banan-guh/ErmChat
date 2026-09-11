@@ -194,21 +194,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   }
 
   ModActions get _modActions => ref.read(modActionsProvider);
-  late final _commandHandler = CommandHandler(
-    twitchApi: _twitchApi,
-    irc: ref.read(ircServiceProvider),
-    modActions: _modActions,
-    getChannelUserIds: _channelUserIds,
-    getCurrentUserId: () => _session.userId,
-    getCurrentUserLogin: () => _session.login,
-    addSystemMessage: _addSystemMessage,
-    whisperAddSystemMessage: (channel, text) =>
-        _mentions.addWhisperSystemMessage(channel, text),
-    onWhisperSent: (target, message) =>
-        _mentions.onWhisperSent(target, message),
-    onUserBlocked: _onUserBlocked,
-    onUserUnblocked: _onUserUnblocked,
-  );
+  CommandHandler get _commandHandler => ref.read(commandHandlerProvider);
   late final MediaUploadController _uploadController = MediaUploadController(
     input: _composer.messageController,
     focusNode: _composer.focusNode,
@@ -224,7 +210,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   var _isBackgrounded = false;
 
   final _isMobile = ValueNotifier<bool>(false);
-  VoidCallback? _connectivityListener;
 
   EmoteManager? _emoteManagerCache;
   EmoteManager get _emoteManager {
@@ -254,9 +239,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   final _signalUnsubs = <void Function()>[];
 
-  late final _broadcastWidgets = BroadcastWidgets(
-    selectedChannel: () => ref.read(selectedChannelProvider),
-  );
+  BroadcastWidgets get _broadcastWidgets => ref.read(broadcastWidgetsProvider);
 
   // Appearance, stream, and panel prefs live here; composer-owned input
   // state (text, reply, suggestions, cooldown) lives in _composer.
@@ -742,16 +725,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _subscribeSignals();
     _startChatPipe();
     _emoteManager.startCacheGc();
-    _emoteManager.addListener(_onEmotesChanged);
     _connectivityService.init();
-    _connectivityListener = () {
-      final isMobile = _connectivityService.isMobile;
-      if (isMobile == _isMobile.value) return;
-      _isMobile.value = isMobile;
-      DataUsageStats.I.setContext(isMobile: isMobile);
-      _emotes.reconcileTier();
-    };
-    _connectivityService.addListener(_connectivityListener!);
     _badgeService.fetchGlobalBadges(_twitchAuth);
     _thirdPartyBadgeService.bindSevenTvEvents(_sevenTvClient);
     _sevenTvPaintService.bindSevenTvEvents(_sevenTvClient);
@@ -760,8 +734,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     );
     unawaited(_thirdPartyBadgeService.fetchFfzBadges());
     unawaited(_thirdPartyBadgeService.fetchBttvBadges());
-    _twitchAuth.addListener(_onAuthChanged);
-    _chatConn.connectionStateNotifier.addListener(_onConnectionChanged);
     WidgetsBinding.instance.addObserver(this);
     _predictiveBackHandler = PanelPredictiveBackHandler(
       isPanelOpen: () => _activePanel != OverlayPanel.closed || _emoteSheetOpen,
@@ -1126,6 +1098,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     if (mounted) setState(() {});
   }
 
+  void _onConnectivityChanged() {
+    final isMobile = _connectivityService.isMobile;
+    if (isMobile == _isMobile.value) return;
+    _isMobile.value = isMobile;
+    DataUsageStats.I.setContext(isMobile: isMobile);
+    _emotes.reconcileTier();
+  }
+
   void _onEmotesChanged() {
     _composer.invalidateEmoteCache();
     // Emote data changed: cached message spans are validated against
@@ -1198,6 +1178,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       signals.mention.add(_onMentionSignal),
       signals.whisper.add(_mentions.onWhisper),
       signals.userEmoteSets.add(_onUserEmoteSetsSignal),
+      signals.whisperSystem.add(
+        (s) => _mentions.addWhisperSystemMessage(s.channel, s.text),
+      ),
+      signals.whisperSent.add(
+        (s) => _mentions.onWhisperSent(s.target, s.message),
+      ),
+      signals.blockedUser.add(
+        (s) => s.blocked ? _onUserBlocked(s.login) : _onUserUnblocked(s.login),
+      ),
       signals.hypeTrain.add(_broadcastWidgets.onHypeTrain),
       signals.poll.add(_broadcastWidgets.onPoll),
       signals.prediction.add(_broadcastWidgets.onPrediction),
@@ -1478,12 +1467,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   @override
   void dispose() {
-    final listener = _connectivityListener;
-    if (listener != null) _connectivityService.removeListener(listener);
-    _connectivityListener = null;
     _isMobile.dispose();
     DataUsageStats.I.dispose();
-    _chatConn.connectionStateNotifier.removeListener(_onConnectionChanged);
     for (final unsubscribe in _signalUnsubs) {
       unsubscribe();
     }
@@ -1491,15 +1476,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     WidgetsBinding.instance.removeObserver(this);
     WidgetsBinding.instance.removeObserver(_predictiveBackHandler);
     _panelManager.dispose();
-    _broadcastWidgets.dispose();
     _composer.dispose();
     _networkBusy.dispose();
     _sevenTvEntitlementSub?.cancel();
-    _emoteManager.removeListener(_onEmotesChanged);
     _linkWhitelist.removeListener(_onLinkWhitelistChanged);
     _streamPlayer.removeListener(_stream.onStreamPlayerChanged);
     _streamPlayer.dispose();
-    _twitchAuthCache?.removeListener(_onAuthChanged);
     _mentionsTabCtrl.removeListener(_mentions.onMentionsTabChanged);
     _mentionsTabCtrl.dispose();
     _threadsTabCtrl.removeListener(_threads.onThreadsTabChanged);
@@ -1792,6 +1774,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   @override
   Widget build(BuildContext context) {
+    // Provider-owned shared objects observed as Riverpod state. These replace
+    // the manual addListener/removeListener pairs; ref.listen auto-cancels.
+    ref.listen(emoteManagerTickProvider, (_, _) => _onEmotesChanged());
+    ref.listen(twitchAuthTickProvider, (_, _) => _onAuthChanged());
+    ref.listen(connectivityTickProvider, (_, _) => _onConnectivityChanged());
+    ref.listen(connectionStateProvider, (_, _) => _onConnectionChanged());
     return PopScope(
       canPop:
           !_isFullscreen &&
@@ -1937,7 +1925,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                         selectedChannel: selectedChannel,
                         onEmoteSelected: _onEmoteSelected,
                         onClose: _closeEmoteSheet,
-                        emoteManager: _emoteManager,
                         scrollController: scrollController,
                         sheetCtrl: _emoteSheetCtrl,
                         emoteMaxFraction: _emoteMaxFraction,

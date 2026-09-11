@@ -97,6 +97,32 @@ void main() {
       ),
     );
   });
+
+  test('the pipeline layer does not import providers', () {
+    _expectClean(
+      rule: 'the pipeline layer does not import providers',
+      violations: directives.where(
+        (d) =>
+            _isUnder(d.importer, const ['services/']) &&
+            _isUnder(d.target, const ['providers/']),
+      ),
+    );
+  });
+
+  test('the UI does not construct app objects', () {
+    final lines = _scanUiConstructions()
+        .map(
+          (v) =>
+              '  the UI does not construct app objects: lib/${v.importer}:'
+              '${v.line} constructs ${v.type}',
+        )
+        .toList();
+    if (lines.isNotEmpty) {
+      fail(
+        'the UI does not construct app objects failed:\n${lines.join('\n')}',
+      );
+    }
+  });
 }
 
 final _directiveRe = RegExp(r'''^\s*(?:import|export)\s+['"]([^'"]+)['"]''');
@@ -196,4 +222,152 @@ void _expectClean({
   if (lines.isNotEmpty) {
     fail('$rule failed:\n${lines.join('\n')}');
   }
+}
+
+/// Provider-owned types the UI must obtain through a provider, never `new`.
+const _providerOwnedTypes = <String>[
+  'ChatConnectionManager',
+  'Chat',
+  'Session',
+  'EmoteManager',
+  'TwitchAuth',
+  'AnalyticsService',
+  'NotificationService',
+  'TtsController',
+  'ModActions',
+  'ChatNoticeController',
+  'ConnectivityService',
+  'EventSubService',
+  'IrcService',
+  'IrcReadService',
+  'SevenTvEventClient',
+  'TwitchApi',
+  'TwitchBadgeService',
+  'UserStore',
+  'JoinRateLimiter',
+  'RecentMessagesService',
+  'PipService',
+  'BroadcastWidgets',
+  'CommandHandler',
+];
+
+/// Constructor declarations and test seams that are not UI constructions,
+/// keyed `lib-relative path:line`. Keep this list narrow; fix the source first.
+const _constructionAllowlist = <String>{
+  // BroadcastWidgets declares its own constructor in this file.
+  'widgets/broadcast_widgets.dart:11',
+  // Test seam: AccountScreen accepts an optional TwitchApi and falls back to
+  // constructing one when the caller does not supply it.
+  'screens/settings/account_screen.dart:40',
+};
+
+class _Construction {
+  _Construction(this.importer, this.line, this.type);
+
+  final String importer;
+  final int line;
+  final String type;
+}
+
+/// Scans screens and widgets for constructor calls of provider-owned types.
+List<_Construction> _scanUiConstructions() {
+  const dirs = ['screens/', 'widgets/'];
+  final result = <_Construction>[];
+  for (final entity in Directory('lib').listSync(recursive: true)) {
+    if (entity is! File || !entity.path.endsWith('.dart')) {
+      continue;
+    }
+    final importer = _libRelative(entity.path);
+    if (!_isUnder(importer, dirs)) {
+      continue;
+    }
+    final lines = _stripCommentsAndStrings(
+      entity.readAsStringSync(),
+    ).split('\n');
+    for (var i = 0; i < lines.length; i++) {
+      final line = lines[i];
+      for (final type in _providerOwnedTypes) {
+        final re = RegExp('(?<![\\w\$])${RegExp.escape(type)}\\s*\\(');
+        if (!re.hasMatch(line)) {
+          continue;
+        }
+        if (_constructionAllowlist.contains('$importer:${i + 1}')) {
+          continue;
+        }
+        result.add(_Construction(importer, i + 1, type));
+      }
+    }
+  }
+  return result;
+}
+
+/// Replaces comment and string-literal contents with spaces, preserving
+/// newlines and offsets, so a source-line scan only sees code.
+String _stripCommentsAndStrings(String source) {
+  final out = StringBuffer();
+  var i = 0;
+  final n = source.length;
+  while (i < n) {
+    final c = source[i];
+    if (c == '/' && i + 1 < n && source[i + 1] == '/') {
+      while (i < n && source[i] != '\n') {
+        out.write(' ');
+        i++;
+      }
+      continue;
+    }
+    if (c == '/' && i + 1 < n && source[i + 1] == '*') {
+      out.write('  ');
+      i += 2;
+      while (i < n &&
+          !(source[i] == '*' && i + 1 < n && source[i + 1] == '/')) {
+        out.write(source[i] == '\n' ? '\n' : ' ');
+        i++;
+      }
+      if (i < n) {
+        out.write('  ');
+        i += 2;
+      }
+      continue;
+    }
+    if (c == "'" || c == '"') {
+      final triple = i + 2 < n && source[i + 1] == c && source[i + 2] == c;
+      if (triple) {
+        out.write('   ');
+        i += 3;
+        while (i < n) {
+          if (source[i] == c &&
+              i + 2 < n &&
+              source[i + 1] == c &&
+              source[i + 2] == c) {
+            out.write('   ');
+            i += 3;
+            break;
+          }
+          out.write(source[i] == '\n' ? '\n' : ' ');
+          i++;
+        }
+      } else {
+        out.write(' ');
+        i++;
+        while (i < n && source[i] != c) {
+          if (source[i] == '\\') {
+            out.write('  ');
+            i += 2;
+            continue;
+          }
+          out.write(source[i] == '\n' ? '\n' : ' ');
+          i++;
+        }
+        if (i < n) {
+          out.write(' ');
+          i++;
+        }
+      }
+      continue;
+    }
+    out.write(c);
+    i++;
+  }
+  return out.toString();
 }
