@@ -9,8 +9,7 @@ import '../eventsub/decode/events.dart';
 import '../eventsub/topics.dart';
 import '../eventsub/transport/connection.dart';
 import '../irc/decode/decoder.dart' show IrcChatDecoder;
-import '../irc/decode/events.dart'
-    show IrcNoticeEvent, IrcRoomStateEvent, UserNoticeEvent;
+import '../irc/decode/events.dart' show IrcRoomStateEvent;
 import '../irc/message.dart' show IrcMessage;
 import '../irc/transport/events.dart' show IrcJoinFailureEvent;
 import '../irc/transport/read.dart' show IrcReadService;
@@ -202,19 +201,6 @@ class ChatConnectionManager {
 
   StreamSubscription<IrcRoomStateEvent>? ircReadRoomStateSub;
   StreamSubscription<IrcRoomStateEvent>? ircWriteRoomStateSub;
-  static const _roomStateNoticeIds = {
-    'followers_on_zero',
-    'followers_on',
-    'followers_off',
-    'emote_only_on',
-    'emote_only_off',
-    'r9k_on',
-    'r9k_off',
-    'subs_on',
-    'subs_off',
-    'slow_on',
-    'slow_off',
-  };
   bool isDisposed = false;
 
   // Decode layer: lifts typed events out of each socket's raw frames. The
@@ -334,6 +320,7 @@ class ChatConnectionManager {
     irc: irc,
     ircRead: ircRead,
     readDecoder: readDecoder,
+    writeDecoder: writeDecoder,
     chat: chat,
     session: session,
     userStore: userStore,
@@ -350,11 +337,13 @@ class ChatConnectionManager {
     isBlocked: isBlocked,
     getSharedChatMode: getSharedChatMode,
     isModerationActive: (channel) => eventSubTopics.isModerationActive(channel),
+    isJoinFailureNotified: _channelSetup.isJoinFailureNotified,
     onSystemMessage: onSystemMessage,
     onAnalyticsMessage: onAnalyticsMessage,
     onAnalyticsModeration: onAnalyticsModeration,
     onChatMessage: onChatMessage,
     onMention: (channel, msg) => onMention?.call(channel, msg),
+    onWhisper: (msg) => onWhisper?.call(msg),
   );
 
   // Channel-domain wiring (joins, Helix/emote/badge resolution, EventSub
@@ -379,13 +368,8 @@ class ChatConnectionManager {
   );
   final _ingestionSubs = <StreamSubscription<void>>[];
 
-  StreamSubscription<IrcNoticeEvent>? ircNoticeSub;
-  StreamSubscription<IrcNoticeEvent>? ircJtvSub;
   StreamSubscription<IrcJoinFailureEvent>? ircJoinFailedSub;
-  StreamSubscription<TwitchMessage>? whisperSub;
-  StreamSubscription<UserNoticeEvent>? userNoticeSub;
   StreamSubscription<(String?, List<String>)>? emoteSetsSub;
-  StreamSubscription<IrcNoticeEvent>? ircWriteNoticeSub;
 
   ChatConnectionManager(ChatConnectionConfig config)
     : twitchApi = config.services.twitchApi,
@@ -445,15 +429,10 @@ class ChatConnectionManager {
     eventSubConsumer.dispose();
     _sevenTvConsumer.dispose();
     eventSubDecoder.dispose();
-    ircNoticeSub?.cancel();
-    ircJtvSub?.cancel();
     ircJoinFailedSub?.cancel();
     emoteSetsSub?.cancel();
     ircReadRoomStateSub?.cancel();
     ircWriteRoomStateSub?.cancel();
-    userNoticeSub?.cancel();
-    ircWriteNoticeSub?.cancel();
-    whisperSub?.cancel();
     connectionStateNotifier.dispose();
   }
 
@@ -572,42 +551,8 @@ class ChatConnectionManager {
       ..clear()
       ..addAll(_ingestion.attach());
 
-    ircNoticeSub?.cancel();
-    ircNoticeSub = readDecoder.onNotice.listen((event) {
-      if (isDisposed) return;
-      // With channel.moderate active, room-state changes come from EventSub
-      // with structured data - suppress the redundant IRC NOTICE.
-      if (eventSubTopics.isModerationActive(event.channel) &&
-          _roomStateNoticeIds.contains(event.msgId)) {
-        return;
-      }
-      // A join-refusal notice for a channel we tried to join is already
-      // surfaced by the onJoinFailed listener with clearer wording; showing
-      // Twitch's raw copy too would duplicate the message. Refusals for
-      // channels we are not joining still display normally.
-      if (event.msgId == 'msg_channel_suspended' &&
-          _channelSetup.isJoinFailureNotified(event.channel)) {
-        return;
-      }
-      onSystemMessage(event.channel, event.message);
-    });
-
-    ircJtvSub?.cancel();
-    ircJtvSub = readDecoder.onJtvMessage.listen((event) {
-      if (isDisposed) return;
-      onSystemMessage(event.channel, event.message);
-    });
-
-    // Send rejections (slow-mode, banned, msg-too-long, ...) come back on the
-    // write socket; surface them as system messages instead of dropping them.
-    ircWriteNoticeSub?.cancel();
-    ircWriteNoticeSub = writeDecoder.onNotice.listen((event) {
-      if (isDisposed) return;
-      onSystemMessage(event.channel, event.message);
-    });
-
     // JOIN failures from the read socket are handled by the setup domain,
-    // which also tracks the notified set for the NOTICE suppression above.
+    // which tracks the notified set that ingestion's NOTICE suppression reads.
     ircJoinFailedSub?.cancel();
     ircJoinFailedSub = ircRead.onJoinFailed.listen((event) {
       if (isDisposed) return;
@@ -616,15 +561,6 @@ class ChatConnectionManager {
       // and the failure was already surfaced as a system message.
       _readiness.noteJoinFailed(event.channel);
       _joinProgress.clearWait(event.channel);
-    });
-
-    whisperSub?.cancel();
-    whisperSub = readDecoder.onWhisper.listen(onWhisperEvent);
-
-    userNoticeSub?.cancel();
-    userNoticeSub = readDecoder.onUserNotice.listen((event) {
-      if (isDisposed) return;
-      _ingestion.onUserNotice(event);
     });
 
     // The read socket is the sole JOINer: its ROOMSTATE resolves room status
@@ -683,14 +619,6 @@ class ChatConnectionManager {
 
   void precacheMessageEmotes(TwitchMessage msg, String channel) =>
       _ingestion.precacheMessageEmotes(msg, channel);
-
-  void onWhisperEvent(TwitchMessage msg) {
-    if (isDisposed) return;
-    if (!msg.isSystem && isBlocked?.call(msg.login) == true) return;
-    // Ignored users' whispers are dropped like their channel messages.
-    if (!msg.isSystem && ignoreManager?.isIgnored(msg.login) == true) return;
-    onWhisper?.call(msg);
-  }
 
   /// Bumps [channel] to the front of the JOIN queue so the next pump tick
   /// dispatches it first. No-op if not queued.

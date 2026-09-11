@@ -49,6 +49,7 @@ class ChatIngestion {
     required this.irc,
     required this.ircRead,
     required this.readDecoder,
+    required this.writeDecoder,
     required this.chat,
     required this.session,
     required this.userStore,
@@ -65,16 +66,19 @@ class ChatIngestion {
     this.isBlocked,
     this.getSharedChatMode,
     required this.isModerationActive,
+    required this.isJoinFailureNotified,
     required this.onSystemMessage,
     this.onAnalyticsMessage,
     this.onAnalyticsModeration,
     this.onChatMessage,
     this.onMention,
+    this.onWhisper,
   });
 
   final IrcService irc;
   final IrcReadService ircRead;
   final IrcChatDecoder readDecoder;
+  final IrcChatDecoder writeDecoder;
   final Session session;
   final Chat chat;
   final UserStore userStore;
@@ -97,6 +101,10 @@ class ChatIngestion {
   /// the richer EventSub copies.
   final bool Function(String channel) isModerationActive;
 
+  /// Whether a join-failure notice was already displayed for the channel;
+  /// its raw refusal NOTICE is suppressed as a duplicate then.
+  final bool Function(String channel) isJoinFailureNotified;
+
   final void Function(
     String channel,
     String text, {
@@ -109,10 +117,24 @@ class ChatIngestion {
   final void Function(String channel, bool isTimeout)? onAnalyticsModeration;
   final void Function(String channel, TwitchMessage msg)? onChatMessage;
   final void Function(String channel, TwitchMessage msg)? onMention;
+  final void Function(TwitchMessage msg)? onWhisper;
 
   bool _disposed = false;
   final _recentBanMeta = <String, List<_BanMeta>>{};
   static const _banDedupWindowSeconds = 10;
+  static const _roomStateNoticeIds = {
+    'followers_on_zero',
+    'followers_on',
+    'followers_off',
+    'emote_only_on',
+    'emote_only_off',
+    'r9k_on',
+    'r9k_off',
+    'subs_on',
+    'subs_off',
+    'slow_on',
+    'slow_off',
+  };
   final _inflightSourceData = <String, Future<void>>{};
 
   /// Subscribes to every content stream. Returns the subscriptions for the
@@ -131,7 +153,48 @@ class ChatIngestion {
       ),
       readDecoder.onChannelClear.listen(_onChannelClear),
       readDecoder.onOwnMessage.listen(onOwnIrcMessage),
+      readDecoder.onNotice.listen((event) {
+        if (_disposed) return;
+        // With channel.moderate active, room-state changes come from EventSub
+        // with structured data - suppress the redundant IRC NOTICE.
+        if (isModerationActive(event.channel) &&
+            _roomStateNoticeIds.contains(event.msgId)) {
+          return;
+        }
+        // A join-refusal notice for a channel we tried to join is already
+        // surfaced by the onJoinFailed listener with clearer wording; showing
+        // Twitch's raw copy too would duplicate the message. Refusals for
+        // channels we are not joining still display normally.
+        if (event.msgId == 'msg_channel_suspended' &&
+            isJoinFailureNotified(event.channel)) {
+          return;
+        }
+        onSystemMessage(event.channel, event.message);
+      }),
+      readDecoder.onJtvMessage.listen((event) {
+        if (_disposed) return;
+        onSystemMessage(event.channel, event.message);
+      }),
+      // Send rejections (slow-mode, banned, msg-too-long, ...) come back on
+      // the write socket; surface them as system messages instead of dropping.
+      writeDecoder.onNotice.listen((event) {
+        if (_disposed) return;
+        onSystemMessage(event.channel, event.message);
+      }),
+      readDecoder.onWhisper.listen(_onWhisperEvent),
+      readDecoder.onUserNotice.listen((event) {
+        if (_disposed) return;
+        onUserNotice(event);
+      }),
     ];
+  }
+
+  void _onWhisperEvent(TwitchMessage msg) {
+    if (_disposed) return;
+    if (!msg.isSystem && isBlocked?.call(msg.login) == true) return;
+    // Ignored users' whispers are dropped like their channel messages.
+    if (!msg.isSystem && ignoreManager?.isIgnored(msg.login) == true) return;
+    onWhisper?.call(msg);
   }
 
   void dispose() {

@@ -34,6 +34,7 @@ void main() {
       irc: irc,
       ircRead: ircRead,
       readDecoder: IrcChatDecoder(ircRead.onIrcMessage),
+      writeDecoder: IrcChatDecoder(irc.onIrcMessage),
       chat: Chat(),
       session: session,
       userStore: UserStore(),
@@ -45,6 +46,7 @@ void main() {
       getMaxMessagesPerChannel: () => 500,
       getSelectedChannel: () => null,
       isModerationActive: (_) => false,
+      isJoinFailureNotified: (_) => false,
       onSystemMessage: (_, _, {accent, messageId}) {},
     );
   }
