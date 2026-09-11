@@ -3047,6 +3047,7 @@ void main() {
         ),
         irc: IrcService(),
         ircRead: IrcReadService(),
+        readDecoder: IrcChatDecoder(IrcReadService().onIrcMessage),
         badgeService: TwitchBadgeService(),
         emoteManager: EmoteManager(),
         twitchAuth: TwitchAuth(),

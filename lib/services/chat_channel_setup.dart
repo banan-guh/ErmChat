@@ -11,6 +11,7 @@ import '../chat/chat.dart';
 import '../client/session.dart';
 import '../util/constants.dart';
 import '../util/log.dart';
+import '../irc/decode/decoder.dart' show IrcChatDecoder;
 import '../irc/decode/events.dart' show IrcRoomStateEvent;
 import '../irc/transport/events.dart'
     show IrcJoinFailureEvent, JoinFailureReason;
@@ -28,10 +29,7 @@ import 'user_store.dart';
 
 /// The channel-domain of the pipeline: joining channels and resolving their
 /// per-channel data (Helix user IDs, badges, emotes, 7TV sockets) plus the
-/// chat-status composition from ROOMSTATE tags and periodic stream fetches.
-/// Unlike [ChatIngestion] this class owns no stream subscriptions: the manager
-/// routes IRC events into [handleRoomState]/[handleJoinFailed], and channel
-/// subscriptions run on demand through [subscribeChannel].
+/// chat-status composition; also owns the emote-sets subscription.
 class ChatChannelSetup {
   ChatChannelSetup({
     required this.twitchApi,
@@ -39,6 +37,7 @@ class ChatChannelSetup {
     required this.eventSubTopics,
     required this.irc,
     required this.ircRead,
+    required this.readDecoder,
     this.sevenTvClient,
     required this.badgeService,
     required this.emoteManager,
@@ -57,6 +56,7 @@ class ChatChannelSetup {
   final EventSubTopics eventSubTopics;
   final IrcService irc;
   final IrcReadService ircRead;
+  final IrcChatDecoder readDecoder;
   final SevenTvEventClient? sevenTvClient;
   final TwitchBadgeService badgeService;
   final EmoteManager emoteManager;
@@ -100,9 +100,21 @@ class ChatChannelSetup {
   // confirmation clears the entry and announces the (late) success.
   final _joinFailureNotified = <String>{};
 
+  StreamSubscription<(String?, List<String>)>? _emoteSetsSub;
+
+  void attach() {
+    _emoteSetsSub?.cancel();
+    _emoteSetsSub = readDecoder.onUserEmoteSets.listen((event) {
+      if (_disposed || onUserEmoteSets == null) return;
+      final (channel, ids) = event;
+      unawaited(onUserEmoteSets!(channel, ids));
+    });
+  }
+
   void dispose() {
     _disposed = true;
     _status.dispose();
+    _emoteSetsSub?.cancel();
     // Release any anonymous channel-user-ID waiters so their timeout timers
     // don't outlive the manager (and don't trip widget-test teardown).
     for (final waiters in _roomIdWaiters.values) {

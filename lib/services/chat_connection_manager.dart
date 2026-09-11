@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'package:flutter/widgets.dart';
-import '../util/log.dart';
 import '../models/twitch_message.dart';
 import '../services/twitch_api.dart';
 import '../services/twitch_auth.dart';
@@ -9,9 +8,7 @@ import '../eventsub/decode/events.dart';
 import '../eventsub/topics.dart';
 import '../eventsub/transport/connection.dart';
 import '../irc/decode/decoder.dart' show IrcChatDecoder;
-import '../irc/decode/events.dart' show IrcRoomStateEvent;
 import '../irc/message.dart' show IrcMessage;
-import '../irc/transport/events.dart' show IrcJoinFailureEvent;
 import '../irc/transport/read.dart' show IrcReadService;
 import '../irc/transport/write.dart' show IrcService;
 import '../services/emote_manager.dart';
@@ -199,8 +196,6 @@ class ChatConnectionManager {
   final void Function(String message)? onBanner;
   final void Function()? onFocusComposer;
 
-  StreamSubscription<IrcRoomStateEvent>? ircReadRoomStateSub;
-  StreamSubscription<IrcRoomStateEvent>? ircWriteRoomStateSub;
   bool isDisposed = false;
 
   // Decode layer: lifts typed events out of each socket's raw frames. The
@@ -295,6 +290,8 @@ class ChatConnectionManager {
   late final ChatLifecycle _lifecycle = ChatLifecycle(
     irc: irc,
     ircRead: ircRead,
+    readDecoder: readDecoder,
+    writeDecoder: writeDecoder,
     eventSub: eventSub,
     sevenTvClient: sevenTvClient,
     twitchApi: twitchApi,
@@ -354,6 +351,7 @@ class ChatConnectionManager {
     eventSubTopics: eventSubTopics,
     irc: irc,
     ircRead: ircRead,
+    readDecoder: readDecoder,
     sevenTvClient: sevenTvClient,
     badgeService: badgeService,
     emoteManager: emoteManager,
@@ -367,9 +365,6 @@ class ChatConnectionManager {
     ensureCurrentUser: (auth) => _lifecycle.ensureCurrentUser(auth),
   );
   final _ingestionSubs = <StreamSubscription<void>>[];
-
-  StreamSubscription<IrcJoinFailureEvent>? ircJoinFailedSub;
-  StreamSubscription<(String?, List<String>)>? emoteSetsSub;
 
   ChatConnectionManager(ChatConnectionConfig config)
     : twitchApi = config.services.twitchApi,
@@ -429,10 +424,6 @@ class ChatConnectionManager {
     eventSubConsumer.dispose();
     _sevenTvConsumer.dispose();
     eventSubDecoder.dispose();
-    ircJoinFailedSub?.cancel();
-    emoteSetsSub?.cancel();
-    ircReadRoomStateSub?.cancel();
-    ircWriteRoomStateSub?.cancel();
     connectionStateNotifier.dispose();
   }
 
@@ -530,15 +521,6 @@ class ChatConnectionManager {
   /// that genuinely have no read socket never block on it.
   bool isChannelChatReady(String channel) => _readiness.isChannelReady(channel);
 
-  /// Posts the per-channel "Connected" once, when the channel becomes fully
-  /// usable. Called from whichever JOIN confirmation completes readiness.
-  void _announceConnected(String channel) {
-    if (!isChannelChatReady(channel)) return;
-    if (_readiness.acknowledgeConnected(channel)) {
-      onSystemMessage(channel, 'Connected');
-    }
-  }
-
   Future<void> connect() => _lifecycle.connect();
 
   void _setupSubscriptions() {
@@ -551,59 +533,7 @@ class ChatConnectionManager {
       ..clear()
       ..addAll(_ingestion.attach());
 
-    // JOIN failures from the read socket are handled by the setup domain,
-    // which tracks the notified set that ingestion's NOTICE suppression reads.
-    ircJoinFailedSub?.cancel();
-    ircJoinFailedSub = ircRead.onJoinFailed.listen((event) {
-      if (isDisposed) return;
-      _channelSetup.handleJoinFailed(event);
-      // Stop the perpetual "still joining" marker; the channel is not ready
-      // and the failure was already surfaced as a system message.
-      _readiness.noteJoinFailed(event.channel);
-      _joinProgress.clearWait(event.channel);
-    });
-
-    // The read socket is the sole JOINer: its ROOMSTATE resolves room status
-    // (slow mode, followers-only, ...), confirms the JOIN, and drives
-    // readiness.
-    ircReadRoomStateSub?.cancel();
-    ircReadRoomStateSub = readDecoder.onRoomState.listen((event) {
-      if (isDisposed) return;
-      if (_channelSetup.handleRoomState(event)) {
-        final isNew = _readiness.noteReadRoomState(event.channel);
-        if (isNew) {
-          PerfLog.I.record('JOINQ', 'read-confirm ${event.channel}');
-          _joinProgress.clearWait(event.channel);
-          if (isChannelChatReady(event.channel)) {
-            _announceConnected(event.channel);
-            connectionStateNotifier.value++;
-          }
-        }
-      }
-    });
-
-    // The write socket also echoes ROOMSTATE after its own JOIN. Its JOIN
-    // confirmations let anonymous sessions resolve readiness without a read
-    // socket, and complete the both-sockets check for authenticated ones.
-    ircWriteRoomStateSub?.cancel();
-    ircWriteRoomStateSub = writeDecoder.onRoomState.listen((event) {
-      if (isDisposed) return;
-      _channelSetup.handleRoomState(event);
-      final isNew = _readiness.noteWriteRoomState(event.channel);
-      if (isNew) {
-        if (isChannelChatReady(event.channel)) {
-          _announceConnected(event.channel);
-          connectionStateNotifier.value++;
-        }
-      }
-    });
-
-    emoteSetsSub?.cancel();
-    emoteSetsSub = readDecoder.onUserEmoteSets.listen((event) {
-      if (isDisposed || onUserEmoteSets == null) return;
-      final (channel, ids) = event;
-      unawaited(onUserEmoteSets!(channel, ids));
-    });
+    _channelSetup.attach();
 
     eventSubConsumer.attach(eventSubDecoder);
 

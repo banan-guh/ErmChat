@@ -7,6 +7,8 @@ import '../client/session.dart';
 import '../eventsub/topics.dart';
 import '../eventsub/transport/connection.dart';
 import '../eventsub/transport/events.dart';
+import '../irc/decode/decoder.dart' show IrcChatDecoder;
+import '../irc/decode/events.dart' show IrcRoomStateEvent;
 import '../irc/transport/events.dart';
 import '../irc/transport/read.dart';
 import '../irc/transport/write.dart';
@@ -26,6 +28,8 @@ class ChatLifecycle {
   ChatLifecycle({
     required this.irc,
     required this.ircRead,
+    required this.readDecoder,
+    required this.writeDecoder,
     required this.eventSub,
     required this.sevenTvClient,
     required this.twitchApi,
@@ -48,6 +52,8 @@ class ChatLifecycle {
 
   final IrcService irc;
   final IrcReadService ircRead;
+  final IrcChatDecoder readDecoder;
+  final IrcChatDecoder writeDecoder;
   final EventSubService eventSub;
   final SevenTvEventClient? sevenTvClient;
   final TwitchApi twitchApi;
@@ -103,6 +109,9 @@ class ChatLifecycle {
   StreamSubscription<IrcConnectionStatus>? ircReadStatusSub;
   StreamSubscription<void>? ircAuthFailedSub;
   StreamSubscription<void>? ircReadAuthFailedSub;
+  StreamSubscription<IrcJoinFailureEvent>? _ircJoinFailedSub;
+  StreamSubscription<IrcRoomStateEvent>? _readRoomStateSub;
+  StreamSubscription<IrcRoomStateEvent>? _writeRoomStateSub;
   Timer? _watchdogTimer;
 
   Future<Map<String, dynamic>?>? _currentUserFetch;
@@ -118,6 +127,9 @@ class ChatLifecycle {
     ircReadStatusSub?.cancel();
     ircAuthFailedSub?.cancel();
     ircReadAuthFailedSub?.cancel();
+    _ircJoinFailedSub?.cancel();
+    _readRoomStateSub?.cancel();
+    _writeRoomStateSub?.cancel();
     _watchdogTimer?.cancel();
     _watchdogTimer = null;
   }
@@ -144,6 +156,15 @@ class ChatLifecycle {
     }();
   }
 
+  /// Posts the per-channel "Connected" once, when the channel becomes fully
+  /// usable. Called from whichever JOIN confirmation completes readiness.
+  void _announceConnected(String channel) {
+    if (!readiness.isChannelReady(channel)) return;
+    if (readiness.acknowledgeConnected(channel)) {
+      onSystemMessage(channel, 'Connected');
+    }
+  }
+
   Future<void> connect() async {
     if (_disposed) return;
     if (_isConnecting) {
@@ -155,6 +176,54 @@ class ChatLifecycle {
       final auth = twitchAuth;
 
       setupSubscriptions();
+
+      // JOIN failures from the read socket are handled by the setup domain,
+      // which tracks the notified set that ingestion's NOTICE suppression reads.
+      _ircJoinFailedSub?.cancel();
+      _ircJoinFailedSub = ircRead.onJoinFailed.listen((event) {
+        if (_disposed) return;
+        channelSetup.handleJoinFailed(event);
+        // Stop the perpetual "still joining" marker; the channel is not ready
+        // and the failure was already surfaced as a system message.
+        readiness.noteJoinFailed(event.channel);
+        joinProgress.clearWait(event.channel);
+      });
+
+      // The read socket is the sole JOINer: its ROOMSTATE resolves room status
+      // (slow mode, followers-only, ...), confirms the JOIN, and drives
+      // readiness.
+      _readRoomStateSub?.cancel();
+      _readRoomStateSub = readDecoder.onRoomState.listen((event) {
+        if (_disposed) return;
+        if (channelSetup.handleRoomState(event)) {
+          final isNew = readiness.noteReadRoomState(event.channel);
+          if (isNew) {
+            PerfLog.I.record('JOINQ', 'read-confirm ${event.channel}');
+            joinProgress.clearWait(event.channel);
+            if (readiness.isChannelReady(event.channel)) {
+              _announceConnected(event.channel);
+              connectionStateNotifier.value++;
+            }
+          }
+        }
+      });
+
+      // The write socket also echoes ROOMSTATE after its own JOIN. Its JOIN
+      // confirmations let anonymous sessions resolve readiness without a read
+      // socket, and complete the both-sockets check for authenticated ones.
+      _writeRoomStateSub?.cancel();
+      _writeRoomStateSub = writeDecoder.onRoomState.listen((event) {
+        if (_disposed) return;
+        channelSetup.handleRoomState(event);
+        final isNew = readiness.noteWriteRoomState(event.channel);
+        if (isNew) {
+          if (readiness.isChannelReady(event.channel)) {
+            _announceConnected(event.channel);
+            connectionStateNotifier.value++;
+          }
+        }
+      });
+
       joinProgress.ensureTicker();
       _startWatchdog();
 
