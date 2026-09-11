@@ -117,7 +117,7 @@ class EventSubConsumer {
           ModActivityEntry(
             at: DateTime.now(),
             channel: event.channel,
-            action: event.action,
+            action: event.rawAction,
             moderator: mod,
             target: target,
             reason: event.reason,
@@ -127,7 +127,7 @@ class EventSubConsumer {
         );
 
     switch (event.action) {
-      case 'delete':
+      case ModerationAction.delete:
         if (event.messageId != null) {
           chat
               .channelFor(event.channel)
@@ -144,14 +144,17 @@ class EventSubConsumer {
         );
         feed();
         break;
-      case 'clear':
+      case ModerationAction.clear:
         chat.channelFor(event.channel)?.messages.markAllDeleted();
         onSystemMessage(event.channel, '$mod cleared the chat.');
         feed();
         break;
-      case 'ban':
-      case 'timeout':
-        onAnalyticsModeration?.call(event.channel, event.action == 'timeout');
+      case ModerationAction.ban:
+      case ModerationAction.timeout:
+        onAnalyticsModeration?.call(
+          event.channel,
+          event.action == ModerationAction.timeout,
+        );
         if (target != null) {
           chat.channelFor(event.channel)?.messages.markUserDeleted(target);
           chat
@@ -163,7 +166,8 @@ class EventSubConsumer {
                   channel: event.channel,
                   login: target,
                   expiresAt:
-                      event.action == 'timeout' && event.durationSeconds != null
+                      event.action == ModerationAction.timeout &&
+                          event.durationSeconds != null
                       ? DateTime.now().add(
                           Duration(seconds: event.durationSeconds!),
                         )
@@ -177,7 +181,7 @@ class EventSubConsumer {
             ? ' for ${formatSeconds(event.durationSeconds!)}'
             : '';
         if (isSelfTarget &&
-            event.action == 'timeout' &&
+            event.action == ModerationAction.timeout &&
             event.durationSeconds != null &&
             // Zero-length timeouts are already spent - no gate to arm.
             event.durationSeconds! > 0) {
@@ -189,13 +193,13 @@ class EventSubConsumer {
         onSystemMessage(
           event.channel,
           isSelfTarget
-              ? 'You were ${event.action == 'timeout' ? 'timed out$duration' : 'banned'}$reason by $mod.'
-              : '$mod ${event.action == 'timeout' ? 'timed out' : 'banned'} $target$duration$reason.',
+              ? 'You were ${event.action == ModerationAction.timeout ? 'timed out$duration' : 'banned'}$reason by $mod.'
+              : '$mod ${event.action == ModerationAction.timeout ? 'timed out' : 'banned'} $target$duration$reason.',
         );
         feed();
         break;
-      case 'unban':
-      case 'untimeout':
+      case ModerationAction.unban:
+      case ModerationAction.untimeout:
         if (isSelfTarget) onSelfTimeoutCleared(event.channel);
         if (target != null) {
           chat.channelFor(event.channel)?.moderation.removeBan(target);
@@ -208,23 +212,23 @@ class EventSubConsumer {
         );
         feed();
         break;
-      case 'mod':
+      case ModerationAction.mod:
         onSystemMessage(event.channel, '$mod modded $target.');
         feed();
         break;
-      case 'unmod':
+      case ModerationAction.unmod:
         onSystemMessage(event.channel, '$mod unmodded $target.');
         feed();
         break;
-      case 'vip':
+      case ModerationAction.vip:
         onSystemMessage(event.channel, '$mod added $target as a VIP.');
         feed();
         break;
-      case 'unvip':
+      case ModerationAction.unvip:
         onSystemMessage(event.channel, '$mod removed $target as a VIP.');
         feed();
         break;
-      case 'warn':
+      case ModerationAction.warn:
         if (target != null && target.isNotEmpty) {
           chat
               .channelFor(event.channel)
@@ -242,78 +246,78 @@ class EventSubConsumer {
         onSystemMessage(event.channel, '$mod warned $target$reason.');
         feed();
         break;
-      case 'slow':
-      case 'slowoff':
+      case ModerationAction.slow:
+      case ModerationAction.slowOff:
         feed();
         onSystemMessage(
           event.channel,
-          event.action == 'slow'
+          event.action == ModerationAction.slow
               ? '$mod enabled slow mode.'
               : '$mod disabled slow mode.',
         );
         break;
-      case 'followers':
-      case 'followersoff':
+      case ModerationAction.followers:
+      case ModerationAction.followersOff:
         feed();
         onSystemMessage(
           event.channel,
-          event.action == 'followers'
+          event.action == ModerationAction.followers
               ? '$mod enabled followers-only mode.'
               : '$mod disabled followers-only mode.',
         );
         break;
-      case 'emoteonly':
-      case 'emoteonlyoff':
+      case ModerationAction.emoteOnly:
+      case ModerationAction.emoteOnlyOff:
         feed();
         onSystemMessage(
           event.channel,
-          event.action == 'emoteonly'
+          event.action == ModerationAction.emoteOnly
               ? '$mod enabled emote-only mode.'
               : '$mod disabled emote-only mode.',
         );
         break;
-      case 'subscribers':
-      case 'subscribersoff':
+      case ModerationAction.subscribers:
+      case ModerationAction.subscribersOff:
         feed();
         onSystemMessage(
           event.channel,
-          event.action == 'subscribers'
+          event.action == ModerationAction.subscribers
               ? '$mod enabled subscribers-only mode.'
               : '$mod disabled subscribers-only mode.',
         );
         break;
-      case 'uniquechat':
-      case 'uniquechatoff':
+      case ModerationAction.uniqueChat:
+      case ModerationAction.uniqueChatOff:
         feed();
         onSystemMessage(
           event.channel,
-          event.action == 'uniquechat'
+          event.action == ModerationAction.uniqueChat
               ? '$mod enabled unique chat.'
               : '$mod disabled unique chat.',
         );
         break;
-      case 'raid':
+      case ModerationAction.raid:
         feed();
         onSystemMessage(event.channel, '$mod started a raid.');
         break;
-      case 'unraid':
+      case ModerationAction.unraid:
         feed();
         onSystemMessage(event.channel, '$mod cancelled the raid.');
         break;
-      case 'add_blocked_term':
-      case 'remove_blocked_term':
-      case 'add_permitted_term':
-      case 'remove_permitted_term':
+      case ModerationAction.addBlockedTerm:
+      case ModerationAction.removeBlockedTerm:
+      case ModerationAction.addPermittedTerm:
+      case ModerationAction.removePermittedTerm:
         feed();
         onSystemMessage(
           event.channel,
-          formatTermAction(mod, event.action, event.terms),
+          formatTermAction(mod, event.rawAction, event.terms),
         );
         break;
-      case 'approve_unban_request':
-      case 'deny_unban_request':
+      case ModerationAction.approveUnbanRequest:
+      case ModerationAction.denyUnbanRequest:
         feed();
-        final verb = event.action == 'approve_unban_request'
+        final verb = event.action == ModerationAction.approveUnbanRequest
             ? 'approved'
             : 'denied';
         onSystemMessage(
@@ -323,8 +327,8 @@ class EventSubConsumer {
               : '$mod $verb an unban request$reason.',
         );
         break;
-      default:
-        // Future or unknown actions still land in the feed; no chat line.
+      case ModerationAction.unknown:
+        // Future actions still land in the feed under their wire name.
         feed();
         break;
     }
@@ -358,7 +362,7 @@ class EventSubConsumer {
   void _onShoutoutEvent(ShoutoutEvent event) {
     if (_disposed) return;
     if (!topics.isFeedActive(event.channel)) return;
-    final created = event.kind == 'create';
+    final created = event.kind == ShoutoutKind.create;
     chat
         .channelFor(event.channel)
         ?.moderation
@@ -382,7 +386,7 @@ class EventSubConsumer {
   void _onWarningEvent(WarningEvent event) {
     if (_disposed) return;
     if (!topics.isFeedActive(event.channel)) return;
-    if (event.kind == 'acknowledge') {
+    if (event.kind == WarningKind.acknowledge) {
       final moderation = chat.channelFor(event.channel)?.moderation;
       moderation?.dismissWarningsFor(event.userLogin);
       moderation?.addFeed(
@@ -447,7 +451,7 @@ class EventSubConsumer {
     if (!topics.isInboxActive(event.channel)) return;
     chat.channelFor(event.channel)?.moderation.touchInbox();
     final user = event.userLogin;
-    if (event.kind == 'create') {
+    if (event.kind == UnbanRequestKind.create) {
       onSystemMessage(event.channel, '$user requested an unban.');
       return;
     }
@@ -481,7 +485,7 @@ class EventSubConsumer {
     if (!topics.isInboxActive(event.channel)) return;
     chat.channelFor(event.channel)?.moderation.touchInbox();
     if (topics.isModerationActive(event.channel)) return;
-    final adding = event.action != 'remove';
+    final adding = event.action != AutomodTermsAction.remove;
     final permitted = event.list == 'permitted';
     final action =
         '${adding ? 'add' : 'remove'}_${permitted ? 'permitted' : 'blocked'}_term';
@@ -543,7 +547,7 @@ class EventSubConsumer {
         sharedBanChannelIds: event.sharedBanChannelIds,
       ),
     );
-    if (event.kind == 'message') return;
+    if (event.kind == SuspiciousUserKind.message) return;
     chat
         .channelFor(event.channel)
         ?.moderation
@@ -573,7 +577,7 @@ class EventSubConsumer {
     final points = chat.channelFor(event.channel)?.points;
     if (points == null) return;
     final rewards = [...points.rewards];
-    if (event.kind == 'remove') {
+    if (event.kind == PointRewardKind.remove) {
       rewards.removeWhere((r) => r.id == event.reward.id);
     } else {
       rewards.removeWhere((r) => r.id == event.reward.id);
@@ -586,7 +590,8 @@ class EventSubConsumer {
     if (_disposed) return;
     if (!topics.isPointsActive(event.channel)) return;
     final points = chat.channelFor(event.channel)?.points;
-    if (event.kind == 'add' && event.redemption.status == 'UNFULFILLED') {
+    if (event.kind == PointRedemptionKind.add &&
+        event.redemption.status == 'UNFULFILLED') {
       points?.upsertRedemption(event.redemption);
     } else {
       points?.resolveRedemption(event.redemption.id);

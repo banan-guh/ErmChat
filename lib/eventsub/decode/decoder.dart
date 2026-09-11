@@ -92,6 +92,76 @@ class EventSubDecoder {
   @visibleForTesting
   void feed(Map<String, dynamic> frame) => _onNotification(frame);
 
+  /// Maps each wire string to its enum once; unknown strings fall through to
+  /// the unknown arm with the raw wire kept on the event.
+  ModerationAction _moderationAction(String wire) => switch (wire) {
+    'ban' => ModerationAction.ban,
+    'unban' => ModerationAction.unban,
+    'timeout' => ModerationAction.timeout,
+    'untimeout' => ModerationAction.untimeout,
+    'mod' => ModerationAction.mod,
+    'unmod' => ModerationAction.unmod,
+    'vip' => ModerationAction.vip,
+    'unvip' => ModerationAction.unvip,
+    'warn' => ModerationAction.warn,
+    'delete' => ModerationAction.delete,
+    'slow' => ModerationAction.slow,
+    'slowoff' => ModerationAction.slowOff,
+    'followers' => ModerationAction.followers,
+    'followersoff' => ModerationAction.followersOff,
+    'emoteonly' => ModerationAction.emoteOnly,
+    'emoteonlyoff' => ModerationAction.emoteOnlyOff,
+    'subscribers' => ModerationAction.subscribers,
+    'subscribersoff' => ModerationAction.subscribersOff,
+    'uniquechat' => ModerationAction.uniqueChat,
+    'uniquechatoff' => ModerationAction.uniqueChatOff,
+    'raid' => ModerationAction.raid,
+    'unraid' => ModerationAction.unraid,
+    'clear' => ModerationAction.clear,
+    'add_blocked_term' => ModerationAction.addBlockedTerm,
+    'remove_blocked_term' => ModerationAction.removeBlockedTerm,
+    'add_permitted_term' => ModerationAction.addPermittedTerm,
+    'remove_permitted_term' => ModerationAction.removePermittedTerm,
+    'approve_unban_request' => ModerationAction.approveUnbanRequest,
+    'deny_unban_request' => ModerationAction.denyUnbanRequest,
+    _ => ModerationAction.unknown,
+  };
+
+  AutomodTermsAction _automodTermsAction(String wire) => switch (wire) {
+    'add' => AutomodTermsAction.add,
+    'remove' => AutomodTermsAction.remove,
+    _ => AutomodTermsAction.unknown,
+  };
+
+  HypeTrainKind _hypeTrainKind(String wire) => switch (wire) {
+    'begin' => HypeTrainKind.begin,
+    'progress' => HypeTrainKind.progress,
+    'end' => HypeTrainKind.end,
+    _ => HypeTrainKind.unknown,
+  };
+
+  PollKind _pollKind(String wire) => switch (wire) {
+    'begin' => PollKind.begin,
+    'progress' => PollKind.progress,
+    'end' => PollKind.end,
+    _ => PollKind.unknown,
+  };
+
+  PredictionKind _predictionKind(String wire) => switch (wire) {
+    'begin' => PredictionKind.begin,
+    'progress' => PredictionKind.progress,
+    'lock' => PredictionKind.lock,
+    'end' => PredictionKind.end,
+    _ => PredictionKind.unknown,
+  };
+
+  PointRewardKind _pointRewardKind(String wire) => switch (wire) {
+    'add' => PointRewardKind.add,
+    'update' => PointRewardKind.update,
+    'remove' => PointRewardKind.remove,
+    _ => PointRewardKind.unknown,
+  };
+
   /// Routes notifications into typed events. Mod is channel-agnostic;
   /// hype/poll/prediction are broadcaster-only.
   void _onNotification(Map<String, dynamic> msg) {
@@ -218,7 +288,8 @@ class EventSubDecoder {
     _hypeTrainController.add(
       HypeTrainEvent(
         channel: channel,
-        kind: kind,
+        kind: _hypeTrainKind(kind),
+        rawKind: kind,
         level: event['level'] as int? ?? 1,
         progress: event['progress'] as int? ?? 0,
         total: event['total'] as int? ?? 0,
@@ -242,7 +313,8 @@ class EventSubDecoder {
     _pollController.add(
       PollEvent(
         channel: channel,
-        kind: kind,
+        kind: _pollKind(kind),
+        rawKind: kind,
         title: event['title'] as String? ?? '',
         choices: choices,
         status: event['status'] as String? ?? '',
@@ -269,7 +341,8 @@ class EventSubDecoder {
     _predictionController.add(
       PredictionEvent(
         channel: channel,
-        kind: kind,
+        kind: _predictionKind(kind),
+        rawKind: kind,
         title: event['title'] as String? ?? '',
         outcomes: outcomes,
         status: event['status'] as String? ?? '',
@@ -305,7 +378,8 @@ class EventSubDecoder {
     _shoutoutController.add(
       ShoutoutEvent(
         channel: channel,
-        kind: created ? 'create' : 'receive',
+        kind: created ? ShoutoutKind.create : ShoutoutKind.receive,
+        rawKind: created ? 'create' : 'receive',
         fromLogin: from,
         toLogin: to,
         moderatorName: event['moderator_user_name'] as String? ?? 'A moderator',
@@ -317,7 +391,8 @@ class EventSubDecoder {
     _warningController.add(
       WarningEvent(
         channel: channel,
-        kind: sent ? 'send' : 'acknowledge',
+        kind: sent ? WarningKind.send : WarningKind.acknowledge,
+        rawKind: sent ? 'send' : 'acknowledge',
         moderatorName: event['moderator_user_name'] as String? ?? 'A moderator',
         userLogin: event['user_login'] as String? ?? '',
         reason: event['reason'] as String?,
@@ -333,7 +408,8 @@ class EventSubDecoder {
     _unbanRequestController.add(
       UnbanRequestEvent(
         channel: channel,
-        kind: created ? 'create' : 'resolve',
+        kind: created ? UnbanRequestKind.create : UnbanRequestKind.resolve,
+        rawKind: created ? 'create' : 'resolve',
         userLogin: event['user_login'] as String? ?? '',
         moderatorName: event['moderator_user_name'] as String? ?? 'A moderator',
         resolutionText: event['resolution_text'] as String?,
@@ -343,10 +419,12 @@ class EventSubDecoder {
 
   void _emitAutomodTerms(String channel, Map<String, dynamic> event) {
     final rawTerms = event['terms'];
+    final action = event['action'] as String? ?? 'add';
     _automodTermsController.add(
       AutomodTermsEvent(
         channel: channel,
-        action: event['action'] as String? ?? 'add',
+        action: _automodTermsAction(action),
+        rawAction: action,
         list: event['list'] as String? ?? 'blocked',
         terms: rawTerms is List
             ? rawTerms.whereType<String>().toList()
@@ -375,7 +453,8 @@ class EventSubDecoder {
     _suspiciousUserController.add(
       SuspiciousUserEvent(
         channel: channel,
-        kind: messaged ? 'message' : 'update',
+        kind: messaged ? SuspiciousUserKind.message : SuspiciousUserKind.update,
+        rawKind: messaged ? 'message' : 'update',
         userLogin: event['user_login'] as String? ?? '',
         status:
             ((event['low_trust_status'] ?? event['status']) as String?)
@@ -403,7 +482,8 @@ class EventSubDecoder {
     _pointRewardController.add(
       PointRewardEvent(
         channel: channel,
-        kind: kind,
+        kind: _pointRewardKind(kind),
+        rawKind: kind,
         reward: PointReward.fromJson(rewardObj),
       ),
     );
@@ -417,7 +497,8 @@ class EventSubDecoder {
     _pointRedemptionController.add(
       PointRedemptionEvent(
         channel: channel,
-        kind: added ? 'add' : 'update',
+        kind: added ? PointRedemptionKind.add : PointRedemptionKind.update,
+        rawKind: added ? 'add' : 'update',
         redemption: PointRedemption.fromJson(event),
       ),
     );
@@ -447,22 +528,23 @@ class EventSubDecoder {
     final metaObj =
         event[baseAction] as Map<String, dynamic>? ??
         (baseAction == action ? null : event[action] as Map<String, dynamic>?);
-    switch (baseAction) {
-      case 'ban':
-      case 'unban':
-      case 'mod':
-      case 'unmod':
-      case 'vip':
-      case 'unvip':
-      case 'untimeout':
+    final kind = _moderationAction(baseAction);
+    switch (kind) {
+      case ModerationAction.ban:
+      case ModerationAction.unban:
+      case ModerationAction.mod:
+      case ModerationAction.unmod:
+      case ModerationAction.vip:
+      case ModerationAction.unvip:
+      case ModerationAction.untimeout:
         targetName = metaObj?['user_name'] as String?;
         reason = metaObj?['reason'] as String?;
         break;
-      case 'warn':
+      case ModerationAction.warn:
         targetName = metaObj?['user_name'] as String?;
         reason = metaObj?['reason'] as String?;
         break;
-      case 'timeout':
+      case ModerationAction.timeout:
         targetName = metaObj?['user_name'] as String?;
         reason = metaObj?['reason'] as String?;
         final expiresAt = metaObj?['expires_at'] as String?;
@@ -476,22 +558,22 @@ class EventSubDecoder {
           }
         }
         break;
-      case 'delete':
+      case ModerationAction.delete:
         targetName = metaObj?['user_name'] as String?;
         messageId = metaObj?['message_id'] as String?;
         messageBody = metaObj?['message_body'] as String?;
         break;
-      case 'add_blocked_term':
-      case 'remove_blocked_term':
-      case 'add_permitted_term':
-      case 'remove_permitted_term':
+      case ModerationAction.addBlockedTerm:
+      case ModerationAction.removeBlockedTerm:
+      case ModerationAction.addPermittedTerm:
+      case ModerationAction.removePermittedTerm:
         // Term decisions nest under automod_terms, not under the action.
         final termsObj = event['automod_terms'] as Map<String, dynamic>?;
         final rawTerms = termsObj?['terms'];
         if (rawTerms is List) terms = rawTerms.whereType<String>().toList();
         break;
-      case 'approve_unban_request':
-      case 'deny_unban_request':
+      case ModerationAction.approveUnbanRequest:
+      case ModerationAction.denyUnbanRequest:
         final requestObj =
             event['unban_request'] as Map<String, dynamic>? ?? metaObj;
         targetName = requestObj?['user_name'] as String?;
@@ -499,27 +581,30 @@ class EventSubDecoder {
             requestObj?['resolution_text'] as String? ??
             requestObj?['reason'] as String?;
         break;
-      case 'slow':
-      case 'slowoff':
-      case 'followers':
-      case 'followersoff':
-      case 'emoteonly':
-      case 'emoteonlyoff':
-      case 'subscribers':
-      case 'subscribersoff':
-      case 'uniquechat':
-      case 'uniquechatoff':
-      case 'raid':
-      case 'unraid':
-      case 'clear':
-        // Bare actions: no payload fields, the action is the whole story.
+      case ModerationAction.slow:
+      case ModerationAction.slowOff:
+      case ModerationAction.followers:
+      case ModerationAction.followersOff:
+      case ModerationAction.emoteOnly:
+      case ModerationAction.emoteOnlyOff:
+      case ModerationAction.subscribers:
+      case ModerationAction.subscribersOff:
+      case ModerationAction.uniqueChat:
+      case ModerationAction.uniqueChatOff:
+      case ModerationAction.raid:
+      case ModerationAction.unraid:
+      case ModerationAction.clear:
+      case ModerationAction.unknown:
+        // Bare actions carry no payload fields; unknown future actions carry
+        // nothing this version understands. Either way the action is the story.
         break;
     }
 
     _moderationController.add(
       ModerationEvent(
         channel: channel,
-        action: baseAction,
+        action: kind,
+        rawAction: baseAction,
         moderatorName: moderatorName,
         targetName: targetName,
         reason: reason,

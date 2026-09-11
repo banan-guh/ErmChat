@@ -8,6 +8,7 @@ import 'package:http/testing.dart';
 import 'package:ermchat/chat/chat.dart';
 import 'package:ermchat/client/session.dart';
 import 'package:ermchat/eventsub/decode/decoder.dart';
+import 'package:ermchat/eventsub/decode/events.dart';
 import 'package:ermchat/eventsub/topics.dart';
 import 'package:ermchat/eventsub/transport/connection.dart';
 import 'package:ermchat/models/twitch_message.dart';
@@ -59,7 +60,7 @@ void main() {
   late Map<String, int> script;
   late List<(String, String)> lines;
   late List<(String, bool)> analytics;
-  late List<String> hypeKinds;
+  late List<HypeTrainKind> hypeKinds;
   late Map<String, DateTime> armed;
   late Set<String> cleared;
 
@@ -197,6 +198,13 @@ void main() {
       expect(isDeleted('msg-2'), isTrue);
       expect(lines.last.$2, 'moduser cleared the chat.');
       expect(feedActions().first, 'clear');
+    });
+
+    test('unknown future action lands in the feed with no line', () async {
+      await subscribeAll();
+      decoder.feed(_moderate(action: 'some_future_action', meta: {}));
+      expect(feedActions(), ['some_future_action']);
+      expect(lines, isEmpty);
     });
   });
 
@@ -614,7 +622,7 @@ void main() {
           'total': 100,
         }),
       );
-      expect(hypeKinds, ['begin']);
+      expect(hypeKinds, [HypeTrainKind.begin]);
     });
 
     test('widgets without the subscription are dropped', () async {

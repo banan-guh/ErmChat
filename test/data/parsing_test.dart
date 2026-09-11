@@ -1835,7 +1835,7 @@ void main() {
 
       expect(events, hasLength(1));
       expect(events[0].channel, 'testchannel');
-      expect(events[0].action, 'ban');
+      expect(events[0].action, ModerationAction.ban);
       expect(events[0].moderatorName, 'moduser');
       expect(events[0].targetName, 'targetuser');
       expect(events[0].reason, 'spam');
@@ -1859,11 +1859,11 @@ void main() {
       );
 
       expect(events, hasLength(1));
-      expect(events[0].action, 'timeout');
+      expect(events[0].action, ModerationAction.timeout);
       expect(events[0].durationSeconds, closeTo(300, 10));
     });
 
-    for (final (name, action, meta, expectedAction) in [
+    for (final (name, action, meta, expectedAction, expectedRaw) in [
       (
         'delete carries message id and body',
         'delete',
@@ -1874,6 +1874,7 @@ void main() {
             'message_body': 'hello',
           },
         },
+        ModerationAction.delete,
         'delete',
       ),
       (
@@ -1882,30 +1883,35 @@ void main() {
         {
           'shared_chat_ban': {'user_name': 'targetuser'},
         },
+        ModerationAction.ban,
         'ban',
       ),
       (
         'clear emits event without target',
         'clear',
         <String, dynamic>{},
+        ModerationAction.clear,
         'clear',
       ),
       (
         'slow emits bare action without target',
         'slow',
         <String, dynamic>{},
+        ModerationAction.slow,
         'slow',
       ),
       (
         'followersoff emits bare action',
         'followersoff',
         <String, dynamic>{},
+        ModerationAction.followersOff,
         'followersoff',
       ),
       (
         'unknown future actions still emit for the feed',
         'some_future_action',
         <String, dynamic>{},
+        ModerationAction.unknown,
         'some_future_action',
       ),
     ]) {
@@ -1915,11 +1921,12 @@ void main() {
         service.feed(_moderate(action: action, meta: meta));
         expect(events, hasLength(1), reason: name);
         expect(events[0].action, expectedAction, reason: name);
-        if (expectedAction == 'delete') {
+        expect(events[0].rawAction, expectedRaw, reason: name);
+        if (expectedAction == ModerationAction.delete) {
           expect(events[0].messageId, 'msg-1', reason: name);
           expect(events[0].messageBody, 'hello', reason: name);
         }
-        if (expectedAction == 'clear') {
+        if (expectedAction == ModerationAction.clear) {
           expect(events[0].targetName, isNull, reason: name);
         }
       });
@@ -1942,7 +1949,7 @@ void main() {
         ),
       );
       expect(events, hasLength(1));
-      expect(events[0].action, 'add_blocked_term');
+      expect(events[0].action, ModerationAction.addBlockedTerm);
       expect(events[0].terms, ['bad word', 'worse*']);
       expect(events[0].targetName, isNull);
     });
@@ -1962,7 +1969,7 @@ void main() {
         ),
       );
       expect(events, hasLength(1));
-      expect(events[0].action, 'approve_unban_request');
+      expect(events[0].action, ModerationAction.approveUnbanRequest);
       expect(events[0].targetName, 'spammer');
       expect(events[0].reason, 'second chance');
     });
@@ -1986,7 +1993,7 @@ void main() {
         ),
       );
       expect(events, hasLength(1));
-      expect(events[0].action, 'timeout');
+      expect(events[0].action, ModerationAction.timeout);
       expect(events[0].targetName, 'spammer');
       expect(events[0].durationSeconds, closeTo(300, 10));
     });
@@ -2068,7 +2075,7 @@ void main() {
         }),
       );
       expect(events, hasLength(1));
-      expect(events[0].kind, 'create');
+      expect(events[0].kind, ShoutoutKind.create);
       expect(events[0].fromLogin, 'streamer');
       expect(events[0].toLogin, 'friend');
     });
@@ -2084,7 +2091,7 @@ void main() {
         }),
       );
       expect(events, hasLength(1));
-      expect(events[0].kind, 'receive');
+      expect(events[0].kind, ShoutoutKind.receive);
       expect(events[0].fromLogin, 'friend');
       expect(events[0].toLogin, 'streamer');
     });
@@ -2100,7 +2107,7 @@ void main() {
         }),
       );
       expect(events, hasLength(1));
-      expect(events[0].kind, 'send');
+      expect(events[0].kind, WarningKind.send);
       expect(events[0].userLogin, 'spammer');
       expect(events[0].reason, 'spam');
     });
@@ -2115,7 +2122,7 @@ void main() {
         }),
       );
       expect(events, hasLength(1));
-      expect(events[0].kind, 'acknowledge');
+      expect(events[0].kind, WarningKind.acknowledge);
       expect(events[0].userLogin, 'spammer');
     });
 
@@ -2126,7 +2133,7 @@ void main() {
         topic('channel.unban_request.create', {'user_login': 'spammer'}),
       );
       expect(events, hasLength(1));
-      expect(events[0].kind, 'create');
+      expect(events[0].kind, UnbanRequestKind.create);
       expect(events[0].userLogin, 'spammer');
     });
 
@@ -2141,7 +2148,7 @@ void main() {
         }),
       );
       expect(events, hasLength(1));
-      expect(events[0].kind, 'resolve');
+      expect(events[0].kind, UnbanRequestKind.resolve);
       expect(events[0].userLogin, 'spammer');
       expect(events[0].moderatorName, 'moduser');
       expect(events[0].resolutionText, 'second chance');
@@ -2159,10 +2166,30 @@ void main() {
         }),
       );
       expect(events, hasLength(1));
-      expect(events[0].action, 'add');
+      expect(events[0].action, AutomodTermsAction.add);
+      expect(events[0].rawAction, 'add');
       expect(events[0].list, 'blocked');
       expect(events[0].terms, ['bad word']);
     });
+
+    test(
+      'unknown terms action maps to unknown and keeps the raw wire',
+      () async {
+        final events = <AutomodTermsEvent>[];
+        service.onAutomodTerms.listen(events.add);
+        service.feed(
+          topic('automod.terms.update', {
+            'action': 'modify',
+            'list': 'blocked',
+            'terms': ['bad word'],
+            'moderator_user_name': 'moduser',
+          }),
+        );
+        expect(events, hasLength(1));
+        expect(events[0].action, AutomodTermsAction.unknown);
+        expect(events[0].rawAction, 'modify');
+      },
+    );
 
     test('automod settings update carries moderator', () async {
       final events = <AutomodSettingsEvent>[];
@@ -2188,7 +2215,7 @@ void main() {
         }),
       );
       expect(events, hasLength(1));
-      expect(events[0].kind, 'message');
+      expect(events[0].kind, SuspiciousUserKind.message);
       expect(events[0].userLogin, 'spammer');
       expect(events[0].status, 'restricted');
       expect(events[0].types, ['manually_added']);
@@ -2207,7 +2234,7 @@ void main() {
         }),
       );
       expect(events, hasLength(1));
-      expect(events[0].kind, 'update');
+      expect(events[0].kind, SuspiciousUserKind.update);
       expect(events[0].status, 'monitored');
       expect(events[0].moderatorName, 'moduser');
     });
@@ -2225,7 +2252,7 @@ void main() {
         }),
       );
       expect(events, hasLength(1));
-      expect(events[0].kind, 'add');
+      expect(events[0].kind, PointRewardKind.add);
       expect(events[0].reward.id, 'reward1');
       expect(events[0].reward.title, 'Hydrate');
       expect(events[0].reward.cost, 500);
@@ -2245,7 +2272,7 @@ void main() {
         }),
       );
       expect(events, hasLength(1));
-      expect(events[0].kind, 'add');
+      expect(events[0].kind, PointRedemptionKind.add);
       expect(events[0].redemption.userLogin, 'fan');
       expect(events[0].redemption.userInput, 'do a flip');
       expect(events[0].redemption.rewardId, 'reward1');
@@ -2263,7 +2290,7 @@ void main() {
         }),
       );
       expect(events, hasLength(1));
-      expect(events[0].kind, 'update');
+      expect(events[0].kind, PointRedemptionKind.update);
       expect(events[0].redemption.id, 'red1');
       expect(events[0].redemption.status, 'FULFILLED');
     });
@@ -2557,7 +2584,7 @@ void main() {
         expect(events, hasLength(1));
         final e = events[0];
         expect(e.channel, 'testchannel');
-        expect(e.kind, 'begin');
+        expect(e.kind, HypeTrainKind.begin);
         expect(e.level, 2);
         expect(e.progress, 30);
         expect(e.total, 100);
@@ -2567,6 +2594,19 @@ void main() {
         expect(e.topContributions[0].type, 'BITS');
       },
     );
+
+    test('unknown kind maps to unknown and keeps the raw wire', () async {
+      final events = <HypeTrainEvent>[];
+      service.onHypeTrain.listen(events.add);
+
+      service.feed(
+        widget('channel.hype_train.pause', <String, dynamic>{'level': 1}),
+      );
+
+      expect(events, hasLength(1));
+      expect(events[0].kind, HypeTrainKind.unknown);
+      expect(events[0].rawKind, 'pause');
+    });
   });
 
   group('parseIrcMessage', () {
