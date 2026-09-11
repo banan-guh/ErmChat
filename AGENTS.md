@@ -25,6 +25,10 @@ dart format .      # format all Dart files
 - Emote caching: `EmoteManager` (ChangeNotifier, metadata TTL, usage registry) + `EmoteCacheManager` (disk cap, evicts by registry priority). 7TV live updates via `SevenTvEventClient`.
 - Message spans are cached per message in `MessageBuilder` and invalidated against `EmoteManager.version`, so emote changes recompute lazily.
 
+## Architecture rules
+
+See [docs/ARCHITECTURE_RULES.md](docs/ARCHITECTURE_RULES.md) for the rules and [docs/DECISIONS.md](docs/DECISIONS.md) for why. [docs/BEHAVIOR_CHECKLIST.md](docs/BEHAVIOR_CHECKLIST.md) gates each migration phase. `test/architecture/architecture_test.dart` enforces the import-direction rules; keep it green.
+
 ## Chat kernel conventions
 
 - `Chat` is the root: channel registry and cross-channel totals. `Channel` composes `Messages`/`Threads`/`Unread`/`Moderation`/`Points`/`ChannelInfo`. Account identity lives in `lib/client/Session`, outside the kernel; the app subscribes to `Session.version`.
