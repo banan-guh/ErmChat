@@ -32,8 +32,11 @@ import '../services/chat_channel_setup.dart';
 import '../services/chat_sender.dart';
 import '../services/eventsub_consumer.dart';
 import '../services/seven_tv_consumer.dart';
+import '../services/join_progress_tracker.dart';
 import '../chat/chat.dart';
 import '../client/session.dart';
+
+export '../services/join_progress_tracker.dart' show JoinProgress;
 
 /// Services the chat pipeline depends on. Constructed once per screen and
 /// injectable for tests.
@@ -68,15 +71,6 @@ class ChatServices {
   /// The shared JOIN budget both sockets were wired with; null disables
   /// join-progress surfacing.
   final JoinRateLimiter? joinBudget;
-}
-
-/// Per-channel join-queue progress: the channel's position in the shared
-/// JOIN FIFO and an estimated seconds-to-send. Null info means the wait is
-/// over (confirmed, sent, or dropped) and any countdown line should go.
-class JoinProgress {
-  const JoinProgress(this.position, this.etaSeconds);
-  final int position;
-  final int etaSeconds;
 }
 
 /// Coarse connect phase for UI copy. Single source of truth for anything
@@ -253,14 +247,7 @@ class ChatConnectionManager {
   /// start, including their handshake windows), no for anonymous read-only
   /// sessions where there is nothing to echo.
   bool get _readExpected => !_lastIrcAnonymous;
-  // Channels currently showing a join-countdown line; drives the clear emit
-  // when the wait ends or the socket drops.
-  final _joinWaitShown = <String>{};
   final _joinFailed = <String>{};
-  // Last countdown values shown per channel, so the displayed position never
-  // regresses when the rejoin sweep re-queues an in-flight channel.
-  final _lastJoinProgress = <String, JoinProgress>{};
-  Timer? _joinProgressTimer;
   static const _roomStateNoticeIds = {
     'followers_on_zero',
     'followers_on',
@@ -355,6 +342,15 @@ class ChatConnectionManager {
     emoteManager: emoteManager,
     sevenTvClient: sevenTvClient,
     onSystemMessage: onSystemMessage,
+  );
+
+  // Join-queue progress surfaced to the UI while channels wait in the budget.
+  late final JoinProgressTracker _joinProgress = JoinProgressTracker(
+    joinBudget: joinBudget,
+    channelNames: () => chat.names,
+    isReady: isChannelChatReady,
+    isFailed: (channel) => _joinFailed.contains(channel),
+    onProgress: (channel, info) => onJoinProgress?.call(channel, info),
   );
 
   // Chat-content routing (PRIVMSG/CLEARMSG/CLEARCHAT/clears/own echo).
@@ -461,8 +457,7 @@ class ChatConnectionManager {
 
   void dispose() {
     isDisposed = true;
-    _joinProgressTimer?.cancel();
-    _joinProgressTimer = null;
+    _joinProgress.dispose();
     // This manager owned the session's join demand; drop its queued units so
     // the shared bucket's pump timer can wind down instead of ticking on
     // dead sockets forever.
@@ -591,14 +586,6 @@ class ChatConnectionManager {
     TwitchMessage? replyTo,
   }) => _sender.send(text, channel, replyTo: replyTo);
 
-  /// Retires the channel's countdown line (if shown) via a null progress
-  /// emit, so the UI removes the row.
-  void _clearJoinWait(String channel) {
-    _lastJoinProgress.remove(channel);
-    if (!_joinWaitShown.remove(channel)) return;
-    onJoinProgress?.call(channel, null);
-  }
-
   /// Whether both IRC sockets are up. The write socket alone can deliver a
   /// PRIVMSG, but without the read socket the local echo has no ride. The
   /// read side only counts once it has connected at least once this session,
@@ -643,81 +630,6 @@ class ChatConnectionManager {
     }
   }
 
-  /// Emits per-channel join-queue progress once per second while any JOIN is
-  /// still waiting in the shared budget (either socket): position plus an ETA
-  /// derived from the bucket's refill rate. Channels that left the queue but
-  /// have not confirmed on every live socket yet keep or drop their countdown
-  /// accordingly (the "Connected" line lands when the write side confirms).
-  void _tickJoinProgress() {
-    final budget = joinBudget;
-    if (budget == null || isDisposed) return;
-    for (final channel in chat.names) {
-      if (_joinFailed.contains(channel)) continue;
-      if (isChannelChatReady(channel)) {
-        _clearJoinWait(channel);
-        continue;
-      }
-      final position = budget.positionOf(channel);
-      if (position != null && position > 0) {
-        // Monotonic clamp: a rejoin sweep can re-queue an in-flight channel
-        // behind newer joins, which would make the countdown jump back up.
-        // Once shown, the numbers only move down until the channel is ready.
-        final last = _lastJoinProgress[channel];
-        final shown = (last != null && last.position < position)
-            ? last.position
-            : position;
-        if (last != null && shown < position) {
-          PerfLog.I.record(
-            'JOINQ',
-            'wait $channel clamped pos=$position -> $shown',
-          );
-        }
-        final rawEta = budget.etaSecondsForChannel(channel);
-        final eta = (last != null && last.etaSeconds < rawEta)
-            ? last.etaSeconds
-            : rawEta;
-        final numbersDone = position <= 1 && eta <= 0;
-        if (numbersDone) {
-          // Head-of-queue with banked tokens: dispatches this instant, and
-          // "position 1 · ~0s" would just repeat every tick. Degrade to the
-          // numberless marker until the echo lands.
-          _lastJoinProgress.remove(channel);
-          _emitPlainJoining(channel);
-          continue;
-        }
-        final progress = JoinProgress(shown, eta);
-        _lastJoinProgress[channel] = progress;
-        _joinWaitShown.add(channel);
-        onJoinProgress?.call(channel, progress);
-      } else {
-        // Unit fully sent (or imminent): no honest numbers exist anymore.
-        // Keep a numberless marker so the channel still reads as joining
-        // until its "Connected" lands.
-        _emitPlainJoining(channel);
-      }
-    }
-  }
-
-  /// Emits the numberless "still joining" state for [channel].
-  void _emitPlainJoining(String channel) {
-    _joinWaitShown.add(channel);
-    onJoinProgress?.call(channel, const JoinProgress(0, 0));
-  }
-
-  /// Starts the one-second progress ticker for the manager's lifetime. It
-  /// idles cheaply when nothing is queued; mid-session channel joins must
-  /// surface too, so it never stops until [dispose].
-  void _ensureJoinProgressTicker() {
-    if (_joinProgressTimer != null || joinBudget == null || isDisposed) {
-      return;
-    }
-    _joinProgressTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      _tickJoinProgress();
-    });
-    // First snapshot immediately so a cold start shows positions at once.
-    _tickJoinProgress();
-  }
-
   Future<void> connect() async {
     if (isDisposed) return;
     if (_isConnecting) {
@@ -729,7 +641,7 @@ class ChatConnectionManager {
       final auth = twitchAuth;
 
       _setupSubscriptions();
-      _ensureJoinProgressTicker();
+      _joinProgress.ensureTicker();
       _startWatchdog();
 
       sevenTvClient?.connect();
@@ -796,9 +708,7 @@ class ChatConnectionManager {
           _connectedAcked.clear();
           _lastSubscribeAll = null;
           _joinedChannels.clear();
-          for (final channel in List.of(_joinWaitShown)) {
-            _clearJoinWait(channel);
-          }
+          _joinProgress.clearAllWaits();
           // Failure state is per socket lifetime: the fresh socket runs its
           // own fast sweep, so it may legitimately fail (and re-announce)
           // again.
@@ -1173,7 +1083,7 @@ class ChatConnectionManager {
       // Stop the perpetual "still joining" marker; the channel is not ready
       // and the failure was already surfaced as a system message.
       _joinFailed.add(event.channel);
-      _clearJoinWait(event.channel);
+      _joinProgress.clearWait(event.channel);
     });
 
     whisperSub?.cancel();
@@ -1291,7 +1201,7 @@ class ChatConnectionManager {
         if (isNew) {
           PerfLog.I.record('JOINQ', 'read-confirm ${event.channel}');
           _joinFailed.remove(event.channel);
-          _clearJoinWait(event.channel);
+          _joinProgress.clearWait(event.channel);
           if (isChannelChatReady(event.channel)) {
             _announceConnected(event.channel);
             connectionStateNotifier.value++;
