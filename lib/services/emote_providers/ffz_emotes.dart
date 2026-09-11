@@ -4,7 +4,7 @@ import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:http/http.dart' as http;
 import '../../models/generic_emote.dart';
 import '../../util/constants.dart';
-import '../data_usage.dart';
+import '../../util/data_usage.dart';
 
 class FfzEmoteProvider {
   @visibleForTesting

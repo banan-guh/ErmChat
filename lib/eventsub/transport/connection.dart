@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
-import '../../services/connectivity_service.dart';
+import '../../util/connectivity.dart';
 import '../../util/constants.dart';
 import '../../util/log.dart';
 import 'events.dart';

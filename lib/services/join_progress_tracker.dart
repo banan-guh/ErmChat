@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import '../util/log.dart';
-import 'join_rate_limiter.dart';
+import '../irc/join_rate_limiter.dart';
 
 /// Per-channel join-queue progress: the channel's position in the shared
 /// JOIN FIFO and an estimated seconds-to-send. Null info means the wait is

@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import '../models/emote_fetch_tier.dart';
-import '../util/log.dart';
+import 'log.dart';
 
 /// Lightweight numeric data-usage aggregator for the mobile data-saver work.
 ///

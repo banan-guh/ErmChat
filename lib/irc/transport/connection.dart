@@ -4,9 +4,9 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
-import '../../services/connectivity_service.dart';
-import '../../services/data_usage.dart';
-import '../../services/join_rate_limiter.dart';
+import '../../util/connectivity.dart';
+import '../../util/data_usage.dart';
+import '../join_rate_limiter.dart';
 import '../../util/constants.dart';
 import '../../util/log.dart';
 import '../message.dart';

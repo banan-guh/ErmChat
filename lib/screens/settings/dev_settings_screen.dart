@@ -7,7 +7,7 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../util/log.dart';
 import '../../models/emote_fetch_tier.dart';
-import '../../services/data_usage.dart';
+import '../../util/data_usage.dart';
 import '../../util/webp_anim.dart';
 import '../../widgets/emote_image.dart';
 import '../../widgets/app_snack.dart';

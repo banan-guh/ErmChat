@@ -12,7 +12,7 @@ import '../irc/message.dart' show IrcMessage;
 import '../irc/transport/read.dart' show IrcReadService;
 import '../irc/transport/write.dart' show IrcService;
 import '../services/emote_manager.dart';
-import '../services/join_rate_limiter.dart';
+import '../irc/join_rate_limiter.dart';
 import '../services/seven_tv_event_client.dart';
 import '../services/twitch_badge_service.dart';
 import '../services/user_store.dart';
