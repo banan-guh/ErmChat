@@ -1,311 +1,329 @@
-# EventSub reorg (realtime source slice 2)
+# Architecture lockdown: adopt Riverpod, keep the chat engine
 
-Status: FROZEN. Make the code match this document; only the user changes it. Do not
-open another design round.
+Status: LIVE PLAN. Supersedes the EventSub reorg plan (that work shipped). This is
+written for an implementing agent with zero context. Read the whole document before
+touching code. Do not start a phase until the previous phase is green and reported.
 
-This is the concrete plan to give Twitch EventSub one home, make its event model fail
-hard instead of silent, and add the tests that do not exist today. It is written for an
-implementing agent with zero context. Read the whole document before touching code. Do
-not start a group until the previous group is green and reported.
+Baseline: `v0.8.0` and all extraction commits are on the tree. `lib/` is 54,997 lines,
+`test/` is 31,452 lines, 1070 tests green, `dart analyze lib test` clean. The chat
+pipeline already owns its logic: `ChatConnectionManager` is 586 lines (a composition
+root plus delegators, was 1,649), with `ChatLifecycle` (683), `ChatIngestion` (662),
+`ChatChannelSetup` (378), `ChatSender` (227), `ChatStatusComposer` (163),
+`JoinProgressTracker` (132), `ChatReadiness` (97), `SevenTvConsumer` (124),
+`EventSubConsumer` (624), `EventSubTopics` (386). `ARCHITECTURE.md` maps the whole app
+(Mermaid, 7 diagrams) and includes a "who writes what" mutation map.
 
-Stages 1 through 3 are owner extraction and pure moves. Stage 4 is the only model
-change. The rendered output must not change in any stage.
+## Goal
 
-## Why
+Move the app from hand-rolled wiring to a framework-owned access and lifecycle layer,
+so the next phase is additive-friendly and rule-enforced, without replacing the domain
+or the hot path. End state: one idiom for construction, scope, disposal, and
+observation; the chat engine kept for its atomic ingest and 5000-message target; the
+architecture rules written down and machine-checked.
 
-EventSub is one subsystem with three owners:
+## Non-goals
 
-- **Protocol**: `lib/services/twitch_eventsub.dart` (1080) fuses the socket, session
-  handshake, keepalive, the JSON frame, the `subscription_type` switch, 14 typed
-  streams, and the event classes.
-- **Subscription lifecycle**: `lib/services/chat_channel_setup.dart` holds 14
-  active/skip sets, seven near-identical `_subscribeX` methods, the resubscribe path,
-  and the seven gate predicates.
-- **Consumption**: `lib/services/chat_connection_manager.dart:1530-2052` applies the
-  typed events to `Chat`/`Moderation`/`Points` and emits system lines.
+- No 1:1 dankchat port. Kotlin + Compose + Android does not map to Dart + Flutter, and
+  dankchat has its own god objects (`MainFragment` 1,551, `ChatRepository` 920,
+  `MainViewModel` 913) and lacks our EventSub scope and dual-socket IRC.
+- No global service locator. Providers are scoped and declare their dependencies.
+- No event bus. One typed notifier per owner stays.
+- No UI redesign. Visuals and layout do not change.
+- Not a leak project. A light parallel audit only; the framework does not fix leaks.
+- No codegen in this plan. `json_serializable` is a later, separate track.
 
-The seams between these owners cause the known hazards: session-scoped active sets
-versus account-scoped skip sets reset in a different object than the consumer,
-`isModerationActive` arbitration split from the code it gates, EventSub listeners bound
-with `??=` so they never rebind, `_channelUserIds` never cleared, and seven subscribe
-methods with divergent success rules and no tests.
+## Locked decisions
 
-EventSub itself is receive-only. Subscriptions go out over Helix
-(`TwitchApi.createEventSubSubscription`), notifications come in over the socket.
-Actions (ban, timeout, delete, warn, raid, poll, prediction, shield, shoutout) are
-Helix REST and already have a single owner, `ModActions`
-(`lib/services/mod_actions.dart:30`). They stay there. This plan does not move actions,
-and does not fold them into EventSub.
+- **D1 Framework: Riverpod.** Chosen for rules, consistency, lifecycle correctness, and
+  additive-friendliness, not for fewer lines. `dart analyze`-safe DI with no
+  `BuildContext` or locator, `autoDispose` plus `ref.onDispose`, `ProviderContainer`
+  overrides in tests, fine-grained `select`. Pin the version; do not float it.
+- **D2 Engine: keep the mutable chat kernel.** `Chat -> Channel -> children` is the
+  domain state model, not pipeline logic. It provides atomic multi-child ingest
+  (`Channel.receive`), one message source of truth, a thread index, and cross-channel
+  aggregates. It stays mutable because immutable state costs a copy plus sort per
+  message and breaks the 5000-message target. The engine is framework-agnostic and is
+  reached through providers.
+- **D3 UI: observation migration only.** Widgets stop constructing shared objects and
+  stop manual `addListener`/`removeListener` of shared state. Layout, copy, and styling
+  are untouched.
+- **D4 No fat runtime object.** There is no `ChatRuntime` bundle. App-scope providers
+  each produce one thing; screen-scoped (`autoDispose`) providers hold view-only state.
+  The provider graph is the hub. This answers the data/UI split: non-UI state is
+  app-scope providers, UI state is screen-scope providers.
+- **D5 Ring buffer later.** A true O(1) prepend buffer is a `Messages`-internal change
+  behind the existing API, in its own phase.
+- **D6 Codegen later, separate.**
+- **D7 Scope: chat and main architecture.** Emotes, settings, and other feature
+  refactors are deferred.
+- **D8 Leak audit: light and parallel.** Not a focus, not gating.
+- **D9 Rules live in exactly one file.** `docs/ARCHITECTURE_RULES.md` is the single
+  source for architecture rules. `AGENTS.md` only points to it and holds operational
+  facts. `docs/DECISIONS.md` holds the rationale. The architecture test enforces the
+  mechanical subset and names the rule it checks.
+- **D10 Kernel migration is optional and post-Phase 3.** It happens only if both
+  criteria in Phase 6 hold. It is not scheduled.
 
-The event model is also stringly-typed. `ModerationEvent.action`
-(`twitch_eventsub.dart:16`) and ten `String kind` fields
-(`:75,92,109,128,155,178,191,204,237,261`) are switched on string literals behind a
-silent `default:`. A typo or a new Twitch action is a runtime no-op. Enums turn that
-into a compile error.
+## The two rulebooks
 
-## Ground rules (non-negotiable)
+Both are consolidated in `docs/ARCHITECTURE_RULES.md`. Summary:
 
-1. `lib/eventsub/transport/**` imports no `lib/chat/**`, no `lib/models/**`, no
-   `lib/client/session.dart`, and no `lib/eventsub/decode/**`. It emits frames and
-   connection events only.
-2. `lib/eventsub/decode/**` may import `lib/models/**`, `lib/client/session.dart`, and
-   `lib/util/**`.
-3. `lib/eventsub/topics.dart` may import `TwitchApi`, `TwitchAuth`, `Session`, `Chat`,
-   the transport, and `lib/util/**` (it logs with `logDebug`).
-4. `lib/services/eventsub_consumer.dart` may import `Chat`, `Session`,
-   `EventSubTopics`, the decoder, and `lib/util/**`.
-5. No compatibility facade or barrel. `lib/services/twitch_eventsub.dart` is deleted at
-   the end of Stage 1. Update every call site; compile errors are the checklist.
-6. Stages 1 through 3 are pure moves or pure owner extraction. Do not improve behavior
-   while relocating it. Stage 4 is the only model change.
-7. Format only touched files (`dart format <file> ...`), never `dart format .`. Short
-   present-tense comments. No em-dashes. Do not commit unless told. Follow `AGENTS.md`
-   and `RULES.md`.
+**Hard rules (non-negotiable):**
 
-## Target tree
+1. One writer per state. Rows mutate only through `Channel`/`Messages` verbs;
+   coordinated multi-child writes go through `Channel` verbs.
+2. One direction: `transport -> decode -> kernel -> pipeline -> UI`. Transport leaves
+   import nothing upward; screens import no transport.
+3. Providers are the only way to obtain shared objects. No `new` of shared services in
+   widgets; no globals.
+4. `watch` for reactive reads, `read` only for documented imperative one-shots. Builds
+   are pure; effects live in lifecycle methods, `ref.listen`, or notifier methods.
+5. Every resource-owning provider registers `ref.onDispose`.
+6. Small, purpose-named providers. A god provider is a review failure.
+7. The architecture test passes.
 
-```
-lib/eventsub/
-  transport/
-    events.dart      EventSubStatus
-    connection.dart  EventSubService (socket, reconnect, keepalive, session,
-                     connectivity) -> onNotification + onStatus + sessionId
-  decode/
-    events.dart      all typed event classes
-    decoder.dart     EventSubDecoder -> 14 typed streams, setChannelMapping,
-                     feed, dispose
-  topics.dart        EventSubTopics (14 sets, subscribe/resubscribe/reset/
-                     forget, 7 gate predicates, isBroadcaster)
+**Excusable (allowed, with a note):**
 
-lib/services/
-  eventsub_consumer.dart   EventSubConsumer (typed events -> Chat/UI)
-```
+1. The chat kernel is a mutable, framework-agnostic exception. It is exposed through a
+   provider, and widgets observe its leaf `ValueNotifier`s with `ListenableBuilder` /
+   `ValueListenableBuilder`. This is the one sanctioned non-Riverpod observation path,
+   chosen over a fragile Riverpod adaptor for correctness and low risk.
+2. A small adaptor layer is allowed during the strangler period.
+3. Naming and placement can be sorted later. Never move the same state twice.
+4. File-size budgets have an allowlist. A growing file is a signal to extract, not a
+   hard wall.
 
-`EventSubConsumer` stays in `lib/services/` because it mutates the chat kernel, exactly
-like `ChatIngestion` for IRC. `EventSubTopics` lives under `lib/eventsub/` because it is
-the EventSub client surface (subscribe/resubscribe), even though it talks to Helix and
-`Session`. The transport class keeps the name `EventSubService`; renaming it is out of
-scope.
+## Definition of done
 
-## Ownership map (old to new)
+1. `test/architecture/architecture_test.dart` passes: layer direction plus provider
+   placement (no transports in screens, no `ref` in the kernel).
+2. No widget constructs a shared service or manually listens to or disposes shared
+   state.
+3. `HomeScreen` constructs nothing shared; it consumes providers and implements UI
+   effects only.
+4. The mutation map has no multi-writer states.
+5. The 5000-message hot path is verified against the baseline (no dropped frames).
+6. A fresh session can read `docs/ARCHITECTURE_RULES.md`, `docs/DECISIONS.md`, and
+   `ARCHITECTURE.md` and know the rules and the why.
+7. Behavior parity on a written checklist: composer and send, channel join and leave,
+   moderation, emotes, whispers, account switch, settings.
 
-| Old symbol | Old site | New home |
-| --- | --- | --- |
-| event classes | `twitch_eventsub.dart:14-285` | `eventsub/decode/events.dart` |
-| `EventSubStatus` | `twitch_eventsub.dart:1080` | `eventsub/transport/events.dart` |
-| typed controllers + getters | `twitch_eventsub.dart:312-351,373-392` | `eventsub/decode/decoder.dart` |
-| `isConnected`/`sessionId`/`isStale`/`forceReconnect` | `twitch_eventsub.dart:353-369` | `eventsub/transport/connection.dart` |
-| `setChannelMapping`/`_channelFromPayload` | `twitch_eventsub.dart:394-405` | `eventsub/decode/decoder.dart` |
-| `waitForSession` | `twitch_eventsub.dart:407-411` | `eventsub/transport/connection.dart` |
-| `connect`/`_scheduleReconnect`/`_safeComplete`/`_waitForReady` | `twitch_eventsub.dart:413-514` | `eventsub/transport/connection.dart` |
-| `_handleMessage` (session arms, notification emit) | `twitch_eventsub.dart:516-537` | `eventsub/transport/connection.dart` |
-| `_onWelcome`/`_handleReconnect`/`_resetKeepalive` | `twitch_eventsub.dart:539-573` | `eventsub/transport/connection.dart` |
-| `_onNotification` + 14 builders | `twitch_eventsub.dart:577-1010` | `eventsub/decode/decoder.dart` |
-| `_ensureConnectivityListener`/`disconnect`/`handleRawMessage`/`emitConnected`/`dispose` | `twitch_eventsub.dart:1012-1077` | `eventsub/transport/connection.dart` |
-| subscription sets | `chat_channel_setup.dart:88-126` | `eventsub/topics.dart` |
-| gate predicates + `isBroadcaster` | `chat_channel_setup.dart:157-187` | `eventsub/topics.dart` |
-| `clearSessionState`/`resetAccountScope` | `chat_channel_setup.dart:205-226` | `eventsub/topics.dart` |
-| `forgetChannel` (EventSub half) | `chat_channel_setup.dart:230-237` | `eventsub/topics.dart` |
-| 7 `_subscribeX` | `chat_channel_setup.dart:464-880` | `eventsub/topics.dart` |
-| `resubscribeEventSubChannels` | `chat_channel_setup.dart:885-913` | `eventsub/topics.dart` |
-| 11 event handlers | `chat_connection_manager.dart:1533-2052` | `eventsub_consumer.dart` |
-| widget listeners | `chat_connection_manager.dart:1500-1514` | `eventsub_consumer.dart` |
-| EventSub subscription fields | `chat_connection_manager.dart:361-381` | `eventsub_consumer.dart` |
-| public delegators `isModerationActive`/`isAutomodActive`/`isBroadcaster` | `chat_connection_manager.dart:534-542` | re-point at `EventSubTopics` |
+## Target architecture
 
-## The seam
+Access is providers; there is no runtime object.
 
-- `EventSubService` parses each JSON frame, consumes
-  `session_welcome`/`session_reconnect`/`revocation`, and emits every `notification`
-  frame on `Stream<Map<String, dynamic>> get onNotification`. It keeps `connect`,
-  `disconnect`, `forceReconnect`, `isConnected`, `isStale`, `sessionId`,
-  `waitForSession`, `onStatus`, `handleRawMessage`, `emitConnected`, `dispose`.
-- `EventSubDecoder(Stream<Map<String, dynamic>> source)` owns the 14 controllers,
-  `setChannelMapping`, `_channelFromPayload`, the `subscription_type` switch, the
-  builders, a `@visibleForTesting void feed(Map<String, dynamic> frame)`, and
-  `dispose`. The `subscription_type` router stays a string switch: it is protocol
-  dispatch, not a domain enum. An unrecognized type is dropped, and A2 adds the one
-  permitted non-move line, a `logDebug` naming the type so a silent miss is visible.
-- `EventSubTopics` owns the subscription lifecycle: `subscribeChannel(channel,
-  channelUserId)`, `resubscribeEventSubChannels(channels)`, `clearSessionState`,
-  `resetAccountScope`, `forgetChannel`, the seven gate predicates, and
-  `isBroadcaster`. It reads `eventSub.sessionId` for the handshake wait.
-- `EventSubConsumer.attach(EventSubDecoder)` subscribes the 14 streams and returns the
-  subscriptions; `dispose()` cancels them. The manager constructs it and re-points
-  `statusSub` at `eventSub.onStatus` only.
-- `ChatChannelSetup` shrinks to joins, Helix/emote/badge/7TV resolution, and chat-status
-  composition. `subscribeChannel` calls `eventSubTopics.subscribeChannel`;
-  `forgetChannel` splits into `eventSubTopics.forgetChannel` plus the existing 7TV
-  cleanup.
-- The manager keeps transport, lifecycle, readiness, send gates, ingestion, and the
-  public delegators, which re-point at `EventSubTopics`. UI call sites do not change.
+- **App-scope (shared, non-UI)**: `twitchApiProvider`, `eventSubServiceProvider`,
+  `ircServiceProvider`, `ircReadServiceProvider`, `sevenTvClientProvider`,
+  `emoteManagerProvider`, `badgeServiceProvider`, `userStoreProvider`,
+  `twitchAuthProvider`, `pingManagerProvider`, `ignoreManagerProvider`,
+  `joinBudgetProvider`, `chatProvider` (the kernel), `sessionProvider`, and
+  `chatPipelineProvider` (builds and owns `ChatConnectionManager`).
+- **Screen-scope (`autoDispose`)**: selection, tab index, panel state, scroll and
+  bottom notifiers, tile caches, composer state that is not shared.
+- **Kernel bridge**: `channelProvider = Provider.family<Channel, String>` reads
+  `chatProvider`. Widgets observe the channel leaf notifiers with Flutter `Listenable`
+  builders (excusable rule 1). Kernel mutations never originate in widgets; they go
+  through the pipeline owners.
 
-Construction and wiring: the manager constructs `eventSubTopics` (it needs `TwitchApi`,
-`TwitchAuth`, `Session`, `Chat`, and the transport) and `eventSubDecoder` on
-`eventSub.onNotification`. It passes the same `eventSubTopics` instance to
-`ChatChannelSetup` and to `EventSubConsumer`, and the decoder to the consumer.
-`ChatChannelSetup` owns no EventSub state after Stage 2. The consumer attaches in
-`_setupSubscriptions`.
+Lifecycle: providers own construction and teardown. `chatPipelineProvider` registers
+`ref.onDispose(() => manager.dispose())`; transport and manager disposal ordering moves
+out of `HomeScreen.dispose` and into provider teardown.
 
-Ordering is safe: `_setupSubscriptions()` runs at `chat_connection_manager.dart:881`
-before `eventSub.connect()` at `:1110`, and it builds the decoder, so decode is
-listening first.
+## Migration surface (how much changes)
 
-Dispose order inside the manager: `eventSubConsumer.dispose()` (cancel the 14 stream
-subscriptions), then `eventSubDecoder.dispose()` (cancel its `onNotification`
-subscription). The transport is disposed later by `HomeScreen` (`:1508`), after the
-manager (`:1500`), so the decoder unsubscribes before the transport closes its
-controllers. Pin this now: A2 adds only `eventSubDecoder.dispose()`, and C2 inserts the
-consumer dispose ahead of it.
+- Stays: kernel (1,587 lines, one bridge and a later internal buffer swap),
+  `lib/services` domain logic (18,018), transports (3,415), models (828), emotes (350),
+  util (720).
+- Migrates mechanically: 29 UI files with 39 `addListener`, 12
+  `ValueListenableBuilder`, 38 `ListenableBuilder`, 5 `AnimatedBuilder`; `HomeScreen`
+  with 46 construction and dispose sites; ~15 service constructions become providers;
+  `main.dart` gains `ProviderScope`; test harnesses move to `ProviderContainer`
+  overrides as each area is touched.
 
-## Stages and grouping
+This is a migration of the access and observation layer, not a rewrite.
 
-Execute the groups in order. Each group ends with `dart analyze lib test` clean and
-`flutter test` green, and is committed separately only when told.
+## Phases
 
-Commit one per group, at the STOP gate, not one per stage. Tests ride in their group's
-commit.
+Execute in order. Each phase ends with `dart analyze lib test` clean and `flutter test`
+green, and is shippable. Commit one per phase at the STOP gate, not one per task. Do not
+commit unless told.
 
-| Group | Commit |
-| --- | --- |
-| plan doc | `chore: add eventsub reorg plan` |
-| A (Stages A1+A2) | `refactor: split eventsub transport decode` |
-| B (Stages B1+B2+B3) | `refactor: extract eventsub topics` |
-| C1+C2 | `refactor: extract eventsub consumer` |
-| C3 | `refactor: enum eventsub event fields` |
+### Phase 0: rules and baseline
 
-C3 stays its own commit because it is the only model change; everything else is
-structural.
+Tasks:
 
-### Group A: protocol home (Stage 1)
+- Add `docs/ARCHITECTURE_RULES.md` (hard rules, excusable rules, both rulebooks).
+- Add `docs/DECISIONS.md` (the rationale in the "Why" section below plus current state).
+- Add `test/architecture/architecture_test.dart` enforcing layer direction first:
+  `lib/irc` and `lib/eventsub` do not import `lib/services` or `lib/chat`; `lib/chat`
+  does not import `lib/services` or `lib/widgets`; screens and widgets do not import
+  `lib/irc/transport` or `lib/eventsub/transport`. Each assertion names its rule.
+- Add a pointer in `AGENTS.md` to `docs/ARCHITECTURE_RULES.md` and `docs/DECISIONS.md`.
+  Do not interweave rules into other sections.
+- Capture the behavior checklist (Definition of done item 7) for sign-off.
 
-Pure structure. Execute first, then STOP.
+Deliverable: `chore: add architecture rules and baseline`
 
-- **A1 (pure move).** Create `eventsub/decode/events.dart` and
-  `eventsub/transport/events.dart`; move the classes verbatim; delete them from
-  `twitch_eventsub.dart`; update importers. No behavior change.
-- **A2 (the seam).** Add `onNotification`; create `EventSubDecoder`; strip and move the
-  transport to `eventsub/transport/connection.dart`; delete `twitch_eventsub.dart`.
-  Manager builds `eventSubDecoder` and re-points `:1480-1514` from `eventSub.onX` to
-  `eventSubDecoder.onX`; `statusSub` stays on the transport. `ChatChannelSetup` gets
-  `eventSubDecoder` and calls it at `:374`. Add `eventSubDecoder.dispose()` at manager
-  `:444`. Topics and consumption stay where they are.
-- **Gate**: `dart analyze lib test` clean and `flutter test` green.
+Acceptance: architecture test green, existing suites green, checklist approved.
 
-**STOP after A2.** Report the diff and the test count. Do not start Group B until told.
+### Phase 1: spikes
 
-### Group B: subscription home (Stage 2)
+Time-boxed, no production change required to ship except the scripts and notes.
 
-- **B1 (characterization tests).** Add `test/unit/eventsub_topics_test.dart`, driven
-  through a `TwitchApi` fake: success sets the active set, 403 sets the skip set, each
-  family's success rule holds (moderation single, automod all, feed/inbox/trust/points
-  any, widgets all), the broadcaster gate holds for points/widgets, and clear vs reset
-  vs forget touch the right sets.
-- **B2 (extract).** Create `EventSubTopics` and move the sets, the seven `_subscribeX`,
-  `resubscribeEventSubChannels`, the resets, the EventSub half of `forgetChannel`, the
-  predicates, and `isBroadcaster`, verbatim. `ChatChannelSetup.subscribeChannel` calls
-  `eventSubTopics.subscribeChannel`. The manager calls `eventSubTopics` for
-  `clearSessionState` (`:901,1100,1261`), `resetAccountScope` (`:1108,1158`), and
-  `resubscribeEventSubChannels` (`:903`).
-- **B3 (collapse).** Replace the seven methods with a table of `(types, versions,
-  conditionBuilder, successRule, skipSet, activeSet)`. Each family keeps its exact
-  current success rule. Add tests for any rule the B1 tests do not already pin.
-- **Gate**: `dart analyze lib test` clean, `flutter test` green, and the new topics
-  tests green.
+Spike A (framework fit): migrate one bounded, non-kernel slice (the mod panel or a
+settings screen) to Riverpod. Evaluate ergonomics, test setup, rebuild scope, and how
+the kernel's leaf notifiers surface. Output: a written verdict.
 
-**STOP after B3.** Report. Do not start Group C until told.
+Spike B (hot path): implement the mutable engine path and an immutable state path that
+both do dedup, insert, truncate, thread index, and unread, and benchmark them under a
+bursty ingest to 5000 messages with a rebuilding list. Output: frames and allocation
+numbers.
 
-### Group C: consumption home and fail-hard model (Stages 3 and 4)
+Deliverable: `docs: spike results for riverpod and hot path`
 
-- **C1 (characterization tests).** Add `test/unit/eventsub_consumer_test.dart`, driving
-  `EventSubDecoder.feed` and asserting `Chat` effects and system lines for
-  delete/clear, ban/timeout self-gate, feed gating per predicate, inbox/trust, points
-  reward merge and redemption resolve, and automod hold/resolve.
-- **C2 (extract).** Create `EventSubConsumer` and move the 11 handlers, the widget
-  listeners, and the subscription fields verbatim. It owns `attach(EventSubDecoder)` and
-  `dispose()`. The manager keeps construction, `attach`, `dispose`, and the public
-  delegators. This also removes the `??=` rebind model for EventSub.
-- **C3 (fail hard).** Replace `ModerationEvent.action` and the ten `kind` strings with
-  enums mapped once in the decoder. Each enum carries an `unknown` arm that preserves
-  the raw wire string for forward compatibility. Make the consumer switches exhaustive
-  and delete the silent `default:` fallthrough; the `unknown` arm handles the rest
-  explicitly. Convert back to the wire string at the consumer so `ModActivityEntry` and
-  the UI stay unchanged.
-- **Gate**: `dart analyze lib test` clean, `flutter test` green, and the new consumer
-  tests green.
+Acceptance: Spike A confirms Riverpod plus the leaf-notifier bridge; Spike B confirms
+the mutable engine stays. If Spike A fails, fall back to `provider` and record why.
 
-**STOP after C2.** Report. Do C3 as its own reviewed commit only when told.
+### Phase 2: framework introduction (strangler)
 
-## Behavior to preserve (move verbatim)
+Tasks:
 
-- Session: `session_welcome` sets `sessionId`, completes the waiter, reads
-  `keepalive_timeout_seconds`, resets keepalive, emits `connected`, resets the reconnect
-  attempt (`twitch_eventsub.dart:539-548`). `session_reconnect` reconnects to
-  `reconnect_url` (`:550-562`). `revocation` logs only (`:529-530`). Keepalive resets on
-  every frame and fires at 1.5x (`:565-573`).
-- Transport: backoff `min(2^(n-1), 30)` plus jitter, capped at 8 attempts and gated on
-  connectivity (`:464-482`). `_handleMessage` order: read `message_type`, route,
-  then `_resetKeepalive` (`:516-537`).
-- Decode: `_onNotification` routing on `subscription_type`, including the
-  `channel.hype_train.`/`channel.poll.`/`channel.prediction.` prefixes and the
-  `channel.suspicious_user.*`, `channel.channel_points_custom_reward*`, and
-  `automod.message.*` families (`:577-646`).
-- Builders: all field fallbacks and defaults exactly as written, including the automod
-  v1/v2 message and category shape (`:648-677`), the timeout duration clamp
-  (`:946-955`), `shared_chat_` action unwrap (`:912-916`), and the term/unban nesting
-  (`:966-979`).
-- Consumer: all system-line copy, the self-timeout gate arm and clear
-  (`chat_connection_manager.dart:1619,1633`), the feed rows, and the gating predicates
-  per handler.
-- Topics: each family's success rule and skip behavior, including that a 403 on one
-  automod/feed/inbox/trust/points type dooms the rest, widgets break on any failure,
-  and `noteSubscribed` fires on success except for widgets.
+- Add `ProviderScope` in `main.dart`.
+- Add app-scope providers for the services and `chatPipelineProvider`, each with
+  `ref.onDispose`. Construction moves out of `HomeScreen`; behavior is unchanged.
+- `HomeScreen` becomes a consumer of the pipeline provider and keeps only UI effects
+  and view-only state.
+- Keep `HomeScreen`'s constructor service params only for tests during this phase;
+  remove them as tests migrate.
 
-## Tests
+Deliverable: `refactor: add provider scope and pipeline providers`
 
-- `test/data/parsing_test.dart` EventSub groups (`:1806-2570`) retarget from
-  `EventSubService` to `EventSubDecoder`: `setChannelMapping` and `handleRawMessage`
-  become decoder calls (`feed`). Assertions unchanged.
-- `test/unit/irc_test.dart` session lifecycle (`:1812-1873`) stays on the transport.
-  Subclass seams (`_NoopEventSub` `:156`, `_LiveEventSub` `:161`, `_StaleEventSub`
-  `:209`) and `_FakeEventSubService` (`test/widgets/widgets_test.dart:58`) keep
-  extending the transport. Import paths only.
-- New: `test/unit/eventsub_topics_test.dart` (Stage 2),
-  `test/unit/eventsub_consumer_test.dart` (Stage 3).
-- No new behavior tests for the pure moves beyond import changes.
+Acceptance: app runs; `HomeScreen` constructs nothing shared; suites green.
 
-## Verification
+### Phase 3: observation migration
 
-- Per stage: `dart analyze lib test` clean; `flutter test` green.
-- Import rule: `rg "import" lib/eventsub/transport` shows no `models`, `chat`,
-  `session`, or `decode` imports.
-- Stage 3: every consumer switch is exhaustive; no `case` on a bare string where an
-  enum now exists.
-- End to end on two or three busy channels: moderation by another mod
-  (delete/ban/timeout/warn), shield, shoutout, unban request, AutoMod hold and resolve,
-  points reward edit and redemption, broadcaster hype train/poll/prediction, account
-  switch, and an EventSub reconnect that resubscribes.
+Tasks:
 
-## Out of scope
+- Widgets observe app state with `ref.watch` and `select`; kernel leaf state uses the
+  sanctioned `Listenable` builders.
+- Delete manual shared-state `addListener`/`removeListener` and manual shared dispose
+  from widgets.
+- Add `select` on the message list and other hot paths.
+- Verify the 5000-message path against the Phase 1 baseline.
 
-- `ModActions` and all Helix action/query verbs. They are not EventSub.
-- Unifying the IRC moderation echoes (`ChatIngestion`) with the EventSub path into one
-  formatter. That is the later "single ingest path" item.
-- EventSub behavior changes: reconnect/session semantics and the manager's `??=` rebind
-  beyond what the consumer attach fixes. `_channelUserIds` moves to the decoder in A2
-  and is intentionally not cleared in this refactor; clearing it on `forgetChannel` or
-  `disconnect` is a separate change, so do not clear it mid-move.
-- The stringly-typed feed model: `ModActivityEntry.action` (`lib/models/moderation_entries.dart`),
-  `mod_activity_format.dart`, and `_activityIcon` in `mod_view.dart` stay string-based.
-  The consumer converts the enum back to the wire string.
-- 7TV, and renaming `EventSubService`.
+Deliverable: `refactor: migrate widget observation to providers`
+
+Acceptance: no manual shared-state listen or dispose in widgets; suites green; hot path
+at or above baseline.
+
+### Phase 4: chat pipeline cleanups
+
+Limited to the chat path.
+
+Tasks:
+
+- Writer consolidation: add `Channel.setHistoryLoaded` and route the four
+  `ChannelManager` sites; add `Channel.clearHeldModeration` and route the three
+  `clearHeld` sites.
+- Connection status wart: stable ids `sys_conn` and `sys_loading`; upsert the single
+  connection line by id from `ChatLifecycle`; delete the `_statusTexts` folding in
+  `Messages.addSystem`; make `moveConnectedToTop` and `removeLoadingHistory` match by
+  id. Rendering is unchanged.
+- Move `retryChannelData` from the manager to `ChatChannelSetup`.
+- Unify chat-path moderation copy so the system line and the feed entry share one
+  formatter (the AD7 item), for the chat path only.
+
+Deliverable: `refactor: consolidate channel mutation and status`
+
+Acceptance: mutation map has no multi-writer states; suites green.
+
+### Phase 5: ring buffer
+
+Tasks:
+
+- Replace `Messages`' backing list with a ring buffer or deque behind the existing API:
+  O(1) prepend, O(1) indexed read, O(1) tail removal for truncation. Public API and
+  behavior unchanged except timing.
+- Keep the dedup id set and the mutation fan-out as they are.
+
+Deliverable: `perf: ring buffer message storage`
+
+Acceptance: suites green; 5000-message benchmark improved or equal.
+
+### Phase 6: optional kernel re-evaluation
+
+Do this only if both hold:
+
+1. The kernel-to-provider bridge feels leaky, or the kernel is an island that makes
+   feature work harder.
+2. Spike B shows an immutable path within about 10 percent of the mutable engine on the
+   5000-message burst.
+
+If both hold, migrate the engine to Riverpod notifiers as its own phase, with the same
+tests and a fresh benchmark. If either fails, stop and keep the engine. This door stays
+open because the engine is isolated behind one API and one bridge.
+
+### Deferred
+
+- Codegen (`json_serializable`) for models and prefs plumbing.
+- Emote refactor.
+- Leak audit fixes.
+- Every other feature area.
+
+## Why (rationale to keep in docs/DECISIONS.md)
+
+- **Why a framework**: the app is leaving a churn phase and needs rules. A framework
+  gives access and lifecycle rules we currently hand-roll and get wrong (manual
+  listen/dispose, `late final` init order, composition root in a screen). It is chosen
+  for rules, consistency, lifecycle, and additive-friendliness, not for fewer lines and
+  not to fix leaks.
+- **Why Riverpod**: compile-safe DI without a locator, `autoDispose` plus
+  `ref.onDispose`, `ProviderContainer` overrides, `select`. Accepted tradeoff: the
+  mutable chat engine needs the one sanctioned bridge.
+- **Why keep the engine**: atomic multi-child ingest, one source of truth, thread index,
+  cross-channel aggregates, and the 5000-message target. It is the domain model, not
+  pipeline logic, so decentralizing logic does not remove it.
+- **Why not a fat runtime**: a single object bundling transports, kernel, pipeline, and
+  managers is a new god object. Providers give the same ownership without the bundle.
+- **Why not a 1:1 dankchat port**: languages and runtimes differ; dankchat has its own
+  god objects; a port discards our dual-socket IRC, EventSub scope, and kernel, and does
+  not remove the hard decisions.
+- **Why not a global locator or bus**: reachability and hidden coupling are the reason
+  the app hurt before the extractions. Scoped providers and typed notifiers preserve
+  the fix.
+- **Why the kernel migration is optional**: consistency is not worth a hot-path
+  regression. Decide from the bridge's feel and Spike B's numbers.
+
+## Risks and mitigations
+
+- **Riverpod version churn**: pin the version. Treat upgrades as deliberate projects.
+- **Hot-path rebuilds**: use `select` and the leaf `Listenable` builder for the message
+  list. Gate on the Phase 1 baseline.
+- **Bridge fragility**: the sanctioned leaf-notifier path is deliberately simple. If it
+  becomes leaky, that is Phase 6 criterion 1.
+- **Strangler drift**: keep `HomeScreen`'s service params until a phase's tests migrate,
+  then delete. Do not leave both paths alive past Phase 3.
+- **Provider god objects**: hard rule 6, reviewed.
+- **Test churn**: migrate harnesses per area, keep suites green every commit.
+
+## Handoff for a fresh context
+
+- Read `AGENTS.md` (operational), `docs/ARCHITECTURE_RULES.md` (rules),
+  `docs/DECISIONS.md` (why), and `ARCHITECTURE.md` (map plus mutation map).
+- Current state: eight pipeline extractions shipped; `ChatConnectionManager` is a
+  composition root and facade; the kernel is the domain engine; tests green at 1070.
+- Locked: Riverpod (D1), keep the mutable engine (D2), observation-only UI (D3), no
+  runtime bundle (D4), ring buffer later (D5), codegen later (D6), chat and main
+  architecture only (D7), light leak audit (D8), one rules file (D9), optional kernel
+  re-eval post-Phase 3 (D10).
+- Start at Phase 0. Do not begin Phase 1 until the rules and baseline are approved.
 
 ## References
 
-- `lib/irc/`: the precedent for a pure protocol leaf, a transport that emits frames, and
-  a decode layer that produces domain events.
-- `lib/services/mod_actions.dart`: the single Helix action site, untouched.
-- `~/dankchat` and `~/chatsen`: the shared principle is a dependency-free protocol leaf
-  plus a transport that emits frames and a decode layer that produces domain events.
-- `PLAN.md` is the live plan; `I18N.md` holds localization; `BACKLOG.md` holds triage;
-  `RULES.md` and `AGENTS.md` apply.
+- `AGENTS.md`: operational commands, conventions, test layout.
+- `RULES.md`: commit style and subagent rules.
+- `ARCHITECTURE.md`: the map, the services table, and the "who writes what" mutation map.
+- `REDUCTION.md`: the LOC-reduction findings, which are deferred and separate from this
+  plan.
+- `~/chatsen` and `~/dankchat`: references for framework usage (provider + bloc; Koin
+  plus Flow), not for a port.
