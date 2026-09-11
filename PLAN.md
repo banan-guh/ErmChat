@@ -13,6 +13,37 @@ root plus delegators, was 1,649), with `ChatLifecycle` (683), `ChatIngestion` (6
 `EventSubConsumer` (624), `EventSubTopics` (386). `ARCHITECTURE.md` maps the whole app
 (Mermaid, 7 diagrams) and includes a "who writes what" mutation map.
 
+## Progress
+
+Updated after the first autonomous pass. Everything below is committed and green at 1082
+tests unless noted.
+
+- **Phase 0 (rules and baseline): done.** `docs/ARCHITECTURE_RULES.md`,
+  `docs/DECISIONS.md`, `docs/BEHAVIOR_CHECKLIST.md`, and
+  `test/architecture/architecture_test.dart` (4 rules) landed. The transport leaves were
+  decoupled first (connectivity and data-usage moved to `lib/util`, the JOIN limiter to
+  `lib/irc`), and the UI-transport allowlist was later removed, so rule 4 now has no
+  exceptions.
+- **Phase 1 (spikes): done.** Riverpod 3.4.3 confirmed with the leaf-notifier bridge.
+  The mutable engine beat copy-on-write 2.65x to 3.77x at 5000 messages, so D2 holds and
+  Phase 6 criterion 2 fails. See `docs/SPIKES.md`.
+- **Phase 2 (framework introduction): partial.** `ProviderScope` plus app-scope providers
+  for connectivity, transports, sevenTv, emote manager, badges, user store, recent
+  messages, pip, ping, ignore, join budget, chat, and session. `HomeScreen` reads them
+  and no longer constructs or disposes them. The chat pipeline, panels, composer, menus,
+  sheets, and UI controllers still construct in `HomeScreen`, so "HomeScreen constructs
+  nothing shared" is not yet met.
+- **Phase 3 (observation migration): not started.**
+- **Phase 4 (chat cleanups): partial.** `Channel.setHistoryLoaded` and
+  `Channel.clearHeldModeration` funnel the two multi-writer states, and
+  `retryChannelData` moved to `ChatChannelSetup`. The connection-status stable-id rewrite
+  is deferred: the current fold renders several connection lines (the boot "Connected"
+  survives alongside "Reconnected"), so a single upserted line would change rendering and
+  break `widgets_test.dart` and `messages_test.dart`. A stable id for the loading-history
+  row is still safe. Moderation-copy unification is not started.
+- **Phase 5 (ring buffer): not started.** Low priority given the mutable benchmark.
+- **Phase 6 (kernel re-evaluation): resolved as keep the engine.**
+
 ## Goal
 
 Move the app from hand-rolled wiring to a framework-owned access and lifecycle layer,
@@ -311,12 +342,16 @@ open because the engine is isolated behind one API and one bridge.
 - Read `AGENTS.md` (operational), `docs/ARCHITECTURE_RULES.md` (rules),
   `docs/DECISIONS.md` (why), and `ARCHITECTURE.md` (map plus mutation map).
 - Current state: eight pipeline extractions shipped; `ChatConnectionManager` is a
-  composition root and facade; the kernel is the domain engine; tests green at 1070.
+  composition root and facade; the kernel is the domain engine; tests green at 1082.
+  Phases 0 and 1 are done, Phase 2 is partial (services and kernel are provider-owned;
+  the pipeline and UI owners are not), Phase 4 is partial. See the Progress section.
 - Locked: Riverpod (D1), keep the mutable engine (D2), observation-only UI (D3), no
   runtime bundle (D4), ring buffer later (D5), codegen later (D6), chat and main
   architecture only (D7), light leak audit (D8), one rules file (D9), optional kernel
   re-eval post-Phase 3 (D10).
-- Start at Phase 0. Do not begin Phase 1 until the rules and baseline are approved.
+- Next: finish Phase 2 by moving the chat pipeline and UI-owner construction into
+  providers, then Phase 3 observation migration. Do not start Phase 5 before the access
+  work lands.
 
 ## References
 

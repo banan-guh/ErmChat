@@ -177,3 +177,5 @@ Accepted tradeoff: the one sanctioned exception may remain indefinitely.
 - The kernel migration is undecided until Phase 6, so the codebase may keep a permanent
   framework-agnostic island.
 - Non-chat feature areas keep their current wiring until their own pass.
+- The connection-status system lines still fold on text. A stable-id rewrite is deferred
+  because it would change how many status lines render, not just how they are matched.
