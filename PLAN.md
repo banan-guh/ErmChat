@@ -15,7 +15,7 @@ root plus delegators, was 1,649), with `ChatLifecycle` (683), `ChatIngestion` (6
 
 ## Progress
 
-Updated after the first autonomous pass. Everything below is committed and green at 1082
+Updated after the first autonomous pass. Everything below is committed and green at 1084
 tests unless noted.
 
 - **Phase 0 (rules and baseline): done.** `docs/ARCHITECTURE_RULES.md`,
@@ -60,6 +60,19 @@ tests unless noted.
   `addListener`/`removeListener` pairs from `HomeScreen` and `EmoteMenuPanelWidget`;
   extended the architecture test to six rules (pipeline imports plus UI constructions);
   updated `ARCHITECTURE.md` and `docs/DECISIONS.md`. 1,084 tests green.
+- **Chat pipeline: done (to the UI boundary).** The pipeline is provider-owned
+  (`chatPipelineProvider`) and built entirely from providers; `lib/services` cannot
+  import `lib/providers`. Outputs route directly to provider owners where the target is
+  data-side: `command` to `CommandHandler`, hype/poll/prediction to `BroadcastWidgets`,
+  `mention` to `mentionNotifierProvider`, analytics/TTS direct. The manager's mutable
+  `onMention`/`onWhisper` fields folded into `ChatSinks`. `ChatUiSignals` is down to six
+  members (`focusComposer`, `banner`, `joinProgress`, `reconnected`, `whisper`,
+  `userEmoteSets`), and every one targets a UI owner that lives outside the pipeline
+  (composer, notices/`ChannelManager`, mentions panel, `EmoteApplier`). The four custom
+  ChangeNotifier bridges collapsed into one `ChangeNotifierTick` adaptor. The provider
+  owns construction and teardown; the screen owns when to connect (app lifecycle).
+  Finishing further means touching those UI owners, which is the next phase, not the
+  pipeline.
 
 ## Goal
 
