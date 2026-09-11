@@ -1,3 +1,5 @@
+import 'dart:ui' show Color;
+
 import '../../models/twitch_message.dart';
 import 'info.dart';
 import 'messages.dart';
@@ -146,6 +148,21 @@ class Channel {
     if (evicted.isEmpty) return;
     threads.decay(evicted);
     messages.version.value++;
+  }
+
+  /// Inserts a system row and prunes the buffer in one step. Returns false
+  /// without pruning when [Messages.addSystem] folded the row away.
+  bool addSystemMessage(
+    String text, {
+    Color? accent,
+    String? messageId,
+    required int maxMessages,
+  }) {
+    if (!messages.addSystem(text, accent: accent, messageId: messageId)) {
+      return false;
+    }
+    truncate(maxMessages);
+    return true;
   }
 
   void clearForAccountSwitch() {

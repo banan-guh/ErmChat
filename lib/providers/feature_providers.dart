@@ -112,14 +112,12 @@ final commandHandlerProvider = Provider<CommandHandler>((ref) {
     },
     getCurrentUserId: () => session.userId,
     getCurrentUserLogin: () => session.login,
-    addSystemMessage: (channel, text) {
-      final messages = chat.channelFor(channel)?.messages;
-      if (messages == null) return;
-      if (!messages.addSystem(text)) return;
-      chat
-          .channelFor(channel)
-          ?.truncate(ref.read(maxMessagesPerChannelProvider));
-    },
+    addSystemMessage: (channel, text) => chat
+        .channelFor(channel)
+        ?.addSystemMessage(
+          text,
+          maxMessages: ref.read(maxMessagesPerChannelProvider),
+        ),
     whisperAddSystemMessage: (channel, text) =>
         signals.whisperSystem.emit((channel: channel, text: text)),
     onWhisperSent: (target, message) =>

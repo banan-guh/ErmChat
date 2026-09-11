@@ -11,6 +11,9 @@ class TwitchBadgeService {
 
   final http.Client _client;
 
+  /// Closes the underlying HTTP client; the provider calls this on teardown.
+  void close() => _client.close();
+
   final _globalBadges = <String, BadgeSet>{};
   final _channelBadges = <String, Map<String, BadgeSet>>{};
   final _channelAvatars = <String, String>{};

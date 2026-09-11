@@ -54,7 +54,7 @@ tests unless noted.
 - **Phase 5 (ring buffer): not started.** Low priority given the mutable benchmark.
 - **Phase 6 (kernel re-evaluation): resolved as keep the engine.**
 - **This session (durability pass).** Providerized `BroadcastWidgets` and
-  `CommandHandler`; added `whisperSystem`/`whisperSent`/`blockedUser` signals to
+  `CommandHandler`; added `whisperSystem`/`whisperSent` signals to
   `ChatUiSignals`; added `emoteManagerTickProvider`, `twitchAuthTickProvider`,
   `connectivityTickProvider`, and `connectionStateProvider`; removed the corresponding
   `addListener`/`removeListener` pairs from `HomeScreen` and `EmoteMenuPanelWidget`;
@@ -65,12 +65,13 @@ tests unless noted.
   import `lib/providers`. Outputs route directly to provider owners where the target is
   data-side: `command` to `CommandHandler`, hype/poll/prediction to `BroadcastWidgets`,
   `mention` to `mentionNotifierProvider`, analytics/TTS direct. The manager's mutable
-  `onMention`/`onWhisper` fields folded into `ChatSinks`. `ChatUiSignals` is down to six
+  `onMention`/`onWhisper` fields folded into `ChatSinks`. `ChatUiSignals` has eight
   members (`focusComposer`, `banner`, `joinProgress`, `reconnected`, `whisper`,
-  `userEmoteSets`), and every one targets a UI owner that lives outside the pipeline
-  (composer, notices/`ChannelManager`, mentions panel, `EmoteApplier`). The four custom
-  ChangeNotifier bridges collapsed into one `ChangeNotifierTick` adaptor. The provider
-  owns construction and teardown; the screen owns when to connect (app lifecycle).
+  `userEmoteSets`, `whisperSystem`, `whisperSent`), and every one targets a UI owner that
+  lives outside the pipeline (composer, notices/`ChannelManager`, mentions panel,
+  `EmoteApplier`). The four custom ChangeNotifier bridges collapsed into one
+  `ChangeNotifierTick` adaptor. The provider owns construction and teardown; the screen
+  owns when to connect (app lifecycle).
   Finishing further means touching those UI owners, which is the next phase, not the
   pipeline.
 

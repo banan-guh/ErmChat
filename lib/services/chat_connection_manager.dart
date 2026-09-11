@@ -31,8 +31,8 @@ import '../client/session.dart';
 
 export '../services/join_progress_tracker.dart' show JoinProgress;
 
-/// Services the chat pipeline depends on. Constructed once per screen and
-/// injectable for tests.
+/// App-scope services the chat pipeline depends on, built by
+/// `chatPipelineProvider` and injectable for tests.
 class ChatServices {
   ChatServices({
     required this.twitchApi,
@@ -71,9 +71,9 @@ class ChatServices {
 /// the input hint consumes this instead of owning its own connect flags.
 enum ChatPhase { connecting, reconnecting, online }
 
-/// Rendering and interaction signals flowing manager -> UI: buffer change
-/// notifications, system messages, focus and snackbar requests, plus reads
-/// of view-owned state the pipeline needs (selected channel, message cap).
+/// Rendering and interaction signals flowing manager -> UI: system messages,
+/// focus and snackbar requests, plus reads of view-owned state the pipeline
+/// needs (selected channel, message cap).
 class ChatViewBridge {
   ChatViewBridge({
     required this.mentionsChannel,
@@ -445,8 +445,7 @@ class ChatConnectionManager {
     _channelSetup.forgetChannel(channel);
   }
 
-  /// Outbound send owner. Exposed for tests and for callers that need the
-  /// send verbs without going through the manager's delegators.
+  /// Outbound send owner, exposed for tests.
   @visibleForTesting
   ChatSender get sender => _sender;
 
@@ -547,8 +546,7 @@ class ChatConnectionManager {
   }
 
   // Chat-content routing lives in [ChatIngestion]; kept as delegators so
-  // the USERNOTICE path and tests can feed synthetic messages through the
-  // same policy gates.
+  // tests can feed synthetic messages through the same policy gates.
   void onMessage(TwitchMessage msg) => _ingestion.onMessage(msg);
 
   void onOwnIrcMessage(IrcMessage ircMsg) => _ingestion.onOwnIrcMessage(ircMsg);

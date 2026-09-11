@@ -12,26 +12,28 @@ export 'chat_signals.dart';
 
 /// The chat pipeline, wired entirely from providers. The adapter below maps
 /// read-state providers and the signal sink onto the manager's
-/// [ChatViewBridge] / [ChatSinks] ports; the shell only observes the result.
+/// [ChatViewBridge] / [ChatSinks] ports; the shell drives connect/reconnect
+/// and observes the result.
 final chatPipelineProvider = Provider<ChatConnectionManager>((ref) {
   final chat = ref.read(chatProvider);
   final session = ref.read(sessionProvider);
   final signals = ref.read(chatUiSignalsProvider);
 
-  // Kernel system-line write plus truncate, shared by every system sink so
-  // there is one copy of the add-then-truncate body.
+  // Kernel system-line write plus truncate, shared by every system sink.
   void writeSystem(
     String channel,
     String text, {
     Color? accent,
     String? messageId,
   }) {
-    final messages = chat.channelFor(channel)?.messages;
-    if (messages == null) return;
-    if (!messages.addSystem(text, accent: accent, messageId: messageId)) {
-      return;
-    }
-    chat.channelFor(channel)?.truncate(ref.read(maxMessagesPerChannelProvider));
+    chat
+        .channelFor(channel)
+        ?.addSystemMessage(
+          text,
+          accent: accent,
+          messageId: messageId,
+          maxMessages: ref.read(maxMessagesPerChannelProvider),
+        );
   }
 
   final manager = ChatConnectionManager(

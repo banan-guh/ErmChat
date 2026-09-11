@@ -31,7 +31,11 @@ final connectivityServiceProvider = Provider<ConnectivityService>((ref) {
   return service;
 });
 
-final twitchApiProvider = Provider<TwitchApi>((ref) => TwitchApi());
+final twitchApiProvider = Provider<TwitchApi>((ref) {
+  final api = TwitchApi();
+  ref.onDispose(api.close);
+  return api;
+});
 
 final eventSubServiceProvider = Provider<EventSubService>((ref) {
   final service = EventSubService(
@@ -83,9 +87,11 @@ final emoteManagerProvider = Provider<EmoteManager>((ref) {
   return manager;
 });
 
-final badgeServiceProvider = Provider<TwitchBadgeService>(
-  (ref) => TwitchBadgeService(),
-);
+final badgeServiceProvider = Provider<TwitchBadgeService>((ref) {
+  final service = TwitchBadgeService();
+  ref.onDispose(service.close);
+  return service;
+});
 
 final thirdPartyBadgeServiceProvider = Provider<ThirdPartyBadgeService>((ref) {
   final service = ThirdPartyBadgeService();

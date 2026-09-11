@@ -89,7 +89,7 @@ final chatReadyProvider = NotifierProvider<ChatReadyNotifier, bool>(
 /// [loadMacros]; callers invalidate this provider after a warm or after the
 /// macros screen saves so the next send reads the fresh map.
 final macrosProvider = Provider<Map<String, String>>((ref) {
-  final login = ref.watch(sessionProvider).login;
+  final login = ref.read(sessionProvider).login;
   if (login == null) return const {};
   return cachedMacroLookup(login) ?? const {};
 });

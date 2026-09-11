@@ -122,6 +122,40 @@ mutable engine, so criterion 2 fails and the migration is not triggered. The eng
 
 Accepted tradeoff: the one sanctioned exception may remain indefinitely.
 
+### D11: EventSub topics is the client surface, not a leaf
+
+Decision: `lib/eventsub/topics.dart` imports `lib/chat` and `lib/services`. That is a
+file-level cycle with `lib/services`, and the import-direction test scans only the
+transport and decode leaves, not this file.
+
+Reason: `EventSubTopics` is the EventSub client surface (subscribe/resubscribe), so it
+needs the kernel and the Helix client. The transport and decode leaves stay pure, which
+is the property the direction test exists to protect.
+
+Accepted tradeoff: one EventSub file sits above the leaf line by design.
+
+### D12: Process singletons exposed through providers
+
+Decision: `PingManager.instance` and `IgnoreManager.instance` are process-lifetime
+singletons surfaced through `pingManagerProvider` and `ignoreManagerProvider`.
+
+Reason: their state is process-wide (ping rules, ignore list) and must survive provider
+rebuilds. The provider stays the access point the rest of the app uses.
+
+Accepted tradeoff: an allowed carve-out from "providers are the only way to obtain
+shared objects"; the singleton owns the object and the provider exposes it.
+
+### D13: The chat pipeline builds on the first HomeScreen frame
+
+Decision: `chatPipelineProvider` is constructed on the first HomeScreen frame through
+`connectionStateProvider`.
+
+Reason: the composer needs the connection phase immediately on first paint, so deferring
+construction would blank the input state.
+
+Accepted tradeoff: construction is tied to the first frame instead of an explicit
+bootstrap step.
+
 ## Why
 
 - **Why a framework at all**: the app is leaving a churn phase and needs rules. It

@@ -1491,12 +1491,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     Color? accent,
     String? messageId,
   }) {
-    final messages = _chat.channelFor(channel)?.messages;
-    if (messages == null) return;
-    if (!messages.addSystem(text, accent: accent, messageId: messageId)) {
-      return;
-    }
-    _truncateChannelMessages(channel);
+    _chat
+        .channelFor(channel)
+        ?.addSystemMessage(
+          text,
+          accent: accent,
+          messageId: messageId,
+          maxMessages: ref.read(maxMessagesPerChannelProvider),
+        );
   }
 
   void _toggleFullscreen() {
@@ -1701,14 +1703,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     if (index >= 0) {
       _channels.onChannelChanged(index);
     }
-  }
-
-  // Single selection commit for BOTH entry points (swipe-tick focus and
-  // settle/tab-tap). Whichever lands first owns the side effects; the shared
-  // guard makes the second one a no-op, so bookkeeping runs exactly once per
-  // real switch regardless of gesture timing.
-  void _truncateChannelMessages(String channel) {
-    _channelManager.truncateChannel(channel);
   }
 
   @override

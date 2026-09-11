@@ -157,6 +157,9 @@ class TwitchApi {
   @visibleForTesting
   set client(http.Client c) => _client = _TimeoutClient(c);
 
+  /// Closes the underlying HTTP client; the provider calls this on teardown.
+  void close() => _client.close();
+
   void _clearError() {
     _lastError = null;
     _lastErrorStatus = null;

@@ -22,7 +22,10 @@ shared leaves        lib/models, lib/util, lib/client
 ```
 
 - Transport and codec turn bytes and frames into typed events. They import their own
-  leaves and nothing upward.
+  leaves and nothing upward. The one exception is `lib/eventsub/topics.dart`, the
+  EventSub client surface (subscribe/resubscribe), which reaches `lib/chat` and
+  `lib/services`; the transport and decode leaves stay pure and the direction test
+  scans only those.
 - The kernel (`lib/chat`) is the domain state model. It is framework-agnostic and does
   not import `lib/services` or any UI directory.
 - Pipeline (`lib/services`) reads transports and decoders, applies logic, and mutates
@@ -47,10 +50,15 @@ shared leaves        lib/models, lib/util, lib/client
 2. **One direction of dependency.** Transport leaves import nothing upward, and screens
    import no transport. Do: a decoder exposes a typed callback consumed by pipeline.
    Do not: import `lib/services` from `lib/chat`, or `lib/irc/transport` from a screen.
+   The one EventSub exception is `lib/eventsub/topics.dart`, the client surface rather
+   than a leaf: it may import `lib/chat` and `lib/services`. The transport and decode
+   leaves stay pure, and the direction test scans only those.
 
 3. **Providers are the only way to obtain shared objects.** Do: read a shared service
    with `ref.watch(...)` or `ref.read(...)`. Do not: construct a shared service in a
-   widget, and do not keep a global or singleton handle to shared state.
+   widget, and do not keep a global or singleton handle to shared state. Process-lifetime
+   singletons that a provider surfaces (`PingManager.instance`, `IgnoreManager.instance`)
+   are the one carve-out; consumers still obtain them through the provider.
 
 4. **`watch` for reactive reads, `read` only for documented imperative one-shots.**
    Builds are pure, and effects live in lifecycle methods, `ref.listen`, or notifier
