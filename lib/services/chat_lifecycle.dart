@@ -13,6 +13,7 @@ import '../irc/transport/events.dart';
 import '../irc/transport/read.dart';
 import '../irc/transport/write.dart';
 import '../services/chat_channel_setup.dart';
+import '../services/chat_liveness.dart';
 import '../services/chat_readiness.dart';
 import '../services/chat_sender.dart';
 import '../services/join_progress_tracker.dart';
@@ -41,6 +42,7 @@ class ChatLifecycle {
     required this.eventSubTopics,
     required this.sender,
     required this.channelSetup,
+    required this.liveness,
     required this.connectionStateNotifier,
     required this.setupSubscriptions,
     required this.subscribeAll,
@@ -65,6 +67,7 @@ class ChatLifecycle {
   final EventSubTopics eventSubTopics;
   final ChatSender sender;
   final ChatChannelSetup channelSetup;
+  final ChatLiveness liveness;
   final ValueNotifier<int> connectionStateNotifier;
   final void Function() setupSubscriptions;
   final void Function() subscribeAll;
@@ -112,7 +115,6 @@ class ChatLifecycle {
   StreamSubscription<IrcJoinFailureEvent>? _ircJoinFailedSub;
   StreamSubscription<IrcRoomStateEvent>? _readRoomStateSub;
   StreamSubscription<IrcRoomStateEvent>? _writeRoomStateSub;
-  Timer? _watchdogTimer;
 
   Future<Map<String, dynamic>?>? _currentUserFetch;
 
@@ -130,8 +132,6 @@ class ChatLifecycle {
     _ircJoinFailedSub?.cancel();
     _readRoomStateSub?.cancel();
     _writeRoomStateSub?.cancel();
-    _watchdogTimer?.cancel();
-    _watchdogTimer = null;
   }
 
   Future<Map<String, dynamic>?> ensureCurrentUser(TwitchAuth auth) {
@@ -225,7 +225,7 @@ class ChatLifecycle {
       });
 
       joinProgress.ensureTicker();
-      _startWatchdog();
+      liveness.startWatchdog();
 
       sevenTvClient?.connect();
 
@@ -550,9 +550,12 @@ class ChatLifecycle {
         // can't send messages or call Helix.
         try {
           await Future.wait([
-            irc.connect(username: _anonymousNick(1), accessToken: 'anonymous'),
+            irc.connect(
+              username: liveness.anonymousNick(1),
+              accessToken: 'anonymous',
+            ),
             ircRead.connect(
-              username: _anonymousNick(2),
+              username: liveness.anonymousNick(2),
               accessToken: 'anonymous',
             ),
           ]);
@@ -601,83 +604,5 @@ class ChatLifecycle {
       );
     }
     onBanner?.call('Login expired');
-  }
-
-  String _anonymousNick(int seed) {
-    return 'justinfan${(DateTime.now().millisecondsSinceEpoch + seed) % 80000 + 1000}';
-  }
-
-  /// Foreground liveness watchdog: periodically re-arms any socket whose
-  /// reconnect loop died without a pending connect (e.g. a fatal-auth break
-  /// or a generation bump that wasn't followed by a fresh connect). The
-  /// in-socket loop already retries forever on ordinary network drops, so
-  /// this only needs to run while the app is in the foreground.
-  void _startWatchdog() {
-    _watchdogTimer?.cancel();
-    _watchdogTimer = Timer.periodic(const Duration(seconds: 30), (_) {
-      if (_disposed) return;
-      reconnectIfNecessary();
-    });
-  }
-
-  /// Brute-force teardown + reconnect of every socket (manual "Reconnect"
-  /// button). Unlike [reconnectIfNecessary], it never checks liveness - it
-  /// always disconnects and re-establishes the IRC/EventSub/7TV connections.
-  void forceReconnect() {
-    irc.forceReconnect();
-    ircRead.forceReconnect();
-    unawaited(eventSub.forceReconnect());
-    unawaited(sevenTvClient?.forceReconnect());
-  }
-
-  void reconnectIfNecessary() {
-    final login = session.login;
-    final token = twitchAuth.accessToken;
-    final anonymous = login == null || token == null;
-    final username = login ?? _anonymousNick(1);
-    final accessToken = token ?? 'anonymous';
-
-    // A socket can exist while being dead (frozen by the OS during
-    // backgrounding). When it looks connected, verify with a PING/PONG
-    // round-trip instead of trusting isConnected; force a reconnect if the
-    // PONG never comes back.
-    if (irc.isConnected) {
-      unawaited(
-        irc.checkAlive().then((alive) {
-          if (!alive) {
-            logDebug('[ChatConn] IRC zombie detected - forcing reconnect');
-            irc.forceReconnect();
-          }
-        }),
-      );
-    } else {
-      unawaited(irc.connect(username: username, accessToken: accessToken));
-    }
-    if (ircRead.isConnected) {
-      unawaited(
-        ircRead.checkAlive().then((alive) {
-          if (!alive) {
-            logDebug('[ChatConn] IRC read zombie detected - forcing reconnect');
-            ircRead.forceReconnect();
-          }
-        }),
-      );
-    } else {
-      unawaited(
-        ircRead.connect(
-          username: anonymous ? _anonymousNick(2) : username,
-          accessToken: accessToken,
-        ),
-      );
-    }
-    // EventSub/7TV have no PING/PONG equivalent, so `isConnected` alone can't
-    // spot a zombie socket; a stale session is torn down and re-established.
-    if (!eventSub.isConnected || eventSub.isStale) {
-      unawaited(eventSub.forceReconnect());
-    }
-    if (sevenTvClient != null &&
-        (!sevenTvClient!.isConnected || sevenTvClient!.isStale)) {
-      unawaited(sevenTvClient!.forceReconnect());
-    }
   }
 }

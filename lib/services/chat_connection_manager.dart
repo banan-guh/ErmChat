@@ -27,6 +27,7 @@ import '../services/seven_tv_consumer.dart';
 import '../services/join_progress_tracker.dart';
 import '../services/chat_readiness.dart';
 import '../services/chat_lifecycle.dart';
+import '../services/chat_liveness.dart';
 import '../chat/chat.dart';
 import '../client/session.dart';
 
@@ -263,6 +264,17 @@ class ChatConnectionManager {
         config.bridge.onJoinProgress?.call(channel, info),
   );
 
+  // Socket liveness: the foreground watchdog plus manual and automatic
+  // reconnect paths.
+  late final ChatLiveness _liveness = ChatLiveness(
+    irc: config.services.irc,
+    ircRead: config.services.ircRead,
+    eventSub: config.services.eventSub,
+    sevenTvClient: config.services.sevenTvClient,
+    session: config.session,
+    twitchAuth: config.services.twitchAuth,
+  );
+
   // Connection lifecycle: connect orchestration, socket status listeners,
   // watchdog, reconnect, token expiry and identity resolution.
   late final ChatLifecycle _lifecycle = ChatLifecycle(
@@ -281,6 +293,7 @@ class ChatConnectionManager {
     eventSubTopics: eventSubTopics,
     sender: _sender,
     channelSetup: _channelSetup,
+    liveness: _liveness,
     connectionStateNotifier: connectionStateNotifier,
     setupSubscriptions: _setupSubscriptions,
     subscribeAll: _subscribeAll,
@@ -347,6 +360,7 @@ class ChatConnectionManager {
   void dispose() {
     _joinProgress.dispose();
     _lifecycle.dispose();
+    _liveness.dispose();
     // This manager owned the session's join demand; drop its queued units so
     // the shared bucket's pump timer can wind down instead of ticking on
     // dead sockets forever.
@@ -495,9 +509,9 @@ class ChatConnectionManager {
   /// Brute-force teardown + reconnect of every socket (manual "Reconnect"
   /// button). Unlike [reconnectIfNecessary], it never checks liveness - it
   /// always disconnects and re-establishes the IRC/EventSub/7TV connections.
-  void forceReconnect() => _lifecycle.forceReconnect();
+  void forceReconnect() => _liveness.forceReconnect();
 
-  void reconnectIfNecessary() => _lifecycle.reconnectIfNecessary();
+  void reconnectIfNecessary() => _liveness.reconnectIfNecessary();
 
   /// Re-runs the per-channel data loads that failed earlier. Delegates to
   /// [ChatChannelSetup], which owns the badge and emote retry path.
