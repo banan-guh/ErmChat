@@ -677,6 +677,82 @@ void main() {
       expect(find.byType(RawImage), findsOneWidget);
     });
 
+    testWidgets('over-cap inserts evict and dispose the oldest completer', (
+      tester,
+    ) async {
+      final cache = PaintingBinding.instance.imageCache;
+      final oldSize = cache.maximumSize;
+      final oldBytes = cache.maximumSizeBytes;
+      addTearDown(() {
+        cache.maximumSize = oldSize;
+        cache.maximumSizeBytes = oldBytes;
+      });
+      // The fixture decodes to 64x64 (16KB per frame): cap between one and
+      // two frames so the second URL's insert evicts the first completer.
+      cache.maximumSize = 10;
+      cache.maximumSizeBytes = 24 * 1024;
+      final gif = File('test/fixtures/7tv_kiss_2x.gif').readAsBytesSync();
+      EmoteUrlProvider.debugFetchOverride = (url) async => gif;
+
+      const firstUrl = 'https://example.com/evict-first.gif';
+      await pumpEmote(tester, url: firstUrl);
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 200)),
+      );
+      await tester.pump();
+      expect(EmoteUrlProvider.hasFrames(firstUrl), isTrue);
+
+      // Unmount, then load a second URL: its insert trips the byte cap and
+      // evicts the first completer, disposing its codec and frames.
+      await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
+      await tester.pump();
+      const secondUrl = 'https://example.com/evict-second.gif';
+      await pumpEmote(tester, url: secondUrl);
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 200)),
+      );
+      await tester.pump();
+      await tester.pump();
+      expect(EmoteUrlProvider.hasFrames(firstUrl), isFalse);
+      expect(cache.currentSizeBytes, lessThanOrEqualTo(cache.maximumSizeBytes));
+    });
+
+    testWidgets('a background gap does not replay missed frames at speed', (
+      tester,
+    ) async {
+      final gif = File('test/fixtures/7tv_kiss_2x.gif').readAsBytesSync();
+      EmoteUrlProvider.debugFetchOverride = (url) async => gif;
+
+      const url = 'https://example.com/bg-gap.gif';
+      await pumpEmote(tester, url: url);
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 300)),
+      );
+      await tester.pump();
+      expect(EmoteUrlProvider.hasFrames(url), isTrue);
+      final before = EmoteUrlProvider.currentFrame(url);
+
+      // Simulate backgrounding: wall clock advances with no frames delivered,
+      // leaving the schedule grid far behind (the kiss GIF has 47 frames, so
+      // a 2s gap is ~20 frames of backlog).
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(seconds: 2)),
+      );
+
+      // Resume and pump steadily for ~400ms: only a few frames may advance.
+      // Without the backlog clamp each pump emits a backlogged frame, so ~20
+      // frames race by; with it the grid re-anchors and ~4 advance.
+      var after = before;
+      for (var i = 0; i < 40; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)),
+        );
+        await tester.pump(const Duration(milliseconds: 10));
+        after = EmoteUrlProvider.currentFrame(url);
+      }
+      expect((after - before) % 47, lessThanOrEqualTo(12));
+    });
+
     testWidgets('a second engine-path widget mounting mid-build does not '
         'setState on unrelated widgets', (tester) async {
       final gif = File('test/fixtures/7tv_kiss_2x.gif').readAsBytesSync();

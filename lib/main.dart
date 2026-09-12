@@ -26,6 +26,13 @@ import 'widgets/tabbed_layout.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Decoded-image memory budget. The image cache accounts every displayed
+  // frame at true size (width x height x 4) and evicts least-recently-used
+  // entries past either cap; eviction disposes our emote completers, which
+  // free their codec, compositor canvas, seed, and frames.
+  final imageCache = PaintingBinding.instance.imageCache;
+  imageCache.maximumSize = 1000;
+  imageCache.maximumSizeBytes = 100 << 20;
   // Edge-to-edge: draw behind the system bars and take manual ownership
   // of insets (bars via viewPadding, keyboard via viewInsets). The engine
   // flips the window flags; themes declare transparent bars + icon style.

@@ -572,7 +572,12 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
   void _scheduleNextStreamTick(Duration window) {
     final windowUs = _safeStreamDuration(window).inMicroseconds;
     final nowUs = DateTime.now().microsecondsSinceEpoch;
-    _streamDueUs = (_streamDueUs < 0 ? nowUs : _streamDueUs) + windowUs;
+    var dueUs = _streamDueUs < 0 ? nowUs : _streamDueUs;
+    // A stall longer than a few frames (backgrounding, VM freeze) leaves the
+    // grid far behind wall clock; stepping through the backlog replays missed
+    // frames back-to-back at super speed, so drop it and resume from now.
+    if (dueUs < nowUs - 3 * windowUs) dueUs = nowUs;
+    _streamDueUs = dueUs + windowUs;
     var waitUs = _streamDueUs - DateTime.now().microsecondsSinceEpoch;
     if (waitUs < 0) waitUs = 0;
     _frameTimer = Timer(Duration(microseconds: waitUs), () {
