@@ -141,6 +141,23 @@ void main() {
       expect(reconnected, 1);
     });
 
+    test('a reconnect after chat keeps both recovery lines', () {
+      final chat = Chat();
+      addTearDown(chat.dispose);
+      final messages = chat.ensure('test').messages;
+      messages.addSystem('Connected');
+      messages.addSystem('Disconnected');
+      expect(messages.addSystem('Reconnected'), isTrue);
+      messages.add(_live('m1'), maxMessages: 100);
+      messages.addSystem('Disconnected');
+      expect(messages.addSystem('Reconnected'), isTrue);
+
+      final texts = messages.items.map((m) => m.text).toList();
+      expect(texts.where((t) => t == 'Reconnected'), hasLength(2));
+      expect(texts.where((t) => t == 'Disconnected'), isEmpty);
+      expect(texts.where((t) => t == 'Connected'), hasLength(1));
+    });
+
     test(
       'messageId dedup skips a repeat insert while distinct ids with identical text both insert',
       () {

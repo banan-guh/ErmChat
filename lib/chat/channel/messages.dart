@@ -271,7 +271,13 @@ class Messages {
           }
           if (newestRecovery != -1 && newestOutage != -1) break;
         }
+        // Chat since the last recovery means the new recovery is its own
+        // event; only recoveries with nothing between them fold.
+        final hasActivity =
+            newestRecovery != -1 &&
+            _items.take(newestRecovery).any((m) => !_isConnRow(m));
         if (newestRecovery != -1 &&
+            !hasActivity &&
             (newestOutage == -1 || newestOutage > newestRecovery)) {
           return false;
         }
@@ -279,9 +285,15 @@ class Messages {
           (m) =>
               m.isSystem &&
               (m.messageId == _connId('disconnected') ||
-                  m.messageId == _connId('reconnecting') ||
-                  m.messageId == _connId('reconnected')),
+                  m.messageId == _connId('reconnecting')),
         );
+        // Only an adjacent recovery folds into the new one; chat since the
+        // last recovery makes this a distinct event that stays in history.
+        if (!hasActivity) {
+          _items.removeWhere(
+            (m) => m.isSystem && m.messageId == _connId('reconnected'),
+          );
+        }
       } else if (resolved == 'disconnected' || resolved == 'reconnecting') {
         if (resolved == 'reconnecting') {
           final hasDisconnected = _items.any(

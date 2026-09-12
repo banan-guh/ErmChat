@@ -124,62 +124,70 @@ class _StatusRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final channel = controller.selectedChannel;
+    // The selected channel can change without a parent rebuild (the swipe
+    // path skips setState), so re-read it inside the builder and bind the
+    // status notifier to whatever channel is current.
     return ListenableBuilder(
-      listenable: Listenable.merge([
-        controller.chat.channelFor(channel ?? '')?.info.version ??
-            _emptyVersion,
-        selectedTabIndex,
-        controller.chat.loadFailedChannels,
-      ]),
+      listenable: selectedTabIndex,
       builder: (context, _) {
-        final status = channel == null
-            ? ''
-            : (controller.chat.channelFor(channel)?.info.status ?? '');
-        final hasStatus = status.isNotEmpty;
-        final hasLoadFailure =
-            channel != null &&
-            controller.chat.loadFailedChannels.value.contains(channel);
-        return AnimatedSize(
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeInOut,
-          alignment: Alignment.topCenter,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (hasStatus)
-                Padding(
-                  padding: const EdgeInsets.only(
-                    left: 12,
-                    right: 12,
-                    bottom: 4,
-                  ),
-                  child: Text(
-                    status,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                ),
-              if (hasLoadFailure)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 4),
-                  child: InkWell(
-                    onTap: () => controller.chatConn.retryChannelData(channel),
-                    child: Text(
-                      'Retry failed emotes/badges',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Theme.of(context).colorScheme.primary,
-                        decoration: TextDecoration.underline,
+        final channel = controller.selectedChannel;
+        return ListenableBuilder(
+          listenable: Listenable.merge([
+            controller.chat.channelFor(channel ?? '')?.info.version ??
+                _emptyVersion,
+            controller.chat.loadFailedChannels,
+          ]),
+          builder: (context, _) {
+            final status = channel == null
+                ? ''
+                : (controller.chat.channelFor(channel)?.info.status ?? '');
+            final hasStatus = status.isNotEmpty;
+            final hasLoadFailure =
+                channel != null &&
+                controller.chat.loadFailedChannels.value.contains(channel);
+            return AnimatedSize(
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.easeInOut,
+              alignment: Alignment.topCenter,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (hasStatus)
+                    Padding(
+                      padding: const EdgeInsets.only(
+                        left: 12,
+                        right: 12,
+                        bottom: 4,
+                      ),
+                      child: Text(
+                        status,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                        textAlign: TextAlign.center,
                       ),
                     ),
-                  ),
-                ),
-            ],
-          ),
+                  if (hasLoadFailure)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 4),
+                      child: InkWell(
+                        onTap: () =>
+                            controller.chatConn.retryChannelData(channel),
+                        child: Text(
+                          'Retry failed emotes/badges',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Theme.of(context).colorScheme.primary,
+                            decoration: TextDecoration.underline,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            );
+          },
         );
       },
     );
