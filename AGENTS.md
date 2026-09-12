@@ -18,7 +18,7 @@ dart format .      # format all Dart files
 
 ## Architecture (know before editing)
 
-- IRC is the chat pipeline (PRIVMSG/USERNOTICE/CLEARCHAT/CLEARMSG/NOTICE); EventSub is moderation-only (`channel.moderate` v2 where the user is a mod) plus broadcaster-only, read-only chat widgets (hype train/poll/prediction). `ChatConnectionManager` orchestrates all of it.
+- IRC is the chat pipeline (PRIVMSG/USERNOTICE/CLEARCHAT/CLEARMSG/NOTICE); EventSub is moderation-only (`channel.moderate` v2 where the user is a mod) plus broadcaster-only, read-only chat widgets (hype train/poll/prediction). `ChatConnectionManager` orchestrates all of it. Moderation facts from both sources funnel through `ModerationHub`; `ChatLiveness` owns the watchdog and reconnect paths.
 - Not logged in = anonymous read-only IRC (justinfan NICK, no Helix); emotes still render via the IRC `emotes` tag + third-party providers.
 - `TwitchAuth` is multi-account: secure-storage registry + active account (`switchTo`/`removeAccount`, avatar from `profileImageUrl`). The account switcher lives in the settings Account screen.
 - OAuth: Android goes through `MainActivity` (session-bound Custom Tab so App Links can't hand off to the Twitch app; `ermchat://` redirect back via the `ermchat/oauth` MethodChannel). iOS keeps `flutter_web_auth_2`. `startFlow({ephemeral})` applies to iOS only (re-auth path).
@@ -32,8 +32,8 @@ See [docs/ARCHITECTURE_RULES.md](docs/ARCHITECTURE_RULES.md) for the rules and [
 ## Chat kernel conventions
 
 - `Chat` is the root: channel registry and cross-channel totals. `Channel` composes `Messages`/`Threads`/`Unread`/`Moderation`/`Points`/`ChannelInfo`. Account identity lives in `lib/client/Session`, outside the kernel; the app subscribes to `Session.version`.
-- Mutate only through verbs. Live path is `Channel.receive`, history path is `Channel.receiveHistory`. Both stay atomic: dedup, insert, truncate, index in one call.
-- `Channel` children are readable from anywhere, but only `Channel` verbs may mutate them. Exception: row-scoped moderation edits go through `Messages.markDeleted`/`markUserDeleted`/`markAllDeleted`.
+- Mutate only through verbs. The live path is `Chat.receive` (root) delegating to `Channel.receive`; the history path is `Chat.receiveHistory` delegating to `Channel.receiveHistory`. The root owns the `@mentions` mirror and the unread/mention totals, so pipeline callers never write a root child. The channel verbs stay atomic: dedup, insert, truncate, index in one call.
+- `Channel` children are readable from anywhere. Ingest-critical writes go through `Channel` verbs; a child owner's own methods (`Moderation.putBan`, `Points.upsertRedemption`) are its verbs. Row-scoped moderation edits use `Messages.markDeleted`/`markUserDeleted`/`markAllDeleted`.
 - Pipeline components (`ChatConnectionManager`) may gate/filter messages but must not re-implement state rules.
 - No generic bus. Owners expose typed notifiers (`Messages.version`, `ChannelInfo.version`, `Moderation` versions, `Chat` aggregates). UI subscribes to the owner it renders.
 - New chat-state features: put the rule in `lib/chat/`, add tests in `test/chat/`, then consume from pipeline/UI.

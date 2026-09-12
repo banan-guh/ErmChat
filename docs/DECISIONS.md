@@ -145,16 +145,16 @@ rebuilds. The provider stays the access point the rest of the app uses.
 Accepted tradeoff: an allowed carve-out from "providers are the only way to obtain
 shared objects"; the singleton owns the object and the provider exposes it.
 
-### D13: The chat pipeline builds on the first HomeScreen frame
+### D13: The chat pipeline builds in HomeScreen initState
 
-Decision: `chatPipelineProvider` is constructed on the first HomeScreen frame through
-`connectionStateProvider`.
+Decision: `chatPipelineProvider` is constructed from `HomeScreen.initState` via the
+connect path, and `connectionStateProvider` is listened to later in `build`.
 
 Reason: the composer needs the connection phase immediately on first paint, so deferring
 construction would blank the input state.
 
-Accepted tradeoff: construction is tied to the first frame instead of an explicit
-bootstrap step.
+Accepted tradeoff: construction is tied to the first HomeScreen init instead of an
+explicit bootstrap step; the provider is app-scope and lives for the container.
 
 ## Why
 
@@ -186,12 +186,25 @@ bootstrap step.
 ## Current state
 
 - `v0.8.0` and the extraction plus provider-migration commits are on the tree.
-  `dart analyze lib test tool` is clean and 1,084 tests are green.
-- Eight chat-pipeline owner extractions have shipped: `ChatLifecycle` (683),
-  `ChatIngestion` (662), `ChatChannelSetup` (378), `ChatSender` (227),
-  `ChatStatusComposer` (163), `JoinProgressTracker` (132), `ChatReadiness` (97),
-  `SevenTvConsumer` (124), `EventSubConsumer` (624), and `EventSubTopics` (386).
-- `ChatConnectionManager` is a 586-line composition root and facade, down from 1,649
+  `dart analyze lib test tool` is clean and 1,119 tests are green.
+- Chat-pipeline owners: `ChatLifecycle` (613), `ChatIngestion` (521),
+  `ChatChannelSetup` (399), `ModerationHub` (377), `EventSubConsumer` (344),
+  `ChatSender` (227), `ChatHistoryController` (133), `ChatStatusComposer` (163),
+  `ChatLiveness` (117), `SevenTvConsumer` (125), `ChatReadiness` (97),
+  `JoinProgressTracker` (132), and `EventSubTopics` (386).
+- The chat kernel root owns ingest: `Chat.receive` and `Chat.receiveHistory` run the
+  channel verb and then perform the root-owned writes (the `@mentions` mirror and the
+  unread/mention totals), so live and history share one mention predicate and no
+  pipeline caller writes a root child. `Chat.removeBlocked` sweeps channels and the
+  mirror together.
+- `ModerationHub` is the single ingest owner for moderation facts: IRC echoes and the
+  EventSub `channel.moderate` stream both route through it, so the precedence rule
+  (EventSub when its subscription is live, IRC otherwise), the analytics report, the
+  feed row, and the system line each happen once per real action.
+- `ChatLiveness` owns the foreground watchdog and the manual/automatic reconnect paths;
+  `ChatLifecycle` keeps connect orchestration, identity, and token handling because they
+  share the same state-machine flags.
+- `ChatConnectionManager` is a 520-line composition root and facade, down from 1,649
   lines. It builds and disposes the pipeline owners and exposes phase, readiness, send,
   and gating queries.
 - `lib/providers` is the composition root. App-scope providers own the transports, the
@@ -201,8 +214,8 @@ bootstrap step.
   pipeline consumes (selected channel, max messages, reply-to, blocked logins,
   shared-chat mode, chat readiness, macros), the mention notifier and its push /
   backgrounded flags, and the chat pipeline (`ChatConnectionManager` plus the
-  reduced `ChatUiSignals` for composer focus, banner, join progress, reconnect,
-  whisper and emote-set output, and one `ChangeNotifierTick` adaptor serving all
+  six-member `ChatUiSignals` for composer focus, banner, whisper, emote-set output, and
+  whisper system/sent lines, and one `ChangeNotifierTick` adaptor serving all
   provider-owned notifiers including the connection-state port).
 - `HomeScreen` is a `ConsumerState` that consumes providers, forwards `ChatUiSignals`
   to its panels, and keeps only view-only UI state plus the UI-adjacent owners
@@ -237,5 +250,6 @@ bootstrap step.
 - The kernel migration is undecided until Phase 6, so the codebase may keep a permanent
   framework-agnostic island.
 - Non-chat feature areas keep their current wiring until their own pass.
-- The connection-status system lines still fold on text. A stable-id rewrite is deferred
-  because it would change how many status lines render, not just how they are matched.
+- The UI boundary is deferred: `HomeScreen` still implements the `host: this` ports for
+  the UI-adjacent owners, and `lib/channels` still straddles the pipeline and UI layers.
+  The chat domain itself no longer writes root children from the pipeline.

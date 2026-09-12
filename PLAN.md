@@ -15,7 +15,7 @@ root plus delegators, was 1,649), with `ChatLifecycle` (683), `ChatIngestion` (6
 
 ## Progress
 
-Updated after the first autonomous pass. Everything below is committed and green at 1084
+Updated after the first autonomous pass. Everything below is committed and green at 1119
 tests unless noted.
 
 - **Phase 0 (rules and baseline): done.** `docs/ARCHITECTURE_RULES.md`,
@@ -60,7 +60,7 @@ tests unless noted.
   `connectivityTickProvider`, and `connectionStateProvider`; removed the corresponding
   `addListener`/`removeListener` pairs from `HomeScreen` and `EmoteMenuPanelWidget`;
   extended the architecture test to six rules (pipeline imports plus UI constructions);
-  updated `ARCHITECTURE.md` and `docs/DECISIONS.md`. 1,084 tests green.
+  updated `ARCHITECTURE.md` and `docs/DECISIONS.md`. 1,119 tests green.
 - **Chat pipeline: done (to the UI boundary).** The pipeline is provider-owned
   (`chatPipelineProvider`) and built entirely from providers; `lib/services` cannot
   import `lib/providers`. Outputs route directly to provider owners where the target is
@@ -75,6 +75,13 @@ tests unless noted.
   construction and teardown; the screen owns when to connect (app lifecycle).
   Finishing further means touching those UI owners, which is the next phase, not the
   pipeline.
+- **Chat kernel hardening (audit pass).** `Chat.receive`/`Chat.receiveHistory` now own
+  the root writes (mentions mirror plus unread/mention totals) and the history merge no
+  longer indexes evicted rows or bypasses the blocked gate; `ModerationHub` is the single
+  ingest owner for IRC and EventSub moderation (one precedence decision, one analytics
+  report); `ChatLiveness` owns the watchdog and reconnect paths; blocked mentions are
+  swept from the mirror; a channel removed mid-history-load is no longer resurrected;
+  reconnect cycles no longer stack lines. 1,119 tests green.
 
 ## Goal
 
