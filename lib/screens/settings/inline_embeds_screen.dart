@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../../util/constants.dart';
+import '../../util/prefs.dart';
 import 'settings_page.dart';
 
 class InlineEmbedsScreen extends StatefulWidget {
@@ -34,23 +34,19 @@ class _InlineEmbedsScreenState extends State<InlineEmbedsScreen> {
   }
 
   Future<void> _loadPrefs() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await Prefs.load();
     if (mounted) {
       setState(() {
-        _showGifs =
-            prefs.getBool(kGiphyInlineEnabledPrefKey) ??
-            kGiphyInlineEnabledDefault;
-        _gifHeight =
-            (prefs.getDouble(kGiphyInlineHeightPrefKey) ??
-                    kGiphyInlineHeightDefault)
-                .clamp(kGiphyInlineHeightMin, kGiphyInlineHeightMax);
-        _showImages =
-            prefs.getBool(kImageEmbedEnabledPrefKey) ??
-            kImageEmbedEnabledDefault;
-        _imageHeight =
-            (prefs.getDouble(kImageEmbedHeightPrefKey) ??
-                    kImageEmbedHeightDefault)
-                .clamp(kImageEmbedHeightMin, kImageEmbedHeightMax);
+        _showGifs = prefs.giphyInlineEnabled;
+        _gifHeight = prefs.giphyInlineHeight.clamp(
+          kGiphyInlineHeightMin,
+          kGiphyInlineHeightMax,
+        );
+        _showImages = prefs.imageEmbedEnabled;
+        _imageHeight = prefs.imageEmbedHeight.clamp(
+          kImageEmbedHeightMin,
+          kImageEmbedHeightMax,
+        );
       });
     }
   }
@@ -61,15 +57,15 @@ class _InlineEmbedsScreenState extends State<InlineEmbedsScreen> {
       title: const Text('Inline embeds'),
       body: ListView(
         children: [
-          _sectionHeader('Giphy'),
+          const SettingsSectionHeader('Giphy'),
           SwitchListTile(
             secondary: const Icon(Icons.gif_box),
             title: const Text('Show Giphy inline'),
             subtitle: const Text('Render Giphy attachments as images in chat'),
             value: _showGifs,
             onChanged: (value) async {
-              final prefs = await SharedPreferences.getInstance();
-              await prefs.setBool(kGiphyInlineEnabledPrefKey, value);
+              final prefs = await Prefs.load();
+              await prefs.setGiphyInlineEnabled(value);
               if (mounted) setState(() => _showGifs = value);
               widget.onShowGifsChanged?.call(value);
             },
@@ -102,9 +98,8 @@ class _InlineEmbedsScreenState extends State<InlineEmbedsScreen> {
                 : null,
             onChangeEnd: _showGifs
                 ? (value) {
-                    SharedPreferences.getInstance().then(
-                      (prefs) =>
-                          prefs.setDouble(kGiphyInlineHeightPrefKey, value),
+                    Prefs.load().then(
+                      (prefs) => prefs.setGiphyInlineHeight(value),
                     );
                   }
                 : null,
@@ -118,7 +113,7 @@ class _InlineEmbedsScreenState extends State<InlineEmbedsScreen> {
               ),
             ),
           ),
-          _sectionHeader('Images'),
+          const SettingsSectionHeader('Images'),
           SwitchListTile(
             secondary: const Icon(Icons.image_outlined),
             title: const Text('Show images inline'),
@@ -127,8 +122,8 @@ class _InlineEmbedsScreenState extends State<InlineEmbedsScreen> {
             ),
             value: _showImages,
             onChanged: (value) async {
-              final prefs = await SharedPreferences.getInstance();
-              await prefs.setBool(kImageEmbedEnabledPrefKey, value);
+              final prefs = await Prefs.load();
+              await prefs.setImageEmbedEnabled(value);
               if (mounted) setState(() => _showImages = value);
               widget.onShowImagesChanged?.call(value);
             },
@@ -161,9 +156,8 @@ class _InlineEmbedsScreenState extends State<InlineEmbedsScreen> {
                 : null,
             onChangeEnd: _showImages
                 ? (value) {
-                    SharedPreferences.getInstance().then(
-                      (prefs) =>
-                          prefs.setDouble(kImageEmbedHeightPrefKey, value),
+                    Prefs.load().then(
+                      (prefs) => prefs.setImageEmbedHeight(value),
                     );
                   }
                 : null,
@@ -179,18 +173,6 @@ class _InlineEmbedsScreenState extends State<InlineEmbedsScreen> {
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _sectionHeader(String title) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
-      child: Text(
-        title,
-        style: Theme.of(
-          context,
-        ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
       ),
     );
   }

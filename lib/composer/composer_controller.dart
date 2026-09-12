@@ -6,7 +6,8 @@ import 'package:flutter/services.dart';
 import '../models/generic_emote.dart';
 import '../models/twitch_message.dart';
 import '../services/chat_connection_manager.dart';
-import '../services/chat_store.dart';
+import '../chat/chat.dart';
+import '../client/session.dart';
 import '../services/command_handler.dart';
 import '../services/emote_manager.dart';
 import '../services/suggestion.dart';
@@ -53,7 +54,10 @@ class ComposerController {
     required this.twitchAuth,
     required this.emoteManager,
     required this.userStore,
-    required this.chatStore,
+    required this.chat,
+    required this.session,
+    required this.getReplyTo,
+    required this.setReplyTo,
     required this.host,
   }) {
     focusNode.addListener(_onInputFocusChanged);
@@ -69,7 +73,10 @@ class ComposerController {
   final TwitchAuth twitchAuth;
   final EmoteManager emoteManager;
   final UserStore userStore;
-  final ChatStore chatStore;
+  final Session session;
+  final Chat chat;
+  final TwitchMessage? Function() getReplyTo;
+  final void Function(TwitchMessage?) setReplyTo;
   final ComposerHost host;
 
   final messageController = TextEditingController();
@@ -77,7 +84,6 @@ class ComposerController {
   final suggestions = ValueNotifier<List<Suggestion>>([]);
   final cooldownLabel = ValueNotifier<String?>(null);
 
-  TwitchMessage? replyToMsg;
   String? _lastSentText;
   List<GenericEmote>? _cachedAutocompleteEmotes;
   ({int start, String originalText, String replacementText})? _lastAutoUndo;
@@ -101,17 +107,18 @@ class ComposerController {
   void unfocus() => focusNode.unfocus();
   bool get hasFocus => focusNode.hasFocus;
 
-  // Plain setter for pipeline-tracked replies (no rebuild, as before).
-  set replyTo(TwitchMessage? v) => replyToMsg = v;
+  // Reply state is owned by replyToProvider; these are plain forwarders.
+  TwitchMessage? get replyToMsg => getReplyTo();
+  set replyTo(TwitchMessage? v) => setReplyTo(v);
 
   void startReply(TwitchMessage msg) {
-    replyToMsg = msg;
+    setReplyTo(msg);
     host.markDirty();
     focusNode.requestFocus();
   }
 
   void clearReply() {
-    replyToMsg = null;
+    setReplyTo(null);
     host.markDirty();
   }
 
@@ -398,7 +405,7 @@ class ComposerController {
   // timeout wins over the slow-mode window.
   String? cooldownText() {
     final channel = host.selectedChannel;
-    if (channel == null || !chatStore.channels.contains(channel)) return null;
+    if (channel == null || !chat.contains(channel)) return null;
     final timeout = chatConn.remainingSelfTimeout(channel);
     if (timeout != null) return 'Timed out: ${formatSeconds(timeout)}';
     final slow = chatConn.remainingSlowCooldown(channel);
@@ -415,7 +422,7 @@ class ComposerController {
       twitchAuth.isConfigured &&
       // Token without a session user means the identity is still resolving
       // (account switch, fresh login): the pipeline would drop the send.
-      chatStore.session.login != null &&
+      session.login != null &&
       chatConn.isChatPipeConnected &&
       (host.isWhispersTabActive || host.channelChatReady);
 

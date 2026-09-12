@@ -1,9 +1,9 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../composer/composer_bar.dart';
+import '../util/prefs.dart';
 
 /// Builds the chat content above the composer for the available box.
 typedef ChatBodyBuilder =
@@ -103,12 +103,10 @@ class _ChatBodyState extends State<ChatBody> {
 
   // Last learned open height, persisted so decisions start right even on a
   // cold start. Re-learned every session, so a stale value self-corrects.
-  static const String settledPrefsKey = 'keyboard_settled_h';
-
   void _loadSettledHeight() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final v = prefs.getDouble(settledPrefsKey) ?? 0;
+      final prefs = await Prefs.load();
+      final v = prefs.keyboardSettledHeight;
       if (v > 50 && v < 1500) {
         _settledKeyboardH = v;
         _persistedKeyboardH = v;
@@ -121,9 +119,7 @@ class _ChatBodyState extends State<ChatBody> {
     if ((v - _persistedKeyboardH).abs() < 10) return;
     _persistedKeyboardH = v;
     try {
-      SharedPreferences.getInstance().then(
-        (prefs) => prefs.setDouble(settledPrefsKey, v),
-      );
+      Prefs.load().then((prefs) => prefs.setKeyboardSettledHeight(v));
     } catch (_) {}
   }
 

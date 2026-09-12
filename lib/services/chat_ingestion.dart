@@ -4,54 +4,45 @@ import 'dart:ui' show Color;
 
 import '../models/emote_fetch_tier.dart';
 import '../models/twitch_message.dart';
-import '../util/duration_format.dart';
-import '../util/log.dart';
-import 'twitch_irc.dart' show IrcReadService;
-import '../util/text_bypass.dart';
-import 'chat_store.dart';
+import '../irc/decode/codec.dart' show parseIrcChatMessage;
+import '../irc/decode/copy.dart'
+    show buildUserNoticeText, userNoticeAccent, userNoticeLabelId;
+import '../irc/decode/decoder.dart' show IrcChatDecoder;
+import '../irc/decode/events.dart' show UserNoticeEvent;
+import '../irc/message.dart' show IrcMessage;
+import '../irc/transport/read.dart' show IrcReadService;
+import '../irc/transport/write.dart' show IrcService;
+import '../chat/chat.dart';
+import '../client/session.dart';
+import 'chat_sender.dart';
 import 'emote_manager.dart';
 import 'ignore_manager.dart';
+import 'message_policy.dart';
+import 'moderation_hub.dart';
 import 'ping_manager.dart';
 import 'twitch_auth.dart';
 import 'twitch_badge_service.dart';
-import 'twitch_irc.dart'
-    show
-        IrcChannelClearEvent,
-        IrcMessage,
-        IrcMessageDeletedEvent,
-        IrcService,
-        buildBanText,
-        parseIrcChatMessage;
 import 'user_store.dart';
-
-/// One IRC ban/timeout, tracked for stack folding: repeated identical
-/// moderation events inside the dedup window collapse into one system line
-/// with a "(N times)" suffix.
-class _BanMeta {
-  final String user;
-  final bool isTimeout;
-  int stackCount = 1;
-  DateTime lastEvent;
-  String? firstMessageId;
-
-  _BanMeta({required this.user, required this.isTimeout})
-    : lastEvent = DateTime.now();
-}
 
 /// The chat-content domain of the pipeline: turns incoming IRC traffic
 /// (PRIVMSG, CLEARMSG, CLEARCHAT, channel clears, own-message echoes) into
-/// [ChatStore] mutations and feature-sink calls. Pure translation: policy
+/// [Chat] mutations and feature-sink calls. Pure translation: policy
 /// lives behind the consulted predicates (pings, ignores, blocks) and every
-/// state law lives in the store.
+/// state law lives in the channel.
 class ChatIngestion {
   ChatIngestion({
     required this.irc,
     required this.ircRead,
-    required this.store,
+    required this.readDecoder,
+    required this.writeDecoder,
+    required this.chat,
+    required this.session,
     required this.userStore,
     required this.emoteManager,
     required this.badgeService,
     required this.twitchAuth,
+    required this.sender,
+    required this.moderation,
     this.ignoreManager,
     this.pingManager,
     required this.mentionsChannel,
@@ -61,24 +52,36 @@ class ChatIngestion {
     this.isBlocked,
     this.getSharedChatMode,
     required this.isModerationActive,
-    required this.onSelfTimeoutArmed,
-    required this.onSelfTimeoutCleared,
+    required this.isJoinFailureNotified,
     required this.onSystemMessage,
     this.onAnalyticsMessage,
-    this.onAnalyticsModeration,
     this.onChatMessage,
     this.onMention,
+    this.onWhisper,
   });
 
   final IrcService irc;
   final IrcReadService ircRead;
-  final ChatStore store;
+  final IrcChatDecoder readDecoder;
+  final IrcChatDecoder writeDecoder;
+  final Session session;
+  final Chat chat;
   final UserStore userStore;
   final EmoteManager emoteManager;
   final TwitchBadgeService badgeService;
   final TwitchAuth twitchAuth;
+  final ChatSender sender;
+  final ModerationHub moderation;
   final IgnoreManager? ignoreManager;
   final PingManager? pingManager;
+
+  late final ChatMessagePolicy _policy = ChatMessagePolicy(
+    ignoreManager: ignoreManager,
+    pingManager: pingManager,
+    userStore: userStore,
+    session: session,
+    isBlocked: isBlocked,
+  );
 
   final String mentionsChannel;
   final int Function() getMaxMessagesPerChannel;
@@ -92,14 +95,9 @@ class ChatIngestion {
   /// the richer EventSub copies.
   final bool Function(String channel) isModerationActive;
 
-  /// Own timeouts arm the input-box cooldown.
-  final void Function(String channel, DateTime until) onSelfTimeoutArmed;
-
-  /// A successfully echoed own message proves the send was accepted; clear
-  /// any stale self-timeout gate so the input box stops showing a countdown
-  /// for a timeout Twitch already lifted (non-mods get no untimeout signal,
-  /// so this echo is the only reliable heal).
-  final void Function(String channel) onSelfTimeoutCleared;
+  /// Whether a join-failure notice was already displayed for the channel;
+  /// its raw refusal NOTICE is suppressed as a duplicate then.
+  final bool Function(String channel) isJoinFailureNotified;
 
   final void Function(
     String channel,
@@ -110,32 +108,93 @@ class ChatIngestion {
   onSystemMessage;
 
   final void Function(String channel, TwitchMessage msg)? onAnalyticsMessage;
-  final void Function(String channel, bool isTimeout)? onAnalyticsModeration;
   final void Function(String channel, TwitchMessage msg)? onChatMessage;
   final void Function(String channel, TwitchMessage msg)? onMention;
+  final void Function(TwitchMessage msg)? onWhisper;
 
   bool _disposed = false;
-  final _recentBanMeta = <String, List<_BanMeta>>{};
-  static const _banDedupWindowSeconds = 10;
+  static const _roomStateNoticeIds = {
+    'followers_on_zero',
+    'followers_on',
+    'followers_off',
+    'emote_only_on',
+    'emote_only_off',
+    'r9k_on',
+    'r9k_off',
+    'subs_on',
+    'subs_off',
+    'slow_on',
+    'slow_off',
+  };
   final _inflightSourceData = <String, Future<void>>{};
 
   /// Subscribes to every content stream. Returns the subscriptions for the
   /// caller's dispose bookkeeping.
   List<StreamSubscription<void>> attach() {
     return [
-      ircRead.onMessage.listen(onMessage),
-      ircRead.onMessageDeleted.listen(_onMessageDeleted),
-      ircRead.onBan.listen(
-        (event) => _handleBanEvent(
+      readDecoder.onMessage.listen(onMessage),
+      readDecoder.onMessageDeleted.listen(
+        (event) => moderation.onIrcDelete(
+          channel: event.channel,
+          messageId: event.messageId,
+          user: event.user,
+          text: event.deletedMessageText,
+        ),
+      ),
+      readDecoder.onBan.listen(
+        (event) => moderation.onIrcBan(
           channel: event.channel,
           user: event.user,
           isTimeout: event.isTimeout,
           duration: event.duration,
         ),
       ),
-      ircRead.onChannelClear.listen(_onChannelClear),
-      ircRead.onOwnMessage.listen(onOwnIrcMessage),
+      readDecoder.onChannelClear.listen(
+        (event) => moderation.onIrcClear(event.channel),
+      ),
+      readDecoder.onOwnMessage.listen(onOwnIrcMessage),
+      readDecoder.onNotice.listen((event) {
+        if (_disposed) return;
+        // With channel.moderate active, room-state changes come from EventSub
+        // with structured data - suppress the redundant IRC NOTICE.
+        if (isModerationActive(event.channel) &&
+            _roomStateNoticeIds.contains(event.msgId)) {
+          return;
+        }
+        // A join-refusal notice for a channel we tried to join is already
+        // surfaced by the onJoinFailed listener with clearer wording; showing
+        // Twitch's raw copy too would duplicate the message. Refusals for
+        // channels we are not joining still display normally.
+        if (event.msgId == 'msg_channel_suspended' &&
+            isJoinFailureNotified(event.channel)) {
+          return;
+        }
+        onSystemMessage(event.channel, event.message);
+      }),
+      readDecoder.onJtvMessage.listen((event) {
+        if (_disposed) return;
+        onSystemMessage(event.channel, event.message);
+      }),
+      // Send rejections (slow-mode, banned, msg-too-long, ...) come back on
+      // the write socket; surface them as system messages instead of dropping.
+      writeDecoder.onNotice.listen((event) {
+        if (_disposed) return;
+        onSystemMessage(event.channel, event.message);
+      }),
+      readDecoder.onWhisper.listen(_onWhisperEvent),
+      readDecoder.onUserNotice.listen((event) {
+        if (_disposed) return;
+        onUserNotice(event);
+      }),
     ];
+  }
+
+  void _onWhisperEvent(TwitchMessage msg) {
+    if (_disposed) return;
+    if (!msg.isSystem && isBlocked?.call(msg.login) == true) return;
+    // Ignored users' whispers are dropped like their channel messages.
+    if (!msg.isSystem && ignoreManager?.isIgnored(msg.login) == true) return;
+    onWhisper?.call(msg);
   }
 
   void dispose() {
@@ -145,14 +204,14 @@ class ChatIngestion {
   // ---- PRIVMSG ------------------------------------------------------------
 
   /// Translates one live chat message under the pipeline policies (blocks,
-  /// ignores, pings, shared-chat mode) and hands it to the store.
+  /// ignores, pings, shared-chat mode) and hands it to the channel.
   void onMessage(TwitchMessage msg) {
     if (_disposed) return;
 
     // Chat content is hidden until the blocked-users list has been applied,
     // and blocked users' messages never appear at all.
     if (isChatReady?.call() == false) return;
-    if (!msg.isSystem && isBlocked?.call(msg.login) == true) return;
+    if (_policy.shouldDropForBlockedUser(msg)) return;
 
     final channel = msg.channel;
     if (channel == null) return;
@@ -161,19 +220,13 @@ class ChatIngestion {
     // rules in block mode drop the whole message, other keyword rules
     // rewrite the text (with emote position realignment) before ping
     // evaluation so rewritten messages can still highlight.
-    final ignores = ignoreManager;
-    if (!msg.isSystem && ignores != null) {
-      if (ignores.isIgnored(msg.login)) return;
-      if (ignores.isBlockedPhrase(msg.text)) return;
-      rewriteMessageKeywords(msg, ignores);
-    }
+    if (_policy.shouldDropForIgnore(msg)) return;
+    if (_policy.shouldDropForBlockedPhrase(msg)) return;
+    _policy.rewriteKeywords(msg);
 
     // Ping evaluation runs before the shared-chat 'hide' check so a fresh
     // mirrored mention survives hide mode (the native copy dedups later).
-    final highlightState = pingManager?.evaluate(msg);
-    if (highlightState != null) {
-      msg.highlight = highlightState;
-    }
+    _policy.applyPingHighlight(msg);
 
     // Shared-chat 'hide' mode: drop foreign messages entirely. Mentions and
     // system messages still flow through so the user doesn't miss pings.
@@ -186,21 +239,18 @@ class ChatIngestion {
     }
 
     if (!msg.isSystem && msg.login.isNotEmpty) {
-      final preferredName =
-          msg.displayName.toLowerCase() == msg.login.toLowerCase()
-          ? msg.displayName
-          : msg.login;
-      userStore.addUser(channel, preferredName);
+      _policy.learnUser(channel, msg);
     }
 
-    if (!store.ingestMessage(
+    final selected = getSelectedChannel();
+    final result = chat.receive(
+      channel,
       msg,
       maxMessages: getMaxMessagesPerChannel(),
-      selectedChannel: getSelectedChannel(),
-      mentionsChannel: mentionsChannel,
-    )) {
-      return;
-    }
+      isSelected: channel == selected,
+      ownLogin: session.login,
+    );
+    if (!result.inserted) return;
 
     // Feed the emote usage registry from live chat: the emotes people are
     // actually staring at get cache priority. History/backfill are skipped
@@ -225,9 +275,7 @@ class ChatIngestion {
       unawaited(_ensureSourceChannelData(msg.sourceBroadcasterId!));
     }
 
-    final login = store.session.login?.toLowerCase();
-    final state = msg.highlight;
-    if (state != null && state.hasMention && msg.login != login) {
+    if (result.mentioned) {
       onMention?.call(channel, msg);
     }
 
@@ -282,117 +330,109 @@ class ChatIngestion {
     }
   }
 
-  // ---- Moderation echoes --------------------------------------------------
+  // ---- USERNOTICE ---------------------------------------------------------
 
-  void _onMessageDeleted(IrcMessageDeletedEvent event) {
+  /// Renders a USERNOTICE: announcements as a label plus body, every other
+  /// notice as an accented system line, with sub/resub messages echoed as a
+  /// child chat message.
+  void onUserNotice(UserNoticeEvent event) {
     if (_disposed) return;
-    final found = store.markMessageDeleted(event.channel, event.messageId);
-    // While the channel.moderate v2 subscription is active, deletions come
-    // from EventSub (with moderator + message body) - skip the IRC copy.
-    if (found && !isModerationActive(event.channel)) {
+    final isAnnouncement = event.msgId == 'announcement';
+    if (!isAnnouncement) {
+      // Every non-announcement notice (subs, gift subs, watch streaks,
+      // bits badge tiers, raids, pay forwards, ...) highlights like a
+      // default (PRIMARY) purple announcement: the notice stays a system
+      // message but carries the accent.
+      final accent = userNoticeAccent(event.msgId);
       onSystemMessage(
         event.channel,
-        'A message from ${event.user} was deleted saying: "${event.deletedMessageText}".',
+        buildUserNoticeText(
+          msgId: event.msgId,
+          displayName: event.displayName,
+          systemMsg: event.systemMsg,
+        ),
+        accent: accent,
+        messageId: userNoticeLabelId(event.messageId),
       );
-    }
-  }
-
-  void _handleBanEvent({
-    required String channel,
-    required String user,
-    required bool isTimeout,
-    required int? duration,
-  }) {
-    logDebug(
-      '[Ingestion] IRC ban received: user=$user channel=$channel isTimeout=$isTimeout',
-    );
-    if (_disposed) return;
-    onAnalyticsModeration?.call(channel, isTimeout);
-    store.markUserMessagesDeleted(channel, user);
-    // Track own timeouts for the input-box countdown. Runs before the
-    // moderation-channel early return so the IRC and EventSub sources can't
-    // double-count: both just re-arm the same expiry.
-    final selfLogin = store.session.login?.toLowerCase();
-    if (selfLogin != null && user.toLowerCase() == selfLogin) {
-      // Zero-length timeouts are already spent - don't arm a gate for them.
-      if (isTimeout && duration != null && duration > 0) {
-        onSelfTimeoutArmed(
-          channel,
-          DateTime.now().add(Duration(seconds: duration)),
+      // Sub/resub with a user message render like announcements: the notice
+      // stays the label and the user's text becomes a child chat message so
+      // emotes and badges render. The IRC `emotes` tag positions are
+      // relative to the untrimmed body, so shift them by trimmed leading
+      // whitespace and drop any that fall out of range.
+      if ((event.msgId == 'sub' || event.msgId == 'resub') &&
+          (event.text?.trim().isNotEmpty ?? false)) {
+        final raw = event.text!;
+        final body = raw.trim();
+        final shift = raw.length - raw.trimLeft().length;
+        onMessage(
+          TwitchMessage(
+            login: event.login,
+            displayName: event.displayName,
+            text: body,
+            color: event.color,
+            userId: event.userId,
+            badges: event.badges,
+            emotePositions: _shiftEmotePositions(
+              event.emotePositions,
+              shift,
+              body.length,
+            ),
+            messageId: event.messageId,
+            channel: event.channel,
+            systemAccent: accent,
+          ),
         );
       }
+      onChatMessage?.call(
+        event.channel,
+        TwitchMessage(
+          login: event.login,
+          displayName: event.displayName,
+          text: buildUserNoticeText(
+            msgId: event.msgId,
+            displayName: event.displayName,
+            systemMsg: event.systemMsg,
+          ),
+          channel: event.channel,
+          isSystem: true,
+        ),
+      );
+      return;
     }
-    // While the channel.moderate v2 subscription is active, moderation
-    // messages come from EventSub (with reason/duration) - skip the IRC copy.
-    if (isModerationActive(channel)) return;
-    final result = _processBanInChannel(channel, user, isTimeout);
-    final isSelf = user.toLowerCase() == store.session.login?.toLowerCase();
-    final base = isSelf
-        ? (isTimeout
-              ? 'You are timed out${duration != null ? ' for ${formatSeconds(duration)}' : ''}'
-              : 'You were banned')
-        : buildBanText(user: user, isTimeout: isTimeout, durationSec: duration);
-    final stacked = result.stackCount > 1
-        ? ' (${result.stackCount} times)'
-        : '';
-    // buildBanText already ends with a period.
-    final trimmed = base.endsWith('.')
-        ? base.substring(0, base.length - 1)
-        : base;
-    final text = '$trimmed$stacked.';
-    logDebug('[Ingestion] IRC ban system message: $text');
-
-    if (result.stackCount > 1) {
-      if (result.meta.firstMessageId != null) {
-        store.updateMessageText(channel, result.meta.firstMessageId!, text);
-        return;
-      }
-    }
-    onSystemMessage(channel, text);
-    final msgs = store.channelMessages[channel];
-    result.meta.firstMessageId = msgs != null && msgs.isNotEmpty
-        ? msgs.first.messageId
-        : null;
-  }
-
-  // IRC-only ban/stack tracking within a 10s window (IRC is the single ban
-  // source since EventSub channel.ban subscriptions were dropped).
-  ({int stackCount, _BanMeta meta}) _processBanInChannel(
-    String channel,
-    String user,
-    bool isTimeout,
-  ) {
-    final now = DateTime.now();
-    final metas = _recentBanMeta.putIfAbsent(channel, () => []);
-
-    metas.removeWhere(
-      (m) => now.difference(m.lastEvent).inSeconds >= _banDedupWindowSeconds,
+    // DankChat-style: the "Announcement" label plus the announcement text
+    // rendered as a normal chat message, both on the announcement color.
+    final accent = userNoticeAccent(
+      'announcement',
+      announcementColorParam: event.announcementColor,
     );
-
-    final existing = metas.cast<_BanMeta?>().firstWhere(
-      (m) => m!.user == user && m.isTimeout == isTimeout,
-      orElse: () => null,
+    onSystemMessage(
+      event.channel,
+      'Announcement',
+      accent: accent,
+      messageId: userNoticeLabelId(event.messageId),
     );
-
-    if (existing != null) {
-      existing.stackCount++;
-      existing.lastEvent = now;
-      return (stackCount: existing.stackCount, meta: existing);
-    }
-
-    final meta = _BanMeta(user: user, isTimeout: isTimeout);
-    metas.add(meta);
-    return (stackCount: 1, meta: meta);
-  }
-
-  void _onChannelClear(IrcChannelClearEvent event) {
-    if (_disposed) return;
-    // With channel.moderate active, clears come from EventSub with the
-    // moderator's name - skip the IRC copy.
-    if (isModerationActive(event.channel)) return;
-    store.markAllMessagesDeleted(event.channel);
-    store.touchChannel(event.channel);
-    onSystemMessage(event.channel, 'Chat was cleared.');
+    final rawText = event.text ?? '';
+    final text = rawText.trim();
+    if (text.isEmpty) return;
+    final shift = rawText.length - rawText.trimLeft().length;
+    onMessage(
+      TwitchMessage(
+        login: event.login,
+        displayName: event.displayName,
+        text: text,
+        color: event.color,
+        userId: event.userId,
+        badges: event.badges,
+        emotePositions: _shiftEmotePositions(
+          event.emotePositions,
+          shift,
+          text.length,
+        ),
+        messageId: event.messageId,
+        channel: event.channel,
+        systemAccent: accent,
+      ),
+    );
   }
 
   // ---- Own-message echo ---------------------------------------------------
@@ -404,28 +444,19 @@ class ChatIngestion {
         : null;
     if (channel == null || ircMsg.trailing == null) return;
 
-    // Re-sync lastSentWireText from the echo so it doesn't drift if the
-    // server modified the message (truncation, etc.). Skip commands since
-    // they are never compared by the bypass logic.
-    final original = ircMsg.trailing!;
-    final previous = store.lastSentWireText[channel];
-    if (previous != null &&
-        !previous.startsWith('.') &&
-        !previous.startsWith('/')) {
-      if (stripInvisibleSuffix(previous) != stripInvisibleSuffix(original)) {
-        store.lastSentWireText[channel] = original;
-      }
-    }
+    // Re-sync the bypass memory from the echo so it doesn't drift if the
+    // server modified the message (truncation, etc.).
+    sender.resyncWireText(channel, ircMsg.trailing!);
 
     // A successful echo means Twitch accepted the send - any self-timeout
     // gate still armed was for a timeout Twitch has since lifted. Clear it.
-    onSelfTimeoutCleared(channel);
+    sender.clearTimeout(channel);
 
     final msg = parseIrcChatMessage(
       ircMsg,
       channel: channel,
-      defaultLogin: store.session.login,
-      defaultUserId: store.session.userId,
+      defaultLogin: session.login,
+      defaultUserId: session.userId,
     );
 
     // Track our own message ids so replies chained onto them ping via
@@ -440,38 +471,51 @@ class ChatIngestion {
     }
     pingManager?.setOwnDisplayName(msg.displayName);
 
-    final preferredName =
-        msg.displayName.toLowerCase() == msg.login.toLowerCase()
-        ? msg.displayName
-        : msg.login;
-    if (preferredName.isNotEmpty) {
-      userStore.addUser(channel, preferredName);
-    }
+    _policy.learnUser(channel, msg);
 
-    if (msg.messageId != null &&
-        store.messageKeys.contains('$channel:${msg.messageId}')) {
-      return;
-    }
+    final result = chat.receive(
+      channel,
+      msg,
+      maxMessages: getMaxMessagesPerChannel(),
+      isSelected: channel == getSelectedChannel(),
+      ownLogin: session.login,
+    );
+    if (!result.inserted) return;
 
+    // Counted after the dedup gate: the read socket and the write echo carry
+    // the same message, so counting before the insert would double it.
     onAnalyticsMessage?.call(channel, msg);
 
-    store.channelMessages.putIfAbsent(channel, () => []);
-    store.channelMessages[channel]!.insert(0, msg);
-    store.truncateWithCoalesce(
-      channel,
-      maxMessages: getMaxMessagesPerChannel(),
-    );
-
-    if (msg.messageId != null) {
-      store.messageKeys.add('$channel:${msg.messageId}');
-    }
-    store.indexMessages(channel, [msg]);
-
-    store.noteNewMessage(channel);
     precacheMessageEmotes(msg, channel);
     // Own messages arrive on the read socket (not the channel echo), so they
     // would otherwise never be read aloud; surface them like any other chat
     // message so TTS can speak them too.
     onChatMessage?.call(channel, msg);
   }
+}
+
+/// Shifts IRC `emotes` tag positions after trimming leading whitespace.
+/// Positions outside the trimmed body are dropped.
+List<EmotePosition>? _shiftEmotePositions(
+  List<EmotePosition>? positions,
+  int shift,
+  int textLength,
+) {
+  if (positions == null || positions.isEmpty) return positions;
+  if (shift <= 0) return positions;
+  final kept = <EmotePosition>[];
+  for (final p in positions) {
+    final start = p.startIndex - shift;
+    final end = p.endIndex - shift;
+    if (start < 0 || end > textLength || start >= end) continue;
+    kept.add(
+      EmotePosition(
+        emoteId: p.emoteId,
+        startIndex: start,
+        endIndex: end,
+        emoteCode: p.emoteCode,
+      ),
+    );
+  }
+  return kept;
 }

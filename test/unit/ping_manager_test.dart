@@ -394,9 +394,11 @@ void main() {
           final distances = <double>[
             for (final t in types)
               (() {
-                final row = HighlightState(
-                  types: {t},
-                ).rowColor(surface, opacity: opacity);
+                final row = highlightRowColor(
+                  HighlightState(types: {t}),
+                  surface,
+                  opacity: opacity,
+                );
                 return (brightness(row) - brightness(surface)).abs();
               })(),
           ];
@@ -407,9 +409,10 @@ void main() {
               reason: 'surface: $surface',
             );
           }
-          final plain = HighlightState(
-            types: {HighlightType.firstMsg},
-          ).rowColor(surface);
+          final plain = highlightRowColor(
+            HighlightState(types: {HighlightType.firstMsg}),
+            surface,
+          );
           expect(
             dist(plain, surface),
             closeTo(
@@ -426,10 +429,11 @@ void main() {
           types: {HighlightType.username},
           customColor: Color(0xFFABCDEF),
         );
-        final customRow = custom.rowColor(surfaceDark);
-        final paletteRow = const HighlightState(
-          types: {HighlightType.username},
-        ).rowColor(surfaceDark);
+        final customRow = highlightRowColor(custom, surfaceDark);
+        final paletteRow = highlightRowColor(
+          const HighlightState(types: {HighlightType.username}),
+          surfaceDark,
+        );
         expect(customRow, isNot(equals(paletteRow)));
         expect(
           dist(customRow, surfaceDark),

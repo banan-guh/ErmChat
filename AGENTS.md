@@ -1,6 +1,6 @@
 # ermchat
 
-Twitch chat viewer (WIP). Single Flutter package. See [TODO.md](TODO.md) for the roadmap; [PLAN.md](PLAN.md) covers the home_screen refactor (done).
+Twitch chat viewer (WIP). Single Flutter package. See [TODO.md](TODO.md) for the roadmap; [PLAN.md](PLAN.md) is a scratchpad, with [I18N.md](I18N.md) and [BACKLOG.md](BACKLOG.md) as deferred plans.
 
 ## Commands
 
@@ -18,32 +18,38 @@ dart format .      # format all Dart files
 
 ## Architecture (know before editing)
 
-- IRC is the chat pipeline (PRIVMSG/USERNOTICE/CLEARCHAT/CLEARMSG/NOTICE); EventSub is moderation-only (`channel.moderate` v2 where the user is a mod) plus broadcaster-only, read-only chat widgets (hype train/poll/prediction). `ChatConnectionManager` orchestrates all of it.
+- IRC is the chat pipeline (PRIVMSG/USERNOTICE/CLEARCHAT/CLEARMSG/NOTICE); EventSub is moderation-only (`channel.moderate` v2 where the user is a mod) plus broadcaster-only, read-only chat widgets (hype train/poll/prediction). `ChatConnectionManager` orchestrates all of it. Moderation facts from both sources funnel through `ModerationHub`; `ChatLiveness` owns the watchdog and reconnect paths.
 - Not logged in = anonymous read-only IRC (justinfan NICK, no Helix); emotes still render via the IRC `emotes` tag + third-party providers.
 - `TwitchAuth` is multi-account: secure-storage registry + active account (`switchTo`/`removeAccount`, avatar from `profileImageUrl`). The account switcher lives in the settings Account screen.
 - OAuth: Android goes through `MainActivity` (session-bound Custom Tab so App Links can't hand off to the Twitch app; `ermchat://` redirect back via the `ermchat/oauth` MethodChannel). iOS keeps `flutter_web_auth_2`. `startFlow({ephemeral})` applies to iOS only (re-auth path).
 - Emote caching: `EmoteManager` (ChangeNotifier, metadata TTL, usage registry) + `EmoteCacheManager` (disk cap, evicts by registry priority). 7TV live updates via `SevenTvEventClient`.
 - Message spans are cached per message in `MessageBuilder` and invalidated against `EmoteManager.version`, so emote changes recompute lazily.
 
+## Architecture rules
+
+See [docs/ARCHITECTURE_RULES.md](docs/ARCHITECTURE_RULES.md) for the rules and [docs/DECISIONS.md](docs/DECISIONS.md) for why. [docs/BEHAVIOR_CHECKLIST.md](docs/BEHAVIOR_CHECKLIST.md) gates each migration phase. `test/architecture/architecture_test.dart` enforces the import-direction rules; keep it green.
+
 ## Chat kernel conventions
 
-- `ChatStore` is the kernel: it owns the chat state collections and the laws for mutating them.
-- Mutate only through store verbs (`addSystemMessage`, ingest-style operations, `truncateChannel`, `indexMessages`); never reach into the exposed collections directly.
+- `Chat` is the root: channel registry and cross-channel totals. `Channel` composes `Messages`/`Threads`/`Unread`/`Moderation`/`Points`/`ChannelInfo`. Account identity lives in `lib/client/Session`, outside the kernel; the app subscribes to `Session.version`.
+- Mutate only through verbs. The live path is `Chat.receive` (root) delegating to `Channel.receive`; the history path is `Chat.receiveHistory` delegating to `Channel.receiveHistory`. The root owns the `@mentions` mirror and the unread/mention totals, so pipeline callers never write a root child. The channel verbs stay atomic: dedup, insert, truncate, index in one call.
+- `Channel` children are readable from anywhere. Ingest-critical writes go through `Channel` verbs; a child owner's own methods (`Moderation.putBan`, `Points.upsertRedemption`) are its verbs. Row-scoped moderation edits use `Messages.markDeleted`/`markUserDeleted`/`markAllDeleted`.
 - Pipeline components (`ChatConnectionManager`) may gate/filter messages but must not re-implement state rules.
-- Kernels emit downward only: change events on `store.events` (per-channel notifiers) and UI-effect notices on `store.notices`; they never import Material widgets or call upward into screens. `HomeScreen` subscribes once and translates both.
-- New chat-state features: put the rule in `ChatStore`, add unit tests in `test/unit/chat_store_test.dart`, then consume from pipeline/UI.
-- View-only caches (tile caches, panel data) stay in `HomeScreen`, driven by `store.events`.
+- No generic bus. Owners expose typed notifiers (`Messages.version`, `ChannelInfo.version`, `Moderation` versions, `Chat` aggregates). UI subscribes to the owner it renders.
+- New chat-state features: put the rule in `lib/chat/`, add tests in `test/chat/`, then consume from pipeline/UI.
+- View-only caches (tile caches, panel data) stay in `HomeScreen`, driven by typed notifiers.
 
 ## Test conventions
 
 - Unit tests in `test/unit/<file>_test.dart`, data/IRC-parsing tests in `test/data/`, widget/integration tests in `test/widgets/`.
-- Injectable for tests: `TwitchApi.client`, `TwitchChatApp`/`HomeScreen` service params, `EventSubService.handleRawMessage`/`emitConnected`/`waitForSession`, `IrcService.emitChatMessage`/`emitUserNotice`, `OAuthStarter`, `AccountScreen.twitchApi`.
+- Injectable for tests: `TwitchApi.client`, `TwitchChatApp`/`HomeScreen` service params, `EventSubService.handleRawMessage`/`emitConnected`/`waitForSession`, `EventSubDecoder.feed`, `IrcChatDecoder.feed`, socket `handleLine`, `OAuthStarter`, `AccountScreen.twitchApi`.
 
 ## Rules
 
 When you make a commit, ALWAYS read [RULES.md](RULES.md) first: short jab titles (4 words target, 8 hard max), body essentially never. RULES.md also holds code-consistency and subagent rules; follow those too. Read RULES.md on first init.
 IMPORTANT: NO em-dashes.
 If a comment is multiple lines long, see if you can rephrase it to be shorter. ALWAYS review a comment if you write one more than 3 lines long.
+Comments and doc comments state what the code does and why, in the present tense. Never narrate the change (no "previously", "used to", "moved from").
 NEVER `dart format .` as it creates extremely large diffs. Instead, specify the exact files to format.
 
 ## Notes

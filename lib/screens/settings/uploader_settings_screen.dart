@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../services/media_uploader.dart';
 import '../../widgets/app_snack.dart';
+import '../../widgets/dialogs.dart';
 import 'settings_page.dart';
 
 class UploaderSettingsScreen extends StatefulWidget {
@@ -61,24 +62,13 @@ class _UploaderSettingsScreenState extends State<UploaderSettingsScreen> {
   }
 
   Future<void> _reset() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Reset media uploader'),
-        content: const Text('Restore the default kappa.lol uploader settings?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Reset'),
-          ),
-        ],
-      ),
+    final confirmed = await confirmDialog(
+      context,
+      title: 'Reset media uploader',
+      message: 'Restore the default kappa.lol uploader settings?',
+      confirmLabel: 'Reset',
     );
-    if (confirmed != true) return;
+    if (!confirmed) return;
     await _mediaUploader.resetConfig();
     if (!mounted) return;
     setState(() {
@@ -94,6 +84,7 @@ class _UploaderSettingsScreenState extends State<UploaderSettingsScreen> {
 
   @override
   void dispose() {
+    _mediaUploader.close();
     _uploadUrl.dispose();
     _formField.dispose();
     _headers.dispose();

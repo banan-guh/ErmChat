@@ -30,8 +30,7 @@ class ToolsSettingsScreen extends StatelessWidget {
       title: const Text('Tools'),
       body: ListView(
         children: [
-          _buildTile(
-            context,
+          SettingsNavTile(
             icon: Icons.record_voice_over,
             title: 'Text-to-speech',
             onTap: () => Navigator.push(
@@ -41,8 +40,7 @@ class ToolsSettingsScreen extends StatelessWidget {
               ),
             ),
           ),
-          _buildTile(
-            context,
+          SettingsNavTile(
             icon: Icons.upload,
             title: 'Image uploader',
             onTap: () => Navigator.push(
@@ -50,8 +48,7 @@ class ToolsSettingsScreen extends StatelessWidget {
               MaterialPageRoute(builder: (_) => const UploaderSettingsScreen()),
             ),
           ),
-          _buildTile(
-            context,
+          SettingsNavTile(
             icon: Icons.image,
             title: 'Recent uploads',
             onTap: () => Navigator.push(
@@ -60,8 +57,7 @@ class ToolsSettingsScreen extends StatelessWidget {
             ),
           ),
           if (analyticsService != null && channels != null)
-            _buildTile(
-              context,
+            SettingsNavTile(
               icon: Icons.insights,
               title: 'Analytics',
               onTap: () => Navigator.push(
@@ -74,8 +70,7 @@ class ToolsSettingsScreen extends StatelessWidget {
                 ),
               ),
             ),
-          _buildTile(
-            context,
+          SettingsNavTile(
             icon: Icons.history,
             title: 'Recent messages',
             subtitle: 'Choose provider',
@@ -88,8 +83,7 @@ class ToolsSettingsScreen extends StatelessWidget {
               ),
             ),
           ),
-          _buildTile(
-            context,
+          SettingsNavTile(
             icon: Icons.link,
             title: 'Split link whitelist',
             onTap: () => Navigator.push(
@@ -101,22 +95,6 @@ class ToolsSettingsScreen extends StatelessWidget {
           ),
         ],
       ),
-    );
-  }
-
-  Widget _buildTile(
-    BuildContext context, {
-    required IconData icon,
-    required String title,
-    String? subtitle,
-    required VoidCallback onTap,
-  }) {
-    return ListTile(
-      leading: Icon(icon),
-      title: Text(title),
-      subtitle: subtitle == null ? null : Text(subtitle),
-      trailing: const Icon(Icons.chevron_right),
-      onTap: onTap,
     );
   }
 }

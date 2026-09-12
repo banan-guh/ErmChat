@@ -3,10 +3,11 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../chat/chat.dart';
+import '../client/session.dart';
 import '../composer/composer_controller.dart';
 import '../models/twitch_message.dart';
 import '../services/chat_connection_manager.dart';
-import '../services/chat_store.dart';
 import '../services/link_whitelist.dart';
 import '../services/twitch_auth.dart';
 import '../sheets/message_menu.dart';
@@ -40,7 +41,8 @@ abstract class MentionsPanelsHost extends ShellState {
 class MentionsPanels {
   MentionsPanels({
     required this.panelManager,
-    required this.chatStore,
+    required this.chat,
+    required this.session,
     required this.chatConn,
     required this.twitchAuth,
     required this.mentionsTab,
@@ -53,7 +55,8 @@ class MentionsPanels {
   });
 
   final PanelManager panelManager;
-  final ChatStore chatStore;
+  final Session session;
+  final Chat chat;
   final ChatConnectionManager chatConn;
   final TwitchAuth twitchAuth;
   final TabController Function() mentionsTab;
@@ -102,7 +105,7 @@ class MentionsPanels {
   // Bell tap: all unread counts go to zero.
   void clearUnreadWhispers() {
     unreadWhispers = 0;
-    chatStore.mentionsBump.value++;
+    chat.touchMentions();
   }
 
   bool get isWhispersTabActive =>
@@ -126,9 +129,7 @@ class MentionsPanels {
     panelManager.activePanel = OverlayPanel.mentions;
     panelManager.openThreadRoot = null;
     host.markDirty();
-    // Pre-create the mentions buffer so the ChatView's list reference stays
-    // stable across the first mirrorMentions insertion.
-    chatStore.channelMessages.putIfAbsent(mentionsChannel, () => []);
+    // The mentions buffer always exists on Chat; no pre-create needed.
     mentionsMsgCount.value++;
     whispersMsgCount.value++;
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -154,9 +155,10 @@ class MentionsPanels {
     whispersMsgCount.value++;
     if (!isWhispersTabActive) {
       unreadWhispers++;
-      chatStore.unreadMentions++;
+      chat.noteWhisper();
+    } else {
+      chat.touchMentions();
     }
-    chatStore.mentionsBump.value++;
   }
 
   void addWhisperSystemMessage(String channel, String text) {
@@ -168,11 +170,11 @@ class MentionsPanels {
       whispers.removeRange(host.maxMessages, whispers.length);
     }
     whispersMsgCount.value++;
-    chatStore.mentionsBump.value++;
+    chat.touchMentions();
   }
 
   void onWhisperSent(String target, String message) {
-    final login = chatStore.session.login;
+    final login = session.login;
     if (login == null) return;
     whisperTarget = target;
     whispers.insert(
@@ -188,7 +190,7 @@ class MentionsPanels {
       whispers.removeRange(host.maxMessages, whispers.length);
     }
     whispersMsgCount.value++;
-    chatStore.mentionsBump.value++;
+    chat.touchMentions();
   }
 
   void onMentionsTabChanged() {
@@ -201,10 +203,8 @@ class MentionsPanels {
   void _onMentionsFocus(int index) {
     iosHaptic(HapticFeedback.selectionClick);
     if (index == 1 && unreadWhispers > 0) {
-      chatStore.unreadMentions -= unreadWhispers;
-      if (chatStore.unreadMentions < 0) chatStore.unreadMentions = 0;
+      chat.markWhispersSeen(unreadWhispers);
       unreadWhispers = 0;
-      chatStore.mentionsBump.value++;
     }
     // Live crossings rebuild through notifiers alone (badge, composer);
     // settle keeps the full rebuild for tab-tap parity.
@@ -217,10 +217,8 @@ class MentionsPanels {
       unawaited(showMentionsView());
     }
     mentionsTab().animateTo(1);
-    chatStore.unreadMentions -= unreadWhispers;
-    if (chatStore.unreadMentions < 0) chatStore.unreadMentions = 0;
+    chat.markWhispersSeen(unreadWhispers);
     unreadWhispers = 0;
-    chatStore.mentionsBump.value++;
     composer.focus();
   }
 
@@ -282,7 +280,7 @@ class MentionsPanels {
             ChatView(
               key: const ValueKey('mentions_panel'),
               channel: mentionsChannel,
-              messages: chatStore.channelMessages[mentionsChannel] ?? const [],
+              messages: chat.mentions.items,
               atBottomNotifier: mentionsAtBottom,
               messageNotifier: mentionsMsgCount,
               scrollController: mentionsPanelScrollCtrl,

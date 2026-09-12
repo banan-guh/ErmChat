@@ -3,9 +3,10 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../chat/channel/threads.dart';
+import '../chat/chat.dart';
 import '../composer/composer_controller.dart';
 import '../models/twitch_message.dart';
-import '../services/chat_store.dart';
 import '../services/saved_threads_store.dart';
 import '../services/seven_tv_paint_service.dart';
 import '../sheets/message_menu.dart';
@@ -43,7 +44,7 @@ abstract class ThreadPanelsHost extends ShellState {
 class ThreadPanels {
   ThreadPanels({
     required this.panelManager,
-    required this.chatStore,
+    required this.chat,
     required this.threadsTab,
     required this.composer,
     required this.messageBuilder,
@@ -55,7 +56,7 @@ class ThreadPanels {
   }
 
   final PanelManager panelManager;
-  final ChatStore chatStore;
+  final Chat chat;
   final TabController Function() threadsTab;
   final ComposerController composer;
   final MessageBuilder messageBuilder;
@@ -96,7 +97,7 @@ class ThreadPanels {
   TwitchMessage? findThreadRoot(TwitchMessage msg) {
     return panelManager.findThreadRoot(
       msg,
-      channelMessages: chatStore.channelMessages,
+      messagesFor: (c) => chat.channelFor(c)?.messages.items,
     );
   }
 
@@ -107,11 +108,15 @@ class ThreadPanels {
   // Holds the on-screen thread in the store; releases when none is open.
   // Follows every openThreadRoot assignment via PanelManager.
   void syncPinnedThread() {
-    chatStore.pinnedThreadKeys.clear();
+    for (final name in chat.names) {
+      chat.channelFor(name)?.threads.clearPinned();
+    }
     final root = panelManager.openThreadRoot;
     final channel = root?.channel;
     final id = root == null ? null : (root.replyThreadRootId ?? root.messageId);
-    if (channel != null && id != null) chatStore.pinThread(channel, id);
+    if (channel != null && id != null) {
+      chat.channelFor(channel)?.threads.pin(id);
+    }
   }
 
   // Drop thread state pointing at a departed channel so the Thread tab
@@ -142,7 +147,7 @@ class ThreadPanels {
     }
     tabDragFocus.reset();
     if (switchChannel && host.selectedChannel != channel) {
-      final idx = chatStore.channels.indexOf(channel);
+      final idx = chat.names.indexOf(channel);
       if (idx >= 0) host.switchChannelTo(idx);
     }
     if (!host.isMounted()) return;
@@ -229,9 +234,10 @@ class ThreadPanels {
   }
 
   void syncSavedKeys() {
-    chatStore.savedThreadKeys
-      ..clear()
-      ..addAll(savedThreads.keys);
+    final globalKeys = savedThreads.keys;
+    for (final name in chat.names) {
+      chat.channelFor(name)?.threads.syncSavedKeys(name, globalKeys);
+    }
   }
 
   // Mirror fresh channel history into saved threads carrying that channel.
@@ -244,7 +250,7 @@ class ThreadPanels {
       }
     }
     if (!hasSaved) return;
-    final msgs = chatStore.channelMessages[channel];
+    final msgs = chat.channelFor(channel)?.messages.items;
     if (msgs == null || msgs.isEmpty) return;
     var appended = false;
     for (final m in msgs) {
@@ -305,13 +311,13 @@ class ThreadPanels {
   // Resolves the actual root message for a thread key, so bookmarks snapshot
   // the root's author/text instead of whichever reply got long-pressed.
   TwitchMessage? resolveThreadRootMessage(String channel, String rootId) {
-    final indexed = chatStore.threadFor(channel, rootId);
+    final indexed = chat.channelFor(channel)?.threads.threadFor(rootId);
     if (indexed != null) {
       for (final m in indexed) {
         if (m.messageId == rootId) return m;
       }
     }
-    final buffered = chatStore.channelMessages[channel];
+    final buffered = chat.channelFor(channel)?.messages.items;
     if (buffered != null) {
       for (final m in buffered) {
         if (m.messageId == rootId) return m;
@@ -375,13 +381,13 @@ class ThreadPanels {
       out.add(m);
     }
 
-    final live = chatStore.threadFor(channel, rootId);
+    final live = chat.channelFor(channel)?.threads.threadFor(rootId);
     if (live != null) {
       for (final m in live) {
         add(m);
       }
     } else {
-      final buffered = chatStore.channelMessages[channel];
+      final buffered = chat.channelFor(channel)?.messages.items;
       if (buffered != null) {
         final parentOf = <String, String>{};
         for (final m in buffered) {
@@ -404,7 +410,7 @@ class ThreadPanels {
   }
 
   void openActiveThread(ThreadSummary summary, String channel) {
-    final msgs = chatStore.threadFor(channel, summary.rootId);
+    final msgs = chat.channelFor(channel)?.threads.threadFor(summary.rootId);
     TwitchMessage? target = summary.root;
     target ??= msgs?.firstOrNull;
     target ??= resolveThreadRootMessage(channel, summary.rootId);
@@ -418,7 +424,7 @@ class ThreadPanels {
   void openSavedThread(SavedThread entry) {
     // Saved threads open offline: the persisted log renders even when the
     // channel is not joined, and no channel switch happens in that case.
-    final joined = chatStore.channels.contains(entry.channel);
+    final joined = chat.contains(entry.channel);
     final target =
         resolveThreadRootMessage(entry.channel, entry.rootId) ??
         TwitchMessage(
@@ -434,8 +440,8 @@ class ThreadPanels {
   List<TwitchMessage> computeThreadMessages() {
     final live = panelManager.computeThreadMessages(
       openThreadRoot: panelManager.openThreadRoot,
-      channelMessages: chatStore.channelMessages,
-      threadFor: (ch, rootId) => chatStore.threadFor(ch, rootId),
+      messagesFor: (c) => chat.channelFor(c)?.messages.items,
+      threadFor: (ch, rootId) => chat.channelFor(ch)?.threads.threadFor(rootId),
     );
     // Saved threads merge the persisted full log so the view survives buffer
     // eviction and restarts. Live rows win on id conflicts.
@@ -602,7 +608,8 @@ class ThreadPanels {
         if (channel == null) {
           return const Center(child: Text('Join a channel to see threads'));
         }
-        final threads = chatStore.activeThreads(channel);
+        final threads =
+            chat.channelFor(channel)?.threads.activeThreads() ?? const [];
         if (threads.isEmpty) {
           return const Center(child: Text('No active threads'));
         }
@@ -614,7 +621,10 @@ class ThreadPanels {
             final unread = isThreadUnread(channel, summary);
             // Orphan threads have no root yet; show the newest reply by
             // timestamp so the row still identifies the conversation.
-            final live = chatStore.threadFor(channel, summary.rootId);
+            final live = chat
+                .channelFor(channel)
+                ?.threads
+                .threadFor(summary.rootId);
             final display =
                 summary.root ??
                 (live == null ? null : newestThreadMessage(live));

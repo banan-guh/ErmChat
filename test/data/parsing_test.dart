@@ -8,8 +8,10 @@ import 'package:ermchat/services/mod_actions.dart';
 import 'package:ermchat/services/twitch_api.dart';
 import 'package:ermchat/services/twitch_auth.dart';
 import 'package:ermchat/twitch_config.dart';
-import 'package:ermchat/services/twitch_eventsub.dart';
-import 'package:ermchat/services/twitch_irc.dart';
+import 'package:ermchat/eventsub/decode/decoder.dart';
+import 'package:ermchat/eventsub/decode/events.dart';
+import 'package:ermchat/irc/decode/codec.dart';
+import 'package:ermchat/irc/message.dart';
 
 import 'package:http/http.dart' as http;
 
@@ -1802,10 +1804,10 @@ void main() {
     });
   });
 
-  late EventSubService service;
+  late EventSubDecoder service;
 
   setUp(() {
-    service = EventSubService();
+    service = EventSubDecoder(Stream<Map<String, dynamic>>.empty());
     service.setChannelMapping('broadcaster1', 'testchannel');
   });
 
@@ -1818,7 +1820,7 @@ void main() {
       final events = <ModerationEvent>[];
       service.onModeration.listen(events.add);
 
-      service.handleRawMessage(
+      service.feed(
         _moderate(
           action: 'ban',
           meta: {
@@ -1833,7 +1835,7 @@ void main() {
 
       expect(events, hasLength(1));
       expect(events[0].channel, 'testchannel');
-      expect(events[0].action, 'ban');
+      expect(events[0].action, ModerationAction.ban);
       expect(events[0].moderatorName, 'moduser');
       expect(events[0].targetName, 'targetuser');
       expect(events[0].reason, 'spam');
@@ -1847,7 +1849,7 @@ void main() {
           .toUtc()
           .add(const Duration(seconds: 300))
           .toIso8601String();
-      service.handleRawMessage(
+      service.feed(
         _moderate(
           action: 'timeout',
           meta: {
@@ -1857,11 +1859,11 @@ void main() {
       );
 
       expect(events, hasLength(1));
-      expect(events[0].action, 'timeout');
+      expect(events[0].action, ModerationAction.timeout);
       expect(events[0].durationSeconds, closeTo(300, 10));
     });
 
-    for (final (name, action, meta, expectedAction) in [
+    for (final (name, action, meta, expectedAction, expectedRaw) in [
       (
         'delete carries message id and body',
         'delete',
@@ -1872,6 +1874,7 @@ void main() {
             'message_body': 'hello',
           },
         },
+        ModerationAction.delete,
         'delete',
       ),
       (
@@ -1880,44 +1883,50 @@ void main() {
         {
           'shared_chat_ban': {'user_name': 'targetuser'},
         },
+        ModerationAction.ban,
         'ban',
       ),
       (
         'clear emits event without target',
         'clear',
         <String, dynamic>{},
+        ModerationAction.clear,
         'clear',
       ),
       (
         'slow emits bare action without target',
         'slow',
         <String, dynamic>{},
+        ModerationAction.slow,
         'slow',
       ),
       (
         'followersoff emits bare action',
         'followersoff',
         <String, dynamic>{},
+        ModerationAction.followersOff,
         'followersoff',
       ),
       (
         'unknown future actions still emit for the feed',
         'some_future_action',
         <String, dynamic>{},
+        ModerationAction.unknown,
         'some_future_action',
       ),
     ]) {
       test(name, () async {
         final events = <ModerationEvent>[];
         service.onModeration.listen(events.add);
-        service.handleRawMessage(_moderate(action: action, meta: meta));
+        service.feed(_moderate(action: action, meta: meta));
         expect(events, hasLength(1), reason: name);
         expect(events[0].action, expectedAction, reason: name);
-        if (expectedAction == 'delete') {
+        expect(events[0].rawAction, expectedRaw, reason: name);
+        if (expectedAction == ModerationAction.delete) {
           expect(events[0].messageId, 'msg-1', reason: name);
           expect(events[0].messageBody, 'hello', reason: name);
         }
-        if (expectedAction == 'clear') {
+        if (expectedAction == ModerationAction.clear) {
           expect(events[0].targetName, isNull, reason: name);
         }
       });
@@ -1926,7 +1935,7 @@ void main() {
     test('add_blocked_term carries terms from automod_terms', () async {
       final events = <ModerationEvent>[];
       service.onModeration.listen(events.add);
-      service.handleRawMessage(
+      service.feed(
         _moderate(
           action: 'add_blocked_term',
           meta: {
@@ -1940,7 +1949,7 @@ void main() {
         ),
       );
       expect(events, hasLength(1));
-      expect(events[0].action, 'add_blocked_term');
+      expect(events[0].action, ModerationAction.addBlockedTerm);
       expect(events[0].terms, ['bad word', 'worse*']);
       expect(events[0].targetName, isNull);
     });
@@ -1948,7 +1957,7 @@ void main() {
     test('approve_unban_request carries target and resolution', () async {
       final events = <ModerationEvent>[];
       service.onModeration.listen(events.add);
-      service.handleRawMessage(
+      service.feed(
         _moderate(
           action: 'approve_unban_request',
           meta: {
@@ -1960,7 +1969,7 @@ void main() {
         ),
       );
       expect(events, hasLength(1));
-      expect(events[0].action, 'approve_unban_request');
+      expect(events[0].action, ModerationAction.approveUnbanRequest);
       expect(events[0].targetName, 'spammer');
       expect(events[0].reason, 'second chance');
     });
@@ -1972,7 +1981,7 @@ void main() {
           .toUtc()
           .add(const Duration(seconds: 300))
           .toIso8601String();
-      service.handleRawMessage(
+      service.feed(
         _moderate(
           action: 'shared_chat_timeout',
           meta: {
@@ -1984,7 +1993,7 @@ void main() {
         ),
       );
       expect(events, hasLength(1));
-      expect(events[0].action, 'timeout');
+      expect(events[0].action, ModerationAction.timeout);
       expect(events[0].targetName, 'spammer');
       expect(events[0].durationSeconds, closeTo(300, 10));
     });
@@ -2004,7 +2013,7 @@ void main() {
       test(name, () async {
         final events = <ModerationEvent>[];
         service.onModeration.listen(events.add);
-        service.handleRawMessage(<String, dynamic>{
+        service.feed(<String, dynamic>{
           'metadata': <String, dynamic>{
             'message_type': 'notification',
             'subscription_type': type,
@@ -2043,10 +2052,10 @@ void main() {
     test('shield begin/end toggle active', () async {
       final events = <ShieldModeEvent>[];
       service.onShieldMode.listen(events.add);
-      service.handleRawMessage(
+      service.feed(
         topic('channel.shield_mode.begin', {'moderator_user_name': 'moduser'}),
       );
-      service.handleRawMessage(
+      service.feed(
         topic('channel.shield_mode.end', {'moderator_user_name': 'moduser'}),
       );
       expect(events, hasLength(2));
@@ -2058,7 +2067,7 @@ void main() {
     test('shoutout create maps sender and target', () async {
       final events = <ShoutoutEvent>[];
       service.onShoutout.listen(events.add);
-      service.handleRawMessage(
+      service.feed(
         topic('channel.shoutout.create', {
           'broadcaster_user_login': 'streamer',
           'to_broadcaster_user_login': 'friend',
@@ -2066,7 +2075,7 @@ void main() {
         }),
       );
       expect(events, hasLength(1));
-      expect(events[0].kind, 'create');
+      expect(events[0].kind, ShoutoutKind.create);
       expect(events[0].fromLogin, 'streamer');
       expect(events[0].toLogin, 'friend');
     });
@@ -2074,7 +2083,7 @@ void main() {
     test('shoutout receive maps sender and target', () async {
       final events = <ShoutoutEvent>[];
       service.onShoutout.listen(events.add);
-      service.handleRawMessage(
+      service.feed(
         topic('channel.shoutout.receive', {
           'broadcaster_user_login': 'streamer',
           'from_broadcaster_user_login': 'friend',
@@ -2082,7 +2091,7 @@ void main() {
         }),
       );
       expect(events, hasLength(1));
-      expect(events[0].kind, 'receive');
+      expect(events[0].kind, ShoutoutKind.receive);
       expect(events[0].fromLogin, 'friend');
       expect(events[0].toLogin, 'streamer');
     });
@@ -2090,7 +2099,7 @@ void main() {
     test('warning send carries user and reason', () async {
       final events = <WarningEvent>[];
       service.onWarning.listen(events.add);
-      service.handleRawMessage(
+      service.feed(
         topic('channel.warning.send', {
           'moderator_user_name': 'moduser',
           'user_login': 'spammer',
@@ -2098,7 +2107,7 @@ void main() {
         }),
       );
       expect(events, hasLength(1));
-      expect(events[0].kind, 'send');
+      expect(events[0].kind, WarningKind.send);
       expect(events[0].userLogin, 'spammer');
       expect(events[0].reason, 'spam');
     });
@@ -2106,32 +2115,32 @@ void main() {
     test('warning acknowledge carries user', () async {
       final events = <WarningEvent>[];
       service.onWarning.listen(events.add);
-      service.handleRawMessage(
+      service.feed(
         topic('channel.warning.acknowledge', {
           'moderator_user_name': 'moduser',
           'user_login': 'spammer',
         }),
       );
       expect(events, hasLength(1));
-      expect(events[0].kind, 'acknowledge');
+      expect(events[0].kind, WarningKind.acknowledge);
       expect(events[0].userLogin, 'spammer');
     });
 
     test('unban request create carries user', () async {
       final events = <UnbanRequestEvent>[];
       service.onUnbanRequest.listen(events.add);
-      service.handleRawMessage(
+      service.feed(
         topic('channel.unban_request.create', {'user_login': 'spammer'}),
       );
       expect(events, hasLength(1));
-      expect(events[0].kind, 'create');
+      expect(events[0].kind, UnbanRequestKind.create);
       expect(events[0].userLogin, 'spammer');
     });
 
     test('unban request resolve carries resolution', () async {
       final events = <UnbanRequestEvent>[];
       service.onUnbanRequest.listen(events.add);
-      service.handleRawMessage(
+      service.feed(
         topic('channel.unban_request.resolve', {
           'user_login': 'spammer',
           'moderator_user_name': 'moduser',
@@ -2139,7 +2148,7 @@ void main() {
         }),
       );
       expect(events, hasLength(1));
-      expect(events[0].kind, 'resolve');
+      expect(events[0].kind, UnbanRequestKind.resolve);
       expect(events[0].userLogin, 'spammer');
       expect(events[0].moderatorName, 'moduser');
       expect(events[0].resolutionText, 'second chance');
@@ -2148,7 +2157,7 @@ void main() {
     test('automod terms update carries action, list, and terms', () async {
       final events = <AutomodTermsEvent>[];
       service.onAutomodTerms.listen(events.add);
-      service.handleRawMessage(
+      service.feed(
         topic('automod.terms.update', {
           'action': 'add',
           'list': 'blocked',
@@ -2157,15 +2166,35 @@ void main() {
         }),
       );
       expect(events, hasLength(1));
-      expect(events[0].action, 'add');
+      expect(events[0].action, AutomodTermsAction.add);
+      expect(events[0].rawAction, 'add');
       expect(events[0].list, 'blocked');
       expect(events[0].terms, ['bad word']);
     });
 
+    test(
+      'unknown terms action maps to unknown and keeps the raw wire',
+      () async {
+        final events = <AutomodTermsEvent>[];
+        service.onAutomodTerms.listen(events.add);
+        service.feed(
+          topic('automod.terms.update', {
+            'action': 'modify',
+            'list': 'blocked',
+            'terms': ['bad word'],
+            'moderator_user_name': 'moduser',
+          }),
+        );
+        expect(events, hasLength(1));
+        expect(events[0].action, AutomodTermsAction.unknown);
+        expect(events[0].rawAction, 'modify');
+      },
+    );
+
     test('automod settings update carries moderator', () async {
       final events = <AutomodSettingsEvent>[];
       service.onAutomodSettings.listen(events.add);
-      service.handleRawMessage(
+      service.feed(
         topic('automod.settings.update', {'moderator_user_name': 'moduser'}),
       );
       expect(events, hasLength(1));
@@ -2176,7 +2205,7 @@ void main() {
     test('suspicious message carries status and ban context', () async {
       final events = <SuspiciousUserEvent>[];
       service.onSuspiciousUser.listen(events.add);
-      service.handleRawMessage(
+      service.feed(
         topic('channel.suspicious_user.message', {
           'user_login': 'spammer',
           'low_trust_status': 'restricted',
@@ -2186,7 +2215,7 @@ void main() {
         }),
       );
       expect(events, hasLength(1));
-      expect(events[0].kind, 'message');
+      expect(events[0].kind, SuspiciousUserKind.message);
       expect(events[0].userLogin, 'spammer');
       expect(events[0].status, 'restricted');
       expect(events[0].types, ['manually_added']);
@@ -2197,7 +2226,7 @@ void main() {
     test('suspicious update carries moderator', () async {
       final events = <SuspiciousUserEvent>[];
       service.onSuspiciousUser.listen(events.add);
-      service.handleRawMessage(
+      service.feed(
         topic('channel.suspicious_user.update', {
           'user_login': 'spammer',
           'low_trust_status': 'monitored',
@@ -2205,7 +2234,7 @@ void main() {
         }),
       );
       expect(events, hasLength(1));
-      expect(events[0].kind, 'update');
+      expect(events[0].kind, SuspiciousUserKind.update);
       expect(events[0].status, 'monitored');
       expect(events[0].moderatorName, 'moduser');
     });
@@ -2213,7 +2242,7 @@ void main() {
     test('points reward add carries the reward', () async {
       final events = <PointRewardEvent>[];
       service.onPointReward.listen(events.add);
-      service.handleRawMessage(
+      service.feed(
         topic('channel.channel_points_custom_reward.add', {
           'id': 'reward1',
           'title': 'Hydrate',
@@ -2223,7 +2252,7 @@ void main() {
         }),
       );
       expect(events, hasLength(1));
-      expect(events[0].kind, 'add');
+      expect(events[0].kind, PointRewardKind.add);
       expect(events[0].reward.id, 'reward1');
       expect(events[0].reward.title, 'Hydrate');
       expect(events[0].reward.cost, 500);
@@ -2232,7 +2261,7 @@ void main() {
     test('points redemption add carries user and input', () async {
       final events = <PointRedemptionEvent>[];
       service.onPointRedemption.listen(events.add);
-      service.handleRawMessage(
+      service.feed(
         topic('channel.channel_points_custom_reward_redemption.add', {
           'id': 'red1',
           'user_login': 'fan',
@@ -2243,7 +2272,7 @@ void main() {
         }),
       );
       expect(events, hasLength(1));
-      expect(events[0].kind, 'add');
+      expect(events[0].kind, PointRedemptionKind.add);
       expect(events[0].redemption.userLogin, 'fan');
       expect(events[0].redemption.userInput, 'do a flip');
       expect(events[0].redemption.rewardId, 'reward1');
@@ -2252,7 +2281,7 @@ void main() {
     test('points redemption update resolves by id', () async {
       final events = <PointRedemptionEvent>[];
       service.onPointRedemption.listen(events.add);
-      service.handleRawMessage(
+      service.feed(
         topic('channel.channel_points_custom_reward_redemption.update', {
           'id': 'red1',
           'user_login': 'fan',
@@ -2261,7 +2290,7 @@ void main() {
         }),
       );
       expect(events, hasLength(1));
-      expect(events[0].kind, 'update');
+      expect(events[0].kind, PointRedemptionKind.update);
       expect(events[0].redemption.id, 'red1');
       expect(events[0].redemption.status, 'FULFILLED');
     });
@@ -2311,7 +2340,7 @@ void main() {
     test('hold queues with user, text, and category', () async {
       final events = <AutomodHeldEvent>[];
       service.onAutomodHeld.listen(events.add);
-      service.handleRawMessage(automod('automod.message.hold', heldEvent()));
+      service.feed(automod('automod.message.hold', heldEvent()));
       expect(events, hasLength(1));
       expect(events[0].channel, 'testchannel');
       expect(events[0].messageId, 'msg-1');
@@ -2325,7 +2354,7 @@ void main() {
       final events = <AutomodHeldEvent>[];
       service.onAutomodHeld.listen(events.add);
       final event = heldEvent(category: null)..['reason'] = 'blocked_term';
-      service.handleRawMessage(automod('automod.message.hold', event));
+      service.feed(automod('automod.message.hold', event));
       expect(events, hasLength(1));
       expect(events[0].category, 'blocked_term');
     });
@@ -2333,7 +2362,7 @@ void main() {
     test('v1 shape reads bare message string and top-level category', () async {
       final events = <AutomodHeldEvent>[];
       service.onAutomodHeld.listen(events.add);
-      service.handleRawMessage(
+      service.feed(
         automod('automod.message.hold', <String, dynamic>{
           'broadcaster_user_id': 'broadcaster1',
           'user_login': 'spammer',
@@ -2352,7 +2381,7 @@ void main() {
     test('update lowercases the resolution status', () async {
       final events = <AutomodHeldEvent>[];
       service.onAutomodHeld.listen(events.add);
-      service.handleRawMessage(
+      service.feed(
         automod('automod.message.update', heldEvent(status: 'Approved')),
       );
       expect(events, hasLength(1));
@@ -2362,10 +2391,8 @@ void main() {
     test('drops holds without a message id or channel mapping', () async {
       final events = <AutomodHeldEvent>[];
       service.onAutomodHeld.listen(events.add);
-      service.handleRawMessage(
-        automod('automod.message.hold', heldEvent(messageId: '')),
-      );
-      service.handleRawMessage(
+      service.feed(automod('automod.message.hold', heldEvent(messageId: '')));
+      service.feed(
         automod(
           'automod.message.hold',
           heldEvent(),
@@ -2541,7 +2568,7 @@ void main() {
         final events = <HypeTrainEvent>[];
         service.onHypeTrain.listen(events.add);
 
-        service.handleRawMessage(
+        service.feed(
           widget('channel.hype_train.begin', <String, dynamic>{
             'level': 2,
             'progress': 30,
@@ -2557,7 +2584,7 @@ void main() {
         expect(events, hasLength(1));
         final e = events[0];
         expect(e.channel, 'testchannel');
-        expect(e.kind, 'begin');
+        expect(e.kind, HypeTrainKind.begin);
         expect(e.level, 2);
         expect(e.progress, 30);
         expect(e.total, 100);
@@ -2567,6 +2594,19 @@ void main() {
         expect(e.topContributions[0].type, 'BITS');
       },
     );
+
+    test('unknown kind maps to unknown and keeps the raw wire', () async {
+      final events = <HypeTrainEvent>[];
+      service.onHypeTrain.listen(events.add);
+
+      service.feed(
+        widget('channel.hype_train.pause', <String, dynamic>{'level': 1}),
+      );
+
+      expect(events, hasLength(1));
+      expect(events[0].kind, HypeTrainKind.unknown);
+      expect(events[0].rawKind, 'pause');
+    });
   });
 
   group('parseIrcMessage', () {

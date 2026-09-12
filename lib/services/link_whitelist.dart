@@ -1,9 +1,8 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
-import '../util/constants.dart';
+import '../util/prefs.dart';
 
 /// Bare TLD (any `*.lol`) or full domain (`kappa.lol` + subs).
 enum LinkType { tld, domain }
@@ -36,11 +35,9 @@ class LinkWhitelist extends ChangeNotifier {
   static LinkType classify(String entry) =>
       entry.contains('.') ? LinkType.domain : LinkType.tld;
 
-  static const String _enabledKey = 'link_whitelist_enabled';
-
   Future<void> load() async {
-    final prefs = await SharedPreferences.getInstance();
-    final stored = prefs.getStringList(kLinkWhitelistPrefKey);
+    final prefs = await Prefs.load();
+    final stored = prefs.linkWhitelist;
     if (stored == null) {
       // First run: seed defaults.
       _entries = List.of(_defaults);
@@ -48,21 +45,21 @@ class LinkWhitelist extends ChangeNotifier {
     } else {
       _entries = stored;
     }
-    enabled = prefs.getBool(_enabledKey) ?? false;
+    enabled = prefs.linkWhitelistEnabled;
     _loaded = true;
     notifyListeners();
   }
 
   Future<void> _persist() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setStringList(kLinkWhitelistPrefKey, _entries);
+    final prefs = await Prefs.load();
+    await prefs.setLinkWhitelist(_entries);
   }
 
   Future<void> setEnabled(bool value) async {
     if (enabled == value) return;
     enabled = value;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_enabledKey, value);
+    final prefs = await Prefs.load();
+    await prefs.setLinkWhitelistEnabled(value);
     notifyListeners();
   }
 

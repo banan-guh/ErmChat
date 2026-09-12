@@ -5,13 +5,14 @@ import 'dart:math' as math;
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../models/emote_fetch_tier.dart';
 import '../models/generic_emote.dart';
 import '../models/twitch_message.dart';
 import '../services/twitch_api.dart';
 import '../services/twitch_auth.dart';
 import '../util/log.dart';
+import '../util/prefs.dart';
+import '../util/semaphore.dart';
 import 'emote_cache_manager.dart';
 import 'emote_meta_store.dart';
 import 'seven_tv_event_client.dart';
@@ -217,10 +218,7 @@ class EmoteManager extends ChangeNotifier {
   // least-recently-used extras once it grows past maxObjects). This manager
   // only owns the usage registry that feeds that priority, plus the one-time
   // migrations from the old cache layouts.
-  static const _usageKey = 'emote_usage';
   static const _usageMinEntries = 300;
-  static const _migrationKey = 'emote_gc_migrated_v1';
-  static const _migrationKeyV2 = 'emote_gc_migrated_v2';
 
   EmoteFetchTier _tier = EmoteFetchTier.high;
   int _cacheCap = defaultEmoteCacheMax;
@@ -262,7 +260,7 @@ class EmoteManager extends ChangeNotifier {
   // Bounds in-flight provider fetches so a full refresh doesn't burst the
   // network, while letting more than one channel refresh at a time.
   static const _maxConcurrentFetches = 2;
-  final _fetchGate = _Semaphore(_maxConcurrentFetches);
+  final _fetchGate = Semaphore(_maxConcurrentFetches);
 
   // How long view-touch flushes wait for quiet before persisting. The emote
   // menu marks dozens of cells viewed on open; the debounce collapses that
@@ -371,6 +369,7 @@ class EmoteManager extends ChangeNotifier {
   final _channelCaches = <String, ChannelEmotes>{};
   final _channelFetchTimes = <String, DateTime>{};
   final _channelTwitchEmotes = <String, List<GenericEmote>>{};
+  final _emotesResolvedChannels = <String>{};
 
   /// Resolves sub-emote owner ids to logins (default: Helix /users). Injected
   /// for tests; the manager owns the cache so grouping never needs a parallel
@@ -1225,26 +1224,23 @@ class EmoteManager extends ChangeNotifier {
     return _subsByChannelCache = result;
   }
 
-  static const _recentKey = 'recent_emotes';
   static const _maxRecent = 100;
   List<String> _recentIds = [];
   bool _recentLoaded = false;
-  SharedPreferences? _prefs;
+  Prefs? _prefs;
 
   // ── Provider visibility toggles ─────────────────────────────────────
-  static const _disabledProvidersKey = 'emote_providers_disabled';
   final Set<EmoteType> _disabledProviders = {};
   bool _providersLoaded = false;
 
   // Whether unlisted 7TV emotes render. Fetch-only; flip rebuilds caches.
-  static const _allowUnlisted7tvKey = 'emote_7tv_allow_unlisted';
   bool _allowUnlisted7tv = false;
 
   Future<void> _ensureProvidersLoaded() async {
     if (_providersLoaded) return;
     _providersLoaded = true;
     final prefs = await _getPrefs();
-    final raw = prefs.getStringList(_disabledProvidersKey);
+    final raw = prefs.emoteProvidersDisabled;
     var migrated = false;
     if (raw != null) {
       for (final t in EmoteType.values) {
@@ -1253,10 +1249,9 @@ class EmoteManager extends ChangeNotifier {
       // Migrate: Twitch is no longer toggleable.
       if (_disabledProviders.remove(EmoteType.twitch)) migrated = true;
     }
-    _allowUnlisted7tv = prefs.getBool(_allowUnlisted7tvKey) ?? false;
+    _allowUnlisted7tv = prefs.emoteAllowUnlisted7tv;
     if (!migrated) return;
-    await prefs.setStringList(
-      _disabledProvidersKey,
+    await prefs.setEmoteProvidersDisabled(
       _disabledProviders.map((t) => t.name).toList(),
     );
   }
@@ -1283,8 +1278,7 @@ class EmoteManager extends ChangeNotifier {
         : _disabledProviders.add(type);
     if (!changed) return;
     final prefs = await _getPrefs();
-    await prefs.setStringList(
-      _disabledProvidersKey,
+    await prefs.setEmoteProvidersDisabled(
       _disabledProviders.map((t) => t.name).toList(),
     );
     _rebuildCachesForProviderToggles();
@@ -1301,7 +1295,7 @@ class EmoteManager extends ChangeNotifier {
     if (allowed == _allowUnlisted7tv) return;
     _allowUnlisted7tv = allowed;
     final prefs = await _getPrefs();
-    await prefs.setBool(_allowUnlisted7tvKey, allowed);
+    await prefs.setEmoteAllowUnlisted7tv(allowed);
     _rebuildCachesForProviderToggles();
   }
 
@@ -1345,11 +1339,13 @@ class EmoteManager extends ChangeNotifier {
   }
 
   // Splits merged cache into per-provider stashes for toggle rebuilds.
-  // Never appends to a populated stash: the stash always holds same-or-newer
-  // data than disk (fetches write it directly), so a cache hit only fills
-  // providers a failed fetch left empty. Appending here duplicated the whole
-  // catalogue on every resolve.
-  void _hydrateStashesFromCache(ChannelEmotes cache, {String? channel}) {
+  // Also seeds force-refetch paths where an evict-wiped stash would otherwise
+  // drop a flaky provider (429/5xx/timeout). Never appends to a populated
+  // stash: the stash always holds same-or-newer data than disk (fetches write
+  // it directly), so a cache hit only fills providers a failed fetch left
+  // empty. Appending here duplicated the whole catalogue on every resolve.
+  void _hydrateStashesFromCache(ChannelEmotes? cache, {String? channel}) {
+    if (cache == null) return;
     final grouped = <String, List<GenericEmote>>{};
     for (final e in cache.suggestions) {
       (grouped[e.type.name] ??= []).add(e);
@@ -1374,30 +1370,6 @@ class EmoteManager extends ChangeNotifier {
 
   bool _hasChannelStash(String channel, EmoteType type) =>
       _channelProviderEmotes[channel]?[type.name]?.isNotEmpty ?? false;
-
-  // Force refetches start from evict-wiped stashes; seed the missing
-  // providers from the persisted cache so a flaky provider (429/5xx/timeout)
-  // keeps its previous emotes instead of dropping out of the merged cache.
-  void _seedMissingStashes(ChannelEmotes? cache, {String? channel}) {
-    if (cache == null) return;
-    final grouped = <String, List<GenericEmote>>{};
-    for (final e in cache.suggestions) {
-      (grouped[e.type.name] ??= []).add(e);
-    }
-    if (channel == null) {
-      for (final entry in grouped.entries) {
-        if (_globalProviderEmotes[entry.key]?.isNotEmpty ?? false) continue;
-        _globalProviderEmotes[entry.key] = entry.value;
-      }
-    } else {
-      final map = _channelProviderEmotes[channel] ??=
-          <String, List<GenericEmote>>{};
-      for (final entry in grouped.entries) {
-        if (map[entry.key]?.isNotEmpty ?? false) continue;
-        map[entry.key] = entry.value;
-      }
-    }
-  }
 
   /// Refetches globals + channels for types with no retained stash.
   Future<void> ensureStashed(Set<EmoteType> types) async {
@@ -1511,8 +1483,8 @@ class EmoteManager extends ChangeNotifier {
     }
   }
 
-  Future<SharedPreferences> _getPrefs() async {
-    _prefs ??= await SharedPreferences.getInstance();
+  Future<Prefs> _getPrefs() async {
+    _prefs ??= await Prefs.load();
     return _prefs!;
   }
 
@@ -1520,7 +1492,7 @@ class EmoteManager extends ChangeNotifier {
     if (_recentLoaded) return;
     _recentLoaded = true;
     final prefs = await _getPrefs();
-    final raw = prefs.getString(_recentKey);
+    final raw = prefs.recentEmotes;
     if (raw == null) return;
     try {
       _recentIds = (jsonDecode(raw) as List<dynamic>).cast<String>();
@@ -1531,7 +1503,7 @@ class EmoteManager extends ChangeNotifier {
 
   Future<void> _saveRecent() async {
     final prefs = await _getPrefs();
-    await prefs.setString(_recentKey, jsonEncode(_recentIds));
+    await prefs.setRecentEmotes(jsonEncode(_recentIds));
   }
 
   /// Recently used emote ids (most recent first), used to boost autocomplete
@@ -1651,7 +1623,7 @@ class EmoteManager extends ChangeNotifier {
     }
     // Fetch every enabled provider.
     if (_tier == EmoteFetchTier.nothing) return;
-    _seedMissingStashes(
+    _hydrateStashesFromCache(
       (await _loadPersistedCache('emotes3_global', ttl)).cached,
     );
     final emotes = await _enqueueFetch(_fetchAllGlobal);
@@ -1933,6 +1905,7 @@ class EmoteManager extends ChangeNotifier {
     _emoteOwnerLogins.clear();
     _fetchedSubEmotesByOwner.clear();
     _channelTwitchEmotes.clear();
+    _emotesResolvedChannels.clear();
     _subsByChannelCache = null;
     // Unlocks are per-account: drop them from the stash and the globals they
     // merged into. Matches by id, plus by code for empty-id entries, so a
@@ -2041,7 +2014,7 @@ class EmoteManager extends ChangeNotifier {
     if (force) {
       // Nothing tier: render cached only.
       if (_tier == EmoteFetchTier.nothing) return;
-      _seedMissingStashes(
+      _hydrateStashesFromCache(
         (await _loadPersistedCache('emotes3_$channel', ttl)).cached,
         channel: channel,
       );
@@ -2115,13 +2088,7 @@ class EmoteManager extends ChangeNotifier {
       return;
     }
     // Subs stored separately, re-merged via storeUserTwitchEmotes.
-    final nonSubEmotes = emotes
-        .where(
-          (e) =>
-              !(e.type == EmoteType.twitch &&
-                  (e.tier != null || e.emoteType == 'subscriptions')),
-        )
-        .toList();
+    final nonSubEmotes = emotes.where((e) => !_isTwitchSub(e)).toList();
     final merged = _mergeWithStoredSubs(channel, nonSubEmotes);
     _channelCaches[channel] = _buildChannelMap(merged);
     _reapplyLiveSevenTv(channel);
@@ -2289,6 +2256,7 @@ class EmoteManager extends ChangeNotifier {
     _channelCaches.remove(channel);
     _channelFetchTimes.remove(channel);
     _channelTwitchEmotes.remove(channel);
+    _emotesResolvedChannels.remove(channel);
     _subsByChannelCache = null;
     _sevenTvEmoteSetIds.remove(channel);
     _sevenTvUserIds.remove(channel);
@@ -2307,6 +2275,13 @@ class EmoteManager extends ChangeNotifier {
     _mergedCache.clear();
     _emoteIndexDirty = true;
   }
+
+  void markEmotesResolved(String channel) {
+    _emotesResolvedChannels.add(channel);
+  }
+
+  bool emotesResolved(String channel) =>
+      _emotesResolvedChannels.contains(channel);
 
   /// Bumps the version and notifies listeners with the current (possibly
   /// empty) state, so cached message spans are discarded immediately.
@@ -2692,13 +2667,7 @@ class EmoteManager extends ChangeNotifier {
           channelName: channelName,
           resolution: _tier.resolution!,
         );
-        final nonSub = fetched
-            .where(
-              (e) =>
-                  !(e.type == EmoteType.twitch &&
-                      (e.tier != null || e.emoteType == 'subscriptions')),
-            )
-            .toList();
+        final nonSub = fetched.where((e) => !_isTwitchSub(e)).toList();
         // Empty fetch: keep the retained stash entry (same rule as
         // _applyChannelEmotes) so a silent non-200 can't clobber it.
         if (nonSub.isNotEmpty) map[EmoteType.twitch.name] = nonSub;
@@ -2749,7 +2718,7 @@ class EmoteManager extends ChangeNotifier {
     required int maxConcurrent,
     String? target,
   }) async {
-    final sem = _Semaphore(maxConcurrent);
+    final sem = Semaphore(maxConcurrent);
     final futures = <Future<void>>[];
     for (final entry in providers.entries) {
       futures.add(
@@ -2772,7 +2741,7 @@ class EmoteManager extends ChangeNotifier {
     DateTime? fetchTime,
   }) async {
     final prefs = await _getPrefs();
-    await _metaStore.migrateFromPrefs(prefs);
+    await _metaStore.migrateFromPrefs(prefs.raw);
     final raw = await _metaStore.read(key);
     if (raw == null) return (cached: null, fresh: false);
     try {
@@ -2905,7 +2874,7 @@ class EmoteManager extends ChangeNotifier {
     if (_usageLoaded) return;
     _usageLoaded = true;
     final prefs = await _getPrefs();
-    final raw = prefs.getString(_usageKey);
+    final raw = prefs.emoteUsage;
     if (raw != null) {
       try {
         final data = jsonDecode(raw) as Map<String, dynamic>;
@@ -2961,7 +2930,7 @@ class EmoteManager extends ChangeNotifier {
       },
     };
     final encoded = await Isolate.run(() => jsonEncode(data));
-    await prefs.setString(_usageKey, encoded);
+    await prefs.setEmoteUsage(encoded);
   }
 
   /// Debounced flush for high-frequency view tracking.
@@ -2993,7 +2962,7 @@ class EmoteManager extends ChangeNotifier {
     cache.lastUsedAt = (url) => _emoteUsage[url]?.lastUsedAt;
     if (!_migrationRan) {
       final prefs = await _getPrefs();
-      if (prefs.getBool(_migrationKey) ?? false) {
+      if (prefs.emoteGcMigratedV1) {
         _migrationRan = true;
       } else {
         // First launch after GC: clear old cache (untracked by usage registry).
@@ -3003,12 +2972,12 @@ class EmoteManager extends ChangeNotifier {
           logDebug('[EmoteManager] cache migration emptyCache failed');
         }
         _migrationRan = true;
-        await prefs.setBool(_migrationKey, true);
+        await prefs.setEmoteGcMigratedV1(true);
       }
     }
     if (!_migrationRanV2) {
       final prefs = await _getPrefs();
-      if (prefs.getBool(_migrationKeyV2) ?? false) {
+      if (prefs.emoteGcMigratedV2) {
         _migrationRanV2 = true;
       } else {
         // v2 migration: clear v1 DefaultCacheManager leftovers.
@@ -3018,7 +2987,7 @@ class EmoteManager extends ChangeNotifier {
           logDebug('[EmoteManager] cache v2 migration emptyCache failed');
         }
         _migrationRanV2 = true;
-        await prefs.setBool(_migrationKeyV2, true);
+        await prefs.setEmoteGcMigratedV2(true);
       }
     }
     await cache.enforceNow();
@@ -3094,41 +3063,6 @@ class EmoteManager extends ChangeNotifier {
       await _cacheManager.getSingleFile(emote.url);
     } catch (_) {
       logDebug('[EmoteManager] failed to precache emote: ${emote.code}');
-    }
-  }
-}
-
-class _Semaphore {
-  final int maxPermits;
-  int _permits;
-  final List<Completer<void>> _queue = [];
-
-  _Semaphore(this.maxPermits) : _permits = maxPermits;
-
-  Future<T> withPermit<T>(Future<T> Function() action) async {
-    await _acquire();
-    try {
-      return await action();
-    } finally {
-      _release();
-    }
-  }
-
-  Future<void> _acquire() {
-    if (_permits > 0) {
-      _permits--;
-      return Future.value();
-    }
-    final c = Completer<void>();
-    _queue.add(c);
-    return c.future;
-  }
-
-  void _release() {
-    if (_queue.isNotEmpty) {
-      _queue.removeAt(0).complete();
-    } else {
-      _permits++;
     }
   }
 }

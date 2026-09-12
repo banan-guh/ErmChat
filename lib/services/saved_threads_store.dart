@@ -4,12 +4,9 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/twitch_message.dart';
-
-// Legacy prefs key (v1 snapshots). Kept for migration; new writes go to files.
-const savedThreadsPrefsKey = 'saved_threads_v1';
+import '../util/prefs.dart';
 
 // Global cap; evicts the oldest-saved entry first. Saved threads themselves
 // are uncapped: every message stays on disk and in memory forever.
@@ -334,11 +331,11 @@ class SavedThreadsStore {
 
   Future<void> _migrateFromPrefs() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final raw = prefs.getString(savedThreadsPrefsKey);
+      final prefs = await Prefs.load();
+      final raw = prefs.savedThreads;
       if (raw == null || raw.isEmpty) return;
       decode(raw);
-      await prefs.remove(savedThreadsPrefsKey);
+      await prefs.removeSavedThreads();
       await _writeIndex();
       for (final t in _threads) {
         await _writeThread(t);

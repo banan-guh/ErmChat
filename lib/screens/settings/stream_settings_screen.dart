@@ -2,9 +2,8 @@ import 'dart:async';
 import 'dart:io' show Platform;
 
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
-import '../../services/stream_player_controller.dart';
+import '../../util/prefs.dart';
 import 'settings_page.dart';
 
 class StreamSettingsScreen extends StatefulWidget {
@@ -35,21 +34,13 @@ class _StreamSettingsScreenState extends State<StreamSettingsScreen> {
   }
 
   Future<void> _loadPrefs() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await Prefs.load();
     if (!mounted) return;
     setState(() {
-      _showExtensions =
-          prefs.getBool(StreamPlayerController.showExtensionsKey) ?? false;
-      _retainWebview =
-          prefs.getBool(StreamPlayerController.retainWebviewKey) ?? true;
-      _pipEnabled =
-          prefs.getBool(StreamPlayerController.pipEnabledKey) ?? false;
+      _showExtensions = prefs.streamShowExtensions;
+      _retainWebview = prefs.streamRetainWebview;
+      _pipEnabled = prefs.streamPipEnabled;
     });
-  }
-
-  Future<void> _setBool(String key, bool value) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(key, value);
   }
 
   @override
@@ -66,7 +57,9 @@ class _StreamSettingsScreenState extends State<StreamSettingsScreen> {
             onChanged: (value) {
               setState(() => _showExtensions = value);
               unawaited(
-                _setBool(StreamPlayerController.showExtensionsKey, value),
+                Prefs.load().then(
+                  (prefs) => prefs.setStreamShowExtensions(value),
+                ),
               );
               widget.onShowExtensionsChanged?.call(value);
             },
@@ -81,7 +74,9 @@ class _StreamSettingsScreenState extends State<StreamSettingsScreen> {
             onChanged: (value) {
               setState(() => _retainWebview = value);
               unawaited(
-                _setBool(StreamPlayerController.retainWebviewKey, value),
+                Prefs.load().then(
+                  (prefs) => prefs.setStreamRetainWebview(value),
+                ),
               );
               widget.onRetainWebviewChanged?.call(value);
             },
@@ -97,7 +92,9 @@ class _StreamSettingsScreenState extends State<StreamSettingsScreen> {
               onChanged: (value) {
                 setState(() => _pipEnabled = value);
                 unawaited(
-                  _setBool(StreamPlayerController.pipEnabledKey, value),
+                  Prefs.load().then(
+                    (prefs) => prefs.setStreamPipEnabled(value),
+                  ),
                 );
                 widget.onPipEnabledChanged?.call(value);
               },

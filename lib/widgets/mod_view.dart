@@ -4,11 +4,15 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../models/point_rewards.dart';
-import '../services/chat_store.dart';
+import '../chat/chat.dart';
+import '../chat/channel/moderation.dart';
+import '../util/date_format.dart';
+import '../util/mod_activity_format.dart';
 import '../services/mod_actions.dart';
 import '../services/twitch_api.dart';
 import '../services/twitch_auth.dart';
 import 'app_snack.dart';
+import 'dialogs.dart';
 import 'tab_drag_focus.dart';
 
 /// Snackbar copy for a failed mod action.
@@ -128,33 +132,6 @@ Future<({int seconds, String? reason})?> showTimeoutDialog(
   return pending;
 }
 
-/// Simple destructive confirm. True means confirmed.
-Future<bool> showModConfirmDialog(
-  BuildContext context, {
-  required String title,
-  required String body,
-  required String confirmLabel,
-}) async {
-  final confirmed = await showDialog<bool>(
-    context: context,
-    builder: (ctx) => AlertDialog(
-      title: Text(title),
-      content: Text(body),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(ctx, false),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.pop(ctx, true),
-          child: Text(confirmLabel),
-        ),
-      ],
-    ),
-  );
-  return confirmed == true;
-}
-
 /// Single text field dialog (reasons, usernames). Null means cancelled.
 Future<String?> showModTextDialog(
   BuildContext context, {
@@ -225,7 +202,7 @@ class ModViewPanel extends StatelessWidget {
   const ModViewPanel({
     super.key,
     required this.channel,
-    required this.store,
+    required this.chat,
     required this.modActions,
     required this.auth,
     required this.tabController,
@@ -241,7 +218,7 @@ class ModViewPanel extends StatelessWidget {
   });
 
   final String channel;
-  final ChatStore store;
+  final Chat chat;
   final ModActions modActions;
   final TwitchAuth auth;
   final TabController tabController;
@@ -296,7 +273,7 @@ class ModViewPanel extends StatelessWidget {
             children: [
               _QueueTab(
                 channel: channel,
-                store: store,
+                chat: chat,
                 modActions: modActions,
                 auth: auth,
                 automodActive: automodActive,
@@ -305,7 +282,7 @@ class ModViewPanel extends StatelessWidget {
                 onNotice: onNotice,
                 onShowUser: onShowUser,
               ),
-              _ActivityTab(channel: channel, store: store),
+              _ActivityTab(channel: channel, chat: chat),
               _ModesTab(
                 channel: channel,
                 modActions: modActions,
@@ -316,7 +293,7 @@ class ModViewPanel extends StatelessWidget {
               ),
               _ChannelTab(
                 channel: channel,
-                store: store,
+                chat: chat,
                 modActions: modActions,
                 auth: auth,
                 onNotice: onNotice,
@@ -325,7 +302,7 @@ class ModViewPanel extends StatelessWidget {
               ),
               _UsersTab(
                 channel: channel,
-                store: store,
+                chat: chat,
                 modActions: modActions,
                 auth: auth,
                 onNotice: onNotice,
@@ -334,14 +311,14 @@ class ModViewPanel extends StatelessWidget {
               ),
               _RequestsTab(
                 channel: channel,
-                store: store,
+                chat: chat,
                 modActions: modActions,
                 auth: auth,
                 onNotice: onNotice,
               ),
               _TermsTab(
                 channel: channel,
-                store: store,
+                chat: chat,
                 modActions: modActions,
                 auth: auth,
                 termsVersion: termsVersion,
@@ -349,7 +326,7 @@ class ModViewPanel extends StatelessWidget {
               ),
               _SetupTab(
                 channel: channel,
-                store: store,
+                chat: chat,
                 modActions: modActions,
                 auth: auth,
                 onNotice: onNotice,
@@ -365,7 +342,7 @@ class ModViewPanel extends StatelessWidget {
 class _QueueTab extends StatefulWidget {
   const _QueueTab({
     required this.channel,
-    required this.store,
+    required this.chat,
     required this.modActions,
     required this.auth,
     required this.automodActive,
@@ -376,7 +353,7 @@ class _QueueTab extends StatefulWidget {
   });
 
   final String channel;
-  final ChatStore store;
+  final Chat chat;
   final ModActions modActions;
   final TwitchAuth auth;
   final bool automodActive;
@@ -420,7 +397,10 @@ class _QueueTabState extends State<_QueueTab> {
       if (mounted) setState(() {});
     }
     if (decidedOk) {
-      widget.store.resolveHeldMessage(widget.channel, held.messageId);
+      widget.chat
+          .channelFor(widget.channel)
+          ?.moderation
+          .resolveHeld(held.messageId);
     }
   }
 
@@ -528,10 +508,18 @@ class _QueueTabState extends State<_QueueTab> {
         ),
       );
     }
+    final mod = widget.chat.channelFor(widget.channel)?.moderation;
+    if (mod == null) {
+      return const _ModEmpty(
+        icon: Icons.shield_outlined,
+        title: 'Queue is clear.',
+        subtitle: 'Held messages will appear here for review.',
+      );
+    }
     return ValueListenableBuilder<int>(
-      valueListenable: widget.store.heldVersion,
+      valueListenable: mod.heldVersion,
       builder: (_, _, _) {
-        final all = widget.store.heldMessages[widget.channel] ?? const [];
+        final all = mod.held;
         if (all.isEmpty) {
           return const _ModEmpty(
             icon: Icons.shield_outlined,
@@ -728,8 +716,7 @@ class _CategoryChip extends StatelessWidget {
 String _feedTime(DateTime at) =>
     '${at.hour.toString().padLeft(2, '0')}:${at.minute.toString().padLeft(2, '0')}';
 
-String _feedDateTime(DateTime at) =>
-    '${at.year}-${at.month.toString().padLeft(2, '0')}-${at.day.toString().padLeft(2, '0')} ${_feedTime(at)}';
+String _feedDateTime(DateTime at) => '${formatYmd(at)} ${_feedTime(at)}';
 
 String _relativeAgo(DateTime at) {
   final diff = DateTime.now().difference(at);
@@ -737,7 +724,7 @@ String _relativeAgo(DateTime at) {
   if (diff.inHours < 1) return '${diff.inMinutes}m ago';
   if (diff.inDays < 1) return '${diff.inHours}h ago';
   if (diff.inDays < 30) return '${diff.inDays}d ago';
-  return '${at.year}-${at.month.toString().padLeft(2, '0')}-${at.day.toString().padLeft(2, '0')}';
+  return formatYmd(at);
 }
 
 String _relativeShortDate(String iso) {
@@ -813,17 +800,25 @@ IconData _activityIcon(String action) {
 }
 
 class _ActivityTab extends StatelessWidget {
-  const _ActivityTab({required this.channel, required this.store});
+  const _ActivityTab({required this.channel, required this.chat});
 
   final String channel;
-  final ChatStore store;
+  final Chat chat;
 
   @override
   Widget build(BuildContext context) {
+    final mod = chat.channelFor(channel)?.moderation;
+    if (mod == null) {
+      return const _ModEmpty(
+        icon: Icons.auto_awesome_outlined,
+        title: 'No moderation activity yet.',
+        subtitle: 'Bans, timeouts and mod actions will show here.',
+      );
+    }
     return ValueListenableBuilder<int>(
-      valueListenable: store.modFeedVersion,
+      valueListenable: mod.modFeedVersion,
       builder: (_, _, _) {
-        final feed = store.modActivity[channel] ?? const [];
+        final feed = mod.feed;
         if (feed.isEmpty) {
           return const _ModEmpty(
             icon: Icons.auto_awesome_outlined,
@@ -955,10 +950,47 @@ class _ModError extends StatelessWidget {
   }
 }
 
+/// Shared async load scaffold for the Mod View tabs: last Helix status to
+/// error copy, generation guard, and backgrounded-failure notices.
+mixin _ModTabLoad<T extends StatefulWidget> on State<T> {
+  ModActions get modActions;
+  ValueChanged<String> get onNotice;
+
+  /// Runs [request] behind the tab load guards. Null means the caller must
+  /// stop: either a newer load won the generation, or a failed background
+  /// refresh was already surfaced as a notice.
+  Future<({V? value, String? error})?> guardedLoad<V>({
+    required int gen,
+    required int currentGen,
+    required bool background,
+    required Future<V> Function() request,
+    required String fallbackError,
+    String? Function(int status)? statusError,
+  }) async {
+    V? value;
+    String? error;
+    try {
+      value = await request();
+      final status = modActions.twitchApi.lastErrorStatus;
+      if (status != null) {
+        error = statusError?.call(status) ?? modActions.failureReason();
+      }
+    } catch (_) {
+      error = fallbackError;
+    }
+    if (!mounted || gen != currentGen) return null;
+    if (error != null && background) {
+      onNotice(error);
+      return null;
+    }
+    return (value: value, error: error);
+  }
+}
+
 class _UsersTab extends StatefulWidget {
   const _UsersTab({
     required this.channel,
-    required this.store,
+    required this.chat,
     required this.modActions,
     required this.auth,
     required this.onNotice,
@@ -967,7 +999,7 @@ class _UsersTab extends StatefulWidget {
   });
 
   final String channel;
-  final ChatStore store;
+  final Chat chat;
   final ModActions modActions;
   final TwitchAuth auth;
   final ValueChanged<String> onNotice;
@@ -986,7 +1018,10 @@ class _UsersTabState extends State<_UsersTab> {
   final _flagPending = <String>{};
 
   Future<void> _dismissWarnings(String login) async {
-    widget.store.dismissWarningsFor(widget.channel, login);
+    widget.chat
+        .channelFor(widget.channel)
+        ?.moderation
+        .dismissWarningsFor(login);
     setState(() {});
     widget.onNotice('Dismissed warnings for $login.');
   }
@@ -1013,7 +1048,9 @@ class _UsersTabState extends State<_UsersTab> {
       _unbanPending.remove(key);
       if (mounted) setState(() {});
     }
-    if (unbannedOk) widget.store.removeBan(widget.channel, login);
+    if (unbannedOk) {
+      widget.chat.channelFor(widget.channel)?.moderation.removeBan(login);
+    }
   }
 
   Future<void> _clearFlag(String login) async {
@@ -1038,31 +1075,32 @@ class _UsersTabState extends State<_UsersTab> {
       _flagPending.remove(key);
       if (mounted) setState(() {});
     }
-    if (clearedOk) widget.store.removeSuspicious(widget.channel, login);
+    if (clearedOk) {
+      widget.chat
+          .channelFor(widget.channel)
+          ?.moderation
+          .removeSuspicious(login);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    final mod = widget.chat.channelFor(widget.channel)?.moderation;
     return ValueListenableBuilder<int>(
-      valueListenable: widget.store.modActivityVersion,
+      valueListenable: mod?.modActivityVersion ?? ValueNotifier(0),
       builder: (_, _, _) {
-        final bans =
-            widget.store.channelBans[widget.channel]?.values.toList() ??
-            const [];
-        final warnings =
-            widget.store.channelWarnings[widget.channel] ?? const [];
-        final flagged =
-            widget.store.suspiciousUsers[widget.channel]?.values.toList() ??
-            const [];
+        final bans = mod?.bans.values.toList() ?? const [];
+        final warnings = mod?.warnings ?? const [];
+        final flagged = mod?.suspicious.values.toList() ?? const [];
         final counts = <String, int>{};
-        final latestByUser = widget.store.warnedLatest(widget.channel);
+        final latestByUser = mod?.warnedLatest() ?? const <String, WarnEntry>{};
         for (final w in warnings) {
           final lower = w.target.toLowerCase();
           counts[lower] = (counts[lower] ?? 0) + 1;
         }
         final warned = latestByUser.values.toList()
           ..sort((a, b) => b.at.compareTo(a.at));
-        widget.store.pruneExpiredBans(widget.channel);
+        mod?.pruneExpiredBans();
         return ListView(
           padding: const EdgeInsets.fromLTRB(0, 4, 0, 24),
           children: [
@@ -1200,14 +1238,14 @@ class _UsersTabState extends State<_UsersTab> {
 class _RequestsTab extends StatefulWidget {
   const _RequestsTab({
     required this.channel,
-    required this.store,
+    required this.chat,
     required this.modActions,
     required this.auth,
     required this.onNotice,
   });
 
   final String channel;
-  final ChatStore store;
+  final Chat chat;
   final ModActions modActions;
   final TwitchAuth auth;
   final ValueChanged<String> onNotice;
@@ -1216,25 +1254,47 @@ class _RequestsTab extends StatefulWidget {
   State<_RequestsTab> createState() => _RequestsTabState();
 }
 
-class _RequestsTabState extends State<_RequestsTab> {
+class _RequestsTabState extends State<_RequestsTab>
+    with _ModTabLoad<_RequestsTab> {
   static const _statuses = ['pending', 'approved', 'denied'];
+
+  @override
+  ModActions get modActions => widget.modActions;
+  @override
+  ValueChanged<String> get onNotice => widget.onNotice;
 
   String _status = 'pending';
   List<UnbanRequest>? _requests;
   String? _error;
   int _loadGen = 0;
+  ValueNotifier<int>? _inboxVersion;
 
   @override
   void initState() {
     super.initState();
-    widget.store.modInboxVersion.addListener(_onInboxChanged);
+    _subscribeInbox();
     _load();
+  }
+
+  void _subscribeInbox() {
+    _inboxVersion = widget.chat
+        .channelFor(widget.channel)
+        ?.moderation
+        .modInboxVersion;
+    _inboxVersion?.addListener(_onInboxChanged);
+  }
+
+  void _unsubscribeInbox() {
+    _inboxVersion?.removeListener(_onInboxChanged);
+    _inboxVersion = null;
   }
 
   @override
   void didUpdateWidget(covariant _RequestsTab oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.channel != widget.channel) {
+      _unsubscribeInbox();
+      _subscribeInbox();
       setState(() {
         _status = 'pending';
         _requests = null;
@@ -1246,7 +1306,7 @@ class _RequestsTabState extends State<_RequestsTab> {
 
   @override
   void dispose() {
-    widget.store.modInboxVersion.removeListener(_onInboxChanged);
+    _unsubscribeInbox();
     super.dispose();
   }
 
@@ -1264,29 +1324,21 @@ class _RequestsTabState extends State<_RequestsTab> {
 
   Future<void> _load() async {
     final gen = ++_loadGen;
-    final background = _requests != null;
-    List<UnbanRequest> requests = const [];
-    String? error;
-    try {
-      requests = await widget.modActions.getUnbanRequests(
+    final outcome = await guardedLoad<List<UnbanRequest>>(
+      gen: gen,
+      currentGen: _loadGen,
+      background: _requests != null,
+      request: () => widget.modActions.getUnbanRequests(
         widget.auth,
         widget.channel,
         status: _status,
-      );
-      if (widget.modActions.twitchApi.lastErrorStatus != null) {
-        error = widget.modActions.failureReason();
-      }
-    } catch (_) {
-      error = 'Could not load unban requests.';
-    }
-    if (!mounted || gen != _loadGen) return;
-    if (error != null && background) {
-      widget.onNotice(error);
-      return;
-    }
+      ),
+      fallbackError: 'Could not load unban requests.',
+    );
+    if (outcome == null) return;
     setState(() {
-      _error = error;
-      if (error == null) _requests = requests;
+      _error = outcome.error;
+      if (outcome.error == null) _requests = outcome.value;
     });
   }
 
@@ -1446,7 +1498,7 @@ class _RequestsTabState extends State<_RequestsTab> {
 class _TermsTab extends StatefulWidget {
   const _TermsTab({
     required this.channel,
-    required this.store,
+    required this.chat,
     required this.modActions,
     required this.auth,
     required this.termsVersion,
@@ -1454,7 +1506,7 @@ class _TermsTab extends StatefulWidget {
   });
 
   final String channel;
-  final ChatStore store;
+  final Chat chat;
   final ModActions modActions;
   final TwitchAuth auth;
   final ValueListenable<int> termsVersion;
@@ -1464,24 +1516,45 @@ class _TermsTab extends StatefulWidget {
   State<_TermsTab> createState() => _TermsTabState();
 }
 
-class _TermsTabState extends State<_TermsTab> {
+class _TermsTabState extends State<_TermsTab> with _ModTabLoad<_TermsTab> {
+  @override
+  ModActions get modActions => widget.modActions;
+  @override
+  ValueChanged<String> get onNotice => widget.onNotice;
+
   List<BlockedTerm>? _terms;
   String? _error;
   int _loadGen = 0;
   final _removing = <String>{};
+  ValueNotifier<int>? _inboxVersion;
 
   @override
   void initState() {
     super.initState();
-    widget.store.modInboxVersion.addListener(_onInboxChanged);
+    _subscribeInbox();
     widget.termsVersion.addListener(_onInboxChanged);
     _load();
+  }
+
+  void _subscribeInbox() {
+    _inboxVersion = widget.chat
+        .channelFor(widget.channel)
+        ?.moderation
+        .modInboxVersion;
+    _inboxVersion?.addListener(_onInboxChanged);
+  }
+
+  void _unsubscribeInbox() {
+    _inboxVersion?.removeListener(_onInboxChanged);
+    _inboxVersion = null;
   }
 
   @override
   void didUpdateWidget(covariant _TermsTab oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.channel != widget.channel) {
+      _unsubscribeInbox();
+      _subscribeInbox();
       setState(() {
         _terms = null;
         _error = null;
@@ -1492,7 +1565,7 @@ class _TermsTabState extends State<_TermsTab> {
 
   @override
   void dispose() {
-    widget.store.modInboxVersion.removeListener(_onInboxChanged);
+    _unsubscribeInbox();
     widget.termsVersion.removeListener(_onInboxChanged);
     super.dispose();
   }
@@ -1501,28 +1574,18 @@ class _TermsTabState extends State<_TermsTab> {
 
   Future<void> _load() async {
     final gen = ++_loadGen;
-    final background = _terms != null;
-    List<BlockedTerm> terms = const [];
-    String? error;
-    try {
-      terms = await widget.modActions.getBlockedTerms(
-        widget.auth,
-        widget.channel,
-      );
-      if (widget.modActions.twitchApi.lastErrorStatus != null) {
-        error = widget.modActions.failureReason();
-      }
-    } catch (_) {
-      error = 'Could not load blocked terms.';
-    }
-    if (!mounted || gen != _loadGen) return;
-    if (error != null && background) {
-      widget.onNotice(error);
-      return;
-    }
+    final outcome = await guardedLoad<List<BlockedTerm>>(
+      gen: gen,
+      currentGen: _loadGen,
+      background: _terms != null,
+      request: () =>
+          widget.modActions.getBlockedTerms(widget.auth, widget.channel),
+      fallbackError: 'Could not load blocked terms.',
+    );
+    if (outcome == null) return;
     setState(() {
-      _error = error;
-      if (error == null) _terms = terms;
+      _error = outcome.error;
+      if (outcome.error == null) _terms = outcome.value;
     });
   }
 
@@ -1613,14 +1676,14 @@ class _TermsTabState extends State<_TermsTab> {
 class _SetupTab extends StatefulWidget {
   const _SetupTab({
     required this.channel,
-    required this.store,
+    required this.chat,
     required this.modActions,
     required this.auth,
     required this.onNotice,
   });
 
   final String channel;
-  final ChatStore store;
+  final Chat chat;
   final ModActions modActions;
   final TwitchAuth auth;
   final ValueChanged<String> onNotice;
@@ -1654,23 +1717,41 @@ class _SetupTabState extends State<_SetupTab> {
   String? _error;
   int _loadGen = 0;
   bool _saving = false;
+  ValueNotifier<int>? _settingsVersion;
 
   @override
   void initState() {
     super.initState();
-    widget.store.modSettingsVersion.addListener(_onInboxChanged);
+    _subscribeSettings();
     _load();
+  }
+
+  void _subscribeSettings() {
+    _settingsVersion = widget.chat
+        .channelFor(widget.channel)
+        ?.moderation
+        .modSettingsVersion;
+    _settingsVersion?.addListener(_onInboxChanged);
+  }
+
+  void _unsubscribeSettings() {
+    _settingsVersion?.removeListener(_onInboxChanged);
+    _settingsVersion = null;
   }
 
   @override
   void didUpdateWidget(covariant _SetupTab oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.channel != widget.channel) _load(force: true);
+    if (oldWidget.channel != widget.channel) {
+      _unsubscribeSettings();
+      _subscribeSettings();
+      _load(force: true);
+    }
   }
 
   @override
   void dispose() {
-    widget.store.modSettingsVersion.removeListener(_onInboxChanged);
+    _unsubscribeSettings();
     super.dispose();
   }
 
@@ -1878,7 +1959,7 @@ class _SetupTabState extends State<_SetupTab> {
 class _ChannelTab extends StatelessWidget {
   const _ChannelTab({
     required this.channel,
-    required this.store,
+    required this.chat,
     required this.modActions,
     required this.auth,
     required this.onNotice,
@@ -1887,7 +1968,7 @@ class _ChannelTab extends StatelessWidget {
   });
 
   final String channel;
-  final ChatStore store;
+  final Chat chat;
   final ModActions modActions;
   final TwitchAuth auth;
   final ValueChanged<String> onNotice;
@@ -1948,7 +2029,7 @@ class _ChannelTab extends StatelessWidget {
           const _SectionHeader('Points'),
           _PointsSection(
             channel: channel,
-            store: store,
+            chat: chat,
             modActions: modActions,
             auth: auth,
             onNotice: onNotice,
@@ -1976,7 +2057,13 @@ class _BannedManager extends StatefulWidget {
   State<_BannedManager> createState() => _BannedManagerState();
 }
 
-class _BannedManagerState extends State<_BannedManager> {
+class _BannedManagerState extends State<_BannedManager>
+    with _ModTabLoad<_BannedManager> {
+  @override
+  ModActions get modActions => widget.modActions;
+  @override
+  ValueChanged<String> get onNotice => widget.onNotice;
+
   List<BannedUser>? _banned;
   String? _error;
   int _loadGen = 0;
@@ -2002,28 +2089,18 @@ class _BannedManagerState extends State<_BannedManager> {
 
   Future<void> _load() async {
     final gen = ++_loadGen;
-    final background = _banned != null;
-    List<BannedUser> banned = const [];
-    String? error;
-    try {
-      banned = await widget.modActions.getBannedUsers(
-        widget.auth,
-        widget.channel,
-      );
-      if (widget.modActions.twitchApi.lastErrorStatus != null) {
-        error = widget.modActions.failureReason();
-      }
-    } catch (_) {
-      error = 'Could not load the banned list.';
-    }
-    if (!mounted || gen != _loadGen) return;
-    if (error != null && background) {
-      widget.onNotice(error);
-      return;
-    }
+    final outcome = await guardedLoad<List<BannedUser>>(
+      gen: gen,
+      currentGen: _loadGen,
+      background: _banned != null,
+      request: () =>
+          widget.modActions.getBannedUsers(widget.auth, widget.channel),
+      fallbackError: 'Could not load the banned list.',
+    );
+    if (outcome == null) return;
     setState(() {
-      _error = error;
-      if (error == null) _banned = banned;
+      _error = outcome.error;
+      if (outcome.error == null) _banned = outcome.value;
     });
   }
 
@@ -2150,27 +2227,6 @@ class _StreamActionsState extends State<_StreamActions> {
   String get channel => widget.channel;
   ValueChanged<String> get onNotice => widget.onNotice;
 
-  Future<bool> _confirm(String title, String body) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(title),
-        content: Text(body),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Confirm'),
-          ),
-        ],
-      ),
-    );
-    return ok == true;
-  }
-
   Future<void> _raid(BuildContext context) async {
     final login = await showModTextDialog(
       context,
@@ -2256,9 +2312,14 @@ class _StreamActionsState extends State<_StreamActions> {
 
   Future<void> _clear(BuildContext context) async {
     if (_busy != null) return;
-    if (!await _confirm('Clear chat?', 'This clears all chat messages.')) {
-      return;
-    }
+    final confirmed = await confirmDialog(
+      context,
+      title: 'Clear chat?',
+      message: 'This clears all chat messages.',
+      confirmLabel: 'Confirm',
+      destructive: true,
+    );
+    if (!confirmed) return;
     if (!context.mounted) return;
     setState(() => _busy = 'clear');
     try {
@@ -2291,9 +2352,14 @@ class _StreamActionsState extends State<_StreamActions> {
 
   Future<void> _unraid(BuildContext context) async {
     if (_busy != null) return;
-    if (!await _confirm('Cancel raid?', 'This cancels the pending raid.')) {
-      return;
-    }
+    final confirmed = await confirmDialog(
+      context,
+      title: 'Cancel raid?',
+      message: 'This cancels the pending raid.',
+      confirmLabel: 'Confirm',
+      destructive: true,
+    );
+    if (!confirmed) return;
     if (!context.mounted) return;
     setState(() => _busy = 'unraid');
     try {
@@ -2445,7 +2511,13 @@ class _PollsSection extends StatefulWidget {
   State<_PollsSection> createState() => _PollsSectionState();
 }
 
-class _PollsSectionState extends State<_PollsSection> {
+class _PollsSectionState extends State<_PollsSection>
+    with _ModTabLoad<_PollsSection> {
+  @override
+  ModActions get modActions => widget.modActions;
+  @override
+  ValueChanged<String> get onNotice => widget.onNotice;
+
   List<Map<String, dynamic>>? _polls;
   String? _error;
   int _loadGen = 0;
@@ -2471,53 +2543,34 @@ class _PollsSectionState extends State<_PollsSection> {
 
   Future<void> _load() async {
     final gen = ++_loadGen;
-    final background = _polls != null;
-    List<Map<String, dynamic>> polls = const [];
-    String? error;
-    try {
-      polls = await widget.modActions.getPolls(widget.auth, widget.channel);
-      if (widget.modActions.twitchApi.lastErrorStatus != null) {
-        error = widget.modActions.failureReason();
-      }
-    } catch (_) {
-      error = 'Could not load polls.';
-    }
-    if (!mounted || gen != _loadGen) return;
-    if (error != null && background) {
-      widget.onNotice(error);
-      return;
-    }
+    final outcome = await guardedLoad<List<Map<String, dynamic>>>(
+      gen: gen,
+      currentGen: _loadGen,
+      background: _polls != null,
+      request: () => widget.modActions.getPolls(widget.auth, widget.channel),
+      fallbackError: 'Could not load polls.',
+    );
+    if (outcome == null) return;
     setState(() {
-      _error = error;
-      if (error == null) _polls = polls;
+      _error = outcome.error;
+      if (outcome.error == null) _polls = outcome.value;
     });
   }
 
   Future<void> _end(String pollId, bool archive) async {
     final key = archive ? 'cancel' : 'end';
     if (_busyKey != null) return;
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(archive ? 'Cancel poll?' : 'End poll now?'),
-        content: Text(
-          archive
-              ? 'This archives the poll without showing results.'
-              : 'This ends the poll and shows the results (TERMINATED).',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Back'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: Text(archive ? 'Cancel poll' : 'End poll'),
-          ),
-        ],
-      ),
+    final confirm = await confirmDialog(
+      context,
+      title: archive ? 'Cancel poll?' : 'End poll now?',
+      message: archive
+          ? 'This archives the poll without showing results.'
+          : 'This ends the poll and shows the results (TERMINATED).',
+      confirmLabel: archive ? 'Cancel poll' : 'End poll',
+      cancelLabel: 'Back',
+      destructive: true,
     );
-    if (confirm != true || !mounted) return;
+    if (!confirm || !mounted) return;
     if (pollId.isEmpty) {
       widget.onNotice('Poll id is missing; reload and try again.');
       return;
@@ -2764,7 +2817,13 @@ class _PredictionsSection extends StatefulWidget {
   State<_PredictionsSection> createState() => _PredictionsSectionState();
 }
 
-class _PredictionsSectionState extends State<_PredictionsSection> {
+class _PredictionsSectionState extends State<_PredictionsSection>
+    with _ModTabLoad<_PredictionsSection> {
+  @override
+  ModActions get modActions => widget.modActions;
+  @override
+  ValueChanged<String> get onNotice => widget.onNotice;
+
   List<Map<String, dynamic>>? _predictions;
   String? _error;
   int _loadGen = 0;
@@ -2790,28 +2849,18 @@ class _PredictionsSectionState extends State<_PredictionsSection> {
 
   Future<void> _load() async {
     final gen = ++_loadGen;
-    final background = _predictions != null;
-    List<Map<String, dynamic>> predictions = const [];
-    String? error;
-    try {
-      predictions = await widget.modActions.getPredictions(
-        widget.auth,
-        widget.channel,
-      );
-      if (widget.modActions.twitchApi.lastErrorStatus != null) {
-        error = widget.modActions.failureReason();
-      }
-    } catch (_) {
-      error = 'Could not load predictions.';
-    }
-    if (!mounted || gen != _loadGen) return;
-    if (error != null && background) {
-      widget.onNotice(error);
-      return;
-    }
+    final outcome = await guardedLoad<List<Map<String, dynamic>>>(
+      gen: gen,
+      currentGen: _loadGen,
+      background: _predictions != null,
+      request: () =>
+          widget.modActions.getPredictions(widget.auth, widget.channel),
+      fallbackError: 'Could not load predictions.',
+    );
+    if (outcome == null) return;
     setState(() {
-      _error = error;
-      if (error == null) _predictions = predictions;
+      _error = outcome.error;
+      if (outcome.error == null) _predictions = outcome.value;
     });
   }
 
@@ -2822,24 +2871,15 @@ class _PredictionsSectionState extends State<_PredictionsSection> {
   ]) async {
     if (_busy) return;
     if (status == 'CANCELED') {
-      final confirm = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Cancel prediction?'),
-          content: const Text('Points are refunded to predictors.'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Back'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Cancel prediction'),
-            ),
-          ],
-        ),
+      final confirm = await confirmDialog(
+        context,
+        title: 'Cancel prediction?',
+        message: 'Points are refunded to predictors.',
+        confirmLabel: 'Cancel prediction',
+        cancelLabel: 'Back',
+        destructive: true,
       );
-      if (confirm != true || !mounted) return;
+      if (!confirm || !mounted) return;
     }
     if (predictionId.isEmpty) {
       widget.onNotice('Prediction id is missing; reload and try again.');
@@ -2970,14 +3010,14 @@ class _PredictionsSectionState extends State<_PredictionsSection> {
 class _PointsSection extends StatefulWidget {
   const _PointsSection({
     required this.channel,
-    required this.store,
+    required this.chat,
     required this.modActions,
     required this.auth,
     required this.onNotice,
   });
 
   final String channel;
-  final ChatStore store;
+  final Chat chat;
   final ModActions modActions;
   final TwitchAuth auth;
   final ValueChanged<String> onNotice;
@@ -2986,7 +3026,13 @@ class _PointsSection extends StatefulWidget {
   State<_PointsSection> createState() => _PointsSectionState();
 }
 
-class _PointsSectionState extends State<_PointsSection> {
+class _PointsSectionState extends State<_PointsSection>
+    with _ModTabLoad<_PointsSection> {
+  @override
+  ModActions get modActions => widget.modActions;
+  @override
+  ValueChanged<String> get onNotice => widget.onNotice;
+
   List<PointReward>? _rewards;
   String? _error;
   int _loadGen = 0;
@@ -2996,18 +3042,31 @@ class _PointsSectionState extends State<_PointsSection> {
   int _queueGen = 0;
   final _busyRedemptions = <String>{};
   final _toggling = <String>{};
+  ValueNotifier<int>? _pointsVersion;
 
   @override
   void initState() {
     super.initState();
-    widget.store.pointVersion.addListener(_onPointsChanged);
+    _subscribePoints();
     _loadRewards();
+  }
+
+  void _subscribePoints() {
+    _pointsVersion = widget.chat.channelFor(widget.channel)?.points.version;
+    _pointsVersion?.addListener(_onPointsChanged);
+  }
+
+  void _unsubscribePoints() {
+    _pointsVersion?.removeListener(_onPointsChanged);
+    _pointsVersion = null;
   }
 
   @override
   void didUpdateWidget(covariant _PointsSection oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.channel != widget.channel) {
+      _unsubscribePoints();
+      _subscribePoints();
       setState(() {
         _rewards = null;
         _error = null;
@@ -3021,7 +3080,7 @@ class _PointsSectionState extends State<_PointsSection> {
 
   @override
   void dispose() {
-    widget.store.pointVersion.removeListener(_onPointsChanged);
+    _unsubscribePoints();
     super.dispose();
   }
 
@@ -3032,28 +3091,19 @@ class _PointsSectionState extends State<_PointsSection> {
 
   Future<void> _loadRewards() async {
     final gen = ++_loadGen;
-    final background = _rewards != null;
-    List<PointReward> rewards = const [];
-    String? error;
-    try {
-      rewards = await widget.modActions.getPointRewards(
-        widget.auth,
-        widget.channel,
-      );
-      if (widget.modActions.twitchApi.lastErrorStatus != null) {
-        error = widget.modActions.failureReason();
-      }
-    } catch (_) {
-      error = 'Could not load rewards.';
-    }
-    if (!mounted || gen != _loadGen) return;
-    if (error != null && background) {
-      widget.onNotice(error);
-      return;
-    }
+    final outcome = await guardedLoad<List<PointReward>>(
+      gen: gen,
+      currentGen: _loadGen,
+      background: _rewards != null,
+      request: () =>
+          widget.modActions.getPointRewards(widget.auth, widget.channel),
+      fallbackError: 'Could not load rewards.',
+    );
+    if (outcome == null) return;
     setState(() {
-      _error = error;
-      if (error == null) {
+      _error = outcome.error;
+      if (outcome.error == null) {
+        final rewards = outcome.value ?? const <PointReward>[];
         _rewards = rewards;
         if (_selectedRewardId != null &&
             rewards.every((r) => r.id != _selectedRewardId)) {
@@ -3069,32 +3119,25 @@ class _PointsSectionState extends State<_PointsSection> {
     final rewardId = _selectedRewardId;
     if (rewardId == null) return;
     final gen = ++_queueGen;
-    final background = _queue != null;
-    List<PointRedemption> queue = const [];
-    String? error;
-    try {
-      queue = await widget.modActions.getPointRedemptions(
+    final outcome = await guardedLoad<List<PointRedemption>>(
+      gen: gen,
+      currentGen: _queueGen,
+      background: _queue != null,
+      request: () => widget.modActions.getPointRedemptions(
         widget.auth,
         widget.channel,
         rewardId,
-      );
-      if (widget.modActions.twitchApi.lastErrorStatus != null) {
-        error = widget.modActions.twitchApi.lastErrorStatus == 403
-            ? 'Redemptions for this reward are only visible '
-                  'to the app that created it.'
-            : widget.modActions.failureReason();
-      }
-    } catch (_) {
-      error = 'Could not load redemptions.';
-    }
-    if (!mounted || gen != _queueGen) return;
-    if (error != null && background) {
-      widget.onNotice(error);
-      return;
-    }
+      ),
+      fallbackError: 'Could not load redemptions.',
+      statusError: (status) => status == 403
+          ? 'Redemptions for this reward are only visible '
+                'to the app that created it.'
+          : null,
+    );
+    if (outcome == null) return;
     setState(() {
-      _queueError = error;
-      if (error == null) _queue = queue;
+      _queueError = outcome.error;
+      if (outcome.error == null) _queue = outcome.value;
     });
   }
 
@@ -3110,26 +3153,15 @@ class _PointsSectionState extends State<_PointsSection> {
 
   Future<void> _resolve(PointRedemption redemption, bool fulfilled) async {
     if (!fulfilled) {
-      final confirm = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Refund redemption?'),
-          content: Text(
-            'Refund ${redemption.cost} pts to ${redemption.userLogin}?',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Back'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Refund'),
-            ),
-          ],
-        ),
+      final confirm = await confirmDialog(
+        context,
+        title: 'Refund redemption?',
+        message: 'Refund ${redemption.cost} pts to ${redemption.userLogin}?',
+        confirmLabel: 'Refund',
+        cancelLabel: 'Back',
+        destructive: true,
       );
-      if (confirm != true || !mounted) return;
+      if (!confirm || !mounted) return;
     }
     if (!_busyRedemptions.add(redemption.id)) return;
     setState(() {});
@@ -3143,7 +3175,10 @@ class _PointsSectionState extends State<_PointsSection> {
       );
       if (!mounted) return;
       if (result.ok) {
-        widget.store.resolvePointRedemption(widget.channel, redemption.id);
+        widget.chat
+            .channelFor(widget.channel)
+            ?.points
+            .resolveRedemption(redemption.id);
         widget.onNotice(
           fulfilled ? 'Redemption fulfilled.' : 'Redemption refunded.',
         );
@@ -3919,28 +3954,17 @@ class _RosterSectionsState extends State<_RosterSections> {
   Future<void> _remove(String login, bool moderator) async {
     final key = '${moderator ? 'mod' : 'vip'}:${login.toLowerCase()}';
     if (!_removing.add(key)) return;
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('Remove $login?'),
-        content: Text(
-          moderator
-              ? 'This removes moderator status from $login.'
-              : 'This removes VIP status from $login.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Back'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Remove'),
-          ),
-        ],
-      ),
+    final confirm = await confirmDialog(
+      context,
+      title: 'Remove $login?',
+      message: moderator
+          ? 'This removes moderator status from $login.'
+          : 'This removes VIP status from $login.',
+      confirmLabel: 'Remove',
+      cancelLabel: 'Back',
+      destructive: true,
     );
-    if (confirm != true || !mounted) {
+    if (!confirm || !mounted) {
       _removing.remove(key);
       return;
     }

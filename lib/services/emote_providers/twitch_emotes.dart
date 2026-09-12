@@ -5,7 +5,7 @@ import '../../twitch_config.dart';
 import '../../models/generic_emote.dart';
 import '../../util/constants.dart';
 import '../../util/log.dart';
-import '../data_usage.dart';
+import '../../util/data_usage.dart';
 
 class TwitchEmoteProvider {
   static Future<List<GenericEmote>> fetchGlobal({

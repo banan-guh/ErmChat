@@ -1,9 +1,10 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../../services/tts_controller.dart';
+import '../../util/prefs.dart';
 import '../../widgets/app_snack.dart';
+import '../../widgets/dialogs.dart';
 import 'settings_page.dart';
 import 'tts_user_ignore_list_screen.dart';
 
@@ -52,13 +53,9 @@ class _TtsSettingsScreenState extends State<TtsSettingsScreen> {
     }
   }
 
-  Future<void> _persist(String key, Object value) async {
-    final prefs = await SharedPreferences.getInstance();
-    if (value is bool) {
-      await prefs.setBool(key, value);
-    } else if (value is String) {
-      await prefs.setString(key, value);
-    }
+  Future<void> _persist(Future<void> Function(Prefs) write) async {
+    final prefs = await Prefs.load();
+    await write(prefs);
   }
 
   Future<void> _setEnabled(bool value) async {
@@ -81,69 +78,65 @@ class _TtsSettingsScreenState extends State<TtsSettingsScreen> {
     }
     setState(() => _enabled = value);
     widget.ttsController?.setEnabled(value);
-    unawaited(_persist(kTtsEnabledKey, value));
+    unawaited(_persist((p) => p.setTtsEnabled(value)));
   }
 
   void _setIgnoreUrls(bool value) {
     setState(() => _ignoreUrls = value);
     widget.ttsController?.setIgnoreUrls(value);
-    unawaited(_persist(kTtsIgnoreUrlsKey, value));
+    unawaited(_persist((p) => p.setTtsIgnoreUrls(value)));
   }
 
   void _setIgnoreEmotes(bool value) {
     setState(() => _ignoreEmotes = value);
     widget.ttsController?.setIgnoreEmotes(value);
-    unawaited(_persist(kTtsIgnoreEmotesKey, value));
+    unawaited(_persist((p) => p.setTtsIgnoreEmotes(value)));
   }
 
   void _setForceEnglish(bool value) {
     setState(() => _forceEnglish = value);
     widget.ttsController?.setForceEnglish(value);
-    unawaited(_persist(kTtsForceEnglishKey, value));
+    unawaited(_persist((p) => p.setTtsForceEnglish(value)));
   }
 
   Future<void> _pickQueueMode() async {
-    final chosen = await showDialog<TtsQueueMode>(
-      context: context,
-      builder: (ctx) => _ChoiceDialog<TtsQueueMode>(
-        title: 'Message queue mode',
-        value: _queueMode,
-        options: const [
-          (TtsQueueMode.queue, 'Queue', 'Plays every message using a queue'),
-          (TtsQueueMode.newest, 'Newest', 'Plays only the newest message'),
-        ],
-      ),
+    final chosen = await showChoiceDialog<TtsQueueMode>(
+      context,
+      title: 'Message queue mode',
+      value: _queueMode,
+      options: const [
+        (TtsQueueMode.queue, 'Queue', 'Plays every message using a queue'),
+        (TtsQueueMode.newest, 'Newest', 'Plays only the newest message'),
+      ],
     );
     if (chosen == null || chosen == _queueMode) return;
     setState(() => _queueMode = chosen);
     widget.ttsController?.setQueueMode(chosen);
-    unawaited(_persist(kTtsQueueModeKey, chosen.name));
+    unawaited(_persist((p) => p.setTtsQueueMode(chosen.name)));
   }
 
   Future<void> _pickFormatMode() async {
-    final chosen = await showDialog<TtsFormatMode>(
-      context: context,
-      builder: (ctx) => _ChoiceDialog<TtsFormatMode>(
-        title: 'Message format',
-        value: _formatMode,
-        options: const [
-          (
-            TtsFormatMode.messageOnly,
-            'Message only',
-            'Reads out just the message',
-          ),
-          (
-            TtsFormatMode.userAndMessage,
-            'User and message',
-            'Reads out the user then the message',
-          ),
-        ],
-      ),
+    final chosen = await showChoiceDialog<TtsFormatMode>(
+      context,
+      title: 'Message format',
+      value: _formatMode,
+      options: const [
+        (
+          TtsFormatMode.messageOnly,
+          'Message only',
+          'Reads out just the message',
+        ),
+        (
+          TtsFormatMode.userAndMessage,
+          'User and message',
+          'Reads out the user then the message',
+        ),
+      ],
     );
     if (chosen == null || chosen == _formatMode) return;
     setState(() => _formatMode = chosen);
     widget.ttsController?.setFormatMode(chosen);
-    unawaited(_persist(kTtsFormatModeKey, chosen.name));
+    unawaited(_persist((p) => p.setTtsFormatMode(chosen.name)));
   }
 
   Future<void> _pickVoice() async {
@@ -155,13 +148,11 @@ class _TtsSettingsScreenState extends State<TtsSettingsScreen> {
       AppSnack.showError(context, 'No TTS engines available');
       return;
     }
-    final chosen = await showDialog<TtsOption>(
-      context: context,
-      builder: (ctx) => _ChoiceDialog<TtsOption>(
-        title: 'TTS engine',
-        value: _selectedOption,
-        options: [for (final o in options) (o, o.label, o.id)],
-      ),
+    final chosen = await showChoiceDialog<TtsOption>(
+      context,
+      title: 'TTS engine',
+      value: _selectedOption,
+      options: [for (final o in options) (o, o.label, o.id)],
     );
     if (chosen == null) return;
     await c.applyOption(chosen);
@@ -192,37 +183,29 @@ class _TtsSettingsScreenState extends State<TtsSettingsScreen> {
             value: _enabled,
             onChanged: (value) => unawaited(_setEnabled(value)),
           ),
-          ListTile(
-            leading: const Icon(Icons.audio_file),
-            title: const Text('TTS engine'),
-            subtitle: Text(
-              _selectedOption?.label ??
-                  (widget.ttsController?.canOpenSystemSettings == true
-                      ? 'Change in system settings'
-                      : 'Device default'),
-            ),
-            trailing: const Icon(Icons.chevron_right),
+          SettingsNavTile(
+            icon: Icons.audio_file,
+            title: 'TTS engine',
+            subtitle:
+                _selectedOption?.label ??
+                (widget.ttsController?.canOpenSystemSettings == true
+                    ? 'Change in system settings'
+                    : 'Device default'),
             enabled: _enabled,
             onTap: _openEngineSettings,
           ),
-          ListTile(
-            leading: const Icon(Icons.queue),
-            title: const Text('Message queue mode'),
-            subtitle: Text(
-              _queueMode == TtsQueueMode.queue ? 'Queue' : 'Newest',
-            ),
-            trailing: const Icon(Icons.chevron_right),
+          SettingsNavTile(
+            icon: Icons.queue,
+            title: 'Message queue mode',
+            subtitle: _queueMode == TtsQueueMode.queue ? 'Queue' : 'Newest',
             onTap: _pickQueueMode,
           ),
-          ListTile(
-            leading: const Icon(Icons.format_quote),
-            title: const Text('Message format'),
-            subtitle: Text(
-              _formatMode == TtsFormatMode.messageOnly
-                  ? 'Message only'
-                  : 'User and message',
-            ),
-            trailing: const Icon(Icons.chevron_right),
+          SettingsNavTile(
+            icon: Icons.format_quote,
+            title: 'Message format',
+            subtitle: _formatMode == TtsFormatMode.messageOnly
+                ? 'Message only'
+                : 'User and message',
             onTap: _pickFormatMode,
           ),
           SwitchListTile(
@@ -243,11 +226,10 @@ class _TtsSettingsScreenState extends State<TtsSettingsScreen> {
             value: _ignoreEmotes,
             onChanged: _setIgnoreEmotes,
           ),
-          ListTile(
-            leading: const Icon(Icons.person_off),
-            title: const Text('User ignore list'),
-            subtitle: const Text('Skip messages from specific users'),
-            trailing: const Icon(Icons.chevron_right),
+          SettingsNavTile(
+            icon: Icons.person_off,
+            title: 'User ignore list',
+            subtitle: 'Skip messages from specific users',
             onTap: () => Navigator.push(
               context,
               MaterialPageRoute(
@@ -258,46 +240,6 @@ class _TtsSettingsScreenState extends State<TtsSettingsScreen> {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _ChoiceDialog<T> extends StatelessWidget {
-  final String title;
-  final T? value;
-  final List<(T, String, String)> options;
-
-  const _ChoiceDialog({
-    required this.title,
-    required this.value,
-    required this.options,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: Text(title),
-      contentPadding: const EdgeInsets.symmetric(vertical: 8),
-      content: SizedBox(
-        width: 360,
-        child: RadioGroup<T>(
-          groupValue: value,
-          onChanged: (v) {
-            if (v != null) Navigator.pop(context, v);
-          },
-          child: ListView(
-            shrinkWrap: true,
-            children: [
-              for (final (val, label, sub) in options)
-                RadioListTile<T>(
-                  value: val,
-                  title: Text(label),
-                  subtitle: Text(sub),
-                ),
-            ],
-          ),
-        ),
       ),
     );
   }

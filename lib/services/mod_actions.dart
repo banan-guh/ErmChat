@@ -127,6 +127,83 @@ class ModActions {
     return null;
   }
 
+  /// Resolves channel ids then runs [body] with broadcaster and moderator.
+  Future<ModResult> _idsAction(
+    String channel,
+    String action,
+    Future<bool> Function(String broadcasterId, String moderatorId) body,
+  ) async {
+    final ids = _ids(channel);
+    if (ids == null) return const ModResult.fail(ModFailure.notJoined);
+    return _run(action, () => body(ids.broadcasterId, ids.moderatorId));
+  }
+
+  /// Resolves just the broadcaster id then runs [body] with it.
+  Future<ModResult> _broadcasterAction(
+    String channel,
+    String action,
+    Future<bool> Function(String broadcasterId) body,
+  ) async {
+    final broadcasterId = getChannelUserIds()[channel];
+    if (broadcasterId == null) {
+      return const ModResult.fail(ModFailure.notJoined);
+    }
+    return _run(action, () => body(broadcasterId));
+  }
+
+  /// Resolves channel ids plus a login-or-id target, then runs [body]. With
+  /// [guard] the self/broadcaster target checks run before the call.
+  Future<ModResult> _userAction(
+    TwitchAuth auth,
+    String channel,
+    String action, {
+    String? login,
+    String? userId,
+    bool guard = false,
+    required Future<bool> Function(
+      String broadcasterId,
+      String moderatorId,
+      String targetId,
+    )
+    body,
+  }) async {
+    final ids = _ids(channel);
+    if (ids == null) return const ModResult.fail(ModFailure.notJoined);
+    final t = await _target(auth, login: login, userId: userId);
+    if (t.error != null) return t.error!;
+    if (guard) {
+      final g = _guardUserAction(
+        targetId: t.userId!,
+        moderatorId: ids.moderatorId,
+        broadcasterId: ids.broadcasterId,
+      );
+      if (g != null) return g;
+    }
+    return _run(
+      action,
+      () => body(ids.broadcasterId, ids.moderatorId, t.userId!),
+    );
+  }
+
+  /// Broadcaster-only actions that still take a user target, so the moderator
+  /// id is not required.
+  Future<ModResult> _broadcasterUserAction(
+    TwitchAuth auth,
+    String channel,
+    String action, {
+    String? login,
+    String? userId,
+    required Future<bool> Function(String broadcasterId, String targetId) body,
+  }) async {
+    final broadcasterId = getChannelUserIds()[channel];
+    if (broadcasterId == null) {
+      return const ModResult.fail(ModFailure.notJoined);
+    }
+    final t = await _target(auth, login: login, userId: userId);
+    if (t.error != null) return t.error!;
+    return _run(action, () => body(broadcasterId, t.userId!));
+  }
+
   Future<ModResult> timeoutUser(
     TwitchAuth auth,
     String channel, {
@@ -135,23 +212,18 @@ class ModActions {
     required int duration,
     String? reason,
   }) async {
-    final ids = _ids(channel);
-    if (ids == null) return const ModResult.fail(ModFailure.notJoined);
-    final t = await _target(auth, login: login, userId: userId);
-    if (t.error != null) return t.error!;
-    final guard = _guardUserAction(
-      targetId: t.userId!,
-      moderatorId: ids.moderatorId,
-      broadcasterId: ids.broadcasterId,
-    );
-    if (guard != null) return guard;
-    return _run(
+    return _userAction(
+      auth,
+      channel,
       'timeout user',
-      () => twitchApi.banUser(
+      login: login,
+      userId: userId,
+      guard: true,
+      body: (broadcasterId, moderatorId, targetId) => twitchApi.banUser(
         auth,
-        broadcasterId: ids.broadcasterId,
-        moderatorId: ids.moderatorId,
-        userId: t.userId!,
+        broadcasterId: broadcasterId,
+        moderatorId: moderatorId,
+        userId: targetId,
         duration: duration,
         reason: reason,
       ),
@@ -165,23 +237,18 @@ class ModActions {
     String? userId,
     String? reason,
   }) async {
-    final ids = _ids(channel);
-    if (ids == null) return const ModResult.fail(ModFailure.notJoined);
-    final t = await _target(auth, login: login, userId: userId);
-    if (t.error != null) return t.error!;
-    final guard = _guardUserAction(
-      targetId: t.userId!,
-      moderatorId: ids.moderatorId,
-      broadcasterId: ids.broadcasterId,
-    );
-    if (guard != null) return guard;
-    return _run(
+    return _userAction(
+      auth,
+      channel,
       'ban user',
-      () => twitchApi.banUser(
+      login: login,
+      userId: userId,
+      guard: true,
+      body: (broadcasterId, moderatorId, targetId) => twitchApi.banUser(
         auth,
-        broadcasterId: ids.broadcasterId,
-        moderatorId: ids.moderatorId,
-        userId: t.userId!,
+        broadcasterId: broadcasterId,
+        moderatorId: moderatorId,
+        userId: targetId,
         reason: reason,
       ),
     );
@@ -193,17 +260,17 @@ class ModActions {
     String? login,
     String? userId,
   }) async {
-    final ids = _ids(channel);
-    if (ids == null) return const ModResult.fail(ModFailure.notJoined);
-    final t = await _target(auth, login: login, userId: userId);
-    if (t.error != null) return t.error!;
-    return _run(
+    return _userAction(
+      auth,
+      channel,
       'unban user',
-      () => twitchApi.unbanUser(
+      login: login,
+      userId: userId,
+      body: (broadcasterId, moderatorId, targetId) => twitchApi.unbanUser(
         auth,
-        broadcasterId: ids.broadcasterId,
-        moderatorId: ids.moderatorId,
-        userId: t.userId!,
+        broadcasterId: broadcasterId,
+        moderatorId: moderatorId,
+        userId: targetId,
       ),
     );
   }
@@ -231,14 +298,13 @@ class ModActions {
     required bool approved,
     String? resolutionText,
   }) async {
-    final ids = _ids(channel);
-    if (ids == null) return const ModResult.fail(ModFailure.notJoined);
-    return _run(
+    return _idsAction(
+      channel,
       approved ? 'approve unban request' : 'deny unban request',
-      () => twitchApi.resolveUnbanRequest(
+      (broadcasterId, moderatorId) => twitchApi.resolveUnbanRequest(
         auth,
-        broadcasterId: ids.broadcasterId,
-        moderatorId: ids.moderatorId,
+        broadcasterId: broadcasterId,
+        moderatorId: moderatorId,
         requestId: requestId,
         approved: approved,
         resolutionText: resolutionText,
@@ -262,13 +328,14 @@ class ModActions {
     String channel,
     String text,
   ) async {
-    final ids = _ids(channel);
-    if (ids == null) return const ModResult.fail(ModFailure.notJoined);
-    return _run('add blocked term', () async {
+    return _idsAction(channel, 'add blocked term', (
+      broadcasterId,
+      moderatorId,
+    ) async {
       final created = await twitchApi.addBlockedTerm(
         auth,
-        broadcasterId: ids.broadcasterId,
-        moderatorId: ids.moderatorId,
+        broadcasterId: broadcasterId,
+        moderatorId: moderatorId,
         text: text,
       );
       return created != null;
@@ -280,14 +347,13 @@ class ModActions {
     String channel,
     String termId,
   ) async {
-    final ids = _ids(channel);
-    if (ids == null) return const ModResult.fail(ModFailure.notJoined);
-    return _run(
+    return _idsAction(
+      channel,
       'remove blocked term',
-      () => twitchApi.removeBlockedTerm(
+      (broadcasterId, moderatorId) => twitchApi.removeBlockedTerm(
         auth,
-        broadcasterId: ids.broadcasterId,
-        moderatorId: ids.moderatorId,
+        broadcasterId: broadcasterId,
+        moderatorId: moderatorId,
         termId: termId,
       ),
     );
@@ -310,13 +376,14 @@ class ModActions {
     String channel,
     Map<String, int> levels,
   ) async {
-    final ids = _ids(channel);
-    if (ids == null) return const ModResult.fail(ModFailure.notJoined);
-    return _run('update automod settings', () async {
+    return _idsAction(channel, 'update automod settings', (
+      broadcasterId,
+      moderatorId,
+    ) async {
       final applied = await twitchApi.updateAutoModSettings(
         auth,
-        broadcasterId: ids.broadcasterId,
-        moderatorId: ids.moderatorId,
+        broadcasterId: broadcasterId,
+        moderatorId: moderatorId,
         levels: levels,
       );
       return applied != null;
@@ -330,19 +397,20 @@ class ModActions {
     String? userId,
     required bool restricted,
   }) async {
-    final ids = _ids(channel);
-    if (ids == null) return const ModResult.fail(ModFailure.notJoined);
-    final t = await _target(auth, login: login, userId: userId);
-    if (t.error != null) return t.error!;
-    return _run(
+    return _userAction(
+      auth,
+      channel,
       restricted ? 'restrict user' : 'monitor user',
-      () => twitchApi.addSuspiciousStatus(
-        auth,
-        broadcasterId: ids.broadcasterId,
-        moderatorId: ids.moderatorId,
-        userId: t.userId!,
-        restricted: restricted,
-      ),
+      login: login,
+      userId: userId,
+      body: (broadcasterId, moderatorId, targetId) =>
+          twitchApi.addSuspiciousStatus(
+            auth,
+            broadcasterId: broadcasterId,
+            moderatorId: moderatorId,
+            userId: targetId,
+            restricted: restricted,
+          ),
     );
   }
 
@@ -352,18 +420,19 @@ class ModActions {
     String? login,
     String? userId,
   }) async {
-    final ids = _ids(channel);
-    if (ids == null) return const ModResult.fail(ModFailure.notJoined);
-    final t = await _target(auth, login: login, userId: userId);
-    if (t.error != null) return t.error!;
-    return _run(
+    return _userAction(
+      auth,
+      channel,
       'clear suspicious status',
-      () => twitchApi.removeSuspiciousStatus(
-        auth,
-        broadcasterId: ids.broadcasterId,
-        moderatorId: ids.moderatorId,
-        userId: t.userId!,
-      ),
+      login: login,
+      userId: userId,
+      body: (broadcasterId, moderatorId, targetId) =>
+          twitchApi.removeSuspiciousStatus(
+            auth,
+            broadcasterId: broadcasterId,
+            moderatorId: moderatorId,
+            userId: targetId,
+          ),
     );
   }
 
@@ -397,13 +466,10 @@ class ModActions {
     String rewardId,
     bool paused,
   ) async {
-    final broadcasterId = getChannelUserIds()[channel];
-    if (broadcasterId == null) {
-      return const ModResult.fail(ModFailure.notJoined);
-    }
-    return _run(
+    return _broadcasterAction(
+      channel,
       paused ? 'pause reward' : 'resume reward',
-      () => twitchApi.setRewardPaused(
+      (broadcasterId) => twitchApi.setRewardPaused(
         auth,
         broadcasterId: broadcasterId,
         rewardId: rewardId,
@@ -419,13 +485,10 @@ class ModActions {
     String redemptionId,
     bool fulfilled,
   ) async {
-    final broadcasterId = getChannelUserIds()[channel];
-    if (broadcasterId == null) {
-      return const ModResult.fail(ModFailure.notJoined);
-    }
-    return _run(
+    return _broadcasterAction(
+      channel,
       fulfilled ? 'fulfill redemption' : 'refund redemption',
-      () => twitchApi.updateRedemptionStatus(
+      (broadcasterId) => twitchApi.updateRedemptionStatus(
         auth,
         broadcasterId: broadcasterId,
         rewardId: rewardId,
@@ -442,23 +505,18 @@ class ModActions {
     String? userId,
     String? reason,
   }) async {
-    final ids = _ids(channel);
-    if (ids == null) return const ModResult.fail(ModFailure.notJoined);
-    final t = await _target(auth, login: login, userId: userId);
-    if (t.error != null) return t.error!;
-    final guard = _guardUserAction(
-      targetId: t.userId!,
-      moderatorId: ids.moderatorId,
-      broadcasterId: ids.broadcasterId,
-    );
-    if (guard != null) return guard;
-    return _run(
+    return _userAction(
+      auth,
+      channel,
       'warn user',
-      () => twitchApi.warnUser(
+      login: login,
+      userId: userId,
+      guard: true,
+      body: (broadcasterId, moderatorId, targetId) => twitchApi.warnUser(
         auth,
-        broadcasterId: ids.broadcasterId,
-        moderatorId: ids.moderatorId,
-        userId: t.userId!,
+        broadcasterId: broadcasterId,
+        moderatorId: moderatorId,
+        userId: targetId,
         reason: reason,
       ),
     );
@@ -469,28 +527,26 @@ class ModActions {
     String channel,
     String messageId,
   ) async {
-    final ids = _ids(channel);
-    if (ids == null) return const ModResult.fail(ModFailure.notJoined);
-    return _run(
+    return _idsAction(
+      channel,
       'delete chat messages',
-      () => twitchApi.deleteChatMessage(
+      (broadcasterId, moderatorId) => twitchApi.deleteChatMessage(
         auth,
-        broadcasterId: ids.broadcasterId,
-        moderatorId: ids.moderatorId,
+        broadcasterId: broadcasterId,
+        moderatorId: moderatorId,
         messageId: messageId,
       ),
     );
   }
 
   Future<ModResult> clearChat(TwitchAuth auth, String channel) async {
-    final ids = _ids(channel);
-    if (ids == null) return const ModResult.fail(ModFailure.notJoined);
-    return _run(
+    return _idsAction(
+      channel,
       'delete chat messages',
-      () => twitchApi.deleteChatMessage(
+      (broadcasterId, moderatorId) => twitchApi.deleteChatMessage(
         auth,
-        broadcasterId: ids.broadcasterId,
-        moderatorId: ids.moderatorId,
+        broadcasterId: broadcasterId,
+        moderatorId: moderatorId,
       ),
     );
   }
@@ -508,13 +564,10 @@ class ModActions {
     required List<String> choices,
     required int durationSeconds,
   }) async {
-    final broadcasterId = getChannelUserIds()[channel];
-    if (broadcasterId == null) {
-      return const ModResult.fail(ModFailure.notJoined);
-    }
-    return _run(
+    return _broadcasterAction(
+      channel,
       'create poll',
-      () => twitchApi.createPoll(
+      (broadcasterId) => twitchApi.createPoll(
         auth,
         broadcasterId: broadcasterId,
         title: title,
@@ -530,13 +583,10 @@ class ModActions {
     required String pollId,
     required bool archive,
   }) async {
-    final broadcasterId = getChannelUserIds()[channel];
-    if (broadcasterId == null) {
-      return const ModResult.fail(ModFailure.notJoined);
-    }
-    return _run(
+    return _broadcasterAction(
+      channel,
       archive ? 'cancel the poll' : 'end the poll',
-      () => twitchApi.endPoll(
+      (broadcasterId) => twitchApi.endPoll(
         auth,
         broadcasterId: broadcasterId,
         pollId: pollId,
@@ -561,13 +611,10 @@ class ModActions {
     required String status,
     String? winningOutcomeId,
   }) async {
-    final broadcasterId = getChannelUserIds()[channel];
-    if (broadcasterId == null) {
-      return const ModResult.fail(ModFailure.notJoined);
-    }
-    return _run(
+    return _broadcasterAction(
+      channel,
       'end the prediction',
-      () => twitchApi.endPrediction(
+      (broadcasterId) => twitchApi.endPrediction(
         auth,
         broadcasterId: broadcasterId,
         predictionId: predictionId,
@@ -582,14 +629,13 @@ class ModActions {
     String channel,
     Map<String, dynamic> body,
   ) async {
-    final ids = _ids(channel);
-    if (ids == null) return const ModResult.fail(ModFailure.notJoined);
-    return _run(
+    return _idsAction(
+      channel,
       'update chat settings',
-      () => twitchApi.updateChatSettings(
+      (broadcasterId, moderatorId) => twitchApi.updateChatSettings(
         auth,
-        broadcasterId: ids.broadcasterId,
-        moderatorId: ids.moderatorId,
+        broadcasterId: broadcasterId,
+        moderatorId: moderatorId,
         body: body,
       ),
     );
@@ -654,14 +700,13 @@ class ModActions {
     String channel, {
     required bool active,
   }) async {
-    final ids = _ids(channel);
-    if (ids == null) return const ModResult.fail(ModFailure.notJoined);
-    return _run(
+    return _idsAction(
+      channel,
       'update shield mode',
-      () => twitchApi.updateShieldMode(
+      (broadcasterId, moderatorId) => twitchApi.updateShieldMode(
         auth,
-        broadcasterId: ids.broadcasterId,
-        moderatorId: ids.moderatorId,
+        broadcasterId: broadcasterId,
+        moderatorId: moderatorId,
         active: active,
       ),
     );
@@ -674,22 +719,22 @@ class ModActions {
     String? userId,
     required bool add,
   }) async {
-    final ids = _ids(channel);
-    if (ids == null) return const ModResult.fail(ModFailure.notJoined);
-    final t = await _target(auth, login: login, userId: userId);
-    if (t.error != null) return t.error!;
-    return _run(
+    return _userAction(
+      auth,
+      channel,
       add ? 'add channel moderator' : 'remove channel moderator',
-      () => add
+      login: login,
+      userId: userId,
+      body: (broadcasterId, moderatorId, targetId) => add
           ? twitchApi.addModerator(
               auth,
-              broadcasterId: ids.broadcasterId,
-              userId: t.userId!,
+              broadcasterId: broadcasterId,
+              userId: targetId,
             )
           : twitchApi.removeModerator(
               auth,
-              broadcasterId: ids.broadcasterId,
-              userId: t.userId!,
+              broadcasterId: broadcasterId,
+              userId: targetId,
             ),
     );
   }
@@ -716,22 +761,22 @@ class ModActions {
     String? userId,
     required bool add,
   }) async {
-    final ids = _ids(channel);
-    if (ids == null) return const ModResult.fail(ModFailure.notJoined);
-    final t = await _target(auth, login: login, userId: userId);
-    if (t.error != null) return t.error!;
-    return _run(
+    return _userAction(
+      auth,
+      channel,
       add ? 'add VIP' : 'remove VIP',
-      () => add
+      login: login,
+      userId: userId,
+      body: (broadcasterId, moderatorId, targetId) => add
           ? twitchApi.addVip(
               auth,
-              broadcasterId: ids.broadcasterId,
-              userId: t.userId!,
+              broadcasterId: broadcasterId,
+              userId: targetId,
             )
           : twitchApi.removeVip(
               auth,
-              broadcasterId: ids.broadcasterId,
-              userId: t.userId!,
+              broadcasterId: broadcasterId,
+              userId: targetId,
             ),
     );
   }
@@ -749,14 +794,13 @@ class ModActions {
     required String message,
     String color = 'primary',
   }) async {
-    final ids = _ids(channel);
-    if (ids == null) return const ModResult.fail(ModFailure.notJoined);
-    return _run(
+    return _idsAction(
+      channel,
       'send announcement',
-      () => twitchApi.sendChatAnnouncement(
+      (broadcasterId, moderatorId) => twitchApi.sendChatAnnouncement(
         auth,
-        broadcasterId: ids.broadcasterId,
-        moderatorId: ids.moderatorId,
+        broadcasterId: broadcasterId,
+        moderatorId: moderatorId,
         message: message,
         color: color,
       ),
@@ -769,17 +813,17 @@ class ModActions {
     String? login,
     String? userId,
   }) async {
-    final ids = _ids(channel);
-    if (ids == null) return const ModResult.fail(ModFailure.notJoined);
-    final t = await _target(auth, login: login, userId: userId);
-    if (t.error != null) return t.error!;
-    return _run(
+    return _userAction(
+      auth,
+      channel,
       'send shoutout',
-      () => twitchApi.sendShoutout(
+      login: login,
+      userId: userId,
+      body: (broadcasterId, moderatorId, targetId) => twitchApi.sendShoutout(
         auth,
-        broadcasterId: ids.broadcasterId,
-        moderatorId: ids.moderatorId,
-        targetUserId: t.userId!,
+        broadcasterId: broadcasterId,
+        moderatorId: moderatorId,
+        targetUserId: targetId,
       ),
     );
   }
@@ -789,13 +833,10 @@ class ModActions {
     String channel, {
     required int length,
   }) async {
-    final broadcasterId = getChannelUserIds()[channel];
-    if (broadcasterId == null) {
-      return const ModResult.fail(ModFailure.notJoined);
-    }
-    return _run(
+    return _broadcasterAction(
+      channel,
       'start commercial',
-      () => twitchApi.startCommercial(
+      (broadcasterId) => twitchApi.startCommercial(
         auth,
         broadcasterId: broadcasterId,
         length: length,
@@ -809,30 +850,26 @@ class ModActions {
     String? login,
     String? userId,
   }) async {
-    final broadcasterId = getChannelUserIds()[channel];
-    if (broadcasterId == null) {
-      return const ModResult.fail(ModFailure.notJoined);
-    }
-    final t = await _target(auth, login: login, userId: userId);
-    if (t.error != null) return t.error!;
-    return _run(
+    return _broadcasterUserAction(
+      auth,
+      channel,
       'start a raid',
-      () => twitchApi.startRaid(
+      login: login,
+      userId: userId,
+      body: (broadcasterId, targetId) => twitchApi.startRaid(
         auth,
         fromBroadcasterId: broadcasterId,
-        toBroadcasterId: t.userId!,
+        toBroadcasterId: targetId,
       ),
     );
   }
 
   Future<ModResult> cancelRaid(TwitchAuth auth, String channel) async {
-    final broadcasterId = getChannelUserIds()[channel];
-    if (broadcasterId == null) {
-      return const ModResult.fail(ModFailure.notJoined);
-    }
-    return _run(
+    return _broadcasterAction(
+      channel,
       'cancel the raid',
-      () => twitchApi.cancelRaid(auth, broadcasterId: broadcasterId),
+      (broadcasterId) =>
+          twitchApi.cancelRaid(auth, broadcasterId: broadcasterId),
     );
   }
 
@@ -845,13 +882,10 @@ class ModActions {
     required String messageId,
     required bool allow,
   }) async {
-    final moderatorId = getCurrentUserId();
-    if (getChannelUserIds()[channel] == null || moderatorId == null) {
-      return const ModResult.fail(ModFailure.notJoined);
-    }
-    return _run(
+    return _idsAction(
+      channel,
       allow ? 'allow held message' : 'deny held message',
-      () => twitchApi.manageHeldAutoModMessages(
+      (broadcasterId, moderatorId) => twitchApi.manageHeldAutoModMessages(
         auth,
         moderatorId: moderatorId,
         messageId: messageId,
@@ -866,19 +900,14 @@ class ModActions {
     String channel, {
     String? description,
   }) async {
-    final broadcasterId = getChannelUserIds()[channel];
-    if (broadcasterId == null) {
-      return const ModResult.fail(ModFailure.notJoined);
-    }
-    var desc = description ?? '';
-    if (desc.length > 140) desc = desc.substring(0, 140);
-    return _run(
-      'create stream marker',
-      () => twitchApi.createMarker(
+    return _broadcasterAction(channel, 'create stream marker', (broadcasterId) {
+      var desc = description ?? '';
+      if (desc.length > 140) desc = desc.substring(0, 140);
+      return twitchApi.createMarker(
         auth,
         broadcasterId: broadcasterId,
         description: desc.isEmpty ? null : desc,
-      ),
-    );
+      );
+    });
   }
 }

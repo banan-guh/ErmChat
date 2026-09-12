@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+import 'dart:ui' show Color;
+
 import 'highlight_state.dart';
 import 'twitch_badge.dart';
 
@@ -109,16 +110,6 @@ class TwitchMessage {
 
   /// Source-channel message id (source-id tag). Stable across mirrored copies, unlike [messageId].
   final String? sourceMessageId;
-  List<InlineSpan>? cachedSpans;
-  // EmoteManager.version when cachedSpans was built; rebuilt on next render when version bumps.
-  int? cachedSpansVersion;
-  // Text scale when cachedSpans was built; scale change forces rebuild (emotes are absolute-size).
-  double? cachedSpansScale;
-  List<WidgetSpan>? cachedBadgeSpans;
-  int? cachedBadgeSpansVersion;
-
-  /// Badge scale when cachedBadgeSpans was built; scale change forces rebuild.
-  double? cachedBadgeSpansScale;
   late final String formattedUsername =
       displayName.toLowerCase() == login.toLowerCase()
       ? displayName

@@ -13,7 +13,7 @@ import 'package:http/testing.dart';
 import 'package:ermchat/services/command_handler.dart';
 import 'package:ermchat/services/mod_actions.dart';
 import 'package:ermchat/services/twitch_api.dart';
-import 'package:ermchat/services/twitch_irc.dart';
+import 'package:ermchat/irc/transport/write.dart';
 
 TwitchMessage msg(
   String login,

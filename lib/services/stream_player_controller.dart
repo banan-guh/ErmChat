@@ -1,18 +1,13 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
+import '../util/prefs.dart';
 import 'pip_service.dart';
 
 /// Per-channel Twitch stream player state. Ports DankChat's StreamViewModel:
 /// one player instance, `toggleStream` flips per channel, closing on leave.
 class StreamPlayerController extends ChangeNotifier {
-  static const showExtensionsKey = 'stream_show_extensions';
-  static const retainWebviewKey = 'stream_retain_webview';
-  static const splitFractionKey = 'stream_split_fraction';
-  static const pipEnabledKey = 'stream_pip_enabled';
-
   /// Platform bridge for system Picture-in-Picture. Set by HomeScreen;
   /// null in contexts without a host (unit tests until faked).
   PipService? pipService;
@@ -66,11 +61,11 @@ class StreamPlayerController extends ChangeNotifier {
   }
 
   Future<void> loadPrefs() async {
-    final prefs = await SharedPreferences.getInstance();
-    _showExtensions = prefs.getBool(showExtensionsKey) ?? false;
-    _retainWebview = prefs.getBool(retainWebviewKey) ?? true;
-    _pipEnabled = prefs.getBool(pipEnabledKey) ?? false;
-    _splitFraction = (prefs.getDouble(splitFractionKey) ?? 0.5).clamp(0.2, 0.8);
+    final prefs = await Prefs.load();
+    _showExtensions = prefs.streamShowExtensions;
+    _retainWebview = prefs.streamRetainWebview;
+    _pipEnabled = prefs.streamPipEnabled;
+    _splitFraction = prefs.streamSplitFraction.clamp(0.2, 0.8);
     notifyListeners();
   }
 
@@ -171,8 +166,8 @@ class StreamPlayerController extends ChangeNotifier {
   void setSplitFraction(double value) {
     _splitFraction = value.clamp(0.2, 0.8);
     unawaited(
-      SharedPreferences.getInstance().then(
-        (prefs) => prefs.setDouble(splitFractionKey, _splitFraction),
+      Prefs.load().then(
+        (prefs) => prefs.setStreamSplitFraction(_splitFraction),
       ),
     );
     notifyListeners();

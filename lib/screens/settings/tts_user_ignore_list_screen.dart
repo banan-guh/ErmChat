@@ -1,8 +1,8 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../../services/tts_controller.dart';
+import '../../util/prefs.dart';
 import 'settings_page.dart';
 
 class TtsUserIgnoreListScreen extends StatefulWidget {
@@ -26,8 +26,8 @@ class _TtsUserIgnoreListScreenState extends State<TtsUserIgnoreListScreen> {
   }
 
   Future<void> _persist() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setStringList(kTtsUserIgnoreListKey, _users);
+    final prefs = await Prefs.load();
+    await prefs.setTtsUserIgnoreList(_users);
   }
 
   void _addUser(String raw) {

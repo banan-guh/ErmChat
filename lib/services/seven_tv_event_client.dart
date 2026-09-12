@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
-import 'connectivity_service.dart';
+import '../util/connectivity.dart';
 import 'emote_providers/seven_tv_emotes.dart';
 import '../util/constants.dart';
 import '../util/log.dart';
@@ -238,28 +238,42 @@ class SevenTvEventClient {
     }
   }
 
-  void subscribeEmoteSet(String emoteSetId) {
-    _pendingEmoteSets.add(emoteSetId);
-    if (_handshakeComplete) {
-      _sendSubscription('emote_set.update', emoteSetId, subscribe: true);
+  void subscribeEmoteSet(String emoteSetId) => _setSubscribed(
+    _pendingEmoteSets,
+    'emote_set.update',
+    emoteSetId,
+    subscribe: true,
+  );
+
+  void unsubscribeEmoteSet(String emoteSetId) => _setSubscribed(
+    _pendingEmoteSets,
+    'emote_set.update',
+    emoteSetId,
+    subscribe: false,
+  );
+
+  void subscribeUser(String userId) =>
+      _setSubscribed(_pendingUsers, 'user.update', userId, subscribe: true);
+
+  void unsubscribeUser(String userId) =>
+      _setSubscribed(_pendingUsers, 'user.update', userId, subscribe: false);
+
+  // Subscribers wait for the handshake; unsubscribes send immediately.
+  void _setSubscribed(
+    Set<String> pending,
+    String type,
+    String objectId, {
+    required bool subscribe,
+  }) {
+    if (subscribe) {
+      pending.add(objectId);
+      if (_handshakeComplete) {
+        _sendSubscription(type, objectId, subscribe: true);
+      }
+    } else {
+      pending.remove(objectId);
+      _sendSubscription(type, objectId, subscribe: false);
     }
-  }
-
-  void unsubscribeEmoteSet(String emoteSetId) {
-    _pendingEmoteSets.remove(emoteSetId);
-    _sendSubscription('emote_set.update', emoteSetId, subscribe: false);
-  }
-
-  void subscribeUser(String userId) {
-    _pendingUsers.add(userId);
-    if (_handshakeComplete) {
-      _sendSubscription('user.update', userId, subscribe: true);
-    }
-  }
-
-  void unsubscribeUser(String userId) {
-    _pendingUsers.remove(userId);
-    _sendSubscription('user.update', userId, subscribe: false);
   }
 
   void subscribeTwitchChannel(String channelId) {

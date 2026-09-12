@@ -1,14 +1,14 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../composer/composer_controller.dart';
 import '../models/emote_fetch_tier.dart';
 import '../models/generic_emote.dart';
-import '../services/chat_store.dart';
-import '../services/connectivity_service.dart';
-import '../services/data_usage.dart';
+import '../chat/chat.dart';
+import '../util/connectivity.dart';
+import '../util/data_usage.dart';
+import '../util/prefs.dart';
 import '../services/emote_cache_manager.dart';
 import '../services/emote_manager.dart';
 import '../services/twitch_api.dart';
@@ -31,7 +31,7 @@ class EmoteApplier {
     required this.emoteManager,
     required this.twitchApi,
     required this.twitchAuth,
-    required this.chatStore,
+    required this.chat,
     required this.badgeService,
     required this.connectivityService,
     required this.isMobile,
@@ -42,7 +42,7 @@ class EmoteApplier {
   final EmoteManager emoteManager;
   final TwitchApi twitchApi;
   final TwitchAuth twitchAuth;
-  final ChatStore chatStore;
+  final Chat chat;
   final TwitchBadgeService badgeService;
   final ConnectivityService connectivityService;
   final ValueNotifier<bool> isMobile;
@@ -59,35 +59,17 @@ class EmoteApplier {
   // fetched at the default.
   Future<void> loadPrefs() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      manualTierIndex =
-          prefs.getInt(emoteFetchTierPrefsKey) ?? EmoteFetchTier.high.index;
-      final autoIndex =
-          prefs.getInt(emoteFetchAutoPrefsKey) ??
-          defaultEmoteFetchAutoMode.index;
+      final prefs = await Prefs.load();
+      manualTierIndex = prefs.emoteFetchTier;
+      final autoIndex = prefs.emoteFetchAuto;
       // A corrupt/out-of-range persisted index would throw RangeError at
       // startup; fall back to the default instead.
       autoMode = autoIndex >= 0 && autoIndex < EmoteFetchAutoMode.values.length
           ? EmoteFetchAutoMode.values[autoIndex]
           : defaultEmoteFetchAutoMode;
-      final loadedCacheCap =
-          prefs.getInt(emoteCacheMaxPrefsKey) ?? defaultEmoteCacheMax;
-      applyCacheCap(loadedCacheCap);
-      final capEmoteFps = prefs.getBool('emote_cap_fps') ?? false;
-      if (capEmoteFps) {
-        EmoteUrlProvider.applyFpsCap(prefs.getInt('emote_fps_cap') ?? 30);
-        EmoteUrlProvider.applyAdaptiveThrottle(
-          prefs.getBool('emote_auto_throttle') ?? true,
-        );
-        EmoteUrlProvider.alwaysAnimatePanel =
-            prefs.getBool('always_animate_emote_panel') ?? true;
-      } else {
-        // Uncapped: 60 fps is effectively native on a 60 Hz display.
-        EmoteUrlProvider.applyFpsCap(60);
-        EmoteUrlProvider.applyAdaptiveThrottle(false);
-        EmoteUrlProvider.alwaysAnimatePanel = true;
-      }
-      EmoteUrlProvider.applyGifsEnabled(prefs.getBool('animate_gifs') ?? true);
+      applyCacheCap(prefs.emoteCacheMax);
+      _applyFpsPrefs(prefs);
+      EmoteUrlProvider.applyGifsEnabled(prefs.animateGifs);
       await refreshConnectivity();
       reconcileTier();
     } catch (e) {
@@ -99,20 +81,22 @@ class EmoteApplier {
   /// toggle changes.  When off, emotes run uncapped (fpsCap 60 ~= native 60 Hz)
   /// with adaptive throttling disabled; the three sub-settings are hidden.
   void setCapFps(bool enabled) {
-    SharedPreferences.getInstance().then((prefs) {
-      if (enabled) {
-        EmoteUrlProvider.applyFpsCap(prefs.getInt('emote_fps_cap') ?? 30);
-        EmoteUrlProvider.applyAdaptiveThrottle(
-          prefs.getBool('emote_auto_throttle') ?? true,
-        );
-        EmoteUrlProvider.alwaysAnimatePanel =
-            prefs.getBool('always_animate_emote_panel') ?? true;
-      } else {
-        EmoteUrlProvider.applyFpsCap(60);
-        EmoteUrlProvider.applyAdaptiveThrottle(false);
-        EmoteUrlProvider.alwaysAnimatePanel = true;
-      }
-    });
+    Prefs.load().then(_applyFpsPrefs);
+  }
+
+  // Applies the persisted FPS cap with its adaptive-throttle and panel state.
+  void _applyFpsPrefs(Prefs prefs) {
+    final capEmoteFps = prefs.emoteCapFps;
+    if (capEmoteFps) {
+      EmoteUrlProvider.applyFpsCap(prefs.emoteFpsCap);
+      EmoteUrlProvider.applyAdaptiveThrottle(prefs.emoteAutoThrottle);
+      EmoteUrlProvider.alwaysAnimatePanel = prefs.alwaysAnimateEmotePanel;
+    } else {
+      // Uncapped: 60 fps is effectively native on a 60 Hz display.
+      EmoteUrlProvider.applyFpsCap(60);
+      EmoteUrlProvider.applyAdaptiveThrottle(false);
+      EmoteUrlProvider.alwaysAnimatePanel = true;
+    }
   }
 
   Future<void> refreshConnectivity() async {
@@ -165,10 +149,10 @@ class EmoteApplier {
         // (same hazard as the reload path).
         final needsDiff = _tierAddsResolution(oldTier, tier);
         emoteManager.preloadGlobalEmotes(force: needsDiff);
-        for (final c in chatStore.channels) {
+        for (final c in chat.names) {
           emoteManager.resolveEmotes(
             c,
-            chatStore.channelUserIds[c],
+            chat.channelFor(c)?.info.broadcasterId,
             force: needsDiff,
           );
         }
@@ -176,10 +160,7 @@ class EmoteApplier {
           // Sub sets and personal sets are keyed by fetched id, so the
           // force fetch above skips them; re-pull at the new resolution.
           unawaited(
-            emoteManager.reloadUserEmoteSets(
-              twitchAuth,
-              chatStore.channelUserIds,
-            ),
+            emoteManager.reloadUserEmoteSets(twitchAuth, _channelUserIds()),
           );
           unawaited(emoteManager.loadViewerPersonalSevenTvSets(force: true));
         }
@@ -210,10 +191,10 @@ class EmoteApplier {
 
   Future<bool> refreshAfterAuth({bool force = false}) async {
     try {
-      for (final channel in chatStore.channels) {
+      for (final channel in chat.names) {
         final userId = await twitchApi.getUserId(twitchAuth, channel);
         if (userId != null) {
-          chatStore.channelUserIds[channel] = userId;
+          chat.channelFor(channel)?.info.setBroadcasterId(userId);
         }
       }
       // No evict here: a force fetch replaces the caches wholesale and the
@@ -229,17 +210,17 @@ class EmoteApplier {
       await emoteManager.loadViewerPersonalSevenTvSets();
       badgeService.resetCaches();
       await badgeService.fetchGlobalBadges(twitchAuth);
-      for (final channel in chatStore.channels) {
-        final userId = chatStore.channelUserIds[channel];
+      for (final channel in chat.names) {
+        final userId = chat.channelFor(channel)?.info.broadcasterId;
         if (userId != null) {
           badgeService.fetchChannelBadges(twitchAuth, userId, channel);
         }
       }
       await Future.wait(
-        chatStore.channels.map(
+        chat.names.map(
           (c) => emoteManager.resolveEmotes(
             c,
-            chatStore.channelUserIds[c],
+            chat.channelFor(c)?.info.broadcasterId,
             force: force,
           ),
         ),
@@ -273,7 +254,7 @@ class EmoteApplier {
       if (nuke) {
         await emoteManager.wipePersisted();
         emoteManager.evictGlobal();
-        for (final channel in chatStore.channels) {
+        for (final channel in chat.names) {
           emoteManager.evictChannel(channel);
         }
         await EmoteCacheManager().emptyCache();
@@ -289,10 +270,7 @@ class EmoteApplier {
       var subFailed = false;
       if (ok && twitchAuth.isConfigured) {
         try {
-          await emoteManager.reloadUserEmoteSets(
-            twitchAuth,
-            chatStore.channelUserIds,
-          );
+          await emoteManager.reloadUserEmoteSets(twitchAuth, _channelUserIds());
         } catch (e) {
           subFailed = true;
           logDebug('_reloadEmotes: sub emote reload failed: $e');
@@ -315,6 +293,16 @@ class EmoteApplier {
     }
   }
 
+  // Snapshot of known broadcaster ids for sub-emote owner resolution.
+  Map<String, String> _channelUserIds() {
+    final out = <String, String>{};
+    for (final c in chat.names) {
+      final id = chat.channelFor(c)?.info.broadcasterId;
+      if (id != null) out[c] = id;
+    }
+    return out;
+  }
+
   // Loads the account's subscriber emotes from the IRC emote-sets tag
   // (GLOBALUSERSTATE/USERSTATE), the authoritative source of which emote sets
   // the account can use (the Helix /chat/emotes/user endpoint omits certain
@@ -330,7 +318,7 @@ class EmoteApplier {
     await emoteManager.loadUserEmoteSets(
       emoteSetIds,
       twitchAuth,
-      chatStore.channelUserIds,
+      _channelUserIds(),
     );
   }
 
@@ -339,11 +327,7 @@ class EmoteApplier {
   Future<void> refreshSubEmoteOwners() async {
     if (twitchAuth.isConfigured) {
       unawaited(
-        emoteManager.loadUserEmoteSets(
-          [],
-          twitchAuth,
-          chatStore.channelUserIds,
-        ),
+        emoteManager.loadUserEmoteSets([], twitchAuth, _channelUserIds()),
       );
     }
   }

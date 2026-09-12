@@ -2,19 +2,19 @@ import 'dart:async';
 import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../third_party/flutter_list_view/flutter_list_view.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import '../providers/app_providers.dart';
+import '../providers/chat_pipeline.dart';
+import '../providers/feature_providers.dart';
+import '../providers/ui_state_providers.dart';
 import '../models/generic_emote.dart';
 import '../models/twitch_message.dart';
 import '../util/haptics.dart';
 import '../services/twitch_api.dart';
 import '../services/twitch_auth.dart';
-import '../services/twitch_eventsub.dart';
-import '../services/join_rate_limiter.dart';
-import '../services/twitch_irc.dart';
 import '../services/command_macros.dart';
-import '../services/connectivity_service.dart';
-import '../services/recent_messages.dart';
+import '../util/connectivity.dart';
 import '../services/seven_tv_event_client.dart';
 import '../services/command_handler.dart';
 import '../services/mod_actions.dart';
@@ -23,7 +23,7 @@ import '../services/ping_manager.dart';
 import '../services/ignore_manager.dart';
 import '../services/link_whitelist.dart';
 import '../services/emote_manager.dart';
-import '../services/data_usage.dart';
+import '../util/data_usage.dart';
 import '../services/stream_player_controller.dart';
 import '../services/pip_service.dart';
 import '../services/analytics_service.dart';
@@ -32,12 +32,14 @@ import '../services/third_party_badge_service.dart';
 import '../services/seven_tv_paint_service.dart';
 import '../util/log.dart';
 import '../util/constants.dart';
+import '../util/prefs.dart';
 import '../util/timestamp_formatter.dart';
 import '../screens/settings/settings_screen.dart';
 import '../widgets/panel_manager.dart';
 import '../widgets/welcome_dialog.dart';
 import '../services/user_store.dart';
-import '../services/chat_store.dart';
+import '../chat/chat.dart';
+import '../client/session.dart';
 import '../services/suggestion.dart';
 import '../services/notification_service.dart';
 import '../services/tts_controller.dart';
@@ -68,49 +70,33 @@ import '../widgets/predictive_back_handler.dart';
 import '../widgets/join_channel_dialog.dart';
 import '../services/foreground_task.dart';
 
-class HomeScreen extends StatefulWidget {
+class HomeScreen extends ConsumerStatefulWidget {
   // Test seam: when true the join ("+") button never shows its loading spinner.
   // Tests that intentionally keep the app disconnected (un-faked TwitchChatApp)
   // flip this so they can still reach the button during the permanent
   // "connecting" state instead of hitting the gated spinner.
   static bool disableJoinSpinner = false;
 
-  final TwitchAuth twitchAuth;
   final ValueChanged<ThemeMode> onThemeChanged;
   final ValueChanged<bool>? onKeepScreenOnChanged;
   final ValueChanged<bool>? onTrueDarkChanged;
   final ValueChanged<String>? onAccentColorChanged;
-  final EventSubService? eventSubService;
-  final IrcService? ircService;
-  final IrcReadService? ircReadService;
-  final RecentMessagesService? recentMessagesService;
-  final ConnectivityService? connectivityService;
-  final TwitchBadgeService? badgeService;
-  final PipService? pipService;
   final String? initialCurrentUserLogin;
 
   const HomeScreen({
     super.key,
-    required this.twitchAuth,
     required this.onThemeChanged,
     this.onKeepScreenOnChanged,
     this.onTrueDarkChanged,
     this.onAccentColorChanged,
-    this.eventSubService,
-    this.ircService,
-    this.ircReadService,
-    this.recentMessagesService,
-    this.connectivityService,
-    this.badgeService,
-    this.pipService,
     this.initialCurrentUserLogin,
   });
 
   @override
-  State<HomeScreen> createState() => _HomeScreenState();
+  ConsumerState<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen>
+class _HomeScreenState extends ConsumerState<HomeScreen>
     with WidgetsBindingObserver, TickerProviderStateMixin
     implements
         ComposerHost,
@@ -127,113 +113,65 @@ class _HomeScreenState extends State<HomeScreen>
         EmoteApplierHost {
   static const _mentionsChannel = '@mentions';
 
-  late final _pingManager = PingManager.instance;
-  late final _ignoreManager = IgnoreManager.instance;
+  ConnectivityService? _connectivityServiceCache;
+  ConnectivityService get _connectivityService {
+    _connectivityServiceCache ??= ref.read(connectivityServiceProvider);
+    return _connectivityServiceCache!;
+  }
+
+  SevenTvEventClient get _sevenTvClient => ref.read(sevenTvClientProvider);
+  TwitchApi get _twitchApi => ref.read(twitchApiProvider);
+  PingManager get _pingManager => ref.read(pingManagerProvider);
+  IgnoreManager get _ignoreManager => ref.read(ignoreManagerProvider);
+
   final _linkWhitelist = LinkWhitelist.instance;
 
-  late final _connectivityService =
-      widget.connectivityService ?? ConnectivityService();
-  late final _eventSub =
-      widget.eventSubService ??
-      EventSubService(connectivityService: _connectivityService);
-  // One JOIN budget shared by both IRC sockets: their combined rate stays
-  // inside Twitch's ~20-commands-per-10s limit instead of each socket
-  // bursting independently.
-  final _joinBudget = JoinRateLimiter();
-  late final _irc =
-      widget.ircService ??
-      IrcService(
-        connectivityService: _connectivityService,
-        joinBudget: _joinBudget,
-      );
-  late final _ircRead =
-      widget.ircReadService ??
-      IrcReadService(
-        connectivityService: _connectivityService,
-        joinBudget: _joinBudget,
-      );
-  late final _sevenTvClient = SevenTvEventClient(
-    connectivityService: _connectivityService,
-  );
-  late final _twitchApi = TwitchApi();
-  late final _analytics = AnalyticsService(
-    emoteLookup: (channel, senderTwitchId) =>
-        _emoteManager.byCodeForSender(channel, senderTwitchId),
-  );
-  final _ttsController = TtsController();
+  AnalyticsService get _analytics => ref.read(analyticsServiceProvider);
+  TtsController get _ttsController => ref.read(ttsControllerProvider);
 
-  late final ChatStore _chatStore =
-      ChatStore(
-          channels: [],
-          channelMessages: {},
-          messageKeys: {},
-          chatStatus: {},
-          channelsWithUnread: {},
-          channelsWithUnreadMentions: {},
-          unreadMentionsPerChannel: {},
-          historyLoaded: {},
-          channelsEmotesResolved: {},
-          channelUserIds: {},
-          lastSentWireText: {},
-        )
-        ..onLoginApplied = (v) {
-          _pingManager.setAccount(v);
-          _channelManager.scanHistoryForMentions();
-          unawaited(_ensureBlockedUsersLoaded());
-          // Warm the macro cache so sends can read it synchronously.
-          if (v != null) unawaited(loadMacros(v));
-        };
+  Chat? _chatCache;
+  Chat get _chat {
+    _chatCache ??= ref.read(chatProvider);
+    return _chatCache!;
+  }
 
-  late final ChatConnectionManager _chatConn = ChatConnectionManager(
-    ChatConnectionConfig(
-      services: ChatServices(
-        twitchApi: _twitchApi,
-        eventSub: _eventSub,
-        irc: _irc,
-        ircRead: _ircRead,
-        sevenTvClient: _sevenTvClient,
-        emoteManager: _emoteManager,
-        badgeService: _badgeService,
-        userStore: _userStore,
-        twitchAuth: widget.twitchAuth,
-        pingManager: _pingManager,
-        ignoreManager: _ignoreManager,
-        joinBudget: _joinBudget,
-      ),
-      store: _chatStore,
-      bridge: ChatViewBridge(
-        mentionsChannel: _mentionsChannel,
-        onSystemMessage: _addSystemMessage,
-        onJoinProgress: (ch, info) => _channelManager.onJoinProgress(ch, info),
-        getSelectedChannel: () => _selectedChannel,
-        getMaxMessagesPerChannel: () => _maxMessagesPerChannel,
-      ),
-      sinks: ChatSinks(
-        onCommand: _handleCommand,
-        getReplyToMsg: () => _composer.replyToMsg,
-        setReplyToMsg: (v) => _composer.replyTo = v,
-        onUserEmoteSets: (ch, ids) => _emotes.loadUserEmoteSets(ch, ids),
-        onReconnected: _onReconnected,
-        getMacros: () {
-          final login = _chatStore.session.login;
-          if (login == null) return const {};
-          return cachedMacroLookup(login) ?? const {};
-        },
-        isChatReady: () => _blocksReady,
-        isBlocked: (login) => _blockedLogins.contains(login.toLowerCase()),
-        getSharedChatMode: () => _sharedChatMode,
-        onAnalyticsMessage: (channel, msg) =>
-            _analytics.recordMessage(channel, msg),
-        onAnalyticsModeration: (channel, isTimeout) =>
-            _analytics.recordModeration(channel, isTimeout),
-        onHypeTrain: _broadcastWidgets.onHypeTrain,
-        onPoll: _broadcastWidgets.onPoll,
-        onPrediction: _broadcastWidgets.onPrediction,
-        onChatMessage: (channel, msg) =>
-            _ttsController.handleMessage(channel, msg, _selectedChannel),
-      ),
-    ),
-  );
+  Session? _sessionCache;
+  Session get _session {
+    _sessionCache ??= ref.read(sessionProvider);
+    return _sessionCache!;
+  }
+
+  TwitchAuth? _twitchAuthCache;
+  TwitchAuth get _twitchAuth {
+    _twitchAuthCache ??= ref.read(twitchAuthProvider);
+    return _twitchAuthCache!;
+  }
+
+  // Session announces pipeline-resolved identity; the app refreshes the
+  // account-scoped data it owns.
+  void _onSessionApplied() {
+    final login = _session.login;
+    _pingManager.setAccount(login);
+    _channelManager.scanHistoryForMentions();
+    unawaited(_ensureBlockedUsersLoaded());
+    // Warm the macro cache so sends can read it synchronously.
+    if (login != null) {
+      unawaited(
+        loadMacros(login).then((_) {
+          if (mounted) ref.invalidate(macrosProvider);
+        }),
+      );
+    }
+  }
+
+  // Provider-owned pipeline, read once and cached. The provider owns
+  // teardown, so the screen only observes its notifiers.
+  ChatConnectionManager? _chatConnCache;
+  ChatConnectionManager get _chatConn {
+    _chatConnCache ??= ref.read(chatPipelineProvider);
+    return _chatConnCache!;
+  }
+
   late final MessageBuilder _messageBuilder = MessageBuilder(
     emoteManager: _emoteManager,
     badgeService: _badgeService,
@@ -246,63 +184,60 @@ class _HomeScreenState extends State<HomeScreen>
     imageHeight: _imageHeight,
     animateGifs: _animateGifs,
   );
-  late final _modActions = ModActions(
-    twitchApi: _twitchApi,
-    getChannelUserIds: () => _chatStore.channelUserIds,
-    getCurrentUserId: () => _chatStore.session.userId,
-  );
-  late final _commandHandler = CommandHandler(
-    twitchApi: _twitchApi,
-    irc: _irc,
-    modActions: _modActions,
-    getChannelUserIds: () => _chatStore.channelUserIds,
-    getCurrentUserId: () => _chatStore.session.userId,
-    getCurrentUserLogin: () => _chatStore.session.login,
-    addSystemMessage: _addSystemMessage,
-    whisperAddSystemMessage: (channel, text) =>
-        _mentions.addWhisperSystemMessage(channel, text),
-    onWhisperSent: (target, message) =>
-        _mentions.onWhisperSent(target, message),
-    onUserBlocked: _onUserBlocked,
-    onUserUnblocked: _onUserUnblocked,
-  );
+  Map<String, String> _channelUserIds() {
+    final out = <String, String>{};
+    for (final name in _chat.names) {
+      final id = _chat.channelFor(name)?.info.broadcasterId;
+      if (id != null) out[name] = id;
+    }
+    return out;
+  }
+
+  ModActions get _modActions => ref.read(modActionsProvider);
+  CommandHandler get _commandHandler => ref.read(commandHandlerProvider);
   late final MediaUploadController _uploadController = MediaUploadController(
     input: _composer.messageController,
     focusNode: _composer.focusNode,
     onNotice: _chatNotice.show,
   );
 
-  final _notificationService = NotificationService();
+  NotificationService get _notificationService =>
+      ref.read(notificationServiceProvider);
   StreamSubscription<String>? _notificationTapSub;
   bool _backgroundService = false;
-  bool _mentionPush = false;
   bool _whisperNotify = true;
-  var _isBackgrounded = false;
 
   final _isMobile = ValueNotifier<bool>(false);
-  VoidCallback? _connectivityListener;
 
-  late final _emoteManager = EmoteManager(
-    probe: _connectivityService.checkConnectivity,
-  );
-  late final _badgeService = widget.badgeService ?? TwitchBadgeService();
-  late final _pipService = widget.pipService ?? PipService();
-  late final _thirdPartyBadgeService = ThirdPartyBadgeService();
-  late final _sevenTvPaintService = SevenTvPaintService();
-  final _userStore = UserStore();
+  EmoteManager? _emoteManagerCache;
+  EmoteManager get _emoteManager {
+    _emoteManagerCache ??= ref.read(emoteManagerProvider);
+    return _emoteManagerCache!;
+  }
+
+  TwitchBadgeService get _badgeService => ref.read(badgeServiceProvider);
+  PipService get _pipService => ref.read(pipServiceProvider);
+  ThirdPartyBadgeService get _thirdPartyBadgeService =>
+      ref.read(thirdPartyBadgeServiceProvider);
+  SevenTvPaintService get _sevenTvPaintService =>
+      ref.read(sevenTvPaintServiceProvider);
+  UserStore get _userStore => ref.read(userStoreProvider);
   final _channelNotifier = ValueNotifier<List<String>>([]);
   final _tileCache = <String, Map<String?, Widget>>{};
-  String? _selectedChannel;
-  final _blockedLogins = <String>{};
-  bool _blocksReady = false;
   bool _blocksFetched = false;
   final _scrollControllers = <String, FlutterListViewController>{};
   final _atBottomNotifiers = <String, ValueNotifier<bool>>{};
-  final _chatNotice = ChatNoticeController();
+  ChatNoticeController get _chatNotice => ref.read(chatNoticeProvider);
 
-  late final _broadcastWidgets = BroadcastWidgets(
-    selectedChannel: () => _selectedChannel,
-  );
+  ChatUiSignals? _signalsCache;
+  ChatUiSignals get _signals {
+    _signalsCache ??= ref.read(chatUiSignalsProvider);
+    return _signalsCache!;
+  }
+
+  final _signalUnsubs = <void Function()>[];
+
+  BroadcastWidgets get _broadcastWidgets => ref.read(broadcastWidgetsProvider);
 
   // Appearance, stream, and panel prefs live here; composer-owned input
   // state (text, reply, suggestions, cooldown) lives in _composer.
@@ -313,11 +248,9 @@ class _HomeScreenState extends State<HomeScreen>
   // [_chatLoading] (driven by ChatConnectionManager.connectionStateNotifier),
   // so this only covers emote work that doesn't move the connection phase.
   final ValueNotifier<bool> _networkBusy = ValueNotifier(false);
-  int _maxMessagesPerChannel = kMaxMessagesPerChannelDefault;
   int _recentMessagesLimit = 100;
   bool _showTimestamps = true;
   String _timestampFormat = kDefaultTimestampFormat;
-  String _sharedChatMode = 'spotlight';
   double _chatFontSize = 14.0;
   double _highlightOpacity = 0.6;
   bool _checkeredMessages = false;
@@ -378,16 +311,19 @@ class _HomeScreenState extends State<HomeScreen>
   late final ComposerController _composer = ComposerController(
     chatConn: _chatConn,
     commandHandler: _commandHandler,
-    twitchAuth: widget.twitchAuth,
+    twitchAuth: _twitchAuth,
     emoteManager: _emoteManager,
     userStore: _userStore,
-    chatStore: _chatStore,
+    chat: _chat,
+    session: _session,
+    getReplyTo: () => ref.read(replyToProvider),
+    setReplyTo: (value) => ref.read(replyToProvider.notifier).set(value),
     host: this,
   );
 
   // ComposerHost: shell-owned UI state the composer reads but does not own.
   @override
-  String? get selectedChannel => _selectedChannel;
+  String? get selectedChannel => ref.read(selectedChannelProvider);
   @override
   bool get isWhispersTabActive => _mentions.isWhispersTabActive;
   @override
@@ -423,12 +359,7 @@ class _HomeScreenState extends State<HomeScreen>
     if (mounted) setState(() {});
   }
 
-  late final _menus = MessageMenus(
-    twitchAuth: widget.twitchAuth,
-    chatConn: _chatConn,
-    modActions: _modActions,
-    host: this,
-  );
+  late final _menus = MessageMenus(host: this);
 
   // MessageMenuHost: shell-owned state the menus read but do not own.
   @override
@@ -436,7 +367,7 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   String get timestampFormat => _timestampFormat;
   @override
-  String? get sessionLogin => _chatStore.session.login;
+  String? get sessionLogin => _session.login;
   @override
   TwitchMessage? findThreadRoot(TwitchMessage msg) =>
       _threads.findThreadRoot(msg);
@@ -451,10 +382,10 @@ class _HomeScreenState extends State<HomeScreen>
   void toggleSaveThread(TwitchMessage root) => _threads.toggleSaveThread(root);
 
   late final _userSheets = UserSheets(
-    chatStore: _chatStore,
+    chat: _chat,
     chatConn: _chatConn,
     twitchApi: _twitchApi,
-    twitchAuth: widget.twitchAuth,
+    twitchAuth: _twitchAuth,
     modActions: _modActions,
     emoteManager: _emoteManager,
     messageBuilder: _messageBuilder,
@@ -475,12 +406,13 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   bool get lineSeparator => _lineSeparator;
   @override
-  String get sharedChatMode => _sharedChatMode;
+  String get sharedChatMode => ref.read(sharedChatModeProvider);
   @override
   SevenTvPaintService? get namePaintService =>
       _showNamePaints ? _sevenTvPaintService : null;
   @override
-  void onUserBlocked(String login) => _onUserBlocked(login);
+  void onUserBlocked(String login) =>
+      _commandHandler.notifyUserBlockChanged(login, blocked: true);
   @override
   void showWhispersForUser(String login) =>
       _mentions.showWhispersForUser(login);
@@ -489,7 +421,7 @@ class _HomeScreenState extends State<HomeScreen>
 
   late final _threads = ThreadPanels(
     panelManager: _panelManager,
-    chatStore: _chatStore,
+    chat: _chat,
     threadsTab: () => _threadsTabCtrl,
     composer: _composer,
     messageBuilder: _messageBuilder,
@@ -507,9 +439,10 @@ class _HomeScreenState extends State<HomeScreen>
 
   late final _mentions = MentionsPanels(
     panelManager: _panelManager,
-    chatStore: _chatStore,
+    chat: _chat,
+    session: _session,
     chatConn: _chatConn,
-    twitchAuth: widget.twitchAuth,
+    twitchAuth: _twitchAuth,
     mentionsTab: () => _mentionsTabCtrl,
     composer: _composer,
     messageBuilder: _messageBuilder,
@@ -519,13 +452,13 @@ class _HomeScreenState extends State<HomeScreen>
     host: this,
   );
 
-  late final _search = SearchPanels(chatStore: _chatStore, host: this);
+  late final _search = SearchPanels(chat: _chat, host: this);
 
   late final _mod = ModPanels(
     panelManager: _panelManager,
-    chatStore: _chatStore,
+    chat: _chat,
     chatConn: _chatConn,
-    twitchAuth: widget.twitchAuth,
+    twitchAuth: _twitchAuth,
     modActions: _modActions,
     modTab: () => _modTabCtrl,
     composer: _composer,
@@ -542,10 +475,10 @@ class _HomeScreenState extends State<HomeScreen>
   ]);
 
   late final _chrome = HomeAppBar(
-    chatStore: _chatStore,
+    chat: _chat,
     chatConn: _chatConn,
     networkBusy: _networkBusy,
-    twitchAuth: widget.twitchAuth,
+    twitchAuth: _twitchAuth,
     streamPlayer: _streamPlayer,
     uploadController: _uploadController,
     mentions: _mentions,
@@ -555,11 +488,11 @@ class _HomeScreenState extends State<HomeScreen>
   );
 
   late final _channels = ChannelPanels(
-    chatStore: _chatStore,
+    chat: _chat,
     tileCache: _tileCache,
     messageBuilder: _messageBuilder,
     linkWhitelist: _linkWhitelist,
-    twitchAuth: widget.twitchAuth,
+    twitchAuth: _twitchAuth,
     paintService: _sevenTvPaintService,
     selectedTabIndex: _selectedTabIndex,
     userSheets: _userSheets,
@@ -575,18 +508,19 @@ class _HomeScreenState extends State<HomeScreen>
   late final _stream = StreamPanels(
     streamPlayer: _streamPlayer,
     pipService: _pipService,
-    chatStore: _chatStore,
+    chat: _chat,
     channels: _channels,
     homeAppBar: _chrome,
     host: this,
   );
 
   late final _channelManager = ChannelManager(
-    chatStore: _chatStore,
+    chat: _chat,
+    session: _session,
     chatConn: _chatConn,
-    irc: _irc,
-    ircRead: _ircRead,
-    twitchAuth: widget.twitchAuth,
+    irc: ref.read(ircServiceProvider),
+    ircRead: ref.read(ircReadServiceProvider),
+    twitchAuth: _twitchAuth,
     emoteManager: _emoteManager,
     badgeService: _badgeService,
     analytics: _analytics,
@@ -601,16 +535,17 @@ class _HomeScreenState extends State<HomeScreen>
     tileCache: _tileCache,
     channelNotifier: _channelNotifier,
     selectedTabIndex: _selectedTabIndex,
-    recentMessagesService: widget.recentMessagesService,
+    recentMessagesService: ref.read(recentMessagesServiceProvider),
     mentionsChannel: _mentionsChannel,
+    history: ref.read(chatHistoryControllerProvider),
     host: this,
   );
 
   late final _emotes = EmoteApplier(
     emoteManager: _emoteManager,
     twitchApi: _twitchApi,
-    twitchAuth: widget.twitchAuth,
-    chatStore: _chatStore,
+    twitchAuth: _twitchAuth,
+    chat: _chat,
     badgeService: _badgeService,
     connectivityService: _connectivityService,
     isMobile: _isMobile,
@@ -620,7 +555,7 @@ class _HomeScreenState extends State<HomeScreen>
 
   // MentionsPanelsHost: shell-owned state the inbox reads but does not own.
   @override
-  int get maxMessages => _maxMessagesPerChannel;
+  int get maxMessages => ref.read(maxMessagesPerChannelProvider);
   @override
   void notifyWhisper(TwitchMessage msg) => _maybeNotifyWhisper(msg);
 
@@ -669,7 +604,7 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   void forgetSearch(String channel) {
     _search.forget(channel);
-    _search.syncFieldTo(_selectedChannel);
+    _search.syncFieldTo(selectedChannel);
     _mod.syncTermsToSelected();
   }
 
@@ -682,7 +617,7 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   void commitChannelSelection(int index, {required bool rebuild}) {
     _channelManager.commitChannelSelection(index, rebuild: rebuild);
-    _search.syncFieldTo(_selectedChannel);
+    _search.syncFieldTo(selectedChannel);
     _mod.syncTermsToSelected();
   }
 
@@ -702,7 +637,8 @@ class _HomeScreenState extends State<HomeScreen>
 
   // ChannelManagerHost / EmoteApplierHost.
   @override
-  set selectedChannel(String? value) => _selectedChannel = value;
+  set selectedChannel(String? value) =>
+      ref.read(selectedChannelProvider.notifier).set(value);
   @override
   void mutate(void Function() fn) => setState(fn);
   @override
@@ -711,10 +647,12 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   int get recentMessagesLimit => _recentMessagesLimit;
   @override
-  bool get mentionPush => _mentionPush;
+  bool get mentionPush => ref.read(mentionPushProvider);
   @override
   void disposeChannelNotifiers(String channel) =>
       _scrollControllers.remove(channel)?.dispose();
+  @override
+  void invalidateCaches() => _channels.invalidateCaches();
   @override
   void forgetAtBottomNotifier(String channel) =>
       _atBottomNotifiers.remove(channel)?.dispose();
@@ -727,7 +665,8 @@ class _HomeScreenState extends State<HomeScreen>
     unawaited(_ttsController.init());
     unawaited(PerfLog.I.init());
     DataUsageStats.I.start();
-    _chatStore.session.login = widget.initialCurrentUserLogin;
+    _session.seed(widget.initialCurrentUserLogin);
+    _session.version.addListener(_onSessionApplied);
     _pingManager.setAccount(widget.initialCurrentUserLogin);
     _emotes.loadPrefs();
     _mentionsTabCtrl = TabController(length: 2, vsync: this);
@@ -775,22 +714,14 @@ class _HomeScreenState extends State<HomeScreen>
     _linkWhitelist.addListener(_onLinkWhitelistChanged);
     _loadNotificationSettings();
     _broadcastWidgets.loadTestWidgets();
-    _storeEventsSub = _chatStore.events.listen(_onStoreEvent);
-    _noticesSub = _chatStore.notices.listen(_onStoreNotice);
-    _chatConn.onWhisper = _mentions.onWhisper;
+    _channelNotifier.addListener(_syncChannelSubs);
+    _chat.mentions.version.addListener(_onMentionsContent);
+    _syncChannelSubs();
+    _subscribeSignals();
     _startChatPipe();
     _emoteManager.startCacheGc();
-    _emoteManager.addListener(_onEmotesChanged);
     _connectivityService.init();
-    _connectivityListener = () {
-      final isMobile = _connectivityService.isMobile;
-      if (isMobile == _isMobile.value) return;
-      _isMobile.value = isMobile;
-      DataUsageStats.I.setContext(isMobile: isMobile);
-      _emotes.reconcileTier();
-    };
-    _connectivityService.addListener(_connectivityListener!);
-    _badgeService.fetchGlobalBadges(widget.twitchAuth);
+    _badgeService.fetchGlobalBadges(_twitchAuth);
     _thirdPartyBadgeService.bindSevenTvEvents(_sevenTvClient);
     _sevenTvPaintService.bindSevenTvEvents(_sevenTvClient);
     _sevenTvEntitlementSub = _sevenTvClient.onEntitlement.listen(
@@ -798,8 +729,6 @@ class _HomeScreenState extends State<HomeScreen>
     );
     unawaited(_thirdPartyBadgeService.fetchFfzBadges());
     unawaited(_thirdPartyBadgeService.fetchBttvBadges());
-    widget.twitchAuth.addListener(_onAuthChanged);
-    _chatConn.connectionStateNotifier.addListener(_onConnectionChanged);
     WidgetsBinding.instance.addObserver(this);
     _predictiveBackHandler = PanelPredictiveBackHandler(
       isPanelOpen: () => _activePanel != OverlayPanel.closed || _emoteSheetOpen,
@@ -819,22 +748,22 @@ class _HomeScreenState extends State<HomeScreen>
 
   Future<void> _maybeShowWelcomeDialog() async {
     if (!Platform.isAndroid) return;
-    final prefs = await SharedPreferences.getInstance();
-    if (prefs.getBool('welcome_seen') ?? false) return;
-    await prefs.setBool('welcome_seen', true);
+    final prefs = await Prefs.load();
+    if (prefs.welcomeSeen) return;
+    await prefs.setWelcomeSeen(true);
     if (!mounted) return;
     showWelcomeDialog(context);
   }
 
   Future<void> _loadNotificationSettings() async {
-    final prefs = await SharedPreferences.getInstance();
-    final backgroundService = prefs.getBool('background_service') ?? false;
-    final mentionPush = prefs.getBool('mention_push') ?? false;
-    final whisperNotify = prefs.getBool('whisper_notifications') ?? false;
+    final prefs = await Prefs.load();
+    final backgroundService = prefs.backgroundService;
+    final mentionPush = prefs.mentionPush;
+    final whisperNotify = prefs.whisperNotifications;
     if (!mounted) return;
+    ref.read(mentionPushProvider.notifier).set(mentionPush);
     setState(() {
       _backgroundService = backgroundService;
-      _mentionPush = mentionPush;
       _whisperNotify = whisperNotify;
     });
     if (!Platform.isAndroid) return;
@@ -856,7 +785,6 @@ class _HomeScreenState extends State<HomeScreen>
       _navigateToChannel(pendingChannel);
     }
     _notificationService.clearMentionNotifications();
-    _chatConn.onMention = _onMentionNotification;
   }
 
   @override
@@ -876,8 +804,8 @@ class _HomeScreenState extends State<HomeScreen>
     if (!Platform.isAndroid) return;
     if (value) {
       _initForegroundService();
-      if (_chatStore.channels.isNotEmpty) {
-        startForegroundService(List.of(_chatStore.channels));
+      if (_chat.names.isNotEmpty) {
+        startForegroundService(List.of(_chat.names));
       }
     } else {
       stopForegroundService();
@@ -885,8 +813,9 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   void _setMentionPush(bool value) {
-    if (_mentionPush == value) return;
-    setState(() => _mentionPush = value);
+    if (ref.read(mentionPushProvider) == value) return;
+    ref.read(mentionPushProvider.notifier).set(value);
+    setState(() {});
     if (!Platform.isAndroid) return;
     if (value) {
       requestForegroundPermissions();
@@ -909,7 +838,7 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   void _maybeNotifyWhisper(TwitchMessage msg) {
-    if (!_whisperNotify || !_isBackgrounded) return;
+    if (!_whisperNotify || !ref.read(backgroundedProvider)) return;
     if (_notificationTapSub == null || _mentions.isWhispersTabActive) return;
     unawaited(
       _notificationService.showWhisperNotification(
@@ -920,13 +849,13 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   void _setMaxMessagesPerChannel(int value) {
-    if (_maxMessagesPerChannel == value) return;
-    setState(() => _maxMessagesPerChannel = value);
+    if (ref.read(maxMessagesPerChannelProvider) == value) return;
+    setState(() => ref.read(maxMessagesPerChannelProvider.notifier).set(value));
     // Apply a lower cap immediately instead of waiting for the next incoming
     // message to hit the truncation path.
-    for (final channel in List.of(_chatStore.channels)) {
-      _chatStore.truncateChannel(channel, maxMessages: _maxMessagesPerChannel);
-      _chatStore.touchChannel(channel);
+    for (final channel in List.of(_chat.names)) {
+      _channelManager.truncateChannel(channel);
+      _chat.channelFor(channel)?.info.touch();
     }
   }
 
@@ -941,17 +870,17 @@ class _HomeScreenState extends State<HomeScreen>
     setState(() => set(value));
     if (rerenderChannels) {
       _tileCache.clear();
-      for (final channel in List.of(_chatStore.channels)) {
-        _chatStore.touchChannel(channel);
+      for (final channel in List.of(_chat.names)) {
+        _chat.channelFor(channel)?.info.touch();
       }
     }
   }
 
-  void _setRecentMessagesLimit(int value) => _setPref(
-    () => _recentMessagesLimit,
-    (v) => _recentMessagesLimit = v,
-    value,
-  );
+  void _setRecentMessagesLimit(int value) =>
+      _setPref(() => _recentMessagesLimit, (v) {
+        _recentMessagesLimit = v;
+        ref.read(recentMessagesLimitProvider.notifier).set(v);
+      }, value);
 
   void _setReplyToRoot(bool value) =>
       _setPref(() => _replyToRoot, (v) => _replyToRoot = v, value);
@@ -974,8 +903,8 @@ class _HomeScreenState extends State<HomeScreen>
   );
 
   void _setSharedChatMode(String value) => _setPref(
-    () => _sharedChatMode,
-    (v) => _sharedChatMode = v,
+    () => ref.read(sharedChatModeProvider),
+    (v) => ref.read(sharedChatModeProvider.notifier).set(v),
     value,
     rerenderChannels: true,
   );
@@ -1016,8 +945,8 @@ class _HomeScreenState extends State<HomeScreen>
     setState(() => _showNamePaints = value);
     _sevenTvPaintService.enabled = value;
     _tileCache.clear();
-    for (final channel in List.of(_chatStore.channels)) {
-      _chatStore.touchChannel(channel);
+    for (final channel in List.of(_chat.names)) {
+      _chat.channelFor(channel)?.info.touch();
     }
   }
 
@@ -1026,8 +955,8 @@ class _HomeScreenState extends State<HomeScreen>
     setState(() => _showGifs = value);
     _messageBuilder.showGifs = value;
     _tileCache.clear();
-    for (final channel in List.of(_chatStore.channels)) {
-      _chatStore.touchChannel(channel);
+    for (final channel in List.of(_chat.names)) {
+      _chat.channelFor(channel)?.info.touch();
     }
   }
 
@@ -1037,8 +966,8 @@ class _HomeScreenState extends State<HomeScreen>
     setState(() => _animateGifs = value);
     _messageBuilder.animateGifs = value;
     _tileCache.clear();
-    for (final channel in List.of(_chatStore.channels)) {
-      _chatStore.touchChannel(channel);
+    for (final channel in List.of(_chat.names)) {
+      _chat.channelFor(channel)?.info.touch();
     }
   }
 
@@ -1048,8 +977,8 @@ class _HomeScreenState extends State<HomeScreen>
     setState(() => _gifHeight = clamped);
     _messageBuilder.gifHeight = clamped;
     _tileCache.clear();
-    for (final channel in List.of(_chatStore.channels)) {
-      _chatStore.touchChannel(channel);
+    for (final channel in List.of(_chat.names)) {
+      _chat.channelFor(channel)?.info.touch();
     }
   }
 
@@ -1058,8 +987,8 @@ class _HomeScreenState extends State<HomeScreen>
     setState(() => _showImages = value);
     _messageBuilder.showImages = value;
     _tileCache.clear();
-    for (final channel in List.of(_chatStore.channels)) {
-      _chatStore.touchChannel(channel);
+    for (final channel in List.of(_chat.names)) {
+      _chat.channelFor(channel)?.info.touch();
     }
   }
 
@@ -1069,8 +998,8 @@ class _HomeScreenState extends State<HomeScreen>
     setState(() => _imageHeight = clamped);
     _messageBuilder.imageHeight = clamped;
     _tileCache.clear();
-    for (final channel in List.of(_chatStore.channels)) {
-      _chatStore.touchChannel(channel);
+    for (final channel in List.of(_chat.names)) {
+      _chat.channelFor(channel)?.info.touch();
     }
   }
 
@@ -1081,19 +1010,20 @@ class _HomeScreenState extends State<HomeScreen>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    _isBackgrounded =
+    final backgrounded =
         state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive;
+    ref.read(backgroundedProvider.notifier).set(backgrounded);
     if (Platform.isAndroid) {
       if (state == AppLifecycleState.paused) {
         if (_backgroundService) {
-          startForegroundService(List.of(_chatStore.channels));
+          startForegroundService(List.of(_chat.names));
         }
       } else if (state == AppLifecycleState.resumed) {
         if (_backgroundService) {
           stopForegroundService();
         }
-        if (_mentionPush) {
+        if (ref.read(mentionPushProvider)) {
           _notificationService.clearMentionNotifications();
         }
       }
@@ -1105,69 +1035,52 @@ class _HomeScreenState extends State<HomeScreen>
 
   Future<void> _ensureBlockedUsersLoaded() async {
     if (_blocksFetched) return;
-    final userId = widget.twitchAuth.userId;
+    final userId = _twitchAuth.userId;
     if (userId == null) {
-      _blocksReady = true;
+      ref.read(chatReadyProvider.notifier).set(true);
       _channelManager.loadChannels();
       return;
     }
     _blocksFetched = true;
+    var blocked = <String>{};
     try {
-      final blocked = await _twitchApi
-          .getBlockedUsers(widget.twitchAuth)
+      blocked = await _twitchApi
+          .getBlockedUsers(_twitchAuth)
           .timeout(const Duration(seconds: 5));
-      _blockedLogins.addAll(blocked);
     } catch (e) {
       logDebug('[HomeScreen] failed to fetch blocked users: $e');
     }
     if (!mounted) return;
-    _blocksReady = true;
+    ref.read(blockedLoginsProvider.notifier).addAll(blocked);
+    ref.read(chatReadyProvider.notifier).set(true);
     _sweepBlockedMessages();
     _channelManager.loadChannels();
     setState(() {});
   }
 
   void _sweepBlockedMessages() {
-    for (final entry in _chatStore.channelMessages.entries) {
-      final msgs = entry.value;
-      final before = msgs.length;
-      final removed = <TwitchMessage>[];
-      msgs.removeWhere((m) {
-        final blocked =
-            !m.isSystem && _blockedLogins.contains(m.login.toLowerCase());
-        if (blocked) removed.add(m);
-        return blocked;
-      });
-      if (msgs.length != before) {
-        // Keep the thread store in sync with the buffer: blocked users'
-        // messages bypass truncation, so decay them explicitly.
-        _chatStore.decayEvicted(entry.key, removed);
-        _chatStore.touchChannel(entry.key);
-      }
+    final blocked = ref.read(blockedLoginsProvider);
+    final touched = _chat.removeBlocked(blocked);
+    for (final name in touched) {
+      _tileCache.remove(name);
     }
-  }
-
-  void _onUserBlocked(String login) {
-    _blockedLogins.add(login.toLowerCase());
-    _sweepBlockedMessages();
-  }
-
-  void _onUserUnblocked(String login) {
-    _blockedLogins.remove(login.toLowerCase());
-  }
-
-  void _onReconnected() {
-    _channelManager.onReconnected();
-    unawaited(_emotes.refreshSubEmoteOwners());
   }
 
   void _onLinkWhitelistChanged() {
     // Re-render visible tiles so the new link-whitelist entries take effect.
     _tileCache.clear();
-    for (final channel in List.of(_chatStore.channels)) {
-      _chatStore.touchChannel(channel);
+    for (final channel in List.of(_chat.names)) {
+      _chat.channelFor(channel)?.info.touch();
     }
     if (mounted) setState(() {});
+  }
+
+  void _onConnectivityChanged() {
+    final isMobile = _connectivityService.isMobile;
+    if (isMobile == _isMobile.value) return;
+    _isMobile.value = isMobile;
+    DataUsageStats.I.setContext(isMobile: isMobile);
+    _emotes.reconcileTier();
   }
 
   void _onEmotesChanged() {
@@ -1183,75 +1096,170 @@ class _HomeScreenState extends State<HomeScreen>
       // full refetch (no delta codes) clears the channel's tile cache.
       if (_emoteManager.consumeChangedCodes(channel) != null) return;
       _tileCache.remove(channel);
-      _versionNotifier(channel).value++;
+      _chat.channelFor(channel)?.info.touch();
       _onPanelDataChanged(channel);
     } else {
-      for (final c in List.of(_chatStore.channels)) {
-        _chatStore.touchChannel(c);
+      for (final c in List.of(_chat.names)) {
+        _chat.channelFor(c)?.info.touch();
       }
-      _chatStore.mentionsBump.value++;
+      _chat.touchMentions();
       _onPanelDataChanged();
     }
   }
 
+  static final _emptyNotifier = ValueNotifier<int>(0);
+
   ValueNotifier<int> _versionNotifier(String channel) {
-    return _chatStore.versionNotifier(channel);
+    return _chat.channelFor(channel)?.info.version ?? _emptyNotifier;
   }
 
   ValueNotifier<int> _messageNotifier(String channel) {
-    return _chatStore.messageCountNotifier(channel);
+    return _chat.channelFor(channel)?.messages.version ?? _emptyNotifier;
   }
 
   ValueNotifier<bool> _atBottomNotifier(String channel) {
     return _atBottomNotifiers.putIfAbsent(channel, () => ValueNotifier(true));
   }
 
-  StreamSubscription<ChatStoreEvent>? _storeEventsSub;
-  StreamSubscription<ChatNotice>? _noticesSub;
   StreamSubscription<SevenTvEntitlementEvent>? _sevenTvEntitlementSub;
 
-  void _onStoreNotice(ChatNotice notice) {
-    switch (notice.kind) {
-      case ChatNoticeKind.info:
-        if (!mounted) return;
-        // Replace the current notice so identical/rapid info popups don't
-        // queue up one after another (ChatNoticeController replaces).
-        if (notice.message == 'Login expired') {
-          _chatNotice.show(
-            'Login expired - reconnect your account',
-            actionLabel: 'Open Account',
-            onAction: () => unawaited(_openSettings()),
-          );
-          return;
-        }
-        _chatNotice.show(notice.message ?? '');
-      case ChatNoticeKind.focusInput:
-        _composer.focus();
+  final _contentListeners = <String, VoidCallback>{};
+  final _infoListeners = <String, VoidCallback>{};
+  final _modListeners = <String, VoidCallback>{};
+  final _mutationListeners = <String, void Function(String?)?>{};
+  final _mutationAllListeners = <String, VoidCallback>{};
+
+  void _showBanner(String message) {
+    if (!mounted) return;
+    if (message == 'Login expired') {
+      _chatNotice.show(
+        'Login expired - reconnect your account',
+        actionLabel: 'Open Account',
+        onAction: () => unawaited(_openSettings()),
+      );
+      return;
+    }
+    _chatNotice.show(message);
+  }
+
+  // ChatUiSignals forwarding: the pipeline pushes, the shell routes each
+  // signal to its existing UI owner. Dispose detaches every subscription.
+  void _subscribeSignals() {
+    final signals = _signals;
+    _signalUnsubs.addAll([
+      signals.focusComposer.add(_onFocusComposerSignal),
+      signals.banner.add(_showBanner),
+      signals.whisper.add(_mentions.onWhisper),
+      signals.userEmoteSets.add(_onUserEmoteSetsSignal),
+      signals.whisperSystem.add(
+        (s) => _mentions.addWhisperSystemMessage(s.channel, s.text),
+      ),
+      signals.whisperSent.add(
+        (s) => _mentions.onWhisperSent(s.target, s.message),
+      ),
+    ]);
+  }
+
+  void _onFocusComposerSignal() => _composer.focus();
+
+  void _onUserEmoteSetsSignal(UserEmoteSetsSignal signal) =>
+      unawaited(_emotes.loadUserEmoteSets(signal.channel, signal.ids));
+
+  void _onChannelContent(String channel) {
+    _composer.refreshCooldown();
+    _threads.syncSavedWithChannel(channel);
+    _onPanelDataChanged(channel);
+  }
+
+  void _onChannelInfo(String channel) {
+    _composer.refreshCooldown();
+    _tileCache.remove(channel);
+    _threads.syncSavedWithChannel(channel);
+    _onPanelDataChanged(channel);
+  }
+
+  void _onMentionsContent() {
+    _onPanelDataChanged();
+  }
+
+  void _syncChannelSubs() {
+    final live = Set.of(_channelNotifier.value);
+    for (final name in live) {
+      if (_contentListeners.containsKey(name)) continue;
+      final channel = _chat.channelFor(name);
+      if (channel == null) continue;
+      void onContent() => _onChannelContent(name);
+      void onInfo() => _onChannelInfo(name);
+      // Subscription wakeups mutate no rows, so they refresh panels only:
+      // never the tile cache.
+      void onModSub() => _onPanelDataChanged(name);
+      void onMutation(String? id) {
+        if (id != null) _tileCache[name]?.remove(id);
+      }
+
+      void onMutateAll() => _tileCache.remove(name);
+      channel.messages.version.addListener(onContent);
+      channel.info.version.addListener(onInfo);
+      channel.moderation.version.addListener(onModSub);
+      channel.messages.mutations.addListener(onMutation);
+      channel.messages.mutations.addAllListener(onMutateAll);
+      _contentListeners[name] = onContent;
+      _infoListeners[name] = onInfo;
+      _modListeners[name] = onModSub;
+      _mutationListeners[name] = onMutation;
+      _mutationAllListeners[name] = onMutateAll;
+    }
+    for (final name in _contentListeners.keys.toList()) {
+      if (live.contains(name)) continue;
+      final channel = _chat.channelFor(name);
+      channel?.messages.version.removeListener(_contentListeners[name]!);
+      channel?.info.version.removeListener(_infoListeners[name]!);
+      channel?.moderation.version.removeListener(_modListeners[name]!);
+      channel?.messages.mutations.removeListener(_mutationListeners[name]!);
+      channel?.messages.mutations.removeAllListener(
+        _mutationAllListeners[name]!,
+      );
+      _contentListeners.remove(name);
+      _infoListeners.remove(name);
+      _modListeners.remove(name);
+      _mutationListeners.remove(name);
+      _mutationAllListeners.remove(name);
     }
   }
 
-  void _onStoreEvent(ChatStoreEvent event) {
-    // The composer's send-gate countdown arms off moderation events (self
-    // timeouts land here as system lines); refresh it eagerly so the label
-    // appears without waiting for the next tick.
-    _composer.refreshCooldown();
-    switch (event.signal) {
-      case ChatStoreSignal.newContent:
-        _threads.syncSavedWithChannel(event.channel);
-        _onPanelDataChanged(event.channel);
-      case ChatStoreSignal.channelTouched:
-        _tileCache.remove(event.channel);
-        _threads.syncSavedWithChannel(event.channel);
-        _onPanelDataChanged(event.channel);
-      case ChatStoreSignal.messageMutated:
-        if (event.messageId != null) {
-          _tileCache[event.channel]?.remove(event.messageId);
-        }
-        // Deletes and ban-stack text edits emit only this signal (no trailing
-        // system line in every path), so an open panel would keep rendering
-        // the stale row.
-        _onPanelDataChanged(event.channel);
+  void _dropChannelSubs() {
+    for (final entry in _contentListeners.entries) {
+      _chat.channelFor(entry.key)?.messages.version.removeListener(entry.value);
     }
+    for (final entry in _infoListeners.entries) {
+      _chat.channelFor(entry.key)?.info.version.removeListener(entry.value);
+    }
+    for (final entry in _modListeners.entries) {
+      _chat
+          .channelFor(entry.key)
+          ?.moderation
+          .version
+          .removeListener(entry.value);
+    }
+    for (final entry in _mutationListeners.entries) {
+      _chat
+          .channelFor(entry.key)
+          ?.messages
+          .mutations
+          .removeListener(entry.value!);
+    }
+    for (final entry in _mutationAllListeners.entries) {
+      _chat
+          .channelFor(entry.key)
+          ?.messages
+          .mutations
+          .removeAllListener(entry.value);
+    }
+    _contentListeners.clear();
+    _infoListeners.clear();
+    _modListeners.clear();
+    _mutationListeners.clear();
+    _mutationAllListeners.clear();
   }
 
   // Appends channel buffer rows belonging to saved threads into the
@@ -1268,22 +1276,19 @@ class _HomeScreenState extends State<HomeScreen>
   // priming run together so neither gates the other.
   void _startChatPipe() {
     _chatConn.connect();
-    _emoteManager.accessToken = widget.twitchAuth.accessToken;
-    _emoteManager.viewerTwitchId = widget.twitchAuth.userId;
+    _emoteManager.accessToken = _twitchAuth.accessToken;
+    _emoteManager.viewerTwitchId = _twitchAuth.userId;
     _emoteManager.preloadGlobalEmotes();
     unawaited(_emoteManager.loadViewerPersonalSevenTvSets());
   }
 
   void _onAuthChanged() {
     _mod.refreshOnData(null);
-    if (_chatStore.session.login?.toLowerCase() !=
-        widget.twitchAuth.login?.toLowerCase()) {
-      // Account switched (or signed out): drop the cached user so the manager
-      // re-resolves the active account and reconnects with its credentials.
-      _chatStore.session.login = null;
-      _chatStore.session.userId = null;
-      // The queue belongs to the previous account's moderation scope.
-      _chatStore.clearAllHeldMessages();
+    if (_session.login?.toLowerCase() != _twitchAuth.login?.toLowerCase()) {
+      // Account switched (or signed out): drop identity and account-scoped
+      // chat state. The remaining resets are HomeScreen side effects.
+      _session.clear();
+      _chat.clearAccountScopedState();
       _pingManager.setAccount(null);
       // The emote-set / block / mention caches are per-account: reset them so
       // the new account's USERSTATE re-fetches its sub emotes (instead of the
@@ -1294,15 +1299,13 @@ class _HomeScreenState extends State<HomeScreen>
       _blocksFetched = false;
       // Fail closed until the new account's block list arrives; without this
       // chat unhides immediately and the old account's list briefly filters.
-      _blocksReady = false;
+      ref.read(chatReadyProvider.notifier).set(false);
       // The previous account's block list must not keep filtering the new
       // account's chat; the re-fetch below repopulates it.
-      _blockedLogins.clear();
+      ref.read(blockedLoginsProvider.notifier).clear();
       _channelManager.rearmMentionScan();
-      _chatStore.channelsEmotesResolved.clear();
       // Whispers and the mentions feed belong to the previous account.
       _mentions.clearForAccountSwitch();
-      _chatStore.truncateChannel(_mentionsChannel, maxMessages: 0);
       _channelManager.scanHistoryForMentions();
       unawaited(_ensureBlockedUsersLoaded());
     }
@@ -1340,7 +1343,7 @@ class _HomeScreenState extends State<HomeScreen>
   // connectionStateNotifier bump (phase change + per-channel readiness).
   bool get _chatLoading {
     if (_chatConn.connectPhase != ChatPhase.online) return true;
-    for (final channel in _chatStore.channels) {
+    for (final channel in _chat.names) {
       if (!_chatConn.isChannelChatReady(channel)) return true;
     }
     return false;
@@ -1360,41 +1363,39 @@ class _HomeScreenState extends State<HomeScreen>
   // resolution, and per-channel storage all live in EmoteManager (the emote
   // daemon); this is a thin forwarder so HomeScreen stays out of emote state.
   void _loadMaxMessages() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await Prefs.load();
     if (!mounted) return;
     setState(() {
-      _maxMessagesPerChannel =
-          prefs.getInt('max_messages_per_channel') ??
-          kMaxMessagesPerChannelDefault;
-      _recentMessagesLimit =
-          prefs.getInt('recent_messages_limit') ?? kRecentMessagesLimitDefault;
-      _replyToRoot = prefs.getBool('reply_to_thread_root') ?? false;
-      _preferEmotesFirst = prefs.getBool('prefer_emotes_first') ?? false;
-      _showTimestamps = prefs.getBool(kShowTimestampsPrefKey) ?? true;
-      _timestampFormat =
-          prefs.getString(kTimestampFormatPrefKey) ?? kDefaultTimestampFormat;
-      _chatFontSize = prefs.getDouble('chat_font_size') ?? 14.0;
-      _highlightOpacity = prefs.getDouble('highlight_opacity') ?? 0.6;
-      _checkeredMessages = prefs.getBool('checkered_messages') ?? false;
-      _lineSeparator = prefs.getBool('line_separator') ?? false;
-      _fastSnap = prefs.getBool('fast_channel_snap') ?? true;
-      _sharedChatMode = prefs.getString('shared_chat_mode') ?? 'spotlight';
-      _showNamePaints = prefs.getBool('seventv_name_paints') ?? false;
-      _showGifs =
-          prefs.getBool(kGiphyInlineEnabledPrefKey) ??
-          kGiphyInlineEnabledDefault;
-      _gifHeight =
-          (prefs.getDouble(kGiphyInlineHeightPrefKey) ??
-                  kGiphyInlineHeightDefault)
-              .clamp(kGiphyInlineHeightMin, kGiphyInlineHeightMax);
-      _showImages =
-          prefs.getBool(kImageEmbedEnabledPrefKey) ?? kImageEmbedEnabledDefault;
-      _imageHeight =
-          (prefs.getDouble(kImageEmbedHeightPrefKey) ??
-                  kImageEmbedHeightDefault)
-              .clamp(kImageEmbedHeightMin, kImageEmbedHeightMax);
-      _showInput = prefs.getBool('show_input') ?? true;
-      _animateGifs = prefs.getBool('animate_gifs') ?? true;
+      ref
+          .read(maxMessagesPerChannelProvider.notifier)
+          .set(prefs.maxMessagesPerChannel);
+      ref
+          .read(recentMessagesLimitProvider.notifier)
+          .set(prefs.recentMessagesLimit);
+      _recentMessagesLimit = prefs.recentMessagesLimit;
+      _replyToRoot = prefs.replyToThreadRoot;
+      _preferEmotesFirst = prefs.preferEmotesFirst;
+      _showTimestamps = prefs.showTimestamps;
+      _timestampFormat = prefs.timestampFormat;
+      _chatFontSize = prefs.chatFontSize;
+      _highlightOpacity = prefs.highlightOpacity;
+      _checkeredMessages = prefs.checkeredMessages;
+      _lineSeparator = prefs.lineSeparator;
+      _fastSnap = prefs.fastChannelSnap;
+      ref.read(sharedChatModeProvider.notifier).set(prefs.sharedChatMode);
+      _showNamePaints = prefs.seventvNamePaints;
+      _showGifs = prefs.giphyInlineEnabled;
+      _gifHeight = prefs.giphyInlineHeight.clamp(
+        kGiphyInlineHeightMin,
+        kGiphyInlineHeightMax,
+      );
+      _showImages = prefs.imageEmbedEnabled;
+      _imageHeight = prefs.imageEmbedHeight.clamp(
+        kImageEmbedHeightMin,
+        kImageEmbedHeightMax,
+      );
+      _showInput = prefs.showInput;
+      _animateGifs = prefs.animateGifs;
       _messageBuilder.showGifs = _showGifs;
       _messageBuilder.gifHeight = _gifHeight;
       _messageBuilder.showImages = _showImages;
@@ -1403,47 +1404,36 @@ class _HomeScreenState extends State<HomeScreen>
       // Prefs load async; tiles built with defaults before this returns
       // would keep stale spans, so evict them like the live setters do.
       _tileCache.clear();
-      for (final channel in List.of(_chatStore.channels)) {
-        _chatStore.touchChannel(channel);
+      for (final channel in List.of(_chat.names)) {
+        _chat.channelFor(channel)?.info.touch();
       }
     });
     if (_showNamePaints) {
       _sevenTvPaintService.enabled = true;
-      for (final channel in List.of(_chatStore.channels)) {
-        _chatStore.touchChannel(channel);
+      for (final channel in List.of(_chat.names)) {
+        _chat.channelFor(channel)?.info.touch();
       }
     }
   }
 
   @override
   void dispose() {
-    final listener = _connectivityListener;
-    if (listener != null) _connectivityService.removeListener(listener);
-    _connectivityListener = null;
     _isMobile.dispose();
     DataUsageStats.I.dispose();
-    _chatConn.connectionStateNotifier.removeListener(_onConnectionChanged);
-    _chatConn.dispose();
-    unawaited(_ttsController.shutdown());
+    for (final unsubscribe in _signalUnsubs) {
+      unsubscribe();
+    }
+    _signalUnsubs.clear();
     WidgetsBinding.instance.removeObserver(this);
     WidgetsBinding.instance.removeObserver(_predictiveBackHandler);
     _panelManager.dispose();
-    _broadcastWidgets.dispose();
     _composer.dispose();
+    _uploadController.dispose();
     _networkBusy.dispose();
-    _eventSub.dispose();
-    _irc.dispose();
-    _ircRead.dispose();
-    _sevenTvClient.dispose();
     _sevenTvEntitlementSub?.cancel();
-    _thirdPartyBadgeService.dispose();
-    _emoteManager.removeListener(_onEmotesChanged);
     _linkWhitelist.removeListener(_onLinkWhitelistChanged);
     _streamPlayer.removeListener(_stream.onStreamPlayerChanged);
-    _pipService.dispose();
     _streamPlayer.dispose();
-    _emoteManager.dispose();
-    widget.twitchAuth.removeListener(_onAuthChanged);
     _mentionsTabCtrl.removeListener(_mentions.onMentionsTabChanged);
     _mentionsTabCtrl.dispose();
     _threadsTabCtrl.removeListener(_threads.onThreadsTabChanged);
@@ -1460,13 +1450,12 @@ class _HomeScreenState extends State<HomeScreen>
     for (final n in _atBottomNotifiers.values) {
       n.dispose();
     }
-    _chatNotice.dispose();
     _tileCache.clear();
-    _storeEventsSub?.cancel();
-    _noticesSub?.cancel();
-    _chatStore.dispose();
+    _channelNotifier.removeListener(_syncChannelSubs);
+    _chat.mentions.version.removeListener(_onMentionsContent);
+    _dropChannelSubs();
+    _session.version.removeListener(_onSessionApplied);
     _notificationTapSub?.cancel();
-    _notificationService.dispose();
     super.dispose();
   }
 
@@ -1476,16 +1465,14 @@ class _HomeScreenState extends State<HomeScreen>
     Color? accent,
     String? messageId,
   }) {
-    if (!_chatStore.addSystemMessage(
-      channel,
-      text,
-      accent: accent,
-      messageId: messageId,
-    )) {
-      return;
-    }
-    _truncateChannelMessages(channel);
-    _chatStore.noteNewMessage(channel);
+    _chat
+        .channelFor(channel)
+        ?.addSystemMessage(
+          text,
+          accent: accent,
+          messageId: messageId,
+          maxMessages: ref.read(maxMessagesPerChannelProvider),
+        );
   }
 
   void _toggleFullscreen() {
@@ -1497,11 +1484,7 @@ class _HomeScreenState extends State<HomeScreen>
   void _setShowInput(bool value) {
     if (_showInput == value) return;
     setState(() => _showInput = value);
-    unawaited(
-      SharedPreferences.getInstance().then(
-        (prefs) => prefs.setBool('show_input', value),
-      ),
-    );
+    unawaited(Prefs.load().then((prefs) => prefs.setShowInput(value)));
   }
 
   /// Translates join-queue progress into a live countdown system line
@@ -1555,7 +1538,7 @@ class _HomeScreenState extends State<HomeScreen>
       context,
       MaterialPageRoute(
         builder: (_) => SettingsScreen(
-          twitchAuth: widget.twitchAuth,
+          twitchAuth: _twitchAuth,
           onThemeChanged: (mode) {
             _tileCache.clear();
             widget.onThemeChanged(mode);
@@ -1606,7 +1589,7 @@ class _HomeScreenState extends State<HomeScreen>
           onAddChannel: _channelManager.addChannel,
           onReorderChannels: _channelManager.reorderChannels,
           analyticsService: _analytics,
-          channels: _chatStore.channels,
+          channels: _chat.names,
           ttsController: _ttsController,
           emoteManager: _emoteManager,
           onStreamExtensionsChanged: _streamPlayer.setShowExtensions,
@@ -1616,25 +1599,12 @@ class _HomeScreenState extends State<HomeScreen>
         ),
       ),
     );
+    if (mounted) ref.invalidate(macrosProvider);
     if (_nukePending) {
       _nukePending = false;
       if (!mounted) return;
       NukeOverlay.show(context);
       await _emotes.runRefresh(nuke: true);
-    }
-  }
-
-  /// Handles slash commands by routing to the appropriate Twitch API endpoint.
-  Future<void> _handleCommand(
-    String text,
-    String channel,
-    TwitchAuth auth,
-  ) async {
-    try {
-      await _commandHandler.handle(text, channel, auth);
-    } catch (e) {
-      logDebug('[HomeScreen] command failed: $e');
-      _addSystemMessage(channel, 'Command failed: $e');
     }
   }
 
@@ -1650,9 +1620,9 @@ class _HomeScreenState extends State<HomeScreen>
   // (handles nested reply scenarios).
   void _showEmoteMenu() {
     _panelManager.showEmoteMenu(
-      selectedChannel: _selectedChannel,
+      selectedChannel: selectedChannel,
       emoteManager: _emoteManager,
-      channelUserIds: _chatStore.channelUserIds,
+      channelUserIds: _channelUserIds(),
     );
   }
 
@@ -1694,52 +1664,29 @@ class _HomeScreenState extends State<HomeScreen>
     child: child,
   );
 
-  // Push-dedup for shared chat: a message you're joined to both sides of
-  // arrives once natively and once mirrored, with different room-local `id`s
-  // but the same stable `source-id`. Key on that to notify exactly once.
-  final _recentMentionPings = <String>{};
-
-  void _onMentionNotification(String channel, TwitchMessage msg) {
-    if (!_mentionPush) return;
-    if (!_isBackgrounded) return;
-    if (msg.isHistory) return;
-    // Per-rule opt-in: only rules with "notify" enabled may buzz.
-    if (!(msg.highlight?.notify ?? false)) return;
-    final pingKey = msg.sourceMessageId ?? msg.messageId;
-    if (pingKey != null) {
-      if (!_recentMentionPings.add(pingKey)) return;
-      while (_recentMentionPings.length > 64) {
-        _recentMentionPings.remove(_recentMentionPings.first);
-      }
-    }
-    _notificationService.showMentionNotification(
-      channel: channel,
-      userName: msg.displayName,
-      message: msg.text,
-    );
-  }
-
   void _onNotificationTap(String channel) {
     _navigateToChannel(channel);
   }
 
   void _navigateToChannel(String channel) {
-    final index = _chatStore.channels.indexOf(channel);
+    final index = _chat.names.indexOf(channel);
     if (index >= 0) {
       _channels.onChannelChanged(index);
     }
   }
 
-  // Single selection commit for BOTH entry points (swipe-tick focus and
-  // settle/tab-tap). Whichever lands first owns the side effects; the shared
-  // guard makes the second one a no-op, so bookkeeping runs exactly once per
-  // real switch regardless of gesture timing.
-  void _truncateChannelMessages(String channel) {
-    _channelManager.truncateChannelCoalesced(channel);
-  }
-
   @override
   Widget build(BuildContext context) {
+    // Provider-owned shared objects observed as Riverpod state. These replace
+    // the manual addListener/removeListener pairs; ref.listen auto-cancels.
+    ref.listen(emoteManagerTickProvider, (_, _) => _onEmotesChanged());
+    ref.listen(twitchAuthTickProvider, (_, _) => _onAuthChanged());
+    ref.listen(connectivityTickProvider, (_, _) => _onConnectivityChanged());
+    ref.listen(connectionStateProvider, (_, _) => _onConnectionChanged());
+    ref.listen(
+      reconnectedTickProvider,
+      (_, _) => unawaited(_emotes.refreshSubEmoteOwners()),
+    );
     return PopScope(
       canPop:
           !_isFullscreen &&
@@ -1846,9 +1793,10 @@ class _HomeScreenState extends State<HomeScreen>
   /// Whether the selected channel's JOIN is confirmed on the write socket.
   /// Between socket-connect and join-confirm, PRIVMSGs would vanish - the
   /// input stays disabled for that window. Whispers are not channel-bound.
-  bool get _channelChatReady =>
-      _selectedChannel != null &&
-      _chatConn.isChannelChatReady(_selectedChannel!);
+  bool get _channelChatReady {
+    final channel = selectedChannel;
+    return channel != null && _chatConn.isChannelChatReady(channel);
+  }
 
   /// Stream layout selector (DankChat MainScreen): landscape theater first,
   /// then wide split, else the stacked portrait player above chat.
@@ -1881,10 +1829,9 @@ class _HomeScreenState extends State<HomeScreen>
                       child: EmoteMenuPanelWidget(
                         key: const ValueKey('emote_panel'),
                         isActive: _emoteSheetOpen,
-                        selectedChannel: _selectedChannel,
+                        selectedChannel: selectedChannel,
                         onEmoteSelected: _onEmoteSelected,
                         onClose: _closeEmoteSheet,
-                        emoteManager: _emoteManager,
                         scrollController: scrollController,
                         sheetCtrl: _emoteSheetCtrl,
                         emoteMaxFraction: _emoteMaxFraction,

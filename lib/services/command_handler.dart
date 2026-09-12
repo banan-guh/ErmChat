@@ -2,7 +2,7 @@ import '../models/twitch_command.dart';
 import '../services/mod_actions.dart';
 import '../services/twitch_api.dart';
 import '../services/twitch_auth.dart';
-import '../services/twitch_irc.dart';
+import '../irc/transport/write.dart';
 import '../util/duration_format.dart';
 import '../util/log.dart';
 
@@ -100,22 +100,6 @@ class CommandHandler {
   Future<String?> _resolveUserId(TwitchAuth auth, String login) =>
       modActions.resolveUserId(auth, login);
 
-  /// Human-readable reason for the last failed Helix call, in the style of
-  /// DankChat's system messages.
-  String _failureReason() {
-    switch (twitchApi.lastErrorStatus) {
-      case 401:
-        return 'Missing required scope. Re-login with your account and try again.';
-      case 403:
-        return "You don't have permission to perform that action.";
-      case 429:
-        return 'You are being rate-limited. Try again in a moment.';
-    }
-    final message = twitchApi.lastHelixMessage;
-    if (message != null && message.isNotEmpty) return message;
-    return 'An unknown error has occurred.';
-  }
-
   /// Runs a Helix moderation call. Returns true on success; on failure
   /// reports a clean notice. IRC slash commands were deprecated by Twitch
   /// (Feb 2023), so there is no IRC fallback - Helix is the only way to
@@ -136,7 +120,7 @@ class CommandHandler {
     _moderationMessage(
       action,
       channel,
-      'Failed to $action - ${_failureReason()}',
+      'Failed to $action - ${modActions.failureReason()}',
     );
     return false;
   }
@@ -333,7 +317,7 @@ class CommandHandler {
           } else {
             addSystemMessage(
               channel,
-              'Failed to change color to $color - ${_failureReason()}',
+              'Failed to change color to $color - ${modActions.failureReason()}',
             );
           }
 
@@ -569,7 +553,7 @@ class CommandHandler {
           if (twitchApi.lastErrorStatus != null) {
             addSystemMessage(
               channel,
-              'Failed to list moderators - ${_failureReason()}',
+              'Failed to list moderators - ${modActions.failureReason()}',
             );
           } else if (list.isEmpty) {
             addSystemMessage(
@@ -615,7 +599,7 @@ class CommandHandler {
           if (twitchApi.lastErrorStatus != null) {
             addSystemMessage(
               channel,
-              'Failed to list VIPs - ${_failureReason()}',
+              'Failed to list VIPs - ${modActions.failureReason()}',
             );
           } else if (list.isEmpty) {
             addSystemMessage(channel, 'This channel does not have any VIPs.');
@@ -898,32 +882,30 @@ class CommandHandler {
             addSystemMessage(channel, pollUsage);
             return;
           }
-          final ok = await _moderate(
-            'create poll',
+          final pollResult = await modActions.createPoll(
+            auth,
             channel,
-            () => twitchApi.createPoll(
-              auth,
-              broadcasterId: broadcasterId,
-              title: parsedPoll.title,
-              choices: parsedPoll.options,
-              durationSeconds: parsedPoll.duration,
-            ),
+            title: parsedPoll.title,
+            choices: parsedPoll.options,
+            durationSeconds: parsedPoll.duration,
           );
-          if (ok) {
+          if (pollResult.ok) {
             addSystemMessage(
               channel,
               'Poll started (${parsedPoll.duration}s).',
             );
+          } else {
+            addSystemMessage(channel, _modCopy('create poll', '', pollResult));
           }
 
         case '/cancelpoll':
         case '/endpoll':
           final archivePoll = cmd == '/cancelpoll';
-          final polls = await twitchApi.getPolls(auth, broadcasterId);
+          final polls = await modActions.getPolls(auth, channel);
           if (twitchApi.lastErrorStatus != null) {
             addSystemMessage(
               channel,
-              'Failed to fetch polls - ${_failureReason()}',
+              'Failed to fetch polls - ${modActions.failureReason()}',
             );
             return;
           }
@@ -938,21 +920,20 @@ class CommandHandler {
             addSystemMessage(channel, 'No poll is currently running.');
             return;
           }
-          final ok = await _moderate(
-            archivePoll ? 'cancel the poll' : 'end the poll',
+          final pollAction = archivePoll ? 'cancel the poll' : 'end the poll';
+          final endPollResult = await modActions.endPoll(
+            auth,
             channel,
-            () => twitchApi.endPoll(
-              auth,
-              broadcasterId: broadcasterId,
-              pollId: activePoll!['id'] as String,
-              archive: archivePoll,
-            ),
+            pollId: activePoll['id'] as String,
+            archive: archivePoll,
           );
-          if (ok) {
+          if (endPollResult.ok) {
             addSystemMessage(
               channel,
               archivePoll ? 'The poll was cancelled.' : 'The poll has ended.',
             );
+          } else {
+            addSystemMessage(channel, _modCopy(pollAction, '', endPollResult));
           }
 
         case '/prediction':
@@ -996,14 +977,11 @@ class CommandHandler {
         case '/lockprediction':
         case '/cancelprediction':
         case '/resolveprediction':
-          final predictions = await twitchApi.getPredictions(
-            auth,
-            broadcasterId,
-          );
+          final predictions = await modActions.getPredictions(auth, channel);
           if (twitchApi.lastErrorStatus != null) {
             addSystemMessage(
               channel,
-              'Failed to fetch predictions - ${_failureReason()}',
+              'Failed to fetch predictions - ${modActions.failureReason()}',
             );
             return;
           }
@@ -1078,19 +1056,20 @@ class CommandHandler {
             successMsg =
                 'The prediction was resolved${matchTitle != null ? ': $matchTitle' : ''}.';
           }
-          final ok = await _moderate(
-            'end the prediction',
+          final endPredictionResult = await modActions.endPrediction(
+            auth,
             channel,
-            () => twitchApi.endPrediction(
-              auth,
-              broadcasterId: broadcasterId,
-              predictionId: open!['id'] as String,
-              status: status,
-              winningOutcomeId: winningOutcomeId,
-            ),
+            predictionId: open['id'] as String,
+            status: status,
+            winningOutcomeId: winningOutcomeId,
           );
-          if (ok) {
+          if (endPredictionResult.ok) {
             addSystemMessage(channel, successMsg);
+          } else {
+            addSystemMessage(
+              channel,
+              _modCopy('end the prediction', '', endPredictionResult),
+            );
           }
 
         case '/block':
@@ -1134,7 +1113,21 @@ class CommandHandler {
       }
     } catch (e) {
       logDebug('[CommandHandler] $cmd failed: $e');
-      addSystemMessage(channel, 'Command failed: ${_failureReason()}');
+      addSystemMessage(
+        channel,
+        'Command failed: ${modActions.failureReason()}',
+      );
+    }
+  }
+
+  /// Applies a block change made outside the slash-command path (the user
+  /// profile sheet) through the same callbacks the /block and /unblock
+  /// commands use, so the registry and kernel sweep have one owner.
+  void notifyUserBlockChanged(String login, {required bool blocked}) {
+    if (blocked) {
+      onUserBlocked?.call(login);
+    } else {
+      onUserUnblocked?.call(login);
     }
   }
 }

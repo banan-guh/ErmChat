@@ -7,38 +7,44 @@ import 'dart:ui' show Color;
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
+import '../chat/chat.dart';
+import '../client/session.dart';
 import '../util/constants.dart';
 import '../util/log.dart';
-import 'base_irc_connection.dart' show IrcJoinFailureEvent, JoinFailureReason;
-import 'chat_store.dart';
+import '../irc/decode/decoder.dart' show IrcChatDecoder;
+import '../irc/decode/events.dart' show IrcRoomStateEvent;
+import '../irc/transport/events.dart'
+    show IrcJoinFailureEvent, JoinFailureReason;
+import '../irc/transport/read.dart' show IrcReadService;
+import '../irc/transport/write.dart' show IrcService;
 import 'emote_manager.dart';
+import 'chat_status_composer.dart';
 import 'seven_tv_event_client.dart';
 import 'twitch_api.dart';
 import 'twitch_auth.dart';
 import 'twitch_badge_service.dart';
-import 'twitch_eventsub.dart';
-import 'twitch_irc.dart' show IrcReadService, IrcRoomStateEvent, IrcService;
+import '../eventsub/decode/decoder.dart';
+import '../eventsub/topics.dart';
 import 'user_store.dart';
 
 /// The channel-domain of the pipeline: joining channels and resolving their
 /// per-channel data (Helix user IDs, badges, emotes, 7TV sockets) plus the
-/// EventSub moderation/widget subscriptions and the chat-status composition
-/// from ROOMSTATE tags and periodic stream fetches. Unlike [ChatIngestion]
-/// this class owns no stream subscriptions: the manager routes IRC events
-/// into [handleRoomState]/[handleJoinFailed], and channel subscriptions run
-/// on demand through [subscribeChannel].
+/// chat-status composition; also owns the emote-sets subscription.
 class ChatChannelSetup {
   ChatChannelSetup({
     required this.twitchApi,
-    required this.eventSub,
+    required this.eventSubDecoder,
+    required this.eventSubTopics,
     required this.irc,
     required this.ircRead,
+    required this.readDecoder,
     this.sevenTvClient,
     required this.badgeService,
     required this.emoteManager,
     required this.twitchAuth,
     required this.userStore,
-    required this.store,
+    required this.session,
+    required this.chat,
     required this.onSystemMessage,
     required this.connectionStateNotifier,
     this.onUserEmoteSets,
@@ -46,15 +52,18 @@ class ChatChannelSetup {
   });
 
   final TwitchApi twitchApi;
-  final EventSubService eventSub;
+  final EventSubDecoder eventSubDecoder;
+  final EventSubTopics eventSubTopics;
   final IrcService irc;
   final IrcReadService ircRead;
+  final IrcChatDecoder readDecoder;
   final SevenTvEventClient? sevenTvClient;
   final TwitchBadgeService badgeService;
   final EmoteManager emoteManager;
   final TwitchAuth twitchAuth;
   final UserStore userStore;
-  final ChatStore store;
+  final Session session;
+  final Chat chat;
 
   final void Function(
     String channel,
@@ -74,67 +83,38 @@ class ChatChannelSetup {
   bool _disposed = false;
   final _httpClient = http.Client();
 
+  // Chat status splash: ROOMSTATE mode tags plus periodic Helix stream info.
+  late final ChatStatusComposer _status = ChatStatusComposer(
+    twitchApi: twitchApi,
+    twitchAuth: twitchAuth,
+    chat: chat,
+    session: session,
+  );
+
   /// In-flight 7TV ID lookups by Twitch channel id. Concurrent joins for the
   /// same channel share one GET instead of each firing their own.
   final _sevenTvIdInflight =
       <String, Future<({String userId, String emoteSetId})?>>{};
 
-  // Channels with an active channel.moderate v2 subscription. While present,
-  // moderation system messages come from EventSub (richer data) instead of
-  // IRC CLEARCHAT/CLEARMSG.
-  final _moderationChannels = <String>{};
-  // Channels where the channel.moderate v2 subscription was rejected with a 403
-  // (not a moderator). Persists across EventSub session reconnects so we don't
-  // re-attempt (and re-log) the subscription on every reconnect for the current
-  // account.
-  final _moderationSkippedChannels = <String>{};
-  // Same pair for the AutoMod queue (automod.message.hold/update v2): the
-  // 403 skip persists per account, the active set dies with the session.
-  final _automodChannels = <String>{};
-  final _automodSkippedChannels = <String>{};
-  // Same pair for the mod feed (shield begin/end, shoutout create/receive,
-  // warning send/acknowledge): moderator-scoped complements to
-  // channel.moderate that carry genuinely new information.
-  final _feedChannels = <String>{};
-  final _feedSkippedChannels = <String>{};
-  // Same pair for the inbox (unban request create/resolve, public AutoMod
-  // term updates): drives inbox/terms tab reloads.
-  final _inboxChannels = <String>{};
-  final _inboxSkippedChannels = <String>{};
-  // Same pair for trust (AutoMod settings updates, suspicious user
-  // message/update): drives the Setup tab and the flagged-user context.
-  final _trustChannels = <String>{};
-  final _trustSkippedChannels = <String>{};
-  // Same pair for points (custom reward add/update/remove, redemption
-  // add/update): drives the Channel tab queue. Broadcaster-only and isolated
-  // from the widget subs: a non-monetized channel fails these without
-  // affecting hype train/poll/prediction.
-  final _pointsChannels = <String>{};
-  final _pointsSkippedChannels = <String>{};
-  // Channels with an active hype train / poll / prediction widget subscription
-  // (broadcaster-only; see _subscribeWidgets). Same lifecycle as
-  // _moderationChannels: cleared when the EventSub session dies.
-  final _widgetChannels = <String>{};
-  // Channels where the widget subscriptions were rejected with a 403 (not the
-  // broadcaster). Persists so we don't re-attempt doomed subscriptions.
-  final _widgetSkippedChannels = <String>{};
-  // Room-mode tags per channel from ROOMSTATE (merged across partial
-  // updates); feeds the chat status splash. Stream info from the periodic
-  // Helix fetch is kept separately so ROOMSTATE recomposes don't lose it.
-  final _roomStateTags = <String, Map<String, String>>{};
-  final _streamStatusParts = <String, List<String>>{};
-  Timer? _chatStatusTimer;
-  final _chatStatusChannels = <String>{};
-  static const _chatStatusInterval = Duration(seconds: 30);
   // Channels a join-failure notice was displayed for. A later ROOMSTATE
   // confirmation clears the entry and announces the (late) success.
   final _joinFailureNotified = <String>{};
 
+  StreamSubscription<(String?, List<String>)>? _emoteSetsSub;
+
+  void attach() {
+    _emoteSetsSub?.cancel();
+    _emoteSetsSub = readDecoder.onUserEmoteSets.listen((event) {
+      if (_disposed || onUserEmoteSets == null) return;
+      final (channel, ids) = event;
+      unawaited(onUserEmoteSets!(channel, ids));
+    });
+  }
+
   void dispose() {
     _disposed = true;
-    _chatStatusTimer?.cancel();
-    _chatStatusTimer = null;
-    _chatStatusChannels.clear();
+    _status.dispose();
+    _emoteSetsSub?.cancel();
     // Release any anonymous channel-user-ID waiters so their timeout timers
     // don't outlive the manager (and don't trip widget-test teardown).
     for (final waiters in _roomIdWaiters.values) {
@@ -148,38 +128,6 @@ class ChatChannelSetup {
 
   // ---- State queries -------------------------------------------------------
 
-  /// Whether the EventSub channel.moderate v2 subscription is active for a
-  /// channel; while it is, IRC moderation echoes and room-mode NOTICEs are
-  /// suppressed in favor of the richer EventSub copies.
-  bool isModerationActive(String channel) =>
-      _moderationChannels.contains(channel);
-
-  /// Whether the AutoMod queue subscriptions are active for a channel.
-  bool isAutomodActive(String channel) => _automodChannels.contains(channel);
-
-  /// Whether the mod-feed subscriptions are active for a channel.
-  bool isFeedActive(String channel) => _feedChannels.contains(channel);
-
-  /// Whether the inbox subscriptions are active for a channel.
-  bool isInboxActive(String channel) => _inboxChannels.contains(channel);
-
-  /// Whether the trust subscriptions are active for a channel.
-  bool isTrustActive(String channel) => _trustChannels.contains(channel);
-
-  /// Whether the points subscriptions are active for a channel.
-  bool isPointsActive(String channel) => _pointsChannels.contains(channel);
-
-  /// Whether the broadcaster-only widget subscriptions are active for a
-  /// channel; while they are, EventSub hype train/poll/prediction events are
-  /// surfaced instead of being dropped as unsolicited.
-  bool isWidgetActive(String channel) => _widgetChannels.contains(channel);
-
-  /// Whether the session user owns this channel. Broadcaster-only widgets
-  /// and the Channel tab gate on this, not on moderator status.
-  bool isBroadcaster(String channel) =>
-      store.session.userId != null &&
-      store.session.userId == store.channelUserIds[channel];
-
   /// Whether a join-failure notice was already displayed for the channel
   /// (Twitch's raw refusal NOTICE is suppressed as a duplicate then).
   bool isJoinFailureNotified(String channel) =>
@@ -188,47 +136,15 @@ class ChatChannelSetup {
   /// Copy of the merged ROOMSTATE tags for a channel (slow, followers-only,
   /// emote-only, subs-only, r9k). Powers the Mod View mode toggles.
   Map<String, String> roomStateTags(String channel) =>
-      Map.of(_roomStateTags[channel] ?? const {});
+      _status.roomStateTags(channel);
 
   /// Failure state is per socket lifetime: the fresh socket runs its own fast
   /// sweep, so it may legitimately fail (and re-announce) again.
   void resetJoinFailureState() => _joinFailureNotified.clear();
 
-  /// Session-scoped subscription state dies with the EventSub session; IRC
-  /// fallback resumes until [resubscribeEventSubChannels] runs again.
-  void clearSessionState() {
-    _moderationChannels.clear();
-    _automodChannels.clear();
-    _feedChannels.clear();
-    _inboxChannels.clear();
-    _trustChannels.clear();
-    _pointsChannels.clear();
-    _widgetChannels.clear();
-  }
-
-  /// 403 skip sets are account-scoped: a non-mod account's rejection must not
-  /// permanently disable moderation/widgets for a mod account on the same
-  /// channel after a switch.
-  void resetAccountScope() {
-    _moderationSkippedChannels.clear();
-    _automodSkippedChannels.clear();
-    _feedSkippedChannels.clear();
-    _inboxSkippedChannels.clear();
-    _trustSkippedChannels.clear();
-    _pointsSkippedChannels.clear();
-    _widgetSkippedChannels.clear();
-  }
-
-  /// Drops per-channel subscription state (channel left). Skip sets survive:
-  /// they record the account's rejection, which a rejoin would hit again.
+  /// Drops per-channel state (channel left) and unsubscribes 7TV.
   void forgetChannel(String channel) {
-    _moderationChannels.remove(channel);
-    _automodChannels.remove(channel);
-    _feedChannels.remove(channel);
-    _inboxChannels.remove(channel);
-    _trustChannels.remove(channel);
-    _pointsChannels.remove(channel);
-    _widgetChannels.remove(channel);
+    eventSubTopics.forgetChannel(channel);
     // Parted channels must not keep server-side 7TV dispatches: lookups run
     // before evictChannel and channelUserIds removal, so IDs are still here.
     final sevenTv = sevenTvClient;
@@ -237,7 +153,7 @@ class ChatChannelSetup {
       if (emoteSetId != null) sevenTv.unsubscribeEmoteSet(emoteSetId);
       final userId = emoteManager.getSevenTvUserId(channel);
       if (userId != null) sevenTv.unsubscribeUser(userId);
-      final twitchId = store.channelUserIds[channel];
+      final twitchId = chat.channelFor(channel)?.info.broadcasterId;
       if (twitchId != null) sevenTv.unsubscribeTwitchChannel(twitchId);
     }
   }
@@ -246,104 +162,9 @@ class ChatChannelSetup {
 
   /// Seconds of the channel's current slow mode from the merged ROOMSTATE
   /// tags; 0 when off (missing/empty/0 all mean off).
-  int slowModeSeconds(String channel) =>
-      int.tryParse(_roomStateTags[channel]?['slow'] ?? '') ?? 0;
+  int slowModeSeconds(String channel) => _status.slowModeSeconds(channel);
 
-  Future<void> fetchChatStatus(String channel) async {
-    final auth = twitchAuth;
-    if (!auth.isConfigured) return;
-
-    final userId = store.channelUserIds[channel];
-    if (userId == null || store.session.userId == null) return;
-
-    // Timer-driven: a network blip (or the client being closed in dispose)
-    // must not surface as an unhandled async exception every 60s per channel.
-    final Map<String, dynamic>? stream;
-    try {
-      stream = await twitchApi.getStreamInfo(auth, userId);
-    } catch (e) {
-      logDebug('[ChatConn] fetchChatStatus failed for $channel: $e');
-      return;
-    }
-    _applyStreamStatus(channel, stream);
-  }
-
-  Future<void> fetchAllChatStatus() async {
-    final auth = twitchAuth;
-    if (!auth.isConfigured) return;
-    final ids = <String>[];
-    for (final channel in _chatStatusChannels) {
-      final userId = store.channelUserIds[channel];
-      if (userId != null) ids.add(userId);
-    }
-    if (ids.isEmpty) return;
-    Map<String, Map<String, dynamic>> streams;
-    try {
-      streams = await twitchApi.getStreams(auth, ids);
-    } catch (e) {
-      logDebug('[ChatConn] fetchAllChatStatus failed: $e');
-      return;
-    }
-    for (final channel in _chatStatusChannels) {
-      final userId = store.channelUserIds[channel];
-      _applyStreamStatus(channel, userId != null ? streams[userId] : null);
-    }
-  }
-
-  void _applyStreamStatus(String channel, Map<String, dynamic>? stream) {
-    final parts = <String>[];
-    if (stream != null && stream['type'] == 'live') {
-      final viewers = stream['viewer_count'] ?? 0;
-      final started = stream['started_at'] as String?;
-      if (started != null) {
-        final dur = DateTime.now().difference(DateTime.parse(started));
-        final h = dur.inHours;
-        final m = dur.inMinutes.remainder(60);
-        parts.add('Live with $viewers viewers for ${h}h ${m}m');
-      } else {
-        parts.add('Live with $viewers viewers');
-      }
-    }
-    _streamStatusParts[channel] = parts;
-    _composeChatStatus(channel);
-  }
-
-  // Room modes come from ROOMSTATE (instant, broadcast to everyone on IRC);
-  // this replaces the old Helix getChatSettings polling.
-  void _composeChatStatus(String channel) {
-    final parts = <String>[];
-    final tags = _roomStateTags[channel];
-    if (tags != null) {
-      final slow = int.tryParse(tags['slow'] ?? '') ?? 0;
-      if (slow > 0) parts.add('Slow (${slow}s)');
-      final followers = tags['followers-only'];
-      if (followers != null && followers != '-1') {
-        parts.add(
-          followers == '0'
-              ? 'Followers-only'
-              : 'Followers-only (${followers}m)',
-        );
-      }
-      if (tags['emote-only'] == '1') parts.add('Emote-only');
-      if (tags['subs-only'] == '1') parts.add('Subscribers-only');
-      if (tags['r9k'] == '1') parts.add('Unique chat');
-    }
-    parts.addAll(_streamStatusParts[channel] ?? const []);
-    final newStatus = parts.isNotEmpty ? parts.join(' · ') : '';
-    if (store.chatStatus[channel] == newStatus) return;
-    store.chatStatus[channel] = newStatus;
-    store.touchChannel(channel);
-  }
-
-  void stopChatStatusTimer(String channel) {
-    _chatStatusChannels.remove(channel);
-    if (_chatStatusChannels.isEmpty) {
-      _chatStatusTimer?.cancel();
-      _chatStatusTimer = null;
-    }
-    _roomStateTags.remove(channel);
-    _streamStatusParts.remove(channel);
-  }
+  void stopChatStatusTimer(String channel) => _status.stopFor(channel);
 
   // ---- Subscriptions -------------------------------------------------------
 
@@ -364,16 +185,16 @@ class ChatChannelSetup {
       // emote providers and badge fetches).
       channelUserId ??= await _waitForRoomId(channelName);
       if (channelUserId == null) return;
-      store.channelUserIds[channelName] = channelUserId;
+      chat.channelFor(channelName)?.info.setBroadcasterId(channelUserId);
       // Map before any await below: a resubscribe completing in the gap
       // would otherwise deliver events with no channel and drop them.
-      eventSub.setChannelMapping(channelUserId, channelName);
+      eventSubDecoder.setChannelMapping(channelUserId, channelName);
       unawaited(
         badgeService
             .fetchChannelBadges(auth, channelUserId, channelName)
-            .then((_) => store.clearLoadFailure(channelName, 'badges'))
+            .then((_) => chat.clearLoadFailure(channelName, 'badges'))
             .catchError((_) {
-              store.recordLoadFailure(channelName, 'badges');
+              chat.recordLoadFailure(channelName, 'badges');
               logDebug('[ChatConn] fetchChannelBadges failed for $channelName');
             }),
       );
@@ -381,16 +202,16 @@ class ChatChannelSetup {
       emoteManager.accessToken = auth.accessToken;
       logDebug(
         'subscribeChannel $channelName userId=$channelUserId '
-        'hasToken=${auth.accessToken != null} resolved=${store.channelsEmotesResolved.contains(channelName)}',
+        'hasToken=${auth.accessToken != null} resolved=${emoteManager.emotesResolved(channelName)}',
       );
-      if (!store.channelsEmotesResolved.contains(channelName)) {
-        store.channelsEmotesResolved.add(channelName);
+      if (!emoteManager.emotesResolved(channelName)) {
+        emoteManager.markEmotesResolved(channelName);
         unawaited(
           emoteManager
               .resolveEmotes(channelName, channelUserId)
-              .then((_) => store.clearLoadFailure(channelName, 'emotes'))
+              .then((_) => chat.clearLoadFailure(channelName, 'emotes'))
               .catchError((e) {
-                store.recordLoadFailure(channelName, 'emotes');
+                chat.recordLoadFailure(channelName, 'emotes');
                 logDebug(
                   '[ChatConn] resolveEmotes failed for $channelName: $e',
                 );
@@ -400,52 +221,19 @@ class ChatChannelSetup {
 
       unawaited(_resolveSevenTvAndSubscribe(channelName, channelUserId));
 
-      if (store.session.login == null && auth.accessToken != null) {
+      if (session.login == null && auth.accessToken != null) {
         final currentUser = await ensureCurrentUser(auth);
         if (currentUser != null) {
-          store.applyLogin(currentUser['login']);
-          store.session.userId = currentUser['id'];
+          session.apply(currentUser['login'], userId: currentUser['id']);
         }
       }
 
-      if (store.session.login != null && store.session.userId != null) {
-        // Guard like resubscribeEventSubChannels: a connected-edge resubscribe
-        // racing this join must not double-subscribe (409s dedupe, but each
-        // attempt costs Helix calls and a redundant touchChannel).
-        if (!_moderationChannels.contains(channelName)) {
-          unawaited(_subscribeModeration(channelName, channelUserId));
-        }
-        if (!_automodChannels.contains(channelName)) {
-          unawaited(_subscribeAutomod(channelName, channelUserId));
-        }
-        if (!_feedChannels.contains(channelName)) {
-          unawaited(_subscribeFeed(channelName, channelUserId));
-        }
-        if (!_inboxChannels.contains(channelName)) {
-          unawaited(_subscribeInbox(channelName, channelUserId));
-        }
-        if (!_trustChannels.contains(channelName)) {
-          unawaited(_subscribeTrust(channelName, channelUserId));
-        }
-        if (!_pointsChannels.contains(channelName)) {
-          unawaited(_subscribePoints(channelName, channelUserId));
-        }
-        unawaited(_subscribeWidgets(channelName, channelUserId));
-      }
+      eventSubTopics.subscribeChannel(channelName, channelUserId);
     } catch (_) {
       logDebug('[ChatConn] subscribeChannel failed for $channelName');
     }
     connectionStateNotifier.value++;
-    fetchChatStatus(channelName);
-    _chatStatusChannels.add(channelName);
-    _startChatStatusTimer();
-  }
-
-  void _startChatStatusTimer() {
-    _chatStatusTimer ??= Timer.periodic(
-      _chatStatusInterval,
-      (_) => fetchAllChatStatus(),
-    );
+    _status.startFor(channelName);
   }
 
   void subscribeAll(List<String> channels) {
@@ -454,459 +242,25 @@ class ChatChannelSetup {
     }
   }
 
-  // Chat messages come from IRC PRIVMSG; EventSub is only used for
-  // channel.moderate v2 (moderation actions), subscribed per channel when the
-  // session is up. Twitch rejects non-moderators (403), in which case IRC
-  // CLEARCHAT/CLEARMSG remain the moderation source.
-  Future<void> _subscribeModeration(
-    String channelName,
-    String channelUserId,
-  ) async {
-    try {
-      final auth = twitchAuth;
-      if (!auth.isConfigured || store.session.userId == null) return;
-      // Already known to be rejected with 403 (not a moderator); skip so we
-      // don't re-attempt and re-log on every reconnect.
-      if (_moderationSkippedChannels.contains(channelName)) return;
-      // Not a retry loop: the subscription is attempted at most once. The
-      // loop only bounds the wait (~3s) for the EventSub websocket session
-      // to appear; a session that never shows up just skips this channel.
-      for (int attempt = 0; attempt < 3; attempt++) {
-        final sessionId = eventSub.sessionId;
-        if (sessionId == null) {
-          await Future.delayed(const Duration(seconds: 1));
-          continue;
-        }
-        if (attempt > 0) await Future.delayed(const Duration(seconds: 1));
-        final ok = await twitchApi.createEventSubSubscription(
-          auth: auth,
-          sessionId: sessionId,
-          type: 'channel.moderate',
-          version: '2',
-          condition: {
-            'broadcaster_user_id': channelUserId,
-            'moderator_user_id': store.session.userId!,
-          },
-        );
-        if (ok) {
-          _moderationChannels.add(channelName);
-          // The Mod View snapshots mod state at build; wake it so the new
-          // rows appear without waiting for the next chat event.
-          store.touchChannel(channelName);
-          return;
-        }
-        if (twitchApi.lastErrorStatus == 403) {
-          // Expected when the user isn't a moderator in this channel; not an
-          // actionable error, so skip it silently and don't retry it.
-          _moderationSkippedChannels.add(channelName);
-          return;
-        }
-        logDebug(
-          '[ChatConn] channel.moderate subscription failed for $channelName (${twitchApi.lastError ?? "unknown"})',
-        );
-        return;
-      }
-    } catch (_) {
-      logDebug('[ChatConn] subscribeModeration failed for $channelName');
-    }
-  }
-
-  // AutoMod queue: hold feeds the queue, update resolves entries decided
-  // elsewhere. Same one-attempt shape as _subscribeModeration; both types
-  // need moderator:manage:automod, so one 403 skips the channel for both.
-  Future<void> _subscribeAutomod(
-    String channelName,
-    String channelUserId,
-  ) async {
-    try {
-      final auth = twitchAuth;
-      if (!auth.isConfigured || store.session.userId == null) return;
-      if (_automodSkippedChannels.contains(channelName)) return;
-      for (int attempt = 0; attempt < 3; attempt++) {
-        final sessionId = eventSub.sessionId;
-        if (sessionId == null) {
-          await Future.delayed(const Duration(seconds: 1));
-          continue;
-        }
-        if (attempt > 0) await Future.delayed(const Duration(seconds: 1));
-        const types = [
-          ('automod.message.hold', '2'),
-          ('automod.message.update', '2'),
-        ];
-        // The queue is only active when both subs are up: without update,
-        // entries decided by other mods would linger with no resolution.
-        var subscribed = 0;
-        for (final (type, version) in types) {
-          // A 403 on hold dooms update too; skip the second doomed call.
-          if (_automodSkippedChannels.contains(channelName)) break;
-          final ok = await twitchApi.createEventSubSubscription(
-            auth: auth,
-            sessionId: sessionId,
-            type: type,
-            version: version,
-            condition: {
-              'broadcaster_user_id': channelUserId,
-              'moderator_user_id': store.session.userId!,
-            },
-          );
-          if (ok) {
-            subscribed++;
-            continue;
-          }
-          if (twitchApi.lastErrorStatus == 403) {
-            _automodSkippedChannels.add(channelName);
-          } else {
-            logDebug(
-              '[ChatConn] $type subscription failed for $channelName (${twitchApi.lastError ?? "unknown"})',
-            );
-          }
-        }
-        if (subscribed == types.length) {
-          _automodChannels.add(channelName);
-          // Same wake-up as moderation subs (see _subscribeModeration).
-          store.touchChannel(channelName);
-        }
-        return;
-      }
-    } catch (_) {
-      logDebug('[ChatConn] subscribeAutomod failed for $channelName');
-    }
-  }
-
-  // Mod feed: shield toggles, shoutouts, and warning lifecycle carry
-  // information channel.moderate never sends. Same one-attempt shape as
-  // _subscribeAutomod; a 403 on any topic skips the channel for all of them.
-  Future<void> _subscribeFeed(String channelName, String channelUserId) async {
-    try {
-      final auth = twitchAuth;
-      if (!auth.isConfigured || store.session.userId == null) return;
-      if (_feedSkippedChannels.contains(channelName)) return;
-      for (int attempt = 0; attempt < 3; attempt++) {
-        final sessionId = eventSub.sessionId;
-        if (sessionId == null) {
-          await Future.delayed(const Duration(seconds: 1));
-          continue;
-        }
-        if (attempt > 0) await Future.delayed(const Duration(seconds: 1));
-        const types = [
-          ('channel.shield_mode.begin', '1'),
-          ('channel.shield_mode.end', '1'),
-          ('channel.shoutout.create', '1'),
-          ('channel.shoutout.receive', '1'),
-          ('channel.warning.send', '1'),
-          ('channel.warning.acknowledge', '1'),
-        ];
-        var subscribed = 0;
-        for (final (type, version) in types) {
-          // A 403 on one dooms the rest; skip the doomed calls.
-          if (_feedSkippedChannels.contains(channelName)) break;
-          final ok = await twitchApi.createEventSubSubscription(
-            auth: auth,
-            sessionId: sessionId,
-            type: type,
-            version: version,
-            condition: {
-              'broadcaster_user_id': channelUserId,
-              'moderator_user_id': store.session.userId!,
-            },
-          );
-          if (ok) {
-            subscribed++;
-            continue;
-          }
-          if (twitchApi.lastErrorStatus == 403) {
-            _feedSkippedChannels.add(channelName);
-          } else {
-            logDebug(
-              '[ChatConn] $type subscription failed for $channelName (${twitchApi.lastError ?? "unknown"})',
-            );
-          }
-        }
-        if (subscribed > 0) {
-          _feedChannels.add(channelName);
-          // Same wake-up as moderation subs (see _subscribeModeration).
-          store.touchChannel(channelName);
-        }
-        return;
-      }
-    } catch (_) {
-      logDebug('[ChatConn] subscribeFeed failed for $channelName');
-    }
-  }
-
-  // Inbox: unban request create/resolve plus public AutoMod term updates.
-  // Same one-attempt shape as _subscribeFeed.
-  Future<void> _subscribeInbox(String channelName, String channelUserId) async {
-    try {
-      final auth = twitchAuth;
-      if (!auth.isConfigured || store.session.userId == null) return;
-      if (_inboxSkippedChannels.contains(channelName)) return;
-      for (int attempt = 0; attempt < 3; attempt++) {
-        final sessionId = eventSub.sessionId;
-        if (sessionId == null) {
-          await Future.delayed(const Duration(seconds: 1));
-          continue;
-        }
-        if (attempt > 0) await Future.delayed(const Duration(seconds: 1));
-        const types = [
-          ('channel.unban_request.create', '1'),
-          ('channel.unban_request.resolve', '1'),
-          ('automod.terms.update', '1'),
-        ];
-        var subscribed = 0;
-        for (final (type, version) in types) {
-          // A 403 on one dooms the rest; skip the doomed calls.
-          if (_inboxSkippedChannels.contains(channelName)) break;
-          final ok = await twitchApi.createEventSubSubscription(
-            auth: auth,
-            sessionId: sessionId,
-            type: type,
-            version: version,
-            condition: {
-              'broadcaster_user_id': channelUserId,
-              'moderator_user_id': store.session.userId!,
-            },
-          );
-          if (ok) {
-            subscribed++;
-            continue;
-          }
-          if (twitchApi.lastErrorStatus == 403) {
-            _inboxSkippedChannels.add(channelName);
-          } else {
-            logDebug(
-              '[ChatConn] $type subscription failed for $channelName (${twitchApi.lastError ?? "unknown"})',
-            );
-          }
-        }
-        if (subscribed > 0) {
-          _inboxChannels.add(channelName);
-          // Same wake-up as moderation subs (see _subscribeModeration).
-          store.touchChannel(channelName);
-        }
-        return;
-      }
-    } catch (_) {
-      logDebug('[ChatConn] subscribeInbox failed for $channelName');
-    }
-  }
-
-  // Trust: AutoMod settings updates plus suspicious user message/update.
-  // Same one-attempt shape as _subscribeInbox.
-  Future<void> _subscribeTrust(String channelName, String channelUserId) async {
-    try {
-      final auth = twitchAuth;
-      if (!auth.isConfigured || store.session.userId == null) return;
-      if (_trustSkippedChannels.contains(channelName)) return;
-      for (int attempt = 0; attempt < 3; attempt++) {
-        final sessionId = eventSub.sessionId;
-        if (sessionId == null) {
-          await Future.delayed(const Duration(seconds: 1));
-          continue;
-        }
-        if (attempt > 0) await Future.delayed(const Duration(seconds: 1));
-        const types = [
-          ('automod.settings.update', '1'),
-          ('channel.suspicious_user.message', '1'),
-          ('channel.suspicious_user.update', '1'),
-        ];
-        var subscribed = 0;
-        for (final (type, version) in types) {
-          // A 403 on one dooms the rest; skip the doomed calls.
-          if (_trustSkippedChannels.contains(channelName)) break;
-          final ok = await twitchApi.createEventSubSubscription(
-            auth: auth,
-            sessionId: sessionId,
-            type: type,
-            version: version,
-            condition: {
-              'broadcaster_user_id': channelUserId,
-              'moderator_user_id': store.session.userId!,
-            },
-          );
-          if (ok) {
-            subscribed++;
-            continue;
-          }
-          if (twitchApi.lastErrorStatus == 403) {
-            _trustSkippedChannels.add(channelName);
-          } else {
-            logDebug(
-              '[ChatConn] $type subscription failed for $channelName (${twitchApi.lastError ?? "unknown"})',
-            );
-          }
-        }
-        if (subscribed > 0) {
-          _trustChannels.add(channelName);
-          // Same wake-up as moderation subs (see _subscribeModeration).
-          store.touchChannel(channelName);
-        }
-        return;
-      }
-    } catch (_) {
-      logDebug('[ChatConn] subscribeTrust failed for $channelName');
-    }
-  }
-
-  // Points: custom reward and redemption events for the Channel tab
-  // queue. Broadcaster-only (like _subscribeWidgets) with its own skip set
-  // so a non-monetized channel fails here without touching the widgets.
-  // Automatic-reward redemptions are skipped: they need no mod action.
-  Future<void> _subscribePoints(
-    String channelName,
-    String channelUserId,
-  ) async {
-    try {
-      final auth = twitchAuth;
-      if (!auth.isConfigured || store.session.userId == null) return;
-      if (store.session.userId != channelUserId) return;
-      if (_pointsSkippedChannels.contains(channelName)) return;
-      for (int attempt = 0; attempt < 3; attempt++) {
-        final sessionId = eventSub.sessionId;
-        if (sessionId == null) {
-          await Future.delayed(const Duration(seconds: 1));
-          continue;
-        }
-        if (attempt > 0) await Future.delayed(const Duration(seconds: 1));
-        const types = [
-          ('channel.channel_points_custom_reward.add', '1'),
-          ('channel.channel_points_custom_reward.update', '1'),
-          ('channel.channel_points_custom_reward.remove', '1'),
-          ('channel.channel_points_custom_reward_redemption.add', '1'),
-          ('channel.channel_points_custom_reward_redemption.update', '1'),
-        ];
-        var subscribed = 0;
-        for (final (type, version) in types) {
-          // A 403 on one dooms the rest; skip the doomed calls.
-          if (_pointsSkippedChannels.contains(channelName)) break;
-          final ok = await twitchApi.createEventSubSubscription(
-            auth: auth,
-            sessionId: sessionId,
-            type: type,
-            version: version,
-            condition: {'broadcaster_user_id': channelUserId},
-          );
-          if (ok) {
-            subscribed++;
-            continue;
-          }
-          if (twitchApi.lastErrorStatus == 403) {
-            _pointsSkippedChannels.add(channelName);
-          } else {
-            logDebug(
-              '[ChatConn] $type subscription failed for $channelName (${twitchApi.lastError ?? "unknown"})',
-            );
-          }
-        }
-        if (subscribed > 0) {
-          _pointsChannels.add(channelName);
-          // Same wake-up as moderation subs (see _subscribeModeration).
-          store.touchChannel(channelName);
-        }
-        return;
-      }
-    } catch (_) {
-      logDebug('[ChatConn] subscribePoints failed for $channelName');
-    }
-  }
-
-  // Hype train / poll / prediction widgets are broadcaster-only: the EventSub
-  // subscription types require channel:read:hype_train/polls/predictions, which
-  // Twitch only issues to the channel owner. Skip every other channel up front
-  // so we don't fire a dozen doomed Helix calls per join.
-  Future<void> _subscribeWidgets(
-    String channelName,
-    String channelUserId,
-  ) async {
-    try {
-      final auth = twitchAuth;
-      if (!auth.isConfigured || store.session.userId == null) return;
-      if (store.session.userId != channelUserId) return;
-      if (_widgetSkippedChannels.contains(channelName)) return;
-      // Same shape as _subscribeModeration: one attempt max, the loop only
-      // bounds the wait for the EventSub session.
-      for (int attempt = 0; attempt < 3; attempt++) {
-        final sessionId = eventSub.sessionId;
-        if (sessionId == null) {
-          await Future.delayed(const Duration(seconds: 1));
-          continue;
-        }
-        if (attempt > 0) await Future.delayed(const Duration(seconds: 1));
-        const types = [
-          ('channel.hype_train.begin', '2'),
-          ('channel.hype_train.progress', '2'),
-          ('channel.hype_train.end', '2'),
-          ('channel.poll.begin', '1'),
-          ('channel.poll.progress', '1'),
-          ('channel.poll.end', '1'),
-          ('channel.prediction.begin', '1'),
-          ('channel.prediction.progress', '1'),
-          ('channel.prediction.lock', '1'),
-          ('channel.prediction.end', '1'),
-        ];
-        var failed = false;
-        for (final (type, version) in types) {
-          final ok = await twitchApi.createEventSubSubscription(
-            auth: auth,
-            sessionId: sessionId,
-            type: type,
-            version: version,
-            condition: {'broadcaster_user_id': channelUserId},
-          );
-          if (!ok) {
-            if (twitchApi.lastErrorStatus == 403) {
-              // Expected when the user isn't the broadcaster; skip silently.
-              _widgetSkippedChannels.add(channelName);
-            } else {
-              logDebug(
-                '[ChatConn] $type subscription failed for $channelName (${twitchApi.lastError ?? "unknown"})',
-              );
-            }
-            failed = true;
-            break;
-          }
-        }
-        if (!failed) {
-          _widgetChannels.add(channelName);
-        }
-        return;
-      }
-    } catch (_) {
-      logDebug('[ChatConn] subscribeWidgets failed for $channelName');
-    }
-  }
-
-  /// Re-creates the session-scoped EventSub subscriptions after a new session
-  /// comes up (session_reconnect / keepalive reconnect). Skip sets and the
-  /// already-subscribed sets are respected by the per-channel methods.
-  void resubscribeEventSubChannels(List<String> channels) {
-    final uid = store.session.userId;
-    if (uid == null) return;
-    for (final channel in channels) {
-      final channelUserId = store.channelUserIds[channel];
-      if (channelUserId == null) continue;
-      if (!_moderationChannels.contains(channel)) {
-        unawaited(_subscribeModeration(channel, channelUserId));
-      }
-      if (!_automodChannels.contains(channel)) {
-        unawaited(_subscribeAutomod(channel, channelUserId));
-      }
-      if (!_feedChannels.contains(channel)) {
-        unawaited(_subscribeFeed(channel, channelUserId));
-      }
-      if (!_inboxChannels.contains(channel)) {
-        unawaited(_subscribeInbox(channel, channelUserId));
-      }
-      if (!_trustChannels.contains(channel)) {
-        unawaited(_subscribeTrust(channel, channelUserId));
-      }
-      if (!_pointsChannels.contains(channel)) {
-        unawaited(_subscribePoints(channel, channelUserId));
-      }
-      if (uid == channelUserId && !_widgetChannels.contains(channel)) {
-        unawaited(_subscribeWidgets(channel, channelUserId));
-      }
-    }
+  /// Re-runs the per-channel data loads (badges, emotes) that failed earlier,
+  /// updating the retryable failure state. Driven by the UI retry affordance.
+  void retryChannelData(String channel) {
+    final userId = chat.channelFor(channel)?.info.broadcasterId;
+    if (userId == null) return;
+    final auth = twitchAuth;
+    unawaited(
+      badgeService
+          .fetchChannelBadges(auth, userId, channel)
+          .then((_) => chat.clearLoadFailure(channel, 'badges'))
+          .catchError((_) => chat.recordLoadFailure(channel, 'badges')),
+    );
+    emoteManager.accessToken = auth.accessToken;
+    unawaited(
+      emoteManager
+          .resolveEmotes(channel, userId)
+          .then((_) => chat.clearLoadFailure(channel, 'emotes'))
+          .catchError((_) => chat.recordLoadFailure(channel, 'emotes')),
+    );
   }
 
   Future<void> _resolveSevenTvAndSubscribe(
@@ -983,7 +337,7 @@ class ChatChannelSetup {
     String channel, {
     Duration timeout = const Duration(seconds: 10),
   }) async {
-    final existing = _roomStateTags[channel]?['room-id'];
+    final existing = roomStateTags(channel)['room-id'];
     if (existing != null && existing.isNotEmpty) return existing;
     final completer = Completer<String?>();
     _roomIdWaiters.putIfAbsent(channel, () => []).add(completer);
@@ -1010,12 +364,7 @@ class ChatChannelSetup {
     if (_joinFailureNotified.remove(event.channel)) {
       onSystemMessage(event.channel, 'Joined #${event.channel}.');
     }
-    // ROOMSTATE updates are partial (only the changed tags): merge with
-    // the previous state before recomposing the status splash.
-    _roomStateTags[event.channel] = {
-      ...?_roomStateTags[event.channel],
-      ...event.tags,
-    };
+    _status.onRoomState(event.channel, event.tags);
     final roomId = event.tags['room-id'];
     if (roomId != null && roomId.isNotEmpty) {
       final waiters = _roomIdWaiters.remove(event.channel);
@@ -1025,7 +374,6 @@ class ChatChannelSetup {
         }
       }
     }
-    _composeChatStatus(event.channel);
     return true;
   }
 

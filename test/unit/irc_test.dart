@@ -4,12 +4,21 @@ import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
-import 'package:ermchat/services/connectivity_service.dart';
-import 'package:ermchat/services/join_rate_limiter.dart';
-import 'package:ermchat/services/twitch_irc.dart';
+import 'package:ermchat/util/connectivity.dart';
+import 'package:ermchat/irc/join_rate_limiter.dart';
+import 'package:ermchat/irc/decode/decoder.dart';
+import 'package:ermchat/irc/decode/events.dart';
+import 'package:ermchat/irc/message.dart';
+import 'package:ermchat/irc/transport/events.dart';
+import 'package:ermchat/irc/transport/read.dart';
+import 'package:ermchat/irc/transport/write.dart';
 import '../helpers/fake_web_socket.dart';
 import 'package:ermchat/models/twitch_message.dart';
-import 'package:ermchat/services/twitch_eventsub.dart';
+import 'package:ermchat/eventsub/decode/decoder.dart';
+import 'package:ermchat/eventsub/decode/events.dart';
+import 'package:ermchat/eventsub/topics.dart';
+import 'package:ermchat/eventsub/transport/connection.dart';
+import 'package:ermchat/eventsub/transport/events.dart';
 import 'package:ermchat/services/seven_tv_event_client.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -17,8 +26,8 @@ import 'package:ermchat/models/emote_fetch_tier.dart';
 import 'package:ermchat/models/generic_emote.dart';
 import 'package:ermchat/services/chat_connection_manager.dart';
 import 'package:ermchat/services/chat_channel_setup.dart';
-import 'package:ermchat/services/base_irc_connection.dart';
-import 'package:ermchat/services/chat_store.dart';
+import 'package:ermchat/chat/chat.dart';
+import 'package:ermchat/client/session.dart';
 import 'package:ermchat/services/emote_manager.dart';
 import 'package:ermchat/services/twitch_api.dart';
 import 'package:ermchat/services/twitch_auth.dart';
@@ -370,13 +379,21 @@ ChatConnectionManager _makeConn({
   required int maxMessages,
   EmoteManager? emoteManager,
   DateTime Function()? truncateNow,
-  Duration? truncateCoalesceWindow,
   IrcService? irc,
   IrcReadService? ircRead,
   JoinRateLimiter? joinBudget,
   void Function(String channel, JoinProgress? info)? onJoinProgress,
 }) {
   final api = TwitchApi(client: http.Client());
+  final chat = Chat(now: truncateNow);
+  final session = Session();
+  chat.ensure('test');
+  for (final entry in channelMessages.entries) {
+    final channel = chat.ensure(entry.key);
+    for (final msg in entry.value.reversed) {
+      channel.messages.add(msg, maxMessages: 1000000);
+    }
+  }
   return ChatConnectionManager(
     ChatConnectionConfig(
       services: ChatServices(
@@ -390,22 +407,8 @@ ChatConnectionManager _makeConn({
         twitchAuth: TwitchAuth(),
         joinBudget: joinBudget,
       ),
-      store: ChatStore(
-        now: truncateNow,
-        truncateCoalesceWindow:
-            truncateCoalesceWindow ?? const Duration(milliseconds: 250),
-        channels: ['test'],
-        channelMessages: channelMessages,
-        messageKeys: {},
-        chatStatus: {},
-        channelsWithUnread: {},
-        channelsWithUnreadMentions: {},
-        unreadMentionsPerChannel: {},
-        historyLoaded: {},
-        channelsEmotesResolved: {},
-        channelUserIds: {},
-        lastSentWireText: {},
-      ),
+      chat: chat,
+      session: session,
       bridge: ChatViewBridge(
         mentionsChannel: '@mentions',
         onSystemMessage: (c, t, {Color? accent, String? messageId}) {},
@@ -436,7 +439,8 @@ ChatConnectionManager _makeReconnectConn({
   void Function(HypeTrainEvent event)? onHypeTrain,
   Future<void> Function(String?, List<String>)? onUserEmoteSets,
   TwitchAuth? auth,
-  ChatStore? store,
+  Chat? chat,
+  Map<String, String>? channelUserIds,
   http.Client? client,
 }) {
   final api = TwitchApi(client: client ?? http.Client());
@@ -444,22 +448,28 @@ ChatConnectionManager _makeReconnectConn({
   if (auth == null) {
     effectiveAuth.accessToken = 'test-token';
   }
-  final effectiveStore =
-      store ??
-      ChatStore(
-        channels: channels ?? [],
-        channelMessages: channelMessages ?? {},
-        messageKeys: {},
-        chatStatus: chatStatus ?? {},
-        channelsWithUnread: {},
-        channelsWithUnreadMentions: {},
-        unreadMentionsPerChannel: {},
-        historyLoaded: {},
-        channelsEmotesResolved: {},
-        channelUserIds: {},
-        lastSentWireText: {},
-      );
-  effectiveStore.session.login = currentUserLogin;
+  final effectiveChat = chat ?? Chat();
+  final effectiveSession = Session();
+  for (final name in channels ?? []) {
+    effectiveChat.ensure(name);
+  }
+  for (final entry in (channelMessages ?? {}).entries) {
+    final c = effectiveChat.ensure(entry.key);
+    for (final msg in entry.value.reversed) {
+      c.messages.add(msg, maxMessages: 1000000);
+    }
+  }
+  for (final entry in (chatStatus ?? {}).entries) {
+    effectiveChat.ensure(entry.key);
+    effectiveChat.channelFor(entry.key)?.info.setStatus(entry.value);
+  }
+  for (final entry in (channelUserIds ?? {}).entries) {
+    effectiveChat.ensure(entry.key);
+    effectiveChat.channelFor(entry.key)?.info.setBroadcasterId(entry.value);
+  }
+  if (currentUserLogin != null) {
+    effectiveSession.seed(currentUserLogin);
+  }
   return ChatConnectionManager(
     ChatConnectionConfig(
       services: ChatServices(
@@ -472,7 +482,8 @@ ChatConnectionManager _makeReconnectConn({
         userStore: UserStore(),
         twitchAuth: effectiveAuth,
       ),
-      store: effectiveStore,
+      chat: effectiveChat,
+      session: effectiveSession,
       bridge: ChatViewBridge(
         mentionsChannel: '@mentions',
         onSystemMessage:
@@ -1025,7 +1036,7 @@ void main() {
             isNotEmpty,
             reason: 'a queued channel shows a countdown',
           );
-          ircRead.emitRoomState('test', {'room-id': '1'});
+          ircRead.confirmJoin('test');
           fakeNow = fakeNow.add(const Duration(seconds: 1));
           async.elapse(const Duration(milliseconds: 3100));
           expect(events.last.$1, 'test');
@@ -1499,12 +1510,15 @@ void main() {
   });
 
   late IrcReadService service;
+  late IrcChatDecoder decoder;
 
   setUp(() {
     service = IrcReadService();
+    decoder = IrcChatDecoder(service.onIrcMessage);
   });
 
   tearDown(() {
+    decoder.dispose();
     service.dispose();
   });
 
@@ -1532,7 +1546,7 @@ void main() {
 
     test('emits delete event with messageId, user, and deleted text', () async {
       final events = <IrcMessageDeletedEvent>[];
-      service.onMessageDeleted.listen(events.add);
+      decoder.onMessageDeleted.listen(events.add);
 
       service.handleLine(
         '@login=forsen;target-msg-id=abc-123 :tmi.twitch.tv CLEARMSG #xqc :bad message',
@@ -1560,7 +1574,7 @@ void main() {
     ]) {
       test(name, () async {
         final events = <IrcMessageDeletedEvent>[];
-        service.onMessageDeleted.listen(events.add);
+        decoder.onMessageDeleted.listen(events.add);
         service.handleLine(line);
         await flush();
         if (user == null) {
@@ -1592,7 +1606,7 @@ void main() {
     ]) {
       test(name, () async {
         final events = <IrcBanEvent>[];
-        service.onBan.listen(events.add);
+        decoder.onBan.listen(events.add);
         service.handleLine(line);
         await flush();
         expect(events, hasLength(1), reason: name);
@@ -1605,8 +1619,8 @@ void main() {
     test('emits channel clear for full room clear (no target user)', () async {
       final bans = <IrcBanEvent>[];
       final clears = <IrcChannelClearEvent>[];
-      service.onBan.listen(bans.add);
-      service.onChannelClear.listen(clears.add);
+      decoder.onBan.listen(bans.add);
+      decoder.onChannelClear.listen(clears.add);
 
       service.handleLine(':tmi.twitch.tv CLEARCHAT #xqc');
       await flush();
@@ -1622,7 +1636,7 @@ void main() {
 
     test('parses full room state', () async {
       final states = <IrcRoomStateEvent>[];
-      service.onRoomState.listen(states.add);
+      decoder.onRoomState.listen(states.add);
 
       service.handleLine(
         '@emote-only=0;followers-only=30;r9k=1;room-id=1;slow=10;subs-only=1 '
@@ -1645,7 +1659,7 @@ void main() {
 
     test('lines are safely ignored', () async {
       var messageCount = 0;
-      service.onMessage.listen((_) => messageCount++);
+      decoder.onMessage.listen((_) => messageCount++);
 
       service.handleLine(
         '@badges=moderator/1,vip/1;user-id=123 '
@@ -1679,7 +1693,7 @@ void main() {
     ]) {
       test(name, () async {
         final sets = <(String?, List<String>)>[];
-        service.onUserEmoteSets.listen(sets.add);
+        decoder.onUserEmoteSets.listen(sets.add);
         service.handleLine(line);
         await flush();
         if (channel == 'missing') {
@@ -1701,8 +1715,8 @@ void main() {
       () async {
         final notices = <IrcNoticeEvent>[];
         final userNotices = <UserNoticeEvent>[];
-        service.onNotice.listen(notices.add);
-        service.onUserNotice.listen(userNotices.add);
+        decoder.onNotice.listen(notices.add);
+        decoder.onUserNotice.listen(userNotices.add);
 
         service.handleLine(
           '@msg-id=announcement;msg-param-color=PRIMARY;login=mm2pl;'
@@ -1738,7 +1752,7 @@ void main() {
       test(name, () async {
         if (name.startsWith('parses')) {
           final userNotices = <UserNoticeEvent>[];
-          service.onUserNotice.listen(userNotices.add);
+          decoder.onUserNotice.listen(userNotices.add);
           service.handleLine(line);
           await flush();
           expect(userNotices, hasLength(1), reason: name);
@@ -1749,7 +1763,7 @@ void main() {
           );
         } else {
           final notices = <IrcNoticeEvent>[];
-          service.onNotice.listen(notices.add);
+          decoder.onNotice.listen(notices.add);
           service.handleLine(line);
           await flush();
           expect(notices, hasLength(1), reason: name);
@@ -1764,7 +1778,7 @@ void main() {
 
     test('emits a TwitchMessage via onWhisper', () async {
       final whispers = <TwitchMessage>[];
-      service.onWhisper.listen(whispers.add);
+      decoder.onWhisper.listen(whispers.add);
 
       service.handleLine(
         '@badges=;color=#FF0000;display-name=SomeUser;emotes=25:0-4;message-id=whisper-1;thread-id=abc;turbo=0;user-id=999;user-type= :someuser!someuser@someuser.tmi.twitch.tv WHISPER recipient :hey there',
@@ -2217,8 +2231,12 @@ void main() {
         'test': List.generate(count, (i) => _msg('m$i', 'msg $i')),
       };
       final conn = _makeConn(channelMessages: msgs, maxMessages: 10);
-      conn.store.truncateChannel('test', maxMessages: 10);
-      expect(msgs['test']!.length, expected, reason: name);
+      conn.chat.channelFor('test')!.truncate(10);
+      expect(
+        conn.chat.channelFor('test')!.messages.length,
+        expected,
+        reason: name,
+      );
     });
   }
 
@@ -2236,8 +2254,13 @@ void main() {
         ],
       };
       final conn = _makeConn(channelMessages: msgs, maxMessages: 10);
-      conn.store.truncateChannel('test', maxMessages: 10);
-      final ids = msgs['test']!.map((m) => m.messageId).toSet();
+      conn.chat.channelFor('test')!.truncate(10);
+      final ids = conn.chat
+          .channelFor('test')!
+          .messages
+          .items
+          .map((m) => m.messageId)
+          .toSet();
       expect(ids.contains('parent'), keepParent, reason: name);
       expect(ids.contains('child'), keepParent, reason: name);
       expect(ids.contains('grand'), keepParent, reason: name);
@@ -2258,8 +2281,13 @@ void main() {
           ],
         };
         final conn = _makeConn(channelMessages: msgs, maxMessages: 10);
-        conn.store.truncateChannel('test', maxMessages: 10);
-        final ids = msgs['test']!.map((m) => m.messageId).toSet();
+        conn.chat.channelFor('test')!.truncate(10);
+        final ids = conn.chat
+            .channelFor('test')!
+            .messages
+            .items
+            .map((m) => m.messageId)
+            .toSet();
         expect(ids.contains('aParent'), isTrue, reason: 'thread A stays');
         expect(ids.contains('bParent'), keepB, reason: 'thread B keeps $keepB');
       }
@@ -2286,9 +2314,9 @@ void main() {
         ],
       };
       final conn = _makeConn(channelMessages: msgs, maxMessages: limit);
-      conn.store.truncateChannel('test', maxMessages: limit);
+      conn.chat.channelFor('test')!.truncate(limit);
 
-      final remaining = msgs['test']!;
+      final remaining = conn.chat.channelFor('test')!.messages.items;
       expect(remaining.length, 20 + limit);
 
       bool present(String id) => remaining.any((m) => m.messageId == id);
@@ -2323,9 +2351,9 @@ void main() {
         ],
       };
       final conn = _makeConn(channelMessages: msgs, maxMessages: limit);
-      conn.store.truncateChannel('test', maxMessages: limit);
+      conn.chat.channelFor('test')!.truncate(limit);
 
-      final remaining = msgs['test']!;
+      final remaining = conn.chat.channelFor('test')!.messages.items;
       expect(
         remaining.length,
         threadCount * 3 + fillerCount,
@@ -2362,9 +2390,9 @@ void main() {
         ],
       };
       final conn = _makeConn(channelMessages: msgs, maxMessages: limit);
-      conn.store.truncateChannel('test', maxMessages: limit);
+      conn.chat.channelFor('test')!.truncate(limit);
 
-      final remaining = msgs['test']!;
+      final remaining = conn.chat.channelFor('test')!.messages.items;
       // Thread (3, exempt) + budget (limit, newest-first); oldest system
       // rows fall off first under the shared quota.
       expect(remaining.length, 3 + limit);
@@ -2384,9 +2412,13 @@ void main() {
         'test': [root, child],
       };
       final conn = _makeConn(channelMessages: msgs, maxMessages: 10);
-      conn.store.indexMessages('test', [root, child]);
+      final testChannel = conn.chat.channelFor('test')!;
+      testChannel.threads.index([
+        root,
+        child,
+      ], lookupRoot: testChannel.messages.byId);
 
-      final thread = conn.store.threadFor('test', 'r1');
+      final thread = testChannel.threads.threadFor('r1');
       expect(thread, isNotNull);
       expect(thread!.map((m) => m.messageId), ['r1', 'c1']);
     });
@@ -2397,16 +2429,17 @@ void main() {
         'test': [child],
       };
       final conn = _makeConn(channelMessages: msgs, maxMessages: 10);
-      conn.store.indexMessages('test', [child]);
+      final testChannel = conn.chat.channelFor('test')!;
+      testChannel.threads.index([child], lookupRoot: testChannel.messages.byId);
 
-      var thread = conn.store.threadFor('test', 'r1')!;
+      var thread = testChannel.threads.threadFor('r1')!;
       expect(thread.map((m) => m.messageId), ['c1']);
 
       // The root shows up later (late history batch, slow fetch) and must
       // link into the waiting entry.
       final root = _msg('r1', 'root');
-      conn.store.indexMessages('test', [root]);
-      thread = conn.store.threadFor('test', 'r1')!;
+      testChannel.threads.index([root], lookupRoot: testChannel.messages.byId);
+      thread = testChannel.threads.threadFor('r1')!;
       expect(thread.map((m) => m.messageId), ['r1', 'c1']);
     });
 
@@ -2416,20 +2449,29 @@ void main() {
       conn.onMessage(_msg('r1', 'root'));
       conn.onMessage(_taggedMsg('c1', 'child', rootId: 'r1'));
 
-      expect(conn.store.threadFor('test', 'r1')!.map((m) => m.messageId), [
-        'r1',
-        'c1',
-      ]);
+      expect(
+        conn.chat
+            .channelFor('test')!
+            .threads
+            .threadFor('r1')!
+            .map((m) => m.messageId),
+        ['r1', 'c1'],
+      );
 
       // Double delivery stays idempotent.
-      conn.store.indexMessages('test', [
+      final testChannel = conn.chat.channelFor('test')!;
+      testChannel.threads.index([
         _msg('r1', 'root'),
         _taggedMsg('c1', 'child', rootId: 'r1'),
-      ]);
-      expect(conn.store.threadFor('test', 'r1')!.map((m) => m.messageId), [
-        'r1',
-        'c1',
-      ]);
+      ], lookupRoot: testChannel.messages.byId);
+      expect(
+        conn.chat
+            .channelFor('test')!
+            .threads
+            .threadFor('r1')!
+            .map((m) => m.messageId),
+        ['r1', 'c1'],
+      );
     });
 
     test('decay drops evicted replies but keeps the pinned root openable', () {
@@ -2440,12 +2482,17 @@ void main() {
         'test': [root, c1, c2],
       };
       final conn = _makeConn(channelMessages: msgs, maxMessages: 10);
-      conn.store.indexMessages('test', [root, c1, c2]);
+      final testChannel = conn.chat.channelFor('test')!;
+      testChannel.threads.index([
+        root,
+        c1,
+        c2,
+      ], lookupRoot: testChannel.messages.byId);
 
       // Everything (root included) gets evicted from the chat buffer.
-      conn.store.decayEvicted('test', [c1, c2, root]);
+      testChannel.threads.decay([c1, c2, root]);
 
-      final thread = conn.store.threadFor('test', 'r1')!;
+      final thread = testChannel.threads.threadFor('r1')!;
       expect(thread.map((m) => m.messageId), [
         'r1',
       ], reason: 'replies decay out; pinned root keeps the thread viewable');
@@ -2464,38 +2511,48 @@ void main() {
         ],
       };
       final conn = _makeConn(channelMessages: msgs, maxMessages: limit);
-      conn.store.indexMessages('test', [root, child]);
-      conn.store.truncateChannel('test', maxMessages: limit);
+      final testChannel = conn.chat.channelFor('test')!;
+      testChannel.threads.index([
+        root,
+        child,
+      ], lookupRoot: testChannel.messages.byId);
+      testChannel.truncate(limit);
 
-      final remaining = msgs['test']!;
+      final remaining = testChannel.messages.items;
       expect(remaining.any((m) => m.messageId == 'c1'), false);
       expect(remaining.any((m) => m.messageId == 'r1'), false);
 
       // Buffer is empty of the thread, yet reopening still serves the root.
-      expect(conn.store.threadFor('test', 'r1')!.map((m) => m.messageId), [
-        'r1',
-      ]);
+      expect(
+        conn.chat
+            .channelFor('test')!
+            .threads
+            .threadFor('r1')!
+            .map((m) => m.messageId),
+        ['r1'],
+      );
     });
 
     test('per-channel entry count stays under the LRU cap', () {
       final msgs = <String, List<TwitchMessage>>{'test': <TwitchMessage>[]};
       final conn = _makeConn(channelMessages: msgs, maxMessages: 10);
+      final testChannel = conn.chat.channelFor('test')!;
       for (var t = 0; t < 80; t++) {
-        conn.store.indexMessages('test', [
+        testChannel.threads.index([
           _msg('r$t', 'root $t'),
           _taggedMsg('c$t', 'child $t', rootId: 'r$t'),
-        ]);
+        ], lookupRoot: testChannel.messages.byId);
       }
 
       // 80 threads were created; only the newest 64 remain touchable. The
       // exact cap is an implementation detail - assert the bound holds.
       var remainingThreads = 0;
       for (var t = 0; t < 80; t++) {
-        if (conn.store.threadFor('test', 'r$t') != null) remainingThreads++;
+        if (testChannel.threads.threadFor('r$t') != null) remainingThreads++;
       }
       expect(remainingThreads, lessThanOrEqualTo(64));
-      expect(conn.store.threadFor('test', 'r79'), isNotNull);
-      expect(conn.store.threadFor('test', 'r0'), isNull);
+      expect(testChannel.threads.threadFor('r79'), isNotNull);
+      expect(testChannel.threads.threadFor('r0'), isNull);
     });
   });
 
@@ -2518,10 +2575,10 @@ void main() {
           maxMessages: 10,
           truncateNow: () => t,
         );
-        conn.store.truncateChannel('test', maxMessages: 10);
+        conn.chat.channelFor('test')!.truncate(10);
         t = t.add(const Duration(milliseconds: 100));
         conn.onMessage(_msg('new1', 'new one'));
-        expect(msgs['test']!.length, 11);
+        expect(conn.chat.channelFor('test')!.messages.length, 11);
 
         t = DateTime(2026, 1, 1, 12);
         msgs = fresh();
@@ -2530,10 +2587,10 @@ void main() {
           maxMessages: 10,
           truncateNow: () => t,
         );
-        conn.store.truncateChannel('test', maxMessages: 10);
+        conn.chat.channelFor('test')!.truncate(10);
         t = t.add(const Duration(milliseconds: 300));
         conn.onMessage(_msg('new1', 'new one'));
-        expect(msgs['test']!.length, 10);
+        expect(conn.chat.channelFor('test')!.messages.length, 10);
 
         t = DateTime(2026, 1, 1, 12);
         msgs = fresh();
@@ -2542,12 +2599,12 @@ void main() {
           maxMessages: 10,
           truncateNow: () => t,
         );
-        conn.store.truncateChannel('test', maxMessages: 10);
+        conn.chat.channelFor('test')!.truncate(10);
         t = t.add(const Duration(milliseconds: 100));
         for (var i = 1; i <= 11; i++) {
           conn.onMessage(_msg('b$i', 'burst $i'));
         }
-        expect(msgs['test']!.length, 10);
+        expect(conn.chat.channelFor('test')!.messages.length, 10);
 
         t = DateTime(2026, 1, 1, 12);
         msgs = fresh();
@@ -2556,12 +2613,12 @@ void main() {
           maxMessages: 10,
           truncateNow: () => t,
         );
-        conn.store.truncateChannel('test', maxMessages: 10);
+        conn.chat.channelFor('test')!.truncate(10);
         t = t.add(const Duration(milliseconds: 100));
         for (var i = 1; i <= 4; i++) {
           conn.onMessage(_msg('b$i', 'burst $i'));
         }
-        expect(msgs['test']!.length, 14);
+        expect(conn.chat.channelFor('test')!.messages.length, 14);
       },
     );
   });
@@ -2596,7 +2653,7 @@ void main() {
             trailing: 'hello',
           ),
         );
-        final msg = msgs['test']!.first;
+        final msg = conn.chat.channelFor('test')!.messages.items.first;
         if (expectBadges) {
           expect(msg.badges, isNotNull, reason: name);
           expect(msg.badges!.length, 2, reason: name);
@@ -2627,8 +2684,14 @@ void main() {
             trailing: '\x01ACTION waves at chat\x01',
           ),
         );
-        expect(msgs['test']!.first.text, 'waves at chat');
-        expect(msgs['test']!.first.isAction, isTrue);
+        expect(
+          conn.chat.channelFor('test')!.messages.items.first.text,
+          'waves at chat',
+        );
+        expect(
+          conn.chat.channelFor('test')!.messages.items.first.isAction,
+          isTrue,
+        );
 
         msgs = <String, List<TwitchMessage>>{'test': []};
         conn = _makeConn(channelMessages: msgs, maxMessages: 100);
@@ -2646,7 +2709,7 @@ void main() {
             trailing: '\x01ACTION PogChamp hi\x01',
           ),
         );
-        final msg = msgs['test']!.first;
+        final msg = conn.chat.channelFor('test')!.messages.items.first;
         expect(msg.text, 'PogChamp hi');
         expect(msg.emotePositions!.single.emoteCode, 'PogChamp');
         expect(msg.emotePositions!.single.startIndex, 0);
@@ -2676,8 +2739,8 @@ void main() {
         ),
       );
 
-      expect(msgs['test']!.length, 1);
-      final msg = msgs['test']!.first;
+      expect(conn.chat.channelFor('test')!.messages.items.length, 1);
+      final msg = conn.chat.channelFor('test')!.messages.items.first;
       expect(msg.bitsAmount, 100);
       expect(msg.systemAccent, const Color(0xFF7C47D1));
       expect(msg.text, 'Cheer100 take my bits');
@@ -2701,7 +2764,7 @@ void main() {
         ),
       );
 
-      final msg = msgs['test']!.first;
+      final msg = conn.chat.channelFor('test')!.messages.items.first;
       expect(msg.bitsAmount, isNull);
       expect(msg.systemAccent, isNull);
     });
@@ -2755,19 +2818,9 @@ void main() {
 
       var reconnects = 0;
       final system = <String>[];
-      final store = ChatStore(
-        channels: ['test'],
-        channelMessages: {},
-        messageKeys: {},
-        chatStatus: {},
-        channelsWithUnread: {},
-        channelsWithUnreadMentions: {},
-        unreadMentionsPerChannel: {},
-        historyLoaded: {},
-        channelsEmotesResolved: {},
-        channelUserIds: {'test': '999'},
-        lastSentWireText: {},
-      );
+      final chat = Chat();
+      chat.ensure('test');
+      chat.channelFor('test')?.info.setBroadcasterId('999');
       final readConn = _NoopIrcRead();
       final conn = _makeReconnectConn(
         eventSub: _NoopEventSub(),
@@ -2778,7 +2831,7 @@ void main() {
             system.add(t),
         currentUserLogin: 'alice',
         auth: auth,
-        store: store,
+        chat: chat,
         client: http_testing.MockClient((request) async => stub(request)),
       );
       await conn.connect();
@@ -2795,24 +2848,24 @@ void main() {
       // Alice's session state accrues.
       irc.handleLine('@room-id=1 :tmi.twitch.tv ROOMSTATE #test');
       await Future<void>.delayed(Duration.zero);
-      readConn.selfBadges['test'] = {'moderator'};
-      store.lastSentWireText['test'] = 'seed';
+      conn.readDecoder.selfBadges['test'] = {'moderator'};
+      conn.sender.seedWireText('test', 'seed');
       await conn.doSendMessage('hi', 'test');
       expect(irc.sent.single.$1, 'alice', reason: 'baseline send as alice');
 
       // Switch to bob the way HomeScreen drives it.
-      conn.session.login = null;
-      conn.session.userId = null;
+      conn.config.session.clear();
+      conn.chat.clearAccountScopedState();
       await auth.switchTo('bob');
       await conn.connect();
 
       expect(irc.username, 'bob');
       expect(
-        readConn.selfBadges,
+        conn.readDecoder.selfBadges,
         isEmpty,
         reason: "alice's badges must not bypass bob's slow mode",
       );
-      expect(store.lastSentWireText, isEmpty);
+      expect(conn.sender.hasWireText, isFalse);
 
       // The new socket is up but #test is not re-joined yet. The write socket
       // never JOINs, so a send rides it directly as bob (no Helix, no JOIN).
@@ -2842,26 +2895,16 @@ void main() {
         auth.setUser('alice', '111');
         auth.setCredentials(accessToken: 'token_a');
         final readConn = _NoopIrcRead();
-        final store = ChatStore(
-          channels: ['test'],
-          channelMessages: {},
-          messageKeys: {},
-          chatStatus: {},
-          channelsWithUnread: {},
-          channelsWithUnreadMentions: {},
-          unreadMentionsPerChannel: {},
-          historyLoaded: {},
-          channelsEmotesResolved: {},
-          channelUserIds: {'test': '999'},
-          lastSentWireText: {},
-        );
+        final chat = Chat();
+        chat.ensure('test');
+        chat.channelFor('test')?.info.setBroadcasterId('999');
         final conn = _makeReconnectConn(
           eventSub: _NoopEventSub(),
           irc: irc,
           ircRead: readConn,
           currentUserLogin: 'alice',
           auth: auth,
-          store: store,
+          chat: chat,
           onReconnected: () {},
           client: http_testing.MockClient(
             (request) async => http.Response(
@@ -2919,26 +2962,16 @@ void main() {
       auth.setUser('alice', '111');
       auth.setCredentials(accessToken: 'token_a');
       final readConn = _NoopIrcRead();
-      final store = ChatStore(
-        channels: ['test'],
-        channelMessages: {},
-        messageKeys: {},
-        chatStatus: {},
-        channelsWithUnread: {},
-        channelsWithUnreadMentions: {},
-        unreadMentionsPerChannel: {},
-        historyLoaded: {},
-        channelsEmotesResolved: {},
-        channelUserIds: {'test': '999'},
-        lastSentWireText: {},
-      );
+      final chat = Chat();
+      chat.ensure('test');
+      chat.channelFor('test')?.info.setBroadcasterId('999');
       final conn = _makeReconnectConn(
         eventSub: _NoopEventSub(),
         irc: irc,
         ircRead: readConn,
         currentUserLogin: 'alice',
         auth: auth,
-        store: store,
+        chat: chat,
         onReconnected: () {},
         client: http_testing.MockClient(
           (request) async => http.Response(
@@ -2966,26 +2999,16 @@ void main() {
       auth.setUser('alice', '111');
       auth.setCredentials(accessToken: 'token_a');
       final readConn = _NoopIrcRead();
-      final store = ChatStore(
-        channels: ['test'],
-        channelMessages: {},
-        messageKeys: {},
-        chatStatus: {},
-        channelsWithUnread: {},
-        channelsWithUnreadMentions: {},
-        unreadMentionsPerChannel: {},
-        historyLoaded: {},
-        channelsEmotesResolved: {},
-        channelUserIds: {'test': '999'},
-        lastSentWireText: {},
-      );
+      final chat = Chat();
+      chat.ensure('test');
+      chat.channelFor('test')?.info.setBroadcasterId('999');
       final conn = _makeReconnectConn(
         eventSub: _NoopEventSub(),
         irc: irc,
         ircRead: readConn,
         currentUserLogin: 'alice',
         auth: auth,
-        store: store,
+        chat: chat,
         onReconnected: () {},
         client: http_testing.MockClient(
           (request) async => http.Response(
@@ -3011,28 +3034,26 @@ void main() {
 
     test('join failure wording never claims nonexistence', () {
       final messages = <String>[];
+      final eventSub = EventSubService();
       final setup = ChatChannelSetup(
         twitchApi: TwitchApi(client: http.Client()),
-        eventSub: EventSubService(),
+        eventSubDecoder: EventSubDecoder(Stream<Map<String, dynamic>>.empty()),
+        eventSubTopics: EventSubTopics(
+          twitchApi: TwitchApi(client: http.Client()),
+          twitchAuth: TwitchAuth(),
+          session: Session(),
+          chat: Chat(),
+          eventSub: eventSub,
+        ),
         irc: IrcService(),
         ircRead: IrcReadService(),
+        readDecoder: IrcChatDecoder(IrcReadService().onIrcMessage),
         badgeService: TwitchBadgeService(),
         emoteManager: EmoteManager(),
         twitchAuth: TwitchAuth(),
         userStore: UserStore(),
-        store: ChatStore(
-          channels: [],
-          channelMessages: {},
-          messageKeys: {},
-          chatStatus: {},
-          channelsWithUnread: {},
-          channelsWithUnreadMentions: {},
-          unreadMentionsPerChannel: {},
-          historyLoaded: {},
-          channelsEmotesResolved: {},
-          channelUserIds: {},
-          lastSentWireText: {},
-        ),
+        chat: Chat(),
+        session: Session(),
         onSystemMessage: (c, t, {Color? accent, String? messageId}) =>
             messages.add(t),
         connectionStateNotifier: ValueNotifier(0),
@@ -3066,19 +3087,9 @@ void main() {
       auth.setCredentials(accessToken: 'token_a');
       final system = <String>[];
       final readConn = _NoopIrcRead();
-      final store = ChatStore(
-        channels: ['test'],
-        channelMessages: {},
-        messageKeys: {},
-        chatStatus: {},
-        channelsWithUnread: {},
-        channelsWithUnreadMentions: {},
-        unreadMentionsPerChannel: {},
-        historyLoaded: {},
-        channelsEmotesResolved: {},
-        channelUserIds: {'test': '999'},
-        lastSentWireText: {},
-      );
+      final chat = Chat();
+      chat.ensure('test');
+      chat.channelFor('test')?.info.setBroadcasterId('999');
       final conn = _makeReconnectConn(
         eventSub: _NoopEventSub(),
         irc: irc,
@@ -3087,7 +3098,7 @@ void main() {
             system.add(t),
         currentUserLogin: 'alice',
         auth: auth,
-        store: store,
+        chat: chat,
         onReconnected: () {},
         client: http_testing.MockClient(
           (request) async => http.Response(
@@ -3240,7 +3251,7 @@ void main() {
 
       // Child message rendered as a normal chat message on the same accent,
       // carrying the emotes parsed from the USERNOTICE line.
-      final child = channelMessages['test']!.first;
+      final child = conn.chat.channelFor('test')!.messages.items.first;
       expect(child.isSystem, isFalse);
       expect(child.text, 'hello world');
       expect(child.login, 'ermugo2');
@@ -3296,12 +3307,12 @@ void main() {
         expect(systemMessages.single.$3, accent, reason: name);
         if (hasChild) {
           expect(
-            channelMessages['test']!.first.systemAccent,
+            conn.chat.channelFor('test')!.messages.items.first.systemAccent,
             accent,
             reason: name,
           );
         } else {
-          expect(channelMessages['test'], isNull, reason: name);
+          expect(conn.chat.channelFor('test'), isNull, reason: name);
         }
         conn.dispose();
       });
@@ -3339,7 +3350,7 @@ void main() {
 
       // Child message renders as a normal chat message on the same accent,
       // carrying the emotes parsed from the USERNOTICE line.
-      final child = channelMessages['test']!.first;
+      final child = conn.chat.channelFor('test')!.messages.items.first;
       expect(child.isSystem, isFalse);
       expect(child.text, 'Great Kappa!');
       expect(child.login, 'ronni');
@@ -3383,7 +3394,7 @@ void main() {
       expect(systemMessages[0].$2, 'TWW2 gifted a Tier 1 sub to Mr_Woodchuck!');
       expect(systemMessages[0].$3, const Color(0xFF7C47D1));
       expect(
-        channelMessages['test'],
+        conn.chat.channelFor('test'),
         isNull,
         reason: 'notices without a user message never produce a child',
       );
@@ -3431,7 +3442,7 @@ void main() {
         if (text != null) {
           expect(systemMessages[0].$2, text, reason: name);
         }
-        expect(channelMessages['test'], isNull, reason: name);
+        expect(conn.chat.channelFor('test'), isNull, reason: name);
         conn.dispose();
       });
     }
@@ -3476,8 +3487,8 @@ void main() {
 
       expect(systemMessages, hasLength(1));
       expect(systemMessages[0].$2, 'Chat was cleared.');
-      expect(channelMessages['test']![0].deleted, isTrue);
-      expect(channelMessages['test']![1].deleted, isTrue);
+      expect(conn.chat.channelFor('test')!.messages.items[0].deleted, isTrue);
+      expect(conn.chat.channelFor('test')!.messages.items[1].deleted, isTrue);
 
       conn.dispose();
     });
@@ -3493,6 +3504,7 @@ void main() {
         irc: irc,
         ircRead: ircRead,
         onReconnected: () {},
+        channels: ['test'],
         chatStatus: chatStatus,
       );
       await conn.connect();
@@ -3503,14 +3515,14 @@ void main() {
         ':tmi.twitch.tv ROOMSTATE #test',
       );
       expect(
-        chatStatus['test'],
+        conn.chat.channelFor('test')?.info.status ?? '',
         'Slow (10s) · Followers-only (30m) · Emote-only · Unique chat',
       );
 
       // Partial update: only slow mode changed.
       ircRead.handleLine('@room-id=1;slow=0 :tmi.twitch.tv ROOMSTATE #test');
       expect(
-        chatStatus['test'],
+        conn.chat.channelFor('test')?.info.status ?? '',
         'Followers-only (30m) · Emote-only · Unique chat',
       );
 
@@ -3543,7 +3555,7 @@ void main() {
         final (conn, ircRead) = await makeConn();
         ircRead.handleLine('@room-id=1;slow=30 :tmi.twitch.tv ROOMSTATE #test');
         if (badge != null) {
-          ircRead.selfBadges['test'] = {badge};
+          conn.readDecoder.selfBadges['test'] = {badge};
         }
         await conn.doSendMessage('hi', 'test');
         if (expectCooldown) {
@@ -3601,10 +3613,9 @@ void main() {
       );
       await Future<void>.delayed(Duration.zero);
       expect(conn.remainingSelfTimeout('test'), isNotNull);
-      ircRead.emitOwnMessage(
-        parseIrcMessage(
-          ':viewer!viewer@viewer.tmi.twitch.tv PRIVMSG #test :hello',
-        )!,
+      ircRead.username = 'viewer';
+      ircRead.handleLine(
+        ':viewer!viewer@viewer.tmi.twitch.tv PRIVMSG #test :hello',
       );
       await Future<void>.delayed(Duration.zero);
       expect(conn.remainingSelfTimeout('test'), isNull);

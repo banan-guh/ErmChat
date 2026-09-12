@@ -5,7 +5,7 @@ import 'package:http/http.dart' as http;
 import '../../models/generic_emote.dart';
 import '../../util/constants.dart';
 import '../../util/log.dart';
-import '../data_usage.dart';
+import '../../util/data_usage.dart';
 
 class BttvEmoteProvider {
   // BTTV overlay codes: hardcoded (API doesn't mark them).

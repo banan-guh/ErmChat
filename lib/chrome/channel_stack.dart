@@ -7,7 +7,7 @@ import '../composer/composer_controller.dart';
 import '../models/twitch_message.dart';
 import '../panels/search.dart';
 import '../panels/threads.dart';
-import '../services/chat_store.dart';
+import '../chat/chat.dart';
 import '../services/link_whitelist.dart';
 import '../services/seven_tv_paint_service.dart';
 import '../services/twitch_auth.dart';
@@ -19,6 +19,9 @@ import '../widgets/chat_view.dart';
 import '../widgets/message_builder.dart';
 import '../widgets/tabbed_layout.dart';
 import 'home_app_bar.dart';
+
+// Fallback when the channel is gone; never bumps.
+final _emptyNotifier = ValueNotifier<int>(0);
 
 // Shell-owned state the channel stack reads but does not own.
 abstract class ChannelPanelsHost extends ShellState {
@@ -41,7 +44,7 @@ abstract class ChannelPanelsHost extends ShellState {
 // Channel tabs, ChatView stack, welcome view, and selection verbs.
 class ChannelPanels {
   ChannelPanels({
-    required this.chatStore,
+    required this.chat,
     required this.tileCache,
     required this.messageBuilder,
     required this.linkWhitelist,
@@ -60,7 +63,7 @@ class ChannelPanels {
 
   static const welcomeChannel = '__welcome__';
 
-  final ChatStore chatStore;
+  final Chat chat;
   final Map<String, Map<String?, Widget>> tileCache;
   final MessageBuilder messageBuilder;
   final LinkWhitelist linkWhitelist;
@@ -78,7 +81,7 @@ class ChannelPanels {
 
   late final Listenable _tabSharedMerge = Listenable.merge([
     selectedTabIndex,
-    chatStore.unreadVersion,
+    chat.unreadVersion,
   ]);
   String? _welcomeMessagesKey;
   List<TwitchMessage>? _welcomeMessages;
@@ -95,7 +98,7 @@ class ChannelPanels {
   List<String> _cachedChannels = const [];
 
   void _dropStaleCaches() {
-    final channels = chatStore.channels;
+    final channels = chat.names;
     var same = channels.length == _cachedChannels.length;
     if (same) {
       for (var i = 0; i < channels.length; i++) {
@@ -116,7 +119,7 @@ class ChannelPanels {
   // channel listenables, so they join the validity check. Everything else
   // the page reads is either listenable-driven (messages, edits, dim, query
   // via version/message/search) or a session-long object. Settings setters
-  // that change tile content must also touchChannel plus clear tileCache
+  // that change tile content must also call info.touch() plus clear tileCache
   // (see HomeScreen _setPref rerenderChannels); theme and text scale reach
   // tiles through inherited widgets, and late paints self-update inside
   // their own ListenableBuilder, so they need no token entry.
@@ -131,7 +134,7 @@ class ChannelPanels {
   void invalidateCaches() {
     _pageCache.clear();
     _tabCache.clear();
-    _cachedChannels = List.of(chatStore.channels);
+    _cachedChannels = List.of(chat.names);
   }
 
   Widget _cachedPage(BuildContext context, String channel) {
@@ -157,11 +160,11 @@ class ChannelPanels {
   /// [context] is channelStack's own long-lived build context.
   Widget _buildPage(BuildContext context, String channel) {
     return ListenableBuilder(
-      // messageNotifier drives new rows and text edits;
+      // message version drives new rows and text edits;
       // search bumps only its own channel on keystrokes.
       listenable: Listenable.merge([
-        host.versionNotifier(channel),
-        host.messageNotifier(channel),
+        chat.channelFor(channel)?.info.version ?? _emptyNotifier,
+        chat.channelFor(channel)?.messages.version ?? _emptyNotifier,
         search.channelVersion(channel),
       ]),
       builder: (_, _) => ChatView(
@@ -171,7 +174,8 @@ class ChannelPanels {
         isDimmed: search.dimPredicate(channel),
         emptyText: search.emptyText(channel) ?? 'No messages yet',
         atBottomNotifier: host.atBottomNotifier(channel),
-        messageNotifier: host.messageNotifier(channel),
+        messageNotifier:
+            chat.channelFor(channel)?.messages.version ?? _emptyNotifier,
         scrollController: host.scrollCtrl(channel),
         messageBuilder: messageBuilder,
         linkWhitelist: linkWhitelist,
@@ -187,7 +191,9 @@ class ChannelPanels {
             .showUserProfile(context, login, userId, displayName: displayName),
         onShowMessageMenu: (msg) => menus.showMessageMenu(context, msg),
         onCopyMessage: host.copyMessage,
-        onNewMessage: chatStore.noteNewMessage,
+        onScrollActivity: (c) {
+          chat.clearUnread(c);
+        },
         onFindThreadRoot: threads.findThreadRoot,
         onShowThreadView: (msg) => threads.showThreadView(msg),
         keyboardDismissBehavior: (!kIsWeb && Platform.isIOS)
@@ -205,12 +211,10 @@ class ChannelPanels {
     return ListenableBuilder(
       listenable: _tabSharedMerge,
       builder: (ctx, _) {
-        final focused =
-            chatStore.channels.indexOf(channel) == selectedTabIndex.value;
+        final focused = chat.names.indexOf(channel) == selectedTabIndex.value;
         final selected = focused || channel == host.selectedChannel;
-        final hasUnreadMention = chatStore.channelsWithUnreadMentions.contains(
-          channel,
-        );
+        final hasUnreadMention =
+            chat.channelFor(channel)?.unread.hasMention ?? false;
         final theme = Theme.of(ctx);
         return Stack(
           clipBehavior: Clip.none,
@@ -220,12 +224,13 @@ class ChannelPanels {
               style: TextStyle(
                 fontSize: 14,
                 fontWeight:
-                    selected || chatStore.channelsWithUnread.contains(channel)
+                    selected ||
+                        (chat.channelFor(channel)?.unread.hasUnread ?? false)
                     ? FontWeight.w600
                     : FontWeight.normal,
                 color: selected
                     ? theme.colorScheme.primary
-                    : chatStore.channelsWithUnread.contains(channel)
+                    : (chat.channelFor(channel)?.unread.hasUnread ?? false)
                     ? theme.colorScheme.onSurface
                     : null,
               ),
@@ -280,16 +285,14 @@ class ChannelPanels {
           onPointerDown: (_) {
             composer.clearSuggestions();
           },
-          child: chatStore.channels.isNotEmpty
+          child: chat.names.isNotEmpty
               ? TabbedLayout(
-                  tabs: chatStore.channels,
-                  selectedIndex: chatStore.channels.indexOf(
-                    host.selectedChannel ?? '',
-                  ),
+                  tabs: chat.names,
+                  selectedIndex: chat.names.indexOf(host.selectedChannel ?? ''),
                   onSelectedIndexChanged: onChannelChanged,
                   onFocusChanged: onChannelFocusChanged,
                   onTabTapped: (index) {
-                    final channel = chatStore.channels[index];
+                    final channel = chat.names[index];
                     final ctrl = host.scrollCtrl(channel);
                     if (ctrl.hasClients) ctrl.jumpTo(0);
                     host.atBottomNotifier(channel).value = true;
@@ -301,13 +304,13 @@ class ChannelPanels {
                   chromeMenu: homeAppBar.chromeMenu(),
                   belowTabBar: belowTabBar,
                   pageBuilder: (_, i) {
-                    final channel = chatStore.channels[i];
+                    final channel = chat.names[i];
                     return _cachedPage(context, channel);
                   },
                   focusOnHalfDrag: true,
                   fastSnap: host.fastSnap,
                   tabBuilder: (_, i) {
-                    final channel = chatStore.channels[i];
+                    final channel = chat.names[i];
                     final cached = _tabCache[channel];
                     if (cached != null) return cached;
                     final tab = _buildTab(channel);

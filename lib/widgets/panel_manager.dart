@@ -441,7 +441,7 @@ class PanelManager {
 
   List<TwitchMessage> computeThreadMessages({
     required TwitchMessage? openThreadRoot,
-    required Map<String, List<TwitchMessage>> channelMessages,
+    required List<TwitchMessage>? Function(String channel) messagesFor,
     required List<TwitchMessage>? Function(String channel, String rootId)
     threadFor,
   }) {
@@ -449,7 +449,7 @@ class PanelManager {
     if (entry == null) return const [];
     final channel = entry.channel;
     if (channel == null) return const [];
-    final allMsgs = channelMessages[channel] ?? [];
+    final allMsgs = messagesFor(channel) ?? [];
 
     final entryKey = entry.replyThreadRootId ?? entry.messageId;
     if (entryKey == null) return const [];
@@ -478,13 +478,13 @@ class PanelManager {
 
   TwitchMessage? findThreadRoot(
     TwitchMessage msg, {
-    required Map<String, List<TwitchMessage>> channelMessages,
+    required List<TwitchMessage>? Function(String channel) messagesFor,
   }) {
     if (msg.replyThreadRootId != null) return msg;
 
     final channel = msg.channel;
     if (channel == null) return null;
-    final msgs = channelMessages[channel];
+    final msgs = messagesFor(channel);
     if (msgs == null) return null;
 
     if (msg.messageId != null &&

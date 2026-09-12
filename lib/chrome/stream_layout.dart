@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
-import '../services/chat_store.dart';
+import '../chat/chat.dart';
 import '../services/pip_service.dart';
 import '../services/stream_player_controller.dart';
 import '../widgets/stream_player_view.dart';
@@ -87,7 +87,7 @@ class StreamPanels {
   StreamPanels({
     required this.streamPlayer,
     required this.pipService,
-    required this.chatStore,
+    required this.chat,
     required this.channels,
     required this.homeAppBar,
     required this.host,
@@ -100,7 +100,7 @@ class StreamPanels {
 
   final StreamPlayerController streamPlayer;
   final PipService pipService;
-  final ChatStore chatStore;
+  final Chat chat;
   final ChannelPanels channels;
   final HomeAppBar homeAppBar;
   final StreamPanelsHost host;
@@ -143,8 +143,8 @@ class StreamPanels {
     final channel = streamPlayer.currentChannel;
     if (channel == null) return;
     if (host.selectedChannel == channel) return;
-    if (!chatStore.channels.contains(channel)) return;
-    host.onChannelChanged(chatStore.channels.indexOf(channel));
+    if (!chat.contains(channel)) return;
+    host.onChannelChanged(chat.names.indexOf(channel));
   }
 
   // DankChat shouldShowStream: hide video when the keyboard leaves under

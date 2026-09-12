@@ -8,11 +8,12 @@ import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 
 import '../models/generic_emote.dart';
 import '../services/emote_cache_manager.dart';
+import '../util/semaphore.dart';
 import 'emote_image.dart';
 
 /// Caps concurrent decodes to avoid spawning too many isolates.
 const int _maxConcurrentDecodes = 10;
-final _DecodeSemaphore _decodeGate = _DecodeSemaphore(_maxConcurrentDecodes);
+final Semaphore _decodeGate = Semaphore(_maxConcurrentDecodes);
 
 /// Fetches emote bytes, streaming through disk cache when room.
 Future<Uint8List> fetchEmoteBytes(String url) async {
@@ -821,33 +822,5 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
       }
     }
     super.onDisposed();
-  }
-}
-
-/// FIFO permit gate: runs [action] only when a permit is free. Caps concurrent decodes.
-class _DecodeSemaphore {
-  _DecodeSemaphore(this.maxPermits) : _permits = maxPermits;
-
-  final int maxPermits;
-  int _permits;
-  final List<Completer<void>> _waiters = [];
-
-  Future<T> withPermit<T>(Future<T> Function() action) async {
-    if (_permits > 0) {
-      _permits--;
-    } else {
-      final completer = Completer<void>();
-      _waiters.add(completer);
-      await completer.future;
-    }
-    try {
-      return await action();
-    } finally {
-      if (_waiters.isNotEmpty) {
-        _waiters.removeAt(0).complete();
-      } else {
-        _permits++;
-      }
-    }
   }
 }

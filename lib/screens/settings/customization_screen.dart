@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../../theme_colors.dart';
+import '../../util/prefs.dart';
 import 'settings_page.dart';
 
 class CustomizationScreen extends StatefulWidget {
@@ -49,24 +49,18 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
   }
 
   Future<void> _loadPrefs() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await Prefs.load();
     if (mounted) {
       setState(() {
-        final saved = prefs.getString('themeMode');
-        if (saved != null) {
-          _themeMode = ThemeMode.values.firstWhere(
-            (e) => e.name == saved,
-            orElse: () => ThemeMode.system,
-          );
-        }
-        _keepScreenOn = prefs.getBool('keep_screen_on') ?? true;
-        _trueDark = prefs.getBool('true_dark') ?? false;
-        _accentKey = prefs.getString('accent_color') ?? kDefaultAccent;
-        _chatFontSize = prefs.getDouble('chat_font_size') ?? 14.0;
-        _highlightOpacity = prefs.getDouble('highlight_opacity') ?? 0.6;
-        _checkeredMessages = prefs.getBool('checkered_messages') ?? false;
-        _lineSeparator = prefs.getBool('line_separator') ?? false;
-        _fastSnap = prefs.getBool('fast_channel_snap') ?? true;
+        _themeMode = prefs.themeMode;
+        _keepScreenOn = prefs.keepScreenOn;
+        _trueDark = prefs.trueDark;
+        _accentKey = prefs.accentColor;
+        _chatFontSize = prefs.chatFontSize;
+        _highlightOpacity = prefs.highlightOpacity;
+        _checkeredMessages = prefs.checkeredMessages;
+        _lineSeparator = prefs.lineSeparator;
+        _fastSnap = prefs.fastChannelSnap;
       });
     }
   }
@@ -84,57 +78,43 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
     );
     if (mode == null || !mounted || mode == _themeMode) return;
     setState(() => _themeMode = mode);
-    SharedPreferences.getInstance().then((prefs) {
-      prefs.setString('themeMode', mode.name);
-    });
+    Prefs.load().then((prefs) => prefs.setThemeMode(mode));
     widget.onThemeChanged(mode);
   }
 
   void _setKeepScreenOn(bool value) {
     setState(() => _keepScreenOn = value);
-    SharedPreferences.getInstance().then((prefs) {
-      prefs.setBool('keep_screen_on', value);
-    });
+    Prefs.load().then((prefs) => prefs.setKeepScreenOn(value));
     widget.onKeepScreenOnChanged?.call(value);
   }
 
   void _setTrueDark(bool value) {
     setState(() => _trueDark = value);
-    SharedPreferences.getInstance().then((prefs) {
-      prefs.setBool('true_dark', value);
-    });
+    Prefs.load().then((prefs) => prefs.setTrueDark(value));
     widget.onTrueDarkChanged?.call(value);
   }
 
   void _setAccentColor(String key) {
     setState(() => _accentKey = key);
-    SharedPreferences.getInstance().then((prefs) {
-      prefs.setString('accent_color', key);
-    });
+    Prefs.load().then((prefs) => prefs.setAccentColor(key));
     widget.onAccentColorChanged?.call(key);
   }
 
   void _setCheckeredMessages(bool value) {
     setState(() => _checkeredMessages = value);
-    SharedPreferences.getInstance().then((prefs) {
-      prefs.setBool('checkered_messages', value);
-    });
+    Prefs.load().then((prefs) => prefs.setCheckeredMessages(value));
     widget.onCheckeredMessagesChanged?.call(value);
   }
 
   void _setLineSeparator(bool value) {
     setState(() => _lineSeparator = value);
-    SharedPreferences.getInstance().then((prefs) {
-      prefs.setBool('line_separator', value);
-    });
+    Prefs.load().then((prefs) => prefs.setLineSeparator(value));
     widget.onLineSeparatorChanged?.call(value);
   }
 
   void _setFastSnap(bool value) {
     setState(() => _fastSnap = value);
-    SharedPreferences.getInstance().then((prefs) {
-      prefs.setBool('fast_channel_snap', value);
-    });
+    Prefs.load().then((prefs) => prefs.setFastChannelSnap(value));
     widget.onFastSnapChanged?.call(value);
   }
 
@@ -205,9 +185,7 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
                   widget.onChatFontScaleChanged?.call(value);
                 },
                 onChangeEnd: (value) {
-                  SharedPreferences.getInstance().then(
-                    (prefs) => prefs.setDouble('chat_font_size', value),
-                  );
+                  Prefs.load().then((prefs) => prefs.setChatFontSize(value));
                 },
               ),
             ],
@@ -235,8 +213,8 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
                   widget.onHighlightOpacityChanged?.call(value);
                 },
                 onChangeEnd: (value) {
-                  SharedPreferences.getInstance().then(
-                    (prefs) => prefs.setDouble('highlight_opacity', value),
+                  Prefs.load().then(
+                    (prefs) => prefs.setHighlightOpacity(value),
                   );
                 },
               ),

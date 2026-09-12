@@ -8,7 +8,7 @@ import '../panels/mentions.dart';
 import '../panels/mod_panel.dart';
 import '../panels/threads.dart';
 import '../services/chat_connection_manager.dart';
-import '../services/chat_store.dart';
+import '../chat/chat.dart';
 import '../services/stream_player_controller.dart';
 import '../services/twitch_auth.dart';
 import '../util/constants.dart';
@@ -38,7 +38,7 @@ abstract class HomeAppBarHost extends ShellState {
 // Top app bar, chrome menu arrow, and their toggle/menu verbs.
 class HomeAppBar {
   HomeAppBar({
-    required this.chatStore,
+    required this.chat,
     required this.chatConn,
     required this.networkBusy,
     required this.twitchAuth,
@@ -50,7 +50,7 @@ class HomeAppBar {
     required this.host,
   });
 
-  final ChatStore chatStore;
+  final Chat chat;
   final ChatConnectionManager chatConn;
   final ValueListenable<bool> networkBusy;
   final TwitchAuth twitchAuth;
@@ -62,14 +62,11 @@ class HomeAppBar {
   final HomeAppBarHost host;
 
   bool _isChannelLive(String channel) =>
-      (chatStore.chatStatus[channel] ?? '').contains('Live');
+      (chat.channelFor(channel)?.info.status ?? '').contains('Live');
 
   void _onBellPressed() {
-    chatStore.unreadMentions = 0;
+    chat.clearAllUnread();
     mentions.clearUnreadWhispers();
-    chatStore.channelsWithUnreadMentions.clear();
-    chatStore.unreadMentionsPerChannel.clear();
-    chatStore.unreadVersion.value++;
     if (host.isMounted()) host.markDirty();
     if (host.activePanel == OverlayPanel.mentions) {
       unawaited(host.closePanel());
@@ -148,19 +145,18 @@ class HomeAppBar {
                               )
                             : const Icon(Icons.add),
                         tooltip: busy ? 'Loading...' : 'Join channel',
-                        onPressed:
-                            busy || chatStore.channels.length >= kMaxChannels
+                        onPressed: busy || chat.length >= kMaxChannels
                             ? null
                             : host.addChannelDialog,
                       );
                     },
                   ),
                   ListenableBuilder(
-                    listenable: chatStore.mentionsBump,
+                    listenable: chat.mentionsBump,
                     builder: (context, _) => IconButton(
                       icon: Icon(
                         Icons.notifications_active,
-                        color: chatStore.unreadMentions > 0
+                        color: chat.unreadMentions > 0
                             ? theme.colorScheme.error
                             : null,
                       ),

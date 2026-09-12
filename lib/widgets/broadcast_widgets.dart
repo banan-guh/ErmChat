@@ -1,9 +1,9 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
-import '../services/twitch_eventsub.dart';
+import '../eventsub/decode/events.dart';
+import '../util/prefs.dart';
 import 'chat_widget_cutout.dart';
 
 // Chat overlay widgets (hype train, poll, prediction) plus test fakes.
@@ -41,7 +41,7 @@ class BroadcastWidgets {
 
   void onHypeTrain(HypeTrainEvent event) {
     if (!mounted) return;
-    if (event.kind == 'end') {
+    if (event.kind == HypeTrainKind.end) {
       hypeTrains.remove(event.channel);
     } else {
       hypeTrains[event.channel] = event;
@@ -52,7 +52,7 @@ class BroadcastWidgets {
 
   void onPoll(PollEvent event) {
     if (!mounted) return;
-    if (event.kind == 'end') {
+    if (event.kind == PollKind.end) {
       polls.remove(event.channel);
     } else {
       polls[event.channel] = event;
@@ -63,7 +63,7 @@ class BroadcastWidgets {
 
   void onPrediction(PredictionEvent event) {
     if (!mounted) return;
-    if (event.kind == 'end') {
+    if (event.kind == PredictionKind.end) {
       predictions.remove(event.channel);
     } else {
       predictions[event.channel] = event;
@@ -73,9 +73,9 @@ class BroadcastWidgets {
   }
 
   Future<void> loadTestWidgets() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await Prefs.load();
     if (!mounted) return;
-    applyTestWidgets(prefs.getBool('test_chat_widgets') ?? false);
+    applyTestWidgets(prefs.testChatWidgets);
   }
 
   void setTestWidgets(bool value) {
@@ -128,7 +128,8 @@ class BroadcastWidgets {
     }
     hypeTrains[channel] = HypeTrainEvent(
       channel: channel,
-      kind: 'progress',
+      kind: HypeTrainKind.progress,
+      rawKind: 'progress',
       level: _fakeLevel,
       progress: _fakeProgress,
       total: _fakeGoal,
@@ -144,7 +145,8 @@ class BroadcastWidgets {
     _fakePollC += 1;
     polls[channel] = PollEvent(
       channel: channel,
-      kind: 'progress',
+      kind: PollKind.progress,
+      rawKind: 'progress',
       title: 'Fake poll: what should we play?',
       choices: [
         PollChoice(title: 'Minecraft', votes: _fakePollA),
@@ -158,7 +160,8 @@ class BroadcastWidgets {
     _fakePredNo += 5;
     predictions[channel] = PredictionEvent(
       channel: channel,
-      kind: 'progress',
+      kind: PredictionKind.progress,
+      rawKind: 'progress',
       title: 'Fake prediction: will we win?',
       outcomes: [
         PredictionOutcome(

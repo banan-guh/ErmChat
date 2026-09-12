@@ -2,9 +2,9 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../chat/chat.dart';
 import '../composer/composer_controller.dart';
 import '../services/chat_connection_manager.dart';
-import '../services/chat_store.dart';
 import '../services/mod_actions.dart';
 import '../services/twitch_auth.dart';
 import '../widgets/mod_view.dart';
@@ -32,7 +32,7 @@ class ModPanels {
   static const termsTabIndex = 6;
   ModPanels({
     required this.panelManager,
-    required this.chatStore,
+    required this.chat,
     required this.chatConn,
     required this.twitchAuth,
     required this.modActions,
@@ -43,7 +43,7 @@ class ModPanels {
   });
 
   final PanelManager panelManager;
-  final ChatStore chatStore;
+  final Chat chat;
   final ChatConnectionManager chatConn;
   final TwitchAuth twitchAuth;
   final ModActions modActions;
@@ -357,10 +357,12 @@ class ModPanels {
               indicatorSize: TabBarIndicatorSize.label,
               tabs: [
                 ValueListenableBuilder<int>(
-                  valueListenable: chatStore.heldVersion,
+                  valueListenable:
+                      chat.channelFor(channel)?.moderation.heldVersion ??
+                      ValueNotifier(0),
                   builder: (_, _, _) {
                     final pending =
-                        chatStore.heldMessages[channel]?.length ?? 0;
+                        chat.channelFor(channel)?.moderation.held.length ?? 0;
                     return Tab(
                       text: pending > 0 ? 'Queue ($pending)' : 'Queue',
                     );
@@ -381,7 +383,7 @@ class ModPanels {
       ),
       body: ModViewPanel(
         channel: channel,
-        store: chatStore,
+        chat: chat,
         modActions: modActions,
         auth: twitchAuth,
         tabController: modTab(),

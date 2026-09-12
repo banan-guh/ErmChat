@@ -2,9 +2,9 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../chat/chat.dart';
 import '../composer/composer_controller.dart';
 import '../models/twitch_message.dart';
-import '../services/chat_store.dart';
 
 // Which fields the query matches against.
 enum ChatSearchScope { all, messages, chatters }
@@ -84,9 +84,9 @@ abstract class SearchPanelsHost extends ShellState {
 // Per-channel view-only search. Kernel lists are never touched;
 // ChatView gets a filtered copy and the tile cache stays valid.
 class SearchPanels {
-  SearchPanels({required this.chatStore, required this.host});
+  SearchPanels({required this.chat, required this.host});
 
-  final ChatStore chatStore;
+  final Chat chat;
   final SearchPanelsHost host;
 
   // Per-channel ticks so keystrokes rebuild one page, not every tab.
@@ -120,16 +120,16 @@ class SearchPanels {
   List<TwitchMessage> visibleMessages(String channel) {
     final filter = stateFor(channel);
     if (!open || !filter.isActive) {
-      return chatStore.channelMessages[channel] ?? const [];
+      return chat.channelFor(channel)?.messages.items ?? const [];
     }
     final q = filter.query.trim().toLowerCase();
     var base = filter.live == ChatSearchLive.pause
         ? (_frozen[channel] ?? const <TwitchMessage>[])
-        : (chatStore.channelMessages[channel] ?? const <TwitchMessage>[]);
+        : (chat.channelFor(channel)?.messages.items ?? const <TwitchMessage>[]);
     if (filter.live == ChatSearchLive.pause) {
       // Drops rows evicted by truncation/deletes while frozen.
       final liveIds = {
-        for (final m in chatStore.channelMessages[channel] ?? const [])
+        for (final m in chat.channelFor(channel)?.messages.items ?? const [])
           if (m.messageId != null) m.messageId!,
       };
       base = base
@@ -218,7 +218,7 @@ class SearchPanels {
     _filters[channel] = stateFor(channel).copyWith(live: live);
     if (live == ChatSearchLive.pause) {
       _frozen[channel] = List.of(
-        chatStore.channelMessages[channel] ?? const [],
+        chat.channelFor(channel)?.messages.items ?? const [],
       );
     } else {
       _frozen.remove(channel);
@@ -236,7 +236,7 @@ class SearchPanels {
       WidgetsBinding.instance.addPostFrameCallback((_) => v.dispose());
     }
     // Leaving the last channel strands the bar, so drop it quietly.
-    if (chatStore.channels.isEmpty && open) {
+    if (chat.names.isEmpty && open) {
       open = false;
       field.clear();
       focusNode.unfocus();

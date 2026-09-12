@@ -1,13 +1,14 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../services/twitch_api.dart';
 import '../../services/twitch_auth.dart';
 import '../../services/twitch_oauth.dart';
 import '../../twitch_config.dart';
+import '../../util/prefs.dart';
 import '../../widgets/app_snack.dart';
+import '../../widgets/dialogs.dart';
 import 'settings_page.dart';
 
 enum _AuthState { idle, waiting, success, error, needsSetup, pasteToken }
@@ -36,7 +37,6 @@ class _AccountScreenState extends State<AccountScreen> {
   String? _connectedLogin;
   final _pasteController = TextEditingController();
   TwitchApi? _ownApi;
-
   TwitchApi get _twitchApi => _ownApi ??= widget.twitchApi ?? TwitchApi();
 
   @override
@@ -91,8 +91,8 @@ class _AccountScreenState extends State<AccountScreen> {
       return;
     }
 
-    final prefs = await SharedPreferences.getInstance();
-    final useBrowserOAuth = prefs.getBool('use_browser_oauth') ?? false;
+    final prefs = await Prefs.load();
+    final useBrowserOAuth = prefs.useBrowserOAuth;
     if (useBrowserOAuth) {
       _startBrowserOAuth();
     } else {
@@ -290,24 +290,14 @@ class _AccountScreenState extends State<AccountScreen> {
   }
 
   Future<void> _confirmRemove(TwitchAccount account) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Remove account?'),
-        content: Text('Are you sure you want to remove @${account.login}?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Remove'),
-          ),
-        ],
-      ),
+    final confirmed = await confirmDialog(
+      context,
+      title: 'Remove account?',
+      message: 'Are you sure you want to remove @${account.login}?',
+      confirmLabel: 'Remove',
+      destructive: true,
     );
-    if (confirmed != true || !mounted) return;
+    if (!confirmed || !mounted) return;
     await widget.twitchAuth.removeAccount(account.login);
     if (!mounted) return;
     setState(() {
