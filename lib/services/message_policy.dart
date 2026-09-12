@@ -5,14 +5,14 @@ import 'ping_manager.dart';
 import 'user_store.dart';
 
 /// Per-message ingest policy shared by the live and history paths: local
-/// ignores, keyword rules, ping highlighting, user learning, and the
-/// self-authored history rewrite. The live and history callers apply these in
-/// their own order and keep the steps that differ between them.
+/// ignores, Twitch blocks, keyword rules, ping highlighting, user learning, and
+/// the self-authored history rewrite. The live and history callers apply these
+/// in their own order and keep the steps that differ between them.
 ///
 /// Preserved differences (not aligned; decide separately):
-/// - live applies blocked-phrase drop and keyword rewrite; history does not.
-/// - live overwrites any ping highlight; history only backfills mention ones.
-/// - live gates on chat-ready/blocked and shared-chat hide; history does not.
+/// - live rewrites keywords and overwrites any ping highlight; history only
+///   backfills mention-tier highlights.
+/// - live gates on chat-ready and shared-chat hide; history does not.
 /// - history applies the self-authored You/were rewrite; live does not.
 /// - live pings then learns users; history learns, rewrites, then pings.
 class ChatMessagePolicy {
@@ -21,16 +21,23 @@ class ChatMessagePolicy {
     required this.pingManager,
     required this.userStore,
     required this.session,
+    this.isBlocked,
   });
 
   final IgnoreManager? ignoreManager;
   final PingManager? pingManager;
   final UserStore userStore;
   final Session session;
+  final bool Function(String login)? isBlocked;
 
   /// Ignored users' messages drop outright; system messages always pass.
   bool shouldDropForIgnore(TwitchMessage msg) {
     return !msg.isSystem && ignoreManager?.isIgnored(msg.login) == true;
+  }
+
+  /// Twitch-blocked users' messages drop outright; system messages always pass.
+  bool shouldDropForBlockedUser(TwitchMessage msg) {
+    return !msg.isSystem && (isBlocked?.call(msg.login) ?? false);
   }
 
   /// Block-mode keyword matches drop the whole message.

@@ -332,6 +332,52 @@ void main() {
     });
   });
 
+  group('Messages.mergeHistory', () {
+    test('rows evicted by the merge are not reported as inserted', () {
+      final chat = Chat();
+      addTearDown(chat.dispose);
+      final channel = chat.ensure('test');
+      for (final id in ['l1', 'l2', 'l3']) {
+        channel.receive(
+          _live(id),
+          maxMessages: 3,
+          isSelected: true,
+          ownLogin: null,
+        );
+      }
+      final root = TwitchMessage(
+        login: 'bob',
+        text: 'root',
+        messageId: 'h0',
+        channel: 'test',
+        timestamp: DateTime(2026, 1, 1),
+      );
+      final reply = TwitchMessage(
+        login: 'bob',
+        text: 'reply',
+        messageId: 'h1',
+        channel: 'test',
+        replyToParentId: 'h0',
+        replyThreadRootId: 'h0',
+        timestamp: DateTime(2026, 1, 1, 0, 0, 1),
+      );
+
+      chat.receiveHistory(
+        'test',
+        [root, reply],
+        rawHistory: [root, reply],
+        maxMessages: 3,
+        ownLogin: null,
+      );
+
+      // The older history rows fell off the cap, so the thread index must not
+      // keep a thread that references rows no longer in the buffer.
+      expect(channel.messages.byId('h0'), isNull);
+      expect(channel.threads.threadFor('h0'), isNull);
+      expect(channel.messages.length, 3);
+    });
+  });
+
   group('status lines are id-keyed', () {
     test('moveConnectedToTop finds a renamed connect row by id', () {
       final chat = Chat();

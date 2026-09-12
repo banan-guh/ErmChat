@@ -75,6 +75,32 @@ void main() {
     });
   });
 
+  group('blocked users', () {
+    test('drops blocked senders but not system messages', () {
+      final blocked = ChatMessagePolicy(
+        ignoreManager: ignores,
+        pingManager: pings,
+        userStore: users,
+        session: session,
+        isBlocked: (login) => login == 'blockeduser',
+      );
+      expect(
+        blocked.shouldDropForBlockedUser(msg('hi', login: 'blockeduser')),
+        isTrue,
+      );
+      expect(
+        blocked.shouldDropForBlockedUser(msg('hi', login: 'gooduser')),
+        isFalse,
+      );
+      expect(
+        blocked.shouldDropForBlockedUser(
+          msg('hi', login: 'blockeduser', isSystem: true),
+        ),
+        isFalse,
+      );
+    });
+  });
+
   group('keyword rewrite', () {
     test('replaces non-block keyword matches', () {
       ignores.upsertKeyword(

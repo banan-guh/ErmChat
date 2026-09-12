@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 
+import '../models/twitch_message.dart';
 import 'channel/channel.dart';
 import 'mentions.dart';
 
@@ -57,9 +58,87 @@ class Chat {
     return channel;
   }
 
-  void noteMention() {
-    _unreadMentions++;
+  // ---- Ingest --------------------------------------------------------------
+
+  /// One live message: the channel verb plus the root-owned cross-channel
+  /// writes. The root mirrors mention rows into the @mentions buffer and moves
+  /// the totals, so callers never perform those writes and the two ingest paths
+  /// cannot drift apart.
+  ReceiveResult receive(
+    String channel,
+    TwitchMessage msg, {
+    required int maxMessages,
+    required bool isSelected,
+    required String? ownLogin,
+  }) {
+    final result = ensure(channel).receive(
+      msg,
+      maxMessages: maxMessages,
+      isSelected: isSelected,
+      ownLogin: ownLogin,
+    );
+    if (!result.inserted) return result;
+    if (result.mentioned) {
+      mirrorMentions([msg], maxMessages: maxMessages);
+    }
+    if (result.countMention) {
+      noteMention();
+    } else if (result.countUnread) {
+      noteUnread();
+    }
+    return result;
+  }
+
+  /// One history batch: the channel verb plus the root-owned mention mirror.
+  /// Backfill never counts unread, and own rows are not mirrored, so live and
+  /// history share one mention predicate.
+  List<TwitchMessage> receiveHistory(
+    String channel,
+    List<TwitchMessage> prepared, {
+    required Iterable<TwitchMessage> rawHistory,
+    required int maxMessages,
+    required String? ownLogin,
+  }) {
+    final inserted = ensure(channel).receiveHistory(
+      prepared,
+      rawHistory: rawHistory,
+      maxMessages: maxMessages,
+    );
+    final mirrored = [
+      for (final m in inserted)
+        if (_isMentionRow(m, ownLogin)) m,
+    ];
+    if (mirrored.isNotEmpty) {
+      mirrorMentions(mirrored, maxMessages: maxMessages);
+    }
+    return inserted;
+  }
+
+  /// Single writer for the @mentions mirror. Live ingest, history backfill, and
+  /// the retroactive scan all route through it.
+  void mirrorMentions(List<TwitchMessage> rows, {required int maxMessages}) {
+    mentions.add(rows, maxMessages: maxMessages);
+  }
+
+  static bool _isMentionRow(TwitchMessage m, String? ownLogin) {
+    if (!(m.highlight?.hasMention ?? false)) return false;
+    return ownLogin == null || m.login.toLowerCase() != ownLogin.toLowerCase();
+  }
+
+  // ---- Aggregates ----------------------------------------------------------
+
+  /// Single writer for [unreadMentions]. Every real change bumps [mentionsBump]
+  /// so the bell can never go stale; callers that also move channel dots bump
+  /// [unreadVersion] themselves.
+  void _setUnreadMentions(int value) {
+    final next = value < 0 ? 0 : value;
+    if (next == _unreadMentions) return;
+    _unreadMentions = next;
     mentionsBump.value++;
+  }
+
+  void noteMention() {
+    _setUnreadMentions(_unreadMentions + 1);
     unreadVersion.value++;
   }
 
@@ -69,8 +148,7 @@ class Chat {
 
   /// A whisper arrived while its tab was hidden.
   void noteWhisper() {
-    _unreadMentions++;
-    mentionsBump.value++;
+    _setUnreadMentions(_unreadMentions + 1);
   }
 
   /// Whisper traffic that carries no unread (system lines, own sends,
@@ -81,9 +159,7 @@ class Chat {
 
   /// The whispers tab consumed [count] unseen whispers.
   void markWhispersSeen(int count) {
-    _unreadMentions -= count;
-    if (_unreadMentions < 0) _unreadMentions = 0;
-    mentionsBump.value++;
+    _setUnreadMentions(_unreadMentions - count);
   }
 
   /// Selection cleared one channel's dots. Returns cleared mention count.
@@ -92,8 +168,7 @@ class Chat {
     if (c == null) return 0;
     final cleared = c.unread.clear();
     if (cleared > 0) {
-      _unreadMentions -= cleared;
-      if (_unreadMentions < 0) _unreadMentions = 0;
+      _setUnreadMentions(_unreadMentions - cleared);
     }
     unreadVersion.value++;
     return cleared;
@@ -103,7 +178,7 @@ class Chat {
     for (final c in _channels.values) {
       c.unread.clear();
     }
-    _unreadMentions = 0;
+    _setUnreadMentions(0);
     unreadVersion.value++;
   }
 
@@ -123,8 +198,7 @@ class Chat {
       c.clearForAccountSwitch();
     }
     mentions.clearForAccountSwitch();
-    _unreadMentions = 0;
-    mentionsBump.value++;
+    _setUnreadMentions(0);
     unreadVersion.value++;
     rebuildLoadFailures();
   }
@@ -136,9 +210,7 @@ class Chat {
     _order.remove(name);
     final droppedMentions = channel.unread.mentionCount;
     if (droppedMentions > 0) {
-      _unreadMentions -= droppedMentions;
-      if (_unreadMentions < 0) _unreadMentions = 0;
-      mentionsBump.value++;
+      _setUnreadMentions(_unreadMentions - droppedMentions);
     }
     channel.dispose();
     unreadVersion.value++;

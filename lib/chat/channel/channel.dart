@@ -103,7 +103,9 @@ class Channel {
     );
   }
 
-  /// History/backfill batch. No unread or mention counting.
+  /// History/backfill batch. No unread or mention counting. Touches activity
+  /// and lifts the connect line in the same step, so callers never write
+  /// channel children directly.
   List<TwitchMessage> receiveHistory(
     List<TwitchMessage> prepared, {
     required Iterable<TwitchMessage> rawHistory,
@@ -119,6 +121,8 @@ class Channel {
     if (outcome.inserted.isNotEmpty) {
       threads.index(outcome.inserted, lookupRoot: messages.byId);
     }
+    info.touch();
+    moveConnectedToTop();
     return outcome.inserted;
   }
 

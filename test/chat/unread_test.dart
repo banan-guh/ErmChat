@@ -7,14 +7,14 @@ TwitchMessage _live(String id, {String login = 'alice'}) =>
     TwitchMessage(login: login, text: 'hello', messageId: id, channel: 'test');
 
 void main() {
-  group('Channel.receive mention and unread counting', () {
+  group('Chat.receive mention and unread counting', () {
     test('mention in unselected channel bumps mention total and mirrors', () {
       final chat = Chat();
       addTearDown(chat.dispose);
-      final channel = chat.ensure('test');
       final msg = _live('m1')
         ..highlight = const HighlightState(types: {HighlightType.username});
-      final result = channel.receive(
+      final result = chat.receive(
+        'test',
         msg,
         maxMessages: 10,
         isSelected: false,
@@ -23,16 +23,6 @@ void main() {
       expect(result.inserted, isTrue);
       expect(result.mentioned, isTrue);
       expect(result.countMention, isTrue);
-      // Aggregate step mirrors chat_ingestion.dart: mirror mentions, then
-      // count the mention (which implies the bulk unread).
-      if (result.mentioned) {
-        chat.mentions.add([msg], maxMessages: 10);
-      }
-      if (result.countMention) {
-        chat.noteMention();
-      } else if (result.countUnread) {
-        chat.noteUnread();
-      }
       expect(chat.unreadMentions, 1);
       expect(chat.mentionsBump.value, 1);
       expect(chat.mentions.items, hasLength(1));
@@ -42,10 +32,10 @@ void main() {
     test('mention in selected channel skips counters but still mirrors', () {
       final chat = Chat();
       addTearDown(chat.dispose);
-      final channel = chat.ensure('test');
       final msg = _live('m1')
         ..highlight = const HighlightState(types: {HighlightType.reply});
-      final result = channel.receive(
+      final result = chat.receive(
+        'test',
         msg,
         maxMessages: 10,
         isSelected: true,
@@ -55,14 +45,6 @@ void main() {
       expect(result.mentioned, isTrue);
       expect(result.countMention, isFalse);
       expect(result.countUnread, isFalse);
-      if (result.mentioned) {
-        chat.mentions.add([msg], maxMessages: 10);
-      }
-      if (result.countMention) {
-        chat.noteMention();
-      } else if (result.countUnread) {
-        chat.noteUnread();
-      }
       expect(chat.unreadMentions, 0);
       expect(chat.mentionsBump.value, 0);
       expect(chat.mentions.items, hasLength(1));
@@ -72,10 +54,10 @@ void main() {
     test('own messages never count', () {
       final chat = Chat();
       addTearDown(chat.dispose);
-      final channel = chat.ensure('test');
       final msg = _live('m1', login: 'me')
         ..highlight = const HighlightState(types: {HighlightType.username});
-      final result = channel.receive(
+      final result = chat.receive(
+        'test',
         msg,
         maxMessages: 10,
         isSelected: false,
@@ -85,6 +67,9 @@ void main() {
       expect(result.mentioned, isFalse);
       expect(result.countMention, isFalse);
       expect(result.countUnread, isFalse);
+      expect(chat.unreadMentions, 0);
+      expect(chat.mentions.isEmpty, isTrue);
+      final channel = chat.channelFor('test')!;
       expect(channel.unread.mentionCount, 0);
       expect(channel.unread.hasUnread, isFalse);
     });
@@ -92,7 +77,6 @@ void main() {
     test('history rows never count', () {
       final chat = Chat();
       addTearDown(chat.dispose);
-      final channel = chat.ensure('test');
       final msg = TwitchMessage(
         login: 'alice',
         text: 'hello',
@@ -100,7 +84,8 @@ void main() {
         channel: 'test',
         isHistory: true,
       )..highlight = const HighlightState(types: {HighlightType.username});
-      final result = channel.receive(
+      final result = chat.receive(
+        'test',
         msg,
         maxMessages: 10,
         isSelected: false,
@@ -109,6 +94,8 @@ void main() {
       expect(result.inserted, isTrue);
       expect(result.countMention, isFalse);
       expect(result.countUnread, isFalse);
+      expect(chat.unreadMentions, 0);
+      final channel = chat.channelFor('test')!;
       expect(channel.unread.mentionCount, 0);
       expect(channel.unread.hasUnread, isFalse);
     });
@@ -116,8 +103,8 @@ void main() {
     test('system rows skip bulk unread', () {
       final chat = Chat();
       addTearDown(chat.dispose);
-      final channel = chat.ensure('test');
-      final result = channel.receive(
+      final result = chat.receive(
+        'test',
         TwitchMessage(
           login: '',
           text: 'slow mode on',
@@ -130,7 +117,45 @@ void main() {
       );
       expect(result.inserted, isTrue);
       expect(result.countUnread, isFalse);
-      expect(channel.unread.hasUnread, isFalse);
+      expect(chat.channelFor('test')!.unread.hasUnread, isFalse);
+    });
+  });
+
+  group('Chat.receiveHistory mention mirror', () {
+    TwitchMessage history(String id, {String login = 'alice'}) => TwitchMessage(
+      login: login,
+      text: 'hello',
+      messageId: id,
+      channel: 'test',
+      isHistory: true,
+    )..highlight = const HighlightState(types: {HighlightType.username});
+
+    test('mirrors mention rows and never counts unread', () {
+      final chat = Chat();
+      addTearDown(chat.dispose);
+      chat.receiveHistory(
+        'test',
+        [history('m1')],
+        rawHistory: [history('m1')],
+        maxMessages: 10,
+        ownLogin: null,
+      );
+      expect(chat.mentions.items.single.messageId, 'm1');
+      expect(chat.unreadMentions, 0);
+      expect(chat.channelFor('test')!.unread.mentionCount, 0);
+    });
+
+    test('own mention rows are not mirrored', () {
+      final chat = Chat();
+      addTearDown(chat.dispose);
+      chat.receiveHistory(
+        'test',
+        [history('m1', login: 'me')],
+        rawHistory: [history('m1', login: 'me')],
+        maxMessages: 10,
+        ownLogin: 'me',
+      );
+      expect(chat.mentions.isEmpty, isTrue);
     });
   });
 }

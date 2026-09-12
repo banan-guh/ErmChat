@@ -23,11 +23,13 @@ class ChatHistoryController {
     required this.userStore,
     required this.maxMessages,
     required this.recentMessagesLimit,
+    this.isBlocked,
   }) : _policy = ChatMessagePolicy(
          ignoreManager: ignoreManager,
          pingManager: pingManager,
          userStore: userStore,
          session: session,
+         isBlocked: isBlocked,
        );
 
   final Chat chat;
@@ -38,18 +40,22 @@ class ChatHistoryController {
   final UserStore userStore;
   final int Function() maxMessages;
   final int Function() recentMessagesLimit;
+  final bool Function(String login)? isBlocked;
 
   final ChatMessagePolicy _policy;
   final _refetchingChannels = <String>{};
 
   /// Merges robotty history into the channel buffer (newest-first). Single
-  /// owner for the history checklist: ignore filter, user learning, the
-  /// You/were rewrite, mention-only ping tint, then the channel verb which
-  /// owns dedup, id-less fold, sort, gap note, truncate, and thread index.
+  /// owner for the history checklist: ignore and block filters, user learning,
+  /// the You/were rewrite, mention-only ping tint, then the chat root verb
+  /// which owns the mention mirror and the channel's dedup, id-less fold, sort,
+  /// gap note, truncate, and thread index.
   void mergeHistory(String channel, List<TwitchMessage> history) {
     final prepared = <TwitchMessage>[];
     for (final msg in history) {
       if (_policy.shouldDropForIgnore(msg)) continue;
+      if (_policy.shouldDropForBlockedUser(msg)) continue;
+      if (_policy.shouldDropForBlockedPhrase(msg)) continue;
       if (!msg.isSystem && msg.login.isNotEmpty) {
         _policy.learnUser(channel, msg);
       }
@@ -57,21 +63,32 @@ class ChatHistoryController {
       _policy.applyPingHighlight(msg, mentionOnly: true);
       prepared.add(msg);
     }
-    final c = chat.ensure(channel);
-    final inserted = c.receiveHistory(
+    chat.receiveHistory(
+      channel,
       prepared,
       rawHistory: history,
       maxMessages: maxMessages(),
+      ownLogin: session.login,
     );
-    final mirrored = [
-      for (final m in inserted)
-        if (m.highlight?.hasMention ?? false) m,
-    ];
-    if (mirrored.isNotEmpty) {
-      chat.mentions.add(mirrored, maxMessages: maxMessages());
+  }
+
+  /// Retroactive mention scan, run once on login: evaluates ping rules against
+  /// rows already buffered and mirrors the hits. Does not count unread.
+  void scanForMentions() {
+    if (session.login == null) return;
+    final hits = <TwitchMessage>[];
+    for (final name in chat.names) {
+      final items = chat.channelFor(name)?.messages.items;
+      if (items == null) continue;
+      for (final msg in items) {
+        if (msg.highlight != null) continue;
+        _policy.applyPingHighlight(msg, mentionOnly: true);
+        if (msg.highlight?.hasMention ?? false) hits.add(msg);
+      }
     }
-    c.info.touch();
-    c.moveConnectedToTop();
+    if (hits.isNotEmpty) {
+      chat.mirrorMentions(hits, maxMessages: maxMessages());
+    }
   }
 
   /// Refetches every joined channel's history after a reconnect. The kernel

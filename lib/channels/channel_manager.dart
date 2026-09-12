@@ -6,7 +6,6 @@ import 'package:flutter/services.dart';
 import '../chat/chat.dart';
 import '../client/session.dart';
 import '../composer/composer_controller.dart';
-import '../models/twitch_message.dart';
 import '../panels/threads.dart';
 import '../services/analytics_service.dart';
 import '../services/chat_connection_manager.dart';
@@ -336,28 +335,12 @@ class ChannelManager {
     chatConn.focusChannel(channel);
   }
 
-  // Retroactive mention scan: runs once on login. Hits are batched and
-  // mirrored through Mentions, which sorts newest-first regardless of the
-  // (newest-first) channel-buffer iteration order.
+  // Retroactive mention scan: runs once on login. The history owner evaluates
+  // the ping rules and mirrors the hits through the chat root.
   void scanHistoryForMentions() {
     if (_mentionScanDone || session.login == null) return;
     _mentionScanDone = true;
-    final hits = <TwitchMessage>[];
-    for (final name in chat.names) {
-      if (name == mentionsChannel) continue;
-      final items = chat.channelFor(name)?.messages.items;
-      if (items == null) continue;
-      for (final msg in items) {
-        if (msg.highlight != null) continue;
-        final state = pingManager.evaluate(msg);
-        if (state == null || !state.hasMention) continue;
-        msg.highlight = state;
-        hits.add(msg);
-      }
-    }
-    if (hits.isNotEmpty) {
-      chat.mentions.add(hits, maxMessages: host.maxMessages);
-    }
+    history.scanForMentions();
   }
 
   Future<void> loadRecentMessagesConfig() async {

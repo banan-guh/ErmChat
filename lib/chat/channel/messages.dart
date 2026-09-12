@@ -199,10 +199,17 @@ class Messages {
       );
     }
 
-    _items.sort((a, b) => b.timestamp.compareTo(a.timestamp));
-    final evicted = _maybeTruncate(maxMessages, buildExemptions);
+    _sortNewestFirst();
+    final evicted = truncate(maxMessages, buildExemptions);
+    final evictedSet = evicted.toSet();
+    // A row that was inserted and then trimmed is not resident, so it must not
+    // reach the thread index; otherwise the index keeps ghost entries.
+    final resident = [
+      for (final m in inserted)
+        if (!evictedSet.contains(m)) m,
+    ];
     _bump();
-    return MergeOutcome(inserted: inserted, evicted: evicted);
+    return MergeOutcome(inserted: resident, evicted: evicted);
   }
 
   /// Merges mention-tier rows into this (the @mentions pseudo) buffer: dedup by
@@ -221,7 +228,7 @@ class Messages {
     }
     if (added.isEmpty) return;
     _items.addAll(added);
-    _items.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    _sortNewestFirst();
     if (_items.length > maxMessages) {
       _items.removeRange(maxMessages, _items.length);
     }
@@ -588,6 +595,22 @@ class Messages {
       return const [];
     }
     return truncate(maxMessages, buildExemptions);
+  }
+
+  /// Newest-first sort that preserves prior relative order on timestamp ties.
+  /// Dart's sort is unstable, so a reply could otherwise jump above its root
+  /// when live and history rows share a boundary second.
+  void _sortNewestFirst() {
+    if (_items.length < 2) return;
+    final indices = List<int>.generate(_items.length, (i) => i);
+    indices.sort((a, b) {
+      final byTime = _items[b].timestamp.compareTo(_items[a].timestamp);
+      return byTime != 0 ? byTime : a.compareTo(b);
+    });
+    final sorted = [for (final i in indices) _items[i]];
+    _items
+      ..clear()
+      ..addAll(sorted);
   }
 
   bool _isDuplicateIdlessSystemRow(

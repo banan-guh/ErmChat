@@ -95,6 +95,7 @@ class ChatIngestion {
     pingManager: pingManager,
     userStore: userStore,
     session: session,
+    isBlocked: isBlocked,
   );
 
   final String mentionsChannel;
@@ -219,7 +220,7 @@ class ChatIngestion {
     // Chat content is hidden until the blocked-users list has been applied,
     // and blocked users' messages never appear at all.
     if (isChatReady?.call() == false) return;
-    if (!msg.isSystem && isBlocked?.call(msg.login) == true) return;
+    if (_policy.shouldDropForBlockedUser(msg)) return;
 
     final channel = msg.channel;
     if (channel == null) return;
@@ -251,25 +252,14 @@ class ChatIngestion {
     }
 
     final selected = getSelectedChannel();
-    final result = chat
-        .ensure(channel)
-        .receive(
-          msg,
-          maxMessages: getMaxMessagesPerChannel(),
-          isSelected: channel == selected,
-          ownLogin: session.login,
-        );
+    final result = chat.receive(
+      channel,
+      msg,
+      maxMessages: getMaxMessagesPerChannel(),
+      isSelected: channel == selected,
+      ownLogin: session.login,
+    );
     if (!result.inserted) return;
-
-    // Aggregates follow the verb's single decision; never re-decided here.
-    if (result.mentioned) {
-      chat.mentions.add([msg], maxMessages: getMaxMessagesPerChannel());
-    }
-    if (result.countMention) {
-      chat.noteMention();
-    } else if (result.countUnread) {
-      chat.noteUnread();
-    }
 
     // Feed the emote usage registry from live chat: the emotes people are
     // actually staring at get cache priority. History/backfill are skipped
@@ -608,17 +598,19 @@ class ChatIngestion {
 
     _policy.learnUser(channel, msg);
 
+    final result = chat.receive(
+      channel,
+      msg,
+      maxMessages: getMaxMessagesPerChannel(),
+      isSelected: channel == getSelectedChannel(),
+      ownLogin: session.login,
+    );
+    if (!result.inserted) return;
+
+    // Counted after the dedup gate: the read socket and the write echo carry
+    // the same message, so counting before the insert would double it.
     onAnalyticsMessage?.call(channel, msg);
 
-    final result = chat
-        .ensure(channel)
-        .receive(
-          msg,
-          maxMessages: getMaxMessagesPerChannel(),
-          isSelected: channel == getSelectedChannel(),
-          ownLogin: session.login,
-        );
-    if (!result.inserted) return;
     precacheMessageEmotes(msg, channel);
     // Own messages arrive on the read socket (not the channel echo), so they
     // would otherwise never be read aloud; surface them like any other chat

@@ -92,6 +92,8 @@ final chatHistoryControllerProvider = Provider<ChatHistoryController>((ref) {
     userStore: ref.read(userStoreProvider),
     maxMessages: () => ref.read(maxMessagesPerChannelProvider),
     recentMessagesLimit: () => ref.read(recentMessagesLimitProvider),
+    isBlocked: (login) =>
+        ref.read(blockedLoginsProvider).contains(login.toLowerCase()),
   );
 });
 
