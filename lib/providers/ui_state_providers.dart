@@ -34,6 +34,18 @@ class MaxMessagesNotifier extends Notifier<int> {
 final maxMessagesPerChannelProvider =
     NotifierProvider<MaxMessagesNotifier, int>(MaxMessagesNotifier.new);
 
+class RecentMessagesLimitNotifier extends Notifier<int> {
+  @override
+  int build() => kRecentMessagesLimitDefault;
+
+  void set(int value) => state = value;
+}
+
+final recentMessagesLimitProvider =
+    NotifierProvider<RecentMessagesLimitNotifier, int>(
+      RecentMessagesLimitNotifier.new,
+    );
+
 class ReplyToNotifier extends Notifier<TwitchMessage?> {
   @override
   TwitchMessage? build() => null;

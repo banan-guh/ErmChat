@@ -91,6 +91,9 @@ class Messages {
 
   /// Stable id for the loading-history row.
   static const loadingHistoryId = 'sys_loading';
+
+  /// Stable id for the join-queue progress row.
+  static const joinWaitId = 'join_wait';
   static const _gapNoteText = 'History: Not all messages retrieved';
 
   static String _connId(String state) => '$_connIdPrefix$state';

@@ -2,7 +2,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/twitch_message.dart';
-import '../services/chat_connection_manager.dart';
 
 /// A typed, purpose-named output port. [add] returns an unsubscribe callback
 /// so subscribers never rely on tear-off identity to detach.
@@ -41,7 +40,6 @@ class ChatVoidSignal {
   void clear() => _listeners.clear();
 }
 
-typedef JoinProgressSignal = ({String channel, JoinProgress? info});
 typedef UserEmoteSetsSignal = ({String? channel, List<String> ids});
 typedef WhisperSystemSignal = ({String channel, String text});
 typedef WhisperSentSignal = ({String target, String message});
@@ -52,9 +50,6 @@ typedef WhisperSentSignal = ({String target, String message});
 class ChatUiSignals {
   final ChatVoidSignal focusComposer = ChatVoidSignal();
   final ChatSignal<String> banner = ChatSignal<String>();
-  final ChatVoidSignal reconnected = ChatVoidSignal();
-  final ChatSignal<JoinProgressSignal> joinProgress =
-      ChatSignal<JoinProgressSignal>();
   final ChatSignal<TwitchMessage> whisper = ChatSignal<TwitchMessage>();
   final ChatSignal<UserEmoteSetsSignal> userEmoteSets =
       ChatSignal<UserEmoteSetsSignal>();
@@ -66,8 +61,6 @@ class ChatUiSignals {
   void dispose() {
     focusComposer.clear();
     banner.clear();
-    reconnected.clear();
-    joinProgress.clear();
     whisper.clear();
     userEmoteSets.clear();
     whisperSystem.clear();

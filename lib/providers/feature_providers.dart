@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/twitch_message.dart';
 import '../services/analytics_service.dart';
+import '../services/chat_history_controller.dart';
 import '../services/command_handler.dart';
 import '../services/mod_actions.dart';
 import '../services/notification_service.dart';
@@ -77,6 +78,21 @@ final broadcastWidgetsProvider = Provider<BroadcastWidgets>((ref) {
   );
   ref.onDispose(widgets.dispose);
   return widgets;
+});
+
+/// History backfill owner. Wired from providers and consumed by the pipeline
+/// (reconnect refetch) and the shell (boot/join merge); owns no resources.
+final chatHistoryControllerProvider = Provider<ChatHistoryController>((ref) {
+  return ChatHistoryController(
+    chat: ref.read(chatProvider),
+    session: ref.read(sessionProvider),
+    recentMessages: ref.read(recentMessagesServiceProvider),
+    ignoreManager: ref.read(ignoreManagerProvider),
+    pingManager: ref.read(pingManagerProvider),
+    userStore: ref.read(userStoreProvider),
+    maxMessages: () => ref.read(maxMessagesPerChannelProvider),
+    recentMessagesLimit: () => ref.read(recentMessagesLimitProvider),
+  );
 });
 
 /// Slash-command handler. It owns no resources; whisper routing emits
@@ -199,4 +215,17 @@ final twitchAuthTickProvider = NotifierProvider<ChangeNotifierTick, int>(
 
 final connectivityTickProvider = NotifierProvider<ChangeNotifierTick, int>(
   () => ChangeNotifierTick((ref) => ref.watch(connectivityServiceProvider)),
+);
+
+/// Bumped when the pipeline reconnects, so the shell can refresh emote data
+/// without owning the history refetch.
+class ReconnectedTick extends Notifier<int> {
+  @override
+  int build() => 0;
+
+  void bump() => state++;
+}
+
+final reconnectedTickProvider = NotifierProvider<ReconnectedTick, int>(
+  ReconnectedTick.new,
 );

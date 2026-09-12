@@ -537,6 +537,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     selectedTabIndex: _selectedTabIndex,
     recentMessagesService: ref.read(recentMessagesServiceProvider),
     mentionsChannel: _mentionsChannel,
+    history: ref.read(chatHistoryControllerProvider),
     host: this,
   );
 
@@ -875,11 +876,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     }
   }
 
-  void _setRecentMessagesLimit(int value) => _setPref(
-    () => _recentMessagesLimit,
-    (v) => _recentMessagesLimit = v,
-    value,
-  );
+  void _setRecentMessagesLimit(int value) =>
+      _setPref(() => _recentMessagesLimit, (v) {
+        _recentMessagesLimit = v;
+        ref.read(recentMessagesLimitProvider.notifier).set(v);
+      }, value);
 
   void _setReplyToRoot(bool value) =>
       _setPref(() => _replyToRoot, (v) => _replyToRoot = v, value);
@@ -1071,11 +1072,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     }
   }
 
-  void _onReconnected() {
-    _channelManager.onReconnected();
-    unawaited(_emotes.refreshSubEmoteOwners());
-  }
-
   void _onLinkWhitelistChanged() {
     // Re-render visible tiles so the new link-whitelist entries take effect.
     _tileCache.clear();
@@ -1159,8 +1155,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _signalUnsubs.addAll([
       signals.focusComposer.add(_onFocusComposerSignal),
       signals.banner.add(_showBanner),
-      signals.reconnected.add(_onReconnected),
-      signals.joinProgress.add(_onJoinProgressSignal),
       signals.whisper.add(_mentions.onWhisper),
       signals.userEmoteSets.add(_onUserEmoteSetsSignal),
       signals.whisperSystem.add(
@@ -1173,9 +1167,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   }
 
   void _onFocusComposerSignal() => _composer.focus();
-
-  void _onJoinProgressSignal(JoinProgressSignal signal) =>
-      _channelManager.onJoinProgress(signal.channel, signal.info);
 
   void _onUserEmoteSetsSignal(UserEmoteSetsSignal signal) =>
       unawaited(_emotes.loadUserEmoteSets(signal.channel, signal.ids));
@@ -1384,6 +1375,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       ref
           .read(maxMessagesPerChannelProvider.notifier)
           .set(prefs.maxMessagesPerChannel);
+      ref
+          .read(recentMessagesLimitProvider.notifier)
+          .set(prefs.recentMessagesLimit);
       _recentMessagesLimit = prefs.recentMessagesLimit;
       _replyToRoot = prefs.replyToThreadRoot;
       _preferEmotesFirst = prefs.preferEmotesFirst;
@@ -1695,6 +1689,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     ref.listen(twitchAuthTickProvider, (_, _) => _onAuthChanged());
     ref.listen(connectivityTickProvider, (_, _) => _onConnectivityChanged());
     ref.listen(connectionStateProvider, (_, _) => _onConnectionChanged());
+    ref.listen(
+      reconnectedTickProvider,
+      (_, _) => unawaited(_emotes.refreshSubEmoteOwners()),
+    );
     return PopScope(
       canPop:
           !_isFullscreen &&

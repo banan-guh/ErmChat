@@ -65,14 +65,14 @@ tests unless noted.
   (`chatPipelineProvider`) and built entirely from providers; `lib/services` cannot
   import `lib/providers`. Outputs route directly to provider owners where the target is
   data-side: `command` to `CommandHandler`, hype/poll/prediction to `BroadcastWidgets`,
-  `mention` to `mentionNotifierProvider`, analytics/TTS direct. The manager's mutable
-  `onMention`/`onWhisper` fields folded into `ChatSinks`. `ChatUiSignals` has eight
-  members (`focusComposer`, `banner`, `joinProgress`, `reconnected`, `whisper`,
-  `userEmoteSets`, `whisperSystem`, `whisperSent`), and every one targets a UI owner that
-  lives outside the pipeline (composer, notices/`ChannelManager`, mentions panel,
-  `EmoteApplier`). The four custom ChangeNotifier bridges collapsed into one
-  `ChangeNotifierTick` adaptor. The provider owns construction and teardown; the screen
-  owns when to connect (app lifecycle).
+  `mention` to `mentionNotifierProvider`, analytics/TTS direct, `joinProgress` to a
+  `Channel.setJoinWait` verb, `reconnected` to `ChatHistoryController.refetchAll()`. The
+  manager's mutable `onMention`/`onWhisper` fields folded into `ChatSinks`. `ChatUiSignals`
+  is down to six members (`focusComposer`, `banner`, `whisper`, `userEmoteSets`,
+  `whisperSystem`, `whisperSent`), and every one targets a UI owner that lives outside the
+  pipeline (composer, notices, mentions panel, `EmoteApplier`). The four custom
+  ChangeNotifier bridges collapsed into one `ChangeNotifierTick` adaptor. The provider owns
+  construction and teardown; the screen owns when to connect (app lifecycle).
   Finishing further means touching those UI owners, which is the next phase, not the
   pipeline.
 

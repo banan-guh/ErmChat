@@ -10,9 +10,9 @@ import '../models/twitch_message.dart';
 import '../panels/threads.dart';
 import '../services/analytics_service.dart';
 import '../services/chat_connection_manager.dart';
+import '../services/chat_history_controller.dart';
 import '../services/emote_manager.dart';
 import '../services/ignore_manager.dart';
-import '../services/message_policy.dart';
 import '../services/notification_service.dart';
 import '../services/ping_manager.dart';
 import '../services/recent_messages.dart';
@@ -75,6 +75,7 @@ class ChannelManager {
     required this.selectedTabIndex,
     required this.recentMessagesService,
     required this.mentionsChannel,
+    required this.history,
     required this.host,
   });
 
@@ -100,19 +101,12 @@ class ChannelManager {
   final ValueNotifier<int> selectedTabIndex;
   final RecentMessagesService? recentMessagesService;
   final String mentionsChannel;
+  final ChatHistoryController history;
   final ChannelManagerHost host;
 
   bool _channelsLoaded = false;
-  final _refetchingChannels = <String>{};
   final _generations = <String, int>{};
   bool _mentionScanDone = false;
-
-  late final ChatMessagePolicy _policy = ChatMessagePolicy(
-    ignoreManager: ignoreManager,
-    pingManager: pingManager,
-    userStore: userStore,
-    session: session,
-  );
 
   /// Re-arm the once-per-login mention scan after an account switch.
   void rearmMentionScan() => _mentionScanDone = false;
@@ -160,14 +154,14 @@ class ChannelManager {
       subscribeChannel(name);
       recentMessages
           .fetchRecentPreferWarm(name, limit: host.recentMessagesLimit)
-          .then((history) {
+          .then((rows) {
             if (!host.isMounted()) return;
             chat.channelFor(name)?.setHistoryLoaded(true);
             host.mutate(() {
-              if (history.isEmpty) {
+              if (rows.isEmpty) {
                 host.addSystemMessage(name, 'No chat history available');
               } else {
-                mergeHistory(name, history);
+                history.mergeHistory(name, rows);
               }
             });
             maybeAddConnected(name);
@@ -184,99 +178,6 @@ class ChannelManager {
             maybeAddConnected(name);
           });
     }
-  }
-
-  // Merges robotty history into the channel buffer (newest-first). Single
-  // owner for the history checklist: ignore filter, user learning, the
-  // You/were rewrite, mention-only ping tint, then the channel verb which
-  // owns dedup, id-less fold, sort, gap note, truncate, and thread index.
-  // All three paths (boot, join, refetch) call this helper.
-  void mergeHistory(String channel, List<TwitchMessage> history) {
-    final prepared = <TwitchMessage>[];
-    for (final msg in history) {
-      if (_policy.shouldDropForIgnore(msg)) continue;
-      if (!msg.isSystem && msg.login.isNotEmpty) {
-        _policy.learnUser(channel, msg);
-      }
-      _policy.applySelfRewrite(msg);
-      _policy.applyPingHighlight(msg, mentionOnly: true);
-      prepared.add(msg);
-    }
-    final c = chat.ensure(channel);
-    final inserted = c.receiveHistory(
-      prepared,
-      rawHistory: history,
-      maxMessages: host.maxMessages,
-    );
-    final mirrored = [
-      for (final m in inserted)
-        if (m.highlight?.hasMention ?? false) m,
-    ];
-    if (mirrored.isNotEmpty) {
-      chat.mentions.add(mirrored, maxMessages: host.maxMessages);
-    }
-    c.info.touch();
-    c.moveConnectedToTop();
-  }
-
-  void onReconnected() {
-    for (final channel in List.of(chat.names)) {
-      unawaited(refetchHistory(channel));
-    }
-  }
-
-  Future<void> refetchHistory(String channel) async {
-    if (!(chat.channelFor(channel)?.info.historyLoaded ?? false) ||
-        _refetchingChannels.contains(channel)) {
-      return;
-    }
-    _refetchingChannels.add(channel);
-    try {
-      final history = await recentMessages.fetchRecent(
-        channel,
-        limit: host.recentMessagesLimit,
-      );
-      if (!host.isMounted() || !chat.contains(channel)) return;
-      final existing = chat.channelFor(channel)?.messages;
-      if (existing == null || history.isEmpty) return;
-      // Messages recovered from history after a reconnect gap are marked as
-      // backfill so they render greyed out, distinct from live chat.
-      for (final msg in history) {
-        msg.isBackfill = true;
-      }
-      host.mutate(() {
-        mergeHistory(channel, history);
-      });
-    } catch (e) {
-      logDebug('[HomeScreen] history re-fetch failed for $channel: $e');
-    } finally {
-      _refetchingChannels.remove(channel);
-    }
-  }
-
-  /// Translates join-queue progress into a live countdown system line
-  /// ("Joining: position 12, ~14s"); position 0 means numbers are over
-  /// (sent, awaiting echo) and the line degrades to a plain marker; a null
-  /// [info] retires the line.
-  void onJoinProgress(String channel, JoinProgress? info) {
-    final id = 'join_wait_$channel';
-    final messages = chat.channelFor(channel)?.messages;
-    if (messages == null) return;
-    var changed = false;
-    if (info == null) {
-      changed = messages.removeSystem(id);
-    } else {
-      final text = info.position <= 0
-          ? 'Joining #$channel...'
-          : info.etaSeconds <= 0
-          ? 'Joining: position ${info.position}'
-          : 'Joining: position ${info.position}, ~${info.etaSeconds}s';
-      changed = messages.upsertSystem(text, messageId: id);
-    }
-    if (!changed) return;
-    // Upsert bumps plus emits the id itself; tile eviction follows the
-    // mutation fan-out, so no manual tile drop or extra signal here.
-    truncateChannel(channel);
   }
 
   void maybeAddConnected(String channel) {
@@ -320,15 +221,15 @@ class ChannelManager {
 
     recentMessages
         .fetchRecentPreferWarm(name, limit: host.recentMessagesLimit)
-        .then((history) {
+        .then((rows) {
           if (!host.isMounted()) return;
           chat.channelFor(name)?.setHistoryLoaded(true);
           host.mutate(() {
             removeLoadingHistoryMessage(name);
-            if (history.isEmpty) {
+            if (rows.isEmpty) {
               host.addSystemMessage(name, 'No chat history available');
             } else {
-              mergeHistory(name, history);
+              history.mergeHistory(name, rows);
             }
           });
           maybeAddConnected(name);

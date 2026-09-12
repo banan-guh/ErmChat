@@ -6,6 +6,7 @@ import 'package:ermchat/models/twitch_message.dart';
 import 'package:ermchat/panels/threads.dart';
 import 'package:ermchat/services/analytics_service.dart';
 import 'package:ermchat/services/chat_connection_manager.dart';
+import 'package:ermchat/services/chat_history_controller.dart';
 import 'package:ermchat/services/emote_manager.dart';
 import 'package:ermchat/services/ignore_manager.dart';
 import 'package:ermchat/services/notification_service.dart';
@@ -80,34 +81,51 @@ class _FakeThreads with _Unimplemented implements ThreadPanels {}
 
 class _FakeComposer with _Unimplemented implements ComposerController {}
 
-ChannelManager _channelManager(Chat chat) => ChannelManager(
-  chat: chat,
-  session: Session(),
-  chatConn: _FakeConn(),
-  irc: IrcService(),
-  ircRead: IrcReadService(),
-  twitchAuth: TwitchAuth(),
-  emoteManager: _FakeEmotes(),
-  badgeService: TwitchBadgeService(),
-  analytics: _FakeAnalytics(),
-  streamPlayer: _FakePlayer(),
-  userStore: UserStore(),
-  pingManager: PingManager(),
-  ignoreManager: IgnoreManager(),
-  notificationService: _FakeNotifs(),
-  threads: _FakeThreads(),
-  composer: _FakeComposer(),
-  broadcastWidgets: BroadcastWidgets(selectedChannel: () => null),
-  tileCache: {},
-  channelNotifier: ValueNotifier(const ['test']),
-  selectedTabIndex: ValueNotifier(0),
-  recentMessagesService: null,
-  mentionsChannel: '@mentions',
-  host: _ChannelManagerHost(),
-);
+ChannelManager _channelManager(Chat chat) {
+  final session = Session();
+  final userStore = UserStore();
+  final pingManager = PingManager();
+  final ignoreManager = IgnoreManager();
+  final history = ChatHistoryController(
+    chat: chat,
+    session: session,
+    recentMessages: RecentMessagesService(),
+    ignoreManager: ignoreManager,
+    pingManager: pingManager,
+    userStore: userStore,
+    maxMessages: () => 500,
+    recentMessagesLimit: () => 100,
+  );
+  return ChannelManager(
+    chat: chat,
+    session: session,
+    chatConn: _FakeConn(),
+    irc: IrcService(),
+    ircRead: IrcReadService(),
+    twitchAuth: TwitchAuth(),
+    emoteManager: _FakeEmotes(),
+    badgeService: TwitchBadgeService(),
+    analytics: _FakeAnalytics(),
+    streamPlayer: _FakePlayer(),
+    userStore: userStore,
+    pingManager: pingManager,
+    ignoreManager: ignoreManager,
+    notificationService: _FakeNotifs(),
+    threads: _FakeThreads(),
+    composer: _FakeComposer(),
+    broadcastWidgets: BroadcastWidgets(selectedChannel: () => null),
+    tileCache: {},
+    channelNotifier: ValueNotifier(const ['test']),
+    selectedTabIndex: ValueNotifier(0),
+    recentMessagesService: null,
+    mentionsChannel: '@mentions',
+    history: history,
+    host: _ChannelManagerHost(),
+  );
+}
 
 void main() {
-  group('ChannelManager.mergeHistory', () {
+  group('ChannelManager.history mergeHistory', () {
     const noticeText = 'This room is now in slow mode.';
 
     TwitchMessage historyNotice(int tsMs) => RecentMessagesService.parseIrcLine(
@@ -133,8 +151,8 @@ void main() {
       addTearDown(chat.dispose);
       final manager = _channelManager(chat);
       const t0 = 1767225600000;
-      manager.mergeHistory('test', [historyNotice(t0)]);
-      manager.mergeHistory('test', [historyNotice(t0)]);
+      manager.history.mergeHistory('test', [historyNotice(t0)]);
+      manager.history.mergeHistory('test', [historyNotice(t0)]);
       expect(sysRows(chat, noticeText), 1);
     });
 
@@ -157,7 +175,9 @@ void main() {
             isSelected: true,
             ownLogin: null,
           );
-      manager.mergeHistory('test', [historyNotice(t0.millisecondsSinceEpoch)]);
+      manager.history.mergeHistory('test', [
+        historyNotice(t0.millisecondsSinceEpoch),
+      ]);
       expect(sysRows(chat, noticeText), 1);
     });
   });

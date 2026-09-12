@@ -174,6 +174,18 @@ class Channel {
     return true;
   }
 
+  /// Single writer for the join-queue progress row. A null [text] retires the
+  /// line; otherwise it is upserted under the stable id. Returns whether the
+  /// row changed, and truncates in the same step when it did.
+  bool setJoinWait(String? text, {required int maxMessages}) {
+    final changed = text == null
+        ? messages.removeSystem(Messages.joinWaitId)
+        : messages.upsertSystem(text, messageId: Messages.joinWaitId);
+    if (!changed) return false;
+    truncate(maxMessages);
+    return true;
+  }
+
   void clearForAccountSwitch() {
     unread.clearForAccountSwitch();
     moderation.clearForAccountSwitch();

@@ -60,8 +60,21 @@ final chatPipelineProvider = Provider<ChatConnectionManager>((ref) {
         getMaxMessagesPerChannel: () => ref.read(maxMessagesPerChannelProvider),
         onSystemMessage: (channel, text, {accent, messageId}) =>
             writeSystem(channel, text, accent: accent, messageId: messageId),
-        onJoinProgress: (channel, info) =>
-            signals.joinProgress.emit((channel: channel, info: info)),
+        onJoinProgress: (channel, info) {
+          final text = info == null
+              ? null
+              : info.position <= 0
+              ? 'Joining #$channel...'
+              : info.etaSeconds <= 0
+              ? 'Joining: position ${info.position}'
+              : 'Joining: position ${info.position}, ~${info.etaSeconds}s';
+          chat
+              .channelFor(channel)
+              ?.setJoinWait(
+                text,
+                maxMessages: ref.read(maxMessagesPerChannelProvider),
+              );
+        },
         onBanner: signals.banner.emit,
         onFocusComposer: signals.focusComposer.emit,
       ),
@@ -77,7 +90,10 @@ final chatPipelineProvider = Provider<ChatConnectionManager>((ref) {
         setReplyToMsg: (value) => ref.read(replyToProvider.notifier).set(value),
         onUserEmoteSets: (channel, ids) async =>
             signals.userEmoteSets.emit((channel: channel, ids: ids)),
-        onReconnected: signals.reconnected.emit,
+        onReconnected: () {
+          ref.read(chatHistoryControllerProvider).refetchAll();
+          ref.read(reconnectedTickProvider.notifier).bump();
+        },
         onMention: (channel, msg) =>
             ref.read(mentionNotifierProvider).handle(channel, msg),
         onWhisper: signals.whisper.emit,
