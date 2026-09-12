@@ -9,6 +9,7 @@ import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import '../models/generic_emote.dart';
 import '../services/emote_cache_manager.dart';
 import '../util/semaphore.dart';
+import '../util/webp_anim.dart';
 import 'emote_image.dart';
 
 /// Caps concurrent decodes to avoid spawning too many isolates.
@@ -36,157 +37,6 @@ Future<Uint8List> fetchEmoteBytes(String url) async {
   });
 }
 
-/// Adaptive perf governor: slow loop over the strain ratio (fraction of
-/// frames over the refresh budget). Every [tickInterval] it maps the ratio
-/// to a target via a quadratic cut (base 30: r0.2->30, r0.4->27, r0.6->22,
-/// r0.8->12, r1.0->5) and moves the smoothed cap toward it by at most
-/// [maxDownStep] down or [maxUpStep] up, so recovery takes several ticks.
-class _PerfGovernor {
-  _PerfGovernor({DateTime Function()? now, double Function()? refreshRateFps})
-    : _now = now ?? DateTime.now,
-      _refreshRateFps = refreshRateFps ?? _defaultRefreshRate;
-
-  @visibleForTesting
-  static const int floorFps = 5;
-  @visibleForTesting
-  static const double strainGate = 0.15;
-  @visibleForTesting
-  static const Duration tickInterval = Duration(seconds: 5);
-  @visibleForTesting
-  static const int maxDownStep = 10;
-  @visibleForTesting
-  static const int maxUpStep = 3;
-  @visibleForTesting
-  static const int minSamples = 10;
-
-  DateTime Function() _now;
-  double Function() _refreshRateFps;
-  final List<_PerfSample> _samples = [];
-  DateTime? _lastSampleTime;
-  int? _smoothedCap;
-  DateTime? _lastTick;
-
-  void addFrame({required Duration build, required Duration raster}) {
-    final now = _now();
-    final last = _lastSampleTime;
-    // Drop stale samples after idle, but keep the smoothed cap so recovery
-    // stays slow; the gap reset in capFor handles the fully idle case.
-    if (last != null && now.difference(last) > tickInterval) {
-      _samples.clear();
-    }
-    _lastSampleTime = now;
-    _samples.add(_PerfSample((build + raster).inMicroseconds, now));
-    _prune(now);
-  }
-
-  void onTimings(List<FrameTiming> timings) {
-    for (final timing in timings) {
-      addFrame(build: timing.buildDuration, raster: timing.rasterDuration);
-    }
-  }
-
-  int capFor(int baseCap) {
-    if (baseCap <= 0) return 0;
-    if (baseCap <= floorFps) return baseCap;
-    // User lowered the base cap: respect it at once.
-    final smoothed = _smoothedCap;
-    if (smoothed != null && baseCap < smoothed) {
-      _smoothedCap = baseCap;
-      return baseCap;
-    }
-    final last = _lastSampleTime;
-    if (last == null) return baseCap;
-    final now = _now();
-    if (now.difference(last) > tickInterval) {
-      _samples.clear();
-      _lastSampleTime = null;
-      _smoothedCap = null;
-      _lastTick = null;
-      return baseCap;
-    }
-    _prune(now);
-    if (_samples.length < minSamples) return _smoothedCap ?? baseCap;
-    final tick = _lastTick;
-    // Rate-limit: hold the smoothed value between ticks.
-    if (tick != null && now.difference(tick) < tickInterval) {
-      return (_smoothedCap ?? baseCap).clamp(floorFps, baseCap);
-    }
-    final target = _targetFor(baseCap);
-    var current = _smoothedCap ?? baseCap;
-    if (current > baseCap) current = baseCap;
-    final delta = target - current;
-    final step = delta < 0
-        ? delta.clamp(-maxDownStep, 0)
-        : delta.clamp(0, maxUpStep);
-    current += step;
-    if (current < floorFps) current = floorFps;
-    if (current > baseCap) current = baseCap;
-    _smoothedCap = current;
-    _lastTick = now;
-    return current;
-  }
-
-  int _targetFor(int baseCap) {
-    final budgetUs = _budgetUs();
-    var over = 0;
-    for (final sample in _samples) {
-      if (sample.costUs > budgetUs) over++;
-    }
-    final r = over / _samples.length;
-    if (r < strainGate) return baseCap;
-    final s = (r - strainGate) / (1 - strainGate);
-    final capped = (baseCap * (1 - s * s)).round();
-    return capped < floorFps ? floorFps : capped;
-  }
-
-  @visibleForTesting
-  void reset() {
-    _samples.clear();
-    _lastSampleTime = null;
-    _smoothedCap = null;
-    _lastTick = null;
-  }
-
-  void _prune(DateTime now) {
-    final cutoff = now.subtract(tickInterval);
-    while (_samples.isNotEmpty && _samples.first.time.isBefore(cutoff)) {
-      _samples.removeAt(0);
-    }
-    while (_samples.length > 600) {
-      _samples.removeAt(0);
-    }
-  }
-
-  int _budgetUs() {
-    double fps;
-    try {
-      fps = _refreshRateFps();
-    } catch (_) {
-      fps = 60.0;
-    }
-    if (fps.isNaN || fps.isInfinite || fps <= 0) fps = 60.0;
-    return (1000000 / fps).round();
-  }
-
-  static double _defaultRefreshRate() {
-    try {
-      final views = SchedulerBinding.instance.platformDispatcher.views;
-      if (views.isEmpty) return 60.0;
-      final rate = views.first.display.refreshRate;
-      return rate > 0 ? rate : 60.0;
-    } catch (_) {
-      return 60.0;
-    }
-  }
-}
-
-class _PerfSample {
-  _PerfSample(this.costUs, this.time);
-
-  final int costUs;
-  final DateTime time;
-}
-
 /// Whether [emote] renders through the custom completer loop. True for
 /// animated non-Twitch emotes (the engine mis-composites animated WebP
 /// transparency, so only our decoder is correct) and for frozen animated
@@ -201,12 +51,9 @@ bool emoteUsesCustomLoop(GenericEmote emote, {required bool animateGifs}) =>
 class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
   EmoteUrlProvider(this.url);
 
-  /// Test hooks; fall back to the production fetcher/decoder when null.
+  /// Test hook; falls back to the production fetcher when null.
   @visibleForTesting
   static Future<Uint8List> Function(String url)? debugFetchOverride;
-
-  @visibleForTesting
-  static EmoteFrameDecoder? debugDecodeOverride;
 
   final String url;
 
@@ -225,105 +72,8 @@ class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
   /// Seeds queued by target URL for the next completer.
   static final Map<String, String> _pendingSeeds = {};
 
-  /// FPS cap for decoder-driven completers. 60 = uncapped, 0 = paused. Synced from prefs.
-  static int fpsCap = 30;
-
-  /// Panel emotes play at native rate regardless of [fpsCap]. Synced from prefs.
-  static bool alwaysAnimatePanel = true;
-
   /// Whether animated GIFs play. False freezes at current frame. Synced from prefs.
   static bool gifsEnabled = true;
-
-  /// Adaptive throttle: lowers the effective cap from measured frame strain.
-  /// Synced from prefs.
-  static bool adaptiveThrottle = true;
-
-  /// Shared perf verdict driving the adaptive cap.
-  static final _PerfGovernor _governor = _PerfGovernor();
-
-  /// Whether the frame-timings callback is subscribed.
-  static bool _perfSubscribed = false;
-
-  /// Timings entry point. Re-evaluates live loops.
-  static void _onPerfTimings(List<FrameTiming> timings) {
-    _governor.onTimings(timings);
-    refreshAdaptiveThrottle();
-  }
-
-  /// Matches the timings subscription to [adaptiveThrottle]. Never polls
-  /// while the setting is off.
-  static void _syncPerfSubscription() {
-    if (adaptiveThrottle) {
-      if (!_perfSubscribed) {
-        SchedulerBinding.instance.addTimingsCallback(_onPerfTimings);
-        _perfSubscribed = true;
-      }
-      return;
-    }
-    if (!_perfSubscribed) return;
-    SchedulerBinding.instance.removeTimingsCallback(_onPerfTimings);
-    _perfSubscribed = false;
-    _governor.reset();
-    refreshAdaptiveThrottle();
-  }
-
-  /// Timings subscription state. Exposed for tests.
-  @visibleForTesting
-  static bool get debugPerfSubscribed => _perfSubscribed;
-
-  /// Resets the shared perf governor. Exposed for tests.
-  @visibleForTesting
-  static void debugResetPerf() => _governor.reset();
-
-  /// Overrides the governor clock/budget. Exposed for tests.
-  @visibleForTesting
-  static void debugSetPerfSources({
-    DateTime Function()? now,
-    double Function()? refreshRateFps,
-  }) {
-    if (now != null) _governor._now = now;
-    if (refreshRateFps != null) _governor._refreshRateFps = refreshRateFps;
-  }
-
-  /// Feeds one frame to the shared governor. Exposed for tests.
-  @visibleForTesting
-  static void debugAddPerfFrame({
-    required Duration build,
-    required Duration raster,
-  }) => _governor.addFrame(build: build, raster: raster);
-
-  /// Governor cap for [baseCap]. Exposed for tests.
-  @visibleForTesting
-  static int debugPerfCapFor(int baseCap) => _governor.capFor(baseCap);
-
-  /// Toggles adaptive throttle and re-evaluates all live completers.
-  static void applyAdaptiveThrottle(bool enabled) {
-    adaptiveThrottle = enabled;
-    _syncPerfSubscription();
-    refreshAdaptiveThrottle();
-  }
-
-  /// Re-evaluates all live completers after cap input changes.
-  static void refreshAdaptiveThrottle() {
-    for (final completer in List.of(_liveByUrl.values)) {
-      completer._refreshForFpsCap();
-    }
-  }
-
-  /// Total listeners on playback-capable completers (animated copies on screen).
-  static int get animatedListenerCount => _liveByUrl.values.fold(
-    0,
-    (total, completer) =>
-        total + (completer._playbackCapable ? completer._listenerCount : 0),
-  );
-
-  /// Sets FPS cap (0..60) and updates all live completers.
-  static void applyFpsCap(int cap) {
-    fpsCap = cap.clamp(0, 60);
-    for (final completer in List.of(_liveByUrl.values)) {
-      completer._refreshForFpsCap();
-    }
-  }
 
   /// Toggles GIF animation, freezing/resuming live completers.
   static void applyGifsEnabled(bool enabled) {
@@ -333,45 +83,11 @@ class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
     }
   }
 
-  /// Registers [url] as uncapped (creates completer on demand). No-op if unresolvable.
-  static void addUncapped(String url) {
-    _completerFor(url)?.addUncappedListener();
-  }
-
-  /// Removes an uncapped registration. Only affects live completers.
-  static void removeUncapped(String url) {
-    _liveByUrl[url]?.removeUncappedListener();
-  }
-
-  /// Rounds wake target up to grid multiple for shared wake instants. Exposed for tests.
-  @visibleForTesting
-  static int alignWakeUsToGrid(int targetUs, int gridUs) {
-    if (gridUs <= 0) return targetUs;
-    return ((targetUs + gridUs - 1) ~/ gridUs) * gridUs;
-  }
-
   /// Live custom-loop completers by URL (animated WebP, playing GIFs,
   /// frozen stills). Engine-routable bytes never enter: they resolve through
   /// the stock provider at call sites, so this map no longer decides
   /// lifetime for the hot path. Entries leave on dispose (zero listeners).
   static final Map<String, _EmoteImageCompleter> _liveByUrl = {};
-
-  /// Emissions via [_EmoteImageCompleter._emitFrame]. Test telemetry only.
-  static int debugEmissionCount = 0;
-
-  /// Pre-clones guarding the frame store (one per emission). Test telemetry.
-  static int debugPreCloneCount = 0;
-
-  /// Sum of listener counts across emissions. Test telemetry only.
-  static int debugFanoutDeliveries = 0;
-
-  /// Resets emission telemetry. Exposed for tests.
-  @visibleForTesting
-  static void debugResetEmoteCounters() {
-    debugEmissionCount = 0;
-    debugPreCloneCount = 0;
-    debugFanoutDeliveries = 0;
-  }
 
   /// Seeds [url]'s playback from [sourceUrl]'s current frame for in-phase swap.
   static void seedPlayback(String url, String sourceUrl) {
@@ -396,16 +112,13 @@ class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
   static int currentFrame(String url) =>
       _completerFor(url)?.currentFrameIndex ?? 0;
 
-  /// Effective FPS cap for [url] (-1 when absent). Exposed for tests.
-  static int debugEffectiveCap(String url) =>
-      _liveByUrl[url]?._effectiveFpsCap ?? -1;
-
-  /// Whether [url] has decoded frames ready. No completer creation.
+  /// Whether [url] has a decoded frame ready. No completer creation.
   static bool hasFrames(String url) {
     final live = _liveByUrl[url];
     if (live == null || live._disposed) return false;
     final frames = live._frames;
-    return frames != null && frames.frames.isNotEmpty;
+    if (frames != null && frames.frames.isNotEmpty) return true;
+    return live._hasStreamFrame;
   }
 
   /// Shared completer for [url], created on demand.
@@ -443,8 +156,19 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
 
   final String url;
   final ImageDecoderCallback _engineDecode;
+
+  /// Materialized frames: transparent animated WebP, frozen GIF, and statics.
   EmoteFrameData? _frames;
   int _frameIndex = 0;
+
+  /// Streaming codec: no-alpha animated WebP and playing GIFs. One live frame.
+  ui.Codec? _codec;
+
+  /// Parsed ANMF durations for streaming WebP; null uses the engine durations.
+  List<Duration>? _streamDurations;
+  int _streamEmitted = 0;
+  bool _hasStreamFrame = false;
+  bool _streamDecoding = false;
 
   /// Fires only to request the next app frame; never emits frames itself.
   Timer? _frameTimer;
@@ -453,15 +177,6 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
 
   /// Cycle position at last tick. Kept across pause/resume.
   Duration _cyclePosition = Duration.zero;
-
-  /// Count of uncapped listeners. While > 0, plays at native rate regardless of FPS cap.
-  int _uncappedCount = 0;
-
-  /// Listener count (telemetry only; the governor reads frame strain).
-  int _listenerCount = 0;
-
-  /// Whether this completer has a throttling-worthy animation (multi-frame with real cycle).
-  bool _playbackCapable = false;
 
   /// True for animated GIFs; allows freeze/resume via gifs toggle.
   bool _isAnimatedGif = false;
@@ -478,66 +193,28 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
           await (EmoteUrlProvider.debugFetchOverride ?? fetchEmoteBytes)(url);
       if (_disposed) return;
       final format = sniffEmoteFormat(bytes);
-      final isWebpAnim = format == EmoteFormat.webp && webpIsAnimated(bytes);
-      final gifAnimated =
-          format == EmoteFormat.gif && EmoteUrlProvider.gifsEnabled;
       _isAnimatedGif = format == EmoteFormat.gif;
-      if (isWebpAnim || gifAnimated) {
-        // Animated WebP: our decoder (engine mis-composites transparency).
-        // Playing GIFs: our loop too (shared clock + fps cap instead of one
-        // unsynchronized engine clock per URL). Seed applies when present.
-        final frames = await _decodeGate.withPermit(
-          () =>
-              (EmoteUrlProvider.debugDecodeOverride ?? decodeEmoteBytes)(bytes),
-        );
-        if (_disposed) return;
-        _frames = frames;
-        if (frames.frames.isNotEmpty) {
-          _applySeed();
-          _emitFrame(_frameIndex);
-          _startPlayback();
+      if (format == EmoteFormat.webp && webpIsAnimated(bytes)) {
+        final meta = parseWebpAnim(bytes);
+        if (meta.hasAlpha || meta.frames.isEmpty) {
+          // Transparent animated WebP: the engine mis-composites, so keep the
+          // materialized compositor frames and array playback.
+          await _loadMaterializedWebp(bytes);
+        } else {
+          // Opaque animated WebP: stream, scheduling by the ANMF durations the
+          // engine reports wrongly.
+          await _startStreaming(
+            bytes,
+            durations: [
+              for (final f in meta.frames) Duration(milliseconds: f.durationMs),
+            ],
+          );
         }
-        // Telemetry now that playback is confirmed.
-        _playbackCapable =
-            frames.frames.length > 1 && frames.totalDuration > Duration.zero;
-      } else if (format == EmoteFormat.gif && !EmoteUrlProvider.gifsEnabled) {
-        // Frozen GIF: decode only the first frame so it shows as a still image.
-        final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
-        if (_disposed) {
-          buffer.dispose();
-          return;
-        }
-        final codec = await _engineDecode(buffer);
-        if (_disposed) {
-          codec.dispose();
-          return;
-        }
-        final frame = await codec.getNextFrame();
-        // Clone before disposing the codec so the image outlives it.
-        final image = frame.image.clone();
-        codec.dispose();
-        _frames = EmoteFrameData(frames: [image], durations: [frame.duration]);
-        _emitFrame(0);
+      } else if (format == EmoteFormat.gif && EmoteUrlProvider.gifsEnabled) {
+        await _startStreaming(bytes);
       } else {
-        // Stray engine-routable bytes (static PNG/WebP via direct use or
-        // probe alts): single static frame, no loop, no wrapper completer.
-        // Call sites route these through the stock provider; this branch
-        // only keeps direct uses rendering instead of stalling.
-        final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
-        if (_disposed) {
-          buffer.dispose();
-          return;
-        }
-        final codec = await _engineDecode(buffer);
-        if (_disposed) {
-          codec.dispose();
-          return;
-        }
-        final frame = await codec.getNextFrame();
-        final image = frame.image.clone();
-        codec.dispose();
-        _frames = EmoteFrameData(frames: [image], durations: [frame.duration]);
-        _emitFrame(0);
+        // Frozen GIF and statics: one first frame, no loop.
+        await _loadSingleFrame(bytes);
       }
     } on Object catch (error, stack) {
       _reportQuietly(error, stack);
@@ -548,16 +225,72 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
     }
   }
 
+  Future<void> _loadMaterializedWebp(Uint8List bytes) async {
+    final frames = await _decodeGate.withPermit(() => decodeEmoteBytes(bytes));
+    if (_disposed) {
+      for (final f in frames.frames) {
+        f.dispose();
+      }
+      return;
+    }
+    _frames = frames;
+    if (frames.frames.isNotEmpty) {
+      _applySeed();
+      _emitFrame(_frameIndex);
+      _startPlayback();
+    }
+  }
+
+  Future<void> _loadSingleFrame(Uint8List bytes) async {
+    final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
+    if (_disposed) {
+      buffer.dispose();
+      return;
+    }
+    final codec = await _engineDecode(buffer);
+    if (_disposed) {
+      codec.dispose();
+      return;
+    }
+    final frame = await codec.getNextFrame();
+    // Clone before disposing the codec/frame so the image outlives them.
+    final image = frame.image.clone();
+    frame.image.dispose();
+    codec.dispose();
+    _frames = EmoteFrameData(frames: [image], durations: [frame.duration]);
+    _emitFrame(0);
+  }
+
+  /// Opens a codec and streams its frames one at a time. [durations] overrides
+  /// the engine frame durations (used for animated WebP, whose are unreliable).
+  Future<void> _startStreaming(
+    Uint8List bytes, {
+    List<Duration>? durations,
+  }) async {
+    final codec = await ui.instantiateImageCodec(bytes);
+    if (_disposed) {
+      codec.dispose();
+      return;
+    }
+    _codec = codec;
+    _streamDurations = durations;
+    // A sequential codec cannot seek, so a queued playback seed is a no-op.
+    _seedFromUrl = null;
+    EmoteUrlProvider._pendingSeeds.remove(url);
+    if (hasListeners) _startPlayback();
+  }
+
   /// Notifies error listeners only. Silent details never dump through
   /// FlutterError.onError; late listeners still receive [_currentError].
   void _reportQuietly(Object error, StackTrace? stack) {
     reportError(exception: error, stack: stack, silent: true);
   }
 
-  /// Seeds from [sourceUrl]'s current frame. Applied when frames land; ignored if already playing.
+  /// Seeds from [sourceUrl]'s current frame. Applied when frames land; ignored
+  /// if already playing or streaming (a sequential codec cannot seek).
   void seedFrom(String? sourceUrl) {
     if (_disposed || sourceUrl == null || sourceUrl == url) return;
-    if (_isPlaying) return;
+    if (_isPlaying || _codec != null) return;
     _seedFromUrl = sourceUrl;
     if (_frames != null) _applySeed();
   }
@@ -583,10 +316,9 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
       );
       _frameIndex = _frameForOffset(frames, _cyclePosition.inMicroseconds);
     } else {
-      // Engine-path source: mirror its frame index. Seed
-      // at the END of that frame's window: the engine source is already part
-      // way through showing it and advances on its very next tick, and this
-      // keeps the swap in phase with it.
+      // Streaming source: mirror its frame index. Seed at the END of that
+      // frame's window: the source is already part way through showing it and
+      // advances on its very next tick, which keeps the swap in phase.
       final sourceIndex = source.currentFrameIndex;
       if (sourceIndex <= 0) return;
       var accumulated = 0;
@@ -601,12 +333,13 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
 
   /// Whether the playback loop is running or a pending timer will restart it.
   bool get _isPlaying =>
-      _frameCallbackId != null || (_frameTimer?.isActive ?? false);
+      _frameCallbackId != null ||
+      (_frameTimer?.isActive ?? false) ||
+      _streamDecoding;
 
   /// Current frame index (self-driven, 0 when not loaded).
   int get currentFrameIndex {
-    final frames = _frames;
-    if (frames != null) return _frameIndex;
+    if (_frames != null || _hasStreamFrame) return _frameIndex;
     return 0;
   }
 
@@ -625,43 +358,23 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
       _stopPlayback();
       return;
     }
-    EmoteUrlProvider.debugEmissionCount++;
-    EmoteUrlProvider.debugPreCloneCount++;
-    EmoteUrlProvider.debugFanoutDeliveries += _listenerCount;
     setImage(ImageInfo(image: clone, scale: 1.0, debugLabel: 'emote-$url'));
   }
 
   /// Starts the playback loop. App frames drive emission; timer requests next frame.
   void _startPlayback() {
-    // Lazy subscribe so startup works regardless of prefs-sync order.
-    EmoteUrlProvider._syncPerfSubscription();
     if (_disposed || !hasListeners) return;
     if (_isPlaying) return;
+    if (_codec != null) {
+      if (_isAnimatedGif && !EmoteUrlProvider.gifsEnabled) return;
+      _scheduleStreamAppFrame();
+      return;
+    }
     final frames = _frames;
     if (frames == null || frames.frames.isEmpty) return;
     if (frames.totalDuration <= Duration.zero) return;
-    if (_effectiveFpsCap == 0) return; // Paused by the FPS-cap setting.
     if (_isAnimatedGif && !EmoteUrlProvider.gifsEnabled) return; // Frozen GIF.
     _scheduleAppFrame();
-  }
-
-  /// Effective FPS cap: panel-bypassed = full rate; otherwise the user's cap
-  /// with the perf governor when adaptiveThrottle is on.
-  int get _effectiveFpsCap {
-    if (_uncappedCount > 0) return 60;
-    if (!EmoteUrlProvider.adaptiveThrottle) return EmoteUrlProvider.fpsCap;
-    return EmoteUrlProvider._governor.capFor(EmoteUrlProvider.fpsCap);
-  }
-
-  /// Re-evaluates loop after cap/panel change: stop at pause, restart when unpaused.
-  void _refreshForFpsCap() {
-    if (_disposed || !hasListeners) return;
-    if (_frames == null) return;
-    if (_effectiveFpsCap == 0) {
-      if (_isPlaying) _stopPlayback();
-    } else if (!_isPlaying) {
-      _startPlayback();
-    }
   }
 
   /// Re-evaluates after gifsEnabled flip: freezes/resumes animated GIFs only.
@@ -669,23 +382,13 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
   /// still branch; this only pauses/resumes live loops in place.
   void _refreshForGifs() {
     if (_disposed || !_isAnimatedGif) return;
-    if (_frames == null || !hasListeners) return;
-    if (!EmoteUrlProvider.gifsEnabled || _effectiveFpsCap == 0) {
+    if (_frames == null && _codec == null) return;
+    if (!hasListeners) return;
+    if (!EmoteUrlProvider.gifsEnabled) {
       if (_isPlaying) _stopPlayback();
     } else if (!_isPlaying) {
       _startPlayback();
     }
-  }
-
-  /// Registers/unregisters an uncapped listener. Syncs loop state.
-  void addUncappedListener() {
-    _uncappedCount++;
-    _refreshForFpsCap();
-  }
-
-  void removeUncappedListener() {
-    if (_uncappedCount > 0) _uncappedCount--;
-    _refreshForFpsCap();
   }
 
   /// Pauses playback. Clears timestamp for re-anchor on resume; keeps cycle position.
@@ -730,28 +433,89 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
     }
     _shownTimestamp = timeStamp;
 
-    // Schedule next tick at frame window end, aligned to FPS-cap grid.
-    // Cached per tick: the cap scans governor samples, so read it once.
+    // Schedule next tick at frame window end.
     if (_frameTimer != null) return;
-    final cap = _effectiveFpsCap;
-    if (cap == 0) return; // Paused: stop the loop.
-    final gridUs = cap <= 0 || cap >= 60 ? 0 : 1000000 ~/ cap;
     var remainingUs = _frameEndUs(frames, _frameIndex) - posUs;
     if (remainingUs <= 0) {
       remainingUs = 16000; // Zero-duration guard: next vsync.
-    }
-    if (gridUs > 0) {
-      final wakeTargetUs = timeStamp.inMicroseconds + remainingUs;
-      remainingUs =
-          EmoteUrlProvider.alignWakeUsToGrid(wakeTargetUs, gridUs) -
-          timeStamp.inMicroseconds;
-      if (remainingUs <= 0) remainingUs = gridUs;
     }
     _frameTimer = Timer(Duration(microseconds: remainingUs), () {
       _frameTimer = null;
       _scheduleAppFrame();
     });
   }
+
+  /// Requests the next app frame for the streaming loop. Never decodes here:
+  /// the app-frame callback decodes, so nothing is queued while paused.
+  void _scheduleStreamAppFrame() {
+    if (_disposed || !hasListeners) return;
+    if (_frameCallbackId != null || _streamDecoding) return;
+    if (_codec == null) return;
+    _frameCallbackId = SchedulerBinding.instance.scheduleFrameCallback(
+      _onStreamAppFrame,
+    );
+  }
+
+  Future<void> _onStreamAppFrame(Duration timeStamp) async {
+    _frameCallbackId = null;
+    if (_disposed || !hasListeners) return;
+    final codec = _codec;
+    if (codec == null) return;
+    _streamDecoding = true;
+    final ui.FrameInfo frame;
+    try {
+      frame = await codec.getNextFrame();
+    } on Object catch (error, stack) {
+      _streamDecoding = false;
+      if (!_disposed) {
+        _reportQuietly(error, stack);
+      }
+      _stopPlayback();
+      return;
+    }
+    if (_disposed || _codec != codec || !hasListeners) {
+      frame.image.dispose();
+      _streamDecoding = false;
+      return;
+    }
+    if (_isAnimatedGif && !EmoteUrlProvider.gifsEnabled) {
+      // Frozen mid-decode: drop the frame and wait for the toggle to resume.
+      frame.image.dispose();
+      _streamDecoding = false;
+      return;
+    }
+    final durations = _streamDurations;
+    final duration = durations == null || durations.isEmpty
+        ? frame.duration
+        : durations[_streamEmitted % durations.length];
+    if (codec.frameCount > 0) {
+      _frameIndex = _streamEmitted % codec.frameCount;
+    }
+    _hasStreamFrame = true;
+    setImage(
+      ImageInfo(
+        image: frame.image.clone(),
+        scale: 1.0,
+        debugLabel: 'emote-$url',
+      ),
+    );
+    frame.image.dispose();
+    _streamEmitted++;
+    _streamDecoding = false;
+    // A single-frame codec emits once, like the materialized static path.
+    if (codec.frameCount <= 1) {
+      _codec = null;
+      codec.dispose();
+      return;
+    }
+    _frameTimer = Timer(_safeStreamDuration(duration), () {
+      _frameTimer = null;
+      _scheduleStreamAppFrame();
+    });
+  }
+
+  static Duration _safeStreamDuration(Duration duration) =>
+      duration > Duration.zero ? duration : const Duration(microseconds: 16000);
 
   /// Frame index covering [offsetUs] in the cycle.
   static int _frameForOffset(EmoteFrameData frames, int offsetUs) {
@@ -780,10 +544,8 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
   @override
   void addListener(ImageStreamListener listener) {
     super.addListener(listener);
-    _listenerCount++;
-    _noteAdaptiveInput();
     if (_disposed || !hasListeners) return;
-    if (_frames != null) {
+    if (_frames != null || _codec != null) {
       // Resume animated playback when a listener returns.
       _startPlayback();
     }
@@ -792,16 +554,10 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
   @override
   void removeListener(ImageStreamListener listener) {
     super.removeListener(listener);
-    if (_listenerCount > 0) _listenerCount--;
-    _noteAdaptiveInput();
     if (hasListeners) return;
     // Pause playback; the loop restarts on re-attach.
     _stopPlayback();
   }
-
-  /// Telemetry hook. The governor reacts to frame strain, so listener
-  /// changes no longer re-evaluate loops.
-  void _noteAdaptiveInput() {}
 
   @override
   @mustCallSuper
@@ -810,10 +566,12 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
     if (EmoteUrlProvider._liveByUrl[url] == this) {
       EmoteUrlProvider._liveByUrl.remove(url);
     }
-    _playbackCapable = false;
     _stopPlayback();
     _seedFromUrl = null;
     EmoteUrlProvider._pendingSeeds.remove(url);
+    final codec = _codec;
+    _codec = null;
+    codec?.dispose();
     final frames = _frames;
     _frames = null;
     if (frames != null) {

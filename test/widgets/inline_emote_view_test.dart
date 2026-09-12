@@ -39,7 +39,6 @@ void main() {
 
   tearDown(() {
     EmoteUrlProvider.debugFetchOverride = null;
-    EmoteUrlProvider.debugDecodeOverride = null;
   });
 
   testWidgets('shows the band while loading, frame after', (tester) async {

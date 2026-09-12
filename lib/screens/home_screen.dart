@@ -1563,12 +1563,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           onShowTimestampsChanged: _setShowTimestamps,
           onTimestampFormatChanged: _setTimestampFormat,
           onChatFontScaleChanged: _setChatFontScale,
-          onEmoteFpsCapChanged: EmoteUrlProvider.applyFpsCap,
           onAnimateGifsChanged: _setAnimateGifs,
-          onAdaptiveThrottleChanged: EmoteUrlProvider.applyAdaptiveThrottle,
-          onAlwaysAnimatePanelChanged: (value) =>
-              EmoteUrlProvider.alwaysAnimatePanel = value,
-          onCapEmoteFpsChanged: _emotes.setCapFps,
           onCheckeredMessagesChanged: _setCheckeredMessages,
           onHighlightOpacityChanged: _setHighlightOpacity,
           onLineSeparatorChanged: _setLineSeparator,

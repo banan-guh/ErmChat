@@ -24,8 +24,8 @@ abstract class EmoteApplierHost extends ShellState {
   void showSnack(String message);
 }
 
-// Emote daemon control: persisted tier/auto/cache-cap prefs, the fps-cap
-// provider state, post-auth refresh, and manual reload/nuke.
+// Emote daemon control: persisted tier/auto/cache-cap prefs, post-auth
+// refresh, and manual reload/nuke.
 class EmoteApplier {
   EmoteApplier({
     required this.emoteManager,
@@ -68,34 +68,11 @@ class EmoteApplier {
           ? EmoteFetchAutoMode.values[autoIndex]
           : defaultEmoteFetchAutoMode;
       applyCacheCap(prefs.emoteCacheMax);
-      _applyFpsPrefs(prefs);
       EmoteUrlProvider.applyGifsEnabled(prefs.animateGifs);
       await refreshConnectivity();
       reconcileTier();
     } catch (e) {
       logDebug('_loadEmotePrefs failed: $e');
-    }
-  }
-
-  /// Applies emote frame-rate provider state when the master 'Cap emote FPS'
-  /// toggle changes.  When off, emotes run uncapped (fpsCap 60 ~= native 60 Hz)
-  /// with adaptive throttling disabled; the three sub-settings are hidden.
-  void setCapFps(bool enabled) {
-    Prefs.load().then(_applyFpsPrefs);
-  }
-
-  // Applies the persisted FPS cap with its adaptive-throttle and panel state.
-  void _applyFpsPrefs(Prefs prefs) {
-    final capEmoteFps = prefs.emoteCapFps;
-    if (capEmoteFps) {
-      EmoteUrlProvider.applyFpsCap(prefs.emoteFpsCap);
-      EmoteUrlProvider.applyAdaptiveThrottle(prefs.emoteAutoThrottle);
-      EmoteUrlProvider.alwaysAnimatePanel = prefs.alwaysAnimateEmotePanel;
-    } else {
-      // Uncapped: 60 fps is effectively native on a 60 Hz display.
-      EmoteUrlProvider.applyFpsCap(60);
-      EmoteUrlProvider.applyAdaptiveThrottle(false);
-      EmoteUrlProvider.alwaysAnimatePanel = true;
     }
   }
 

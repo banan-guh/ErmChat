@@ -18,10 +18,6 @@ class EmotesSettingsScreen extends StatefulWidget {
   /// everything). Null hides the section (tests, standalone previews).
   final VoidCallback? onNukeEmotes;
   final ValueChanged<bool>? onAnimateGifsChanged;
-  final ValueChanged<int>? onEmoteFpsCapChanged;
-  final ValueChanged<bool>? onAdaptiveThrottleChanged;
-  final ValueChanged<bool>? onAlwaysAnimatePanelChanged;
-  final ValueChanged<bool>? onCapEmoteFpsChanged;
 
   /// Live connectivity (true = cellular data) so the tier slider reflects the
   /// effective tier while auto mode is picking. Null falls back to Wi-Fi.
@@ -42,10 +38,6 @@ class EmotesSettingsScreen extends StatefulWidget {
     this.onEmoteAutoModeChanged,
     this.onNukeEmotes,
     this.onAnimateGifsChanged,
-    this.onEmoteFpsCapChanged,
-    this.onAdaptiveThrottleChanged,
-    this.onAlwaysAnimatePanelChanged,
-    this.onCapEmoteFpsChanged,
     this.mobileNotifier,
     this.cacheManager,
     this.emoteManager,
@@ -64,10 +56,6 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
   final _providerEnabled = <EmoteType, bool>{};
   bool _allowUnlisted = false;
   bool _animateGifs = true;
-  int _emoteFpsCap = 30;
-  bool _adaptiveThrottle = true;
-  bool _alwaysAnimatePanel = true;
-  bool _capEmoteFps = false;
 
   /// Enabled-provider snapshot from when the screen opened, so closing it
   /// can diff which providers were newly enabled.
@@ -149,26 +137,7 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
         _appliedCacheMax = prefs.emoteCacheMax;
         _draftCacheMax = _appliedCacheMax;
         _animateGifs = prefs.animateGifs;
-        _emoteFpsCap = prefs.emoteFpsCap;
-        _adaptiveThrottle = prefs.emoteAutoThrottle;
-        _alwaysAnimatePanel = prefs.alwaysAnimateEmotePanel;
-        _capEmoteFps = prefs.emoteCapFps;
       });
-    }
-  }
-
-  /// Applies the emote frame-rate provider state for the current master toggle.
-  /// When capping is off, emotes run uncapped (fpsCap 60 ~= native 60 Hz) with
-  /// adaptive throttling disabled; the three sub-settings are hidden then.
-  void _applyCapState() {
-    if (_capEmoteFps) {
-      widget.onEmoteFpsCapChanged?.call(_emoteFpsCap);
-      widget.onAdaptiveThrottleChanged?.call(_adaptiveThrottle);
-      widget.onAlwaysAnimatePanelChanged?.call(_alwaysAnimatePanel);
-    } else {
-      widget.onEmoteFpsCapChanged?.call(60);
-      widget.onAdaptiveThrottleChanged?.call(false);
-      widget.onAlwaysAnimatePanelChanged?.call(true);
     }
   }
 
@@ -391,112 +360,16 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
         ),
         const SettingsSectionHeader('Animation'),
         SwitchListTile(
-          secondary: const Icon(Icons.speed),
-          title: const Text('Cap emote frame rate'),
-          subtitle: const Text('Performance boost'),
-          value: _capEmoteFps,
-          onChanged: (value) async {
-            setState(() => _capEmoteFps = value);
-            final prefs = await Prefs.load();
-            await prefs.setEmoteCapFps(value);
-            _applyCapState();
-            widget.onCapEmoteFpsChanged?.call(value);
-          },
-        ),
-        AnimatedSize(
-          duration: const Duration(milliseconds: 200),
-          curve: Curves.easeInOut,
-          clipBehavior: Clip.none,
-          child: _capEmoteFps
-              ? Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 8,
-                      ),
-                      child: Text(
-                        'Emote frame rate cap: '
-                        '${_emoteFpsCap == 0 ? 'paused' : '$_emoteFpsCap fps'}',
-                      ),
-                    ),
-                    Slider(
-                      value: _emoteFpsCap.toDouble(),
-                      min: 0,
-                      max: 60,
-                      divisions: 12,
-                      label: _emoteFpsCap == 0 ? 'Paused' : '$_emoteFpsCap fps',
-                      onChanged: (value) {
-                        final v = value.toInt();
-                        final gifsOn = v > 0;
-                        final gifsChanged = gifsOn != _animateGifs;
-                        setState(() {
-                          _emoteFpsCap = v;
-                          _animateGifs = gifsOn;
-                        });
-                        widget.onEmoteFpsCapChanged?.call(v);
-                        if (gifsChanged) {
-                          widget.onAnimateGifsChanged?.call(gifsOn);
-                          Prefs.load().then(
-                            (prefs) => prefs.setAnimateGifs(gifsOn),
-                          );
-                        }
-                      },
-                      onChangeEnd: (value) {
-                        final v = value.toInt();
-                        Prefs.load().then((prefs) => prefs.setEmoteFpsCap(v));
-                      },
-                    ),
-                    SwitchListTile(
-                      secondary: const Icon(Icons.speed),
-                      title: const Text('Adaptive throttling'),
-                      subtitle: const Text(
-                        'Lower emote FPS when the UI stutters',
-                      ),
-                      value: _adaptiveThrottle && _emoteFpsCap > 0,
-                      onChanged: _emoteFpsCap == 0
-                          ? null
-                          : (value) async {
-                              final prefs = await Prefs.load();
-                              await prefs.setEmoteAutoThrottle(value);
-                              if (mounted) {
-                                setState(() => _adaptiveThrottle = value);
-                              }
-                              widget.onAdaptiveThrottleChanged?.call(value);
-                            },
-                    ),
-                    SwitchListTile(
-                      secondary: const Icon(Icons.grid_view),
-                      title: const Text('Always animate emote panel'),
-                      subtitle: const Text('Ignore FPS cap for emote preview'),
-                      value: _alwaysAnimatePanel,
-                      onChanged: (value) async {
-                        final prefs = await Prefs.load();
-                        await prefs.setAlwaysAnimateEmotePanel(value);
-                        if (mounted) {
-                          setState(() => _alwaysAnimatePanel = value);
-                        }
-                        widget.onAlwaysAnimatePanelChanged?.call(value);
-                      },
-                    ),
-                  ],
-                )
-              : const SizedBox.shrink(),
-        ),
-        SwitchListTile(
           secondary: const Icon(Icons.gif_box),
           title: const Text('Animate gifs'),
           subtitle: Text('Play animated emotes'),
-          value: _animateGifs && (_capEmoteFps ? _emoteFpsCap > 0 : true),
-          onChanged: (_capEmoteFps && _emoteFpsCap == 0)
-              ? null
-              : (value) async {
-                  final prefs = await Prefs.load();
-                  await prefs.setAnimateGifs(value);
-                  if (mounted) setState(() => _animateGifs = value);
-                  widget.onAnimateGifsChanged?.call(value);
-                },
+          value: _animateGifs,
+          onChanged: (value) async {
+            final prefs = await Prefs.load();
+            await prefs.setAnimateGifs(value);
+            if (mounted) setState(() => _animateGifs = value);
+            widget.onAnimateGifsChanged?.call(value);
+          },
         ),
         if (widget.emoteManager != null) ...[
           SettingsNavTile(

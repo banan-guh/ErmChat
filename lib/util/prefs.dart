@@ -222,10 +222,6 @@ class Prefs {
   static const _kEmoteFetchTier = 'emote_fetch_tier';
   static const _kEmoteFetchAuto = 'emote_fetch_auto';
   static const _kEmoteCacheMax = 'emote_cache_max';
-  static const _kEmoteCapFps = 'emote_cap_fps';
-  static const _kEmoteFpsCap = 'emote_fps_cap';
-  static const _kEmoteAutoThrottle = 'emote_auto_throttle';
-  static const _kAlwaysAnimateEmotePanel = 'always_animate_emote_panel';
   static const _kEmoteProvidersDisabled = 'emote_providers_disabled';
   static const _kEmoteAllowUnlisted7tv = 'emote_7tv_allow_unlisted';
   static const _kRecentEmotes = 'recent_emotes';
@@ -248,25 +244,6 @@ class Prefs {
   int get emoteCacheMax => _p.getInt(_kEmoteCacheMax) ?? defaultEmoteCacheMax;
 
   Future<void> setEmoteCacheMax(int value) => _p.setInt(_kEmoteCacheMax, value);
-
-  bool get emoteCapFps => _p.getBool(_kEmoteCapFps) ?? false;
-
-  Future<void> setEmoteCapFps(bool value) => _p.setBool(_kEmoteCapFps, value);
-
-  int get emoteFpsCap => _p.getInt(_kEmoteFpsCap) ?? 30;
-
-  Future<void> setEmoteFpsCap(int value) => _p.setInt(_kEmoteFpsCap, value);
-
-  bool get emoteAutoThrottle => _p.getBool(_kEmoteAutoThrottle) ?? true;
-
-  Future<void> setEmoteAutoThrottle(bool value) =>
-      _p.setBool(_kEmoteAutoThrottle, value);
-
-  bool get alwaysAnimateEmotePanel =>
-      _p.getBool(_kAlwaysAnimateEmotePanel) ?? true;
-
-  Future<void> setAlwaysAnimateEmotePanel(bool value) =>
-      _p.setBool(_kAlwaysAnimateEmotePanel, value);
 
   List<String>? get emoteProvidersDisabled =>
       _p.getStringList(_kEmoteProvidersDisabled);

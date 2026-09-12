@@ -35,10 +35,6 @@ class SettingsScreen extends StatelessWidget {
   final ValueChanged<double>? onChatFontScaleChanged;
   final ValueChanged<double>? onHighlightOpacityChanged;
   final ValueChanged<bool>? onAnimateGifsChanged;
-  final ValueChanged<int>? onEmoteFpsCapChanged;
-  final ValueChanged<bool>? onAdaptiveThrottleChanged;
-  final ValueChanged<bool>? onAlwaysAnimatePanelChanged;
-  final ValueChanged<bool>? onCapEmoteFpsChanged;
   final ValueChanged<bool>? onCheckeredMessagesChanged;
   final ValueChanged<bool>? onLineSeparatorChanged;
   final ValueChanged<bool>? onFastSnapChanged;
@@ -89,10 +85,6 @@ class SettingsScreen extends StatelessWidget {
     this.onChatFontScaleChanged,
     this.onHighlightOpacityChanged,
     this.onAnimateGifsChanged,
-    this.onEmoteFpsCapChanged,
-    this.onAdaptiveThrottleChanged,
-    this.onAlwaysAnimatePanelChanged,
-    this.onCapEmoteFpsChanged,
     this.onCheckeredMessagesChanged,
     this.onLineSeparatorChanged,
     this.onFastSnapChanged,
@@ -203,10 +195,6 @@ class SettingsScreen extends StatelessWidget {
                   onEmoteAutoModeChanged: onEmoteAutoModeChanged,
                   onNukeEmotes: onNukeEmotes,
                   onAnimateGifsChanged: onAnimateGifsChanged,
-                  onEmoteFpsCapChanged: onEmoteFpsCapChanged,
-                  onAdaptiveThrottleChanged: onAdaptiveThrottleChanged,
-                  onAlwaysAnimatePanelChanged: onAlwaysAnimatePanelChanged,
-                  onCapEmoteFpsChanged: onCapEmoteFpsChanged,
                   mobileNotifier: mobileNotifier,
                   emoteManager: emoteManager,
                 ),

@@ -7,7 +7,6 @@ import '../services/emote_manager.dart';
 import '../util/sheet_drag.dart';
 import '../widgets/tabbed_layout.dart';
 import 'emote_image.dart';
-import 'emote_image_provider.dart';
 
 class EmoteMenuPanelWidget extends ConsumerStatefulWidget {
   final ScrollController scrollController;
@@ -47,11 +46,8 @@ class EmoteMenuPanelWidgetState extends ConsumerState<EmoteMenuPanelWidget> {
   List<GenericEmote> _cachedRecentEmotes = [];
   bool _recentEmotesLoaded = false;
   // Cached grid cells by emote id. Validated against URL + padding; 7TV deltas short-circuit.
-  final Map<
-    String,
-    ({String url, double padding, Widget widget, bool uncapped})
-  >
-  _cellCache = {};
+  final Map<String, ({String url, double padding, Widget widget})> _cellCache =
+      {};
   double? _lastPanelWidth;
 
   @override
@@ -412,11 +408,7 @@ class EmoteMenuPanelWidgetState extends ConsumerState<EmoteMenuPanelWidget> {
     // Preview cells use EmoteImage: shared decode, disposed with last widget.
     final url = emote.url;
     final cached = _cellCache[emote.id];
-    final uncapped = EmoteUrlProvider.alwaysAnimatePanel;
-    if (cached != null &&
-        cached.url == url &&
-        cached.padding == cellPadding &&
-        cached.uncapped == uncapped) {
+    if (cached != null && cached.url == url && cached.padding == cellPadding) {
       return cached.widget;
     }
     // Usage marks deferred via post-frame callback (side effect, must not run during build).
@@ -438,19 +430,13 @@ class EmoteMenuPanelWidgetState extends ConsumerState<EmoteMenuPanelWidget> {
             fit: BoxFit.contain,
             alternateUrls: [if (emote.url1x != null) emote.url1x!],
             errorWidget: const Icon(Icons.broken_image, size: 20),
-            uncapped: uncapped,
             emote: emote,
           ),
         ),
       ),
     );
     if (emote.id.isNotEmpty) {
-      _cellCache[emote.id] = (
-        url: url,
-        padding: cellPadding,
-        widget: cell,
-        uncapped: uncapped,
-      );
+      _cellCache[emote.id] = (url: url, padding: cellPadding, widget: cell);
     }
     return cell;
   }

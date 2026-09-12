@@ -31,8 +31,6 @@ class EmoteFrameData {
   }
 }
 
-typedef EmoteFrameDecoder = Future<EmoteFrameData> Function(Uint8List bytes);
-
 enum EmoteFormat { gif, webp, other }
 
 /// Sniffs image format from magic bytes. Exposed for tests.
@@ -222,7 +220,6 @@ class EmoteImage extends StatefulWidget {
     this.placeholder,
     this.errorWidget,
     this.alternateUrls,
-    this.uncapped = false,
     this.emote,
   });
 
@@ -235,10 +232,6 @@ class EmoteImage extends StatefulWidget {
 
   /// Smaller-scale URLs tried as placeholders while [url] loads.
   final List<String>? alternateUrls;
-
-  /// Plays at native rate regardless of FPS cap. Used by emote panel.
-  /// No-op for stock-routed emotes (engine always plays native).
-  final bool uncapped;
 
   /// Routing metadata for [emoteUsesCustomLoop]. Null forces custom.
   final GenericEmote? emote;
@@ -291,18 +284,14 @@ class _EmoteImageState extends State<EmoteImage> {
   String? _placeholderUrl;
   Object? _loadToken;
 
-  /// Uncapped URLs synced with [EmoteImage.uncapped].
-  final Set<String> _uncappedUrls = {};
-
   @override
   void initState() {
     super.initState();
-    _syncUncappedRegistrations();
     _probePlaceholder();
   }
 
   /// Whether this cell rides the custom completer. Engine-routed cells
-  /// share chat's decoded pixels and skip uncapped/seeding (no-ops there).
+  /// share chat's decoded pixels and skip seeding (no-ops there).
   bool get _custom {
     final emote = widget.emote;
     if (emote == null) return true;
@@ -316,30 +305,6 @@ class _EmoteImageState extends State<EmoteImage> {
   ImageProvider _providerFor(String url) => _custom
       ? EmoteUrlProvider(url)
       : CachedNetworkImageProvider(url, cacheManager: EmoteCacheManager());
-
-  /// Syncs uncapped registrations with the desired set.
-  void _syncUncappedRegistrations() {
-    if (!_custom) {
-      for (final url in _uncappedUrls) {
-        EmoteUrlProvider.removeUncapped(url);
-      }
-      _uncappedUrls.clear();
-      return;
-    }
-    final desired = <String>{
-      if (widget.uncapped) widget.url,
-      if (widget.uncapped && _placeholderUrl != null) _placeholderUrl!,
-    };
-    for (final url in _uncappedUrls.difference(desired)) {
-      EmoteUrlProvider.removeUncapped(url);
-    }
-    for (final url in desired.difference(_uncappedUrls)) {
-      EmoteUrlProvider.addUncapped(url);
-    }
-    _uncappedUrls
-      ..clear()
-      ..addAll(desired);
-  }
 
   /// Probes alternate scales for a cached placeholder while [url] loads. Picks first hit. Disk results memoized via [EmoteProbeMemo].
   Future<void> _probePlaceholder() async {
@@ -386,7 +351,6 @@ class _EmoteImageState extends State<EmoteImage> {
       if (!mounted || _loadToken != token) return;
       if (_placeholderUrl == altUrl) return;
       setState(() => _placeholderUrl = altUrl);
-      _syncUncappedRegistrations();
     });
   }
 
@@ -394,10 +358,6 @@ class _EmoteImageState extends State<EmoteImage> {
   void dispose() {
     // Invalidate any in-flight probe; the completer/cache own the rest.
     _loadToken = Object();
-    for (final url in _uncappedUrls) {
-      EmoteUrlProvider.removeUncapped(url);
-    }
-    _uncappedUrls.clear();
     super.dispose();
   }
 
@@ -408,12 +368,6 @@ class _EmoteImageState extends State<EmoteImage> {
       _loadToken = Object();
       _placeholderUrl = null;
       _probePlaceholder();
-    }
-    if (widget.uncapped != oldWidget.uncapped ||
-        widget.url != oldWidget.url ||
-        widget.emote?.isAnimated != oldWidget.emote?.isAnimated ||
-        widget.emote?.type != oldWidget.emote?.type) {
-      _syncUncappedRegistrations();
     }
   }
 

@@ -36,7 +36,6 @@ void main() {
 
   tearDown(() {
     EmoteUrlProvider.debugFetchOverride = null;
-    EmoteUrlProvider.debugDecodeOverride = null;
   });
 
   // Regression: while an emote's first frame is still decoding, the loading
