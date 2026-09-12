@@ -10,10 +10,7 @@
 include: package:flutter_lints/flutter.yaml
 
 analyzer:
-  # Vendored third-party code (flutter_list_view) is intentionally excluded from
-  # linting and strict analysis; it is maintained as an internal fork.
   exclude:
-    - lib/third_party/**
     - build/**
     - android/**
     - ios/**

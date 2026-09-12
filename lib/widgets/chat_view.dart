@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show HapticFeedback;
-import '../third_party/flutter_list_view/flutter_list_view.dart';
+import 'package:flutter_list_view/flutter_list_view.dart';
 import '../models/twitch_message.dart';
 import '../util/thread_utils.dart';
 import '../services/seven_tv_paint_service.dart';

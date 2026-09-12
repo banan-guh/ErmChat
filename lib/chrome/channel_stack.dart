@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_list_view/flutter_list_view.dart';
 
 import '../composer/composer_controller.dart';
 import '../models/twitch_message.dart';
@@ -13,7 +14,6 @@ import '../services/seven_tv_paint_service.dart';
 import '../services/twitch_auth.dart';
 import '../sheets/message_menu.dart';
 import '../sheets/user_sheet.dart';
-import '../third_party/flutter_list_view/flutter_list_view.dart';
 import '../widgets/broadcast_widgets.dart';
 import '../widgets/chat_view.dart';
 import '../widgets/message_builder.dart';

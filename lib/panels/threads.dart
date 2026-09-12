@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_list_view/flutter_list_view.dart';
 
 import '../chat/channel/threads.dart';
 import '../chat/chat.dart';
@@ -11,7 +12,6 @@ import '../services/saved_threads_store.dart';
 import '../services/seven_tv_paint_service.dart';
 import '../sheets/message_menu.dart';
 import '../sheets/user_sheet.dart';
-import '../third_party/flutter_list_view/flutter_list_view.dart';
 import '../util/haptics.dart';
 import '../util/thread_utils.dart';
 import '../util/timestamp_formatter.dart';

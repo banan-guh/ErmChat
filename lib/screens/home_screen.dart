@@ -3,7 +3,7 @@ import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../third_party/flutter_list_view/flutter_list_view.dart';
+import 'package:flutter_list_view/flutter_list_view.dart';
 import '../providers/app_providers.dart';
 import '../providers/chat_pipeline.dart';
 import '../providers/feature_providers.dart';

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_list_view/flutter_list_view.dart';
 
 import '../chat/chat.dart';
 import '../client/session.dart';
@@ -12,7 +13,6 @@ import '../services/link_whitelist.dart';
 import '../services/twitch_auth.dart';
 import '../sheets/message_menu.dart';
 import '../sheets/user_sheet.dart';
-import '../third_party/flutter_list_view/flutter_list_view.dart';
 import '../util/haptics.dart';
 import '../widgets/chat_view.dart';
 import '../widgets/message_builder.dart';
