@@ -126,6 +126,21 @@ void main() {
       },
     );
 
+    test('a second reconnect cycle does not stack Reconnected lines', () {
+      final chat = Chat();
+      addTearDown(chat.dispose);
+      final messages = chat.ensure('test').messages;
+      messages.addSystem('Connected');
+      for (var i = 0; i < 2; i++) {
+        messages.addSystem('Disconnected');
+        messages.addSystem('Connected');
+      }
+      final reconnected = messages.items
+          .where((m) => m.text == 'Reconnected')
+          .length;
+      expect(reconnected, 1);
+    });
+
     test(
       'messageId dedup skips a repeat insert while distinct ids with identical text both insert',
       () {

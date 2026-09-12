@@ -469,6 +469,11 @@ class ChatLifecycle {
           logDebug('[ChatConn] getCurrentUser failed');
         }
       }
+      // The active credential changed while identity was resolving (an account
+      // switch landed mid-connect). Abandon this pass so the stale result is
+      // never applied and the old account's credentials never ride the new
+      // token; the queued retry re-runs with the new account.
+      if (auth.accessToken != validatedToken) return;
       if (currentUser != null) {
         session.apply(currentUser['login'], userId: currentUser['id']);
       }

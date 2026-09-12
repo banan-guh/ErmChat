@@ -173,6 +173,27 @@ void main() {
       chat.remove('missing');
     });
 
+    test('removeBlocked sweeps channels and the mentions mirror', () {
+      final chat = Chat();
+      addTearDown(chat.dispose);
+      final msg = _live('m1', login: 'spammer', highlight: _mention);
+      chat.receive(
+        'test',
+        msg,
+        maxMessages: 100,
+        isSelected: false,
+        ownLogin: null,
+      );
+      expect(chat.mentions.items, hasLength(1));
+      expect(chat.channelFor('test')!.messages.items, hasLength(1));
+
+      final touched = chat.removeBlocked({'spammer'});
+
+      expect(touched, {'test'});
+      expect(chat.channelFor('test')!.messages.items, isEmpty);
+      expect(chat.mentions.isEmpty, isTrue);
+    });
+
     test('clearUnread returns cleared mentions and resets dots', () {
       final chat = Chat();
       addTearDown(chat.dispose);

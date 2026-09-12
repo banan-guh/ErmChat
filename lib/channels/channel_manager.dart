@@ -154,7 +154,7 @@ class ChannelManager {
       recentMessages
           .fetchRecentPreferWarm(name, limit: host.recentMessagesLimit)
           .then((rows) {
-            if (!host.isMounted()) return;
+            if (!host.isMounted() || !chat.contains(name)) return;
             chat.channelFor(name)?.setHistoryLoaded(true);
             host.mutate(() {
               if (rows.isEmpty) {
@@ -166,7 +166,7 @@ class ChannelManager {
             maybeAddConnected(name);
           })
           .catchError((e) {
-            if (!host.isMounted()) return;
+            if (!host.isMounted() || !chat.contains(name)) return;
             chat.channelFor(name)?.setHistoryLoaded(true);
             host.addSystemMessage(
               name,
@@ -221,7 +221,7 @@ class ChannelManager {
     recentMessages
         .fetchRecentPreferWarm(name, limit: host.recentMessagesLimit)
         .then((rows) {
-          if (!host.isMounted()) return;
+          if (!host.isMounted() || !chat.contains(name)) return;
           chat.channelFor(name)?.setHistoryLoaded(true);
           host.mutate(() {
             removeLoadingHistoryMessage(name);
@@ -234,7 +234,7 @@ class ChannelManager {
           maybeAddConnected(name);
         })
         .catchError((e) {
-          if (!host.isMounted()) return;
+          if (!host.isMounted() || !chat.contains(name)) return;
           chat.channelFor(name)?.setHistoryLoaded(true);
           host.mutate(() {
             removeLoadingHistoryMessage(name);

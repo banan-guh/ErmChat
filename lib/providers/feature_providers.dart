@@ -104,16 +104,10 @@ final commandHandlerProvider = Provider<CommandHandler>((ref) {
   final session = ref.read(sessionProvider);
   final signals = ref.read(chatUiSignalsProvider);
 
-  // Blocked rows bypass truncation, so the verb decays them too.
+  // Blocked rows bypass truncation, so the root verb decays them and also
+  // clears their mirrored @mentions rows.
   void sweepBlockedMessages() {
-    final blocked = ref.read(blockedLoginsProvider);
-    for (final name in List.of(chat.names)) {
-      final channel = chat.channelFor(name);
-      if (channel == null) continue;
-      channel.removeMessages(
-        (m) => !m.isSystem && blocked.contains(m.login.toLowerCase()),
-      );
-    }
+    chat.removeBlocked(ref.read(blockedLoginsProvider));
   }
 
   return CommandHandler(

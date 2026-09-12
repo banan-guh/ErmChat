@@ -1060,14 +1060,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   void _sweepBlockedMessages() {
     final blocked = ref.read(blockedLoginsProvider);
-    for (final name in List.of(_chat.names)) {
-      final channel = _chat.channelFor(name);
-      if (channel == null) continue;
-      // Blocked messages bypass truncation, so the verb decays them too.
-      final removed = channel.removeMessages(
-        (m) => !m.isSystem && blocked.contains(m.login.toLowerCase()),
-      );
-      if (removed.isEmpty) continue;
+    final touched = _chat.removeBlocked(blocked);
+    for (final name in touched) {
       _tileCache.remove(name);
     }
   }

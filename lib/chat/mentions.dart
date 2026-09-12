@@ -22,6 +22,10 @@ class Mentions {
     messages.mergeMentions(msgs, maxMessages: maxMessages);
   }
 
+  /// Removes every mirrored row matching [test]. Returns the number removed.
+  int removeWhere(bool Function(TwitchMessage) test) =>
+      messages.removeWhere(test);
+
   void clear() {
     if (messages.isEmpty) return;
     messages.removeWhere((_) => true);

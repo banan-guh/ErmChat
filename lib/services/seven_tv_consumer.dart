@@ -35,9 +35,10 @@ class SevenTvConsumer {
       ..add(client.onEmoteSetUpdate.listen(_onEmoteSetUpdate))
       ..add(client.onUserUpdate.listen(_onUserUpdate))
       ..add(
-        client.onPersonalSet.listen(
-          (event) => emoteManager.trackForeignPersonalSet(event.setId),
-        ),
+        client.onPersonalSet.listen((event) {
+          if (_disposed) return;
+          emoteManager.trackForeignPersonalSet(event.setId);
+        }),
       );
     return List.unmodifiable(_subscriptions);
   }

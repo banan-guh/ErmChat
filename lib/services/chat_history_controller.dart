@@ -51,6 +51,9 @@ class ChatHistoryController {
   /// which owns the mention mirror and the channel's dedup, id-less fold, sort,
   /// gap note, truncate, and thread index.
   void mergeHistory(String channel, List<TwitchMessage> history) {
+    // A channel removed while its history was in flight must not be
+    // resurrected by the root verb's ensure.
+    if (!chat.contains(channel)) return;
     final prepared = <TwitchMessage>[];
     for (final msg in history) {
       if (_policy.shouldDropForIgnore(msg)) continue;

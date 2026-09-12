@@ -279,7 +279,8 @@ class Messages {
           (m) =>
               m.isSystem &&
               (m.messageId == _connId('disconnected') ||
-                  m.messageId == _connId('reconnecting')),
+                  m.messageId == _connId('reconnecting') ||
+                  m.messageId == _connId('reconnected')),
         );
       } else if (resolved == 'disconnected' || resolved == 'reconnecting') {
         if (resolved == 'reconnecting') {

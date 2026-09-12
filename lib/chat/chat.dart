@@ -120,6 +120,23 @@ class Chat {
     mentions.add(rows, maxMessages: maxMessages);
   }
 
+  /// Drops every non-system row from a blocked login across all channels and
+  /// the mentions mirror. Returns the channel names that changed so callers can
+  /// invalidate their tile caches.
+  Set<String> removeBlocked(Set<String> blockedLogins) {
+    final touched = <String>{};
+    for (final entry in _channels.entries) {
+      final removed = entry.value.removeMessages(
+        (m) => !m.isSystem && blockedLogins.contains(m.login.toLowerCase()),
+      );
+      if (removed.isNotEmpty) touched.add(entry.key);
+    }
+    mentions.removeWhere(
+      (m) => !m.isSystem && blockedLogins.contains(m.login.toLowerCase()),
+    );
+    return touched;
+  }
+
   static bool _isMentionRow(TwitchMessage m, String? ownLogin) {
     if (!(m.highlight?.hasMention ?? false)) return false;
     return ownLogin == null || m.login.toLowerCase() != ownLogin.toLowerCase();
