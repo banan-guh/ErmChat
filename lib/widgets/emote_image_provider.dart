@@ -8,13 +8,14 @@ import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 
 import '../models/generic_emote.dart';
 import '../services/emote_cache_manager.dart';
-import '../util/semaphore.dart';
+import '../util/log.dart';
 import '../util/webp_anim.dart';
 import 'emote_image.dart';
 
-/// Caps concurrent decodes to avoid spawning too many isolates.
-const int _maxConcurrentDecodes = 10;
-final Semaphore _decodeGate = Semaphore(_maxConcurrentDecodes);
+/// Engine decode timeout for animated WebP streaming. Per-frame engine decode
+/// costs milliseconds, so this only fires on a stalled engine, which then
+/// falls back to the pure-Dart compositor instead of sitting for seconds.
+const Duration _streamFrameTimeout = Duration(seconds: 1);
 
 /// Fetches emote bytes, streaming through disk cache when room.
 Future<Uint8List> fetchEmoteBytes(String url) async {
@@ -38,22 +39,27 @@ Future<Uint8List> fetchEmoteBytes(String url) async {
 }
 
 /// Whether [emote] renders through the custom completer loop. True for
-/// animated non-Twitch emotes (the engine mis-composites animated WebP
-/// transparency, so only our decoder is correct) and for frozen animated
-/// emotes (first-frame still). Everything else (statics of any provider,
-/// playing Twitch GIFs) resolves through the stock provider: one shared
-/// engine decode per URL with no wrapper, no extra completer, no registry
-/// entry. Shared routing rule for chat, menu, sheet, and panel.
+/// animated non-Twitch emotes (animated WebP streams from the engine, and
+/// frozen animated emotes render a first-frame still). Everything else
+/// (statics of any provider, playing Twitch GIFs) resolves through the stock
+/// provider: one shared engine decode per URL with no wrapper, no extra
+/// completer, no registry entry. Shared routing rule for chat, menu, sheet,
+/// and panel.
 bool emoteUsesCustomLoop(GenericEmote emote, {required bool animateGifs}) =>
     emote.isAnimated && (!animateGifs || emote.type != EmoteType.twitch);
 
-/// ImageProvider for emote URLs. Keyed by [url] for shared decode/playback. Animated WebP via reinforced decoder; rest via engine codec.
+/// ImageProvider for emote URLs. Keyed by [url] for shared decode/playback. Animated WebP streams from the engine; the pure-Dart compositor is a crash-only fallback.
 class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
   EmoteUrlProvider(this.url);
 
   /// Test hook; falls back to the production fetcher when null.
   @visibleForTesting
   static Future<Uint8List> Function(String url)? debugFetchOverride;
+
+  /// Test hook: when non-negative, the animated WebP engine stream fails after
+  /// this many emitted frames, exercising the lazy compositor fallback.
+  @visibleForTesting
+  static int debugWebpEngineFailAfter = -1;
 
   final String url;
 
@@ -144,7 +150,7 @@ class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
   String toString() => 'EmoteUrlProvider($url)';
 }
 
-/// Streams emote frames to listeners (one completer per URL, shared via ImageCache). Custom loop only: animated WebP, playing GIFs, frozen GIFs (still), and stray statics (still). Engine-routable bytes (Twitch PNG/GIF, static WebP) resolve through the stock provider at call sites and never reach this completer; if they do (probe alts, tests), they render as a single static frame with no loop, no wrapper, no extra completer.
+/// Streams emote frames to listeners (one completer per URL, shared via ImageCache). Custom loop only: animated WebP, playing GIFs, frozen GIFs (still), and stray statics (still). Animated WebP streams from the engine codec; frames the engine stalls or throws on swap to the pure-Dart compositor mid-loop. Engine-routable bytes (Twitch PNG/GIF, static WebP) resolve through the stock provider at call sites and never reach this completer; if they do (probe alts, tests), they render as a single static frame with no loop, no wrapper, no extra completer.
 class _EmoteImageCompleter extends ImageStreamCompleter {
   _EmoteImageCompleter({required this.url, required this._engineDecode}) {
     // Pick up seed queued before this completer existed.
@@ -157,11 +163,11 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
   final String url;
   final ImageDecoderCallback _engineDecode;
 
-  /// Materialized frames: transparent animated WebP, frozen GIF, and statics.
+  /// Materialized frames: frozen GIF, and statics.
   EmoteFrameData? _frames;
   int _frameIndex = 0;
 
-  /// Streaming codec: no-alpha animated WebP and playing GIFs. One live frame.
+  /// Streaming codec: animated WebP and playing GIFs. One live frame.
   ui.Codec? _codec;
 
   /// Parsed ANMF durations for streaming WebP; null uses the engine durations.
@@ -169,11 +175,30 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
   int _streamEmitted = 0;
   bool _hasStreamFrame = false;
   bool _streamDecoding = false;
+  bool _streamIsWebp = false;
+
+  /// Last good engine frame, retained to seed the lazy fallback on a crash.
+  ui.Image? _engineSeed;
+
+  /// Lazy compositor fallback for animated WebP the engine cannot decode.
+  WebpAnimInfo? _webpMeta;
+  WebpEngineCompositor? _compositor;
+  int _lazyIndex = 0;
 
   /// Fires only to request the next app frame; never emits frames itself.
   Timer? _frameTimer;
   int? _frameCallbackId;
   bool _disposed = false;
+
+  /// Guards one engine frame decode; cancelled on detach or dispose so a
+  /// stalled engine never holds a live timer.
+  Timer? _streamTimeoutTimer;
+
+  /// Ideal wall time (microseconds, wall clock) the next streamed frame is
+  /// due. Each window extends the previous due instead of the emit time, so
+  /// timer, vsync, and decode overhead never compounds into slow playback.
+  /// Negative means unanchored: the next emission starts a fresh grid.
+  int _streamDueUs = -1;
 
   /// Cycle position at last tick. Kept across pause/resume.
   Duration _cyclePosition = Duration.zero;
@@ -196,20 +221,16 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
       _isAnimatedGif = format == EmoteFormat.gif;
       if (format == EmoteFormat.webp && webpIsAnimated(bytes)) {
         final meta = parseWebpAnim(bytes);
-        if (meta.hasAlpha || meta.frames.isEmpty) {
-          // Transparent animated WebP: the engine mis-composites, so keep the
-          // materialized compositor frames and array playback.
-          await _loadMaterializedWebp(bytes);
-        } else {
-          // Opaque animated WebP: stream, scheduling by the ANMF durations the
-          // engine reports wrongly.
-          await _startStreaming(
-            bytes,
-            durations: [
-              for (final f in meta.frames) Duration(milliseconds: f.durationMs),
-            ],
-          );
-        }
+        // Animated WebP streams from the engine, scheduled by the ANMF
+        // durations the engine reports wrongly. The pure-Dart compositor is a
+        // crash-only fallback installed mid-loop in _onStreamAppFrame.
+        await _startStreaming(
+          bytes,
+          durations: [
+            for (final f in meta.frames) Duration(milliseconds: f.durationMs),
+          ],
+          isWebp: true,
+        );
       } else if (format == EmoteFormat.gif && EmoteUrlProvider.gifsEnabled) {
         await _startStreaming(bytes);
       } else {
@@ -222,22 +243,6 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
       PaintingBinding.instance.imageCache.evict(EmoteUrlProvider(url));
       // Drop the seed too: a target that never loads must not pin the map.
       EmoteUrlProvider._pendingSeeds.remove(url);
-    }
-  }
-
-  Future<void> _loadMaterializedWebp(Uint8List bytes) async {
-    final frames = await _decodeGate.withPermit(() => decodeEmoteBytes(bytes));
-    if (_disposed) {
-      for (final f in frames.frames) {
-        f.dispose();
-      }
-      return;
-    }
-    _frames = frames;
-    if (frames.frames.isNotEmpty) {
-      _applySeed();
-      _emitFrame(_frameIndex);
-      _startPlayback();
     }
   }
 
@@ -266,14 +271,40 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
   Future<void> _startStreaming(
     Uint8List bytes, {
     List<Duration>? durations,
+    bool isWebp = false,
   }) async {
-    final codec = await ui.instantiateImageCodec(bytes);
+    final ui.Codec codec;
+    try {
+      codec = await _withDecodeTimeout(ui.instantiateImageCodec(bytes));
+    } on Object catch (error) {
+      if (_disposed) return;
+      if (isWebp) {
+        logDebug(
+          '[emote] engine WebP open stall, lazy fallback: $url ($error)',
+        );
+        await _switchToLazyWebp(bytes: bytes);
+        return;
+      }
+      rethrow;
+    }
     if (_disposed) {
       codec.dispose();
       return;
     }
     _codec = codec;
     _streamDurations = durations;
+    _streamIsWebp = isWebp;
+    if (isWebp &&
+        durations != null &&
+        codec.frameCount > 1 &&
+        durations.length != codec.frameCount) {
+      // Engine frame count disagrees with the ANMF count: scheduling stays on
+      // ANMF durations, but the mismatch is worth seeing in logs.
+      logDebug(
+        '[emote] WebP frame count mismatch: $url '
+        'engine=${codec.frameCount} anmf=${durations.length}',
+      );
+    }
     // A sequential codec cannot seek, so a queued playback seed is a no-op.
     _seedFromUrl = null;
     EmoteUrlProvider._pendingSeeds.remove(url);
@@ -290,7 +321,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
   /// if already playing or streaming (a sequential codec cannot seek).
   void seedFrom(String? sourceUrl) {
     if (_disposed || sourceUrl == null || sourceUrl == url) return;
-    if (_isPlaying || _codec != null) return;
+    if (_isPlaying || _codec != null || _compositor != null) return;
     _seedFromUrl = sourceUrl;
     if (_frames != null) _applySeed();
   }
@@ -365,7 +396,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
   void _startPlayback() {
     if (_disposed || !hasListeners) return;
     if (_isPlaying) return;
-    if (_codec != null) {
+    if (_codec != null || _compositor != null) {
       if (_isAnimatedGif && !EmoteUrlProvider.gifsEnabled) return;
       _scheduleStreamAppFrame();
       return;
@@ -382,7 +413,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
   /// still branch; this only pauses/resumes live loops in place.
   void _refreshForGifs() {
     if (_disposed || !_isAnimatedGif) return;
-    if (_frames == null && _codec == null) return;
+    if (_frames == null && _codec == null && _compositor == null) return;
     if (!hasListeners) return;
     if (!EmoteUrlProvider.gifsEnabled) {
       if (_isPlaying) _stopPlayback();
@@ -401,6 +432,9 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
       _frameCallbackId = null;
     }
     _shownTimestamp = null;
+    // Invalidate the stream grid so resume re-anchors instead of repaying
+    // paused time as immediate back-to-back ticks.
+    _streamDueUs = -1;
   }
 
   void _scheduleAppFrame() {
@@ -450,7 +484,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
   void _scheduleStreamAppFrame() {
     if (_disposed || !hasListeners) return;
     if (_frameCallbackId != null || _streamDecoding) return;
-    if (_codec == null) return;
+    if (_codec == null && _compositor == null) return;
     _frameCallbackId = SchedulerBinding.instance.scheduleFrameCallback(
       _onStreamAppFrame,
     );
@@ -460,16 +494,31 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
     _frameCallbackId = null;
     if (_disposed || !hasListeners) return;
     final codec = _codec;
-    if (codec == null) return;
+    if (codec == null) {
+      if (_compositor != null) await _onLazyAppFrame();
+      return;
+    }
+    if (_streamIsWebp &&
+        EmoteUrlProvider.debugWebpEngineFailAfter >= 0 &&
+        _streamEmitted >= EmoteUrlProvider.debugWebpEngineFailAfter) {
+      await _switchToLazyWebp();
+      return;
+    }
     _streamDecoding = true;
     final ui.FrameInfo frame;
     try {
-      frame = await codec.getNextFrame();
+      frame = await _nextStreamFrame(codec);
     } on Object catch (error, stack) {
       _streamDecoding = false;
-      if (!_disposed) {
-        _reportQuietly(error, stack);
+      if (_disposed || !hasListeners) return;
+      if (_streamIsWebp) {
+        // The engine stalls or throws on some frames: swap to the pure-Dart
+        // compositor and keep the same playback loop.
+        logDebug('[emote] engine WebP stall, lazy fallback: $url ($error)');
+        await _switchToLazyWebp();
+        return;
       }
+      _reportQuietly(error, stack);
       _stopPlayback();
       return;
     }
@@ -492,6 +541,11 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
       _frameIndex = _streamEmitted % codec.frameCount;
     }
     _hasStreamFrame = true;
+    if (_streamIsWebp) {
+      // Retain the raw frame (one at a time) to seed a lazy fallback.
+      _engineSeed?.dispose();
+      _engineSeed = frame.image;
+    }
     setImage(
       ImageInfo(
         image: frame.image.clone(),
@@ -499,7 +553,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
         debugLabel: 'emote-$url',
       ),
     );
-    frame.image.dispose();
+    if (!_streamIsWebp) frame.image.dispose();
     _streamEmitted++;
     _streamDecoding = false;
     // A single-frame codec emits once, like the materialized static path.
@@ -508,10 +562,155 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
       codec.dispose();
       return;
     }
-    _frameTimer = Timer(_safeStreamDuration(duration), () {
+    _scheduleNextStreamTick(duration);
+  }
+
+  /// Schedules the next streamed frame on the ideal grid: the window extends
+  /// the previous due time, not the emit time, so per-tick overhead shifts
+  /// individual frames but never slows the average rate. A negative wait
+  /// fires immediately; the grid still advances by full windows.
+  void _scheduleNextStreamTick(Duration window) {
+    final windowUs = _safeStreamDuration(window).inMicroseconds;
+    final nowUs = DateTime.now().microsecondsSinceEpoch;
+    _streamDueUs = (_streamDueUs < 0 ? nowUs : _streamDueUs) + windowUs;
+    var waitUs = _streamDueUs - DateTime.now().microsecondsSinceEpoch;
+    if (waitUs < 0) waitUs = 0;
+    _frameTimer = Timer(Duration(microseconds: waitUs), () {
       _frameTimer = null;
       _scheduleStreamAppFrame();
     });
+  }
+
+  /// Awaits an engine decode, failing after [_streamFrameTimeout]. Tracks the
+  /// timeout timer so detach and dispose can cancel it; a raw `.timeout`
+  /// leaves an uncancellable timer behind that outlives the completer.
+  Future<T> _withDecodeTimeout<T>(Future<T> future) {
+    final completer = Completer<T>();
+    final timer = Timer(_streamFrameTimeout, () {
+      if (!completer.isCompleted) {
+        completer.completeError(
+          TimeoutException('emote decode stalled', _streamFrameTimeout),
+        );
+      }
+    });
+    _streamTimeoutTimer = timer;
+    future.then(
+      (value) {
+        timer.cancel();
+        if (identical(_streamTimeoutTimer, timer)) _streamTimeoutTimer = null;
+        if (!completer.isCompleted) completer.complete(value);
+      },
+      onError: (Object error, StackTrace stack) {
+        timer.cancel();
+        if (identical(_streamTimeoutTimer, timer)) _streamTimeoutTimer = null;
+        if (!completer.isCompleted) completer.completeError(error, stack);
+      },
+    );
+    return completer.future;
+  }
+
+  /// Awaits the next engine frame under the decode watchdog.
+  Future<ui.FrameInfo> _nextStreamFrame(ui.Codec codec) =>
+      _withDecodeTimeout(codec.getNextFrame());
+
+  /// Cancels the engine decode watchdog so it never outlives the view.
+  void _cancelStreamDecode() {
+    _streamTimeoutTimer?.cancel();
+    _streamTimeoutTimer = null;
+  }
+
+  /// Replaces the failing engine WebP codec with the lazy pure-Dart compositor.
+  /// Re-fetches the bytes (disk cache is warm) unless the caller already holds
+  /// them, so steady-state streaming holds no file bytes. The engine's last
+  /// good frame seeds the accumulated canvas.
+  Future<void> _switchToLazyWebp({Uint8List? bytes}) async {
+    final codec = _codec;
+    _codec = null;
+    codec?.dispose();
+    final seed = _engineSeed;
+    _engineSeed = null;
+    try {
+      bytes ??= await (EmoteUrlProvider.debugFetchOverride ?? fetchEmoteBytes)(
+        url,
+      );
+    } on Object catch (error, stack) {
+      seed?.dispose();
+      if (!_disposed) {
+        _reportQuietly(error, stack);
+        _stopPlayback();
+      }
+      return;
+    }
+    if (_disposed) {
+      seed?.dispose();
+      return;
+    }
+    final meta = parseWebpAnim(bytes);
+    if (meta.frames.isEmpty) {
+      seed?.dispose();
+      _stopPlayback();
+      return;
+    }
+    final compositor = WebpEngineCompositor(meta.canvasW, meta.canvasH);
+    if (seed != null) compositor.seedStream(seed);
+    _webpMeta = meta;
+    _compositor = compositor;
+    _lazyIndex = _streamEmitted % meta.frames.length;
+    _scheduleStreamAppFrame();
+  }
+
+  /// Composites one lazy frame onto the retained canvas and schedules the next
+  /// at the frame's ANMF duration. The canvas is retained; emitted clones own
+  /// their pixels, so a later composite never invalidates a displayed frame.
+  Future<void> _onLazyAppFrame() async {
+    final meta = _webpMeta;
+    final compositor = _compositor;
+    if (meta == null || compositor == null) return;
+    if (_disposed || !hasListeners) return;
+    _streamDecoding = true;
+    final i = _lazyIndex;
+    final frameMeta = meta.frames[i];
+    ui.Codec? codec;
+    ui.Image? bitmap;
+    try {
+      // A loop wrap starts from a blank canvas: frame 0 is not a delta over the
+      // previous frame. At a crash seed, i resumes where the engine stopped.
+      if (i == 0) compositor.resetStream();
+      final ui.Codec newCodec = await _withDecodeTimeout(
+        ui.instantiateImageCodec(buildStandaloneFrameWebp(frameMeta)),
+      );
+      codec = newCodec;
+      final hi = await _withDecodeTimeout(newCodec.getNextFrame());
+      bitmap = hi.image;
+      final prevMeta = i > 0 ? meta.frames[i - 1] : null;
+      final out = await compositor.compositeStream(prevMeta, frameMeta, bitmap);
+      bitmap.dispose();
+      codec.dispose();
+      bitmap = null;
+      codec = null;
+      if (_disposed || _compositor != compositor || !hasListeners) {
+        _streamDecoding = false;
+        return;
+      }
+      _frameIndex = i;
+      _hasStreamFrame = true;
+      setImage(
+        ImageInfo(image: out.clone(), scale: 1.0, debugLabel: 'emote-$url'),
+      );
+    } on Object catch (error, stack) {
+      bitmap?.dispose();
+      codec?.dispose();
+      _streamDecoding = false;
+      if (!_disposed) {
+        logDebug('[emote] lazy compositor failed: $url ($error)');
+        _reportQuietly(error, stack);
+        _stopPlayback();
+      }
+      return;
+    }
+    _streamDecoding = false;
+    _lazyIndex = (i + 1) % meta.frames.length;
+    _scheduleNextStreamTick(Duration(milliseconds: frameMeta.durationMs));
   }
 
   static Duration _safeStreamDuration(Duration duration) =>
@@ -545,7 +744,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
   void addListener(ImageStreamListener listener) {
     super.addListener(listener);
     if (_disposed || !hasListeners) return;
-    if (_frames != null || _codec != null) {
+    if (_frames != null || _codec != null || _compositor != null) {
       // Resume animated playback when a listener returns.
       _startPlayback();
     }
@@ -553,9 +752,12 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
 
   @override
   void removeListener(ImageStreamListener listener) {
+    // Drop the decode watchdog so it cannot outlive the view, then pause only
+    // when the last listener leaves. An in-flight decode still resolves and
+    // continues for any remaining listener.
+    _cancelStreamDecode();
     super.removeListener(listener);
     if (hasListeners) return;
-    // Pause playback; the loop restarts on re-attach.
     _stopPlayback();
   }
 
@@ -567,11 +769,19 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
       EmoteUrlProvider._liveByUrl.remove(url);
     }
     _stopPlayback();
+    _cancelStreamDecode();
     _seedFromUrl = null;
     EmoteUrlProvider._pendingSeeds.remove(url);
     final codec = _codec;
     _codec = null;
     codec?.dispose();
+    final compositor = _compositor;
+    _compositor = null;
+    _webpMeta = null;
+    compositor?.resetStream();
+    final seed = _engineSeed;
+    _engineSeed = null;
+    seed?.dispose();
     final frames = _frames;
     _frames = null;
     if (frames != null) {

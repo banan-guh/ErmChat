@@ -182,15 +182,18 @@ Uint8List buildStandaloneFrameWebp(WebpFrameMeta f) {
   return Uint8List.fromList(riff);
 }
 
-/// Composites WebP frames into full-canvas ui.Images using Flutter canvas, implementing blend/dispose rules. Bypasses the engine's buggy animated compositor.
+/// Composites WebP frames into full-canvas ui.Images using Flutter canvas, implementing blend/dispose rules. Feeds the crash-only fallback when the engine cannot decode animated WebP.
 ///
-/// Holds references only; never disposes. Every output from [composite] is owned by the caller, which must dispose them.
+/// [composite] holds references only and never disposes; every output is owned by the caller. The streaming methods retain one canvas and own it.
 class WebpEngineCompositor {
   WebpEngineCompositor(this.canvasW, this.canvasH);
 
   final int canvasW;
   final int canvasH;
   ui.Image? _prev;
+
+  /// Retained canvas for the streaming fallback. Owned by the compositor.
+  ui.Image? _stream;
 
   /// Composites [frameBitmap] atop the previous canvas with prior disposal applied. Caller owns the returned image.
   Future<ui.Image> composite(
@@ -226,5 +229,37 @@ class WebpEngineCompositor {
     final image = await recorder.endRecording().toImage(canvasW, canvasH);
     _prev = image;
     return image;
+  }
+
+  /// Seeds the streaming canvas with the engine's last good frame. The
+  /// compositor takes ownership; the caller must not dispose [canvas].
+  void seedStream(ui.Image canvas) {
+    _stream?.dispose();
+    _prev = canvas;
+    _stream = canvas;
+  }
+
+  /// Composites one frame onto the retained streaming canvas and frees the
+  /// previous one. The returned image is the retained canvas: clone it to
+  /// display, but never dispose it. The compositor frees it on the next tick.
+  Future<ui.Image> compositeStream(
+    WebpFrameMeta? prevMeta,
+    WebpFrameMeta meta,
+    ui.Image frameBitmap,
+  ) async {
+    final out = await composite(prevMeta, meta, frameBitmap);
+    final old = _stream;
+    _stream = out;
+    if (old != null && !identical(old, out)) old.dispose();
+    return out;
+  }
+
+  /// Frees the retained streaming canvas so the next composite starts blank.
+  /// Call at a loop wrap and on teardown.
+  void resetStream() {
+    final canvas = _stream;
+    _stream = null;
+    if (identical(_prev, canvas)) _prev = null;
+    canvas?.dispose();
   }
 }

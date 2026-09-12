@@ -2520,16 +2520,18 @@ class EmoteManager extends ChangeNotifier {
     return _probeResult;
   }
 
-  /// Enqueues fetch with concurrency gate and stagger.
+  /// Enqueues fetch with concurrency gate and stagger. The stagger wait runs
+  /// before acquiring a permit so sleeping fetches never hold gate slots.
   Future<T> _enqueueFetch<T>(Future<T> Function() action) {
     final enqueuedAt = DateTime.now();
-    return _fetchGate.withPermit(() async {
+    Future<void> stagger() async {
       final elapsed = DateTime.now().difference(enqueuedAt);
       if (elapsed < _fetchStagger) {
         await Future.delayed(_fetchStagger - elapsed);
       }
-      return action();
-    });
+    }
+
+    return stagger().then((_) => _fetchGate.withPermit(action));
   }
 
   @visibleForTesting

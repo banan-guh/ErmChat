@@ -280,10 +280,12 @@ void main() {
 
   setUp(() {
     EmoteUrlProvider.debugFetchOverride = null;
+    EmoteUrlProvider.debugWebpEngineFailAfter = -1;
   });
 
   tearDown(() async {
     EmoteUrlProvider.debugFetchOverride = null;
+    EmoteUrlProvider.debugWebpEngineFailAfter = -1;
     PaintingBinding.instance.imageCache.clearLiveImages();
     PaintingBinding.instance.imageCache.clear();
   });
@@ -346,23 +348,21 @@ void main() {
       return decodeEmoteBytes(bytes);
     }
 
-    test(
-      '7TV animated WebP (annycatKISS) decodes all frames in pure Dart',
-      () async {
-        final frames = await decodeFile('7tv_kiss_2x.webp');
-        // Reference frame count is 47 (from the 7TV emote metadata).
-        expect(frames.isAnimated, isTrue);
-        expect(frames.frames, hasLength(47));
-        expect(frames.durations, everyElement(isNot(Duration.zero)));
-        // Frames carry real alpha (transparency preserved, not composited opaque).
-        final index = frames.frames.length ~/ 2;
-        expect(frames.frames[index].width, greaterThan(0));
-        expect(frames.frames[index].height, greaterThan(0));
-        for (final f in frames.frames) {
-          f.dispose();
-        }
-      },
-    );
+    test('7TV animated WebP (annycatKISS) decodes all 47 frames', () async {
+      final frames = await decodeFile('7tv_kiss_2x.webp');
+      // The engine renders this alpha WebP, so the engine-first pipeline
+      // returns its 47 frames. Reference count from the 7TV metadata.
+      expect(frames.isAnimated, isTrue);
+      expect(frames.frames, hasLength(47));
+      expect(frames.durations, everyElement(isNot(Duration.zero)));
+      // Frames carry real alpha (transparency preserved, not composited opaque).
+      final index = frames.frames.length ~/ 2;
+      expect(frames.frames[index].width, greaterThan(0));
+      expect(frames.frames[index].height, greaterThan(0));
+      for (final f in frames.frames) {
+        f.dispose();
+      }
+    });
 
     test('7TV animated GIF (annycatKISS) decodes all 47 frames', () async {
       final frames = await decodeFile('7tv_kiss_2x.gif');
@@ -411,6 +411,50 @@ void main() {
         out.dispose();
       }
     });
+
+    test(
+      'lazy compositor source advances and keeps frames clone-able',
+      () async {
+        for (final name in ['7tv_kiss_2x.webp', '7tv_boink_2x.webp']) {
+          final bytes = File('test/fixtures/$name').readAsBytesSync();
+          final meta = parseWebpAnim(bytes);
+          expect(meta.frames, isNotEmpty, reason: name);
+          // Scheduling uses the ANMF durations.
+          expect(
+            meta.frames.every((f) => f.durationMs >= 0),
+            isTrue,
+            reason: name,
+          );
+
+          final compositor = WebpEngineCompositor(meta.canvasW, meta.canvasH);
+          final emitted = <ui.Image>[];
+          for (var i = 0; i < 8; i++) {
+            final f = meta.frames[i];
+            final codec = await ui.instantiateImageCodec(
+              buildStandaloneFrameWebp(f),
+            );
+            final hi = await codec.getNextFrame();
+            final prev = i > 0 ? meta.frames[i - 1] : null;
+            final out = await compositor.compositeStream(prev, f, hi.image);
+            hi.image.dispose();
+            codec.dispose();
+            expect(out.width, meta.canvasW, reason: name);
+            expect(out.height, meta.canvasH, reason: name);
+            // Retain a clone: the compositor frees its canvas on the next tick.
+            emitted.add(out.clone());
+          }
+          // Every emitted frame stays clone-able (disposed-canvas regression).
+          for (final img in emitted) {
+            final clone = img.clone();
+            clone.dispose();
+          }
+          for (final img in emitted) {
+            img.dispose();
+          }
+          compositor.resetStream();
+        }
+      },
+    );
   });
 
   group('EmoteImage widget', () {
@@ -474,6 +518,65 @@ void main() {
         EmoteUrlProvider.currentFrame('https://example.com/stream.gif'),
         greaterThan(0),
       );
+    });
+
+    testWidgets('streams a real animated WebP and advances frames', (
+      tester,
+    ) async {
+      final webp = File('test/fixtures/7tv_kiss_2x.webp').readAsBytesSync();
+      EmoteUrlProvider.debugFetchOverride = (url) async => webp;
+
+      await pumpEmote(tester, url: 'https://example.com/stream.webp');
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 200)),
+      );
+      await tester.pump();
+      expect(
+        EmoteUrlProvider.currentFrame('https://example.com/stream.webp'),
+        0,
+      );
+
+      // The engine streams one WebP frame at a time on the real event loop.
+      for (var i = 0; i < 3; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 150)),
+        );
+        await tester.pump(const Duration(milliseconds: 160));
+      }
+      expect(
+        EmoteUrlProvider.currentFrame('https://example.com/stream.webp'),
+        greaterThan(0),
+      );
+    });
+
+    testWidgets('engine WebP failure swaps to the lazy compositor', (
+      tester,
+    ) async {
+      final webp = File('test/fixtures/7tv_kiss_2x.webp').readAsBytesSync();
+      EmoteUrlProvider.debugFetchOverride = (url) async => webp;
+      // Force the engine stream to fail after three good frames, so the swap
+      // resumes from the engine seed rather than re-compositing from zero.
+      EmoteUrlProvider.debugWebpEngineFailAfter = 3;
+
+      await pumpEmote(tester, url: 'https://example.com/fallback.webp');
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 250)),
+      );
+      await tester.pump();
+
+      // Keep pumping: only the lazy compositor can advance past the forced
+      // engine stop point.
+      for (var i = 0; i < 6; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 150)),
+        );
+        await tester.pump(const Duration(milliseconds: 160));
+      }
+      expect(
+        EmoteUrlProvider.currentFrame('https://example.com/fallback.webp'),
+        greaterThan(3),
+      );
+      expect(find.byType(RawImage), findsOneWidget);
     });
 
     testWidgets('two widgets with the same URL share one fetch', (
