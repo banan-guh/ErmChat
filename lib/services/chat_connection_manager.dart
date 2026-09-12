@@ -22,6 +22,7 @@ import '../services/chat_ingestion.dart';
 import '../services/chat_channel_setup.dart';
 import '../services/chat_sender.dart';
 import '../services/eventsub_consumer.dart';
+import '../services/moderation_hub.dart';
 import '../services/seven_tv_consumer.dart';
 import '../services/join_progress_tracker.dart';
 import '../services/chat_readiness.dart';
@@ -213,18 +214,28 @@ class ChatConnectionManager {
     eventSub: config.services.eventSub,
   );
 
+  // Single moderation ingest owner: IRC echoes and the EventSub
+  // channel.moderate stream both route here, so precedence and the analytics,
+  // feed, and system-line emission happen once per real action.
+  late final ModerationHub _moderation = ModerationHub(
+    chat: config.chat,
+    session: config.session,
+    isModerationActive: eventSubTopics.isModerationActive,
+    onSystemMessage: config.bridge.onSystemMessage,
+    onAnalyticsModeration: config.sinks.onAnalyticsModeration,
+    onSelfTimeoutArmed: _sender.armTimeout,
+    onSelfTimeoutCleared: _sender.clearTimeout,
+  );
+
   // EventSub consumption: typed decoder events applied to the chat kernel.
   late final EventSubConsumer eventSubConsumer = EventSubConsumer(
     chat: config.chat,
-    session: config.session,
     topics: eventSubTopics,
+    moderation: _moderation,
     onSystemMessage: config.bridge.onSystemMessage,
-    onAnalyticsModeration: config.sinks.onAnalyticsModeration,
     onHypeTrain: config.sinks.onHypeTrain,
     onPoll: config.sinks.onPoll,
     onPrediction: config.sinks.onPrediction,
-    onSelfTimeoutArmed: _sender.armTimeout,
-    onSelfTimeoutCleared: _sender.clearTimeout,
   );
 
   // 7TV event consumption: socket events applied to the emote manager.
@@ -292,6 +303,7 @@ class ChatConnectionManager {
     badgeService: config.services.badgeService,
     twitchAuth: config.services.twitchAuth,
     sender: _sender,
+    moderation: _moderation,
     ignoreManager: config.services.ignoreManager,
     pingManager: config.services.pingManager,
     mentionsChannel: config.bridge.mentionsChannel,
@@ -304,7 +316,6 @@ class ChatConnectionManager {
     isJoinFailureNotified: _channelSetup.isJoinFailureNotified,
     onSystemMessage: config.bridge.onSystemMessage,
     onAnalyticsMessage: config.sinks.onAnalyticsMessage,
-    onAnalyticsModeration: config.sinks.onAnalyticsModeration,
     onChatMessage: config.sinks.onChatMessage,
     onMention: config.sinks.onMention,
     onWhisper: config.sinks.onWhisper,

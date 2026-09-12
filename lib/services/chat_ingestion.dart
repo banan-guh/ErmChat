@@ -4,14 +4,11 @@ import 'dart:ui' show Color;
 
 import '../models/emote_fetch_tier.dart';
 import '../models/twitch_message.dart';
-import '../util/duration_format.dart';
-import '../util/log.dart';
 import '../irc/decode/codec.dart' show parseIrcChatMessage;
 import '../irc/decode/copy.dart'
-    show buildBanText, buildUserNoticeText, userNoticeAccent, userNoticeLabelId;
+    show buildUserNoticeText, userNoticeAccent, userNoticeLabelId;
 import '../irc/decode/decoder.dart' show IrcChatDecoder;
-import '../irc/decode/events.dart'
-    show IrcChannelClearEvent, IrcMessageDeletedEvent, UserNoticeEvent;
+import '../irc/decode/events.dart' show UserNoticeEvent;
 import '../irc/message.dart' show IrcMessage;
 import '../irc/transport/read.dart' show IrcReadService;
 import '../irc/transport/write.dart' show IrcService;
@@ -21,24 +18,11 @@ import 'chat_sender.dart';
 import 'emote_manager.dart';
 import 'ignore_manager.dart';
 import 'message_policy.dart';
+import 'moderation_hub.dart';
 import 'ping_manager.dart';
 import 'twitch_auth.dart';
 import 'twitch_badge_service.dart';
 import 'user_store.dart';
-
-/// One IRC ban/timeout, tracked for stack folding: repeated identical
-/// moderation events inside the dedup window collapse into one system line
-/// with a "(N times)" suffix.
-class _BanMeta {
-  final String user;
-  final bool isTimeout;
-  int stackCount = 1;
-  DateTime lastEvent;
-  String? firstMessageId;
-
-  _BanMeta({required this.user, required this.isTimeout})
-    : lastEvent = DateTime.now();
-}
 
 /// The chat-content domain of the pipeline: turns incoming IRC traffic
 /// (PRIVMSG, CLEARMSG, CLEARCHAT, channel clears, own-message echoes) into
@@ -58,6 +42,7 @@ class ChatIngestion {
     required this.badgeService,
     required this.twitchAuth,
     required this.sender,
+    required this.moderation,
     this.ignoreManager,
     this.pingManager,
     required this.mentionsChannel,
@@ -70,7 +55,6 @@ class ChatIngestion {
     required this.isJoinFailureNotified,
     required this.onSystemMessage,
     this.onAnalyticsMessage,
-    this.onAnalyticsModeration,
     this.onChatMessage,
     this.onMention,
     this.onWhisper,
@@ -87,6 +71,7 @@ class ChatIngestion {
   final TwitchBadgeService badgeService;
   final TwitchAuth twitchAuth;
   final ChatSender sender;
+  final ModerationHub moderation;
   final IgnoreManager? ignoreManager;
   final PingManager? pingManager;
 
@@ -123,14 +108,11 @@ class ChatIngestion {
   onSystemMessage;
 
   final void Function(String channel, TwitchMessage msg)? onAnalyticsMessage;
-  final void Function(String channel, bool isTimeout)? onAnalyticsModeration;
   final void Function(String channel, TwitchMessage msg)? onChatMessage;
   final void Function(String channel, TwitchMessage msg)? onMention;
   final void Function(TwitchMessage msg)? onWhisper;
 
   bool _disposed = false;
-  final _recentBanMeta = <String, List<_BanMeta>>{};
-  static const _banDedupWindowSeconds = 10;
   static const _roomStateNoticeIds = {
     'followers_on_zero',
     'followers_on',
@@ -151,16 +133,25 @@ class ChatIngestion {
   List<StreamSubscription<void>> attach() {
     return [
       readDecoder.onMessage.listen(onMessage),
-      readDecoder.onMessageDeleted.listen(_onMessageDeleted),
+      readDecoder.onMessageDeleted.listen(
+        (event) => moderation.onIrcDelete(
+          channel: event.channel,
+          messageId: event.messageId,
+          user: event.user,
+          text: event.deletedMessageText,
+        ),
+      ),
       readDecoder.onBan.listen(
-        (event) => _handleBanEvent(
+        (event) => moderation.onIrcBan(
           channel: event.channel,
           user: event.user,
           isTimeout: event.isTimeout,
           duration: event.duration,
         ),
       ),
-      readDecoder.onChannelClear.listen(_onChannelClear),
+      readDecoder.onChannelClear.listen(
+        (event) => moderation.onIrcClear(event.channel),
+      ),
       readDecoder.onOwnMessage.listen(onOwnIrcMessage),
       readDecoder.onNotice.listen((event) {
         if (_disposed) return;
@@ -442,122 +433,6 @@ class ChatIngestion {
         systemAccent: accent,
       ),
     );
-  }
-
-  // ---- Moderation echoes --------------------------------------------------
-
-  void _onMessageDeleted(IrcMessageDeletedEvent event) {
-    if (_disposed) return;
-    final channel = chat.channelFor(event.channel);
-    final found = channel?.messages.markDeleted(event.messageId) ?? false;
-    // While the channel.moderate v2 subscription is active, deletions come
-    // from EventSub (with moderator + message body) - skip the IRC copy.
-    if (found && !isModerationActive(event.channel)) {
-      onSystemMessage(
-        event.channel,
-        'A message from ${event.user} was deleted saying: "${event.deletedMessageText}".',
-      );
-    }
-  }
-
-  void _handleBanEvent({
-    required String channel,
-    required String user,
-    required bool isTimeout,
-    required int? duration,
-  }) {
-    logDebug(
-      '[Ingestion] IRC ban received: user=$user channel=$channel isTimeout=$isTimeout',
-    );
-    if (_disposed) return;
-    onAnalyticsModeration?.call(channel, isTimeout);
-    chat.channelFor(channel)?.messages.markUserDeleted(user);
-    // Track own timeouts for the input-box countdown. Runs before the
-    // moderation-channel early return so the IRC and EventSub sources can't
-    // double-count: both just re-arm the same expiry.
-    final selfLogin = session.login?.toLowerCase();
-    if (selfLogin != null && user.toLowerCase() == selfLogin) {
-      // Zero-length timeouts are already spent - don't arm a gate for them.
-      if (isTimeout && duration != null && duration > 0) {
-        sender.armTimeout(
-          channel,
-          DateTime.now().add(Duration(seconds: duration)),
-        );
-      }
-    }
-    // While the channel.moderate v2 subscription is active, moderation
-    // messages come from EventSub (with reason/duration) - skip the IRC copy.
-    if (isModerationActive(channel)) return;
-    final result = _processBanInChannel(channel, user, isTimeout);
-    final isSelf = user.toLowerCase() == session.login?.toLowerCase();
-    final base = isSelf
-        ? (isTimeout
-              ? 'You are timed out${duration != null ? ' for ${formatSeconds(duration)}' : ''}'
-              : 'You were banned')
-        : buildBanText(user: user, isTimeout: isTimeout, durationSec: duration);
-    final stacked = result.stackCount > 1
-        ? ' (${result.stackCount} times)'
-        : '';
-    // buildBanText already ends with a period.
-    final trimmed = base.endsWith('.')
-        ? base.substring(0, base.length - 1)
-        : base;
-    final text = '$trimmed$stacked.';
-    logDebug('[Ingestion] IRC ban system message: $text');
-
-    if (result.stackCount > 1) {
-      if (result.meta.firstMessageId != null) {
-        chat
-            .channelFor(channel)
-            ?.messages
-            .updateText(result.meta.firstMessageId!, text);
-        return;
-      }
-    }
-    onSystemMessage(channel, text);
-    final msgs = chat.channelFor(channel)?.messages.items;
-    result.meta.firstMessageId = msgs != null && msgs.isNotEmpty
-        ? msgs.first.messageId
-        : null;
-  }
-
-  // IRC-only ban/stack tracking within a 10s window (IRC is the single ban
-  // source since EventSub channel.ban subscriptions were dropped).
-  ({int stackCount, _BanMeta meta}) _processBanInChannel(
-    String channel,
-    String user,
-    bool isTimeout,
-  ) {
-    final now = DateTime.now();
-    final metas = _recentBanMeta.putIfAbsent(channel, () => []);
-
-    metas.removeWhere(
-      (m) => now.difference(m.lastEvent).inSeconds >= _banDedupWindowSeconds,
-    );
-
-    final existing = metas.cast<_BanMeta?>().firstWhere(
-      (m) => m!.user == user && m.isTimeout == isTimeout,
-      orElse: () => null,
-    );
-
-    if (existing != null) {
-      existing.stackCount++;
-      existing.lastEvent = now;
-      return (stackCount: existing.stackCount, meta: existing);
-    }
-
-    final meta = _BanMeta(user: user, isTimeout: isTimeout);
-    metas.add(meta);
-    return (stackCount: 1, meta: meta);
-  }
-
-  void _onChannelClear(IrcChannelClearEvent event) {
-    if (_disposed) return;
-    // With channel.moderate active, clears come from EventSub with the
-    // moderator's name - skip the IRC copy.
-    if (isModerationActive(event.channel)) return;
-    chat.channelFor(event.channel)?.messages.markAllDeleted();
-    onSystemMessage(event.channel, 'Chat was cleared.');
   }
 
   // ---- Own-message echo ---------------------------------------------------

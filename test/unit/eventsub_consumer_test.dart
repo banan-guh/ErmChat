@@ -13,6 +13,7 @@ import 'package:ermchat/eventsub/topics.dart';
 import 'package:ermchat/eventsub/transport/connection.dart';
 import 'package:ermchat/models/twitch_message.dart';
 import 'package:ermchat/services/eventsub_consumer.dart';
+import 'package:ermchat/services/moderation_hub.dart';
 import 'package:ermchat/services/twitch_api.dart';
 import 'package:ermchat/services/twitch_auth.dart';
 
@@ -94,17 +95,23 @@ void main() {
     );
     decoder = EventSubDecoder(Stream<Map<String, dynamic>>.empty());
     decoder.setChannelMapping('broadcaster1', 'testchannel');
-    consumer = EventSubConsumer(
+    final moderation = ModerationHub(
       chat: chat,
       session: session,
+      isModerationActive: topics.isModerationActive,
+      onSystemMessage: (c, t) => lines.add((c, t)),
+      onAnalyticsModeration: (c, isTimeout) => analytics.add((c, isTimeout)),
+      onSelfTimeoutArmed: (c, until) => armed[c] = until,
+      onSelfTimeoutCleared: (c) => cleared.add(c),
+    );
+    consumer = EventSubConsumer(
+      chat: chat,
       topics: topics,
+      moderation: moderation,
       onSystemMessage: (c, t, {Color? accent, String? messageId}) {
         lines.add((c, t));
       },
-      onAnalyticsModeration: (c, isTimeout) => analytics.add((c, isTimeout)),
       onHypeTrain: (event) => hypeKinds.add(event.kind),
-      onSelfTimeoutArmed: (c, until) => armed[c] = until,
-      onSelfTimeoutCleared: (c) => cleared.add(c),
     );
     consumer.attach(decoder);
   });
@@ -393,8 +400,23 @@ void main() {
       );
     });
 
-    test('unban resolve lands in the feed with a line', () async {
+    test('unban resolve is skipped while moderate covers it', () async {
       await subscribeAll();
+      decoder.feed(
+        _frame('channel.unban_request.resolve', {
+          'user_login': 'spammer',
+          'moderator_user_name': 'moduser',
+          'resolution_text': 'second chance',
+        }),
+      );
+      expect(feedActions(), isEmpty);
+      expect(lines, isEmpty);
+    });
+
+    test('unban resolve lands when moderate is off', () async {
+      await subscribeAll();
+      await subscribeWithoutModeration();
+      expect(topics.isInboxActive('testchannel'), isTrue);
       decoder.feed(
         _frame('channel.unban_request.resolve', {
           'user_login': 'spammer',

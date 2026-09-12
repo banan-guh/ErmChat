@@ -3,49 +3,40 @@ import 'dart:ui' show Color;
 
 import '../chat/channel/moderation.dart';
 import '../chat/chat.dart';
-import '../client/session.dart';
 import '../eventsub/decode/decoder.dart';
 import '../eventsub/decode/events.dart';
 import '../eventsub/topics.dart';
-import '../util/duration_format.dart';
 import '../util/mod_activity_format.dart' show formatModActivity;
+import 'moderation_hub.dart';
 
-/// Applies typed EventSub events to the chat kernel: moderation system lines,
-/// feed rows, warn/ban/suspicious state, points, and the AutoMod queue.
+/// Applies typed EventSub events to the chat kernel: mod feed complements,
+/// warnings, the AutoMod queue, points, and widgets. The `channel.moderate`
+/// family is handled by [ModerationHub] so moderation facts have one ingest
+/// owner and one precedence decision.
 class EventSubConsumer {
   EventSubConsumer({
     required this.chat,
-    required this.session,
     required this.topics,
+    required this.moderation,
     required this.onSystemMessage,
-    this.onAnalyticsModeration,
     this.onHypeTrain,
     this.onPoll,
     this.onPrediction,
-    required this.onSelfTimeoutArmed,
-    required this.onSelfTimeoutCleared,
   });
 
   final Chat chat;
-  final Session session;
   final EventSubTopics topics;
+  final ModerationHub moderation;
   final void Function(String, String, {Color? accent, String? messageId})
   onSystemMessage;
-  final void Function(String channel, bool isTimeout)? onAnalyticsModeration;
   final void Function(HypeTrainEvent event)? onHypeTrain;
   final void Function(PollEvent event)? onPoll;
   final void Function(PredictionEvent event)? onPrediction;
 
-  /// Arms the manager-owned send gate when our own timeout lands.
-  final void Function(String channel, DateTime until) onSelfTimeoutArmed;
-
-  /// Clears the manager-owned send gate on unban/untimeout.
-  final void Function(String channel) onSelfTimeoutCleared;
-
   bool _disposed = false;
   final _subscriptions = <StreamSubscription>[];
 
-  /// Subscribes the 14 typed streams and returns the subscriptions.
+  /// Subscribes the typed streams and returns the subscriptions.
   /// Re-attaching cancels the previous subscriptions first.
   List<StreamSubscription> attach(EventSubDecoder decoder) {
     for (final sub in _subscriptions) {
@@ -54,7 +45,7 @@ class EventSubConsumer {
     _subscriptions
       ..clear()
       ..addAll([
-        decoder.onModeration.listen(_onModerationEvent),
+        decoder.onModeration.listen(moderation.onModeration),
         decoder.onAutomodHeld.listen(_onAutomodHeld),
         decoder.onShieldMode.listen(_onShieldModeEvent),
         decoder.onShoutout.listen(_onShoutoutEvent),
@@ -90,204 +81,6 @@ class EventSubConsumer {
       sub.cancel();
     }
     _subscriptions.clear();
-  }
-
-  // channel.moderate v2 events in channels with an active subscription:
-  // renders moderation system messages, applies message deletions, tracks
-  // the ban roster and warn log, and logs every action to the feed.
-  void _onModerationEvent(ModerationEvent event) {
-    if (_disposed) return;
-    if (!topics.isModerationActive(event.channel)) return;
-
-    final mod = event.moderatorName;
-    final target = event.targetName;
-    final selfLogin = session.login?.toLowerCase();
-    final isSelfTarget =
-        target != null &&
-        selfLogin != null &&
-        target.toLowerCase() == selfLogin;
-    final reason = (event.reason != null && event.reason!.isNotEmpty)
-        ? ': "${event.reason}"'
-        : '';
-
-    final entry = ModActivityEntry(
-      at: DateTime.now(),
-      channel: event.channel,
-      action: event.rawAction,
-      moderator: mod,
-      target: target,
-      reason: event.reason,
-      durationSeconds: event.durationSeconds,
-      terms: event.terms,
-    );
-    final line = formatModActivity(entry);
-    // A malformed event can omit the target; the formatter's 'someone'
-    // fallback would replace the old literal "null", so keep that case.
-    String lineOr(String raw) => target == null ? raw : line;
-    void feed() => chat.channelFor(event.channel)?.moderation.addFeed(entry);
-
-    switch (event.action) {
-      case ModerationAction.delete:
-        if (event.messageId != null) {
-          chat
-              .channelFor(event.channel)
-              ?.messages
-              .markDeleted(event.messageId!);
-        }
-        final body =
-            (event.messageBody != null && event.messageBody!.isNotEmpty)
-            ? ': "${event.messageBody}"'
-            : '';
-        onSystemMessage(
-          event.channel,
-          '$mod deleted a message from $target$body.',
-        );
-        feed();
-        break;
-      case ModerationAction.clear:
-        chat.channelFor(event.channel)?.messages.markAllDeleted();
-        onSystemMessage(event.channel, line);
-        feed();
-        break;
-      case ModerationAction.ban:
-      case ModerationAction.timeout:
-        onAnalyticsModeration?.call(
-          event.channel,
-          event.action == ModerationAction.timeout,
-        );
-        if (target != null) {
-          chat.channelFor(event.channel)?.messages.markUserDeleted(target);
-          chat
-              .channelFor(event.channel)
-              ?.moderation
-              .putBan(
-                BanEntry(
-                  at: DateTime.now(),
-                  channel: event.channel,
-                  login: target,
-                  expiresAt:
-                      event.action == ModerationAction.timeout &&
-                          event.durationSeconds != null
-                      ? DateTime.now().add(
-                          Duration(seconds: event.durationSeconds!),
-                        )
-                      : null,
-                  reason: event.reason,
-                  moderator: mod,
-                ),
-              );
-        }
-        final duration = event.durationSeconds != null
-            ? ' for ${formatSeconds(event.durationSeconds!)}'
-            : '';
-        if (isSelfTarget &&
-            event.action == ModerationAction.timeout &&
-            event.durationSeconds != null &&
-            // Zero-length timeouts are already spent - no gate to arm.
-            event.durationSeconds! > 0) {
-          onSelfTimeoutArmed(
-            event.channel,
-            DateTime.now().add(Duration(seconds: event.durationSeconds!)),
-          );
-        }
-        onSystemMessage(
-          event.channel,
-          isSelfTarget
-              ? 'You were ${event.action == ModerationAction.timeout ? 'timed out$duration' : 'banned'}$reason by $mod.'
-              : lineOr(
-                  '$mod ${event.action == ModerationAction.timeout ? 'timed out' : 'banned'} $target$duration$reason.',
-                ),
-        );
-        feed();
-        break;
-      case ModerationAction.unban:
-      case ModerationAction.untimeout:
-        if (isSelfTarget) onSelfTimeoutCleared(event.channel);
-        if (target != null) {
-          chat.channelFor(event.channel)?.moderation.removeBan(target);
-        }
-        onSystemMessage(
-          event.channel,
-          isSelfTarget
-              ? 'You were unbanned by $mod.'
-              : lineOr('$mod unbanned $target.'),
-        );
-        feed();
-        break;
-      case ModerationAction.mod:
-        onSystemMessage(event.channel, lineOr('$mod modded $target.'));
-        feed();
-        break;
-      case ModerationAction.unmod:
-        onSystemMessage(event.channel, lineOr('$mod unmodded $target.'));
-        feed();
-        break;
-      case ModerationAction.vip:
-        onSystemMessage(event.channel, lineOr('$mod added $target as a VIP.'));
-        feed();
-        break;
-      case ModerationAction.unvip:
-        onSystemMessage(
-          event.channel,
-          lineOr('$mod removed $target as a VIP.'),
-        );
-        feed();
-        break;
-      case ModerationAction.warn:
-        if (target != null && target.isNotEmpty) {
-          chat
-              .channelFor(event.channel)
-              ?.moderation
-              .addWarning(
-                WarnEntry(
-                  at: DateTime.now(),
-                  channel: event.channel,
-                  target: target,
-                  moderator: mod,
-                  reason: event.reason,
-                ),
-              );
-        }
-        onSystemMessage(event.channel, lineOr('$mod warned $target$reason.'));
-        feed();
-        break;
-      case ModerationAction.slow:
-      case ModerationAction.slowOff:
-      case ModerationAction.followers:
-      case ModerationAction.followersOff:
-      case ModerationAction.emoteOnly:
-      case ModerationAction.emoteOnlyOff:
-      case ModerationAction.subscribers:
-      case ModerationAction.subscribersOff:
-      case ModerationAction.uniqueChat:
-      case ModerationAction.uniqueChatOff:
-      case ModerationAction.raid:
-      case ModerationAction.unraid:
-        feed();
-        onSystemMessage(event.channel, line);
-        break;
-      case ModerationAction.addBlockedTerm:
-      case ModerationAction.removeBlockedTerm:
-      case ModerationAction.addPermittedTerm:
-      case ModerationAction.removePermittedTerm:
-        feed();
-        onSystemMessage(event.channel, line);
-        break;
-      case ModerationAction.approveUnbanRequest:
-      case ModerationAction.denyUnbanRequest:
-        feed();
-        onSystemMessage(
-          event.channel,
-          target != null && target.isNotEmpty
-              ? line
-              : '$mod ${event.action == ModerationAction.approveUnbanRequest ? 'approved' : 'denied'} an unban request$reason.',
-        );
-        break;
-      case ModerationAction.unknown:
-        // Future actions still land in the feed under their wire name.
-        feed();
-        break;
-    }
   }
 
   // Mod-feed complements gated on the feed subscriptions: shield toggles,
@@ -392,6 +185,9 @@ class EventSubConsumer {
       onSystemMessage(event.channel, '$user requested an unban.');
       return;
     }
+    // channel.moderate reports approve/deny with the same data, so the resolve
+    // copy is skipped while it is active to avoid a duplicate row.
+    if (topics.isModerationActive(event.channel)) return;
     final resolution =
         (event.resolutionText != null && event.resolutionText!.isNotEmpty)
         ? ': "${event.resolutionText}"'
