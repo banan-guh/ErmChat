@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../models/generic_emote.dart';
+import '../emotes/emote.dart';
 import '../models/twitch_message.dart';
 import '../services/chat_connection_manager.dart';
 import '../chat/chat.dart';
@@ -85,7 +85,7 @@ class ComposerController {
   final cooldownLabel = ValueNotifier<String?>(null);
 
   String? _lastSentText;
-  List<GenericEmote>? _cachedAutocompleteEmotes;
+  List<Emote>? _cachedAutocompleteEmotes;
   ({int start, String originalText, String replacementText})? _lastAutoUndo;
   String? _previousTextForUndo;
   String? _undoExpectedAfter;
@@ -179,7 +179,7 @@ class ComposerController {
       // rejects what the account cannot run (clean error notice shown).
       filtered = filterSuggestions(
         word: word.text,
-        emotes: <GenericEmote>[],
+        emotes: <Emote>[],
         users: const <String>[],
         commands: CommandHandler.allCommands,
       );
@@ -187,7 +187,7 @@ class ComposerController {
       final users = userStore.usersForChannel(channel);
       final isMention = word.text.startsWith('@');
       final emotes = isMention
-          ? <GenericEmote>[]
+          ? <Emote>[]
           : _cachedAutocompleteEmotes ??= emoteManager.sendableEmotes(channel);
       filtered = filterSuggestions(
         word: filterWord,
@@ -389,7 +389,7 @@ class ComposerController {
   }
 
   // Emote picker tap: insert the code at the cursor plus a space.
-  void insertEmoteAtCursor(GenericEmote emote) {
+  void insertEmoteAtCursor(Emote emote) {
     final text = messageController.text;
     final pos = messageController.selection.baseOffset;
     final insertPos = pos.clamp(0, text.length);

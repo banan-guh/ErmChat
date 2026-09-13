@@ -21,7 +21,7 @@ commands), and a library survey.
   `ModActions` guards, and the `mod_view` guarded-load scaffold. Skipped as stale or
   not identical: `PatternRuleFields`, `_ModEmpty`/`_ModError`, `ModActionPrompter`,
   `EmoteType` tables. Remaining: prefs facade, `SettingsCallbacks`, badge fetch
-  skeletons, RIFF/WebP chunk walking, `GenericEmote` rebuild, unlock/override merge.
+  skeletons, RIFF/WebP chunk walking, `Emote` rebuild, unlock/override merge.
 - **Track 2 (libraries/codegen): deferred** to a separate fork.
 
 ## Invariants
@@ -114,7 +114,7 @@ with it) and dankchat (Kotlin, 30,238).
 | RIFF/WebP chunk walking three times | `emote_image.dart:42-108,414-465` | ~20 | medium | medium |
 | Badge-service fetch skeletons | `third_party_badge_service.dart`, `twitch_badge_service.dart` | ~20 | medium | low-medium |
 | Duplicate `EmoteType` label/metadata tables | `emote_manager.dart:1145-1157`, `emote_sheet.dart:71-105`, `emotes_settings_screen.dart:76-79` | 15-20 | medium | low |
-| GenericEmote field-by-field rebuild (rename site only, fully preserving) | `emote_manager.dart:938-956` | ~20 | high | medium |
+| Emote field-by-field rebuild (rename site only, fully preserving) | `emote_manager.dart:938-956` | ~20 | high | medium |
 | Twitch unlock/override merge predicate four times | `emote_manager.dart:1717-1789,1942-1948` | 20-30 | medium | medium |
 
 ### 1c. Redundant layers and extraction candidates (larger)

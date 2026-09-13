@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../color_utils.dart';
-import '../models/generic_emote.dart';
+import '../emotes/emote.dart';
 import '../models/twitch_badge.dart';
 import '../models/twitch_message.dart';
 import '../util/constants.dart';
@@ -16,7 +16,7 @@ class MessageBuilder {
   final EmoteManager emoteManager;
   final TwitchBadgeService badgeService;
   final ThirdPartyBadgeService thirdPartyBadgeService;
-  final void Function(List<GenericEmote>) onShowEmoteSheet;
+  final void Function(List<Emote>) onShowEmoteSheet;
   final LinkWhitelist linkWhitelist;
 
   /// Whether Giphy attachments render inline. Off falls back to plain text.

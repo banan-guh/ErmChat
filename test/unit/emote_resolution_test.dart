@@ -2,7 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:ermchat/models/generic_emote.dart';
+import 'package:ermchat/emotes/emote.dart';
+import 'package:ermchat/emotes/emote_meta.dart';
 import 'package:ermchat/services/emote_providers/ffz_emotes.dart';
 import 'package:ermchat/services/emote_providers/bttv_emotes.dart';
 import 'package:ermchat/services/emote_providers/twitch_emotes.dart';
@@ -158,7 +159,7 @@ void main() {
     const globalUrl = 'https://api.frankerfacez.com/v1/set/global';
     const base = 'https://cdn.frankerfacez.com/emote/123';
 
-    Future<List<GenericEmote>> fetchGlobal(
+    Future<List<Emote>> fetchGlobal(
       EmoteResolution resolution, {
       Map<String, String>? urls,
     }) {
@@ -270,6 +271,39 @@ void main() {
       expect(result.single.url, 'https://cdn.frankerfacez.com/emote/555/2');
       expect(result.single.scope, EmoteScope.channel);
     });
+
+    test('fetchChannel uses the FFZ owner display name', () async {
+      const channelId = '71092938';
+      const url = 'https://api.frankerfacez.com/v1/room/id/$channelId';
+      HttpOverrides.global = _FakeHttpOverrides({
+        url: jsonEncode({
+          'sets': {
+            '1': {
+              'emoticons': [
+                {
+                  'id': 555,
+                  'name': 'FFZ',
+                  'urls': {'1': '$base/1', '2': '$base/2'},
+                  'owner': {'display_name': 'SomeCreator'},
+                },
+              ],
+            },
+          },
+        }),
+      });
+      final result = await FfzEmoteProvider.fetchChannel(channelId);
+      expect((result.single.meta as FfzMeta).ownerChannel, 'SomeCreator');
+    });
+
+    test('fetchChannel leaves ownerChannel null without an owner', () async {
+      const channelId = '71092938';
+      const url = 'https://api.frankerfacez.com/v1/room/id/$channelId';
+      HttpOverrides.global = _FakeHttpOverrides({
+        url: _ffzBody({'1': '$base/1', '2': '$base/2'}),
+      });
+      final result = await FfzEmoteProvider.fetchChannel(channelId);
+      expect((result.single.meta as FfzMeta).ownerChannel, isNull);
+    });
   });
 
   tearDown(() => HttpOverrides.global = null);
@@ -279,7 +313,7 @@ void main() {
     const body =
         '[{"id":"b1","code":"Pog","imageType":"png","zeroWidth":false}]';
 
-    Future<List<GenericEmote>> fetchGlobal(EmoteResolution resolution) {
+    Future<List<Emote>> fetchGlobal(EmoteResolution resolution) {
       HttpOverrides.global = _FakeHttpOverrides({globalUrl: body});
       return BttvEmoteProvider.fetchGlobal(resolution: resolution);
     }
@@ -333,7 +367,7 @@ void main() {
   group('TwitchEmoteProvider resolution', () {
     const globalUrl = 'https://api.twitch.tv/helix/chat/emotes/global';
 
-    Future<List<GenericEmote>> fetchGlobal(
+    Future<List<Emote>> fetchGlobal(
       EmoteResolution resolution, {
       List<Map<String, dynamic>>? data,
     }) {
@@ -379,13 +413,54 @@ void main() {
       expect(result.single.url1x, isNull);
       expect(result.single.url3x, isNull);
     });
+
+    test('maps tier and emote_type to TwitchEmoteKind', () async {
+      Map<String, dynamic> item(
+        String id,
+        String name, {
+        String? tier,
+        String? emoteType,
+      }) => {
+        'id': id,
+        'name': name,
+        'format': ['static'],
+        'scale': ['2.0'],
+        'theme_mode': ['light'],
+        'tier': ?tier,
+        'emote_type': ?emoteType,
+      };
+
+      final result = await fetchGlobal(
+        EmoteResolution.high,
+        data: [
+          item('s', 'Sub', tier: '3', emoteType: 'subscriptions'),
+          item('f', 'Follower', emoteType: 'follower'),
+          item('b', 'Bits', emoteType: 'bitstier'),
+          item('p', 'Prime', emoteType: 'prime'),
+          item('d', 'Default'),
+          item('t', 'TierOnly', tier: 'notanumber'),
+        ],
+      );
+
+      TwitchMeta metaOf(String code) =>
+          result.firstWhere((e) => e.code == code).meta as TwitchMeta;
+
+      expect(metaOf('Sub').kind, TwitchEmoteKind.sub);
+      expect(metaOf('Sub').subTier, 3);
+      expect(metaOf('Follower').kind, TwitchEmoteKind.follower);
+      expect(metaOf('Bits').kind, TwitchEmoteKind.bits);
+      expect(metaOf('Prime').kind, TwitchEmoteKind.standard);
+      expect(metaOf('Default').kind, TwitchEmoteKind.standard);
+      expect(metaOf('TierOnly').kind, TwitchEmoteKind.sub);
+      expect(metaOf('TierOnly').subTier, isNull);
+    });
   });
 
   group('TwitchEmoteProvider global unlockables', () {
     const unlockUrl =
         'https://api.twitch.tv/helix/chat/emotes?broadcaster_id=0';
 
-    Future<List<GenericEmote>> fetchUnlockable() {
+    Future<List<Emote>> fetchUnlockable() {
       HttpOverrides.global = _FakeHttpOverrides({
         unlockUrl: jsonEncode({
           'data': [
@@ -411,7 +486,7 @@ void main() {
       final emote = result.single;
       expect(emote.code, 'PrimePride');
       expect(emote.scope, EmoteScope.global);
-      expect(emote.emoteType, 'prime');
+      expect((emote.meta as TwitchMeta).kind, TwitchEmoteKind.standard);
       expect(emote.url, _url('prime1', '2.0'));
     });
   });

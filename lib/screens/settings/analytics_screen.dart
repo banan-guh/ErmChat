@@ -2,7 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../widgets/emote_image.dart';
 import '../../widgets/tabbed_layout.dart';
-import '../../models/generic_emote.dart';
+import '../../emotes/emote.dart';
 import '../../services/analytics_service.dart';
 import '../../util/prefs.dart';
 import 'settings_page.dart';
@@ -298,7 +298,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     ];
   }
 
-  List<Widget> _buildEmoteRows(List<({GenericEmote emote, int count})> emotes) {
+  List<Widget> _buildEmoteRows(List<({Emote emote, int count})> emotes) {
     if (emotes.isEmpty) {
       return [
         const Padding(

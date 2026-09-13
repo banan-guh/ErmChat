@@ -8,7 +8,7 @@ import '../providers/app_providers.dart';
 import '../providers/chat_pipeline.dart';
 import '../providers/feature_providers.dart';
 import '../providers/ui_state_providers.dart';
-import '../models/generic_emote.dart';
+import '../emotes/emote.dart';
 import '../models/twitch_message.dart';
 import '../util/haptics.dart';
 import '../services/twitch_api.dart';
@@ -1622,7 +1622,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   void _handlePanelBack() => _panelManager.handlePanelBack();
 
-  void _onEmoteSelected(GenericEmote emote) {
+  void _onEmoteSelected(Emote emote) {
     _composer.insertEmoteAtCursor(emote);
   }
 

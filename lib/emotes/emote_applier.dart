@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../composer/composer_controller.dart';
 import '../models/emote_fetch_tier.dart';
-import '../models/generic_emote.dart';
+import '../emotes/emote.dart';
 import '../chat/chat.dart';
 import '../util/connectivity.dart';
 import '../util/data_usage.dart';

@@ -2,7 +2,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
 import '../chat/chat.dart';
-import '../models/generic_emote.dart';
+import '../emotes/emote.dart';
 import '../models/twitch_badge.dart';
 import '../models/twitch_message.dart';
 import '../composer/composer_controller.dart';
@@ -359,7 +359,7 @@ class UserSheets {
     );
   }
 
-  void showEmoteSheet(BuildContext context, List<GenericEmote> emotes) {
+  void showEmoteSheet(BuildContext context, List<Emote> emotes) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,

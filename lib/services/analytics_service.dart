@@ -1,12 +1,13 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
-import '../models/generic_emote.dart';
+import '../emotes/emote.dart';
+import '../emotes/emote_catalog.dart';
 import '../models/twitch_message.dart';
 import 'emote_manager.dart';
 
 class _EmoteCount {
-  GenericEmote emote;
+  Emote emote;
   int count;
 
   _EmoteCount(this.emote, this.count);
@@ -93,7 +94,7 @@ class AnalyticsService extends ChangeNotifier {
     'your',
   };
 
-  final ChannelEmotes? Function(String channel, String? senderTwitchId)?
+  final EmoteLookup? Function(String channel, String? senderTwitchId)?
   _emoteLookup;
   final DateTime Function() _now;
   final Set<String> stopwords;
@@ -190,7 +191,7 @@ class AnalyticsService extends ChangeNotifier {
     return sorted.take(n).map((e) => (name: e.key, count: e.value)).toList();
   }
 
-  List<({GenericEmote emote, int count})> topEmotes(String channel, int n) {
+  List<({Emote emote, int count})> topEmotes(String channel, int n) {
     final stats = _stats(channel);
     if (stats == null) return const [];
     final sorted = stats.emoteCounts.values.toList()
@@ -230,7 +231,7 @@ class AnalyticsService extends ChangeNotifier {
     }
   }
 
-  void _countEmote(_ChannelStats stats, GenericEmote emote) {
+  void _countEmote(_ChannelStats stats, Emote emote) {
     final entry = stats.emoteCounts.putIfAbsent(
       emote.id,
       () => _EmoteCount(emote, 0),

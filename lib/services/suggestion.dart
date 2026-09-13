@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../models/generic_emote.dart';
+import '../emotes/emote.dart';
 import '../models/twitch_command.dart';
 
 class CurrentWord {
@@ -42,9 +42,7 @@ void replaceCurrentWord(
   final word = getCurrentWord(text, cursor, extendRight: extendRight);
   final trailingSpace = word.end >= text.length
       ? ' '
-      : (text[word.end] == ' '
-          ? ''
-          : (extendRight ? ' ' : ''));
+      : (text[word.end] == ' ' ? '' : (extendRight ? ' ' : ''));
   final newText =
       '${text.substring(0, word.start)}$replacement$trailingSpace${text.substring(word.end)}';
   controller.text = newText;
@@ -66,7 +64,7 @@ class UserSuggestion implements Suggestion {
 }
 
 class EmoteSuggestion implements Suggestion {
-  final GenericEmote emote;
+  final Emote emote;
   @override
   String get displayText => emote.code;
   const EmoteSuggestion({required this.emote});
@@ -81,7 +79,7 @@ class CommandSuggestion implements Suggestion {
 
 List<Suggestion> filterSuggestions({
   required String word,
-  required List<GenericEmote> emotes,
+  required List<Emote> emotes,
   required Iterable<String> users,
   List<TwitchCommand> commands = const [],
   bool preferEmotesFirst = false,
@@ -168,7 +166,12 @@ const _maxSuggestions = 100;
 
 // Lower is better. Exact-case: -10, recently used: -50. Charges per case
 // diff and extra chars.
-int _scoreEmote(String code, String query, String lowerQuery, bool isRecentlyUsed) {
+int _scoreEmote(
+  String code,
+  String query,
+  String lowerQuery,
+  bool isRecentlyUsed,
+) {
   final matchIndex = code.toLowerCase().indexOf(lowerQuery);
   if (matchIndex < 0) return _noMatch;
 

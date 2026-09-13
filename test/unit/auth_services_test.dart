@@ -3,10 +3,11 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:ermchat/services/twitch_auth.dart';
 import 'package:ermchat/services/twitch_oauth.dart';
 import 'package:ermchat/services/user_store.dart';
-import 'package:ermchat/models/generic_emote.dart';
+import 'package:ermchat/emotes/emote.dart';
+import 'package:ermchat/emotes/emote_catalog.dart';
+import 'package:ermchat/emotes/emote_meta.dart';
 import 'package:ermchat/models/twitch_message.dart';
 import 'package:ermchat/services/analytics_service.dart';
-import 'package:ermchat/services/emote_manager.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -34,8 +35,8 @@ TwitchMessage msg(
   );
 }
 
-ChannelEmotes emoteMap(Map<String, GenericEmote> byCode) {
-  return ChannelEmotes(byCode: byCode, suggestions: byCode.values.toList());
+EmoteLookup emoteMap(Map<String, Emote> byCode) {
+  return EmoteLookup(byCode: byCode, suggestions: byCode.values.toList());
 }
 
 class _RecordingIrcService extends IrcService {
@@ -645,10 +646,10 @@ void main() {
         () {
           final service = AnalyticsService(
             emoteLookup: (_, _) => emoteMap({
-              'monkaS': GenericEmote(
+              'monkaS': Emote(
                 id: 'b1',
                 code: 'monkaS',
-                type: EmoteType.bttv,
+                meta: const BttvMeta(),
                 url: 'https://x',
               ),
             }),
@@ -666,10 +667,10 @@ void main() {
         () {
           final service = AnalyticsService(
             emoteLookup: (_, _) => emoteMap({
-              'PogChamp': GenericEmote(
+              'PogChamp': Emote(
                 id: 'b1',
                 code: 'PogChamp',
-                type: EmoteType.bttv,
+                meta: const BttvMeta(),
                 url: 'https://x',
               ),
             }),

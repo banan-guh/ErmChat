@@ -12,7 +12,9 @@ class EmoteMetaStore {
 
   static final EmoteMetaStore I = EmoteMetaStore._();
 
-  static const _prefix = 'emotes3_';
+  // Cache keys moved from emotes3_ to emotes4_ when the catalog shape changed;
+  // the personal-set seed kept its old key, so both prefixes map to files.
+  static const _prefixes = ['emotes3_', 'emotes4_'];
   static const _dirName = 'emote_meta';
 
   Directory? _dir;
@@ -51,8 +53,10 @@ class EmoteMetaStore {
     return _dir;
   }
 
+  bool _hasPrefix(String key) => _prefixes.any(key.startsWith);
+
   File? _fileFor(String key, Directory dir) {
-    if (!key.startsWith(_prefix) || key.contains(Platform.pathSeparator)) {
+    if (!_hasPrefix(key) || key.contains(Platform.pathSeparator)) {
       return null;
     }
     return File('${dir.path}${Platform.pathSeparator}$key.json');
@@ -64,7 +68,7 @@ class EmoteMetaStore {
     _migrated = true;
     try {
       final dir = await _resolveDir();
-      for (final key in prefs.getKeys().where((k) => k.startsWith(_prefix))) {
+      for (final key in prefs.getKeys().where(_hasPrefix)) {
         final raw = prefs.getString(key);
         if (raw == null) continue;
         final file = dir == null ? null : _fileFor(key, dir);

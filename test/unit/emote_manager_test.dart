@@ -16,7 +16,9 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ermchat/models/emote_fetch_tier.dart';
-import 'package:ermchat/models/generic_emote.dart';
+import 'package:ermchat/emotes/emote.dart';
+import 'package:ermchat/emotes/emote_catalog.dart';
+import 'package:ermchat/emotes/emote_meta.dart';
 import 'package:ermchat/services/emote_manager.dart';
 import 'package:ermchat/services/twitch_auth.dart';
 import 'package:ermchat/services/emote_meta_store.dart';
@@ -89,8 +91,32 @@ EmoteCacheManager testCacheManager() => EmoteCacheManager.forTesting(
   ),
 );
 
-ChannelEmotes _makeEmotes(Map<String, GenericEmote> byCode) {
-  return ChannelEmotes(byCode: byCode, suggestions: byCode.values.toList());
+EmoteLookup _makeEmotes(Map<String, Emote> byCode) {
+  return EmoteLookup(byCode: byCode, suggestions: byCode.values.toList());
+}
+
+/// Groups emotes into the persisted catalog's per-list JSON shape. [scope]
+/// forces a target scope so a helper-built emote lands in the cache's own
+/// list even when its own scope field differs.
+Map<String, List<dynamic>> _catalogJson(
+  Iterable<Emote> emotes, {
+  EmoteScope? scope,
+}) {
+  final map = <String, List<dynamic>>{};
+  for (final e in emotes) {
+    final key = switch ((scope ?? e.scope, e.type)) {
+      (EmoteScope.global, EmoteType.twitch) => 'twitchGlobal',
+      (EmoteScope.global, EmoteType.bttv) => 'bttvGlobal',
+      (EmoteScope.global, EmoteType.ffz) => 'ffzGlobal',
+      (EmoteScope.global, EmoteType.sevenTv) => 'sevenTvGlobal',
+      (EmoteScope.channel, EmoteType.twitch) => 'twitchChannel',
+      (EmoteScope.channel, EmoteType.bttv) => 'bttvChannel',
+      (EmoteScope.channel, EmoteType.ffz) => 'ffzChannel',
+      _ => 'sevenTvChannel',
+    };
+    (map[key] ??= []).add(e.toJson());
+  }
+  return map;
 }
 
 Map<String, dynamic> _host(String name, {int width = 32, int height = 32}) => {
@@ -100,13 +126,17 @@ Map<String, dynamic> _host(String name, {int width = 32, int height = 32}) => {
   ],
 };
 
-GenericEmote _e(String id, String code, [EmoteType type = EmoteType.bttv]) =>
-    GenericEmote(
-      id: id,
-      code: code,
-      type: type,
-      url: 'https://example.com/$id.png',
-    );
+Emote _e(String id, String code, [EmoteType type = EmoteType.bttv]) => Emote(
+  id: id,
+  code: code,
+  meta: switch (type) {
+    EmoteType.twitch => const TwitchMeta(kind: TwitchEmoteKind.standard),
+    EmoteType.bttv => const BttvMeta(),
+    EmoteType.ffz => const FfzMeta(),
+    EmoteType.sevenTv => const SevenTvMeta(),
+  },
+  url: 'https://example.com/$id.png',
+);
 
 const _commands = <TwitchCommand>[
   TwitchCommand(name: '/me'),
@@ -915,7 +945,7 @@ void main() {
 
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  group('GenericEmote JSON round-trip', () {
+  group('Emote JSON round-trip', () {
     test('serializes and deserializes', () {
       final original = makeTestEmote(
         id: 'test-id',
@@ -929,14 +959,14 @@ void main() {
         baseName: 'AliasedEmote',
       );
       final json = original.toJson();
-      final restored = GenericEmote.fromJson(json);
+      final restored = Emote.fromJson(json);
       expect(restored.id, original.id);
       expect(restored.code, original.code);
       expect(restored.type, original.type);
       expect(restored.isZeroWidth, original.isZeroWidth);
-      expect(restored.isUnlisted, isTrue);
+      expect((restored.meta as SevenTvMeta).unlisted, isTrue);
       expect(restored.scope, original.scope);
-      expect(restored.ownerChannel, original.ownerChannel);
+      expect(restored.meta.owner, original.meta.owner);
       expect(restored.url, original.url);
       expect(restored.relativeScale, original.relativeScale);
       expect(restored.baseName, 'AliasedEmote');
@@ -946,73 +976,77 @@ void main() {
       final json = <String, dynamic>{
         'id': 'test-id',
         'code': 'TestEmote',
-        'type': 'bttv',
+        'meta': {'type': 'bttv'},
         'url': 'https://example.com/test.png',
       };
-      final restored = GenericEmote.fromJson(json);
+      final restored = Emote.fromJson(json);
       expect(restored.id, 'test-id');
       expect(restored.isZeroWidth, false);
       expect(restored.scope, EmoteScope.global);
       expect(restored.isAnimated, false);
-      expect(restored.ownerChannel, isNull);
+      expect(restored.meta.owner, isNull);
       expect(restored.relativeScale, 1.0);
     });
 
+    EmoteMeta metaOf(EmoteType type) => switch (type) {
+      EmoteType.twitch => const TwitchMeta(kind: TwitchEmoteKind.standard),
+      EmoteType.bttv => const BttvMeta(),
+      EmoteType.ffz => const FfzMeta(),
+      EmoteType.sevenTv => const SevenTvMeta(),
+    };
+
     test('round-trips every EmoteType and EmoteScope value', () {
       for (final type in EmoteType.values) {
-        final e = GenericEmote(
+        final e = Emote(
           id: '${type.index}',
           code: 'Test',
-          type: type,
+          meta: metaOf(type),
           url: '',
         );
         final json = e.toJson();
-        final restored = GenericEmote.fromJson(json);
+        final restored = Emote.fromJson(json);
         expect(restored.type, type);
       }
       for (final scope in EmoteScope.values) {
-        final e = GenericEmote(
+        final e = Emote(
           id: '1',
           code: 'Test',
-          type: EmoteType.bttv,
+          meta: const BttvMeta(),
           url: '',
           scope: scope,
         );
         final json = e.toJson();
-        final restored = GenericEmote.fromJson(json);
+        final restored = Emote.fromJson(json);
         expect(restored.scope, scope);
       }
     });
 
     test('round-trips url1x/url3x', () {
-      final original = GenericEmote(
+      final original = Emote(
         id: 'id-url',
         code: 'Emote',
-        type: EmoteType.bttv,
+        meta: const BttvMeta(),
         url: 'https://example.com/2x.png',
         url1x: 'https://example.com/1x.png',
         url3x: 'https://example.com/3x.png',
       );
-      final restored = GenericEmote.fromJson(original.toJson());
+      final restored = Emote.fromJson(original.toJson());
       expect(restored.url1x, original.url1x);
       expect(restored.url3x, original.url3x);
     });
 
-    test('recovers url3x from the legacy urlLarge key', () {
+    test('ignores the legacy urlLarge key', () {
       final legacy = {
         'id': 'legacy-1',
         'code': 'Legacy',
-        'type': 'sevenTv',
         'url': 'https://example.com/2x.png',
         'urlLarge': 'https://example.com/3x.png',
         'isAnimated': false,
         'scope': 'global',
-        'relativeScale': 1.0,
-        'aspectRatio': 1.0,
       };
-      final restored = GenericEmote.fromJson(legacy);
+      final restored = Emote.fromJson(legacy);
       expect(restored.url1x, isNull);
-      expect(restored.url3x, 'https://example.com/3x.png');
+      expect(restored.url3x, isNull);
     });
   });
 
@@ -1022,14 +1056,12 @@ void main() {
       manager.updateSevenTvEmotes(
         'ch',
         added: [
-          GenericEmote(
+          Emote(
             id: 'e1',
             code: 'OldName',
-            type: EmoteType.sevenTv,
+            meta: const SevenTvMeta(creator: 'Creator', baseName: 'BaseEmote'),
             url: 'https://example.com/e1.png',
             scope: EmoteScope.channel,
-            ownerChannel: 'Creator',
-            baseName: 'BaseEmote',
           ),
         ],
       );
@@ -1040,13 +1072,13 @@ void main() {
       final emote = manager.byCode('ch')!.byCode['NewName'];
       expect(emote, isNotNull);
       expect(emote!.baseName, 'BaseEmote');
-      expect(emote.ownerChannel, 'Creator');
+      expect(emote.meta.owner, 'Creator');
     });
 
-    GenericEmote sevenTv(String id, String code) => GenericEmote(
+    Emote sevenTv(String id, String code) => Emote(
       id: id,
       code: code,
-      type: EmoteType.sevenTv,
+      meta: const SevenTvMeta(),
       url: 'https://example.com/$id.png',
       scope: EmoteScope.channel,
     );
@@ -1179,13 +1211,13 @@ void main() {
 
     test('a fetch re-load re-applies live 7TV deltas', () async {
       SharedPreferences.setMockInitialValues({
-        'emotes3_ch': jsonEncode({
+        'emotes4_ch': jsonEncode({
           'ts': DateTime.now().toIso8601String(),
           'tier': EmoteFetchTier.high.index,
-          'emotes': [
-            sevenTv('old', 'Old7tv').toJson(),
-            makeTestEmote(id: 'n1', code: 'NonTwitch').toJson(),
-          ],
+          'emotes': _catalogJson([
+            sevenTv('old', 'Old7tv'),
+            makeTestEmote(id: 'n1', code: 'NonTwitch'),
+          ], scope: EmoteScope.channel),
         }),
       });
       final manager = EmoteManager(
@@ -1215,20 +1247,20 @@ void main() {
   });
 
   group('7TV startup reconcile', () {
-    GenericEmote sevenTv(String id, String code) => GenericEmote(
+    Emote sevenTv(String id, String code) => Emote(
       id: id,
       code: code,
-      type: EmoteType.sevenTv,
+      meta: const SevenTvMeta(),
       url: 'https://example.com/$id.png',
       scope: EmoteScope.channel,
     );
 
-    Map<String, Object> cache(List<GenericEmote> emotes) => {
-      'emotes3_ch': jsonEncode({
+    Map<String, Object> cache(List<Emote> emotes) => {
+      'emotes4_ch': jsonEncode({
         'ts': DateTime.now()
             .subtract(const Duration(hours: 1))
             .toIso8601String(),
-        'emotes': emotes.map((e) => e.toJson()).toList(),
+        'emotes': _catalogJson(emotes, scope: EmoteScope.channel),
       }),
     };
 
@@ -1355,19 +1387,19 @@ void main() {
   });
 
   group('manual reload force fetch', () {
-    GenericEmote sevenTv(String id, String code) => GenericEmote(
+    Emote sevenTv(String id, String code) => Emote(
       id: id,
       code: code,
-      type: EmoteType.sevenTv,
+      meta: const SevenTvMeta(),
       url: 'https://example.com/$id.png',
       scope: EmoteScope.channel,
     );
 
-    Map<String, Object> cache(List<GenericEmote> emotes) => {
-      'emotes3_ch': jsonEncode({
+    Map<String, Object> cache(List<Emote> emotes) => {
+      'emotes4_ch': jsonEncode({
         'ts': DateTime.now().toIso8601String(),
         'tier': EmoteFetchTier.medium.index,
-        'emotes': emotes.map((e) => e.toJson()).toList(),
+        'emotes': _catalogJson(emotes, scope: EmoteScope.channel),
       }),
     };
 
@@ -1401,16 +1433,12 @@ void main() {
 
     test('preloadGlobalEmotes force refetches the 7tv catalogue', () async {
       SharedPreferences.setMockInitialValues({
-        'emotes3_global': jsonEncode({
+        'emotes4_global': jsonEncode({
           'ts': DateTime.now().toIso8601String(),
           'tier': EmoteFetchTier.medium.index,
-          'emotes': [
-            makeTestEmote(
-              id: 'g1',
-              code: 'Stale7tv',
-              type: EmoteType.sevenTv,
-            ).toJson(),
-          ],
+          'emotes': _catalogJson([
+            makeTestEmote(id: 'g1', code: 'Stale7tv', type: EmoteType.sevenTv),
+          ], scope: EmoteScope.global),
         }),
       });
       var fetches = 0;
@@ -1441,27 +1469,27 @@ void main() {
   });
 
   group('reload with a flaky provider', () {
-    GenericEmote sevenTv(String id, String code) => GenericEmote(
+    Emote sevenTv(String id, String code) => Emote(
       id: id,
       code: code,
-      type: EmoteType.sevenTv,
+      meta: const SevenTvMeta(),
       url: 'https://example.com/$id.png',
       scope: EmoteScope.channel,
     );
 
-    Map<String, Object> channelCache(List<GenericEmote> emotes) => {
-      'emotes3_ch': jsonEncode({
+    Map<String, Object> channelCache(List<Emote> emotes) => {
+      'emotes4_ch': jsonEncode({
         'ts': DateTime.now().toIso8601String(),
         'tier': EmoteFetchTier.medium.index,
-        'emotes': emotes.map((e) => e.toJson()).toList(),
+        'emotes': _catalogJson(emotes, scope: EmoteScope.channel),
       }),
     };
 
-    Map<String, Object> globalCache(List<GenericEmote> emotes) => {
-      'emotes3_global': jsonEncode({
+    Map<String, Object> globalCache(List<Emote> emotes) => {
+      'emotes4_global': jsonEncode({
         'ts': DateTime.now().toIso8601String(),
         'tier': EmoteFetchTier.medium.index,
-        'emotes': emotes.map((e) => e.toJson()).toList(),
+        'emotes': _catalogJson(emotes, scope: EmoteScope.global),
       }),
     };
 
@@ -1581,10 +1609,10 @@ void main() {
       await manager.resolveEmotes('ch', 'b1', force: true);
       expect(manager.byCode('ch')!.suggestions.map((e) => e.code), ['Alpha']);
 
-      final bttvOnly = GenericEmote(
+      final bttvOnly = Emote(
         id: 'bt',
         code: 'BttvThing',
-        type: EmoteType.bttv,
+        meta: const BttvMeta(),
         url: 'https://example.com/bt.png',
         scope: EmoteScope.channel,
       );
@@ -1648,23 +1676,23 @@ void main() {
   });
 
   group('low tier registry freeze', () {
-    GenericEmote sevenTv(String id, String code) => GenericEmote(
+    Emote sevenTv(String id, String code) => Emote(
       id: id,
       code: code,
-      type: EmoteType.sevenTv,
+      meta: const SevenTvMeta(),
       url: 'https://example.com/$id.png',
       scope: EmoteScope.channel,
     );
 
     // Old timestamp plus a foreign tier stamp: without the freeze this cache
     // would count as stale on both counts and trigger a refetch.
-    Map<String, Object> frozenCache(List<GenericEmote> emotes) => {
-      'emotes3_ch': jsonEncode({
+    Map<String, Object> frozenCache(List<Emote> emotes) => {
+      'emotes4_ch': jsonEncode({
         'ts': DateTime.now()
             .subtract(const Duration(days: 400))
             .toIso8601String(),
         'tier': EmoteFetchTier.high.index,
-        'emotes': emotes.map((e) => e.toJson()).toList(),
+        'emotes': _catalogJson(emotes, scope: EmoteScope.channel),
       }),
     };
 
@@ -1704,18 +1732,14 @@ void main() {
       expect(manager.byCode('ch')!.suggestions.map((e) => e.code), ['Bravo']);
 
       SharedPreferences.setMockInitialValues({
-        'emotes3_global': jsonEncode({
+        'emotes4_global': jsonEncode({
           'ts': DateTime.now()
               .subtract(const Duration(days: 400))
               .toIso8601String(),
           'tier': EmoteFetchTier.high.index,
-          'emotes': [
-            makeTestEmote(
-              id: 'g1',
-              code: 'OldGlobal',
-              type: EmoteType.sevenTv,
-            ).toJson(),
-          ],
+          'emotes': _catalogJson([
+            makeTestEmote(id: 'g1', code: 'OldGlobal', type: EmoteType.sevenTv),
+          ], scope: EmoteScope.global),
         }),
       });
       var globalFetches = 0;
@@ -1781,10 +1805,10 @@ void main() {
   group('emote meta file store', () {
     late Directory dir;
 
-    GenericEmote sevenTvOf(String id, String code) => GenericEmote(
+    Emote sevenTvOf(String id, String code) => Emote(
       id: id,
       code: code,
-      type: EmoteType.sevenTv,
+      meta: const SevenTvMeta(),
       url: 'https://example.com/$id.png',
       scope: EmoteScope.channel,
     );
@@ -1798,7 +1822,7 @@ void main() {
 
     test('migrates legacy prefs blobs to files and deletes the keys', () async {
       SharedPreferences.setMockInitialValues({
-        'emotes3_ch': '{"ts":"2026-01-01T00:00:00.000","tier":1,"emotes":[]}',
+        'emotes4_ch': '{"ts":"2026-01-01T00:00:00.000","tier":1,"emotes":[]}',
         'unrelated': 'stays',
       });
       final prefs = await SharedPreferences.getInstance();
@@ -1806,13 +1830,13 @@ void main() {
 
       await store.migrateFromPrefs(prefs);
 
-      expect(File('${dir.path}/emotes3_ch.json').existsSync(), isTrue);
-      expect(prefs.getString('emotes3_ch'), isNull);
+      expect(File('${dir.path}/emotes4_ch.json').existsSync(), isTrue);
+      expect(prefs.getString('emotes4_ch'), isNull);
       expect(prefs.getString('unrelated'), 'stays');
       // Idempotent: a second pass must not resurrect or fail.
       await store.migrateFromPrefs(prefs);
       expect(
-        await store.read('emotes3_ch'),
+        await store.read('emotes4_ch'),
         '{"ts":"2026-01-01T00:00:00.000","tier":1,"emotes":[]}',
       );
     });
@@ -1834,7 +1858,7 @@ void main() {
       await pumpEventQueue();
 
       expect(fetches, 1);
-      expect(File('${dir.path}/emotes3_ch.json').existsSync(), isTrue);
+      expect(File('${dir.path}/emotes4_ch.json').existsSync(), isTrue);
       final prefs = await SharedPreferences.getInstance();
       expect(prefs.getKeys(), isEmpty, reason: 'prefs must stay blob-free');
 
@@ -1861,11 +1885,13 @@ void main() {
       () async {
         SharedPreferences.setMockInitialValues({});
         await EmoteMetaStore.I.write(
-          'emotes3_ch',
+          'emotes4_ch',
           jsonEncode({
             'ts': DateTime.now().toIso8601String(),
             'tier': EmoteFetchTier.low.index,
-            'emotes': [sevenTvOf('a', 'Alpha').toJson()],
+            'emotes': _catalogJson([
+              sevenTvOf('a', 'Alpha'),
+            ], scope: EmoteScope.channel),
           }),
         );
         var fetches = 0;
@@ -1897,9 +1923,9 @@ void main() {
     test('pruneStaleChannels drops dead channels and keeps global', () async {
       SharedPreferences.setMockInitialValues({});
       final store = EmoteMetaStore.I;
-      await store.write('emotes3_global', '{}');
-      await store.write('emotes3_kept', '{}');
-      await store.write('emotes3_dead', '{}');
+      await store.write('emotes4_global', '{}');
+      await store.write('emotes4_kept', '{}');
+      await store.write('emotes4_dead', '{}');
 
       final manager = EmoteManager(
         fetchStagger: Duration.zero,
@@ -1907,18 +1933,18 @@ void main() {
       );
       await manager.pruneStaleChannels({'kept'});
 
-      expect(await store.keys(), containsAll(['emotes3_global']));
-      expect(await store.keys(), isNot(contains('emotes3_dead')));
-      expect(await store.keys(), contains('emotes3_kept'));
+      expect(await store.keys(), containsAll(['emotes4_global']));
+      expect(await store.keys(), isNot(contains('emotes4_dead')));
+      expect(await store.keys(), contains('emotes4_kept'));
     });
   });
 
   group('provider stash restore', () {
-    Map<String, Object> globalCacheJson(List<GenericEmote> emotes) => {
-      'emotes3_global': jsonEncode({
+    Map<String, Object> globalCacheJson(List<Emote> emotes) => {
+      'emotes4_global': jsonEncode({
         'ts': DateTime.now().toIso8601String(),
         'tier': EmoteFetchTier.medium.index,
-        'emotes': emotes.map((e) => e.toJson()).toList(),
+        'emotes': _catalogJson(emotes, scope: EmoteScope.global),
       }),
     };
 
@@ -2142,25 +2168,26 @@ void main() {
   });
 
   group('subscriber emotes in channel cache', () {
-    GenericEmote subEmote() => GenericEmote(
+    Emote subEmote() => makeTestEmote(
       id: 's1',
       code: 'SubEmote',
       type: EmoteType.twitch,
-      url: 'https://example.com/s1.png',
-      scope: EmoteScope.channel,
       tier: '3',
       emoteType: 'subscriptions',
+      scope: EmoteScope.channel,
     );
 
     Map<String, Object> persistedCache({required bool fresh}) {
       return {
-        'emotes3_ch': jsonEncode({
+        'emotes4_ch': jsonEncode({
           'ts': DateTime.now()
               .subtract(
                 fresh ? const Duration(hours: 1) : const Duration(days: 2),
               )
               .toIso8601String(),
-          'emotes': [makeTestEmote(id: 'n1', code: 'NonTwitch').toJson()],
+          'emotes': _catalogJson([
+            makeTestEmote(id: 'n1', code: 'NonTwitch'),
+          ], scope: EmoteScope.channel),
         }),
       };
     }
@@ -2204,20 +2231,18 @@ void main() {
         expect(subs.length, 1);
         expect(subs.single.code, 'SubEmote');
 
-        final old = GenericEmote(
+        final old = makeTestEmote(
           id: 's1',
           code: 'OldEmote',
           type: EmoteType.twitch,
-          url: 'https://example.com/s1.png',
           scope: EmoteScope.channel,
           tier: '3',
           emoteType: 'subscriptions',
         );
-        final fresh = GenericEmote(
+        final fresh = makeTestEmote(
           id: 's1',
           code: 'FreshEmote',
           type: EmoteType.twitch,
-          url: 'https://example.com/s1.png',
           scope: EmoteScope.channel,
           tier: '3',
           emoteType: 'subscriptions',
@@ -2241,11 +2266,10 @@ void main() {
       () async {
         SharedPreferences.setMockInitialValues({});
         final manager = EmoteManager(fetchStagger: Duration.zero);
-        final emote = GenericEmote(
+        final emote = makeTestEmote(
           id: 's1',
           code: 'SubEmote',
           type: EmoteType.twitch,
-          url: 'https://example.com/s1.png',
           scope: EmoteScope.channel,
           tier: '3',
           emoteType: 'subscriptions',
@@ -2270,17 +2294,15 @@ void main() {
         byChannel = fallbackManager.subscriberEmotesByChannel();
         expect(byChannel.keys, contains('ch'));
 
-        GenericEmote subOf(String id, String code, String owner) =>
-            GenericEmote(
-              id: id,
-              code: code,
-              type: EmoteType.twitch,
-              url: 'https://example.com/$id.png',
-              scope: EmoteScope.channel,
-              tier: '3',
-              emoteType: 'subscriptions',
-              ownerChannel: owner,
-            );
+        Emote subOf(String id, String code, String owner) => makeTestEmote(
+          id: id,
+          code: code,
+          type: EmoteType.twitch,
+          scope: EmoteScope.channel,
+          tier: '3',
+          emoteType: 'subscriptions',
+          ownerChannel: owner,
+        );
 
         // The union fans both owners into every open channel's store; the
         // first-seen order inside the first storage channel is zeta before
@@ -2314,17 +2336,15 @@ void main() {
         // carried on the emote, each real owner must stay its own group.
         SharedPreferences.setMockInitialValues({});
         final manager = EmoteManager(fetchStagger: Duration.zero);
-        GenericEmote sub(String id, String code, String ownerId) =>
-            GenericEmote(
-              id: id,
-              code: code,
-              type: EmoteType.twitch,
-              url: 'https://example.com/$id.png',
-              scope: EmoteScope.channel,
-              tier: '1',
-              emoteType: 'subscriptions',
-              ownerId: ownerId,
-            );
+        Emote sub(String id, String code, String ownerId) => makeTestEmote(
+          id: id,
+          code: code,
+          type: EmoteType.twitch,
+          scope: EmoteScope.channel,
+          tier: '1',
+          emoteType: 'subscriptions',
+          ownerId: ownerId,
+        );
 
         // Account-wide union fanned into two open channels.
         await manager.storeUserTwitchEmotes({
@@ -2344,11 +2364,10 @@ void main() {
       final manager = EmoteManager(fetchStagger: Duration.zero);
       await manager.storeUserTwitchEmotes({
         'a': [
-          GenericEmote(
+          makeTestEmote(
             id: 'x',
             code: 'X',
             type: EmoteType.twitch,
-            url: 'https://example.com/x.png',
             scope: EmoteScope.channel,
             tier: '1',
             emoteType: 'subscriptions',
@@ -2363,17 +2382,17 @@ void main() {
     });
 
     test('ownerId round-trips through json', () {
-      final emote = GenericEmote(
+      final emote = makeTestEmote(
         id: 'x',
         code: 'X',
         type: EmoteType.twitch,
-        url: 'https://example.com/x.png',
         ownerId: 'ownerA',
         ownerChannel: 'chanA',
       );
-      final restored = GenericEmote.fromJson(emote.toJson());
-      expect(restored.ownerId, 'ownerA');
-      expect(restored.ownerChannel, 'chanA');
+      final restored = Emote.fromJson(emote.toJson());
+      final meta = restored.meta as TwitchMeta;
+      expect(meta.ownerId, 'ownerA');
+      expect(meta.ownerChannel, 'chanA');
     });
 
     test('loadUserEmoteSets resolves owners and groups by login', () async {
@@ -2382,11 +2401,10 @@ void main() {
         fetchStagger: Duration.zero,
         fetchUserEmoteSets: (ids, {accessToken, resolution}) async => {
           'ownerA': [
-            GenericEmote(
+            makeTestEmote(
               id: 'x',
               code: 'X',
               type: EmoteType.twitch,
-              url: 'https://example.com/x.png',
               scope: EmoteScope.channel,
               tier: '1',
               emoteType: 'subscriptions',
@@ -2406,20 +2424,18 @@ void main() {
       expect(byChannel['chanA']!.single.code, 'X');
     });
 
-    GenericEmote unlockedEmote() => GenericEmote(
+    Emote unlockedEmote() => makeTestEmote(
       id: 'u1',
       code: 'PrimePride',
       type: EmoteType.twitch,
-      url: 'https://example.com/u1.png',
-      scope: EmoteScope.global,
       emoteType: 'prime',
+      scope: EmoteScope.global,
     );
 
-    GenericEmote ownedSubEmote() => GenericEmote(
+    Emote ownedSubEmote() => makeTestEmote(
       id: 'x',
       code: 'X',
       type: EmoteType.twitch,
-      url: 'https://example.com/x.png',
       scope: EmoteScope.channel,
       tier: '1',
       emoteType: 'subscriptions',
@@ -2495,11 +2511,10 @@ void main() {
         fetchStagger: Duration.zero,
         fetchUserEmoteSets: (ids, {accessToken, resolution}) async => {
           'ownerA': [
-            GenericEmote(
+            makeTestEmote(
               id: 'x',
               code: 'X',
               type: EmoteType.twitch,
-              url: 'https://example.com/x.png',
               scope: EmoteScope.channel,
               tier: '1',
               emoteType: 'subscriptions',
@@ -2507,11 +2522,10 @@ void main() {
             ),
           ],
           'ownerB': [
-            GenericEmote(
+            makeTestEmote(
               id: 'y',
               code: 'Y',
               type: EmoteType.twitch,
-              url: 'https://example.com/y.png',
               scope: EmoteScope.channel,
               tier: '1',
               emoteType: 'subscriptions',
@@ -2554,11 +2568,10 @@ void main() {
             channels = {'chanA': 'ownerA'};
             return {
               'ownerA': [
-                GenericEmote(
+                makeTestEmote(
                   id: 'x',
                   code: 'X',
                   type: EmoteType.twitch,
-                  url: 'https://example.com/x.png',
                   scope: EmoteScope.channel,
                   tier: '1',
                   emoteType: 'subscriptions',
@@ -2617,14 +2630,14 @@ void main() {
       'fresh persisted cache does not leak old user subs after reset',
       () async {
         SharedPreferences.setMockInitialValues({
-          'emotes3_ch': jsonEncode({
+          'emotes4_ch': jsonEncode({
             'ts': DateTime.now()
                 .subtract(const Duration(hours: 1))
                 .toIso8601String(),
-            'emotes': [
-              subEmote().toJson(),
-              makeTestEmote(id: 'n1', code: 'NonTwitch').toJson(),
-            ],
+            'emotes': _catalogJson([
+              subEmote(),
+              makeTestEmote(id: 'n1', code: 'NonTwitch'),
+            ], scope: EmoteScope.channel),
           }),
         });
         final manager = EmoteManager(fetchStagger: Duration.zero);
@@ -2678,13 +2691,13 @@ void main() {
       return manager;
     }
 
-    List<GenericEmote> makeEmotes(int count) => [
+    List<Emote> makeEmotes(int count) => [
       for (var i = 0; i < count; i++)
-        GenericEmote(
+        Emote(
           id: 'e$i',
           code: 'E$i',
           url: 'https://example.com/e$i.png',
-          type: EmoteType.bttv,
+          meta: const BttvMeta(),
         ),
     ];
 
@@ -2811,14 +2824,13 @@ void main() {
   });
 
   group('nothing fetch tier guards', () {
-    GenericEmote subEmote() => GenericEmote(
+    Emote subEmote() => makeTestEmote(
       id: 's1',
       code: 'SubEmote',
       type: EmoteType.twitch,
-      url: 'https://example.com/s1.png',
-      scope: EmoteScope.channel,
       tier: '3',
       emoteType: 'subscriptions',
+      scope: EmoteScope.channel,
     );
 
     test(
@@ -2829,9 +2841,11 @@ void main() {
               .subtract(const Duration(days: 1))
               .toIso8601String(),
           'tier': EmoteFetchTier.nothing.index,
-          'emotes': [makeTestEmote(id: 'g1', code: 'GlobalE').toJson()],
+          'emotes': _catalogJson([
+            makeTestEmote(id: 'g1', code: 'GlobalE'),
+          ], scope: EmoteScope.global),
         });
-        SharedPreferences.setMockInitialValues({'emotes3_global': persisted});
+        SharedPreferences.setMockInitialValues({'emotes4_global': persisted});
         final manager = EmoteManager(
           fetchStagger: Duration.zero,
           tier: EmoteFetchTier.nothing,
@@ -2842,22 +2856,18 @@ void main() {
         expect(manager.byCode('any')!.byCode, contains('GlobalE'));
         expect(
           manager.globalEmotesByProvider().values.expand((e) => e),
-          contains(predicate((GenericEmote e) => e.code == 'GlobalE')),
+          contains(predicate((Emote e) => e.code == 'GlobalE')),
         );
         var prefs = await SharedPreferences.getInstance();
-        expect(prefs.getString('emotes3_global'), persisted);
+        expect(prefs.getString('emotes4_global'), persisted);
 
         SharedPreferences.setMockInitialValues({
-          'emotes3_ch': jsonEncode({
+          'emotes4_ch': jsonEncode({
             'ts': DateTime.now().toIso8601String(),
             'tier': EmoteFetchTier.nothing.index,
-            'emotes': [
-              makeTestEmote(
-                id: 'c1',
-                code: 'ChanE',
-                scope: EmoteScope.channel,
-              ).toJson(),
-            ],
+            'emotes': _catalogJson([
+              makeTestEmote(id: 'c1', code: 'ChanE', scope: EmoteScope.channel),
+            ], scope: EmoteScope.channel),
           }),
         });
         final channelManager = EmoteManager(
@@ -2879,7 +2889,7 @@ void main() {
 
         expect(emptyManager.byCode('ch'), isNull);
         prefs = await SharedPreferences.getInstance();
-        expect(prefs.getString('emotes3_ch'), isNull);
+        expect(prefs.getString('emotes4_ch'), isNull);
       },
     );
 
@@ -2891,35 +2901,15 @@ void main() {
               .subtract(const Duration(days: 1))
               .toIso8601String(),
           'tier': EmoteFetchTier.nothing.index,
-          'emotes': [
-            makeTestEmote(
-              id: 'g1',
-              code: 'A_Ffz',
-              type: EmoteType.ffz,
-            ).toJson(),
-            makeTestEmote(
-              id: 'g2',
-              code: 'B_Bttv',
-              type: EmoteType.bttv,
-            ).toJson(),
-            makeTestEmote(
-              id: 'g3',
-              code: 'C_Twitch',
-              type: EmoteType.twitch,
-            ).toJson(),
-            makeTestEmote(
-              id: 'g4',
-              code: 'D_SevenTv',
-              type: EmoteType.sevenTv,
-            ).toJson(),
-            makeTestEmote(
-              id: 'g5',
-              code: 'A_SevenTv',
-              type: EmoteType.sevenTv,
-            ).toJson(),
-          ],
+          'emotes': _catalogJson([
+            makeTestEmote(id: 'g1', code: 'A_Ffz', type: EmoteType.ffz),
+            makeTestEmote(id: 'g2', code: 'B_Bttv', type: EmoteType.bttv),
+            makeTestEmote(id: 'g3', code: 'C_Twitch', type: EmoteType.twitch),
+            makeTestEmote(id: 'g4', code: 'D_SevenTv', type: EmoteType.sevenTv),
+            makeTestEmote(id: 'g5', code: 'A_SevenTv', type: EmoteType.sevenTv),
+          ], scope: EmoteScope.global),
         });
-        SharedPreferences.setMockInitialValues({'emotes3_global': persisted});
+        SharedPreferences.setMockInitialValues({'emotes4_global': persisted});
         final manager = EmoteManager(
           fetchStagger: Duration.zero,
           tier: EmoteFetchTier.nothing,
@@ -2961,10 +2951,10 @@ void main() {
       manager.updateSevenTvEmotes(
         'ch',
         added: [
-          GenericEmote(
+          Emote(
             id: 'e1',
             code: 'E1',
-            type: EmoteType.sevenTv,
+            meta: const SevenTvMeta(),
             url: 'https://example.com/e1.png',
             scope: EmoteScope.channel,
           ),
@@ -2989,10 +2979,10 @@ void main() {
       manager.dispose();
 
       manager.enqueueSeenEmotes([
-        GenericEmote(
+        Emote(
           id: 'e1',
           code: 'E1',
-          type: EmoteType.bttv,
+          meta: const BttvMeta(),
           url: 'https://example.com/e1.png',
         ),
       ]);
@@ -3007,18 +2997,14 @@ void main() {
 
   group('tier tag in persisted cache', () {
     Map<String, Object> channelCache({required int tier, int ageHours = 1}) => {
-      'emotes3_ch': jsonEncode({
+      'emotes4_ch': jsonEncode({
         'ts': DateTime.now()
             .subtract(Duration(hours: ageHours))
             .toIso8601String(),
         'tier': tier,
-        'emotes': [
-          makeTestEmote(
-            id: 'c1',
-            code: 'ChanE',
-            scope: EmoteScope.channel,
-          ).toJson(),
-        ],
+        'emotes': _catalogJson([
+          makeTestEmote(id: 'c1', code: 'ChanE', scope: EmoteScope.channel),
+        ], scope: EmoteScope.channel),
       }),
     };
 
@@ -3037,7 +3023,7 @@ void main() {
 
         expect(manager.byCode('ch')!.byCode, contains('ChanE'));
         var data =
-            jsonDecode((await EmoteMetaStore.I.read('emotes3_ch'))!)
+            jsonDecode((await EmoteMetaStore.I.read('emotes4_ch'))!)
                 as Map<String, dynamic>;
         expect(data['tier'], EmoteFetchTier.medium.index);
 
@@ -3053,7 +3039,7 @@ void main() {
 
         expect(freshManager.byCode('ch')!.byCode, contains('ChanE'));
         data =
-            jsonDecode((await EmoteMetaStore.I.read('emotes3_ch'))!)
+            jsonDecode((await EmoteMetaStore.I.read('emotes4_ch'))!)
                 as Map<String, dynamic>;
         expect(data['tier'], EmoteFetchTier.medium.index);
       },
@@ -3075,22 +3061,18 @@ void main() {
       expect(manager.byCode('ch')!.byCode, contains('ChanE'));
       // No refetch: the persisted tier tag stays at 3.
       final data =
-          jsonDecode((await EmoteMetaStore.I.read('emotes3_ch'))!)
+          jsonDecode((await EmoteMetaStore.I.read('emotes4_ch'))!)
               as Map<String, dynamic>;
       expect(data['tier'], EmoteFetchTier.high.index);
 
       SharedPreferences.setMockInitialValues({
-        'emotes3_ch': jsonEncode({
+        'emotes4_ch': jsonEncode({
           'ts': DateTime.now()
               .subtract(const Duration(minutes: 30))
               .toIso8601String(),
-          'emotes': [
-            makeTestEmote(
-              id: 'c1',
-              code: 'ChanE',
-              scope: EmoteScope.channel,
-            ).toJson(),
-          ],
+          'emotes': _catalogJson([
+            makeTestEmote(id: 'c1', code: 'ChanE', scope: EmoteScope.channel),
+          ], scope: EmoteScope.channel),
         }),
       });
       final legacyManager = EmoteManager(fetchStagger: Duration.zero);
@@ -3099,7 +3081,7 @@ void main() {
 
       expect(legacyManager.byCode('ch')!.byCode, contains('ChanE'));
       final legacyData =
-          jsonDecode((await EmoteMetaStore.I.read('emotes3_ch'))!)
+          jsonDecode((await EmoteMetaStore.I.read('emotes4_ch'))!)
               as Map<String, dynamic>;
       expect(legacyData.containsKey('tier'), isFalse);
     });
@@ -3298,7 +3280,7 @@ void main() {
       expect(spans[0], isA<TextSpan>());
       expect((spans[0] as TextSpan).text, 'hello world');
 
-      final emotes = _makeEmotes(<String, GenericEmote>{});
+      final emotes = _makeEmotes(<String, Emote>{});
       spans = EmoteText.build(
         text: 'hello world',
         twitchPositions: null,
@@ -3524,6 +3506,7 @@ void main() {
         'SmallEmote': makeTestEmote(
           id: '1',
           code: 'SmallEmote',
+          type: EmoteType.sevenTv,
           relativeScale: 0.625,
         ),
       });
@@ -3543,6 +3526,7 @@ void main() {
         'SmallBase': makeTestEmote(
           id: '1',
           code: 'SmallBase',
+          type: EmoteType.sevenTv,
           relativeScale: 0.5,
         ),
         'LargeOverlay': makeTestEmote(
@@ -3565,22 +3549,20 @@ void main() {
     });
 
     group('sender proof', () {
-      GenericEmote lockedSub(String code) => GenericEmote(
+      Emote lockedSub(String code) => makeTestEmote(
         id: 'sub-$code',
         code: code,
         type: EmoteType.twitch,
-        url: 'https://example.com/sub-$code.png',
         scope: EmoteScope.channel,
         ownerChannel: 'somechannel',
         tier: '1000',
         emoteType: 'subscriptions',
       );
 
-      GenericEmote follower(String code) => GenericEmote(
+      Emote follower(String code) => makeTestEmote(
         id: 'fol-$code',
         code: code,
         type: EmoteType.twitch,
-        url: 'https://example.com/fol-$code.png',
         scope: EmoteScope.channel,
         ownerChannel: 'somechannel',
         emoteType: 'follower',
@@ -3745,7 +3727,7 @@ void main() {
         },
       });
       expect(emote, isNotNull);
-      expect(emote!.ownerChannel, 'CopeQueen');
+      expect(emote!.meta.owner, 'CopeQueen');
 
       emote = SevenTvEmoteProvider.parseSingleEmote({
         'id': 'emote-4',
@@ -3788,7 +3770,7 @@ void main() {
         },
       });
       expect(unlisted, isNotNull);
-      expect(unlisted!.isUnlisted, isTrue);
+      expect((unlisted!.meta as SevenTvMeta).unlisted, isTrue);
 
       // The private flags bit is independent of listing: private-but-listed
       // emotes sit in channel sets and render fine.
@@ -3803,7 +3785,7 @@ void main() {
         },
       });
       expect(privateListed, isNotNull);
-      expect(privateListed!.isUnlisted, isFalse);
+      expect((privateListed!.meta as SevenTvMeta).unlisted, isFalse);
       expect(privateListed.isZeroWidth, isTrue);
 
       final missingListed = SevenTvEmoteProvider.parseSingleEmote({
@@ -3811,7 +3793,7 @@ void main() {
         'name': 'Legacy',
         'data': {'name': 'Legacy', 'flags': 0, 'host': _host('1x.webp')},
       });
-      expect(missingListed!.isUnlisted, isFalse);
+      expect((missingListed!.meta as SevenTvMeta).unlisted, isFalse);
     });
 
     test('picks 2x for chat and largest for large surfaces', () {
@@ -3993,6 +3975,18 @@ void main() {
       expect(emote, isNotNull);
       expect(emote!.isZeroWidth, isFalse);
     });
+
+    test('ownerChannel is forwarded when given and null otherwise', () {
+      var emote = FfzEmoteProvider.parseEmote(
+        ffzItem(),
+        EmoteResolution.high,
+        ownerChannel: 'SomeCreator',
+      );
+      expect((emote!.meta as FfzMeta).ownerChannel, 'SomeCreator');
+
+      emote = FfzEmoteProvider.parseEmote(ffzItem(), EmoteResolution.high);
+      expect((emote!.meta as FfzMeta).ownerChannel, isNull);
+    });
   });
 
   group('filterSuggestions', () {
@@ -4164,12 +4158,12 @@ void main() {
       final persisted = jsonEncode({
         'ts': DateTime.now().toIso8601String(),
         'tier': EmoteFetchTier.nothing.index,
-        'emotes': [
-          makeTestEmote(id: 'b1', code: 'BttvE', type: EmoteType.bttv).toJson(),
-          makeTestEmote(id: 'f1', code: 'FfzE', type: EmoteType.ffz).toJson(),
-        ],
+        'emotes': _catalogJson([
+          makeTestEmote(id: 'b1', code: 'BttvE', type: EmoteType.bttv),
+          makeTestEmote(id: 'f1', code: 'FfzE', type: EmoteType.ffz),
+        ], scope: EmoteScope.global),
       });
-      SharedPreferences.setMockInitialValues({'emotes3_global': persisted});
+      SharedPreferences.setMockInitialValues({'emotes4_global': persisted});
       final manager = EmoteManager(
         fetchStagger: Duration.zero,
         tier: EmoteFetchTier.nothing,
@@ -4226,11 +4220,10 @@ void main() {
       );
       await manager.storeUserTwitchEmotes({
         'ch': [
-          GenericEmote(
+          makeTestEmote(
             id: 's1',
             code: 'SubE',
             type: EmoteType.twitch,
-            url: 'https://example.com/s1.png',
             tier: '1',
             emoteType: 'subscriptions',
             scope: EmoteScope.channel,
@@ -4306,12 +4299,7 @@ void main() {
   });
 
   group('resolveRecentsForChannel', () {
-    GenericEmote emote(String id, String code) => GenericEmote(
-      id: id,
-      code: code,
-      type: EmoteType.sevenTv,
-      url: 'https://example.com/$id.png',
-    );
+    Emote emote(String id, String code) => _e(id, code, EmoteType.sevenTv);
 
     test('recents resolve aliases dedupe and drop missing entries', () {
       final manager = EmoteManager(fetchStagger: Duration.zero);
@@ -4346,17 +4334,16 @@ void main() {
   });
 
   group('emote kernel verbs', () {
-    GenericEmote twitchEmote(
+    Emote twitchEmote(
       String id,
       String code, {
       String? tier,
       String? emoteType,
       String? ownerChannel,
-    }) => GenericEmote(
+    }) => makeTestEmote(
       id: id,
       code: code,
       type: EmoteType.twitch,
-      url: 'https://example.com/$id.png',
       scope: EmoteScope.channel,
       tier: tier,
       emoteType: emoteType,
@@ -4400,17 +4387,16 @@ void main() {
   });
 
   group('personal 7TV emotes', () {
-    GenericEmote personal(String id, String code) => GenericEmote(
+    Emote personal(String id, String code) => makeTestEmote(
       id: id,
       code: code,
       type: EmoteType.sevenTv,
-      url: 'https://example.com/$id.webp',
       scope: EmoteScope.global,
     );
 
     EmoteManager managerWith({
       List<String> ownedSetIds = const [],
-      Map<String, List<GenericEmote>> sets = const {},
+      Map<String, List<Emote>> sets = const {},
     }) => EmoteManager(
       fetchStagger: Duration.zero,
       sevenTvOwnedSetIdsFetcher: (_) async => ownedSetIds,
@@ -4506,11 +4492,10 @@ void main() {
         await manager.loadViewerPersonalSevenTvSets();
         await manager.storeUserTwitchEmotes({
           'ch': [
-            GenericEmote(
+            makeTestEmote(
               id: 'tw-1',
               code: 'Clash',
               type: EmoteType.twitch,
-              url: 'https://example.com/tw-1.png',
               scope: EmoteScope.channel,
             ),
           ],
@@ -4522,11 +4507,10 @@ void main() {
   });
 
   group('foreign personal 7TV emotes', () {
-    GenericEmote personal(String id, String code) => GenericEmote(
+    Emote personal(String id, String code) => makeTestEmote(
       id: id,
       code: code,
       type: EmoteType.sevenTv,
-      url: 'https://example.com/$id.webp',
       scope: EmoteScope.personal,
     );
 
@@ -4542,7 +4526,7 @@ void main() {
     );
 
     EmoteManager socketManager({
-      Map<String, List<GenericEmote>> sets = const {},
+      Map<String, List<Emote>> sets = const {},
       void Function()? onListing,
       void Function()? onSetFetch,
     }) => EmoteManager(
@@ -4824,11 +4808,10 @@ void main() {
       addTearDown(() => dir.delete(recursive: true));
     });
 
-    GenericEmote personal(String id, String code) => GenericEmote(
+    Emote personal(String id, String code) => makeTestEmote(
       id: id,
       code: code,
       type: EmoteType.sevenTv,
-      url: 'https://example.com/$id.webp',
       scope: EmoteScope.personal,
     );
 
@@ -4917,12 +4900,12 @@ void main() {
       () async {
         SharedPreferences.setMockInitialValues({});
         await EmoteMetaStore.I.write('emotes3_personal_sets', '{}');
-        await EmoteMetaStore.I.write('emotes3_deadch', '{}');
+        await EmoteMetaStore.I.write('emotes4_deadch', '{}');
         final manager = EmoteManager(fetchStagger: Duration.zero);
         await manager.pruneStaleChannels({'ch'});
 
         expect(await EmoteMetaStore.I.read('emotes3_personal_sets'), isNotNull);
-        expect(await EmoteMetaStore.I.read('emotes3_deadch'), isNull);
+        expect(await EmoteMetaStore.I.read('emotes4_deadch'), isNull);
       },
     );
   });

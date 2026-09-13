@@ -1,13 +1,14 @@
 import 'dart:convert';
 import 'dart:isolate';
 import 'package:http/http.dart' as http;
-import '../../models/generic_emote.dart';
+import '../../emotes/emote.dart';
+import '../../emotes/emote_meta.dart';
 import '../../util/constants.dart';
 import '../../util/log.dart';
 import '../../util/data_usage.dart';
 
 class SevenTvChannelResponse {
-  final List<GenericEmote> emotes;
+  final List<Emote> emotes;
   final String? userId;
   final String? emoteSetId;
 
@@ -28,7 +29,7 @@ class SevenTvEmoteProvider {
     return flags is int && (flags & _personalSetFlag) != 0;
   }
 
-  static Future<List<GenericEmote>> fetchGlobal({
+  static Future<List<Emote>> fetchGlobal({
     EmoteResolution resolution = EmoteResolution.high,
   }) async {
     final uri = Uri.parse('https://7tv.io/v3/emote-sets/global');
@@ -95,7 +96,7 @@ class SevenTvEmoteProvider {
 
   /// Emotes of one personal set by id. Non-personal sets return empty so a
   /// mistargeted id never leaks channel emotes into the global merge.
-  static Future<List<GenericEmote>> fetchEmoteSet(
+  static Future<List<Emote>> fetchEmoteSet(
     String setId, {
     EmoteResolution resolution = EmoteResolution.high,
   }) async {
@@ -106,13 +107,13 @@ class SevenTvEmoteProvider {
     if (res.statusCode != 200) return [];
     return Isolate.run(() {
       final data = jsonDecode(res.body) as Map<String, dynamic>;
-      if (!isPersonalSet(data)) return <GenericEmote>[];
+      if (!isPersonalSet(data)) return <Emote>[];
       final items = data['emotes'] as List<dynamic>? ?? [];
       return _parseEmotes(items, personal: true, resolution: resolution);
     });
   }
 
-  static GenericEmote? parseSingleEmote(
+  static Emote? parseSingleEmote(
     Map<String, dynamic> item, {
     bool channel = false,
     bool personal = false,
@@ -127,14 +128,14 @@ class SevenTvEmoteProvider {
     return emotes.isNotEmpty ? emotes.first : null;
   }
 
-  static List<GenericEmote> _parseEmotes(
+  static List<Emote> _parseEmotes(
     List<dynamic> items, {
     bool global = false,
     bool channel = false,
     bool personal = false,
     EmoteResolution resolution = EmoteResolution.high,
   }) {
-    final emotes = <GenericEmote>[];
+    final emotes = <Emote>[];
     for (final entry in items) {
       Map<String, dynamic> item;
       if (entry is Map<String, dynamic> && entry.containsKey('emote')) {
@@ -227,10 +228,16 @@ class SevenTvEmoteProvider {
       final listed = data['listed'];
 
       emotes.add(
-        GenericEmote(
+        Emote(
           id: id,
           code: name,
-          type: EmoteType.sevenTv,
+          meta: SevenTvMeta(
+            creator: ownerName,
+            baseName: baseName != null && baseName != name ? baseName : null,
+            unlisted: listed is bool && !listed,
+            relativeScale: relativeScale,
+            aspectRatio: aspectRatio,
+          ),
           url: url,
           url1x: url1x,
           url3x: url3x,
@@ -243,11 +250,6 @@ class SevenTvEmoteProvider {
               ? EmoteScope.channel
               : EmoteScope.global,
           isZeroWidth: isZeroWidth,
-          isUnlisted: listed is bool && !listed,
-          baseName: baseName != null && baseName != name ? baseName : null,
-          ownerChannel: ownerName,
-          relativeScale: relativeScale,
-          aspectRatio: aspectRatio,
         ),
       );
     }

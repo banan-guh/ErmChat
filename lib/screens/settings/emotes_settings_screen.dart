@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import '../../models/emote_fetch_tier.dart';
-import '../../models/generic_emote.dart';
+import '../../emotes/emote.dart';
 import '../../services/emote_cache_manager.dart';
 import '../../services/emote_manager.dart';
 import '../../util/prefs.dart';

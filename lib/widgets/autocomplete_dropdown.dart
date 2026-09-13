@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'emote_image.dart';
-import '../models/generic_emote.dart';
+import '../emotes/emote.dart';
 import '../services/suggestion.dart';
 
 class AutocompleteDropdown extends StatefulWidget {
   final List<Suggestion> suggestions;
   final void Function(Suggestion) onSelect;
-  final void Function(GenericEmote)? onEmoteViewed;
+  final void Function(Emote)? onEmoteViewed;
 
   const AutocompleteDropdown({
     super.key,

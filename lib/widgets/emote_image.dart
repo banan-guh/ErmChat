@@ -6,7 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 
-import '../models/generic_emote.dart';
+import '../emotes/emote.dart';
 import '../services/emote_cache_manager.dart';
 import '../util/constants.dart';
 import '../util/webp_anim.dart';
@@ -234,7 +234,7 @@ class EmoteImage extends StatefulWidget {
   final List<String>? alternateUrls;
 
   /// Routing metadata for [emoteUsesCustomLoop]. Null forces custom.
-  final GenericEmote? emote;
+  final Emote? emote;
 
   @override
   State<EmoteImage> createState() => _EmoteImageState();

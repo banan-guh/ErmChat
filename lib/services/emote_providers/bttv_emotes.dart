@@ -2,7 +2,8 @@ import 'dart:convert';
 import 'dart:isolate';
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:http/http.dart' as http;
-import '../../models/generic_emote.dart';
+import '../../emotes/emote.dart';
+import '../../emotes/emote_meta.dart';
 import '../../util/constants.dart';
 import '../../util/log.dart';
 import '../../util/data_usage.dart';
@@ -22,7 +23,7 @@ class BttvEmoteProvider {
   };
 
   @visibleForTesting
-  static List<GenericEmote> parseEmotes(
+  static List<Emote> parseEmotes(
     List<dynamic> items, {
     bool global = false,
     bool channel = false,
@@ -34,7 +35,7 @@ class BttvEmoteProvider {
     resolution: resolution,
   );
 
-  static Future<List<GenericEmote>> fetchGlobal({
+  static Future<List<Emote>> fetchGlobal({
     EmoteResolution resolution = EmoteResolution.high,
   }) async {
     final uri = Uri.parse('https://api.betterttv.net/3/cached/emotes/global');
@@ -48,7 +49,7 @@ class BttvEmoteProvider {
     });
   }
 
-  static Future<List<GenericEmote>> fetchChannel(
+  static Future<List<Emote>> fetchChannel(
     String channelId, {
     EmoteResolution resolution = EmoteResolution.high,
   }) async {
@@ -70,13 +71,13 @@ class BttvEmoteProvider {
     });
   }
 
-  static List<GenericEmote> _parseEmotes(
+  static List<Emote> _parseEmotes(
     List<dynamic> items, {
     bool global = false,
     bool channel = false,
     EmoteResolution resolution = EmoteResolution.high,
   }) {
-    final emotes = <GenericEmote>[];
+    final emotes = <Emote>[];
     for (final item in items) {
       final id = item['id'] as String?;
       final code = item['code'] as String?;
@@ -105,10 +106,10 @@ class BttvEmoteProvider {
       isZeroWidth = isZeroWidth || _zeroWidthCodes.contains(code);
 
       emotes.add(
-        GenericEmote(
+        Emote(
           id: id,
           code: code,
-          type: EmoteType.bttv,
+          meta: const BttvMeta(),
           url: url,
           url1x: url1x,
           url3x: url3x,

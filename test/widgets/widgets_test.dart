@@ -45,7 +45,8 @@ import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:ermchat/services/emote_cache_manager.dart';
 import '../helpers/fake_cache_repo.dart';
 import 'package:ermchat/screens/settings/analytics_screen.dart';
-import 'package:ermchat/models/generic_emote.dart';
+import 'package:ermchat/emotes/emote.dart';
+import 'package:ermchat/emotes/emote_meta.dart';
 import 'package:ermchat/services/emote_manager.dart';
 import 'package:ermchat/providers/app_providers.dart';
 import 'package:ermchat/widgets/emote_menu_panel.dart';
@@ -5171,10 +5172,10 @@ void main() {
 
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  GenericEmote sevenTv(String id, String code) => GenericEmote(
+  Emote sevenTv(String id, String code) => Emote(
     id: id,
     code: code,
-    type: EmoteType.sevenTv,
+    meta: const SevenTvMeta(),
     url: 'https://example.com/$id.png',
     scope: EmoteScope.channel,
   );
@@ -5292,7 +5293,7 @@ void main() {
       UrlLauncherPlatform.instance = emoteSheetLauncher;
     });
 
-    Widget wrapMany(List<GenericEmote> emotes) {
+    Widget wrapMany(List<Emote> emotes) {
       return MaterialApp(
         key: UniqueKey(),
         home: Scaffold(
@@ -5306,21 +5307,19 @@ void main() {
       );
     }
 
-    Widget wrapEmoteSheet(GenericEmote emote) => wrapMany([emote]);
+    Widget wrapEmoteSheet(Emote emote) => wrapMany([emote]);
 
-    GenericEmote sevenTvEmote({
+    Emote sevenTvEmote({
       String? baseName,
       bool zeroWidth = false,
       EmoteScope scope = EmoteScope.global,
     }) {
-      return GenericEmote(
+      return Emote(
         id: '7tv-1',
         code: 'Cope',
-        type: EmoteType.sevenTv,
+        meta: SevenTvMeta(baseName: baseName, creator: 'CopeQueen'),
         url: 'https://cdn.7tv.app/emote/1/1x.webp',
-        baseName: baseName,
         isZeroWidth: zeroWidth,
-        ownerChannel: 'CopeQueen',
         scope: scope,
       );
     }

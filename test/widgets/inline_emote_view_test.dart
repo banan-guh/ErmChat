@@ -1,8 +1,9 @@
 import 'dart:async';
 import 'dart:typed_data';
 
-import 'package:ermchat/models/generic_emote.dart';
-import 'package:ermchat/services/emote_manager.dart';
+import 'package:ermchat/emotes/emote.dart';
+import 'package:ermchat/emotes/emote_catalog.dart';
+import 'package:ermchat/emotes/emote_meta.dart';
 import 'package:ermchat/widgets/emote_image_provider.dart';
 import 'package:ermchat/widgets/emote_text.dart';
 import 'package:ermchat/widgets/inline_emote_view.dart';
@@ -94,17 +95,17 @@ void main() {
   testWidgets('tapping an emote span fires the emote callback', (tester) async {
     EmoteUrlProvider.debugFetchOverride = (_) async => _pngBytes();
     const code = 'KappaTap';
-    final emote = GenericEmote(
+    final emote = Emote(
       id: 'kt',
       code: code,
       // Animated non-Twitch routes to the custom pipeline (statics of any
       // provider render stock); bytes stay PNG so the still path applies.
-      type: EmoteType.sevenTv,
+      meta: const SevenTvMeta(),
       url: 'https://inline.test/tap.png',
       isAnimated: true,
     );
-    final channelEmotes = ChannelEmotes(byCode: {code: emote}, suggestions: []);
-    final tapped = <List<GenericEmote>>[];
+    final channelEmotes = EmoteLookup(byCode: {code: emote}, suggestions: []);
+    final tapped = <List<Emote>>[];
     final spans = EmoteText.build(
       text: code,
       twitchPositions: null,

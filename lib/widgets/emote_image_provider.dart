@@ -6,7 +6,7 @@ import 'package:flutter/painting.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 
-import '../models/generic_emote.dart';
+import '../emotes/emote.dart';
 import '../services/emote_cache_manager.dart';
 import '../util/log.dart';
 import '../util/webp_anim.dart';
@@ -45,7 +45,7 @@ Future<Uint8List> fetchEmoteBytes(String url) async {
 /// provider: one shared engine decode per URL with no wrapper, no extra
 /// completer, no registry entry. Shared routing rule for chat, menu, sheet,
 /// and panel.
-bool emoteUsesCustomLoop(GenericEmote emote, {required bool animateGifs}) =>
+bool emoteUsesCustomLoop(Emote emote, {required bool animateGifs}) =>
     emote.isAnimated && (!animateGifs || emote.type != EmoteType.twitch);
 
 /// ImageProvider for emote URLs. Keyed by [url] for shared decode/playback. Animated WebP streams from the engine; the pure-Dart compositor is a crash-only fallback.

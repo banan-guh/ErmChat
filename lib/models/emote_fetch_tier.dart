@@ -1,4 +1,4 @@
-import 'generic_emote.dart';
+import '../emotes/emote.dart';
 
 /// Emote-fetch behavior tier.
 enum EmoteFetchTier {

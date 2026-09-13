@@ -19,7 +19,8 @@ import 'package:ermchat/util/timestamp_formatter.dart';
 import 'package:ermchat/util/crash_report.dart';
 import 'package:flutter/services.dart';
 import 'package:ermchat/widgets/predictive_back_handler.dart';
-import 'package:ermchat/models/generic_emote.dart';
+import 'package:ermchat/emotes/emote.dart';
+import 'package:ermchat/emotes/emote_meta.dart';
 import 'package:ermchat/services/emote_manager.dart';
 import 'package:ermchat/services/twitch_badge_service.dart';
 import 'package:ermchat/services/third_party_badge_service.dart';
@@ -454,10 +455,10 @@ void main() {
     em.updateSevenTvEmotes(
       'test',
       added: [
-        const GenericEmote(
+        const Emote(
           id: 'e1',
           code: 'Pog',
-          type: EmoteType.sevenTv,
+          meta: SevenTvMeta(),
           url: 'https://example.com/pog.png',
         ),
       ],

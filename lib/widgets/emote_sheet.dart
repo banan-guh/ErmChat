@@ -4,14 +4,14 @@ import 'package:url_launcher/url_launcher.dart';
 import '../util/log.dart';
 import 'app_snack.dart';
 import 'emote_image.dart';
-import '../models/generic_emote.dart';
+import '../emotes/emote.dart';
 
 class EmoteSheet extends StatefulWidget {
-  final List<GenericEmote> emotes;
+  final List<Emote> emotes;
   final TextEditingController messageController;
   final FocusNode focusNode;
   final VoidCallback onClose;
-  final void Function(GenericEmote emote)? onUseEmote;
+  final void Function(Emote emote)? onUseEmote;
 
   const EmoteSheet({
     super.key,
@@ -58,7 +58,7 @@ class _EmoteSheetState extends State<EmoteSheet>
   }
 
   /// Scales for [emote], largest first, deduplicated.
-  List<String> _scaleUrls(GenericEmote emote) {
+  List<String> _scaleUrls(Emote emote) {
     final urls = <String>[
       if (emote.url3x != null) emote.url3x!,
       emote.url,
@@ -67,7 +67,7 @@ class _EmoteSheetState extends State<EmoteSheet>
     return <String>{...urls}.toList();
   }
 
-  String _typeLabel(GenericEmote emote) {
+  String _typeLabel(Emote emote) {
     final provider = switch (emote.type) {
       EmoteType.twitch => 'Twitch',
       EmoteType.bttv => 'BTTV',
@@ -89,13 +89,13 @@ class _EmoteSheetState extends State<EmoteSheet>
     return label;
   }
 
-  String? _ownerLabel(GenericEmote emote) {
-    final owner = emote.ownerChannel;
+  String? _ownerLabel(Emote emote) {
+    final owner = emote.meta.owner;
     if (owner == null) return null;
     return 'Created by $owner';
   }
 
-  String _providerUrl(GenericEmote emote) {
+  String _providerUrl(Emote emote) {
     return switch (emote.type) {
       EmoteType.sevenTv => 'https://7tv.app/emotes/${emote.id}',
       EmoteType.bttv => 'https://betterttv.com/emotes/${emote.id}',
@@ -115,7 +115,7 @@ class _EmoteSheetState extends State<EmoteSheet>
     }
   }
 
-  Widget _buildEmotePage(GenericEmote emote) {
+  Widget _buildEmotePage(Emote emote) {
     final theme = Theme.of(context);
     final owner = _ownerLabel(emote);
 
