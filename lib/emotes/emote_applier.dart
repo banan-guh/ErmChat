@@ -9,13 +9,12 @@ import '../chat/chat.dart';
 import '../util/connectivity.dart';
 import '../util/data_usage.dart';
 import '../util/prefs.dart';
-import '../services/emote_cache_manager.dart';
 import '../services/emote_manager.dart';
 import '../services/twitch_api.dart';
 import '../services/twitch_auth.dart';
 import '../services/twitch_badge_service.dart';
 import '../util/log.dart';
-import '../widgets/emote_image_provider.dart';
+import '../services/emote_url_provider.dart';
 
 // Shell-owned state the emote applier reads but does not own.
 abstract class EmoteApplierHost extends ShellState {
@@ -238,7 +237,7 @@ class EmoteApplier {
         for (final channel in chat.names) {
           emoteManager.evictChannel(channel);
         }
-        await EmoteCacheManager().emptyCache();
+        await emoteManager.clearImageCache();
         PaintingBinding.instance.imageCache.clear();
         PaintingBinding.instance.imageCache.clearLiveImages();
         // Rebuild now, while everything is empty, so the nuke is visible

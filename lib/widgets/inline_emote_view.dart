@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
-import 'emote_image_provider.dart';
+import '../services/emote_images.dart';
+import '../services/emote_url_provider.dart';
 import '../util/constants.dart';
 
 /// Lean chat-span emote renderer. Subscribes to [EmoteUrlProvider] completer directly; animation tick = set field + markNeedsPaint.
@@ -10,11 +11,15 @@ class InlineEmoteView extends StatefulWidget {
     required this.url,
     required this.width,
     required this.height,
+    this.images,
   });
 
   final String url;
   final double width;
   final double height;
+
+  /// Image byte owner; falls back to the process default when null.
+  final EmoteImages? images;
 
   @override
   State<InlineEmoteView> createState() => _InlineEmoteViewState();
@@ -69,7 +74,10 @@ class _InlineEmoteViewState extends State<InlineEmoteView> {
   }
 
   void _resolveMain() {
-    final stream = EmoteUrlProvider(widget.url).resolve(_configuration);
+    final stream = EmoteUrlProvider(
+      widget.url,
+      images: widget.images,
+    ).resolve(_configuration);
     _mainStream?.removeListener(_mainListener);
     _mainStream = stream..addListener(_mainListener);
   }

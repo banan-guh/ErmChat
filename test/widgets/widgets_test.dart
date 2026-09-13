@@ -43,6 +43,7 @@ import 'package:ermchat/chrome/stream_layout.dart';
 import 'package:ermchat/widgets/tabbed_layout.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:ermchat/services/emote_cache_manager.dart';
+import 'package:ermchat/services/emote_images.dart';
 import '../helpers/fake_cache_repo.dart';
 import 'package:ermchat/screens/settings/analytics_screen.dart';
 import 'package:ermchat/emotes/emote.dart';
@@ -3700,7 +3701,9 @@ void main() {
         await tester.pumpWidget(
           MaterialApp(
             key: UniqueKey(),
-            home: EmotesSettingsScreen(cacheManager: manager),
+            home: EmotesSettingsScreen(
+              images: EmoteImages(cacheManager: manager),
+            ),
           ),
         );
         await tester.pump();

@@ -64,7 +64,7 @@ import '../panels/mentions.dart';
 import '../panels/mod_panel.dart';
 import '../panels/search.dart';
 import '../widgets/nuke_overlay.dart';
-import '../widgets/emote_image_provider.dart';
+import '../services/emote_url_provider.dart';
 import '../widgets/media_upload_controller.dart';
 import '../widgets/emote_menu_panel.dart';
 import '../widgets/message_builder.dart';

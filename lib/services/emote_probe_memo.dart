@@ -7,8 +7,6 @@ class EmoteProbeMemo {
     DateTime Function()? now,
   }) : _now = now ?? DateTime.now;
 
-  static final EmoteProbeMemo instance = EmoteProbeMemo();
-
   final Duration ttl;
   final DateTime Function() _now;
 

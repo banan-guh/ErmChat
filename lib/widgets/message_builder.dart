@@ -197,6 +197,7 @@ class MessageBuilder {
         showImages: showImages,
         onImageTap: onImageTap,
         animateGifs: animateGifs,
+        emoteImages: emoteManager.images,
       );
     }
     // GIF messages: splice inline GIF images over their text ranges; GIF wins
@@ -233,6 +234,7 @@ class MessageBuilder {
           showImages: showImages,
           onImageTap: onImageTap,
           animateGifs: animateGifs,
+          emoteImages: emoteManager.images,
         ),
       );
     }

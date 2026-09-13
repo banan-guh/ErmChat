@@ -11,6 +11,7 @@ import 'package:path_provider/path_provider.dart';
 import '../models/emote_fetch_tier.dart';
 import '../util/log.dart';
 import '../util/data_usage.dart';
+import 'emote_image_policy.dart';
 
 /// Shared HTTP client for the cache-full fallback path plus the emote image
 /// loader's full-cache direct fetch, reused across a burst of overflow
@@ -46,18 +47,13 @@ class EmoteCacheStats {
 /// count, deliberately not by bytes: the bound keeps the repo scan cheap.
 /// A byte cap is a possible future refinement, not a missing fix.
 class EmoteCacheManager extends CacheManager {
-  static final EmoteCacheManager _instance = EmoteCacheManager._();
+  EmoteCacheManager([Config? config]) : super(config ?? _defaultConfig());
 
-  factory EmoteCacheManager() => _instance;
-
-  EmoteCacheManager._()
-    : super(
-        Config(
-          'emoteImageCacheV2',
-          maxNrOfCacheObjects: 2000,
-          stalePeriod: const Duration(days: 30),
-        ),
-      );
+  static Config _defaultConfig() => Config(
+    'emoteImageCacheV2',
+    maxNrOfCacheObjects: 2000,
+    stalePeriod: const Duration(days: 30),
+  );
 
   @visibleForTesting
   EmoteCacheManager.forTesting(super.config);
@@ -107,15 +103,10 @@ class EmoteCacheManager extends CacheManager {
   /// PathNotFoundException mid-read.
   final List<({File file, DateTime createdAt})> _overflowFiles = [];
 
-  /// Keep-priority score for a cached URL, or null when there is no usage
-  /// data (the file then falls back to a recency decay from its stored time).
-  /// Set by [EmoteManager] from its usage registry.
-  double? Function(String url)? priorityScore;
-
-  /// Last-use time for a cached URL (used only for the eviction grace check,
-  /// so a file a render is still reading is never deleted mid-read). Null
-  /// when the URL has no usage history.
-  DateTime? Function(String url)? lastUsedAt;
+  /// Keep-priority policy for cached URLs, or null when there is no usage
+  /// data (a file then falls back to a recency decay from its stored time).
+  /// Set by the image owner from its usage policy.
+  EmoteImagePolicy? policy;
 
   /// Recency half-life for the no-registry fallback. A long, lax window so
   /// cached files age out slowly: combined with the admission check in
@@ -176,7 +167,7 @@ class EmoteCacheManager extends CacheManager {
   /// disk cache); callers then serve from a temp file instead.
   Future<bool> _acquireWriteSlot(String url) async {
     if (await _tryReserve()) return true;
-    if (!await _evictLowest(priorityScore?.call(url))) return false;
+    if (!await _evictLowest(policy?.score(url))) return false;
     // The eviction freed a slot; the cached "full" count is now stale.
     _invalidateCount();
     _pendingWrites++;
@@ -472,7 +463,7 @@ class EmoteCacheManager extends CacheManager {
   }
 
   bool _withinGrace(CacheObject object, DateTime now) {
-    final used = lastUsedAt?.call(object.url);
+    final used = policy?.lastUsedAt(object.url);
     if (used != null && now.difference(used).compareTo(_evictionGrace) < 0) {
       return true;
     }
@@ -504,7 +495,7 @@ class EmoteCacheManager extends CacheManager {
   /// otherwise a recency decay from the file's stored time (unviewed files
   /// age out like unused registry entries).
   double _score(CacheObject object) {
-    final scored = priorityScore?.call(object.url);
+    final scored = policy?.score(object.url);
     if (scored != null) return scored;
     final stored =
         object.touched ?? DateTime.fromMillisecondsSinceEpoch(object.id ?? 0);

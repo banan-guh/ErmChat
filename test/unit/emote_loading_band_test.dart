@@ -1,4 +1,4 @@
-import 'package:ermchat/widgets/emote_probe_memo.dart';
+import 'package:ermchat/services/emote_probe_memo.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

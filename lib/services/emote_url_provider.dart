@@ -4,39 +4,17 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
 import 'package:flutter/scheduler.dart';
-import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 
 import '../emotes/emote.dart';
-import '../services/emote_cache_manager.dart';
 import '../util/log.dart';
 import '../util/webp_anim.dart';
-import 'emote_image.dart';
+import 'emote_decode.dart';
+import 'emote_images.dart';
 
 /// Engine decode timeout for animated WebP streaming. Per-frame engine decode
 /// costs milliseconds, so this only fires on a stalled engine, which then
 /// falls back to the pure-Dart compositor instead of sitting for seconds.
 const Duration _streamFrameTimeout = Duration(seconds: 1);
-
-/// Fetches emote bytes, streaming through disk cache when room.
-Future<Uint8List> fetchEmoteBytes(String url) async {
-  // Stream through disk cache when room; skip to memory when full (overflow path is racy).
-  if (!await EmoteCacheManager().isFull()) {
-    await for (final response in EmoteCacheManager().getFileStream(url)) {
-      if (response is FileInfo) {
-        return response.file.readAsBytes();
-      }
-    }
-    throw StateError('no emote bytes for $url');
-  }
-  // Full cache: try disk cache, then one shared network download.
-  final cached = await EmoteCacheManager().getCachedFile(url);
-  if (cached != null) {
-    return cached.readAsBytes();
-  }
-  return EmoteCacheManager().getOverflowBytes(url, const {
-    'User-Agent': 'ermchat',
-  });
-}
 
 /// Whether [emote] renders through the custom completer loop. True for
 /// animated non-Twitch emotes (animated WebP streams from the engine, and
@@ -50,7 +28,21 @@ bool emoteUsesCustomLoop(Emote emote, {required bool animateGifs}) =>
 
 /// ImageProvider for emote URLs. Keyed by [url] for shared decode/playback. Animated WebP streams from the engine; the pure-Dart compositor is a crash-only fallback.
 class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
-  EmoteUrlProvider(this.url);
+  EmoteUrlProvider(this.url, {EmoteImages? images})
+    : images = images ?? _defaultImages;
+
+  /// Process-wide byte source, installed once by the app provider. Widgets
+  /// normally pass their own [EmoteImages]; this backs the static playback
+  /// registry lookups that have no widget context.
+  static EmoteImages? _defaultImages;
+
+  /// Installs the byte source used when a provider is constructed without one.
+  static void installDefaultImages(EmoteImages images) {
+    _defaultImages = images;
+  }
+
+  /// Process-wide byte source, or null before the app provider installs one.
+  static EmoteImages? get defaultImages => _defaultImages;
 
   /// Test hook; falls back to the production fetcher when null.
   @visibleForTesting
@@ -62,6 +54,7 @@ class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
   static int debugWebpEngineFailAfter = -1;
 
   final String url;
+  final EmoteImages? images;
 
   @override
   Future<EmoteUrlProvider> obtainKey(ImageConfiguration configuration) =>
@@ -72,7 +65,11 @@ class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
     EmoteUrlProvider key,
     ImageDecoderCallback decode,
   ) {
-    return _EmoteImageCompleter(url: key.url, engineDecode: decode);
+    return _EmoteImageCompleter(
+      url: key.url,
+      images: key.images,
+      engineDecode: decode,
+    );
   }
 
   /// Seeds queued by target URL for the next completer.
@@ -132,7 +129,10 @@ class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
   static _EmoteImageCompleter? _completerFor(String url) {
     final live = _liveByUrl[url];
     if (live != null && !live._disposed) return live;
-    final stream = EmoteUrlProvider(url).resolve(ImageConfiguration.empty);
+    final stream = EmoteUrlProvider(
+      url,
+      images: _defaultImages,
+    ).resolve(ImageConfiguration.empty);
     final completer = stream.completer;
     if (completer is _EmoteImageCompleter && !completer._disposed) {
       return completer;
@@ -153,7 +153,11 @@ class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
 
 /// Streams emote frames to listeners (one completer per URL, shared via ImageCache). Custom loop only: animated WebP, playing GIFs, frozen GIFs (still), and stray statics (still). Animated WebP streams from the engine codec; frames the engine stalls or throws on swap to the pure-Dart compositor mid-loop. Engine-routable bytes (Twitch PNG/GIF, static WebP) resolve through the stock provider at call sites and never reach this completer; if they do (probe alts, tests), they render as a single static frame with no loop, no wrapper, no extra completer.
 class _EmoteImageCompleter extends ImageStreamCompleter {
-  _EmoteImageCompleter({required this.url, required this._engineDecode}) {
+  _EmoteImageCompleter({
+    required this.url,
+    required this.images,
+    required this._engineDecode,
+  }) {
     // Pick up seed queued before this completer existed.
     final queued = EmoteUrlProvider._pendingSeeds[url];
     if (queued != null && queued != url) _seedFromUrl = queued;
@@ -162,6 +166,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
   }
 
   final String url;
+  final EmoteImages? images;
   final ImageDecoderCallback _engineDecode;
 
   /// Materialized frames: frozen GIF, and statics.
@@ -213,10 +218,20 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
   /// Source URL for playback seed (cached smaller scale).
   String? _seedFromUrl;
 
+  /// Bytes for [url]: the test override when set, else the owning image box.
+  Future<Uint8List> _fetchBytes() {
+    final override = EmoteUrlProvider.debugFetchOverride;
+    if (override != null) return override(url);
+    final source = images;
+    if (source == null) {
+      throw StateError('no EmoteImages for $url');
+    }
+    return source.bytes(url);
+  }
+
   Future<void> _load() async {
     try {
-      final bytes =
-          await (EmoteUrlProvider.debugFetchOverride ?? fetchEmoteBytes)(url);
+      final bytes = await _fetchBytes();
       if (_disposed) return;
       final format = sniffEmoteFormat(bytes);
       _isAnimatedGif = format == EmoteFormat.gif;
@@ -643,9 +658,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
     final seed = _engineSeed;
     _engineSeed = null;
     try {
-      bytes ??= await (EmoteUrlProvider.debugFetchOverride ?? fetchEmoteBytes)(
-        url,
-      );
+      bytes ??= await _fetchBytes();
     } on Object catch (error, stack) {
       seed?.dispose();
       if (!_disposed) {

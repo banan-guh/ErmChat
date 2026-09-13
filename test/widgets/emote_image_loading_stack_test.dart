@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:ermchat/widgets/emote_image.dart';
-import 'package:ermchat/widgets/emote_image_provider.dart';
+import 'package:ermchat/services/emote_url_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;

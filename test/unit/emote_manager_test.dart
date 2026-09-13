@@ -9,8 +9,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:ermchat/widgets/emote_image.dart';
-import 'package:ermchat/widgets/emote_probe_memo.dart';
-import 'package:ermchat/widgets/emote_image_provider.dart';
+import 'package:ermchat/services/emote_url_provider.dart';
 import 'dart:convert';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
@@ -20,6 +19,7 @@ import 'package:ermchat/emotes/emote.dart';
 import 'package:ermchat/emotes/emote_catalog.dart';
 import 'package:ermchat/emotes/emote_meta.dart';
 import 'package:ermchat/services/emote_manager.dart';
+import 'package:ermchat/services/emote_image_policy.dart';
 import 'package:ermchat/services/emote_store.dart';
 import 'package:ermchat/services/twitch_auth.dart';
 import 'package:ermchat/services/emote_meta_store.dart';
@@ -148,6 +148,19 @@ const _commands = <TwitchCommand>[
 List<String> _codes(List<Suggestion> suggestions) =>
     suggestions.map((s) => s.displayText).toList();
 
+class _FixedPolicy implements EmoteImagePolicy {
+  _FixedPolicy({this.scoreOf, this.lastUsedOf});
+
+  final double? Function(String url)? scoreOf;
+  final DateTime? Function(String url)? lastUsedOf;
+
+  @override
+  double? score(String url) => scoreOf?.call(url);
+
+  @override
+  DateTime? lastUsedAt(String url) => lastUsedOf?.call(url);
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -162,7 +175,6 @@ void main() {
   late EmoteCacheManager manager;
 
   setUp(() {
-    EmoteProbeMemo.instance.reset();
     repo = FakeCacheRepo();
     manager = EmoteCacheManager.forTesting(
       Config('test', repo: repo, fileSystem: MemoryCacheSystem()),
@@ -232,7 +244,9 @@ void main() {
       _obj('https://example.com/b.png', t, id: 2),
     ]);
     manager.maxObjects = 1;
-    manager.priorityScore = (url) => url.contains('b.png') ? 1.0 : 0.0;
+    manager.policy = _FixedPolicy(
+      scoreOf: (url) => url.contains('b.png') ? 1.0 : 0.0,
+    );
 
     await manager.enforceNow();
 
@@ -273,12 +287,14 @@ void main() {
     ]);
     manager.maxObjects = 3;
     // b is the lowest-scored emote even though it is not the oldest on disk.
-    manager.priorityScore = (url) => switch (url) {
-      'https://example.com/a.png' => 1.0,
-      'https://example.com/b.png' => 0.2,
-      _ => 0.9,
-    };
-    manager.lastUsedAt = (url) => t.add(const Duration(days: 1));
+    manager.policy = _FixedPolicy(
+      scoreOf: (url) => switch (url) {
+        'https://example.com/a.png' => 1.0,
+        'https://example.com/b.png' => 0.2,
+        _ => 0.9,
+      },
+      lastUsedOf: (url) => t.add(const Duration(days: 1)),
+    );
 
     await expectLater(
       manager.getFileStream('https://example.com/new.png'),
@@ -2868,7 +2884,7 @@ void main() {
 
         final cache = testCacheManager();
         await makeManager(clock: () => clock, cache: cache);
-        final lastUsed = cache.lastUsedAt!('https://example.com/e0.png');
+        final lastUsed = cache.policy?.lastUsedAt('https://example.com/e0.png');
         expect(lastUsed, clock);
       },
     );
