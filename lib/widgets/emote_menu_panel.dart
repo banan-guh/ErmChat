@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../emotes/emote.dart';
 import '../providers/app_providers.dart';
-import '../providers/feature_providers.dart';
+import '../providers/emote_store_providers.dart';
 import '../services/emote_manager.dart';
 import '../util/sheet_drag.dart';
 import '../widgets/tabbed_layout.dart';
@@ -85,7 +85,7 @@ class EmoteMenuPanelWidgetState extends ConsumerState<EmoteMenuPanelWidget> {
   @override
   Widget build(BuildContext context) {
     // Refresh recents while open; reopen handles the closed case.
-    ref.listen(emoteManagerTickProvider, (_, _) {
+    ref.listen(emoteStateProvider, (_, _) {
       if (!widget.isActive) return;
       _loadRecentEmotes();
     });

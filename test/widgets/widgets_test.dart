@@ -49,6 +49,7 @@ import 'package:ermchat/emotes/emote.dart';
 import 'package:ermchat/emotes/emote_meta.dart';
 import 'package:ermchat/services/emote_manager.dart';
 import 'package:ermchat/providers/app_providers.dart';
+import 'package:ermchat/providers/emote_store_providers.dart';
 import 'package:ermchat/widgets/emote_menu_panel.dart';
 import 'package:url_launcher_platform_interface/link.dart';
 import 'package:url_launcher_platform_interface/url_launcher_platform_interface.dart';
@@ -5182,7 +5183,12 @@ void main() {
 
   Widget wrapEmoteMenu(EmoteManager manager) {
     return ProviderScope(
-      overrides: [emoteManagerProvider.overrideWithValue(manager)],
+      overrides: [
+        emoteManagerProvider.overrideWithValue(manager),
+        // The panel observes emoteStateProvider, which watches the store, so
+        // the test manager's own store must back it.
+        emoteStoreProvider.overrideWithValue(manager.store),
+      ],
       child: MaterialApp(
         key: UniqueKey(),
         home: Scaffold(

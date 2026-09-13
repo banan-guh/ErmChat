@@ -18,6 +18,7 @@ import '../services/twitch_api.dart';
 import '../services/twitch_badge_service.dart';
 import '../services/user_store.dart';
 import '../util/connectivity.dart';
+import 'emote_store_providers.dart';
 
 /// App-scope shared objects: transports, managers, and the mutable kernel.
 ///
@@ -81,6 +82,7 @@ final sevenTvClientProvider = Provider<SevenTvEventClient>((ref) {
 
 final emoteManagerProvider = Provider<EmoteManager>((ref) {
   final manager = EmoteManager(
+    store: ref.watch(emoteStoreProvider),
     probe: ref.watch(connectivityServiceProvider).checkConnectivity,
     getChannelUserIds: ref.read(channelUserIdsProvider),
   );

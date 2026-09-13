@@ -20,6 +20,7 @@ import 'package:ermchat/emotes/emote.dart';
 import 'package:ermchat/emotes/emote_catalog.dart';
 import 'package:ermchat/emotes/emote_meta.dart';
 import 'package:ermchat/services/emote_manager.dart';
+import 'package:ermchat/services/emote_store.dart';
 import 'package:ermchat/services/twitch_auth.dart';
 import 'package:ermchat/services/emote_meta_store.dart';
 import 'package:ermchat/services/emote_providers/bttv_emotes.dart';
@@ -1126,29 +1127,35 @@ void main() {
     );
 
     test(
-      'consumeChangedCodes tracks deltas and ignores non delta notifies',
+      '7TV deltas emit a change with codes and skip the version bump',
       () async {
         SharedPreferences.setMockInitialValues({});
         final manager = EmoteManager(
           fetchStagger: Duration.zero,
           removeCachedFile: (url) async {},
         );
+        final changes = <EmoteChange>[];
+        manager.store.addListener(changes.add);
+        final before = manager.version;
+
         manager.updateSevenTvEmotes(
           'ch',
           added: [sevenTv('a', 'Alpha'), sevenTv('b', 'Bravo')],
         );
-        expect(manager.consumeChangedCodes('ch'), {'Alpha', 'Bravo'});
+        expect(changes.last.channel, 'ch');
+        expect(changes.last.deltaCodes, {'Alpha', 'Bravo'});
+        // Live deltas never advance the span-cache version.
+        expect(manager.version, before);
 
         manager.updateSevenTvEmotes('ch', removedIds: ['a']);
         await pumpEventQueue();
-        expect(manager.consumeChangedCodes('ch'), {'Alpha'});
+        expect(changes.last.deltaCodes, {'Alpha'});
 
         manager.updateSevenTvEmotes(
           'ch',
           renamed: {'b': (newName: 'Beta', oldName: 'Bravo')},
         );
-        expect(manager.consumeChangedCodes('ch'), {'Bravo', 'Beta'});
-        expect(manager.consumeChangedCodes('ch'), isNull);
+        expect(changes.last.deltaCodes, {'Bravo', 'Beta'});
 
         // Renaming an emote that is not cached changes nothing, but the event
         // is still a live delta and not a full refetch.
@@ -1156,12 +1163,14 @@ void main() {
           'ch',
           renamed: {'missing': (newName: 'X', oldName: 'Y')},
         );
-        final noOp = manager.consumeChangedCodes('ch');
+        final noOp = changes.last.deltaCodes;
         expect(noOp, isNotNull);
         expect(noOp, isEmpty);
 
+        // A global store write emits a full change (no channel, no delta).
         await manager.storeUserTwitchEmotes({'other': []});
-        expect(manager.consumeChangedCodes('other'), isNull);
+        expect(changes.last.channel, isNull);
+        expect(changes.last.deltaCodes, isNull);
       },
     );
 

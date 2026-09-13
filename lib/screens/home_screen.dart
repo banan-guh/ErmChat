@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_list_view/flutter_list_view.dart';
 import '../providers/app_providers.dart';
 import '../providers/chat_pipeline.dart';
+import '../providers/emote_store_providers.dart';
 import '../providers/feature_providers.dart';
 import '../providers/ui_state_providers.dart';
 import '../emotes/emote.dart';
@@ -23,6 +24,7 @@ import '../services/ping_manager.dart';
 import '../services/ignore_manager.dart';
 import '../services/link_whitelist.dart';
 import '../services/emote_manager.dart';
+import '../services/emote_store.dart';
 import '../util/data_usage.dart';
 import '../services/stream_player_controller.dart';
 import '../services/pip_service.dart';
@@ -1077,18 +1079,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _emotes.reconcileTier();
   }
 
-  void _onEmotesChanged() {
+  void _onEmotesChanged(EmoteChange change) {
     _composer.invalidateEmoteCache();
     // Emote data changed: cached message spans are validated against
     // EmoteManager.version, so no O(total messages) clear is needed here.
     // Just bump the affected channels so visible tiles lazily recompute.
-    final channel = _emoteManager.consumeChangedChannel();
+    final channel = change.channel;
     if (channel != null) {
       // A live 7TV delta never re-renders existing messages: they keep the
       // emote state they were built with (no retroactive add/remove in chat),
       // and the sheet/autocomplete read the updated lists themselves. Only a
       // full refetch (no delta codes) clears the channel's tile cache.
-      if (_emoteManager.consumeChangedCodes(channel) != null) return;
+      if (change.deltaCodes != null) return;
       _tileCache.remove(channel);
       _chat.channelFor(channel)?.info.touch();
       _onPanelDataChanged(channel);
@@ -1668,7 +1670,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   Widget build(BuildContext context) {
     // Provider-owned shared objects observed as Riverpod state. These replace
     // the manual addListener/removeListener pairs; ref.listen auto-cancels.
-    ref.listen(emoteManagerTickProvider, (_, _) => _onEmotesChanged());
+    ref.listen(emoteStateProvider, (_, state) {
+      final change = state.change;
+      if (change != null) _onEmotesChanged(change);
+    });
     ref.listen(twitchAuthTickProvider, (_, _) => _onAuthChanged());
     ref.listen(connectivityTickProvider, (_, _) => _onConnectivityChanged());
     ref.listen(connectionStateProvider, (_, _) => _onConnectionChanged());
