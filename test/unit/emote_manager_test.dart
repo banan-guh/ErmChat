@@ -1675,6 +1675,131 @@ void main() {
     });
   });
 
+  group('emote fetch commit epochs', () {
+    Emote sevenTv(String id, String code) => Emote(
+      id: id,
+      code: code,
+      meta: const SevenTvMeta(),
+      url: 'https://example.com/$id.png',
+      scope: EmoteScope.channel,
+    );
+
+    test(
+      'a stale channel fetch does not resurrect an evicted channel',
+      () async {
+        SharedPreferences.setMockInitialValues({});
+        final gate = Completer<SevenTvChannelResponse>();
+        final manager = EmoteManager(
+          fetchStagger: Duration.zero,
+          tier: EmoteFetchTier.medium,
+          removeCachedFile: (url) async {},
+          sevenTvChannelFetcher: (id, resolution) => gate.future,
+        );
+
+        final resolving = manager.resolveEmotes('ch', 'b1', force: true);
+        await pumpEventQueue();
+        manager.evictChannel('ch');
+        gate.complete(
+          SevenTvChannelResponse(
+            emotes: [sevenTv('a', 'Alpha')],
+            emoteSetId: 'setA',
+            userId: 'u1',
+          ),
+        );
+        await resolving;
+        await pumpEventQueue();
+
+        expect(manager.hasChannelCache('ch'), isFalse);
+        expect(manager.getSevenTvEmoteSetId('ch'), isNull);
+        expect(manager.getSevenTvUserId('ch'), isNull);
+        expect(manager.byCode('ch'), isNull);
+      },
+    );
+
+    test('a forced resolve supersedes an older in-flight resolve', () async {
+      SharedPreferences.setMockInitialValues({});
+      Completer<SevenTvChannelResponse>? firstGate;
+      final firstFetch = Completer<void>();
+      var calls = 0;
+      final manager = EmoteManager(
+        fetchStagger: Duration.zero,
+        tier: EmoteFetchTier.medium,
+        removeCachedFile: (url) async {},
+        sevenTvChannelFetcher: (id, resolution) {
+          if (calls++ == 0) {
+            firstGate = Completer<SevenTvChannelResponse>();
+            firstFetch.complete();
+            return firstGate!.future;
+          }
+          return Future.value(
+            SevenTvChannelResponse(emotes: [sevenTv('b', 'Bravo')]),
+          );
+        },
+      );
+
+      final older = manager.resolveEmotes('ch', 'b1', force: true);
+      await firstFetch.future;
+      final newer = manager.resolveEmotes('ch', 'b1', force: true);
+      await newer;
+      await pumpEventQueue();
+
+      expect(manager.byCode('ch')!.suggestions.map((e) => e.code), ['Bravo']);
+
+      firstGate!.complete(
+        SevenTvChannelResponse(emotes: [sevenTv('a', 'Alpha')]),
+      );
+      await older;
+      await pumpEventQueue();
+
+      expect(
+        manager.byCode('ch')!.suggestions.map((e) => e.code),
+        ['Bravo'],
+        reason: 'the older in-flight resolve must not overwrite the forced one',
+      );
+    });
+
+    test('producers return fetches without mutating manager state', () async {
+      SharedPreferences.setMockInitialValues({});
+      final manager = EmoteManager(
+        fetchStagger: Duration.zero,
+        tier: EmoteFetchTier.medium,
+        removeCachedFile: (url) async {},
+        sevenTvGlobalFetcher: (resolution) async => [
+          makeTestEmote(id: 'g1', code: 'Global7tv', type: EmoteType.sevenTv),
+        ],
+        sevenTvChannelFetcher: (id, resolution) async => SevenTvChannelResponse(
+          emotes: [sevenTv('a', 'Alpha')],
+          emoteSetId: 'setA',
+          userId: 'u1',
+        ),
+      );
+
+      final global = await manager.fetchAllGlobalForTesting();
+      expect(global.byProvider[EmoteType.sevenTv]!.map((e) => e.code), [
+        'Global7tv',
+      ]);
+      expect(manager.hasGlobalCache, isFalse);
+      expect(manager.stashSizeForTesting(type: EmoteType.sevenTv), 0);
+
+      final channel = await manager.fetchAllChannelForTesting(
+        'b1',
+        channelName: 'ch',
+      );
+      expect(channel.byProvider[EmoteType.sevenTv]!.map((e) => e.code), [
+        'Alpha',
+      ]);
+      expect(channel.sevenTvSetId, 'setA');
+      expect(channel.sevenTvUserId, 'u1');
+      expect(manager.hasChannelCache('ch'), isFalse);
+      expect(manager.getSevenTvEmoteSetId('ch'), isNull);
+      expect(manager.getSevenTvUserId('ch'), isNull);
+      expect(
+        manager.stashSizeForTesting(channel: 'ch', type: EmoteType.sevenTv),
+        0,
+      );
+    });
+  });
+
   group('low tier registry freeze', () {
     Emote sevenTv(String id, String code) => Emote(
       id: id,
