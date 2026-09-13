@@ -7,7 +7,8 @@ import '../models/twitch_badge.dart';
 import '../models/twitch_message.dart';
 import '../composer/composer_controller.dart';
 import '../services/chat_connection_manager.dart';
-import '../services/emote_manager.dart';
+import '../services/emote_lookup_source.dart';
+import '../services/emote_usage_registry.dart';
 import '../services/mod_actions.dart';
 import '../services/seven_tv_paint_service.dart';
 import '../services/twitch_api.dart';
@@ -85,7 +86,8 @@ class UserSheets {
     required this.twitchApi,
     required this.twitchAuth,
     required this.modActions,
-    required this.emoteManager,
+    required this.emoteSource,
+    required this.emoteUsage,
     required this.messageBuilder,
     required this.composer,
     required this.menus,
@@ -97,7 +99,8 @@ class UserSheets {
   final TwitchApi twitchApi;
   final TwitchAuth twitchAuth;
   final ModActions modActions;
-  final EmoteManager emoteManager;
+  final EmoteLookupSource emoteSource;
+  final EmoteUsageRegistry emoteUsage;
   final MessageBuilder messageBuilder;
   final ComposerController composer;
   final MessageMenus menus;
@@ -372,8 +375,8 @@ class UserSheets {
           messageController: composer.messageController,
           focusNode: composer.focusNode,
           onClose: () => Navigator.pop(ctx),
-          onUseEmote: emoteManager.markEmoteUsed,
-          images: emoteManager.images,
+          onUseEmote: emoteUsage.markEmoteUsed,
+          images: emoteSource.images,
         ),
       ),
     );

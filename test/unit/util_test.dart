@@ -416,7 +416,7 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   MessageBuilder makeBuilder(EmoteManager em) => MessageBuilder(
-    emoteManager: em,
+    emoteSource: em,
     badgeService: TwitchBadgeService(),
     thirdPartyBadgeService: ThirdPartyBadgeService(),
     onShowEmoteSheet: (_) {},
@@ -556,7 +556,7 @@ void main() {
     );
     await badgeService.fetchGlobalBadges(TwitchAuth()..accessToken = 't');
     final builder = MessageBuilder(
-      emoteManager: EmoteManager(),
+      emoteSource: EmoteManager(),
       badgeService: badgeService,
       thirdPartyBadgeService: ThirdPartyBadgeService(),
       onShowEmoteSheet: (_) {},

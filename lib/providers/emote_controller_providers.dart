@@ -13,9 +13,11 @@ final emoteSignalsProvider = Provider<EmoteSignals>((ref) {
 });
 
 /// App-scope emote daemon control (tier/auto/cache prefs, post-auth refresh,
-/// manual reload/nuke). Owns no resources, so it needs no teardown.
+/// manual reload/nuke) plus the emote lifecycle (boot priming, cache GC, and
+/// the 7TV entitlement stream). Owns the entitlement listener; teardown
+/// cancels it.
 final emoteControllerProvider = Provider<EmoteController>((ref) {
-  return EmoteController(
+  final controller = EmoteController(
     emoteManager: ref.read(emoteManagerProvider),
     twitchApi: ref.read(twitchApiProvider),
     twitchAuth: ref.read(twitchAuthProvider),
@@ -24,5 +26,8 @@ final emoteControllerProvider = Provider<EmoteController>((ref) {
     connectivityService: ref.read(connectivityServiceProvider),
     signals: ref.read(emoteSignalsProvider),
     getChannelUserIds: ref.read(channelUserIdsProvider),
+    sevenTvClient: ref.read(sevenTvClientProvider),
   );
+  ref.onDispose(controller.dispose);
+  return controller;
 });

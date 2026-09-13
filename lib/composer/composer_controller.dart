@@ -9,7 +9,8 @@ import '../services/chat_connection_manager.dart';
 import '../chat/chat.dart';
 import '../client/session.dart';
 import '../services/command_handler.dart';
-import '../services/emote_manager.dart';
+import '../services/emote_lookup_source.dart';
+import '../services/emote_usage_registry.dart';
 import '../services/suggestion.dart';
 import '../services/twitch_auth.dart';
 import '../services/user_store.dart';
@@ -52,7 +53,8 @@ class ComposerController {
     required this.chatConn,
     required this.commandHandler,
     required this.twitchAuth,
-    required this.emoteManager,
+    required this.emoteSource,
+    required this.emoteUsage,
     required this.userStore,
     required this.chat,
     required this.session,
@@ -71,7 +73,8 @@ class ComposerController {
   final ChatConnectionManager chatConn;
   final CommandHandler commandHandler;
   final TwitchAuth twitchAuth;
-  final EmoteManager emoteManager;
+  final EmoteLookupSource emoteSource;
+  final EmoteUsageRegistry emoteUsage;
   final UserStore userStore;
   final Session session;
   final Chat chat;
@@ -188,13 +191,15 @@ class ComposerController {
       final isMention = word.text.startsWith('@');
       final emotes = isMention
           ? <Emote>[]
-          : _cachedAutocompleteEmotes ??= emoteManager.sendableEmotes(channel);
+          : _cachedAutocompleteEmotes ??=
+                emoteSource.lookup(channel, null)?.suggestions ??
+                const <Emote>[];
       filtered = filterSuggestions(
         word: filterWord,
         emotes: emotes,
         users: users,
         preferEmotesFirst: host.preferEmotesFirst,
-        recentEmoteIds: emoteManager.recentEmoteIds,
+        recentEmoteIds: emoteUsage.recentEmoteIds,
       );
     }
     suggestions.value = filtered;
@@ -239,7 +244,7 @@ class ComposerController {
         : '';
 
     if (suggestion is EmoteSuggestion) {
-      emoteManager.markEmoteUsed(suggestion.emote);
+      emoteUsage.markEmoteUsed(suggestion.emote);
     }
     suggestions.value = [];
     focusNode.requestFocus();
@@ -398,7 +403,7 @@ class ComposerController {
     messageController.selection = TextSelection.collapsed(
       offset: insertPos + emote.code.length + 1,
     );
-    emoteManager.markEmoteUsed(emote);
+    emoteUsage.markEmoteUsed(emote);
   }
 
   // Input-box send gate ("Slow mode: 12s" / "Timed out: 5s"). Your own

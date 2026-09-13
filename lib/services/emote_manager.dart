@@ -12,6 +12,7 @@ import 'emote_cache_manager.dart';
 import 'emote_fetch.dart';
 import 'emote_fetcher.dart';
 import 'emote_images.dart';
+import 'emote_lookup_source.dart';
 import 'emote_meta_store.dart';
 import 'emote_persistence.dart';
 import 'emote_providers/seven_tv_emotes.dart';
@@ -33,7 +34,7 @@ export 'emote_usage_registry.dart' show EmoteUsageRecord;
 /// catalog persistence ([EmotePersistence]), and image bytes ([EmoteImages]).
 /// Lookups join the store with the personal/sub overlays here because the
 /// manager holds both sides.
-class EmoteManager {
+class EmoteManager implements EmoteLookupSource {
   final DateTime Function() _now;
   final EmoteMetaStore _metaStore;
 
@@ -201,6 +202,7 @@ class EmoteManager {
   EmoteStore get store => _store;
 
   /// Image byte owner consumed by the render path.
+  @override
   EmoteImages get images => _images;
 
   /// Usage history plus recents; also the image eviction policy.
@@ -254,6 +256,7 @@ class EmoteManager {
 
   /// Current emote-data version. Forwards the store so message span caches
   /// detect stale spans lazily; live 7TV deltas do not advance it.
+  @override
   int get version => _store.version;
 
   // Targets whose emote fetch failed since the last take (channel names, or
@@ -362,6 +365,11 @@ class EmoteManager {
         unlocks: _twitchSets.unlockedEmotes,
         foreign: _personalSets.foreignFor(senderTwitchId),
       );
+
+  /// [EmoteLookupSource] view: the sender-scoped lookup the render path uses.
+  @override
+  EmoteLookup? lookup(String channel, String? senderTwitchId) =>
+      byCodeForSender(channel, senderTwitchId);
 
   /// Maps foreign users to a personal set from a socket entitlement grant.
   Future<void> trackForeignPersonalGrant(

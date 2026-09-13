@@ -6,6 +6,7 @@ import '../eventsub/transport/connection.dart';
 import '../irc/join_rate_limiter.dart';
 import '../irc/transport/read.dart';
 import '../irc/transport/write.dart';
+import '../services/emote_lookup_source.dart';
 import '../services/emote_manager.dart';
 import '../services/ignore_manager.dart';
 import '../services/ping_manager.dart';
@@ -100,6 +101,13 @@ final emoteManagerProvider = Provider<EmoteManager>((ref) {
   );
   ref.onDispose(manager.dispose);
   return manager;
+});
+
+/// Narrow read-only view of the emote manager for the render path. Consumers
+/// (message builder) read only the catalog version, the sender lookup, and
+/// the image owner instead of the whole manager.
+final emoteLookupSourceProvider = Provider<EmoteLookupSource>((ref) {
+  return ref.watch(emoteManagerProvider);
 });
 
 final badgeServiceProvider = Provider<TwitchBadgeService>((ref) {

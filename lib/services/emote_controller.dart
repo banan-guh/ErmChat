@@ -10,6 +10,7 @@ import '../util/data_usage.dart';
 import '../util/prefs.dart';
 import '../util/signal.dart';
 import 'emote_manager.dart';
+import 'seven_tv_event_client.dart';
 import 'twitch_api.dart';
 import 'twitch_auth.dart';
 import 'twitch_badge_service.dart';
@@ -28,6 +29,7 @@ class EmoteController {
     required this.connectivityService,
     required this.signals,
     required this.getChannelUserIds,
+    required this.sevenTvClient,
   });
 
   final EmoteManager emoteManager;
@@ -37,9 +39,51 @@ class EmoteController {
   final TwitchBadgeService badgeService;
   final ConnectivityService connectivityService;
   final EmoteSignals signals;
+  final SevenTvEventClient sevenTvClient;
 
   /// Live open-channel -> broadcaster-id map, read at use time.
   final Map<String, String> Function() getChannelUserIds;
+
+  StreamSubscription<SevenTvEntitlementEvent>? _entitlementSub;
+
+  /// Boot entry point: persisted prefs, cache GC, the 7TV entitlement stream,
+  /// and the first account prime. The shell calls this once.
+  void start() {
+    unawaited(loadPrefs());
+    primeForAccount();
+    unawaited(emoteManager.startCacheGc());
+    _entitlementSub ??= sevenTvClient.onEntitlement.listen(
+      emoteManager.applySevenTvEntitlement,
+    );
+  }
+
+  /// Sets the account token + viewer id and kicks off the initial fetches.
+  void primeForAccount() {
+    emoteManager.accessToken = twitchAuth.accessToken;
+    emoteManager.viewerTwitchId = twitchAuth.userId;
+    unawaited(emoteManager.preloadGlobalEmotes());
+    unawaited(emoteManager.loadViewerPersonalSevenTvSets());
+  }
+
+  /// Auth changed without an account switch: re-prime and refetch.
+  Future<void> onAuthChanged() async {
+    primeForAccount();
+    await refreshAfterAuth();
+  }
+
+  /// Account switch: drop the previous account's emote state, then re-prime
+  /// and refetch for the new account.
+  Future<void> onAccountChanged() async {
+    emoteManager.resetUserEmoteState();
+    primeForAccount();
+    await refreshAfterAuth();
+  }
+
+  /// Cancels the entitlement listener. The provider owns teardown.
+  void dispose() {
+    _entitlementSub?.cancel();
+    _entitlementSub = null;
+  }
 
   int manualTierIndex = EmoteFetchTier.high.index;
   EmoteFetchAutoMode autoMode = defaultEmoteFetchAutoMode;

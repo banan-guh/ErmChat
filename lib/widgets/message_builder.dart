@@ -5,7 +5,7 @@ import '../emotes/emote.dart';
 import '../models/twitch_badge.dart';
 import '../models/twitch_message.dart';
 import '../util/constants.dart';
-import '../services/emote_manager.dart';
+import '../services/emote_lookup_source.dart';
 import '../services/link_whitelist.dart';
 import '../services/third_party_badge_service.dart';
 import '../services/twitch_badge_service.dart';
@@ -13,7 +13,7 @@ import '../util/log.dart';
 import 'emote_text.dart';
 
 class MessageBuilder {
-  final EmoteManager emoteManager;
+  final EmoteLookupSource emoteSource;
   final TwitchBadgeService badgeService;
   final ThirdPartyBadgeService thirdPartyBadgeService;
   final void Function(List<Emote>) onShowEmoteSheet;
@@ -41,7 +41,7 @@ class MessageBuilder {
   void Function(String email)? onEmailTap;
 
   MessageBuilder({
-    required this.emoteManager,
+    required this.emoteSource,
     required this.badgeService,
     required this.thirdPartyBadgeService,
     required this.onShowEmoteSheet,
@@ -62,7 +62,7 @@ class MessageBuilder {
   /// Giphy prefs join the key (prime offset for the toggle, spread factor
   /// for the height) so changes recompute spans lazily.
   int get _spanCacheVersion {
-    var v = emoteManager.version * 1000003 + badgeService.version;
+    var v = emoteSource.version * 1000003 + badgeService.version;
     v += linkWhitelist.entries.fold<int>(0, (h, e) => h ^ e.hashCode * 31);
     if (linkWhitelist.enabled) v += 30000031;
     if (onEmailTap != null) v += 40000037;
@@ -179,10 +179,7 @@ class MessageBuilder {
     final lookupChannel = msg.sourceBroadcasterId != null
         ? badgeService.resolveChannelLogin(msg.sourceBroadcasterId!) ?? channel
         : channel;
-    final channelEmotes = emoteManager.byCodeForSender(
-      lookupChannel,
-      msg.userId,
-    );
+    final channelEmotes = emoteSource.lookup(lookupChannel, msg.userId);
     // Giphy toggle off falls back to plain text (same as no attachments).
     final gifs = showGifs ? msg.gifAttachments : null;
     if (gifs == null || gifs.isEmpty) {
@@ -197,7 +194,7 @@ class MessageBuilder {
         showImages: showImages,
         onImageTap: onImageTap,
         animateGifs: animateGifs,
-        emoteImages: emoteManager.images,
+        emoteImages: emoteSource.images,
       );
     }
     // GIF messages: splice inline GIF images over their text ranges; GIF wins
@@ -234,7 +231,7 @@ class MessageBuilder {
           showImages: showImages,
           onImageTap: onImageTap,
           animateGifs: animateGifs,
-          emoteImages: emoteManager.images,
+          emoteImages: emoteSource.images,
         ),
       );
     }

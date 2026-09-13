@@ -7,6 +7,7 @@ import 'package:flutter_list_view/flutter_list_view.dart';
 import '../providers/app_providers.dart';
 import '../providers/chat_pipeline.dart';
 import '../providers/emote_controller_providers.dart';
+import '../providers/emote_owner_providers.dart';
 import '../providers/emote_store_providers.dart';
 import '../providers/feature_providers.dart';
 import '../providers/ui_state_providers.dart';
@@ -26,6 +27,8 @@ import '../services/ignore_manager.dart';
 import '../services/link_whitelist.dart';
 import '../services/emote_manager.dart';
 import '../services/emote_controller.dart';
+import '../services/emote_lookup_source.dart';
+import '../services/emote_usage_registry.dart';
 import '../services/emote_store.dart';
 import '../util/data_usage.dart';
 import '../services/stream_player_controller.dart';
@@ -175,7 +178,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   }
 
   late final MessageBuilder _messageBuilder = MessageBuilder(
-    emoteManager: _emoteManager,
+    emoteSource: _emoteLookupSource,
     badgeService: _badgeService,
     thirdPartyBadgeService: _thirdPartyBadgeService,
     onShowEmoteSheet: (emotes) => _userSheets.showEmoteSheet(context, emotes),
@@ -208,6 +211,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   EmoteManager get _emoteManager {
     _emoteManagerCache ??= ref.read(emoteManagerProvider);
     return _emoteManagerCache!;
+  }
+
+  EmoteLookupSource? _emoteLookupSourceCache;
+  EmoteLookupSource get _emoteLookupSource {
+    _emoteLookupSourceCache ??= ref.read(emoteLookupSourceProvider);
+    return _emoteLookupSourceCache!;
+  }
+
+  EmoteUsageRegistry? _emoteUsageCache;
+  EmoteUsageRegistry get _emoteUsage {
+    _emoteUsageCache ??= ref.read(emoteUsageRegistryProvider);
+    return _emoteUsageCache!;
   }
 
   TwitchBadgeService get _badgeService => ref.read(badgeServiceProvider);
@@ -307,7 +322,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     chatConn: _chatConn,
     commandHandler: _commandHandler,
     twitchAuth: _twitchAuth,
-    emoteManager: _emoteManager,
+    emoteSource: _emoteLookupSource,
+    emoteUsage: _emoteUsage,
     userStore: _userStore,
     chat: _chat,
     session: _session,
@@ -382,7 +398,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     twitchApi: _twitchApi,
     twitchAuth: _twitchAuth,
     modActions: _modActions,
-    emoteManager: _emoteManager,
+    emoteSource: _emoteLookupSource,
+    emoteUsage: _emoteUsage,
     messageBuilder: _messageBuilder,
     composer: _composer,
     menus: _menus,
@@ -655,7 +672,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _session.seed(widget.initialCurrentUserLogin);
     _session.version.addListener(_onSessionApplied);
     _pingManager.setAccount(widget.initialCurrentUserLogin);
-    _emotes.loadPrefs();
     _mentionsTabCtrl = TabController(length: 2, vsync: this);
     _mentionsTabCtrl.addListener(_mentions.onMentionsTabChanged);
     _threadsTabCtrl = TabController(length: 3, vsync: this);
@@ -705,15 +721,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _chat.mentions.version.addListener(_onMentionsContent);
     _syncChannelSubs();
     _subscribeSignals();
-    _startChatPipe();
-    _emoteManager.startCacheGc();
+    _connectChat();
+    _emotes.start();
     _connectivityService.init();
     _badgeService.fetchGlobalBadges(_twitchAuth);
     _thirdPartyBadgeService.bindSevenTvEvents(_sevenTvClient);
     _sevenTvPaintService.bindSevenTvEvents(_sevenTvClient);
-    _sevenTvEntitlementSub = _sevenTvClient.onEntitlement.listen(
-      _emoteManager.applySevenTvEntitlement,
-    );
     unawaited(_thirdPartyBadgeService.fetchFfzBadges());
     unawaited(_thirdPartyBadgeService.fetchBttvBadges());
     WidgetsBinding.instance.addObserver(this);
@@ -1108,8 +1121,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     return _atBottomNotifiers.putIfAbsent(channel, () => ValueNotifier(true));
   }
 
-  StreamSubscription<SevenTvEntitlementEvent>? _sevenTvEntitlementSub;
-
   final _contentListeners = <String, VoidCallback>{};
   final _infoListeners = <String, VoidCallback>{};
   final _modListeners = <String, VoidCallback>{};
@@ -1262,30 +1273,25 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _mod.refreshOnData(changedChannel);
   }
 
-  // Cold-start pipe shared with account switch: IRC connect and emote
-  // priming run together so neither gates the other.
-  void _startChatPipe() {
+  // Cold-start pipe shared with account switch: the IRC connect. Emote
+  // priming and post-auth refresh live in EmoteController.
+  void _connectChat() {
     _chatConn.connect();
-    _emoteManager.accessToken = _twitchAuth.accessToken;
-    _emoteManager.viewerTwitchId = _twitchAuth.userId;
-    _emoteManager.preloadGlobalEmotes();
-    unawaited(_emoteManager.loadViewerPersonalSevenTvSets());
   }
 
   void _onAuthChanged() {
     _mod.refreshOnData(null);
-    if (_session.login?.toLowerCase() != _twitchAuth.login?.toLowerCase()) {
+    final switched =
+        _session.login?.toLowerCase() != _twitchAuth.login?.toLowerCase();
+    if (switched) {
       // Account switched (or signed out): drop identity and account-scoped
       // chat state. The remaining resets are HomeScreen side effects.
       _session.clear();
       _chat.clearAccountScopedState();
       _pingManager.setAccount(null);
-      // The emote-set / block / mention caches are per-account: reset them so
-      // the new account's USERSTATE re-fetches its sub emotes (instead of the
-      // old account's set IDs being deduped out), blocks are re-fetched, the
-      // retroactive mention scan re-runs, and channels re-resolve emotes with
-      // the new token.
-      _emoteManager.resetUserEmoteState();
+      // The block / mention caches are per-account: reset them so blocks are
+      // re-fetched, the retroactive mention scan re-runs, and channels
+      // re-resolve emotes with the new token.
       _blocksFetched = false;
       // Fail closed until the new account's block list arrives; without this
       // chat unhides immediately and the old account's list briefly filters.
@@ -1299,10 +1305,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       _channelManager.scanHistoryForMentions();
       unawaited(_ensureBlockedUsersLoaded());
     }
-    // Same pipe as cold start: connect now so the indicator flips at once;
-    // the full re-resolve runs alongside instead of gating the reconnect.
-    _startChatPipe();
-    unawaited(_emotes.refreshAfterAuth());
+    // Same pipe as cold start: connect now so the indicator flips at once.
+    // The emote lifecycle resets/re-primes/refetches alongside instead of
+    // gating the reconnect.
+    _connectChat();
+    unawaited(switched ? _emotes.onAccountChanged() : _emotes.onAuthChanged());
   }
 
   // Reads the persisted manual tier, auto mode, and disk-cache cap, then
@@ -1420,7 +1427,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _composer.dispose();
     _uploadController.dispose();
     _networkBusy.dispose();
-    _sevenTvEntitlementSub?.cancel();
     _linkWhitelist.removeListener(_onLinkWhitelistChanged);
     _streamPlayer.removeListener(_stream.onStreamPlayerChanged);
     _streamPlayer.dispose();
@@ -1758,7 +1764,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
               valueListenable: _composer.suggestions,
               builder: (_, suggestions, _) => AutocompleteDropdown(
                 suggestions: suggestions,
-                images: _emoteManager.images,
+                images: _emoteLookupSource.images,
                 onSelect: _composer.selectSuggestion,
                 onEmoteViewed: _emoteManager.markEmoteViewed,
               ),
