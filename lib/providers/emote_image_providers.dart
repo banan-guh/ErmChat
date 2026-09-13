@@ -1,10 +1,18 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../services/emote_images.dart';
-import 'app_providers.dart';
+import 'emote_owner_providers.dart';
 
-/// App-scope image byte owner. The manager constructs and disposes it; this
-/// provider exposes it to the render path.
+/// App-scope image byte owner. Uses the usage registry as its eviction policy
+/// and follows the provider-owned cache cap.
 final emoteImagesProvider = Provider<EmoteImages>((ref) {
-  return ref.watch(emoteManagerProvider).images;
+  final images = EmoteImages(policy: ref.watch(emoteUsageRegistryProvider));
+  images.cacheCap = ref.read(emoteCacheCapProvider);
+  final capSub = ref.listen(
+    emoteCacheCapProvider,
+    (_, next) => images.cacheCap = next,
+  );
+  ref.onDispose(capSub.close);
+  ref.onDispose(images.dispose);
+  return images;
 });

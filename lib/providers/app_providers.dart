@@ -18,6 +18,8 @@ import '../services/twitch_api.dart';
 import '../services/twitch_badge_service.dart';
 import '../services/user_store.dart';
 import '../util/connectivity.dart';
+import 'emote_image_providers.dart';
+import 'emote_owner_providers.dart';
 import 'emote_store_providers.dart';
 
 /// App-scope shared objects: transports, managers, and the mutable kernel.
@@ -83,7 +85,17 @@ final sevenTvClientProvider = Provider<SevenTvEventClient>((ref) {
 final emoteManagerProvider = Provider<EmoteManager>((ref) {
   final manager = EmoteManager(
     store: ref.watch(emoteStoreProvider),
-    probe: ref.watch(connectivityServiceProvider).checkConnectivity,
+    visibility: ref.watch(emoteVisibilityProvider),
+    fetcher: ref.watch(emoteFetcherProvider),
+    images: ref.watch(emoteImagesProvider),
+    usage: ref.watch(emoteUsageRegistryProvider),
+    personalSets: ref.watch(sevenTvPersonalSetsProvider),
+    twitchSets: ref.watch(twitchEmoteSetsProvider),
+    persistence: ref.watch(emotePersistenceProvider),
+    readTier: () => ref.read(emoteFetchTierProvider),
+    writeTier: (value) => ref.read(emoteFetchTierProvider.notifier).set(value),
+    writeCacheCap: (value) =>
+        ref.read(emoteCacheCapProvider.notifier).set(value),
     getChannelUserIds: ref.read(channelUserIdsProvider),
   );
   ref.onDispose(manager.dispose);

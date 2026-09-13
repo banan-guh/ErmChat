@@ -27,7 +27,9 @@ class SevenTvPersonalSets {
     required bool Function(EmoteType) isProviderEnabled,
     required this._notifyChanged,
     DateTime Function()? now,
+    String? Function()? viewerTwitchIdSource,
   }) : _isProviderOn = isProviderEnabled,
+       _viewerIdSource = viewerTwitchIdSource,
        _now = now ?? DateTime.now;
 
   final EmoteFetcher _fetcher;
@@ -36,6 +38,10 @@ class SevenTvPersonalSets {
   final bool Function(EmoteType) _isProviderOn;
   final void Function() _notifyChanged;
   final DateTime Function() _now;
+
+  /// Live account-id source, read when no explicit id was set. Wired by the
+  /// app layer; null in unit tests, which set the id through the manager.
+  final String? Function()? _viewerIdSource;
 
   // Viewer Twitch user id; personal 7TV grants are matched against it.
   String? _viewerTwitchId;
@@ -77,14 +83,14 @@ class SevenTvPersonalSets {
   /// Viewer Twitch user id for matching personal 7TV grants. Clears viewer
   /// sets on change so the old account's emotes never leak.
   set viewerTwitchId(String? value) {
-    if (_viewerTwitchId == value) return;
+    if (viewerTwitchId == value) return;
     _viewerTwitchId = value;
     _personalSevenTvSetIds.clear();
     _personalSevenTvSets.clear();
     _notifyChanged();
   }
 
-  String? get viewerTwitchId => _viewerTwitchId;
+  String? get viewerTwitchId => _viewerTwitchId ?? _viewerIdSource?.call();
 
   /// Viewer personal 7TV emotes in merge order (first set wins conflicts).
   Iterable<Emote> get viewerEmotes sync* {
@@ -101,7 +107,7 @@ class SevenTvPersonalSets {
   /// Restores the persisted seed first so known sets skip the network.
   Future<void> loadViewerPersonalSevenTvSets({bool force = false}) async {
     await loadPersisted();
-    final viewerId = _viewerTwitchId;
+    final viewerId = viewerTwitchId;
     if (viewerId == null || viewerId.isEmpty) return;
     if (_tier() == EmoteFetchTier.nothing) return;
     if (!_isProviderOn(EmoteType.sevenTv)) return;
@@ -145,7 +151,7 @@ class SevenTvPersonalSets {
   /// per-sender REST).
   Future<void> applyEntitlement(SevenTvEntitlementEvent event) async {
     if (event.cosmeticKind != 'EMOTE_SET') return;
-    final viewerId = _viewerTwitchId;
+    final viewerId = viewerTwitchId;
     if (viewerId == null || !event.twitchUserIds.contains(viewerId)) {
       if (event.kind == 'entitlement.delete') {
         dropForeignGrant(event.twitchUserIds, event.cosmeticId);
@@ -193,7 +199,7 @@ class SevenTvPersonalSets {
     for (final userId in userTwitchIds) {
       if (userId.isEmpty) continue;
       // The viewer's own grants live in the viewer sets, never here.
-      if (userId == _viewerTwitchId) continue;
+      if (userId == viewerTwitchId) continue;
       if (_foreignPersonalUserSets.putIfAbsent(userId, () => {}).add(setId)) {
         mappingChanged = true;
       }
@@ -440,7 +446,7 @@ class SevenTvPersonalSets {
         personalSetsKey,
         jsonEncode({
           'ts': _now().toIso8601String(),
-          'viewerId': _viewerTwitchId,
+          'viewerId': viewerTwitchId,
           'viewer': viewer,
           'foreignOwners': owners,
           'foreign': foreign,
@@ -465,7 +471,7 @@ class SevenTvPersonalSets {
         return;
       }
       var changed = false;
-      final viewerId = _viewerTwitchId;
+      final viewerId = viewerTwitchId;
       if (viewerId != null && (data['viewerId'] as String?) == viewerId) {
         final viewer = data['viewer'] as Map<String, dynamic>? ?? {};
         for (final entry in viewer.entries) {

@@ -1,5 +1,8 @@
 import 'package:ermchat/providers/app_providers.dart';
 import 'package:ermchat/providers/chat_pipeline.dart';
+import 'package:ermchat/providers/emote_image_providers.dart';
+import 'package:ermchat/providers/emote_owner_providers.dart';
+import 'package:ermchat/providers/emote_store_providers.dart';
 import 'package:ermchat/providers/feature_providers.dart';
 import 'package:ermchat/services/chat_connection_manager.dart';
 import 'package:ermchat/services/twitch_api.dart';
@@ -119,6 +122,42 @@ void main() {
     // A second read reuses the cached manager and re-builds nothing.
     expect(identical(container.read(chatPipelineProvider), manager), isTrue);
     expect(_twitchApiBuilds, 1);
+  });
+
+  test('emoteManagerProvider injects the provider-owned emote owners', () {
+    final container = _boot();
+    addTearDown(container.dispose);
+
+    final manager = container.read(emoteManagerProvider);
+    expect(
+      identical(manager.store, container.read(emoteStoreProvider)),
+      isTrue,
+    );
+    expect(
+      identical(manager.images, container.read(emoteImagesProvider)),
+      isTrue,
+    );
+    expect(
+      identical(manager.usage, container.read(emoteUsageRegistryProvider)),
+      isTrue,
+    );
+    expect(
+      identical(
+        manager.personalSets,
+        container.read(sevenTvPersonalSetsProvider),
+      ),
+      isTrue,
+    );
+    expect(
+      identical(manager.twitchSets, container.read(twitchEmoteSetsProvider)),
+      isTrue,
+    );
+    expect(
+      identical(manager.persistence, container.read(emotePersistenceProvider)),
+      isTrue,
+    );
+    expect(manager.tier, container.read(emoteFetchTierProvider));
+    expect(manager.cacheCap, container.read(emoteCacheCapProvider));
   });
 
   test('chatUiSignalsProvider is stable across reads', () {

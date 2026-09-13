@@ -8,7 +8,6 @@ import '../emotes/emote_catalog.dart';
 import '../models/emote_fetch_tier.dart';
 import '../models/twitch_message.dart';
 import '../util/log.dart';
-import '../util/prefs.dart';
 import 'emote_cache_manager.dart';
 import 'emote_fetch.dart';
 import 'emote_fetcher.dart';
@@ -18,6 +17,7 @@ import 'emote_persistence.dart';
 import 'emote_providers/seven_tv_emotes.dart';
 import 'emote_store.dart';
 import 'emote_usage_registry.dart';
+import 'emote_visibility.dart';
 import 'seven_tv_event_client.dart';
 import 'seven_tv_personal_sets.dart';
 import 'twitch_auth.dart';
@@ -34,25 +34,26 @@ export 'emote_usage_registry.dart' show EmoteUsageRecord;
 /// Lookups join the store with the personal/sub overlays here because the
 /// manager holds both sides.
 class EmoteManager {
-  EmoteFetchTier _tier = EmoteFetchTier.high;
-
   final DateTime Function() _now;
   final EmoteMetaStore _metaStore;
 
-  // Network fetching and fetch policy live in the fetcher; the manager owns
-  // the resulting state and commits.
+  // Network fetching and fetch policy live in the fetcher; the manager feeds
+  // the store and owns the flow orchestration.
   late final EmoteFetcher _fetcher;
+  late final bool _ownsFetcher;
 
   // Catalog state, commits, and lookups live in the store; the manager feeds
-  // it fetches and owns the per-account overlays plus prefs.
+  // it fetches and coordinates the per-account overlays.
   final EmoteStore _store;
   final bool _ownsStore;
 
   /// Image byte black box (disk cache, precache, migrations).
   late final EmoteImages _images;
+  late final bool _ownsImages;
 
   /// Usage history plus recents; also the image eviction policy.
   late final EmoteUsageRegistry _usage;
+  late final bool _ownsUsage;
 
   /// Viewer and foreign 7TV personal sets.
   late final SevenTvPersonalSets _personalSets;
@@ -63,14 +64,35 @@ class EmoteManager {
   /// Global/channel catalog persistence.
   late final EmotePersistence _persistence;
 
+  /// Provider visibility config; the manager mirrors it into the store.
+  late final EmoteVisibility _visibility;
+  late final bool _ownsVisibility;
+
+  // Effective fetch tier. Injected owners supply [readTier]/[writeTier] wired
+  // to the tier provider; the local field is the compat path for direct tests.
+  EmoteFetchTier _localTier;
+  late final EmoteFetchTier Function() _readTier;
+  final void Function(EmoteFetchTier)? _tierWriter;
+  final void Function(int)? _cacheCapWriter;
+
   EmoteManager({
     EmoteStore? store,
+    EmoteVisibility? visibility,
+    EmoteFetcher? fetcher,
+    EmoteImages? images,
+    EmoteUsageRegistry? usage,
+    SevenTvPersonalSets? personalSets,
+    TwitchEmoteSets? twitchSets,
+    EmotePersistence? persistence,
     Future<List<ConnectivityResult>> Function()? probe,
     Duration fetchStagger = defaultEmoteFetchStagger,
     Future<void> Function(String url)? removeCachedFile,
     DateTime Function()? now,
     EmoteFetchTier tier = EmoteFetchTier.high,
+    EmoteFetchTier Function()? readTier,
+    void Function(EmoteFetchTier)? writeTier,
     int cacheCap = defaultEmoteCacheMax,
+    void Function(int)? writeCacheCap,
     Duration usageFlushDelay = const Duration(milliseconds: 250),
     Future<SevenTvChannelResponse> Function(
       String channelId,
@@ -96,54 +118,82 @@ class EmoteManager {
   }) : _store = store ?? EmoteStore(),
        _ownsStore = store == null,
        _metaStore = metaStore ?? EmoteMetaStore.I,
-       _now = now ?? DateTime.now {
-    _tier = tier;
-    _usage = EmoteUsageRegistry(
-      capacity: () => _images.cacheCap,
-      now: _now,
-      flushDelay: usageFlushDelay,
-    );
-    _images = EmoteImages(
-      policy: _usage,
-      cacheManager: cacheManager,
-      removeCachedFile: removeCachedFile,
-      now: _now,
-    );
-    _fetcher = EmoteFetcher(
-      now: _now,
-      tier: () => _tier,
-      isProviderEnabled: _isProviderOn,
-      accessToken: () => _twitchSets.accessToken,
-      probe: probe,
-      fetchStagger: fetchStagger,
-      sevenTvChannelFetcher: sevenTvChannelFetcher,
-      sevenTvGlobalFetcher: sevenTvGlobalFetcher,
-      sevenTvOwnedSetIds: sevenTvOwnedSetIdsFetcher,
-      sevenTvEmoteSetFetcher: sevenTvEmoteSetFetcher,
-      resolveOwnerLogins: resolveOwnerLogins,
-      fetchUserEmoteSets: fetchUserEmoteSets,
-    );
-    _personalSets = SevenTvPersonalSets(
-      fetcher: _fetcher,
-      metaStore: _metaStore,
-      tier: () => _tier,
-      isProviderEnabled: _isProviderOn,
-      notifyChanged: _store.notifyStateCleared,
-      now: _now,
-    );
-    _twitchSets = TwitchEmoteSets(
-      fetcher: _fetcher,
-      store: _store,
-      tier: () => _tier,
-      getChannelUserIds: getChannelUserIds,
-    );
-    _persistence = EmotePersistence(
-      tier: () => _tier,
-      isAccountUnlock: (id) =>
-          _twitchSets.isAccountUnlocked(id) ||
-          _twitchSets.isCatalogUnlocked(id),
-      metaStore: _metaStore,
-    );
+       _now = now ?? DateTime.now,
+       _localTier = tier,
+       _tierWriter = writeTier,
+       _cacheCapWriter = writeCacheCap {
+    _visibility = visibility ?? EmoteVisibility();
+    _ownsVisibility = visibility == null;
+    _readTier = readTier ?? () => _localTier;
+    _applyVisibility();
+    _visibility.addListener(_applyVisibility);
+
+    // Owners are optional. When omitted (direct construction in tests) the
+    // manager builds the full local graph for compatibility.
+    _usage =
+        usage ??
+        EmoteUsageRegistry(
+          capacity: () => _images.cacheCap,
+          now: _now,
+          flushDelay: usageFlushDelay,
+        );
+    _ownsUsage = usage == null;
+
+    _images =
+        images ??
+        EmoteImages(
+          policy: _usage,
+          cacheManager: cacheManager,
+          removeCachedFile: removeCachedFile,
+          now: _now,
+        );
+    _ownsImages = images == null;
+
+    _fetcher =
+        fetcher ??
+        EmoteFetcher(
+          now: _now,
+          tier: () => tier,
+          isProviderEnabled: (type) => _visibility.isProviderEnabled(type),
+          accessToken: () => _twitchSets.accessToken,
+          probe: probe,
+          fetchStagger: fetchStagger,
+          sevenTvChannelFetcher: sevenTvChannelFetcher,
+          sevenTvGlobalFetcher: sevenTvGlobalFetcher,
+          sevenTvOwnedSetIds: sevenTvOwnedSetIdsFetcher,
+          sevenTvEmoteSetFetcher: sevenTvEmoteSetFetcher,
+          resolveOwnerLogins: resolveOwnerLogins,
+          fetchUserEmoteSets: fetchUserEmoteSets,
+        );
+    _ownsFetcher = fetcher == null;
+
+    _personalSets =
+        personalSets ??
+        SevenTvPersonalSets(
+          fetcher: _fetcher,
+          metaStore: _metaStore,
+          tier: () => tier,
+          isProviderEnabled: (type) => _visibility.isProviderEnabled(type),
+          notifyChanged: _store.notifyStateCleared,
+          now: _now,
+        );
+    _twitchSets =
+        twitchSets ??
+        TwitchEmoteSets(
+          fetcher: _fetcher,
+          store: _store,
+          tier: () => tier,
+          getChannelUserIds: getChannelUserIds,
+        );
+    _persistence =
+        persistence ??
+        EmotePersistence(
+          tier: () => tier,
+          isAccountUnlock: (id) =>
+              _twitchSets.isAccountUnlocked(id) ||
+              _twitchSets.isCatalogUnlocked(id),
+          metaStore: _metaStore,
+        );
     _images.cacheCap = cacheCap;
   }
 
@@ -166,11 +216,17 @@ class EmoteManager {
   EmotePersistence get persistence => _persistence;
 
   /// Fetching tier controlling resolution, cache TTL, and 7TV reconcile gating.
-  EmoteFetchTier get tier => _tier;
+  /// Delegates to the injected provider when present.
+  EmoteFetchTier get tier => _readTier();
 
   set tier(EmoteFetchTier value) {
-    if (value == _tier) return;
-    _tier = value;
+    if (value == _readTier()) return;
+    final writer = _tierWriter;
+    if (writer != null) {
+      writer(value);
+    } else {
+      _localTier = value;
+    }
     _store.notifyStateCleared();
   }
 
@@ -178,7 +234,14 @@ class EmoteManager {
   /// clamped to [minEmoteCacheMax]..[maxEmoteCacheMax]).
   int get cacheCap => _images.cacheCap;
 
-  set cacheCap(int value) => _images.cacheCap = value;
+  set cacheCap(int value) {
+    final writer = _cacheCapWriter;
+    if (writer != null) {
+      writer(value);
+      return;
+    }
+    _images.cacheCap = value;
+  }
 
   /// Live open-channel -> broadcaster-id source, injected by the app layer and
   /// read at store time. Late-resolving ids must still receive fetched subs;
@@ -349,76 +412,35 @@ class EmoteManager {
       _store.subscriberEmotesByChannel();
 
   // ── Provider visibility toggles ─────────────────────────────────────
-  bool _providersLoaded = false;
-  Prefs? _prefs;
-
-  Future<void> _ensureProvidersLoaded() async {
-    if (_providersLoaded) return;
-    _providersLoaded = true;
-    try {
-      final prefs = await _getPrefs();
-      final raw = prefs.emoteProvidersDisabled;
-      final disabled = <EmoteType>{};
-      var migrated = false;
-      if (raw != null) {
-        for (final t in EmoteType.values) {
-          if (raw.contains(t.name)) disabled.add(t);
-        }
-        // Migrate: Twitch is no longer toggleable.
-        if (disabled.remove(EmoteType.twitch)) migrated = true;
-      }
-      _store.setProviderVisibility(disabled, prefs.emoteAllowUnlisted7tv);
-      if (!migrated) return;
-      await prefs.setEmoteProvidersDisabled(
-        disabled.map((t) => t.name).toList(),
-      );
-    } catch (e) {
-      // Retry on the next call instead of caching a failed load.
-      _providersLoaded = false;
-      logDebug('[EmoteManager] failed to load provider visibility: $e');
-    }
+  // Mirrors the visibility owner into the store snapshot; the owner owns the
+  // prefs load/save.
+  void _applyVisibility() {
+    _store.setProviderVisibility(
+      _visibility.disabledProviders,
+      _visibility.allowUnlisted7tv,
+    );
   }
 
   /// Whether [type] is fetched and rendered (sync view).
-  bool isProviderEnabled(EmoteType type) {
-    if (!_providersLoaded) unawaited(_ensureProvidersLoaded());
-    return _store.isProviderEnabled(type);
-  }
+  bool isProviderEnabled(EmoteType type) => _visibility.isProviderEnabled(type);
 
   /// Current enabled providers, awaiting the persisted load first.
-  Future<Set<EmoteType>> enabledProviders() async {
-    await _ensureProvidersLoaded();
-    return {
-      for (final t in EmoteType.values)
-        if (_store.isProviderEnabled(t)) t,
-    };
-  }
+  Future<Set<EmoteType>> enabledProviders() => _visibility.enabledProviders();
 
   Future<void> setProviderEnabled(EmoteType type, bool enabled) async {
-    await _ensureProvidersLoaded();
-    if (!_store.enableProvider(type, enabled)) return;
-    final prefs = await _getPrefs();
-    await prefs.setEmoteProvidersDisabled(
-      EmoteType.values
-          .where((t) => !_store.isProviderEnabled(t))
-          .map((t) => t.name)
-          .toList(),
-    );
-    _store.notifyVisibilityChanged();
+    final changed = await _visibility.setProviderEnabled(type, enabled);
+    if (changed) _store.notifyVisibilityChanged();
   }
 
   /// Whether unlisted 7TV emotes render (sync view).
   bool get allowUnlisted7tv {
-    if (!_providersLoaded) unawaited(_ensureProvidersLoaded());
-    return _store.allowUnlisted7tv;
+    if (!_visibility.isLoaded) unawaited(_visibility.ensureLoaded());
+    return _visibility.allowUnlisted7tv;
   }
 
   Future<void> setAllowUnlisted7tv(bool allowed) async {
-    await _ensureProvidersLoaded();
-    if (!_store.setAllowUnlisted(allowed)) return;
-    final prefs = await _getPrefs();
-    await prefs.setEmoteAllowUnlisted7tv(allowed);
-    _store.notifyVisibilityChanged();
+    final changed = await _visibility.setAllowUnlisted(allowed);
+    if (changed) _store.notifyVisibilityChanged();
   }
 
   bool _hasGlobalList(EmoteType type) =>
@@ -433,11 +455,11 @@ class EmoteManager {
 
   /// Refetches globals + channels for types with no retained catalog list.
   Future<void> ensureStashed(Set<EmoteType> types) async {
-    await _ensureProvidersLoaded();
-    if (_registryFrozen || _tier == EmoteFetchTier.nothing || types.isEmpty) {
+    await _visibility.ensureLoaded();
+    if (_registryFrozen || tier == EmoteFetchTier.nothing || types.isEmpty) {
       return;
     }
-    final resolution = _tier.resolution;
+    final resolution = tier.resolution;
     if (resolution == null) return;
     final targets = [
       for (final t in types)
@@ -511,11 +533,6 @@ class EmoteManager {
   // run without the caller re-supplying it.
   final _channelBroadcasterIds = <String, String>{};
 
-  Future<Prefs> _getPrefs() async {
-    _prefs ??= await Prefs.load();
-    return _prefs!;
-  }
-
   /// Recently used emote ids (most recent first), used to boost autocomplete
   /// ranking.
   Set<String> get recentEmoteIds => _usage.recentEmoteIds;
@@ -532,7 +549,7 @@ class EmoteManager {
 
   /// Records emote display for cache eviction scoring.
   void markEmoteViewed(Emote emote) {
-    if (_tier == EmoteFetchTier.nothing) return;
+    if (tier == EmoteFetchTier.nothing) return;
     _usage.touch(emote.url);
   }
 
@@ -547,7 +564,7 @@ class EmoteManager {
   /// Loads global emotes. [force] skips cache, fetches from network.
   Future<void> preloadGlobalEmotes({bool force = false}) async {
     final epoch = force ? _store.bumpGlobalEpoch() : _store.globalEpoch;
-    await _ensureProvidersLoaded();
+    await _visibility.ensureLoaded();
     if (_store.hasGlobalCache && !force) return;
     final ttl = await _fetcher.effectiveTtl();
     if (!force) {
@@ -555,9 +572,7 @@ class EmoteManager {
       final cached = loaded.catalog;
       if (cached != null) {
         if (!_store.seedGlobalFromCache(epoch, cached)) return;
-        if (loaded.fresh ||
-            _registryFrozen ||
-            _tier == EmoteFetchTier.nothing) {
+        if (loaded.fresh || _registryFrozen || tier == EmoteFetchTier.nothing) {
           // Fresh cache: render, then background-refresh Twitch globals.
           if (!_skipTwitchBackgroundRefresh) {
             unawaited(
@@ -575,7 +590,7 @@ class EmoteManager {
       // Stale: keep stale data, revalidate below.
     }
     // Fetch every enabled provider.
-    if (_tier == EmoteFetchTier.nothing) return;
+    if (tier == EmoteFetchTier.nothing) return;
     final loaded = await _persistence.load('emotes4_global', ttl);
     if (loaded.catalog != null) {
       // Seed provider lists a wiped catalog would otherwise lose to a flaky
@@ -621,12 +636,12 @@ class EmoteManager {
     final epoch = force
         ? _store.bumpChannelEpoch(channel)
         : _store.channelEpoch(channel);
-    await _ensureProvidersLoaded();
+    await _visibility.ensureLoaded();
     if (broadcasterId != null) _channelBroadcasterIds[channel] = broadcasterId;
     final ttl = await _fetcher.effectiveTtl();
     if (force) {
       // Nothing tier: render cached only.
-      if (_tier == EmoteFetchTier.nothing) return;
+      if (tier == EmoteFetchTier.nothing) return;
       final loaded = await _persistence.load('emotes4_$channel', ttl);
       if (_store.channelEpoch(channel) != epoch) return;
       if (loaded.catalog != null) {
@@ -657,7 +672,7 @@ class EmoteManager {
       final existingSubs =
           _store.channelCatalog(channel)?.twitchSubs ?? const <Emote>[];
       _store.seedChannelFromCache(channel, cached, existingSubs);
-      if (loaded.fresh || _registryFrozen || _tier == EmoteFetchTier.nothing) {
+      if (loaded.fresh || _registryFrozen || tier == EmoteFetchTier.nothing) {
         // Fresh: render, background-refresh Twitch channel emotes.
         if (!_skipTwitchBackgroundRefresh) {
           unawaited(
@@ -674,7 +689,7 @@ class EmoteManager {
         // Reconcile 7TV deltas at startup: the fetched set is authoritative,
         // so stale live deltas are dropped rather than re-applied over it.
         if (broadcasterId != null &&
-            _tier.index >= EmoteFetchTier.medium.index) {
+            tier.index >= EmoteFetchTier.medium.index) {
           unawaited(
             _fetcher
                 .enqueue(
@@ -695,7 +710,7 @@ class EmoteManager {
       // Stale: keep stale data, revalidate below.
     }
     // Nothing tier: render cached only.
-    if (_tier == EmoteFetchTier.nothing) return;
+    if (tier == EmoteFetchTier.nothing) return;
     final fetch = await _fetcher.enqueue(
       () => _fetcher.fetchAllChannel(broadcasterId, channelName: channel),
     );
@@ -737,7 +752,7 @@ class EmoteManager {
   /// Reconciles the channel's 7TV set against the server. Used when a live
   /// `user.update` switches the active set.
   Future<void> reconcileSevenTvChannel(String channel) async {
-    await _ensureProvidersLoaded();
+    await _visibility.ensureLoaded();
     final broadcasterId = _channelBroadcasterIds[channel];
     if (broadcasterId == null) return;
     final epoch = _store.channelEpoch(channel);
@@ -794,7 +809,7 @@ class EmoteManager {
     List<String> removedIds = const [],
     Map<String, ({String newName, String oldName})> renamed = const {},
   }) {
-    if (_tier == EmoteFetchTier.nothing) return;
+    if (tier == EmoteFetchTier.nothing) return;
     if (!_isProviderOn(EmoteType.sevenTv)) return;
     final unusedUrls = _store.updateSevenTvEmotes(
       channel,
@@ -821,10 +836,10 @@ class EmoteManager {
 
   /// Low/nothing tiers: no Twitch background refresh (infinite TTL).
   bool get _skipTwitchBackgroundRefresh =>
-      _tier == EmoteFetchTier.low || _tier == EmoteFetchTier.nothing;
+      tier == EmoteFetchTier.low || tier == EmoteFetchTier.nothing;
 
   /// Low tier: frozen registries (seed fetch only, force bypasses).
-  bool get _registryFrozen => _tier == EmoteFetchTier.low;
+  bool get _registryFrozen => tier == EmoteFetchTier.low;
 
   @visibleForTesting
   Future<Duration> effectiveTtlForTesting() => _fetcher.effectiveTtl();
@@ -856,7 +871,7 @@ class EmoteManager {
 
   @visibleForTesting
   Future<GlobalEmoteFetch> fetchAllGlobalForTesting() async {
-    await _ensureProvidersLoaded();
+    await _visibility.ensureLoaded();
     return _fetcher.fetchAllGlobal();
   }
 
@@ -865,13 +880,13 @@ class EmoteManager {
     String? broadcasterId, {
     String? channelName,
   }) async {
-    await _ensureProvidersLoaded();
+    await _visibility.ensureLoaded();
     return _fetcher.fetchAllChannel(broadcasterId, channelName: channelName);
   }
 
   /// Sync gate for fetch lambdas; callers must have awaited
-  /// [_ensureProvidersLoaded] first.
-  bool _isProviderOn(EmoteType type) => _store.isProviderEnabled(type);
+  /// [_visibility.ensureLoaded] first.
+  bool _isProviderOn(EmoteType type) => _visibility.isProviderEnabled(type);
 
   /// Prunes persisted registries for left channels.
   Future<void> pruneStaleChannels(Set<String> activeChannels) =>
@@ -884,10 +899,12 @@ class EmoteManager {
   Future<void> clearImageCache() => _images.clear();
 
   void dispose() {
-    _fetcher.dispose();
-    _usage.dispose();
-    _images.dispose();
+    _visibility.removeListener(_applyVisibility);
+    if (_ownsFetcher) _fetcher.dispose();
+    if (_ownsUsage) _usage.dispose();
+    if (_ownsImages) _images.dispose();
     if (_ownsStore) _store.dispose();
+    if (_ownsVisibility) _visibility.dispose();
   }
 
   // ── Cache init + migrations ─────────────────────────────────────────
@@ -901,7 +918,7 @@ class EmoteManager {
   /// Queues seen [emotes] for usage tracking and background precache.
   void enqueueSeenEmotes(List<Emote> emotes) {
     // Nothing tier: skip fetch and usage tracking.
-    if (_tier == EmoteFetchTier.nothing) return;
+    if (tier == EmoteFetchTier.nothing) return;
     final fresh = _images.precache(emotes);
     if (fresh.isEmpty) return;
     _usage.touchAll(fresh.map((e) => e.url));
