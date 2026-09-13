@@ -11,7 +11,7 @@ import '../client/session.dart';
 import '../services/command_handler.dart';
 import '../services/emote_lookup_source.dart';
 import '../services/emote_usage_registry.dart';
-import '../services/suggestion.dart';
+import 'suggestion.dart';
 import '../services/twitch_auth.dart';
 import '../services/user_store.dart';
 import '../util/duration_format.dart';

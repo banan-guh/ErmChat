@@ -1,21 +1,18 @@
 import 'dart:async';
 
-import 'package:flutter/painting.dart';
-
 import '../models/emote_fetch_tier.dart';
 import '../emotes/emote.dart';
 import '../chat/chat.dart';
 import '../util/connectivity.dart';
 import '../util/data_usage.dart';
 import '../util/prefs.dart';
-import '../util/signal.dart';
+import '../util/log.dart';
 import 'emote_manager.dart';
+import 'emote_signals.dart';
 import 'seven_tv_event_client.dart';
 import 'twitch_api.dart';
 import 'twitch_auth.dart';
 import 'twitch_badge_service.dart';
-import '../util/log.dart';
-import 'emote_url_provider.dart';
 
 // Emote daemon control: persisted tier/auto/cache-cap prefs, post-auth
 // refresh, and manual reload/nuke.
@@ -30,6 +27,8 @@ class EmoteController {
     required this.signals,
     required this.getChannelUserIds,
     required this.sevenTvClient,
+    required this.applyAnimationsEnabled,
+    required this.clearImageCache,
   });
 
   final EmoteManager emoteManager;
@@ -40,6 +39,12 @@ class EmoteController {
   final ConnectivityService connectivityService;
   final EmoteSignals signals;
   final SevenTvEventClient sevenTvClient;
+
+  /// Render-side port: toggles emote animation playback.
+  final void Function(bool enabled) applyAnimationsEnabled;
+
+  /// Render-side port: drops the Flutter image cache after a nuke.
+  final void Function() clearImageCache;
 
   /// Live open-channel -> broadcaster-id map, read at use time.
   final Map<String, String> Function() getChannelUserIds;
@@ -104,7 +109,7 @@ class EmoteController {
           ? EmoteFetchAutoMode.values[autoIndex]
           : defaultEmoteFetchAutoMode;
       applyCacheCap(prefs.emoteCacheMax);
-      EmoteUrlProvider.applyGifsEnabled(prefs.animateGifs);
+      applyAnimationsEnabled(prefs.animateGifs);
       await _applyConnectivityContext();
       reconcileTier();
     } catch (e) {
@@ -274,8 +279,7 @@ class EmoteController {
           emoteManager.evictChannel(channel);
         }
         await emoteManager.clearImageCache();
-        PaintingBinding.instance.imageCache.clear();
-        PaintingBinding.instance.imageCache.clearLiveImages();
+        clearImageCache();
         // Rebuild now, while everything is empty, so the nuke is visible
         // instead of being instantly papered over by the refetch.
         emoteManager.notifyStateCleared();

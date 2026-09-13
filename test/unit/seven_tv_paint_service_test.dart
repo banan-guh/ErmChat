@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ermchat/models/twitch_message.dart';
 import 'package:ermchat/services/seven_tv_event_client.dart';
-import 'package:ermchat/services/seven_tv_paint_service.dart';
+import 'package:ermchat/widgets/seven_tv_paint_service.dart';
 import 'package:ermchat/widgets/chat_message_tile.dart';
 import 'package:ermchat/widgets/painted_username_text.dart';
 

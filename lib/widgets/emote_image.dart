@@ -6,10 +6,10 @@ import 'package:cached_network_image/cached_network_image.dart';
 
 import '../emotes/emote.dart';
 import '../services/emote_images.dart';
-import '../services/emote_url_provider.dart';
 import '../util/constants.dart';
+import 'emote_url_provider.dart';
 
-export '../services/emote_decode.dart';
+export 'emote_decode.dart';
 
 /// Emote renderer with placeholder + shimmer shell. Provider routes by the
 /// single [emoteUsesCustomLoop] rule: engine-routable bytes through the

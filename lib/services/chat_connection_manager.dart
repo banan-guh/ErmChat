@@ -1,5 +1,6 @@
 import 'dart:async';
-import 'package:flutter/widgets.dart';
+import 'package:flutter/foundation.dart';
+import '../color_utils.dart' show Color;
 import '../models/twitch_message.dart';
 import '../services/twitch_api.dart';
 import '../services/twitch_auth.dart';

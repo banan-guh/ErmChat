@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'emote_image.dart';
 import '../emotes/emote.dart';
 import '../services/emote_images.dart';
-import '../services/suggestion.dart';
+import '../composer/suggestion.dart';
 
 class AutocompleteDropdown extends StatefulWidget {
   final List<Suggestion> suggestions;

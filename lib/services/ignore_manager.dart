@@ -1,6 +1,6 @@
 import 'dart:convert';
 
-import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 
 import '../models/twitch_message.dart';
 import '../util/prefs.dart';

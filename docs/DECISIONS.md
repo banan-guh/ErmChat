@@ -156,6 +156,23 @@ construction would blank the input state.
 Accepted tradeoff: construction is tied to the first HomeScreen init instead of an
 explicit bootstrap step; the provider is app-scope and lives for the container.
 
+### D14: `EmoteStore` stays plain, observed through the `EmoteStoreNotifier` bridge
+
+Decision: `EmoteStore` owns the emote catalog state as a plain Dart object with a typed
+`EmoteChange` listener list. The `EmoteStoreNotifier` (a Riverpod `Notifier`) subscribes
+to that list and republishes to `emoteStateProvider`; widgets observe with
+`ref.listen`/`select`, and the narrow `EmoteLookupSource` port serves the render path.
+
+Reason: the catalog is a domain model, not a Flutter object, so it does not import
+Riverpod and stays directly testable. A thin adaptor keeps it framework-agnostic while
+Riverpod owns observation. This is not the kernel exception: the store has one typed
+change stream, no multiple writers, and the bridge never becomes a second source of
+truth.
+
+Accepted tradeoff: one bespoke bridge beside the generic `ChangeNotifierTick` adaptor,
+because the store's `EmoteChange` payload (channel plus delta codes) carries more than a
+tick.
+
 ## Why
 
 - **Why a framework at all**: the app is leaving a churn phase and needs rules. It
@@ -186,7 +203,7 @@ explicit bootstrap step; the provider is app-scope and lives for the container.
 ## Current state
 
 - `v0.8.0` and the extraction plus provider-migration commits are on the tree.
-  `dart analyze lib test tool` is clean and 1,119 tests are green.
+  `dart analyze lib test tool` is clean and 1,143 tests are green.
 - Chat-pipeline owners: `ChatLifecycle` (613), `ChatIngestion` (521),
   `ChatChannelSetup` (399), `ModerationHub` (377), `EventSubConsumer` (344),
   `ChatSender` (227), `ChatHistoryController` (133), `ChatStatusComposer` (163),
@@ -207,6 +224,16 @@ explicit bootstrap step; the provider is app-scope and lives for the container.
 - `ChatConnectionManager` is a 520-line composition root and facade, down from 1,649
   lines. It builds and disposes the pipeline owners and exposes phase, readiness, send,
   and gating queries.
+- The emote refactor (E0-E5 plus P2) reshaped that area. `EmoteManager` is a coordinator
+  and single doorway, not a daemon: it feeds fetches into the plain-Dart `EmoteStore`
+  and owns the small owners (`EmoteFetcher`, `EmoteUsageRegistry`,
+  `SevenTvPersonalSets`, `TwitchEmoteSets`, `EmotePersistence`, `EmoteImages`,
+  `EmoteVisibility`). The catalog is observed through the `EmoteStoreNotifier` bridge
+  (`emoteStoreProvider` / `emoteStateProvider`), and the render path consumes only the
+  narrow `EmoteLookupSource`. Render-side code (`EmoteUrlProvider` and its animation
+  completer, `emote_decode`, `SevenTvPaintService`) moved to `lib/widgets`, so
+  `lib/services` no longer imports any rendering package. `lib/emotes` is the pure emote
+  domain (typed model plus catalog).
 - `lib/providers` is the composition root. App-scope providers own the transports, the
   managers, the kernel (`Chat`), `Session`, the feature owners (`TwitchAuth`,
   `AnalyticsService`, `NotificationService`, `TtsController`, `ModActions`,
@@ -219,14 +246,17 @@ explicit bootstrap step; the provider is app-scope and lives for the container.
   provider-owned notifiers including the connection-state port).
 - `HomeScreen` is a `ConsumerState` that consumes providers, forwards `ChatUiSignals`
   to its panels, and keeps only view-only UI state plus the UI-adjacent owners
-  (composer, panels, chrome, message builder, emote applier, media upload, panel
-  manager, link whitelist, channel notifier).
+  (composer, panels, chrome, message builder, media upload, panel manager, link
+  whitelist, channel notifier).
 - The kernel is the domain engine. It is framework-agnostic, reached through a bridge,
   and observes through typed notifiers.
-- The architecture test enforces six rules: the original four plus "the pipeline layer
-  does not import providers" and "the UI does not construct app objects", the latter
-  with a narrow commented allowlist (the `BroadcastWidgets` own constructor declaration
-  and the `AccountScreen` `TwitchApi` test seam).
+- The architecture test enforces eight rules: the original four plus "the pipeline layer
+  does not import providers", "the pipeline does not import rendering", "the emote
+  domain imports nothing upward", and "the UI does not construct app objects". The UI
+  construction scan covers every UI directory (screens, widgets, panels, composer,
+  chrome, sheets) and the emote owner types; it keeps a narrow commented allowlist (the
+  `BroadcastWidgets` own constructor declaration and the `AccountScreen` `TwitchApi` test
+  seam).
 - `ARCHITECTURE.md` maps the whole app with Mermaid diagrams and a "who writes what"
   mutation map.
 
@@ -234,22 +264,23 @@ explicit bootstrap step; the provider is app-scope and lives for the container.
 
 - The mutable kernel stays the one non-Riverpod observation path, observed through
   Flutter `Listenable` builders.
-- Provider-owned `ChangeNotifier`s (`EmoteManager`, `TwitchAuth`, `ConnectivityService`)
-  and the pipeline connection port are bridged to Riverpod tick providers through
-  the single `ChangeNotifierTick` adaptor so widgets use `ref.listen`; the
-  singleton overrides (`twitchAuthProvider`) and the Spike A bridge stay intact
-  instead of switching to legacy `ChangeNotifierProvider`.
+- Provider-owned `ChangeNotifier`s (`TwitchAuth`, `ConnectivityService`) and the pipeline
+  connection port are bridged to Riverpod tick providers through the single
+  `ChangeNotifierTick` adaptor so widgets use `ref.listen`; the plain `EmoteStore` uses
+  its own `EmoteStoreNotifier` bridge; the singleton overrides (`twitchAuthProvider`) and
+  the Spike A bridge stay intact instead of switching to legacy
+  `ChangeNotifierProvider`.
 - The strangler period keeps a temporary adaptor layer and, for a while, both the
   provider path and legacy service params.
-- UI-adjacent owners (composer, panels, chrome, message builder, emote applier, media
-  upload, panel manager, link whitelist, channel notifier) still construct in
-  `HomeScreen`; moving them is deferred.
+- UI-adjacent owners (composer, panels, chrome, message builder, media upload, panel
+  manager, link whitelist, channel notifier) still construct in `HomeScreen`; moving
+  them is deferred.
 - The ring buffer is deferred, so message prepend stays O(n) until its phase.
 - Codegen is deferred, so models and prefs keep hand-written serialization.
 - The leak audit is non-gating, so known leak debt remains.
 - The kernel migration is undecided until Phase 6, so the codebase may keep a permanent
   framework-agnostic island.
-- Non-chat feature areas keep their current wiring until their own pass.
+- Non-chat, non-emote feature areas keep their current wiring until their own pass.
 - The UI boundary is deferred: `HomeScreen` still implements the `host: this` ports for
   the UI-adjacent owners, and `lib/channels` still straddles the pipeline and UI layers.
   The chat domain itself no longer writes root children from the pipeline.

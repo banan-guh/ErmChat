@@ -2,13 +2,12 @@ import 'dart:async';
 
 import 'dart:convert';
 
-import 'dart:ui' show Color;
-
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import '../chat/chat.dart';
 import '../client/session.dart';
+import '../color_utils.dart' show Color;
 import '../util/constants.dart';
 import '../util/log.dart';
 import '../irc/decode/decoder.dart' show IrcChatDecoder;

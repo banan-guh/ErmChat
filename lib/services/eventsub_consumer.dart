@@ -1,10 +1,10 @@
 import 'dart:async';
-import 'dart:ui' show Color;
 
 import '../chat/channel/moderation.dart';
 import '../chat/chat.dart';
 import '../eventsub/decode/decoder.dart';
 import '../eventsub/decode/events.dart';
+import '../color_utils.dart' show Color;
 import '../eventsub/topics.dart';
 import '../util/mod_activity_format.dart' show formatModActivity;
 import 'moderation_hub.dart';

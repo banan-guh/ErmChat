@@ -7,7 +7,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:linkify/linkify.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../services/emote_images.dart';
-import '../services/emote_url_provider.dart';
+import 'emote_url_provider.dart';
 import '../util/constants.dart';
 import '../util/log.dart';
 import 'inline_emote_view.dart';

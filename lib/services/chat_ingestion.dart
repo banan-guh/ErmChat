@@ -1,7 +1,6 @@
 import 'dart:async';
 
-import 'dart:ui' show Color;
-
+import '../color_utils.dart' show Color;
 import '../models/emote_fetch_tier.dart';
 import '../models/twitch_message.dart';
 import '../irc/decode/codec.dart' show parseIrcChatMessage;

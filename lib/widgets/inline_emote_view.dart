@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../services/emote_images.dart';
-import '../services/emote_url_provider.dart';
+import 'emote_url_provider.dart';
 import '../util/constants.dart';
 
 /// Lean chat-span emote renderer. Subscribes to [EmoteUrlProvider] completer directly; animation tick = set field + markNeedsPaint.

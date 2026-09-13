@@ -10,7 +10,7 @@ import '../panels/search.dart';
 import '../panels/threads.dart';
 import '../chat/chat.dart';
 import '../services/link_whitelist.dart';
-import '../services/seven_tv_paint_service.dart';
+import '../widgets/seven_tv_paint_service.dart';
 import '../services/twitch_auth.dart';
 import '../sheets/message_menu.dart';
 import '../sheets/user_sheet.dart';

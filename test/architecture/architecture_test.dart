@@ -60,6 +60,34 @@ void main() {
     );
   });
 
+  test('the emote domain imports nothing upward', () {
+    // The emote domain is a pure typed model plus catalog: it must not reach
+    // services, the kernel, providers, UI, transports, or Flutter at all.
+    const forbidden = [
+      'services/',
+      'chat/',
+      'channels/',
+      'providers/',
+      'widgets/',
+      'screens/',
+      'panels/',
+      'composer/',
+      'chrome/',
+      'sheets/',
+      'irc/transport/',
+      'eventsub/transport/',
+    ];
+    final violations = _scanRawDirectivesUnder(const ['emotes/']).where((d) {
+      final target = _resolve(d.importer, d.raw);
+      return d.raw.startsWith('package:flutter') ||
+          (target != null && _isUnder(target, forbidden));
+    });
+    _expectRawClean(
+      rule: 'the emote domain imports nothing upward',
+      violations: violations,
+    );
+  });
+
   test('the pipeline does not depend on UI', () {
     const forbidden = [
       'widgets/',
@@ -76,6 +104,25 @@ void main() {
             _isUnder(d.importer, const ['services/']) &&
             _isUnder(d.target, forbidden),
       ),
+    );
+  });
+
+  test('the pipeline does not import rendering', () {
+    // Pipeline is data and network logic. The `Color` value type is a shared
+    // domain type re-exported by lib/color_utils.dart, so a bare `dart:ui`
+    // import in services means a real rendering dependency leaked in.
+    const rendering = {
+      'dart:ui',
+      'package:flutter/painting.dart',
+      'package:flutter/scheduler.dart',
+      'package:flutter/widgets.dart',
+      'package:flutter/material.dart',
+    };
+    _expectRawClean(
+      rule: 'the pipeline does not import rendering',
+      violations: _scanRawDirectivesUnder(const [
+        'services/',
+      ]).where((d) => rendering.contains(d.raw)),
     );
   });
 
@@ -161,6 +208,38 @@ List<_Directive> _scanLib() {
   return result;
 }
 
+class _RawDirective {
+  _RawDirective(this.importer, this.line, this.raw);
+
+  final String importer;
+  final int line;
+  final String raw;
+}
+
+/// Scans raw `import`/`export` strings under [dirs], including `dart:` and
+/// non-ermchat `package:` directives that [_resolve] drops.
+List<_RawDirective> _scanRawDirectivesUnder(List<String> dirs) {
+  final result = <_RawDirective>[];
+  for (final entity in Directory('lib').listSync(recursive: true)) {
+    if (entity is! File || !entity.path.endsWith('.dart')) {
+      continue;
+    }
+    final importer = _libRelative(entity.path);
+    if (!_isUnder(importer, dirs)) {
+      continue;
+    }
+    final lines = entity.readAsLinesSync();
+    for (var i = 0; i < lines.length; i++) {
+      final match = _directiveRe.firstMatch(lines[i]);
+      if (match == null) {
+        continue;
+      }
+      result.add(_RawDirective(importer, i + 1, match.group(1)!));
+    }
+  }
+  return result;
+}
+
 /// Strips the leading `lib/` (and any platform separators) from [path].
 String _libRelative(String path) {
   final normalized = path.replaceAll(r'\', '/');
@@ -224,12 +303,33 @@ void _expectClean({
   }
 }
 
+void _expectRawClean({
+  required String rule,
+  required Iterable<_RawDirective> violations,
+}) {
+  final lines = violations
+      .map((v) => "  $rule: lib/${v.importer}:${v.line} imports '${v.raw}'")
+      .toList();
+  if (lines.isNotEmpty) {
+    fail('$rule failed:\n${lines.join('\n')}');
+  }
+}
+
 /// Provider-owned types the UI must obtain through a provider, never `new`.
 const _providerOwnedTypes = <String>[
   'ChatConnectionManager',
   'Chat',
   'Session',
   'EmoteManager',
+  'EmoteStore',
+  'EmoteFetcher',
+  'EmoteUsageRegistry',
+  'EmoteImages',
+  'SevenTvPersonalSets',
+  'TwitchEmoteSets',
+  'EmotePersistence',
+  'EmoteController',
+  'EmoteVisibility',
   'TwitchAuth',
   'AnalyticsService',
   'NotificationService',
@@ -269,9 +369,16 @@ class _Construction {
   final String type;
 }
 
-/// Scans screens and widgets for constructor calls of provider-owned types.
+/// Scans every UI directory for constructor calls of provider-owned types.
 List<_Construction> _scanUiConstructions() {
-  const dirs = ['screens/', 'widgets/'];
+  const dirs = [
+    'screens/',
+    'widgets/',
+    'panels/',
+    'composer/',
+    'chrome/',
+    'sheets/',
+  ];
   final result = <_Construction>[];
   for (final entity in Directory('lib').listSync(recursive: true)) {
     if (entity is! File || !entity.path.endsWith('.dart')) {

@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../color_utils.dart';
 import '../models/twitch_message.dart';
-import '../services/seven_tv_paint_service.dart';
+import 'seven_tv_paint_service.dart';
 import '../util/constants.dart';
 import '../util/log.dart';
 import '../util/timestamp_formatter.dart';

@@ -3,7 +3,7 @@ import 'package:flutter/services.dart' show HapticFeedback;
 import 'package:flutter_list_view/flutter_list_view.dart';
 import '../models/twitch_message.dart';
 import '../util/thread_utils.dart';
-import '../services/seven_tv_paint_service.dart';
+import 'seven_tv_paint_service.dart';
 import '../util/timestamp_formatter.dart';
 import '../util/haptics.dart';
 import '../widgets/chat_message_tile.dart';

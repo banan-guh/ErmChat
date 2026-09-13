@@ -10,7 +10,7 @@ import '../services/chat_connection_manager.dart';
 import '../services/emote_lookup_source.dart';
 import '../services/emote_usage_registry.dart';
 import '../services/mod_actions.dart';
-import '../services/seven_tv_paint_service.dart';
+import '../widgets/seven_tv_paint_service.dart';
 import '../services/twitch_api.dart';
 import '../services/twitch_auth.dart';
 import '../widgets/chat_message_tile.dart';

@@ -1,5 +1,3 @@
-import 'dart:ui' show Color;
-
 import '../../color_utils.dart';
 import '../../util/duration_format.dart';
 

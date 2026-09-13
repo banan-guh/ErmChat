@@ -1,8 +1,9 @@
 import 'dart:async';
 
-import 'package:flutter/widgets.dart';
+import 'package:flutter/foundation.dart';
 
 import '../chat/chat.dart';
+import '../color_utils.dart' show Color;
 import '../client/session.dart';
 import '../eventsub/topics.dart';
 import '../eventsub/transport/connection.dart';

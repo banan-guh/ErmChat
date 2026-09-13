@@ -1,7 +1,9 @@
+import 'package:flutter/painting.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../services/emote_controller.dart';
-import '../util/signal.dart';
+import '../services/emote_signals.dart';
+import '../widgets/emote_url_provider.dart';
 import 'app_providers.dart';
 import 'feature_providers.dart';
 
@@ -27,6 +29,11 @@ final emoteControllerProvider = Provider<EmoteController>((ref) {
     signals: ref.read(emoteSignalsProvider),
     getChannelUserIds: ref.read(channelUserIdsProvider),
     sevenTvClient: ref.read(sevenTvClientProvider),
+    applyAnimationsEnabled: EmoteUrlProvider.applyGifsEnabled,
+    clearImageCache: () {
+      PaintingBinding.instance.imageCache.clear();
+      PaintingBinding.instance.imageCache.clearLiveImages();
+    },
   );
   ref.onDispose(controller.dispose);
   return controller;

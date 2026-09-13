@@ -13,7 +13,7 @@ import '../services/ping_manager.dart';
 import '../services/pip_service.dart';
 import '../services/recent_messages.dart';
 import '../services/seven_tv_event_client.dart';
-import '../services/seven_tv_paint_service.dart';
+import '../widgets/seven_tv_paint_service.dart';
 import '../services/third_party_badge_service.dart';
 import '../services/twitch_api.dart';
 import '../services/twitch_badge_service.dart';

@@ -8,8 +8,8 @@ import 'package:flutter/scheduler.dart';
 import '../emotes/emote.dart';
 import '../util/log.dart';
 import '../util/webp_anim.dart';
+import '../services/emote_images.dart';
 import 'emote_decode.dart';
-import 'emote_images.dart';
 
 /// Engine decode timeout for animated WebP streaming. Per-frame engine decode
 /// costs milliseconds, so this only fires on a stalled engine, which then

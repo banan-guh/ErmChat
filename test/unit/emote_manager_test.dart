@@ -9,7 +9,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:ermchat/widgets/emote_image.dart';
-import 'package:ermchat/services/emote_url_provider.dart';
+import 'package:ermchat/widgets/emote_url_provider.dart';
 import 'dart:convert';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
@@ -31,7 +31,7 @@ import 'package:ermchat/models/twitch_message.dart';
 import 'package:ermchat/services/seven_tv_event_client.dart';
 import 'package:ermchat/widgets/emote_text.dart';
 import 'package:ermchat/models/twitch_command.dart';
-import 'package:ermchat/services/suggestion.dart';
+import 'package:ermchat/composer/suggestion.dart';
 import 'package:ermchat/util/webp_anim.dart';
 import 'package:ermchat/services/emote_images.dart';
 

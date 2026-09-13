@@ -7,7 +7,7 @@ import 'package:flutter/material.dart'
     show Color, Matrix4, Offset, Shader, Size;
 import 'package:http/http.dart' as http;
 import '../util/log.dart';
-import 'seven_tv_event_client.dart';
+import '../services/seven_tv_event_client.dart';
 
 class SevenTvPaintStop {
   final double at;

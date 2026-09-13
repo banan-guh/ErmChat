@@ -5,7 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:linkify/linkify.dart';
 import 'package:ermchat/color_utils.dart';
-import 'package:ermchat/services/suggestion.dart';
+import 'package:ermchat/composer/suggestion.dart';
 import 'package:ermchat/models/twitch_badge.dart';
 import 'package:ermchat/models/twitch_message.dart';
 import 'package:ermchat/panels/search.dart';

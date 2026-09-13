@@ -33,7 +33,7 @@ import 'package:ermchat/services/recent_messages.dart';
 import 'package:ermchat/services/twitch_auth.dart';
 import 'package:ermchat/models/twitch_badge.dart';
 import 'package:ermchat/models/twitch_message.dart';
-import 'package:ermchat/services/suggestion.dart';
+import 'package:ermchat/composer/suggestion.dart';
 import 'package:ermchat/widgets/app_snack.dart';
 import 'package:ermchat/widgets/autocomplete_dropdown.dart';
 import 'package:ermchat/widgets/chat_body.dart';
