@@ -753,6 +753,90 @@ void main() {
       expect((after - before) % 47, lessThanOrEqualTo(12));
     });
 
+    testWidgets('animations off freezes WebP mid-loop', (tester) async {
+      addTearDown(() => EmoteUrlProvider.applyGifsEnabled(true));
+      final webp = File('test/fixtures/7tv_kiss_2x.webp').readAsBytesSync();
+      EmoteUrlProvider.debugFetchOverride = (url) async => webp;
+
+      // NOTE: stream ticks are fake-async Timers, so every pump below carries
+      // a duration: bare pumps never elapse them and the loop looks frozen
+      // even when playing.
+      const url = 'https://example.com/frozen.webp';
+      await pumpEmote(tester, url: url);
+      // Warm up with animations on: the loop must be advancing first, so the
+      // freeze window measures frozenness, not startup latency.
+      var warmed = false;
+      for (var i = 0; i < 12 && !warmed; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 50)),
+        );
+        await tester.pump(const Duration(milliseconds: 100));
+        warmed = EmoteUrlProvider.currentFrame(url) != 0;
+      }
+      expect(warmed, isTrue);
+
+      // Steady pumping must not advance a frozen loop. Indices are sampled
+      // per cycle into a set, so a wrap-around cannot hide movement.
+      EmoteUrlProvider.applyGifsEnabled(false);
+      final frozen = <int>{};
+      for (var i = 0; i < 6; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 50)),
+        );
+        await tester.pump(const Duration(milliseconds: 100));
+        frozen.add(EmoteUrlProvider.currentFrame(url));
+      }
+      expect(frozen, hasLength(1));
+
+      // Re-enabling resumes the same loop.
+      EmoteUrlProvider.applyGifsEnabled(true);
+      for (var i = 0; i < 6; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 50)),
+        );
+        await tester.pump(const Duration(milliseconds: 100));
+        frozen.add(EmoteUrlProvider.currentFrame(url));
+      }
+      expect(frozen.length, greaterThan(1));
+    });
+
+    testWidgets('animations off freezes animated GIFs and resumes on toggle', (
+      tester,
+    ) async {
+      addTearDown(() => EmoteUrlProvider.applyGifsEnabled(true));
+      final gif = File('test/fixtures/7tv_kiss_2x.gif').readAsBytesSync();
+      var fetches = 0;
+      EmoteUrlProvider.debugFetchOverride = (url) async {
+        fetches++;
+        return gif;
+      };
+      EmoteUrlProvider.applyGifsEnabled(false);
+
+      const url = 'https://example.com/frozen.gif';
+      await pumpEmote(tester, url: url);
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 500)),
+      );
+      await tester.pump();
+      expect(EmoteUrlProvider.hasFrames(url), isTrue);
+      expect(EmoteUrlProvider.currentFrame(url), 0);
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 500)),
+      );
+      await tester.pump();
+      expect(EmoteUrlProvider.currentFrame(url), 0);
+
+      EmoteUrlProvider.applyGifsEnabled(true);
+      for (var i = 0; i < 6; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 100)),
+        );
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      expect(EmoteUrlProvider.currentFrame(url), isNot(0));
+      expect(fetches, 1);
+    });
+
     testWidgets('a second engine-path widget mounting mid-build does not '
         'setState on unrelated widgets', (tester) async {
       final gif = File('test/fixtures/7tv_kiss_2x.gif').readAsBytesSync();
@@ -2457,6 +2541,44 @@ void main() {
       expect(byChannel['chanA']!.single.code, 'X');
       expect(byChannel['chanB']!.single.code, 'Y');
     });
+
+    test(
+      'subs fetched before a channel id resolves attach once it does',
+      () async {
+        final auth = TwitchAuth()..accessToken = 'tok';
+        var channels = <String, String>{};
+        final manager = EmoteManager(
+          fetchStagger: Duration.zero,
+          fetchUserEmoteSets: (ids, {accessToken, resolution}) async {
+            // The channel joins and its id resolves while the fetch is in flight.
+            channels = {'chanA': 'ownerA'};
+            return {
+              'ownerA': [
+                GenericEmote(
+                  id: 'x',
+                  code: 'X',
+                  type: EmoteType.twitch,
+                  url: 'https://example.com/x.png',
+                  scope: EmoteScope.channel,
+                  tier: '1',
+                  emoteType: 'subscriptions',
+                  ownerId: 'ownerA',
+                ),
+              ],
+            };
+          },
+          resolveOwnerLogins: (a, ids) async => {},
+          getChannelUserIds: () => channels,
+        );
+
+        // USERSTATE arrives with no channel id yet; the live read at store time
+        // still finds chanA.
+        await manager.loadUserEmoteSets(['s1'], auth, {});
+        final byChannel = manager.subscriberEmotesByChannel();
+        expect(byChannel.keys, ['chanA']);
+        expect(byChannel['chanA']!.single.code, 'X');
+      },
+    );
 
     test('resetUserEmoteState clears stored sub emotes', () async {
       SharedPreferences.setMockInitialValues({});

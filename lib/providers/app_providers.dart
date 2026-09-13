@@ -82,6 +82,7 @@ final sevenTvClientProvider = Provider<SevenTvEventClient>((ref) {
 final emoteManagerProvider = Provider<EmoteManager>((ref) {
   final manager = EmoteManager(
     probe: ref.watch(connectivityServiceProvider).checkConnectivity,
+    getChannelUserIds: ref.read(channelUserIdsProvider),
   );
   ref.onDispose(manager.dispose);
   return manager;
@@ -129,6 +130,20 @@ final chatProvider = Provider<Chat>((ref) {
   final chat = Chat();
   ref.onDispose(chat.dispose);
   return chat;
+});
+
+/// Live open-channel -> broadcaster-id map. Returned as a callback so
+/// consumers read it at use time, after late joins have resolved their ids.
+final channelUserIdsProvider = Provider<Map<String, String> Function()>((ref) {
+  final chat = ref.watch(chatProvider);
+  return () {
+    final out = <String, String>{};
+    for (final name in chat.names) {
+      final id = chat.channelFor(name)?.info.broadcasterId;
+      if (id != null) out[name] = id;
+    }
+    return out;
+  };
 });
 
 final sessionProvider = Provider<Session>((ref) {

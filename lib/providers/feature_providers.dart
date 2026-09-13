@@ -41,18 +41,10 @@ final ttsControllerProvider = Provider<TtsController>((ref) {
 });
 
 final modActionsProvider = Provider<ModActions>((ref) {
-  final chat = ref.read(chatProvider);
   final session = ref.read(sessionProvider);
   return ModActions(
     twitchApi: ref.read(twitchApiProvider),
-    getChannelUserIds: () {
-      final out = <String, String>{};
-      for (final name in chat.names) {
-        final id = chat.channelFor(name)?.info.broadcasterId;
-        if (id != null) out[name] = id;
-      }
-      return out;
-    },
+    getChannelUserIds: ref.read(channelUserIdsProvider),
     getCurrentUserId: () => session.userId,
   );
 });
@@ -114,14 +106,7 @@ final commandHandlerProvider = Provider<CommandHandler>((ref) {
     twitchApi: ref.read(twitchApiProvider),
     irc: ref.read(ircServiceProvider),
     modActions: ref.read(modActionsProvider),
-    getChannelUserIds: () {
-      final out = <String, String>{};
-      for (final name in chat.names) {
-        final id = chat.channelFor(name)?.info.broadcasterId;
-        if (id != null) out[name] = id;
-      }
-      return out;
-    },
+    getChannelUserIds: ref.read(channelUserIdsProvider),
     getCurrentUserId: () => session.userId,
     getCurrentUserLogin: () => session.login,
     addSystemMessage: (channel, text) => chat

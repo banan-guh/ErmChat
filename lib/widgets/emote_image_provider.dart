@@ -78,14 +78,15 @@ class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
   /// Seeds queued by target URL for the next completer.
   static final Map<String, String> _pendingSeeds = {};
 
-  /// Whether animated GIFs play. False freezes at current frame. Synced from prefs.
+  /// Whether animated emotes play. False freezes at current frame. Synced
+  /// from prefs.
   static bool gifsEnabled = true;
 
-  /// Toggles GIF animation, freezing/resuming live completers.
+  /// Toggles emote animation, freezing/resuming live completers.
   static void applyGifsEnabled(bool enabled) {
     gifsEnabled = enabled;
     for (final completer in List.of(_liveByUrl.values)) {
-      completer._refreshForGifs();
+      completer._refreshForAnimations();
     }
   }
 
@@ -203,7 +204,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
   /// Cycle position at last tick. Kept across pause/resume.
   Duration _cyclePosition = Duration.zero;
 
-  /// True for animated GIFs; allows freeze/resume via gifs toggle.
+  /// True for animated GIFs (format flag).
   bool _isAnimatedGif = false;
 
   /// Last advanced timestamp. Null after stop (re-anchor on resume). Set during freeze (gap applied in one step).
@@ -231,10 +232,11 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
           ],
           isWebp: true,
         );
-      } else if (format == EmoteFormat.gif && EmoteUrlProvider.gifsEnabled) {
+      } else if (format == EmoteFormat.gif) {
         await _startStreaming(bytes);
       } else {
-        // Frozen GIF and statics: one first frame, no loop.
+        // Statics: one first frame, no loop. Animated emotes always stream;
+        // freezing is a scheduling decision, not a load branch.
         await _loadSingleFrame(bytes);
       }
     } on Object catch (error, stack) {
@@ -397,22 +399,25 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
     if (_disposed || !hasListeners) return;
     if (_isPlaying) return;
     if (_codec != null || _compositor != null) {
-      if (_isAnimatedGif && !EmoteUrlProvider.gifsEnabled) return;
+      // Animations off: still emit the first frame, then hold it. The tick
+      // scheduler below schedules nothing while off, so playback freezes.
+      if (!EmoteUrlProvider.gifsEnabled && _hasStreamFrame) return;
       _scheduleStreamAppFrame();
       return;
     }
     final frames = _frames;
     if (frames == null || frames.frames.isEmpty) return;
     if (frames.totalDuration <= Duration.zero) return;
-    if (_isAnimatedGif && !EmoteUrlProvider.gifsEnabled) return; // Frozen GIF.
     _scheduleAppFrame();
   }
 
-  /// Re-evaluates after gifsEnabled flip: freezes/resumes animated GIFs only.
-  /// Span rebuilds (cache key includes the toggle) move frozen GIFs to the
-  /// still branch; this only pauses/resumes live loops in place.
-  void _refreshForGifs() {
-    if (_disposed || !_isAnimatedGif) return;
+  /// Re-evaluates after the animations toggle flips: freezes/resumes any
+  /// animated emote in place. Span rebuilds (cache key includes the toggle)
+  /// move frozen Twitch GIFs between the stock and custom providers; this
+  /// only pauses/resumes live loops.
+  void _refreshForAnimations() {
+    if (_disposed) return;
+    if (!_isAnimatedGif && !_streamIsWebp && _compositor == null) return;
     if (_frames == null && _codec == null && _compositor == null) return;
     if (!hasListeners) return;
     if (!EmoteUrlProvider.gifsEnabled) {
@@ -527,8 +532,8 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
       _streamDecoding = false;
       return;
     }
-    if (_isAnimatedGif && !EmoteUrlProvider.gifsEnabled) {
-      // Frozen mid-decode: drop the frame and wait for the toggle to resume.
+    if (!EmoteUrlProvider.gifsEnabled && _hasStreamFrame) {
+      // Toggled off mid-decode with a frame showing: drop the frame and hold.
       frame.image.dispose();
       _streamDecoding = false;
       return;
@@ -570,6 +575,9 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
   /// individual frames but never slows the average rate. A negative wait
   /// fires immediately; the grid still advances by full windows.
   void _scheduleNextStreamTick(Duration window) {
+    // Animations off: hold the already-emitted frame and schedule nothing.
+    // Resume re-anchors from _stopPlayback's invalidation.
+    if (!EmoteUrlProvider.gifsEnabled) return;
     final windowUs = _safeStreamDuration(window).inMicroseconds;
     final nowUs = DateTime.now().microsecondsSinceEpoch;
     var dueUs = _streamDueUs < 0 ? nowUs : _streamDueUs;
@@ -694,6 +702,14 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
       bitmap = null;
       codec = null;
       if (_disposed || _compositor != compositor || !hasListeners) {
+        _streamDecoding = false;
+        return;
+      }
+      if (!EmoteUrlProvider.gifsEnabled && _hasStreamFrame) {
+        // Toggled off mid-decode with a frame showing: consume the frame
+        // without emitting it, mirroring the engine path's dropped decode.
+        out.dispose();
+        _lazyIndex = (i + 1) % meta.frames.length;
         _streamDecoding = false;
         return;
       }

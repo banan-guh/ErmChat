@@ -42,7 +42,9 @@ class EmoteCacheStats {
 /// [isFull] backs the precacher's skip decision, and [enforceNow] (settings
 /// Apply / startup) evicts down to a newly reduced cap by priority
 /// ([lastUsedAt] registry lookup, falling back to the file's touched time).
-/// The 2000-file manager cap is a safety net only.
+/// The 2000-file manager cap is a safety net only. Capping is by object
+/// count, deliberately not by bytes: the bound keeps the repo scan cheap.
+/// A byte cap is a possible future refinement, not a missing fix.
 class EmoteCacheManager extends CacheManager {
   static final EmoteCacheManager _instance = EmoteCacheManager._();
 

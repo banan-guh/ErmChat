@@ -95,3 +95,8 @@
 - test emotes on low / high
 - user panel janky with msgs X
 - chat msg delta doesn't work with unrendered msgs
+- emote images: same URL fetches aren't coalesced on the normal cache path (only the overflow path is); defer to a fetch-path refactor
+- nothing-tier: emotes render from cache only, no eviction; audit that raising the tier invalidates emotes cached under the wrong config
+- emote disk cache caps by object count, not bytes
+- in-memory per-channel emote metadata has no cap; freed only when leaving a channel
+- foreign personal 7TV set placeholders can exceed the 50-entry cap via the socket insert path (metadata only)

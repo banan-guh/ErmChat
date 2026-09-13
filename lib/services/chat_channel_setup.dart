@@ -186,6 +186,14 @@ class ChatChannelSetup {
       channelUserId ??= await _waitForRoomId(channelName);
       if (channelUserId == null) return;
       chat.channelFor(channelName)?.info.setBroadcasterId(channelUserId);
+      // Subs fetched before this id resolved are retained by the manager;
+      // re-attach them now that the channel is known. Reuses the reconnect
+      // heal path (empty id list means "no new sets, just re-store").
+      unawaited(
+        emoteManager.loadUserEmoteSets(const [], auth, {
+          channelName: channelUserId,
+        }),
+      );
       // Map before any await below: a resubscribe completing in the gap
       // would otherwise deliver events with no channel and drop them.
       eventSubDecoder.setChannelMapping(channelUserId, channelName);

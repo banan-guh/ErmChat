@@ -300,6 +300,7 @@ class EmoteManager extends ChangeNotifier {
       EmoteResolution? resolution,
     })?
     fetchUserEmoteSets,
+    this.getChannelUserIds,
   }) : _connectivityProbe = probe,
        _injectedCacheManager = cacheManager,
        _metaStore = metaStore ?? EmoteMetaStore.I,
@@ -366,6 +367,9 @@ class EmoteManager extends ChangeNotifier {
   }
 
   ChannelEmotes? _globalCache;
+  // Per-channel emote metadata (code maps, not image bytes: decoded pixels
+  // and disk files are shared by URL across channels). Small text maps, one
+  // per joined channel; evictChannel frees them on leave, so no cap is kept.
   final _channelCaches = <String, ChannelEmotes>{};
   final _channelFetchTimes = <String, DateTime>{};
   final _channelTwitchEmotes = <String, List<GenericEmote>>{};
@@ -386,6 +390,11 @@ class EmoteManager extends ChangeNotifier {
     EmoteResolution? resolution,
   })
   _fetchUserEmoteSets;
+
+  /// Live open-channel -> broadcaster-id source, injected by the app layer and
+  /// read at store time. Late-resolving ids must still receive fetched subs;
+  /// null in unit tests, which pass explicit maps instead.
+  final Map<String, String> Function()? getChannelUserIds;
 
   /// Emote-set ids already fetched via the IRC emote-sets path, so repeated
   /// USERSTATE (per channel join / message send) doesn't refetch them. Owned
@@ -435,7 +444,11 @@ class EmoteManager extends ChangeNotifier {
   // Other viewers' personal 7TV sets, learned from the socket (chatterino7
   // parity): entitlement.create maps users to sets, emote_set.* fills the
   // contents. Sender-scoped: only that sender's messages render them. No
-  // per-sender REST; unknown set contents fetch once per set id.
+  // per-sender REST; unknown set contents fetch once per set id. These maps
+  // hold metadata only (codes and URLs); image bytes stay centralized in the
+  // URL-keyed disk and decoded caches, so a personal emote shared with a
+  // channel set decodes once. Foreign sets are sparse (seen only when their
+  // owner chats), so the 50-entry LRU below needs no churn handling.
   final _foreignPersonalSetOwners = <String, Set<String>>{};
   final _foreignPersonalUserSets = <String, Set<String>>{};
   final _foreignPersonalSetContents = <String, List<GenericEmote>>{};
@@ -1795,6 +1808,9 @@ class EmoteManager extends ChangeNotifier {
     _notify();
   }
 
+  Map<String, String> _openChannels(Map<String, String> fallback) =>
+      getChannelUserIds?.call() ?? fallback;
+
   /// Loads subscriber emotes: fetch, resolve owners, fan into channels.
   Future<void> loadUserEmoteSets(
     List<String> emoteSetIds,
@@ -1812,9 +1828,10 @@ class EmoteManager extends ChangeNotifier {
         )
         .toList();
     if (newSetIds.isEmpty) {
-      // No new sets, but heal owner labels on reconnect.
-      await _resolveOwners(auth, openChannelUserIds);
-      await _reStoreCachedSubs(openChannelUserIds);
+      // No new sets, but heal owner labels and attach to late channels.
+      final channels = _openChannels(openChannelUserIds);
+      await _resolveOwners(auth, channels);
+      await _reStoreCachedSubs(channels);
       return;
     }
     _inflightEmoteSetIds.addAll(newSetIds);
@@ -1845,8 +1862,9 @@ class EmoteManager extends ChangeNotifier {
         );
         return;
       }
-      await _resolveOwners(auth, openChannelUserIds, ownerIds: perOwner.keys);
-      final targets = openChannelUserIds.keys.toList();
+      final channels = _openChannels(openChannelUserIds);
+      await _resolveOwners(auth, channels, ownerIds: perOwner.keys);
+      final targets = channels.keys.toList();
       if (targets.isEmpty) {
         logDebug('loadUserEmoteSets: no channel targets');
         return;
@@ -1983,20 +2001,25 @@ class EmoteManager extends ChangeNotifier {
       perChannel[target] = <GenericEmote>[
         for (final entry in perOwner.entries)
           for (final e in entry.value)
-            GenericEmote(
-              id: e.id,
-              code: e.code,
-              type: e.type,
-              url: e.url,
-              url1x: e.url1x,
-              url3x: e.url3x,
-              isAnimated: e.isAnimated,
-              scope: e.scope,
-              tier: e.tier,
-              emoteType: e.emoteType,
-              ownerChannel: _emoteOwnerLogins[entry.key],
-              ownerId: entry.key,
-            ),
+            // Follower emotes only work in their home channel; subs, bits,
+            // and unlocks are usable everywhere.
+            if (e.emoteType != 'follower' ||
+                _emoteOwnerLogins[entry.key]?.toLowerCase() ==
+                    target.toLowerCase())
+              GenericEmote(
+                id: e.id,
+                code: e.code,
+                type: e.type,
+                url: e.url,
+                url1x: e.url1x,
+                url3x: e.url3x,
+                isAnimated: e.isAnimated,
+                scope: e.scope,
+                tier: e.tier,
+                emoteType: e.emoteType,
+                ownerChannel: _emoteOwnerLogins[entry.key],
+                ownerId: entry.key,
+              ),
       ];
     }
     return perChannel;
@@ -2117,13 +2140,14 @@ class EmoteManager extends ChangeNotifier {
     );
   }
 
-  // Merges fetch results with stored subs.
+  // Merges fetch results with stored subs. Followers stay with subs: they
+  // live only in their home channel's list (see _buildPerChannelEmotes).
   List<GenericEmote> _mergeWithStoredSubs(
     String channel,
     List<GenericEmote> nonSub,
   ) {
     final subs = (_channelTwitchEmotes[channel] ?? const <GenericEmote>[])
-        .where(_isTwitchSub)
+        .where((e) => _isTwitchSub(e) || e.emoteType == 'follower')
         .toList();
     _channelTwitchEmotes[channel] = [
       ...subs,

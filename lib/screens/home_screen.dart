@@ -184,14 +184,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     imageHeight: _imageHeight,
     animateGifs: _animateGifs,
   );
-  Map<String, String> _channelUserIds() {
-    final out = <String, String>{};
-    for (final name in _chat.names) {
-      final id = _chat.channelFor(name)?.info.broadcasterId;
-      if (id != null) out[name] = id;
-    }
-    return out;
-  }
+  Map<String, String> _channelUserIds() => ref.read(channelUserIdsProvider)();
 
   ModActions get _modActions => ref.read(modActionsProvider);
   CommandHandler get _commandHandler => ref.read(commandHandlerProvider);
@@ -551,6 +544,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     isMobile: _isMobile,
     networkBusy: _networkBusy,
     host: this,
+    getChannelUserIds: ref.read(channelUserIdsProvider),
   );
 
   // MentionsPanelsHost: shell-owned state the inbox reads but does not own.

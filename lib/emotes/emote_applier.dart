@@ -37,6 +37,7 @@ class EmoteApplier {
     required this.isMobile,
     required this.networkBusy,
     required this.host,
+    required this.getChannelUserIds,
   });
 
   final EmoteManager emoteManager;
@@ -48,6 +49,9 @@ class EmoteApplier {
   final ValueNotifier<bool> isMobile;
   final ValueNotifier<bool> networkBusy;
   final EmoteApplierHost host;
+
+  /// Live open-channel -> broadcaster-id map, read at use time.
+  final Map<String, String> Function() getChannelUserIds;
 
   int manualTierIndex = EmoteFetchTier.high.index;
   EmoteFetchAutoMode autoMode = defaultEmoteFetchAutoMode;
@@ -137,7 +141,7 @@ class EmoteApplier {
           // Sub sets and personal sets are keyed by fetched id, so the
           // force fetch above skips them; re-pull at the new resolution.
           unawaited(
-            emoteManager.reloadUserEmoteSets(twitchAuth, _channelUserIds()),
+            emoteManager.reloadUserEmoteSets(twitchAuth, getChannelUserIds()),
           );
           unawaited(emoteManager.loadViewerPersonalSevenTvSets(force: true));
         }
@@ -247,7 +251,10 @@ class EmoteApplier {
       var subFailed = false;
       if (ok && twitchAuth.isConfigured) {
         try {
-          await emoteManager.reloadUserEmoteSets(twitchAuth, _channelUserIds());
+          await emoteManager.reloadUserEmoteSets(
+            twitchAuth,
+            getChannelUserIds(),
+          );
         } catch (e) {
           subFailed = true;
           logDebug('_reloadEmotes: sub emote reload failed: $e');
@@ -270,16 +277,6 @@ class EmoteApplier {
     }
   }
 
-  // Snapshot of known broadcaster ids for sub-emote owner resolution.
-  Map<String, String> _channelUserIds() {
-    final out = <String, String>{};
-    for (final c in chat.names) {
-      final id = chat.channelFor(c)?.info.broadcasterId;
-      if (id != null) out[c] = id;
-    }
-    return out;
-  }
-
   // Loads the account's subscriber emotes from the IRC emote-sets tag
   // (GLOBALUSERSTATE/USERSTATE), the authoritative source of which emote sets
   // the account can use (the Helix /chat/emotes/user endpoint omits certain
@@ -295,7 +292,7 @@ class EmoteApplier {
     await emoteManager.loadUserEmoteSets(
       emoteSetIds,
       twitchAuth,
-      _channelUserIds(),
+      getChannelUserIds(),
     );
   }
 
@@ -304,7 +301,7 @@ class EmoteApplier {
   Future<void> refreshSubEmoteOwners() async {
     if (twitchAuth.isConfigured) {
       unawaited(
-        emoteManager.loadUserEmoteSets([], twitchAuth, _channelUserIds()),
+        emoteManager.loadUserEmoteSets([], twitchAuth, getChannelUserIds()),
       );
     }
   }

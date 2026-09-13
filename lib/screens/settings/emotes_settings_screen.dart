@@ -361,7 +361,7 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
         const SettingsSectionHeader('Animation'),
         SwitchListTile(
           secondary: const Icon(Icons.gif_box),
-          title: const Text('Animate gifs'),
+          title: const Text('Animate emotes'),
           subtitle: Text('Play animated emotes'),
           value: _animateGifs,
           onChanged: (value) async {
