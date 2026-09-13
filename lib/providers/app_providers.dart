@@ -7,7 +7,6 @@ import '../irc/join_rate_limiter.dart';
 import '../irc/transport/read.dart';
 import '../irc/transport/write.dart';
 import '../services/emote_manager.dart';
-import '../services/emote_url_provider.dart';
 import '../services/ignore_manager.dart';
 import '../services/ping_manager.dart';
 import '../services/pip_service.dart';
@@ -87,7 +86,6 @@ final emoteManagerProvider = Provider<EmoteManager>((ref) {
     probe: ref.watch(connectivityServiceProvider).checkConnectivity,
     getChannelUserIds: ref.read(channelUserIdsProvider),
   );
-  EmoteUrlProvider.installDefaultImages(manager.images);
   ref.onDispose(manager.dispose);
   return manager;
 });

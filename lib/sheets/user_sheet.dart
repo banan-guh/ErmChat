@@ -373,6 +373,7 @@ class UserSheets {
           focusNode: composer.focusNode,
           onClose: () => Navigator.pop(ctx),
           onUseEmote: emoteManager.markEmoteUsed,
+          images: emoteManager.images,
         ),
       ),
     );

@@ -5,6 +5,7 @@ import '../util/log.dart';
 import 'app_snack.dart';
 import 'emote_image.dart';
 import '../emotes/emote.dart';
+import '../services/emote_images.dart';
 
 class EmoteSheet extends StatefulWidget {
   final List<Emote> emotes;
@@ -12,6 +13,7 @@ class EmoteSheet extends StatefulWidget {
   final FocusNode focusNode;
   final VoidCallback onClose;
   final void Function(Emote emote)? onUseEmote;
+  final EmoteImages images;
 
   const EmoteSheet({
     super.key,
@@ -19,6 +21,7 @@ class EmoteSheet extends StatefulWidget {
     required this.messageController,
     required this.focusNode,
     required this.onClose,
+    required this.images,
     this.onUseEmote,
   });
 
@@ -155,6 +158,7 @@ class _EmoteSheetState extends State<EmoteSheet>
                     height: 128,
                     child: EmoteImage(
                       url: previewUrl,
+                      emoteImages: widget.images,
                       alternateUrls: alternateUrls,
                       fit: BoxFit.contain,
                       emote: emote,

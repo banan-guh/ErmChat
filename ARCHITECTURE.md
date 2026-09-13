@@ -60,7 +60,7 @@ flowchart TD
 
   subgraph emotes["Emotes"]
     emoteman["EmoteManager"]
-    emoteapplier["EmoteApplier"]
+    emoteapplier["EmoteController"]
     cache["EmoteCacheManager"]
     providers["Twitch / BTTV / FFZ / 7TV providers"]
     paint["SevenTvPaintService"]
@@ -284,7 +284,7 @@ flowchart TD
 flowchart TD
   setup["ChatChannelSetup"] -->|resolveEmotes| em["EmoteManager ChangeNotifier"]
   ingestion["ChatIngestion"] -->|markEmoteViewed / matchEmotes| em
-  applier["EmoteApplier"] -->|tier / cacheCap / reload| em
+  applier["EmoteController"] -->|tier / cacheCap / reload| em
   home["HomeScreen"] -->|preloadGlobalEmotes / user emote sets| em
 
   em -->|metadata read/write| meta["EmoteMetaStore file blobs"]
@@ -382,9 +382,9 @@ flowchart TD
   home -->|owns| caches["_tileCache, _channelNotifier, _atBottomNotifiers, _scrollControllers"]
   home -->|owns| pm["PanelManager overlay + emote sheet"]
   home -->|owns| composer["ComposerController"]
-  home -->|owns| managers["ChannelManager, ModPanels, MentionsPanels, ThreadPanels, SearchPanels, HomeAppBar, ChannelPanels, StreamPanels, MessageBuilder, EmoteApplier, MediaUploadController"]
+  home -->|owns| managers["ChannelManager, ModPanels, MentionsPanels, ThreadPanels, SearchPanels, HomeAppBar, ChannelPanels, StreamPanels, MessageBuilder, MediaUploadController"]
 
-  providers -->|owns| appscope["Chat, Session, transports, chat pipeline, EmoteManager, TwitchAuth, ConnectivityService, feature owners, read-state"]
+  providers -->|owns| appscope["Chat, Session, transports, chat pipeline, EmoteManager, EmoteController, TwitchAuth, ConnectivityService, feature owners, read-state"]
   providers -->|selectedChannel / maxMessages / replyTo / blocked / chatReady / macros| home
   session["Session.version"] -->|_onSessionApplied| home
   auth["twitchAuthTickProvider"] -->|ref.listen _onAuthChanged| home
@@ -470,7 +470,7 @@ Most arrows in the diagrams are reads or constructor injection, which do not mak
 
 | Kernel state | Writer API | Outside-kernel writers |
 |---|---|---|
-| `ChannelInfo` | `setBroadcasterId` | `ChatChannelSetup` (`chat_channel_setup.dart:188`), `EmoteApplier` (`emote_applier.dart:213`) |
+| `ChannelInfo` | `setBroadcasterId` | `ChatChannelSetup` (`chat_channel_setup.dart:188`), `EmoteController` (`emote_controller.dart:169`) |
 | `ChannelInfo` | `setStatus` | `ChatStatusComposer` (`chat_status_composer.dart:154`) |
 | `ChannelInfo` | `Channel.setHistoryLoaded` (verb) | `ChannelManager` x4 (`channel_manager.dart:157,169,335,348`) |
 | `ChannelInfo` | `touch()` (notify only) | `HomeScreen` x13, `ChannelManager` x1 |
@@ -504,7 +504,7 @@ Every entry calls a public method on the child; none reaches into private state.
 | `EmoteManager` | `lib/services/emote_manager.dart` | Emote daemon: provider merge, global/channel/personal caches, metadata TTL, usage registry, span-cache version. |
 | `EmoteCacheManager` | `lib/services/emote_cache_manager.dart` | Disk cap, priority eviction, overflow temp-file serving for emote images. |
 | `EmoteMetaStore` | `lib/services/emote_meta_store.dart` | File-backed persistence for MB-scale emote metadata blobs. |
-| `EmoteApplier` | `lib/emotes/emote_applier.dart` | Applies tier/cache/auto-mode settings, reload, and account-scoped emote refresh. |
+| `EmoteController` | `lib/services/emote_controller.dart` | Applies tier/cache/auto-mode settings, reload, and account-scoped emote refresh. |
 | `TwitchApi` | `lib/services/twitch_api.dart` | Helix REST client: users, streams, badges, moderation, EventSub subscription creation, points. |
 | `TwitchAuth` | `lib/services/twitch_auth.dart` | Multi-account registry in secure storage plus the active account credentials. |
 | `TwitchOAuth` | `lib/services/twitch_oauth.dart` | OAuth flow (Android MainActivity Custom Tab, iOS `flutter_web_auth_2`), scopes, state validation. |

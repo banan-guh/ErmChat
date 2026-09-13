@@ -30,6 +30,7 @@ class EmoteText {
     required String text,
     required List<EmotePosition>? twitchPositions,
     required EmoteLookup? channelEmotes,
+    required EmoteImages emoteImages,
     void Function(List<Emote>)? onEmoteTap,
     double scale = 1.0,
     List<String>? linkWhitelist,
@@ -37,7 +38,6 @@ class EmoteText {
     bool showImages = false,
     void Function(String url)? onImageTap,
     bool animateGifs = true,
-    EmoteImages? emoteImages,
   }) {
     try {
       return _buildUnsafe(
@@ -72,6 +72,7 @@ class EmoteText {
     required String text,
     required List<EmotePosition>? twitchPositions,
     required EmoteLookup? channelEmotes,
+    required EmoteImages emoteImages,
     void Function(List<Emote>)? onEmoteTap,
     double scale = 1.0,
     List<String>? linkWhitelist,
@@ -79,7 +80,6 @@ class EmoteText {
     bool showImages = false,
     void Function(String url)? onImageTap,
     bool animateGifs = true,
-    EmoteImages? emoteImages,
   }) {
     if (channelEmotes == null) {
       return parseTextWithLinks(
@@ -232,18 +232,18 @@ class EmoteText {
     double width,
     double height, {
     required bool animateGifs,
-    EmoteImages? emoteImages,
+    required EmoteImages emoteImages,
   }) {
     // Engine-routable emotes (statics, playing Twitch GIFs) use the stock
     // provider: one shared decode per URL, no per-copy fan-out. See
     // [emoteUsesCustomLoop] for the single routing rule.
     if (!emoteUsesCustomLoop(emote, animateGifs: animateGifs)) {
-      final images = emoteImages;
       return Image(
         key: ValueKey(emote.url),
-        image: images == null
-            ? EmoteUrlProvider(emote.url)
-            : CachedNetworkImageProvider(emote.url, cacheManager: images.cache),
+        image: CachedNetworkImageProvider(
+          emote.url,
+          cacheManager: emoteImages.cache,
+        ),
         width: width,
         height: height,
         fit: BoxFit.contain,
@@ -275,10 +275,10 @@ class EmoteText {
   // Bounding box across overlays; center each image. Clip.none for overflow.
   static WidgetSpan _buildEmoteSpan(
     _EmoteSpanData data, {
+    required EmoteImages emoteImages,
     void Function(List<Emote>)? onEmoteTap,
     double scale = 1.0,
     bool animateGifs = true,
-    EmoteImages? emoteImages,
   }) {
     final baseSize = _emoteSize(data.base, scale);
     var maxW = baseSize.width;

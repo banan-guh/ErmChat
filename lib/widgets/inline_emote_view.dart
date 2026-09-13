@@ -11,15 +11,15 @@ class InlineEmoteView extends StatefulWidget {
     required this.url,
     required this.width,
     required this.height,
-    this.images,
+    required this.images,
   });
 
   final String url;
   final double width;
   final double height;
 
-  /// Image byte owner; falls back to the process default when null.
-  final EmoteImages? images;
+  /// Image byte owner.
+  final EmoteImages images;
 
   @override
   State<InlineEmoteView> createState() => _InlineEmoteViewState();

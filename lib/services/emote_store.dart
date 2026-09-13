@@ -82,6 +82,11 @@ class EmoteStore {
   /// Emits a global full change (account reset, overlay/personal change).
   void notifyStateCleared() => emitChange(channel: null);
 
+  /// Emits a global change for config-only updates (tier, auto mode) that do
+  /// not alter catalog data. The version stays put so cached message spans
+  /// remain valid; observers still refresh.
+  void notifyConfigChanged() => emitChange(channel: null, bumpVersion: false);
+
   /// Clears derived visibility caches and emits a global change.
   void notifyVisibilityChanged() {
     _subsByChannelCache = null;

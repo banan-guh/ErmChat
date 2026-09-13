@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../emotes/emote.dart';
 import '../providers/app_providers.dart';
+import '../providers/emote_image_providers.dart';
 import '../providers/emote_store_providers.dart';
+import '../services/emote_images.dart';
 import '../services/emote_manager.dart';
 import '../util/sheet_drag.dart';
 import '../widgets/tabbed_layout.dart';
@@ -35,6 +37,7 @@ class EmoteMenuPanelWidget extends ConsumerStatefulWidget {
 
 class EmoteMenuPanelWidgetState extends ConsumerState<EmoteMenuPanelWidget> {
   late final EmoteManager _emoteManager = ref.read(emoteManagerProvider);
+  late final EmoteImages _images = ref.read(emoteImagesProvider);
 
   // Close threshold: 5% of screen height (sheet-size units).
   static const double _emoteCloseFraction = 0.05;
@@ -425,6 +428,7 @@ class EmoteMenuPanelWidgetState extends ConsumerState<EmoteMenuPanelWidget> {
           padding: EdgeInsets.all(cellPadding),
           child: EmoteImage(
             url: url,
+            emoteImages: _images,
             width: double.infinity,
             height: double.infinity,
             fit: BoxFit.contain,

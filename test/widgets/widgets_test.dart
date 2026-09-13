@@ -3747,6 +3747,7 @@ void main() {
               home: ToolsSettingsScreen(
                 analyticsService: AnalyticsService(),
                 channels: ['channel1'],
+                images: EmoteImages(),
               ),
             ),
           );
@@ -4888,7 +4889,11 @@ void main() {
   Widget wrapAnalytics(AnalyticsService service, List<String> channels) {
     return MaterialApp(
       key: UniqueKey(),
-      home: AnalyticsScreen(analyticsService: service, channels: channels),
+      home: AnalyticsScreen(
+        analyticsService: service,
+        channels: channels,
+        images: EmoteImages(),
+      ),
     );
   }
 
@@ -5311,6 +5316,7 @@ void main() {
             messageController: TextEditingController(),
             focusNode: FocusNode(),
             onClose: () {},
+            images: EmoteImages(),
           ),
         ),
       );

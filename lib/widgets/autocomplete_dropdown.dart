@@ -1,17 +1,20 @@
 import 'package:flutter/material.dart';
 import 'emote_image.dart';
 import '../emotes/emote.dart';
+import '../services/emote_images.dart';
 import '../services/suggestion.dart';
 
 class AutocompleteDropdown extends StatefulWidget {
   final List<Suggestion> suggestions;
   final void Function(Suggestion) onSelect;
   final void Function(Emote)? onEmoteViewed;
+  final EmoteImages images;
 
   const AutocompleteDropdown({
     super.key,
     required this.suggestions,
     required this.onSelect,
+    required this.images,
     this.onEmoteViewed,
   });
 
@@ -112,6 +115,7 @@ class _AutocompleteDropdownState extends State<AutocompleteDropdown> {
                     height: _emoteSize,
                     child: EmoteImage(
                       url: suggestion.emote.url,
+                      emoteImages: widget.images,
                       width: _emoteSize,
                       height: _emoteSize,
                       fit: BoxFit.contain,

@@ -4,6 +4,7 @@ import '../../widgets/emote_image.dart';
 import '../../widgets/tabbed_layout.dart';
 import '../../emotes/emote.dart';
 import '../../services/analytics_service.dart';
+import '../../services/emote_images.dart';
 import '../../util/prefs.dart';
 import 'settings_page.dart';
 
@@ -79,11 +80,13 @@ class _ElapsedTextState extends State<_ElapsedText> {
 class AnalyticsScreen extends StatefulWidget {
   final AnalyticsService analyticsService;
   final List<String> channels;
+  final EmoteImages images;
 
   const AnalyticsScreen({
     super.key,
     required this.analyticsService,
     required this.channels,
+    required this.images,
   });
 
   @override
@@ -314,6 +317,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           contentPadding: EdgeInsets.zero,
           leading: EmoteImage(
             url: entry.emote.url,
+            emoteImages: widget.images,
             width: 28,
             height: 28,
             fit: BoxFit.contain,

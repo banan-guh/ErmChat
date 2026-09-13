@@ -4,12 +4,15 @@ import 'dart:typed_data';
 import 'package:ermchat/emotes/emote.dart';
 import 'package:ermchat/emotes/emote_catalog.dart';
 import 'package:ermchat/emotes/emote_meta.dart';
+import 'package:ermchat/services/emote_images.dart';
 import 'package:ermchat/services/emote_url_provider.dart';
 import 'package:ermchat/widgets/emote_text.dart';
 import 'package:ermchat/widgets/inline_emote_view.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
+
+final _images = EmoteImages();
 
 Uint8List _pngBytes([int width = 2, int height = 2]) {
   final image = img.Image(width: width, height: height);
@@ -47,7 +50,9 @@ void main() {
     EmoteUrlProvider.debugFetchOverride = (_) => gate.future;
     const url = 'https://inline.test/gated.png';
     await tester.pumpWidget(
-      MaterialApp(home: InlineEmoteView(url: url, width: 28, height: 28)),
+      MaterialApp(
+        home: InlineEmoteView(url: url, width: 28, height: 28, images: _images),
+      ),
     );
     await tester.pump();
 
@@ -69,7 +74,14 @@ void main() {
     EmoteUrlProvider.debugFetchOverride = (_) async => _pngBytes();
     const firstUrl = 'https://inline.test/a.png';
     await tester.pumpWidget(
-      MaterialApp(home: InlineEmoteView(url: firstUrl, width: 28, height: 28)),
+      MaterialApp(
+        home: InlineEmoteView(
+          url: firstUrl,
+          width: 28,
+          height: 28,
+          images: _images,
+        ),
+      ),
     );
     await _pumpUntilLoaded(tester);
     expect(_renderOf(tester).debugFrame, isNotNull);
@@ -79,7 +91,14 @@ void main() {
         url == firstUrl ? Future.value(_pngBytes()) : secondGate.future;
     const secondUrl = 'https://inline.test/b.png';
     await tester.pumpWidget(
-      MaterialApp(home: InlineEmoteView(url: secondUrl, width: 28, height: 28)),
+      MaterialApp(
+        home: InlineEmoteView(
+          url: secondUrl,
+          width: 28,
+          height: 28,
+          images: _images,
+        ),
+      ),
     );
     await tester.pump();
 
@@ -110,6 +129,7 @@ void main() {
       text: code,
       twitchPositions: null,
       channelEmotes: channelEmotes,
+      emoteImages: _images,
       onEmoteTap: tapped.add,
     );
 
@@ -134,12 +154,17 @@ void main() {
     EmoteUrlProvider.debugFetchOverride = (_) async => _pngBytes(64, 32);
     const url = 'https://inline.test/wide.png';
     await tester.pumpWidget(
-      const MaterialApp(
+      MaterialApp(
         home: Center(
           child: SizedBox(
             width: 28,
             height: 28,
-            child: InlineEmoteView(url: url, width: 28, height: 28),
+            child: InlineEmoteView(
+              url: url,
+              width: 28,
+              height: 28,
+              images: _images,
+            ),
           ),
         ),
       ),
@@ -169,16 +194,26 @@ void main() {
           home: Center(
             child: Row(
               mainAxisSize: MainAxisSize.min,
-              children: const [
+              children: [
                 SizedBox(
                   width: 28,
                   height: 28,
-                  child: InlineEmoteView(url: url, width: 28, height: 28),
+                  child: InlineEmoteView(
+                    url: url,
+                    width: 28,
+                    height: 28,
+                    images: _images,
+                  ),
                 ),
                 SizedBox(
                   width: 28,
                   height: 28,
-                  child: InlineEmoteView(url: url, width: 28, height: 28),
+                  child: InlineEmoteView(
+                    url: url,
+                    width: 28,
+                    height: 28,
+                    images: _images,
+                  ),
                 ),
               ],
             ),
@@ -211,12 +246,17 @@ void main() {
         Uint8List.fromList('definitely not an image'.codeUnits);
     const url = 'https://inline.test/broken.png';
     await tester.pumpWidget(
-      const MaterialApp(
+      MaterialApp(
         home: Center(
           child: SizedBox(
             width: 28,
             height: 28,
-            child: InlineEmoteView(url: url, width: 28, height: 28),
+            child: InlineEmoteView(
+              url: url,
+              width: 28,
+              height: 28,
+              images: _images,
+            ),
           ),
         ),
       ),

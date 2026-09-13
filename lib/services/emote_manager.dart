@@ -751,6 +751,11 @@ class EmoteManager {
   /// empty) state, so cached message spans are discarded immediately.
   void notifyStateCleared() => _store.notifyStateCleared();
 
+  /// Notifies observers of a config-only change (tier, auto mode) without
+  /// bumping the catalog version, so the UI refreshes and cached message
+  /// spans stay valid.
+  void notifyConfigChanged() => _store.notifyConfigChanged();
+
   void setSevenTvEmoteSetId(String channel, String emoteSetId) =>
       _store.setSevenTvEmoteSetId(channel, emoteSetId);
 

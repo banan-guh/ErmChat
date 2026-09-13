@@ -20,6 +20,7 @@ class EmoteImage extends StatefulWidget {
   const EmoteImage({
     super.key,
     required this.url,
+    required this.emoteImages,
     this.width,
     this.height,
     this.fit = BoxFit.contain,
@@ -27,7 +28,6 @@ class EmoteImage extends StatefulWidget {
     this.errorWidget,
     this.alternateUrls,
     this.emote,
-    this.emoteImages,
   });
 
   final String url;
@@ -43,8 +43,8 @@ class EmoteImage extends StatefulWidget {
   /// Routing metadata for [emoteUsesCustomLoop]. Null forces custom.
   final Emote? emote;
 
-  /// Image byte owner. Falls back to the process default.
-  final EmoteImages? emoteImages;
+  /// Image byte owner.
+  final EmoteImages emoteImages;
 
   @override
   State<EmoteImage> createState() => _EmoteImageState();
@@ -111,23 +111,20 @@ class _EmoteImageState extends State<EmoteImage> {
     );
   }
 
-  /// Byte owner for this cell: the explicit one, else the process default.
-  EmoteImages? get _images =>
-      widget.emoteImages ?? EmoteUrlProvider.defaultImages;
+  /// Byte owner for this cell.
+  EmoteImages get _images => widget.emoteImages;
 
   /// Provider honoring the routing rule. Alt scales share the main's route.
   ImageProvider _providerFor(String url) {
     if (_custom) return EmoteUrlProvider(url, images: _images);
-    final images = _images;
-    if (images == null) return EmoteUrlProvider(url);
-    return CachedNetworkImageProvider(url, cacheManager: images.cache);
+    return CachedNetworkImageProvider(url, cacheManager: _images.cache);
   }
 
   /// Probes alternate scales for a cached placeholder while [url] loads. Picks first hit. Disk results memoized via [EmoteProbeMemo].
   Future<void> _probePlaceholder() async {
     final alternates = widget.alternateUrls;
     final images = _images;
-    if (alternates == null || alternates.isEmpty || images == null) return;
+    if (alternates == null || alternates.isEmpty) return;
     final token = Object();
     _loadToken = token;
     for (final altUrl in alternates) {

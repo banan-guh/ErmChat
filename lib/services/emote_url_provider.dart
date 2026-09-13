@@ -28,21 +28,7 @@ bool emoteUsesCustomLoop(Emote emote, {required bool animateGifs}) =>
 
 /// ImageProvider for emote URLs. Keyed by [url] for shared decode/playback. Animated WebP streams from the engine; the pure-Dart compositor is a crash-only fallback.
 class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
-  EmoteUrlProvider(this.url, {EmoteImages? images})
-    : images = images ?? _defaultImages;
-
-  /// Process-wide byte source, installed once by the app provider. Widgets
-  /// normally pass their own [EmoteImages]; this backs the static playback
-  /// registry lookups that have no widget context.
-  static EmoteImages? _defaultImages;
-
-  /// Installs the byte source used when a provider is constructed without one.
-  static void installDefaultImages(EmoteImages images) {
-    _defaultImages = images;
-  }
-
-  /// Process-wide byte source, or null before the app provider installs one.
-  static EmoteImages? get defaultImages => _defaultImages;
+  EmoteUrlProvider(this.url, {required this.images});
 
   /// Test hook; falls back to the production fetcher when null.
   @visibleForTesting
@@ -54,7 +40,7 @@ class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
   static int debugWebpEngineFailAfter = -1;
 
   final String url;
-  final EmoteImages? images;
+  final EmoteImages images;
 
   @override
   Future<EmoteUrlProvider> obtainKey(ImageConfiguration configuration) =>
@@ -113,8 +99,11 @@ class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
 
   /// Current frame index for [url] (0 when not loaded). Exposed for tests.
   @visibleForTesting
-  static int currentFrame(String url) =>
-      _completerFor(url)?.currentFrameIndex ?? 0;
+  static int currentFrame(String url) {
+    final live = _liveByUrl[url];
+    if (live == null || live._disposed) return 0;
+    return live.currentFrameIndex;
+  }
 
   /// Whether [url] has a decoded frame ready. No completer creation.
   static bool hasFrames(String url) {
@@ -126,12 +115,12 @@ class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
   }
 
   /// Shared completer for [url], created on demand.
-  static _EmoteImageCompleter? _completerFor(String url) {
+  static _EmoteImageCompleter? _completerFor(String url, EmoteImages images) {
     final live = _liveByUrl[url];
     if (live != null && !live._disposed) return live;
     final stream = EmoteUrlProvider(
       url,
-      images: _defaultImages,
+      images: images,
     ).resolve(ImageConfiguration.empty);
     final completer = stream.completer;
     if (completer is _EmoteImageCompleter && !completer._disposed) {
@@ -166,7 +155,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
   }
 
   final String url;
-  final EmoteImages? images;
+  final EmoteImages images;
   final ImageDecoderCallback _engineDecode;
 
   /// Materialized frames: frozen GIF, and statics.
@@ -222,11 +211,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
   Future<Uint8List> _fetchBytes() {
     final override = EmoteUrlProvider.debugFetchOverride;
     if (override != null) return override(url);
-    final source = images;
-    if (source == null) {
-      throw StateError('no EmoteImages for $url');
-    }
-    return source.bytes(url);
+    return images.bytes(url);
   }
 
   Future<void> _load() async {
@@ -257,7 +242,9 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
     } on Object catch (error, stack) {
       _reportQuietly(error, stack);
       // Evict on error: ImageCache keeps stale errors forever otherwise.
-      PaintingBinding.instance.imageCache.evict(EmoteUrlProvider(url));
+      PaintingBinding.instance.imageCache.evict(
+        EmoteUrlProvider(url, images: images),
+      );
       // Drop the seed too: a target that never loads must not pin the map.
       EmoteUrlProvider._pendingSeeds.remove(url);
     }
@@ -350,7 +337,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
     if (frames == null || frames.frames.isEmpty) return;
     final sourceUrl = _seedFromUrl;
     if (sourceUrl == null) return;
-    final source = EmoteUrlProvider._completerFor(sourceUrl);
+    final source = EmoteUrlProvider._completerFor(sourceUrl, images);
     if (source == null) return;
     _seedFromUrl = null;
     EmoteUrlProvider._pendingSeeds.remove(url);

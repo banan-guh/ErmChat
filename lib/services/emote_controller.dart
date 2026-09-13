@@ -1,41 +1,32 @@
 import 'dart:async';
 
-import 'package:flutter/material.dart';
+import 'package:flutter/painting.dart';
 
-import '../composer/composer_controller.dart';
 import '../models/emote_fetch_tier.dart';
 import '../emotes/emote.dart';
 import '../chat/chat.dart';
 import '../util/connectivity.dart';
 import '../util/data_usage.dart';
 import '../util/prefs.dart';
-import '../services/emote_manager.dart';
-import '../services/twitch_api.dart';
-import '../services/twitch_auth.dart';
-import '../services/twitch_badge_service.dart';
+import '../util/signal.dart';
+import 'emote_manager.dart';
+import 'twitch_api.dart';
+import 'twitch_auth.dart';
+import 'twitch_badge_service.dart';
 import '../util/log.dart';
-import '../services/emote_url_provider.dart';
-
-// Shell-owned state the emote applier reads but does not own.
-abstract class EmoteApplierHost extends ShellState {
-  bool isMounted();
-  void markDirty();
-  void showSnack(String message);
-}
+import 'emote_url_provider.dart';
 
 // Emote daemon control: persisted tier/auto/cache-cap prefs, post-auth
 // refresh, and manual reload/nuke.
-class EmoteApplier {
-  EmoteApplier({
+class EmoteController {
+  EmoteController({
     required this.emoteManager,
     required this.twitchApi,
     required this.twitchAuth,
     required this.chat,
     required this.badgeService,
     required this.connectivityService,
-    required this.isMobile,
-    required this.networkBusy,
-    required this.host,
+    required this.signals,
     required this.getChannelUserIds,
   });
 
@@ -45,9 +36,7 @@ class EmoteApplier {
   final Chat chat;
   final TwitchBadgeService badgeService;
   final ConnectivityService connectivityService;
-  final ValueNotifier<bool> isMobile;
-  final ValueNotifier<bool> networkBusy;
-  final EmoteApplierHost host;
+  final EmoteSignals signals;
 
   /// Live open-channel -> broadcaster-id map, read at use time.
   final Map<String, String> Function() getChannelUserIds;
@@ -81,8 +70,8 @@ class EmoteApplier {
 
   Future<void> refreshConnectivity() async {
     // The service seeds itself in init() and corrects on later events, so
-    // here we just read its cached state (avoiding a redundant plugin probe).
-    isMobile.value = connectivityService.isMobile;
+    // here we just seed the data-usage context from its cached state.
+    DataUsageStats.I.setContext(isMobile: connectivityService.isMobile);
   }
 
   // Computes the effective tier from the manual tier + auto mode and applies
@@ -92,7 +81,7 @@ class EmoteApplier {
     final effective = effectiveEmoteFetchTier(
       manual: EmoteFetchTier.values[manualTierIndex],
       auto: autoMode,
-      isMobile: isMobile.value,
+      isMobile: connectivityService.isMobile,
     );
     if (effective == emoteManager.tier) return;
     applyTierTo(effective);
@@ -112,13 +101,16 @@ class EmoteApplier {
     final oldTier = emoteManager.tier;
     try {
       emoteManager.tier = tier;
-      DataUsageStats.I.setContext(tier: tier, isMobile: isMobile.value);
+      DataUsageStats.I.setContext(
+        tier: tier,
+        isMobile: connectivityService.isMobile,
+      );
       if (tier == EmoteFetchTier.nothing) {
         // Nothing tier: the resolution is null, so no new fetches happen, but we
         // must NOT evict the in-memory registry. Cached emotes keep rendering
         // from disk; wiping would force a full re-resolve (and its rebuild
         // storm) on every toggle.
-        if (host.isMounted()) host.markDirty();
+        emoteManager.notifyConfigChanged();
       } else {
         // A "no-diff -> diff" switch (e.g. low -> high) introduces resolutions
         // the old tier never fetched, so force-fetch the new emote URLs. A
@@ -144,7 +136,7 @@ class EmoteApplier {
           );
           unawaited(emoteManager.loadViewerPersonalSevenTvSets(force: true));
         }
-        if (host.isMounted()) host.markDirty();
+        emoteManager.notifyConfigChanged();
       }
     } catch (e) {
       logDebug('_applyTier failed: $e');
@@ -205,11 +197,11 @@ class EmoteApplier {
           ),
         ),
       );
-      if (host.isMounted()) host.markDirty();
+      emoteManager.notifyConfigChanged();
       return true;
     } catch (e) {
       logDebug('_refreshEmotesAfterAuth failed: $e');
-      if (host.isMounted()) host.markDirty();
+      emoteManager.notifyConfigChanged();
       return false;
     }
   }
@@ -226,7 +218,7 @@ class EmoteApplier {
   // metadata and the image caches, so emotes visibly re-buffer instead of
   // being instantly restored from disk.
   Future<void> runRefresh({required bool nuke}) async {
-    networkBusy.value = true;
+    signals.busy.emit(true);
     // Discard failures from before this refresh so the report below only
     // reflects fetches this refresh triggered.
     emoteManager.takeFetchFailures();
@@ -259,7 +251,6 @@ class EmoteApplier {
           logDebug('_reloadEmotes: sub emote reload failed: $e');
         }
       }
-      if (!host.isMounted()) return;
       String message;
       if (!ok) {
         message = 'Emote reload failed';
@@ -270,9 +261,9 @@ class EmoteApplier {
             ? 'Emotes reloaded'
             : 'Emotes failed to load for ${failed.join(', ')}';
       }
-      host.showSnack(message);
+      signals.snack.emit(message);
     } finally {
-      networkBusy.value = false;
+      signals.busy.emit(false);
     }
   }
 

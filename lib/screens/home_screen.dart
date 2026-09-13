@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_list_view/flutter_list_view.dart';
 import '../providers/app_providers.dart';
 import '../providers/chat_pipeline.dart';
+import '../providers/emote_controller_providers.dart';
 import '../providers/emote_store_providers.dart';
 import '../providers/feature_providers.dart';
 import '../providers/ui_state_providers.dart';
@@ -24,6 +25,7 @@ import '../services/ping_manager.dart';
 import '../services/ignore_manager.dart';
 import '../services/link_whitelist.dart';
 import '../services/emote_manager.dart';
+import '../services/emote_controller.dart';
 import '../services/emote_store.dart';
 import '../util/data_usage.dart';
 import '../services/stream_player_controller.dart';
@@ -56,7 +58,6 @@ import '../sheets/message_menu.dart';
 import '../sheets/user_sheet.dart';
 import '../channels/channel_manager.dart';
 import '../chrome/channel_stack.dart';
-import '../emotes/emote_applier.dart';
 import '../chrome/home_app_bar.dart';
 import '../chrome/stream_layout.dart';
 import '../panels/threads.dart';
@@ -111,8 +112,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         HomeAppBarHost,
         ChannelPanelsHost,
         StreamPanelsHost,
-        ChannelManagerHost,
-        EmoteApplierHost {
+        ChannelManagerHost {
   static const _mentionsChannel = '@mentions';
 
   ConnectivityService? _connectivityServiceCache;
@@ -536,18 +536,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     host: this,
   );
 
-  late final _emotes = EmoteApplier(
-    emoteManager: _emoteManager,
-    twitchApi: _twitchApi,
-    twitchAuth: _twitchAuth,
-    chat: _chat,
-    badgeService: _badgeService,
-    connectivityService: _connectivityService,
-    isMobile: _isMobile,
-    networkBusy: _networkBusy,
-    host: this,
-    getChannelUserIds: ref.read(channelUserIdsProvider),
-  );
+  EmoteController? _emoteControllerCache;
+  EmoteController get _emotes {
+    _emoteControllerCache ??= ref.read(emoteControllerProvider);
+    return _emoteControllerCache!;
+  }
 
   // MentionsPanelsHost: shell-owned state the inbox reads but does not own.
   @override
@@ -631,7 +624,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   @override
   FlutterListViewController scrollCtrl(String channel) => _scrollCtrl(channel);
 
-  // ChannelManagerHost / EmoteApplierHost.
+  // ChannelManagerHost.
   @override
   set selectedChannel(String? value) =>
       ref.read(selectedChannelProvider.notifier).set(value);
@@ -652,8 +645,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   @override
   void forgetAtBottomNotifier(String channel) =>
       _atBottomNotifiers.remove(channel)?.dispose();
-  @override
-  void showSnack(String message) => _chatNotice.show(message);
 
   @override
   void initState() {
@@ -1142,6 +1133,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   // signal to its existing UI owner. Dispose detaches every subscription.
   void _subscribeSignals() {
     final signals = _signals;
+    final emoteSignals = ref.read(emoteSignalsProvider);
     _signalUnsubs.addAll([
       signals.focusComposer.add(_onFocusComposerSignal),
       signals.banner.add(_showBanner),
@@ -1153,6 +1145,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       signals.whisperSent.add(
         (s) => _mentions.onWhisperSent(s.target, s.message),
       ),
+      emoteSignals.snack.add(_chatNotice.show),
+      emoteSignals.busy.add((value) => _networkBusy.value = value),
     ]);
   }
 
@@ -1764,6 +1758,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
               valueListenable: _composer.suggestions,
               builder: (_, suggestions, _) => AutocompleteDropdown(
                 suggestions: suggestions,
+                images: _emoteManager.images,
                 onSelect: _composer.selectSuggestion,
                 onEmoteViewed: _emoteManager.markEmoteViewed,
               ),

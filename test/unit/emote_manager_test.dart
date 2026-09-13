@@ -33,6 +33,9 @@ import 'package:ermchat/widgets/emote_text.dart';
 import 'package:ermchat/models/twitch_command.dart';
 import 'package:ermchat/services/suggestion.dart';
 import 'package:ermchat/util/webp_anim.dart';
+import 'package:ermchat/services/emote_images.dart';
+
+final _testImages = EmoteImages();
 
 CacheObject _obj(String url, DateTime touched, {int? id}) => CacheObject(
   url,
@@ -65,7 +68,12 @@ class _RevealWidgetState extends State<_RevealWidget> {
         ? SizedBox(
             width: 28,
             height: 28,
-            child: EmoteImage(url: widget.url, width: 28, height: 28),
+            child: EmoteImage(
+              url: widget.url,
+              emoteImages: _testImages,
+              width: 28,
+              height: 28,
+            ),
           )
         : const SizedBox.shrink();
   }
@@ -517,6 +525,7 @@ void main() {
           home: Scaffold(
             body: EmoteImage(
               url: url,
+              emoteImages: _testImages,
               width: 28,
               height: 28,
               fit: BoxFit.contain,
@@ -639,14 +648,16 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           home: Row(
-            children: const [
+            children: [
               EmoteImage(
                 url: 'https://example.com/a.gif',
+                emoteImages: _testImages,
                 width: 28,
                 height: 28,
               ),
               EmoteImage(
                 url: 'https://example.com/a.gif',
+                emoteImages: _testImages,
                 width: 28,
                 height: 28,
               ),
@@ -680,6 +691,7 @@ void main() {
             home: Scaffold(
               body: EmoteImage(
                 url: 'https://example.com/engine.gif',
+                emoteImages: _testImages,
                 width: 28,
                 height: 28,
               ),
@@ -716,7 +728,7 @@ void main() {
       await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
       await tester.pump();
       PaintingBinding.instance.imageCache.evict(
-        EmoteUrlProvider('https://example.com/engine.gif'),
+        EmoteUrlProvider('https://example.com/engine.gif', images: _testImages),
       );
       await tester.pump();
       await pumpOne();
@@ -901,11 +913,12 @@ void main() {
             home: Scaffold(
               body: Column(
                 children: [
-                  const SizedBox(
+                  SizedBox(
                     width: 28,
                     height: 28,
                     child: EmoteImage(
                       url: 'https://example.com/shared.gif',
+                      emoteImages: _testImages,
                       width: 28,
                       height: 28,
                     ),
@@ -3422,6 +3435,7 @@ void main() {
   group('EmoteText.build', () {
     test('plain text without emotes returns URL-parsed spans', () {
       var spans = EmoteText.build(
+        emoteImages: _testImages,
         text: 'hello world',
         twitchPositions: null,
         channelEmotes: null,
@@ -3432,6 +3446,7 @@ void main() {
 
       final emotes = _makeEmotes(<String, Emote>{});
       spans = EmoteText.build(
+        emoteImages: _testImages,
         text: 'hello world',
         twitchPositions: null,
         channelEmotes: emotes,
@@ -3446,6 +3461,7 @@ void main() {
         'Kappa': makeTestEmote(id: '1', code: 'Kappa'),
       });
       final spans = EmoteText.build(
+        emoteImages: _testImages,
         text: 'Kappa',
         twitchPositions: null,
         channelEmotes: emotes,
@@ -3459,6 +3475,7 @@ void main() {
         'Kappa': makeTestEmote(id: '1', code: 'Kappa'),
       });
       final spans = EmoteText.build(
+        emoteImages: _testImages,
         text: 'hi Kappa there',
         twitchPositions: null,
         channelEmotes: emotes,
@@ -3478,6 +3495,7 @@ void main() {
         ),
       });
       final spans = EmoteText.build(
+        emoteImages: _testImages,
         text: 'KappaPride',
         twitchPositions: [
           EmotePosition(
@@ -3509,6 +3527,7 @@ void main() {
         ),
       });
       final spans = EmoteText.build(
+        emoteImages: _testImages,
         text: 'Sunglasses EZ',
         twitchPositions: [
           EmotePosition(
@@ -3530,6 +3549,7 @@ void main() {
         'Kappa': makeTestEmote(id: '1', code: 'Kappa'),
       });
       final spans = EmoteText.build(
+        emoteImages: _testImages,
         text: 'Kappa check https://example.com',
         twitchPositions: null,
         channelEmotes: emotes,
@@ -3552,6 +3572,7 @@ void main() {
         'EZ': makeTestEmote(id: '1', code: 'EZ', isZeroWidth: true),
       });
       final spans = EmoteText.build(
+        emoteImages: _testImages,
         text: 'EZ',
         twitchPositions: null,
         channelEmotes: emotes,
@@ -3567,6 +3588,7 @@ void main() {
         'EZ': makeTestEmote(id: '2', code: 'EZ', isZeroWidth: true),
       });
       final spans = EmoteText.build(
+        emoteImages: _testImages,
         text: 'hello EZ',
         twitchPositions: null,
         channelEmotes: emotes,
@@ -3584,6 +3606,7 @@ void main() {
         'EZ': makeTestEmote(id: '2', code: 'EZ', isZeroWidth: true),
       });
       var spans = EmoteText.build(
+        emoteImages: _testImages,
         text: 'Kappa EZ',
         twitchPositions: null,
         channelEmotes: emotes,
@@ -3597,6 +3620,7 @@ void main() {
         'HYPERS': makeTestEmote(id: '3', code: 'HYPERS', isZeroWidth: true),
       });
       spans = EmoteText.build(
+        emoteImages: _testImages,
         text: 'Kappa EZ HYPERS',
         twitchPositions: null,
         channelEmotes: emotes,
@@ -3610,6 +3634,7 @@ void main() {
         'PogChamp': makeTestEmote(id: '3', code: 'PogChamp'),
       });
       spans = EmoteText.build(
+        emoteImages: _testImages,
         text: 'Kappa EZ PogChamp',
         twitchPositions: null,
         channelEmotes: emotes,
@@ -3624,6 +3649,7 @@ void main() {
         'Kappa': makeTestEmote(id: '1', code: 'Kappa'),
       });
       final spans = EmoteText.build(
+        emoteImages: _testImages,
         text: 'unknownToken',
         twitchPositions: null,
         channelEmotes: emotes,
@@ -3636,6 +3662,7 @@ void main() {
     test('sub emote from IRC tag renders via CDN even if not in API map', () {
       final emotes = _makeEmotes({});
       final spans = EmoteText.build(
+        emoteImages: _testImages,
         text: 'forsenPls',
         twitchPositions: [
           EmotePosition(
@@ -3661,6 +3688,7 @@ void main() {
         ),
       });
       var spans = EmoteText.build(
+        emoteImages: _testImages,
         text: 'SmallEmote',
         twitchPositions: null,
         channelEmotes: emotes,
@@ -3686,6 +3714,7 @@ void main() {
         ),
       });
       spans = EmoteText.build(
+        emoteImages: _testImages,
         text: 'SmallBase LargeOverlay',
         twitchPositions: null,
         channelEmotes: emotes,
@@ -3723,6 +3752,7 @@ void main() {
 
       test('locked sub codes need an IRC tag while follower codes do too', () {
         var spans = EmoteText.build(
+          emoteImages: _testImages,
           text: 'mySubEmote',
           twitchPositions: null,
           channelEmotes: _makeEmotes({'mySubEmote': lockedSub('mySubEmote')}),
@@ -3731,6 +3761,7 @@ void main() {
         expect(textOf(spans), contains('mySubEmote'));
 
         spans = EmoteText.build(
+          emoteImages: _testImages,
           text: 'mySubEmote',
           twitchPositions: const [
             EmotePosition(
@@ -3745,6 +3776,7 @@ void main() {
         expect(spans.any((s) => s is WidgetSpan), isTrue);
 
         spans = EmoteText.build(
+          emoteImages: _testImages,
           text: 'folEmote',
           twitchPositions: null,
           channelEmotes: _makeEmotes({'folEmote': follower('folEmote')}),
@@ -3753,6 +3785,7 @@ void main() {
         expect(textOf(spans), contains('folEmote'));
 
         spans = EmoteText.build(
+          emoteImages: _testImages,
           text: 'folEmote',
           twitchPositions: const [
             EmotePosition(
@@ -3769,6 +3802,7 @@ void main() {
 
       test('stranger subs stay text while unlocked emotes render', () {
         var spans = EmoteText.build(
+          emoteImages: _testImages,
           text: 'hi mySubEmote there',
           twitchPositions: null,
           channelEmotes: _makeEmotes({'mySubEmote': lockedSub('mySubEmote')}),
@@ -3776,6 +3810,7 @@ void main() {
         expect(spans.any((s) => s is WidgetSpan), isFalse);
 
         spans = EmoteText.build(
+          emoteImages: _testImages,
           text: 'KEKW',
           twitchPositions: null,
           channelEmotes: _makeEmotes({
@@ -3790,6 +3825,7 @@ void main() {
         expect(spans.any((s) => s is WidgetSpan), isTrue);
 
         spans = EmoteText.build(
+          emoteImages: _testImages,
           text: 'Kappa',
           twitchPositions: null,
           channelEmotes: _makeEmotes({
@@ -3804,6 +3840,7 @@ void main() {
         expect(spans.any((s) => s is WidgetSpan), isTrue);
 
         spans = EmoteText.build(
+          emoteImages: _testImages,
           text: 'PrimeBot',
           twitchPositions: null,
           channelEmotes: _makeEmotes({
@@ -4719,12 +4756,14 @@ void main() {
       );
 
       final senderSpans = EmoteText.build(
+        emoteImages: _testImages,
         text: 'TheirCode',
         twitchPositions: null,
         channelEmotes: senderMap,
       );
       expect(senderSpans.any((s) => s is WidgetSpan), isTrue);
       final strangerSpans = EmoteText.build(
+        emoteImages: _testImages,
         text: 'TheirCode',
         twitchPositions: null,
         channelEmotes: manager.byCodeForSender('ch', 'sender-2'),
@@ -4779,6 +4818,7 @@ void main() {
         final senderMap = manager.byCodeForSender('ch', 'sender-1')!;
         expect(senderMap.byCode.keys, contains('TheirCode'));
         final spans = EmoteText.build(
+          emoteImages: _testImages,
           text: 'TheirCode',
           twitchPositions: null,
           channelEmotes: senderMap,
