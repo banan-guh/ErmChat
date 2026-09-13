@@ -71,15 +71,15 @@ class _EmoteSheetState extends State<EmoteSheet>
   }
 
   String _typeLabel(Emote emote) {
-    final provider = switch (emote.type) {
-      EmoteType.twitch => 'Twitch',
-      EmoteType.bttv => 'BTTV',
-      EmoteType.ffz => 'FFZ',
-      EmoteType.sevenTv => '7TV',
-    };
     if (emote.type == EmoteType.twitch) {
       return emote.isZeroWidth ? 'Twitch Emote (Zero Width)' : 'Twitch Emote';
     }
+    final provider = switch (emote.type) {
+      EmoteType.bttv => 'BTTV',
+      EmoteType.ffz => 'FFZ',
+      EmoteType.sevenTv => '7TV',
+      EmoteType.twitch => 'Twitch',
+    };
     final scope = switch (emote.scope) {
       EmoteScope.global => 'Global',
       EmoteScope.channel => 'Channel',
@@ -274,7 +274,8 @@ class _EmoteSheetState extends State<EmoteSheet>
   }
 
   Widget _buildEmotePages() {
-    if (widget.emotes.length <= 1) {
+    if (widget.emotes.isEmpty) return const SizedBox.shrink();
+    if (widget.emotes.length == 1) {
       return _buildEmotePage(widget.emotes.first);
     }
     return SizedBox(

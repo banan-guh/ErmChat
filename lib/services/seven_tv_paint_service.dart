@@ -150,6 +150,20 @@ class SevenTvPaint {
   }
 }
 
+/// Per-user paint notifier. Reports when its last listener detaches so the
+/// service can drop the entry instead of pruning on the next refresh.
+class _UserPaintNotifier extends ValueNotifier<SevenTvPaint?> {
+  _UserPaintNotifier(this._onEmpty) : super(null);
+
+  final void Function() _onEmpty;
+
+  @override
+  void removeListener(VoidCallback listener) {
+    super.removeListener(listener);
+    if (!hasListeners) _onEmpty();
+  }
+}
+
 /// Resolves 7TV name paints for chatters via catalog + batched lookups + live
 /// entitlement events. Disabled by default.
 class SevenTvPaintService extends ChangeNotifier {
@@ -191,18 +205,29 @@ class SevenTvPaintService extends ChangeNotifier {
     _refreshAllUserNotifiers();
   }
 
+  /// Shared notifier for callers with no user id; never notified, never owned
+  /// by the caller, so it does not allocate per call.
+  static final ValueNotifier<SevenTvPaint?> _emptyNotifier =
+      ValueNotifier<SevenTvPaint?>(null);
+
   /// Per-user notifiers for narrow subscription. Created on first lookup,
   /// dropped when no listeners remain.
   ValueNotifier<SevenTvPaint?> lookupNotifier(String? userId) {
     if (userId == null || userId.isEmpty) {
-      return ValueNotifier<SevenTvPaint?>(null);
+      return _emptyNotifier;
     }
     final existing = _userNotifiers[userId];
     if (existing != null) {
       lookup(userId);
       return existing;
     }
-    final notifier = ValueNotifier<SevenTvPaint?>(lookup(userId));
+    final notifier = _UserPaintNotifier(() {
+      final current = _userNotifiers[userId];
+      if (current != null && !current.hasListeners) {
+        _userNotifiers.remove(userId);
+      }
+    });
+    notifier.value = lookup(userId);
     _userNotifiers[userId] = notifier;
     return notifier;
   }
@@ -691,6 +716,7 @@ class SevenTvPaintService extends ChangeNotifier {
   void dispose() {
     _flushTimer?.cancel();
     _entitlementSub?.cancel();
+    _userNotifiers.clear();
     for (final img in _images.values) {
       img?.dispose();
     }

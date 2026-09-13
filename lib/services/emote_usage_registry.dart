@@ -38,7 +38,7 @@ class EmoteUsageRecord {
   static const int _bucketCount = 24;
   // A long, lax recency window for the usage score: it keeps the emote
   // priority score stable so the cache eviction admission check (see
-  // EmoteImageCache._evictLowest) does not thrash long-lived favorites for
+  // EmoteCacheManager._evictLowest) does not thrash long-lived favorites for
   // one-off emotes.
   static const _recencyHalfLife = Duration(days: 3);
   static const _steadyRate = 50;
@@ -60,7 +60,7 @@ class EmoteUsageRecord {
     required DateTime now,
   }) {
     final rolled = rolledForward(record, hour);
-    final index = ((hour - rolled.bucketBase) % _bucketCount).toInt();
+    final index = (hour - rolled.bucketBase) % _bucketCount;
     final buckets = List<int>.of(rolled.buckets);
     buckets[index]++;
     return EmoteUsageRecord(
@@ -158,9 +158,6 @@ class EmoteUsageRecord {
   }
 }
 
-/// Eviction-priority policy the image byte cache reads. Implemented by
-/// [EmoteUsageRegistry]; the image module never depends on the registry type.
-///
 /// Persisted view history plus recent-emote ids.
 ///
 /// Owns the usage histogram that feeds cache eviction priority and the
@@ -177,6 +174,10 @@ class EmoteUsageRegistry implements EmoteImagePolicy {
   static const _usageMinEntries = 300;
   static const _maxRecent = 100;
   static const _hourMs = 3600000;
+
+  /// Bound on view touches queued before the registry loads; the oldest drop
+  /// so an unloaded registry cannot accrete references.
+  static const _maxPendingTouches = 2000;
 
   // How long view-touch flushes wait for quiet before persisting. The emote
   // menu marks dozens of cells viewed on open; the debounce collapses that
@@ -236,6 +237,9 @@ class EmoteUsageRegistry implements EmoteImagePolicy {
     if (!_usageLoaded) {
       // Defer until loaded to avoid clobbering persisted registry.
       _pendingUsageTouches.add(url);
+      while (_pendingUsageTouches.length > _maxPendingTouches) {
+        _pendingUsageTouches.remove(_pendingUsageTouches.first);
+      }
       return;
     }
     final now = _now();
@@ -359,7 +363,7 @@ class EmoteUsageRegistry implements EmoteImagePolicy {
     final raw = prefs.recentEmotes;
     if (raw == null) return;
     try {
-      _recentIds = (jsonDecode(raw) as List<dynamic>).cast<String>();
+      _recentIds = List<String>.from(jsonDecode(raw) as List<dynamic>);
     } catch (_) {
       logDebug('[EmoteUsageRegistry] failed to parse recent emotes');
     }
@@ -370,8 +374,9 @@ class EmoteUsageRegistry implements EmoteImagePolicy {
     await prefs.setRecentEmotes(jsonEncode(_recentIds));
   }
 
-  /// Recently used emote ids (most recent first). The persisted list loads
-  /// lazily, so the first keystroke after launch may rank without it.
+  /// Recently used emote ids as an unordered set (membership is all the
+  /// ranking needs; the backing list is most-recent-first). The persisted list
+  /// loads lazily, so the first keystroke after launch may rank without it.
   Set<String> get recentEmoteIds {
     if (!_recentLoaded) unawaited(_ensureRecentLoaded());
     return _recentIds.toSet();
@@ -420,5 +425,9 @@ class EmoteUsageRegistry implements EmoteImagePolicy {
 
   void dispose() {
     _usageFlushTimer?.cancel();
+    _usageFlushTimer = null;
+    // Best-effort flush so a pending debounce is not dropped on teardown.
+    if (_usageDirty) unawaited(_flushUsage());
+    _pendingUsageTouches.clear();
   }
 }

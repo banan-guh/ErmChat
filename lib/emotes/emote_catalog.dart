@@ -142,8 +142,9 @@ class EmoteCatalog {
     sevenTvPersonal: sevenTvPersonal ?? this.sevenTvPersonal,
   );
 
-  /// Every list of the matching scope is this catalog's list when non-empty,
-  /// otherwise [other]'s. Used to seed in-memory stashes from disk.
+  /// Returns a catalog whose every list is this catalog's list when non-empty,
+  /// otherwise the matching list from [other]. Used to seed the in-memory
+  /// catalog from disk.
   EmoteCatalog fillMissing(EmoteCatalog other) => EmoteCatalog(
     twitchGlobal: twitchGlobal.isEmpty ? other.twitchGlobal : twitchGlobal,
     bttvGlobal: bttvGlobal.isEmpty ? other.bttvGlobal : bttvGlobal,
@@ -162,7 +163,7 @@ class EmoteCatalog {
   );
 
   /// Flat channel provider emotes (excludes the stored Twitch subs list), in
-  /// provider order. Mirrors the old per-channel provider stash.
+  /// provider order.
   Iterable<Emote> channelProviderEmotes() sync* {
     yield* twitchChannel;
     yield* bttvChannel;
@@ -228,24 +229,34 @@ class EmoteCatalog {
   }
 }
 
+/// Ids and codes claimed by [emotes], used to test overlay collisions.
+({Set<String> ids, Set<String> codes}) emoteOverlayKeys(
+  Iterable<Emote> emotes,
+) {
+  final ids = <String>{};
+  final codes = <String>{};
+  for (final e in emotes) {
+    if (e.id.isNotEmpty) ids.add(e.id);
+    codes.add(e.code);
+  }
+  return (ids: ids, codes: codes);
+}
+
+/// Whether [emote]'s id or code is claimed by [keys].
+bool overlayCollides(
+  Emote emote,
+  ({Set<String> ids, Set<String> codes}) keys,
+) => keys.ids.contains(emote.id) || keys.codes.contains(emote.code);
+
 /// Applies the account unlock overlay to a Twitch list: base entries whose id
 /// or code collides with an unlock are replaced by the unlock. Third-party
 /// entries pass through untouched.
 List<Emote> applyAccountUnlocks(List<Emote> base, Iterable<Emote> unlocks) {
   if (unlocks.isEmpty) return base;
-  final ids = <String>{};
-  final codes = <String>{};
-  for (final e in unlocks) {
-    if (e.id.isNotEmpty) ids.add(e.id);
-    codes.add(e.code);
-  }
+  final keys = emoteOverlayKeys(unlocks);
   return [
     for (final e in base)
-      if (e.type != EmoteType.twitch ||
-          !(e.id.isNotEmpty
-              ? ids.contains(e.id) || codes.contains(e.code)
-              : codes.contains(e.code)))
-        e,
+      if (e.type != EmoteType.twitch || !overlayCollides(e, keys)) e,
     ...unlocks,
   ];
 }
@@ -301,8 +312,8 @@ EmoteLookup mergeEmoteLookup({
     add(e);
   }
   if (channel != null) {
-    // Stored Twitch channel/subs precede the provider stash so a stored entry
-    // keeps its code on a same-provider tie, matching the old merge order.
+    // Stored Twitch channel/subs precede the provider lists so a stored entry
+    // keeps its code on a same-provider tie.
     for (final e in channel.twitchSubs) {
       add(e);
     }

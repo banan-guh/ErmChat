@@ -128,19 +128,25 @@ class EmotePersistence {
           await _metaStore.delete(key);
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      logDebug('[EmotePersistence] failed to prune stale channels: $e');
+    }
   }
 
   /// Deletes all persisted emote metadata (global + per channel), including
   /// left channels. Used by the nuke action so the refetch rebuilds from the
-  /// network instead of reseeding from disk.
+  /// network instead of reseeding from disk. The personal-set seed is not
+  /// catalog metadata and is left alone.
   Future<void> wipePersisted() async {
     try {
       for (final key in await _metaStore.keys()) {
-        if (key.startsWith('emotes4_')) await _metaStore.delete(key);
+        if (key == SevenTvPersonalSets.personalSetsKey) continue;
+        if (key.startsWith('emotes4_') || key.startsWith('emotes3_')) {
+          await _metaStore.delete(key);
+        }
       }
-    } catch (_) {
-      logDebug('[EmotePersistence] failed to wipe persisted emotes');
+    } catch (e) {
+      logDebug('[EmotePersistence] failed to wipe persisted emotes: $e');
     }
   }
 }

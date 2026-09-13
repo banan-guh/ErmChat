@@ -67,19 +67,7 @@ class FfzEmoteProvider {
               : null;
           final parsed = _parseEmote(item, resolution, ownerChannel: owner);
           if (parsed != null) {
-            emotes.add(
-              Emote(
-                id: parsed.id,
-                code: parsed.code,
-                meta: parsed.meta,
-                url: parsed.url,
-                url1x: parsed.url1x,
-                url3x: parsed.url3x,
-                isAnimated: parsed.isAnimated,
-                scope: EmoteScope.channel,
-                isZeroWidth: parsed.isZeroWidth,
-              ),
-            );
+            emotes.add(parsed.copyWith(scope: EmoteScope.channel));
           }
         }
       }

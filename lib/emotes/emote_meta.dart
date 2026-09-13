@@ -5,9 +5,12 @@ import 'emote.dart';
 enum TwitchEmoteKind { standard, sub, follower, bits }
 
 /// True subscription emotes, stored with the channel's Twitch list rather than
-/// the provider stash or disk. Shared by every sub filter so they cannot drift.
-bool isTwitchSub(Emote e) =>
-    e.meta is TwitchMeta && (e.meta as TwitchMeta).kind == TwitchEmoteKind.sub;
+/// the channel's provider lists or disk. Shared by every sub filter so they
+/// cannot drift.
+bool isTwitchSub(Emote e) => switch (e.meta) {
+  TwitchMeta(kind: TwitchEmoteKind.sub) => true,
+  _ => false,
+};
 
 /// Provider-specific facts for an [Emote]. [type] identifies the provider;
 /// [owner] is the display name of the creator when one is known.

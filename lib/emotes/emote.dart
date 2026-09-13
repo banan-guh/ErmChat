@@ -4,7 +4,8 @@ enum EmoteType { twitch, bttv, ffz, sevenTv }
 
 enum EmoteScope { global, channel, personal }
 
-/// Image resolution tier for emote fetching. 4x was dropped; no provider emits a 4x URL.
+/// Image resolution tier for emote fetching. There is no 4x tier: providers
+/// expose at most a 3x slot, and FFZ's 4x asset is carried in [Emote.url3x].
 enum EmoteResolution {
   /// 1x for the low fetch tier (smallest available).
   low,
@@ -16,7 +17,7 @@ enum EmoteResolution {
   high,
 }
 
-/// Largest enum value matching [name], or [fallback] when absent/unknown.
+/// First enum value matching [name], or [fallback] when absent/unknown.
 T enumByName<T extends Enum>(List<T> values, Object? name, T fallback) {
   if (name is String) {
     for (final value in values) {
@@ -75,12 +76,12 @@ class Emote {
 
   EmoteType get type => meta.type;
 
-  Emote copyWith({String? code}) => Emote(
+  Emote copyWith({String? code, EmoteScope? scope}) => Emote(
     id: id,
     code: code ?? this.code,
     meta: meta,
     url: url,
-    scope: scope,
+    scope: scope ?? this.scope,
     url1x: url1x,
     url3x: url3x,
     isAnimated: isAnimated,

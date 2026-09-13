@@ -48,7 +48,8 @@ class EmoteMenuPanelWidgetState extends ConsumerState<EmoteMenuPanelWidget> {
   int _emoteTabIndex = 0;
   List<Emote> _cachedRecentEmotes = [];
   bool _recentEmotesLoaded = false;
-  // Cached grid cells by emote id. Validated against URL + padding; 7TV deltas short-circuit.
+  // Cached grid cells by emote id, validated against URL and padding on each
+  // rebuild so a changed asset or cell size rebuilds the cell.
   final Map<String, ({String url, double padding, Widget widget})> _cellCache =
       {};
   double? _lastPanelWidth;

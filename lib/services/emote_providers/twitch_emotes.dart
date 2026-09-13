@@ -133,9 +133,7 @@ class TwitchEmoteProvider {
             scales,
             resolution,
           );
-          final theme =
-              (item['theme_mode'] as List<dynamic>?)?.firstOrNull as String? ??
-              'dark';
+          final theme = _themeOf(item);
           final url =
               'https://static-cdn.jtvnw.net/emoticons/v2/$id/$format/$theme/$smallScale';
           final url1x = oneXScale == null
@@ -188,9 +186,7 @@ class TwitchEmoteProvider {
         scales,
         resolution,
       );
-      final theme =
-          (item['theme_mode'] as List<dynamic>?)?.firstOrNull as String? ??
-          'dark';
+      final theme = _themeOf(item);
       final format = isAnimated ? 'animated' : 'static';
       final url =
           'https://static-cdn.jtvnw.net/emoticons/v2/$id/$format/$theme/$smallScale';
@@ -249,6 +245,17 @@ class TwitchEmoteProvider {
     );
   }
 
+  /// First string in the `theme_mode` list, or `dark` when absent.
+  static String _themeOf(Map<String, dynamic> item) {
+    final modes = item['theme_mode'];
+    if (modes is List) {
+      for (final mode in modes) {
+        if (mode is String) return mode;
+      }
+    }
+    return 'dark';
+  }
+
   /// Selects scale tiers: 2x for chat, largest for sheet (high only).
   static (String, String?, String?) _selectScales(
     List<String> scales,
@@ -262,11 +269,10 @@ class TwitchEmoteProvider {
       case EmoteResolution.medium:
         return (scales.contains('2.0') ? '2.0' : smallest, oneX, null);
       case EmoteResolution.high:
-        return (
-          scales.contains('2.0') ? '2.0' : smallest,
-          oneX,
-          scales.lastOrNull ?? '3.0',
-        );
+        final chat = scales.contains('2.0') ? '2.0' : smallest;
+        final large = scales.lastOrNull ?? '3.0';
+        // Do not emit a 3x slot identical to the chat asset.
+        return (chat, oneX, large == chat ? null : large);
     }
   }
 }

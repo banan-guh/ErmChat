@@ -61,14 +61,14 @@ class EmoteController {
           : defaultEmoteFetchAutoMode;
       applyCacheCap(prefs.emoteCacheMax);
       EmoteUrlProvider.applyGifsEnabled(prefs.animateGifs);
-      await refreshConnectivity();
+      await _applyConnectivityContext();
       reconcileTier();
     } catch (e) {
-      logDebug('_loadEmotePrefs failed: $e');
+      logDebug('loadPrefs failed: $e');
     }
   }
 
-  Future<void> refreshConnectivity() async {
+  Future<void> _applyConnectivityContext() async {
     // The service seeds itself in init() and corrects on later events, so
     // here we just seed the data-usage context from its cached state.
     DataUsageStats.I.setContext(isMobile: connectivityService.isMobile);
@@ -84,10 +84,10 @@ class EmoteController {
       isMobile: connectivityService.isMobile,
     );
     if (effective == emoteManager.tier) return;
-    applyTierTo(effective);
+    _applyTier(effective);
   }
 
-  void applyTier(int index) {
+  void setManualTier(int index) {
     manualTierIndex = index;
     reconcileTier();
   }
@@ -97,7 +97,7 @@ class EmoteController {
     reconcileTier();
   }
 
-  void applyTierTo(EmoteFetchTier tier) {
+  void _applyTier(EmoteFetchTier tier) {
     final oldTier = emoteManager.tier;
     try {
       emoteManager.tier = tier;
@@ -170,7 +170,7 @@ class EmoteController {
         }
       }
       // No evict here: a force fetch replaces the caches wholesale and the
-      // per-provider stashes retain the previous data when a provider fails.
+      // per-provider lists retain the previous data when a provider fails.
       // Evicting mid-session wrecked live state instead: the connected 7TV
       // WS client kept applying deltas, and updateSevenTvEmotes rebuilt a
       // null cache from a single delta's added list, which _reapplyLiveSevenTv
@@ -200,7 +200,7 @@ class EmoteController {
       emoteManager.notifyConfigChanged();
       return true;
     } catch (e) {
-      logDebug('_refreshEmotesAfterAuth failed: $e');
+      logDebug('refreshAfterAuth failed: $e');
       emoteManager.notifyConfigChanged();
       return false;
     }
@@ -248,7 +248,7 @@ class EmoteController {
           );
         } catch (e) {
           subFailed = true;
-          logDebug('_reloadEmotes: sub emote reload failed: $e');
+          logDebug('runRefresh: sub emote reload failed: $e');
         }
       }
       String message;

@@ -94,11 +94,11 @@ class EmoteStore {
   }
 
   // ── Catalog state ───────────────────────────────────────────────────
-  // Global provider catalog plus a resolved flag. The catalog persists
+  // Global provider catalog plus an attempted flag. The catalog persists
   // list-for-list, so per-provider retention and toggle rebuilds need no
   // lossy reconstruction.
   EmoteCatalog _globalCatalog = EmoteCatalog();
-  bool _globalResolved = false;
+  bool _globalAttempted = false;
   // Epoch per scope: a forced refresh or evict bumps it, so a commit from an
   // older in-flight fetch is dropped instead of overwriting newer state.
   int _globalEpoch = 0;
@@ -107,12 +107,18 @@ class EmoteStore {
   // channel; evictChannel frees it on leave, so no cap is kept.
   final _channelCatalogs = <String, EmoteCatalog>{};
   final _channelEpoch = <String, int>{};
+  // Account generation folded into every channel epoch, so an account switch
+  // drops all in-flight channel commits without tracking each one.
+  int _channelEpochBase = 0;
   final _channelFetchTimes = <String, DateTime>{};
   final _emotesResolvedChannels = <String>{};
   final _sevenTvEmoteSetIds = <String, String>{};
   final _sevenTvUserIds = <String, String>{};
   // Live 7TV list; re-applied after fetch rebuilds to avoid clobbering.
   final _sevenTvLive = <String, List<Emote>>{};
+  // Channels whose 7TV list came from a full fetch (or a disk seed), so a
+  // live delta can be stashed and re-applied over later rebuilds.
+  final _sevenTvFull = <String>{};
   // Merged emotes: channel overrides global, personal 7TV merges everywhere.
   // Cached until the next emit clears it.
   final _mergedCache = <String, EmoteLookup?>{};
@@ -125,16 +131,17 @@ class EmoteStore {
 
   int bumpGlobalEpoch() => _globalEpoch = _globalEpoch + 1;
 
-  int channelEpoch(String channel) => _channelEpoch[channel] ?? 0;
+  int channelEpoch(String channel) =>
+      (_channelEpoch[channel] ?? 0) + _channelEpochBase;
 
-  int bumpChannelEpoch(String channel) =>
-      _channelEpoch[channel] = (_channelEpoch[channel] ?? 0) + 1;
+  int bumpChannelEpoch(String channel) {
+    _channelEpoch[channel] = (_channelEpoch[channel] ?? 0) + 1;
+    return channelEpoch(channel);
+  }
 
   DateTime? channelFetchTime(String channel) => _channelFetchTimes[channel];
 
-  bool get hasGlobalCache => _globalResolved;
-
-  void markGlobalResolved() => _globalResolved = true;
+  bool get hasGlobalCache => _globalAttempted;
 
   EmoteCatalog get globalCatalog => _globalCatalog;
 
@@ -272,7 +279,7 @@ class EmoteStore {
     if (cached != null) return cached;
     final channelCatalog = _channelCatalogs[channel];
     final hasGlobalData =
-        _globalResolved || unlocks.isNotEmpty || personal.isNotEmpty;
+        _globalCatalog.isNotEmpty || unlocks.isNotEmpty || personal.isNotEmpty;
     EmoteLookup? result;
     if (channelCatalog == null && !hasGlobalData) {
       result = null;
@@ -292,15 +299,13 @@ class EmoteStore {
   /// underneath. Foreign codes never leak into other senders' messages.
   /// [foreign] is the caller's per-sender lookup, null when unknown.
   EmoteLookup? byCodeForSender(
-    String channel,
-    String? senderTwitchId, {
+    String channel, {
     Iterable<Emote> personal = const [],
     Iterable<Emote> unlocks = const [],
     EmoteLookup? foreign,
   }) {
     final base = byCode(channel, personal: personal, unlocks: unlocks);
     if (foreign == null || foreign.byCode.isEmpty) return base;
-    if (_disabledProviders.contains(EmoteType.sevenTv)) return base;
     final visible = _filterVisible(foreign);
     if (visible == null) return base;
     final merged = {...visible.byCode};
@@ -340,9 +345,11 @@ class EmoteStore {
   /// Subscriber emotes grouped by owner, with [pinnedChannel] first.
   Map<String, List<Emote>> subsGrouped({String? pinnedChannel}) {
     final grouped = Map<String, List<Emote>>.of(subscriberEmotesByChannel());
-    final pinned = pinnedChannel != null ? grouped.remove(pinnedChannel) : null;
+    final channel = pinnedChannel;
+    if (channel == null) return grouped;
+    final pinned = grouped.remove(channel);
     if (pinned == null) return grouped;
-    return {pinnedChannel!: pinned, ...grouped};
+    return {channel: pinned, ...grouped};
   }
 
   /// Channel picker tab: third-party channel emotes plus unlocked Twitch
@@ -352,9 +359,7 @@ class EmoteStore {
   List<Emote> channelTabEmotes(String channel) {
     final cached = _filterVisible(_channelLookup(channel));
     if (cached == null) return [];
-    final result = cached.suggestions.where((e) => !isTwitchLocked(e)).toList();
-    result.sort((a, b) => a.code.compareTo(b.code));
-    return result;
+    return cached.suggestions.where((e) => !isTwitchLocked(e)).toList();
   }
 
   /// Emotes found in [text] for precache: tag emotes by id plus word
@@ -372,7 +377,6 @@ class EmoteStore {
         ? byCode(channel, personal: personal, unlocks: unlocks)
         : byCodeForSender(
             channel,
-            senderTwitchId,
             personal: personal,
             unlocks: unlocks,
             foreign: foreign,
@@ -409,7 +413,6 @@ class EmoteStore {
     for (final t in _globalSortPriority.keys) {
       final list = grouped[t];
       if (list == null || list.isEmpty) continue;
-      list.sort((a, b) => a.code.compareTo(b.code));
       result[_globalProviderLabels[t] ?? ''] = list;
     }
     return result;
@@ -453,19 +456,27 @@ class EmoteStore {
     return _subsByChannelCache = result;
   }
 
-  /// Resolve an emote by ID across all caches, then the personal overlay.
-  Emote? emoteById(String id, {Iterable<Emote> personal = const []}) {
+  /// Resolve an emote by ID across all caches, then the personal and account
+  /// unlock overlays.
+  Emote? emoteById(
+    String id, {
+    Iterable<Emote> personal = const [],
+    Iterable<Emote> unlocks = const [],
+  }) {
     if (_emoteIndexDirty) _rebuildEmoteIndex();
-    final found = _emoteByIdIndex[id];
+    final found = _emoteIndex[id];
     if (found != null) return found;
     for (final e in personal) {
+      if (e.id == id) return e;
+    }
+    for (final e in unlocks) {
       if (e.id == id) return e;
     }
     return null;
   }
 
   // Hot-path id index; rebuilt lazily after a catalog change.
-  Map<String, Emote> _emoteByIdIndex = {};
+  Map<String, Emote> _emoteIndex = {};
   bool _emoteIndexDirty = true;
 
   void _rebuildEmoteIndex() {
@@ -482,7 +493,7 @@ class EmoteStore {
       addAll(catalog.twitchSubs);
       addAll(catalog.channelProviderEmotes());
     }
-    _emoteByIdIndex = index;
+    _emoteIndex = index;
     _emoteIndexDirty = false;
   }
 
@@ -533,7 +544,7 @@ class EmoteStore {
   bool seedGlobalFromCache(int epoch, EmoteCatalog cached) {
     if (epoch != _globalEpoch) return false;
     _globalCatalog = cached;
-    _globalResolved = true;
+    _globalAttempted = true;
     emitChange(channel: null);
     return true;
   }
@@ -543,7 +554,7 @@ class EmoteStore {
   bool fillMissingGlobal(int epoch, EmoteCatalog seed) {
     if (epoch != _globalEpoch) return false;
     _globalCatalog = _globalCatalog.fillMissing(seed);
-    _globalResolved = true;
+    _globalAttempted = true;
     return true;
   }
 
@@ -552,10 +563,11 @@ class EmoteStore {
   /// overwrite newer state.
   bool commitGlobal(int epoch, GlobalEmoteFetch fetch) {
     if (epoch != _globalEpoch) return false;
+    _globalAttempted = true;
     if (fetch.byProvider.isEmpty) {
-      // Nothing new: a retained catalog still counts as applied so a
-      // revalidation can refresh the persisted tier tag.
-      return _globalResolved;
+      // Nothing new: a retained catalog still counts as applied. Report
+      // whether data is present so a no-op failure keeps the persisted cache.
+      return _globalCatalog.isNotEmpty;
     }
     var catalog = _globalCatalog;
     for (final entry in fetch.byProvider.entries) {
@@ -574,6 +586,7 @@ class EmoteStore {
     List<Emote> existingSubs,
   ) {
     _channelCatalogs[channel] = cached.copyWith(twitchSubs: existingSubs);
+    _sevenTvFull.add(channel);
     _reapplyLiveSevenTv(channel);
     emitChange(channel: channel);
   }
@@ -589,13 +602,15 @@ class EmoteStore {
   /// resurrect the channel. Missing providers keep their retained list; the
   /// stored subs and 7TV identity are preserved.
   bool commitChannel(String channel, int epoch, ChannelEmoteFetch fetch) {
-    if (epoch != (_channelEpoch[channel] ?? 0)) return false;
-    final hasData =
-        fetch.byProvider.isNotEmpty ||
-        fetch.sevenTvSetId != null ||
-        fetch.sevenTvUserId != null ||
-        _channelCatalogs.containsKey(channel);
-    if (!hasData) return false;
+    if (epoch != channelEpoch(channel)) return false;
+    // No provider lists and no 7TV identity: keep the retained lists, skip the
+    // freshness stamp and emit, and report a retained catalog so the caller
+    // can still refresh the persisted tier tag.
+    if (fetch.byProvider.isEmpty &&
+        fetch.sevenTvSetId == null &&
+        fetch.sevenTvUserId == null) {
+      return _channelCatalogs.containsKey(channel);
+    }
 
     if (fetch.sevenTvSetId != null) {
       _sevenTvEmoteSetIds[channel] = fetch.sevenTvSetId!;
@@ -620,6 +635,11 @@ class EmoteStore {
       _subsByChannelCache = null;
     }
     _channelCatalogs[channel] = catalog;
+    // A fetched 7TV list is a full snapshot; deltas can now be stashed and
+    // re-applied over later rebuilds.
+    if (fetch.byProvider[EmoteType.sevenTv] != null) {
+      _sevenTvFull.add(channel);
+    }
     _reapplyLiveSevenTv(channel);
     _channelFetchTimes[channel] = DateTime.now();
     emitChange(channel: channel);
@@ -686,6 +706,7 @@ class EmoteStore {
       // Build a partial view so the delta's emotes render, but do NOT sync
       // it into the live view: one delta isn't the full set, and
       // _reapplyLiveSevenTv would propagate it over the next full fetch.
+      _sevenTvFull.remove(channel);
       final sorted = List.of(added)..sort((a, b) => a.code.compareTo(b.code));
       _channelCatalogs[channel] = EmoteCatalog(sevenTvChannel: sorted);
       emitChange(
@@ -731,8 +752,8 @@ class EmoteStore {
       final existing = byCode[emote.code];
       if (existing != null &&
           !(existing.scope.index <= emote.scope.index &&
-              kEmoteProviderPriority[emote.type]! <
-                  kEmoteProviderPriority[existing.type]!)) {
+              (kEmoteProviderPriority[emote.type] ?? 99) <
+                  (kEmoteProviderPriority[existing.type] ?? 99))) {
         continue;
       }
       byCode[emote.code] = emote;
@@ -743,7 +764,11 @@ class EmoteStore {
         byCode.values.where((e) => e.type == EmoteType.sevenTv).toList()
           ..sort((a, b) => a.code.compareTo(b.code));
     _channelCatalogs[channel] = catalog.copyWith(sevenTvChannel: live);
-    _sevenTvLive[channel] = live;
+    // Only an authoritative (fully fetched) list may be stashed for re-apply;
+    // a partial pre-fetch delta must not overwrite a later full fetch.
+    if (_sevenTvFull.contains(channel)) {
+      _sevenTvLive[channel] = live;
+    }
 
     // Live deltas don't bump span version (no retroactive re-render).
     emitChange(channel: channel, deltaCodes: changedCodes, bumpVersion: false);
@@ -775,13 +800,14 @@ class EmoteStore {
     _sevenTvUserIds.remove(channel);
     _mergedCache.remove(channel);
     _sevenTvLive.remove(channel);
+    _sevenTvFull.remove(channel);
     _emoteIndexDirty = true;
   }
 
   void evictGlobal() {
     _globalEpoch++;
     _globalCatalog = EmoteCatalog();
-    _globalResolved = false;
+    _globalAttempted = false;
     _mergedCache.clear();
     _emoteIndexDirty = true;
   }
@@ -795,13 +821,18 @@ class EmoteStore {
     Set<String> removedUnlockCodes = const {},
     Set<String> removedCatalogUnlockIds = const {},
   }) {
+    // Drop any in-flight commit from the old account on both scopes.
+    _globalEpoch++;
+    _channelEpochBase++;
     _emotesResolvedChannels.clear();
     _subsByChannelCache = null;
     bool prunesUnlock(Emote e) => e.id.isNotEmpty
         ? removedUnlockIds.contains(e.id) ||
               removedCatalogUnlockIds.contains(e.id)
         : removedUnlockCodes.contains(e.code);
-    if (removedUnlockIds.isNotEmpty || removedCatalogUnlockIds.isNotEmpty) {
+    if (removedUnlockIds.isNotEmpty ||
+        removedUnlockCodes.isNotEmpty ||
+        removedCatalogUnlockIds.isNotEmpty) {
       _globalCatalog = _globalCatalog.withList(
         EmoteScope.global,
         EmoteType.twitch,
@@ -809,6 +840,12 @@ class EmoteStore {
       );
     }
     _channelCatalogs.clear();
+    // Channel 7TV set ids are channel identity, not account identity, so they
+    // stay for live delta routing; the 7TV user id is refreshed on re-resolve.
+    _sevenTvUserIds.clear();
+    _channelFetchTimes.clear();
+    _sevenTvLive.clear();
+    _sevenTvFull.clear();
     _mergedCache.clear();
     emitChange(channel: null);
   }

@@ -56,10 +56,18 @@ class SevenTvPersonalSets {
   final _foreignPersonalSetContents = <String, List<Emote>>{};
   final _foreignPersonalSetInflight = <String, Future<void>>{};
   final _foreignPersonalSets = <String, EmoteLookup>{};
+  // Sets announced over the socket before their contents arrive. Tracked so
+  // the cap counts them, and distinguished from a filled set so a later grant
+  // can still trigger the REST fill.
+  final _foreignPlaceholderSets = <String>{};
   // Unmapped sets render for nobody; bound the contents map.
   // Eviction is least-recently-touched first (insertion order doubles as
   // recency: touches reinsert). Render lookups never touch; too hot.
   static const _maxForeignPersonalSets = 50;
+
+  // Bumped on reset so an in-flight foreign fill that lands afterwards is
+  // dropped instead of repopulating cleared state.
+  int _generation = 0;
 
   // Personal sets change rarely and the socket corrects them live, so the
   // disk copy is a long-lived cold-start seed (not a source of truth).
@@ -192,7 +200,8 @@ class SevenTvPersonalSets {
       _foreignPersonalSetOwners.putIfAbsent(setId, () => {}).add(userId);
     }
     _touchForeignSet(setId);
-    if (_foreignPersonalSetContents.containsKey(setId)) {
+    if (_foreignPersonalSetContents.containsKey(setId) &&
+        !_foreignPlaceholderSets.contains(setId)) {
       if (mappingChanged) {
         _rebuildForeignUsers(setId);
         _notifyChanged();
@@ -225,6 +234,7 @@ class SevenTvPersonalSets {
       if (owners.isEmpty) {
         _foreignPersonalSetOwners.remove(setId);
         _foreignPersonalSetContents.remove(setId);
+        _foreignPlaceholderSets.remove(setId);
       }
     }
     if (changed) {
@@ -246,8 +256,10 @@ class SevenTvPersonalSets {
   void _evictForeignSet(String setId) {
     _foreignPersonalSetOwners.remove(setId);
     _foreignPersonalSetContents.remove(setId);
+    _foreignPlaceholderSets.remove(setId);
     for (final userId in _foreignPersonalUserSets.keys.toList()) {
-      final sets = _foreignPersonalUserSets[userId]!;
+      final sets = _foreignPersonalUserSets[userId];
+      if (sets == null) continue;
       if (!sets.remove(setId)) continue;
       if (sets.isEmpty) {
         _foreignPersonalUserSets.remove(userId);
@@ -258,11 +270,23 @@ class SevenTvPersonalSets {
     }
   }
 
+  // Shared insert for placeholders and filled sets: reinserts (recency) and
+  // evicts down to the cap so neither path can exceed it.
+  void _putForeignSet(String setId, List<Emote> contents) {
+    _foreignPersonalSetContents.remove(setId);
+    _foreignPersonalSetContents[setId] = contents;
+    while (_foreignPersonalSetContents.length > _maxForeignPersonalSets) {
+      _evictForeignSet(_foreignPersonalSetContents.keys.first);
+    }
+  }
+
   /// Placeholder for a personal set announced over the socket whose contents
   /// arrive via later emote_set.update dispatches.
   void trackSet(String setId) {
     if (setId.isEmpty) return;
-    _foreignPersonalSetContents.putIfAbsent(setId, () => []);
+    if (_foreignPersonalSetContents.containsKey(setId)) return;
+    _foreignPlaceholderSets.add(setId);
+    _putForeignSet(setId, <Emote>[]);
   }
 
   /// Applies a socket emote_set.update to a tracked foreign personal set.
@@ -295,6 +319,7 @@ class SevenTvPersonalSets {
       changed = true;
     }
     if (!changed) return;
+    _foreignPlaceholderSets.remove(setId);
     _touchForeignSet(setId);
     _rebuildForeignUsers(setId);
     _notifyChanged();
@@ -304,10 +329,14 @@ class SevenTvPersonalSets {
   /// One-time REST fill for a socket-announced set. Once per set id, shared
   /// by all owners; failures stay uncached so a later grant retries.
   Future<void> _fillForeignSet(String setId) async {
-    if (_foreignPersonalSetContents.containsKey(setId)) return;
+    final filled =
+        _foreignPersonalSetContents.containsKey(setId) &&
+        !_foreignPlaceholderSets.contains(setId);
+    if (filled) return;
     if (_tier() == EmoteFetchTier.nothing) return;
     if (!_isProviderOn(EmoteType.sevenTv)) return;
     if (_foreignPersonalSetInflight.containsKey(setId)) return;
+    final generation = _generation;
     final future = () async {
       List<Emote> fetched;
       try {
@@ -319,12 +348,11 @@ class SevenTvPersonalSets {
         logDebug('[SevenTvPersonalSets] foreign 7TV set $setId failed: $e');
         return;
       }
+      // A reset cleared this state while the fetch was in flight.
+      if (generation != _generation) return;
       if (fetched.isEmpty) return;
-      _foreignPersonalSetContents.remove(setId);
-      _foreignPersonalSetContents[setId] = fetched;
-      while (_foreignPersonalSetContents.length > _maxForeignPersonalSets) {
-        _evictForeignSet(_foreignPersonalSetContents.keys.first);
-      }
+      _foreignPlaceholderSets.remove(setId);
+      _putForeignSet(setId, fetched);
       _rebuildForeignUsers(setId);
       _notifyChanged();
     }();
@@ -332,7 +360,9 @@ class SevenTvPersonalSets {
     try {
       await future;
     } finally {
-      _foreignPersonalSetInflight.remove(setId);
+      if (identical(_foreignPersonalSetInflight[setId], future)) {
+        _foreignPersonalSetInflight.remove(setId);
+      }
     }
   }
 
@@ -374,11 +404,14 @@ class SevenTvPersonalSets {
 
   /// Clears viewer and foreign personal state (account switch).
   void reset() {
+    _generation++;
     _personalSevenTvSetIds.clear();
     _personalSevenTvSets.clear();
     _foreignPersonalSetOwners.clear();
     _foreignPersonalUserSets.clear();
     _foreignPersonalSetContents.clear();
+    _foreignPersonalSetInflight.clear();
+    _foreignPlaceholderSets.clear();
     _foreignPersonalSets.clear();
   }
 
@@ -447,7 +480,11 @@ class SevenTvPersonalSets {
       final foreign = data['foreign'] as Map<String, dynamic>? ?? {};
       final owners = data['foreignOwners'] as Map<String, dynamic>? ?? {};
       for (final entry in foreign.entries) {
-        if (_foreignPersonalSetContents.containsKey(entry.key)) continue;
+        final placeholder = _foreignPlaceholderSets.contains(entry.key);
+        if (_foreignPersonalSetContents.containsKey(entry.key) &&
+            !placeholder) {
+          continue;
+        }
         final emotes = _decodeEmoteList(entry.value);
         if (emotes.isEmpty) continue;
         final setOwners = (owners[entry.key] as List<dynamic>? ?? [])
@@ -455,6 +492,7 @@ class SevenTvPersonalSets {
             .where((u) => u.isNotEmpty && u != viewerId)
             .toSet();
         if (setOwners.isEmpty) continue;
+        _foreignPlaceholderSets.remove(entry.key);
         _foreignPersonalSetContents[entry.key] = emotes;
         _foreignPersonalSetOwners[entry.key] = setOwners;
         for (final userId in setOwners) {

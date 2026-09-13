@@ -75,5 +75,28 @@ void main() {
       fail = false;
       expect(await memo.probe('u', (_) async => true), isTrue);
     });
+
+    test('over-cap inserts evict the oldest memoized result', () async {
+      final memo = EmoteProbeMemo(maxEntries: 3);
+      final calls = <String>[];
+      Future<bool> probe(String url) async {
+        calls.add(url);
+        return true;
+      }
+
+      await memo.probe('oldest', probe);
+      await memo.probe('u0', probe);
+      await memo.probe('u1', probe);
+      calls.clear();
+      // At the cap: all still memoized.
+      await memo.probe('oldest', probe);
+      expect(calls, isEmpty);
+
+      // One more insert evicts the oldest entry.
+      await memo.probe('u2', probe);
+      calls.clear();
+      await memo.probe('oldest', probe);
+      expect(calls, ['oldest']);
+    });
   });
 }

@@ -25,15 +25,9 @@ class BttvEmoteProvider {
   @visibleForTesting
   static List<Emote> parseEmotes(
     List<dynamic> items, {
-    bool global = false,
     bool channel = false,
     EmoteResolution resolution = EmoteResolution.high,
-  }) => _parseEmotes(
-    items,
-    global: global,
-    channel: channel,
-    resolution: resolution,
-  );
+  }) => _parseEmotes(items, channel: channel, resolution: resolution);
 
   static Future<List<Emote>> fetchGlobal({
     EmoteResolution resolution = EmoteResolution.high,
@@ -45,7 +39,7 @@ class BttvEmoteProvider {
     if (res.statusCode != 200) return [];
     return Isolate.run(() {
       final data = jsonDecode(res.body) as List<dynamic>;
-      return _parseEmotes(data, global: true, resolution: resolution);
+      return _parseEmotes(data, resolution: resolution);
     });
   }
 
@@ -73,7 +67,6 @@ class BttvEmoteProvider {
 
   static List<Emote> _parseEmotes(
     List<dynamic> items, {
-    bool global = false,
     bool channel = false,
     EmoteResolution resolution = EmoteResolution.high,
   }) {
@@ -114,11 +107,7 @@ class BttvEmoteProvider {
           url1x: url1x,
           url3x: url3x,
           isAnimated: isAnimated,
-          scope: global
-              ? EmoteScope.global
-              : channel
-              ? EmoteScope.channel
-              : EmoteScope.global,
+          scope: channel ? EmoteScope.channel : EmoteScope.global,
           isZeroWidth: isZeroWidth,
         ),
       );

@@ -138,10 +138,12 @@ class SevenTvEmoteProvider {
     final emotes = <Emote>[];
     for (final entry in items) {
       Map<String, dynamic> item;
-      if (entry is Map<String, dynamic> && entry.containsKey('emote')) {
-        item = entry['emote'] as Map<String, dynamic>;
-      } else if (entry is Map<String, dynamic>) {
+      if (entry is! Map<String, dynamic>) continue;
+      final nested = entry['emote'];
+      if (nested == null) {
         item = entry;
+      } else if (nested is Map<String, dynamic>) {
+        item = nested;
       } else {
         continue;
       }
@@ -168,7 +170,8 @@ class SevenTvEmoteProvider {
       String? best2x;
       String? lastLe3;
       for (final fileEntry in baseUrl) {
-        final file = fileEntry as Map<String, dynamic>;
+        if (fileEntry is! Map<String, dynamic>) continue;
+        final file = fileEntry;
         final format = file['format'] as String?;
         final name = file['name'] as String?;
         if (name == null || format != 'WEBP') continue;

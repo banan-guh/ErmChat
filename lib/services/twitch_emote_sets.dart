@@ -208,7 +208,6 @@ class TwitchEmoteSets {
     for (final e in emotes) {
       _unlockedTwitchEmotes[e.id.isNotEmpty ? e.id : e.code] = e;
     }
-    _store.markGlobalResolved();
     _store.notifyStateCleared();
   }
 
@@ -281,6 +280,7 @@ class TwitchEmoteSets {
               url1x: e.url1x,
               url3x: e.url3x,
               isAnimated: e.isAnimated,
+              isZeroWidth: e.isZeroWidth,
               scope: e.scope,
             ),
           );

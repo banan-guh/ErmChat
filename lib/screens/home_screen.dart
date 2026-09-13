@@ -1563,7 +1563,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           onGifHeightChanged: _setGifHeight,
           onShowImagesChanged: _setShowImages,
           onImageHeightChanged: _setImageHeight,
-          onEmoteTierChanged: _emotes.applyTier,
+          onEmoteTierChanged: _emotes.setManualTier,
           onEmoteCacheMaxChanged: _emotes.applyCacheCap,
           onSharedChatModeChanged: _setSharedChatMode,
           onEmoteAutoModeChanged: _emotes.applyAutoMode,

@@ -61,6 +61,16 @@ class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
   /// Seeds queued by target URL for the next completer.
   static final Map<String, String> _pendingSeeds = {};
 
+  /// Bound on queued seeds; a target that never renders drops the oldest.
+  static const _maxPendingSeeds = 256;
+
+  static void _storeSeed(String url, String sourceUrl) {
+    _pendingSeeds[url] = sourceUrl;
+    while (_pendingSeeds.length > _maxPendingSeeds) {
+      _pendingSeeds.remove(_pendingSeeds.keys.first);
+    }
+  }
+
   /// Whether animated emotes play. False freezes at current frame. Synced
   /// from prefs.
   static bool gifsEnabled = true;
@@ -93,7 +103,7 @@ class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
         return;
       }
     }
-    _pendingSeeds[url] = sourceUrl;
+    _storeSeed(url, sourceUrl);
     _liveByUrl[url]?.seedFrom(sourceUrl);
   }
 
@@ -150,7 +160,6 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
     // Pick up seed queued before this completer existed.
     final queued = EmoteUrlProvider._pendingSeeds[url];
     if (queued != null && queued != url) _seedFromUrl = queued;
-    EmoteUrlProvider._liveByUrl[url] = this;
     _load();
   }
 
@@ -765,6 +774,9 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
   void addListener(ImageStreamListener listener) {
     super.addListener(listener);
     if (_disposed || !hasListeners) return;
+    // Register only once a listener attaches: a completer created but never
+    // rendered (seed lookup) must not be retained by the live map.
+    EmoteUrlProvider._liveByUrl[url] = this;
     if (_frames != null || _codec != null || _compositor != null) {
       // Resume animated playback when a listener returns.
       _startPlayback();

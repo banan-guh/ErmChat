@@ -25,7 +25,8 @@ class EmoteImages {
     EmoteProbeMemo? probeMemo,
     Future<void> Function(String url)? removeCachedFile,
     DateTime Function()? now,
-  }) : _cache = cacheManager ?? EmoteCacheManager(),
+  }) : _ownsCache = cacheManager == null,
+       _cache = cacheManager ?? EmoteCacheManager(),
        _probe = probeMemo ?? EmoteProbeMemo(now: now) {
     _cache.policy = policy;
     _removeCachedFile =
@@ -33,6 +34,16 @@ class EmoteImages {
   }
 
   final EmoteCacheManager _cache;
+
+  /// Whether this owner created the cache; an injected cache stays the
+  /// caller's to close.
+  final bool _ownsCache;
+
+  bool _disposed = false;
+
+  /// Whether [startCacheGc] ran, so teardown never closes a cache whose repo
+  /// open is still in flight.
+  bool _started = false;
 
   /// Memoized existence probes, shared by every render path.
   final EmoteProbeMemo _probe;
@@ -56,38 +67,38 @@ class EmoteImages {
   /// Runs cache migrations, wires the cap, and enforces it once. One-time
   /// cache GC; usage loading happens in the coordinator before this.
   Future<void> startCacheGc() async {
+    _started = true;
     _cache.maxObjects = _cacheCap;
+    final prefs = await Prefs.load();
     if (!_migrationRan) {
-      final prefs = await Prefs.load();
       if (prefs.emoteGcMigratedV1) {
         _migrationRan = true;
       } else {
         // First launch after GC: clear old cache (untracked by usage registry).
-        try {
-          await DefaultCacheManager().emptyCache();
-        } catch (_) {
-          logDebug('[EmoteImages] cache migration emptyCache failed');
-        }
+        await _emptyLegacyCache('cache migration');
         _migrationRan = true;
         await prefs.setEmoteGcMigratedV1(true);
       }
     }
     if (!_migrationRanV2) {
-      final prefs = await Prefs.load();
       if (prefs.emoteGcMigratedV2) {
         _migrationRanV2 = true;
       } else {
         // v2 migration: clear v1 DefaultCacheManager leftovers.
-        try {
-          await DefaultCacheManager().emptyCache();
-        } catch (_) {
-          logDebug('[EmoteImages] cache v2 migration emptyCache failed');
-        }
+        await _emptyLegacyCache('cache v2 migration');
         _migrationRanV2 = true;
         await prefs.setEmoteGcMigratedV2(true);
       }
     }
     await _cache.enforceNow();
+  }
+
+  Future<void> _emptyLegacyCache(String label) async {
+    try {
+      await DefaultCacheManager().emptyCache();
+    } catch (_) {
+      logDebug('[EmoteImages] $label emptyCache failed');
+    }
   }
 
   bool _migrationRan = false;
@@ -191,7 +202,15 @@ class EmoteImages {
 
   int get precacheQueueLength => _precacheQueue.length;
 
+  /// Releases the disk cache this owner created and drops the precache queue.
+  /// Safe to call more than once.
   void dispose() {
+    if (_disposed) return;
+    _disposed = true;
     _precacheQueue.clear();
+    // An unopened repo can throw on close; the cache is being torn down anyway.
+    if (_ownsCache && _started) {
+      unawaited(_cache.dispose().catchError((Object _) {}));
+    }
   }
 }

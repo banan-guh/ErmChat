@@ -295,7 +295,6 @@ class EmoteManager {
   EmoteLookup? byCodeForSender(String channel, String? senderTwitchId) =>
       _store.byCodeForSender(
         channel,
-        senderTwitchId,
         personal: _personalSets.viewerEmotes,
         unlocks: _twitchSets.unlockedEmotes,
         foreign: _personalSets.foreignFor(senderTwitchId),
@@ -356,20 +355,28 @@ class EmoteManager {
   Future<void> _ensureProvidersLoaded() async {
     if (_providersLoaded) return;
     _providersLoaded = true;
-    final prefs = await _getPrefs();
-    final raw = prefs.emoteProvidersDisabled;
-    final disabled = <EmoteType>{};
-    var migrated = false;
-    if (raw != null) {
-      for (final t in EmoteType.values) {
-        if (raw.contains(t.name)) disabled.add(t);
+    try {
+      final prefs = await _getPrefs();
+      final raw = prefs.emoteProvidersDisabled;
+      final disabled = <EmoteType>{};
+      var migrated = false;
+      if (raw != null) {
+        for (final t in EmoteType.values) {
+          if (raw.contains(t.name)) disabled.add(t);
+        }
+        // Migrate: Twitch is no longer toggleable.
+        if (disabled.remove(EmoteType.twitch)) migrated = true;
       }
-      // Migrate: Twitch is no longer toggleable.
-      if (disabled.remove(EmoteType.twitch)) migrated = true;
+      _store.setProviderVisibility(disabled, prefs.emoteAllowUnlisted7tv);
+      if (!migrated) return;
+      await prefs.setEmoteProvidersDisabled(
+        disabled.map((t) => t.name).toList(),
+      );
+    } catch (e) {
+      // Retry on the next call instead of caching a failed load.
+      _providersLoaded = false;
+      logDebug('[EmoteManager] failed to load provider visibility: $e');
     }
-    _store.setProviderVisibility(disabled, prefs.emoteAllowUnlisted7tv);
-    if (!migrated) return;
-    await prefs.setEmoteProvidersDisabled(disabled.map((t) => t.name).toList());
   }
 
   /// Whether [type] is fetched and rendered (sync view).
@@ -414,17 +421,17 @@ class EmoteManager {
     _store.notifyVisibilityChanged();
   }
 
-  bool _hasGlobalStash(EmoteType type) =>
+  bool _hasGlobalList(EmoteType type) =>
       _store.globalCatalog.listFor(EmoteScope.global, type).isNotEmpty;
 
-  bool _hasChannelStash(String channel, EmoteType type) =>
+  bool _hasChannelList(String channel, EmoteType type) =>
       _store
           .channelCatalog(channel)
           ?.listFor(EmoteScope.channel, type)
           .isNotEmpty ??
       false;
 
-  /// Refetches globals + channels for types with no retained stash.
+  /// Refetches globals + channels for types with no retained catalog list.
   Future<void> ensureStashed(Set<EmoteType> types) async {
     await _ensureProvidersLoaded();
     if (_registryFrozen || _tier == EmoteFetchTier.nothing || types.isEmpty) {
@@ -439,15 +446,18 @@ class EmoteManager {
     if (targets.isEmpty) return;
     var fetched = false;
     await _fetcher.enqueue(() async {
-      for (final type in targets.where((t) => !_hasGlobalStash(t))) {
+      final globalEpoch = _store.globalEpoch;
+      for (final type in targets.where((t) => !_hasGlobalList(t))) {
         try {
           final fetch = await _fetcher.fetchGlobalForProvider(type, resolution);
           if (fetch.byProvider.isNotEmpty) {
-            _commitGlobal(_store.globalEpoch, fetch);
+            _commitGlobal(globalEpoch, fetch);
             fetched = true;
           }
         } catch (e) {
-          logDebug('[EmoteManager] stash refetch failed for ${type.name}: $e');
+          logDebug(
+            '[EmoteManager] catalog refetch failed for ${type.name}: $e',
+          );
         }
       }
       for (final channel in _store.channelNames) {
@@ -455,9 +465,10 @@ class EmoteManager {
         if (broadcasterId == null) continue;
         final missing = [
           for (final t in targets)
-            if (!_hasChannelStash(channel, t)) t,
+            if (!_hasChannelList(channel, t)) t,
         ];
         if (missing.isEmpty) continue;
+        final channelEpoch = _store.channelEpoch(channel);
         final byProvider = <EmoteType, List<Emote>>{};
         String? sevenTvSetId;
         String? sevenTvUserId;
@@ -477,14 +488,14 @@ class EmoteManager {
             sevenTvUserId ??= fetch.sevenTvUserId;
           } catch (e) {
             logDebug(
-              '[EmoteManager] stash refetch failed for '
+              '[EmoteManager] catalog refetch failed for '
               '${type.name}@$channel: $e',
             );
           }
         }
         _commitChannel(
           channel,
-          _store.channelEpoch(channel),
+          channelEpoch,
           ChannelEmoteFetch(
             byProvider: byProvider,
             sevenTvSetId: sevenTvSetId,
@@ -509,9 +520,13 @@ class EmoteManager {
   /// ranking.
   Set<String> get recentEmoteIds => _usage.recentEmoteIds;
 
-  /// Resolve an emote by ID across all caches, then the personal overlay.
-  Emote? emoteById(String id) =>
-      _store.emoteById(id, personal: _personalSets.viewerEmotes);
+  /// Resolve an emote by ID across all caches, then the personal and account
+  /// unlock overlays.
+  Emote? emoteById(String id) => _store.emoteById(
+    id,
+    personal: _personalSets.viewerEmotes,
+    unlocks: _twitchSets.unlockedEmotes,
+  );
 
   Future<void> markEmoteUsed(Emote emote) => _usage.markEmoteUsed(emote);
 
@@ -546,9 +561,12 @@ class EmoteManager {
           // Fresh cache: render, then background-refresh Twitch globals.
           if (!_skipTwitchBackgroundRefresh) {
             unawaited(
-              _fetcher.enqueue(_fetcher.refreshTwitchGlobal).then((fetch) {
-                if (fetch != null) _commitGlobal(epoch, fetch);
-              }),
+              _fetcher
+                  .enqueue(_fetcher.refreshTwitchGlobal)
+                  .then((fetch) {
+                    if (fetch != null) _commitGlobal(epoch, fetch);
+                  })
+                  .catchError((Object _) {}),
             );
           }
           return;
@@ -560,7 +578,7 @@ class EmoteManager {
     if (_tier == EmoteFetchTier.nothing) return;
     final loaded = await _persistence.load('emotes4_global', ttl);
     if (loaded.catalog != null) {
-      // Seed provider lists a wiped stash would otherwise lose to a flaky
+      // Seed provider lists a wiped catalog would otherwise lose to a flaky
       // fetch (429/5xx/timeout), without clobbering in-memory data.
       if (!_store.fillMissingGlobal(epoch, loaded.catalog!)) return;
     }
@@ -649,7 +667,8 @@ class EmoteManager {
                 )
                 .then((fetch) {
                   if (fetch != null) _commitChannel(channel, epoch, fetch);
-                }),
+                })
+                .catchError((Object _) {}),
           );
         }
         // Reconcile 7TV deltas at startup: the fetched set is authoritative,
@@ -667,7 +686,8 @@ class EmoteManager {
                     _store.dropLiveSevenTv(channel);
                   }
                   _commitChannel(channel, epoch, fetch);
-                }),
+                })
+                .catchError((Object _) {}),
           );
         }
         return;
@@ -864,6 +884,7 @@ class EmoteManager {
   Future<void> clearImageCache() => _images.clear();
 
   void dispose() {
+    _fetcher.dispose();
     _usage.dispose();
     _images.dispose();
     if (_ownsStore) _store.dispose();

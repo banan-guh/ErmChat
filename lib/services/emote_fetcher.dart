@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import '../emotes/emote.dart';
+import '../emotes/emote_catalog.dart';
 import '../emotes/emote_meta.dart';
 import '../models/emote_fetch_tier.dart';
 import '../services/twitch_api.dart';
@@ -35,6 +36,10 @@ class EmoteFetcher {
   // network, while letting more than one channel refresh at a time.
   static const _maxConcurrentFetches = 2;
   final _fetchGate = Semaphore(_maxConcurrentFetches);
+
+  // Set on teardown so work queued behind the stagger or the gate is dropped
+  // instead of retaining its closure until it runs.
+  bool _disposed = false;
 
   late final DateTime Function() _now;
   late final EmoteFetchTier Function() _tier;
@@ -134,17 +139,30 @@ class EmoteFetcher {
   /// Runs [action] behind the shared fetch gate after the configured stagger.
   /// The stagger wait runs before acquiring a permit so sleeping fetches never
   /// hold gate slots. Callers control the enqueue boundary when they batch
-  /// several producer calls under one permit.
+  /// several producer calls under one permit. Work still queued at teardown
+  /// is dropped without running.
   Future<T> enqueue<T>(Future<T> Function() action) {
-    final enqueuedAt = DateTime.now();
-    Future<void> stagger() async {
-      final elapsed = DateTime.now().difference(enqueuedAt);
-      if (elapsed < _fetchStagger) {
-        await Future.delayed(_fetchStagger - elapsed);
-      }
+    if (_disposed) {
+      return Future<T>.error(StateError('EmoteFetcher disposed'));
     }
+    Future<void> stagger() => Future<void>.delayed(_fetchStagger);
 
-    return stagger().then((_) => _fetchGate.withPermit(action));
+    return stagger().then((_) {
+      if (_disposed) {
+        throw StateError('EmoteFetcher disposed');
+      }
+      return _fetchGate.withPermit(() {
+        if (_disposed) {
+          throw StateError('EmoteFetcher disposed');
+        }
+        return action();
+      });
+    });
+  }
+
+  /// Drops queued work and marks the fetcher unusable.
+  void dispose() {
+    _disposed = true;
   }
 
   /// Fetches every enabled global provider list plus the catalogue unlock ids.
@@ -313,9 +331,7 @@ class EmoteFetcher {
         _tier().resolution!,
       );
       return ChannelEmoteFetch(
-        byProvider: resp.emotes.isEmpty
-            ? const {}
-            : {EmoteType.sevenTv: resp.emotes},
+        byProvider: _providerMap(EmoteType.sevenTv, resp.emotes),
         sevenTvSetId: resp.emoteSetId,
         sevenTvUserId: resp.userId,
       );
@@ -335,9 +351,7 @@ class EmoteFetcher {
       case EmoteType.twitch:
         final twitch = await _fetchTwitchGlobal(resolution);
         return GlobalEmoteFetch(
-          byProvider: twitch.emotes.isEmpty
-              ? const {}
-              : {EmoteType.twitch: twitch.emotes},
+          byProvider: _providerMap(EmoteType.twitch, twitch.emotes),
           twitchCatalogUnlockIds: twitch.unlockIds,
         );
       case EmoteType.bttv:
@@ -345,19 +359,19 @@ class EmoteFetcher {
           resolution: resolution,
         );
         return GlobalEmoteFetch(
-          byProvider: emotes.isEmpty ? const {} : {EmoteType.bttv: emotes},
+          byProvider: _providerMap(EmoteType.bttv, emotes),
         );
       case EmoteType.ffz:
         final emotes = await FfzEmoteProvider.fetchGlobal(
           resolution: resolution,
         );
         return GlobalEmoteFetch(
-          byProvider: emotes.isEmpty ? const {} : {EmoteType.ffz: emotes},
+          byProvider: _providerMap(EmoteType.ffz, emotes),
         );
       case EmoteType.sevenTv:
         final emotes = await _sevenTvGlobalFetcher(resolution);
         return GlobalEmoteFetch(
-          byProvider: emotes.isEmpty ? const {} : {EmoteType.sevenTv: emotes},
+          byProvider: _providerMap(EmoteType.sevenTv, emotes),
         );
     }
   }
@@ -377,10 +391,10 @@ class EmoteFetcher {
           channelName: channelName,
           resolution: resolution,
         );
-        // Subs live in the channel's twitchSubs list, not the provider stash.
+        // Subs live in the channel's twitchSubs list, not the provider lists.
         final nonSub = fetched.where((e) => !isTwitchSub(e)).toList();
         return ChannelEmoteFetch(
-          byProvider: nonSub.isEmpty ? const {} : {EmoteType.twitch: nonSub},
+          byProvider: _providerMap(EmoteType.twitch, nonSub),
         );
       case EmoteType.bttv:
         final emotes = await BttvEmoteProvider.fetchChannel(
@@ -388,7 +402,7 @@ class EmoteFetcher {
           resolution: resolution,
         );
         return ChannelEmoteFetch(
-          byProvider: emotes.isEmpty ? const {} : {EmoteType.bttv: emotes},
+          byProvider: _providerMap(EmoteType.bttv, emotes),
         );
       case EmoteType.ffz:
         final emotes = await FfzEmoteProvider.fetchChannel(
@@ -396,19 +410,24 @@ class EmoteFetcher {
           resolution: resolution,
         );
         return ChannelEmoteFetch(
-          byProvider: emotes.isEmpty ? const {} : {EmoteType.ffz: emotes},
+          byProvider: _providerMap(EmoteType.ffz, emotes),
         );
       case EmoteType.sevenTv:
         final resp = await _sevenTvChannelFetcher(broadcasterId, resolution);
         return ChannelEmoteFetch(
-          byProvider: resp.emotes.isEmpty
-              ? const {}
-              : {EmoteType.sevenTv: resp.emotes},
+          byProvider: _providerMap(EmoteType.sevenTv, resp.emotes),
           sevenTvSetId: resp.emoteSetId,
           sevenTvUserId: resp.userId,
         );
     }
   }
+
+  /// Single-provider fetch map; an empty list yields an empty map so the commit
+  /// retains the previous list.
+  static Map<EmoteType, List<Emote>> _providerMap(
+    EmoteType type,
+    List<Emote> emotes,
+  ) => emotes.isEmpty ? const {} : {type: emotes};
 
   /// TTL varies by tier and connectivity (longer on cellular).
   Future<Duration> effectiveTtl() async {
@@ -498,21 +517,13 @@ class EmoteFetcher {
     if (defaultsError != null && defaults.isEmpty && unlockable.isEmpty) {
       throw defaultsError!;
     }
-    final unlockIds = <String>{
-      for (final e in unlockable)
-        if (e.id.isNotEmpty) e.id,
-    };
-    if (unlockable.isEmpty) return (emotes: defaults, unlockIds: unlockIds);
+    final keys = emoteOverlayKeys(unlockable);
+    if (unlockable.isEmpty) return (emotes: defaults, unlockIds: keys.ids);
     // Unlockable catalogue wins on code collision (limited-time rotations
     // reuse names with new ids); dedup by id too.
-    final overrideIds = unlockIds;
-    final overrideCodes = {for (final e in unlockable) e.code};
     final merged = <Emote>[
       for (final e in defaults)
-        if (!(e.id.isNotEmpty
-            ? overrideIds.contains(e.id) || overrideCodes.contains(e.code)
-            : overrideCodes.contains(e.code)))
-          e,
+        if (!overlayCollides(e, keys)) e,
       ...unlockable,
     ];
     final seen = <String>{};
@@ -521,7 +532,7 @@ class EmoteFetcher {
         for (final e in merged)
           if (e.id.isEmpty || seen.add(e.id)) e,
       ],
-      unlockIds: unlockIds,
+      unlockIds: keys.ids,
     );
   }
 
@@ -539,7 +550,8 @@ class EmoteFetcher {
       _probeResult = results.contains(ConnectivityResult.mobile)
           ? ConnectivityResult.mobile
           : ConnectivityResult.wifi;
-    } catch (_) {
+    } catch (e) {
+      logDebug('[EmoteFetcher] connectivity probe failed, assuming wifi: $e');
       _probeResult = ConnectivityResult.wifi;
     }
     _probeAt = _now();
@@ -562,7 +574,7 @@ class EmoteFetcher {
             await entry.value();
           } catch (e) {
             failed.add(entry.key);
-            logDebug('EmoteFetcher: ${entry.key.name} failed: $e');
+            logDebug('[EmoteFetcher] ${entry.key.name} failed: $e');
           }
         }),
       );

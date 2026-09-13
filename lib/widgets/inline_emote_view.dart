@@ -155,15 +155,6 @@ class RenderInlineEmote extends RenderBox {
   double _height;
   ImageInfo? _image;
 
-  /// Image paints since last reset. Test telemetry only.
-  static int debugPaintCount = 0;
-
-  /// Resets paint telemetry. Exposed for tests.
-  @visibleForTesting
-  static void debugResetPaintCounter() {
-    debugPaintCount = 0;
-  }
-
   double get width => _width;
   set width(double value) {
     if (_width == value) return;
@@ -205,7 +196,6 @@ class RenderInlineEmote extends RenderBox {
     final canvas = context.canvas;
     final info = _image;
     if (info != null) {
-      debugPaintCount++;
       // Contain-fit: emote textures rarely match layout size; inscribe would overflow.
       paintImage(
         canvas: canvas,

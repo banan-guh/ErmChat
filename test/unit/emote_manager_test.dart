@@ -1754,6 +1754,37 @@ void main() {
       },
     );
 
+    test('an account reset drops an in-flight channel resolve', () async {
+      SharedPreferences.setMockInitialValues({});
+      final firstFetch = Completer<void>();
+      final gate = Completer<SevenTvChannelResponse>();
+      final manager = EmoteManager(
+        fetchStagger: Duration.zero,
+        tier: EmoteFetchTier.medium,
+        removeCachedFile: (url) async {},
+        sevenTvChannelFetcher: (id, resolution) {
+          firstFetch.complete();
+          return gate.future;
+        },
+      );
+
+      final resolving = manager.resolveEmotes('ch', 'b1');
+      await firstFetch.future;
+      manager.resetUserEmoteState();
+      gate.complete(
+        SevenTvChannelResponse(
+          emotes: [sevenTv('a', 'Alpha')],
+          emoteSetId: 'setA',
+          userId: 'u1',
+        ),
+      );
+      await resolving;
+      await pumpEventQueue();
+
+      expect(manager.hasChannelCache('ch'), isFalse);
+      expect(manager.byCode('ch'), isNull);
+    });
+
     test('a forced resolve supersedes an older in-flight resolve', () async {
       SharedPreferences.setMockInitialValues({});
       Completer<SevenTvChannelResponse>? firstGate;
@@ -2328,6 +2359,17 @@ void main() {
       gates[1].complete();
       await Future.wait([f1, f2, f3]);
     });
+
+    test('disposal drops queued fetch work without running it', () async {
+      final manager = EmoteManager(fetchStagger: Duration.zero);
+      var ran = false;
+      manager.dispose();
+      await expectLater(
+        manager.enqueueFetchForTesting(() async => ran = true),
+        throwsStateError,
+      );
+      expect(ran, isFalse);
+    });
   });
 
   group('subscriber emotes in channel cache', () {
@@ -2647,6 +2689,48 @@ void main() {
 
       expect(fetchCalls, 1);
       expect(manager.byCode('chanA')?.byCode['PrimePride']?.id, 'u1');
+    });
+
+    test('emoteById resolves unlocked Twitch emotes', () async {
+      final auth = TwitchAuth()..accessToken = 'tok';
+      final manager = EmoteManager(
+        fetchStagger: Duration.zero,
+        fetchUserEmoteSets: (ids, {accessToken, resolution}) async => {
+          '': [unlockedEmote()],
+        },
+        resolveOwnerLogins: (a, ids) async => {},
+      );
+
+      await manager.loadUserEmoteSets(['s1'], auth, {'chanA': 'ownerA'});
+
+      expect(manager.emoteById('u1')?.code, 'PrimePride');
+    });
+
+    test('unlocks do not suppress the global preload', () async {
+      SharedPreferences.setMockInitialValues({});
+      final auth = TwitchAuth()..accessToken = 'tok';
+      var globalFetches = 0;
+      final manager = EmoteManager(
+        fetchStagger: Duration.zero,
+        tier: EmoteFetchTier.medium,
+        removeCachedFile: (url) async {},
+        fetchUserEmoteSets: (ids, {accessToken, resolution}) async => {
+          '': [unlockedEmote()],
+        },
+        resolveOwnerLogins: (a, ids) async => {},
+        sevenTvGlobalFetcher: (resolution) async {
+          globalFetches++;
+          return const [];
+        },
+      );
+
+      await manager.loadUserEmoteSets(['s1'], auth, {'chanA': 'ownerA'});
+      expect(manager.hasGlobalCache, isFalse);
+
+      await manager.preloadGlobalEmotes();
+
+      expect(globalFetches, 1);
+      expect(manager.hasGlobalCache, isTrue);
     });
 
     test('resetUserEmoteState clears unlocked global emotes', () async {
@@ -4869,6 +4953,32 @@ void main() {
       expect(codes, contains('FreshRenamed'));
       expect(codes, isNot(contains('TheirCode')));
       expect(codes, isNot(contains('Fresh')));
+    });
+
+    test('a tracked socket set still fills from a later grant', () async {
+      SharedPreferences.setMockInitialValues({});
+      final manager = socketManager(
+        sets: {
+          'set-1': [personal('p1', 'Placeheld')],
+        },
+      );
+      manager.trackForeignPersonalSet('set-1');
+      expect(manager.foreignPersonalSetCountForTesting(), 1);
+
+      await manager.trackForeignPersonalGrant(['sender-1'], 'set-1');
+      expect(
+        manager.byCodeForSender('ch', 'sender-1')!.byCode.keys,
+        contains('Placeheld'),
+      );
+    });
+
+    test('socket-announced placeholders stay capped', () async {
+      SharedPreferences.setMockInitialValues({});
+      final manager = socketManager();
+      for (var i = 0; i < 60; i++) {
+        manager.trackForeignPersonalSet('set-$i');
+      }
+      expect(manager.foreignPersonalSetCountForTesting(), 50);
     });
 
     test('grant delete drops only that sender mapping', () async {
