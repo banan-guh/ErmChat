@@ -1,8 +1,6 @@
 import 'package:ermchat/providers/app_providers.dart';
 import 'package:ermchat/providers/chat_pipeline.dart';
-import 'package:ermchat/providers/emote_image_providers.dart';
-import 'package:ermchat/providers/emote_owner_providers.dart';
-import 'package:ermchat/providers/emote_store_providers.dart';
+import 'package:ermchat/providers/emote_providers.dart';
 import 'package:ermchat/providers/feature_providers.dart';
 import 'package:ermchat/services/chat_connection_manager.dart';
 import 'package:ermchat/services/twitch_api.dart';

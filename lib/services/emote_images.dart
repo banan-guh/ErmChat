@@ -8,8 +8,8 @@ import '../models/emote_fetch_tier.dart';
 import '../util/log.dart';
 import '../util/prefs.dart';
 import 'emote_cache_manager.dart';
-import 'emote_image_policy.dart';
 import 'emote_probe_memo.dart';
+import 'emote_usage_registry.dart';
 
 /// The image black box: owns every emote image byte on disk and in flight.
 ///

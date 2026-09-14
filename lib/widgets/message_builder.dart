@@ -5,7 +5,7 @@ import '../emotes/emote.dart';
 import '../models/twitch_badge.dart';
 import '../models/twitch_message.dart';
 import '../util/constants.dart';
-import '../services/emote_lookup_source.dart';
+import '../services/emote_manager.dart';
 import '../services/link_whitelist.dart';
 import '../services/third_party_badge_service.dart';
 import '../services/twitch_badge_service.dart';

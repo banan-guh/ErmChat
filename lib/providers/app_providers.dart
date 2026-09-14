@@ -6,7 +6,6 @@ import '../eventsub/transport/connection.dart';
 import '../irc/join_rate_limiter.dart';
 import '../irc/transport/read.dart';
 import '../irc/transport/write.dart';
-import '../services/emote_lookup_source.dart';
 import '../services/emote_manager.dart';
 import '../services/ignore_manager.dart';
 import '../services/ping_manager.dart';
@@ -19,9 +18,7 @@ import '../services/twitch_api.dart';
 import '../services/twitch_badge_service.dart';
 import '../services/user_store.dart';
 import '../util/connectivity.dart';
-import 'emote_image_providers.dart';
-import 'emote_owner_providers.dart';
-import 'emote_store_providers.dart';
+import 'emote_providers.dart';
 
 /// App-scope shared objects: transports, managers, and the mutable kernel.
 ///

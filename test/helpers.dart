@@ -1,5 +1,4 @@
 import 'package:ermchat/emotes/emote.dart';
-import 'package:ermchat/emotes/emote_meta.dart';
 
 /// Twitch render status from the API tier/emote_type pair, mirroring the
 /// provider mapping.

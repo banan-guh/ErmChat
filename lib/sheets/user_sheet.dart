@@ -7,7 +7,7 @@ import '../models/twitch_badge.dart';
 import '../models/twitch_message.dart';
 import '../composer/composer_controller.dart';
 import '../services/chat_connection_manager.dart';
-import '../services/emote_lookup_source.dart';
+import '../services/emote_manager.dart';
 import '../services/emote_usage_registry.dart';
 import '../services/mod_actions.dart';
 import '../widgets/seven_tv_paint_service.dart';

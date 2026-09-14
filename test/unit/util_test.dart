@@ -20,7 +20,6 @@ import 'package:ermchat/util/crash_report.dart';
 import 'package:flutter/services.dart';
 import 'package:ermchat/widgets/predictive_back_handler.dart';
 import 'package:ermchat/emotes/emote.dart';
-import 'package:ermchat/emotes/emote_meta.dart';
 import 'package:ermchat/services/emote_manager.dart';
 import 'package:ermchat/services/twitch_badge_service.dart';
 import 'package:ermchat/services/third_party_badge_service.dart';

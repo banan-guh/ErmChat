@@ -1,7 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ermchat/emotes/emote.dart';
 import 'package:ermchat/emotes/emote_catalog.dart';
-import 'package:ermchat/emotes/emote_meta.dart';
 
 Emote _emote(
   String id,

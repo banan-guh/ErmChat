@@ -1,7 +1,6 @@
 import 'package:ermchat/emotes/emote.dart';
-import 'package:ermchat/emotes/emote_meta.dart';
-import 'package:ermchat/providers/emote_store_providers.dart';
-import 'package:ermchat/services/emote_fetch.dart';
+import 'package:ermchat/providers/emote_providers.dart';
+import 'package:ermchat/services/emote_fetcher.dart';
 import 'package:ermchat/services/emote_store.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';

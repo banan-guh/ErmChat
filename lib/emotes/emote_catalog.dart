@@ -1,5 +1,4 @@
 import 'emote.dart';
-import 'emote_meta.dart';
 
 /// Dedup priority within one scope: lower wins. 7TV over BTTV over FFZ over
 /// Twitch, matching how overlapping codes are resolved across providers.

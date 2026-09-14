@@ -7,12 +7,24 @@ import '../util/connectivity.dart';
 import '../util/data_usage.dart';
 import '../util/prefs.dart';
 import '../util/log.dart';
+import '../util/signal.dart';
 import 'emote_manager.dart';
-import 'emote_signals.dart';
 import 'seven_tv_event_client.dart';
 import 'twitch_api.dart';
 import 'twitch_auth.dart';
 import 'twitch_badge_service.dart';
+
+/// Output ports the emote controller pushes at the shell: a user-facing
+/// notice and the manual-refresh busy flag.
+class EmoteSignals {
+  final ChatSignal<String> snack = ChatSignal<String>();
+  final ChatSignal<bool> busy = ChatSignal<bool>();
+
+  void dispose() {
+    snack.clear();
+    busy.clear();
+  }
+}
 
 // Emote daemon control: persisted tier/auto/cache-cap prefs, post-auth
 // refresh, and manual reload/nuke.

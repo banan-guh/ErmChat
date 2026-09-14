@@ -3,7 +3,6 @@ import 'dart:isolate';
 import 'package:http/http.dart' as http;
 import '../../twitch_config.dart';
 import '../../emotes/emote.dart';
-import '../../emotes/emote_meta.dart';
 import '../../util/constants.dart';
 import '../../util/log.dart';
 import '../../util/data_usage.dart';

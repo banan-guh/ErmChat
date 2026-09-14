@@ -3,7 +3,6 @@ import 'dart:isolate';
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:http/http.dart' as http;
 import '../../emotes/emote.dart';
-import '../../emotes/emote_meta.dart';
 import '../../util/constants.dart';
 import '../../util/data_usage.dart';
 

@@ -11,7 +11,7 @@ import 'package:path_provider/path_provider.dart';
 import '../models/emote_fetch_tier.dart';
 import '../util/log.dart';
 import '../util/data_usage.dart';
-import 'emote_image_policy.dart';
+import 'emote_usage_registry.dart';
 
 /// Shared HTTP client for the cache-full fallback path plus the emote image
 /// loader's full-cache direct fetch, reused across a burst of overflow

@@ -1,8 +1,7 @@
 import '../emotes/emote.dart';
 import '../emotes/emote_catalog.dart';
-import '../emotes/emote_meta.dart';
 import '../models/twitch_message.dart';
-import 'emote_fetch.dart';
+import 'emote_fetcher.dart';
 
 /// One typed catalog change emitted by [EmoteStore].
 ///

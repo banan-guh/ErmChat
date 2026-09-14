@@ -25,7 +25,6 @@ import 'package:http/http.dart' as http;
 import 'package:ermchat/models/emote_fetch_tier.dart';
 import 'package:ermchat/emotes/emote.dart';
 import 'package:ermchat/emotes/emote_catalog.dart';
-import 'package:ermchat/emotes/emote_meta.dart';
 import 'package:ermchat/services/chat_connection_manager.dart';
 import 'package:ermchat/services/chat_channel_setup.dart';
 import 'package:ermchat/chat/chat.dart';

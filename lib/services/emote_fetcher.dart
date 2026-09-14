@@ -2,13 +2,11 @@ import 'dart:async';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import '../emotes/emote.dart';
 import '../emotes/emote_catalog.dart';
-import '../emotes/emote_meta.dart';
 import '../models/emote_fetch_tier.dart';
 import '../services/twitch_api.dart';
 import '../services/twitch_auth.dart';
 import '../util/log.dart';
 import '../util/semaphore.dart';
-import 'emote_fetch.dart';
 import 'emote_providers/twitch_emotes.dart';
 import 'emote_providers/bttv_emotes.dart';
 import 'emote_providers/ffz_emotes.dart';
@@ -17,6 +15,41 @@ import 'emote_providers/seven_tv_emotes.dart';
 /// Stagger before a fetch waits for a concurrency permit, so a burst of
 /// refreshes never hits the network at once.
 const defaultEmoteFetchStagger = Duration(milliseconds: 1500);
+
+/// Provider emote lists produced by one global fetch, plus the providers that
+/// failed and the account Twitch catalogue unlock ids. A provider with an
+/// empty list is omitted so a commit keeps the retained list.
+class GlobalEmoteFetch {
+  const GlobalEmoteFetch({
+    this.byProvider = const {},
+    this.failed = const {},
+    this.twitchCatalogUnlockIds = const {},
+  });
+
+  final Map<EmoteType, List<Emote>> byProvider;
+  final Set<EmoteType> failed;
+
+  /// Ids from the global unlockable Twitch catalogue (broadcaster_id=0). The
+  /// global commit applies them to store state; the fetch stays pure.
+  final Set<String> twitchCatalogUnlockIds;
+}
+
+/// Provider emote lists produced by one channel fetch, plus the 7TV identity
+/// and the providers that failed. A provider with an empty list is omitted so
+/// a commit keeps the retained list.
+class ChannelEmoteFetch {
+  const ChannelEmoteFetch({
+    this.byProvider = const {},
+    this.failed = const {},
+    this.sevenTvSetId,
+    this.sevenTvUserId,
+  });
+
+  final Map<EmoteType, List<Emote>> byProvider;
+  final Set<EmoteType> failed;
+  final String? sevenTvSetId;
+  final String? sevenTvUserId;
+}
 
 /// Owns every emote network fetch and the fetch policy for [EmoteManager].
 ///

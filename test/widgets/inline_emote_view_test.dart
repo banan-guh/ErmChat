@@ -3,7 +3,6 @@ import 'dart:typed_data';
 
 import 'package:ermchat/emotes/emote.dart';
 import 'package:ermchat/emotes/emote_catalog.dart';
-import 'package:ermchat/emotes/emote_meta.dart';
 import 'package:ermchat/services/emote_images.dart';
 import 'package:ermchat/widgets/emote_url_provider.dart';
 import 'package:ermchat/widgets/emote_text.dart';

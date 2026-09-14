@@ -1,4 +1,3 @@
-import 'package:ermchat/services/emote_lookup_source.dart';
 import 'package:ermchat/services/emote_manager.dart';
 import 'package:flutter_test/flutter_test.dart';
 

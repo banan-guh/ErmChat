@@ -3,7 +3,6 @@ import 'dart:isolate';
 
 import '../emotes/emote.dart';
 import '../emotes/emote_catalog.dart';
-import '../emotes/emote_meta.dart';
 import '../models/emote_fetch_tier.dart';
 import '../util/log.dart';
 import '../util/prefs.dart';

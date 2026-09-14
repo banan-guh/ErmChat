@@ -5,7 +5,6 @@ import 'package:ermchat/services/twitch_oauth.dart';
 import 'package:ermchat/services/user_store.dart';
 import 'package:ermchat/emotes/emote.dart';
 import 'package:ermchat/emotes/emote_catalog.dart';
-import 'package:ermchat/emotes/emote_meta.dart';
 import 'package:ermchat/models/twitch_message.dart';
 import 'package:ermchat/services/analytics_service.dart';
 import 'dart:convert';

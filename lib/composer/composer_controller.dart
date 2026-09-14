@@ -9,7 +9,7 @@ import '../services/chat_connection_manager.dart';
 import '../chat/chat.dart';
 import '../client/session.dart';
 import '../services/command_handler.dart';
-import '../services/emote_lookup_source.dart';
+import '../services/emote_manager.dart';
 import '../services/emote_usage_registry.dart';
 import 'suggestion.dart';
 import '../services/twitch_auth.dart';
