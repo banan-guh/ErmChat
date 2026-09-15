@@ -704,4 +704,53 @@ void main() {
       }
     });
   });
+
+  group('TabbedLayout tab strip stretch', () {
+    // Enough tabs to overflow the viewport so the strip is scrollable; the
+    // selected tab is last, so the strip rests at its trailing edge.
+    Widget stretchHarness() => MaterialApp(
+      home: Scaffold(
+        body: TabbedLayout(
+          key: const Key('tl'),
+          tabs: List.generate(12, (i) => 'channel$i'),
+          selectedIndex: 11,
+          onSelectedIndexChanged: (_) {},
+          pageBuilder: (_, i) => Center(child: Text('page$i')),
+        ),
+      ),
+    );
+
+    testWidgets('overscrolling the strip stretches then springs back', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(stretchHarness());
+      await tester.pumpAndSettle();
+
+      // The PageView installs a stretch indicator too, so scope to the one
+      // wrapping the TabBar.
+      StretchEffect tabEffect() => tester.widget<StretchEffect>(
+        find.ancestor(
+          of: find.byType(TabBar),
+          matching: find.byType(StretchEffect),
+        ),
+      );
+
+      final start = tester.getCenter(find.byType(TabBar));
+      final gesture = await tester.startGesture(start);
+      // Stepped moves so each drag update lands past the trailing edge and
+      // builds up overscroll.
+      for (var i = 0; i < 10; i++) {
+        await gesture.moveBy(const Offset(-20, 0));
+        await tester.pump();
+      }
+
+      // Dragged past the trailing edge: content stretches.
+      expect(tabEffect().stretchStrength.abs(), greaterThan(0.0));
+
+      await gesture.up();
+      await tester.pumpAndSettle();
+
+      expect(tabEffect().stretchStrength, 0.0);
+    });
+  });
 }
