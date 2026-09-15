@@ -649,7 +649,7 @@ void main() {
                 id: 'b1',
                 code: 'monkaS',
                 meta: const BttvMeta(),
-                url: 'https://x',
+                scales: const {EmoteScale.medium: 'https://x'},
               ),
             }),
           );
@@ -670,7 +670,7 @@ void main() {
                 id: 'b1',
                 code: 'PogChamp',
                 meta: const BttvMeta(),
-                url: 'https://x',
+                scales: const {EmoteScale.medium: 'https://x'},
               ),
             }),
           );

@@ -17,7 +17,7 @@ Emote _emote(
     EmoteType.ffz => const FfzMeta(),
     EmoteType.sevenTv => SevenTvMeta(unlisted: unlisted),
   },
-  url: 'https://example.com/$id.png',
+  scales: {EmoteScale.medium: 'https://example.com/$id.png'},
   scope: scope,
 );
 
@@ -33,9 +33,11 @@ void main() {
           unlisted: true,
           relativeScale: 0.625,
         ),
-        url: 'https://example.com/2x.webp',
-        url1x: 'https://example.com/1x.webp',
-        url3x: 'https://example.com/3x.webp',
+        scales: {
+          EmoteScale.small: 'https://example.com/1x.webp',
+          EmoteScale.medium: 'https://example.com/2x.webp',
+          EmoteScale.large: 'https://example.com/3x.webp',
+        },
         isAnimated: true,
         isZeroWidth: true,
         scope: EmoteScope.channel,
@@ -46,9 +48,15 @@ void main() {
       expect(renamed.code, 'NewName');
       expect(renamed.id, 'e1');
       expect(renamed.meta, same(original.meta));
-      expect(renamed.url, original.url);
-      expect(renamed.url1x, original.url1x);
-      expect(renamed.url3x, original.url3x);
+      expect(renamed.scales, original.scales);
+      expect(
+        renamed.urlFor(EmoteScale.medium),
+        original.urlFor(EmoteScale.medium),
+      );
+      expect(
+        renamed.urlFor(EmoteScale.large),
+        original.urlFor(EmoteScale.large),
+      );
       expect(renamed.isAnimated, isTrue);
       expect(renamed.isZeroWidth, isTrue);
       expect(renamed.scope, EmoteScope.channel);
@@ -125,12 +133,15 @@ void main() {
         id: 'old',
         code: 'PrimePride',
         meta: const TwitchMeta(kind: TwitchEmoteKind.standard),
-        url: 'https://example.com/unlock.png',
+        scales: const {EmoteScale.medium: 'https://example.com/unlock.png'},
       );
 
       final lookup = mergeEmoteLookup(global: global, accountUnlocks: [unlock]);
 
-      expect(lookup.byCode['PrimePride']!.url, unlock.url);
+      expect(
+        lookup.byCode['PrimePride']!.urlFor(EmoteScale.medium),
+        unlock.urlFor(EmoteScale.medium),
+      );
     });
 
     test('disabled providers and hidden unlisted 7TV are filtered', () {

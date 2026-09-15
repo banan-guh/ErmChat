@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 
 import '../emotes/emote.dart';
+import '../emotes/emote_picker.dart';
 import '../models/emote_fetch_tier.dart';
 import '../util/log.dart';
 import '../util/prefs.dart';
@@ -53,6 +54,59 @@ class EmoteImages {
   EmoteProbeMemo get probe => _probe;
 
   EmoteCacheManager get cache => _cache;
+
+  // ── Render tier + cache availability ────────────────────────────────
+  EmoteFetchTier _tier = EmoteFetchTier.high;
+
+  EmoteFetchTier get tier => _tier;
+
+  /// Bumped when the tier or a cached URL changes, so render layers recompute.
+  final ValueNotifier<int> scaleRevision = ValueNotifier<int>(0);
+
+  /// Called after a precache download lands, so the owner can prune dominated
+  /// lower scales for [emote].
+  void Function(Emote emote)? onStored;
+
+  void setTier(EmoteFetchTier value) {
+    if (value == _tier) return;
+    _tier = value;
+    scaleRevision.value++;
+  }
+
+  /// Whether [url] is currently present in the disk cache. Probe failures are
+  /// treated as not cached so a render degrades instead of throwing.
+  Future<bool> isCached(String url) async {
+    try {
+      return await _probe.probe(
+        url,
+        (u) async => (await _cache.getCachedFile(u)) != null,
+      );
+    } catch (_) {
+      return false;
+    }
+  }
+
+  void invalidateCached(String url) {
+    _probe.invalidate(url);
+    scaleRevision.value++;
+  }
+
+  /// Resolves the URL to render for [surface], probing every known scale.
+  Future<({String url, String? placeholder})?> resolve(
+    Emote emote,
+    EmoteSurface surface,
+  ) async {
+    final available = <String, bool>{};
+    for (final url in emote.scales.values) {
+      available[url] = await isCached(url);
+    }
+    return EmotePicker.resolve(
+      emote,
+      surface,
+      _tier,
+      (u) => available[u] ?? false,
+    );
+  }
 
   // ── Cap config ──────────────────────────────────────────────────────
   int _cacheCap = defaultEmoteCacheMax;
@@ -193,8 +247,21 @@ class EmoteImages {
 
   Future<void> _precacheEmote(Emote emote) async {
     if (await _cache.isFull()) return;
+    final target = EmotePicker.downloadTarget(emote, EmoteSurface.chat, _tier);
+    if (target == null) return;
+    final targetScale = EmotePicker.scaleOf(emote, target);
+    // A cached scale at least as good as the target makes the fetch redundant
+    // (e.g. a cached 2x while sitting at low tier).
+    for (final entry in emote.scales.entries) {
+      if (targetScale != null &&
+          EmotePicker.quality(entry.key) < EmotePicker.quality(targetScale)) {
+        continue;
+      }
+      if (await isCached(entry.value)) return;
+    }
     try {
-      await _cache.getSingleFile(emote.url);
+      await _cache.getSingleFile(target);
+      onStored?.call(emote);
     } catch (_) {
       logDebug('[EmoteImages] failed to precache emote: ${emote.code}');
     }
@@ -208,6 +275,7 @@ class EmoteImages {
     if (_disposed) return;
     _disposed = true;
     _precacheQueue.clear();
+    scaleRevision.dispose();
     // An unopened repo can throw on close; the cache is being torn down anyway.
     if (_ownsCache && _started) {
       unawaited(_cache.dispose().catchError((Object _) {}));

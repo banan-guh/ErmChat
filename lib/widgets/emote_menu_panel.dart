@@ -1,13 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../emotes/emote.dart';
+import '../emotes/emote_picker.dart';
 import '../providers/app_providers.dart';
 import '../providers/emote_providers.dart';
 import '../services/emote_images.dart';
 import '../services/emote_manager.dart';
 import '../util/sheet_drag.dart';
 import '../widgets/tabbed_layout.dart';
-import 'emote_image.dart';
+import 'emote_scale_resolver.dart';
 
 class EmoteMenuPanelWidget extends ConsumerStatefulWidget {
   final ScrollController scrollController;
@@ -49,8 +50,7 @@ class EmoteMenuPanelWidgetState extends ConsumerState<EmoteMenuPanelWidget> {
   bool _recentEmotesLoaded = false;
   // Cached grid cells by emote id, validated against URL and padding on each
   // rebuild so a changed asset or cell size rebuilds the cell.
-  final Map<String, ({String url, double padding, Widget widget})> _cellCache =
-      {};
+  final Map<String, ({double padding, Widget widget})> _cellCache = {};
   double? _lastPanelWidth;
 
   @override
@@ -408,10 +408,9 @@ class EmoteMenuPanelWidgetState extends ConsumerState<EmoteMenuPanelWidget> {
   }
 
   Widget _buildEmoteGridItem(Emote emote, double cellPadding) {
-    // Preview cells use EmoteImage: shared decode, disposed with last widget.
-    final url = emote.url;
+    // Cells resolve their own scale, so the cache only tracks layout.
     final cached = _cellCache[emote.id];
-    if (cached != null && cached.url == url && cached.padding == cellPadding) {
+    if (cached != null && cached.padding == cellPadding) {
       return cached.widget;
     }
     // Usage marks deferred via post-frame callback (side effect, must not run during build).
@@ -426,21 +425,20 @@ class EmoteMenuPanelWidgetState extends ConsumerState<EmoteMenuPanelWidget> {
         onTap: () => widget.onEmoteSelected(emote),
         child: Padding(
           padding: EdgeInsets.all(cellPadding),
-          child: EmoteImage(
-            url: url,
-            emoteImages: _images,
+          child: EmoteScaleResolver(
+            emote: emote,
+            surface: EmoteSurface.grid,
+            images: _images,
             width: double.infinity,
             height: double.infinity,
             fit: BoxFit.contain,
-            alternateUrls: [if (emote.url1x != null) emote.url1x!],
             errorWidget: const Icon(Icons.broken_image, size: 20),
-            emote: emote,
           ),
         ),
       ),
     );
     if (emote.id.isNotEmpty) {
-      _cellCache[emote.id] = (url: url, padding: cellPadding, widget: cell);
+      _cellCache[emote.id] = (padding: cellPadding, widget: cell);
     }
     return cell;
   }

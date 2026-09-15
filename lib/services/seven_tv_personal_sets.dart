@@ -77,7 +77,7 @@ class SevenTvPersonalSets {
 
   // Personal sets change rarely and the socket corrects them live, so the
   // disk copy is a long-lived cold-start seed (not a source of truth).
-  static const personalSetsKey = 'emotes3_personal_sets';
+  static const personalSetsKey = 'emotes5_personal_sets';
   static const _personalSetsTtl = Duration(days: 30);
 
   /// Viewer Twitch user id for matching personal 7TV grants. Clears viewer
@@ -127,10 +127,7 @@ class SevenTvPersonalSets {
       if (_personalSevenTvSetIds.contains(setId)) continue;
       List<Emote> emotes;
       try {
-        emotes = await _fetcher.fetchSevenTvEmoteSet(
-          setId,
-          _tier().resolution!,
-        );
+        emotes = await _fetcher.fetchSevenTvEmoteSet(setId);
       } catch (e) {
         logDebug('[SevenTvPersonalSets] personal 7TV set $setId failed: $e');
         continue;
@@ -174,10 +171,7 @@ class SevenTvPersonalSets {
     if (_personalSevenTvSetIds.contains(event.cosmeticId)) return;
     List<Emote> emotes;
     try {
-      emotes = await _fetcher.fetchSevenTvEmoteSet(
-        event.cosmeticId,
-        _tier().resolution!,
-      );
+      emotes = await _fetcher.fetchSevenTvEmoteSet(event.cosmeticId);
     } catch (e) {
       logDebug('[SevenTvPersonalSets] personal 7TV grant fetch failed: $e');
       return;
@@ -346,10 +340,7 @@ class SevenTvPersonalSets {
     final future = () async {
       List<Emote> fetched;
       try {
-        fetched = await _fetcher.fetchSevenTvEmoteSet(
-          setId,
-          _tier().resolution!,
-        );
+        fetched = await _fetcher.fetchSevenTvEmoteSet(setId);
       } catch (e) {
         logDebug('[SevenTvPersonalSets] foreign 7TV set $setId failed: $e');
         return;

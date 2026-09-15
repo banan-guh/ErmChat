@@ -2,18 +2,9 @@ enum EmoteType { twitch, bttv, ffz, sevenTv }
 
 enum EmoteScope { global, channel, personal }
 
-/// Image resolution tier for emote fetching. There is no 4x tier: providers
-/// expose at most a 3x slot, and FFZ's 4x asset is carried in [Emote.url3x].
-enum EmoteResolution {
-  /// 1x for the low fetch tier (smallest available).
-  low,
-
-  /// 2x for medium/high; chat caches only ever store the 2x asset.
-  medium,
-
-  /// Adds an on-demand 3x asset (sheet/menu) on top of 2x.
-  high,
-}
+/// Quality role an emote image is fetched at. Providers map their native
+/// scales onto these roles; [large] is the provider's maximum (7TV's 4x).
+enum EmoteScale { small, medium, large }
 
 /// First enum value matching [name], or [fallback] when absent/unknown.
 T enumByName<T extends Enum>(List<T> values, Object? name, T fallback) {
@@ -42,18 +33,15 @@ class EmoteToken {
   bool get isEmote => emote != null;
 }
 
-/// url = active render URL. url1x/url3x = scale alternatives for the emote sheet and as cache-fallback placeholders. url3x only set when the provider has a true high-res asset (FFZ maps its 4x here since it lacks 3x).
+/// [scales] holds the render URL per quality role. Providers fill every role
+/// their API exposes, independent of the fetch tier; the render layer picks.
 class Emote {
   final String id;
   final String code;
   final EmoteScope scope;
-  final String url;
 
-  /// 1x asset for cache fallbacks and resolution picker. Null if single-scale only.
-  final String? url1x;
-
-  /// 3x asset for emote sheet/picker. Null if no high-res available.
-  final String? url3x;
+  /// Image URL per quality role. Only scales the provider has are present.
+  final Map<EmoteScale, String> scales;
   final bool isAnimated;
 
   /// Overlay emote composited over the preceding base emote.
@@ -64,13 +52,14 @@ class Emote {
     required this.id,
     required this.code,
     required this.meta,
-    required this.url,
+    required this.scales,
     this.scope = EmoteScope.global,
-    this.url1x,
-    this.url3x,
     this.isAnimated = false,
     this.isZeroWidth = false,
   });
+
+  /// URL for [scale], or null when the provider lacks it.
+  String? urlFor(EmoteScale scale) => scales[scale];
 
   EmoteType get type => meta.type;
 
@@ -78,10 +67,8 @@ class Emote {
     id: id,
     code: code ?? this.code,
     meta: meta,
-    url: url,
+    scales: scales,
     scope: scope ?? this.scope,
-    url1x: url1x,
-    url3x: url3x,
     isAnimated: isAnimated,
     isZeroWidth: isZeroWidth,
   );
@@ -108,9 +95,7 @@ class Emote {
     'id': id,
     'code': code,
     'scope': scope.name,
-    'url': url,
-    'url1x': url1x,
-    'url3x': url3x,
+    'scales': {for (final entry in scales.entries) entry.key.name: entry.value},
     'isAnimated': isAnimated,
     'isZeroWidth': isZeroWidth,
     'meta': meta.toJson(),
@@ -119,24 +104,37 @@ class Emote {
   factory Emote.fromJson(Map<String, dynamic> json) {
     final id = json['id'];
     final code = json['code'];
-    final url = json['url'];
-    if (id is! String || code is! String || url is! String) {
+    if (id is! String || code is! String) {
       throw FormatException('Invalid emote json: $json');
     }
     final meta = json['meta'];
     return Emote(
       id: id,
       code: code,
-      url: url,
+      scales: _decodeScales(json['scales']),
       scope: enumByName(EmoteScope.values, json['scope'], EmoteScope.global),
-      url1x: json['url1x'] as String?,
-      url3x: json['url3x'] as String?,
       isAnimated: json['isAnimated'] as bool? ?? false,
       isZeroWidth: json['isZeroWidth'] as bool? ?? false,
       meta: meta is Map<String, dynamic>
           ? EmoteMeta.fromJson(meta)
           : const BttvMeta(),
     );
+  }
+
+  static Map<EmoteScale, String> _decodeScales(Object? raw) {
+    final out = <EmoteScale, String>{};
+    if (raw is! Map) return out;
+    for (final entry in raw.entries) {
+      final value = entry.value;
+      if (value is! String || value.isEmpty) continue;
+      for (final scale in EmoteScale.values) {
+        if (scale.name == entry.key) {
+          out[scale] = value;
+          break;
+        }
+      }
+    }
+    return out;
   }
 }
 

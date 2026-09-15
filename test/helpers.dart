@@ -43,7 +43,11 @@ Emote makeTestEmote({
       relativeScale: relativeScale,
     ),
   },
-  url: 'https://example.com/$id.png',
+  scales: {
+    EmoteScale.small: 'https://example.com/$id.png',
+    EmoteScale.medium: 'https://example.com/$id.png',
+    EmoteScale.large: 'https://example.com/$id.png',
+  },
   isZeroWidth: isZeroWidth,
   scope: scope,
 );

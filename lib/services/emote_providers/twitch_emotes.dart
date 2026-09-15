@@ -8,30 +8,22 @@ import '../../util/log.dart';
 import '../../util/data_usage.dart';
 
 class TwitchEmoteProvider {
-  static Future<List<Emote>> fetchGlobal({
-    String? accessToken,
-    EmoteResolution resolution = EmoteResolution.high,
-  }) {
+  static Future<List<Emote>> fetchGlobal({String? accessToken}) {
     return _get(
       Uri.parse('https://api.twitch.tv/helix/chat/emotes/global'),
       channel: false,
       accessToken: accessToken,
-      resolution: resolution,
     );
   }
 
   /// Global unlockable catalogue (Prime, Turbo, 2FA, Hype Train,
   /// limited-time). The /global endpoint returns defaults only, so without
   /// this these emotes never reach the picker or autocomplete.
-  static Future<List<Emote>> fetchGlobalUnlockable({
-    String? accessToken,
-    EmoteResolution resolution = EmoteResolution.high,
-  }) {
+  static Future<List<Emote>> fetchGlobalUnlockable({String? accessToken}) {
     return _get(
       Uri.parse('https://api.twitch.tv/helix/chat/emotes?broadcaster_id=0'),
       channel: false,
       accessToken: accessToken,
-      resolution: resolution,
     );
   }
 
@@ -39,7 +31,6 @@ class TwitchEmoteProvider {
     String broadcasterId, {
     String? accessToken,
     String? channelName,
-    EmoteResolution resolution = EmoteResolution.high,
   }) {
     return _get(
       Uri.parse(
@@ -48,7 +39,6 @@ class TwitchEmoteProvider {
       channel: true,
       channelName: channelName,
       accessToken: accessToken,
-      resolution: resolution,
     );
   }
 
@@ -57,7 +47,6 @@ class TwitchEmoteProvider {
     required bool channel,
     String? channelName,
     String? accessToken,
-    EmoteResolution resolution = EmoteResolution.high,
   }) async {
     final headers = <String, String>{'Client-ID': TwitchConfig.clientId};
     if (accessToken != null) {
@@ -76,7 +65,6 @@ class TwitchEmoteProvider {
         data['data'] as List<dynamic>? ?? [],
         channel: channel,
         channelName: channelName,
-        resolution: resolution,
       );
     });
   }
@@ -84,7 +72,6 @@ class TwitchEmoteProvider {
   static Future<Map<String, List<Emote>>> fetchEmoteSets(
     List<String> emoteSetIds, {
     String? accessToken,
-    EmoteResolution resolution = EmoteResolution.high,
   }) async {
     final headers = <String, String>{'Client-ID': TwitchConfig.clientId};
     if (accessToken != null) {
@@ -128,19 +115,7 @@ class TwitchEmoteProvider {
           final format = isAnimated ? 'animated' : 'static';
           final scales =
               (item['scale'] as List<dynamic>?)?.cast<String>() ?? [];
-          final (smallScale, oneXScale, largeScale) = _selectScales(
-            scales,
-            resolution,
-          );
           final theme = _themeOf(item);
-          final url =
-              'https://static-cdn.jtvnw.net/emoticons/v2/$id/$format/$theme/$smallScale';
-          final url1x = oneXScale == null
-              ? null
-              : 'https://static-cdn.jtvnw.net/emoticons/v2/$id/$format/$theme/$oneXScale';
-          final url3x = largeScale == null
-              ? null
-              : 'https://static-cdn.jtvnw.net/emoticons/v2/$id/$format/$theme/$largeScale';
           result
               .putIfAbsent(ownerId ?? '', () => [])
               .add(
@@ -152,9 +127,7 @@ class TwitchEmoteProvider {
                     ownerChannel: null,
                     ownerId: ownerId,
                   ),
-                  url: url,
-                  url1x: url1x,
-                  url3x: url3x,
+                  scales: _scalesFor(id, format, theme, scales),
                   isAnimated: isAnimated,
                   scope: ownerId != null && ownerId.isNotEmpty
                       ? EmoteScope.channel
@@ -171,7 +144,6 @@ class TwitchEmoteProvider {
     List<dynamic> items, {
     bool channel = false,
     String? channelName,
-    EmoteResolution resolution = EmoteResolution.high,
   }) {
     final emotes = <Emote>[];
     for (final item in items) {
@@ -181,20 +153,8 @@ class TwitchEmoteProvider {
       final formats = (item['format'] as List<dynamic>?)?.cast<String>() ?? [];
       final isAnimated = formats.contains('animated');
       final scales = (item['scale'] as List<dynamic>?)?.cast<String>() ?? [];
-      final (smallScale, oneXScale, largeScale) = _selectScales(
-        scales,
-        resolution,
-      );
       final theme = _themeOf(item);
       final format = isAnimated ? 'animated' : 'static';
-      final url =
-          'https://static-cdn.jtvnw.net/emoticons/v2/$id/$format/$theme/$smallScale';
-      final url1x = oneXScale == null
-          ? null
-          : 'https://static-cdn.jtvnw.net/emoticons/v2/$id/$format/$theme/$oneXScale';
-      final url3x = largeScale == null
-          ? null
-          : 'https://static-cdn.jtvnw.net/emoticons/v2/$id/$format/$theme/$largeScale';
       emotes.add(
         Emote(
           id: id,
@@ -204,9 +164,7 @@ class TwitchEmoteProvider {
             ownerChannel: channel ? channelName : null,
             ownerId: item['owner_id'] as String?,
           ),
-          url: url,
-          url1x: url1x,
-          url3x: url3x,
+          scales: _scalesFor(id, format, theme, scales),
           isAnimated: isAnimated,
           scope: channel ? EmoteScope.channel : EmoteScope.global,
         ),
@@ -214,6 +172,22 @@ class TwitchEmoteProvider {
     }
     logDebug('Twitch parsed ${emotes.length} emotes');
     return emotes;
+  }
+
+  /// Render URL for each scale the API lists, keyed by quality role.
+  static Map<EmoteScale, String> _scalesFor(
+    String id,
+    String format,
+    String theme,
+    List<String> scales,
+  ) {
+    String url(String scale) =>
+        'https://static-cdn.jtvnw.net/emoticons/v2/$id/$format/$theme/$scale';
+    return {
+      if (scales.contains('1.0')) EmoteScale.small: url('1.0'),
+      if (scales.contains('2.0')) EmoteScale.medium: url('2.0'),
+      if (scales.contains('3.0')) EmoteScale.large: url('3.0'),
+    };
   }
 
   /// Builds the Twitch meta, mapping the API's tier/emote_type into the render
@@ -253,25 +227,5 @@ class TwitchEmoteProvider {
       }
     }
     return 'dark';
-  }
-
-  /// Selects scale tiers: 2x for chat, largest for sheet (high only).
-  static (String, String?, String?) _selectScales(
-    List<String> scales,
-    EmoteResolution resolution,
-  ) {
-    final smallest = scales.firstOrNull ?? '1.0';
-    final oneX = scales.contains('1.0') ? '1.0' : null;
-    switch (resolution) {
-      case EmoteResolution.low:
-        return (scales.contains('1.0') ? '1.0' : smallest, oneX, null);
-      case EmoteResolution.medium:
-        return (scales.contains('2.0') ? '2.0' : smallest, oneX, null);
-      case EmoteResolution.high:
-        final chat = scales.contains('2.0') ? '2.0' : smallest;
-        final large = scales.lastOrNull ?? '3.0';
-        // Do not emit a 3x slot identical to the chat asset.
-        return (chat, oneX, large == chat ? null : large);
-    }
   }
 }

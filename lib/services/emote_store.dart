@@ -249,7 +249,7 @@ class EmoteStore {
               id: pos.emoteId,
               code: pos.emoteCode,
               meta: const TwitchMeta(kind: TwitchEmoteKind.standard),
-              url: twitchFallbackUrl(pos.emoteId),
+              scales: {EmoteScale.large: twitchFallbackUrl(pos.emoteId)},
             );
         tokens.add(
           EmoteToken(
@@ -741,12 +741,21 @@ class EmoteStore {
     return before.id == after.id &&
         before.code == after.code &&
         before.scope == after.scope &&
-        before.url == after.url &&
-        before.url1x == after.url1x &&
-        before.url3x == after.url3x &&
+        _sameScales(before.scales, after.scales) &&
         before.isAnimated == after.isAnimated &&
         before.isZeroWidth == after.isZeroWidth &&
         _subMetaFingerprint(before.meta) == _subMetaFingerprint(after.meta);
+  }
+
+  static bool _sameScales(
+    Map<EmoteScale, String> before,
+    Map<EmoteScale, String> after,
+  ) {
+    if (before.length != after.length) return false;
+    for (final entry in before.entries) {
+      if (after[entry.key] != entry.value) return false;
+    }
+    return true;
   }
 
   static String _subMetaFingerprint(EmoteMeta meta) => switch (meta) {
@@ -819,10 +828,7 @@ class EmoteStore {
         final e = byCode.remove(code);
         if (e == null) continue;
         changedCodes.add(code);
-        removedIdsWithUrls.add((
-          e.id,
-          [e.url, if (e.url1x != null) e.url1x!, if (e.url3x != null) e.url3x!],
-        ));
+        removedIdsWithUrls.add((e.id, e.scales.values.toList()));
       }
     }
 

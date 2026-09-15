@@ -84,22 +84,16 @@ class EmoteFetcher {
   ConnectivityResult _probeResult = ConnectivityResult.wifi;
   DateTime? _probeAt;
 
-  final Future<SevenTvChannelResponse> Function(
-    String channelId,
-    EmoteResolution resolution,
-  )
+  final Future<SevenTvChannelResponse> Function(String channelId)
   _sevenTvChannelFetcher;
-  final Future<List<Emote>> Function(EmoteResolution resolution)
-  _sevenTvGlobalFetcher;
+  final Future<List<Emote>> Function() _sevenTvGlobalFetcher;
   final Future<List<String>> Function(String twitchId) _sevenTvOwnedSetIds;
-  final Future<List<Emote>> Function(String setId, EmoteResolution resolution)
-  _sevenTvEmoteSetFetcher;
+  final Future<List<Emote>> Function(String setId) _sevenTvEmoteSetFetcher;
   final Future<Map<String, String>> Function(TwitchAuth auth, List<String> ids)
   _resolveOwnerLogins;
   final Future<Map<String, List<Emote>>> Function(
     List<String> setIds, {
     String? accessToken,
-    EmoteResolution? resolution,
   })
   _fetchUserEmoteSets;
 
@@ -110,58 +104,39 @@ class EmoteFetcher {
     required String? Function() accessToken,
     Future<List<ConnectivityResult>> Function()? probe,
     Duration fetchStagger = defaultEmoteFetchStagger,
-    Future<SevenTvChannelResponse> Function(
-      String channelId,
-      EmoteResolution resolution,
-    )?
+    Future<SevenTvChannelResponse> Function(String channelId)?
     sevenTvChannelFetcher,
-    Future<List<Emote>> Function(EmoteResolution resolution)?
-    sevenTvGlobalFetcher,
+    Future<List<Emote>> Function()? sevenTvGlobalFetcher,
     Future<List<String>> Function(String twitchId)? sevenTvOwnedSetIds,
-    Future<List<Emote>> Function(String setId, EmoteResolution resolution)?
-    sevenTvEmoteSetFetcher,
+    Future<List<Emote>> Function(String setId)? sevenTvEmoteSetFetcher,
     Future<Map<String, String>> Function(TwitchAuth auth, List<String> ids)?
     resolveOwnerLogins,
     Future<Map<String, List<Emote>>> Function(
       List<String> setIds, {
       String? accessToken,
-      EmoteResolution? resolution,
     })?
     fetchUserEmoteSets,
   }) : _connectivityProbe = probe,
        _sevenTvChannelFetcher =
            sevenTvChannelFetcher ??
-           ((String channelId, EmoteResolution resolution) =>
-               SevenTvEmoteProvider.fetchChannelResponse(
-                 channelId,
-                 resolution: resolution,
-               )),
+           ((String channelId) =>
+               SevenTvEmoteProvider.fetchChannelResponse(channelId)),
        _sevenTvGlobalFetcher =
-           sevenTvGlobalFetcher ??
-           ((EmoteResolution resolution) =>
-               SevenTvEmoteProvider.fetchGlobal(resolution: resolution)),
+           sevenTvGlobalFetcher ?? (() => SevenTvEmoteProvider.fetchGlobal()),
        _sevenTvOwnedSetIds =
            sevenTvOwnedSetIds ?? SevenTvEmoteProvider.fetchOwnedSetIds,
        _sevenTvEmoteSetFetcher =
            sevenTvEmoteSetFetcher ??
-           ((String setId, EmoteResolution resolution) =>
-               SevenTvEmoteProvider.fetchEmoteSet(
-                 setId,
-                 resolution: resolution,
-               )),
+           ((String setId) => SevenTvEmoteProvider.fetchEmoteSet(setId)),
        _resolveOwnerLogins =
            resolveOwnerLogins ?? TwitchApi().getUserLoginsByIds,
        _fetchUserEmoteSets =
            fetchUserEmoteSets ??
-           ((
-             List<String> ids, {
-             String? accessToken,
-             EmoteResolution? resolution,
-           }) => TwitchEmoteProvider.fetchEmoteSets(
-             ids,
-             accessToken: accessToken,
-             resolution: resolution ?? EmoteResolution.high,
-           )) {
+           ((List<String> ids, {String? accessToken}) =>
+               TwitchEmoteProvider.fetchEmoteSets(
+                 ids,
+                 accessToken: accessToken,
+               )) {
     _now = now;
     _tier = tier;
     _isProviderEnabled = isProviderEnabled;
@@ -205,7 +180,7 @@ class EmoteFetcher {
     final providers = <EmoteType, Future<List<Emote>> Function()>{
       EmoteType.twitch: () async {
         if (!_isProviderEnabled(EmoteType.twitch)) return [];
-        final twitch = await _fetchTwitchGlobal(_tier().resolution!);
+        final twitch = await _fetchTwitchGlobal();
         unlockIds = twitch.unlockIds;
         // Empty fetch: keep the retained catalog list.
         if (twitch.emotes.isNotEmpty) {
@@ -215,23 +190,19 @@ class EmoteFetcher {
       },
       EmoteType.bttv: () async {
         if (!_isProviderEnabled(EmoteType.bttv)) return [];
-        final emotes = await BttvEmoteProvider.fetchGlobal(
-          resolution: _tier().resolution!,
-        );
+        final emotes = await BttvEmoteProvider.fetchGlobal();
         if (emotes.isNotEmpty) results[EmoteType.bttv] = emotes;
         return emotes;
       },
       EmoteType.ffz: () async {
         if (!_isProviderEnabled(EmoteType.ffz)) return [];
-        final emotes = await FfzEmoteProvider.fetchGlobal(
-          resolution: _tier().resolution!,
-        );
+        final emotes = await FfzEmoteProvider.fetchGlobal();
         if (emotes.isNotEmpty) results[EmoteType.ffz] = emotes;
         return emotes;
       },
       EmoteType.sevenTv: () async {
         if (!_isProviderEnabled(EmoteType.sevenTv)) return [];
-        final emotes = await _sevenTvGlobalFetcher(_tier().resolution!);
+        final emotes = await _sevenTvGlobalFetcher();
         if (emotes.isNotEmpty) results[EmoteType.sevenTv] = emotes;
         return emotes;
       },
@@ -263,7 +234,6 @@ class EmoteFetcher {
           broadcasterId,
           accessToken: _accessToken(),
           channelName: channelName,
-          resolution: _tier().resolution!,
         );
         final nonSub = fetched.where((e) => !isTwitchSub(e)).toList();
         // Empty fetch: keep the retained catalog entry so a silent non-200
@@ -273,28 +243,19 @@ class EmoteFetcher {
       },
       EmoteType.bttv: () async {
         if (!_isProviderEnabled(EmoteType.bttv)) return [];
-        final emotes = await BttvEmoteProvider.fetchChannel(
-          broadcasterId,
-          resolution: _tier().resolution!,
-        );
+        final emotes = await BttvEmoteProvider.fetchChannel(broadcasterId);
         if (emotes.isNotEmpty) results[EmoteType.bttv] = emotes;
         return emotes;
       },
       EmoteType.ffz: () async {
         if (!_isProviderEnabled(EmoteType.ffz)) return [];
-        final emotes = await FfzEmoteProvider.fetchChannel(
-          broadcasterId,
-          resolution: _tier().resolution!,
-        );
+        final emotes = await FfzEmoteProvider.fetchChannel(broadcasterId);
         if (emotes.isNotEmpty) results[EmoteType.ffz] = emotes;
         return emotes;
       },
       EmoteType.sevenTv: () async {
         if (!_isProviderEnabled(EmoteType.sevenTv)) return [];
-        final resp = await _sevenTvChannelFetcher(
-          broadcasterId,
-          _tier().resolution!,
-        );
+        final resp = await _sevenTvChannelFetcher(broadcasterId);
         sevenTvSetId = resp.emoteSetId;
         sevenTvUserId = resp.userId;
         if (resp.emotes.isNotEmpty) results[EmoteType.sevenTv] = resp.emotes;
@@ -314,7 +275,7 @@ class EmoteFetcher {
   Future<GlobalEmoteFetch?> refreshTwitchGlobal() async {
     if (!_isProviderEnabled(EmoteType.twitch)) return null;
     try {
-      final twitch = await _fetchTwitchGlobal(_tier().resolution!);
+      final twitch = await _fetchTwitchGlobal();
       if (twitch.emotes.isEmpty) return null;
       return GlobalEmoteFetch(
         byProvider: {EmoteType.twitch: twitch.emotes},
@@ -339,7 +300,6 @@ class EmoteFetcher {
         broadcasterId,
         accessToken: _accessToken(),
         channelName: channel,
-        resolution: _tier().resolution!,
       );
       if (emotes.isEmpty) return null;
       final nonSub = emotes.where((e) => !isTwitchSub(e)).toList();
@@ -359,10 +319,7 @@ class EmoteFetcher {
     if (_tier().index < EmoteFetchTier.medium.index) return null;
     if (!_isProviderEnabled(EmoteType.sevenTv)) return null;
     try {
-      final resp = await _sevenTvChannelFetcher(
-        broadcasterId,
-        _tier().resolution!,
-      );
+      final resp = await _sevenTvChannelFetcher(broadcasterId);
       return ChannelEmoteFetch(
         byProvider: _providerMap(EmoteType.sevenTv, resp.emotes),
         sevenTvSetId: resp.emoteSetId,
@@ -376,33 +333,26 @@ class EmoteFetcher {
 
   /// Fetches one provider's global emote list. Returns an empty fetch on an
   /// empty provider result so the commit retains the previous list.
-  Future<GlobalEmoteFetch> fetchGlobalForProvider(
-    EmoteType type,
-    EmoteResolution resolution,
-  ) async {
+  Future<GlobalEmoteFetch> fetchGlobalForProvider(EmoteType type) async {
     switch (type) {
       case EmoteType.twitch:
-        final twitch = await _fetchTwitchGlobal(resolution);
+        final twitch = await _fetchTwitchGlobal();
         return GlobalEmoteFetch(
           byProvider: _providerMap(EmoteType.twitch, twitch.emotes),
           twitchCatalogUnlockIds: twitch.unlockIds,
         );
       case EmoteType.bttv:
-        final emotes = await BttvEmoteProvider.fetchGlobal(
-          resolution: resolution,
-        );
+        final emotes = await BttvEmoteProvider.fetchGlobal();
         return GlobalEmoteFetch(
           byProvider: _providerMap(EmoteType.bttv, emotes),
         );
       case EmoteType.ffz:
-        final emotes = await FfzEmoteProvider.fetchGlobal(
-          resolution: resolution,
-        );
+        final emotes = await FfzEmoteProvider.fetchGlobal();
         return GlobalEmoteFetch(
           byProvider: _providerMap(EmoteType.ffz, emotes),
         );
       case EmoteType.sevenTv:
-        final emotes = await _sevenTvGlobalFetcher(resolution);
+        final emotes = await _sevenTvGlobalFetcher();
         return GlobalEmoteFetch(
           byProvider: _providerMap(EmoteType.sevenTv, emotes),
         );
@@ -414,7 +364,6 @@ class EmoteFetcher {
     EmoteType type,
     String broadcasterId, {
     String? channelName,
-    required EmoteResolution resolution,
   }) async {
     switch (type) {
       case EmoteType.twitch:
@@ -422,7 +371,6 @@ class EmoteFetcher {
           broadcasterId,
           accessToken: _accessToken(),
           channelName: channelName,
-          resolution: resolution,
         );
         // Subs live in the channel's twitchSubs list, not the provider lists.
         final nonSub = fetched.where((e) => !isTwitchSub(e)).toList();
@@ -430,23 +378,17 @@ class EmoteFetcher {
           byProvider: _providerMap(EmoteType.twitch, nonSub),
         );
       case EmoteType.bttv:
-        final emotes = await BttvEmoteProvider.fetchChannel(
-          broadcasterId,
-          resolution: resolution,
-        );
+        final emotes = await BttvEmoteProvider.fetchChannel(broadcasterId);
         return ChannelEmoteFetch(
           byProvider: _providerMap(EmoteType.bttv, emotes),
         );
       case EmoteType.ffz:
-        final emotes = await FfzEmoteProvider.fetchChannel(
-          broadcasterId,
-          resolution: resolution,
-        );
+        final emotes = await FfzEmoteProvider.fetchChannel(broadcasterId);
         return ChannelEmoteFetch(
           byProvider: _providerMap(EmoteType.ffz, emotes),
         );
       case EmoteType.sevenTv:
-        final resp = await _sevenTvChannelFetcher(broadcasterId, resolution);
+        final resp = await _sevenTvChannelFetcher(broadcasterId);
         return ChannelEmoteFetch(
           byProvider: _providerMap(EmoteType.sevenTv, resp.emotes),
           sevenTvSetId: resp.emoteSetId,
@@ -479,10 +421,8 @@ class EmoteFetcher {
 
   /// Fetches a 7TV emote set behind the shared gate. The manager's foreign
   /// personal-set fill uses this narrow entry rather than the raw gate.
-  Future<List<Emote>> fetchSevenTvEmoteSet(
-    String setId,
-    EmoteResolution resolution,
-  ) => _fetchGate.withPermit(() => _sevenTvEmoteSetFetcher(setId, resolution));
+  Future<List<Emote>> fetchSevenTvEmoteSet(String setId) =>
+      _fetchGate.withPermit(() => _sevenTvEmoteSetFetcher(setId));
 
   /// Lists the 7TV sets owned by [twitchId] (viewer personal bootstrap).
   Future<List<String>> fetchSevenTvOwnedSetIds(String twitchId) =>
@@ -492,12 +432,7 @@ class EmoteFetcher {
   Future<Map<String, List<Emote>>> fetchUserEmoteSets(
     List<String> setIds, {
     String? accessToken,
-    EmoteResolution? resolution,
-  }) => _fetchUserEmoteSets(
-    setIds,
-    accessToken: accessToken,
-    resolution: resolution,
-  );
+  }) => _fetchUserEmoteSets(setIds, accessToken: accessToken);
 
   /// Resolves sub-emote owner ids to Twitch logins.
   Future<Map<String, String>> resolveOwnerLogins(
@@ -511,9 +446,8 @@ class EmoteFetcher {
   /// Both fetches run in parallel with isolated errors: a defaults failure
   /// no longer aborts the unlockable fetch. A defaults throw still surfaces
   /// when nothing usable arrived, so fetch-failure reporting keeps working.
-  Future<({List<Emote> emotes, Set<String> unlockIds})> _fetchTwitchGlobal(
-    EmoteResolution resolution,
-  ) async {
+  Future<({List<Emote> emotes, Set<String> unlockIds})>
+  _fetchTwitchGlobal() async {
     List<Emote> defaults = const [];
     Object? defaultsError;
     List<Emote> unlockable = const [];
@@ -521,7 +455,6 @@ class EmoteFetcher {
       try {
         return await TwitchEmoteProvider.fetchGlobal(
           accessToken: _accessToken(),
-          resolution: resolution,
         );
       } catch (e) {
         defaultsError = e;
@@ -533,7 +466,6 @@ class EmoteFetcher {
       try {
         return await TwitchEmoteProvider.fetchGlobalUnlockable(
           accessToken: _accessToken(),
-          resolution: resolution,
         );
       } catch (e) {
         logDebug('[EmoteFetcher] global unlockable emotes failed: $e');

@@ -349,7 +349,7 @@ class _SpyEmoteManager extends EmoteManager {
     id: 'e1',
     code: 'E1',
     meta: BttvMeta(),
-    url: 'https://example.com/e1.png',
+    scales: {EmoteScale.medium: 'https://example.com/e1.png'},
   );
 
   int enqueueSeenCalls = 0;

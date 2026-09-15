@@ -458,7 +458,7 @@ void main() {
           id: 'e1',
           code: 'Pog',
           meta: SevenTvMeta(),
-          url: 'https://example.com/pog.png',
+          scales: {EmoteScale.medium: 'https://example.com/pog.png'},
         ),
       ],
     );
@@ -482,7 +482,7 @@ void main() {
           id: 's1',
           code: 'Sub',
           meta: TwitchMeta(kind: TwitchEmoteKind.sub),
-          url: 'https://example.com/s1.png',
+          scales: {EmoteScale.medium: 'https://example.com/s1.png'},
           scope: EmoteScope.channel,
         ),
       ],

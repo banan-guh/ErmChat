@@ -114,7 +114,6 @@ class TwitchEmoteSets {
       final byOwner = await _fetcher.fetchUserEmoteSets(
         newSetIds,
         accessToken: auth.accessToken,
-        resolution: _tier().resolution!,
       );
       final perOwner = <String, List<Emote>>{};
       final unlocked = <Emote>[];
@@ -276,9 +275,7 @@ class TwitchEmoteSets {
                 ownerChannel: ownerLogin,
                 ownerId: entry.key,
               ),
-              url: e.url,
-              url1x: e.url1x,
-              url3x: e.url3x,
+              scales: e.scales,
               isAnimated: e.isAnimated,
               isZeroWidth: e.isZeroWidth,
               scope: e.scope,

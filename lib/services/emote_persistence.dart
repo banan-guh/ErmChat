@@ -118,10 +118,10 @@ class EmotePersistence {
   Future<void> pruneStaleChannels(Set<String> activeChannels) async {
     try {
       for (final key in await _metaStore.keys()) {
-        if (!key.startsWith('emotes4_')) continue;
+        if (!key.startsWith('emotes5_')) continue;
         // Personal seeds are account-scoped, not channel-scoped.
         if (key == SevenTvPersonalSets.personalSetsKey) continue;
-        final channel = key.substring('emotes4_'.length);
+        final channel = key.substring('emotes5_'.length);
         if (channel.isEmpty || channel == 'global') continue;
         if (!activeChannels.contains(channel)) {
           await _metaStore.delete(key);
@@ -140,7 +140,9 @@ class EmotePersistence {
     try {
       for (final key in await _metaStore.keys()) {
         if (key == SevenTvPersonalSets.personalSetsKey) continue;
-        if (key.startsWith('emotes4_') || key.startsWith('emotes3_')) {
+        if (key.startsWith('emotes5_') ||
+            key.startsWith('emotes4_') ||
+            key.startsWith('emotes3_')) {
           await _metaStore.delete(key);
         }
       }

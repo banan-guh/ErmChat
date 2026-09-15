@@ -160,11 +160,17 @@ final emotePersistenceProvider = Provider<EmotePersistence>((ref) {
 final emoteImagesProvider = Provider<EmoteImages>((ref) {
   final images = EmoteImages(policy: ref.watch(emoteUsageRegistryProvider));
   images.cacheCap = ref.read(emoteCacheCapProvider);
+  images.setTier(ref.read(emoteFetchTierProvider));
   final capSub = ref.listen(
     emoteCacheCapProvider,
     (_, next) => images.cacheCap = next,
   );
+  final tierSub = ref.listen(
+    emoteFetchTierProvider,
+    (_, next) => images.setTier(next),
+  );
   ref.onDispose(capSub.close);
+  ref.onDispose(tierSub.close);
   ref.onDispose(images.dispose);
   return images;
 });

@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:ermchat/emotes/emote.dart';
 import 'package:ermchat/emotes/emote_catalog.dart';
+import 'package:ermchat/emotes/emote_picker.dart';
 import 'package:ermchat/services/emote_images.dart';
 import 'package:ermchat/widgets/emote_url_provider.dart';
 import 'package:ermchat/widgets/emote_text.dart';
@@ -12,6 +13,19 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 
 final _images = EmoteImages();
+
+/// Resolves emotes without touching the disk cache, so widget tests can render
+/// the resolver synchronously instead of waiting on cache probes.
+class _ResolvingEmoteImages extends EmoteImages {
+  @override
+  Future<({String url, String? placeholder})?> resolve(
+    Emote emote,
+    EmoteSurface surface,
+  ) async {
+    final url = emote.urlFor(EmoteScale.medium) ?? emote.scales.values.first;
+    return (url: url, placeholder: null);
+  }
+}
 
 Uint8List _pngBytes([int width = 2, int height = 2]) {
   final image = img.Image(width: width, height: height);
@@ -119,7 +133,7 @@ void main() {
       // Animated non-Twitch routes to the custom pipeline (statics of any
       // provider render stock); bytes stay PNG so the still path applies.
       meta: const SevenTvMeta(),
-      url: 'https://inline.test/tap.png',
+      scales: const {EmoteScale.medium: 'https://inline.test/tap.png'},
       isAnimated: true,
     );
     final channelEmotes = EmoteLookup(byCode: {code: emote}, suggestions: []);
@@ -128,7 +142,7 @@ void main() {
       text: code,
       twitchPositions: null,
       channelEmotes: channelEmotes,
-      emoteImages: _images,
+      emoteImages: _ResolvingEmoteImages(),
       onEmoteTap: tapped.add,
     );
 
@@ -138,6 +152,7 @@ void main() {
       ),
     );
     await _pumpUntilLoaded(tester);
+    await tester.pump();
 
     await tester.tap(find.byType(InlineEmoteView));
     expect(tapped, hasLength(1));

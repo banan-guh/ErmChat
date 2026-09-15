@@ -16,7 +16,7 @@ Emote _emote(String id, String code, {EmoteType type = EmoteType.bttv}) =>
         EmoteType.ffz => const FfzMeta(),
         EmoteType.bttv => const BttvMeta(),
       },
-      url: 'https://example.com/$id.png',
+      scales: {EmoteScale.medium: 'https://example.com/$id.png'},
     );
 
 void main() {

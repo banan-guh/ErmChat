@@ -4,6 +4,7 @@ import 'dart:isolate';
 import 'dart:math' as math;
 
 import '../emotes/emote.dart';
+import '../emotes/emote_picker.dart';
 import '../util/log.dart';
 import '../util/prefs.dart';
 
@@ -403,7 +404,8 @@ class EmoteUsageRegistry implements EmoteImagePolicy {
       _recentIds = _recentIds.sublist(0, _maxRecent);
     }
     await _saveRecent();
-    _touchUsage(emote.url);
+    final url = EmotePicker.chatPreferredUrl(emote);
+    if (url != null) _touchUsage(url);
     await _flushUsage();
   }
 

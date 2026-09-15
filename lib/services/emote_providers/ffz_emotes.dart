@@ -8,15 +8,10 @@ import '../../util/data_usage.dart';
 
 class FfzEmoteProvider {
   @visibleForTesting
-  static Emote? parseEmote(
-    dynamic item,
-    EmoteResolution resolution, {
-    String? ownerChannel,
-  }) => _parseEmote(item, resolution, ownerChannel: ownerChannel);
+  static Emote? parseEmote(dynamic item, {String? ownerChannel}) =>
+      _parseEmote(item, ownerChannel: ownerChannel);
 
-  static Future<List<Emote>> fetchGlobal({
-    EmoteResolution resolution = EmoteResolution.high,
-  }) async {
+  static Future<List<Emote>> fetchGlobal() async {
     final uri = Uri.parse('https://api.frankerfacez.com/v1/set/global');
     final res = await http.get(uri).timeout(httpTimeout);
     throwOnTransientHttpError(res.statusCode, uri);
@@ -36,7 +31,7 @@ class FfzEmoteProvider {
         final setMap = setEntry.value as Map<String, dynamic>;
         final items = setMap['emoticons'] as List<dynamic>? ?? [];
         for (final item in items) {
-          final parsed = _parseEmote(item, resolution);
+          final parsed = _parseEmote(item);
           if (parsed != null) emotes.add(parsed);
         }
       }
@@ -44,10 +39,7 @@ class FfzEmoteProvider {
     });
   }
 
-  static Future<List<Emote>> fetchChannel(
-    String channelId, {
-    EmoteResolution resolution = EmoteResolution.high,
-  }) async {
+  static Future<List<Emote>> fetchChannel(String channelId) async {
     final uri = Uri.parse('https://api.frankerfacez.com/v1/room/id/$channelId');
     final res = await http.get(uri).timeout(httpTimeout);
     throwOnTransientHttpError(res.statusCode, uri);
@@ -64,7 +56,7 @@ class FfzEmoteProvider {
           final owner = item['owner'] is Map
               ? (item['owner'] as Map)['display_name'] as String?
               : null;
-          final parsed = _parseEmote(item, resolution, ownerChannel: owner);
+          final parsed = _parseEmote(item, ownerChannel: owner);
           if (parsed != null) {
             emotes.add(parsed.copyWith(scope: EmoteScope.channel));
           }
@@ -74,11 +66,7 @@ class FfzEmoteProvider {
     });
   }
 
-  static Emote? _parseEmote(
-    dynamic item,
-    EmoteResolution resolution, {
-    String? ownerChannel,
-  }) {
+  static Emote? _parseEmote(dynamic item, {String? ownerChannel}) {
     final id = item['id']?.toString();
     final name = item['name'] as String?;
     if (id == null || name == null) return null;
@@ -92,22 +80,16 @@ class FfzEmoteProvider {
                 ? animatedUrls
                 : item['urls'])
             as Map<String, dynamic>?;
-    // Low=1x, medium/high=2x. 4x used as sheet/menu high-res.
     final url1 = urls?['1'] as String?;
     final url2 = urls?['2'] as String?;
     final url4 = urls?['4'] as String?;
-    final String? urlPart;
-    switch (resolution) {
-      case EmoteResolution.low:
-        urlPart = url1 ?? url2;
-        break;
-      case EmoteResolution.medium:
-      case EmoteResolution.high:
-        urlPart = url2 ?? url1;
-        break;
-    }
-    if (urlPart == null) return null;
     String abs(String url) => url.startsWith('http') ? url : 'https:$url';
+    final scales = <EmoteScale, String>{
+      if (url1 != null) EmoteScale.small: abs(url1),
+      if (url2 != null) EmoteScale.medium: abs(url2),
+      if (url4 != null) EmoteScale.large: abs(url4),
+    };
+    if (scales.isEmpty) return null;
     final isAnimated = animatedUrls != null && animatedUrls.isNotEmpty;
     // FFZ modifier flag = zero-width overlay (offsets ignored).
     final isZeroWidth = item['modifier'] == true;
@@ -115,9 +97,7 @@ class FfzEmoteProvider {
       id: id,
       code: name,
       meta: FfzMeta(ownerChannel: ownerChannel),
-      url: abs(urlPart),
-      url1x: url1 == null ? null : abs(url1),
-      url3x: url4 == null ? null : abs(url4),
+      scales: scales,
       isAnimated: isAnimated,
       isZeroWidth: isZeroWidth,
     );

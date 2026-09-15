@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 
 import '../emotes/emote.dart';
 import '../emotes/emote_catalog.dart';
+import '../emotes/emote_picker.dart';
 import '../models/emote_fetch_tier.dart';
 import '../models/twitch_message.dart';
 import '../util/log.dart';
@@ -111,16 +112,11 @@ class EmoteManager implements EmoteLookupSource {
     int cacheCap = defaultEmoteCacheMax,
     void Function(int)? writeCacheCap,
     Duration usageFlushDelay = const Duration(milliseconds: 250),
-    Future<SevenTvChannelResponse> Function(
-      String channelId,
-      EmoteResolution resolution,
-    )?
+    Future<SevenTvChannelResponse> Function(String channelId)?
     sevenTvChannelFetcher,
-    Future<List<Emote>> Function(EmoteResolution resolution)?
-    sevenTvGlobalFetcher,
+    Future<List<Emote>> Function()? sevenTvGlobalFetcher,
     Future<List<String>> Function(String twitchId)? sevenTvOwnedSetIdsFetcher,
-    Future<List<Emote>> Function(String setId, EmoteResolution resolution)?
-    sevenTvEmoteSetFetcher,
+    Future<List<Emote>> Function(String setId)? sevenTvEmoteSetFetcher,
     EmoteCacheManager? cacheManager,
     EmoteMetaStore? metaStore,
     Future<Map<String, String>> Function(TwitchAuth auth, List<String> ids)?
@@ -128,7 +124,6 @@ class EmoteManager implements EmoteLookupSource {
     Future<Map<String, List<Emote>>> Function(
       List<String> setIds, {
       String? accessToken,
-      EmoteResolution? resolution,
     })?
     fetchUserEmoteSets,
     this.getChannelUserIds,
@@ -212,6 +207,8 @@ class EmoteManager implements EmoteLookupSource {
           metaStore: _metaStore,
         );
     _images.cacheCap = cacheCap;
+    // A landed precache download can make a lower scale redundant.
+    _images.onStored = (emote) => unawaited(_discardDominatedScales([emote]));
   }
 
   /// Catalog store backing lookups and commits.
@@ -483,8 +480,6 @@ class EmoteManager implements EmoteLookupSource {
     if (_registryFrozen || tier == EmoteFetchTier.nothing || types.isEmpty) {
       return;
     }
-    final resolution = tier.resolution;
-    if (resolution == null) return;
     final targets = [
       for (final t in types)
         if (_isProviderOn(t)) t,
@@ -495,7 +490,7 @@ class EmoteManager implements EmoteLookupSource {
       final globalEpoch = _store.globalEpoch;
       for (final type in targets.where((t) => !_hasGlobalList(t))) {
         try {
-          final fetch = await _fetcher.fetchGlobalForProvider(type, resolution);
+          final fetch = await _fetcher.fetchGlobalForProvider(type);
           if (fetch.byProvider.isNotEmpty) {
             _commitGlobal(globalEpoch, fetch);
             fetched = true;
@@ -524,7 +519,6 @@ class EmoteManager implements EmoteLookupSource {
               type,
               broadcasterId,
               channelName: channel,
-              resolution: resolution,
             );
             if (fetch.byProvider.isNotEmpty) {
               byProvider.addAll(fetch.byProvider);
@@ -574,7 +568,8 @@ class EmoteManager implements EmoteLookupSource {
   /// Records emote display for cache eviction scoring.
   void markEmoteViewed(Emote emote) {
     if (tier == EmoteFetchTier.nothing) return;
-    _usage.touch(emote.url);
+    final url = EmotePicker.chatDownloadUrl(emote, tier);
+    if (url != null) _usage.touch(url);
   }
 
   Future<List<Emote>> recentEmotes() => _usage.recentEmotes(emoteById);
@@ -592,7 +587,7 @@ class EmoteManager implements EmoteLookupSource {
     if (_store.hasGlobalCache && !force) return;
     final ttl = await _fetcher.effectiveTtl();
     if (!force) {
-      final loaded = await _persistence.load('emotes4_global', ttl);
+      final loaded = await _persistence.load('emotes5_global', ttl);
       final cached = loaded.catalog;
       if (cached != null) {
         if (!_store.seedGlobalFromCache(epoch, cached)) return;
@@ -615,7 +610,7 @@ class EmoteManager implements EmoteLookupSource {
     }
     // Fetch every enabled provider.
     if (tier == EmoteFetchTier.nothing) return;
-    final loaded = await _persistence.load('emotes4_global', ttl);
+    final loaded = await _persistence.load('emotes5_global', ttl);
     if (loaded.catalog != null) {
       // Seed provider lists a wiped catalog would otherwise lose to a flaky
       // fetch (429/5xx/timeout), without clobbering in-memory data.
@@ -623,7 +618,7 @@ class EmoteManager implements EmoteLookupSource {
     }
     final fetch = await _fetcher.enqueue(_fetcher.fetchAllGlobal);
     if (_commitGlobal(epoch, fetch)) {
-      await _persistence.save('emotes4_global', _store.globalCatalog, ttl);
+      await _persistence.save('emotes5_global', _store.globalCatalog, ttl);
     }
     _store.notifyStateCleared();
   }
@@ -666,7 +661,7 @@ class EmoteManager implements EmoteLookupSource {
     if (force) {
       // Nothing tier: render cached only.
       if (tier == EmoteFetchTier.nothing) return;
-      final loaded = await _persistence.load('emotes4_$channel', ttl);
+      final loaded = await _persistence.load('emotes5_$channel', ttl);
       if (_store.channelEpoch(channel) != epoch) return;
       if (loaded.catalog != null) {
         _store.fillMissingChannel(channel, loaded.catalog!);
@@ -676,7 +671,7 @@ class EmoteManager implements EmoteLookupSource {
       );
       if (_commitChannel(channel, epoch, fetch)) {
         await _persistence.save(
-          'emotes4_$channel',
+          'emotes5_$channel',
           _store.channelCatalog(channel)!,
           ttl,
         );
@@ -684,7 +679,7 @@ class EmoteManager implements EmoteLookupSource {
       return;
     }
     final loaded = await _persistence.load(
-      'emotes4_$channel',
+      'emotes5_$channel',
       ttl,
       fetchTime: _store.channelFetchTime(channel),
     );
@@ -740,7 +735,7 @@ class EmoteManager implements EmoteLookupSource {
     );
     if (_commitChannel(channel, epoch, fetch)) {
       await _persistence.save(
-        'emotes4_$channel',
+        'emotes5_$channel',
         _store.channelCatalog(channel)!,
         ttl,
       );
@@ -858,6 +853,17 @@ class EmoteManager implements EmoteLookupSource {
     }
   }
 
+  Future<void> _discardDominatedScales(List<Emote> emotes) async {
+    for (final e in emotes) {
+      final dominated = EmotePicker.dominatedScaleUrls(e);
+      if (dominated.isEmpty) continue;
+      final better = e.urlFor(EmoteScale.medium) ?? e.urlFor(EmoteScale.large);
+      if (better != null && await _images.isCached(better)) {
+        await _evictEmoteImages(dominated);
+      }
+    }
+  }
+
   /// Low/nothing tiers: no Twitch background refresh (infinite TTL).
   bool get _skipTwitchBackgroundRefresh =>
       tier == EmoteFetchTier.low || tier == EmoteFetchTier.nothing;
@@ -945,7 +951,12 @@ class EmoteManager implements EmoteLookupSource {
     if (tier == EmoteFetchTier.nothing) return;
     final fresh = _images.precache(emotes);
     if (fresh.isEmpty) return;
-    _usage.touchAll(fresh.map((e) => e.url));
+    _usage.touchAll(
+      fresh
+          .map((e) => EmotePicker.chatDownloadUrl(e, tier))
+          .whereType<String>(),
+    );
     _usage.scheduleFlush();
+    unawaited(_discardDominatedScales(fresh));
   }
 }

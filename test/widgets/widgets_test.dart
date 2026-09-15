@@ -5184,7 +5184,7 @@ void main() {
     id: id,
     code: code,
     meta: const SevenTvMeta(),
-    url: 'https://example.com/$id.png',
+    scales: {EmoteScale.medium: 'https://example.com/$id.png'},
     scope: EmoteScope.channel,
   );
 
@@ -5332,7 +5332,9 @@ void main() {
         id: '7tv-1',
         code: 'Cope',
         meta: SevenTvMeta(baseName: baseName, creator: 'CopeQueen'),
-        url: 'https://cdn.7tv.app/emote/1/1x.webp',
+        scales: const {
+          EmoteScale.medium: 'https://cdn.7tv.app/emote/1/1x.webp',
+        },
         isZeroWidth: zeroWidth,
         scope: scope,
       );

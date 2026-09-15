@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import '../../widgets/emote_image.dart';
+import '../../widgets/emote_scale_resolver.dart';
+import '../../emotes/emote_picker.dart';
 import '../../widgets/tabbed_layout.dart';
 import '../../emotes/emote.dart';
 import '../../services/analytics_service.dart';
@@ -315,15 +316,14 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         ListTile(
           dense: true,
           contentPadding: EdgeInsets.zero,
-          leading: EmoteImage(
-            url: entry.emote.url,
-            emoteImages: widget.images,
+          leading: EmoteScaleResolver(
+            emote: entry.emote,
+            surface: EmoteSurface.grid,
+            images: widget.images,
             width: 28,
             height: 28,
             fit: BoxFit.contain,
-            alternateUrls: [if (entry.emote.url1x != null) entry.emote.url1x!],
             errorWidget: const SizedBox(width: 28, height: 28),
-            emote: entry.emote,
           ),
           title: Text(entry.emote.code),
           trailing: Text('${entry.count}'),

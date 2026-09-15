@@ -50,7 +50,7 @@ class EmoteCacheManager extends CacheManager {
   EmoteCacheManager([Config? config]) : super(config ?? _defaultConfig());
 
   static Config _defaultConfig() => Config(
-    'emoteImageCacheV2',
+    'emoteImageCacheV3',
     maxNrOfCacheObjects: 2000,
     stalePeriod: const Duration(days: 30),
   );

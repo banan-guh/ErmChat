@@ -28,9 +28,7 @@ class SevenTvEmoteProvider {
     return flags is int && (flags & _personalSetFlag) != 0;
   }
 
-  static Future<List<Emote>> fetchGlobal({
-    EmoteResolution resolution = EmoteResolution.high,
-  }) async {
+  static Future<List<Emote>> fetchGlobal() async {
     final uri = Uri.parse('https://7tv.io/v3/emote-sets/global');
     final res = await http.get(uri).timeout(httpTimeout);
     throwOnTransientHttpError(res.statusCode, uri);
@@ -40,14 +38,13 @@ class SevenTvEmoteProvider {
     return Isolate.run(() {
       final data = jsonDecode(res.body) as Map<String, dynamic>;
       final items = data['emotes'] as List<dynamic>? ?? [];
-      return _parseEmotes(items, global: true, resolution: resolution);
+      return _parseEmotes(items, global: true);
     });
   }
 
   static Future<SevenTvChannelResponse> fetchChannelResponse(
-    String channelId, {
-    EmoteResolution resolution = EmoteResolution.high,
-  }) async {
+    String channelId,
+  ) async {
     final uri = Uri.parse('https://7tv.io/v3/users/twitch/$channelId');
     final res = await http.get(uri).timeout(httpTimeout);
     throwOnTransientHttpError(res.statusCode, uri);
@@ -60,7 +57,7 @@ class SevenTvEmoteProvider {
       final emoteSetId = emoteSet?['id'] as String?;
       final items = emoteSet?['emotes'] as List<dynamic>? ?? [];
       return SevenTvChannelResponse(
-        emotes: _parseEmotes(items, channel: true, resolution: resolution),
+        emotes: _parseEmotes(items, channel: true),
         userId: userId,
         emoteSetId: emoteSetId,
       );
@@ -95,10 +92,7 @@ class SevenTvEmoteProvider {
 
   /// Emotes of one personal set by id. Non-personal sets return empty so a
   /// mistargeted id never leaks channel emotes into the global merge.
-  static Future<List<Emote>> fetchEmoteSet(
-    String setId, {
-    EmoteResolution resolution = EmoteResolution.high,
-  }) async {
+  static Future<List<Emote>> fetchEmoteSet(String setId) async {
     final uri = Uri.parse('https://7tv.io/v3/emote-sets/$setId');
     final res = await http.get(uri).timeout(httpTimeout);
     throwOnTransientHttpError(res.statusCode, uri);
@@ -108,7 +102,7 @@ class SevenTvEmoteProvider {
       final data = jsonDecode(res.body) as Map<String, dynamic>;
       if (!isPersonalSet(data)) return <Emote>[];
       final items = data['emotes'] as List<dynamic>? ?? [];
-      return _parseEmotes(items, personal: true, resolution: resolution);
+      return _parseEmotes(items, personal: true);
     });
   }
 
@@ -116,14 +110,8 @@ class SevenTvEmoteProvider {
     Map<String, dynamic> item, {
     bool channel = false,
     bool personal = false,
-    EmoteResolution resolution = EmoteResolution.high,
   }) {
-    final emotes = _parseEmotes(
-      [item],
-      channel: channel,
-      personal: personal,
-      resolution: resolution,
-    );
+    final emotes = _parseEmotes([item], channel: channel, personal: personal);
     return emotes.isNotEmpty ? emotes.first : null;
   }
 
@@ -132,7 +120,6 @@ class SevenTvEmoteProvider {
     bool global = false,
     bool channel = false,
     bool personal = false,
-    EmoteResolution resolution = EmoteResolution.high,
   }) {
     final emotes = <Emote>[];
     for (final entry in items) {
@@ -158,16 +145,10 @@ class SevenTvEmoteProvider {
       final baseUrl = host['files'] as List<dynamic>?;
       if (baseUrl == null || baseUrl.isEmpty) continue;
 
-      String? url;
-      String? url1x;
-      String? url3x;
+      final scales = <EmoteScale, String>{};
       bool isAnimated = false;
       double relativeScale = 1.0;
       double aspectRatio = 1.0;
-      // Files ordered smallest to largest; 2x for chat, <=3x for sheet.
-      String? first;
-      String? best2x;
-      String? lastLe3;
       for (final fileEntry in baseUrl) {
         if (fileEntry is! Map<String, dynamic>) continue;
         final file = fileEntry;
@@ -176,11 +157,18 @@ class SevenTvEmoteProvider {
         if (name == null || format != 'WEBP') continue;
         final hostUrl = host['url'] as String? ?? '';
         final fullUrl = 'https:$hostUrl/$name';
-        first ??= fullUrl;
         final multiplierStr = name.split('x').first;
-        if (multiplierStr == '2') best2x ??= fullUrl;
         final multiplier = int.tryParse(multiplierStr);
-        if (multiplier != null && multiplier <= 3) lastLe3 = fullUrl;
+        if (multiplierStr == '1') {
+          scales.putIfAbsent(EmoteScale.small, () => fullUrl);
+        } else if (multiplierStr == '2') {
+          scales.putIfAbsent(EmoteScale.medium, () => fullUrl);
+        } else if (multiplierStr == '3') {
+          // 3x backs large only until a 4x file replaces it.
+          scales.putIfAbsent(EmoteScale.large, () => fullUrl);
+        } else if (multiplierStr == '4') {
+          scales[EmoteScale.large] = fullUrl;
+        }
         // Static emotes are WEBP too; only the payload flag marks animation.
         isAnimated = data['animated'] == true;
         final fileWidth = file['width'] as int?;
@@ -194,22 +182,7 @@ class SevenTvEmoteProvider {
           aspectRatio = fileWidth / fileHeight;
         }
       }
-      switch (resolution) {
-        case EmoteResolution.low:
-          url = first;
-          url1x = null;
-          break;
-        case EmoteResolution.medium:
-          url = best2x ?? first;
-          url1x = best2x != null && first != best2x ? first : null;
-          break;
-        case EmoteResolution.high:
-          url = best2x ?? first;
-          url1x = best2x != null && first != best2x ? first : null;
-          url3x = lastLe3;
-          break;
-      }
-      if (url == null) continue;
+      if (scales.isEmpty) continue;
 
       bool isZeroWidth = false;
       final flags = data['flags'];
@@ -240,9 +213,7 @@ class SevenTvEmoteProvider {
             relativeScale: relativeScale,
             aspectRatio: aspectRatio,
           ),
-          url: url,
-          url1x: url1x,
-          url3x: url3x,
+          scales: scales,
           isAnimated: isAnimated,
           scope: personal
               ? EmoteScope.personal

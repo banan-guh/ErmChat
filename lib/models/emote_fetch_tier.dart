@@ -26,18 +26,21 @@ extension EmoteFetchTierX on EmoteFetchTier {
   String get subtitle => switch (this) {
     EmoteFetchTier.nothing => 'Show only already-cached emotes, never fetch',
     EmoteFetchTier.low =>
-      'Low-res 1x emotes, fetched once then frozen (data saver)',
-    EmoteFetchTier.medium => '2x emotes, normal updates',
-    EmoteFetchTier.high => '2x emotes with 3x sheet detail, freshest',
+      'Small 1x emotes, fetched once then frozen (data saver)',
+    EmoteFetchTier.medium => 'Medium 2x emotes, normal updates',
+    EmoteFetchTier.high => 'Medium 2x emotes with large 4x card detail',
   };
 
-  /// Resolution for this tier's fetch, or null for nothing.
-  EmoteResolution? get resolution => switch (this) {
+  /// Scale the chat surface downloads when nothing better is cached, or null
+  /// for nothing (no downloads at all).
+  EmoteScale? get downloadScale => switch (this) {
     EmoteFetchTier.nothing => null,
-    EmoteFetchTier.low => EmoteResolution.low,
-    EmoteFetchTier.medium => EmoteResolution.medium,
-    EmoteFetchTier.high => EmoteResolution.high,
+    EmoteFetchTier.low => EmoteScale.small,
+    EmoteFetchTier.medium || EmoteFetchTier.high => EmoteScale.medium,
   };
+
+  /// Whether the detail card may fetch the large asset on demand.
+  bool get allowsLargeDownload => this == EmoteFetchTier.high;
 }
 
 const defaultEmoteCacheMax = 500;

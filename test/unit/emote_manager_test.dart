@@ -143,7 +143,7 @@ Emote _e(String id, String code, [EmoteType type = EmoteType.bttv]) => Emote(
     EmoteType.ffz => const FfzMeta(),
     EmoteType.sevenTv => const SevenTvMeta(),
   },
-  url: 'https://example.com/$id.png',
+  scales: {EmoteScale.medium: 'https://example.com/$id.png'},
 );
 
 const _commands = <TwitchCommand>[
@@ -1012,7 +1012,7 @@ void main() {
       expect((restored.meta as SevenTvMeta).unlisted, isTrue);
       expect(restored.scope, original.scope);
       expect(restored.meta.owner, original.meta.owner);
-      expect(restored.url, original.url);
+      expect(restored.scales, original.scales);
       expect(restored.relativeScale, original.relativeScale);
       expect(restored.baseName, 'AliasedEmote');
     });
@@ -1022,7 +1022,7 @@ void main() {
         'id': 'test-id',
         'code': 'TestEmote',
         'meta': {'type': 'bttv'},
-        'url': 'https://example.com/test.png',
+        'scales': {'medium': 'https://example.com/test.png'},
       };
       final restored = Emote.fromJson(json);
       expect(restored.id, 'test-id');
@@ -1046,7 +1046,7 @@ void main() {
           id: '${type.index}',
           code: 'Test',
           meta: metaOf(type),
-          url: '',
+          scales: const {},
         );
         final json = e.toJson();
         final restored = Emote.fromJson(json);
@@ -1057,7 +1057,7 @@ void main() {
           id: '1',
           code: 'Test',
           meta: const BttvMeta(),
-          url: '',
+          scales: const {},
           scope: scope,
         );
         final json = e.toJson();
@@ -1066,18 +1066,19 @@ void main() {
       }
     });
 
-    test('round-trips url1x/url3x', () {
+    test('round-trips every scale', () {
       final original = Emote(
         id: 'id-url',
         code: 'Emote',
         meta: const BttvMeta(),
-        url: 'https://example.com/2x.png',
-        url1x: 'https://example.com/1x.png',
-        url3x: 'https://example.com/3x.png',
+        scales: const {
+          EmoteScale.small: 'https://example.com/1x.png',
+          EmoteScale.medium: 'https://example.com/2x.png',
+          EmoteScale.large: 'https://example.com/3x.png',
+        },
       );
       final restored = Emote.fromJson(original.toJson());
-      expect(restored.url1x, original.url1x);
-      expect(restored.url3x, original.url3x);
+      expect(restored.scales, original.scales);
     });
 
     test('ignores the legacy urlLarge key', () {
@@ -1090,8 +1091,7 @@ void main() {
         'scope': 'global',
       };
       final restored = Emote.fromJson(legacy);
-      expect(restored.url1x, isNull);
-      expect(restored.url3x, isNull);
+      expect(restored.scales, isEmpty);
     });
   });
 
@@ -1105,7 +1105,7 @@ void main() {
             id: 'e1',
             code: 'OldName',
             meta: const SevenTvMeta(creator: 'Creator', baseName: 'BaseEmote'),
-            url: 'https://example.com/e1.png',
+            scales: {EmoteScale.medium: 'https://example.com/e1.png'},
             scope: EmoteScope.channel,
           ),
         ],
@@ -1124,7 +1124,7 @@ void main() {
       id: id,
       code: code,
       meta: const SevenTvMeta(),
-      url: 'https://example.com/$id.png',
+      scales: {EmoteScale.medium: 'https://example.com/$id.png'},
       scope: EmoteScope.channel,
     );
 
@@ -1285,7 +1285,7 @@ void main() {
 
     test('a fetch re-load re-applies live 7TV deltas', () async {
       SharedPreferences.setMockInitialValues({
-        'emotes4_ch': jsonEncode({
+        'emotes5_ch': jsonEncode({
           'ts': DateTime.now().toIso8601String(),
           'tier': EmoteFetchTier.high.index,
           'emotes': _catalogJson([
@@ -1325,12 +1325,12 @@ void main() {
       id: id,
       code: code,
       meta: const SevenTvMeta(),
-      url: 'https://example.com/$id.png',
+      scales: {EmoteScale.medium: 'https://example.com/$id.png'},
       scope: EmoteScope.channel,
     );
 
     Map<String, Object> cache(List<Emote> emotes) => {
-      'emotes4_ch': jsonEncode({
+      'emotes5_ch': jsonEncode({
         'ts': DateTime.now()
             .subtract(const Duration(hours: 1))
             .toIso8601String(),
@@ -1345,7 +1345,7 @@ void main() {
         fetchStagger: Duration.zero,
         tier: EmoteFetchTier.medium,
         removeCachedFile: (url) async {},
-        sevenTvChannelFetcher: (id, resolution) async => SevenTvChannelResponse(
+        sevenTvChannelFetcher: (id) async => SevenTvChannelResponse(
           emotes: switched ? [sevenTv('b', 'Bravo')] : [sevenTv('a', 'Alpha')],
           emoteSetId: switched ? 'setB' : 'setA',
           userId: 'u1',
@@ -1378,7 +1378,7 @@ void main() {
         fetchStagger: Duration.zero,
         tier: EmoteFetchTier.medium,
         removeCachedFile: (url) async {},
-        sevenTvChannelFetcher: (id, resolution) async => SevenTvChannelResponse(
+        sevenTvChannelFetcher: (id) async => SevenTvChannelResponse(
           emotes: [
             sevenTv('b', 'Bravo'),
             sevenTv('c', 'Charlee'),
@@ -1406,11 +1406,7 @@ void main() {
       Future<void> checkKept({
         required EmoteFetchTier tier,
         required String? broadcasterId,
-        required Future<SevenTvChannelResponse> Function(
-          String,
-          EmoteResolution,
-        )
-        fetcher,
+        required Future<SevenTvChannelResponse> Function(String) fetcher,
       }) async {
         SharedPreferences.setMockInitialValues(cache([sevenTv('a', 'Alpha')]));
         var fetched = false;
@@ -1418,9 +1414,9 @@ void main() {
           fetchStagger: Duration.zero,
           tier: tier,
           removeCachedFile: (url) async {},
-          sevenTvChannelFetcher: (id, resolution) async {
+          sevenTvChannelFetcher: (id) async {
             fetched = true;
-            return fetcher(id, resolution);
+            return fetcher(id);
           },
         );
 
@@ -1434,13 +1430,13 @@ void main() {
       await checkKept(
         tier: EmoteFetchTier.low,
         broadcasterId: 'b1',
-        fetcher: (id, resolution) async =>
+        fetcher: (id) async =>
             SevenTvChannelResponse(emotes: [sevenTv('b', 'Bravo')]),
       );
       await checkKept(
         tier: EmoteFetchTier.medium,
         broadcasterId: null,
-        fetcher: (id, resolution) async =>
+        fetcher: (id) async =>
             SevenTvChannelResponse(emotes: [sevenTv('b', 'Bravo')]),
       );
 
@@ -1449,8 +1445,7 @@ void main() {
         fetchStagger: Duration.zero,
         tier: EmoteFetchTier.medium,
         removeCachedFile: (url) async {},
-        sevenTvChannelFetcher: (id, resolution) async =>
-            throw Exception('boom'),
+        sevenTvChannelFetcher: (id) async => throw Exception('boom'),
       );
 
       await failing.resolveEmotes('ch', 'b1');
@@ -1465,12 +1460,12 @@ void main() {
       id: id,
       code: code,
       meta: const SevenTvMeta(),
-      url: 'https://example.com/$id.png',
+      scales: {EmoteScale.medium: 'https://example.com/$id.png'},
       scope: EmoteScope.channel,
     );
 
     Map<String, Object> cache(List<Emote> emotes) => {
-      'emotes4_ch': jsonEncode({
+      'emotes5_ch': jsonEncode({
         'ts': DateTime.now().toIso8601String(),
         'tier': EmoteFetchTier.medium.index,
         'emotes': _catalogJson(emotes, scope: EmoteScope.channel),
@@ -1484,7 +1479,7 @@ void main() {
         fetchStagger: Duration.zero,
         tier: EmoteFetchTier.medium,
         removeCachedFile: (url) async {},
-        sevenTvChannelFetcher: (id, resolution) async {
+        sevenTvChannelFetcher: (id) async {
           fetches++;
           return SevenTvChannelResponse(
             emotes: [sevenTv('b', fetches == 1 ? 'Bravo' : 'Charlie')],
@@ -1507,7 +1502,7 @@ void main() {
 
     test('preloadGlobalEmotes force refetches the 7tv catalogue', () async {
       SharedPreferences.setMockInitialValues({
-        'emotes4_global': jsonEncode({
+        'emotes5_global': jsonEncode({
           'ts': DateTime.now().toIso8601String(),
           'tier': EmoteFetchTier.medium.index,
           'emotes': _catalogJson([
@@ -1520,7 +1515,7 @@ void main() {
         fetchStagger: Duration.zero,
         tier: EmoteFetchTier.medium,
         removeCachedFile: (url) async {},
-        sevenTvGlobalFetcher: (resolution) async {
+        sevenTvGlobalFetcher: () async {
           fetches++;
           return [
             makeTestEmote(id: 'g2', code: 'Fresh7tv', type: EmoteType.sevenTv),
@@ -1547,12 +1542,12 @@ void main() {
       id: id,
       code: code,
       meta: const SevenTvMeta(),
-      url: 'https://example.com/$id.png',
+      scales: {EmoteScale.medium: 'https://example.com/$id.png'},
       scope: EmoteScope.channel,
     );
 
     Map<String, Object> channelCache(List<Emote> emotes) => {
-      'emotes4_ch': jsonEncode({
+      'emotes5_ch': jsonEncode({
         'ts': DateTime.now().toIso8601String(),
         'tier': EmoteFetchTier.medium.index,
         'emotes': _catalogJson(emotes, scope: EmoteScope.channel),
@@ -1560,7 +1555,7 @@ void main() {
     };
 
     Map<String, Object> globalCache(List<Emote> emotes) => {
-      'emotes4_global': jsonEncode({
+      'emotes5_global': jsonEncode({
         'ts': DateTime.now().toIso8601String(),
         'tier': EmoteFetchTier.medium.index,
         'emotes': _catalogJson(emotes, scope: EmoteScope.global),
@@ -1577,8 +1572,7 @@ void main() {
           fetchStagger: Duration.zero,
           tier: EmoteFetchTier.medium,
           removeCachedFile: (url) async {},
-          sevenTvChannelFetcher: (id, resolution) async =>
-              throw Exception('HTTP 429'),
+          sevenTvChannelFetcher: (id) async => throw Exception('HTTP 429'),
         );
 
         await manager.resolveEmotes('ch', 'b1');
@@ -1595,8 +1589,7 @@ void main() {
           fetchStagger: Duration.zero,
           tier: EmoteFetchTier.medium,
           removeCachedFile: (url) async {},
-          sevenTvChannelFetcher: (id, resolution) async =>
-              throw Exception('HTTP 429'),
+          sevenTvChannelFetcher: (id) async => throw Exception('HTTP 429'),
         );
         await fresh.resolveEmotes('ch', 'b1');
         await pumpEventQueue();
@@ -1614,8 +1607,7 @@ void main() {
           fetchStagger: Duration.zero,
           tier: EmoteFetchTier.medium,
           removeCachedFile: (url) async {},
-          sevenTvGlobalFetcher: (resolution) async =>
-              throw Exception('HTTP 429'),
+          sevenTvGlobalFetcher: () async => throw Exception('HTTP 429'),
         );
 
         await manager.preloadGlobalEmotes();
@@ -1643,8 +1635,7 @@ void main() {
         fetchStagger: Duration.zero,
         tier: EmoteFetchTier.medium,
         removeCachedFile: (url) async {},
-        sevenTvChannelFetcher: (id, resolution) async =>
-            throw Exception('HTTP 429'),
+        sevenTvChannelFetcher: (id) async => throw Exception('HTTP 429'),
       );
 
       // Startup path: the failed reconcile and background twitch refresh
@@ -1668,7 +1659,7 @@ void main() {
         fetchStagger: Duration.zero,
         tier: EmoteFetchTier.medium,
         removeCachedFile: (url) async {},
-        sevenTvChannelFetcher: (id, resolution) async {
+        sevenTvChannelFetcher: (id) async {
           calls++;
           if (calls == 1) {
             return SevenTvChannelResponse(emotes: [sevenTv('a', 'Alpha')]);
@@ -1687,7 +1678,7 @@ void main() {
         id: 'bt',
         code: 'BttvThing',
         meta: const BttvMeta(),
-        url: 'https://example.com/bt.png',
+        scales: {EmoteScale.medium: 'https://example.com/bt.png'},
         scope: EmoteScope.channel,
       );
       EmoteMetaStore.I.reset();
@@ -1696,7 +1687,7 @@ void main() {
         fetchStagger: Duration.zero,
         tier: EmoteFetchTier.medium,
         removeCachedFile: (url) async {},
-        sevenTvChannelFetcher: (id, resolution) async =>
+        sevenTvChannelFetcher: (id) async =>
             SevenTvChannelResponse(emotes: [sevenTv('a', 'Alpha')]),
       );
 
@@ -1711,8 +1702,7 @@ void main() {
         fetchStagger: Duration.zero,
         tier: EmoteFetchTier.medium,
         removeCachedFile: (url) async {},
-        sevenTvChannelFetcher: (id, resolution) async =>
-            throw Exception('HTTP 429'),
+        sevenTvChannelFetcher: (id) async => throw Exception('HTTP 429'),
       );
       await fresh.resolveEmotes('ch', 'b1');
       await pumpEventQueue();
@@ -1728,7 +1718,7 @@ void main() {
         fetchStagger: Duration.zero,
         tier: EmoteFetchTier.medium,
         removeCachedFile: (url) async {},
-        sevenTvChannelFetcher: (id, resolution) async => SevenTvChannelResponse(
+        sevenTvChannelFetcher: (id) async => SevenTvChannelResponse(
           emotes: [sevenTv('a', 'Alpha'), sevenTv('b', 'Bravo')],
         ),
       );
@@ -1754,7 +1744,7 @@ void main() {
       id: id,
       code: code,
       meta: const SevenTvMeta(),
-      url: 'https://example.com/$id.png',
+      scales: {EmoteScale.medium: 'https://example.com/$id.png'},
       scope: EmoteScope.channel,
     );
 
@@ -1767,7 +1757,7 @@ void main() {
           fetchStagger: Duration.zero,
           tier: EmoteFetchTier.medium,
           removeCachedFile: (url) async {},
-          sevenTvChannelFetcher: (id, resolution) => gate.future,
+          sevenTvChannelFetcher: (id) => gate.future,
         );
 
         final resolving = manager.resolveEmotes('ch', 'b1', force: true);
@@ -1798,7 +1788,7 @@ void main() {
         fetchStagger: Duration.zero,
         tier: EmoteFetchTier.medium,
         removeCachedFile: (url) async {},
-        sevenTvChannelFetcher: (id, resolution) {
+        sevenTvChannelFetcher: (id) {
           firstFetch.complete();
           return gate.future;
         },
@@ -1830,7 +1820,7 @@ void main() {
         fetchStagger: Duration.zero,
         tier: EmoteFetchTier.medium,
         removeCachedFile: (url) async {},
-        sevenTvChannelFetcher: (id, resolution) {
+        sevenTvChannelFetcher: (id) {
           if (calls++ == 0) {
             firstGate = Completer<SevenTvChannelResponse>();
             firstFetch.complete();
@@ -1869,10 +1859,10 @@ void main() {
         fetchStagger: Duration.zero,
         tier: EmoteFetchTier.medium,
         removeCachedFile: (url) async {},
-        sevenTvGlobalFetcher: (resolution) async => [
+        sevenTvGlobalFetcher: () async => [
           makeTestEmote(id: 'g1', code: 'Global7tv', type: EmoteType.sevenTv),
         ],
-        sevenTvChannelFetcher: (id, resolution) async => SevenTvChannelResponse(
+        sevenTvChannelFetcher: (id) async => SevenTvChannelResponse(
           emotes: [sevenTv('a', 'Alpha')],
           emoteSetId: 'setA',
           userId: 'u1',
@@ -1910,14 +1900,14 @@ void main() {
       id: id,
       code: code,
       meta: const SevenTvMeta(),
-      url: 'https://example.com/$id.png',
+      scales: {EmoteScale.medium: 'https://example.com/$id.png'},
       scope: EmoteScope.channel,
     );
 
     // Old timestamp plus a foreign tier stamp: without the freeze this cache
     // would count as stale on both counts and trigger a refetch.
     Map<String, Object> frozenCache(List<Emote> emotes) => {
-      'emotes4_ch': jsonEncode({
+      'emotes5_ch': jsonEncode({
         'ts': DateTime.now()
             .subtract(const Duration(days: 400))
             .toIso8601String(),
@@ -1927,11 +1917,7 @@ void main() {
     };
 
     EmoteManager lowManager(
-      Future<SevenTvChannelResponse> Function(
-        String channelId,
-        EmoteResolution resolution,
-      )?
-      onChannelFetch,
+      Future<SevenTvChannelResponse> Function(String channelId)? onChannelFetch,
     ) => EmoteManager(
       fetchStagger: Duration.zero,
       tier: EmoteFetchTier.low,
@@ -1944,7 +1930,7 @@ void main() {
         frozenCache([sevenTv('a', 'Alpha')]),
       );
       var fetches = 0;
-      final manager = lowManager((id, resolution) async {
+      final manager = lowManager((id) async {
         fetches++;
         return SevenTvChannelResponse(emotes: [sevenTv('b', 'Bravo')]);
       });
@@ -1962,7 +1948,7 @@ void main() {
       expect(manager.byCode('ch')!.suggestions.map((e) => e.code), ['Bravo']);
 
       SharedPreferences.setMockInitialValues({
-        'emotes4_global': jsonEncode({
+        'emotes5_global': jsonEncode({
           'ts': DateTime.now()
               .subtract(const Duration(days: 400))
               .toIso8601String(),
@@ -1977,7 +1963,7 @@ void main() {
         fetchStagger: Duration.zero,
         tier: EmoteFetchTier.low,
         removeCachedFile: (url) async {},
-        sevenTvGlobalFetcher: (resolution) async {
+        sevenTvGlobalFetcher: () async {
           globalFetches++;
           return [];
         },
@@ -1998,7 +1984,7 @@ void main() {
         fetchStagger: Duration.zero,
         tier: EmoteFetchTier.low,
         removeCachedFile: (url) async {},
-        sevenTvGlobalFetcher: (resolution) async {
+        sevenTvGlobalFetcher: () async {
           stashFetches++;
           return [];
         },
@@ -2013,7 +1999,7 @@ void main() {
     test('a missing registry seeds exactly once at low', () async {
       SharedPreferences.setMockInitialValues({});
       var fetches = 0;
-      final manager = lowManager((id, resolution) async {
+      final manager = lowManager((id) async {
         fetches++;
         return SevenTvChannelResponse(emotes: [sevenTv('a', 'Alpha')]);
       });
@@ -2039,7 +2025,7 @@ void main() {
       id: id,
       code: code,
       meta: const SevenTvMeta(),
-      url: 'https://example.com/$id.png',
+      scales: {EmoteScale.medium: 'https://example.com/$id.png'},
       scope: EmoteScope.channel,
     );
 
@@ -2078,7 +2064,7 @@ void main() {
         fetchStagger: Duration.zero,
         tier: EmoteFetchTier.low,
         removeCachedFile: (url) async {},
-        sevenTvChannelFetcher: (id, resolution) async {
+        sevenTvChannelFetcher: (id) async {
           fetches++;
           return SevenTvChannelResponse(emotes: [sevenTvOf('a', 'Alpha')]);
         },
@@ -2088,7 +2074,7 @@ void main() {
       await pumpEventQueue();
 
       expect(fetches, 1);
-      expect(File('${dir.path}/emotes4_ch.json').existsSync(), isTrue);
+      expect(File('${dir.path}/emotes5_ch.json').existsSync(), isTrue);
       final prefs = await SharedPreferences.getInstance();
       expect(prefs.getKeys(), isEmpty, reason: 'prefs must stay blob-free');
 
@@ -2099,7 +2085,7 @@ void main() {
         fetchStagger: Duration.zero,
         tier: EmoteFetchTier.low,
         removeCachedFile: (url) async {},
-        sevenTvChannelFetcher: (id, resolution) async {
+        sevenTvChannelFetcher: (id) async {
           refetches++;
           return SevenTvChannelResponse(emotes: []);
         },
@@ -2115,7 +2101,7 @@ void main() {
       () async {
         SharedPreferences.setMockInitialValues({});
         await EmoteMetaStore.I.write(
-          'emotes4_ch',
+          'emotes5_ch',
           jsonEncode({
             'ts': DateTime.now().toIso8601String(),
             'tier': EmoteFetchTier.low.index,
@@ -2129,7 +2115,7 @@ void main() {
           fetchStagger: Duration.zero,
           tier: EmoteFetchTier.low,
           removeCachedFile: (url) async {},
-          sevenTvChannelFetcher: (id, resolution) async {
+          sevenTvChannelFetcher: (id) async {
             fetches++;
             return SevenTvChannelResponse(emotes: [sevenTvOf('a', 'Alpha')]);
           },
@@ -2153,9 +2139,9 @@ void main() {
     test('pruneStaleChannels drops dead channels and keeps global', () async {
       SharedPreferences.setMockInitialValues({});
       final store = EmoteMetaStore.I;
-      await store.write('emotes4_global', '{}');
-      await store.write('emotes4_kept', '{}');
-      await store.write('emotes4_dead', '{}');
+      await store.write('emotes5_global', '{}');
+      await store.write('emotes5_kept', '{}');
+      await store.write('emotes5_dead', '{}');
 
       final manager = EmoteManager(
         fetchStagger: Duration.zero,
@@ -2163,15 +2149,15 @@ void main() {
       );
       await manager.pruneStaleChannels({'kept'});
 
-      expect(await store.keys(), containsAll(['emotes4_global']));
-      expect(await store.keys(), isNot(contains('emotes4_dead')));
-      expect(await store.keys(), contains('emotes4_kept'));
+      expect(await store.keys(), containsAll(['emotes5_global']));
+      expect(await store.keys(), isNot(contains('emotes5_dead')));
+      expect(await store.keys(), contains('emotes5_kept'));
     });
   });
 
   group('provider stash restore', () {
     Map<String, Object> globalCacheJson(List<Emote> emotes) => {
-      'emotes4_global': jsonEncode({
+      'emotes5_global': jsonEncode({
         'ts': DateTime.now().toIso8601String(),
         'tier': EmoteFetchTier.medium.index,
         'emotes': _catalogJson(emotes, scope: EmoteScope.global),
@@ -2191,7 +2177,7 @@ void main() {
           fetchStagger: Duration.zero,
           tier: EmoteFetchTier.medium,
           removeCachedFile: (url) async {},
-          sevenTvGlobalFetcher: (resolution) async {
+          sevenTvGlobalFetcher: () async {
             fetches++;
             return [
               makeTestEmote(id: 'b', code: 'Fresh', type: EmoteType.sevenTv),
@@ -2231,7 +2217,7 @@ void main() {
           fetchStagger: Duration.zero,
           tier: EmoteFetchTier.medium,
           removeCachedFile: (url) async {},
-          sevenTvGlobalFetcher: (resolution) async {
+          sevenTvGlobalFetcher: () async {
             fetches++;
             return [
               makeTestEmote(
@@ -2420,7 +2406,7 @@ void main() {
 
     Map<String, Object> persistedCache({required bool fresh}) {
       return {
-        'emotes4_ch': jsonEncode({
+        'emotes5_ch': jsonEncode({
           'ts': DateTime.now()
               .subtract(
                 fresh ? const Duration(hours: 1) : const Duration(days: 2),
@@ -2640,7 +2626,7 @@ void main() {
       final auth = TwitchAuth()..accessToken = 'tok';
       final manager = EmoteManager(
         fetchStagger: Duration.zero,
-        fetchUserEmoteSets: (ids, {accessToken, resolution}) async => {
+        fetchUserEmoteSets: (ids, {accessToken}) async => {
           'ownerA': [
             makeTestEmote(
               id: 'x',
@@ -2687,7 +2673,7 @@ void main() {
       final auth = TwitchAuth()..accessToken = 'tok';
       final manager = EmoteManager(
         fetchStagger: Duration.zero,
-        fetchUserEmoteSets: (ids, {accessToken, resolution}) async => {
+        fetchUserEmoteSets: (ids, {accessToken}) async => {
           '': [unlockedEmote()],
           'ownerA': [ownedSubEmote()],
         },
@@ -2711,7 +2697,7 @@ void main() {
       final auth = TwitchAuth()..accessToken = 'tok';
       final manager = EmoteManager(
         fetchStagger: Duration.zero,
-        fetchUserEmoteSets: (ids, {accessToken, resolution}) async {
+        fetchUserEmoteSets: (ids, {accessToken}) async {
           fetchCalls++;
           return {
             '': [unlockedEmote()],
@@ -2732,7 +2718,7 @@ void main() {
       final fetch = Completer<Map<String, List<Emote>>>();
       final manager = EmoteManager(
         fetchStagger: Duration.zero,
-        fetchUserEmoteSets: (ids, {accessToken, resolution}) {
+        fetchUserEmoteSets: (ids, {accessToken}) {
           expect(ids, ['s1']);
           return fetch.future;
         },
@@ -2763,7 +2749,7 @@ void main() {
       var fetchCalls = 0;
       final manager = EmoteManager(
         fetchStagger: Duration.zero,
-        fetchUserEmoteSets: (ids, {accessToken, resolution}) async {
+        fetchUserEmoteSets: (ids, {accessToken}) async {
           fetchCalls++;
           return {
             'ownerA': [
@@ -2802,7 +2788,7 @@ void main() {
       final auth = TwitchAuth()..accessToken = 'tok';
       final manager = EmoteManager(
         fetchStagger: Duration.zero,
-        fetchUserEmoteSets: (ids, {accessToken, resolution}) async => {
+        fetchUserEmoteSets: (ids, {accessToken}) async => {
           '': [unlockedEmote()],
         },
         resolveOwnerLogins: (a, ids) async => {},
@@ -2821,11 +2807,11 @@ void main() {
         fetchStagger: Duration.zero,
         tier: EmoteFetchTier.medium,
         removeCachedFile: (url) async {},
-        fetchUserEmoteSets: (ids, {accessToken, resolution}) async => {
+        fetchUserEmoteSets: (ids, {accessToken}) async => {
           '': [unlockedEmote()],
         },
         resolveOwnerLogins: (a, ids) async => {},
-        sevenTvGlobalFetcher: (resolution) async {
+        sevenTvGlobalFetcher: () async {
           globalFetches++;
           return const [];
         },
@@ -2844,7 +2830,7 @@ void main() {
       final auth = TwitchAuth()..accessToken = 'tok';
       final manager = EmoteManager(
         fetchStagger: Duration.zero,
-        fetchUserEmoteSets: (ids, {accessToken, resolution}) async => {
+        fetchUserEmoteSets: (ids, {accessToken}) async => {
           '': [unlockedEmote()],
         },
         resolveOwnerLogins: (a, ids) async => {},
@@ -2863,7 +2849,7 @@ void main() {
       var resolveCalls = 0;
       final manager = EmoteManager(
         fetchStagger: Duration.zero,
-        fetchUserEmoteSets: (ids, {accessToken, resolution}) async => {
+        fetchUserEmoteSets: (ids, {accessToken}) async => {
           'ownerA': [
             makeTestEmote(
               id: 'x',
@@ -2917,7 +2903,7 @@ void main() {
         var channels = <String, String>{};
         final manager = EmoteManager(
           fetchStagger: Duration.zero,
-          fetchUserEmoteSets: (ids, {accessToken, resolution}) async {
+          fetchUserEmoteSets: (ids, {accessToken}) async {
             // The channel joins and its id resolves while the fetch is in flight.
             channels = {'chanA': 'ownerA'};
             return {
@@ -2984,7 +2970,7 @@ void main() {
       'fresh persisted cache does not leak old user subs after reset',
       () async {
         SharedPreferences.setMockInitialValues({
-          'emotes4_ch': jsonEncode({
+          'emotes5_ch': jsonEncode({
             'ts': DateTime.now()
                 .subtract(const Duration(hours: 1))
                 .toIso8601String(),
@@ -3050,7 +3036,7 @@ void main() {
         Emote(
           id: 'e$i',
           code: 'E$i',
-          url: 'https://example.com/e$i.png',
+          scales: {EmoteScale.medium: 'https://example.com/e$i.png'},
           meta: const BttvMeta(),
         ),
     ];
@@ -3199,7 +3185,7 @@ void main() {
             makeTestEmote(id: 'g1', code: 'GlobalE'),
           ], scope: EmoteScope.global),
         });
-        SharedPreferences.setMockInitialValues({'emotes4_global': persisted});
+        SharedPreferences.setMockInitialValues({'emotes5_global': persisted});
         final manager = EmoteManager(
           fetchStagger: Duration.zero,
           tier: EmoteFetchTier.nothing,
@@ -3213,10 +3199,10 @@ void main() {
           contains(predicate((Emote e) => e.code == 'GlobalE')),
         );
         var prefs = await SharedPreferences.getInstance();
-        expect(prefs.getString('emotes4_global'), persisted);
+        expect(prefs.getString('emotes5_global'), persisted);
 
         SharedPreferences.setMockInitialValues({
-          'emotes4_ch': jsonEncode({
+          'emotes5_ch': jsonEncode({
             'ts': DateTime.now().toIso8601String(),
             'tier': EmoteFetchTier.nothing.index,
             'emotes': _catalogJson([
@@ -3243,7 +3229,7 @@ void main() {
 
         expect(emptyManager.byCode('ch'), isNull);
         prefs = await SharedPreferences.getInstance();
-        expect(prefs.getString('emotes4_ch'), isNull);
+        expect(prefs.getString('emotes5_ch'), isNull);
       },
     );
 
@@ -3263,7 +3249,7 @@ void main() {
             makeTestEmote(id: 'g5', code: 'A_SevenTv', type: EmoteType.sevenTv),
           ], scope: EmoteScope.global),
         });
-        SharedPreferences.setMockInitialValues({'emotes4_global': persisted});
+        SharedPreferences.setMockInitialValues({'emotes5_global': persisted});
         final manager = EmoteManager(
           fetchStagger: Duration.zero,
           tier: EmoteFetchTier.nothing,
@@ -3309,7 +3295,7 @@ void main() {
             id: 'e1',
             code: 'E1',
             meta: const SevenTvMeta(),
-            url: 'https://example.com/e1.png',
+            scales: {EmoteScale.medium: 'https://example.com/e1.png'},
             scope: EmoteScope.channel,
           ),
         ],
@@ -3337,7 +3323,7 @@ void main() {
           id: 'e1',
           code: 'E1',
           meta: const BttvMeta(),
-          url: 'https://example.com/e1.png',
+          scales: {EmoteScale.medium: 'https://example.com/e1.png'},
         ),
       ]);
       await pumpEventQueue();
@@ -3351,7 +3337,7 @@ void main() {
 
   group('tier tag in persisted cache', () {
     Map<String, Object> channelCache({required int tier, int ageHours = 1}) => {
-      'emotes4_ch': jsonEncode({
+      'emotes5_ch': jsonEncode({
         'ts': DateTime.now()
             .subtract(Duration(hours: ageHours))
             .toIso8601String(),
@@ -3377,7 +3363,7 @@ void main() {
 
         expect(manager.byCode('ch')!.byCode, contains('ChanE'));
         var data =
-            jsonDecode((await EmoteMetaStore.I.read('emotes4_ch'))!)
+            jsonDecode((await EmoteMetaStore.I.read('emotes5_ch'))!)
                 as Map<String, dynamic>;
         expect(data['tier'], EmoteFetchTier.medium.index);
 
@@ -3393,7 +3379,7 @@ void main() {
 
         expect(freshManager.byCode('ch')!.byCode, contains('ChanE'));
         data =
-            jsonDecode((await EmoteMetaStore.I.read('emotes4_ch'))!)
+            jsonDecode((await EmoteMetaStore.I.read('emotes5_ch'))!)
                 as Map<String, dynamic>;
         expect(data['tier'], EmoteFetchTier.medium.index);
       },
@@ -3415,12 +3401,12 @@ void main() {
       expect(manager.byCode('ch')!.byCode, contains('ChanE'));
       // No refetch: the persisted tier tag stays at 3.
       final data =
-          jsonDecode((await EmoteMetaStore.I.read('emotes4_ch'))!)
+          jsonDecode((await EmoteMetaStore.I.read('emotes5_ch'))!)
               as Map<String, dynamic>;
       expect(data['tier'], EmoteFetchTier.high.index);
 
       SharedPreferences.setMockInitialValues({
-        'emotes4_ch': jsonEncode({
+        'emotes5_ch': jsonEncode({
           'ts': DateTime.now()
               .subtract(const Duration(minutes: 30))
               .toIso8601String(),
@@ -3435,7 +3421,7 @@ void main() {
 
       expect(legacyManager.byCode('ch')!.byCode, contains('ChanE'));
       final legacyData =
-          jsonDecode((await EmoteMetaStore.I.read('emotes4_ch'))!)
+          jsonDecode((await EmoteMetaStore.I.read('emotes5_ch'))!)
               as Map<String, dynamic>;
       expect(legacyData.containsKey('tier'), isFalse);
     });
@@ -4078,7 +4064,7 @@ void main() {
       var emote = SevenTvEmoteProvider.parseSingleEmote({
         'id': 'emote-1',
         'name': 'PogChamp',
-        'data': {'name': 'PogChamp', 'host': _host('1x.webp')},
+        'data': {'name': 'PogChamp', 'host': _host('2x.webp')},
       });
       expect(emote, isNotNull);
       expect(emote!.id, 'emote-1');
@@ -4089,7 +4075,7 @@ void main() {
       emote = SevenTvEmoteProvider.parseSingleEmote({
         'id': 'emote-2',
         'name': 'ALIAS',
-        'data': {'name': 'BaseEmote', 'host': _host('1x.webp')},
+        'data': {'name': 'BaseEmote', 'host': _host('2x.webp')},
       });
       expect(emote, isNotNull);
       expect(emote!.code, 'ALIAS');
@@ -4101,7 +4087,7 @@ void main() {
         'data': {
           'name': 'Cope',
           'owner': {'display_name': 'CopeQueen'},
-          'host': _host('1x.webp'),
+          'host': _host('2x.webp'),
         },
       });
       expect(emote, isNotNull);
@@ -4110,7 +4096,7 @@ void main() {
       emote = SevenTvEmoteProvider.parseSingleEmote({
         'id': 'emote-4',
         'name': 'xqcL',
-        'data': {'name': 'xqcL', 'host': _host('1x.webp')},
+        'data': {'name': 'xqcL', 'host': _host('2x.webp')},
       }, channel: true);
       expect(emote, isNotNull);
       expect(emote!.scope, EmoteScope.channel);
@@ -4120,7 +4106,7 @@ void main() {
       final emote = SevenTvEmoteProvider.parseSingleEmote({
         'id': 'emote-p1',
         'name': 'MyPersonal',
-        'data': {'name': 'MyPersonal', 'host': _host('1x.webp')},
+        'data': {'name': 'MyPersonal', 'host': _host('2x.webp')},
       }, personal: true);
       expect(emote, isNotNull);
       expect(emote!.scope, EmoteScope.personal);
@@ -4130,7 +4116,7 @@ void main() {
       final emote = SevenTvEmoteProvider.parseSingleEmote({
         'id': 'emote-5',
         'name': 'EZ',
-        'data': {'name': 'EZ', 'flags': 1 << 8, 'host': _host('1x.webp')},
+        'data': {'name': 'EZ', 'flags': 1 << 8, 'host': _host('2x.webp')},
       });
       expect(emote, isNotNull);
       expect(emote!.isZeroWidth, isTrue);
@@ -4144,7 +4130,7 @@ void main() {
           'name': 'Secret',
           'flags': 1 | (1 << 8),
           'listed': false,
-          'host': _host('1x.webp'),
+          'host': _host('2x.webp'),
         },
       });
       expect(unlisted, isNotNull);
@@ -4159,7 +4145,7 @@ void main() {
           'name': '!fish',
           'flags': 1 | (1 << 8),
           'listed': true,
-          'host': _host('1x.webp'),
+          'host': _host('2x.webp'),
         },
       });
       expect(privateListed, isNotNull);
@@ -4169,12 +4155,12 @@ void main() {
       final missingListed = SevenTvEmoteProvider.parseSingleEmote({
         'id': 'emote-10',
         'name': 'Legacy',
-        'data': {'name': 'Legacy', 'flags': 0, 'host': _host('1x.webp')},
+        'data': {'name': 'Legacy', 'flags': 0, 'host': _host('2x.webp')},
       });
       expect((missingListed!.meta as SevenTvMeta).unlisted, isFalse);
     });
 
-    test('picks 2x for chat and largest for large surfaces', () {
+    test('fills small, medium and large from the 1x/2x/3x files', () {
       final emote = SevenTvEmoteProvider.parseSingleEmote({
         'id': 'emote-6',
         'name': 'Size',
@@ -4191,22 +4177,41 @@ void main() {
         },
       });
       expect(emote, isNotNull);
-      expect(emote!.url, 'https://cdn.7tv.app/emote/size/2x.webp');
-      expect(emote.url1x, 'https://cdn.7tv.app/emote/size/1x.webp');
-      expect(emote.url3x, 'https://cdn.7tv.app/emote/size/3x.webp');
+      expect(
+        emote!.urlFor(EmoteScale.medium),
+        'https://cdn.7tv.app/emote/size/2x.webp',
+      );
+      expect(
+        emote.urlFor(EmoteScale.small),
+        'https://cdn.7tv.app/emote/size/1x.webp',
+      );
+      expect(
+        emote.urlFor(EmoteScale.large),
+        'https://cdn.7tv.app/emote/size/3x.webp',
+      );
       expect(emote.relativeScale, 1.0);
     });
 
-    test('falls back to smallest file when no 2x tier exists', () {
+    test('keeps an emote with only a 1x file', () {
       final emote = SevenTvEmoteProvider.parseSingleEmote({
         'id': 'emote-7',
         'name': 'Small',
-        'data': {'name': 'Small', 'host': _host('1x.webp')},
+        'data': {
+          'name': 'Small',
+          'host': {
+            'url': '//cdn.7tv.app/emote/1/1x',
+            'files': [
+              {'name': '1x.webp', 'format': 'WEBP', 'width': 32, 'height': 32},
+            ],
+          },
+        },
       });
       expect(emote, isNotNull);
-      expect(emote!.url, 'https://cdn.7tv.app/emote/1/1x/1x.webp');
-      expect(emote.url1x, isNull);
-      expect(emote.url3x, 'https://cdn.7tv.app/emote/1/1x/1x.webp');
+      expect(
+        emote!.scales[EmoteScale.small],
+        'https://cdn.7tv.app/emote/1/1x/1x.webp',
+      );
+      expect(emote.scales.containsKey(EmoteScale.medium), isFalse);
     });
 
     test('isAnimated follows the payload flag, not the file format', () {
@@ -4216,7 +4221,7 @@ void main() {
         'data': {
           'name': 'Anim',
           'animated': animated,
-          'host': _host('1x.webp'),
+          'host': _host('2x.webp'),
         },
       };
       expect(
@@ -4231,7 +4236,7 @@ void main() {
       );
     });
 
-    group('resolution tiers', () {
+    group('scale roles', () {
       Map<String, dynamic> emote(List<String> names) => {
         'id': 'res-1',
         'name': 'Res',
@@ -4249,43 +4254,25 @@ void main() {
 
       const base = 'https://cdn.7tv.app/emote/res';
 
-      test('low and medium pick the small scales without url3x', () {
-        var e = SevenTvEmoteProvider.parseSingleEmote(
+      test('prefers 4x as large and keeps 1x/2x as small/medium', () {
+        final e = SevenTvEmoteProvider.parseSingleEmote(
           emote(['1x.webp', '2x.webp', '3x.webp', '4x.webp']),
-          resolution: EmoteResolution.low,
         );
         expect(e, isNotNull);
-        expect(e!.url, '$base/1x.webp');
-        expect(e.url1x, isNull);
-        expect(e.url3x, isNull);
-
-        e = SevenTvEmoteProvider.parseSingleEmote(
-          emote(['1x.webp', '2x.webp', '3x.webp', '4x.webp']),
-          resolution: EmoteResolution.medium,
-        );
-        expect(e, isNotNull);
-        expect(e!.url, '$base/2x.webp');
-        expect(e.url1x, '$base/1x.webp');
-        expect(e.url3x, isNull);
+        expect(e!.urlFor(EmoteScale.small), '$base/1x.webp');
+        expect(e.urlFor(EmoteScale.medium), '$base/2x.webp');
+        expect(e.urlFor(EmoteScale.large), '$base/4x.webp');
       });
 
-      test('high picks url3x and falls back to 2x without a 3x tier', () {
-        var e = SevenTvEmoteProvider.parseSingleEmote(
-          emote(['1x.webp', '2x.webp', '3x.webp', '4x.webp']),
+      test('uses 3x as large when no 4x file exists', () {
+        final e = SevenTvEmoteProvider.parseSingleEmote(
+          emote(['1x.webp', '2x.webp', '3x.webp']),
         );
         expect(e, isNotNull);
-        expect(e!.url, '$base/2x.webp');
-        expect(e.url1x, '$base/1x.webp');
-        expect(e.url3x, '$base/3x.webp');
-        expect(e.url3x, isNot(contains('4x')));
-        expect(e.url3x, isNot(contains('4x.webp')));
-
-        e = SevenTvEmoteProvider.parseSingleEmote(
-          emote(['1x.webp', '2x.webp', '4x.webp']),
-        );
-        expect(e, isNotNull);
-        expect(e!.url1x, '$base/1x.webp');
-        expect(e.url3x, '$base/2x.webp');
+        expect(e!.urlFor(EmoteScale.small), '$base/1x.webp');
+        expect(e.urlFor(EmoteScale.medium), '$base/2x.webp');
+        expect(e.urlFor(EmoteScale.large), '$base/3x.webp');
+        expect(e.urlFor(EmoteScale.large), isNot(contains('4x')));
       });
     });
   });
@@ -4342,14 +4329,11 @@ void main() {
     };
 
     test('modifier and regular entries parse zero-width flags', () {
-      var emote = FfzEmoteProvider.parseEmote(
-        ffzItem(modifier: true),
-        EmoteResolution.high,
-      );
+      var emote = FfzEmoteProvider.parseEmote(ffzItem(modifier: true));
       expect(emote, isNotNull);
       expect(emote!.isZeroWidth, isTrue);
 
-      emote = FfzEmoteProvider.parseEmote(ffzItem(), EmoteResolution.high);
+      emote = FfzEmoteProvider.parseEmote(ffzItem());
       expect(emote, isNotNull);
       expect(emote!.isZeroWidth, isFalse);
     });
@@ -4357,12 +4341,11 @@ void main() {
     test('ownerChannel is forwarded when given and null otherwise', () {
       var emote = FfzEmoteProvider.parseEmote(
         ffzItem(),
-        EmoteResolution.high,
         ownerChannel: 'SomeCreator',
       );
       expect((emote!.meta as FfzMeta).ownerChannel, 'SomeCreator');
 
-      emote = FfzEmoteProvider.parseEmote(ffzItem(), EmoteResolution.high);
+      emote = FfzEmoteProvider.parseEmote(ffzItem());
       expect((emote!.meta as FfzMeta).ownerChannel, isNull);
     });
   });
@@ -4541,7 +4524,7 @@ void main() {
           makeTestEmote(id: 'f1', code: 'FfzE', type: EmoteType.ffz),
         ], scope: EmoteScope.global),
       });
-      SharedPreferences.setMockInitialValues({'emotes4_global': persisted});
+      SharedPreferences.setMockInitialValues({'emotes5_global': persisted});
       final manager = EmoteManager(
         fetchStagger: Duration.zero,
         tier: EmoteFetchTier.nothing,
@@ -4778,7 +4761,7 @@ void main() {
     }) => EmoteManager(
       fetchStagger: Duration.zero,
       sevenTvOwnedSetIdsFetcher: (_) async => ownedSetIds,
-      sevenTvEmoteSetFetcher: (setId, _) async => sets[setId] ?? [],
+      sevenTvEmoteSetFetcher: (setId) async => sets[setId] ?? [],
     );
 
     SevenTvEntitlementEvent grant(
@@ -4914,7 +4897,7 @@ void main() {
         onListing?.call();
         return [];
       },
-      sevenTvEmoteSetFetcher: (setId, _) async {
+      sevenTvEmoteSetFetcher: (setId) async {
         onSetFetch?.call();
         return sets[setId] ?? [];
       },
@@ -4996,7 +4979,7 @@ void main() {
         final parsed = SevenTvEmoteProvider.parseSingleEmote({
           'id': 'p1',
           'name': 'TheirCode',
-          'data': {'name': 'TheirCode', 'host': _host('1x.webp')},
+          'data': {'name': 'TheirCode', 'host': _host('2x.webp')},
         }, personal: true)!;
         expect(parsed.scope, EmoteScope.personal);
         final manager = socketManager(
@@ -5225,7 +5208,7 @@ void main() {
     EmoteManager seedManager() => EmoteManager(
       fetchStagger: Duration.zero,
       sevenTvOwnedSetIdsFetcher: (_) async => ['vset'],
-      sevenTvEmoteSetFetcher: (setId, _) async => [
+      sevenTvEmoteSetFetcher: (setId) async => [
         if (setId == 'vset') personal('v1', 'Mine'),
         if (setId == 'fset') personal('f1', 'Theirs'),
       ],
@@ -5273,7 +5256,7 @@ void main() {
     test('expired seeds are dropped', () async {
       SharedPreferences.setMockInitialValues({});
       await EmoteMetaStore.I.write(
-        'emotes3_personal_sets',
+        'emotes5_personal_sets',
         jsonEncode({
           'ts': DateTime.now()
               .subtract(const Duration(days: 31))
@@ -5299,20 +5282,20 @@ void main() {
         manager.byCodeForSender('ch', 'sender-1')?.byCode.keys ?? [],
         isNot(contains('Theirs')),
       );
-      expect(await EmoteMetaStore.I.read('emotes3_personal_sets'), isNull);
+      expect(await EmoteMetaStore.I.read('emotes5_personal_sets'), isNull);
     });
 
     test(
       'prune keeps the personal seed while dropping dead channels',
       () async {
         SharedPreferences.setMockInitialValues({});
-        await EmoteMetaStore.I.write('emotes3_personal_sets', '{}');
-        await EmoteMetaStore.I.write('emotes4_deadch', '{}');
+        await EmoteMetaStore.I.write('emotes5_personal_sets', '{}');
+        await EmoteMetaStore.I.write('emotes5_deadch', '{}');
         final manager = EmoteManager(fetchStagger: Duration.zero);
         await manager.pruneStaleChannels({'ch'});
 
-        expect(await EmoteMetaStore.I.read('emotes3_personal_sets'), isNotNull);
-        expect(await EmoteMetaStore.I.read('emotes4_deadch'), isNull);
+        expect(await EmoteMetaStore.I.read('emotes5_personal_sets'), isNotNull);
+        expect(await EmoteMetaStore.I.read('emotes5_deadch'), isNull);
       },
     );
   });

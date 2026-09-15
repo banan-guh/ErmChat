@@ -12,9 +12,9 @@ class EmoteMetaStore {
 
   static final EmoteMetaStore I = EmoteMetaStore._();
 
-  // Cache keys moved from emotes3_ to emotes4_ when the catalog shape changed;
-  // the personal-set seed kept its old key, so both prefixes map to files.
-  static const _prefixes = ['emotes3_', 'emotes4_'];
+  // Cache keys moved through emotes3_ and emotes4_ to emotes5_ as the catalog
+  // shape changed, so legacy prefixes still map to files during migration.
+  static const _prefixes = ['emotes3_', 'emotes4_', 'emotes5_'];
   static const _dirName = 'emote_meta';
 
   Directory? _dir;

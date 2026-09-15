@@ -3,14 +3,13 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:linkify/linkify.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../services/emote_images.dart';
-import 'emote_url_provider.dart';
+import '../emotes/emote_picker.dart';
 import '../util/constants.dart';
 import '../util/log.dart';
-import 'inline_emote_view.dart';
+import 'emote_scale_resolver.dart';
 import '../services/link_whitelist.dart';
 import 'link_whitelist.dart';
 import '../emotes/emote.dart';
@@ -233,42 +232,20 @@ class EmoteText {
     double height, {
     required bool animateGifs,
     required EmoteImages emoteImages,
+    double scale = 1.0,
   }) {
-    // Engine-routable emotes (statics, playing Twitch GIFs) use the stock
-    // provider: one shared decode per URL, no per-copy fan-out. See
-    // [emoteUsesCustomLoop] for the single routing rule.
-    if (!emoteUsesCustomLoop(emote, animateGifs: animateGifs)) {
-      return Image(
-        key: ValueKey(emote.url),
-        image: CachedNetworkImageProvider(
-          emote.url,
-          cacheManager: emoteImages.cache,
-        ),
-        width: width,
-        height: height,
-        fit: BoxFit.contain,
-        gaplessPlayback: true,
-        // Static shared-gray box while bytes load: no clock, no per-tick
-        // repaints. Same look as every other placeholder app-wide.
-        loadingBuilder: (_, child, progress) => progress == null
-            ? child
-            : Container(
-                width: width,
-                height: height,
-                decoration: BoxDecoration(
-                  color: kEmotePlaceholderGray,
-                  borderRadius: BorderRadius.circular(kEmotePlaceholderRadius),
-                ),
-              ),
-        errorBuilder: (_, _, _) => SizedBox(width: width, height: height),
-      );
-    }
-    // Lean renderer: one render box, shared completer. Lower per-copy cost than EmoteImage.
-    return InlineEmoteView(
-      url: emote.url,
+    // The resolver picks the best cached scale live and falls back to the code
+    // as text when nothing is cached on the nothing tier.
+    return EmoteScaleResolver(
+      emote: emote,
+      surface: EmoteSurface.chat,
+      images: emoteImages,
       width: width,
       height: height,
-      images: emoteImages,
+      fit: BoxFit.contain,
+      lean: true,
+      animateGifs: animateGifs,
+      textStyle: TextStyle(fontSize: 14 * scale),
     );
   }
 
@@ -299,6 +276,7 @@ class EmoteText {
           baseSize.height,
           animateGifs: animateGifs,
           emoteImages: emoteImages,
+          scale: scale,
         ),
       ),
     ];
@@ -316,6 +294,7 @@ class EmoteText {
             o.height,
             animateGifs: animateGifs,
             emoteImages: emoteImages,
+            scale: scale,
           ),
         ),
       );
@@ -332,6 +311,7 @@ class EmoteText {
           baseSize.height,
           animateGifs: animateGifs,
           emoteImages: emoteImages,
+          scale: scale,
         ),
       );
     } else {

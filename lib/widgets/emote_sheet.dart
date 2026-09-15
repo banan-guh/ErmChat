@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
-import '../util/log.dart';
 import 'app_snack.dart';
-import 'emote_image.dart';
+import 'emote_scale_resolver.dart';
 import '../emotes/emote.dart';
+import '../emotes/emote_picker.dart';
 import '../services/emote_images.dart';
 
 class EmoteSheet extends StatefulWidget {
@@ -60,16 +60,6 @@ class _EmoteSheetState extends State<EmoteSheet>
     super.dispose();
   }
 
-  /// Scales for [emote], largest first, deduplicated.
-  List<String> _scaleUrls(Emote emote) {
-    final urls = <String>[
-      if (emote.url3x != null) emote.url3x!,
-      emote.url,
-      if (emote.url1x != null) emote.url1x!,
-    ];
-    return <String>{...urls}.toList();
-  }
-
   String _typeLabel(Emote emote) {
     if (emote.type == EmoteType.twitch) {
       return emote.isZeroWidth ? 'Twitch Emote (Zero Width)' : 'Twitch Emote';
@@ -122,18 +112,6 @@ class _EmoteSheetState extends State<EmoteSheet>
     final theme = Theme.of(context);
     final owner = _ownerLabel(emote);
 
-    // Preview targets 3x; cached 2x shows as placeholder during load.
-    final scaleUrls = _scaleUrls(emote);
-    final previewUrl = scaleUrls.firstOrNull ?? emote.url;
-    final alternateUrls = scaleUrls
-        .skip(1)
-        .where((u) => u != previewUrl)
-        .toList();
-    logDebug(
-      '[EmoteSheet] emote=${emote.code} scales=$scaleUrls '
-      'previewUrl=$previewUrl alternates=$alternateUrls',
-    );
-
     final subtitleStyle = TextStyle(
       fontSize: 16,
       color: theme.colorScheme.onSurfaceVariant,
@@ -156,12 +134,13 @@ class _EmoteSheetState extends State<EmoteSheet>
                   child: SizedBox(
                     width: 128,
                     height: 128,
-                    child: EmoteImage(
-                      url: previewUrl,
-                      emoteImages: widget.images,
-                      alternateUrls: alternateUrls,
-                      fit: BoxFit.contain,
+                    child: EmoteScaleResolver(
                       emote: emote,
+                      surface: EmoteSurface.card,
+                      images: widget.images,
+                      width: 128,
+                      height: 128,
+                      fit: BoxFit.contain,
                       errorWidget: Container(
                         color: theme.colorScheme.surfaceContainerHighest,
                         child: Icon(

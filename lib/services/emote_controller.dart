@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import '../models/emote_fetch_tier.dart';
-import '../emotes/emote.dart';
 import '../chat/chat.dart';
 import '../util/connectivity.dart';
 import '../util/data_usage.dart';
@@ -159,64 +158,17 @@ class EmoteController {
   }
 
   void _applyTier(EmoteFetchTier tier) {
-    final oldTier = emoteManager.tier;
     try {
       emoteManager.tier = tier;
       DataUsageStats.I.setContext(
         tier: tier,
         isMobile: connectivityService.isMobile,
       );
-      if (tier == EmoteFetchTier.nothing) {
-        // Nothing tier: the resolution is null, so no new fetches happen, but we
-        // must NOT evict the in-memory registry. Cached emotes keep rendering
-        // from disk; wiping would force a full re-resolve (and its rebuild
-        // storm) on every toggle.
-        emoteManager.notifyConfigChanged();
-      } else {
-        // A "no-diff -> diff" switch (e.g. low -> high) introduces resolutions
-        // the old tier never fetched, so force-fetch the new emote URLs. A
-        // switch that stays within already-fetched resolutions (e.g. high ->
-        // medium) reuses the cached tier instead of re-downloading. No evict:
-        // successful fetches replace the caches wholesale, and evicting
-        // mid-session breaks the connected 7TV WS client's delta state
-        // (same hazard as the reload path).
-        final needsDiff = _tierAddsResolution(oldTier, tier);
-        emoteManager.preloadGlobalEmotes(force: needsDiff);
-        for (final c in chat.names) {
-          emoteManager.resolveEmotes(
-            c,
-            chat.channelFor(c)?.info.broadcasterId,
-            force: needsDiff,
-          );
-        }
-        if (needsDiff) {
-          // Sub sets and personal sets are keyed by fetched id, so the
-          // force fetch above skips them; re-pull at the new resolution.
-          unawaited(
-            emoteManager.reloadUserEmoteSets(twitchAuth, getChannelUserIds()),
-          );
-          unawaited(emoteManager.loadViewerPersonalSevenTvSets(force: true));
-        }
-        emoteManager.notifyConfigChanged();
-      }
+      emoteManager.notifyConfigChanged();
     } catch (e) {
       logDebug('_applyTier failed: $e');
     }
   }
-
-  /// True when [neu] fetches resolutions [old] did not, i.e. a manual switch
-  /// from a no-diff tier to a diff tier that requires re-fetching emote URLs.
-  bool _tierAddsResolution(EmoteFetchTier old, EmoteFetchTier neu) {
-    final oldSet = _tierResolutions(old);
-    return _tierResolutions(neu).any((r) => !oldSet.contains(r));
-  }
-
-  Set<EmoteResolution> _tierResolutions(EmoteFetchTier tier) => switch (tier) {
-    EmoteFetchTier.nothing => const {},
-    EmoteFetchTier.low => const {EmoteResolution.low},
-    EmoteFetchTier.medium => const {EmoteResolution.medium},
-    EmoteFetchTier.high => const {EmoteResolution.medium, EmoteResolution.high},
-  };
 
   void applyCacheCap(int cap) {
     emoteManager.cacheCap = cap;
