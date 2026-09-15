@@ -112,7 +112,7 @@ class _ChatViewState extends State<ChatView>
   bool get wantKeepAlive => true;
   double _cachedSystemScale = 1.0;
   int _lastMsgLen = -1;
-  Map<String, int> _idToIndex = const {};
+  Map<String, int> _idToIndex = {};
   String? _endsFirst;
   String? _endsLast;
 
@@ -182,7 +182,7 @@ class _ChatViewState extends State<ChatView>
                 final msgs = widget.messages;
                 if (msgs.isEmpty) {
                   _lastMsgLen = 0;
-                  _idToIndex = const {};
+                  _idToIndex = {};
                   _endsFirst = null;
                   _endsLast = null;
                   final emptyMsg = TwitchMessage(
@@ -363,7 +363,16 @@ class _ChatViewState extends State<ChatView>
     // Cache holds the undimmed tile; dim wraps per build so queries never
     // poison it.
     final cached = cache?[msg.messageId];
-    if (cached != null) return _maybeDim(cached, msg);
+    if (cached != null) {
+      final id = msg.messageId;
+      if (id != null && cache != null) {
+        // Touch on use: keep the window centered on what is on screen so
+        // eviction drops rows that were scrolled away from, not visible ones.
+        cache.remove(id);
+        cache[id] = cached;
+      }
+      return _maybeDim(cached, msg);
+    }
     final parity = doCheckered ? (++ChatView._checkerSeq).isEven : i.isEven;
 
     final Widget body;
@@ -438,8 +447,13 @@ class _ChatViewState extends State<ChatView>
     final tile = RepaintBoundary(key: _messageKey(msg), child: body);
     if (cache != null && msg.messageId != null) {
       cache[msg.messageId!] = tile;
+      // Mark the freshly cached row as live for this frame. The eviction check
+      // below reads the buffer snapshot taken before this frame, which does not
+      // know about the row just inserted; without this it would look stale and
+      // be evicted immediately.
+      idToIndex[msg.messageId!] = i;
       if (cache.length > ChatView._maxCachedTiles) {
-        // Evict stale (truncated-out) entries first, then oldest.
+        // Evict a row that left the buffer first, then the least recently used.
         String? stale;
         for (final k in cache.keys) {
           if (k != null && !idToIndex.containsKey(k)) {

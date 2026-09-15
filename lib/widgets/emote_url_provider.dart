@@ -89,6 +89,9 @@ class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
   /// lifetime for the hot path. Entries leave on dispose (zero listeners).
   static final Map<String, _EmoteImageCompleter> _liveByUrl = {};
 
+  /// Live completer count, for the growth probe.
+  static int get liveCount => _liveByUrl.length;
+
   /// Seeds [url]'s playback from [sourceUrl]'s current frame for in-phase swap.
   static void seedPlayback(String url, String sourceUrl) {
     if (url == sourceUrl) return;
@@ -610,7 +613,9 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
   /// leaves an uncancellable timer behind that outlives the completer.
   Future<T> _withDecodeTimeout<T>(Future<T> future) {
     final completer = Completer<T>();
+    var timedOut = false;
     final timer = Timer(_streamFrameTimeout, () {
+      timedOut = true;
       if (!completer.isCompleted) {
         completer.completeError(
           TimeoutException('emote decode stalled', _streamFrameTimeout),
@@ -622,6 +627,12 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
       (value) {
         timer.cancel();
         if (identical(_streamTimeoutTimer, timer)) _streamTimeoutTimer = null;
+        if (timedOut) {
+          // The watchdog already failed this decode; the caller moved on, so
+          // free whatever the abandoned decode produced instead of leaking it.
+          _disposeLateDecode(value);
+          return;
+        }
         if (!completer.isCompleted) completer.complete(value);
       },
       onError: (Object error, StackTrace stack) {
@@ -631,6 +642,17 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
       },
     );
     return completer.future;
+  }
+
+  /// Frees a decode result the watchdog abandoned before the caller saw it.
+  static void _disposeLateDecode(Object? value) {
+    if (value is ui.Codec) {
+      value.dispose();
+    } else if (value is ui.FrameInfo) {
+      value.image.dispose();
+    } else if (value is ui.Image) {
+      value.dispose();
+    }
   }
 
   /// Awaits the next engine frame under the decode watchdog.

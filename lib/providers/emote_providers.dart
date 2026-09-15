@@ -129,7 +129,7 @@ final sevenTvPersonalSetsProvider = Provider<SevenTvPersonalSets>((ref) {
     tier: () => ref.read(emoteFetchTierProvider),
     isProviderEnabled: (type) =>
         ref.read(emoteVisibilityProvider).isProviderEnabled(type),
-    notifyChanged: store.notifyStateCleared,
+    notifyChanged: () => store.notifyOverlayChanged(),
     viewerTwitchIdSource: () => ref.read(sessionProvider).userId,
   );
 });

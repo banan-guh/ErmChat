@@ -191,7 +191,7 @@ class EmoteManager implements EmoteLookupSource {
           metaStore: _metaStore,
           tier: () => tier,
           isProviderEnabled: (type) => _visibility.isProviderEnabled(type),
-          notifyChanged: _store.notifyStateCleared,
+          notifyChanged: _store.notifyOverlayChanged,
           now: _now,
         );
     _twitchSets =

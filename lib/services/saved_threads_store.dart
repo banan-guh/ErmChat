@@ -88,6 +88,9 @@ class SavedThread {
 class SavedThreadsStore {
   final List<SavedThread> _threads = [];
   final Map<String, List<TwitchMessage>> _messages = {};
+  // Message ids per thread, kept in sync with _messages so append dedupe is
+  // O(1) instead of a scan of the whole (uncapped) thread log.
+  final Map<String, Set<String>> _messageIds = {};
 
   Directory? _dir;
   bool _dirResolved = false;
@@ -118,6 +121,7 @@ class SavedThreadsStore {
   void reset() {
     _threads.clear();
     _messages.clear();
+    _messageIds.clear();
     _dirty.clear();
     _flushTimer?.cancel();
     _flushTimer = null;
@@ -134,6 +138,14 @@ class SavedThreadsStore {
       _dir = null;
     }
     return _dir;
+  }
+
+  static Set<String> _idsOf(Iterable<TwitchMessage> messages) {
+    final ids = <String>{};
+    for (final m in messages) {
+      if (m.messageId != null) ids.add(m.messageId!);
+    }
+    return ids;
   }
 
   String _safeFileName(SavedThread t) {
@@ -156,11 +168,13 @@ class SavedThreadsStore {
       while (_threads.length > maxSavedThreads) {
         final evicted = _threads.removeLast();
         _messages.remove(evicted.key);
+        _messageIds.remove(evicted.key);
         _dirty.remove(evicted.key);
         unawaited(_deleteFile(evicted));
       }
     }
     _messages[entry.key] = List.of(messages);
+    _messageIds[entry.key] = _idsOf(messages);
     _markDirty(entry);
     return true;
   }
@@ -174,6 +188,7 @@ class SavedThreadsStore {
     if (idx >= 0) {
       final removed = _threads.removeAt(idx);
       _messages.remove(removed.key);
+      _messageIds.remove(removed.key);
       _dirty.remove(removed.key);
       unawaited(_deleteFile(removed));
       unawaited(_writeIndex());
@@ -191,6 +206,7 @@ class SavedThreadsStore {
     if (idx < 0) return false;
     final removed = _threads.removeAt(idx);
     _messages.remove(removed.key);
+    _messageIds.remove(removed.key);
     _dirty.remove(removed.key);
     unawaited(_deleteFile(removed));
     unawaited(_writeIndex());
@@ -207,9 +223,9 @@ class SavedThreadsStore {
     final idx = _threads.indexWhere((t) => t.key == key);
     if (idx < 0) return false;
     final log = _messages.putIfAbsent(key, () => []);
-    if (msg.messageId != null && log.any((m) => m.messageId == msg.messageId)) {
-      return false;
-    }
+    final ids = _messageIds.putIfAbsent(key, () => _idsOf(log));
+    final msgId = msg.messageId;
+    if (msgId != null && !ids.add(msgId)) return false;
     log.insert(0, msg);
     _markDirty(_threads[idx]);
     return true;
@@ -303,6 +319,7 @@ class SavedThreadsStore {
         ..clear()
         ..addAll(next);
       _messages.clear();
+      _messageIds.clear();
       for (final t in _threads) {
         try {
           final file = File(
@@ -322,6 +339,7 @@ class SavedThreadsStore {
           }
           msgs.sort((a, b) => b.timestamp.compareTo(a.timestamp));
           _messages[t.key] = msgs;
+          _messageIds[t.key] = _idsOf(msgs);
         } catch (_) {
           continue;
         }

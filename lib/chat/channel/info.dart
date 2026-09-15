@@ -1,8 +1,14 @@
 import 'package:flutter/foundation.dart';
 
 /// Per-channel status and load state. Drops with the channel.
+///
+/// [version] covers structural reads (broadcaster id, history state, load
+/// failures): listeners may drop cached tiles on it. [statusVersion] covers
+/// the free-text status splash only, which ticks every 30s on live channels
+/// (viewer counts) and must never drop tiles by itself.
 class ChannelInfo {
   final ValueNotifier<int> version = ValueNotifier(0);
+  final ValueNotifier<int> statusVersion = ValueNotifier(0);
 
   String _status = '';
   String? _broadcasterId;
@@ -21,7 +27,7 @@ class ChannelInfo {
   void setStatus(String next) {
     if (_status == next) return;
     _status = next;
-    version.value++;
+    statusVersion.value++;
   }
 
   void setBroadcasterId(String? id) {
@@ -55,6 +61,7 @@ class ChannelInfo {
 
   void dispose() {
     version.dispose();
+    statusVersion.dispose();
     _loadFailures.clear();
   }
 }

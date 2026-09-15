@@ -1185,19 +1185,29 @@ void main() {
         );
         expect(changes.last.deltaCodes, {'Bravo', 'Beta'});
 
-        // Renaming an emote that is not cached changes nothing, but the event
-        // is still a live delta and not a full refetch.
+        // Renaming an emote that is not cached changes nothing, so it stays
+        // quiet instead of sending a live delta.
+        final eventCount = changes.length;
         manager.updateSevenTvEmotes(
           'ch',
           renamed: {'missing': (newName: 'X', oldName: 'Y')},
         );
-        final noOp = changes.last.deltaCodes;
-        expect(noOp, isNotNull);
-        expect(noOp, isEmpty);
+        expect(changes, hasLength(eventCount));
 
-        // A global store write emits a full change (no channel, no delta).
-        await manager.storeUserTwitchEmotes({'other': []});
-        expect(changes.last.channel, isNull);
+        // A changed store write emits a scoped change (channel, no delta).
+        await manager.storeUserTwitchEmotes({
+          'other': [
+            makeTestEmote(
+              id: 's1',
+              code: 'Sub',
+              type: EmoteType.twitch,
+              scope: EmoteScope.channel,
+              tier: '1',
+              emoteType: 'subscriptions',
+            ),
+          ],
+        });
+        expect(changes.last.channel, 'other');
         expect(changes.last.deltaCodes, isNull);
       },
     );
@@ -1240,9 +1250,20 @@ void main() {
       manager.updateSevenTvEmotes('ch', added: [sevenTv('a', 'Alpha')]);
       expect(manager.version, before);
 
-      // Non-delta notifies (full refetches) still bump, so cached spans
+      // Non-delta notifies for changed data still bump, so cached spans
       // recompute against the fresh data.
-      await manager.storeUserTwitchEmotes({'ch': []});
+      await manager.storeUserTwitchEmotes({
+        'ch': [
+          makeTestEmote(
+            id: 's1',
+            code: 'Sub',
+            type: EmoteType.twitch,
+            scope: EmoteScope.channel,
+            tier: '1',
+            emoteType: 'subscriptions',
+          ),
+        ],
+      });
       expect(manager.version, greaterThan(before));
     });
 
@@ -2688,6 +2709,77 @@ void main() {
 
       expect(fetchCalls, 1);
       expect(manager.byCode('chanA')?.byCode['PrimePride']?.id, 'u1');
+    });
+
+    test('new user-set fetch signals overlay before data lands', () async {
+      final auth = TwitchAuth()..accessToken = 'tok';
+      final fetch = Completer<Map<String, List<Emote>>>();
+      final manager = EmoteManager(
+        fetchStagger: Duration.zero,
+        fetchUserEmoteSets: (ids, {accessToken, resolution}) {
+          expect(ids, ['s1']);
+          return fetch.future;
+        },
+        resolveOwnerLogins: (a, ids) async => {},
+      );
+      addTearDown(manager.dispose);
+      final changes = <EmoteChange>[];
+      manager.store.addListener(changes.add);
+
+      final pending = manager.loadUserEmoteSets(
+        ['s1'],
+        auth,
+        {'chanA': 'ownerA'},
+      );
+      await pumpEventQueue();
+
+      expect(changes, hasLength(1));
+      expect(changes.single.overlay, isTrue);
+      expect(manager.version, 0);
+
+      fetch.complete(const {});
+      await pending;
+    });
+
+    test('unchanged reconnect heal emits no store changes', () async {
+      SharedPreferences.setMockInitialValues({});
+      final auth = TwitchAuth()..accessToken = 'tok';
+      var fetchCalls = 0;
+      final manager = EmoteManager(
+        fetchStagger: Duration.zero,
+        fetchUserEmoteSets: (ids, {accessToken, resolution}) async {
+          fetchCalls++;
+          return {
+            'ownerA': [
+              makeTestEmote(
+                id: 'x',
+                code: 'X',
+                type: EmoteType.twitch,
+                scope: EmoteScope.channel,
+                tier: '1',
+                emoteType: 'subscriptions',
+                ownerId: 'ownerA',
+              ),
+            ],
+          };
+        },
+        resolveOwnerLogins: (a, ids) async => {
+          for (final id in ids) id: 'login_$id',
+        },
+      );
+      addTearDown(manager.dispose);
+      final changes = <EmoteChange>[];
+      manager.store.addListener(changes.add);
+
+      await manager.loadUserEmoteSets(['s1'], auth, {'chanA': 'ownerA'});
+      final version = manager.version;
+      changes.clear();
+
+      await manager.loadUserEmoteSets([], auth, {'chanA': 'ownerA'});
+
+      expect(fetchCalls, 1);
+      expect(changes, isEmpty);
+      expect(manager.version, version);
     });
 
     test('emoteById resolves unlocked Twitch emotes', () async {

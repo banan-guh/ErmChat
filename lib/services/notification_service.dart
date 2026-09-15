@@ -68,6 +68,14 @@ class NotificationService {
   final _summaryOrder = <int>[];
   final _summaryLineById = <int, String>{};
 
+  // Only the last few lines ever render (InboxStyleInformation shows 5), so
+  // retain a bounded window instead of every mention of the session.
+  static const _maxSummaryLines = 50;
+
+  // Total mentions this session, kept separately so the summary count stays
+  // right after [_summaryOrder] is trimmed.
+  int _summaryTotal = 0;
+
   Future<void> showMentionNotification({
     required String channel,
     required String userName,
@@ -132,6 +140,10 @@ class NotificationService {
     }
     _summaryOrder.add(id);
     _summaryLineById[id] = summaryLine;
+    _summaryTotal++;
+    if (_summaryOrder.length > _maxSummaryLines) {
+      _summaryLineById.remove(_summaryOrder.removeAt(0));
+    }
 
     await _plugin.show(id, title, body, details, payload: payload);
     await _updateSummary();
@@ -154,7 +166,7 @@ class NotificationService {
       styleInformation: InboxStyleInformation(
         lines.length > 5 ? lines.sublist(lines.length - 5) : lines,
         contentTitle: 'You have new mentions',
-        summaryText: '${_summaryOrder.length} mentions',
+        summaryText: '$_summaryTotal mentions',
       ),
       // Summary alerts only; children stay silent.
       playSound: false,
@@ -180,18 +192,24 @@ class NotificationService {
       ids = List.of(_idsByChannel[channel] ?? const <int>[]);
       _idsByChannel.remove(channel);
     }
-    var summaryDirty = false;
+    final removedFromSummary = <int>{};
     for (final id in ids) {
       await _plugin.cancel(id);
       _postedIds.remove(id);
-      if (_summaryLineById.remove(id) != null) {
-        _summaryOrder.remove(id);
-        summaryDirty = true;
-      }
+      if (_summaryLineById.remove(id) != null) removedFromSummary.add(id);
+    }
+    if (removedFromSummary.isNotEmpty) {
+      _summaryOrder.removeWhere(removedFromSummary.contains);
+    }
+    if (channel == null) {
+      _summaryTotal = 0;
+    } else {
+      _summaryTotal -= removedFromSummary.length;
+      if (_summaryTotal < 0) _summaryTotal = 0;
     }
     if (_summaryOrder.isEmpty) {
       await _plugin.cancel(_summaryId);
-    } else if (summaryDirty) {
+    } else if (removedFromSummary.isNotEmpty) {
       await _updateSummary();
     }
   }

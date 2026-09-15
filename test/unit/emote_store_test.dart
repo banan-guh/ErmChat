@@ -1,4 +1,5 @@
 import 'package:ermchat/emotes/emote.dart';
+import 'package:ermchat/emotes/emote_catalog.dart';
 import 'package:ermchat/providers/emote_providers.dart';
 import 'package:ermchat/services/emote_fetcher.dart';
 import 'package:ermchat/services/emote_store.dart';
@@ -182,5 +183,143 @@ void main() {
     final unlock = _emote('u1', 'PrimePride', type: EmoteType.twitch);
 
     expect(store.emoteById('u1', unlocks: [unlock])?.code, 'PrimePride');
+  });
+
+  test('overlay change keeps the version and is flagged', () {
+    final store = EmoteStore();
+    store.emitChange(channel: 'ch');
+    final before = store.lastChange!.version;
+    final changes = <EmoteChange>[];
+    void listener(EmoteChange change) => changes.add(change);
+    store.addListener(listener);
+
+    store.notifyOverlayChanged();
+
+    store.removeListener(listener);
+    expect(changes, hasLength(1));
+    expect(changes.single.overlay, isTrue);
+    expect(changes.single.channel, isNull);
+    expect(changes.single.version, before);
+  });
+
+  test(
+    'personal-set overlay refreshes viewer lookups without a version bump',
+    () {
+      final store = EmoteStore();
+      final first = store.byCode('ch', personal: [_emote('p1', 'OldPersonal')]);
+      expect(first?.byCode['OldPersonal']?.id, 'p1');
+
+      store.notifyOverlayChanged();
+
+      final second = store.byCode(
+        'ch',
+        personal: [_emote('p2', 'NewPersonal')],
+      );
+      expect(second?.byCode['NewPersonal']?.id, 'p2');
+      expect(second?.byCode.containsKey('OldPersonal'), isFalse);
+      expect(store.version, 0);
+      expect(store.lastChange?.overlay, isTrue);
+    },
+  );
+
+  test(
+    'personal-set overlay refreshes foreign lookups without a version bump',
+    () {
+      final store = EmoteStore();
+      final foreign = EmoteLookup(
+        byCode: {'Foreign': _emote('f1', 'Foreign')},
+        suggestions: [_emote('f1', 'Foreign')],
+      );
+      final first = store.byCodeForSender('ch', foreign: foreign);
+      expect(first?.byCode['Foreign']?.id, 'f1');
+
+      store.notifyOverlayChanged();
+
+      final updatedForeign = EmoteLookup(
+        byCode: {'UpdatedForeign': _emote('f2', 'UpdatedForeign')},
+        suggestions: [_emote('f2', 'UpdatedForeign')],
+      );
+      final second = store.byCodeForSender('ch', foreign: updatedForeign);
+      expect(second?.byCode['UpdatedForeign']?.id, 'f2');
+      expect(store.version, 0);
+      expect(store.lastChange?.overlay, isTrue);
+    },
+  );
+
+  test('config and visibility refreshes stay overlay-only', () {
+    final store = EmoteStore();
+    final first = store.byCode('ch', personal: [_emote('p1', 'OldPersonal')]);
+    expect(first?.byCode['OldPersonal']?.id, 'p1');
+
+    store.notifyConfigChanged();
+    expect(store.version, 0);
+    expect(store.lastChange?.overlay, isTrue);
+    final second = store.byCode('ch', personal: [_emote('p2', 'NewPersonal')]);
+    expect(second?.byCode['NewPersonal']?.id, 'p2');
+    expect(second?.byCode.containsKey('OldPersonal'), isFalse);
+
+    store.notifyVisibilityChanged();
+    expect(store.version, 0);
+    expect(store.lastChange?.overlay, isTrue);
+    final third = store.byCode(
+      'ch',
+      personal: [_emote('p3', 'NewestPersonal')],
+    );
+    expect(third?.byCode['NewestPersonal']?.id, 'p3');
+    expect(third?.byCode.containsKey('NewPersonal'), isFalse);
+  });
+
+  test('unchanged subscription restores notify only changed channels', () {
+    final store = EmoteStore();
+    final changes = <EmoteChange>[];
+    store.addListener(changes.add);
+
+    store.storeUserTwitchEmotes({
+      'ch': [_emote('s1', 'Sub', type: EmoteType.twitch)],
+    });
+    expect(changes.map((change) => change.channel), ['ch']);
+    expect(changes.every((change) => !change.isGlobal), isTrue);
+    expect(store.version, 1);
+
+    store.storeUserTwitchEmotes({
+      'ch': [_emote('s1', 'Sub', type: EmoteType.twitch)],
+    });
+    expect(changes, hasLength(1));
+    expect(store.version, 1);
+
+    store.storeUserTwitchEmotes({
+      'ch': [_emote('s1', 'FreshSub', type: EmoteType.twitch)],
+    });
+    expect(changes.map((change) => change.channel), ['ch', 'ch']);
+    expect(store.version, 2);
+  });
+
+  test('no-op 7TV deltas emit no changes', () {
+    final store = EmoteStore();
+    final changes = <EmoteChange>[];
+    store.addListener(changes.add);
+
+    store.commitChannel(
+      'ch',
+      store.channelEpoch('ch'),
+      ChannelEmoteFetch(
+        byProvider: {
+          EmoteType.sevenTv: [_emote('a', 'Alpha', type: EmoteType.sevenTv)],
+        },
+      ),
+    );
+    final version = store.version;
+    changes.clear();
+
+    final evicted = store.updateSevenTvEmotes(
+      'ch',
+      added: [_emote('a', 'Alpha', type: EmoteType.sevenTv)],
+      removedIds: const ['missing'],
+      renamed: const {'missing': (newName: 'X', oldName: 'Y')},
+    );
+
+    expect(evicted, isEmpty);
+    expect(changes, isEmpty);
+    expect(store.version, version);
   });
 }

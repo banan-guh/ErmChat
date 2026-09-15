@@ -474,9 +474,19 @@ void main() {
     final spans = builder.buildMessageSpans(msg, 'test', Colors.black);
     expect(spans.any((s) => s is WidgetSpan), isFalse);
 
-    // A non-delta notify (full refetch) bumps the version and the next build
-    // lazily recomputes against the fresh emote data.
-    await em.storeUserTwitchEmotes({});
+    // A non-delta notify with changed data bumps the version and the next
+    // build lazily recomputes against the fresh emote data.
+    await em.storeUserTwitchEmotes({
+      'test': [
+        const Emote(
+          id: 's1',
+          code: 'Sub',
+          meta: TwitchMeta(kind: TwitchEmoteKind.sub),
+          url: 'https://example.com/s1.png',
+          scope: EmoteScope.channel,
+        ),
+      ],
+    });
     expect(em.version, greaterThan(0));
 
     final re = builder.buildMessageSpans(msg, 'test', Colors.black);

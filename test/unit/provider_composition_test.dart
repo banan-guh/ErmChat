@@ -3,6 +3,7 @@ import 'package:ermchat/providers/chat_pipeline.dart';
 import 'package:ermchat/providers/emote_providers.dart';
 import 'package:ermchat/providers/feature_providers.dart';
 import 'package:ermchat/services/chat_connection_manager.dart';
+import 'package:ermchat/services/emote_store.dart';
 import 'package:ermchat/services/twitch_api.dart';
 import 'package:ermchat/services/user_store.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -26,6 +27,16 @@ class _TrackedTwitchApi extends TwitchApi {
 
 class _TrackedUserStore extends UserStore {
   bool disposed = false;
+}
+
+class _OverlayTrackingStore extends EmoteStore {
+  int overlayChanges = 0;
+
+  @override
+  void notifyOverlayChanged() {
+    overlayChanges++;
+    super.notifyOverlayChanged();
+  }
 }
 
 /// Boots the real provider graph. Only [twitchApiProvider] (to observe
@@ -156,6 +167,21 @@ void main() {
     );
     expect(manager.tier, container.read(emoteFetchTierProvider));
     expect(manager.cacheCap, container.read(emoteCacheCapProvider));
+  });
+
+  test('personal-set notifications use the overlay path', () {
+    final store = _OverlayTrackingStore();
+    final container = ProviderContainer(
+      overrides: [emoteStoreProvider.overrideWithValue(store)],
+    );
+    addTearDown(container.dispose);
+
+    final personalSets = container.read(sevenTvPersonalSetsProvider);
+    personalSets.viewerTwitchId = 'diagnostic-viewer';
+
+    expect(store.overlayChanges, 1);
+    expect(store.lastChange?.overlay, isTrue);
+    expect(store.version, 0);
   });
 
   test('chatUiSignalsProvider is stable across reads', () {

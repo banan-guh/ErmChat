@@ -10,11 +10,20 @@ import 'emote_fetcher.dart';
 /// messages (those keep the emote state they were built with). A null
 /// [deltaCodes] on a channel change is a full refetch.
 class EmoteChange {
-  const EmoteChange({required this.version, this.channel, this.deltaCodes});
+  const EmoteChange({
+    required this.version,
+    this.channel,
+    this.deltaCodes,
+    this.overlay = false,
+  });
 
   final int version;
   final String? channel;
   final Set<String>? deltaCodes;
+
+  /// True for an overlay-only refresh (personal/foreign 7TV sets): cached
+  /// lookups refresh, but rendered spans and the id index stay valid.
+  final bool overlay;
 
   bool get isGlobal => channel == null;
   bool get isDelta => deltaCodes != null;
@@ -58,6 +67,7 @@ class EmoteStore {
     String? channel,
     Set<String>? deltaCodes,
     bool bumpVersion = true,
+    bool overlay = false,
   }) {
     if (_disposed) return;
     if (bumpVersion) _version++;
@@ -65,31 +75,44 @@ class EmoteStore {
       version: _version,
       channel: channel,
       deltaCodes: deltaCodes,
+      overlay: overlay,
     );
     _lastChange = change;
-    _emoteIndexDirty = true;
+    if (!overlay) _emoteIndexDirty = true;
     if (channel != null) {
       _mergedCache.remove(channel);
+      _foreignLookupCache.remove(channel);
     } else {
       _mergedCache.clear();
+      _foreignLookupCache.clear();
     }
     for (final listener in List.of(_listeners)) {
       listener(change);
     }
   }
 
+  /// Overlay-only refresh: personal sets, fetch state, configuration, or
+  /// visibility. Refreshes derived lookups so new messages resolve updates,
+  /// but does not bump the span version or dirty the id index, so visible
+  /// messages keep their spans and no cross-channel re-render storm happens.
+  void notifyOverlayChanged() {
+    _mergedCache.clear();
+    _foreignLookupCache.clear();
+    emitChange(channel: null, bumpVersion: false, overlay: true);
+  }
+
   /// Emits a global full change (account reset, overlay/personal change).
   void notifyStateCleared() => emitChange(channel: null);
 
-  /// Emits a global change for config-only updates (tier, auto mode) that do
-  /// not alter catalog data. The version stays put so cached message spans
-  /// remain valid; observers still refresh.
-  void notifyConfigChanged() => emitChange(channel: null, bumpVersion: false);
+  /// Records a config-only update (tier, auto mode). Catalog data is unchanged,
+  /// so this refreshes derived lookups without invalidating rendered spans.
+  void notifyConfigChanged() => notifyOverlayChanged();
 
-  /// Clears derived visibility caches and emits a global change.
+  /// Clears derived visibility caches and refreshes lookups without
+  /// invalidating rendered spans.
   void notifyVisibilityChanged() {
     _subsByChannelCache = null;
-    emitChange(channel: null);
+    notifyOverlayChanged();
   }
 
   // ── Catalog state ───────────────────────────────────────────────────
@@ -121,6 +144,11 @@ class EmoteStore {
   // Merged emotes: channel overrides global, personal 7TV merges everywhere.
   // Cached until the next emit clears it.
   final _mergedCache = <String, EmoteLookup?>{};
+  // Per-sender overlay lookups keyed by the sender's foreign lookup object.
+  // Ingest and render ask for the same sender lookup within one emote version,
+  // so sharing the result avoids rebuilding the foreign merge 2-3 times.
+  final _foreignLookupCache = <String, Map<EmoteLookup, EmoteLookup>>{};
+  static const _maxForeignLookupsPerChannel = 256;
   Map<String, List<Emote>>? _subsByChannelCache;
 
   final Set<EmoteType> _disabledProviders = {};
@@ -305,13 +333,18 @@ class EmoteStore {
   }) {
     final base = byCode(channel, personal: personal, unlocks: unlocks);
     if (foreign == null || foreign.byCode.isEmpty) return base;
+    final cache = _foreignLookupCache.putIfAbsent(channel, () => {});
+    final cached = cache[foreign];
+    if (cached != null) return cached;
     final visible = _filterVisible(foreign);
     if (visible == null) return base;
     final merged = {...visible.byCode};
     if (base != null) merged.addAll(base.byCode);
     final suggestions = merged.values.toList()
       ..sort((a, b) => a.code.compareTo(b.code));
-    return EmoteLookup(byCode: merged, suggestions: suggestions);
+    final result = EmoteLookup(byCode: merged, suggestions: suggestions);
+    if (cache.length < _maxForeignLookupsPerChannel) cache[foreign] = result;
+    return result;
   }
 
   // Catalog merge plus the per-account unlock overlay and visibility
@@ -660,8 +693,10 @@ class EmoteStore {
   }
 
   /// Stores owner-less emote-set results (per-account channel subs), fanning
-  /// each owner list into its channel. Emits a global change.
+  /// each owner list into its channel. Notifies only channels whose stored
+  /// subscription list actually changed.
   void storeUserTwitchEmotes(Map<String, List<Emote>> perChannel) {
+    final changedChannels = <String>[];
     for (final entry in perChannel.entries) {
       final channel = entry.key;
       final emotes = entry.value;
@@ -679,11 +714,60 @@ class EmoteStore {
           merged.add(e);
         }
       }
+      // Reconnect heals can restamp identical subscription data. Skip the
+      // write and notification when nothing resolved differently.
+      if (_sameSubs(existing, merged)) continue;
       _channelCatalogs[channel] = catalog.copyWith(twitchSubs: merged);
-      _subsByChannelCache = null;
+      changedChannels.add(channel);
     }
-    emitChange(channel: null);
+    if (changedChannels.isEmpty) return;
+    _subsByChannelCache = null;
+    changedChannels.sort();
+    for (final channel in changedChannels) {
+      emitChange(channel: channel);
+    }
   }
+
+  static bool _sameSubs(List<Emote> before, List<Emote> after) {
+    if (identical(before, after)) return true;
+    if (before.length != after.length) return false;
+    for (var i = 0; i < before.length; i++) {
+      if (!_sameSub(before[i], after[i])) return false;
+    }
+    return true;
+  }
+
+  static bool _sameSub(Emote before, Emote after) {
+    return before.id == after.id &&
+        before.code == after.code &&
+        before.scope == after.scope &&
+        before.url == after.url &&
+        before.url1x == after.url1x &&
+        before.url3x == after.url3x &&
+        before.isAnimated == after.isAnimated &&
+        before.isZeroWidth == after.isZeroWidth &&
+        _subMetaFingerprint(before.meta) == _subMetaFingerprint(after.meta);
+  }
+
+  static String _subMetaFingerprint(EmoteMeta meta) => switch (meta) {
+    TwitchMeta(
+      :final kind,
+      :final subTier,
+      :final ownerChannel,
+      :final ownerId,
+    ) =>
+      'twitch:${kind.name}:$subTier:$ownerChannel:$ownerId',
+    BttvMeta() => 'bttv',
+    FfzMeta(:final ownerChannel) => 'ffz:$ownerChannel',
+    SevenTvMeta(
+      :final creator,
+      :final baseName,
+      :final unlisted,
+      :final relativeScale,
+      :final aspectRatio,
+    ) =>
+      'sevenTv:$creator:$baseName:$unlisted:$relativeScale:$aspectRatio',
+  };
 
   /// Applies a 7TV WS delta in place. Returns the image URLs of removed
   /// emotes that are no longer referenced anywhere, for disk eviction by the
@@ -696,6 +780,9 @@ class EmoteStore {
   }) {
     final catalog = _channelCatalogs[channel];
     if (catalog == null && added.isEmpty) return const [];
+    if (added.isEmpty && removedIds.isEmpty && renamed.isEmpty) {
+      return const [];
+    }
 
     final changedCodes = <String>{};
     final removedIdsWithUrls = <(String, List<String>)>[];
@@ -719,14 +806,19 @@ class EmoteStore {
     // Diff against the channel-only merged view, then write the winning 7TV
     // entries back as the live list.
     final byCode = Map<String, Emote>.of(_channelLookup(channel).byCode);
+    final codesById = <String, List<String>>{};
+    for (final e in byCode.values) {
+      if (e.type != EmoteType.sevenTv) continue;
+      (codesById[e.id] ??= []).add(e.code);
+    }
 
     for (final id in removedIds) {
-      final removed = byCode.values
-          .where((e) => e.id == id && e.type == EmoteType.sevenTv)
-          .toList();
-      for (final e in removed) {
-        byCode.remove(e.code);
-        changedCodes.add(e.code);
+      final codes = codesById.remove(id);
+      if (codes == null) continue;
+      for (final code in codes) {
+        final e = byCode.remove(code);
+        if (e == null) continue;
+        changedCodes.add(code);
         removedIdsWithUrls.add((
           e.id,
           [e.url, if (e.url1x != null) e.url1x!, if (e.url3x != null) e.url3x!],
@@ -735,9 +827,9 @@ class EmoteStore {
     }
 
     for (final entry in renamed.entries) {
-      final e = byCode.values
-          .where((x) => x.id == entry.key && x.type == EmoteType.sevenTv)
-          .firstOrNull;
+      final codes = codesById[entry.key];
+      if (codes == null || codes.isEmpty) continue;
+      final e = byCode[codes.first];
       if (e == null) continue;
       byCode.remove(e.code);
       final renamedEmote = e.copyWith(code: entry.value.newName);
@@ -759,6 +851,10 @@ class EmoteStore {
       changedCodes.add(emote.code);
     }
 
+    // Unknown removals/renames and duplicate adds can arrive as deltas.
+    // Do not invalidate lookups or rebuild the id index for no-op events.
+    if (changedCodes.isEmpty && removedIdsWithUrls.isEmpty) return const [];
+
     final live =
         byCode.values.where((e) => e.type == EmoteType.sevenTv).toList()
           ..sort((a, b) => a.code.compareTo(b.code));
@@ -772,19 +868,16 @@ class EmoteStore {
     // Live deltas don't bump span version (no retroactive re-render).
     emitChange(channel: channel, deltaCodes: changedCodes, bumpVersion: false);
 
-    // Shared 7TV emotes gone from all channels are evicted from disk.
+    // Shared 7TV emotes gone from all channels are evicted from disk. Rebuild
+    // the id index once so the membership check is O(1) per removed id instead
+    // of rescanning every catalog. Otherwise leave the lazy id lookup to the
+    // next emoteById call.
+    if (removedIdsWithUrls.isEmpty) return const [];
+    _rebuildEmoteIndex();
     final unused = removedIdsWithUrls.where(
-      (entry) => !_isEmoteUsedElsewhere(entry.$1),
+      (entry) => !_emoteIndex.containsKey(entry.$1),
     );
     return [for (final entry in unused) ...entry.$2];
-  }
-
-  bool _isEmoteUsedElsewhere(String id) {
-    for (final catalog in _channelCatalogs.values) {
-      if (catalog.twitchSubs.any((e) => e.id == id)) return true;
-      if (catalog.channelProviderEmotes().any((e) => e.id == id)) return true;
-    }
-    return _globalCatalog.globalProviderEmotes().any((e) => e.id == id);
   }
 
   // ── Eviction + account reset ────────────────────────────────────────
@@ -798,6 +891,7 @@ class EmoteStore {
     _sevenTvEmoteSetIds.remove(channel);
     _sevenTvUserIds.remove(channel);
     _mergedCache.remove(channel);
+    _foreignLookupCache.remove(channel);
     _sevenTvLive.remove(channel);
     _sevenTvFull.remove(channel);
     _emoteIndexDirty = true;
@@ -808,6 +902,7 @@ class EmoteStore {
     _globalCatalog = EmoteCatalog();
     _globalAttempted = false;
     _mergedCache.clear();
+    _foreignLookupCache.clear();
     _emoteIndexDirty = true;
   }
 
@@ -846,6 +941,7 @@ class EmoteStore {
     _sevenTvLive.clear();
     _sevenTvFull.clear();
     _mergedCache.clear();
+    _foreignLookupCache.clear();
     emitChange(channel: null);
   }
 

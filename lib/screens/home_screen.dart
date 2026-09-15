@@ -1082,6 +1082,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   void _onEmotesChanged(EmoteChange change) {
     _composer.invalidateEmoteCache();
+    // Overlay refresh (personal/foreign 7TV sets): cached lookups refresh, but
+    // rendered spans and channel infos stay valid, so skip the fan-out.
+    if (change.overlay) {
+      return;
+    }
     // Emote data changed: cached message spans are validated against
     // EmoteManager.version, so no O(total messages) clear is needed here.
     // Just bump the affected channels so visible tiles lazily recompute.

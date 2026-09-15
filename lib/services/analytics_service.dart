@@ -32,6 +32,11 @@ class _ChannelStats {
 class AnalyticsService extends ChangeNotifier {
   static const _rateWindowMinutes = 60;
 
+  /// Per-channel cap on each tracking map/set. Analytics is only read for
+  /// top-N lists, so dropping the oldest keys past this keeps memory bounded
+  /// without changing the visible results for normal chat.
+  static const _maxTrackedPerChannel = 5000;
+
   /// Coalesces rapid notifyListeners() calls into a single microtask turn.
   bool _notifyPending = false;
 
@@ -122,6 +127,8 @@ class AnalyticsService extends ChangeNotifier {
     if (login.isNotEmpty) {
       stats.uniqueChatters.add(login);
       stats.chatterCounts[login] = (stats.chatterCounts[login] ?? 0) + 1;
+      _capSet(stats.uniqueChatters);
+      _capMap(stats.chatterCounts);
     }
     final minute = now.millisecondsSinceEpoch ~/ 60000;
     stats.minuteBuckets[minute] = (stats.minuteBuckets[minute] ?? 0) + 1;
@@ -237,12 +244,27 @@ class AnalyticsService extends ChangeNotifier {
       () => _EmoteCount(emote, 0),
     );
     entry.count++;
+    _capMap(stats.emoteCounts);
   }
 
   void _countWord(_ChannelStats stats, String token) {
     final word = _normalizeWord(token);
     if (word.isEmpty) return;
     stats.wordCounts[word] = (stats.wordCounts[word] ?? 0) + 1;
+    _capMap(stats.wordCounts);
+  }
+
+  /// Drops oldest entries (insertion order) once a map exceeds the cap.
+  static void _capMap<K, V>(Map<K, V> map) {
+    while (map.length > _maxTrackedPerChannel) {
+      map.remove(map.keys.first);
+    }
+  }
+
+  static void _capSet(Set<String> set) {
+    while (set.length > _maxTrackedPerChannel) {
+      set.remove(set.first);
+    }
   }
 
   static final _leadingNonAlnum = RegExp(r'^[^a-z0-9]+');

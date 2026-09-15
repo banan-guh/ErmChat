@@ -258,6 +258,22 @@ class SevenTvPaintService extends ChangeNotifier {
   final _assignments = <String, ({String paintId, DateTime at})>{};
   final _negative = <String, DateTime>{};
   final _backoffUntil = <String, DateTime>{};
+
+  static const _maxUserMapEntries = 1000;
+
+  // Per-user maps grow with every distinct chatter. The per-lookup checks only
+  // touch the requested id, so once the maps get large, sweep the entries whose
+  // TTL or backoff has elapsed.
+  void _pruneStaleUserMaps(DateTime now) {
+    if (_assignments.length + _negative.length + _backoffUntil.length <
+        _maxUserMapEntries) {
+      return;
+    }
+    _assignments.removeWhere((_, a) => now.difference(a.at) > _userTtl);
+    _negative.removeWhere((_, at) => now.difference(at) > _negativeTtl);
+    _backoffUntil.removeWhere((_, until) => !now.isBefore(until));
+  }
+
   final _pendingUsers = <String>{};
   Timer? _flushTimer;
   bool _resolvingBatch = false;
@@ -363,6 +379,7 @@ class SevenTvPaintService extends ChangeNotifier {
   SevenTvPaint? lookup(String? userId) {
     if (!_enabled || userId == null || userId.isEmpty) return null;
     final now = _now();
+    _pruneStaleUserMaps(now);
     final assignment = _assignments[userId];
     if (assignment != null) {
       if (now.difference(assignment.at) <= _userTtl) {

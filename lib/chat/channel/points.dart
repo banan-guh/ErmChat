@@ -12,6 +12,13 @@ class Points {
   List<PointReward> _rewards = const [];
   final List<PointRedemption> _redemptions = [];
 
+  /// Unfulfilled redemptions retained per channel; the oldest fall off first so
+  /// a broadcaster who never fulfils them cannot grow this without bound.
+  // TODO: this is a stopgap. Redemption tracking deserves a fuller design
+  // (status, paging, per-reward handling, alignment with the message cap)
+  // rather than a flat drop-oldest cap; uncommon enough to defer.
+  static const maxRedemptionsPerChannel = 200;
+
   UnmodifiableListView<PointReward> get rewards =>
       UnmodifiableListView(_rewards);
   UnmodifiableListView<PointRedemption> get redemptions =>
@@ -26,6 +33,12 @@ class Points {
     _redemptions.removeWhere((r) => r.id == redemption.id);
     _redemptions.add(redemption);
     _redemptions.sort((a, b) => a.redeemedAt.compareTo(b.redeemedAt));
+    if (_redemptions.length > maxRedemptionsPerChannel) {
+      _redemptions.removeRange(
+        0,
+        _redemptions.length - maxRedemptionsPerChannel,
+      );
+    }
     version.value++;
   }
 

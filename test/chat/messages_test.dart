@@ -259,7 +259,7 @@ void main() {
       expect(channel.messages.version.value, before + 1);
     });
 
-    test('mass deletes bump once and emit one emitAll', () {
+    test('user deletes emit only the affected ids', () {
       final messages = Messages(channel: 'test');
       addTearDown(messages.dispose);
       messages.add(_live('m1'), maxMessages: 100);
@@ -282,13 +282,13 @@ void main() {
       expect(messages.markUserDeleted('alice'), isTrue);
 
       expect(messages.version.value, before + 1);
-      expect(allCount, 1);
-      expect(emitted, isEmpty);
+      expect(allCount, 0);
+      expect(emitted, ['m2', 'm1']);
 
       messages.markAllDeleted();
       expect(messages.version.value, before + 2);
-      expect(allCount, 2);
-      expect(emitted, isEmpty);
+      expect(allCount, 1);
+      expect(emitted, ['m2', 'm1']);
     });
 
     test('saved and pinned rows survive the cap through lazy exemptions', () {
@@ -361,6 +361,42 @@ void main() {
       t = t.add(const Duration(seconds: 1));
       a.add(filler('a7', 'a'), maxMessages: 5);
       expect(a.items.length, 5);
+    });
+  });
+
+  group('Messages.truncate fast path', () {
+    test('plain buffers keep the newest rows and prune evicted ids', () {
+      var t = DateTime(2026, 1, 1);
+      final m = Messages(channel: 'a', now: () => t);
+      addTearDown(m.dispose);
+      for (var i = 0; i < 8; i++) {
+        m.add(_live('m$i'), maxMessages: 5);
+        t = t.add(const Duration(seconds: 1));
+      }
+      expect(m.items.map((e) => e.messageId).toList(), [
+        'm7',
+        'm6',
+        'm5',
+        'm4',
+        'm3',
+      ]);
+      expect(m.containsId('m7'), isTrue);
+      expect(m.containsId('m2'), isFalse);
+    });
+
+    test('a reply row takes the thread-aware path and keeps order', () {
+      var t = DateTime(2026, 1, 1);
+      final m = Messages(channel: 'a', now: () => t);
+      addTearDown(m.dispose);
+      m.add(_live('root'), maxMessages: 4);
+      m.add(_reply('r1', 'root'), maxMessages: 4);
+      for (var i = 0; i < 4; i++) {
+        m.add(_live('f$i'), maxMessages: 4);
+        t = t.add(const Duration(seconds: 1));
+      }
+      expect(m.items.length, 4);
+      expect(m.items.first.messageId, 'f3');
+      expect(m.containsId('r1'), isFalse);
     });
   });
 
