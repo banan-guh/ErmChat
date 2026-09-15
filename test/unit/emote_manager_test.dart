@@ -418,6 +418,22 @@ void main() {
       }
     });
 
+    test('ANMF frame offsets are the doubled spec coordinates', () {
+      // The container stores each offset halved; the compositor must draw at
+      // 2 * value or partial frames land toward the top-left.
+      final kiss = parseWebpAnim(
+        File('test/fixtures/7tv_kiss_2x.webp').readAsBytesSync(),
+      );
+      expect(kiss.frames[0].x, 6); // stored 3
+      expect(kiss.frames[0].y, 0);
+
+      final boink = parseWebpAnim(
+        File('test/fixtures/7tv_boink_2x.webp').readAsBytesSync(),
+      );
+      expect(boink.frames[32].x, 0);
+      expect(boink.frames[32].y, 6); // stored 3
+    });
+
     test('7TV animated GIF (annycatKISS) decodes all 47 frames', () async {
       final frames = await decodeFile('7tv_kiss_2x.gif');
       expect(frames.isAnimated, isTrue);

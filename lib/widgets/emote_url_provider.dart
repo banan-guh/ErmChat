@@ -602,10 +602,23 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
     _streamDueUs = dueUs + windowUs;
     var waitUs = _streamDueUs - DateTime.now().microsecondsSinceEpoch;
     if (waitUs < 0) waitUs = 0;
-    _frameTimer = Timer(Duration(microseconds: waitUs), () {
-      _frameTimer = null;
+    _frameTimer = Timer(Duration(microseconds: waitUs), _onStreamTick);
+  }
+
+  /// Fires when a streamed frame is due. Decodes immediately while the app is
+  /// rendering, so playback tracks the wall clock instead of the render frame
+  /// rate; a late tick fires again at once and catches up instead of slowing.
+  /// While frames are disabled (backgrounded) it parks on a frame callback and
+  /// resumes with the app, so nothing decodes offscreen.
+  void _onStreamTick() {
+    _frameTimer = null;
+    if (_disposed || !hasListeners) return;
+    if (!EmoteUrlProvider.gifsEnabled || _streamDecoding) return;
+    if (!SchedulerBinding.instance.framesEnabled) {
       _scheduleStreamAppFrame();
-    });
+      return;
+    }
+    unawaited(_onStreamAppFrame(Duration.zero));
   }
 
   /// Awaits an engine decode, failing after [_streamFrameTimeout]. Tracks the
