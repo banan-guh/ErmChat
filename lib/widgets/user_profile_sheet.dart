@@ -1,5 +1,6 @@
 import 'dart:math';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show HapticFeedback;
 import 'package:cached_network_image/cached_network_image.dart';
@@ -50,14 +51,24 @@ class UserProfileSheet extends StatefulWidget {
   /// True for your own card; mod rows never apply to yourself.
   final bool isSelf;
 
-  /// Scroll controller from the wrapping DraggableScrollableSheet. The
-  /// history list uses it so its drags coordinate with sheet resizing. A
-  /// local one is used when null (tests embedding the sheet directly).
+  /// Scroll controller for the history list. Kept separate from [anchor] so
+  /// list drags scroll only the list and never resize the sheet. A local one
+  /// is used when null (tests embedding the sheet directly).
   final ScrollController? scrollController;
+
+  /// Controller handed over by the wrapping DraggableScrollableSheet. It is
+  /// attached to a zero-size, non-scrolling anchor so the sheet's programmatic
+  /// controller keeps working while the list scrolls independently.
+  final ScrollController? anchor;
 
   /// Sheet controller for the wrapping DraggableScrollableSheet. Card drags
   /// resize the sheet through it; null in tests, where the card is static.
   final DraggableScrollableController? sheetController;
+
+  /// Target of the in-flight measurement-driven sheet resize, null when idle.
+  /// The history stays hidden while the sheet animates to it, so a card whose
+  /// height changed cannot flash its list before the divider settles.
+  final ValueListenable<double?>? autoSeek;
 
   /// Minimum sheet extent. Card drags clamp here; releasing at it dismisses.
   final double sheetMinExtent;
@@ -99,7 +110,9 @@ class UserProfileSheet extends StatefulWidget {
     this.suspiciousInfo,
     this.isSelf = false,
     this.scrollController,
+    this.anchor,
     this.sheetController,
+    this.autoSeek,
     this.sheetMinExtent = 0.25,
     this.onCardMeasured,
     this.cardBadges = const [],
@@ -130,6 +143,24 @@ class UserProfileSheetState extends State<UserProfileSheet> {
 
   bool get _hasHistory =>
       widget.messageRowBuilder != null && widget.userMessages.isNotEmpty;
+
+  // Rebuilds on sheet size changes and on auto-seek start/stop.
+  Listenable get _sheetTicker {
+    final controller = widget.sheetController;
+    if (controller == null) return _scrollController;
+    final auto = widget.autoSeek;
+    return auto == null ? controller : Listenable.merge([controller, auto]);
+  }
+
+  // True while the sheet is animating to a measured card height. Also true
+  // before the list controller attaches, where a seek is still pending.
+  bool get _autoSeeking {
+    final target = widget.autoSeek?.value;
+    final controller = widget.sheetController;
+    if (target == null || controller == null) return false;
+    if (!controller.isAttached) return true;
+    return (controller.size - target).abs() > 0.005;
+  }
 
   @override
   void initState() {
@@ -209,8 +240,8 @@ class UserProfileSheetState extends State<UserProfileSheet> {
       setState(() {
         _anonymous = true;
         _loading = false;
+        _measureDirty = true;
       });
-      _measureDirty = true;
       return;
     }
     try {
@@ -223,12 +254,14 @@ class UserProfileSheetState extends State<UserProfileSheet> {
         setState(() {
           _profile = profile;
           _loading = false;
+          _measureDirty = true;
         });
         await _fetchFollowAge();
       } else {
         setState(() {
           _error = widget.twitchApi.lastError ?? 'User not found';
           _loading = false;
+          _measureDirty = true;
         });
       }
     } catch (e) {
@@ -236,9 +269,9 @@ class UserProfileSheetState extends State<UserProfileSheet> {
       setState(() {
         _error = e.toString();
         _loading = false;
+        _measureDirty = true;
       });
     }
-    _measureDirty = true;
   }
 
   // Follow age is a nicety; a failed lookup hides the row.
@@ -253,11 +286,13 @@ class UserProfileSheetState extends State<UserProfileSheet> {
         userId: userId,
       );
       if (!mounted || date == null) return;
-      setState(() => _followDate = date);
+      setState(() {
+        _followDate = date;
+        _measureDirty = true;
+      });
     } catch (_) {
       // Row stays hidden.
     }
-    _measureDirty = true;
   }
 
   String _formatDate(String iso) {
@@ -289,7 +324,6 @@ class UserProfileSheetState extends State<UserProfileSheet> {
     final theme = Theme.of(context);
     final actions = _profile != null ? _buildActionTiles() : const <Widget>[];
     final media = MediaQuery.sizeOf(context);
-    final measureW = media.width - MediaQuery.paddingOf(context).horizontal;
     // Opaque card surface (a Material, so tile ink still renders) with the
     // sheet's top rounding; rows can never bleed through or poke past it.
     final surface =
@@ -299,12 +333,13 @@ class UserProfileSheetState extends State<UserProfileSheet> {
     // Card takes its natural height first; the history gets whatever is
     // left (possibly nothing at the card detent) and is revealed by
     // expanding the sheet. The list is reversed (latest at offset 0), so
-    // resizes keep the latest glued without any re-pinning.
-    Widget sheetBody(double sheetH) {
+    // resizes keep the latest glued without any re-pinning. While the sheet
+    // auto-seeks, the card fills it so the history cannot flash mid-resize.
+    Widget sheetBody(double sheetH, {required bool seeking}) {
       final avail = sheetH.isFinite ? sheetH : media.height;
       if (avail <= 0) return const SizedBox.shrink();
       final natural = _naturalCardH;
-      final cardH = natural == null ? avail : min(natural, avail);
+      final cardH = (seeking || natural == null) ? avail : min(natural, avail);
       return Column(
         children: [
           SizedBox(
@@ -315,13 +350,17 @@ class UserProfileSheetState extends State<UserProfileSheet> {
                 behavior: HitTestBehavior.opaque,
                 onVerticalDragUpdate: _onCardDrag,
                 child: OverflowBox(
+                  minHeight: 0,
                   maxHeight: double.infinity,
                   alignment: Alignment.topCenter,
                   child: Material(
                     color: surface,
                     borderRadius: _topRadius(theme),
                     clipBehavior: Clip.antiAlias,
-                    child: _buildCard(theme, actions),
+                    child: KeyedSubtree(
+                      key: _cardMeasureKey,
+                      child: _buildCard(theme, actions),
+                    ),
                   ),
                 ),
               ),
@@ -360,13 +399,15 @@ class UserProfileSheetState extends State<UserProfileSheet> {
     WidgetsBinding.instance.addPostFrameCallback((_) => _syncMeasure());
     // Ticks with the sheet (or the list standalone) so resizes relayout.
     final sheet = AnimatedBuilder(
-      animation: widget.sheetController ?? _scrollController,
+      animation: _sheetTicker,
       builder: (_, _) {
+        final seeking = _autoSeeking;
         return LayoutBuilder(
           builder: (_, constraints) => sheetBody(
             constraints.maxHeight.isFinite
                 ? constraints.maxHeight
                 : media.height,
+            seeking: seeking,
           ),
         );
       },
@@ -374,20 +415,17 @@ class UserProfileSheetState extends State<UserProfileSheet> {
     return Stack(
       children: [
         sheet,
-        // Offstage copy reads true natural height. OverflowBox lifts the
-        // sheet cap; skipped while loading so the spinner never sticks.
-        if (_measureDirty && !_loading)
-          Offstage(
-            child: SizedBox(
-              width: measureW,
-              child: OverflowBox(
-                maxHeight: double.infinity,
-                alignment: Alignment.topCenter,
-                child: KeyedSubtree(
-                  key: _cardMeasureKey,
-                  child: _buildCard(theme, actions),
-                ),
-              ),
+        // Keeps the DraggableScrollableSheet's scroll controller attached so
+        // its programmatic controller works, without letting list drags
+        // resize the sheet.
+        if (widget.anchor != null)
+          SizedBox(
+            width: 0,
+            height: 0,
+            child: SingleChildScrollView(
+              controller: widget.anchor,
+              physics: const NeverScrollableScrollPhysics(),
+              child: const SizedBox.shrink(),
             ),
           ),
         if (_hasHistory)

@@ -5831,6 +5831,7 @@ void main() {
                       showModalBottomSheet(
                         context: context,
                         isScrollControlled: true,
+                        enableDrag: false,
                         builder: (ctx) {
                           // Mirrors production wiring (immediate eased settle).
                           var tracker = VelocityTracker.withKind(
@@ -5906,8 +5907,10 @@ void main() {
                               maxChildSize: maxExtent,
                               expand: false,
                               snap: false,
+                              shouldCloseOnMinExtent: false,
                               builder: (_, scrollController) {
-                                listController = scrollController;
+                                final historyController = ScrollController();
+                                listController = historyController;
                                 return UserProfileSheet(
                                   username: 'testuser',
                                   userId: '123',
@@ -5918,7 +5921,8 @@ void main() {
                                   messageController: TextEditingController(),
                                   focusNode: FocusNode(),
                                   onClose: () => Navigator.pop(ctx),
-                                  scrollController: scrollController,
+                                  scrollController: historyController,
+                                  anchor: scrollController,
                                   sheetController: sheetController,
                                   sheetMinExtent: 0.25,
                                   onCardMeasured: (naturalH) {
@@ -6048,9 +6052,8 @@ void main() {
       );
       expect(arrowOpacity(tester), 0);
 
-      // Bottom overscroll drives the sheet in a reversed list: pushing up
-      // past the latest row collapses instead of bouncing, then the
-      // release settle springs back to full.
+      // Pushing up past the latest row scrolls the list only; it must not
+      // resize the sheet (the list is decoupled from the sheet).
       sheetController.jumpTo(maxExtent);
       await tester.pumpAndSettle();
       final bottomDrag = await tester.startGesture(
@@ -6060,12 +6063,28 @@ void main() {
       await tester.pump();
       await bottomDrag.moveBy(const Offset(0, -60));
       await tester.pump();
-      expect(sheetController.size, lessThan(maxExtent));
+      expect(sheetController.size, maxExtent);
       await bottomDrag.up();
       await tester.pumpAndSettle();
       expect(sheetController.size, maxExtent);
       expect(find.text('row:m29'), findsOneWidget);
       expect(arrowOpacity(tester), 0);
+
+      // Overscrolling at the oldest end must not resize the sheet either.
+      await tester.drag(find.byType(ListView), const Offset(0, 2000));
+      await tester.pumpAndSettle();
+      expect(find.text('row:m0'), findsOneWidget);
+      final topDrag = await tester.startGesture(
+        tester.getCenter(find.text('row:m0')),
+      );
+      await topDrag.moveBy(const Offset(0, 20));
+      await tester.pump();
+      await topDrag.moveBy(const Offset(0, 60));
+      await tester.pump();
+      expect(sheetController.size, maxExtent);
+      await topDrag.up();
+      await tester.pumpAndSettle();
+      expect(sheetController.size, maxExtent);
 
       // Fresh card, upward fling eases directly to full height.
       await openSheet();
@@ -6106,6 +6125,7 @@ void main() {
                       showModalBottomSheet(
                         context: context,
                         isScrollControlled: true,
+                        enableDrag: false,
                         builder: (ctx) {
                           var tracker = VelocityTracker.withKind(
                             PointerDeviceKind.touch,
@@ -6180,8 +6200,10 @@ void main() {
                               maxChildSize: maxExtent,
                               expand: false,
                               snap: false,
+                              shouldCloseOnMinExtent: false,
                               builder: (_, scrollController) {
-                                listController = scrollController;
+                                final historyController = ScrollController();
+                                listController = historyController;
                                 return UserProfileSheet(
                                   username: 'testuser',
                                   userId: '123',
@@ -6192,7 +6214,8 @@ void main() {
                                   messageController: TextEditingController(),
                                   focusNode: FocusNode(),
                                   onClose: () => Navigator.pop(ctx),
-                                  scrollController: scrollController,
+                                  scrollController: historyController,
+                                  anchor: scrollController,
                                   sheetController: sheetController,
                                   sheetMinExtent: 0.25,
                                   onCardMeasured: (naturalH) {
@@ -6275,6 +6298,7 @@ void main() {
                       showModalBottomSheet(
                         context: context,
                         isScrollControlled: true,
+                        enableDrag: false,
                         builder: (ctx) {
                           var tracker = VelocityTracker.withKind(
                             PointerDeviceKind.touch,
@@ -6349,8 +6373,10 @@ void main() {
                               maxChildSize: maxExtent,
                               expand: false,
                               snap: false,
+                              shouldCloseOnMinExtent: false,
                               builder: (_, scrollController) {
-                                listController = scrollController;
+                                final historyController = ScrollController();
+                                listController = historyController;
                                 return UserProfileSheet(
                                   username: 'testuser',
                                   userId: '123',
@@ -6361,7 +6387,8 @@ void main() {
                                   messageController: TextEditingController(),
                                   focusNode: FocusNode(),
                                   onClose: () => Navigator.pop(ctx),
-                                  scrollController: scrollController,
+                                  scrollController: historyController,
+                                  anchor: scrollController,
                                   sheetController: sheetController,
                                   sheetMinExtent: 0.25,
                                   onCardMeasured: (naturalH) {
