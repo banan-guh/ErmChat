@@ -141,14 +141,32 @@ void main() {
       expect(reconnected, 1);
     });
 
-    test('a reconnect after chat keeps both recovery lines', () {
-      final chat = Chat();
+    test('recoveries closer than the fold window collapse to one line', () {
+      var at = DateTime(2026, 1, 1, 12);
+      final chat = Chat(now: () => at);
+      addTearDown(chat.dispose);
+      final messages = chat.ensure('test').messages;
+      messages.addSystem('Connected');
+      for (var i = 0; i < 5; i++) {
+        messages.addSystem('Chat reconnecting...');
+        messages.addSystem('Reconnected');
+        // Chat between flaps must not defeat the fold inside the window.
+        messages.add(_live('m$i'), maxMessages: 100);
+        at = at.add(const Duration(seconds: 3));
+      }
+      expect(messages.items.where((m) => m.text == 'Reconnected').length, 1);
+    });
+
+    test('a reconnect after chat beyond the fold window keeps both lines', () {
+      var at = DateTime(2026, 1, 1, 12);
+      final chat = Chat(now: () => at);
       addTearDown(chat.dispose);
       final messages = chat.ensure('test').messages;
       messages.addSystem('Connected');
       messages.addSystem('Disconnected');
       expect(messages.addSystem('Reconnected'), isTrue);
       messages.add(_live('m1'), maxMessages: 100);
+      at = at.add(const Duration(seconds: 31));
       messages.addSystem('Disconnected');
       expect(messages.addSystem('Reconnected'), isTrue);
 
@@ -156,6 +174,31 @@ void main() {
       expect(texts.where((t) => t == 'Reconnected'), hasLength(2));
       expect(texts.where((t) => t == 'Disconnected'), isEmpty);
       expect(texts.where((t) => t == 'Connected'), hasLength(1));
+    });
+
+    test('repeated read-socket recovery cycles do not stack', () {
+      final chat = Chat();
+      addTearDown(chat.dispose);
+      final messages = chat.ensure('test').messages;
+      messages.addSystem('Connected');
+      for (var i = 0; i < 5; i++) {
+        messages.addSystem('Chat reconnecting...');
+        messages.addSystem('Reconnected');
+      }
+      expect(messages.items.where((m) => m.text == 'Reconnected').length, 1);
+    });
+
+    test('system rows between recoveries do not stack Reconnected lines', () {
+      final chat = Chat();
+      addTearDown(chat.dispose);
+      final messages = chat.ensure('test').messages;
+      messages.addSystem('Connected');
+      for (var i = 0; i < 5; i++) {
+        messages.addSystem('Chat reconnecting...');
+        messages.addSystem('Reconnected');
+        messages.addSystem('Joined #test.');
+      }
+      expect(messages.items.where((m) => m.text == 'Reconnected').length, 1);
     });
 
     test(

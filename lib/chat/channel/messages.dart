@@ -74,6 +74,10 @@ class Messages {
   static const _truncateHardCapFactor = 2;
   static const _systemDedupWindow = Duration(seconds: 10);
 
+  /// A recovery announced within this window of the previous one is the same
+  /// outage flapping, so it folds instead of stacking another line.
+  static const _reconnectFoldWindow = Duration(seconds: 30);
+
   /// Per-thread member cap applied during truncation.
   static const maxPinnedThreadMembers = 20;
 
@@ -257,38 +261,35 @@ class Messages {
       final top = _items.isEmpty ? null : _items.first;
       if (resolved == 'reconnected') {
         var newestRecovery = -1;
-        var newestOutage = -1;
         for (var i = 0; i < _items.length; i++) {
           final m = _items[i];
-          if (!_isConnRow(m)) continue;
-          if (newestRecovery == -1 && m.messageId == _connId('reconnected')) {
+          if (_isConnRow(m) && m.messageId == _connId('reconnected')) {
             newestRecovery = i;
+            break;
           }
-          if (newestOutage == -1 &&
-              (m.messageId == _connId('disconnected') ||
-                  m.messageId == _connId('reconnecting'))) {
-            newestOutage = i;
-          }
-          if (newestRecovery != -1 && newestOutage != -1) break;
         }
-        // Chat since the last recovery means the new recovery is its own
-        // event; only recoveries with nothing between them fold.
+        // A recovery close to the previous one is the same outage flapping,
+        // not a new event. Chat since an older recovery keeps both lines.
+        final recentRecovery =
+            newestRecovery != -1 &&
+            now().difference(_items[newestRecovery].timestamp).abs() <=
+                _reconnectFoldWindow;
         final hasActivity =
+            !recentRecovery &&
             newestRecovery != -1 &&
             _items.take(newestRecovery).any((m) => !_isConnRow(m));
-        if (newestRecovery != -1 &&
-            !hasActivity &&
-            (newestOutage == -1 || newestOutage > newestRecovery)) {
-          return false;
-        }
+        // The transient outage marker never survives a recovery.
+        final before = _items.length;
         _items.removeWhere(
           (m) =>
               m.isSystem &&
               (m.messageId == _connId('disconnected') ||
                   m.messageId == _connId('reconnecting')),
         );
-        // Only an adjacent recovery folds into the new one; chat since the
-        // last recovery makes this a distinct event that stays in history.
+        if (recentRecovery) {
+          if (_items.length != before) _bump();
+          return false;
+        }
         if (!hasActivity) {
           _items.removeWhere(
             (m) => m.isSystem && m.messageId == _connId('reconnected'),
@@ -336,6 +337,7 @@ class Messages {
         isSystem: true,
         systemAccent: accent,
         channel: channel,
+        timestamp: now(),
       ),
     );
     _bump();
