@@ -1,9 +1,10 @@
 // Isolation suite for the mid-swipe desync bug: tap a tab, catch the
-// animated flight with a finger, stop it part-way. After every settled
-// gesture the focused channel (plain field, like HomeScreen._selectedChannel),
-// the tab highlight (ValueNotifier, like _selectedTabIndex), and the visible
-// resting page must all agree, with exactly one full commit for the channel
-// actually displayed.
+// animated flight with a finger, stop it part-way. A tab tap commits its
+// channel immediately (the flight is just travel); every other focus change
+// commits as it crosses. After every settled gesture the focused channel
+// (plain field, like HomeScreen._selectedChannel), the tab highlight
+// (ValueNotifier, like _selectedTabIndex), and the visible resting page must
+// all agree.
 //
 // Unlike tabbed_layout_test.dart's harness, this one replicates the REAL
 // HomeScreen asymmetry: the focus callback mutates state WITHOUT setState,
@@ -211,11 +212,10 @@ void main() {
       expect(_restingPage(tester), 1, reason: 'page should complete to b');
       expect(home.selectedChannel, 'b', reason: _dump(home));
       expect(home.tabIndex.value, 1, reason: _dump(home));
-      expect(
-        home.commits['b'] ?? 0,
-        1,
-        reason: 'exactly one full commit expected: ${_dump(home)}',
-      );
+      // Tap commits b, the catch pulls back below half (commits a), then the
+      // forward crossing commits b again. The landing dedups.
+      expect(home.commits['b'] ?? 0, 2, reason: _dump(home));
+      expect(home.commits['a'] ?? 0, 1, reason: _dump(home));
     });
 
     testWidgets('R4: pure drag past half, pull back below, gentle release', (
@@ -325,8 +325,9 @@ void main() {
       expect(home.commits['b'] ?? 0, 1, reason: _dump(home));
     });
 
-    testWidgets('R12: tap c then tap b without catching lands on b, '
-        'never commits c', (tester) async {
+    testWidgets('R12: tap c then tap b without catching lands on b', (
+      tester,
+    ) async {
       final (home, _) = await pumpHome(tester);
 
       await _tapTab(tester, 'c');
@@ -337,16 +338,13 @@ void main() {
       debugPrint('R12 rest=[${_restingDump(tester)}] ${_dump(home)}');
       expect(_restingPage(tester), 1, reason: 'retarget must land on b');
       expect(home.selectedChannel, 'b', reason: _dump(home));
-      expect(
-        home.commits['c'] ?? 0,
-        0,
-        reason: 'flyover channel must not be committed: ${_dump(home)}',
-      );
+      // Both taps commit on tap; the retarget's landing dedups.
+      expect(home.commits['c'] ?? 0, 1, reason: _dump(home));
       expect(home.commits['b'] ?? 0, 1, reason: _dump(home));
     });
 
-    testWidgets('R13: grabbing a targeted jump and dragging back commits '
-        'only where the finger lands', (tester) async {
+    testWidgets('R13: grabbing a targeted jump and dragging back lands on '
+        'the finger side', (tester) async {
       final (home, _) = await pumpHome(tester);
 
       await _tapTab(tester, 'c');
@@ -359,11 +357,14 @@ void main() {
       debugPrint('R13 rest=[${_restingDump(tester)}] ${_dump(home)}');
       final resting = _restingPage(tester);
       expect(resting, 0, reason: 'drag-back from c jump must return to a');
+      // The tap already committed c; the grab-back commits a. The landing
+      // dedups, so c stays at exactly one.
       expect(
         home.commits['c'] ?? 0,
-        0,
-        reason: 'the grabbed jump target must not commit: ${_dump(home)}',
+        1,
+        reason: 'the tapped jump target commits once: ${_dump(home)}',
       );
+      expect(home.commits['a'] ?? 0, 1, reason: _dump(home));
     });
 
     testWidgets('R8: sweep catch fractions below half for persistent '

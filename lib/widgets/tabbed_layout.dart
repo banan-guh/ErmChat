@@ -339,7 +339,13 @@ class TabbedLayoutState extends State<TabbedLayout>
 
   void _onTabTap(int index) {
     widget.onTabTapped?.call(index);
-    // Commit on landing, not at tap (flight may be dragged back).
+    // Tap is an explicit choice: commit the target now instead of on landing.
+    // The landing report dedups against _lastReportedIndex.
+    if (index != _lastReportedIndex) {
+      _lastReportedIndex = index;
+      _setActiveIndex(index);
+      widget.onSelectedIndexChanged(index);
+    }
     _goTo(index);
   }
 

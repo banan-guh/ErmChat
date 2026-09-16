@@ -833,4 +833,45 @@ void main() {
       expect(find.text('page0:off', skipOffstage: false), findsOneWidget);
     });
   });
+
+  group('TabbedLayout tab tap focus', () {
+    testWidgets('tapping a tab commits focus before the flight lands', (
+      tester,
+    ) async {
+      final selected = ValueNotifier<int>(0);
+      final reported = <int>[];
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: ValueListenableBuilder<int>(
+              valueListenable: selected,
+              builder: (_, index, _) => TabbedLayout(
+                key: const Key('tl'),
+                tabs: const ['a', 'b', 'c'],
+                selectedIndex: index,
+                onSelectedIndexChanged: (i) {
+                  selected.value = i;
+                  reported.add(i);
+                },
+                pageBuilder: (_, i) => Center(child: Text('page$i')),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.descendant(of: find.byType(TabBar), matching: find.text('c')),
+      );
+      // One frame into the flight: focus already committed to c.
+      await tester.pump();
+      expect(reported, [2]);
+      expect(selected.value, 2);
+
+      await tester.pumpAndSettle();
+      // The landing dedups against the tap commit.
+      expect(reported, [2]);
+    });
+  });
 }
