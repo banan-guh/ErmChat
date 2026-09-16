@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:ermchat/color_utils.dart';
 import 'package:flutter_list_view/flutter_list_view.dart';
@@ -592,6 +593,59 @@ void main() {
     expect(find.text('Toggle fullscreen'), findsOneWidget);
     expect(find.text('Toggle input'), findsOneWidget);
     expect(find.text('Show stream'), findsOneWidget);
+  });
+
+  testWidgets('fullscreen toggles immersive system bars', (
+    WidgetTester tester,
+  ) async {
+    final modes = <String>[];
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (call) async {
+        if (call.method == 'SystemChrome.setEnabledSystemUIMode') {
+          modes.add(call.arguments as String);
+        }
+        return null;
+      },
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        null,
+      ),
+    );
+
+    await tester.pumpWidget(
+      TwitchChatApp(
+        key: UniqueKey(),
+        eventSubService: _FakeEventSubService(),
+        ircService: _FakeIrcService(),
+        ircReadService: _FakeIrcReadService(),
+        recentMessagesService: _FakeRecentMessagesService(),
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.byIcon(Icons.add));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).last, 'xqc');
+    await tester.tap(find.text('Join', skipOffstage: false));
+    await tester.pumpAndSettle();
+
+    Future<void> toggleFullscreen() async {
+      await tester.tap(find.byIcon(Icons.expand_more));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Toggle fullscreen'));
+      await tester.pumpAndSettle();
+    }
+
+    modes.clear();
+    await toggleFullscreen();
+    expect(modes.last, 'SystemUiMode.immersiveSticky');
+
+    // The chrome menu arrow survives fullscreen so the bars come back.
+    await toggleFullscreen();
+    expect(modes.last, 'SystemUiMode.edgeToEdge');
   });
 
   testWidgets('toggle input hides and restores the composer without errors', (

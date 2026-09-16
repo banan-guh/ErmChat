@@ -283,6 +283,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   /// (session-only); the dropdown arrow stays visible to toggle it back.
   bool _isFullscreen = false;
 
+  /// Mirror of the live system UI mode, so redundant SystemChrome calls are
+  /// skipped while a forced re-apply (app resume) stays explicit.
+  bool _immersive = false;
+
   /// Whether the chat input box + status row is shown. Persisted.
   bool _showInput = true;
 
@@ -711,6 +715,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     // the WebView) consumes them via its controller listener.
     _pipService.onPipAction = _streamPlayer.notifyPipAction;
     _streamPlayer.addListener(_stream.onStreamPlayerChanged);
+    _streamPlayer.addListener(_syncSystemUiMode);
     _linkWhitelist.addListener(_onLinkWhitelistChanged);
     _loadNotificationSettings();
     _broadcastWidgets.loadTestWidgets();
@@ -1027,7 +1032,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     }
     if (state == AppLifecycleState.resumed) {
       _chatConn.reconnectIfNecessary();
+      // Android clears immersive on background; re-assert it on return.
+      _syncSystemUiMode(force: true);
     }
+  }
+
+  @override
+  void didChangeMetrics() {
+    // Rotation flips the theater layout; read the settled MediaQuery after
+    // the rebuild, since this callback still sees the pre-rotation size.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _syncSystemUiMode());
   }
 
   Future<void> _ensureBlockedUsersLoaded() async {
@@ -1431,6 +1445,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _networkBusy.dispose();
     _linkWhitelist.removeListener(_onLinkWhitelistChanged);
     _streamPlayer.removeListener(_stream.onStreamPlayerChanged);
+    _streamPlayer.removeListener(_syncSystemUiMode);
     _streamPlayer.dispose();
     _mentionsTabCtrl.removeListener(_mentions.onMentionsTabChanged);
     _mentionsTabCtrl.dispose();
@@ -1454,6 +1469,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _dropChannelSubs();
     _session.version.removeListener(_onSessionApplied);
     _notificationTapSub?.cancel();
+    if (_immersive) {
+      SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    }
     super.dispose();
   }
 
@@ -1475,6 +1493,23 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   void _toggleFullscreen() {
     setState(() => _isFullscreen = !_isFullscreen);
+    _syncSystemUiMode();
+  }
+
+  /// Immersive hides the system bars in fullscreen and in landscape theater
+  /// mode. The theater flag persists through portrait, where the stacked
+  /// layout renders, so only the landscape theater layout counts.
+  void _syncSystemUiMode({bool force = false}) {
+    if (!mounted) return;
+    final immersive =
+        _isFullscreen ||
+        (_streamPlayer.isTheaterMode &&
+            MediaQuery.maybeOrientationOf(context) == Orientation.landscape);
+    if (immersive == _immersive && !force) return;
+    _immersive = immersive;
+    SystemChrome.setEnabledSystemUIMode(
+      immersive ? SystemUiMode.immersiveSticky : SystemUiMode.edgeToEdge,
+    );
   }
 
   void _toggleInputVisibility() => _setShowInput(!_showInput);
