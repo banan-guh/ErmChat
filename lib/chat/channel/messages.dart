@@ -74,6 +74,10 @@ class Messages {
   static const _truncateHardCapFactor = 2;
   static const _systemDedupWindow = Duration(seconds: 10);
 
+  /// A recovery announced within this window of the previous one is the same
+  /// outage flapping, so it folds instead of stacking another line.
+  static const _reconnectFoldWindow = Duration(seconds: 30);
+
   /// Per-thread member cap applied during truncation.
   static const maxPinnedThreadMembers = 20;
 
@@ -257,38 +261,35 @@ class Messages {
       final top = _items.isEmpty ? null : _items.first;
       if (resolved == 'reconnected') {
         var newestRecovery = -1;
-        var newestOutage = -1;
         for (var i = 0; i < _items.length; i++) {
           final m = _items[i];
-          if (!_isConnRow(m)) continue;
-          if (newestRecovery == -1 && m.messageId == _connId('reconnected')) {
+          if (_isConnRow(m) && m.messageId == _connId('reconnected')) {
             newestRecovery = i;
+            break;
           }
-          if (newestOutage == -1 &&
-              (m.messageId == _connId('disconnected') ||
-                  m.messageId == _connId('reconnecting'))) {
-            newestOutage = i;
-          }
-          if (newestRecovery != -1 && newestOutage != -1) break;
         }
-        // Chat since the last recovery means the new recovery is its own
-        // event; only recoveries with nothing between them fold.
+        // A recovery close to the previous one is the same outage flapping,
+        // not a new event. Chat since an older recovery keeps both lines.
+        final recentRecovery =
+            newestRecovery != -1 &&
+            now().difference(_items[newestRecovery].timestamp).abs() <=
+                _reconnectFoldWindow;
         final hasActivity =
+            !recentRecovery &&
             newestRecovery != -1 &&
             _items.take(newestRecovery).any((m) => !_isConnRow(m));
-        if (newestRecovery != -1 &&
-            !hasActivity &&
-            (newestOutage == -1 || newestOutage > newestRecovery)) {
-          return false;
-        }
+        // The transient outage marker never survives a recovery.
+        final before = _items.length;
         _items.removeWhere(
           (m) =>
               m.isSystem &&
               (m.messageId == _connId('disconnected') ||
                   m.messageId == _connId('reconnecting')),
         );
-        // Only an adjacent recovery folds into the new one; chat since the
-        // last recovery makes this a distinct event that stays in history.
+        if (recentRecovery) {
+          if (_items.length != before) _bump();
+          return false;
+        }
         if (!hasActivity) {
           _items.removeWhere(
             (m) => m.isSystem && m.messageId == _connId('reconnected'),
@@ -336,6 +337,7 @@ class Messages {
         isSystem: true,
         systemAccent: accent,
         channel: channel,
+        timestamp: now(),
       ),
     );
     _bump();
@@ -381,7 +383,12 @@ class Messages {
   /// Removes every row matching [test]. Returns the number removed.
   int removeWhere(bool Function(TwitchMessage) test) {
     final before = _items.length;
-    _items.removeWhere(test);
+    _items.removeWhere((m) {
+      if (!test(m)) return false;
+      final id = m.messageId;
+      if (id != null) _seenIds.remove(id);
+      return true;
+    });
     final removed = before - _items.length;
     if (removed > 0) _bump();
     return removed;
@@ -409,20 +416,25 @@ class Messages {
 
   // ---- Mutations -----------------------------------------------------------
 
-  /// Marks every non-system message from [login] deleted. Emits one
-  /// whole-channel evict; callers must not emit per row.
+  /// Marks every non-system message from [login] deleted. Emits one row
+  /// mutation per affected id, so consumers keep unrelated cached tiles.
   bool markUserDeleted(String login) {
     final needle = login.toLowerCase();
+    final touchedIds = <String>[];
     var touched = false;
     for (final msg in _items) {
       if (msg.login == needle && !msg.isSystem && !msg.deleted) {
         msg.deleted = true;
         touched = true;
+        final id = msg.messageId;
+        if (id != null) touchedIds.add(id);
       }
     }
     if (!touched) return false;
     _bump();
-    mutations.emitAll();
+    for (final id in touchedIds) {
+      mutations.emit(id);
+    }
     return true;
   }
 
@@ -463,6 +475,15 @@ class Messages {
 
   // ---- Truncation ----------------------------------------------------------
 
+  /// Whether any buffered row participates in a reply thread. Cheap scan with
+  /// no allocation; guards the truncate fast path.
+  bool _hasThreadRows() {
+    for (final m in _items) {
+      if (m.replyThreadRootId != null || m.replyToParentId != null) return true;
+    }
+    return false;
+  }
+
   List<TwitchMessage> truncate(
     int maxMessages, [
     TruncateExemptions Function()? buildExemptions,
@@ -472,6 +493,22 @@ class Messages {
     _lastTruncateAt = now();
     final exemptions = buildExemptions?.call() ?? TruncateExemptions.empty;
 
+    // Fast path: without reply rows or exemptions nothing is pinned, so the
+    // newest [maxMessages] rows are kept and the tail is evicted. Avoids the
+    // per-row thread map allocation, which is the cost of a plain chat buffer.
+    if (exemptions.savedRootIds.isEmpty &&
+        exemptions.pinnedMessageIds.isEmpty &&
+        !_hasThreadRows()) {
+      final evicted = <TwitchMessage>[];
+      for (int i = maxMessages; i < _items.length; i++) {
+        final id = _items[i].messageId;
+        if (id != null) _seenIds.remove(id);
+        evicted.add(_items[i]);
+      }
+      _items.removeRange(maxMessages, _items.length);
+      return evicted;
+    }
+
     final parentOf = <String, String>{};
     for (final m in _items) {
       if (m.replyToParentId != null && m.messageId != null) {
@@ -479,8 +516,21 @@ class Messages {
       }
     }
 
+    // Only thread participants can form a group: reply rows plus the roots
+    // they resolve to. A non-participant is its own root, so it lands in a
+    // singleton group the filter below drops anyway. Skipping it avoids a map
+    // entry and a list per buffered row.
+    final referencedIds = <String>{...parentOf.values};
+    for (final m in _items) {
+      final root = m.replyThreadRootId;
+      if (root != null) referencedIds.add(root);
+    }
     final threadGroups = <String, List<TwitchMessage>>{};
     for (final m in _items) {
+      final isReply = m.replyToParentId != null || m.replyThreadRootId != null;
+      final isReferenced =
+          m.messageId != null && referencedIds.contains(m.messageId);
+      if (!isReply && !isReferenced) continue;
       final key = threadKeyFor(m, parentOf);
       if (key != null) {
         threadGroups.putIfAbsent(key, () => <TwitchMessage>[]).add(m);
@@ -535,57 +585,44 @@ class Messages {
       }
     }
 
-    final keepIndices = <int>{};
+    // Split into retained and evicted in one pass: the kept rows keep buffer
+    // order, so no index set is needed.
+    final retained = <TwitchMessage>[];
+    final evicted = <TwitchMessage>[];
     int kept = 0;
     final activeKept = <String, int>{};
     for (int i = 0; i < _items.length; i++) {
       final m = _items[i];
-      if (m.messageId != null &&
-          (savedIds.contains(m.messageId!) || openIds.contains(m.messageId!))) {
-        keepIndices.add(i);
-        continue;
-      }
-      final rootKey = m.messageId == null
-          ? null
-          : activeThreadRoot[m.messageId!];
-      if (rootKey != null &&
+      final id = m.messageId;
+      final rootKey = id == null ? null : activeThreadRoot[id];
+      final bool keep;
+      if (id != null && (savedIds.contains(id) || openIds.contains(id))) {
+        keep = true;
+      } else if (rootKey != null &&
           (activeKept[rootKey] ?? 0) < maxPinnedThreadMembers) {
         activeKept[rootKey] = (activeKept[rootKey] ?? 0) + 1;
-        keepIndices.add(i);
-        continue;
-      }
-      final isActiveThread = rootKey != null;
-      if (m.isSystem) {
-        if (kept < maxMessages) {
-          keepIndices.add(i);
-          kept++;
-        }
-        continue;
+        keep = true;
+      } else if (m.isSystem) {
+        keep = kept < maxMessages;
+        if (keep) kept++;
       } else {
         final key = threadKeyFor(m, parentOf);
         final isOrphanThread =
-            m.messageId != null &&
-            !isActiveThread &&
+            id != null &&
+            rootKey == null &&
             key != null &&
             threadGroups.containsKey(key);
-        if (!isOrphanThread && kept < maxMessages) {
-          keepIndices.add(i);
-          kept++;
-        }
+        keep = !isOrphanThread && kept < maxMessages;
+        if (keep) kept++;
+      }
+      if (keep) {
+        retained.add(m);
+      } else if (id != null) {
+        _seenIds.remove(id);
+        evicted.add(m);
       }
     }
 
-    final retained = <TwitchMessage>[];
-    final evicted = <TwitchMessage>[];
-    for (int i = 0; i < _items.length; i++) {
-      final id = _items[i].messageId;
-      if (keepIndices.contains(i)) {
-        retained.add(_items[i]);
-      } else if (id != null) {
-        _seenIds.remove(id);
-        evicted.add(_items[i]);
-      }
-    }
     _items
       ..clear()
       ..addAll(retained);

@@ -1,504 +1,276 @@
 import 'dart:async';
-import 'dart:convert';
-import 'dart:isolate';
-import 'dart:math' as math;
+
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter_cache_manager/flutter_cache_manager.dart';
+
+import '../emotes/emote.dart';
+import '../emotes/emote_catalog.dart';
+import '../emotes/emote_picker.dart';
 import '../models/emote_fetch_tier.dart';
-import '../models/generic_emote.dart';
 import '../models/twitch_message.dart';
-import '../services/twitch_api.dart';
-import '../services/twitch_auth.dart';
 import '../util/log.dart';
-import '../util/prefs.dart';
-import '../util/semaphore.dart';
 import 'emote_cache_manager.dart';
+import 'emote_fetcher.dart';
+import 'emote_images.dart';
 import 'emote_meta_store.dart';
-import 'seven_tv_event_client.dart';
-import 'emote_providers/twitch_emotes.dart';
-import 'emote_providers/bttv_emotes.dart';
-import 'emote_providers/ffz_emotes.dart';
+import 'emote_persistence.dart';
 import 'emote_providers/seven_tv_emotes.dart';
+import 'emote_store.dart';
+import 'emote_usage_registry.dart';
+import 'emote_visibility.dart';
+import 'seven_tv_event_client.dart';
+import 'seven_tv_personal_sets.dart';
+import 'twitch_auth.dart';
+import 'twitch_emote_sets.dart';
 
-class ChannelEmotes {
-  final Map<String, GenericEmote> byCode;
-  final List<GenericEmote> suggestions;
+export 'emote_usage_registry.dart' show EmoteUsageRecord;
 
-  ChannelEmotes({required this.byCode, required this.suggestions});
+/// Read-only port over the emote catalog for the render path.
+///
+/// The message builder needs exactly three things: whether the catalog
+/// changed (to invalidate cached spans), the merged lookup for a
+/// channel+sender, and the image byte owner. [EmoteManager] implements it so
+/// render-path consumers stop depending on the whole manager.
+abstract interface class EmoteLookupSource {
+  /// Catalog version used by message span caches. Live 7TV deltas do not
+  /// advance it, so already-rendered messages stay frozen.
+  int get version;
+
+  /// Image byte owner consumed by the render path.
+  EmoteImages get images;
+
+  /// Merged emotes for [channel] plus [senderTwitchId]'s personal 7TV set.
+  EmoteLookup? lookup(String channel, String? senderTwitchId);
 }
 
-/// One token from [EmoteManager.tokenize]: either an emote or plain text.
-class EmoteToken {
-  final GenericEmote? emote;
-  final String text;
-  final int start;
-  final int end;
-
-  const EmoteToken({
-    this.emote,
-    required this.text,
-    required this.start,
-    required this.end,
-  });
-
-  bool get isEmote => emote != null;
-}
-
-/// Another viewer's personal 7TV emotes, cached for sender-scoped render.
-
-/// Per-URL usage history feeding the disk-cache eviction priority.
+/// Coordinator and single doorway for the emote area.
 ///
-/// Tracks the last-use time plus a rolling 24-hour histogram of view counts
-/// in hourly buckets, so the cache can keep emotes that are *steadily* used
-/// over time and evict ones that were spammed in a single burst then went
-/// quiet. The score combines:
-///
-///   recency r = exp(-hoursSinceLastUse / [_recencyHalfLife])
-///   total   T = views in the last 24 hours
-///   entropy H = normalized entropy of the bucket distribution (1 = spread
-///               evenly across the day, 0 = all views in one hour)
-///   steady  s = min(T / [_steadyRate], 1) * H
-///   score   = r + [_steadyWeight] * s
-///
-/// Pure logic (no I/O); the [EmoteManager] owns persistence. The bucket
-/// index is anchored at [_EmoteUsageRecord.bucketBase] (unix hour of the
-/// oldest bucket) so advancing an hour never shifts the list.
-class EmoteUsageRecord {
-  EmoteUsageRecord({
-    required this.lastUsedAt,
-    required this.bucketBase,
-    required List<int> buckets,
-  }) : buckets = List.unmodifiable(buckets) {
-    assert(buckets.length == _bucketCount);
-  }
-
-  /// Views within the last [Duration] window are counted in these buckets.
-  static const int _bucketCount = 24;
-  // A long, lax recency window for the usage score: it keeps the emote
-  // priority score stable so the cache eviction admission check (see
-  // EmoteCacheManager._evictLowest) does not thrash long-lived favorites for
-  // one-off emotes.
-  static const _recencyHalfLife = Duration(days: 3);
-  static const _steadyRate = 50;
-  static const _steadyWeight = 0.75;
-
-  /// Unix hour of [buckets] index 0; buckets are zeroed as the window rolls
-  /// past them, so older data simply ages out.
-  final int bucketBase;
-
-  final DateTime lastUsedAt;
-  final List<int> buckets;
-
-  /// Records a view at the given unix hour (0-23 UTC is not used; the hour is
-  /// an absolute unix hour). Rolls the window forward first so stale buckets
-  /// age out.
-  static EmoteUsageRecord bumped(
-    EmoteUsageRecord record,
-    int hour, {
-    required DateTime now,
-  }) {
-    final rolled = rolledForward(record, hour);
-    final index = ((hour - rolled.bucketBase) % _bucketCount).toInt();
-    final buckets = List<int>.of(rolled.buckets);
-    buckets[index]++;
-    return EmoteUsageRecord(
-      lastUsedAt: now,
-      buckets: buckets,
-      bucketBase: rolled.bucketBase,
-    );
-  }
-
-  /// Instance form of [bumped] for a just-created zero record.
-  EmoteUsageRecord bumpedAt(int hour, {required DateTime now}) =>
-      EmoteUsageRecord.bumped(this, hour, now: now);
-
-  /// Returns a record whose window starts at (or covers) [hour], zeroing
-  /// buckets that rolled out. Cheap for records that were just bumped; only
-  /// stale records pay for the roll.
-  static EmoteUsageRecord rolledForward(EmoteUsageRecord record, int hour) {
-    var base = record.bucketBase;
-    if (hour < base || hour - base >= _bucketCount) {
-      // Clock moved backwards or the whole window is stale: rebuild empty.
-      if (hour < base) return record;
-      return EmoteUsageRecord(
-        lastUsedAt: record.lastUsedAt,
-        buckets: List.filled(_bucketCount, 0),
-        bucketBase: hour,
-      );
-    }
-    if (hour == base) return record;
-    final buckets = List<int>.of(record.buckets);
-    final advance = hour - base;
-    // Bucket i covers hour (base + i), so hours that rolled out are exactly
-    // buckets 0..advance-1 (the bucket list wraps, but the base never does).
-    for (var i = 0; i < advance; i++) {
-      buckets[i] = 0;
-    }
-    return EmoteUsageRecord(
-      lastUsedAt: record.lastUsedAt,
-      buckets: buckets,
-      bucketBase: hour,
-    );
-  }
-
-  /// Keep-priority score at [now]; higher means the emote should stay cached.
-  /// Only meaningful for records whose window covers [now] (roll first).
-  double score(DateTime now) {
-    final hours = now.difference(lastUsedAt).inHours;
-    final r = math.exp(-hours / _recencyHalfLife.inHours.toDouble());
-    var total = 0;
-    for (final b in buckets) {
-      total += b;
-    }
-    if (total == 0) return r;
-    final steady = (total / _steadyRate).clamp(0.0, 1.0) * _entropy();
-    return r + _steadyWeight * steady;
-  }
-
-  double _entropy() {
-    var total = 0;
-    for (final b in buckets) {
-      total += b;
-    }
-    if (total == 0) return 0;
-    var entropy = 0.0;
-    for (final b in buckets) {
-      if (b == 0) continue;
-      final p = b / total;
-      entropy -= p * math.log(p);
-    }
-    return entropy / math.log(_bucketCount.toDouble());
-  }
-
-  Map<String, dynamic> toJson() => {
-    't': lastUsedAt.millisecondsSinceEpoch,
-    'h': bucketBase,
-    'b': buckets.join(','),
-  };
-
-  static EmoteUsageRecord? fromJson(Map<String, dynamic> json) {
-    final t = json['t'];
-    final h = json['h'];
-    final b = json['b'];
-    if (t is! int || h is! int || b is! String) return null;
-    final buckets = <int>[];
-    for (final part in b.split(',')) {
-      final v = int.tryParse(part);
-      if (v == null || v < 0) return null;
-      buckets.add(v);
-    }
-    if (buckets.length != _bucketCount) return null;
-    return EmoteUsageRecord(
-      lastUsedAt: DateTime.fromMillisecondsSinceEpoch(t),
-      buckets: buckets,
-      bucketBase: h,
-    );
-  }
-}
-
-class EmoteManager extends ChangeNotifier {
-  // Refresh TTLs: emote caches are only refetched once they're older than
-  // the TTL. Unmetered connections refresh every 12h; cellular gets 24h so
-  // the rake uses less data.
-  static const _wifiTtl = Duration(hours: 12);
-  static const _mobileTtl = Duration(hours: 24);
-  static const _connectivityProbeTtl = Duration(seconds: 60);
-  static const _infiniteTtl = Duration(days: 365000);
-  static const _defaultFetchStagger = Duration(milliseconds: 1500);
-  static const _providerPriority = {
-    EmoteType.sevenTv: 0,
-    EmoteType.bttv: 1,
-    EmoteType.ffz: 2,
-    EmoteType.twitch: 3,
-  };
-
-  // ── Disk-cache cap + usage registry ─────────────────────────────────
-  // The emote image cache is capped inline by EmoteCacheManager (evicting the
-  // least-recently-used extras once it grows past maxObjects). This manager
-  // only owns the usage registry that feeds that priority, plus the one-time
-  // migrations from the old cache layouts.
-  static const _usageMinEntries = 300;
-
-  EmoteFetchTier _tier = EmoteFetchTier.high;
-  int _cacheCap = defaultEmoteCacheMax;
-
-  late final Future<void> Function(String url) _removeCachedFile;
+/// Owns the fetch policy ([EmoteFetcher]), the catalog state ([EmoteStore]),
+/// and small owners for usage/recents ([EmoteUsageRegistry]), personal 7TV
+/// sets ([SevenTvPersonalSets]), Twitch account sets ([TwitchEmoteSets]),
+/// catalog persistence ([EmotePersistence]), and image bytes ([EmoteImages]).
+/// Lookups join the store with the personal/sub overlays here because the
+/// manager holds both sides.
+class EmoteManager implements EmoteLookupSource {
   final DateTime Function() _now;
-  final Future<SevenTvChannelResponse> Function(
-    String channelId,
-    EmoteResolution resolution,
-  )
-  _sevenTvChannelFetcher;
-  final Future<List<GenericEmote>> Function(EmoteResolution resolution)
-  _sevenTvGlobalFetcher;
-  final Future<List<String>> Function(String twitchId) _sevenTvOwnedSetIds;
-  final Future<List<GenericEmote>> Function(
-    String setId,
-    EmoteResolution resolution,
-  )
-  _sevenTvEmoteSetFetcher;
-  final EmoteCacheManager? _injectedCacheManager;
-  EmoteCacheManager? _cacheManagerInstance;
   final EmoteMetaStore _metaStore;
-  final Map<String, EmoteUsageRecord> _emoteUsage = {};
 
-  /// Resolved lazily so constructing an [EmoteManager] (e.g. in tests) never
-  /// instantiates the path-provider-backed cache singleton until it's needed.
-  EmoteCacheManager get _cacheManager =>
-      _cacheManagerInstance ??= (_injectedCacheManager ?? EmoteCacheManager());
-  bool _usageLoaded = false;
-  bool _usageDirty = false;
-  bool _migrationRan = false;
-  bool _migrationRanV2 = false;
-  bool _disposed = false;
+  // Network fetching and fetch policy live in the fetcher; the manager feeds
+  // the store and owns the flow orchestration.
+  late final EmoteFetcher _fetcher;
+  late final bool _ownsFetcher;
 
-  final Future<List<ConnectivityResult>> Function()? _connectivityProbe;
-  final Duration _fetchStagger;
-  ConnectivityResult _probeResult = ConnectivityResult.wifi;
-  DateTime? _probeAt;
-  // Bounds in-flight provider fetches so a full refresh doesn't burst the
-  // network, while letting more than one channel refresh at a time.
-  static const _maxConcurrentFetches = 2;
-  final _fetchGate = Semaphore(_maxConcurrentFetches);
+  // Catalog state, commits, and lookups live in the store; the manager feeds
+  // it fetches and coordinates the per-account overlays.
+  final EmoteStore _store;
+  final bool _ownsStore;
 
-  // How long view-touch flushes wait for quiet before persisting. The emote
-  // menu marks dozens of cells viewed on open; the debounce collapses that
-  // burst into a single prefs write.
-  static const _defaultUsageFlushDelay = Duration(milliseconds: 250);
-  final Duration _usageFlushDelay;
-  Timer? _usageFlushTimer;
+  /// Image byte black box (disk cache, precache, migrations).
+  late final EmoteImages _images;
+  late final bool _ownsImages;
+
+  /// Usage history plus recents; also the image eviction policy.
+  late final EmoteUsageRegistry _usage;
+  late final bool _ownsUsage;
+
+  /// Viewer and foreign 7TV personal sets.
+  late final SevenTvPersonalSets _personalSets;
+
+  /// Twitch account emote sets (subs plus unlocks).
+  late final TwitchEmoteSets _twitchSets;
+
+  /// Global/channel catalog persistence.
+  late final EmotePersistence _persistence;
+
+  /// Provider visibility config; the manager mirrors it into the store.
+  late final EmoteVisibility _visibility;
+  late final bool _ownsVisibility;
+
+  // Effective fetch tier. Injected owners supply [readTier]/[writeTier] wired
+  // to the tier provider; the local field is the compat path for direct tests.
+  EmoteFetchTier _localTier;
+  late final EmoteFetchTier Function() _readTier;
+  final void Function(EmoteFetchTier)? _tierWriter;
+  final void Function(int)? _cacheCapWriter;
 
   EmoteManager({
+    EmoteStore? store,
+    EmoteVisibility? visibility,
+    EmoteFetcher? fetcher,
+    EmoteImages? images,
+    EmoteUsageRegistry? usage,
+    SevenTvPersonalSets? personalSets,
+    TwitchEmoteSets? twitchSets,
+    EmotePersistence? persistence,
     Future<List<ConnectivityResult>> Function()? probe,
-    this._fetchStagger = _defaultFetchStagger,
+    Duration fetchStagger = defaultEmoteFetchStagger,
     Future<void> Function(String url)? removeCachedFile,
     DateTime Function()? now,
     EmoteFetchTier tier = EmoteFetchTier.high,
+    EmoteFetchTier Function()? readTier,
+    void Function(EmoteFetchTier)? writeTier,
     int cacheCap = defaultEmoteCacheMax,
-    this._usageFlushDelay = _defaultUsageFlushDelay,
-    Future<SevenTvChannelResponse> Function(
-      String channelId,
-      EmoteResolution resolution,
-    )?
+    void Function(int)? writeCacheCap,
+    Duration usageFlushDelay = const Duration(milliseconds: 250),
+    Future<SevenTvChannelResponse> Function(String channelId)?
     sevenTvChannelFetcher,
-    Future<List<GenericEmote>> Function(EmoteResolution resolution)?
-    sevenTvGlobalFetcher,
+    Future<List<Emote>> Function()? sevenTvGlobalFetcher,
     Future<List<String>> Function(String twitchId)? sevenTvOwnedSetIdsFetcher,
-    Future<List<GenericEmote>> Function(
-      String setId,
-      EmoteResolution resolution,
-    )?
-    sevenTvEmoteSetFetcher,
+    Future<List<Emote>> Function(String setId)? sevenTvEmoteSetFetcher,
     EmoteCacheManager? cacheManager,
     EmoteMetaStore? metaStore,
     Future<Map<String, String>> Function(TwitchAuth auth, List<String> ids)?
     resolveOwnerLogins,
-    Future<Map<String, List<GenericEmote>>> Function(
+    Future<Map<String, List<Emote>>> Function(
       List<String> setIds, {
       String? accessToken,
-      EmoteResolution? resolution,
     })?
     fetchUserEmoteSets,
     this.getChannelUserIds,
-  }) : _connectivityProbe = probe,
-       _injectedCacheManager = cacheManager,
+  }) : _store = store ?? EmoteStore(),
+       _ownsStore = store == null,
        _metaStore = metaStore ?? EmoteMetaStore.I,
-       _sevenTvChannelFetcher =
-           sevenTvChannelFetcher ??
-           ((String channelId, EmoteResolution resolution) =>
-               SevenTvEmoteProvider.fetchChannelResponse(
-                 channelId,
-                 resolution: resolution,
-               )),
-       _sevenTvGlobalFetcher =
-           sevenTvGlobalFetcher ??
-           ((EmoteResolution resolution) =>
-               SevenTvEmoteProvider.fetchGlobal(resolution: resolution)),
-       _sevenTvOwnedSetIds =
-           sevenTvOwnedSetIdsFetcher ?? SevenTvEmoteProvider.fetchOwnedSetIds,
-       _sevenTvEmoteSetFetcher =
-           sevenTvEmoteSetFetcher ??
-           ((String setId, EmoteResolution resolution) =>
-               SevenTvEmoteProvider.fetchEmoteSet(
-                 setId,
-                 resolution: resolution,
-               )),
-       _resolveOwnerLogins =
-           resolveOwnerLogins ?? TwitchApi().getUserLoginsByIds,
-       _fetchUserEmoteSets =
-           fetchUserEmoteSets ??
-           ((
-             List<String> ids, {
-             String? accessToken,
-             EmoteResolution? resolution,
-           }) => TwitchEmoteProvider.fetchEmoteSets(
-             ids,
-             accessToken: accessToken,
-             resolution: resolution ?? EmoteResolution.high,
-           )),
-       _now = now ?? DateTime.now {
-    _removeCachedFile =
-        removeCachedFile ?? ((String url) => _cacheManager.removeFile(url));
-    _tier = tier;
-    _cacheCap = cacheCap.clamp(minEmoteCacheMax, maxEmoteCacheMax).toInt();
+       _now = now ?? DateTime.now,
+       _localTier = tier,
+       _tierWriter = writeTier,
+       _cacheCapWriter = writeCacheCap {
+    _visibility = visibility ?? EmoteVisibility();
+    _ownsVisibility = visibility == null;
+    _readTier = readTier ?? () => _localTier;
+    _applyVisibility();
+    _visibility.addListener(_applyVisibility);
+
+    // Owners are optional. When omitted (direct construction in tests) the
+    // manager builds the full local graph for compatibility.
+    _usage =
+        usage ??
+        EmoteUsageRegistry(
+          capacity: () => _images.cacheCap,
+          now: _now,
+          flushDelay: usageFlushDelay,
+        );
+    _ownsUsage = usage == null;
+
+    _images =
+        images ??
+        EmoteImages(
+          policy: _usage,
+          cacheManager: cacheManager,
+          removeCachedFile: removeCachedFile,
+          now: _now,
+        );
+    _ownsImages = images == null;
+
+    _fetcher =
+        fetcher ??
+        EmoteFetcher(
+          now: _now,
+          tier: () => tier,
+          isProviderEnabled: (type) => _visibility.isProviderEnabled(type),
+          accessToken: () => _twitchSets.accessToken,
+          probe: probe,
+          fetchStagger: fetchStagger,
+          sevenTvChannelFetcher: sevenTvChannelFetcher,
+          sevenTvGlobalFetcher: sevenTvGlobalFetcher,
+          sevenTvOwnedSetIds: sevenTvOwnedSetIdsFetcher,
+          sevenTvEmoteSetFetcher: sevenTvEmoteSetFetcher,
+          resolveOwnerLogins: resolveOwnerLogins,
+          fetchUserEmoteSets: fetchUserEmoteSets,
+        );
+    _ownsFetcher = fetcher == null;
+
+    _personalSets =
+        personalSets ??
+        SevenTvPersonalSets(
+          fetcher: _fetcher,
+          metaStore: _metaStore,
+          tier: () => tier,
+          isProviderEnabled: (type) => _visibility.isProviderEnabled(type),
+          notifyChanged: _store.notifyOverlayChanged,
+          now: _now,
+        );
+    _twitchSets =
+        twitchSets ??
+        TwitchEmoteSets(
+          fetcher: _fetcher,
+          store: _store,
+          tier: () => tier,
+          getChannelUserIds: getChannelUserIds,
+        );
+    _persistence =
+        persistence ??
+        EmotePersistence(
+          tier: () => tier,
+          isAccountUnlock: (id) =>
+              _twitchSets.isAccountUnlocked(id) ||
+              _twitchSets.isCatalogUnlocked(id),
+          metaStore: _metaStore,
+        );
+    _images.cacheCap = cacheCap;
+    // A landed precache download can make a lower scale redundant.
+    _images.onStored = (emote) => unawaited(_discardDominatedScales([emote]));
   }
 
+  /// Catalog store backing lookups and commits.
+  EmoteStore get store => _store;
+
+  /// Image byte owner consumed by the render path.
+  @override
+  EmoteImages get images => _images;
+
+  /// Usage history plus recents; also the image eviction policy.
+  EmoteUsageRegistry get usage => _usage;
+
+  /// Viewer and foreign 7TV personal sets.
+  SevenTvPersonalSets get personalSets => _personalSets;
+
+  /// Twitch account emote sets (subs plus unlocks).
+  TwitchEmoteSets get twitchSets => _twitchSets;
+
+  /// Global/channel catalog persistence.
+  EmotePersistence get persistence => _persistence;
+
   /// Fetching tier controlling resolution, cache TTL, and 7TV reconcile gating.
-  EmoteFetchTier get tier => _tier;
+  /// Delegates to the injected provider when present.
+  EmoteFetchTier get tier => _readTier();
 
   set tier(EmoteFetchTier value) {
-    if (value == _tier) return;
-    _tier = value;
-    _notify();
+    if (value == _readTier()) return;
+    final writer = _tierWriter;
+    if (writer != null) {
+      writer(value);
+    } else {
+      _localTier = value;
+    }
+    _store.notifyStateCleared();
   }
 
   /// Max emote image files the disk cache keeps (default [defaultEmoteCacheMax],
-  /// clamped to [minEmoteCacheMax]..[maxEmoteCacheMax]). Enforced inline by the
-  /// [EmoteCacheManager] on the next fetch.
-  int get cacheCap => _cacheCap;
+  /// clamped to [minEmoteCacheMax]..[maxEmoteCacheMax]).
+  int get cacheCap => _images.cacheCap;
 
   set cacheCap(int value) {
-    _cacheCap = value.clamp(minEmoteCacheMax, maxEmoteCacheMax).toInt();
-    final cache = _cacheManager;
-    cache.maxObjects = _cacheCap;
-    cache.priorityScore = _registryScore;
-    cache.lastUsedAt = (url) => _emoteUsage[url]?.lastUsedAt;
+    final writer = _cacheCapWriter;
+    if (writer != null) {
+      writer(value);
+      return;
+    }
+    _images.cacheCap = value;
   }
-
-  ChannelEmotes? _globalCache;
-  // Per-channel emote metadata (code maps, not image bytes: decoded pixels
-  // and disk files are shared by URL across channels). Small text maps, one
-  // per joined channel; evictChannel frees them on leave, so no cap is kept.
-  final _channelCaches = <String, ChannelEmotes>{};
-  final _channelFetchTimes = <String, DateTime>{};
-  final _channelTwitchEmotes = <String, List<GenericEmote>>{};
-  final _emotesResolvedChannels = <String>{};
-
-  /// Resolves sub-emote owner ids to logins (default: Helix /users). Injected
-  /// for tests; the manager owns the cache so grouping never needs a parallel
-  /// map and reconnect can re-resolve without re-fetching.
-  final Future<Map<String, String>> Function(TwitchAuth auth, List<String> ids)
-  _resolveOwnerLogins;
-
-  /// Fetches emote sets by id (default: Twitch EmoteProvider). Injected for
-  /// tests so the daemon's fetch + resolve + store path is fully exercised
-  /// without network access.
-  final Future<Map<String, List<GenericEmote>>> Function(
-    List<String> setIds, {
-    String? accessToken,
-    EmoteResolution? resolution,
-  })
-  _fetchUserEmoteSets;
 
   /// Live open-channel -> broadcaster-id source, injected by the app layer and
   /// read at store time. Late-resolving ids must still receive fetched subs;
   /// null in unit tests, which pass explicit maps instead.
   final Map<String, String> Function()? getChannelUserIds;
 
-  /// Emote-set ids already fetched via the IRC emote-sets path, so repeated
-  /// USERSTATE (per channel join / message send) doesn't refetch them. Owned
-  /// by the manager now so the daemon is the single source of fetch state.
-  final Set<String> _fetchedEmoteSetIds = {};
-
-  /// Set ids currently in flight; dropped on failure so the next event retries.
-  final Set<String> _inflightEmoteSetIds = {};
-
   /// Whether a subscriber-emote fetch is currently in flight. The subs tab
-  /// shows a spinner (not the empty text) while true, so a slow fetch never
-  /// reads as "no subscriber emotes".
-  bool get subEmoteFetchInFlight => _inflightEmoteSetIds.isNotEmpty;
+  /// shows a spinner (not the empty text) while true.
+  bool get subEmoteFetchInFlight => _twitchSets.subEmoteFetchInFlight;
 
-  /// owner id -> login, built up across resolves and reused between reconnects.
-  final Map<String, String> _emoteOwnerLogins = {};
-
-  /// Last fetched user sub-emote sets keyed by owner id. Kept in memory so a
-  /// reconnect can re-stamp resolved logins and re-store without re-fetching.
-  final Map<String, List<GenericEmote>> _fetchedSubEmotesByOwner = {};
-  final _sevenTvEmoteSetIds = <String, String>{};
-  final _sevenTvUserIds = <String, String>{};
-  // Last seen broadcaster id per channel, so targeted provider refetches can
-  // run without the caller re-supplying it.
-  final _channelBroadcasterIds = <String, String>{};
-  // Per-provider retention: each provider's fetch result is kept separately so
-  // a single flaky provider (429/5xx, timeout) never clobbers that provider's
-  // previous good data or the other providers' entries in the merged cache.
-  // Provider stash keys are ALWAYS EmoteType.name ('twitch', 'bttv', 'ffz',
-  // 'sevenTv') — the same scheme _hasGlobalStash/_hasChannelStash and
-  // _hydrateStashesFromCache read. Never write display labels here.
-  final _globalProviderEmotes = <String, List<GenericEmote>>{};
-  final _channelProviderEmotes = <String, Map<String, List<GenericEmote>>>{};
-  // Owner-less Twitch unlocks from the IRC emote-sets path (per-account
-  // Prime/Turbo/2FA/Hype Train emotes). Merged into the global cache.
-  final _unlockedTwitchEmotes = <String, GenericEmote>{};
-  // Ids from the global unlockable catalogue (broadcaster_id=0). Per-account
-  // like the emote-set unlocks, so excluded from disk and pruned on reset.
-  final _twitchCatalogUnlockIds = <String>{};
-  String? _accessToken;
-  // Viewer Twitch user id; personal 7TV grants are matched against it.
-  String? _viewerTwitchId;
-  // Owned 7TV set ids and their merged emotes (personal grants, usable in
-  // every channel). Kept out of the persisted caches; rebuilt per account.
-  final _personalSevenTvSetIds = <String>{};
-  final _personalSevenTvSets = <String, List<GenericEmote>>{};
-  // Other viewers' personal 7TV sets, learned from the socket (chatterino7
-  // parity): entitlement.create maps users to sets, emote_set.* fills the
-  // contents. Sender-scoped: only that sender's messages render them. No
-  // per-sender REST; unknown set contents fetch once per set id. These maps
-  // hold metadata only (codes and URLs); image bytes stay centralized in the
-  // URL-keyed disk and decoded caches, so a personal emote shared with a
-  // channel set decodes once. Foreign sets are sparse (seen only when their
-  // owner chats), so the 50-entry LRU below needs no churn handling.
-  final _foreignPersonalSetOwners = <String, Set<String>>{};
-  final _foreignPersonalUserSets = <String, Set<String>>{};
-  final _foreignPersonalSetContents = <String, List<GenericEmote>>{};
-  final _foreignPersonalSetInflight = <String, Future<void>>{};
-  final _foreignPersonalSets = <String, ChannelEmotes>{};
-  // Unmapped sets render for nobody; bound the contents map.
-  // Eviction is least-recently-touched first (insertion order doubles as
-  // recency: touches reinsert). Render lookups never touch; too hot.
-  static const _maxForeignPersonalSets = 50;
-  final _mergedCache = <String, ChannelEmotes?>{};
-  String? _changedChannel;
-  // Monotonic counter bumped on every notify; message span caches compare
-  // against it so stale spans can be detected lazily instead of clearing
-  // every message's cached spans on each emote change.
-  int _version = 0;
-
-  /// Current emote-data version. Increments on every [notifyListeners]
-  /// emission (tier/cache changes, global or per-channel emote updates).
-  int get version => _version;
-
-  // [bumpVersion] controls whether the span-cache version advances. Live 7TV
-  // deltas skip it so already-rendered messages keep the emote state they
-  // were built with (no retroactive re-rendering); full refetches bump it.
-  void _notify({String? channel, bool bumpVersion = true}) {
-    if (_disposed) return;
-    if (bumpVersion) _version++;
-    _emoteIndexDirty = true;
-    _changedChannel = channel;
-    if (channel != null) {
-      _mergedCache.remove(channel);
-    } else {
-      _mergedCache.clear();
-    }
-    super.notifyListeners();
-  }
-
-  /// Channel whose emotes changed; cleared on read.
-  String? consumeChangedChannel() {
-    final c = _changedChannel;
-    _changedChannel = null;
-    return c;
-  }
-
-  // 7TV delta codes per channel; absent after non-delta notifies.
-  final _lastChangedCodes = <String, Set<String>>{};
-
-  /// Last 7TV delta codes for [channel]; null means full refetch.
-  Set<String>? consumeChangedCodes(String channel) {
-    return _lastChangedCodes.remove(channel);
-  }
+  /// Current emote-data version. Forwards the store so message span caches
+  /// detect stale spans lazily; live 7TV deltas do not advance it.
+  @override
+  int get version => _store.version;
 
   // Targets whose emote fetch failed since the last take (channel names, or
   // 'global emotes'), so a manual reload can surface partial failures instead
@@ -513,1121 +285,323 @@ class EmoteManager extends ChangeNotifier {
     return failed;
   }
 
-  // Live 7TV list; re-applied after fetch rebuilds to avoid clobbering.
-  final _sevenTvLive = <String, List<GenericEmote>>{};
-
-  set accessToken(String? value) => _accessToken = value;
+  set accessToken(String? value) => _twitchSets.accessToken = value;
 
   // Merged emotes: channel overrides global, personal 7TV merges everywhere.
-  // Cached until notify.
-  ChannelEmotes? byCode(String channel) {
-    final cached = _mergedCache[channel];
-    if (cached != null) return cached;
-    final channelEmotes = _channelCaches[channel];
-    ChannelEmotes? result;
-    if (channelEmotes == null) {
-      result = _globalCache;
-    } else if (_globalCache == null) {
-      result = channelEmotes;
-    } else {
-      final merged = {..._globalCache!.byCode, ...channelEmotes.byCode};
-      final suggestions = merged.values.toList()
-        ..sort((a, b) => a.code.compareTo(b.code));
-      result = ChannelEmotes(byCode: merged, suggestions: suggestions);
-    }
-    result = _withPersonal(result);
-    result = _filterVisible(result);
-    _mergedCache[channel] = result;
-    return result;
-  }
-
-  // Personal 7TV emotes join every channel; channel sets win code conflicts.
-  ChannelEmotes? _withPersonal(ChannelEmotes? base) {
-    if (_personalSevenTvSets.isEmpty) return base;
-    final merged = <String, GenericEmote>{};
-    for (final setEmotes in _personalSevenTvSets.values) {
-      for (final e in setEmotes) {
-        merged.putIfAbsent(e.code, () => e);
-      }
-    }
-    if (base != null) merged.addAll(base.byCode);
-    final suggestions = merged.values.toList()
-      ..sort((a, b) => a.code.compareTo(b.code));
-    return ChannelEmotes(byCode: merged, suggestions: suggestions);
-  }
+  // The store owns the cache; the manager supplies the account overlays.
+  EmoteLookup? byCode(String channel) => _store.byCode(
+    channel,
+    personal: _personalSets.viewerEmotes,
+    unlocks: _twitchSets.unlockedEmotes,
+  );
 
   /// Twitch emotes that need sender proof: they render only from the IRC
   /// `emotes` tag, never from a bare word match. Covers sub, follower, and
   /// bits tiers. Globals and unlockables stay word-matchable.
-  static bool isTwitchLocked(GenericEmote e) {
-    if (e.type != EmoteType.twitch) return false;
-    if (e.tier != null) return true;
-    return e.emoteType == 'subscriptions' ||
-        e.emoteType == 'follower' ||
-        e.emoteType == 'bitstier';
-  }
-
-  /// Twitch sub emotes live in [_channelTwitchEmotes], not the provider stash
-  /// or disk. Shared by every sub filter so they cannot drift apart.
-  /// Follower/bitstier emotes are sender-proof like subs for rendering but
-  /// stay in the stash: they are sendable and render via the IRC tag.
-  static bool _isTwitchSub(GenericEmote e) {
-    if (e.type != EmoteType.twitch) return false;
-    return e.tier != null || e.emoteType == 'subscriptions';
-  }
+  static bool isTwitchLocked(Emote e) => EmoteStore.isTwitchLocked(e);
 
   /// Fallback image URL for a Twitch emote id the API map does not contain.
   static String twitchFallbackUrl(String id) =>
-      'https://static-cdn.jtvnw.net/emoticons/v2/$id/default/dark/3.0';
+      EmoteStore.twitchFallbackUrl(id);
 
   /// Shared tokenizer: Twitch positional emotes first, then word matches.
   /// Locked Twitch emotes never match by word; everything else does.
   static List<EmoteToken> tokenize({
     required String text,
     required List<EmotePosition>? positions,
-    required Map<String, GenericEmote> byCode,
-  }) {
-    final tokens = <EmoteToken>[];
-    final sortedPos = positions ?? const <EmotePosition>[];
-    var twitchIdx = 0;
-
-    EmotePosition? posAt(int i) {
-      while (twitchIdx < sortedPos.length &&
-          sortedPos[twitchIdx].endIndex <= i) {
-        twitchIdx++;
-      }
-      if (twitchIdx < sortedPos.length &&
-          i >= sortedPos[twitchIdx].startIndex) {
-        return sortedPos[twitchIdx];
-      }
-      return null;
-    }
-
-    var i = 0;
-    while (i < text.length) {
-      final pos = posAt(i);
-      if (pos != null) {
-        final emote =
-            byCode[pos.emoteCode] ??
-            GenericEmote(
-              id: pos.emoteId,
-              code: pos.emoteCode,
-              type: EmoteType.twitch,
-              url: twitchFallbackUrl(pos.emoteId),
-            );
-        tokens.add(
-          EmoteToken(
-            emote: emote,
-            text: text.substring(i, pos.endIndex),
-            start: i,
-            end: pos.endIndex,
-          ),
-        );
-        i = pos.endIndex;
-        continue;
-      }
-
-      if (text[i] == ' ' || text[i] == '\t' || text[i] == '\n') {
-        final start = i;
-        while (i < text.length &&
-            (text[i] == ' ' || text[i] == '\t' || text[i] == '\n')) {
-          i++;
-        }
-        tokens.add(
-          EmoteToken(text: text.substring(start, i), start: start, end: i),
-        );
-        continue;
-      }
-
-      final start = i;
-      while (i < text.length &&
-          text[i] != ' ' &&
-          text[i] != '\t' &&
-          text[i] != '\n' &&
-          posAt(i) == null) {
-        i++;
-      }
-      final word = text.substring(start, i);
-      final emote = byCode[word];
-      if (emote != null && !isTwitchLocked(emote)) {
-        tokens.add(EmoteToken(emote: emote, text: word, start: start, end: i));
-      } else {
-        tokens.add(EmoteToken(text: word, start: start, end: i));
-      }
-    }
-    return tokens;
-  }
+    required Map<String, Emote> byCode,
+  }) => EmoteStore.tokenize(text: text, positions: positions, byCode: byCode);
 
   /// What the viewer can type in [channel]: the merged, visibility-filtered
   /// suggestion list. Owned subs are already fanned into every channel, and
   /// follower emotes only exist in their home channel, so no extra merge.
-  List<GenericEmote> sendableEmotes(String channel) =>
-      byCode(channel)?.suggestions ?? const [];
+  List<Emote> sendableEmotes(String channel) => _store.sendableEmotes(
+    channel,
+    personal: _personalSets.viewerEmotes,
+    unlocks: _twitchSets.unlockedEmotes,
+  );
 
   /// Recents resolved to [channel]-local codes; dead ids are dropped.
-  Future<List<GenericEmote>> recentsForChannel(String channel) async {
-    final recents = await recentEmotes();
+  Future<List<Emote>> recentsForChannel(String channel) async {
+    final recents = await _usage.recentEmotes(emoteById);
     final suggestions = byCode(channel)?.suggestions;
     if (suggestions == null) return recents;
-    return resolveRecentsForChannel(recents, suggestions);
+    return _usage.resolveRecentsForChannel(recents, suggestions);
   }
 
   /// Subscriber emotes grouped by owner, with [pinnedChannel] first.
-  Map<String, List<GenericEmote>> subsGrouped({String? pinnedChannel}) {
-    final grouped = Map<String, List<GenericEmote>>.of(
-      subscriberEmotesByChannel(),
-    );
-    final pinned = pinnedChannel != null ? grouped.remove(pinnedChannel) : null;
-    if (pinned == null) return grouped;
-    return {pinnedChannel!: pinned, ...grouped};
-  }
+  Map<String, List<Emote>> subsGrouped({String? pinnedChannel}) =>
+      _store.subsGrouped(pinnedChannel: pinnedChannel);
 
   /// Channel picker tab: third-party channel emotes plus unlocked Twitch
   /// channel emotes, sorted by code. Status-gated Twitch emotes (subs,
   /// followers, bitstier) live in the subs tab instead: they only render
   /// from the IRC tag, so listing them here implies anyone can use them.
-  List<GenericEmote> channelTabEmotes(String channel) {
-    final cached = _filterVisible(_channelCaches[channel]);
-    if (cached == null) return [];
-    final result = cached.suggestions.where((e) => !isTwitchLocked(e)).toList();
-    result.sort((a, b) => a.code.compareTo(b.code));
-    return result;
-  }
+  List<Emote> channelTabEmotes(String channel) =>
+      _store.channelTabEmotes(channel);
 
   /// Emotes found in [text] for precache: tag emotes by id plus word
   /// matches under the sender-proof rule, deduped by id.
-  List<GenericEmote> matchEmotes({
+  List<Emote> matchEmotes({
     required String channel,
     required String text,
     required List<EmotePosition>? positions,
     String? senderTwitchId,
-  }) {
-    final lookup = senderTwitchId == null
-        ? byCode(channel)
-        : byCodeForSender(channel, senderTwitchId);
-    if (lookup == null) return const [];
-    final seen = <String>{};
-    final found = <GenericEmote>[];
-    for (final token in tokenize(
-      text: text,
-      positions: positions,
-      byCode: lookup.byCode,
-    )) {
-      final emote = token.emote;
-      if (emote != null && seen.add(emote.id)) found.add(emote);
-    }
-    return found;
-  }
+  }) => _store.matchEmotes(
+    channel: channel,
+    text: text,
+    positions: positions,
+    senderTwitchId: senderTwitchId,
+    personal: _personalSets.viewerEmotes,
+    unlocks: _twitchSets.unlockedEmotes,
+    foreign: _personalSets.foreignFor(senderTwitchId),
+  );
 
   /// Viewer Twitch user id for matching personal 7TV grants. Cleared logout.
-  set viewerTwitchId(String? value) {
-    if (_viewerTwitchId == value) return;
-    _viewerTwitchId = value;
-    _personalSevenTvSetIds.clear();
-    _personalSevenTvSets.clear();
-    _notify();
-  }
+  set viewerTwitchId(String? value) => _personalSets.viewerTwitchId = value;
 
   /// Bootstrap: fetch the viewer's owned 7TV sets and their emotes.
-  /// Restores the persisted seed first so known sets skip the network.
   Future<void> loadViewerPersonalSevenTvSets({bool force = false}) async {
-    await loadPersistedPersonalSets();
-    final viewerId = _viewerTwitchId;
-    if (viewerId == null || viewerId.isEmpty) return;
-    if (_tier == EmoteFetchTier.nothing) return;
-    if (!_isProviderOn(EmoteType.sevenTv)) return;
-    // Tier upgrade: known set ids would skip the refetch below and keep
-    // the old resolution, so forget them and re-pull. Map entries stay
-    // until replaced, so a failed fetch keeps the old URLs.
-    if (force) _personalSevenTvSetIds.clear();
-    List<String> setIds;
-    try {
-      setIds = await _sevenTvOwnedSetIds(viewerId);
-    } catch (e) {
-      logDebug('[EmoteManager] personal 7TV set listing failed: $e');
-      return;
-    }
-    var changed = false;
-    for (final setId in setIds) {
-      if (_personalSevenTvSetIds.contains(setId)) continue;
-      List<GenericEmote> emotes;
-      try {
-        emotes = await _sevenTvEmoteSetFetcher(setId, _tier.resolution!);
-      } catch (e) {
-        logDebug('[EmoteManager] personal 7TV set $setId failed: $e');
-        continue;
-      }
-      _personalSevenTvSetIds.add(setId);
-      _personalSevenTvSets[setId] = emotes;
-      changed = true;
-    }
-    if (changed) {
-      _notify();
-      unawaited(_savePersonalSets());
-    }
+    await _personalSets.loadViewerPersonalSevenTvSets(force: force);
   }
 
-  /// Live personal 7TV grant/revoke from the entitlement stream. The
-  /// viewer's own EMOTE_SET events feed the personal merge; everyone else's
-  /// feed the socket-first foreign discovery (chatterino7 parity, no
-  /// per-sender REST).
-  Future<void> applySevenTvEntitlement(SevenTvEntitlementEvent event) async {
-    if (event.cosmeticKind != 'EMOTE_SET') return;
-    final viewerId = _viewerTwitchId;
-    if (viewerId == null || !event.twitchUserIds.contains(viewerId)) {
-      if (event.kind == 'entitlement.delete') {
-        dropForeignPersonalGrant(event.twitchUserIds, event.cosmeticId);
-      } else {
-        await trackForeignPersonalGrant(event.twitchUserIds, event.cosmeticId);
-      }
-      return;
-    }
-    if (_tier == EmoteFetchTier.nothing) return;
-    if (!_isProviderOn(EmoteType.sevenTv)) return;
-    if (event.kind == 'entitlement.delete') {
-      final hadSet = _personalSevenTvSetIds.remove(event.cosmeticId);
-      final hadEmotes = _personalSevenTvSets.remove(event.cosmeticId) != null;
-      if (hadSet || hadEmotes) {
-        _notify();
-        unawaited(_savePersonalSets());
-      }
-      return;
-    }
-    if (_personalSevenTvSetIds.contains(event.cosmeticId)) return;
-    List<GenericEmote> emotes;
-    try {
-      emotes = await _sevenTvEmoteSetFetcher(
-        event.cosmeticId,
-        _tier.resolution!,
-      );
-    } catch (e) {
-      logDebug('[EmoteManager] personal 7TV grant fetch failed: $e');
-      return;
-    }
-    _personalSevenTvSetIds.add(event.cosmeticId);
-    _personalSevenTvSets[event.cosmeticId] = emotes;
-    _notify();
-    unawaited(_savePersonalSets());
-  }
+  /// Live personal 7TV grant/revoke from the entitlement stream.
+  Future<void> applySevenTvEntitlement(SevenTvEntitlementEvent event) =>
+      _personalSets.applyEntitlement(event);
 
   /// Map for one message: channel sets plus the sender's personal 7TV emotes
   /// underneath. Foreign codes never leak into other senders' messages.
-  ChannelEmotes? byCodeForSender(String channel, String? senderTwitchId) {
-    final base = byCode(channel);
-    final record = senderTwitchId == null
-        ? null
-        : _foreignPersonalSets[senderTwitchId];
-    if (record == null || record.byCode.isEmpty) return base;
-    if (!_isProviderOn(EmoteType.sevenTv)) return base;
-    final foreign = _filterVisible(
-      ChannelEmotes(
-        byCode: record.byCode,
-        suggestions: record.byCode.values.toList(),
-      ),
-    );
-    if (foreign == null) return base;
-    final merged = {...foreign.byCode};
-    if (base != null) merged.addAll(base.byCode);
-    final suggestions = merged.values.toList()
-      ..sort((a, b) => a.code.compareTo(b.code));
-    return ChannelEmotes(byCode: merged, suggestions: suggestions);
-  }
+  EmoteLookup? byCodeForSender(String channel, String? senderTwitchId) =>
+      _store.byCodeForSender(
+        channel,
+        personal: _personalSets.viewerEmotes,
+        unlocks: _twitchSets.unlockedEmotes,
+        foreign: _personalSets.foreignFor(senderTwitchId),
+      );
+
+  /// [EmoteLookupSource] view: the sender-scoped lookup the render path uses.
+  @override
+  EmoteLookup? lookup(String channel, String? senderTwitchId) =>
+      byCodeForSender(channel, senderTwitchId);
 
   /// Maps foreign users to a personal set from a socket entitlement grant.
-  /// Unknown set contents fetch once per set id (shared by all owners).
   Future<void> trackForeignPersonalGrant(
     Iterable<String> userTwitchIds,
     String setId,
-  ) async {
-    if (setId.isEmpty) return;
-    var mappingChanged = false;
-    for (final userId in userTwitchIds) {
-      if (userId.isEmpty) continue;
-      // The viewer's own grants live in _personalSevenTvSets, never here.
-      if (userId == _viewerTwitchId) continue;
-      if (_foreignPersonalUserSets.putIfAbsent(userId, () => {}).add(setId)) {
-        mappingChanged = true;
-      }
-      _foreignPersonalSetOwners.putIfAbsent(setId, () => {}).add(userId);
-    }
-    _touchForeignPersonalSet(setId);
-    if (_foreignPersonalSetContents.containsKey(setId)) {
-      if (mappingChanged) {
-        _rebuildForeignPersonalUsers(setId);
-        _notify();
-      }
-      return;
-    }
-    if (mappingChanged) _rebuildForeignPersonalUsers(setId);
-    await _fillForeignPersonalSet(setId);
-    unawaited(_savePersonalSets());
-  }
+  ) => _personalSets.trackForeignGrant(userTwitchIds, setId);
 
   /// Drops a foreign user's personal-set grant (entitlement.delete).
-  void dropForeignPersonalGrant(Iterable<String> userTwitchIds, String setId) {
-    if (setId.isEmpty) return;
-    var changed = false;
-    for (final userId in userTwitchIds) {
-      final sets = _foreignPersonalUserSets[userId];
-      if (sets == null) continue;
-      if (sets.remove(setId)) changed = true;
-      if (sets.isEmpty) {
-        _foreignPersonalUserSets.remove(userId);
-        _foreignPersonalSets.remove(userId);
-      } else {
-        _rebuildForeignPersonalUser(userId);
-      }
-    }
-    final owners = _foreignPersonalSetOwners[setId];
-    if (owners != null) {
-      owners.removeAll(userTwitchIds);
-      if (owners.isEmpty) {
-        _foreignPersonalSetOwners.remove(setId);
-        _foreignPersonalSetContents.remove(setId);
-      }
-    }
-    if (changed) {
-      _notify();
-      unawaited(_savePersonalSets());
-    }
-  }
+  void dropForeignPersonalGrant(Iterable<String> userTwitchIds, String setId) =>
+      _personalSets.dropForeignGrant(userTwitchIds, setId);
 
-  // Marks a live set recently used. Placeholders stay put; only live sets
-  // move, so untouched empties are evicted first.
-  void _touchForeignPersonalSet(String setId) {
-    final contents = _foreignPersonalSetContents[setId];
-    if (contents == null || contents.isEmpty) return;
-    _foreignPersonalSetContents.remove(setId);
-    _foreignPersonalSetContents[setId] = contents;
-  }
-
-  // Drops a set nobody references (revoked or over the cap).
-  void _evictForeignPersonalSet(String setId) {
-    _foreignPersonalSetOwners.remove(setId);
-    _foreignPersonalSetContents.remove(setId);
-    for (final userId in _foreignPersonalUserSets.keys.toList()) {
-      final sets = _foreignPersonalUserSets[userId]!;
-      if (!sets.remove(setId)) continue;
-      if (sets.isEmpty) {
-        _foreignPersonalUserSets.remove(userId);
-        _foreignPersonalSets.remove(userId);
-      } else {
-        _rebuildForeignPersonalUser(userId);
-      }
-    }
-  }
-
-  /// Placeholder for a personal set announced over the socket whose contents
-  /// arrive via later emote_set.update dispatches.
-  void trackForeignPersonalSet(String setId) {
-    if (setId.isEmpty) return;
-    _foreignPersonalSetContents.putIfAbsent(setId, () => []);
-  }
+  /// Placeholder for a personal set announced over the socket.
+  void trackForeignPersonalSet(String setId) => _personalSets.trackSet(setId);
 
   /// Applies a socket emote_set.update to a tracked foreign personal set.
-  /// Unknown sets are ignored: without a grant mapping the contents render
-  /// for nobody.
   void applyForeignPersonalSetUpdate({
     required String setId,
-    required List<GenericEmote> added,
+    required List<Emote> added,
     required List<String> removedIds,
     required Map<String, String> renamed,
-  }) {
-    final contents = _foreignPersonalSetContents[setId];
-    if (contents == null) return;
-    var changed = false;
-    if (removedIds.isNotEmpty) {
-      final ids = removedIds.toSet();
-      final before = contents.length;
-      contents.removeWhere((e) => ids.contains(e.id));
-      changed = changed || contents.length != before;
-    }
-    for (final entry in renamed.entries) {
-      final idx = contents.indexWhere((e) => e.id == entry.key);
-      if (idx < 0) continue;
-      final e = contents[idx];
-      contents[idx] = GenericEmote(
-        id: e.id,
-        code: entry.value,
-        type: e.type,
-        url: e.url,
-        url1x: e.url1x,
-        url3x: e.url3x,
-        isAnimated: e.isAnimated,
-        scope: e.scope,
-        ownerChannel: e.ownerChannel,
-        ownerId: e.ownerId,
-        tier: e.tier,
-        emoteType: e.emoteType,
-        isZeroWidth: e.isZeroWidth,
-        isUnlisted: e.isUnlisted,
-        baseName: e.baseName,
-        relativeScale: e.relativeScale,
-        aspectRatio: e.aspectRatio,
-      );
-      changed = true;
-    }
-    for (final e in added) {
-      if (contents.any((x) => x.id == e.id)) continue;
-      contents.add(e);
-      changed = true;
-    }
-    if (!changed) return;
-    _touchForeignPersonalSet(setId);
-    _rebuildForeignPersonalUsers(setId);
-    _notify();
-    unawaited(_savePersonalSets());
-  }
-
-  /// One-time REST fill for a socket-announced set. Once per set id, shared
-  /// by all owners; failures stay uncached so a later grant retries.
-  Future<void> _fillForeignPersonalSet(String setId) async {
-    if (_foreignPersonalSetContents.containsKey(setId)) return;
-    if (_tier == EmoteFetchTier.nothing) return;
-    if (!_isProviderOn(EmoteType.sevenTv)) return;
-    if (_foreignPersonalSetInflight.containsKey(setId)) return;
-    final future = _fetchGate.withPermit(() async {
-      List<GenericEmote> fetched;
-      try {
-        fetched = await _sevenTvEmoteSetFetcher(setId, _tier.resolution!);
-      } catch (e) {
-        logDebug('[EmoteManager] foreign 7TV set $setId failed: $e');
-        return;
-      }
-      if (fetched.isEmpty) return;
-      _foreignPersonalSetContents.remove(setId);
-      _foreignPersonalSetContents[setId] = fetched;
-      while (_foreignPersonalSetContents.length > _maxForeignPersonalSets) {
-        _evictForeignPersonalSet(_foreignPersonalSetContents.keys.first);
-      }
-      _rebuildForeignPersonalUsers(setId);
-      _notify();
-    });
-    _foreignPersonalSetInflight[setId] = future;
-    try {
-      await future;
-    } finally {
-      _foreignPersonalSetInflight.remove(setId);
-    }
-  }
-
-  void _rebuildForeignPersonalUsers(String setId) {
-    final owners = _foreignPersonalSetOwners[setId];
-    if (owners == null) return;
-    for (final userId in owners) {
-      _rebuildForeignPersonalUser(userId);
-    }
-  }
-
-  void _rebuildForeignPersonalUser(String userId) {
-    final setIds = _foreignPersonalUserSets[userId];
-    if (setIds == null || setIds.isEmpty) {
-      _foreignPersonalSets.remove(userId);
-      return;
-    }
-    final merged = <String, GenericEmote>{};
-    for (final id in setIds) {
-      for (final e
-          in _foreignPersonalSetContents[id] ?? const <GenericEmote>[]) {
-        merged.putIfAbsent(e.code, () => e);
-      }
-    }
-    if (merged.isEmpty) {
-      _foreignPersonalSets.remove(userId);
-    } else {
-      final suggestions = merged.values.toList()
-        ..sort((a, b) => a.code.compareTo(b.code));
-      _foreignPersonalSets[userId] = ChannelEmotes(
-        byCode: merged,
-        suggestions: suggestions,
-      );
-    }
-  }
-
-  // Personal sets change rarely and the socket corrects them live, so the
-  // disk copy is a long-lived cold-start seed (not a source of truth).
-  static const _personalSetsKey = 'emotes3_personal_sets';
-  static const _personalSetsTtl = Duration(days: 30);
+  }) => _personalSets.applyForeignSetUpdate(
+    setId: setId,
+    added: added,
+    removedIds: removedIds,
+    renamed: renamed,
+  );
 
   @visibleForTesting
-  Future<void> flushPersonalSetsForTest() => _savePersonalSets();
+  Future<void> flushPersonalSetsForTest() => _personalSets.flushForTest();
 
-  Future<void> _savePersonalSets() async {
-    try {
-      final viewer = <String, dynamic>{};
-      for (final id in _personalSevenTvSetIds) {
-        final emotes = _personalSevenTvSets[id];
-        if (emotes == null || emotes.isEmpty) continue;
-        viewer[id] = emotes.map((e) => e.toJson()).toList();
-      }
-      final foreign = <String, dynamic>{};
-      final owners = <String, dynamic>{};
-      for (final entry in _foreignPersonalSetContents.entries) {
-        if (entry.value.isEmpty) continue;
-        final setOwners = _foreignPersonalSetOwners[entry.key];
-        if (setOwners == null || setOwners.isEmpty) continue;
-        foreign[entry.key] = entry.value.map((e) => e.toJson()).toList();
-        owners[entry.key] = setOwners.toList();
-      }
-      if (viewer.isEmpty && foreign.isEmpty) {
-        await _metaStore.delete(_personalSetsKey);
-        return;
-      }
-      await _metaStore.write(
-        _personalSetsKey,
-        jsonEncode({
-          'ts': DateTime.now().toIso8601String(),
-          'viewerId': _viewerTwitchId,
-          'viewer': viewer,
-          'foreignOwners': owners,
-          'foreign': foreign,
-        }),
-      );
-    } catch (_) {
-      logDebug('[EmoteManager] failed to save personal sets');
-    }
-  }
-
-  /// Restores persisted personal sets. Viewer sets apply only to the matching
-  /// account; foreign sets apply to everyone. Never overwrites live data:
-  /// only unknown set ids are filled.
-  Future<void> loadPersistedPersonalSets() async {
-    try {
-      final raw = await _metaStore.read(_personalSetsKey);
-      if (raw == null) return;
-      final data = jsonDecode(raw) as Map<String, dynamic>;
-      final ts = DateTime.tryParse(data['ts'] as String? ?? '');
-      if (ts == null || DateTime.now().difference(ts) > _personalSetsTtl) {
-        await _metaStore.delete(_personalSetsKey);
-        return;
-      }
-      var changed = false;
-      final viewerId = _viewerTwitchId;
-      if (viewerId != null && (data['viewerId'] as String?) == viewerId) {
-        final viewer = data['viewer'] as Map<String, dynamic>? ?? {};
-        for (final entry in viewer.entries) {
-          if (_personalSevenTvSetIds.contains(entry.key)) continue;
-          final emotes = _decodeEmoteList(entry.value);
-          if (emotes.isEmpty) continue;
-          _personalSevenTvSetIds.add(entry.key);
-          _personalSevenTvSets[entry.key] = emotes;
-          changed = true;
-        }
-      }
-      final foreign = data['foreign'] as Map<String, dynamic>? ?? {};
-      final owners = data['foreignOwners'] as Map<String, dynamic>? ?? {};
-      for (final entry in foreign.entries) {
-        if (_foreignPersonalSetContents.containsKey(entry.key)) continue;
-        final emotes = _decodeEmoteList(entry.value);
-        if (emotes.isEmpty) continue;
-        final setOwners = (owners[entry.key] as List<dynamic>? ?? [])
-            .whereType<String>()
-            .where((u) => u.isNotEmpty && u != viewerId)
-            .toSet();
-        if (setOwners.isEmpty) continue;
-        _foreignPersonalSetContents[entry.key] = emotes;
-        _foreignPersonalSetOwners[entry.key] = setOwners;
-        for (final userId in setOwners) {
-          _foreignPersonalUserSets.putIfAbsent(userId, () => {}).add(entry.key);
-        }
-        _rebuildForeignPersonalUsers(entry.key);
-        changed = true;
-      }
-      if (changed) _notify();
-    } catch (_) {
-      logDebug('[EmoteManager] failed to load personal sets');
-    }
-  }
-
-  List<GenericEmote> _decodeEmoteList(Object? raw) {
-    final out = <GenericEmote>[];
-    if (raw is! List<dynamic>) return out;
-    for (final item in raw) {
-      try {
-        if (item is Map<String, dynamic>) {
-          out.add(GenericEmote.fromJson(item));
-        }
-      } catch (_) {}
-    }
-    return out;
-  }
-
-  // Display order for global grid (differs from dedup priority).
-  static const _globalSortPriority = {
-    EmoteType.sevenTv: 0,
-    EmoteType.twitch: 1,
-    EmoteType.bttv: 2,
-    EmoteType.ffz: 3,
-  };
-
-  static const _globalProviderLabels = {
-    EmoteType.sevenTv: 'SevenTV',
-    EmoteType.twitch: 'Twitch',
-    EmoteType.bttv: 'BetterTTV',
-    EmoteType.ffz: 'FrankerFaceZ',
-  };
+  /// Restores persisted personal sets (cold-start seed).
+  Future<void> loadPersistedPersonalSets() => _personalSets.loadPersisted();
 
   // Global emotes by provider, in display order, sorted by code.
-  Map<String, List<GenericEmote>> globalEmotesByProvider() {
-    final cached = _filterVisible(_withPersonal(_globalCache));
-    if (cached == null) return {};
-    final grouped = <EmoteType, List<GenericEmote>>{};
-    for (final e in cached.suggestions) {
-      (grouped[e.type] ??= []).add(e);
-    }
-    final result = <String, List<GenericEmote>>{};
-    for (final t in _globalSortPriority.keys) {
-      final list = grouped[t];
-      if (list == null || list.isEmpty) continue;
-      list.sort((a, b) => a.code.compareTo(b.code));
-      result[_globalProviderLabels[t] ?? ''] = list;
-    }
-    return result;
-  }
-
-  List<GenericEmote> channelNonTwitchEmotes(String channel) {
-    final cached = _filterVisible(_channelCaches[channel]);
-    if (cached == null) return [];
-    return cached.suggestions.where((e) => e.type != EmoteType.twitch).toList()
-      ..sort((a, b) => a.code.compareTo(b.code));
-  }
+  Map<String, List<Emote>> globalEmotesByProvider() =>
+      _store.globalEmotesByProvider(
+        personal: _personalSets.viewerEmotes,
+        unlocks: _twitchSets.unlockedEmotes,
+      );
 
   /// Whether [channel]'s cache exists (stale is fine).
-  bool hasChannelCache(String channel) => _channelCaches.containsKey(channel);
+  bool hasChannelCache(String channel) => _store.hasChannelCache(channel);
 
   /// Whether the global emote cache has been resolved at least once.
-  bool get hasGlobalCache => _globalCache != null;
+  bool get hasGlobalCache => _store.hasGlobalCache;
 
-  Map<String, List<GenericEmote>>? _subsByChannelCache;
-
-  Map<String, List<GenericEmote>> subscriberEmotesByChannel() {
-    if (!_isProviderOn(EmoteType.twitch)) return {};
-    final cached = _subsByChannelCache;
-    if (cached != null) return cached;
-    // Group status-gated emotes (subs, followers, bitstier) by
-    // ownerChannel (or ownerId), dedup by id.
-    final byOwner = <String, GenericEmote>{};
-    final ownerOf = <String, String>{};
-    final keys = _channelTwitchEmotes.keys.toList()..sort();
-    for (final channel in keys) {
-      final raw = _channelTwitchEmotes[channel];
-      if (raw == null) continue;
-      for (final e in raw) {
-        if (!isTwitchLocked(e)) continue;
-        final key = e.id.isNotEmpty
-            ? e.id
-            : '${e.code}|${e.ownerChannel ?? channel}';
-        if (byOwner.containsKey(key)) continue;
-        byOwner[key] = e;
-        ownerOf[key] = e.ownerChannel ?? e.ownerId ?? channel;
-      }
-    }
-    final grouped = <String, List<GenericEmote>>{};
-    for (final entry in byOwner.entries) {
-      (grouped[ownerOf[entry.key] ?? ''] ??= []).add(entry.value);
-    }
-    final owners = grouped.keys.toList()..sort();
-    final result = <String, List<GenericEmote>>{};
-    for (final owner in owners) {
-      result[owner] = grouped[owner]!;
-    }
-    for (final list in result.values) {
-      list.sort((a, b) => a.code.compareTo(b.code));
-    }
-    return _subsByChannelCache = result;
-  }
-
-  static const _maxRecent = 100;
-  List<String> _recentIds = [];
-  bool _recentLoaded = false;
-  Prefs? _prefs;
+  Map<String, List<Emote>> subscriberEmotesByChannel() =>
+      _store.subscriberEmotesByChannel();
 
   // ── Provider visibility toggles ─────────────────────────────────────
-  final Set<EmoteType> _disabledProviders = {};
-  bool _providersLoaded = false;
-
-  // Whether unlisted 7TV emotes render. Fetch-only; flip rebuilds caches.
-  bool _allowUnlisted7tv = false;
-
-  Future<void> _ensureProvidersLoaded() async {
-    if (_providersLoaded) return;
-    _providersLoaded = true;
-    final prefs = await _getPrefs();
-    final raw = prefs.emoteProvidersDisabled;
-    var migrated = false;
-    if (raw != null) {
-      for (final t in EmoteType.values) {
-        if (raw.contains(t.name)) _disabledProviders.add(t);
-      }
-      // Migrate: Twitch is no longer toggleable.
-      if (_disabledProviders.remove(EmoteType.twitch)) migrated = true;
-    }
-    _allowUnlisted7tv = prefs.emoteAllowUnlisted7tv;
-    if (!migrated) return;
-    await prefs.setEmoteProvidersDisabled(
-      _disabledProviders.map((t) => t.name).toList(),
+  // Mirrors the visibility owner into the store snapshot; the owner owns the
+  // prefs load/save.
+  void _applyVisibility() {
+    _store.setProviderVisibility(
+      _visibility.disabledProviders,
+      _visibility.allowUnlisted7tv,
     );
   }
 
   /// Whether [type] is fetched and rendered (sync view).
-  bool isProviderEnabled(EmoteType type) {
-    if (!_providersLoaded) unawaited(_ensureProvidersLoaded());
-    return !_disabledProviders.contains(type);
-  }
+  bool isProviderEnabled(EmoteType type) => _visibility.isProviderEnabled(type);
 
   /// Current enabled providers, awaiting the persisted load first.
-  Future<Set<EmoteType>> enabledProviders() async {
-    await _ensureProvidersLoaded();
-    return {
-      for (final t in EmoteType.values)
-        if (!_disabledProviders.contains(t)) t,
-    };
-  }
+  Future<Set<EmoteType>> enabledProviders() => _visibility.enabledProviders();
 
   Future<void> setProviderEnabled(EmoteType type, bool enabled) async {
-    await _ensureProvidersLoaded();
-    final changed = enabled
-        ? _disabledProviders.remove(type)
-        : _disabledProviders.add(type);
-    if (!changed) return;
-    final prefs = await _getPrefs();
-    await prefs.setEmoteProvidersDisabled(
-      _disabledProviders.map((t) => t.name).toList(),
-    );
-    _rebuildCachesForProviderToggles();
+    final changed = await _visibility.setProviderEnabled(type, enabled);
+    if (changed) _store.notifyVisibilityChanged();
   }
 
   /// Whether unlisted 7TV emotes render (sync view).
   bool get allowUnlisted7tv {
-    if (!_providersLoaded) unawaited(_ensureProvidersLoaded());
-    return _allowUnlisted7tv;
+    if (!_visibility.isLoaded) unawaited(_visibility.ensureLoaded());
+    return _visibility.allowUnlisted7tv;
   }
 
   Future<void> setAllowUnlisted7tv(bool allowed) async {
-    await _ensureProvidersLoaded();
-    if (allowed == _allowUnlisted7tv) return;
-    _allowUnlisted7tv = allowed;
-    final prefs = await _getPrefs();
-    await prefs.setEmoteAllowUnlisted7tv(allowed);
-    _rebuildCachesForProviderToggles();
+    final changed = await _visibility.setAllowUnlisted(allowed);
+    if (changed) _store.notifyVisibilityChanged();
   }
 
-  // Filters disabled providers and unlisted 7TV from merged caches.
-  ChannelEmotes? _filterVisible(ChannelEmotes? cache) {
-    if (cache == null) return null;
-    final hideUnlisted = !_allowUnlisted7tv;
-    if (_disabledProviders.isEmpty && !hideUnlisted) return cache;
-    final visible = cache.suggestions.where((e) {
-      if (_disabledProviders.contains(e.type)) return false;
-      if (hideUnlisted && e.isUnlisted) return false;
-      return true;
-    }).toList();
-    return ChannelEmotes(
-      byCode: {for (final e in visible) e.code: e},
-      suggestions: visible,
-    );
-  }
+  bool _hasGlobalList(EmoteType type) =>
+      _store.globalCatalog.listFor(EmoteScope.global, type).isNotEmpty;
 
-  // Rebuilds caches from stashes on toggle; prefs-only sessions lack stashes.
-  void _rebuildCachesForProviderToggles() {
-    if (_globalProviderEmotes.isNotEmpty) {
-      _globalCache = _buildChannelMap(
-        _withUnlocked([
-          for (final list in _globalProviderEmotes.values) ...list,
-        ]),
-      );
-    }
-    for (final entry in _channelProviderEmotes.entries) {
-      final subs = _channelTwitchEmotes[entry.key];
-      if (entry.value.isEmpty && subs == null) continue;
-      _channelCaches[entry.key] = _buildChannelMap([
-        for (final list in entry.value.values) ...list,
-        ...?subs,
-      ]);
-      _reapplyLiveSevenTv(entry.key);
-    }
-    _subsByChannelCache = null;
-    _mergedCache.clear();
-    _notify();
-  }
+  bool _hasChannelList(String channel, EmoteType type) =>
+      _store
+          .channelCatalog(channel)
+          ?.listFor(EmoteScope.channel, type)
+          .isNotEmpty ??
+      false;
 
-  // Splits merged cache into per-provider stashes for toggle rebuilds.
-  // Also seeds force-refetch paths where an evict-wiped stash would otherwise
-  // drop a flaky provider (429/5xx/timeout). Never appends to a populated
-  // stash: the stash always holds same-or-newer data than disk (fetches write
-  // it directly), so a cache hit only fills providers a failed fetch left
-  // empty. Appending here duplicated the whole catalogue on every resolve.
-  void _hydrateStashesFromCache(ChannelEmotes? cache, {String? channel}) {
-    if (cache == null) return;
-    final grouped = <String, List<GenericEmote>>{};
-    for (final e in cache.suggestions) {
-      (grouped[e.type.name] ??= []).add(e);
-    }
-    if (channel == null) {
-      for (final entry in grouped.entries) {
-        if (_globalProviderEmotes[entry.key]?.isNotEmpty ?? false) continue;
-        _globalProviderEmotes[entry.key] = entry.value;
-      }
-    } else {
-      final map = _channelProviderEmotes[channel] ??=
-          <String, List<GenericEmote>>{};
-      for (final entry in grouped.entries) {
-        if (map[entry.key]?.isNotEmpty ?? false) continue;
-        map[entry.key] = entry.value;
-      }
-    }
-  }
-
-  bool _hasGlobalStash(EmoteType type) =>
-      _globalProviderEmotes[type.name]?.isNotEmpty ?? false;
-
-  bool _hasChannelStash(String channel, EmoteType type) =>
-      _channelProviderEmotes[channel]?[type.name]?.isNotEmpty ?? false;
-
-  /// Refetches globals + channels for types with no retained stash.
+  /// Refetches globals + channels for types with no retained catalog list.
   Future<void> ensureStashed(Set<EmoteType> types) async {
-    await _ensureProvidersLoaded();
-    if (_registryFrozen || _tier == EmoteFetchTier.nothing || types.isEmpty) {
+    await _visibility.ensureLoaded();
+    if (_registryFrozen || tier == EmoteFetchTier.nothing || types.isEmpty) {
       return;
     }
-    final resolution = _tier.resolution;
-    if (resolution == null) return;
     final targets = [
       for (final t in types)
         if (_isProviderOn(t)) t,
     ];
     if (targets.isEmpty) return;
     var fetched = false;
-    await _enqueueFetch(() async {
-      for (final type in targets.where((t) => !_hasGlobalStash(t))) {
+    await _fetcher.enqueue(() async {
+      final globalEpoch = _store.globalEpoch;
+      for (final type in targets.where((t) => !_hasGlobalList(t))) {
         try {
-          final emotes = await _fetchGlobalForProvider(type, resolution);
-          _globalProviderEmotes[type.name] = emotes;
-          if (emotes.isNotEmpty) fetched = true;
+          final fetch = await _fetcher.fetchGlobalForProvider(type);
+          if (fetch.byProvider.isNotEmpty) {
+            _commitGlobal(globalEpoch, fetch);
+            fetched = true;
+          }
         } catch (e) {
-          logDebug('[EmoteManager] stash refetch failed for ${type.name}: $e');
+          logDebug(
+            '[EmoteManager] catalog refetch failed for ${type.name}: $e',
+          );
         }
       }
-      for (final channel in _channelCaches.keys.toList()) {
+      for (final channel in _store.channelNames) {
         final broadcasterId = _channelBroadcasterIds[channel];
         if (broadcasterId == null) continue;
         final missing = [
           for (final t in targets)
-            if (!_hasChannelStash(channel, t)) t,
+            if (!_hasChannelList(channel, t)) t,
         ];
         if (missing.isEmpty) continue;
-        final map = _channelProviderEmotes[channel] ??=
-            <String, List<GenericEmote>>{};
+        final channelEpoch = _store.channelEpoch(channel);
+        final byProvider = <EmoteType, List<Emote>>{};
+        String? sevenTvSetId;
+        String? sevenTvUserId;
         for (final type in missing) {
           try {
-            final emotes = await _fetchChannelForProvider(
+            final fetch = await _fetcher.fetchChannelForProvider(
               type,
               broadcasterId,
               channelName: channel,
-              resolution: resolution,
             );
-            map[type.name] = emotes;
-            if (emotes.isNotEmpty) fetched = true;
+            if (fetch.byProvider.isNotEmpty) {
+              byProvider.addAll(fetch.byProvider);
+              fetched = true;
+            }
+            sevenTvSetId ??= fetch.sevenTvSetId;
+            sevenTvUserId ??= fetch.sevenTvUserId;
           } catch (e) {
             logDebug(
-              '[EmoteManager] stash refetch failed for '
+              '[EmoteManager] catalog refetch failed for '
               '${type.name}@$channel: $e',
             );
           }
         }
+        _commitChannel(
+          channel,
+          channelEpoch,
+          ChannelEmoteFetch(
+            byProvider: byProvider,
+            sevenTvSetId: sevenTvSetId,
+            sevenTvUserId: sevenTvUserId,
+          ),
+        );
       }
     });
-    if (fetched) _rebuildCachesForProviderToggles();
+    if (fetched) _store.notifyVisibilityChanged();
   }
 
-  Future<List<GenericEmote>> _fetchGlobalForProvider(
-    EmoteType type,
-    EmoteResolution resolution,
-  ) async {
-    switch (type) {
-      case EmoteType.twitch:
-        return _fetchTwitchGlobal(resolution);
-      case EmoteType.bttv:
-        return BttvEmoteProvider.fetchGlobal(resolution: resolution);
-      case EmoteType.ffz:
-        return FfzEmoteProvider.fetchGlobal(resolution: resolution);
-      case EmoteType.sevenTv:
-        return _sevenTvGlobalFetcher(resolution);
-    }
-  }
-
-  Future<List<GenericEmote>> _fetchChannelForProvider(
-    EmoteType type,
-    String broadcasterId, {
-    String? channelName,
-    required EmoteResolution resolution,
-  }) async {
-    switch (type) {
-      case EmoteType.twitch:
-        final fetched = await TwitchEmoteProvider.fetchChannel(
-          broadcasterId,
-          accessToken: _accessToken,
-          channelName: channelName,
-          resolution: resolution,
-        );
-        // Subs live in _channelTwitchEmotes, not the provider stash.
-        return fetched.where((e) => !_isTwitchSub(e)).toList();
-      case EmoteType.bttv:
-        return BttvEmoteProvider.fetchChannel(
-          broadcasterId,
-          resolution: resolution,
-        );
-      case EmoteType.ffz:
-        return FfzEmoteProvider.fetchChannel(
-          broadcasterId,
-          resolution: resolution,
-        );
-      case EmoteType.sevenTv:
-        final resp = await _sevenTvChannelFetcher(broadcasterId, resolution);
-        if (channelName != null) {
-          if (resp.emoteSetId != null) {
-            setSevenTvEmoteSetId(channelName, resp.emoteSetId!);
-          }
-          if (resp.userId != null) {
-            _sevenTvUserIds[channelName] = resp.userId!;
-          }
-        }
-        return resp.emotes;
-    }
-  }
-
-  Future<Prefs> _getPrefs() async {
-    _prefs ??= await Prefs.load();
-    return _prefs!;
-  }
-
-  Future<void> _ensureRecentLoaded() async {
-    if (_recentLoaded) return;
-    _recentLoaded = true;
-    final prefs = await _getPrefs();
-    final raw = prefs.recentEmotes;
-    if (raw == null) return;
-    try {
-      _recentIds = (jsonDecode(raw) as List<dynamic>).cast<String>();
-    } catch (_) {
-      logDebug('[EmoteManager] failed to parse recent emotes');
-    }
-  }
-
-  Future<void> _saveRecent() async {
-    final prefs = await _getPrefs();
-    await prefs.setRecentEmotes(jsonEncode(_recentIds));
-  }
+  // Last seen broadcaster id per channel, so targeted provider refetches can
+  // run without the caller re-supplying it.
+  final _channelBroadcasterIds = <String, String>{};
 
   /// Recently used emote ids (most recent first), used to boost autocomplete
-  /// ranking. The persisted list loads lazily, so the first keystroke after
-  /// launch may rank without it.
-  Set<String> get recentEmoteIds {
-    if (!_recentLoaded) unawaited(_ensureRecentLoaded());
-    return _recentIds.toSet();
-  }
+  /// ranking.
+  Set<String> get recentEmoteIds => _usage.recentEmoteIds;
 
-  /// Resolve an emote by ID across all caches.
-  GenericEmote? emoteById(String id) => _emoteById(id);
+  /// Resolve an emote by ID across all caches, then the personal and account
+  /// unlock overlays.
+  Emote? emoteById(String id) => _store.emoteById(
+    id,
+    personal: _personalSets.viewerEmotes,
+    unlocks: _twitchSets.unlockedEmotes,
+  );
 
-  // Hot-path id index; rebuilt on notify/eviction.
-  Map<String, GenericEmote> _emoteByIdIndex = {};
-  bool _emoteIndexDirty = true;
-
-  void _rebuildEmoteIndex() {
-    final index = <String, GenericEmote>{};
-    void addAll(Iterable<GenericEmote> emotes) {
-      for (final e in emotes) {
-        // putIfAbsent keeps scan-order precedence on id collisions.
-        index.putIfAbsent(e.id, () => e);
-      }
-    }
-
-    if (_globalCache != null) addAll(_globalCache!.suggestions);
-    for (final cached in _channelCaches.values) {
-      addAll(cached.suggestions);
-    }
-    for (final raw in _channelTwitchEmotes.values) {
-      addAll(raw);
-    }
-    for (final setEmotes in _personalSevenTvSets.values) {
-      addAll(setEmotes);
-    }
-    _emoteByIdIndex = index;
-    _emoteIndexDirty = false;
-  }
-
-  /// Resolve an emote by ID across all caches.
-  GenericEmote? _emoteById(String id) {
-    if (_emoteIndexDirty) _rebuildEmoteIndex();
-    return _emoteByIdIndex[id];
-  }
-
-  Future<void> markEmoteUsed(GenericEmote emote) async {
-    await _ensureRecentLoaded();
-    _recentIds.remove(emote.id);
-    _recentIds.insert(0, emote.id);
-    if (_recentIds.length > _maxRecent) {
-      _recentIds = _recentIds.sublist(0, _maxRecent);
-    }
-    await _saveRecent();
-    _touchUsage(emote.url);
-    await _flushUsage();
-  }
+  Future<void> markEmoteUsed(Emote emote) => _usage.markEmoteUsed(emote);
 
   /// Records emote display for cache eviction scoring.
-  void markEmoteViewed(GenericEmote emote) {
-    if (_tier == EmoteFetchTier.nothing) return;
-    _touchUsage(emote.url);
-    _scheduleUsageFlush();
+  void markEmoteViewed(Emote emote) {
+    if (tier == EmoteFetchTier.nothing) return;
+    final url = EmotePicker.chatDownloadUrl(emote, tier);
+    if (url != null) _usage.touch(url);
   }
 
-  Future<List<GenericEmote>> recentEmotes() async {
-    await _ensureRecentLoaded();
-    final result = <GenericEmote>[];
-    for (final id in _recentIds) {
-      final emote = _emoteById(id);
-      if (emote != null) result.add(emote);
-    }
-    return result;
-  }
+  Future<List<Emote>> recentEmotes() => _usage.recentEmotes(emoteById);
 
   /// Resolves recents to channel-local codes via [suggestions].
-  List<GenericEmote> resolveRecentsForChannel(
-    List<GenericEmote> recents,
-    List<GenericEmote> suggestions,
-  ) {
-    final byId = <String, GenericEmote>{};
-    for (final e in suggestions) {
-      byId.putIfAbsent(e.id, () => e);
-    }
-    final result = <GenericEmote>[];
-    for (final recent in recents) {
-      final resolved = byId[recent.id];
-      if (resolved != null) result.add(resolved);
-    }
-    return result;
-  }
+  List<Emote> resolveRecentsForChannel(
+    List<Emote> recents,
+    List<Emote> suggestions,
+  ) => _usage.resolveRecentsForChannel(recents, suggestions);
 
   /// Loads global emotes. [force] skips cache, fetches from network.
   Future<void> preloadGlobalEmotes({bool force = false}) async {
-    await _ensureProvidersLoaded();
-    if (_globalCache != null && !force) return;
-    final ttl = await _effectiveTtl();
+    final epoch = force ? _store.bumpGlobalEpoch() : _store.globalEpoch;
+    await _visibility.ensureLoaded();
+    if (_store.hasGlobalCache && !force) return;
+    final ttl = await _fetcher.effectiveTtl();
     if (!force) {
-      final loaded = await _loadPersistedCache('emotes3_global', ttl);
-      final cached = loaded.cached;
+      final loaded = await _persistence.load('emotes5_global', ttl);
+      final cached = loaded.catalog;
       if (cached != null) {
-        _globalCache = cached;
-        // Hydrate stashes from persisted cache for offline toggle rebuild.
-        _hydrateStashesFromCache(cached);
-        _notify();
-        if (loaded.fresh ||
-            _registryFrozen ||
-            _tier == EmoteFetchTier.nothing) {
+        if (!_store.seedGlobalFromCache(epoch, cached)) return;
+        if (loaded.fresh || _registryFrozen || tier == EmoteFetchTier.nothing) {
           // Fresh cache: render, then background-refresh Twitch globals.
           if (!_skipTwitchBackgroundRefresh) {
-            unawaited(_enqueueFetch(_refreshTwitchGlobalEmotes));
+            unawaited(
+              _fetcher
+                  .enqueue(_fetcher.refreshTwitchGlobal)
+                  .then((fetch) {
+                    if (fetch != null) _commitGlobal(epoch, fetch);
+                  })
+                  .catchError((Object _) {}),
+            );
           }
           return;
         }
@@ -1635,395 +609,42 @@ class EmoteManager extends ChangeNotifier {
       // Stale: keep stale data, revalidate below.
     }
     // Fetch every enabled provider.
-    if (_tier == EmoteFetchTier.nothing) return;
-    _hydrateStashesFromCache(
-      (await _loadPersistedCache('emotes3_global', ttl)).cached,
-    );
-    final emotes = await _enqueueFetch(_fetchAllGlobal);
-    _globalCache = _buildChannelMap(emotes);
-    await _savePersistedCache('emotes3_global', _globalCache!, ttl);
-    _notify();
+    if (tier == EmoteFetchTier.nothing) return;
+    final loaded = await _persistence.load('emotes5_global', ttl);
+    if (loaded.catalog != null) {
+      // Seed provider lists a wiped catalog would otherwise lose to a flaky
+      // fetch (429/5xx/timeout), without clobbering in-memory data.
+      if (!_store.fillMissingGlobal(epoch, loaded.catalog!)) return;
+    }
+    final fetch = await _fetcher.enqueue(_fetcher.fetchAllGlobal);
+    if (_commitGlobal(epoch, fetch)) {
+      await _persistence.save('emotes5_global', _store.globalCatalog, ttl);
+    }
+    _store.notifyStateCleared();
   }
 
-  /// Defaults plus the global unlockable catalogue (broadcaster_id=0).
-  /// The /global endpoint returns defaults only, so the picker and
-  /// autocomplete miss Prime/Turbo/2FA/Hype Train emotes without this.
-  /// Both fetches run in parallel with isolated errors: a defaults failure
-  /// no longer aborts the unlockable fetch. A defaults throw still surfaces
-  /// when nothing usable arrived, so fetch-failure reporting keeps working.
-  Future<List<GenericEmote>> _fetchTwitchGlobal(
-    EmoteResolution resolution,
-  ) async {
-    List<GenericEmote> defaults = const [];
-    Object? defaultsError;
-    List<GenericEmote> unlockable = const [];
-    Future<List<GenericEmote>> getDefaults() async {
-      try {
-        return await TwitchEmoteProvider.fetchGlobal(
-          accessToken: _accessToken,
-          resolution: resolution,
-        );
-      } catch (e) {
-        defaultsError = e;
-        return const [];
-      }
-    }
-
-    Future<List<GenericEmote>> getUnlockable() async {
-      try {
-        return await TwitchEmoteProvider.fetchGlobalUnlockable(
-          accessToken: _accessToken,
-          resolution: resolution,
-        );
-      } catch (e) {
-        logDebug('[EmoteManager] global unlockable emotes failed: $e');
-        return const [];
-      }
-    }
-
-    final results = await Future.wait([
-      getDefaults(),
-      getUnlockable(),
-    ], eagerError: false);
-    defaults = results[0];
-    unlockable = results[1];
-    if (defaultsError != null && defaults.isEmpty && unlockable.isEmpty) {
-      throw defaultsError!;
-    }
-    if (unlockable.isNotEmpty) {
-      _twitchCatalogUnlockIds
-        ..clear()
-        ..addAll(unlockable.where((e) => e.id.isNotEmpty).map((e) => e.id));
-    }
-    if (unlockable.isEmpty) return defaults;
-    // Unlockable catalogue wins on code collision (limited-time rotations
-    // reuse names with new ids); dedup by id too.
-    final overrideIds = {
-      for (final e in unlockable)
-        if (e.id.isNotEmpty) e.id,
-    };
-    final overrideCodes = {for (final e in unlockable) e.code};
-    final merged = <GenericEmote>[
-      for (final e in defaults)
-        if (!(e.id.isNotEmpty
-            ? overrideIds.contains(e.id) || overrideCodes.contains(e.code)
-            : overrideCodes.contains(e.code)))
-          e,
-      ...unlockable,
-    ];
-    final seen = <String>{};
-    return [
-      for (final e in merged)
-        if (e.id.isEmpty || seen.add(e.id)) e,
-    ];
-  }
-
-  /// Base globals with per-account unlocks applied last so they win on id or
-  /// code collision. Only Twitch entries are replaced; third-party emotes
-  /// keep provider-precedence resolution in [_buildChannelMap].
-  List<GenericEmote> _withUnlocked(List<GenericEmote> base) {
-    if (_unlockedTwitchEmotes.isEmpty) return base;
-    final ids = <String>{};
-    final codes = <String>{};
-    for (final e in _unlockedTwitchEmotes.values) {
-      if (e.id.isNotEmpty) ids.add(e.id);
-      codes.add(e.code);
-    }
-    return [
-      for (final e in base)
-        if (e.type != EmoteType.twitch ||
-            !(e.id.isNotEmpty
-                ? ids.contains(e.id) || codes.contains(e.code)
-                : codes.contains(e.code)))
-          e,
-      ..._unlockedTwitchEmotes.values,
-    ];
-  }
-
-  /// Stores owner-less emote-set results (per-account unlocks) in the
-  /// global cache so they render in chat, autocomplete, and the picker.
-  /// Upserts by code: a same-code new id replaces the old unlock and the old
-  /// cached entry, so limited-time rotations never stick stale.
-  void _storeUnlockedGlobalEmotes(List<GenericEmote> emotes) {
-    if (emotes.isEmpty) return;
-    final incomingCodes = {for (final e in emotes) e.code};
-    final incomingIds = {
-      for (final e in emotes)
-        if (e.id.isNotEmpty) e.id,
-    };
-    _unlockedTwitchEmotes.removeWhere(
-      (key, old) =>
-          incomingIds.contains(key) ||
-          incomingIds.contains(old.id) ||
-          incomingCodes.contains(old.code),
-    );
-    for (final e in emotes) {
-      _unlockedTwitchEmotes[e.id.isNotEmpty ? e.id : e.code] = e;
-    }
-    final current = _globalCache;
-    _globalCache = _buildChannelMap([
-      if (current != null)
-        for (final e in current.suggestions)
-          if (e.type != EmoteType.twitch ||
-              !(e.id.isNotEmpty
-                  ? incomingIds.contains(e.id) || incomingCodes.contains(e.code)
-                  : incomingCodes.contains(e.code)))
-            e,
-      ..._unlockedTwitchEmotes.values,
-    ]);
-    _notify();
-  }
-
-  Future<void> storeUserTwitchEmotes(
-    Map<String, List<GenericEmote>> perChannel,
-  ) async {
-    if (_tier == EmoteFetchTier.nothing) return;
-    for (final entry in perChannel.entries) {
-      final channel = entry.key;
-      final emotes = entry.value;
-      if (emotes.isEmpty) continue;
-      final existing = _channelTwitchEmotes[channel] ?? [];
-      // Fresh first, then non-sub existing; dedup by id.
-      final merged = <GenericEmote>[];
-      final seen = <String>{};
-      for (final e in emotes) {
-        if (e.id.isEmpty || seen.add(e.id)) merged.add(e);
-      }
-      for (final e in existing) {
-        if (!_isTwitchSub(e) && (e.id.isEmpty || seen.add(e.id))) {
-          merged.add(e);
-        }
-      }
-      _channelTwitchEmotes[channel] = merged;
-      _subsByChannelCache = null;
-      final existingCache = _channelCaches[channel];
-      final allEmotes = <GenericEmote>[
-        ...merged,
-        if (existingCache != null)
-          for (final e in existingCache.suggestions)
-            if (e.type != EmoteType.twitch) e,
-      ];
-      _channelCaches[channel] = _buildChannelMap(allEmotes);
-    }
-    _notify();
-  }
-
-  Map<String, String> _openChannels(Map<String, String> fallback) =>
-      getChannelUserIds?.call() ?? fallback;
+  Future<void> storeUserTwitchEmotes(Map<String, List<Emote>> perChannel) =>
+      _twitchSets.storeUserTwitchEmotes(perChannel);
 
   /// Loads subscriber emotes: fetch, resolve owners, fan into channels.
   Future<void> loadUserEmoteSets(
     List<String> emoteSetIds,
     TwitchAuth auth,
     Map<String, String> openChannelUserIds,
-  ) async {
-    if (_tier == EmoteFetchTier.nothing) return;
-    // Skip "0" (Twitch global, already loaded).
-    final newSetIds = emoteSetIds
-        .where(
-          (id) =>
-              id != '0' &&
-              !_fetchedEmoteSetIds.contains(id) &&
-              !_inflightEmoteSetIds.contains(id),
-        )
-        .toList();
-    if (newSetIds.isEmpty) {
-      // No new sets, but heal owner labels and attach to late channels.
-      final channels = _openChannels(openChannelUserIds);
-      await _resolveOwners(auth, channels);
-      await _reStoreCachedSubs(channels);
-      return;
-    }
-    _inflightEmoteSetIds.addAll(newSetIds);
-    // Subs tab spins (not empty-text) while the fetch below is in flight.
-    _notify();
-    try {
-      final byOwner = await _fetchUserEmoteSets(
-        newSetIds,
-        accessToken: auth.accessToken,
-        resolution: _tier.resolution!,
-      );
-      final perOwner = <String, List<GenericEmote>>{};
-      final unlocked = <GenericEmote>[];
-      for (final entry in byOwner.entries) {
-        if (entry.key.isEmpty) {
-          // Owner-less sets are global unlocks, not channel subs.
-          unlocked.addAll(entry.value);
-        } else {
-          perOwner[entry.key] = entry.value;
-          _fetchedSubEmotesByOwner[entry.key] = entry.value;
-        }
-      }
-      if (unlocked.isNotEmpty) _storeUnlockedGlobalEmotes(unlocked);
-      _fetchedEmoteSetIds.addAll(newSetIds);
-      if (perOwner.isEmpty) {
-        logDebug(
-          'loadUserEmoteSets: ${newSetIds.length} sets fetched, no channel emotes',
-        );
-        return;
-      }
-      final channels = _openChannels(openChannelUserIds);
-      await _resolveOwners(auth, channels, ownerIds: perOwner.keys);
-      final targets = channels.keys.toList();
-      if (targets.isEmpty) {
-        logDebug('loadUserEmoteSets: no channel targets');
-        return;
-      }
-      final perChannel = _buildPerChannelEmotes(perOwner, targets);
-      await storeUserTwitchEmotes(perChannel);
-    } catch (e) {
-      logDebug('loadUserEmoteSets failed: $e');
-    } finally {
-      // Keep fetched ids; failed ones retry on next USERSTATE.
-      _inflightEmoteSetIds.removeAll(
-        newSetIds.where((id) => !_fetchedEmoteSetIds.contains(id)),
-      );
-    }
-  }
-
-  /// Resolves owner ids to logins (open channels skip API).
-  Future<void> _resolveOwners(
-    TwitchAuth auth,
-    Map<String, String> openChannelUserIds, {
-    Iterable<String>? ownerIds,
-  }) async {
-    // Seed open-channel owners.
-    for (final entry in openChannelUserIds.entries) {
-      _emoteOwnerLogins[entry.value] = entry.key;
-    }
-    final owners = (ownerIds ?? _fetchedSubEmotesByOwner.keys)
-        .where((id) => !_emoteOwnerLogins.containsKey(id))
-        .toSet()
-        .toList();
-    if (owners.isEmpty) return;
-    try {
-      final resolved = await _resolveOwnerLogins(auth, owners);
-      _emoteOwnerLogins.addAll(resolved);
-    } catch (e) {
-      logDebug('_resolveOwners failed: $e');
-    }
-  }
-
-  /// Re-stores cached subs with resolved ownerChannel (reconnect heal).
-  Future<void> _reStoreCachedSubs(
-    Map<String, String> openChannelUserIds,
-  ) async {
-    if (_fetchedSubEmotesByOwner.isEmpty) return;
-    final targets = openChannelUserIds.keys.toList();
-    if (targets.isEmpty) return;
-    await storeUserTwitchEmotes(
-      _buildPerChannelEmotes(_fetchedSubEmotesByOwner, targets),
-    );
-  }
+  ) => _twitchSets.loadUserEmoteSets(emoteSetIds, auth, openChannelUserIds);
 
   /// Clears per-account emote state (account switch).
   void resetUserEmoteState() {
-    _fetchedEmoteSetIds.clear();
-    _inflightEmoteSetIds.clear();
-    _emoteOwnerLogins.clear();
-    _fetchedSubEmotesByOwner.clear();
-    _channelTwitchEmotes.clear();
-    _emotesResolvedChannels.clear();
-    _subsByChannelCache = null;
-    // Unlocks are per-account: drop them from the stash and the globals they
-    // merged into. Matches by id, plus by code for empty-id entries, so a
-    // same-code default underneath is not removed with them.
-    final removedIds = <String>{..._unlockedTwitchEmotes.keys};
-    final removedCodes = <String>{
-      for (final e in _unlockedTwitchEmotes.values) e.code,
-    };
-    final removedCatalogIds = <String>{..._twitchCatalogUnlockIds};
-    _unlockedTwitchEmotes.clear();
-    bool prunesUnlock(GenericEmote e) => e.id.isNotEmpty
-        ? removedIds.contains(e.id) || removedCatalogIds.contains(e.id)
-        : removedCodes.contains(e.code);
-    final twitchStash = _globalProviderEmotes[EmoteType.twitch.name];
-    if (twitchStash != null &&
-        (removedIds.isNotEmpty || removedCatalogIds.isNotEmpty)) {
-      twitchStash.removeWhere(prunesUnlock);
-    }
-    _twitchCatalogUnlockIds.clear();
-    _personalSevenTvSetIds.clear();
-    _personalSevenTvSets.clear();
-    _foreignPersonalSetOwners.clear();
-    _foreignPersonalUserSets.clear();
-    _foreignPersonalSetContents.clear();
-    _foreignPersonalSets.clear();
-    final global = _globalCache;
-    if (global != null &&
-        (removedIds.isNotEmpty || removedCatalogIds.isNotEmpty)) {
-      bool prunesCache(GenericEmote e) =>
-          e.type == EmoteType.twitch &&
-          (e.id.isNotEmpty
-              ? removedIds.contains(e.id)
-              : removedCodes.contains(e.code));
-      if (_globalProviderEmotes.isNotEmpty) {
-        // Stash already pruned above: rebuild from it so a same-code default
-        // hidden behind an unlock is restored.
-        _globalCache = _buildChannelMap([
-          for (final list in _globalProviderEmotes.values) ...list,
-        ]);
-      } else {
-        _globalCache = _buildChannelMap(
-          global.suggestions.where((e) => !prunesCache(e)).toList(),
-        );
-      }
-    }
-    // Drop merged caches so the UI stops showing the old user's sub emotes
-    // immediately; _refreshEmotesAfterAuth will rebuild them from the
-    // (sub-filtered) persisted cache.
-    _channelCaches.clear();
-    _mergedCache.clear();
-    _notify();
+    _personalSets.reset();
+    _twitchSets.resetUserEmoteState();
   }
 
   /// Re-fetches subscriber emotes for the ids already known from a prior
-  /// USERSTATE/GLOBALUSERSTATE. The manual emote reload would otherwise drop
-  /// subs until the next IRC USERSTATE arrives, so call this from that path.
+  /// USERSTATE/GLOBALUSERSTATE.
   Future<void> reloadUserEmoteSets(
     TwitchAuth auth,
     Map<String, String> openChannelUserIds,
-  ) async {
-    if (_tier == EmoteFetchTier.nothing) return;
-    if (_fetchedEmoteSetIds.isEmpty) return;
-    final ids = _fetchedEmoteSetIds.toList();
-    _fetchedEmoteSetIds.clear();
-    await loadUserEmoteSets(ids, auth, openChannelUserIds);
-  }
-
-  /// Builds per-channel subs map with owner stamps.
-  Map<String, List<GenericEmote>> _buildPerChannelEmotes(
-    Map<String, List<GenericEmote>> perOwner,
-    List<String> targets,
-  ) {
-    final perChannel = <String, List<GenericEmote>>{};
-    for (final target in targets) {
-      perChannel[target] = <GenericEmote>[
-        for (final entry in perOwner.entries)
-          for (final e in entry.value)
-            // Follower emotes only work in their home channel; subs, bits,
-            // and unlocks are usable everywhere.
-            if (e.emoteType != 'follower' ||
-                _emoteOwnerLogins[entry.key]?.toLowerCase() ==
-                    target.toLowerCase())
-              GenericEmote(
-                id: e.id,
-                code: e.code,
-                type: e.type,
-                url: e.url,
-                url1x: e.url1x,
-                url3x: e.url3x,
-                isAnimated: e.isAnimated,
-                scope: e.scope,
-                tier: e.tier,
-                emoteType: e.emoteType,
-                ownerChannel: _emoteOwnerLogins[entry.key],
-                ownerId: entry.key,
-              ),
-      ];
-    }
-    return perChannel;
-  }
+  ) => _twitchSets.reloadUserEmoteSets(auth, openChannelUserIds);
 
   /// Loads channel emotes. [force] skips cache, fetches from network.
   Future<void> resolveEmotes(
@@ -2031,60 +652,76 @@ class EmoteManager extends ChangeNotifier {
     String? broadcasterId, {
     bool force = false,
   }) async {
-    await _ensureProvidersLoaded();
+    final epoch = force
+        ? _store.bumpChannelEpoch(channel)
+        : _store.channelEpoch(channel);
+    await _visibility.ensureLoaded();
     if (broadcasterId != null) _channelBroadcasterIds[channel] = broadcasterId;
-    final ttl = await _effectiveTtl();
+    final ttl = await _fetcher.effectiveTtl();
     if (force) {
       // Nothing tier: render cached only.
-      if (_tier == EmoteFetchTier.nothing) return;
-      _hydrateStashesFromCache(
-        (await _loadPersistedCache('emotes3_$channel', ttl)).cached,
-        channel: channel,
+      if (tier == EmoteFetchTier.nothing) return;
+      final loaded = await _persistence.load('emotes5_$channel', ttl);
+      if (_store.channelEpoch(channel) != epoch) return;
+      if (loaded.catalog != null) {
+        _store.fillMissingChannel(channel, loaded.catalog!);
+      }
+      final fetch = await _fetcher.enqueue(
+        () => _fetcher.fetchAllChannel(broadcasterId, channelName: channel),
       );
-      final emotes = await _enqueueFetch(
-        () => _fetchAllChannel(broadcasterId, channelName: channel),
-      );
-      _applyChannelEmotes(channel, emotes);
-      await _savePersistedCache(
-        'emotes3_$channel',
-        _channelCaches[channel]!,
-        ttl,
-      );
+      if (_commitChannel(channel, epoch, fetch)) {
+        await _persistence.save(
+          'emotes5_$channel',
+          _store.channelCatalog(channel)!,
+          ttl,
+        );
+      }
       return;
     }
-    final loaded = await _loadPersistedCache(
-      'emotes3_$channel',
+    final loaded = await _persistence.load(
+      'emotes5_$channel',
       ttl,
-      fetchTime: _channelFetchTimes[channel],
+      fetchTime: _store.channelFetchTime(channel),
     );
-    final cached = loaded.cached;
+    final cached = loaded.catalog;
     if (cached != null) {
-      // Filter sub emotes from the persisted cache: subs are owned by
-      // _channelTwitchEmotes (populated by USERSTATE via storeUserTwitchEmotes)
-      // and must not leak across account switches through the disk cache.
-      final nonSubCached = cached.suggestions
-          .where((e) => !_isTwitchSub(e))
-          .toList();
-      final subs = _channelTwitchEmotes[channel] ?? const <GenericEmote>[];
-      _channelCaches[channel] = _buildChannelMap([...nonSubCached, ...subs]);
-      // Hydrate stashes from persisted cache.
-      _hydrateStashesFromCache(cached, channel: channel);
-      _reapplyLiveSevenTv(channel);
-      _notify(channel: channel);
-      if (loaded.fresh || _registryFrozen || _tier == EmoteFetchTier.nothing) {
+      if (_store.channelEpoch(channel) != epoch) return;
+      // Stored subs are owned by storeUserTwitchEmotes (USERSTATE) and must
+      // not leak across account switches through the disk cache.
+      final existingSubs =
+          _store.channelCatalog(channel)?.twitchSubs ?? const <Emote>[];
+      _store.seedChannelFromCache(channel, cached, existingSubs);
+      if (loaded.fresh || _registryFrozen || tier == EmoteFetchTier.nothing) {
         // Fresh: render, background-refresh Twitch channel emotes.
         if (!_skipTwitchBackgroundRefresh) {
           unawaited(
-            _enqueueFetch(
-              () => _refreshTwitchChannelEmotes(channel, broadcasterId),
-            ),
+            _fetcher
+                .enqueue(
+                  () => _fetcher.refreshTwitchChannel(channel, broadcasterId),
+                )
+                .then((fetch) {
+                  if (fetch != null) _commitChannel(channel, epoch, fetch);
+                })
+                .catchError((Object _) {}),
           );
         }
-        // Reconcile 7TV deltas at startup.
+        // Reconcile 7TV deltas at startup: the fetched set is authoritative,
+        // so stale live deltas are dropped rather than re-applied over it.
         if (broadcasterId != null &&
-            _tier.index >= EmoteFetchTier.medium.index) {
+            tier.index >= EmoteFetchTier.medium.index) {
           unawaited(
-            _enqueueFetch(() => _reconcileSevenTv(channel, broadcasterId)),
+            _fetcher
+                .enqueue(
+                  () => _fetcher.reconcileSevenTv(channel, broadcasterId),
+                )
+                .then((fetch) {
+                  if (fetch == null) return;
+                  if (fetch.byProvider[EmoteType.sevenTv] != null) {
+                    _store.dropLiveSevenTv(channel);
+                  }
+                  _commitChannel(channel, epoch, fetch);
+                })
+                .catchError((Object _) {}),
           );
         }
         return;
@@ -2092,1003 +729,234 @@ class EmoteManager extends ChangeNotifier {
       // Stale: keep stale data, revalidate below.
     }
     // Nothing tier: render cached only.
-    if (_tier == EmoteFetchTier.nothing) return;
-    final emotes = await _enqueueFetch(
-      () => _fetchAllChannel(broadcasterId, channelName: channel),
+    if (tier == EmoteFetchTier.nothing) return;
+    final fetch = await _fetcher.enqueue(
+      () => _fetcher.fetchAllChannel(broadcasterId, channelName: channel),
     );
-    _applyChannelEmotes(channel, emotes);
-    await _savePersistedCache(
-      'emotes3_$channel',
-      _channelCaches[channel]!,
-      ttl,
-    );
-  }
-
-  void _applyChannelEmotes(String channel, List<GenericEmote> emotes) {
-    // Empty fetch: keep cached emotes.
-    if (emotes.isEmpty && _channelCaches[channel] != null) {
-      logDebug('[EmoteManager] no emotes for $channel, keeping cached');
-      return;
-    }
-    // Subs stored separately, re-merged via storeUserTwitchEmotes.
-    final nonSubEmotes = emotes.where((e) => !_isTwitchSub(e)).toList();
-    final merged = _mergeWithStoredSubs(channel, nonSubEmotes);
-    _channelCaches[channel] = _buildChannelMap(merged);
-    _reapplyLiveSevenTv(channel);
-    _channelFetchTimes[channel] = DateTime.now();
-    _notify(channel: channel);
-  }
-
-  // Re-applies live 7TV delta after fetch rebuild.
-  void _reapplyLiveSevenTv(String channel) {
-    final live = _sevenTvLive[channel];
-    if (live == null) return;
-    final cache = _channelCaches[channel];
-    if (cache == null) return;
-    final byCode = <String, GenericEmote>{};
-    for (final e in cache.byCode.values) {
-      if (e.type != EmoteType.sevenTv) byCode[e.code] = e;
-    }
-    for (final e in live) {
-      byCode[e.code] = e;
-    }
-    final suggestions = byCode.values.toList()
-      ..sort((a, b) => a.code.compareTo(b.code));
-    _channelCaches[channel] = ChannelEmotes(
-      byCode: byCode,
-      suggestions: suggestions,
-    );
-  }
-
-  // Merges fetch results with stored subs. Followers stay with subs: they
-  // live only in their home channel's list (see _buildPerChannelEmotes).
-  List<GenericEmote> _mergeWithStoredSubs(
-    String channel,
-    List<GenericEmote> nonSub,
-  ) {
-    final subs = (_channelTwitchEmotes[channel] ?? const <GenericEmote>[])
-        .where((e) => _isTwitchSub(e) || e.emoteType == 'follower')
-        .toList();
-    _channelTwitchEmotes[channel] = [
-      ...subs,
-      ...nonSub.where((e) => e.type == EmoteType.twitch),
-    ];
-    _subsByChannelCache = null;
-    return [...subs, ...nonSub];
-  }
-
-  Future<void> _refreshTwitchChannelEmotes(
-    String channel,
-    String? broadcasterId,
-  ) async {
-    if (broadcasterId == null) return;
-    await _ensureProvidersLoaded();
-    if (!_isProviderOn(EmoteType.twitch)) return;
-    try {
-      final emotes = await TwitchEmoteProvider.fetchChannel(
-        broadcasterId,
-        accessToken: _accessToken,
-        channelName: channel,
-        resolution: _tier.resolution!,
+    if (_commitChannel(channel, epoch, fetch)) {
+      await _persistence.save(
+        'emotes5_$channel',
+        _store.channelCatalog(channel)!,
+        ttl,
       );
-      if (emotes.isEmpty) return;
-      final nonSub = emotes.where((e) => !_isTwitchSub(e)).toList();
-      (_channelProviderEmotes[channel] ??=
-              <String, List<GenericEmote>>{})[EmoteType.twitch.name] =
-          nonSub;
-      final merged = _mergeWithStoredSubs(channel, nonSub);
-      final existing = _channelCaches[channel];
-      if (existing != null) {
-        final combined = <GenericEmote>[
-          ...existing.suggestions.where((e) => e.type != EmoteType.twitch),
-          ...merged,
-        ];
-        _channelCaches[channel] = _buildChannelMap(combined);
-      }
-      _notify(channel: channel);
-    } catch (e) {
-      logDebug('[EmoteManager] twitch refresh failed for $channel: $e');
     }
   }
 
-  Future<void> _refreshTwitchGlobalEmotes() async {
-    await _ensureProvidersLoaded();
-    if (!_isProviderOn(EmoteType.twitch)) return;
-    try {
-      final emotes = await _fetchTwitchGlobal(_tier.resolution!);
-      if (emotes.isEmpty) return;
-      _globalProviderEmotes[EmoteType.twitch.name] = emotes;
-      final current = _globalCache;
-      final all = _withUnlocked([
-        if (current != null)
-          for (final e in current.suggestions)
-            if (e.type != EmoteType.twitch) e,
-        ...emotes,
-      ]);
-      _globalCache = _buildChannelMap(all);
-      _notify();
-    } catch (e) {
-      logDebug('[EmoteManager] twitch global refresh failed: $e');
+  /// Applies one global fetch at [epoch]. A stale epoch is dropped so an
+  /// in-flight fetch that lands after an evict or forced reload cannot
+  /// overwrite newer state. Failed providers feed [takeFetchFailures].
+  bool _commitGlobal(int epoch, GlobalEmoteFetch fetch) {
+    if (epoch != _store.globalEpoch) return false;
+    for (final _ in fetch.failed) {
+      _fetchFailures.add('global emotes');
     }
+    // Apply the account catalogue unlock ids here, not in the fetcher, so the
+    // fetch stays pure.
+    _twitchSets.applyCatalogUnlockIds(fetch.twitchCatalogUnlockIds);
+    return _store.commitGlobal(epoch, fetch);
+  }
+
+  /// Applies one channel fetch at [epoch]. A stale epoch is dropped so an
+  /// in-flight fetch that lands after an evict or forced resolve cannot
+  /// resurrect the channel. Missing providers keep their retained list; the
+  /// stored subs and 7TV identity are preserved.
+  bool _commitChannel(String channel, int epoch, ChannelEmoteFetch fetch) {
+    if (epoch != _store.channelEpoch(channel)) return false;
+    for (final _ in fetch.failed) {
+      _fetchFailures.add(channel);
+    }
+    return _store.commitChannel(channel, epoch, fetch);
   }
 
   /// Reconciles the channel's 7TV set against the server. Used when a live
-  /// `user.update` switches the active set: without it the old set keeps
-  /// rendering and the next full fetch resurrects it via the live list.
-  Future<void> reconcileSevenTvChannel(String channel) {
+  /// `user.update` switches the active set.
+  Future<void> reconcileSevenTvChannel(String channel) async {
+    await _visibility.ensureLoaded();
     final broadcasterId = _channelBroadcasterIds[channel];
-    if (broadcasterId == null) return Future.value();
-    return _enqueueFetch(() => _reconcileSevenTv(channel, broadcasterId));
-  }
-
-  // Diffs 7TV set against cache at startup (medium/high).
-  Future<void> _reconcileSevenTv(String channel, String broadcasterId) async {
-    if (_tier.index < EmoteFetchTier.medium.index) return;
-    await _ensureProvidersLoaded();
-    if (!_isProviderOn(EmoteType.sevenTv)) return;
-    try {
-      final resp = await _sevenTvChannelFetcher(
-        broadcasterId,
-        _tier.resolution!,
-      );
-      final existing = _channelCaches[channel];
-      if (existing == null) return;
-
-      if (resp.emoteSetId != null) {
-        setSevenTvEmoteSetId(channel, resp.emoteSetId!);
-      }
-      if (resp.userId != null) {
-        _sevenTvUserIds[channel] = resp.userId!;
-      }
-      // Empty fetch: keep cached 7TV emotes.
-      if (resp.emotes.isEmpty) return;
-
-      final current = existing.suggestions
-          .where((e) => e.type == EmoteType.sevenTv)
-          .toList();
-      final currentById = {for (final e in current) e.id: e};
-      final incomingById = {for (final e in resp.emotes) e.id: e};
-
-      final added = <GenericEmote>[];
-      final removedIds = <String>[];
-      final renamed = <String, ({String newName, String oldName})>{};
-      for (final e in resp.emotes) {
-        final old = currentById[e.id];
-        if (old == null) {
-          added.add(e);
-        } else if (old.code != e.code) {
-          renamed[e.id] = (newName: e.code, oldName: old.code);
-        }
-      }
-      for (final id in currentById.keys) {
-        if (!incomingById.containsKey(id)) removedIds.add(id);
-      }
-
-      if (added.isEmpty && removedIds.isEmpty && renamed.isEmpty) return;
-      updateSevenTvEmotes(
-        channel,
-        added: added,
-        removedIds: removedIds,
-        renamed: renamed,
-      );
-    } catch (e) {
-      logDebug('[EmoteManager] 7TV reconcile failed for $channel: $e');
+    if (broadcasterId == null) return;
+    final epoch = _store.channelEpoch(channel);
+    final fetch = await _fetcher.enqueue(
+      () => _fetcher.reconcileSevenTv(channel, broadcasterId),
+    );
+    if (fetch == null) return;
+    // A fetched 7TV set is authoritative: drop stale live deltas. An empty
+    // fetch keeps them, matching the old reconcile early return.
+    if (fetch.byProvider[EmoteType.sevenTv] != null) {
+      _store.dropLiveSevenTv(channel);
     }
+    _commitChannel(channel, epoch, fetch);
   }
 
   void evictChannel(String channel) {
-    _channelCaches.remove(channel);
-    _channelFetchTimes.remove(channel);
-    _channelTwitchEmotes.remove(channel);
-    _emotesResolvedChannels.remove(channel);
-    _subsByChannelCache = null;
-    _sevenTvEmoteSetIds.remove(channel);
-    _sevenTvUserIds.remove(channel);
-    _channelProviderEmotes.remove(channel);
     _channelBroadcasterIds.remove(channel);
-    _mergedCache.remove(channel);
-    _sevenTvLive.remove(channel);
-    _emoteIndexDirty = true;
+    _store.evictChannel(channel);
   }
 
   void evictGlobal() {
-    _globalCache = null;
-    _globalProviderEmotes.clear();
-    _unlockedTwitchEmotes.clear();
-    _twitchCatalogUnlockIds.clear();
-    _mergedCache.clear();
-    _emoteIndexDirty = true;
+    _twitchSets.clearUnlocks();
+    _store.evictGlobal();
   }
 
-  void markEmotesResolved(String channel) {
-    _emotesResolvedChannels.add(channel);
-  }
+  void markEmotesResolved(String channel) => _store.markEmotesResolved(channel);
 
-  bool emotesResolved(String channel) =>
-      _emotesResolvedChannels.contains(channel);
+  bool emotesResolved(String channel) => _store.emotesResolved(channel);
 
   /// Bumps the version and notifies listeners with the current (possibly
   /// empty) state, so cached message spans are discarded immediately.
-  void notifyStateCleared() {
-    _notify();
-  }
+  void notifyStateCleared() => _store.notifyStateCleared();
 
-  void setSevenTvEmoteSetId(String channel, String emoteSetId) {
-    _sevenTvEmoteSetIds[channel] = emoteSetId;
-  }
+  /// Notifies observers of a config-only change (tier, auto mode) without
+  /// bumping the catalog version, so the UI refreshes and cached message
+  /// spans stay valid.
+  void notifyConfigChanged() => _store.notifyConfigChanged();
 
-  String? getSevenTvEmoteSetId(String channel) => _sevenTvEmoteSetIds[channel];
+  void setSevenTvEmoteSetId(String channel, String emoteSetId) =>
+      _store.setSevenTvEmoteSetId(channel, emoteSetId);
 
-  String? getSevenTvUserId(String channel) => _sevenTvUserIds[channel];
+  String? getSevenTvEmoteSetId(String channel) =>
+      _store.getSevenTvEmoteSetId(channel);
 
-  String? getChannelForSevenTvEmoteSet(String emoteSetId) {
-    for (final entry in _sevenTvEmoteSetIds.entries) {
-      if (entry.value == emoteSetId) return entry.key;
-    }
-    return null;
-  }
+  String? getSevenTvUserId(String channel) => _store.getSevenTvUserId(channel);
+
+  String? getChannelForSevenTvEmoteSet(String emoteSetId) =>
+      _store.getChannelForSevenTvEmoteSet(emoteSetId);
 
   // Applies 7TV WS deltas in place; evicts unused from disk cache.
   void updateSevenTvEmotes(
     String channel, {
-    List<GenericEmote> added = const [],
+    List<Emote> added = const [],
     List<String> removedIds = const [],
     Map<String, ({String newName, String oldName})> renamed = const {},
   }) {
-    if (_tier == EmoteFetchTier.nothing) return;
+    if (tier == EmoteFetchTier.nothing) return;
     if (!_isProviderOn(EmoteType.sevenTv)) return;
-    var cache = _channelCaches[channel];
-    if (cache == null && added.isEmpty) return;
-
-    final changedCodes = <String>{};
-    final removedIdsWithUrls = <(String, List<String>)>[];
-
-    if (cache == null) {
-      if (added.isEmpty) return;
-      // No cache to diff against (not yet resolved, or evicted by a nuke).
-      // Build a partial view so the delta's emotes render, but do NOT sync
-      // it into the live view or provider stash: one delta isn't the full
-      // set, and _reapplyLiveSevenTv would propagate it over the next full
-      // fetch, wiping the channel's other emotes.
-      final sorted = List.of(added)..sort((a, b) => a.code.compareTo(b.code));
-      _channelCaches[channel] = ChannelEmotes(
-        byCode: {for (final e in sorted) e.code: e},
-        suggestions: sorted,
-      );
-      _emoteIndexDirty = true;
-      _lastChangedCodes[channel] = {for (final e in added) e.code};
-      _notify(channel: channel, bumpVersion: false);
-      return;
-    } else {
-      final byCode = cache.byCode;
-      final suggestions = cache.suggestions;
-
-      for (final id in removedIds) {
-        final removed = byCode.values
-            .where((e) => e.id == id && e.type == EmoteType.sevenTv)
-            .toList();
-        for (final e in removed) {
-          byCode.remove(e.code);
-          _removeFromSuggestions(suggestions, e.code);
-          changedCodes.add(e.code);
-          removedIdsWithUrls.add((
-            e.id,
-            [
-              e.url,
-              if (e.url1x != null) e.url1x!,
-              if (e.url3x != null) e.url3x!,
-            ],
-          ));
-        }
-      }
-
-      for (final entry in renamed.entries) {
-        final e = byCode.values
-            .where((x) => x.id == entry.key && x.type == EmoteType.sevenTv)
-            .firstOrNull;
-        if (e == null) continue;
-        byCode.remove(e.code);
-        _removeFromSuggestions(suggestions, e.code);
-        final renamedEmote = GenericEmote(
-          id: e.id,
-          code: entry.value.newName,
-          type: e.type,
-          url: e.url,
-          url1x: e.url1x,
-          url3x: e.url3x,
-          isAnimated: e.isAnimated,
-          scope: e.scope,
-          ownerChannel: e.ownerChannel,
-          isZeroWidth: e.isZeroWidth,
-          baseName: e.baseName,
-          relativeScale: e.relativeScale,
-          aspectRatio: e.aspectRatio,
-        );
-        byCode[renamedEmote.code] = renamedEmote;
-        _insertSorted(suggestions, renamedEmote);
-        changedCodes
-          ..add(e.code)
-          ..add(renamedEmote.code);
-      }
-
-      for (final emote in added) {
-        final existing = byCode[emote.code];
-        if (existing != null &&
-            !(existing.scope.index <= emote.scope.index &&
-                _providerPriority[emote.type]! <
-                    _providerPriority[existing.type]!)) {
-          continue;
-        }
-        if (existing != null) {
-          _removeFromSuggestions(suggestions, emote.code);
-        }
-        byCode[emote.code] = emote;
-        _insertSorted(suggestions, emote);
-        changedCodes.add(emote.code);
-      }
-
-      _channelCaches[channel] = cache;
-    }
-
-    // Sync stash and live list; concurrent fetch re-applies delta.
-    final providerStash = _channelProviderEmotes[channel];
-    if (providerStash != null &&
-        providerStash.containsKey(EmoteType.sevenTv.name)) {
-      providerStash[EmoteType.sevenTv.name] = cache.suggestions
-          .where((e) => e.type == EmoteType.sevenTv)
-          .toList();
-    }
-    _sevenTvLive[channel] = cache.suggestions
-        .where((e) => e.type == EmoteType.sevenTv)
-        .toList();
-
-    _lastChangedCodes[channel] = changedCodes;
-    // Live deltas don't bump span version (no retroactive re-render).
-    _notify(channel: channel, bumpVersion: false);
-
-    // Evict shared 7TV emotes from disk when gone from all channels.
-    final unused = removedIdsWithUrls.where(
-      (entry) => !_isEmoteUsedElsewhere(entry.$1),
+    final unusedUrls = _store.updateSevenTvEmotes(
+      channel,
+      added: added,
+      removedIds: removedIds,
+      renamed: renamed,
     );
-    if (unused.isNotEmpty) {
-      unawaited(_evictEmoteImages([for (final entry in unused) ...entry.$2]));
+    if (unusedUrls.isNotEmpty) {
+      unawaited(_evictEmoteImages(unusedUrls));
     }
-  }
-
-  // Removes code from sorted list in place.
-  void _removeFromSuggestions(List<GenericEmote> list, String code) {
-    final index = list.indexWhere((e) => e.code == code);
-    if (index != -1) list.removeAt(index);
-  }
-
-  // Inserts into sorted list, replacing same-code entry.
-  void _insertSorted(List<GenericEmote> list, GenericEmote emote) {
-    final existingIndex = list.indexWhere((e) => e.code == emote.code);
-    if (existingIndex != -1) {
-      list[existingIndex] = emote;
-      return;
-    }
-    var i = 0;
-    while (i < list.length && list[i].code.compareTo(emote.code) < 0) {
-      i++;
-    }
-    list.insert(i, emote);
-  }
-
-  bool _isEmoteUsedElsewhere(String id) {
-    for (final c in _channelCaches.values) {
-      if (c.byCode.values.any((e) => e.id == id)) return true;
-    }
-    return _globalCache?.byCode.values.any((e) => e.id == id) ?? false;
   }
 
   Future<void> _evictEmoteImages(List<String> urls) async {
-    await _ensureUsageLoaded();
-    var removed = false;
+    await _usage.forgetUrls(urls);
     for (final url in urls) {
       if (url.isEmpty) continue;
-      _emoteUsage.remove(url);
-      removed = true;
       try {
-        await _removeCachedFile(url);
+        await _images.removeFile(url);
       } catch (_) {
         logDebug('[EmoteManager] failed to evict unused emote $url');
       }
     }
-    if (removed) {
-      _usageDirty = true;
-      await _flushUsage();
+  }
+
+  Future<void> _discardDominatedScales(List<Emote> emotes) async {
+    for (final e in emotes) {
+      final dominated = EmotePicker.dominatedScaleUrls(e);
+      if (dominated.isEmpty) continue;
+      final better = e.urlFor(EmoteScale.medium) ?? e.urlFor(EmoteScale.large);
+      if (better != null && await _images.isCached(better)) {
+        await _evictEmoteImages(dominated);
+      }
     }
   }
 
   /// Low/nothing tiers: no Twitch background refresh (infinite TTL).
   bool get _skipTwitchBackgroundRefresh =>
-      _tier == EmoteFetchTier.low || _tier == EmoteFetchTier.nothing;
+      tier == EmoteFetchTier.low || tier == EmoteFetchTier.nothing;
 
   /// Low tier: frozen registries (seed fetch only, force bypasses).
-  bool get _registryFrozen => _tier == EmoteFetchTier.low;
-
-  /// TTL varies by connectivity (longer on cellular).
-  Future<Duration> _effectiveTtl() async {
-    switch (_tier) {
-      case EmoteFetchTier.low:
-      case EmoteFetchTier.nothing:
-        return _infiniteTtl;
-      case EmoteFetchTier.medium:
-        return const Duration(hours: 24);
-      case EmoteFetchTier.high:
-        final isMobile =
-            await _probeConnectivity() == ConnectivityResult.mobile;
-        return isMobile ? _mobileTtl : _wifiTtl;
-    }
-  }
-
-  /// Cached connectivity probe (avoids per-fetch platform calls).
-  Future<ConnectivityResult> _probeConnectivity() async {
-    final probe = _connectivityProbe;
-    if (probe == null) return ConnectivityResult.wifi;
-    final now = DateTime.now();
-    final probedAt = _probeAt;
-    if (probedAt != null && now.difference(probedAt) < _connectivityProbeTtl) {
-      return _probeResult;
-    }
-    try {
-      final results = await probe();
-      _probeResult = results.contains(ConnectivityResult.mobile)
-          ? ConnectivityResult.mobile
-          : ConnectivityResult.wifi;
-    } catch (_) {
-      _probeResult = ConnectivityResult.wifi;
-    }
-    _probeAt = DateTime.now();
-    return _probeResult;
-  }
-
-  /// Enqueues fetch with concurrency gate and stagger. The stagger wait runs
-  /// before acquiring a permit so sleeping fetches never hold gate slots.
-  Future<T> _enqueueFetch<T>(Future<T> Function() action) {
-    final enqueuedAt = DateTime.now();
-    Future<void> stagger() async {
-      final elapsed = DateTime.now().difference(enqueuedAt);
-      if (elapsed < _fetchStagger) {
-        await Future.delayed(_fetchStagger - elapsed);
-      }
-    }
-
-    return stagger().then((_) => _fetchGate.withPermit(action));
-  }
+  bool get _registryFrozen => tier == EmoteFetchTier.low;
 
   @visibleForTesting
-  Future<Duration> effectiveTtlForTesting() => _effectiveTtl();
+  Future<Duration> effectiveTtlForTesting() => _fetcher.effectiveTtl();
 
   @visibleForTesting
-  int get precacheQueueLengthForTesting => _precacheQueue.length;
+  int get precacheQueueLengthForTesting => _images.precacheQueueLength;
 
   @visibleForTesting
   Future<void> enqueueFetchForTesting(Future<void> Function() action) =>
-      _enqueueFetch(action);
+      _fetcher.enqueue(action);
 
   @visibleForTesting
-  Future<void> flushUsageForTesting() => _flushUsage();
+  Future<void> flushUsageForTesting() => _usage.flushForTesting();
 
   @visibleForTesting
   int stashSizeForTesting({String? channel, required EmoteType type}) {
-    if (channel == null) return _globalProviderEmotes[type.name]?.length ?? 0;
-    return _channelProviderEmotes[channel]?[type.name]?.length ?? 0;
+    if (channel == null) {
+      return _store.globalCatalog.listFor(EmoteScope.global, type).length;
+    }
+    return _store
+            .channelCatalog(channel)
+            ?.listFor(EmoteScope.channel, type)
+            .length ??
+        0;
   }
 
   @visibleForTesting
-  int foreignPersonalSetCountForTesting() => _foreignPersonalSetContents.length;
+  int foreignPersonalSetCountForTesting() => _personalSets.foreignSetCount;
 
-  /// Sync gate for fetch lambdas; callers must have awaited
-  /// [_ensureProvidersLoaded] first.
-  bool _isProviderOn(EmoteType type) => !_disabledProviders.contains(type);
-
-  ChannelEmotes _buildChannelMap(List<GenericEmote> emotes) {
-    // Disabled providers excluded from all caches.
-    final visible = _disabledProviders.isEmpty
-        ? emotes
-        : emotes.where((e) => !_disabledProviders.contains(e.type)).toList();
-    // Scope > provider priority dedup.
-    final best = <String, GenericEmote>{};
-    final seenScope = <String, int>{};
-    for (final emote in visible) {
-      final existing = best[emote.code];
-      if (existing == null) {
-        best[emote.code] = emote;
-        seenScope[emote.code] = emote.scope.index;
-        continue;
-      }
-      final existingScopePrio = seenScope[emote.code] ?? 0;
-      final newScopePrio = emote.scope.index;
-      // Channel scope wins over global.
-      if (newScopePrio > existingScopePrio) {
-        best[emote.code] = emote;
-        seenScope[emote.code] = newScopePrio;
-      } else if (newScopePrio == existingScopePrio) {
-        // Same scope: provider precedence.
-        final existingProvPrio = _providerPriority[existing.type] ?? 99;
-        final newProvPrio = _providerPriority[emote.type] ?? 99;
-        if (newProvPrio < existingProvPrio) {
-          best[emote.code] = emote;
-        }
-      }
-    }
-    final suggestions = best.values.toList()
-      ..sort((a, b) => a.code.compareTo(b.code));
-    return ChannelEmotes(byCode: best, suggestions: suggestions);
+  @visibleForTesting
+  Future<GlobalEmoteFetch> fetchAllGlobalForTesting() async {
+    await _visibility.ensureLoaded();
+    return _fetcher.fetchAllGlobal();
   }
 
-  Future<List<GenericEmote>> _fetchAllGlobal() async {
-    await _ensureProvidersLoaded();
-    final providers = <EmoteType, Future<List<GenericEmote>> Function()>{
-      EmoteType.twitch: () async {
-        if (!_isProviderOn(EmoteType.twitch)) return [];
-        final emotes = await _fetchTwitchGlobal(_tier.resolution!);
-        // Empty fetch: keep the retained stash entry.
-        if (emotes.isNotEmpty) {
-          _globalProviderEmotes[EmoteType.twitch.name] = emotes;
-        }
-        return emotes;
-      },
-      EmoteType.bttv: () async {
-        if (!_isProviderOn(EmoteType.bttv)) return [];
-        final emotes = await BttvEmoteProvider.fetchGlobal(
-          resolution: _tier.resolution!,
-        );
-        if (emotes.isNotEmpty) {
-          _globalProviderEmotes[EmoteType.bttv.name] = emotes;
-        }
-        return emotes;
-      },
-      EmoteType.ffz: () async {
-        if (!_isProviderOn(EmoteType.ffz)) return [];
-        final emotes = await FfzEmoteProvider.fetchGlobal(
-          resolution: _tier.resolution!,
-        );
-        if (emotes.isNotEmpty) {
-          _globalProviderEmotes[EmoteType.ffz.name] = emotes;
-        }
-        return emotes;
-      },
-      EmoteType.sevenTv: () async {
-        if (!_isProviderOn(EmoteType.sevenTv)) return [];
-        final emotes = await _sevenTvGlobalFetcher(_tier.resolution!);
-        if (emotes.isNotEmpty) {
-          _globalProviderEmotes[EmoteType.sevenTv.name] = emotes;
-        }
-        return emotes;
-      },
-    };
-    await _fetchConcurrent(
-      providers,
-      maxConcurrent: 2,
-      target: 'global emotes',
-    );
-    return _withUnlocked([
-      for (final list in _globalProviderEmotes.values) ...list,
-    ]);
-  }
-
-  Future<List<GenericEmote>> _fetchAllChannel(
+  @visibleForTesting
+  Future<ChannelEmoteFetch> fetchAllChannelForTesting(
     String? broadcasterId, {
     String? channelName,
   }) async {
-    await _ensureProvidersLoaded();
-    if (broadcasterId == null) {
-      // No broadcaster id: keep retained channel emotes.
-      final retained = _channelProviderEmotes[channelName];
-      if (retained == null) return [];
-      return <GenericEmote>[for (final list in retained.values) ...list];
-    }
-    final channelKey = channelName ?? '';
-    final map = _channelProviderEmotes[channelKey] ??=
-        <String, List<GenericEmote>>{};
-    final providers = <EmoteType, Future<List<GenericEmote>> Function()>{
-      EmoteType.twitch: () async {
-        if (!_isProviderOn(EmoteType.twitch)) return [];
-        final fetched = await TwitchEmoteProvider.fetchChannel(
-          broadcasterId,
-          accessToken: _accessToken,
-          channelName: channelName,
-          resolution: _tier.resolution!,
-        );
-        final nonSub = fetched.where((e) => !_isTwitchSub(e)).toList();
-        // Empty fetch: keep the retained stash entry (same rule as
-        // _applyChannelEmotes) so a silent non-200 can't clobber it.
-        if (nonSub.isNotEmpty) map[EmoteType.twitch.name] = nonSub;
-        return nonSub;
-      },
-      EmoteType.bttv: () async {
-        if (!_isProviderOn(EmoteType.bttv)) return [];
-        final emotes = await BttvEmoteProvider.fetchChannel(
-          broadcasterId,
-          resolution: _tier.resolution!,
-        );
-        if (emotes.isNotEmpty) map[EmoteType.bttv.name] = emotes;
-        return emotes;
-      },
-      EmoteType.ffz: () async {
-        if (!_isProviderOn(EmoteType.ffz)) return [];
-        final emotes = await FfzEmoteProvider.fetchChannel(
-          broadcasterId,
-          resolution: _tier.resolution!,
-        );
-        if (emotes.isNotEmpty) map[EmoteType.ffz.name] = emotes;
-        return emotes;
-      },
-      EmoteType.sevenTv: () async {
-        if (!_isProviderOn(EmoteType.sevenTv)) return [];
-        final resp = await _sevenTvChannelFetcher(
-          broadcasterId,
-          _tier.resolution!,
-        );
-        if (channelName != null) {
-          if (resp.emoteSetId != null) {
-            setSevenTvEmoteSetId(channelName, resp.emoteSetId!);
-          }
-          if (resp.userId != null) {
-            _sevenTvUserIds[channelName] = resp.userId!;
-          }
-        }
-        if (resp.emotes.isNotEmpty) map[EmoteType.sevenTv.name] = resp.emotes;
-        return resp.emotes;
-      },
-    };
-    await _fetchConcurrent(providers, maxConcurrent: 3, target: channelName);
-    return <GenericEmote>[for (final list in map.values) ...list];
+    await _visibility.ensureLoaded();
+    return _fetcher.fetchAllChannel(broadcasterId, channelName: channelName);
   }
 
-  Future<void> _fetchConcurrent(
-    Map<EmoteType, Future<List<GenericEmote>> Function()> providers, {
-    required int maxConcurrent,
-    String? target,
-  }) async {
-    final sem = Semaphore(maxConcurrent);
-    final futures = <Future<void>>[];
-    for (final entry in providers.entries) {
-      futures.add(
-        sem.withPermit(() async {
-          try {
-            await entry.value();
-          } catch (e) {
-            if (target != null) _fetchFailures.add(target);
-            logDebug('EmoteManager: ${entry.key.name} failed: $e');
-          }
-        }),
-      );
-    }
-    await Future.wait(futures, eagerError: false);
-  }
-
-  Future<({ChannelEmotes? cached, bool fresh})> _loadPersistedCache(
-    String key,
-    Duration ttl, {
-    DateTime? fetchTime,
-  }) async {
-    final prefs = await _getPrefs();
-    await _metaStore.migrateFromPrefs(prefs.raw);
-    final raw = await _metaStore.read(key);
-    if (raw == null) return (cached: null, fresh: false);
-    try {
-      // Decode off main isolate for smooth startup.
-      final tierIndex = _tier.index;
-      final parsed = await Isolate.run(() {
-        final data = jsonDecode(raw) as Map<String, dynamic>;
-        final list = (data['emotes'] as List<dynamic>)
-            .map((e) => GenericEmote.fromJson(e as Map<String, dynamic>))
-            .toList();
-        final tierMatches = data['tier'] is! int || data['tier'] == tierIndex;
-        return (list: list, tierMatches: tierMatches, ts: data['ts'] as String);
-      });
-      final ts = DateTime.parse(parsed.ts);
-      final cachedTime = fetchTime ?? ts;
-      final withinTtl = DateTime.now().difference(cachedTime) <= ttl;
-      final fresh = withinTtl && parsed.tierMatches;
-      return (cached: _buildChannelMap(parsed.list), fresh: fresh);
-    } catch (_) {
-      logDebug('[EmoteManager] failed to parse cached emotes');
-      return (cached: null, fresh: false);
-    }
-  }
-
-  Future<void> _savePersistedCache(
-    String key,
-    ChannelEmotes channelEmotes,
-    Duration ttl,
-  ) async {
-    // Low/nothing: persist Twitch too (zero network). Medium/high: non-Twitch only.
-    // Per-account unlocks never persist: emote-set unlocks plus catalogue
-    // unlock ids tracked from the broadcaster_id=0 fetch.
-    final persistTwitch =
-        _tier == EmoteFetchTier.low || _tier == EmoteFetchTier.nothing;
-    final saved = channelEmotes.suggestions.where((e) {
-      if (e.type != EmoteType.twitch) return true;
-      if (!persistTwitch) return false;
-      if (_isTwitchSub(e)) return false;
-      if (e.id.isNotEmpty &&
-          (_unlockedTwitchEmotes.containsKey(e.id) ||
-              _twitchCatalogUnlockIds.contains(e.id))) {
-        return false;
-      }
-      return true;
-    }).toList();
-    if (saved.isEmpty) return;
-    try {
-      final data = {
-        'ts': DateTime.now().toIso8601String(),
-        'tier': _tier.index,
-        'emotes': saved.map((e) => e.toJson()).toList(),
-      };
-      await _metaStore.write(key, jsonEncode(data));
-    } catch (_) {
-      logDebug('[EmoteManager] failed to save emotes to disk');
-    }
-  }
+  /// Sync gate for fetch lambdas; callers must have awaited
+  /// [_visibility.ensureLoaded] first.
+  bool _isProviderOn(EmoteType type) => _visibility.isProviderEnabled(type);
 
   /// Prunes persisted registries for left channels.
-  Future<void> pruneStaleChannels(Set<String> activeChannels) async {
-    try {
-      for (final key in await _metaStore.keys()) {
-        if (!key.startsWith('emotes3_')) continue;
-        // Personal seeds are account-scoped, not channel-scoped.
-        if (key == _personalSetsKey) continue;
-        final channel = key.substring('emotes3_'.length);
-        if (channel.isEmpty || channel == 'global') continue;
-        if (!activeChannels.contains(channel)) {
-          await _metaStore.delete(key);
-        }
-      }
-    } catch (_) {}
-  }
+  Future<void> pruneStaleChannels(Set<String> activeChannels) =>
+      _persistence.pruneStaleChannels(activeChannels);
 
-  /// Deletes all persisted emote metadata (global + per channel), including
-  /// left channels. Used by the nuke action so the refetch rebuilds from the
-  /// network instead of reseeding from disk.
-  Future<void> wipePersisted() async {
-    try {
-      for (final key in await _metaStore.keys()) {
-        if (key.startsWith('emotes3_')) await _metaStore.delete(key);
-      }
-    } catch (_) {
-      logDebug('[EmoteManager] failed to wipe persisted emotes');
-    }
-  }
+  /// Deletes all persisted emote metadata (global + per channel).
+  Future<void> wipePersisted() => _persistence.wipePersisted();
 
-  // ── Disk-cache GC: usage tracking ───────────────────────────────────
+  /// Empties the emote image disk cache (nuke).
+  Future<void> clearImageCache() => _images.clear();
 
-  /// Usage registry capped at max(300, _cacheCap).
-  int get _usageMaxEntries =>
-      _cacheCap > _usageMinEntries ? _cacheCap : _usageMinEntries;
-
-  final Set<String> _pendingUsageTouches = {};
-
-  /// Eviction score; null falls back to recency decay.
-  double? _registryScore(String url) {
-    final record = _emoteUsage[url];
-    if (record == null) return null;
-    final now = _now();
-    final hour = now.millisecondsSinceEpoch ~/ _hourMs;
-    final rolled = EmoteUsageRecord.rolledForward(record, hour);
-    if (!identical(rolled, record)) _emoteUsage[url] = rolled;
-    return rolled.score(now);
-  }
-
-  static const _hourMs = 3600000;
-
-  void _touchUsage(String url) {
-    if (url.isEmpty) return;
-    if (!_usageLoaded) {
-      // Defer until loaded to avoid clobbering persisted registry.
-      _pendingUsageTouches.add(url);
-      return;
-    }
-    final now = _now();
-    final hour = now.millisecondsSinceEpoch ~/ _hourMs;
-    final existing = _emoteUsage[url];
-    _emoteUsage[url] = existing == null
-        ? EmoteUsageRecord(
-            lastUsedAt: now,
-            bucketBase: hour,
-            buckets: List.filled(EmoteUsageRecord._bucketCount, 0),
-          ).bumpedAt(hour, now: now)
-        : EmoteUsageRecord.bumped(existing, hour, now: now);
-    _usageDirty = true;
-  }
-
-  Future<void> _ensureUsageLoaded() async {
-    if (_usageLoaded) return;
-    _usageLoaded = true;
-    final prefs = await _getPrefs();
-    final raw = prefs.emoteUsage;
-    if (raw != null) {
-      try {
-        final data = jsonDecode(raw) as Map<String, dynamic>;
-        final entries = data['e'];
-        if (entries is Map<String, dynamic>) {
-          final now = _now();
-          final hour = now.millisecondsSinceEpoch ~/ _hourMs;
-          for (final entry in entries.entries) {
-            final value = entry.value;
-            if (value is! Map<String, dynamic>) continue;
-            final record = EmoteUsageRecord.fromJson(value);
-            if (record == null) continue;
-            _emoteUsage[entry.key] = EmoteUsageRecord.rolledForward(
-              record,
-              hour,
-            );
-          }
-        }
-      } catch (_) {
-        logDebug('[EmoteManager] failed to parse emote usage registry');
-      }
-    }
-    if (_pendingUsageTouches.isNotEmpty) {
-      for (final url in _pendingUsageTouches) {
-        _touchUsage(url);
-      }
-      _pendingUsageTouches.clear();
-      _usageDirty = true;
-    }
-  }
-
-  Future<void> _flushUsage() async {
-    if (!_usageLoaded) return;
-    await _ensureUsageLoaded();
-    if (!_usageDirty) return;
-    _usageDirty = false;
-    if (_emoteUsage.length > _usageMaxEntries) {
-      // Drop lowest-scored entries.
-      final now = _now();
-      final entries = _emoteUsage.entries.toList()
-        ..sort((a, b) => a.value.score(now).compareTo(b.value.score(now)));
-      final overflow = entries.length - _usageMaxEntries;
-      for (final entry in entries.take(overflow)) {
-        _emoteUsage.remove(entry.key);
-      }
-    }
-    final prefs = await _getPrefs();
-    final data = <String, dynamic>{
-      'v': 2,
-      'e': {
-        for (final entry in _emoteUsage.entries)
-          entry.key: entry.value.toJson(),
-      },
-    };
-    final encoded = await Isolate.run(() => jsonEncode(data));
-    await prefs.setEmoteUsage(encoded);
-  }
-
-  /// Debounced flush for high-frequency view tracking.
-  void _scheduleUsageFlush() {
-    if (!_usageLoaded) return;
-    _usageFlushTimer?.cancel();
-    _usageFlushTimer = Timer(_usageFlushDelay, () {
-      _usageFlushTimer = null;
-      unawaited(_flushUsage());
-    });
-  }
-
-  @override
   void dispose() {
-    _disposed = true;
-    _usageFlushTimer?.cancel();
-    _precacheQueue.clear();
-    super.dispose();
+    _visibility.removeListener(_applyVisibility);
+    if (_ownsFetcher) _fetcher.dispose();
+    if (_ownsUsage) _usage.dispose();
+    if (_ownsImages) _images.dispose();
+    if (_ownsStore) _store.dispose();
+    if (_ownsVisibility) _visibility.dispose();
   }
 
   // ── Cache init + migrations ─────────────────────────────────────────
 
-  /// Runs migrations, registers priority source, enforces cap.
+  /// Loads usage history, runs cache migrations, and enforces the cap.
   Future<void> startCacheGc() async {
-    await _ensureUsageLoaded();
-    final cache = _cacheManager;
-    cache.maxObjects = _cacheCap;
-    cache.priorityScore = _registryScore;
-    cache.lastUsedAt = (url) => _emoteUsage[url]?.lastUsedAt;
-    if (!_migrationRan) {
-      final prefs = await _getPrefs();
-      if (prefs.emoteGcMigratedV1) {
-        _migrationRan = true;
-      } else {
-        // First launch after GC: clear old cache (untracked by usage registry).
-        try {
-          await DefaultCacheManager().emptyCache();
-        } catch (_) {
-          logDebug('[EmoteManager] cache migration emptyCache failed');
-        }
-        _migrationRan = true;
-        await prefs.setEmoteGcMigratedV1(true);
-      }
-    }
-    if (!_migrationRanV2) {
-      final prefs = await _getPrefs();
-      if (prefs.emoteGcMigratedV2) {
-        _migrationRanV2 = true;
-      } else {
-        // v2 migration: clear v1 DefaultCacheManager leftovers.
-        try {
-          await DefaultCacheManager().emptyCache();
-        } catch (_) {
-          logDebug('[EmoteManager] cache v2 migration emptyCache failed');
-        }
-        _migrationRanV2 = true;
-        await prefs.setEmoteGcMigratedV2(true);
-      }
-    }
-    await cache.enforceNow();
+    await _usage.ensureLoaded();
+    await _images.startCacheGc();
   }
 
-  // ── Pre-cache queue for seen emotes ──────────────────────────────────
-
-  final Set<String> _seenEmoteIds = {};
-  final _precacheQueue = <GenericEmote>[];
-  bool _isProcessingPrecache = false;
-  static const _maxConcurrentPrecache = 5;
-  // Bounded dedup and queue to prevent unbounded growth.
-  static const _maxSeenEmoteIds = 2000;
-  static const _maxPrecacheQueue = 300;
-
-  void enqueueSeenEmotes(List<GenericEmote> emotes) {
+  /// Queues seen [emotes] for usage tracking and background precache.
+  void enqueueSeenEmotes(List<Emote> emotes) {
     // Nothing tier: skip fetch and usage tracking.
-    if (_tier == EmoteFetchTier.nothing) return;
-    final fresh = <GenericEmote>[];
-    for (final e in emotes) {
-      if (_seenEmoteIds.add(e.id)) {
-        fresh.add(e);
-      }
-    }
+    if (tier == EmoteFetchTier.nothing) return;
+    final fresh = _images.precache(emotes);
     if (fresh.isEmpty) return;
-    // Evict oldest-seen ids instead of clearing the set.
-    while (_seenEmoteIds.length > _maxSeenEmoteIds) {
-      final it = _seenEmoteIds.iterator;
-      it.moveNext();
-      _seenEmoteIds.remove(it.current);
-    }
-    for (final e in fresh) {
-      _touchUsage(e.url);
-    }
-    // Zero cap: skip precache (eviction would delete immediately).
-    if (_cacheCap > 0) {
-      _precacheQueue.addAll(fresh);
-      // Bound queue: drop oldest pending when outpacing drain.
-      if (_precacheQueue.length > _maxPrecacheQueue) {
-        _precacheQueue.removeRange(
-          0,
-          _precacheQueue.length - _maxPrecacheQueue,
-        );
-      }
-      if (!_isProcessingPrecache) {
-        _processPrecacheQueue();
-      }
-    }
-    _scheduleUsageFlush();
-  }
-
-  void _processPrecacheQueue() {
-    _isProcessingPrecache = true;
-    _stepPrecache();
-  }
-
-  void _stepPrecache() {
-    if (_precacheQueue.isEmpty) {
-      _isProcessingPrecache = false;
-      return;
-    }
-    final batch = _precacheQueue.take(_maxConcurrentPrecache).toList();
-    _precacheQueue.removeRange(0, batch.length);
-    Future.wait(
-      batch.map(_precacheEmote),
-      eagerError: false,
-    ).then((_) => _stepPrecache());
-  }
-
-  Future<void> _precacheEmote(GenericEmote emote) async {
-    if (await _cacheManager.isFull()) return;
-    try {
-      await _cacheManager.getSingleFile(emote.url);
-    } catch (_) {
-      logDebug('[EmoteManager] failed to precache emote: ${emote.code}');
-    }
+    _usage.touchAll(
+      fresh
+          .map((e) => EmotePicker.chatDownloadUrl(e, tier))
+          .whereType<String>(),
+    );
+    _usage.scheduleFlush();
+    unawaited(_discardDominatedScales(fresh));
   }
 }

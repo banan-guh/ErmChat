@@ -1,5 +1,6 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 
+import '../color_utils.dart' show Color;
 import '../models/highlight_state.dart';
 import '../models/ping_rule.dart';
 import '../models/twitch_message.dart';

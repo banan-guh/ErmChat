@@ -1,14 +1,33 @@
 import 'dart:async';
 import 'dart:typed_data';
 
-import 'package:ermchat/models/generic_emote.dart';
-import 'package:ermchat/services/emote_manager.dart';
-import 'package:ermchat/widgets/emote_image_provider.dart';
+import 'package:ermchat/emotes/emote.dart';
+import 'package:ermchat/emotes/emote_catalog.dart';
+import 'package:ermchat/emotes/emote_picker.dart';
+import 'package:ermchat/services/emote_images.dart';
+import 'package:ermchat/services/emote_probe_memo.dart';
+import 'package:ermchat/widgets/emote_url_provider.dart';
+import 'package:ermchat/widgets/emote_scale_resolver.dart';
 import 'package:ermchat/widgets/emote_text.dart';
 import 'package:ermchat/widgets/inline_emote_view.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
+
+final _images = EmoteImages();
+
+/// Resolves emotes without touching the disk cache, so widget tests can render
+/// the resolver synchronously instead of waiting on cache probes.
+class _ResolvingEmoteImages extends EmoteImages {
+  @override
+  Future<({String url, String? placeholder})?> resolve(
+    Emote emote,
+    EmoteSurface surface,
+  ) async {
+    final url = emote.urlFor(EmoteScale.medium) ?? emote.scales.values.first;
+    return (url: url, placeholder: null);
+  }
+}
 
 Uint8List _pngBytes([int width = 2, int height = 2]) {
   final image = img.Image(width: width, height: height);
@@ -46,7 +65,9 @@ void main() {
     EmoteUrlProvider.debugFetchOverride = (_) => gate.future;
     const url = 'https://inline.test/gated.png';
     await tester.pumpWidget(
-      MaterialApp(home: InlineEmoteView(url: url, width: 28, height: 28)),
+      MaterialApp(
+        home: InlineEmoteView(url: url, width: 28, height: 28, images: _images),
+      ),
     );
     await tester.pump();
 
@@ -68,7 +89,14 @@ void main() {
     EmoteUrlProvider.debugFetchOverride = (_) async => _pngBytes();
     const firstUrl = 'https://inline.test/a.png';
     await tester.pumpWidget(
-      MaterialApp(home: InlineEmoteView(url: firstUrl, width: 28, height: 28)),
+      MaterialApp(
+        home: InlineEmoteView(
+          url: firstUrl,
+          width: 28,
+          height: 28,
+          images: _images,
+        ),
+      ),
     );
     await _pumpUntilLoaded(tester);
     expect(_renderOf(tester).debugFrame, isNotNull);
@@ -78,7 +106,14 @@ void main() {
         url == firstUrl ? Future.value(_pngBytes()) : secondGate.future;
     const secondUrl = 'https://inline.test/b.png';
     await tester.pumpWidget(
-      MaterialApp(home: InlineEmoteView(url: secondUrl, width: 28, height: 28)),
+      MaterialApp(
+        home: InlineEmoteView(
+          url: secondUrl,
+          width: 28,
+          height: 28,
+          images: _images,
+        ),
+      ),
     );
     await tester.pump();
 
@@ -94,21 +129,22 @@ void main() {
   testWidgets('tapping an emote span fires the emote callback', (tester) async {
     EmoteUrlProvider.debugFetchOverride = (_) async => _pngBytes();
     const code = 'KappaTap';
-    final emote = GenericEmote(
+    final emote = Emote(
       id: 'kt',
       code: code,
       // Animated non-Twitch routes to the custom pipeline (statics of any
       // provider render stock); bytes stay PNG so the still path applies.
-      type: EmoteType.sevenTv,
-      url: 'https://inline.test/tap.png',
+      meta: const SevenTvMeta(),
+      scales: const {EmoteScale.medium: 'https://inline.test/tap.png'},
       isAnimated: true,
     );
-    final channelEmotes = ChannelEmotes(byCode: {code: emote}, suggestions: []);
-    final tapped = <List<GenericEmote>>[];
+    final channelEmotes = EmoteLookup(byCode: {code: emote}, suggestions: []);
+    final tapped = <List<Emote>>[];
     final spans = EmoteText.build(
       text: code,
       twitchPositions: null,
       channelEmotes: channelEmotes,
+      emoteImages: _ResolvingEmoteImages(),
       onEmoteTap: tapped.add,
     );
 
@@ -118,6 +154,7 @@ void main() {
       ),
     );
     await _pumpUntilLoaded(tester);
+    await tester.pump();
 
     await tester.tap(find.byType(InlineEmoteView));
     expect(tapped, hasLength(1));
@@ -133,12 +170,17 @@ void main() {
     EmoteUrlProvider.debugFetchOverride = (_) async => _pngBytes(64, 32);
     const url = 'https://inline.test/wide.png';
     await tester.pumpWidget(
-      const MaterialApp(
+      MaterialApp(
         home: Center(
           child: SizedBox(
             width: 28,
             height: 28,
-            child: InlineEmoteView(url: url, width: 28, height: 28),
+            child: InlineEmoteView(
+              url: url,
+              width: 28,
+              height: 28,
+              images: _images,
+            ),
           ),
         ),
       ),
@@ -168,16 +210,26 @@ void main() {
           home: Center(
             child: Row(
               mainAxisSize: MainAxisSize.min,
-              children: const [
+              children: [
                 SizedBox(
                   width: 28,
                   height: 28,
-                  child: InlineEmoteView(url: url, width: 28, height: 28),
+                  child: InlineEmoteView(
+                    url: url,
+                    width: 28,
+                    height: 28,
+                    images: _images,
+                  ),
                 ),
                 SizedBox(
                   width: 28,
                   height: 28,
-                  child: InlineEmoteView(url: url, width: 28, height: 28),
+                  child: InlineEmoteView(
+                    url: url,
+                    width: 28,
+                    height: 28,
+                    images: _images,
+                  ),
                 ),
               ],
             ),
@@ -210,12 +262,17 @@ void main() {
         Uint8List.fromList('definitely not an image'.codeUnits);
     const url = 'https://inline.test/broken.png';
     await tester.pumpWidget(
-      const MaterialApp(
+      MaterialApp(
         home: Center(
           child: SizedBox(
             width: 28,
             height: 28,
-            child: InlineEmoteView(url: url, width: 28, height: 28),
+            child: InlineEmoteView(
+              url: url,
+              width: 28,
+              height: 28,
+              images: _images,
+            ),
           ),
         ),
       ),
@@ -224,5 +281,127 @@ void main() {
 
     expect(tester.takeException(), isNull);
     expect(_renderOf(tester).debugShowsBand, isTrue);
+  });
+
+  testWidgets('a disabled TickerMode defers the decode until enabled', (
+    tester,
+  ) async {
+    var fetches = 0;
+    EmoteUrlProvider.debugFetchOverride = (_) async {
+      fetches++;
+      return _pngBytes();
+    };
+    const url = 'https://inline.test/paused.png';
+
+    Future<void> pumpWith(bool enabled) => tester.pumpWidget(
+      MaterialApp(
+        home: TickerMode(
+          enabled: enabled,
+          child: InlineEmoteView(
+            url: url,
+            width: 28,
+            height: 28,
+            images: _images,
+          ),
+        ),
+      ),
+    );
+
+    // Background page: no fetch, no frame, just the band.
+    await pumpWith(false);
+    await _pumpUntilLoaded(tester);
+    expect(fetches, 0);
+    expect(_renderOf(tester).debugFrame, isNull);
+    expect(_renderOf(tester).debugShowsBand, isTrue);
+
+    // Focused: resolves and paints.
+    await pumpWith(true);
+    await _pumpUntilLoaded(tester);
+    expect(fetches, 1);
+    expect(_renderOf(tester).debugFrame, isNotNull);
+
+    // Refocus after a pause reuses the live completer instead of re-decoding.
+    await pumpWith(false);
+    await tester.pump();
+    await pumpWith(true);
+    await _pumpUntilLoaded(tester);
+    expect(fetches, 1);
+    expect(_renderOf(tester).debugFrame, isNotNull);
+  });
+
+  testWidgets('a warm emote skips the placeholder frame', (tester) async {
+    final memo = EmoteProbeMemo();
+    final images = EmoteImages(probeMemo: memo);
+    addTearDown(images.dispose);
+    const url = 'https://inline.test/warm.png';
+    const emote = Emote(
+      id: 'warm',
+      code: 'KappaWarm',
+      meta: SevenTvMeta(),
+      scales: {EmoteScale.medium: url},
+    );
+    // Warm the probe memo the way a prior render of this emote would.
+    await memo.probe(url, (_) async => true);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: EmoteScaleResolver(
+          emote: emote,
+          surface: EmoteSurface.chat,
+          images: images,
+          width: 28,
+          height: 28,
+          lean: true,
+        ),
+      ),
+    );
+
+    // Resolved before the first build: an Image, not the gray placeholder box.
+    expect(find.byType(Image), findsOneWidget);
+  });
+
+  testWidgets('pausing then unmounting releases without throwing', (
+    tester,
+  ) async {
+    EmoteUrlProvider.debugFetchOverride = (_) async => _pngBytes();
+    const url = 'https://inline.test/pause-dispose.png';
+    final enabled = ValueNotifier<bool>(true);
+    final shown = ValueNotifier<bool>(true);
+    addTearDown(enabled.dispose);
+    addTearDown(shown.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ValueListenableBuilder<bool>(
+          valueListenable: shown,
+          builder: (_, visible, _) => !visible
+              ? const SizedBox.shrink()
+              : ValueListenableBuilder<bool>(
+                  valueListenable: enabled,
+                  builder: (_, on, _) => TickerMode(
+                    enabled: on,
+                    child: InlineEmoteView(
+                      url: url,
+                      width: 28,
+                      height: 28,
+                      images: _images,
+                    ),
+                  ),
+                ),
+        ),
+      ),
+    );
+    await _pumpUntilLoaded(tester);
+    expect(_renderOf(tester).debugFrame, isNotNull);
+
+    // Background the page: the listener leaves but the completer stays alive.
+    enabled.value = false;
+    await tester.pump();
+    // Then unmount it: the handle release must be balanced.
+    shown.value = false;
+    await tester.pump();
+    await tester.pump();
+
+    expect(tester.takeException(), isNull);
   });
 }

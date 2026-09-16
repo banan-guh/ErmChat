@@ -2,8 +2,9 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import '../../models/emote_fetch_tier.dart';
-import '../../models/generic_emote.dart';
+import '../../emotes/emote.dart';
 import '../../services/emote_cache_manager.dart';
+import '../../services/emote_images.dart';
 import '../../services/emote_manager.dart';
 import '../../util/prefs.dart';
 import '../../widgets/dialogs.dart';
@@ -24,8 +25,8 @@ class EmotesSettingsScreen extends StatefulWidget {
   final ValueNotifier<bool>? mobileNotifier;
 
   /// Source of the disk-cache stats shown in the footer. Defaults to the
-  /// shared [EmoteCacheManager] singleton.
-  final EmoteCacheManager? cacheManager;
+  /// manager's image owner.
+  final EmoteImages? images;
 
   /// The live manager backing the per-provider visibility toggles. The
   /// section is hidden when null (tests, standalone previews).
@@ -39,7 +40,7 @@ class EmotesSettingsScreen extends StatefulWidget {
     this.onNukeEmotes,
     this.onAnimateGifsChanged,
     this.mobileNotifier,
-    this.cacheManager,
+    this.images,
     this.emoteManager,
   });
 
@@ -120,7 +121,9 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
   }
 
   Future<void> _loadStats() async {
-    final stats = await (widget.cacheManager ?? EmoteCacheManager()).stats();
+    final images = widget.images ?? widget.emoteManager?.images;
+    if (images == null) return;
+    final stats = await images.stats();
     if (mounted) setState(() => _stats = stats);
   }
 
@@ -163,14 +166,16 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
   }
 
   Future<void> _applyCacheMax() async {
-    final cache = widget.cacheManager ?? EmoteCacheManager();
     final prefs = await Prefs.load();
     await prefs.setEmoteCacheMax(_draftCacheMax);
     widget.onEmoteCacheMaxChanged?.call(_draftCacheMax);
     // Evict now so the footer reflects the new cap immediately, not just on
     // the next emote fetch.
-    cache.maxObjects = _draftCacheMax;
-    await cache.enforceNow();
+    final images = widget.images ?? widget.emoteManager?.images;
+    if (images != null) {
+      images.cacheCap = _draftCacheMax;
+      await images.cache.enforceNow();
+    }
     if (!mounted) return;
     setState(() => _appliedCacheMax = _draftCacheMax);
     _loadStats();

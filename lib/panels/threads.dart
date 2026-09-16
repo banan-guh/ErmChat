@@ -9,7 +9,7 @@ import '../chat/chat.dart';
 import '../composer/composer_controller.dart';
 import '../models/twitch_message.dart';
 import '../services/saved_threads_store.dart';
-import '../services/seven_tv_paint_service.dart';
+import '../widgets/seven_tv_paint_service.dart';
 import '../sheets/message_menu.dart';
 import '../sheets/user_sheet.dart';
 import '../util/haptics.dart';

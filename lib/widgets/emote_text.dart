@@ -3,23 +3,23 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:linkify/linkify.dart';
 import 'package:url_launcher/url_launcher.dart';
-import '../services/emote_cache_manager.dart';
+import '../services/emote_images.dart';
+import '../emotes/emote_picker.dart';
 import '../util/constants.dart';
-import 'emote_image_provider.dart';
 import '../util/log.dart';
-import 'inline_emote_view.dart';
+import 'emote_scale_resolver.dart';
 import '../services/link_whitelist.dart';
 import 'link_whitelist.dart';
-import '../models/generic_emote.dart';
+import '../emotes/emote.dart';
+import '../emotes/emote_catalog.dart';
 import '../models/twitch_message.dart';
 import '../services/emote_manager.dart';
 
 class _EmoteSpanData {
-  final GenericEmote base;
-  final List<GenericEmote> overlays;
+  final Emote base;
+  final List<Emote> overlays;
 
   const _EmoteSpanData({required this.base, this.overlays = const []});
 }
@@ -28,8 +28,9 @@ class EmoteText {
   static List<InlineSpan> build({
     required String text,
     required List<EmotePosition>? twitchPositions,
-    required ChannelEmotes? channelEmotes,
-    void Function(List<GenericEmote>)? onEmoteTap,
+    required EmoteLookup? channelEmotes,
+    required EmoteImages emoteImages,
+    void Function(List<Emote>)? onEmoteTap,
     double scale = 1.0,
     List<String>? linkWhitelist,
     void Function(String email)? onEmailTap,
@@ -49,6 +50,7 @@ class EmoteText {
         showImages: showImages,
         onImageTap: onImageTap,
         animateGifs: animateGifs,
+        emoteImages: emoteImages,
       );
     } catch (e, stack) {
       logDebug('[EmoteText.build] error: $e');
@@ -68,8 +70,9 @@ class EmoteText {
   static List<InlineSpan> _buildUnsafe({
     required String text,
     required List<EmotePosition>? twitchPositions,
-    required ChannelEmotes? channelEmotes,
-    void Function(List<GenericEmote>)? onEmoteTap,
+    required EmoteLookup? channelEmotes,
+    required EmoteImages emoteImages,
+    void Function(List<Emote>)? onEmoteTap,
     double scale = 1.0,
     List<String>? linkWhitelist,
     void Function(String email)? onEmailTap,
@@ -134,6 +137,7 @@ class EmoteText {
             onEmoteTap: onEmoteTap,
             scale: scale,
             animateGifs: animateGifs,
+            emoteImages: emoteImages,
           ),
         );
         currentBase = null;
@@ -199,7 +203,7 @@ class EmoteText {
   static List<_Segment> _buildSegments(
     String text,
     List<EmotePosition>? twitchPositions,
-    Map<String, GenericEmote> byCode,
+    Map<String, Emote> byCode,
   ) {
     return EmoteManager.tokenize(
       text: text,
@@ -217,54 +221,39 @@ class EmoteText {
     }).toList();
   }
 
-  static Size _emoteSize(GenericEmote emote, double scale) {
+  static Size _emoteSize(Emote emote, double scale) {
     final s = min(28.0, 28.0 * emote.relativeScale) * scale;
     return Size(s * emote.aspectRatio, s);
   }
 
   static Widget _emoteImage(
-    GenericEmote emote,
+    Emote emote,
     double width,
     double height, {
     required bool animateGifs,
+    required EmoteImages emoteImages,
+    double scale = 1.0,
   }) {
-    // Engine-routable emotes (statics, playing Twitch GIFs) use the stock
-    // provider: one shared decode per URL, no per-copy fan-out. See
-    // [emoteUsesCustomLoop] for the single routing rule.
-    if (!emoteUsesCustomLoop(emote, animateGifs: animateGifs)) {
-      return Image(
-        key: ValueKey(emote.url),
-        image: CachedNetworkImageProvider(
-          emote.url,
-          cacheManager: EmoteCacheManager(),
-        ),
-        width: width,
-        height: height,
-        fit: BoxFit.contain,
-        gaplessPlayback: true,
-        // Static shared-gray box while bytes load: no clock, no per-tick
-        // repaints. Same look as every other placeholder app-wide.
-        loadingBuilder: (_, child, progress) => progress == null
-            ? child
-            : Container(
-                width: width,
-                height: height,
-                decoration: BoxDecoration(
-                  color: kEmotePlaceholderGray,
-                  borderRadius: BorderRadius.circular(kEmotePlaceholderRadius),
-                ),
-              ),
-        errorBuilder: (_, _, _) => SizedBox(width: width, height: height),
-      );
-    }
-    // Lean renderer: one render box, shared completer. Lower per-copy cost than EmoteImage.
-    return InlineEmoteView(url: emote.url, width: width, height: height);
+    // The resolver picks the best cached scale live and falls back to the code
+    // as text when nothing is cached on the nothing tier.
+    return EmoteScaleResolver(
+      emote: emote,
+      surface: EmoteSurface.chat,
+      images: emoteImages,
+      width: width,
+      height: height,
+      fit: BoxFit.contain,
+      lean: true,
+      animateGifs: animateGifs,
+      textStyle: TextStyle(fontSize: 14 * scale),
+    );
   }
 
   // Bounding box across overlays; center each image. Clip.none for overflow.
   static WidgetSpan _buildEmoteSpan(
     _EmoteSpanData data, {
-    void Function(List<GenericEmote>)? onEmoteTap,
+    required EmoteImages emoteImages,
+    void Function(List<Emote>)? onEmoteTap,
     double scale = 1.0,
     bool animateGifs = true,
   }) {
@@ -286,6 +275,8 @@ class EmoteText {
           baseSize.width,
           baseSize.height,
           animateGifs: animateGifs,
+          emoteImages: emoteImages,
+          scale: scale,
         ),
       ),
     ];
@@ -302,6 +293,8 @@ class EmoteText {
             o.width,
             o.height,
             animateGifs: animateGifs,
+            emoteImages: emoteImages,
+            scale: scale,
           ),
         ),
       );
@@ -317,6 +310,8 @@ class EmoteText {
           baseSize.width,
           baseSize.height,
           animateGifs: animateGifs,
+          emoteImages: emoteImages,
+          scale: scale,
         ),
       );
     } else {
@@ -351,7 +346,7 @@ class TextSegment implements _Segment {
 }
 
 class EmoteSegment implements _Segment {
-  final GenericEmote emote;
+  final Emote emote;
   final int startIndex;
   final int endIndex;
 

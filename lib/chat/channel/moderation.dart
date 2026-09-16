@@ -18,6 +18,9 @@ class Moderation {
   static const maxHeldPerChannel = 200;
   static const maxActivityPerChannel = 200;
   static const maxWarningsPerChannel = 200;
+  // Expired bans are only swept opportunistically (Mod View build); past this
+  // size a ban insert sweeps first so the map cannot grow for a whole session.
+  static const banPruneThreshold = 256;
 
   final List<HeldMessage> _held = [];
   final List<ModActivityEntry> _feed = [];
@@ -134,6 +137,9 @@ class Moderation {
   }
 
   void putBan(BanEntry ban) {
+    // TODO: review this sweep (threshold and whether permanent bans should also
+    // age out) now that the mod panel is the only other prune path.
+    if (_bans.length >= banPruneThreshold) pruneExpiredBans();
     _bans[ban.login.toLowerCase()] = ban;
     modActivityVersion.value++;
   }

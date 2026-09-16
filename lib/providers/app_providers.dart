@@ -12,12 +12,13 @@ import '../services/ping_manager.dart';
 import '../services/pip_service.dart';
 import '../services/recent_messages.dart';
 import '../services/seven_tv_event_client.dart';
-import '../services/seven_tv_paint_service.dart';
+import '../widgets/seven_tv_paint_service.dart';
 import '../services/third_party_badge_service.dart';
 import '../services/twitch_api.dart';
 import '../services/twitch_badge_service.dart';
 import '../services/user_store.dart';
 import '../util/connectivity.dart';
+import 'emote_providers.dart';
 
 /// App-scope shared objects: transports, managers, and the mutable kernel.
 ///
@@ -81,11 +82,29 @@ final sevenTvClientProvider = Provider<SevenTvEventClient>((ref) {
 
 final emoteManagerProvider = Provider<EmoteManager>((ref) {
   final manager = EmoteManager(
-    probe: ref.watch(connectivityServiceProvider).checkConnectivity,
+    store: ref.watch(emoteStoreProvider),
+    visibility: ref.watch(emoteVisibilityProvider),
+    fetcher: ref.watch(emoteFetcherProvider),
+    images: ref.watch(emoteImagesProvider),
+    usage: ref.watch(emoteUsageRegistryProvider),
+    personalSets: ref.watch(sevenTvPersonalSetsProvider),
+    twitchSets: ref.watch(twitchEmoteSetsProvider),
+    persistence: ref.watch(emotePersistenceProvider),
+    readTier: () => ref.read(emoteFetchTierProvider),
+    writeTier: (value) => ref.read(emoteFetchTierProvider.notifier).set(value),
+    writeCacheCap: (value) =>
+        ref.read(emoteCacheCapProvider.notifier).set(value),
     getChannelUserIds: ref.read(channelUserIdsProvider),
   );
   ref.onDispose(manager.dispose);
   return manager;
+});
+
+/// Narrow read-only view of the emote manager for the render path. Consumers
+/// (message builder) read only the catalog version, the sender lookup, and
+/// the image owner instead of the whole manager.
+final emoteLookupSourceProvider = Provider<EmoteLookupSource>((ref) {
+  return ref.watch(emoteManagerProvider);
 });
 
 final badgeServiceProvider = Provider<TwitchBadgeService>((ref) {

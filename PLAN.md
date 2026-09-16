@@ -35,7 +35,7 @@ tests unless noted.
   max messages, reply-to, blocked logins, shared-chat mode, chat readiness, macros),
   the chat pipeline (`ChatConnectionManager`), `BroadcastWidgets`, and `CommandHandler`.
   `HomeScreen` reads them and no longer constructs or disposes them. Only the
-  UI-adjacent owners (composer, panels, chrome, message builder, emote applier, media
+  UI-adjacent owners (composer, panels, chrome, message builder, media
   upload, panel manager, link whitelist, channel notifier) still construct in
   `HomeScreen`.
 - **Phase 3 (observation migration): started.** `HomeScreen` observes the
@@ -56,7 +56,7 @@ tests unless noted.
 - **Phase 6 (kernel re-evaluation): resolved as keep the engine.**
 - **This session (durability pass).** Providerized `BroadcastWidgets` and
   `CommandHandler`; added `whisperSystem`/`whisperSent` signals to
-  `ChatUiSignals`; added `emoteManagerTickProvider`, `twitchAuthTickProvider`,
+  `ChatUiSignals`; added `emoteStateProvider`, `twitchAuthTickProvider`,
   `connectivityTickProvider`, and `connectionStateProvider`; removed the corresponding
   `addListener`/`removeListener` pairs from `HomeScreen` and `EmoteMenuPanelWidget`;
   extended the architecture test to six rules (pipeline imports plus UI constructions);
@@ -70,7 +70,7 @@ tests unless noted.
   manager's mutable `onMention`/`onWhisper` fields folded into `ChatSinks`. `ChatUiSignals`
   is down to six members (`focusComposer`, `banner`, `whisper`, `userEmoteSets`,
   `whisperSystem`, `whisperSent`), and every one targets a UI owner that lives outside the
-  pipeline (composer, notices, mentions panel, `EmoteApplier`). The four custom
+  pipeline (composer, notices, mentions panel, `EmoteStore`). The four custom
   ChangeNotifier bridges collapsed into one `ChangeNotifierTick` adaptor. The provider owns
   construction and teardown; the screen owns when to connect (app lifecycle).
   Finishing further means touching those UI owners, which is the next phase, not the

@@ -1,18 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../models/generic_emote.dart';
+import '../emotes/emote.dart';
+import '../emotes/emote_picker.dart';
 import '../providers/app_providers.dart';
-import '../providers/feature_providers.dart';
+import '../providers/emote_providers.dart';
+import '../services/emote_images.dart';
 import '../services/emote_manager.dart';
 import '../util/sheet_drag.dart';
 import '../widgets/tabbed_layout.dart';
-import 'emote_image.dart';
+import 'emote_scale_resolver.dart';
 
 class EmoteMenuPanelWidget extends ConsumerStatefulWidget {
   final ScrollController scrollController;
   final bool isActive;
   final String? selectedChannel;
-  final void Function(GenericEmote) onEmoteSelected;
+  final void Function(Emote) onEmoteSelected;
   final VoidCallback onClose;
   final DraggableScrollableController sheetCtrl;
   final double emoteMaxFraction;
@@ -35,6 +37,7 @@ class EmoteMenuPanelWidget extends ConsumerStatefulWidget {
 
 class EmoteMenuPanelWidgetState extends ConsumerState<EmoteMenuPanelWidget> {
   late final EmoteManager _emoteManager = ref.read(emoteManagerProvider);
+  late final EmoteImages _images = ref.read(emoteImagesProvider);
 
   // Close threshold: 5% of screen height (sheet-size units).
   static const double _emoteCloseFraction = 0.05;
@@ -43,11 +46,11 @@ class EmoteMenuPanelWidgetState extends ConsumerState<EmoteMenuPanelWidget> {
   static const double _maxPanelWidth = 480;
 
   int _emoteTabIndex = 0;
-  List<GenericEmote> _cachedRecentEmotes = [];
+  List<Emote> _cachedRecentEmotes = [];
   bool _recentEmotesLoaded = false;
-  // Cached grid cells by emote id. Validated against URL + padding; 7TV deltas short-circuit.
-  final Map<String, ({String url, double padding, Widget widget})> _cellCache =
-      {};
+  // Cached grid cells by emote id, validated against URL and padding on each
+  // rebuild so a changed asset or cell size rebuilds the cell.
+  final Map<String, ({double padding, Widget widget})> _cellCache = {};
   double? _lastPanelWidth;
 
   @override
@@ -85,7 +88,7 @@ class EmoteMenuPanelWidgetState extends ConsumerState<EmoteMenuPanelWidget> {
   @override
   Widget build(BuildContext context) {
     // Refresh recents while open; reopen handles the closed case.
-    ref.listen(emoteManagerTickProvider, (_, _) {
+    ref.listen(emoteStateProvider, (_, _) {
       if (!widget.isActive) return;
       _loadRecentEmotes();
     });
@@ -284,7 +287,7 @@ class EmoteMenuPanelWidgetState extends ConsumerState<EmoteMenuPanelWidget> {
 
   // Sectioned grid with group headers (Subs by channel, Global by provider).
   Widget _buildGroupedEmoteGrid(
-    Map<String, List<GenericEmote>> groups,
+    Map<String, List<Emote>> groups,
     ScrollController? scrollController,
   ) {
     final sidePadding = _panelWidth * 0.08;
@@ -340,7 +343,7 @@ class EmoteMenuPanelWidgetState extends ConsumerState<EmoteMenuPanelWidget> {
   }
 
   Widget _buildEmoteGrid(
-    List<GenericEmote> emotes,
+    List<Emote> emotes,
     ScrollController? scrollController,
   ) {
     final sidePadding = _panelWidth * 0.08;
@@ -372,7 +375,7 @@ class EmoteMenuPanelWidgetState extends ConsumerState<EmoteMenuPanelWidget> {
   }
 
   // Maps cached ids to current indices. Keyed reconciliation moves unchanged cells.
-  Map<String, int> _idToIndex(List<GenericEmote> emotes) {
+  Map<String, int> _idToIndex(List<Emote> emotes) {
     final pending = _cellCache.keys.toSet();
     if (pending.isEmpty) return const {};
     final map = <String, int>{};
@@ -385,7 +388,7 @@ class EmoteMenuPanelWidgetState extends ConsumerState<EmoteMenuPanelWidget> {
     return map;
   }
 
-  ChildIndexGetter _idToIndexClosure(List<GenericEmote> emotes) {
+  ChildIndexGetter _idToIndexClosure(List<Emote> emotes) {
     final idToIndex = _idToIndex(emotes);
     return (key) {
       if (key is ValueKey<String>) return idToIndex[key.value];
@@ -404,11 +407,10 @@ class EmoteMenuPanelWidgetState extends ConsumerState<EmoteMenuPanelWidget> {
     return w > _maxPanelWidth ? _maxPanelWidth : w;
   }
 
-  Widget _buildEmoteGridItem(GenericEmote emote, double cellPadding) {
-    // Preview cells use EmoteImage: shared decode, disposed with last widget.
-    final url = emote.url;
+  Widget _buildEmoteGridItem(Emote emote, double cellPadding) {
+    // Cells resolve their own scale, so the cache only tracks layout.
     final cached = _cellCache[emote.id];
-    if (cached != null && cached.url == url && cached.padding == cellPadding) {
+    if (cached != null && cached.padding == cellPadding) {
       return cached.widget;
     }
     // Usage marks deferred via post-frame callback (side effect, must not run during build).
@@ -423,20 +425,20 @@ class EmoteMenuPanelWidgetState extends ConsumerState<EmoteMenuPanelWidget> {
         onTap: () => widget.onEmoteSelected(emote),
         child: Padding(
           padding: EdgeInsets.all(cellPadding),
-          child: EmoteImage(
-            url: url,
+          child: EmoteScaleResolver(
+            emote: emote,
+            surface: EmoteSurface.grid,
+            images: _images,
             width: double.infinity,
             height: double.infinity,
             fit: BoxFit.contain,
-            alternateUrls: [if (emote.url1x != null) emote.url1x!],
             errorWidget: const Icon(Icons.broken_image, size: 20),
-            emote: emote,
           ),
         ),
       ),
     );
     if (emote.id.isNotEmpty) {
-      _cellCache[emote.id] = (url: url, padding: cellPadding, widget: cell);
+      _cellCache[emote.id] = (padding: cellPadding, widget: cell);
     }
     return cell;
   }

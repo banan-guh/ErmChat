@@ -2,10 +2,13 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:ermchat/widgets/emote_image.dart';
-import 'package:ermchat/widgets/emote_image_provider.dart';
+import 'package:ermchat/services/emote_images.dart';
+import 'package:ermchat/widgets/emote_url_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
+
+final _images = EmoteImages();
 
 Uint8List _pngBytes([int width = 2, int height = 2]) {
   final image = img.Image(width: width, height: height);
@@ -54,7 +57,12 @@ void main() {
             body: ListView(
               children: [
                 ListTile(
-                  leading: EmoteImage(url: url, width: 28, height: 28),
+                  leading: EmoteImage(
+                    url: url,
+                    width: 28,
+                    height: 28,
+                    emoteImages: _images,
+                  ),
                   title: const Text('emote'),
                 ),
               ],
@@ -78,7 +86,14 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
-            body: Center(child: EmoteImage(url: altUrl, width: 28, height: 28)),
+            body: Center(
+              child: EmoteImage(
+                url: altUrl,
+                emoteImages: _images,
+                width: 28,
+                height: 28,
+              ),
+            ),
           ),
         ),
       );
@@ -97,6 +112,7 @@ void main() {
                 ListTile(
                   leading: EmoteImage(
                     url: mainUrl,
+                    emoteImages: _images,
                     width: 28,
                     height: 28,
                     alternateUrls: [altUrl],
@@ -134,6 +150,7 @@ void main() {
               height: 60,
               child: EmoteImage(
                 url: url,
+                emoteImages: _images,
                 width: double.infinity,
                 height: double.infinity,
               ),
@@ -162,7 +179,11 @@ void main() {
       MaterialApp(
         home: Scaffold(
           body: ListView(
-            children: [Center(child: EmoteImage(url: url))],
+            children: [
+              Center(
+                child: EmoteImage(url: url, emoteImages: _images),
+              ),
+            ],
           ),
         ),
       ),

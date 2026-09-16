@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import '../models/generic_emote.dart';
+import '../emotes/emote.dart';
 import 'emote_manager.dart';
 import 'emote_providers/seven_tv_emotes.dart';
 import 'seven_tv_event_client.dart';
@@ -64,7 +64,7 @@ class SevenTvConsumer {
               (e) =>
                   SevenTvEmoteProvider.parseSingleEmote(e.raw, personal: true),
             )
-            .whereType<GenericEmote>()
+            .whereType<Emote>()
             .toList(),
         removedIds: event.removed.map((e) => e.id).toList(),
         renamed: {for (final r in event.renamed) r.id: r.newName},
@@ -74,7 +74,7 @@ class SevenTvConsumer {
 
     final added = event.added
         .map((e) => SevenTvEmoteProvider.parseSingleEmote(e.raw, channel: true))
-        .whereType<GenericEmote>()
+        .whereType<Emote>()
         .toList();
     final removedIds = event.removed.map((e) => e.id).toList();
     final renamed = <String, ({String newName, String oldName})>{};

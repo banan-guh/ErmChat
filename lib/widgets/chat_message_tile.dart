@@ -1,9 +1,10 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../color_utils.dart';
 import '../models/twitch_message.dart';
-import '../services/seven_tv_paint_service.dart';
+import 'seven_tv_paint_service.dart';
 import '../util/constants.dart';
 import '../util/log.dart';
 import '../util/timestamp_formatter.dart';
@@ -310,6 +311,8 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
       fontSize: 14 * s,
       color: theme.colorScheme.onSurfaceVariant,
       decoration: TextDecoration.none,
+      // Tabular digits make a padded timestamp column an exact width.
+      fontFeatures: const [FontFeature.tabularFigures()],
     );
     final bodyTextStyle = TextStyle(
       fontSize: 14 * s,
@@ -319,34 +322,20 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
       decoration: TextDecoration.none,
     );
 
+    // Timestamp as one span: padded to the format's longest output plus a
+    // trailing gap, so usernames start at the same pixel and the timestamp
+    // never crowds them. Avoids a nested Text and its own paragraph.
+    final tsSpan = ts.isEmpty
+        ? null
+        : TextSpan(
+            text: '${ts.padLeft(timestampMaxLength(widget.timestampFormat))} ',
+            style: tsStyle,
+          );
+
     Widget child = Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text.rich(
-              TextSpan(
-                children: [
-                  WidgetSpan(
-                    alignment: PlaceholderAlignment.middle,
-                    child: SizedBox(
-                      width: ts.isEmpty ? 0 : ts.length * 8.5 * s,
-                      child: Text(
-                        ts,
-                        textAlign: TextAlign.left,
-                        maxLines: 1,
-                        overflow: TextOverflow.clip,
-                        style: tsStyle,
-                      ),
-                    ),
-                  ),
-                  ...children,
-                ],
-                style: bodyTextStyle,
-              ),
-            ),
-          ),
-        ],
+      child: Text.rich(
+        TextSpan(children: [?tsSpan, ...children], style: bodyTextStyle),
       ),
     );
 
@@ -454,11 +443,15 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
 
     child = Material(color: rowColor, child: child);
 
-    child = Semantics(
-      label: semanticsLabel,
-      excludeSemantics: true,
-      child: child,
-    );
+    // Semantics are only built when a screen reader is active: the per-row
+    // node is pure cost otherwise, and the label is still there when needed.
+    if (SemanticsBinding.instance.semanticsEnabled) {
+      child = Semantics(
+        label: semanticsLabel,
+        excludeSemantics: true,
+        child: child,
+      );
+    }
 
     return child;
   }

@@ -6,9 +6,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_list_view/flutter_list_view.dart';
 import '../providers/app_providers.dart';
 import '../providers/chat_pipeline.dart';
+import '../providers/emote_providers.dart';
 import '../providers/feature_providers.dart';
 import '../providers/ui_state_providers.dart';
-import '../models/generic_emote.dart';
+import '../emotes/emote.dart';
 import '../models/twitch_message.dart';
 import '../util/haptics.dart';
 import '../services/twitch_api.dart';
@@ -23,13 +24,16 @@ import '../services/ping_manager.dart';
 import '../services/ignore_manager.dart';
 import '../services/link_whitelist.dart';
 import '../services/emote_manager.dart';
+import '../services/emote_controller.dart';
+import '../services/emote_usage_registry.dart';
+import '../services/emote_store.dart';
 import '../util/data_usage.dart';
 import '../services/stream_player_controller.dart';
 import '../services/pip_service.dart';
 import '../services/analytics_service.dart';
 import '../services/twitch_badge_service.dart';
 import '../services/third_party_badge_service.dart';
-import '../services/seven_tv_paint_service.dart';
+import '../widgets/seven_tv_paint_service.dart';
 import '../util/log.dart';
 import '../util/constants.dart';
 import '../util/prefs.dart';
@@ -40,7 +44,7 @@ import '../widgets/welcome_dialog.dart';
 import '../services/user_store.dart';
 import '../chat/chat.dart';
 import '../client/session.dart';
-import '../services/suggestion.dart';
+import '../composer/suggestion.dart';
 import '../services/notification_service.dart';
 import '../services/tts_controller.dart';
 import '../widgets/autocomplete_dropdown.dart';
@@ -54,7 +58,6 @@ import '../sheets/message_menu.dart';
 import '../sheets/user_sheet.dart';
 import '../channels/channel_manager.dart';
 import '../chrome/channel_stack.dart';
-import '../emotes/emote_applier.dart';
 import '../chrome/home_app_bar.dart';
 import '../chrome/stream_layout.dart';
 import '../panels/threads.dart';
@@ -62,7 +65,7 @@ import '../panels/mentions.dart';
 import '../panels/mod_panel.dart';
 import '../panels/search.dart';
 import '../widgets/nuke_overlay.dart';
-import '../widgets/emote_image_provider.dart';
+import '../widgets/emote_url_provider.dart';
 import '../widgets/media_upload_controller.dart';
 import '../widgets/emote_menu_panel.dart';
 import '../widgets/message_builder.dart';
@@ -109,8 +112,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         HomeAppBarHost,
         ChannelPanelsHost,
         StreamPanelsHost,
-        ChannelManagerHost,
-        EmoteApplierHost {
+        ChannelManagerHost {
   static const _mentionsChannel = '@mentions';
 
   ConnectivityService? _connectivityServiceCache;
@@ -173,7 +175,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   }
 
   late final MessageBuilder _messageBuilder = MessageBuilder(
-    emoteManager: _emoteManager,
+    emoteSource: _emoteLookupSource,
     badgeService: _badgeService,
     thirdPartyBadgeService: _thirdPartyBadgeService,
     onShowEmoteSheet: (emotes) => _userSheets.showEmoteSheet(context, emotes),
@@ -206,6 +208,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   EmoteManager get _emoteManager {
     _emoteManagerCache ??= ref.read(emoteManagerProvider);
     return _emoteManagerCache!;
+  }
+
+  EmoteLookupSource? _emoteLookupSourceCache;
+  EmoteLookupSource get _emoteLookupSource {
+    _emoteLookupSourceCache ??= ref.read(emoteLookupSourceProvider);
+    return _emoteLookupSourceCache!;
+  }
+
+  EmoteUsageRegistry? _emoteUsageCache;
+  EmoteUsageRegistry get _emoteUsage {
+    _emoteUsageCache ??= ref.read(emoteUsageRegistryProvider);
+    return _emoteUsageCache!;
   }
 
   TwitchBadgeService get _badgeService => ref.read(badgeServiceProvider);
@@ -305,7 +319,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     chatConn: _chatConn,
     commandHandler: _commandHandler,
     twitchAuth: _twitchAuth,
-    emoteManager: _emoteManager,
+    emoteSource: _emoteLookupSource,
+    emoteUsage: _emoteUsage,
     userStore: _userStore,
     chat: _chat,
     session: _session,
@@ -380,7 +395,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     twitchApi: _twitchApi,
     twitchAuth: _twitchAuth,
     modActions: _modActions,
-    emoteManager: _emoteManager,
+    emoteSource: _emoteLookupSource,
+    emoteUsage: _emoteUsage,
     messageBuilder: _messageBuilder,
     composer: _composer,
     menus: _menus,
@@ -534,18 +550,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     host: this,
   );
 
-  late final _emotes = EmoteApplier(
-    emoteManager: _emoteManager,
-    twitchApi: _twitchApi,
-    twitchAuth: _twitchAuth,
-    chat: _chat,
-    badgeService: _badgeService,
-    connectivityService: _connectivityService,
-    isMobile: _isMobile,
-    networkBusy: _networkBusy,
-    host: this,
-    getChannelUserIds: ref.read(channelUserIdsProvider),
-  );
+  EmoteController? _emoteControllerCache;
+  EmoteController get _emotes {
+    _emoteControllerCache ??= ref.read(emoteControllerProvider);
+    return _emoteControllerCache!;
+  }
 
   // MentionsPanelsHost: shell-owned state the inbox reads but does not own.
   @override
@@ -629,7 +638,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   @override
   FlutterListViewController scrollCtrl(String channel) => _scrollCtrl(channel);
 
-  // ChannelManagerHost / EmoteApplierHost.
+  // ChannelManagerHost.
   @override
   set selectedChannel(String? value) =>
       ref.read(selectedChannelProvider.notifier).set(value);
@@ -650,8 +659,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   @override
   void forgetAtBottomNotifier(String channel) =>
       _atBottomNotifiers.remove(channel)?.dispose();
-  @override
-  void showSnack(String message) => _chatNotice.show(message);
 
   @override
   void initState() {
@@ -662,7 +669,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _session.seed(widget.initialCurrentUserLogin);
     _session.version.addListener(_onSessionApplied);
     _pingManager.setAccount(widget.initialCurrentUserLogin);
-    _emotes.loadPrefs();
     _mentionsTabCtrl = TabController(length: 2, vsync: this);
     _mentionsTabCtrl.addListener(_mentions.onMentionsTabChanged);
     _threadsTabCtrl = TabController(length: 3, vsync: this);
@@ -712,15 +718,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _chat.mentions.version.addListener(_onMentionsContent);
     _syncChannelSubs();
     _subscribeSignals();
-    _startChatPipe();
-    _emoteManager.startCacheGc();
+    _connectChat();
+    _emotes.start();
     _connectivityService.init();
     _badgeService.fetchGlobalBadges(_twitchAuth);
     _thirdPartyBadgeService.bindSevenTvEvents(_sevenTvClient);
     _sevenTvPaintService.bindSevenTvEvents(_sevenTvClient);
-    _sevenTvEntitlementSub = _sevenTvClient.onEntitlement.listen(
-      _emoteManager.applySevenTvEntitlement,
-    );
     unawaited(_thirdPartyBadgeService.fetchFfzBadges());
     unawaited(_thirdPartyBadgeService.fetchBttvBadges());
     WidgetsBinding.instance.addObserver(this);
@@ -1077,18 +1080,23 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _emotes.reconcileTier();
   }
 
-  void _onEmotesChanged() {
+  void _onEmotesChanged(EmoteChange change) {
     _composer.invalidateEmoteCache();
+    // Overlay refresh (personal/foreign 7TV sets): cached lookups refresh, but
+    // rendered spans and channel infos stay valid, so skip the fan-out.
+    if (change.overlay) {
+      return;
+    }
     // Emote data changed: cached message spans are validated against
     // EmoteManager.version, so no O(total messages) clear is needed here.
     // Just bump the affected channels so visible tiles lazily recompute.
-    final channel = _emoteManager.consumeChangedChannel();
+    final channel = change.channel;
     if (channel != null) {
       // A live 7TV delta never re-renders existing messages: they keep the
       // emote state they were built with (no retroactive add/remove in chat),
       // and the sheet/autocomplete read the updated lists themselves. Only a
       // full refetch (no delta codes) clears the channel's tile cache.
-      if (_emoteManager.consumeChangedCodes(channel) != null) return;
+      if (change.deltaCodes != null) return;
       _tileCache.remove(channel);
       _chat.channelFor(channel)?.info.touch();
       _onPanelDataChanged(channel);
@@ -1115,8 +1123,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     return _atBottomNotifiers.putIfAbsent(channel, () => ValueNotifier(true));
   }
 
-  StreamSubscription<SevenTvEntitlementEvent>? _sevenTvEntitlementSub;
-
   final _contentListeners = <String, VoidCallback>{};
   final _infoListeners = <String, VoidCallback>{};
   final _modListeners = <String, VoidCallback>{};
@@ -1140,6 +1146,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   // signal to its existing UI owner. Dispose detaches every subscription.
   void _subscribeSignals() {
     final signals = _signals;
+    final emoteSignals = ref.read(emoteSignalsProvider);
     _signalUnsubs.addAll([
       signals.focusComposer.add(_onFocusComposerSignal),
       signals.banner.add(_showBanner),
@@ -1151,6 +1158,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       signals.whisperSent.add(
         (s) => _mentions.onWhisperSent(s.target, s.message),
       ),
+      emoteSignals.snack.add(_chatNotice.show),
+      emoteSignals.busy.add((value) => _networkBusy.value = value),
     ]);
   }
 
@@ -1266,30 +1275,25 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _mod.refreshOnData(changedChannel);
   }
 
-  // Cold-start pipe shared with account switch: IRC connect and emote
-  // priming run together so neither gates the other.
-  void _startChatPipe() {
+  // Cold-start pipe shared with account switch: the IRC connect. Emote
+  // priming and post-auth refresh live in EmoteController.
+  void _connectChat() {
     _chatConn.connect();
-    _emoteManager.accessToken = _twitchAuth.accessToken;
-    _emoteManager.viewerTwitchId = _twitchAuth.userId;
-    _emoteManager.preloadGlobalEmotes();
-    unawaited(_emoteManager.loadViewerPersonalSevenTvSets());
   }
 
   void _onAuthChanged() {
     _mod.refreshOnData(null);
-    if (_session.login?.toLowerCase() != _twitchAuth.login?.toLowerCase()) {
+    final switched =
+        _session.login?.toLowerCase() != _twitchAuth.login?.toLowerCase();
+    if (switched) {
       // Account switched (or signed out): drop identity and account-scoped
       // chat state. The remaining resets are HomeScreen side effects.
       _session.clear();
       _chat.clearAccountScopedState();
       _pingManager.setAccount(null);
-      // The emote-set / block / mention caches are per-account: reset them so
-      // the new account's USERSTATE re-fetches its sub emotes (instead of the
-      // old account's set IDs being deduped out), blocks are re-fetched, the
-      // retroactive mention scan re-runs, and channels re-resolve emotes with
-      // the new token.
-      _emoteManager.resetUserEmoteState();
+      // The block / mention caches are per-account: reset them so blocks are
+      // re-fetched, the retroactive mention scan re-runs, and channels
+      // re-resolve emotes with the new token.
       _blocksFetched = false;
       // Fail closed until the new account's block list arrives; without this
       // chat unhides immediately and the old account's list briefly filters.
@@ -1303,10 +1307,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       _channelManager.scanHistoryForMentions();
       unawaited(_ensureBlockedUsersLoaded());
     }
-    // Same pipe as cold start: connect now so the indicator flips at once;
-    // the full re-resolve runs alongside instead of gating the reconnect.
-    _startChatPipe();
-    unawaited(_emotes.refreshAfterAuth());
+    // Same pipe as cold start: connect now so the indicator flips at once.
+    // The emote lifecycle resets/re-primes/refetches alongside instead of
+    // gating the reconnect.
+    _connectChat();
+    unawaited(switched ? _emotes.onAccountChanged() : _emotes.onAuthChanged());
   }
 
   // Reads the persisted manual tier, auto mode, and disk-cache cap, then
@@ -1424,7 +1429,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _composer.dispose();
     _uploadController.dispose();
     _networkBusy.dispose();
-    _sevenTvEntitlementSub?.cancel();
     _linkWhitelist.removeListener(_onLinkWhitelistChanged);
     _streamPlayer.removeListener(_stream.onStreamPlayerChanged);
     _streamPlayer.dispose();
@@ -1567,7 +1571,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           onGifHeightChanged: _setGifHeight,
           onShowImagesChanged: _setShowImages,
           onImageHeightChanged: _setImageHeight,
-          onEmoteTierChanged: _emotes.applyTier,
+          onEmoteTierChanged: _emotes.setManualTier,
           onEmoteCacheMaxChanged: _emotes.applyCacheCap,
           onSharedChatModeChanged: _setSharedChatMode,
           onEmoteAutoModeChanged: _emotes.applyAutoMode,
@@ -1622,7 +1626,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   void _handlePanelBack() => _panelManager.handlePanelBack();
 
-  void _onEmoteSelected(GenericEmote emote) {
+  void _onEmoteSelected(Emote emote) {
     _composer.insertEmoteAtCursor(emote);
   }
 
@@ -1668,7 +1672,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   Widget build(BuildContext context) {
     // Provider-owned shared objects observed as Riverpod state. These replace
     // the manual addListener/removeListener pairs; ref.listen auto-cancels.
-    ref.listen(emoteManagerTickProvider, (_, _) => _onEmotesChanged());
+    ref.listen(emoteStateProvider, (_, state) {
+      final change = state.change;
+      if (change != null) _onEmotesChanged(change);
+    });
     ref.listen(twitchAuthTickProvider, (_, _) => _onAuthChanged());
     ref.listen(connectivityTickProvider, (_, _) => _onConnectivityChanged());
     ref.listen(connectionStateProvider, (_, _) => _onConnectionChanged());
@@ -1759,6 +1766,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
               valueListenable: _composer.suggestions,
               builder: (_, suggestions, _) => AutocompleteDropdown(
                 suggestions: suggestions,
+                images: _emoteLookupSource.images,
                 onSelect: _composer.selectSuggestion,
                 onEmoteViewed: _emoteManager.markEmoteViewed,
               ),

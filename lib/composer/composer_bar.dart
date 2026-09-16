@@ -135,6 +135,8 @@ class _StatusRow extends StatelessWidget {
           listenable: Listenable.merge([
             controller.chat.channelFor(channel ?? '')?.info.version ??
                 _emptyVersion,
+            controller.chat.channelFor(channel ?? '')?.info.statusVersion ??
+                _emptyVersion,
             controller.chat.loadFailedChannels,
           ]),
           builder: (context, _) {

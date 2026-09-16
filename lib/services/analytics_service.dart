@@ -1,12 +1,13 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
-import '../models/generic_emote.dart';
+import '../emotes/emote.dart';
+import '../emotes/emote_catalog.dart';
 import '../models/twitch_message.dart';
 import 'emote_manager.dart';
 
 class _EmoteCount {
-  GenericEmote emote;
+  Emote emote;
   int count;
 
   _EmoteCount(this.emote, this.count);
@@ -30,6 +31,11 @@ class _ChannelStats {
 
 class AnalyticsService extends ChangeNotifier {
   static const _rateWindowMinutes = 60;
+
+  /// Per-channel cap on each tracking map/set. Analytics is only read for
+  /// top-N lists, so dropping the oldest keys past this keeps memory bounded
+  /// without changing the visible results for normal chat.
+  static const _maxTrackedPerChannel = 5000;
 
   /// Coalesces rapid notifyListeners() calls into a single microtask turn.
   bool _notifyPending = false;
@@ -93,7 +99,7 @@ class AnalyticsService extends ChangeNotifier {
     'your',
   };
 
-  final ChannelEmotes? Function(String channel, String? senderTwitchId)?
+  final EmoteLookup? Function(String channel, String? senderTwitchId)?
   _emoteLookup;
   final DateTime Function() _now;
   final Set<String> stopwords;
@@ -121,6 +127,8 @@ class AnalyticsService extends ChangeNotifier {
     if (login.isNotEmpty) {
       stats.uniqueChatters.add(login);
       stats.chatterCounts[login] = (stats.chatterCounts[login] ?? 0) + 1;
+      _capSet(stats.uniqueChatters);
+      _capMap(stats.chatterCounts);
     }
     final minute = now.millisecondsSinceEpoch ~/ 60000;
     stats.minuteBuckets[minute] = (stats.minuteBuckets[minute] ?? 0) + 1;
@@ -190,7 +198,7 @@ class AnalyticsService extends ChangeNotifier {
     return sorted.take(n).map((e) => (name: e.key, count: e.value)).toList();
   }
 
-  List<({GenericEmote emote, int count})> topEmotes(String channel, int n) {
+  List<({Emote emote, int count})> topEmotes(String channel, int n) {
     final stats = _stats(channel);
     if (stats == null) return const [];
     final sorted = stats.emoteCounts.values.toList()
@@ -230,18 +238,33 @@ class AnalyticsService extends ChangeNotifier {
     }
   }
 
-  void _countEmote(_ChannelStats stats, GenericEmote emote) {
+  void _countEmote(_ChannelStats stats, Emote emote) {
     final entry = stats.emoteCounts.putIfAbsent(
       emote.id,
       () => _EmoteCount(emote, 0),
     );
     entry.count++;
+    _capMap(stats.emoteCounts);
   }
 
   void _countWord(_ChannelStats stats, String token) {
     final word = _normalizeWord(token);
     if (word.isEmpty) return;
     stats.wordCounts[word] = (stats.wordCounts[word] ?? 0) + 1;
+    _capMap(stats.wordCounts);
+  }
+
+  /// Drops oldest entries (insertion order) once a map exceeds the cap.
+  static void _capMap<K, V>(Map<K, V> map) {
+    while (map.length > _maxTrackedPerChannel) {
+      map.remove(map.keys.first);
+    }
+  }
+
+  static void _capSet(Set<String> set) {
+    while (set.length > _maxTrackedPerChannel) {
+      set.remove(set.first);
+    }
   }
 
   static final _leadingNonAlnum = RegExp(r'^[^a-z0-9]+');

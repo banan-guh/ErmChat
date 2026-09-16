@@ -1,6 +1,6 @@
 # ermchat architecture
 
-ermchat is a single-package Flutter Twitch chat viewer. `lib/providers` is the composition root: app-scope Riverpod providers construct and dispose the chat kernel (`Chat`), `Session`, the transports, the chat pipeline (`ChatConnectionManager`), the feature owners (`TwitchAuth`, `AnalyticsService`, `ModActions`, `CommandHandler`, `BroadcastWidgets`, and the rest), and the read-state the pipeline consumes. `HomeScreen` is a consumer: it reads providers, forwards UI signals to the presentation owners it still keeps (composer, panels, chrome, message builder, emote applier, media upload), and drives view-only caches with typed notifiers. Dependencies point inward and downward: raw transports feed decoders, decoders feed pipeline consumers, consumers mutate the `lib/chat/` kernel, and the UI reads kernel state and observes provider-owned objects through `ref.listen`/`ref.watch` or the sanctioned `Listenable` builders. There is no global event bus; each owner exposes a typed `ValueNotifier` or `ChangeNotifier`.
+ermchat is a single-package Flutter Twitch chat viewer. `lib/providers` is the composition root: app-scope Riverpod providers construct and dispose the chat kernel (`Chat`), `Session`, the transports, the chat pipeline (`ChatConnectionManager`), the feature owners (`TwitchAuth`, `AnalyticsService`, `ModActions`, `CommandHandler`, `BroadcastWidgets`, and the rest), and the read-state the pipeline consumes. `HomeScreen` is a consumer: it reads providers, forwards UI signals to the presentation owners it still keeps (composer, panels, chrome, message builder, media upload), and drives view-only caches with typed notifiers. Dependencies point inward and downward: raw transports feed decoders, decoders feed pipeline consumers, consumers mutate the `lib/chat/` kernel, and the UI reads kernel state and observes provider-owned objects through `ref.listen`/`ref.watch` or the sanctioned `Listenable` builders. There is no global event bus; each owner exposes a typed notifier or change stream.
 
 Everything below is based on imports, provider wiring in `lib/providers/`, and the `attach()`/`Listenable` registrations in the source. Arrows mean "depends on / feeds". Provider-owned owners are still wired through constructors, but the construction site is a provider, not `HomeScreen`.
 
@@ -59,11 +59,13 @@ flowchart TD
   end
 
   subgraph emotes["Emotes"]
-    emoteman["EmoteManager"]
-    emoteapplier["EmoteApplier"]
-    cache["EmoteCacheManager"]
+    emoteman["EmoteManager coordinator"]
+    emotestore["EmoteStore"]
+    emoteapplier["EmoteController"]
+    fetcher["EmoteFetcher"]
+    cache["EmoteCacheManager disk repo"]
     providers["Twitch / BTTV / FFZ / 7TV providers"]
-    paint["SevenTvPaintService"]
+    paint["SevenTvPaintService (widgets)"]
   end
 
   subgraph mod["Moderation"]
@@ -167,8 +169,10 @@ flowchart TD
   modview --> channel
   modview --> modactions
 
+  emoteman --> emotestore
+  emoteman --> fetcher
   emoteman --> cache
-  emoteman --> providers
+  fetcher --> providers
   emoteman --> metastore
   metastore --> appfiles
   savedthreads --> appfiles
@@ -282,38 +286,49 @@ flowchart TD
 ```mermaid
 %%{init: {"flowchart": {"useMaxWidth": true, "nodeSpacing": 20, "rankSpacing": 30, "padding": 6}, "themeVariables": {"fontSize": "14px"}}}%%
 flowchart TD
-  setup["ChatChannelSetup"] -->|resolveEmotes| em["EmoteManager ChangeNotifier"]
+  setup["ChatChannelSetup"] -->|resolveEmotes| em["EmoteManager coordinator"]
   ingestion["ChatIngestion"] -->|markEmoteViewed / matchEmotes| em
-  applier["EmoteApplier"] -->|tier / cacheCap / reload| em
+  applier["EmoteController"] -->|tier / cacheCap / reload| em
+  applier -->|applyAnimationsEnabled / clearImageCache| render["widgets render ports"]
   home["HomeScreen"] -->|preloadGlobalEmotes / user emote sets| em
 
-  em -->|metadata read/write| meta["EmoteMetaStore file blobs"]
-  em -->|usage registry| prefs["SharedPreferences"]
-  em -->|fetch| twitchp["TwitchEmoteProvider"]
-  em -->|fetch| bttvp["BttvEmoteProvider"]
-  em -->|fetch| ffzp["FfzEmoteProvider"]
-  em -->|fetch| tvp["SevenTvEmoteProvider"]
-  em -->|version / changed channel| builder["MessageBuilder"]
+  em -->|catalog state / EmoteChange| store["EmoteStore"]
+  store -->|addListener| bridge["EmoteStoreNotifier -> emoteStateProvider"]
+  bridge -->|ref.listen / select| home
+  bridge -->|ref.listen| menu["EmoteMenuPanel"]
 
-  em -->|priorityScore / lastUsedAt| cache["EmoteCacheManager singleton"]
-  cache -->|disk files| repo["flutter_cache_manager repo emoteImageCacheV2"]
-  cache -->|FileInfo / bytes| imgprovider["EmoteImageProvider"]
+  em -->|fetch policy + producers| fetcher["EmoteFetcher"]
+  em -->|usage + recents| usage["EmoteUsageRegistry"]
+  em -->|personal 7TV sets| personal["SevenTvPersonalSets"]
+  em -->|subs + unlocks| twitchsets["TwitchEmoteSets"]
+  em -->|catalog persistence| persist["EmotePersistence"]
+  em -->|image bytes| images["EmoteImages"]
+  em -->|provider visibility| vis["EmoteVisibility"]
+  em -->|EmoteLookupSource| lookup["emoteLookupSourceProvider"]
+
+  fetcher -->|fetch| twitchp["TwitchEmoteProvider"]
+  fetcher -->|fetch| bttvp["BttvEmoteProvider"]
+  fetcher -->|fetch| ffzp["FfzEmoteProvider"]
+  fetcher -->|fetch| tvp["SevenTvEmoteProvider"]
+  persist -->|file blobs| meta["EmoteMetaStore"]
+  usage -->|usage registry| prefs["SharedPreferences"]
+  images -->|priorityScore / lastUsedAt| cache["EmoteCacheManager disk repo"]
+  cache -->|FileInfo / bytes| imgprovider["EmoteUrlProvider / EmoteImage (widgets)"]
   imgprovider --> emimg["EmoteImage"]
-  emimg -->|emote cells| builder
-  imgprovider --> menu["EmoteMenuPanel / EmoteText / autocomplete"]
+  emimg -->|emote cells| builder["MessageBuilder span cache"]
+  imgprovider --> menu
+  lookup -->|version / byCodeForSender| builder
+  builder -->|buildMessageSpans| tile["ChatMessageTile / ChatView"]
 
   tvclient["SevenTvEventClient"] --> tvconsumer["SevenTvConsumer"]
   tvconsumer -->|updateSevenTvEmotes / setSevenTvEmoteSetId| em
   tvclient -->|cosmetic / entitlement| tpn["ThirdPartyBadgeService"]
-  tvclient -->|entitlement| paint["SevenTvPaintService"]
-  paint -->|name paint| tile["ChatMessageTile / PaintedUsernameText"]
+  tvclient -->|entitlement| paint["SevenTvPaintService (widgets)"]
+  paint -->|name paint| tile
   tpn -->|badge images| builder
-
-  builder -->|buildMessageSpans| tile
-  tile -->|render| view["ChatView"]
 ```
 
-`EmoteManager` owns global, per-channel, and personal 7TV caches, the provider merge order (7TV > BTTV > FFZ > Twitch), the account-scoped unlock and personal-set state, and a rolling usage score that feeds `EmoteCacheManager` eviction priority. Live 7TV deltas update the manager without bumping its `version`, so already-rendered spans are not retroactively recomputed; full refetches bump it and `MessageBuilder` recomputes spans lazily.
+`EmoteManager` is the coordinator and single doorway for the emote area, not a daemon: it holds no catalog caches directly. It feeds fetches into `EmoteStore` (plain Dart catalog state: per-scope provider lists, 7TV identity and live sets, merged lookup caches, id index) and coordinates the owners: `EmoteUsageRegistry` (usage plus image eviction policy), `SevenTvPersonalSets` (viewer and foreign personal sets), `TwitchEmoteSets` (subs plus account unlocks), `EmotePersistence` (global/channel catalog blobs), `EmoteImages` (image bytes), and `EmoteVisibility` (provider toggles). `EmoteFetcher` holds the fetch policy and the per-provider producers. `EmoteStore` emits typed `EmoteChange`s; the `EmoteStoreNotifier` bridges that listener stream to `emoteStateProvider`, so widgets observe with `ref.listen`/`select`. `MessageBuilder` reads only the narrow `EmoteLookupSource` (catalog version, sender lookup, image owner) exposed by `emoteLookupSourceProvider`. Live 7TV deltas update the store through a non-version-bumping `EmoteChange`, so already-rendered spans are not retroactively recomputed; full refetches bump the version and `MessageBuilder` recomputes spans lazily. Render-side code (`EmoteUrlProvider` and its animation completer, `EmoteImage`, `SevenTvPaintService`, and decode) lives in `lib/widgets`, and `EmoteController` reaches it through injected ports.
 
 ## Moderation
 
@@ -382,15 +397,15 @@ flowchart TD
   home -->|owns| caches["_tileCache, _channelNotifier, _atBottomNotifiers, _scrollControllers"]
   home -->|owns| pm["PanelManager overlay + emote sheet"]
   home -->|owns| composer["ComposerController"]
-  home -->|owns| managers["ChannelManager, ModPanels, MentionsPanels, ThreadPanels, SearchPanels, HomeAppBar, ChannelPanels, StreamPanels, MessageBuilder, EmoteApplier, MediaUploadController"]
+  home -->|owns| managers["ChannelManager, ModPanels, MentionsPanels, ThreadPanels, SearchPanels, HomeAppBar, ChannelPanels, StreamPanels, MessageBuilder, MediaUploadController"]
 
-  providers -->|owns| appscope["Chat, Session, transports, chat pipeline, EmoteManager, TwitchAuth, ConnectivityService, feature owners, read-state"]
+  providers -->|owns| appscope["Chat, Session, transports, chat pipeline, EmoteManager, EmoteController, TwitchAuth, ConnectivityService, feature owners, read-state"]
   providers -->|selectedChannel / maxMessages / replyTo / blocked / chatReady / macros| home
   session["Session.version"] -->|_onSessionApplied| home
   auth["twitchAuthTickProvider"] -->|ref.listen _onAuthChanged| home
   conn["connectionStateProvider"] --> home
   conn --> composerbar["ComposerBar / HomeAppBar"]
-  emoteman["emoteManagerTickProvider"] -->|ref.listen _onEmotesChanged| home
+  emotestate["emoteStateProvider (EmoteStore bridge)"] -->|ref.listen _onEmotesChanged| home
   connstate["connectivityTickProvider"] -->|ref.listen _onConnectivityChanged| home
   linkwl["LinkWhitelist ChangeNotifier"] --> home
   stream["StreamPlayerController ChangeNotifier"] --> home
@@ -410,7 +425,7 @@ flowchart TD
   conn -->|connectPhase, remainingSelfTimeout, remainingSlowCooldown| composer
 ```
 
-Key typed notifiers: `Session.version`, `ChatConnectionManager.connectionStateNotifier`, `Chat.mentionsBump` / `unreadVersion` / `loadFailedChannels`, `Channel.messages.version`, `Channel.messages.mutations` (a synchronous listener set, not a `ValueNotifier`), `Channel.info.version`, `Channel.moderation.version` / `heldVersion` / `modActivityVersion` / `modFeedVersion` / `modInboxVersion` / `modSettingsVersion`, `Channel.points.version`, `EmoteManager.version`, `TwitchBadgeService.version`, `ThirdPartyBadgeService.version`, `LinkWhitelist`, `StreamPlayerController`, `ConnectivityService`, `PanelManager`. View-only caches (tile cache, panel data) stay in `HomeScreen` and are driven by these notifiers. Provider-owned `ChangeNotifier`s (`EmoteManager`, `TwitchAuth`, `ConnectivityService`) and the pipeline's `connectionStateNotifier` are bridged to Riverpod tick/state providers so the shell observes them with `ref.listen`; the kernel leaf `Listenable`s remain the one sanctioned direct-observation exception.
+Key typed notifiers: `Session.version`, `ChatConnectionManager.connectionStateNotifier`, `Chat.mentionsBump` / `unreadVersion` / `loadFailedChannels`, `Channel.messages.version`, `Channel.messages.mutations` (a synchronous listener set, not a `ValueNotifier`), `Channel.info.version`, `Channel.moderation.version` / `heldVersion` / `modActivityVersion` / `modFeedVersion` / `modInboxVersion` / `modSettingsVersion`, `Channel.points.version`, `EmoteStore.version` (through `emoteStateProvider`), `TwitchBadgeService.version`, `ThirdPartyBadgeService.version`, `LinkWhitelist`, `StreamPlayerController`, `ConnectivityService`, `PanelManager`. View-only caches (tile cache, panel data) stay in `HomeScreen` and are driven by these notifiers. Provider-owned `ChangeNotifier`s (`TwitchAuth`, `ConnectivityService`) and the pipeline's `connectionStateNotifier` are bridged to Riverpod tick providers, while the plain `EmoteStore` listener stream is bridged by `EmoteStoreNotifier` to `emoteStateProvider`, so the shell observes all of them with `ref.listen`; the kernel leaf `Listenable`s remain the one sanctioned direct-observation exception.
 
 ## Persistence
 
@@ -427,9 +442,9 @@ flowchart LR
   home["HomeScreen"] -->|channels, settings, prefs, max messages, giphy, accent, theme| prefs
   channelmgr["ChannelManager"] -->|channels list, recent-messages config| prefs
   auth["TwitchAuth"] -->|accounts registry, active login, pending token| secure
-  em["EmoteManager"] -->|usage registry| prefs
-  em -->|global/channel metadata blobs| meta
-  em -->|emote image files| cache
+  usage["EmoteUsageRegistry"] -->|usage registry| prefs
+  persist["EmotePersistence"] -->|global/channel metadata blobs| meta
+  images["EmoteImages"] -->|emote image files| cache
   tts["TtsController"] --> prefs
   ping["PingManager"] --> prefs
   ignore["IgnoreManager"] --> prefs
@@ -470,7 +485,7 @@ Most arrows in the diagrams are reads or constructor injection, which do not mak
 
 | Kernel state | Writer API | Outside-kernel writers |
 |---|---|---|
-| `ChannelInfo` | `setBroadcasterId` | `ChatChannelSetup` (`chat_channel_setup.dart:188`), `EmoteApplier` (`emote_applier.dart:213`) |
+| `ChannelInfo` | `setBroadcasterId` | `ChatChannelSetup` (`chat_channel_setup.dart:188`), `EmoteController` (`emote_controller.dart:169`) |
 | `ChannelInfo` | `setStatus` | `ChatStatusComposer` (`chat_status_composer.dart:154`) |
 | `ChannelInfo` | `Channel.setHistoryLoaded` (verb) | `ChannelManager` x4 (`channel_manager.dart:157,169,335,348`) |
 | `ChannelInfo` | `touch()` (notify only) | `HomeScreen` x13, `ChannelManager` x1 |
@@ -500,11 +515,22 @@ Every entry calls a public method on the child; none reaches into private state.
 | `EventSubConsumer` | `lib/services/eventsub_consumer.dart` | Applies typed EventSub events to `Moderation`, `Messages`, `Points`, and system lines. |
 | `SevenTvConsumer` | `lib/services/seven_tv_consumer.dart` | Applies 7TV socket emote-set/user events to `EmoteManager`. |
 | `SevenTvEventClient` | `lib/services/seven_tv_event_client.dart` | 7TV Event API websocket: emote-set, user, cosmetic, entitlement, and personal-set streams. |
-| `SevenTvPaintService` | `lib/services/seven_tv_paint_service.dart` | Parses and caches 7TV name paints for username rendering. |
-| `EmoteManager` | `lib/services/emote_manager.dart` | Emote daemon: provider merge, global/channel/personal caches, metadata TTL, usage registry, span-cache version. |
-| `EmoteCacheManager` | `lib/services/emote_cache_manager.dart` | Disk cap, priority eviction, overflow temp-file serving for emote images. |
+| `SevenTvPaintService` | `lib/widgets/seven_tv_paint_service.dart` | Parses and caches 7TV name paints for username rendering (render-side). |
+| `EmoteManager` | `lib/services/emote_manager.dart` | Emote coordinator and single doorway: feeds fetches into `EmoteStore`, joins the personal/sub overlays, and orchestrates the owners. |
+| `EmoteStore` | `lib/services/emote_store.dart` | Plain-Dart catalog state (per-scope provider lists, 7TV identity and live sets, merged lookups, id index); emits typed `EmoteChange`s. |
+| `EmoteFetcher` | `lib/services/emote_fetcher.dart` | Fetch policy and per-provider producers (Twitch/BTTV/FFZ/7TV); returns commits to the store. |
+| `EmoteUsageRegistry` | `lib/services/emote_usage_registry.dart` | Usage history and recents; doubles as the image eviction policy. |
+| `SevenTvPersonalSets` | `lib/services/seven_tv_personal_sets.dart` | Viewer and foreign 7TV personal set fetch and state. |
+| `TwitchEmoteSets` | `lib/services/twitch_emote_sets.dart` | Twitch account emote sets: subscriber emotes plus channel-points unlocks. |
+| `EmotePersistence` | `lib/services/emote_persistence.dart` | Global/channel catalog read and write as file blobs via `EmoteMetaStore`. |
+| `EmoteImages` | `lib/services/emote_images.dart` | Image byte owner: capped disk repo, precache, migration, overflow serving. |
+| `EmoteVisibility` | `lib/services/emote_visibility.dart` | Provider enable/disable and unlisted-7TV prefs; mirrored into the store. |
+| `EmoteController` | `lib/services/emote_controller.dart` | Applies tier/cache/auto-mode settings, reload, and account-scoped refresh; reaches the render layer through injected ports. |
+| `EmoteLookupSource` | `lib/services/emote_lookup_source.dart` | Narrow read-only port the render path consumes: catalog version, sender lookup, image owner. |
+| `EmoteCacheManager` | `lib/services/emote_cache_manager.dart` | Disk cap, priority eviction, overflow temp-file serving for emote images; a `flutter_cache_manager` repo, not a singleton. |
 | `EmoteMetaStore` | `lib/services/emote_meta_store.dart` | File-backed persistence for MB-scale emote metadata blobs. |
-| `EmoteApplier` | `lib/emotes/emote_applier.dart` | Applies tier/cache/auto-mode settings, reload, and account-scoped emote refresh. |
+| `EmoteUrlProvider` | `lib/widgets/emote_url_provider.dart` | `ImageProvider` plus the animation `ImageStreamCompleter`; render-side, in the UI layer. |
+| `emote_decode` | `lib/widgets/emote_decode.dart` | Pure image decode and format sniffing for emote bytes; render-side, in the UI layer. |
 | `TwitchApi` | `lib/services/twitch_api.dart` | Helix REST client: users, streams, badges, moderation, EventSub subscription creation, points. |
 | `TwitchAuth` | `lib/services/twitch_auth.dart` | Multi-account registry in secure storage plus the active account credentials. |
 | `TwitchOAuth` | `lib/services/twitch_oauth.dart` | OAuth flow (Android MainActivity Custom Tab, iOS `flutter_web_auth_2`), scopes, state validation. |

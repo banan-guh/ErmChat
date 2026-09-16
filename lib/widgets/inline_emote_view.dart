@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
-import 'emote_image_provider.dart';
+import '../services/emote_images.dart';
+import 'emote_url_provider.dart';
 import '../util/constants.dart';
 
 /// Lean chat-span emote renderer. Subscribes to [EmoteUrlProvider] completer directly; animation tick = set field + markNeedsPaint.
@@ -10,11 +11,15 @@ class InlineEmoteView extends StatefulWidget {
     required this.url,
     required this.width,
     required this.height,
+    required this.images,
   });
 
   final String url;
   final double width;
   final double height;
+
+  /// Image byte owner.
+  final EmoteImages images;
 
   @override
   State<InlineEmoteView> createState() => _InlineEmoteViewState();
@@ -22,6 +27,18 @@ class InlineEmoteView extends StatefulWidget {
 
 class _InlineEmoteViewState extends State<InlineEmoteView> {
   ImageStream? _mainStream;
+
+  /// Held while the span is paused. Removing the last listener disposes the
+  /// shared completer, so without a handle a refocus would re-decode.
+  ImageStreamCompleterHandle? _keepAlive;
+
+  /// Whether [_mainListener] is attached. The stream keeps duplicate listeners,
+  /// so add/remove must be balanced.
+  bool _subscribed = false;
+
+  /// Last TickerMode state. Chat pages in the background disable it so
+  /// off-screen emotes freeze instead of animating.
+  bool _tickerEnabled = true;
 
   // Emote failures are expected (bad URLs, engine quirks); swallow silently.
   late final ImageStreamListener _mainListener = ImageStreamListener(
@@ -47,8 +64,16 @@ class _InlineEmoteViewState extends State<InlineEmoteView> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     // First dependencies ready: start resolving (MediaQuery illegal in initState).
-    if (_mainStream == null) {
-      _resolveMain();
+    final enabled = TickerMode.valuesOf(context).enabled;
+    _tickerEnabled = enabled;
+    if (enabled == _subscribed) {
+      if (enabled && _mainStream == null) _resolveMain();
+      return;
+    }
+    if (enabled) {
+      _resume();
+    } else {
+      _pause();
     }
   }
 
@@ -56,26 +81,66 @@ class _InlineEmoteViewState extends State<InlineEmoteView> {
   void didUpdateWidget(InlineEmoteView oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.url != oldWidget.url) {
+      final resume = _tickerEnabled;
       _resetFrames();
-      _resolveMain();
+      if (resume) _resolveMain();
     }
   }
 
   @override
   void dispose() {
-    _mainStream?.removeListener(_mainListener);
+    _release();
     _bufferedMain?.dispose();
     super.dispose();
   }
 
+  /// Drops the listener but keeps the completer and its frames alive.
+  void _pause() {
+    final stream = _mainStream;
+    if (stream == null) return;
+    _keepAlive ??= stream.completer?.keepAlive();
+    stream.removeListener(_mainListener);
+    _subscribed = false;
+  }
+
+  /// Re-attaches to the paused stream, or resolves anew if it was released.
+  void _resume() {
+    final stream = _mainStream;
+    final handle = _keepAlive;
+    if (stream == null || handle == null) {
+      _resolveMain();
+      return;
+    }
+    _keepAlive = null;
+    stream.addListener(_mainListener);
+    _subscribed = true;
+    handle.dispose();
+  }
+
   void _resolveMain() {
-    final stream = EmoteUrlProvider(widget.url).resolve(_configuration);
-    _mainStream?.removeListener(_mainListener);
+    // Chat spans are the only surface that feeds the decoded-frame cache.
+    _release();
+    EmoteUrlProvider.markChatUse(widget.url);
+    final stream = EmoteUrlProvider(
+      widget.url,
+      images: widget.images,
+    ).resolve(_configuration);
     _mainStream = stream..addListener(_mainListener);
+    _subscribed = true;
+  }
+
+  /// Drops the subscription and any keep-alive handle.
+  void _release() {
+    if (_subscribed) {
+      _subscribed = false;
+      _mainStream?.removeListener(_mainListener);
+    }
+    _keepAlive?.dispose();
+    _keepAlive = null;
   }
 
   void _resetFrames() {
-    _mainStream?.removeListener(_mainListener);
+    _release();
     _mainStream = null;
     _bufferedMain?.dispose();
     _bufferedMain = null;
@@ -147,15 +212,6 @@ class RenderInlineEmote extends RenderBox {
   double _height;
   ImageInfo? _image;
 
-  /// Image paints since last reset. Test telemetry only.
-  static int debugPaintCount = 0;
-
-  /// Resets paint telemetry. Exposed for tests.
-  @visibleForTesting
-  static void debugResetPaintCounter() {
-    debugPaintCount = 0;
-  }
-
   double get width => _width;
   set width(double value) {
     if (_width == value) return;
@@ -197,7 +253,6 @@ class RenderInlineEmote extends RenderBox {
     final canvas = context.canvas;
     final info = _image;
     if (info != null) {
-      debugPaintCount++;
       // Contain-fit: emote textures rarely match layout size; inscribe would overflow.
       paintImage(
         canvas: canvas,

@@ -33,7 +33,7 @@ import 'package:ermchat/services/recent_messages.dart';
 import 'package:ermchat/services/twitch_auth.dart';
 import 'package:ermchat/models/twitch_badge.dart';
 import 'package:ermchat/models/twitch_message.dart';
-import 'package:ermchat/services/suggestion.dart';
+import 'package:ermchat/composer/suggestion.dart';
 import 'package:ermchat/widgets/app_snack.dart';
 import 'package:ermchat/widgets/autocomplete_dropdown.dart';
 import 'package:ermchat/widgets/chat_body.dart';
@@ -43,11 +43,13 @@ import 'package:ermchat/chrome/stream_layout.dart';
 import 'package:ermchat/widgets/tabbed_layout.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:ermchat/services/emote_cache_manager.dart';
+import 'package:ermchat/services/emote_images.dart';
 import '../helpers/fake_cache_repo.dart';
 import 'package:ermchat/screens/settings/analytics_screen.dart';
-import 'package:ermchat/models/generic_emote.dart';
+import 'package:ermchat/emotes/emote.dart';
 import 'package:ermchat/services/emote_manager.dart';
 import 'package:ermchat/providers/app_providers.dart';
+import 'package:ermchat/providers/emote_providers.dart';
 import 'package:ermchat/widgets/emote_menu_panel.dart';
 import 'package:url_launcher_platform_interface/link.dart';
 import 'package:url_launcher_platform_interface/url_launcher_platform_interface.dart';
@@ -1563,8 +1565,10 @@ void main() {
         );
         await tester.pump();
 
+        // The timestamp is the first span of the row's rich text now, so match
+        // it inside that plain text rather than as a standalone widget.
         final timeText = find.textContaining(
-          RegExp(r'^\d{2}:\d{2}$'),
+          RegExp(r'\d{2}:\d{2} '),
           skipOffstage: false,
         );
         expect(timeText, findsAtLeast(1));
@@ -1609,12 +1613,11 @@ void main() {
 
         expect(
           find.textContaining(
-            RegExp(r'^\d{1,2}:\d{2} (AM|PM)$'),
+            RegExp(r'\d{1,2}:\d{2} (AM|PM)'),
             skipOffstage: false,
           ),
           findsAtLeast(1),
         );
-        expect(find.textContaining(RegExp(r'^\d{2}:\d{2}$')), findsNothing);
       }
       await tester.pumpAndSettle();
       {
@@ -1654,7 +1657,10 @@ void main() {
         );
         await tester.pump();
 
-        expect(find.textContaining(RegExp(r'^\d{2}:\d{2}$')), findsNothing);
+        expect(
+          find.textContaining(RegExp(r'\d{2}:\d{2} '), skipOffstage: false),
+          findsNothing,
+        );
         expect(find.textContaining('hello', skipOffstage: false), findsWidgets);
       }
     },
@@ -3698,7 +3704,9 @@ void main() {
         await tester.pumpWidget(
           MaterialApp(
             key: UniqueKey(),
-            home: EmotesSettingsScreen(cacheManager: manager),
+            home: EmotesSettingsScreen(
+              images: EmoteImages(cacheManager: manager),
+            ),
           ),
         );
         await tester.pump();
@@ -3742,6 +3750,7 @@ void main() {
               home: ToolsSettingsScreen(
                 analyticsService: AnalyticsService(),
                 channels: ['channel1'],
+                images: EmoteImages(),
               ),
             ),
           );
@@ -4883,7 +4892,11 @@ void main() {
   Widget wrapAnalytics(AnalyticsService service, List<String> channels) {
     return MaterialApp(
       key: UniqueKey(),
-      home: AnalyticsScreen(analyticsService: service, channels: channels),
+      home: AnalyticsScreen(
+        analyticsService: service,
+        channels: channels,
+        images: EmoteImages(),
+      ),
     );
   }
 
@@ -5171,17 +5184,22 @@ void main() {
 
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  GenericEmote sevenTv(String id, String code) => GenericEmote(
+  Emote sevenTv(String id, String code) => Emote(
     id: id,
     code: code,
-    type: EmoteType.sevenTv,
-    url: 'https://example.com/$id.png',
+    meta: const SevenTvMeta(),
+    scales: {EmoteScale.medium: 'https://example.com/$id.png'},
     scope: EmoteScope.channel,
   );
 
   Widget wrapEmoteMenu(EmoteManager manager) {
     return ProviderScope(
-      overrides: [emoteManagerProvider.overrideWithValue(manager)],
+      overrides: [
+        emoteManagerProvider.overrideWithValue(manager),
+        // The panel observes emoteStateProvider, which watches the store, so
+        // the test manager's own store must back it.
+        emoteStoreProvider.overrideWithValue(manager.store),
+      ],
       child: MaterialApp(
         key: UniqueKey(),
         home: Scaffold(
@@ -5292,7 +5310,7 @@ void main() {
       UrlLauncherPlatform.instance = emoteSheetLauncher;
     });
 
-    Widget wrapMany(List<GenericEmote> emotes) {
+    Widget wrapMany(List<Emote> emotes) {
       return MaterialApp(
         key: UniqueKey(),
         home: Scaffold(
@@ -5301,26 +5319,27 @@ void main() {
             messageController: TextEditingController(),
             focusNode: FocusNode(),
             onClose: () {},
+            images: EmoteImages(),
           ),
         ),
       );
     }
 
-    Widget wrapEmoteSheet(GenericEmote emote) => wrapMany([emote]);
+    Widget wrapEmoteSheet(Emote emote) => wrapMany([emote]);
 
-    GenericEmote sevenTvEmote({
+    Emote sevenTvEmote({
       String? baseName,
       bool zeroWidth = false,
       EmoteScope scope = EmoteScope.global,
     }) {
-      return GenericEmote(
+      return Emote(
         id: '7tv-1',
         code: 'Cope',
-        type: EmoteType.sevenTv,
-        url: 'https://cdn.7tv.app/emote/1/1x.webp',
-        baseName: baseName,
+        meta: SevenTvMeta(baseName: baseName, creator: 'CopeQueen'),
+        scales: const {
+          EmoteScale.medium: 'https://cdn.7tv.app/emote/1/1x.webp',
+        },
         isZeroWidth: zeroWidth,
-        ownerChannel: 'CopeQueen',
         scope: scope,
       );
     }
@@ -5818,6 +5837,7 @@ void main() {
                       showModalBottomSheet(
                         context: context,
                         isScrollControlled: true,
+                        enableDrag: false,
                         builder: (ctx) {
                           // Mirrors production wiring (immediate eased settle).
                           var tracker = VelocityTracker.withKind(
@@ -5893,8 +5913,10 @@ void main() {
                               maxChildSize: maxExtent,
                               expand: false,
                               snap: false,
+                              shouldCloseOnMinExtent: false,
                               builder: (_, scrollController) {
-                                listController = scrollController;
+                                final historyController = ScrollController();
+                                listController = historyController;
                                 return UserProfileSheet(
                                   username: 'testuser',
                                   userId: '123',
@@ -5905,7 +5927,8 @@ void main() {
                                   messageController: TextEditingController(),
                                   focusNode: FocusNode(),
                                   onClose: () => Navigator.pop(ctx),
-                                  scrollController: scrollController,
+                                  scrollController: historyController,
+                                  anchor: scrollController,
                                   sheetController: sheetController,
                                   sheetMinExtent: 0.25,
                                   onCardMeasured: (naturalH) {
@@ -6035,9 +6058,8 @@ void main() {
       );
       expect(arrowOpacity(tester), 0);
 
-      // Bottom overscroll drives the sheet in a reversed list: pushing up
-      // past the latest row collapses instead of bouncing, then the
-      // release settle springs back to full.
+      // Pushing up past the latest row scrolls the list only; it must not
+      // resize the sheet (the list is decoupled from the sheet).
       sheetController.jumpTo(maxExtent);
       await tester.pumpAndSettle();
       final bottomDrag = await tester.startGesture(
@@ -6047,12 +6069,28 @@ void main() {
       await tester.pump();
       await bottomDrag.moveBy(const Offset(0, -60));
       await tester.pump();
-      expect(sheetController.size, lessThan(maxExtent));
+      expect(sheetController.size, maxExtent);
       await bottomDrag.up();
       await tester.pumpAndSettle();
       expect(sheetController.size, maxExtent);
       expect(find.text('row:m29'), findsOneWidget);
       expect(arrowOpacity(tester), 0);
+
+      // Overscrolling at the oldest end must not resize the sheet either.
+      await tester.drag(find.byType(ListView), const Offset(0, 2000));
+      await tester.pumpAndSettle();
+      expect(find.text('row:m0'), findsOneWidget);
+      final topDrag = await tester.startGesture(
+        tester.getCenter(find.text('row:m0')),
+      );
+      await topDrag.moveBy(const Offset(0, 20));
+      await tester.pump();
+      await topDrag.moveBy(const Offset(0, 60));
+      await tester.pump();
+      expect(sheetController.size, maxExtent);
+      await topDrag.up();
+      await tester.pumpAndSettle();
+      expect(sheetController.size, maxExtent);
 
       // Fresh card, upward fling eases directly to full height.
       await openSheet();
@@ -6093,6 +6131,7 @@ void main() {
                       showModalBottomSheet(
                         context: context,
                         isScrollControlled: true,
+                        enableDrag: false,
                         builder: (ctx) {
                           var tracker = VelocityTracker.withKind(
                             PointerDeviceKind.touch,
@@ -6167,8 +6206,10 @@ void main() {
                               maxChildSize: maxExtent,
                               expand: false,
                               snap: false,
+                              shouldCloseOnMinExtent: false,
                               builder: (_, scrollController) {
-                                listController = scrollController;
+                                final historyController = ScrollController();
+                                listController = historyController;
                                 return UserProfileSheet(
                                   username: 'testuser',
                                   userId: '123',
@@ -6179,7 +6220,8 @@ void main() {
                                   messageController: TextEditingController(),
                                   focusNode: FocusNode(),
                                   onClose: () => Navigator.pop(ctx),
-                                  scrollController: scrollController,
+                                  scrollController: historyController,
+                                  anchor: scrollController,
                                   sheetController: sheetController,
                                   sheetMinExtent: 0.25,
                                   onCardMeasured: (naturalH) {
@@ -6262,6 +6304,7 @@ void main() {
                       showModalBottomSheet(
                         context: context,
                         isScrollControlled: true,
+                        enableDrag: false,
                         builder: (ctx) {
                           var tracker = VelocityTracker.withKind(
                             PointerDeviceKind.touch,
@@ -6336,8 +6379,10 @@ void main() {
                               maxChildSize: maxExtent,
                               expand: false,
                               snap: false,
+                              shouldCloseOnMinExtent: false,
                               builder: (_, scrollController) {
-                                listController = scrollController;
+                                final historyController = ScrollController();
+                                listController = historyController;
                                 return UserProfileSheet(
                                   username: 'testuser',
                                   userId: '123',
@@ -6348,7 +6393,8 @@ void main() {
                                   messageController: TextEditingController(),
                                   focusNode: FocusNode(),
                                   onClose: () => Navigator.pop(ctx),
-                                  scrollController: scrollController,
+                                  scrollController: historyController,
+                                  anchor: scrollController,
                                   sheetController: sheetController,
                                   sheetMinExtent: 0.25,
                                   onCardMeasured: (naturalH) {
@@ -6711,6 +6757,105 @@ void main() {
       expect(find.byKey(const Key('pip-video')), findsOneWidget);
       expect(find.byKey(const Key('pip-composer')), findsOneWidget);
       expect(find.byKey(const Key('pip-thread')), findsOneWidget);
+    });
+  });
+
+  group('Background channel window', () {
+    testWidgets('a background channel freezes and catches up on refocus', (
+      WidgetTester tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({});
+      FlutterSecureStorage.setMockInitialValues({});
+      final irc = _FakeIrcService();
+      final ircRead = _FakeIrcReadService();
+      await tester.pumpWidget(
+        TwitchChatApp(
+          key: UniqueKey(),
+          eventSubService: _FakeEventSubService(),
+          recentMessagesService: _ConfigurableRecentMessagesService(const []),
+          ircService: irc,
+          ircReadService: ircRead,
+        ),
+      );
+      await tester.pump();
+
+      Future<void> join(String name) async {
+        await tester.tap(find.byIcon(Icons.add));
+        await tester.pumpAndSettle();
+        await tester.enterText(find.byType(TextField).last, name);
+        await tester.tap(find.text('Join', skipOffstage: false).last);
+        await tester.pump();
+        await tester.pump();
+      }
+
+      Future<void> focusTab(String name) async {
+        await tester.tap(
+          find.descendant(of: find.byType(TabBar), matching: find.text(name)),
+        );
+        await tester.pumpAndSettle();
+      }
+
+      await join('alpha');
+      irc.triggerConnect(joinChannel: 'alpha');
+      ircRead.triggerConnect(joinChannel: 'alpha');
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 600));
+      await tester.pump();
+
+      ircRead.emitMessage(
+        TwitchMessage(
+          login: 'alice',
+          text: 'alpha first',
+          channel: 'alpha',
+          messageId: 'a1',
+        ),
+      );
+      await tester.pump();
+      expect(
+        find.textContaining('alpha first', skipOffstage: false),
+        findsOneWidget,
+      );
+
+      // Join beta and focus it; alpha stays mounted as the adjacent page.
+      await join('beta');
+      await tester.pump(const Duration(milliseconds: 600));
+      await tester.pump();
+      await focusTab('beta');
+
+      ircRead.emitMessage(
+        TwitchMessage(
+          login: 'bob',
+          text: 'alpha second',
+          channel: 'alpha',
+          messageId: 'a2',
+        ),
+      );
+      ircRead.emitMessage(
+        TwitchMessage(
+          login: 'carol',
+          text: 'beta first',
+          channel: 'beta',
+          messageId: 'b1',
+        ),
+      );
+      await tester.pump();
+
+      // The focused channel updates; the background one holds its last frame.
+      expect(
+        find.textContaining('beta first', skipOffstage: false),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('alpha second', skipOffstage: false),
+        findsNothing,
+      );
+
+      // Refocusing alpha flushes the messages it missed.
+      await focusTab('alpha');
+      expect(
+        find.textContaining('alpha second', skipOffstage: false),
+        findsOneWidget,
+      );
     });
   });
 }

@@ -2,7 +2,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import '../services/seven_tv_paint_service.dart';
+import 'seven_tv_paint_service.dart';
 
 /// Username with 7TV paint fill. Listens for late resolution. Shadows render as separate underlay.
 class PaintedUsernameText extends StatelessWidget {
@@ -28,7 +28,7 @@ class PaintedUsernameText extends StatelessWidget {
     return ListenableBuilder(
       listenable: notifier,
       builder: (_, _) {
-    // Lookup triggers batched fetch for unknown users.
+        // Lookup triggers batched fetch for unknown users.
         final paint = notifier.value ?? service.lookup(userId);
         if (paint == null || paint.layers.isEmpty) {
           return _buildText(baseStyle);

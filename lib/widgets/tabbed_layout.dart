@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
+import 'package:flutter/scheduler.dart';
 
 // TEMP: M3 Expressive fastSpatial stiffness (800), no-bouncy.
 class _SnapPhysics extends PageScrollPhysics {
@@ -95,6 +96,10 @@ class TabbedLayout extends StatefulWidget {
   /// Snappier page-settle spring. False = stock PageScrollPhysics.
   final bool fastSnap;
 
+  /// Keeps the pages beside the focused one built (and paused) so a manual
+  /// swipe never mounts a page mid-gesture. Off = only the visible page lives.
+  final bool preloadAdjacentPages;
+
   /// Off hides tab strip (hidden-chrome / fullscreen mode).
   final bool showTabBar;
 
@@ -122,6 +127,7 @@ class TabbedLayout extends StatefulWidget {
     this.focusOnHalfDrag = false,
     this.tabBarColor,
     this.fastSnap = true,
+    this.preloadAdjacentPages = false,
     this.showTabBar = true,
     this.chromeMenu,
     this.belowTabBar,
@@ -143,14 +149,23 @@ class TabbedLayoutState extends State<TabbedLayout>
   int _tabLength = 0;
   // Last reported index. Dedups settle commits.
   int _lastReportedIndex = 0;
+  // Focused page index. Pages outside it get TickerMode disabled, so
+  // background channels stop rebuilding and animating.
+  int _activeIndex = 0;
   // In-flight jump target. Intermediate crossings are flyover (no focus/commit). Cleared on land or finger grab.
   int? _programmaticTarget;
   // True while a finger holds the pager.
   bool _pointerDragging = false;
   // A prop-driven selection change that arrived mid-drag; applied on lift.
   int? _deferredProgrammaticIndex;
+  // True only inside the pre-jump of a long _goTo; swallows the transient
+  // scroll-end so the landing still owns the commit.
+  bool _preJumping = false;
 
   static const _jumpDuration = Duration(milliseconds: 300);
+  // Longest span animated in one go. Longer jumps land within this distance
+  // first, so the flight only builds a few pages (as ViewPager2 does).
+  static const _jumpSpan = 3;
 
   void _initControllers() {
     final len = widget.tabs.length;
@@ -164,6 +179,7 @@ class TabbedLayoutState extends State<TabbedLayout>
     }
     final idx = widget.selectedIndex.clamp(0, len - 1);
     _lastReportedIndex = idx;
+    _activeIndex = idx;
     _programmaticTarget = null;
     _deferredProgrammaticIndex = null;
     _pointerDragging = false;
@@ -212,6 +228,9 @@ class TabbedLayoutState extends State<TabbedLayout>
       _programmaticTarget = null;
     }
 
+    // The pre-jump of a long _goTo is a transient warp, not the destination.
+    if (_preJumping) return false;
+
     _mirrorPageToStrip(page);
 
     // Half-drag focus: follow nearest page, skip flyover of targeted jumps.
@@ -221,6 +240,7 @@ class TabbedLayoutState extends State<TabbedLayout>
       final nearest = page.round().clamp(0, _tabLength - 1);
       if (nearest != _lastReportedIndex) {
         _lastReportedIndex = nearest;
+        _setActiveIndex(nearest);
         widget.onFocusChanged?.call(nearest);
       }
     }
@@ -235,6 +255,7 @@ class TabbedLayoutState extends State<TabbedLayout>
         _programmaticTarget = null;
         if (nearest != _lastReportedIndex) {
           _lastReportedIndex = nearest;
+          _setActiveIndex(nearest);
           widget.onSelectedIndexChanged(nearest);
         }
       } else if (notification.dragDetails != null) {
@@ -245,6 +266,7 @@ class TabbedLayoutState extends State<TabbedLayout>
         _programmaticTarget = null;
         if (nearest != _lastReportedIndex) {
           _lastReportedIndex = nearest;
+          _setActiveIndex(nearest);
           widget.onSelectedIndexChanged(nearest);
         }
         if (_deferredProgrammaticIndex != null) {
@@ -259,6 +281,20 @@ class TabbedLayoutState extends State<TabbedLayout>
 
   bool get _isProgrammaticJump => _programmaticTarget != null;
 
+  /// Marks [index] as the visible page. Defers out of the layout phase so a
+  /// scroll notification cannot setState mid-build.
+  void _setActiveIndex(int index) {
+    if (_activeIndex == index) return;
+    if (SchedulerBinding.instance.schedulerPhase ==
+        SchedulerPhase.persistentCallbacks) {
+      SchedulerBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _setActiveIndex(index);
+      });
+      return;
+    }
+    setState(() => _activeIndex = index);
+  }
+
   // ---- Entry points that drive the pager -----------------------------------
 
   void _goTo(int index) {
@@ -270,6 +306,7 @@ class TabbedLayoutState extends State<TabbedLayout>
       _programmaticTarget = null;
       if (_lastReportedIndex != index) {
         _lastReportedIndex = index;
+        _setActiveIndex(index);
         widget.onSelectedIndexChanged(index);
       }
       return;
@@ -284,16 +321,31 @@ class TabbedLayoutState extends State<TabbedLayout>
       _programmaticTarget = null;
       if (_lastReportedIndex != index) {
         _lastReportedIndex = index;
+        _setActiveIndex(index);
         widget.onSelectedIndexChanged(index);
       }
       return;
+    }
+    // Warp near the target first so the flight does not build and paint every
+    // page in between. The warp's scroll notification is swallowed above.
+    final current = page?.round();
+    if (current != null && (index - current).abs() > _jumpSpan) {
+      _preJumping = true;
+      pc.jumpToPage(index > current ? index - _jumpSpan : index + _jumpSpan);
+      _preJumping = false;
     }
     pc.animateToPage(index, duration: _jumpDuration, curve: Curves.ease);
   }
 
   void _onTabTap(int index) {
     widget.onTabTapped?.call(index);
-    // Commit on landing, not at tap (flight may be dragged back).
+    // Tap is an explicit choice: commit the target now instead of on landing.
+    // The landing report dedups against _lastReportedIndex.
+    if (index != _lastReportedIndex) {
+      _lastReportedIndex = index;
+      _setActiveIndex(index);
+      widget.onSelectedIndexChanged(index);
+    }
     _goTo(index);
   }
 
@@ -375,33 +427,41 @@ class TabbedLayoutState extends State<TabbedLayout>
                   ),
                   child: SizedBox(
                     height: 40,
-                    child: ScrollConfiguration(
-                      behavior: const _SwipeScrollBehavior(),
-                      child: TabBar(
-                        controller: _tabController,
-                        onTap: _onTabTap,
-                        isScrollable: true,
-                        tabAlignment: _resolveTabAlignment(),
-                        labelPadding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 0,
-                        ),
-                        indicator: BoxDecoration(
-                          border: Border(
-                            bottom: BorderSide(
-                              color: theme.colorScheme.primary,
-                              width: 2,
+                    // TabBar disables the behavior-built overscroll indicator
+                    // for scrollable tabs, so install the stretch directly.
+                    child: StretchingOverscrollIndicator(
+                      axisDirection:
+                          Directionality.of(context) == TextDirection.rtl
+                          ? AxisDirection.left
+                          : AxisDirection.right,
+                      child: ScrollConfiguration(
+                        behavior: const _SwipeScrollBehavior(),
+                        child: TabBar(
+                          controller: _tabController,
+                          onTap: _onTabTap,
+                          isScrollable: true,
+                          tabAlignment: _resolveTabAlignment(),
+                          labelPadding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 0,
+                          ),
+                          indicator: BoxDecoration(
+                            border: Border(
+                              bottom: BorderSide(
+                                color: theme.colorScheme.primary,
+                                width: 2,
+                              ),
                             ),
                           ),
+                          indicatorSize: TabBarIndicatorSize.label,
+                          tabs: List.generate(tabs.length, (i) {
+                            return Tab(
+                              child:
+                                  widget.tabBuilder?.call(context, i) ??
+                                  Text(tabs[i]),
+                            );
+                          }),
                         ),
-                        indicatorSize: TabBarIndicatorSize.label,
-                        tabs: List.generate(tabs.length, (i) {
-                          return Tab(
-                            child:
-                                widget.tabBuilder?.call(context, i) ??
-                                Text(tabs[i]),
-                          );
-                        }),
                       ),
                     ),
                   ),
@@ -423,14 +483,18 @@ class TabbedLayoutState extends State<TabbedLayout>
                       PointerDeviceKind.unknown,
                     },
                   ),
-                  child: PageView(
+                  child: PageView.builder(
                     controller: _pageController,
                     physics: widget.fastSnap
                         ? const _SnapPhysics()
                         : const PageScrollPhysics(),
-                    children: List.generate(
-                      tabs.length,
-                      (i) => widget.pageBuilder(context, i),
+                    // Keep adjacent pages built so manual swipes stay smooth;
+                    // background pages pause through the disabled TickerMode.
+                    allowImplicitScrolling: widget.preloadAdjacentPages,
+                    itemCount: tabs.length,
+                    itemBuilder: (context, i) => TickerMode(
+                      enabled: i == _activeIndex,
+                      child: widget.pageBuilder(context, i),
                     ),
                   ),
                 ),

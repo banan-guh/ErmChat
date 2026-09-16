@@ -5,7 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:linkify/linkify.dart';
 import 'package:ermchat/color_utils.dart';
-import 'package:ermchat/services/suggestion.dart';
+import 'package:ermchat/composer/suggestion.dart';
 import 'package:ermchat/models/twitch_badge.dart';
 import 'package:ermchat/models/twitch_message.dart';
 import 'package:ermchat/panels/search.dart';
@@ -19,7 +19,7 @@ import 'package:ermchat/util/timestamp_formatter.dart';
 import 'package:ermchat/util/crash_report.dart';
 import 'package:flutter/services.dart';
 import 'package:ermchat/widgets/predictive_back_handler.dart';
-import 'package:ermchat/models/generic_emote.dart';
+import 'package:ermchat/emotes/emote.dart';
 import 'package:ermchat/services/emote_manager.dart';
 import 'package:ermchat/services/twitch_badge_service.dart';
 import 'package:ermchat/services/third_party_badge_service.dart';
@@ -415,7 +415,7 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   MessageBuilder makeBuilder(EmoteManager em) => MessageBuilder(
-    emoteManager: em,
+    emoteSource: em,
     badgeService: TwitchBadgeService(),
     thirdPartyBadgeService: ThirdPartyBadgeService(),
     onShowEmoteSheet: (_) {},
@@ -454,11 +454,11 @@ void main() {
     em.updateSevenTvEmotes(
       'test',
       added: [
-        const GenericEmote(
+        const Emote(
           id: 'e1',
           code: 'Pog',
-          type: EmoteType.sevenTv,
-          url: 'https://example.com/pog.png',
+          meta: SevenTvMeta(),
+          scales: {EmoteScale.medium: 'https://example.com/pog.png'},
         ),
       ],
     );
@@ -474,9 +474,19 @@ void main() {
     final spans = builder.buildMessageSpans(msg, 'test', Colors.black);
     expect(spans.any((s) => s is WidgetSpan), isFalse);
 
-    // A non-delta notify (full refetch) bumps the version and the next build
-    // lazily recomputes against the fresh emote data.
-    await em.storeUserTwitchEmotes({});
+    // A non-delta notify with changed data bumps the version and the next
+    // build lazily recomputes against the fresh emote data.
+    await em.storeUserTwitchEmotes({
+      'test': [
+        const Emote(
+          id: 's1',
+          code: 'Sub',
+          meta: TwitchMeta(kind: TwitchEmoteKind.sub),
+          scales: {EmoteScale.medium: 'https://example.com/s1.png'},
+          scope: EmoteScope.channel,
+        ),
+      ],
+    });
     expect(em.version, greaterThan(0));
 
     final re = builder.buildMessageSpans(msg, 'test', Colors.black);
@@ -555,7 +565,7 @@ void main() {
     );
     await badgeService.fetchGlobalBadges(TwitchAuth()..accessToken = 't');
     final builder = MessageBuilder(
-      emoteManager: EmoteManager(),
+      emoteSource: EmoteManager(),
       badgeService: badgeService,
       thirdPartyBadgeService: ThirdPartyBadgeService(),
       onShowEmoteSheet: (_) {},

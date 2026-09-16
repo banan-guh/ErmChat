@@ -1,17 +1,21 @@
 import 'package:flutter/material.dart';
-import 'emote_image.dart';
-import '../models/generic_emote.dart';
-import '../services/suggestion.dart';
+import 'emote_scale_resolver.dart';
+import '../emotes/emote.dart';
+import '../emotes/emote_picker.dart';
+import '../services/emote_images.dart';
+import '../composer/suggestion.dart';
 
 class AutocompleteDropdown extends StatefulWidget {
   final List<Suggestion> suggestions;
   final void Function(Suggestion) onSelect;
-  final void Function(GenericEmote)? onEmoteViewed;
+  final void Function(Emote)? onEmoteViewed;
+  final EmoteImages images;
 
   const AutocompleteDropdown({
     super.key,
     required this.suggestions,
     required this.onSelect,
+    required this.images,
     this.onEmoteViewed,
   });
 
@@ -110,17 +114,14 @@ class _AutocompleteDropdownState extends State<AutocompleteDropdown> {
                   EmoteSuggestion() => SizedBox(
                     width: _emoteSize,
                     height: _emoteSize,
-                    child: EmoteImage(
-                      url: suggestion.emote.url,
+                    child: EmoteScaleResolver(
+                      emote: suggestion.emote,
+                      surface: EmoteSurface.grid,
+                      images: widget.images,
                       width: _emoteSize,
                       height: _emoteSize,
                       fit: BoxFit.contain,
-                      alternateUrls: [
-                        if (suggestion.emote.url1x != null)
-                          suggestion.emote.url1x!,
-                      ],
                       errorWidget: const Icon(Icons.image, size: 16),
-                      emote: suggestion.emote,
                     ),
                   ),
                   CommandSuggestion() => Icon(

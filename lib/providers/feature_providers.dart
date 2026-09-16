@@ -186,10 +186,6 @@ class ChangeNotifierTick extends Notifier<int> {
   }
 }
 
-final emoteManagerTickProvider = NotifierProvider<ChangeNotifierTick, int>(
-  () => ChangeNotifierTick((ref) => ref.watch(emoteManagerProvider)),
-);
-
 final twitchAuthTickProvider = NotifierProvider<ChangeNotifierTick, int>(
   () => ChangeNotifierTick((ref) => ref.watch(twitchAuthProvider)),
 );

@@ -7,7 +7,7 @@ import 'package:flutter/material.dart'
     show Color, Matrix4, Offset, Shader, Size;
 import 'package:http/http.dart' as http;
 import '../util/log.dart';
-import 'seven_tv_event_client.dart';
+import '../services/seven_tv_event_client.dart';
 
 class SevenTvPaintStop {
   final double at;
@@ -150,6 +150,20 @@ class SevenTvPaint {
   }
 }
 
+/// Per-user paint notifier. Reports when its last listener detaches so the
+/// service can drop the entry instead of pruning on the next refresh.
+class _UserPaintNotifier extends ValueNotifier<SevenTvPaint?> {
+  _UserPaintNotifier(this._onEmpty) : super(null);
+
+  final void Function() _onEmpty;
+
+  @override
+  void removeListener(VoidCallback listener) {
+    super.removeListener(listener);
+    if (!hasListeners) _onEmpty();
+  }
+}
+
 /// Resolves 7TV name paints for chatters via catalog + batched lookups + live
 /// entitlement events. Disabled by default.
 class SevenTvPaintService extends ChangeNotifier {
@@ -191,18 +205,29 @@ class SevenTvPaintService extends ChangeNotifier {
     _refreshAllUserNotifiers();
   }
 
+  /// Shared notifier for callers with no user id; never notified, never owned
+  /// by the caller, so it does not allocate per call.
+  static final ValueNotifier<SevenTvPaint?> _emptyNotifier =
+      ValueNotifier<SevenTvPaint?>(null);
+
   /// Per-user notifiers for narrow subscription. Created on first lookup,
   /// dropped when no listeners remain.
   ValueNotifier<SevenTvPaint?> lookupNotifier(String? userId) {
     if (userId == null || userId.isEmpty) {
-      return ValueNotifier<SevenTvPaint?>(null);
+      return _emptyNotifier;
     }
     final existing = _userNotifiers[userId];
     if (existing != null) {
       lookup(userId);
       return existing;
     }
-    final notifier = ValueNotifier<SevenTvPaint?>(lookup(userId));
+    final notifier = _UserPaintNotifier(() {
+      final current = _userNotifiers[userId];
+      if (current != null && !current.hasListeners) {
+        _userNotifiers.remove(userId);
+      }
+    });
+    notifier.value = lookup(userId);
     _userNotifiers[userId] = notifier;
     return notifier;
   }
@@ -233,6 +258,22 @@ class SevenTvPaintService extends ChangeNotifier {
   final _assignments = <String, ({String paintId, DateTime at})>{};
   final _negative = <String, DateTime>{};
   final _backoffUntil = <String, DateTime>{};
+
+  static const _maxUserMapEntries = 1000;
+
+  // Per-user maps grow with every distinct chatter. The per-lookup checks only
+  // touch the requested id, so once the maps get large, sweep the entries whose
+  // TTL or backoff has elapsed.
+  void _pruneStaleUserMaps(DateTime now) {
+    if (_assignments.length + _negative.length + _backoffUntil.length <
+        _maxUserMapEntries) {
+      return;
+    }
+    _assignments.removeWhere((_, a) => now.difference(a.at) > _userTtl);
+    _negative.removeWhere((_, at) => now.difference(at) > _negativeTtl);
+    _backoffUntil.removeWhere((_, until) => !now.isBefore(until));
+  }
+
   final _pendingUsers = <String>{};
   Timer? _flushTimer;
   bool _resolvingBatch = false;
@@ -338,6 +379,7 @@ class SevenTvPaintService extends ChangeNotifier {
   SevenTvPaint? lookup(String? userId) {
     if (!_enabled || userId == null || userId.isEmpty) return null;
     final now = _now();
+    _pruneStaleUserMaps(now);
     final assignment = _assignments[userId];
     if (assignment != null) {
       if (now.difference(assignment.at) <= _userTtl) {
@@ -691,6 +733,7 @@ class SevenTvPaintService extends ChangeNotifier {
   void dispose() {
     _flushTimer?.cancel();
     _entitlementSub?.cancel();
+    _userNotifiers.clear();
     for (final img in _images.values) {
       img?.dispose();
     }

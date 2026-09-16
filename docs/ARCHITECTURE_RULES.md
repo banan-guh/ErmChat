@@ -18,7 +18,7 @@ transport / codec   lib/irc, lib/eventsub/transport, lib/eventsub/decode
         |
         UI           lib/widgets, lib/screens, lib/chrome, lib/composer,
                      lib/panels, lib/sheets
-shared leaves        lib/models, lib/util, lib/client
+shared leaves        lib/models, lib/util, lib/client, lib/emotes
 ```
 
 - Transport and codec turn bytes and frames into typed events. They import their own
@@ -29,11 +29,17 @@ shared leaves        lib/models, lib/util, lib/client
 - The kernel (`lib/chat`) is the domain state model. It is framework-agnostic and does
   not import `lib/services` or any UI directory.
 - Pipeline (`lib/services`) reads transports and decoders, applies logic, and mutates
-  the kernel through its verbs. It does not import UI.
+  the kernel through its verbs. It does not import UI or rendering (`dart:ui`, Flutter
+  painting/scheduler/widgets/material); the shared `Color` value type is reached through
+  the `lib/color_utils.dart` leaf.
+- The emote domain (`lib/emotes`) is a pure typed model plus catalog: `Emote`,
+  `EmoteMeta`, `EmoteCatalog`, and the merge functions. It has no Flutter and no
+  services dependency; render-side code (image providers, decode, name paints) lives in
+  the UI layer (`lib/widgets`).
 - UI reads kernel state through providers and the sanctioned `Listenable` builders and
   never imports transport directly.
-- Shared leaves (`lib/models`, `lib/util`, `lib/client`) are importable from every layer
-  and import nothing upward themselves.
+- Shared leaves (`lib/models`, `lib/util`, `lib/client`, `lib/emotes`) are importable
+  from every layer and import nothing upward themselves.
 - Providers (`lib/providers`) are the composition root. They construct the app-scope
   owners, register teardown, bridge provider-owned `ChangeNotifier`s to Riverpod
   observation, and wire the pipeline. Pipeline (`lib/services`) must not import them;

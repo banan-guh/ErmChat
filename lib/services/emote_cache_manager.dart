@@ -11,10 +11,11 @@ import 'package:path_provider/path_provider.dart';
 import '../models/emote_fetch_tier.dart';
 import '../util/log.dart';
 import '../util/data_usage.dart';
+import 'emote_usage_registry.dart';
 
 /// Shared HTTP client for the cache-full fallback path plus the emote image
 /// loader's full-cache direct fetch, reused across a burst of overflow
-/// downloads. Process lifetime by design: the cache singleton never tears down.
+/// downloads. Process lifetime by design: one client serves the whole app.
 final http.Client emoteFetchClient = http.Client();
 
 /// Snapshot of the emote image disk cache.
@@ -30,8 +31,8 @@ class EmoteCacheStats {
 
 /// Dedicated disk cache for emote images. Every emote render (chat, emote
 /// menu, sheet, autocomplete, analytics) shares this store: the custom loop
-/// via [fetchEmoteBytes], stock cells via [CachedNetworkImageProvider] with
-/// this manager. Chat Giphy GIFs are the exception (memory-only).
+/// through `EmoteImages.bytes`, stock cells via [CachedNetworkImageProvider]
+/// with this manager. Chat Giphy GIFs are the exception (memory-only).
 ///
 /// The cache never exceeds [maxObjects]: a write is only accepted while the
 /// repo count (plus in-flight writes) is below the cap, so a burst of new
@@ -46,18 +47,13 @@ class EmoteCacheStats {
 /// count, deliberately not by bytes: the bound keeps the repo scan cheap.
 /// A byte cap is a possible future refinement, not a missing fix.
 class EmoteCacheManager extends CacheManager {
-  static final EmoteCacheManager _instance = EmoteCacheManager._();
+  EmoteCacheManager([Config? config]) : super(config ?? _defaultConfig());
 
-  factory EmoteCacheManager() => _instance;
-
-  EmoteCacheManager._()
-    : super(
-        Config(
-          'emoteImageCacheV2',
-          maxNrOfCacheObjects: 2000,
-          stalePeriod: const Duration(days: 30),
-        ),
-      );
+  static Config _defaultConfig() => Config(
+    'emoteImageCacheV3',
+    maxNrOfCacheObjects: 2000,
+    stalePeriod: const Duration(days: 30),
+  );
 
   @visibleForTesting
   EmoteCacheManager.forTesting(super.config);
@@ -107,15 +103,10 @@ class EmoteCacheManager extends CacheManager {
   /// PathNotFoundException mid-read.
   final List<({File file, DateTime createdAt})> _overflowFiles = [];
 
-  /// Keep-priority score for a cached URL, or null when there is no usage
-  /// data (the file then falls back to a recency decay from its stored time).
-  /// Set by [EmoteManager] from its usage registry.
-  double? Function(String url)? priorityScore;
-
-  /// Last-use time for a cached URL (used only for the eviction grace check,
-  /// so a file a render is still reading is never deleted mid-read). Null
-  /// when the URL has no usage history.
-  DateTime? Function(String url)? lastUsedAt;
+  /// Keep-priority policy for cached URLs, or null when there is no usage
+  /// data (a file then falls back to a recency decay from its stored time).
+  /// Set by the image owner from its usage policy.
+  EmoteImagePolicy? policy;
 
   /// Recency half-life for the no-registry fallback. A long, lax window so
   /// cached files age out slowly: combined with the admission check in
@@ -156,6 +147,7 @@ class EmoteCacheManager extends CacheManager {
   /// cache filled up must be served from disk instead of re-downloaded. Marks
   /// the URL read-protected so a concurrent eviction can't delete it mid-read.
   Future<File?> getCachedFile(String url) async {
+    _pruneStale(DateTime.now());
     try {
       final info = await getFileFromCache(url);
       if (info?.file != null) {
@@ -175,18 +167,18 @@ class EmoteCacheManager extends CacheManager {
   /// file, in which case we serve it from a temp file instead of churning the
   /// disk cache); callers then serve from a temp file instead.
   Future<bool> _acquireWriteSlot(String url) async {
+    _pruneStale(DateTime.now());
     if (await _tryReserve()) return true;
-    if (!await _evictLowest(priorityScore?.call(url))) return false;
+    if (!await _evictLowest(policy?.score(url))) return false;
     // The eviction freed a slot; the cached "full" count is now stale.
     _invalidateCount();
     _pendingWrites++;
     return true;
   }
 
-  Future<void> _invalidateCount() {
+  void _invalidateCount() {
     _cachedCount = null;
     _cachedCountAt = null;
-    return Future.value();
   }
 
   /// Reserves a write slot, or returns false when the cache is full. Callers
@@ -313,22 +305,25 @@ class EmoteCacheManager extends CacheManager {
       '${dir.path}/emote_overflow_${DateTime.now().microsecondsSinceEpoch}_${_overflowSeq++}',
     );
     await file.create();
-    final now = DateTime.now();
-    _overflowFiles.add((file: file, createdAt: now));
-    // Evict only files old enough that their consumer has certainly finished
-    // reading them. Fresh files are never deleted, so a concurrent fetch can't
-    // race a deletion mid-read.
+    _overflowFiles.add((file: file, createdAt: DateTime.now()));
+    _pruneStale(DateTime.now());
+    return file;
+  }
+
+  /// Drops expired read-protection entries and best-effort deletes overflow
+  /// temp files past their grace. Fresh files stay: a concurrent fetch may
+  /// still be reading them.
+  void _pruneStale(DateTime now) {
+    _readProtected.removeWhere(
+      (url, at) => now.difference(at) > _evictionGrace,
+    );
+    if (_overflowFiles.isEmpty) return;
     final evictBefore = now.subtract(_overflowGrace);
     for (final entry in _overflowFiles.toList()) {
       if (entry.createdAt.isAfter(evictBefore)) continue;
       _overflowFiles.remove(entry);
-      try {
-        await entry.file.delete();
-      } catch (_) {
-        // The file is gone already or not deletable; the OS temp dir cleans up.
-      }
+      unawaited(entry.file.delete().then((_) {}, onError: (Object _) {}));
     }
-    return file;
   }
 
   /// Bytes for [url] served while the disk cache is full. Concurrent callers
@@ -472,7 +467,7 @@ class EmoteCacheManager extends CacheManager {
   }
 
   bool _withinGrace(CacheObject object, DateTime now) {
-    final used = lastUsedAt?.call(object.url);
+    final used = policy?.lastUsedAt(object.url);
     if (used != null && now.difference(used).compareTo(_evictionGrace) < 0) {
       return true;
     }
@@ -504,7 +499,7 @@ class EmoteCacheManager extends CacheManager {
   /// otherwise a recency decay from the file's stored time (unviewed files
   /// age out like unused registry entries).
   double _score(CacheObject object) {
-    final scored = priorityScore?.call(object.url);
+    final scored = policy?.score(object.url);
     if (scored != null) return scored;
     final stored =
         object.touched ?? DateTime.fromMillisecondsSinceEpoch(object.id ?? 0);
@@ -528,7 +523,7 @@ class EmoteCacheManager extends CacheManager {
         }
       }
       return EmoteCacheStats(fileCount: count, totalBytes: bytes);
-    } catch (e) {
+    } catch (_) {
       return const EmoteCacheStats(fileCount: 0, totalBytes: 0);
     }
   }

@@ -3,7 +3,7 @@ import 'package:flutter/services.dart' show HapticFeedback;
 import 'package:flutter_list_view/flutter_list_view.dart';
 import '../models/twitch_message.dart';
 import '../util/thread_utils.dart';
-import '../services/seven_tv_paint_service.dart';
+import 'seven_tv_paint_service.dart';
 import '../util/timestamp_formatter.dart';
 import '../util/haptics.dart';
 import '../widgets/chat_message_tile.dart';
@@ -51,6 +51,11 @@ class ChatView extends StatefulWidget {
   /// Off in the mentions tab so deleted rows stay readable.
   final bool fadeDeleted;
 
+  /// True keeps the list alive when it scrolls out of a pager. Channel pages
+  /// pass false so background channels unmount; their scroll offset is
+  /// restored through PageStorage.
+  final bool keepAlive;
+
   /// Hero tag for the scroll-down FAB. Defaults to [channel]-keyed.
   final String? scrollFabHeroTag;
   final bool showTimestamp;
@@ -88,6 +93,7 @@ class ChatView extends StatefulWidget {
     this.emptyText = 'No messages yet',
     this.physics,
     this.fadeDeleted = true,
+    this.keepAlive = true,
     this.scrollFabHeroTag,
     this.showTimestamp = true,
     this.timestampFormat = kDefaultTimestampFormat,
@@ -109,10 +115,10 @@ class ChatView extends StatefulWidget {
 class _ChatViewState extends State<ChatView>
     with AutomaticKeepAliveClientMixin {
   @override
-  bool get wantKeepAlive => true;
+  bool get wantKeepAlive => widget.keepAlive;
   double _cachedSystemScale = 1.0;
   int _lastMsgLen = -1;
-  Map<String, int> _idToIndex = const {};
+  Map<String, int> _idToIndex = {};
   String? _endsFirst;
   String? _endsLast;
 
@@ -182,7 +188,7 @@ class _ChatViewState extends State<ChatView>
                 final msgs = widget.messages;
                 if (msgs.isEmpty) {
                   _lastMsgLen = 0;
-                  _idToIndex = const {};
+                  _idToIndex = {};
                   _endsFirst = null;
                   _endsLast = null;
                   final emptyMsg = TwitchMessage(
@@ -256,7 +262,11 @@ class _ChatViewState extends State<ChatView>
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 8),
                   child: FlutterListView(
-                    key: ValueKey(widget.channel),
+                    // PageStorage key restores the offset after the channel
+                    // page unmounts off screen; kept-alive lists need no key.
+                    key: widget.keepAlive
+                        ? ValueKey(widget.channel)
+                        : PageStorageKey<String>('${widget.channel}:chat'),
                     controller: widget.scrollController,
                     reverse: true,
                     physics: widget.physics,
@@ -313,6 +323,7 @@ class _ChatViewState extends State<ChatView>
         keepPositionOffset: 0.5,
         addAutomaticKeepAlives: false,
         addRepaintBoundaries: false,
+        addSemanticIndexes: false,
       );
       _delegateChannel = widget.channel;
       _delegateLen = msgs.length;
@@ -363,7 +374,16 @@ class _ChatViewState extends State<ChatView>
     // Cache holds the undimmed tile; dim wraps per build so queries never
     // poison it.
     final cached = cache?[msg.messageId];
-    if (cached != null) return _maybeDim(cached, msg);
+    if (cached != null) {
+      final id = msg.messageId;
+      if (id != null && cache != null) {
+        // Touch on use: keep the window centered on what is on screen so
+        // eviction drops rows that were scrolled away from, not visible ones.
+        cache.remove(id);
+        cache[id] = cached;
+      }
+      return _maybeDim(cached, msg);
+    }
     final parity = doCheckered ? (++ChatView._checkerSeq).isEven : i.isEven;
 
     final Widget body;
@@ -438,8 +458,13 @@ class _ChatViewState extends State<ChatView>
     final tile = RepaintBoundary(key: _messageKey(msg), child: body);
     if (cache != null && msg.messageId != null) {
       cache[msg.messageId!] = tile;
+      // Mark the freshly cached row as live for this frame. The eviction check
+      // below reads the buffer snapshot taken before this frame, which does not
+      // know about the row just inserted; without this it would look stale and
+      // be evicted immediately.
+      idToIndex[msg.messageId!] = i;
       if (cache.length > ChatView._maxCachedTiles) {
-        // Evict stale (truncated-out) entries first, then oldest.
+        // Evict a row that left the buffer first, then the least recently used.
         String? stale;
         for (final k in cache.keys) {
           if (k != null && !idToIndex.containsKey(k)) {

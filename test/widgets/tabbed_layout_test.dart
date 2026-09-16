@@ -704,4 +704,174 @@ void main() {
       }
     });
   });
+
+  group('TabbedLayout tab strip stretch', () {
+    // Enough tabs to overflow the viewport so the strip is scrollable; the
+    // selected tab is last, so the strip rests at its trailing edge.
+    Widget stretchHarness() => MaterialApp(
+      home: Scaffold(
+        body: TabbedLayout(
+          key: const Key('tl'),
+          tabs: List.generate(12, (i) => 'channel$i'),
+          selectedIndex: 11,
+          onSelectedIndexChanged: (_) {},
+          pageBuilder: (_, i) => Center(child: Text('page$i')),
+        ),
+      ),
+    );
+
+    testWidgets('overscrolling the strip stretches then springs back', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(stretchHarness());
+      await tester.pumpAndSettle();
+
+      // The PageView installs a stretch indicator too, so scope to the one
+      // wrapping the TabBar.
+      StretchEffect tabEffect() => tester.widget<StretchEffect>(
+        find.ancestor(
+          of: find.byType(TabBar),
+          matching: find.byType(StretchEffect),
+        ),
+      );
+
+      final start = tester.getCenter(find.byType(TabBar));
+      final gesture = await tester.startGesture(start);
+      // Stepped moves so each drag update lands past the trailing edge and
+      // builds up overscroll.
+      for (var i = 0; i < 10; i++) {
+        await gesture.moveBy(const Offset(-20, 0));
+        await tester.pump();
+      }
+
+      // Dragged past the trailing edge: content stretches.
+      expect(tabEffect().stretchStrength.abs(), greaterThan(0.0));
+
+      await gesture.up();
+      await tester.pumpAndSettle();
+
+      expect(tabEffect().stretchStrength, 0.0);
+    });
+  });
+
+  group('TabbedLayout dynamic page window', () {
+    testWidgets('a far jump never builds the pages it flies over', (
+      tester,
+    ) async {
+      final selected = ValueNotifier<int>(0);
+      final built = <int>{};
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: ValueListenableBuilder<int>(
+              valueListenable: selected,
+              builder: (_, index, _) => TabbedLayout(
+                key: const Key('tl'),
+                tabs: List.generate(8, (i) => 'c$i'),
+                selectedIndex: index,
+                onSelectedIndexChanged: (i) => selected.value = i,
+                pageBuilder: (_, i) {
+                  built.add(i);
+                  return Center(child: Text('page$i'));
+                },
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      built.clear();
+
+      // Jump 0 -> 7. The pre-jump lands near the target, so the flight only
+      // builds the pages it actually shows.
+      selected.value = 7;
+      await tester.pump();
+      for (var i = 0; i < 40; i++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      await tester.pumpAndSettle();
+
+      expect(built, contains(7));
+      expect(built, isNot(contains(1)));
+      expect(built, isNot(contains(2)));
+    });
+
+    testWidgets('only the focused page has tickers enabled', (tester) async {
+      final selected = ValueNotifier<int>(0);
+      Widget page(int i) => Builder(
+        builder: (context) => Text(
+          'page$i:${TickerMode.valuesOf(context).enabled ? 'on' : 'off'}',
+        ),
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: ValueListenableBuilder<int>(
+              valueListenable: selected,
+              builder: (_, index, _) => TabbedLayout(
+                key: const Key('tl'),
+                tabs: const ['a', 'b', 'c'],
+                selectedIndex: index,
+                preloadAdjacentPages: true,
+                onSelectedIndexChanged: (i) => selected.value = i,
+                pageBuilder: (_, i) => page(i),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('page0:on', skipOffstage: false), findsOneWidget);
+      expect(find.text('page1:off', skipOffstage: false), findsOneWidget);
+
+      selected.value = 1;
+      await tester.pump();
+      await tester.pumpAndSettle();
+
+      expect(find.text('page1:on', skipOffstage: false), findsOneWidget);
+      expect(find.text('page0:off', skipOffstage: false), findsOneWidget);
+    });
+  });
+
+  group('TabbedLayout tab tap focus', () {
+    testWidgets('tapping a tab commits focus before the flight lands', (
+      tester,
+    ) async {
+      final selected = ValueNotifier<int>(0);
+      final reported = <int>[];
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: ValueListenableBuilder<int>(
+              valueListenable: selected,
+              builder: (_, index, _) => TabbedLayout(
+                key: const Key('tl'),
+                tabs: const ['a', 'b', 'c'],
+                selectedIndex: index,
+                onSelectedIndexChanged: (i) {
+                  selected.value = i;
+                  reported.add(i);
+                },
+                pageBuilder: (_, i) => Center(child: Text('page$i')),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.descendant(of: find.byType(TabBar), matching: find.text('c')),
+      );
+      // One frame into the flight: focus already committed to c.
+      await tester.pump();
+      expect(reported, [2]);
+      expect(selected.value, 2);
+
+      await tester.pumpAndSettle();
+      // The landing dedups against the tap commit.
+      expect(reported, [2]);
+    });
+  });
 }

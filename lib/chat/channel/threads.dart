@@ -4,13 +4,39 @@ import 'messages.dart' show TruncateExemptions;
 /// One tracked reply thread: the pinned root (null when the root was never
 /// seen) plus replies still present in the channel buffer.
 class ThreadEntry {
+  static const maxRepliesPerThread = 1000;
+
   TwitchMessage? root;
   DateTime lastActivity = DateTime.now();
   final List<TwitchMessage> replies = [];
+  // Reply ids mirror [replies] so dedupe is O(1) even when a saved root keeps
+  // its reply list growing for the whole session.
+  final Set<String> _replyIds = {};
 
   bool hasMessage(String messageId) =>
-      root?.messageId == messageId ||
-      replies.any((r) => r.messageId == messageId);
+      root?.messageId == messageId || _replyIds.contains(messageId);
+
+  void addReply(TwitchMessage msg) {
+    replies.add(msg);
+    final id = msg.messageId;
+    if (id != null) _replyIds.add(id);
+    // TODO: stopgap cap. Saved threads hold their full log on disk, so the
+    // in-memory index can drop the oldest replies without losing data; revisit
+    // whether a sliding window is the right shape.
+    if (replies.length > maxRepliesPerThread) {
+      final dropped = replies.removeAt(0);
+      if (dropped.messageId != null) _replyIds.remove(dropped.messageId);
+    }
+  }
+
+  void removeReply(TwitchMessage msg) {
+    final id = msg.messageId;
+    replies.removeWhere((r) {
+      final match = identical(r, msg) || (id != null && r.messageId == id);
+      if (match && r.messageId != null) _replyIds.remove(r.messageId);
+      return match;
+    });
+  }
 }
 
 /// Read-only summary of one tracked thread for the threads dashboard.
@@ -117,7 +143,7 @@ class Threads {
     if (entry.hasMessage(id)) return false;
     entry.lastActivity = now();
     entry.root ??= lookupRoot?.call(rootId);
-    entry.replies.add(msg);
+    entry.addReply(msg);
     if (isNewEntry) _enforceCap();
     return true;
   }
@@ -185,7 +211,7 @@ class Threads {
       if (held) continue;
       final entry = _threads[rootId];
       if (entry == null) continue;
-      entry.replies.removeWhere((r) => identical(r, msg) || r.messageId == id);
+      entry.removeReply(msg);
       if (entry.replies.isEmpty && entry.root == null) {
         _threads.remove(rootId);
       }

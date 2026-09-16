@@ -96,8 +96,9 @@ WebpAnimInfo parseWebpAnim(Uint8List bytes) {
       bgColor = body[0] | (body[1] << 8) | (body[2] << 16) | (body[3] << 24);
     } else if (fourcc == 'ANMF' && size >= 16) {
       isAnimated = true;
-      final x = _u24(body, 0);
-      final y = _u24(body, 3);
+      // ANMF stores each offset halved: the true coordinate is 2 * value.
+      final x = _u24(body, 0) * 2;
+      final y = _u24(body, 3) * 2;
       final w = _u24(body, 6) + 1;
       final h = _u24(body, 9) + 1;
       final dur = _u24(body, 12);

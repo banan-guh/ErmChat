@@ -10,7 +10,7 @@ import '../panels/search.dart';
 import '../panels/threads.dart';
 import '../chat/chat.dart';
 import '../services/link_whitelist.dart';
-import '../services/seven_tv_paint_service.dart';
+import '../widgets/seven_tv_paint_service.dart';
 import '../services/twitch_auth.dart';
 import '../sheets/message_menu.dart';
 import '../sheets/user_sheet.dart';
@@ -159,23 +159,26 @@ class ChannelPanels {
   /// still shows fresh rows, edits and search filtering. The captured
   /// [context] is channelStack's own long-lived build context.
   Widget _buildPage(BuildContext context, String channel) {
-    return ListenableBuilder(
+    final infoVersion =
+        chat.channelFor(channel)?.info.version ?? _emptyNotifier;
+    final messageVersion =
+        chat.channelFor(channel)?.messages.version ?? _emptyNotifier;
+    return _FocusGatedBuilder(
       // message version drives new rows and text edits;
       // search bumps only its own channel on keystrokes.
       listenable: Listenable.merge([
-        chat.channelFor(channel)?.info.version ?? _emptyNotifier,
-        chat.channelFor(channel)?.messages.version ?? _emptyNotifier,
+        infoVersion,
+        messageVersion,
         search.channelVersion(channel),
       ]),
-      builder: (_, _) => ChatView(
+      builder: (_, active) => ChatView(
         channel: channel,
         messages: search.visibleMessages(channel),
         tileCache: tileCache,
         isDimmed: search.dimPredicate(channel),
         emptyText: search.emptyText(channel) ?? 'No messages yet',
         atBottomNotifier: host.atBottomNotifier(channel),
-        messageNotifier:
-            chat.channelFor(channel)?.messages.version ?? _emptyNotifier,
+        messageNotifier: active ? messageVersion : _emptyNotifier,
         scrollController: host.scrollCtrl(channel),
         messageBuilder: messageBuilder,
         linkWhitelist: linkWhitelist,
@@ -196,6 +199,7 @@ class ChannelPanels {
         },
         onFindThreadRoot: threads.findThreadRoot,
         onShowThreadView: (msg) => threads.showThreadView(msg),
+        keepAlive: false,
         keyboardDismissBehavior: (!kIsWeb && Platform.isIOS)
             ? ScrollViewKeyboardDismissBehavior.onDrag
             : ScrollViewKeyboardDismissBehavior.manual,
@@ -309,6 +313,7 @@ class ChannelPanels {
                   },
                   focusOnHalfDrag: true,
                   fastSnap: host.fastSnap,
+                  preloadAdjacentPages: true,
                   tabBuilder: (_, i) {
                     final channel = chat.names[i];
                     final cached = _tabCache[channel];
@@ -407,4 +412,23 @@ class _CachedPage {
 
   final Widget widget;
   final String token;
+}
+
+/// Runs [builder] against the channel versions only while the page's pager tab
+/// is focused. A background page keeps its last frame and stops rebuilding; on
+/// refocus the builder runs with the messages it missed.
+class _FocusGatedBuilder extends StatelessWidget {
+  const _FocusGatedBuilder({required this.listenable, required this.builder});
+
+  final Listenable listenable;
+  final Widget Function(BuildContext context, bool active) builder;
+
+  @override
+  Widget build(BuildContext context) {
+    final active = TickerMode.valuesOf(context).enabled;
+    return ListenableBuilder(
+      listenable: active ? listenable : _emptyNotifier,
+      builder: (context, _) => builder(context, active),
+    );
+  }
 }

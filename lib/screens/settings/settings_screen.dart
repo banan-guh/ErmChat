@@ -227,6 +227,7 @@ class SettingsScreen extends StatelessWidget {
                     channels: channels,
                     ttsController: ttsController,
                     onRecentMessagesModeChanged: onRecentMessagesModeChanged,
+                    images: emoteManager?.images,
                   ),
                 ),
               ),

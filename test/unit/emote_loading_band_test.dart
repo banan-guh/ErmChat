@@ -1,4 +1,4 @@
-import 'package:ermchat/widgets/emote_probe_memo.dart';
+import 'package:ermchat/services/emote_probe_memo.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -74,6 +74,44 @@ void main() {
 
       fail = false;
       expect(await memo.probe('u', (_) async => true), isTrue);
+    });
+
+    test('over-cap inserts evict the oldest memoized result', () async {
+      final memo = EmoteProbeMemo(maxEntries: 3);
+      final calls = <String>[];
+      Future<bool> probe(String url) async {
+        calls.add(url);
+        return true;
+      }
+
+      await memo.probe('oldest', probe);
+      await memo.probe('u0', probe);
+      await memo.probe('u1', probe);
+      calls.clear();
+      // At the cap: all still memoized.
+      await memo.probe('oldest', probe);
+      expect(calls, isEmpty);
+
+      // One more insert evicts the oldest entry.
+      await memo.probe('u2', probe);
+      calls.clear();
+      await memo.probe('oldest', probe);
+      expect(calls, ['oldest']);
+    });
+
+    test('cached exposes a fresh result without probing', () async {
+      var now = DateTime(2026, 1, 1);
+      final memo = EmoteProbeMemo(
+        ttl: const Duration(seconds: 60),
+        now: () => now,
+      );
+
+      expect(memo.cached('u'), isNull);
+      await memo.probe('u', (_) async => false);
+      expect(memo.cached('u'), isFalse);
+
+      now = now.add(const Duration(seconds: 61));
+      expect(memo.cached('u'), isNull);
     });
   });
 }

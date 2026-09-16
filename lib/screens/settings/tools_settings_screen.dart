@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../services/analytics_service.dart';
+import '../../services/emote_images.dart';
 import '../../services/recent_messages.dart';
 import '../../services/tts_controller.dart';
 import 'analytics_screen.dart';
@@ -15,6 +16,7 @@ class ToolsSettingsScreen extends StatelessWidget {
   final List<String>? channels;
   final TtsController? ttsController;
   final ValueChanged<RecentMessagesConfig>? onRecentMessagesModeChanged;
+  final EmoteImages? images;
 
   const ToolsSettingsScreen({
     super.key,
@@ -22,6 +24,7 @@ class ToolsSettingsScreen extends StatelessWidget {
     this.channels,
     this.ttsController,
     this.onRecentMessagesModeChanged,
+    this.images,
   });
 
   @override
@@ -56,7 +59,7 @@ class ToolsSettingsScreen extends StatelessWidget {
               MaterialPageRoute(builder: (_) => const RecentUploadsScreen()),
             ),
           ),
-          if (analyticsService != null && channels != null)
+          if (analyticsService != null && channels != null && images != null)
             SettingsNavTile(
               icon: Icons.insights,
               title: 'Analytics',
@@ -66,6 +69,7 @@ class ToolsSettingsScreen extends StatelessWidget {
                   builder: (_) => AnalyticsScreen(
                     analyticsService: analyticsService!,
                     channels: channels!,
+                    images: images!,
                   ),
                 ),
               ),

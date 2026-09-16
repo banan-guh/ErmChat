@@ -71,7 +71,7 @@ void main() {
         sevenTvHttp++;
         return [];
       },
-      sevenTvEmoteSetFetcher: (_, _) async {
+      sevenTvEmoteSetFetcher: (_) async {
         sevenTvHttp++;
         return [];
       },

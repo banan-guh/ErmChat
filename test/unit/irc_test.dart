@@ -23,7 +23,8 @@ import 'package:ermchat/services/seven_tv_event_client.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:ermchat/models/emote_fetch_tier.dart';
-import 'package:ermchat/models/generic_emote.dart';
+import 'package:ermchat/emotes/emote.dart';
+import 'package:ermchat/emotes/emote_catalog.dart';
 import 'package:ermchat/services/chat_connection_manager.dart';
 import 'package:ermchat/services/chat_channel_setup.dart';
 import 'package:ermchat/chat/chat.dart';
@@ -344,34 +345,34 @@ class _SpyEmoteManager extends EmoteManager {
   _SpyEmoteManager({required super.tier})
     : super(fetchStagger: Duration.zero, cacheCap: 0);
 
-  static const _emote = GenericEmote(
+  static const _emote = Emote(
     id: 'e1',
     code: 'E1',
-    type: EmoteType.bttv,
-    url: 'https://example.com/e1.png',
+    meta: BttvMeta(),
+    scales: {EmoteScale.medium: 'https://example.com/e1.png'},
   );
 
   int enqueueSeenCalls = 0;
   final List<String> viewedIds = [];
 
   @override
-  void enqueueSeenEmotes(List<GenericEmote> emotes) {
+  void enqueueSeenEmotes(List<Emote> emotes) {
     enqueueSeenCalls++;
     super.enqueueSeenEmotes(emotes);
   }
 
   @override
-  void markEmoteViewed(GenericEmote emote) {
+  void markEmoteViewed(Emote emote) {
     viewedIds.add(emote.id);
     super.markEmoteViewed(emote);
   }
 
   @override
-  GenericEmote? emoteById(String id) => id == _emote.id ? _emote : null;
+  Emote? emoteById(String id) => id == _emote.id ? _emote : null;
 
   @override
-  ChannelEmotes? byCode(String channel) =>
-      ChannelEmotes(byCode: const {'E1': _emote}, suggestions: const [_emote]);
+  EmoteLookup? byCode(String channel) =>
+      EmoteLookup(byCode: const {'E1': _emote}, suggestions: const [_emote]);
 }
 
 ChatConnectionManager _makeConn({

@@ -3,6 +3,11 @@ import 'package:flutter/material.dart';
 
 import 'models/highlight_state.dart';
 
+/// The `Color` value type is a shared domain type used by the kernel, models,
+/// and pipeline. Re-export it so pipeline code depends on this leaf instead of
+/// importing a rendering library directly.
+export 'dart:ui' show Color;
+
 const officialColors = [
   '#FF0000',
   '#0000FF',

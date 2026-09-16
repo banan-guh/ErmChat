@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import '../../widgets/emote_image.dart';
+import '../../widgets/emote_scale_resolver.dart';
+import '../../emotes/emote_picker.dart';
 import '../../widgets/tabbed_layout.dart';
-import '../../models/generic_emote.dart';
+import '../../emotes/emote.dart';
 import '../../services/analytics_service.dart';
+import '../../services/emote_images.dart';
 import '../../util/prefs.dart';
 import 'settings_page.dart';
 
@@ -79,11 +81,13 @@ class _ElapsedTextState extends State<_ElapsedText> {
 class AnalyticsScreen extends StatefulWidget {
   final AnalyticsService analyticsService;
   final List<String> channels;
+  final EmoteImages images;
 
   const AnalyticsScreen({
     super.key,
     required this.analyticsService,
     required this.channels,
+    required this.images,
   });
 
   @override
@@ -298,7 +302,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     ];
   }
 
-  List<Widget> _buildEmoteRows(List<({GenericEmote emote, int count})> emotes) {
+  List<Widget> _buildEmoteRows(List<({Emote emote, int count})> emotes) {
     if (emotes.isEmpty) {
       return [
         const Padding(
@@ -312,14 +316,14 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         ListTile(
           dense: true,
           contentPadding: EdgeInsets.zero,
-          leading: EmoteImage(
-            url: entry.emote.url,
+          leading: EmoteScaleResolver(
+            emote: entry.emote,
+            surface: EmoteSurface.grid,
+            images: widget.images,
             width: 28,
             height: 28,
             fit: BoxFit.contain,
-            alternateUrls: [if (entry.emote.url1x != null) entry.emote.url1x!],
             errorWidget: const SizedBox(width: 28, height: 28),
-            emote: entry.emote,
           ),
           title: Text(entry.emote.code),
           trailing: Text('${entry.count}'),
