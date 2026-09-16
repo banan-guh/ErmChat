@@ -579,11 +579,11 @@ void main() {
       );
 
       // Each cycle decodes and displays one frame on the real event loop.
-      for (var i = 0; i < 3; i++) {
-        await tester.runAsync(
-          () => Future<void>.delayed(const Duration(milliseconds: 150)),
-        );
+      for (var i = 0; i < 8; i++) {
         await tester.pump(const Duration(milliseconds: 160));
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 30)),
+        );
       }
       expect(
         EmoteUrlProvider.currentFrame('https://example.com/stream.gif'),
@@ -608,11 +608,11 @@ void main() {
       );
 
       // The engine streams one WebP frame at a time on the real event loop.
-      for (var i = 0; i < 3; i++) {
-        await tester.runAsync(
-          () => Future<void>.delayed(const Duration(milliseconds: 150)),
-        );
+      for (var i = 0; i < 8; i++) {
         await tester.pump(const Duration(milliseconds: 160));
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 30)),
+        );
       }
       expect(
         EmoteUrlProvider.currentFrame('https://example.com/stream.webp'),
@@ -637,11 +637,11 @@ void main() {
 
       // Keep pumping: only the lazy compositor can advance past the forced
       // engine stop point.
-      for (var i = 0; i < 6; i++) {
-        await tester.runAsync(
-          () => Future<void>.delayed(const Duration(milliseconds: 150)),
-        );
+      for (var i = 0; i < 12; i++) {
         await tester.pump(const Duration(milliseconds: 160));
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 30)),
+        );
       }
       expect(
         EmoteUrlProvider.currentFrame('https://example.com/fallback.webp'),
@@ -804,7 +804,18 @@ void main() {
       );
       await tester.pump();
       expect(EmoteUrlProvider.hasFrames(url), isTrue);
-      final before = EmoteUrlProvider.currentFrame(url);
+
+      // Count frames actually delivered, not the cycle position: a gap drops
+      // the stale backlog, so the position may jump but the deliveries stay
+      // sparse instead of replaying every missed frame back-to-back.
+      var delivered = 0;
+      final counter = ImageStreamListener((_, _) => delivered++);
+      final stream = EmoteUrlProvider(
+        url,
+        images: _testImages,
+      ).resolve(ImageConfiguration.empty);
+      stream.addListener(counter);
+      await tester.pump();
 
       // Simulate backgrounding: wall clock advances with no frames delivered,
       // leaving the schedule grid far behind (the kiss GIF has 47 frames, so
@@ -813,18 +824,17 @@ void main() {
         () => Future<void>.delayed(const Duration(seconds: 2)),
       );
 
-      // Resume and pump steadily for ~400ms: only a few frames may advance.
-      // Without the backlog clamp each pump emits a backlogged frame, so ~20
-      // frames race by; with it the grid re-anchors and ~4 advance.
-      var after = before;
+      // Resume and pump steadily for ~400ms: only a few frames may be
+      // delivered; the backlog is dropped, not replayed.
+      delivered = 0;
       for (var i = 0; i < 40; i++) {
         await tester.runAsync(
           () => Future<void>.delayed(const Duration(milliseconds: 10)),
         );
         await tester.pump(const Duration(milliseconds: 10));
-        after = EmoteUrlProvider.currentFrame(url);
       }
-      expect((after - before) % 47, lessThanOrEqualTo(12));
+      stream.removeListener(counter);
+      expect(delivered, lessThanOrEqualTo(12));
     });
 
     testWidgets('animations off freezes WebP mid-loop', (tester) async {

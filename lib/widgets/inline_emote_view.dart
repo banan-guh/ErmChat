@@ -74,6 +74,8 @@ class _InlineEmoteViewState extends State<InlineEmoteView> {
   }
 
   void _resolveMain() {
+    // Chat spans are the only surface that feeds the decoded-frame cache.
+    EmoteUrlProvider.markChatUse(widget.url);
     final stream = EmoteUrlProvider(
       widget.url,
       images: widget.images,
