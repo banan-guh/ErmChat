@@ -4,10 +4,12 @@ import '../chat/chat.dart';
 import '../client/session.dart';
 import '../models/twitch_message.dart';
 import '../util/log.dart';
+import 'emote_manager.dart';
 import 'ignore_manager.dart';
 import 'message_policy.dart';
 import 'ping_manager.dart';
 import 'recent_messages.dart';
+import 'twitch_badge_service.dart';
 import 'user_store.dart';
 
 /// Owns the history backfill paths (boot, join, reconnect): the ignore filter,
@@ -21,6 +23,8 @@ class ChatHistoryController {
     required this.ignoreManager,
     required this.pingManager,
     required this.userStore,
+    required this.emoteManager,
+    required this.badgeService,
     required this.maxMessages,
     required this.recentMessagesLimit,
     this.isBlocked,
@@ -38,6 +42,8 @@ class ChatHistoryController {
   final IgnoreManager? ignoreManager;
   final PingManager? pingManager;
   final UserStore userStore;
+  final EmoteManager emoteManager;
+  final TwitchBadgeService badgeService;
   final int Function() maxMessages;
   final int Function() recentMessagesLimit;
   final bool Function(String login)? isBlocked;
@@ -64,6 +70,7 @@ class ChatHistoryController {
       }
       _policy.applySelfRewrite(msg);
       _policy.applyPingHighlight(msg, mentionOnly: true);
+      _stampEmoteResolution(msg, channel);
       prepared.add(msg);
     }
     chat.receiveHistory(
@@ -73,6 +80,17 @@ class ChatHistoryController {
       maxMessages: maxMessages(),
       ownLogin: session.login,
     );
+  }
+
+  /// Freezes [msg]'s emote resolution at merge time, so scrolling back to it
+  /// renders the emote state history arrived with instead of a later delta's.
+  void _stampEmoteResolution(TwitchMessage msg, String channel) {
+    if (msg.isSystem) return;
+    final source = msg.sourceBroadcasterId;
+    final lookupChannel = source == null
+        ? channel
+        : badgeService.resolveChannelLogin(source) ?? channel;
+    emoteManager.resolvedEmotesFor(msg, lookupChannel: lookupChannel);
   }
 
   /// Retroactive mention scan, run once on login: evaluates ping rules against

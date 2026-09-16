@@ -30,6 +30,7 @@ class EmoteText {
     required List<EmotePosition>? twitchPositions,
     required EmoteLookup? channelEmotes,
     required EmoteImages emoteImages,
+    List<EmoteToken>? resolvedTokens,
     void Function(List<Emote>)? onEmoteTap,
     double scale = 1.0,
     List<String>? linkWhitelist,
@@ -43,6 +44,7 @@ class EmoteText {
         text: text,
         twitchPositions: twitchPositions,
         channelEmotes: channelEmotes,
+        resolvedTokens: resolvedTokens,
         onEmoteTap: onEmoteTap,
         scale: scale,
         linkWhitelist: linkWhitelist,
@@ -72,6 +74,7 @@ class EmoteText {
     required List<EmotePosition>? twitchPositions,
     required EmoteLookup? channelEmotes,
     required EmoteImages emoteImages,
+    List<EmoteToken>? resolvedTokens,
     void Function(List<Emote>)? onEmoteTap,
     double scale = 1.0,
     List<String>? linkWhitelist,
@@ -80,7 +83,7 @@ class EmoteText {
     void Function(String url)? onImageTap,
     bool animateGifs = true,
   }) {
-    if (channelEmotes == null) {
+    if (channelEmotes == null && resolvedTokens == null) {
       return parseTextWithLinks(
         text,
         linkWhitelist: linkWhitelist,
@@ -92,9 +95,10 @@ class EmoteText {
     }
 
     final spans = <InlineSpan>[];
-    final byCode = channelEmotes.byCode;
 
-    final segments = _buildSegments(text, twitchPositions, byCode);
+    final segments = resolvedTokens != null
+        ? _segmentsFromTokens(text, resolvedTokens)
+        : _buildSegments(text, twitchPositions, channelEmotes!.byCode);
     if (segments.isEmpty) {
       return parseTextWithLinks(
         text,
@@ -209,17 +213,43 @@ class EmoteText {
       text: text,
       positions: twitchPositions,
       byCode: byCode,
-    ).map((token) {
-      if (token.isEmote) {
-        return EmoteSegment(
+    ).map(_segmentForToken).toList();
+  }
+
+  /// Rebuilds segments from a frozen resolution: emote tokens plus the text
+  /// between them, so no lookup or tokenize runs.
+  static List<_Segment> _segmentsFromTokens(
+    String text,
+    List<EmoteToken> tokens,
+  ) {
+    final segments = <_Segment>[];
+    var cursor = 0;
+    for (final token in tokens) {
+      final start = token.start.clamp(0, text.length);
+      final end = token.end.clamp(start, text.length);
+      if (start > cursor) {
+        segments.add(TextSegment(text: text.substring(cursor, start)));
+      }
+      if (token.isEmote && end > start) {
+        segments.add(
+          EmoteSegment(emote: token.emote!, startIndex: start, endIndex: end),
+        );
+      }
+      cursor = end;
+    }
+    if (cursor < text.length) {
+      segments.add(TextSegment(text: text.substring(cursor)));
+    }
+    return segments;
+  }
+
+  static _Segment _segmentForToken(EmoteToken token) => token.isEmote
+      ? EmoteSegment(
           emote: token.emote!,
           startIndex: token.start,
           endIndex: token.end,
-        );
-      }
-      return TextSegment(text: token.text);
-    }).toList();
-  }
+        )
+      : TextSegment(text: token.text);
 
   static Size _emoteSize(Emote emote, double scale) {
     final s = min(28.0, 28.0 * emote.relativeScale) * scale;

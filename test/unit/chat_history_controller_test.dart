@@ -2,9 +2,11 @@ import 'package:ermchat/chat/chat.dart';
 import 'package:ermchat/client/session.dart';
 import 'package:ermchat/models/twitch_message.dart';
 import 'package:ermchat/services/chat_history_controller.dart';
+import 'package:ermchat/services/emote_manager.dart';
 import 'package:ermchat/services/ignore_manager.dart';
 import 'package:ermchat/services/ping_manager.dart';
 import 'package:ermchat/services/recent_messages.dart';
+import 'package:ermchat/services/twitch_badge_service.dart';
 import 'package:ermchat/services/user_store.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -15,6 +17,8 @@ ChatHistoryController _controller(Chat chat) => ChatHistoryController(
   ignoreManager: IgnoreManager(),
   pingManager: PingManager(),
   userStore: UserStore(),
+  emoteManager: EmoteManager(),
+  badgeService: TwitchBadgeService(),
   maxMessages: () => 500,
   recentMessagesLimit: () => 100,
 );

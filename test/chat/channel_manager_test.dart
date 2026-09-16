@@ -93,6 +93,8 @@ ChannelManager _channelManager(Chat chat) {
     ignoreManager: ignoreManager,
     pingManager: pingManager,
     userStore: userStore,
+    emoteManager: _FakeEmotes(),
+    badgeService: TwitchBadgeService(),
     maxMessages: () => 500,
     recentMessagesLimit: () => 100,
   );

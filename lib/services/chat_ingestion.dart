@@ -241,6 +241,8 @@ class ChatIngestion {
       _policy.learnUser(channel, msg);
     }
 
+    _stampEmoteResolution(msg, channel);
+
     final selected = getSelectedChannel();
     final result = chat.receive(
       channel,
@@ -471,6 +473,7 @@ class ChatIngestion {
     pingManager?.setOwnDisplayName(msg.displayName);
 
     _policy.learnUser(channel, msg);
+    _stampEmoteResolution(msg, channel);
 
     final result = chat.receive(
       channel,
@@ -490,6 +493,18 @@ class ChatIngestion {
     // would otherwise never be read aloud; surface them like any other chat
     // message so TTS can speak them too.
     onChatMessage?.call(channel, msg);
+  }
+
+  /// Freezes [msg]'s emote resolution at insert time, so a later live delta
+  /// cannot change the row when it is first rendered. Shared-chat messages
+  /// resolve against the source channel.
+  void _stampEmoteResolution(TwitchMessage msg, String channel) {
+    if (msg.isSystem) return;
+    final source = msg.sourceBroadcasterId;
+    final lookupChannel = source == null
+        ? channel
+        : badgeService.resolveChannelLogin(source) ?? channel;
+    emoteManager.resolvedEmotesFor(msg, lookupChannel: lookupChannel);
   }
 }
 

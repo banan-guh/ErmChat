@@ -1238,6 +1238,64 @@ void main() {
       },
     );
 
+    test('resolved emotes freeze across a live delta, refresh on a bump', () {
+      SharedPreferences.setMockInitialValues({});
+      final manager = EmoteManager(
+        fetchStagger: Duration.zero,
+        removeCachedFile: (url) async {},
+      );
+      manager.updateSevenTvEmotes('ch', added: [sevenTv('a', 'Alpha')]);
+
+      final msg = TwitchMessage(login: 'x', text: 'Alpha', channel: 'ch');
+      final first = manager.resolvedEmotesFor(msg, lookupChannel: 'ch');
+      expect(first, isNotNull);
+      expect(first!.map((t) => t.emote!.code).toList(), ['Alpha']);
+
+      // A live delta (rename) leaves the frozen snapshot untouched.
+      manager.updateSevenTvEmotes(
+        'ch',
+        renamed: {'a': (newName: 'Beta', oldName: 'Alpha')},
+      );
+      expect(manager.resolvedEmotesFor(msg, lookupChannel: 'ch'), same(first));
+
+      // A version bump recomputes: Alpha is gone, so the token disappears.
+      manager.store.notifyStateCleared();
+      final refreshed = manager.resolvedEmotesFor(msg, lookupChannel: 'ch');
+      expect(refreshed, isNot(same(first)));
+      expect(refreshed, isEmpty);
+
+      // System rows never snapshot; the renderer falls back.
+      final system = TwitchMessage(
+        login: '',
+        text: 'Alpha',
+        isSystem: true,
+        channel: 'ch',
+      );
+      expect(manager.resolvedEmotesFor(system, lookupChannel: 'ch'), isNull);
+    });
+
+    test('a row ingested before its emote loads resolves after a bump', () {
+      SharedPreferences.setMockInitialValues({});
+      final manager = EmoteManager(
+        fetchStagger: Duration.zero,
+        removeCachedFile: (url) async {},
+      );
+      final msg = TwitchMessage(login: 'x', text: 'Alpha', channel: 'ch');
+      // Ingested before the channel's emotes are known: frozen as empty.
+      expect(manager.resolvedEmotesFor(msg, lookupChannel: 'ch'), isEmpty);
+
+      // A live delta does not refresh the frozen row.
+      manager.updateSevenTvEmotes('ch', added: [sevenTv('a', 'Alpha')]);
+      expect(manager.resolvedEmotesFor(msg, lookupChannel: 'ch'), isEmpty);
+
+      // A full refetch bumps the version and the row picks the emote up.
+      manager.store.notifyStateCleared();
+      expect(
+        manager.resolvedEmotesFor(msg, lookupChannel: 'ch')!.single.emote!.code,
+        'Alpha',
+      );
+    });
+
     test('removed emotes are evicted only when unused elsewhere', () async {
       SharedPreferences.setMockInitialValues({});
       final removed = <String>[];
@@ -3670,6 +3728,23 @@ void main() {
       // Contains at least one WidgetSpan for the emote
       expect(spans.any((s) => s is WidgetSpan), isTrue);
       expect(spans.length, greaterThanOrEqualTo(3));
+    });
+
+    test('frozen resolved tokens render with no live lookup', () {
+      final emote = makeTestEmote(id: '1', code: 'Kappa');
+      final spans = EmoteText.build(
+        emoteImages: _testImages,
+        text: 'hi Kappa there',
+        twitchPositions: null,
+        channelEmotes: null,
+        resolvedTokens: [
+          EmoteToken(emote: emote, text: 'Kappa', start: 3, end: 8),
+        ],
+      );
+      expect(spans.any((s) => s is WidgetSpan), isTrue);
+      final text = spans.whereType<TextSpan>().map((s) => s.text).join();
+      expect(text, contains('hi'));
+      expect(text, contains('there'));
     });
 
     test('Twitch emote position overrides text match', () {

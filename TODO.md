@@ -85,18 +85,18 @@
 
 - borders flicker white when tabbing in
 - dedup spaces in reply string X
-- style bug, add stretch for tab bar channels
+- style bug, add stretch for tab bar channels X
 - notifs don't matter if no foreground in android (ios push notifs, change if server) - DO NOT do, adding server soon
 - fast swipe default X
-- double connected msg ios
+- double connected msg ios X
 - anon -> acc = nothing to show it's connecting + check weirdly long connect time? X
 - still duping sys msgs in robotty msgs (I think maybe, idk if it's true anymore) X
 - emotes don't pick max quality after low -> high X
-- test emotes on low / high
+- test emotes on low / high X
 - user panel janky with msgs X
 - chat msg delta doesn't work with unrendered msgs
 - emote images: same URL fetches aren't coalesced on the normal cache path (only the overflow path is); defer to a fetch-path refactor
-- nothing-tier: emotes render from cache only, no eviction; audit that raising the tier invalidates emotes cached under the wrong config
+- nothing-tier: emotes render from cache only, no eviction; audit that raising the tier invalidates emotes cached under the wrong config X
 - emote disk cache caps by object count, not bytes
 - in-memory per-channel emote metadata has no cap; freed only when leaving a channel
 - foreign personal 7TV set placeholders can exceed the 50-entry cap via the socket insert path (metadata only)

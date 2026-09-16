@@ -41,6 +41,14 @@ abstract interface class EmoteLookupSource {
 
   /// Merged emotes for [channel] plus [senderTwitchId]'s personal 7TV set.
   EmoteLookup? lookup(String channel, String? senderTwitchId);
+
+  /// Frozen emote tokens for [msg], or null when it has no snapshot (system
+  /// rows). Tokens are captured the first time and reused, so live deltas do
+  /// not change them; a catalog version change recomputes them.
+  List<EmoteToken>? resolvedEmotesFor(
+    TwitchMessage msg, {
+    required String lookupChannel,
+  });
 }
 
 /// Coordinator and single doorway for the emote area.
@@ -64,6 +72,11 @@ class EmoteManager implements EmoteLookupSource {
   // it fetches and coordinates the per-account overlays.
   final EmoteStore _store;
   final bool _ownsStore;
+
+  /// Per-message frozen emote resolutions, keyed by the message object. Weak,
+  /// so evicting a message drops its snapshot; stale against [version].
+  final Expando<_ResolvedMessageEmotes> _resolvedMessages =
+      Expando<_ResolvedMessageEmotes>();
 
   /// Image byte black box (disk cache, precache, migrations).
   late final EmoteImages _images;
@@ -383,6 +396,33 @@ class EmoteManager implements EmoteLookupSource {
   @override
   EmoteLookup? lookup(String channel, String? senderTwitchId) =>
       byCodeForSender(channel, senderTwitchId);
+
+  /// Frozen emote tokens for [msg]. Computed once at the current catalog
+  /// version and reused, so a live 7TV delta never changes them; a version
+  /// change (full refetch) recomputes. Only emote tokens are kept: text stays
+  /// on the message. System rows return null so the renderer falls back.
+  @override
+  List<EmoteToken>? resolvedEmotesFor(
+    TwitchMessage msg, {
+    required String lookupChannel,
+  }) {
+    if (msg.isSystem) return null;
+    final cached = _resolvedMessages[msg];
+    if (cached != null && cached.version == version) return cached.tokens;
+    final byCode = byCodeForSender(lookupChannel, msg.userId)?.byCode;
+    final tokens = byCode == null
+        ? const <EmoteToken>[]
+        : <EmoteToken>[
+            for (final token in tokenize(
+              text: msg.text,
+              positions: msg.emotePositions,
+              byCode: byCode,
+            ))
+              if (token.isEmote) token,
+          ];
+    _resolvedMessages[msg] = _ResolvedMessageEmotes(version, tokens);
+    return tokens;
+  }
 
   /// Maps foreign users to a personal set from a socket entitlement grant.
   Future<void> trackForeignPersonalGrant(
@@ -959,4 +999,13 @@ class EmoteManager implements EmoteLookupSource {
     _usage.scheduleFlush();
     unawaited(_discardDominatedScales(fresh));
   }
+}
+
+/// One message's frozen emote resolution, tagged with the catalog version it
+/// was built from.
+class _ResolvedMessageEmotes {
+  const _ResolvedMessageEmotes(this.version, this.tokens);
+
+  final int version;
+  final List<EmoteToken> tokens;
 }

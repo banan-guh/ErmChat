@@ -82,6 +82,8 @@ final chatHistoryControllerProvider = Provider<ChatHistoryController>((ref) {
     ignoreManager: ref.read(ignoreManagerProvider),
     pingManager: ref.read(pingManagerProvider),
     userStore: ref.read(userStoreProvider),
+    emoteManager: ref.read(emoteManagerProvider),
+    badgeService: ref.read(badgeServiceProvider),
     maxMessages: () => ref.read(maxMessagesPerChannelProvider),
     recentMessagesLimit: () => ref.read(recentMessagesLimitProvider),
     isBlocked: (login) =>

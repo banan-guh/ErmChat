@@ -179,7 +179,16 @@ class MessageBuilder {
     final lookupChannel = msg.sourceBroadcasterId != null
         ? badgeService.resolveChannelLogin(msg.sourceBroadcasterId!) ?? channel
         : channel;
-    final channelEmotes = emoteSource.lookup(lookupChannel, msg.userId);
+    // Frozen resolution captured at ingest: it keeps the emote state the
+    // message arrived with, so a later 7TV delta can't change it. System rows
+    // return null and fall back to the live lookup.
+    final resolved = emoteSource.resolvedEmotesFor(
+      msg,
+      lookupChannel: lookupChannel,
+    );
+    final channelEmotes = resolved == null
+        ? emoteSource.lookup(lookupChannel, msg.userId)
+        : null;
     // Giphy toggle off falls back to plain text (same as no attachments).
     final gifs = showGifs ? msg.gifAttachments : null;
     if (gifs == null || gifs.isEmpty) {
@@ -187,6 +196,7 @@ class MessageBuilder {
         text: msg.text,
         twitchPositions: msg.emotePositions,
         channelEmotes: channelEmotes,
+        resolvedTokens: resolved,
         onEmoteTap: onShowEmoteSheet,
         scale: scale,
         linkWhitelist: linkWhitelist.entries,
@@ -206,9 +216,10 @@ class MessageBuilder {
 
     void addGap(String gap, int gapStart) {
       if (gap.isEmpty) return;
+      final gapEnd = gapStart + gap.length;
       final inner = <EmotePosition>[];
       for (final p in msg.emotePositions ?? const <EmotePosition>[]) {
-        if (p.startIndex >= gapStart && p.endIndex <= gapStart + gap.length) {
+        if (p.startIndex >= gapStart && p.endIndex <= gapEnd) {
           inner.add(
             EmotePosition(
               emoteId: p.emoteId,
@@ -219,11 +230,25 @@ class MessageBuilder {
           );
         }
       }
+      // Rebase the frozen tokens onto this gap's text.
+      final gapTokens = resolved == null
+          ? null
+          : <EmoteToken>[
+              for (final t in resolved)
+                if (t.start >= gapStart && t.end <= gapEnd)
+                  EmoteToken(
+                    emote: t.emote,
+                    text: t.text,
+                    start: t.start - gapStart,
+                    end: t.end - gapStart,
+                  ),
+            ];
       spans.addAll(
         EmoteText.build(
           text: gap,
           twitchPositions: inner.isEmpty ? null : inner,
           channelEmotes: channelEmotes,
+          resolvedTokens: gapTokens,
           onEmoteTap: onShowEmoteSheet,
           scale: scale,
           linkWhitelist: linkWhitelist.entries,
