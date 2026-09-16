@@ -52,6 +52,7 @@ class ChatBody extends StatefulWidget {
     required this.autocomplete,
     required this.emoteMaxFraction,
     required this.keyboardH,
+    this.onKeyboardDismissed,
     this.composer,
     this.notice,
     this.isInPip = false,
@@ -65,6 +66,10 @@ class ChatBody extends StatefulWidget {
   final Widget autocomplete;
   final double emoteMaxFraction;
   final Widget? composer;
+
+  /// Fired once when the keyboard transitions open to closed, so the host
+  /// can drop input focus instead of leaving the field focused silently.
+  final VoidCallback? onKeyboardDismissed;
 
   /// System PiP mode: render the body builder output only. Composer,
   /// panels, picker, autocomplete, and notice stay out of the tree so the
@@ -152,6 +157,7 @@ class _ChatBodyState extends State<ChatBody> {
     _lastRawH = raw;
     if (raw <= 0.5) {
       _settleTimer?.cancel();
+      widget.onKeyboardDismissed?.call();
       if (_liftH != 0) setState(() => _liftH = 0);
       return;
     }

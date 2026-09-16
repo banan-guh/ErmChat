@@ -1722,6 +1722,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             // Read above the Scaffold: the body subtree sees viewInsets
             // stripped to zero once the Scaffold consumes them resizing.
             keyboardH: MediaQuery.viewInsetsOf(context).bottom,
+            // A dismissed keyboard leaves the field focused, which keeps
+            // the back guard and focus styling stuck; drop it explicitly.
+            onKeyboardDismissed: _composer.unfocus,
             // System PiP collapses the whole body to video-only; ChatBody
             // drops composer/panels/notice so the window shows the stream.
             isInPip: _streamPlayer.isInPip,

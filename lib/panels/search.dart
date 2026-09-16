@@ -305,14 +305,11 @@ class SearchPanels {
   static const _menuH = _menuHeaderH + 7 * _menuRowH + 2 * _menuDivH + 16.0;
 
   // 48px suffix slot for the morphed input: the filter menu.
-  // requestFocus false keeps the keyboard up: the menu route never
-  // steals focus from the search field.
   Widget filterButton() {
     return Builder(
       builder: (context) => PopupMenuButton<String>(
         tooltip: 'Search filters',
         padding: EdgeInsets.zero,
-        requestFocus: false,
         // Top-anchored at button top minus menu height: opens upward,
         // above the keyboard. Top-down growth, like every popup.
         position: PopupMenuPosition.over,

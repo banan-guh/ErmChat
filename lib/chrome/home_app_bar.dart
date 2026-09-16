@@ -165,9 +165,6 @@ class HomeAppBar {
                     ),
                   ),
                   PopupMenuButton<String>(
-                    // Keeps the keyboard up: the route never steals focus.
-                    // Settings unfocuses explicitly on open.
-                    requestFocus: false,
                     popUpAnimationStyle: const AnimationStyle(
                       duration: Duration(milliseconds: 175),
                     ),

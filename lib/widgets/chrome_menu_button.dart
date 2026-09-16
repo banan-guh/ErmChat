@@ -35,8 +35,6 @@ class ChromeMenuButtonState extends State<ChromeMenuButton> {
     final theme = Theme.of(context);
     return PopupMenuButton<String>(
       position: PopupMenuPosition.under,
-      // Keeps the keyboard up: the menu route never steals field focus.
-      requestFocus: false,
       popUpAnimationStyle: const AnimationStyle(
         duration: Duration(milliseconds: 175),
       ),
