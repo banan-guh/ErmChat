@@ -313,6 +313,7 @@ class _ChatViewState extends State<ChatView>
         keepPositionOffset: 0.5,
         addAutomaticKeepAlives: false,
         addRepaintBoundaries: false,
+        addSemanticIndexes: false,
       );
       _delegateChannel = widget.channel;
       _delegateLen = msgs.length;

@@ -1565,8 +1565,10 @@ void main() {
         );
         await tester.pump();
 
+        // The timestamp is the first span of the row's rich text now, so match
+        // it inside that plain text rather than as a standalone widget.
         final timeText = find.textContaining(
-          RegExp(r'^\d{2}:\d{2}$'),
+          RegExp(r'\d{2}:\d{2} '),
           skipOffstage: false,
         );
         expect(timeText, findsAtLeast(1));
@@ -1611,12 +1613,11 @@ void main() {
 
         expect(
           find.textContaining(
-            RegExp(r'^\d{1,2}:\d{2} (AM|PM)$'),
+            RegExp(r'\d{1,2}:\d{2} (AM|PM)'),
             skipOffstage: false,
           ),
           findsAtLeast(1),
         );
-        expect(find.textContaining(RegExp(r'^\d{2}:\d{2}$')), findsNothing);
       }
       await tester.pumpAndSettle();
       {
@@ -1656,7 +1657,10 @@ void main() {
         );
         await tester.pump();
 
-        expect(find.textContaining(RegExp(r'^\d{2}:\d{2}$')), findsNothing);
+        expect(
+          find.textContaining(RegExp(r'\d{2}:\d{2} '), skipOffstage: false),
+          findsNothing,
+        );
         expect(find.textContaining('hello', skipOffstage: false), findsWidgets);
       }
     },

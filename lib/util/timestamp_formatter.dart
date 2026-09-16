@@ -14,6 +14,25 @@ const String kDefaultTimestampFormat = 'HH:mm';
 const String kShowTimestampsPrefKey = 'show_timestamps';
 const String kTimestampFormatPrefKey = 'timestamp_format';
 
+final _maxLengthCache = <String, int>{};
+
+/// Longest output [format] can produce. Callers reserve a fixed-width
+/// timestamp column from this so usernames line up across rows.
+int timestampMaxLength(String format) {
+  return _maxLengthCache.putIfAbsent(
+    format,
+    () => format
+        .replaceAll('HH', '23')
+        .replaceAll('H', '23')
+        .replaceAll('hh', '12')
+        .replaceAll('h', '12')
+        .replaceAll('mm', '59')
+        .replaceAll('ss', '59')
+        .replaceAll('a', 'PM')
+        .length,
+  );
+}
+
 /// Formats [time] in local zone using a Java-style pattern (H, h, mm, ss, a).
 String formatTimestamp(DateTime time, String format) {
   final local = time.toLocal();
