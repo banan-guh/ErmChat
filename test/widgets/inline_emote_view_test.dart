@@ -5,7 +5,9 @@ import 'package:ermchat/emotes/emote.dart';
 import 'package:ermchat/emotes/emote_catalog.dart';
 import 'package:ermchat/emotes/emote_picker.dart';
 import 'package:ermchat/services/emote_images.dart';
+import 'package:ermchat/services/emote_probe_memo.dart';
 import 'package:ermchat/widgets/emote_url_provider.dart';
+import 'package:ermchat/widgets/emote_scale_resolver.dart';
 import 'package:ermchat/widgets/emote_text.dart';
 import 'package:ermchat/widgets/inline_emote_view.dart';
 import 'package:flutter/material.dart';
@@ -325,6 +327,37 @@ void main() {
     await _pumpUntilLoaded(tester);
     expect(fetches, 1);
     expect(_renderOf(tester).debugFrame, isNotNull);
+  });
+
+  testWidgets('a warm emote skips the placeholder frame', (tester) async {
+    final memo = EmoteProbeMemo();
+    final images = EmoteImages(probeMemo: memo);
+    addTearDown(images.dispose);
+    const url = 'https://inline.test/warm.png';
+    const emote = Emote(
+      id: 'warm',
+      code: 'KappaWarm',
+      meta: SevenTvMeta(),
+      scales: {EmoteScale.medium: url},
+    );
+    // Warm the probe memo the way a prior render of this emote would.
+    await memo.probe(url, (_) async => true);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: EmoteScaleResolver(
+          emote: emote,
+          surface: EmoteSurface.chat,
+          images: images,
+          width: 28,
+          height: 28,
+          lean: true,
+        ),
+      ),
+    );
+
+    // Resolved before the first build: an Image, not the gray placeholder box.
+    expect(find.byType(Image), findsOneWidget);
   });
 
   testWidgets('pausing then unmounting releases without throwing', (

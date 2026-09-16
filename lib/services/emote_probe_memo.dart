@@ -19,14 +19,19 @@ class EmoteProbeMemo {
 
   /// Probes [url] with dedup and TTL memoization. Errors clear the slot.
   Future<bool> probe(String url, Future<bool> Function(String) check) {
-    final entry = _entries[url];
-    if (entry != null) {
-      if (_now().difference(entry.$2) < ttl) {
-        return SynchronousFuture<bool>(entry.$1);
-      }
-      _entries.remove(url);
-    }
+    final memo = cached(url);
+    if (memo != null) return SynchronousFuture<bool>(memo);
     return _inflight.putIfAbsent(url, () => _run(url, check));
+  }
+
+  /// Memoized result for [url] when present and fresh, else null. Lets a
+  /// render resolve without an async hop when the answer is already known.
+  bool? cached(String url) {
+    final entry = _entries[url];
+    if (entry == null) return null;
+    if (_now().difference(entry.$2) < ttl) return entry.$1;
+    _entries.remove(url);
+    return null;
   }
 
   /// Drops the memoized and in-flight result for [url].

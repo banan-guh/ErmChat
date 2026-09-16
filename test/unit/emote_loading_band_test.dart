@@ -98,5 +98,20 @@ void main() {
       await memo.probe('oldest', probe);
       expect(calls, ['oldest']);
     });
+
+    test('cached exposes a fresh result without probing', () async {
+      var now = DateTime(2026, 1, 1);
+      final memo = EmoteProbeMemo(
+        ttl: const Duration(seconds: 60),
+        now: () => now,
+      );
+
+      expect(memo.cached('u'), isNull);
+      await memo.probe('u', (_) async => false);
+      expect(memo.cached('u'), isFalse);
+
+      now = now.add(const Duration(seconds: 61));
+      expect(memo.cached('u'), isNull);
+    });
   });
 }

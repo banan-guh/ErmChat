@@ -108,6 +108,26 @@ class EmoteImages {
     );
   }
 
+  /// Synchronous [resolve] when every scale's cache state is already memoized,
+  /// so a warm emote paints on the first frame. Null defers to [resolve].
+  ({String url, String? placeholder})? resolveSync(
+    Emote emote,
+    EmoteSurface surface,
+  ) {
+    final available = <String, bool>{};
+    for (final url in emote.scales.values) {
+      final cached = _probe.cached(url);
+      if (cached == null) return null;
+      available[url] = cached;
+    }
+    return EmotePicker.resolve(
+      emote,
+      surface,
+      _tier,
+      (u) => available[u] ?? false,
+    );
+  }
+
   // ── Cap config ──────────────────────────────────────────────────────
   int _cacheCap = defaultEmoteCacheMax;
 
