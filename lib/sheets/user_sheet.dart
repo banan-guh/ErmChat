@@ -360,6 +360,13 @@ class UserSheets {
                       cardBadges: cardBadges,
                       userMessages: history,
                       messageRowBuilder: (ctx, msg) => userHistoryRow(ctx, msg),
+                      // Disposing on the route future would run before the
+                      // sheet's exit animation and crash its controllers.
+                      onDispose: () {
+                        sheetController.dispose();
+                        historyController.dispose();
+                        autoSeek.dispose();
+                      },
                     );
                   },
                 );
@@ -368,11 +375,7 @@ class UserSheets {
           ),
         );
       },
-    ).whenComplete(() {
-      sheetController.dispose();
-      historyController.dispose();
-      autoSeek.dispose();
-    });
+    );
   }
 
   // Newest-first non-system messages from login.

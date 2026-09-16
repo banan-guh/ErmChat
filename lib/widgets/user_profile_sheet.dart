@@ -89,6 +89,11 @@ class UserProfileSheet extends StatefulWidget {
   final Widget Function(BuildContext context, TwitchMessage message)?
   messageRowBuilder;
 
+  /// Releases the sheet-owning controllers when the widget unmounts. The
+  /// route's future completes before its exit animation, so disposing there
+  /// would hit a disposed controller while the sheet still lays out.
+  final VoidCallback? onDispose;
+
   const UserProfileSheet({
     super.key,
     required this.username,
@@ -118,6 +123,7 @@ class UserProfileSheet extends StatefulWidget {
     this.cardBadges = const [],
     this.userMessages = const [],
     this.messageRowBuilder,
+    this.onDispose,
   });
 
   @override
@@ -177,6 +183,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
   @override
   void dispose() {
     _fallbackController?.dispose();
+    widget.onDispose?.call();
     super.dispose();
   }
 
