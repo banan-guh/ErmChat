@@ -6759,6 +6759,105 @@ void main() {
       expect(find.byKey(const Key('pip-thread')), findsOneWidget);
     });
   });
+
+  group('Background channel window', () {
+    testWidgets('a background channel freezes and catches up on refocus', (
+      WidgetTester tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({});
+      FlutterSecureStorage.setMockInitialValues({});
+      final irc = _FakeIrcService();
+      final ircRead = _FakeIrcReadService();
+      await tester.pumpWidget(
+        TwitchChatApp(
+          key: UniqueKey(),
+          eventSubService: _FakeEventSubService(),
+          recentMessagesService: _ConfigurableRecentMessagesService(const []),
+          ircService: irc,
+          ircReadService: ircRead,
+        ),
+      );
+      await tester.pump();
+
+      Future<void> join(String name) async {
+        await tester.tap(find.byIcon(Icons.add));
+        await tester.pumpAndSettle();
+        await tester.enterText(find.byType(TextField).last, name);
+        await tester.tap(find.text('Join', skipOffstage: false).last);
+        await tester.pump();
+        await tester.pump();
+      }
+
+      Future<void> focusTab(String name) async {
+        await tester.tap(
+          find.descendant(of: find.byType(TabBar), matching: find.text(name)),
+        );
+        await tester.pumpAndSettle();
+      }
+
+      await join('alpha');
+      irc.triggerConnect(joinChannel: 'alpha');
+      ircRead.triggerConnect(joinChannel: 'alpha');
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 600));
+      await tester.pump();
+
+      ircRead.emitMessage(
+        TwitchMessage(
+          login: 'alice',
+          text: 'alpha first',
+          channel: 'alpha',
+          messageId: 'a1',
+        ),
+      );
+      await tester.pump();
+      expect(
+        find.textContaining('alpha first', skipOffstage: false),
+        findsOneWidget,
+      );
+
+      // Join beta and focus it; alpha stays mounted as the adjacent page.
+      await join('beta');
+      await tester.pump(const Duration(milliseconds: 600));
+      await tester.pump();
+      await focusTab('beta');
+
+      ircRead.emitMessage(
+        TwitchMessage(
+          login: 'bob',
+          text: 'alpha second',
+          channel: 'alpha',
+          messageId: 'a2',
+        ),
+      );
+      ircRead.emitMessage(
+        TwitchMessage(
+          login: 'carol',
+          text: 'beta first',
+          channel: 'beta',
+          messageId: 'b1',
+        ),
+      );
+      await tester.pump();
+
+      // The focused channel updates; the background one holds its last frame.
+      expect(
+        find.textContaining('beta first', skipOffstage: false),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('alpha second', skipOffstage: false),
+        findsNothing,
+      );
+
+      // Refocusing alpha flushes the messages it missed.
+      await focusTab('alpha');
+      expect(
+        find.textContaining('alpha second', skipOffstage: false),
+        findsOneWidget,
+      );
+    });
+  });
 }
 
 // Bar over a fake composer through the real ChatBody, so overlay order and

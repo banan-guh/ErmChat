@@ -51,6 +51,11 @@ class ChatView extends StatefulWidget {
   /// Off in the mentions tab so deleted rows stay readable.
   final bool fadeDeleted;
 
+  /// True keeps the list alive when it scrolls out of a pager. Channel pages
+  /// pass false so background channels unmount; their scroll offset is
+  /// restored through PageStorage.
+  final bool keepAlive;
+
   /// Hero tag for the scroll-down FAB. Defaults to [channel]-keyed.
   final String? scrollFabHeroTag;
   final bool showTimestamp;
@@ -88,6 +93,7 @@ class ChatView extends StatefulWidget {
     this.emptyText = 'No messages yet',
     this.physics,
     this.fadeDeleted = true,
+    this.keepAlive = true,
     this.scrollFabHeroTag,
     this.showTimestamp = true,
     this.timestampFormat = kDefaultTimestampFormat,
@@ -109,7 +115,7 @@ class ChatView extends StatefulWidget {
 class _ChatViewState extends State<ChatView>
     with AutomaticKeepAliveClientMixin {
   @override
-  bool get wantKeepAlive => true;
+  bool get wantKeepAlive => widget.keepAlive;
   double _cachedSystemScale = 1.0;
   int _lastMsgLen = -1;
   Map<String, int> _idToIndex = {};
@@ -256,7 +262,11 @@ class _ChatViewState extends State<ChatView>
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 8),
                   child: FlutterListView(
-                    key: ValueKey(widget.channel),
+                    // PageStorage key restores the offset after the channel
+                    // page unmounts off screen; kept-alive lists need no key.
+                    key: widget.keepAlive
+                        ? ValueKey(widget.channel)
+                        : PageStorageKey<String>('${widget.channel}:chat'),
                     controller: widget.scrollController,
                     reverse: true,
                     physics: widget.physics,

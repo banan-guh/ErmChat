@@ -753,4 +753,84 @@ void main() {
       expect(tabEffect().stretchStrength, 0.0);
     });
   });
+
+  group('TabbedLayout dynamic page window', () {
+    testWidgets('a far jump never builds the pages it flies over', (
+      tester,
+    ) async {
+      final selected = ValueNotifier<int>(0);
+      final built = <int>{};
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: ValueListenableBuilder<int>(
+              valueListenable: selected,
+              builder: (_, index, _) => TabbedLayout(
+                key: const Key('tl'),
+                tabs: List.generate(8, (i) => 'c$i'),
+                selectedIndex: index,
+                onSelectedIndexChanged: (i) => selected.value = i,
+                pageBuilder: (_, i) {
+                  built.add(i);
+                  return Center(child: Text('page$i'));
+                },
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      built.clear();
+
+      // Jump 0 -> 7. The pre-jump lands near the target, so the flight only
+      // builds the pages it actually shows.
+      selected.value = 7;
+      await tester.pump();
+      for (var i = 0; i < 40; i++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      await tester.pumpAndSettle();
+
+      expect(built, contains(7));
+      expect(built, isNot(contains(1)));
+      expect(built, isNot(contains(2)));
+    });
+
+    testWidgets('only the focused page has tickers enabled', (tester) async {
+      final selected = ValueNotifier<int>(0);
+      Widget page(int i) => Builder(
+        builder: (context) => Text(
+          'page$i:${TickerMode.valuesOf(context).enabled ? 'on' : 'off'}',
+        ),
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: ValueListenableBuilder<int>(
+              valueListenable: selected,
+              builder: (_, index, _) => TabbedLayout(
+                key: const Key('tl'),
+                tabs: const ['a', 'b', 'c'],
+                selectedIndex: index,
+                preloadAdjacentPages: true,
+                onSelectedIndexChanged: (i) => selected.value = i,
+                pageBuilder: (_, i) => page(i),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('page0:on', skipOffstage: false), findsOneWidget);
+      expect(find.text('page1:off', skipOffstage: false), findsOneWidget);
+
+      selected.value = 1;
+      await tester.pump();
+      await tester.pumpAndSettle();
+
+      expect(find.text('page1:on', skipOffstage: false), findsOneWidget);
+      expect(find.text('page0:off', skipOffstage: false), findsOneWidget);
+    });
+  });
 }

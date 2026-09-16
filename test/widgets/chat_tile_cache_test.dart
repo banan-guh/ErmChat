@@ -148,4 +148,68 @@ void main() {
       reason: 'the newest row should hit, not be rebuilt',
     );
   });
+
+  testWidgets('a non-kept-alive page restores its scroll offset', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1080, 2400);
+    tester.view.devicePixelRatio = 3.0;
+    addTearDown(tester.view.reset);
+
+    final em = EmoteManager();
+    final builder = MessageBuilder(
+      emoteSource: em,
+      badgeService: TwitchBadgeService(),
+      thirdPartyBadgeService: ThirdPartyBadgeService(),
+      onShowEmoteSheet: (_) {},
+    );
+    final messages = [for (var i = 60; i > 0; i--) _msg(i)];
+    final messageNotifier = ValueNotifier(0);
+    final atBottom = ValueNotifier(true);
+    final controller = FlutterListViewController();
+    final tileCache = <String, Map<String?, Widget>>{};
+    // Toggles the page in and out of the same route, like the channel pager.
+    final shown = ValueNotifier(true);
+    addTearDown(em.dispose);
+    addTearDown(controller.dispose);
+    addTearDown(messageNotifier.dispose);
+    addTearDown(atBottom.dispose);
+    addTearDown(shown.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ValueListenableBuilder<bool>(
+            valueListenable: shown,
+            builder: (_, visible, _) => visible
+                ? ChatView(
+                    channel: 'restore',
+                    messages: messages,
+                    tileCache: tileCache,
+                    atBottomNotifier: atBottom,
+                    messageNotifier: messageNotifier,
+                    scrollController: controller,
+                    messageBuilder: builder,
+                    keepAlive: false,
+                    onShowUserProfile: (_, _, {displayName}) {},
+                  )
+                : const SizedBox.shrink(),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.drag(find.byType(ChatView), const Offset(0, 300));
+    await tester.pumpAndSettle();
+    final before = controller.offset;
+    expect(before, greaterThan(0));
+
+    shown.value = false;
+    await tester.pumpAndSettle();
+    shown.value = true;
+    await tester.pumpAndSettle();
+
+    expect(controller.offset, before);
+  });
 }

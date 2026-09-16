@@ -280,4 +280,95 @@ void main() {
     expect(tester.takeException(), isNull);
     expect(_renderOf(tester).debugShowsBand, isTrue);
   });
+
+  testWidgets('a disabled TickerMode defers the decode until enabled', (
+    tester,
+  ) async {
+    var fetches = 0;
+    EmoteUrlProvider.debugFetchOverride = (_) async {
+      fetches++;
+      return _pngBytes();
+    };
+    const url = 'https://inline.test/paused.png';
+
+    Future<void> pumpWith(bool enabled) => tester.pumpWidget(
+      MaterialApp(
+        home: TickerMode(
+          enabled: enabled,
+          child: InlineEmoteView(
+            url: url,
+            width: 28,
+            height: 28,
+            images: _images,
+          ),
+        ),
+      ),
+    );
+
+    // Background page: no fetch, no frame, just the band.
+    await pumpWith(false);
+    await _pumpUntilLoaded(tester);
+    expect(fetches, 0);
+    expect(_renderOf(tester).debugFrame, isNull);
+    expect(_renderOf(tester).debugShowsBand, isTrue);
+
+    // Focused: resolves and paints.
+    await pumpWith(true);
+    await _pumpUntilLoaded(tester);
+    expect(fetches, 1);
+    expect(_renderOf(tester).debugFrame, isNotNull);
+
+    // Refocus after a pause reuses the live completer instead of re-decoding.
+    await pumpWith(false);
+    await tester.pump();
+    await pumpWith(true);
+    await _pumpUntilLoaded(tester);
+    expect(fetches, 1);
+    expect(_renderOf(tester).debugFrame, isNotNull);
+  });
+
+  testWidgets('pausing then unmounting releases without throwing', (
+    tester,
+  ) async {
+    EmoteUrlProvider.debugFetchOverride = (_) async => _pngBytes();
+    const url = 'https://inline.test/pause-dispose.png';
+    final enabled = ValueNotifier<bool>(true);
+    final shown = ValueNotifier<bool>(true);
+    addTearDown(enabled.dispose);
+    addTearDown(shown.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ValueListenableBuilder<bool>(
+          valueListenable: shown,
+          builder: (_, visible, _) => !visible
+              ? const SizedBox.shrink()
+              : ValueListenableBuilder<bool>(
+                  valueListenable: enabled,
+                  builder: (_, on, _) => TickerMode(
+                    enabled: on,
+                    child: InlineEmoteView(
+                      url: url,
+                      width: 28,
+                      height: 28,
+                      images: _images,
+                    ),
+                  ),
+                ),
+        ),
+      ),
+    );
+    await _pumpUntilLoaded(tester);
+    expect(_renderOf(tester).debugFrame, isNotNull);
+
+    // Background the page: the listener leaves but the completer stays alive.
+    enabled.value = false;
+    await tester.pump();
+    // Then unmount it: the handle release must be balanced.
+    shown.value = false;
+    await tester.pump();
+    await tester.pump();
+
+    expect(tester.takeException(), isNull);
+  });
 }
