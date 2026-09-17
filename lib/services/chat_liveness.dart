@@ -5,6 +5,7 @@ import '../eventsub/transport/connection.dart';
 import '../irc/transport/read.dart';
 import '../irc/transport/write.dart';
 import '../util/log.dart';
+import 'pubsub_points_service.dart';
 import 'seven_tv_event_client.dart';
 import 'twitch_auth.dart';
 
@@ -16,6 +17,7 @@ class ChatLiveness {
     required this.irc,
     required this.ircRead,
     required this.eventSub,
+    this.pubSubPoints,
     required this.sevenTvClient,
     required this.session,
     required this.twitchAuth,
@@ -24,6 +26,7 @@ class ChatLiveness {
   final IrcService irc;
   final IrcReadService ircRead;
   final EventSubService eventSub;
+  final PubSubPointsService? pubSubPoints;
   final SevenTvEventClient? sevenTvClient;
   final Session session;
   final TwitchAuth twitchAuth;
@@ -55,6 +58,7 @@ class ChatLiveness {
     irc.forceReconnect();
     ircRead.forceReconnect();
     unawaited(eventSub.forceReconnect());
+    unawaited(pubSubPoints?.forceReconnect());
     unawaited(sevenTvClient?.forceReconnect());
   }
 
@@ -102,6 +106,10 @@ class ChatLiveness {
     // spot a zombie socket; a stale session is torn down and re-established.
     if (!eventSub.isConnected || eventSub.isStale) {
       unawaited(eventSub.forceReconnect());
+    }
+    final points = pubSubPoints;
+    if (points != null && (!points.isConnected || points.isStale)) {
+      unawaited(points.forceReconnect());
     }
     if (sevenTvClient != null &&
         (!sevenTvClient!.isConnected || sevenTvClient!.isStale)) {

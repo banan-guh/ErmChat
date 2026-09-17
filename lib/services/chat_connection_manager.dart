@@ -24,6 +24,8 @@ import '../services/chat_channel_setup.dart';
 import '../services/chat_sender.dart';
 import '../services/eventsub_consumer.dart';
 import '../services/moderation_hub.dart';
+import '../services/pubsub_points_consumer.dart';
+import '../services/pubsub_points_service.dart';
 import '../services/seven_tv_consumer.dart';
 import '../services/join_progress_tracker.dart';
 import '../services/chat_readiness.dart';
@@ -40,6 +42,7 @@ class ChatServices {
   ChatServices({
     required this.twitchApi,
     required this.eventSub,
+    this.pubSubPoints,
     required this.irc,
     required this.ircRead,
     this.sevenTvClient,
@@ -54,6 +57,9 @@ class ChatServices {
 
   final TwitchApi twitchApi;
   final EventSubService eventSub;
+
+  /// Null disables redemption headers; the IRC highlight path still works.
+  final PubSubPointsService? pubSubPoints;
   final IrcService irc;
   final IrcReadService ircRead;
   final SevenTvEventClient? sevenTvClient;
@@ -229,6 +235,13 @@ class ChatConnectionManager {
     onSelfTimeoutCleared: _sender.clearTimeout,
   );
 
+  // PubSub redemption consumption: staged partners for IRC correlation
+  // plus standalone banners. Owns no socket; the service does.
+  late final PubSubPointsConsumer pubSubPointsConsumer = PubSubPointsConsumer(
+    chat: config.chat,
+    getMaxMessages: () => config.bridge.getMaxMessagesPerChannel(),
+  );
+
   // EventSub consumption: typed decoder events applied to the chat kernel.
   late final EventSubConsumer eventSubConsumer = EventSubConsumer(
     chat: config.chat,
@@ -271,6 +284,7 @@ class ChatConnectionManager {
     irc: config.services.irc,
     ircRead: config.services.ircRead,
     eventSub: config.services.eventSub,
+    pubSubPoints: config.services.pubSubPoints,
     sevenTvClient: config.services.sevenTvClient,
     session: config.session,
     twitchAuth: config.services.twitchAuth,
@@ -333,6 +347,7 @@ class ChatConnectionManager {
     onChatMessage: config.sinks.onChatMessage,
     onMention: config.sinks.onMention,
     onWhisper: config.sinks.onWhisper,
+    pubSubPoints: pubSubPointsConsumer,
   );
 
   // Channel-domain wiring (joins, Helix/emote/badge resolution, EventSub
@@ -341,6 +356,7 @@ class ChatConnectionManager {
     twitchApi: config.services.twitchApi,
     eventSubDecoder: eventSubDecoder,
     eventSubTopics: eventSubTopics,
+    pubSubPoints: config.services.pubSubPoints,
     irc: config.services.irc,
     ircRead: config.services.ircRead,
     readDecoder: readDecoder,
@@ -375,6 +391,7 @@ class ChatConnectionManager {
     _sender.dispose();
     readDecoder.dispose();
     writeDecoder.dispose();
+    pubSubPointsConsumer.dispose();
     eventSubConsumer.dispose();
     _sevenTvConsumer.dispose();
     eventSubDecoder.dispose();
@@ -390,6 +407,7 @@ class ChatConnectionManager {
   /// re-subscribes from scratch.
   void forgetChannel(String channel) {
     _sender.forgetChannel(channel);
+    config.services.pubSubPoints?.forgetChannel(channel);
     _channelSetup.forgetChannel(channel);
   }
 
@@ -488,6 +506,10 @@ class ChatConnectionManager {
 
     _channelSetup.attach();
 
+    final pubSubPoints = config.services.pubSubPoints;
+    if (pubSubPoints != null) {
+      pubSubPointsConsumer.attach(pubSubPoints.onRedemption);
+    }
     eventSubConsumer.attach(eventSubDecoder);
 
     _sevenTvConsumer.attach();

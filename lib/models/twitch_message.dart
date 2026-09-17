@@ -98,6 +98,9 @@ class TwitchMessage {
   /// Channel point redemption id (`custom-reward-id`), if any.
   final String? customRewardId;
 
+  /// Reward image for PubSub redemption header rows. Null on every other row.
+  final String? redemptionImageUrl;
+
   /// `pinned-chat-paid-amount` value on elevated (Hype Chat) messages.
   final String? pinnedPaidAmount;
 
@@ -149,6 +152,7 @@ class TwitchMessage {
     this.isFirstMessage = false,
     this.msgId,
     this.customRewardId,
+    this.redemptionImageUrl,
     this.pinnedPaidAmount,
     this.bitsAmount,
     this.userId,
@@ -185,6 +189,7 @@ class TwitchMessage {
     'isFirstMessage': isFirstMessage,
     'msgId': msgId,
     'customRewardId': customRewardId,
+    'redemptionImageUrl': redemptionImageUrl,
     'pinnedPaidAmount': pinnedPaidAmount,
     'bitsAmount': bitsAmount,
     'emotePositions': emotePositions?.map((e) => e.toJson()).toList(),
@@ -221,6 +226,7 @@ class TwitchMessage {
     isFirstMessage: json['isFirstMessage'] as bool? ?? false,
     msgId: json['msgId'] as String?,
     customRewardId: json['customRewardId'] as String?,
+    redemptionImageUrl: json['redemptionImageUrl'] as String?,
     pinnedPaidAmount: json['pinnedPaidAmount'] as String?,
     bitsAmount: (json['bitsAmount'] as num?)?.toInt(),
     emotePositions: (json['emotePositions'] as List?)

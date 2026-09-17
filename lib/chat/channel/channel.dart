@@ -128,6 +128,25 @@ class Channel {
 
   bool moveConnectedToTop() => messages.moveConnectedToTop();
 
+  /// Retro-inserts a redemption header above an already-buffered chat line.
+  /// System rows skip unread counting; truncation decay runs in the same
+  /// step so callers never write channel children directly.
+  bool insertHeaderAbove(
+    String targetMessageId,
+    TwitchMessage header, {
+    required int maxMessages,
+  }) {
+    final change = messages.insertAfter(
+      targetMessageId,
+      header,
+      maxMessages: maxMessages,
+      buildExemptions: () => threads.exemptions,
+    );
+    if (!change.inserted) return false;
+    threads.decay(change.evicted);
+    return true;
+  }
+
   /// Adds the loading-history line with a stable id so removal is exact.
   void addLoadingHistory() => messages.addSystem(
     'Loading chat history...',

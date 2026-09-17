@@ -228,7 +228,7 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
     List<String> embedUrls = const [];
 
     if (msg.isSystem) {
-      children = widget.systemBodyBuilder != null
+      final base = widget.systemBodyBuilder != null
           ? widget.systemBodyBuilder!(msg, s)
           // Fallback: plain text at the same size/weight as the real path.
           : <InlineSpan>[
@@ -241,6 +241,35 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
                 ),
               ),
             ];
+      // PubSub redemption headers carry the reward image inline, mirroring
+      // DankChat's trailing ImageSpan. Broken images collapse to a gap.
+      final redemptionImage = msg.redemptionImageUrl;
+      if (redemptionImage != null && redemptionImage.isNotEmpty) {
+        final size = 18.0 * s;
+        children = [
+          ...base,
+          WidgetSpan(
+            alignment: PlaceholderAlignment.middle,
+            child: Padding(
+              padding: const EdgeInsets.only(left: 4),
+              child: CachedNetworkImage(
+                imageUrl: redemptionImage,
+                width: size,
+                height: size,
+                fit: BoxFit.contain,
+                fadeInDuration: Duration.zero,
+                placeholder: (_, _) => SizedBox(width: size, height: size),
+                errorWidget: (_, failedUrl, error) {
+                  logDebug('Redemption image load failed: $failedUrl - $error');
+                  return SizedBox(width: size, height: size);
+                },
+              ),
+            ),
+          ),
+        ];
+      } else {
+        children = base;
+      }
       semanticsLabel = msg.text;
       deleted = false;
     } else {

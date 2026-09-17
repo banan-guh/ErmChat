@@ -19,6 +19,7 @@ import 'ignore_manager.dart';
 import 'message_policy.dart';
 import 'moderation_hub.dart';
 import 'ping_manager.dart';
+import 'pubsub_points_consumer.dart';
 import 'twitch_auth.dart';
 import 'twitch_badge_service.dart';
 import 'user_store.dart';
@@ -52,6 +53,7 @@ class ChatIngestion {
     this.getSharedChatMode,
     required this.isModerationActive,
     required this.isJoinFailureNotified,
+    this.pubSubPoints,
     required this.onSystemMessage,
     this.onAnalyticsMessage,
     this.onChatMessage,
@@ -73,6 +75,10 @@ class ChatIngestion {
   final ModerationHub moderation;
   final IgnoreManager? ignoreManager;
   final PingManager? pingManager;
+
+  /// PubSub redemption correlator. Null disables headers; the IRC highlight
+  /// path still works.
+  final PubSubPointsConsumer? pubSubPoints;
 
   late final ChatMessagePolicy _policy = ChatMessagePolicy(
     ignoreManager: ignoreManager,
@@ -242,6 +248,19 @@ class ChatIngestion {
     }
 
     _stampEmoteResolution(msg, channel);
+
+    // PubSub companion headers (DankChat parity): a staged partner posts
+    // its header first so display order reads header above message; a miss
+    // records the line for a late partner instead of delaying chat.
+    final rewardId = msg.customRewardId;
+    if (rewardId != null && rewardId.isNotEmpty && !msg.isSystem) {
+      final partner = pubSubPoints?.takeStaged(channel, rewardId);
+      if (partner != null) {
+        pubSubPoints?.insertCompanionHeader(channel, partner);
+      } else {
+        pubSubPoints?.noteIrcRedemption(channel, rewardId, msg.messageId);
+      }
+    }
 
     final selected = getSelectedChannel();
     final result = chat.receive(

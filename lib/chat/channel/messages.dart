@@ -141,6 +141,28 @@ class Messages {
     return BufferChange(inserted: true, evicted: evicted);
   }
 
+  /// Inserts [msg] directly after (older than) the row carrying [targetId],
+  /// so a late redemption header lands above its chat line in display order.
+  /// Misses when the target is gone or the header id is a duplicate.
+  BufferChange insertAfter(
+    String targetId,
+    TwitchMessage msg, {
+    required int maxMessages,
+    TruncateExemptions Function()? buildExemptions,
+  }) {
+    final id = msg.messageId;
+    if (id != null && _seenIds.contains(id)) {
+      return const BufferChange();
+    }
+    final target = _items.indexWhere((m) => m.messageId == targetId);
+    if (target < 0) return const BufferChange();
+    _items.insert(target + 1, msg);
+    if (id != null) _seenIds.add(id);
+    final evicted = _maybeTruncate(maxMessages, buildExemptions);
+    _bump();
+    return BufferChange(inserted: true, evicted: evicted);
+  }
+
   // ---- History merge -------------------------------------------------------
 
   /// Merges an already-filtered, already-rewritten history batch. Owns buffer

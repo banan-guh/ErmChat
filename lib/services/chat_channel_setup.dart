@@ -24,6 +24,7 @@ import 'twitch_auth.dart';
 import 'twitch_badge_service.dart';
 import '../eventsub/decode/decoder.dart';
 import '../eventsub/topics.dart';
+import 'pubsub_points_service.dart';
 import 'user_store.dart';
 
 /// The channel-domain of the pipeline: joining channels and resolving their
@@ -34,6 +35,7 @@ class ChatChannelSetup {
     required this.twitchApi,
     required this.eventSubDecoder,
     required this.eventSubTopics,
+    this.pubSubPoints,
     required this.irc,
     required this.ircRead,
     required this.readDecoder,
@@ -53,6 +55,9 @@ class ChatChannelSetup {
   final TwitchApi twitchApi;
   final EventSubDecoder eventSubDecoder;
   final EventSubTopics eventSubTopics;
+
+  /// Null disables PubSub redemption banners for every channel.
+  final PubSubPointsService? pubSubPoints;
   final IrcService irc;
   final IrcReadService ircRead;
   final IrcChatDecoder readDecoder;
@@ -185,6 +190,13 @@ class ChatChannelSetup {
       channelUserId ??= await _waitForRoomId(channelName);
       if (channelUserId == null) return;
       chat.channelFor(channelName)?.info.setBroadcasterId(channelUserId);
+      // Unauthenticated redemption banners for every viewer, DankChat parity.
+      // Never awaits: a dead edge degrades to the IRC highlight path.
+      try {
+        pubSubPoints?.listen(channelName, channelUserId);
+      } catch (_) {
+        logDebug('[ChatConn] pubsub points listen failed for $channelName');
+      }
       // Subs fetched before this id resolved are retained by the manager;
       // re-attach them now that the channel is known. Reuses the reconnect
       // heal path (empty id list means "no new sets, just re-store").

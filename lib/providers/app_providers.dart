@@ -10,6 +10,7 @@ import '../services/emote_manager.dart';
 import '../services/ignore_manager.dart';
 import '../services/ping_manager.dart';
 import '../services/pip_service.dart';
+import '../services/pubsub_points_service.dart';
 import '../services/recent_messages.dart';
 import '../services/seven_tv_event_client.dart';
 import '../widgets/seven_tv_paint_service.dart';
@@ -40,6 +41,16 @@ final twitchApiProvider = Provider<TwitchApi>((ref) {
 
 final eventSubServiceProvider = Provider<EventSubService>((ref) {
   final service = EventSubService(
+    connectivityService: ref.watch(connectivityServiceProvider),
+  );
+  ref.onDispose(service.dispose);
+  return service;
+});
+
+/// Unauthenticated PubSub socket for channel-point redemption banners.
+/// One app-scope socket shared by every joined channel.
+final pubSubPointsServiceProvider = Provider<PubSubPointsService>((ref) {
+  final service = PubSubPointsService(
     connectivityService: ref.watch(connectivityServiceProvider),
   );
   ref.onDispose(service.dispose);

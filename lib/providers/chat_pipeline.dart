@@ -41,6 +41,7 @@ final chatPipelineProvider = Provider<ChatConnectionManager>((ref) {
       services: ChatServices(
         twitchApi: ref.read(twitchApiProvider),
         eventSub: ref.read(eventSubServiceProvider),
+        pubSubPoints: ref.read(pubSubPointsServiceProvider),
         irc: ref.read(ircServiceProvider),
         ircRead: ref.read(ircReadServiceProvider),
         sevenTvClient: ref.read(sevenTvClientProvider),
