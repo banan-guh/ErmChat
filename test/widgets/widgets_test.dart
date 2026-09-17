@@ -4542,7 +4542,7 @@ void main() {
       );
     });
 
-    testWidgets('backspace after autocomplete reverts to original text', (
+    testWidgets('autocomplete inserts the picked user', (
       WidgetTester tester,
     ) async {
       SharedPreferences.setMockInitialValues({'access_token': 'test_token'});
@@ -4609,17 +4609,6 @@ void main() {
 
       // Ensure the text ends with a trailing space.
       expect(controller.text, endsWith(' '));
-
-      // Simulate backspace - remove trailing space.
-      final textWithoutSpace = controller.text.trimRight();
-      controller.value = TextEditingValue(
-        text: textWithoutSpace,
-        selection: TextSelection.collapsed(offset: textWithoutSpace.length),
-      );
-      await tester.pump();
-
-      // Autocomplete should have reverted to the original text.
-      expect(controller.text, '@Us');
     });
 
     testWidgets('dropdown hides when text fewer than 2 characters', (

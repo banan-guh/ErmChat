@@ -32,7 +32,7 @@ CurrentWord getCurrentWord(
   return CurrentWord(start: start, end: end, text: text.substring(start, end));
 }
 
-void replaceCurrentWord(
+String replaceCurrentWord(
   TextEditingController controller,
   String replacement, {
   bool extendRight = true,
@@ -50,6 +50,7 @@ void replaceCurrentWord(
   controller.selection = TextSelection.collapsed(
     offset: newCursor.clamp(0, newText.length),
   );
+  return '$replacement$trailingSpace';
 }
 
 sealed class Suggestion {

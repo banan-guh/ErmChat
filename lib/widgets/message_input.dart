@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../models/twitch_message.dart';
 import '../util/thread_utils.dart';
 
@@ -15,6 +16,7 @@ class MessageInput extends StatelessWidget {
   final ValueChanged<String>? onSubmitted;
   final bool enabled;
   final String? hintText;
+  final List<TextInputFormatter>? inputFormatters;
 
   // Search mode: hides the reply banner. Prefix/suffix slots take over.
   final bool searchMode;
@@ -37,6 +39,7 @@ class MessageInput extends StatelessWidget {
     this.onCancelReply,
     this.enabled = true,
     this.hintText,
+    this.inputFormatters,
     this.searchMode = false,
     this.prefixOverride,
     this.suffixOverride,
@@ -110,6 +113,7 @@ class MessageInput extends StatelessWidget {
             onTap: onTap,
             onChanged: onChanged,
             onSubmitted: onSubmitted,
+            inputFormatters: inputFormatters,
             enabled: enabled,
             minLines: 1,
             maxLines: searchMode ? 1 : 6,

@@ -100,6 +100,7 @@ class ComposerBar extends StatelessWidget {
                   onCancelReply: controller.clearReply,
                   enabled: controller.enabled,
                   hintText: controller.hintText,
+                  inputFormatters: [controller.autocompleteRevert],
                 ),
               if (searchBorrowed || mod.termsChromeHidden)
                 const SizedBox.shrink()

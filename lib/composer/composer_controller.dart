@@ -18,6 +18,7 @@ import '../util/duration_format.dart';
 import '../util/haptics.dart';
 import '../util/log.dart';
 import '../widgets/panel_manager.dart';
+import 'autocomplete_revert.dart';
 
 // Minimal shell state shared by feature hosts. One shell implementation
 // satisfies every host interface, so the getters are declared once here.
@@ -83,15 +84,13 @@ class ComposerController {
   final ComposerHost host;
 
   final messageController = TextEditingController();
+  final autocompleteRevert = AutocompleteRevertFormatter();
   final focusNode = FocusNode();
   final suggestions = ValueNotifier<List<Suggestion>>([]);
   final cooldownLabel = ValueNotifier<String?>(null);
 
   String? _lastSentText;
   List<Emote>? _cachedAutocompleteEmotes;
-  ({int start, String originalText, String replacementText})? _lastAutoUndo;
-  String? _previousTextForUndo;
-  String? _undoExpectedAfter;
   Timer? _cooldownTickTimer;
 
   String? get selectedChannel => host.selectedChannel;
@@ -133,6 +132,7 @@ class ComposerController {
 
   // Channel switch: drop stale suggestions and cached emote list.
   void onChannelChanged() {
+    autocompleteRevert.clear();
     clearSuggestions();
     invalidateEmoteCache();
   }
@@ -153,8 +153,6 @@ class ComposerController {
   }
 
   void _onInputChanged() {
-    _checkAutocompleteUndo();
-
     final text = messageController.text;
     final cursor = messageController.selection.baseOffset;
     final word = getCurrentWord(text, cursor, extendRight: false);
@@ -167,12 +165,10 @@ class ComposerController {
     }
     if (filterWord.length < 2 && !isCommand) {
       clearSuggestions();
-      _previousTextForUndo = messageController.text;
       return;
     }
     final channel = host.selectedChannel;
     if (channel == null) {
-      _previousTextForUndo = messageController.text;
       return;
     }
 
@@ -203,7 +199,6 @@ class ComposerController {
       );
     }
     suggestions.value = filtered;
-    _previousTextForUndo = messageController.text;
   }
 
   void selectSuggestion(Suggestion suggestion) {
@@ -225,82 +220,22 @@ class ComposerController {
       if (wordBefore.text.startsWith('@')) replacement = '@$replacement';
     }
 
-    final trailingSpace = wordBefore.end >= textBefore.length
-        ? ' '
-        : (textBefore[wordBefore.end] == ' ' ? '' : '');
-
-    _lastAutoUndo = (
-      start: wordBefore.start,
-      originalText: wordBefore.text,
-      replacementText: replacement + trailingSpace,
+    final inserted = replaceCurrentWord(
+      messageController,
+      replacement,
+      extendRight: false,
     );
-
-    replaceCurrentWord(messageController, replacement, extendRight: false);
-
-    final replEnd =
-        wordBefore.start + replacement.length + trailingSpace.length;
-    _undoExpectedAfter = messageController.text.length > replEnd
-        ? messageController.text.substring(replEnd)
-        : '';
+    autocompleteRevert.markReplaced(
+      start: wordBefore.start,
+      original: wordBefore.text,
+      replacement: inserted,
+    );
 
     if (suggestion is EmoteSuggestion) {
       emoteUsage.markEmoteUsed(suggestion.emote);
     }
     suggestions.value = [];
     focusNode.requestFocus();
-  }
-
-  // Single backspace right after autocomplete restores the typed text.
-  // Sequential guards verify no other edits happened in between.
-  void _checkAutocompleteUndo() {
-    final undo = _lastAutoUndo;
-    if (undo == null) return;
-    final prev = _previousTextForUndo;
-    if (prev == null) return;
-
-    final text = messageController.text;
-    final cursor = messageController.selection.baseOffset;
-    final replacementLen = undo.replacementText.length;
-    final replEnd = undo.start + replacementLen;
-
-    final minLen = text.length < replEnd ? text.length : replEnd;
-    for (var i = undo.start; i < minLen; i++) {
-      if (text.codeUnitAt(i) !=
-          undo.replacementText.codeUnitAt(i - undo.start)) {
-        _lastAutoUndo = null;
-        _undoExpectedAfter = null;
-        return;
-      }
-    }
-
-    final currentAfter = text.length > replEnd ? text.substring(replEnd) : '';
-    final expectedAfter = _undoExpectedAfter ?? '';
-    if (currentAfter != expectedAfter) {
-      _lastAutoUndo = null;
-      _undoExpectedAfter = null;
-      return;
-    }
-
-    if (text.length != prev.length - 1) return; // single backspace only
-    if (cursor != replEnd - 1) return; // cursor right after shortened text
-
-    final regionEnd = replEnd - 1;
-    if (text.length < regionEnd) return;
-    if (text.substring(undo.start, regionEnd) !=
-        undo.replacementText.substring(0, replacementLen - 1)) {
-      return;
-    }
-
-    final before = text.substring(0, undo.start);
-    final after = text.substring(regionEnd);
-    _lastAutoUndo = null;
-    _undoExpectedAfter = null;
-    messageController.value = TextEditingValue(
-      text: before + undo.originalText + after,
-      selection: TextSelection.collapsed(
-        offset: undo.start + undo.originalText.length,
-      ),
-    );
   }
 
   void send() {
@@ -321,10 +256,12 @@ class ComposerController {
     if (host.isWhispersTabActive) {
       if (text.startsWith('/')) {
         _lastSentText = text;
+        autocompleteRevert.clear();
         messageController.clear();
         chatConn.doSendMessage(text, channel);
       } else if (host.whisperTarget != null) {
         _lastSentText = text;
+        autocompleteRevert.clear();
         messageController.clear();
         unawaited(
           commandHandler.handle(
@@ -352,6 +289,7 @@ class ComposerController {
     // never held back. Twitch enforces the real block, a successful echo
     // heals a stale self-timeout gate, and a rejection NOTICE re-surfaces it.
     _lastSentText = text;
+    autocompleteRevert.clear();
     messageController.clear();
 
     final threadRoot = host.openThreadRoot;
@@ -385,6 +323,7 @@ class ComposerController {
   // Long-press send recalls the last sent text for quick re-send/edit.
   void recallLastSent() {
     if (_lastSentText != null && _lastSentText!.isNotEmpty) {
+      autocompleteRevert.clear();
       messageController.text = _lastSentText!;
       messageController.selection = TextSelection.fromPosition(
         TextPosition(offset: messageController.text.length),
@@ -398,6 +337,7 @@ class ComposerController {
     final text = messageController.text;
     final pos = messageController.selection.baseOffset;
     final insertPos = pos.clamp(0, text.length);
+    autocompleteRevert.clear();
     messageController.text =
         '${text.substring(0, insertPos)}${emote.code} ${text.substring(insertPos)}';
     messageController.selection = TextSelection.collapsed(
