@@ -88,6 +88,34 @@ void main() {
     );
   });
 
+  test('shared models import nothing upward', () {
+    // Models are shared leaves (mutable message/badge state plus the baked
+    // emote token field). They may use sibling leaves only: emotes, models,
+    // util, client.
+    const forbidden = [
+      'services/',
+      'chat/',
+      'channels/',
+      'providers/',
+      'widgets/',
+      'screens/',
+      'panels/',
+      'composer/',
+      'chrome/',
+      'sheets/',
+      'irc/transport/',
+      'eventsub/transport/',
+    ];
+    _expectClean(
+      rule: 'shared models import nothing upward',
+      violations: directives.where(
+        (d) =>
+            _isUnder(d.importer, const ['models/']) &&
+            _isUnder(d.target, forbidden),
+      ),
+    );
+  });
+
   test('the pipeline does not depend on UI', () {
     const forbidden = [
       'widgets/',

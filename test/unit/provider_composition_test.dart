@@ -33,9 +33,9 @@ class _ChangeTrackingStore extends EmoteStore {
   int stateCleared = 0;
 
   @override
-  void notifyStateCleared() {
+  void notifyCatalogChanged() {
     stateCleared++;
-    super.notifyStateCleared();
+    super.notifyCatalogChanged();
   }
 }
 

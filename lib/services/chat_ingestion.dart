@@ -3,6 +3,7 @@ import 'dart:async';
 import '../color_utils.dart' show Color;
 import '../models/emote_fetch_tier.dart';
 import '../models/twitch_message.dart';
+import '../util/constants.dart' show kWhispersChannel;
 import '../irc/decode/codec.dart' show parseIrcChatMessage;
 import '../irc/decode/copy.dart'
     show buildUserNoticeText, userNoticeAccent, userNoticeLabelId;
@@ -199,6 +200,14 @@ class ChatIngestion {
     if (!msg.isSystem && isBlocked?.call(msg.login) == true) return;
     // Ignored users' whispers are dropped like their channel messages.
     if (!msg.isSystem && ignoreManager?.isIgnored(msg.login) == true) return;
+    // Whispers carry no channel: stamp once against the global mix under the
+    // same key the whisper tile renders with, so rows freeze like the rest.
+    if (!msg.isSystem) {
+      msg.emoteTokens = emoteManager.parseMessageEmotes(
+        msg,
+        lookupChannel: kWhispersChannel,
+      );
+    }
     onWhisper?.call(msg);
   }
 

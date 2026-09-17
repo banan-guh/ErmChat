@@ -396,7 +396,9 @@ class EmoteUsageRegistry implements EmoteImagePolicy {
   }
 
   /// Records [emote] as most recently used, then flushes immediately.
+  /// Empty ids are unresolvable and would all collide on one recents slot.
   Future<void> markEmoteUsed(Emote emote) async {
+    if (emote.id.isEmpty) return;
     await _ensureRecentLoaded();
     _recentIds.remove(emote.id);
     _recentIds.insert(0, emote.id);

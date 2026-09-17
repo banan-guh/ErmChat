@@ -1249,6 +1249,14 @@ void main() {
       final msg = TwitchMessage(login: 'x', text: 'Alpha', channel: 'ch');
       msg.emoteTokens = manager.parseMessageEmotes(msg, lookupChannel: 'ch');
       expect(msg.emoteTokens!.map((t) => t.emote!.code).toList(), ['Alpha']);
+      // Baked tokens hold the pooled instance typing and picker share.
+      expect(
+        identical(
+          msg.emoteTokens!.single.emote,
+          manager.byCode('ch')!.byCode['Alpha'],
+        ),
+        isTrue,
+      );
 
       // A live delta (rename) leaves the baked row untouched.
       manager.updateSevenTvEmotes(
@@ -1258,7 +1266,7 @@ void main() {
       expect(msg.emoteTokens!.map((t) => t.emote!.code).toList(), ['Alpha']);
 
       // A version bump does not recompute either: frozen means frozen.
-      manager.store.notifyStateCleared();
+      manager.store.notifyCatalogChanged();
       expect(msg.emoteTokens!.map((t) => t.emote!.code).toList(), ['Alpha']);
 
       // System rows never parse; the renderer falls back.
@@ -1287,7 +1295,7 @@ void main() {
         // The live mixer moves on, but the baked row keeps its answer.
         manager.updateSevenTvEmotes('ch', added: [sevenTv('a', 'Alpha')]);
         expect(msg.emoteTokens, isEmpty);
-        manager.store.notifyStateCleared();
+        manager.store.notifyCatalogChanged();
         expect(msg.emoteTokens, isEmpty);
 
         // Only new parses see the emote.

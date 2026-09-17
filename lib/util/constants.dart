@@ -13,6 +13,11 @@ const Color kEmotePlaceholderGray = Color(0x33808080);
 /// Corner radius for emote loading boxes.
 const double kEmotePlaceholderRadius = 3.0;
 
+/// Pseudo-channel whisper rows render under. Whispers carry no channel, so
+/// ingest stamps them against the global mix under this key and the whisper
+/// tile renders with the same string.
+const kWhispersChannel = '@whispers';
+
 /// User-whitelisted link suffixes for rejoining fractured (spaced) domains like "kappa .lol".
 const String kLinkWhitelistPrefKey = 'link_whitelist_v1';
 

@@ -82,13 +82,13 @@ class EmoteStore {
     }
   }
 
-  /// Emits a global full change (fetch, personal set, visibility, tier,
-  /// account reset). Rendered rows ignore it; live surfaces re-read.
-  void notifyStateCleared() => emitChange(channel: null);
+  /// Emits a global full change (fetch, personal set, visibility, account
+  /// reset, additive grant). Rendered rows ignore it; live surfaces re-read.
+  void notifyCatalogChanged() => emitChange(channel: null);
 
-  /// Records a config-only update (tier, auto mode). Catalog data is
-  /// unchanged; live surfaces re-read.
-  void notifyConfigChanged() => emitChange(channel: null);
+  /// Records a config-only update (tier, auto mode) without bumping the
+  /// version: catalog data is unchanged, live surfaces just re-read.
+  void notifyConfigChanged() => emitChange(channel: null, bumpVersion: false);
 
   /// Clears derived visibility caches and emits: disabled providers and
   /// unlisted 7TV change what new messages, typing, and picker resolve.
@@ -127,8 +127,11 @@ class EmoteStore {
   // Cached until the next emit clears it.
   final _mergedCache = <String, EmoteLookup?>{};
   // Per-sender overlay lookups keyed by the sender's foreign lookup object.
-  // Ingest and render ask for the same sender lookup within one emote version,
-  // so sharing the result avoids rebuilding the foreign merge 2-3 times.
+  // Ingest and render ask for the same sender lookup within one emote
+  // version, so sharing the result avoids rebuilding the foreign merge per
+  // message. Owner rebuilds allocate a new key object and orphan the old
+  // entry (bounded by the cap below, cleared on every emit), which is what
+  // keeps the cache correct without trusting emit discipline.
   final _foreignLookupCache = <String, Map<EmoteLookup, EmoteLookup>>{};
   static const _maxForeignLookupsPerChannel = 256;
   Map<String, List<Emote>>? _subsByChannelCache;
@@ -183,6 +186,62 @@ class EmoteStore {
     return true;
   }
 
+  // ── Canonical pool ────────────────────────────────────────────────
+  // Every Emote instance live surfaces share, keyed by id. Merge exits,
+  // commits, seeds, deltas, and the tokenizer all intern through here, so
+  // repeated lookups, picker tabs, precache hits, and baked message tokens
+  // hold identical() instances for the same id. Last write wins; merge
+  // order is deterministic, so the pool converges to the merge winner on
+  // every read, and every pool write coincides with merged-cache
+  // invalidation. Empty ids are never pooled and pass through untouched.
+  final _pool = <String, Emote>{};
+
+  /// Returns the canonical instance for [e]'s id, storing it first when the
+  /// pool holds a different object. Pass every externally built emote
+  /// (fetch decode, disk decode, fallback synthesis, renames, overlays)
+  /// through here before serving it.
+  Emote intern(Emote e) {
+    if (e.id.isEmpty) return e;
+    final existing = _pool[e.id];
+    if (identical(existing, e)) return e;
+    _pool[e.id] = e;
+    return e;
+  }
+
+  List<Emote> _internAll(List<Emote> emotes) {
+    if (emotes.isEmpty) return emotes;
+    return [for (final e in emotes) intern(e)];
+  }
+
+  EmoteLookup _internLookup(EmoteLookup lookup) => EmoteLookup(
+    byCode: {
+      for (final entry in lookup.byCode.entries) entry.key: intern(entry.value),
+    },
+    suggestions: [for (final e in lookup.suggestions) intern(e)],
+  );
+
+  /// Drops pooled ids no retained catalog references. Overlays re-intern on
+  /// the next build, so pruning is memory hygiene only, never correctness:
+  /// a pruned id re-enters the pool on next use. Served identical() across
+  /// an evict is best-effort, not a contract: baked tokens keep their own
+  /// reference by design.
+  void _prunePool() {
+    if (_pool.isEmpty) return;
+    final live = <String>{};
+    void addAll(Iterable<Emote> emotes) {
+      for (final e in emotes) {
+        if (e.id.isNotEmpty) live.add(e.id);
+      }
+    }
+
+    addAll(_globalCatalog.globalProviderEmotes());
+    for (final catalog in _channelCatalogs.values) {
+      addAll(catalog.twitchSubs);
+      addAll(catalog.channelProviderEmotes());
+    }
+    _pool.removeWhere((id, _) => !live.contains(id));
+  }
+
   // ── Static emote helpers ────────────────────────────────────────────
   /// Twitch emotes that need sender proof: they render only from the IRC
   /// `emotes` tag, never from a bare word match. Covers sub, follower, and
@@ -200,14 +259,18 @@ class EmoteStore {
 
   /// Shared tokenizer: Twitch positional emotes first, then word matches.
   /// Locked Twitch emotes never match by word; everything else does.
+  /// [intern] canonicalizes served instances (store pool); omitted outside
+  /// the mixer, where identity does not matter.
   static List<EmoteToken> tokenize({
     required String text,
     required List<EmotePosition>? positions,
     required Map<String, Emote> byCode,
+    Emote Function(Emote)? intern,
   }) {
     final tokens = <EmoteToken>[];
     final sortedPos = positions ?? const <EmotePosition>[];
     var twitchIdx = 0;
+    final canonical = intern ?? _identityEmote;
 
     EmotePosition? posAt(int i) {
       while (twitchIdx < sortedPos.length &&
@@ -225,14 +288,15 @@ class EmoteStore {
     while (i < text.length) {
       final pos = posAt(i);
       if (pos != null) {
-        final emote =
-            byCode[pos.emoteCode] ??
-            Emote(
-              id: pos.emoteId,
-              code: pos.emoteCode,
-              meta: const TwitchMeta(kind: TwitchEmoteKind.standard),
-              scales: {EmoteScale.large: twitchFallbackUrl(pos.emoteId)},
-            );
+        final emote = canonical(
+          byCode[pos.emoteCode] ??
+              Emote(
+                id: pos.emoteId,
+                code: pos.emoteCode,
+                meta: const TwitchMeta(kind: TwitchEmoteKind.standard),
+                scales: {EmoteScale.large: twitchFallbackUrl(pos.emoteId)},
+              ),
+        );
         tokens.add(
           EmoteToken(
             emote: emote,
@@ -268,13 +332,17 @@ class EmoteStore {
       final word = text.substring(start, i);
       final emote = byCode[word];
       if (emote != null && !isTwitchLocked(emote)) {
-        tokens.add(EmoteToken(emote: emote, text: word, start: start, end: i));
+        tokens.add(
+          EmoteToken(emote: canonical(emote), text: word, start: start, end: i),
+        );
       } else {
         tokens.add(EmoteToken(text: word, start: start, end: i));
       }
     }
     return tokens;
   }
+
+  static Emote _identityEmote(Emote e) => e;
 
   // ── Lookups ─────────────────────────────────────────────────────────
   /// Merged emotes for [channel]: channel overrides global, personal 7TV and
@@ -324,25 +392,30 @@ class EmoteStore {
     if (base != null) merged.addAll(base.byCode);
     final suggestions = merged.values.toList()
       ..sort((a, b) => a.code.compareTo(b.code));
-    final result = EmoteLookup(byCode: merged, suggestions: suggestions);
+    final result = _internLookup(
+      EmoteLookup(byCode: merged, suggestions: suggestions),
+    );
     if (cache.length < _maxForeignLookupsPerChannel) cache[foreign] = result;
     return result;
   }
 
   // Catalog merge plus the per-account unlock overlay and visibility
-  // filters. Callers cache the result in _mergedCache.
+  // filters. Winners are interned so every served lookup shares the pool.
+  // Callers cache the result in _mergedCache.
   EmoteLookup _buildLookup({
     required EmoteCatalog global,
     EmoteCatalog? channel,
     Iterable<Emote> personal = const [],
     Iterable<Emote> unlocks = const [],
-  }) => mergeEmoteLookup(
-    global: global,
-    channel: channel,
-    personal: personal,
-    accountUnlocks: unlocks,
-    disabledProviders: _disabledProviders,
-    allowUnlisted7tv: _allowUnlisted7tv,
+  }) => _internLookup(
+    mergeEmoteLookup(
+      global: global,
+      channel: channel,
+      personal: personal,
+      accountUnlocks: unlocks,
+      disabledProviders: _disabledProviders,
+      allowUnlisted7tv: _allowUnlisted7tv,
+    ),
   );
 
   /// What the viewer can type in [channel]: the merged, visibility-filtered
@@ -409,6 +482,7 @@ class EmoteStore {
       text: text,
       positions: positions,
       byCode: lookup.byCode,
+      intern: intern,
     )) {
       final emote = token.emote;
       if (emote != null && seen.add(emote.id)) found.add(emote);
@@ -451,7 +525,9 @@ class EmoteStore {
     for (final channel in keys) {
       final raw = _channelCatalogs[channel]?.twitchSubs;
       if (raw == null) continue;
-      for (final e in raw) {
+      // Served to the subs tab: intern so cells hold pool instances
+      // identical() to the merged lookups and baked tokens.
+      for (final e in _internAll(raw)) {
         if (!isTwitchLocked(e)) continue;
         final meta = e.meta as TwitchMeta;
         final key = e.id.isNotEmpty
@@ -477,23 +553,26 @@ class EmoteStore {
     return _subsByChannelCache = result;
   }
 
-  /// Resolve an emote by ID across all caches, then the personal and account
-  /// unlock overlays.
+  /// Resolve an emote by ID. Explicit overlay params win (caller's freshest
+  /// context), then the pool when the index is clean, then a lazy index
+  /// rebuild that converges the pool. Served instances are always pooled.
   Emote? emoteById(
     String id, {
     Iterable<Emote> personal = const [],
     Iterable<Emote> unlocks = const [],
   }) {
-    if (_emoteIndexDirty) _rebuildEmoteIndex();
-    final found = _emoteIndex[id];
-    if (found != null) return found;
     for (final e in personal) {
-      if (e.id == id) return e;
+      if (e.id == id) return intern(e);
     }
     for (final e in unlocks) {
-      if (e.id == id) return e;
+      if (e.id == id) return intern(e);
     }
-    return null;
+    if (!_emoteIndexDirty) {
+      final pooled = _pool[id];
+      if (pooled != null) return pooled;
+    }
+    _rebuildEmoteIndex();
+    return _pool[id];
   }
 
   // Hot-path id index; rebuilt lazily after a catalog change.
@@ -504,8 +583,10 @@ class EmoteStore {
     final index = <String, Emote>{};
     void addAll(Iterable<Emote> emotes) {
       for (final e in emotes) {
-        // putIfAbsent keeps scan-order precedence on id collisions.
-        index.putIfAbsent(e.id, () => e);
+        if (e.id.isEmpty) continue;
+        // putIfAbsent keeps scan-order precedence on id collisions; the
+        // intern converges the pool to the same winner.
+        index.putIfAbsent(e.id, () => intern(e));
       }
     }
 
@@ -536,13 +617,16 @@ class EmoteStore {
   }
 
   // Channel-only merged view for live 7TV delta diffs (no global, no
-  // personal, unlisted included). The picker channel tab no longer uses
-  // this: it slices the same base mixer chat renders from instead.
-  EmoteLookup _channelLookup(String channel) => mergeEmoteLookup(
-    global: EmoteCatalog(),
-    channel: _channelCatalogs[channel],
-    disabledProviders: _disabledProviders,
-    allowUnlisted7tv: true,
+  // personal, unlisted included). Winners are interned for pool convergence.
+  // The picker channel tab no longer uses this: it slices the same base
+  // mixer chat renders from instead.
+  EmoteLookup _channelLookup(String channel) => _internLookup(
+    mergeEmoteLookup(
+      global: EmoteCatalog(),
+      channel: _channelCatalogs[channel],
+      disabledProviders: _disabledProviders,
+      allowUnlisted7tv: true,
+    ),
   );
 
   // Display order for global grid (differs from dedup priority).
@@ -693,11 +777,17 @@ class EmoteStore {
       if (emotes.isEmpty) continue;
       final catalog = _channelCatalogs[channel] ?? EmoteCatalog();
       final existing = catalog.twitchSubs;
-      // Fresh first, then non-sub existing; dedup by id.
+      // Fresh first, then non-sub existing; dedup by id, by code for
+      // empty-id entries (which would otherwise grow on every USERSTATE).
       final merged = <Emote>[];
       final seen = <String>{};
+      final seenCodes = <String>{};
       for (final e in emotes) {
-        if (e.id.isEmpty || seen.add(e.id)) merged.add(e);
+        if (e.id.isEmpty) {
+          if (seenCodes.add(e.code)) merged.add(e);
+        } else if (seen.add(e.id)) {
+          merged.add(e);
+        }
       }
       for (final e in existing) {
         if (!isTwitchSub(e) && (e.id.isEmpty || seen.add(e.id))) {
@@ -792,7 +882,8 @@ class EmoteStore {
       // it into the live view: one delta isn't the full set, and
       // _reapplyLiveSevenTv would propagate it over the next full fetch.
       _sevenTvFull.remove(channel);
-      final sorted = List.of(added)..sort((a, b) => a.code.compareTo(b.code));
+      final sorted = _internAll(List.of(added))
+        ..sort((a, b) => a.code.compareTo(b.code));
       _channelCatalogs[channel] = EmoteCatalog(sevenTvChannel: sorted);
       emitChange(
         channel: channel,
@@ -828,7 +919,7 @@ class EmoteStore {
       final e = byCode[codes.first];
       if (e == null) continue;
       byCode.remove(e.code);
-      final renamedEmote = e.copyWith(code: entry.value.newName);
+      final renamedEmote = intern(e.copyWith(code: entry.value.newName));
       byCode[renamedEmote.code] = renamedEmote;
       changedCodes
         ..add(e.code)
@@ -843,7 +934,7 @@ class EmoteStore {
                   (kEmoteProviderPriority[existing.type] ?? 99))) {
         continue;
       }
-      byCode[emote.code] = emote;
+      byCode[emote.code] = intern(emote);
       changedCodes.add(emote.code);
     }
 
@@ -870,9 +961,14 @@ class EmoteStore {
     // next emoteById call.
     if (removedIdsWithUrls.isEmpty) return const [];
     _rebuildEmoteIndex();
-    final unused = removedIdsWithUrls.where(
-      (entry) => !_emoteIndex.containsKey(entry.$1),
-    );
+    final unused = removedIdsWithUrls
+        .where((entry) => !_emoteIndex.containsKey(entry.$1))
+        .toList();
+    // Gone everywhere: drop the pooled instance so a later id reuse cannot
+    // resurrect the stale object. Baked tokens keep their own reference.
+    for (final entry in unused) {
+      _pool.remove(entry.$1);
+    }
     return [for (final entry in unused) ...entry.$2];
   }
 
@@ -891,6 +987,7 @@ class EmoteStore {
     _sevenTvLive.remove(channel);
     _sevenTvFull.remove(channel);
     _emoteIndexDirty = true;
+    _prunePool();
   }
 
   void evictGlobal() {
@@ -900,6 +997,7 @@ class EmoteStore {
     _mergedCache.clear();
     _foreignLookupCache.clear();
     _emoteIndexDirty = true;
+    _prunePool();
   }
 
   /// Clears the catalog part of an account switch. [removedUnlockIds],
@@ -938,6 +1036,7 @@ class EmoteStore {
     _sevenTvFull.clear();
     _mergedCache.clear();
     _foreignLookupCache.clear();
+    _prunePool();
     emitChange(channel: null);
   }
 

@@ -246,7 +246,7 @@ class EmoteController {
         clearImageCache();
         // Rebuild now, while everything is empty, so the nuke is visible
         // instead of being instantly papered over by the refetch.
-        emoteManager.notifyStateCleared();
+        emoteManager.notifyCatalogChanged();
       }
       final ok = await refreshAfterAuth(force: true);
       // Subscriber emotes aren't covered by the global/channel refresh; re-fetch

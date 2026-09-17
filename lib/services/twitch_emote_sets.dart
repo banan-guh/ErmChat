@@ -109,7 +109,7 @@ class TwitchEmoteSets {
     _inflightEmoteSetIds.addAll(newSetIds);
     // Subs tab spins (not empty-text) while the fetch below is in flight.
     // Rendered rows ignore the emit; live surfaces re-read.
-    _store.notifyStateCleared();
+    _store.notifyCatalogChanged();
     try {
       final byOwner = await _fetcher.fetchUserEmoteSets(
         newSetIds,
@@ -207,7 +207,7 @@ class TwitchEmoteSets {
     for (final e in emotes) {
       _unlockedTwitchEmotes[e.id.isNotEmpty ? e.id : e.code] = e;
     }
-    _store.notifyStateCleared();
+    _store.notifyCatalogChanged();
   }
 
   /// Resolves owner ids to logins (open channels skip API).

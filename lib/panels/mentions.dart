@@ -13,6 +13,7 @@ import '../services/link_whitelist.dart';
 import '../services/twitch_auth.dart';
 import '../sheets/message_menu.dart';
 import '../sheets/user_sheet.dart';
+import '../util/constants.dart' show kWhispersChannel;
 import '../util/haptics.dart';
 import '../widgets/chat_view.dart';
 import '../widgets/message_builder.dart';
@@ -310,7 +311,7 @@ class MentionsPanels {
             ),
             ChatView(
               key: const ValueKey('whispers_panel'),
-              channel: '@whispers',
+              channel: kWhispersChannel,
               messages: whispers,
               atBottomNotifier: whispersAtBottom,
               messageNotifier: whispersMsgCount,

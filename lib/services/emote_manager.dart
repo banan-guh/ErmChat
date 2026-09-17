@@ -191,7 +191,7 @@ class EmoteManager implements EmoteLookupSource {
           metaStore: _metaStore,
           tier: () => tier,
           isProviderEnabled: (type) => _visibility.isProviderEnabled(type),
-          notifyChanged: _store.notifyStateCleared,
+          notifyChanged: _store.notifyCatalogChanged,
           now: _now,
         );
     _twitchSets =
@@ -247,7 +247,8 @@ class EmoteManager implements EmoteLookupSource {
     } else {
       _localTier = value;
     }
-    _store.notifyStateCleared();
+    // No emit here: the caller (EmoteController._applyTier) notifies once
+    // the tier and its dependents have settled.
   }
 
   /// Max emote image files the disk cache keeps (default [defaultEmoteCacheMax],
@@ -310,11 +311,18 @@ class EmoteManager implements EmoteLookupSource {
 
   /// Shared tokenizer: Twitch positional emotes first, then word matches.
   /// Locked Twitch emotes never match by word; everything else does.
+  /// [intern] canonicalizes served instances; omitted outside the mixer.
   static List<EmoteToken> tokenize({
     required String text,
     required List<EmotePosition>? positions,
     required Map<String, Emote> byCode,
-  }) => EmoteStore.tokenize(text: text, positions: positions, byCode: byCode);
+    Emote Function(Emote)? intern,
+  }) => EmoteStore.tokenize(
+    text: text,
+    positions: positions,
+    byCode: byCode,
+    intern: intern,
+  );
 
   /// What the viewer can type in [channel]: the merged, visibility-filtered
   /// suggestion list. Owned subs are already fanned into every channel, and
@@ -407,6 +415,7 @@ class EmoteManager implements EmoteLookupSource {
         text: msg.text,
         positions: msg.emotePositions,
         byCode: byCode,
+        intern: _store.intern,
       ))
         if (token.isEmote) token,
     ];
@@ -648,7 +657,7 @@ class EmoteManager implements EmoteLookupSource {
     if (_commitGlobal(epoch, fetch)) {
       await _persistence.save('emotes5_global', _store.globalCatalog, ttl);
     }
-    _store.notifyStateCleared();
+    _store.notifyCatalogChanged();
   }
 
   Future<void> storeUserTwitchEmotes(Map<String, List<Emote>> perChannel) =>
@@ -829,13 +838,12 @@ class EmoteManager implements EmoteLookupSource {
 
   bool emotesResolved(String channel) => _store.emotesResolved(channel);
 
-  /// Bumps the version and notifies listeners with the current (possibly
-  /// empty) state, so cached message spans are discarded immediately.
-  void notifyStateCleared() => _store.notifyStateCleared();
+  /// Emits a global full change (fetch, personal set, visibility, account
+  /// reset, additive grant). Rendered rows ignore it; live surfaces re-read.
+  void notifyCatalogChanged() => _store.notifyCatalogChanged();
 
   /// Notifies observers of a config-only change (tier, auto mode) without
-  /// bumping the catalog version, so the UI refreshes and cached message
-  /// spans stay valid.
+  /// bumping the catalog version. Rendered rows ignore every emit.
   void notifyConfigChanged() => _store.notifyConfigChanged();
 
   void setSevenTvEmoteSetId(String channel, String emoteSetId) =>

@@ -399,7 +399,8 @@ class SevenTvPersonalSets {
 
   int get foreignSetCount => _foreignPersonalSetContents.length;
 
-  /// Clears viewer and foreign personal state (account switch).
+  /// Clears viewer and foreign personal state (account switch) and emits,
+  /// so no caller can serve a stale merge built from dropped sets.
   void reset() {
     _generation++;
     _personalSevenTvSetIds.clear();
@@ -410,6 +411,7 @@ class SevenTvPersonalSets {
     _foreignPersonalSetInflight.clear();
     _foreignPlaceholderSets.clear();
     _foreignPersonalSets.clear();
+    _notifyChanged();
   }
 
   Future<void> _save() async {

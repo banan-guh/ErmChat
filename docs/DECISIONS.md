@@ -171,7 +171,8 @@ truth.
 
 Accepted tradeoff: one bespoke bridge beside the generic `ChangeNotifierTick` adaptor,
 because the store's `EmoteChange` payload (channel plus delta codes) carries more than a
-tick.
+tick. Consumers currently refresh unconditionally; the payload is reserved for
+selective rebuilds.
 
 ## Why
 
@@ -284,3 +285,8 @@ tick.
 - The UI boundary is deferred: `HomeScreen` still implements the `host: this` ports for
   the UI-adjacent owners, and `lib/channels` still straddles the pipeline and UI layers.
   The chat domain itself no longer writes root children from the pipeline.
+- `MessageBuilder` memoizes the first-render emote parse onto
+  `TwitchMessage.emoteTokens` (restored threads arrive unstamped). Single
+  idempotent assignment, exempted from the one-writer rule: stamping at
+  restore would thread the emote pipeline through the thread store for no
+  behavior gain.

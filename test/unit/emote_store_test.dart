@@ -1,5 +1,6 @@
 import 'package:ermchat/emotes/emote.dart';
 import 'package:ermchat/emotes/emote_catalog.dart';
+import 'package:ermchat/models/twitch_message.dart';
 import 'package:ermchat/providers/emote_providers.dart';
 import 'package:ermchat/services/emote_fetcher.dart';
 import 'package:ermchat/services/emote_store.dart';
@@ -209,7 +210,7 @@ void main() {
     void listener(EmoteChange change) => changes.add(change);
     store.addListener(listener);
 
-    store.notifyStateCleared();
+    store.notifyCatalogChanged();
 
     store.removeListener(listener);
     expect(changes, hasLength(1));
@@ -222,7 +223,7 @@ void main() {
     final first = store.byCode('ch', personal: [_emote('p1', 'OldPersonal')]);
     expect(first?.byCode['OldPersonal']?.id, 'p1');
 
-    store.notifyStateCleared();
+    store.notifyCatalogChanged();
 
     final second = store.byCode('ch', personal: [_emote('p2', 'NewPersonal')]);
     expect(second?.byCode['NewPersonal']?.id, 'p2');
@@ -239,7 +240,7 @@ void main() {
     final first = store.byCodeForSender('ch', foreign: foreign);
     expect(first?.byCode['Foreign']?.id, 'f1');
 
-    store.notifyStateCleared();
+    store.notifyCatalogChanged();
 
     final updatedForeign = EmoteLookup(
       byCode: {'UpdatedForeign': _emote('f2', 'UpdatedForeign')},
@@ -250,19 +251,19 @@ void main() {
     expect(store.version, 1);
   });
 
-  test('config and visibility refreshes bump the version', () {
+  test('config refresh leaves the version, visibility bumps it', () {
     final store = EmoteStore();
     final first = store.byCode('ch', personal: [_emote('p1', 'OldPersonal')]);
     expect(first?.byCode['OldPersonal']?.id, 'p1');
 
     store.notifyConfigChanged();
-    expect(store.version, 1);
+    expect(store.version, 0);
     final second = store.byCode('ch', personal: [_emote('p2', 'NewPersonal')]);
     expect(second?.byCode['NewPersonal']?.id, 'p2');
     expect(second?.byCode.containsKey('OldPersonal'), isFalse);
 
     store.notifyVisibilityChanged();
-    expect(store.version, 2);
+    expect(store.version, 1);
     final third = store.byCode(
       'ch',
       personal: [_emote('p3', 'NewestPersonal')],
@@ -376,5 +377,154 @@ void main() {
 
     expect(store.byCode('ch')?.byCode.containsKey('ChanBttv'), isFalse);
     expect(store.channelTabEmotes('ch'), isEmpty);
+  });
+
+  group('canonical pool', () {
+    Emote sevenTv(String id, String code) => Emote(
+      id: id,
+      code: code,
+      meta: const SevenTvMeta(),
+      scales: {EmoteScale.medium: 'https://example.com/$id.png'},
+      scope: EmoteScope.channel,
+    );
+
+    void commitChannel(EmoteStore store, String channel, List<Emote> emotes) {
+      store.commitChannel(
+        channel,
+        store.channelEpoch(channel),
+        ChannelEmoteFetch(byProvider: {EmoteType.sevenTv: emotes}),
+      );
+    }
+
+    test('repeated lookups share identical instances', () {
+      final store = EmoteStore();
+      commitChannel(store, 'ch', [sevenTv('a', 'Alpha')]);
+
+      final first = store.byCode('ch')!;
+      final second = store.byCode('ch')!;
+      expect(identical(first, second), isTrue);
+      expect(identical(first.byCode['Alpha'], second.byCode['Alpha']), isTrue);
+      expect(
+        identical(
+          first.suggestions.singleWhere((e) => e.code == 'Alpha'),
+          first.byCode['Alpha'],
+        ),
+        isTrue,
+      );
+    });
+
+    test('global tab and merged lookup share the global instance', () {
+      final store = EmoteStore();
+      store.commitGlobal(
+        store.globalEpoch,
+        GlobalEmoteFetch(
+          byProvider: {
+            EmoteType.bttv: [_emote('g1', 'Global')],
+          },
+        ),
+      );
+
+      final merged = store.byCode('ch')!;
+      final byProvider = store.globalEmotesByProvider();
+      expect(
+        identical(
+          byProvider.values
+              .expand((e) => e)
+              .singleWhere((e) => e.code == 'Global'),
+          merged.byCode['Global'],
+        ),
+        isTrue,
+      );
+    });
+
+    test('subs tab cells are identical to the merged locked entries', () {
+      final store = EmoteStore();
+      store.storeUserTwitchEmotes({
+        'ch': [_lockedTwitchSub('s1', 'Sub')],
+      });
+
+      final merged = store.byCode('ch')!;
+      final subs = store.subscriberEmotesByChannel()['ch']!;
+      expect(identical(subs.single, merged.byCode['Sub']), isTrue);
+      expect(identical(store.emoteById('s1'), merged.byCode['Sub']), isTrue);
+    });
+
+    test('fallback synthesis interns: unknown tag id resolves identically', () {
+      final store = EmoteStore();
+      commitChannel(store, 'ch', [sevenTv('a', 'Alpha')]);
+      final found = store.matchEmotes(
+        channel: 'ch',
+        text: 'hello',
+        positions: const [
+          EmotePosition(
+            emoteId: 't1',
+            startIndex: 0,
+            endIndex: 5,
+            emoteCode: 'Hello',
+          ),
+        ],
+      );
+
+      expect(found.single.id, 't1');
+      expect(identical(store.emoteById('t1'), found.single), isTrue);
+    });
+
+    test(
+      'rename replaces the pooled instance, baked rows keep the old one',
+      () {
+        final store = EmoteStore();
+        commitChannel(store, 'ch', [sevenTv('a', 'Alpha')]);
+        final before = store.byCode('ch')!.byCode['Alpha']!;
+
+        store.updateSevenTvEmotes(
+          'ch',
+          renamed: {'a': (newName: 'Beta', oldName: 'Alpha')},
+        );
+
+        final after = store.byCode('ch')!.byCode['Beta']!;
+        expect(after.id, 'a');
+        expect(identical(after, before), isFalse);
+        expect(identical(store.emoteById('a'), after), isTrue);
+        expect(before.code, 'Alpha');
+      },
+    );
+
+    test('overlay instances pool with catalog instances', () {
+      final store = EmoteStore();
+      final personal = sevenTv('p1', 'Mine');
+      final lookup = store.byCode('ch', personal: [personal])!;
+      // First sight pools the very object: owner lists and lookups converge.
+      expect(identical(lookup.byCode['Mine'], personal), isTrue);
+      expect(
+        identical(
+          store.emoteById('p1', personal: [personal]),
+          lookup.byCode['Mine'],
+        ),
+        isTrue,
+      );
+    });
+
+    test('tokenize intern parameter canonicalizes outputs', () {
+      final store = EmoteStore();
+      commitChannel(store, 'ch', [sevenTv('a', 'Alpha')]);
+      final map = store.byCode('ch')!.byCode;
+
+      final tokens = EmoteStore.tokenize(
+        text: 'Alpha',
+        positions: null,
+        byCode: map,
+        intern: store.intern,
+      );
+      expect(identical(tokens.single.emote, map['Alpha']), isTrue);
+    });
+
+    test('emoteById converges through the index without a prior lookup', () {
+      final store = EmoteStore();
+      commitChannel(store, 'ch', [sevenTv('a', 'Alpha')]);
+
+      // No byCode call: the lazy index rebuild interns and serves pooled.
+      final byId = store.emoteById('a')!;
+      expect(identical(byId, store.byCode('ch')!.byCode['Alpha']), isTrue);
+    });
   });
 }
