@@ -35,6 +35,7 @@ import '../services/twitch_badge_service.dart';
 import '../services/third_party_badge_service.dart';
 import '../widgets/seven_tv_paint_service.dart';
 import '../util/log.dart';
+import '../util/keyboard_governor.dart';
 import '../util/constants.dart';
 import '../util/prefs.dart';
 import '../util/timestamp_formatter.dart';
@@ -290,6 +291,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   final _streamPlayer = StreamPlayerController();
   bool _theaterChatVisible = true;
+
+  // Cleans the engine keyboard signal before the Scaffold consumes it.
+  // Seeded from persistence; relearns live for taller keyboards.
+  late final _keyboardGovernor = KeyboardInsetGovernor(
+    onSettled: _saveKeyboardSettledHeight,
+    onChanged: () {
+      if (mounted) setState(() {});
+    },
+  );
 
   final _selectedTabIndex = ValueNotifier<int>(0);
 
@@ -691,6 +701,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       }
     };
     _loadMaxMessages();
+    unawaited(_loadKeyboardSettledHeight());
     unawaited(_threads.loadSaved());
     unawaited(
       _channelManager.loadRecentMessagesConfig().then((_) {
@@ -744,6 +755,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     WidgetsBinding.instance.addPostFrameCallback(
       (_) => _maybeShowWelcomeDialog(),
     );
+  }
+
+  Future<void> _loadKeyboardSettledHeight() async {
+    try {
+      final v = (await Prefs.load()).keyboardSettledHeight;
+      if (v > 50 && v < 1500) _keyboardGovernor.settled = v;
+    } catch (_) {}
+  }
+
+  void _saveKeyboardSettledHeight(double v) {
+    try {
+      Prefs.load().then((prefs) => prefs.setKeyboardSettledHeight(v));
+    } catch (_) {}
   }
 
   Future<void> _maybeShowWelcomeDialog() async {
@@ -1438,6 +1462,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _signalUnsubs.clear();
     WidgetsBinding.instance.removeObserver(this);
     WidgetsBinding.instance.removeObserver(_predictiveBackHandler);
+    _keyboardGovernor.dispose();
     _panelManager.dispose();
     _composer.dispose();
     _uploadController.dispose();
@@ -1717,6 +1742,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       reconnectedTickProvider,
       (_, _) => unawaited(_emotes.refreshSubEmoteOwners()),
     );
+    // Governed keyboard height: true raw in, cleaned value out. The engine
+    // over-reports one frame at the end of the open animation and leaks a
+    // zero frame on reversal; the Scaffold below must consume the cleaned
+    // value or the composer jumps above the keyboard and snaps back.
+    final mq = MediaQuery.of(context);
+    final keyboardH = _keyboardGovernor.consume(mq.viewInsets.bottom);
     return PopScope(
       canPop:
           !_isFullscreen &&
@@ -1742,82 +1773,89 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           setState(() {});
         }
       },
-      child: Scaffold(
-        // Stock resize path: the Scaffold shrinks the body with the
-        // keyboard, replaying the system ticks directly. No manual lift and
-        // no second animator: Dart curves of a different duration only cross
-        // the system motion (behind-ahead-behind). Discrete rules read the
-        // debounced lift in ChatBody so they flip once per gesture.
-        resizeToAvoidBottomInset: true,
-        body: ListenableBuilder(
-          listenable: _streamPlayer,
-          builder: (_, _) => ChatBody(
-            emoteMaxFraction: _emoteMaxFraction,
-            // Read above the Scaffold: the body subtree sees viewInsets
-            // stripped to zero once the Scaffold consumes them resizing.
-            keyboardH: MediaQuery.viewInsetsOf(context).bottom,
-            // A dismissed keyboard leaves the field focused, which keeps
-            // the back guard and focus styling stuck; drop it explicitly.
-            onKeyboardDismissed: _composer.unfocus,
-            // System PiP collapses the whole body to video-only; ChatBody
-            // drops composer/panels/notice so the window shows the stream.
-            isInPip: _streamPlayer.isInPip,
-            bodyBuilder:
-                (
-                  context, {
-                  required hideChromeForKeyboard,
-                  required maxWidth,
-                  required maxHeight,
-                  required keyboardH,
-                  required composerH,
-                }) {
-                  return _stream.bodyColumn(
-                    context,
-                    hideChromeForKeyboard: hideChromeForKeyboard,
-                    maxWidth: maxWidth,
-                    maxHeight: maxHeight,
-                    keyboardH: keyboardH,
-                    composerH: composerH,
-                  );
-                },
-            threadPanel: _threads.threadPanel(
-              context,
-              overlaySheet: _buildOverlaySheet,
-              closePanel: _closePanel,
-            ),
-            mentionsPanel: _mentions.mentionsPanel(
-              context,
-              overlaySheet: _buildOverlaySheet,
-              closePanel: _closePanel,
-            ),
-            modViewPanel: _mod.modViewPanel(
-              context,
-              overlaySheet: _buildOverlaySheet,
-              closePanel: _closePanel,
-              onShowUser: (login) =>
-                  _userSheets.showUserProfile(context, login, null),
-            ),
-            emotePickerBuilder: (context, {required sheetBoxHeight}) =>
-                _buildEmotePicker(sheetBoxHeight: sheetBoxHeight),
-            autocomplete: ValueListenableBuilder<List<Suggestion>>(
-              valueListenable: _composer.suggestions,
-              builder: (_, suggestions, _) => AutocompleteDropdown(
-                suggestions: suggestions,
-                images: _emoteLookupSource.images,
-                onSelect: _composer.selectSuggestion,
-                onEmoteViewed: _emoteManager.markEmoteViewed,
+      child: MediaQuery(
+        data: mq.copyWith(
+          viewInsets: mq.viewInsets.copyWith(bottom: keyboardH),
+        ),
+        child: Scaffold(
+          // Stock resize path: the Scaffold shrinks the body with the
+          // governed keyboard height, replaying the cleaned system ticks
+          // directly. No manual lift and no second animator: Dart curves
+          // of a different duration only cross the system motion
+          // (behind-ahead-behind). Discrete rules read the debounced lift
+          // in ChatBody so they flip once per gesture.
+          resizeToAvoidBottomInset: true,
+          body: ListenableBuilder(
+            listenable: _streamPlayer,
+            builder: (_, _) => ChatBody(
+              emoteMaxFraction: _emoteMaxFraction,
+              // Read above the Scaffold: the body subtree sees viewInsets
+              // stripped to zero once the Scaffold consumes them resizing.
+              // Already governed above, so decisions match the geometry.
+              keyboardH: keyboardH,
+              // A dismissed keyboard leaves the field focused, which keeps
+              // the back guard and focus styling stuck; drop it explicitly.
+              onKeyboardDismissed: _composer.unfocus,
+              // System PiP collapses the whole body to video-only; ChatBody
+              // drops composer/panels/notice so the window shows the stream.
+              isInPip: _streamPlayer.isInPip,
+              bodyBuilder:
+                  (
+                    context, {
+                    required hideChromeForKeyboard,
+                    required maxWidth,
+                    required maxHeight,
+                    required keyboardH,
+                    required composerH,
+                  }) {
+                    return _stream.bodyColumn(
+                      context,
+                      hideChromeForKeyboard: hideChromeForKeyboard,
+                      maxWidth: maxWidth,
+                      maxHeight: maxHeight,
+                      keyboardH: keyboardH,
+                      composerH: composerH,
+                    );
+                  },
+              threadPanel: _threads.threadPanel(
+                context,
+                overlaySheet: _buildOverlaySheet,
+                closePanel: _closePanel,
               ),
+              mentionsPanel: _mentions.mentionsPanel(
+                context,
+                overlaySheet: _buildOverlaySheet,
+                closePanel: _closePanel,
+              ),
+              modViewPanel: _mod.modViewPanel(
+                context,
+                overlaySheet: _buildOverlaySheet,
+                closePanel: _closePanel,
+                onShowUser: (login) =>
+                    _userSheets.showUserProfile(context, login, null),
+              ),
+              emotePickerBuilder: (context, {required sheetBoxHeight}) =>
+                  _buildEmotePicker(sheetBoxHeight: sheetBoxHeight),
+              autocomplete: ValueListenableBuilder<List<Suggestion>>(
+                valueListenable: _composer.suggestions,
+                builder: (_, suggestions, _) => AutocompleteDropdown(
+                  suggestions: suggestions,
+                  images: _emoteLookupSource.images,
+                  onSelect: _composer.selectSuggestion,
+                  onEmoteViewed: _emoteManager.markEmoteViewed,
+                ),
+              ),
+              composer: _showInput
+                  ? ComposerBar(
+                      controller: _composer,
+                      selectedTabIndex: _selectedTabIndex,
+                      search: _search,
+                      mod: _mod,
+                      dragTick: _panelDragTick,
+                    )
+                  : null,
+              notice: ChatNoticeBar(controller: _chatNotice),
             ),
-            composer: _showInput
-                ? ComposerBar(
-                    controller: _composer,
-                    selectedTabIndex: _selectedTabIndex,
-                    search: _search,
-                    mod: _mod,
-                    dragTick: _panelDragTick,
-                  )
-                : null,
-            notice: ChatNoticeBar(controller: _chatNotice),
           ),
         ),
       ),

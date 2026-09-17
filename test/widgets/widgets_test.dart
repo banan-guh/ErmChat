@@ -959,6 +959,82 @@ void main() {
       expect(tester.takeException(), isNull);
       expect(find.byKey(const Key('message_input')), findsOneWidget);
     });
+
+    // Retracting the keyboard must settle the composer monotonically: once
+    // the inset hits zero the input rests at the bottom with no up bounce.
+    // Guards the governed close path (debounced zero) and the late unfocus.
+    testWidgets('retract settles without an up bounce', (
+      WidgetTester tester,
+    ) async {
+      const channel = 'testchannel';
+      tester.view.physicalSize = const Size(1080, 2340);
+      tester.view.devicePixelRatio = 3.0;
+      tester.view.viewInsets = FakeViewPadding(bottom: 0);
+      // Gesture bar like the device: present when the keyboard is closed,
+      // covered while it is open.
+      tester.view.viewPadding = const FakeViewPadding(bottom: 45.0);
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(
+        TwitchChatApp(
+          key: UniqueKey(),
+          eventSubService: _FakeEventSubService(),
+          recentMessagesService: _ConfigurableRecentMessagesService([
+            TwitchMessage(
+              login: 'alice',
+              text: 'bounce probe row',
+              messageId: 'b1',
+              timestamp: DateTime.now().subtract(const Duration(minutes: 5)),
+              isHistory: true,
+              channel: channel,
+            ),
+          ]),
+          ircService: _FakeIrcService(),
+          ircReadService: _FakeIrcReadService(),
+        ),
+      );
+      await tester.pump();
+      await tester.tap(find.byIcon(Icons.add));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).last, channel);
+      await tester.tap(find.text('Join', skipOffstage: false).last);
+      await tester.pump();
+      await tester.pump();
+
+      // Focus the input so the dismiss path runs its late unfocus, like the
+      // device where the field keeps focus through the gesture. showKeyboard
+      // guarantees focus instead of hoping the tap grants it.
+      await tester.showKeyboard(find.byKey(const Key('message_input')));
+      await tester.pump(const Duration(milliseconds: 16));
+
+      // Open and settle so both inset learners know the height.
+      for (final h in [100.0, 200.0, 300.0]) {
+        tester.view.viewInsets = FakeViewPadding(bottom: h * 3.0);
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      await tester.pump(const Duration(milliseconds: 300));
+
+      // Retract with a smooth tail, then watch the settle window frame by
+      // frame with real clock advances so governor timers and label
+      // animations run.
+      for (final h in [200.0, 100.0, 40.0, 10.0, 2.0, 0.0]) {
+        tester.view.viewInsets = FakeViewPadding(bottom: h * 3.0);
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      final tops = <double>[];
+      for (var i = 0; i < 20; i++) {
+        await tester.pump(const Duration(milliseconds: 16));
+        tops.add(tester.getRect(find.byKey(const Key('message_input'))).top);
+      }
+      for (var i = 1; i < tops.length; i++) {
+        expect(
+          tops[i],
+          greaterThanOrEqualTo(tops[i - 1] - 1.0),
+          reason: 'frame $i bounced up: $tops',
+        );
+      }
+      expect(tester.takeException(), isNull);
+    });
   });
 
   group('search toggle page freshness', () {
