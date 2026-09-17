@@ -206,8 +206,8 @@ class _EmoteSheetState extends State<EmoteSheet>
               widget.onClose();
               widget.onUseEmote?.call(emote);
               final text = widget.messageController.text;
-              final suffix = text.isEmpty ? emote.code : ' ${emote.code}';
-              widget.messageController.text = '$text$suffix';
+              final sep = text.isEmpty || text.endsWith(' ') ? '' : ' ';
+              widget.messageController.text = '$text$sep${emote.code} ';
               widget.messageController.selection = TextSelection.fromPosition(
                 TextPosition(offset: widget.messageController.text.length),
               );
