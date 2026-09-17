@@ -15,18 +15,13 @@ typedef NoticeCallback =
       VoidCallback? onAction,
     });
 
-/// Upload media flow: pick image/video, upload, insert link into [input] and clipboard.
 class MediaUploadController {
   MediaUploadController({
     MediaUploader? uploader,
-    required this.input,
-    this.focusNode,
     this.onNotice,
   }) : _uploader = uploader ?? MediaUploader();
 
   final MediaUploader _uploader;
-  final TextEditingController input;
-  final FocusNode? focusNode;
   final NoticeCallback? onNotice;
 
   bool _isUploading = false;
@@ -79,24 +74,12 @@ class MediaUploadController {
       await _uploader.addRecent(result);
       if (!context.mounted) return;
       Clipboard.setData(ClipboardData(text: result.imageLink));
-      _insertIntoInput(result.imageLink);
       _showSnack(context, 'Uploaded ${result.imageLink}');
     } catch (e) {
       if (context.mounted) _showSnack(context, 'Upload failed: $e');
     } finally {
       _isUploading = false;
     }
-  }
-
-  void _insertIntoInput(String text) {
-    final sel = input.selection;
-    final start = sel.isValid ? sel.start : input.text.length;
-    final end = sel.isValid ? sel.end : start;
-    input.value = TextEditingValue(
-      text: input.text.replaceRange(start, end, text),
-      selection: TextSelection.collapsed(offset: start + text.length),
-    );
-    focusNode?.requestFocus();
   }
 
   void _showSnack(BuildContext context, String message) {

@@ -191,8 +191,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   ModActions get _modActions => ref.read(modActionsProvider);
   CommandHandler get _commandHandler => ref.read(commandHandlerProvider);
   late final MediaUploadController _uploadController = MediaUploadController(
-    input: _composer.messageController,
-    focusNode: _composer.focusNode,
     onNotice: _chatNotice.show,
   );
 
