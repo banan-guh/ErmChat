@@ -137,8 +137,7 @@ class Moderation {
   }
 
   void putBan(BanEntry ban) {
-    // TODO: review this sweep (threshold and whether permanent bans should also
-    // age out) now that the mod panel is the only other prune path.
+    // no prune, because permaban buildup is neglible in memory
     if (_bans.length >= banPruneThreshold) pruneExpiredBans();
     _bans[ban.login.toLowerCase()] = ban;
     modActivityVersion.value++;

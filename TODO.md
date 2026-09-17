@@ -100,3 +100,5 @@
 - emote disk cache caps by object count, not bytes
 - in-memory per-channel emote metadata has no cap; freed only when leaving a channel
 - foreign personal 7TV set placeholders can exceed the 50-entry cap via the socket insert path (metadata only)
+- possible change: don't pause neighbor panels so you can almost half-scroll and still see channel moving (just do later, not now. more urgent things)
+- optimize mod view eventually (currently sweeping it under the rug)

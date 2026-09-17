@@ -308,9 +308,20 @@ class ModPanels {
     required VoidCallback closePanel,
     ValueChanged<String>? onShowUser,
   }) {
+    // Unmount while hidden so tab states, version subscriptions, and Helix
+    // loads only exist while the panel is open. Reopen mounts fresh.
+    // TODO: make this mature instead of shoving it under the rug, currently it's a tradeoff for less jank for everyday.
+    if (panelManager.activePanel != OverlayPanel.modView) {
+      return overlaySheet(
+        offstage: true,
+        ratio: panelManager.modSheetRatio,
+        header: const SizedBox.shrink(),
+        body: const SizedBox.shrink(),
+      );
+    }
     final channel = host.selectedChannel ?? '';
     return overlaySheet(
-      offstage: panelManager.activePanel != OverlayPanel.modView,
+      offstage: false,
       ratio: panelManager.modSheetRatio,
       header: Column(
         mainAxisSize: MainAxisSize.min,
